@@ -9,3 +9,4 @@ Chains supported by tBTC v2 contracts.
 - [Arbitrum](../enums/Chains.Arbitrum.md)
 - [Base](../enums/Chains.Base.md)
 - [Ethereum](../enums/Chains.Ethereum.md)
+- [Solana](../enums/Chains.Solana.md)

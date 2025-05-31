@@ -41,7 +41,7 @@ the use cases that expect the Bitcoin internal byte order.
 
 | Name | Type |
 | :------ | :------ |
-| `value` | `string` \| `Buffer` |
+| `value` | `string` \| `Buffer`\<`ArrayBufferLike`\> |
 
 #### Returns
 
@@ -59,7 +59,7 @@ the use cases that expect the Bitcoin internal byte order.
 
 ### \_hex
 
-• `Protected` `Readonly` **\_hex**: `Buffer`
+• `Protected` `Readonly` **\_hex**: `Buffer`\<`ArrayBufferLike`\>
 
 #### Inherited from
 
@@ -121,11 +121,11 @@ ___
 
 ### toBuffer
 
-▸ **toBuffer**(): `Buffer`
+▸ **toBuffer**(): `Buffer`\<`ArrayBufferLike`\>
 
 #### Returns
 
-`Buffer`
+`Buffer`\<`ArrayBufferLike`\>
 
 Hexadecimal value as a Buffer.
 
@@ -187,7 +187,7 @@ ___
 
 | Name | Type |
 | :------ | :------ |
-| `value` | `string` \| `Buffer` |
+| `value` | `string` \| `Buffer`\<`ArrayBufferLike`\> |
 
 #### Returns
 

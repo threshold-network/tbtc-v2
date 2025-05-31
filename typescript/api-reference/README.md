@@ -25,6 +25,7 @@
 - [BaseL2TBTCToken](classes/BaseL2TBTCToken.md)
 - [BitcoinTxHash](classes/BitcoinTxHash.md)
 - [CrossChainDepositor](classes/CrossChainDepositor.md)
+- [CrossChainExtraDataEncoder](classes/CrossChainExtraDataEncoder.md)
 - [Deposit](classes/Deposit.md)
 - [DepositFunding](classes/DepositFunding.md)
 - [DepositRefund](classes/DepositRefund.md)
@@ -33,7 +34,6 @@
 - [ElectrumClient](classes/ElectrumClient.md)
 - [EthereumAddress](classes/EthereumAddress.md)
 - [EthereumBridge](classes/EthereumBridge.md)
-- [EthereumCrossChainExtraDataEncoder](classes/EthereumCrossChainExtraDataEncoder.md)
 - [EthereumDepositorProxy](classes/EthereumDepositorProxy.md)
 - [EthereumL1BitcoinDepositor](classes/EthereumL1BitcoinDepositor.md)
 - [EthereumTBTCToken](classes/EthereumTBTCToken.md)
@@ -50,6 +50,7 @@
 ### Interfaces
 
 - [BitcoinClient](interfaces/BitcoinClient.md)
+- [BitcoinDepositor](interfaces/BitcoinDepositor.md)
 - [BitcoinHeader](interfaces/BitcoinHeader.md)
 - [BitcoinRawTx](interfaces/BitcoinRawTx.md)
 - [BitcoinRawTxVectors](interfaces/BitcoinRawTxVectors.md)
@@ -62,15 +63,13 @@
 - [ChainEvent](interfaces/ChainEvent.md)
 - [ChainIdentifier](interfaces/ChainIdentifier.md)
 - [CrossChainContractsLoader](interfaces/CrossChainContractsLoader.md)
-- [CrossChainExtraDataEncoder](interfaces/CrossChainExtraDataEncoder.md)
 - [DepositReceipt](interfaces/DepositReceipt.md)
 - [DepositRequest](interfaces/DepositRequest.md)
 - [DepositorProxy](interfaces/DepositorProxy.md)
+- [DestinationChainTBTCToken](interfaces/DestinationChainTBTCToken.md)
 - [ElectrumCredentials](interfaces/ElectrumCredentials.md)
 - [EthereumContractConfig](interfaces/EthereumContractConfig.md)
-- [L1BitcoinDepositor](interfaces/L1BitcoinDepositor.md)
-- [L2BitcoinDepositor](interfaces/L2BitcoinDepositor.md)
-- [L2TBTCToken](interfaces/L2TBTCToken.md)
+- [ExtraDataEncoder](interfaces/ExtraDataEncoder.md)
 - [RedeemerProxy](interfaces/RedeemerProxy.md)
 - [RedemptionRequest](interfaces/RedemptionRequest.md)
 - [RedemptionWallet](interfaces/RedemptionWallet.md)
@@ -86,9 +85,11 @@
 - [BitcoinTxInput](README.md#bitcointxinput)
 - [BitcoinUtxo](README.md#bitcoinutxo)
 - [ChainMapping](README.md#chainmapping)
-- [CrossChainContracts](README.md#crosschaincontracts)
 - [CrossChainDepositorMode](README.md#crosschaindepositormode)
+- [CrossChainInterfaces](README.md#crosschaininterfaces)
 - [DepositRevealedEvent](README.md#depositrevealedevent)
+- [DestinationChainInterfaces](README.md#destinationchaininterfaces)
+- [DestinationChainName](README.md#destinationchainname)
 - [DkgResultApprovedEvent](README.md#dkgresultapprovedevent)
 - [DkgResultChallengedEvent](README.md#dkgresultchallengedevent)
 - [DkgResultSubmittedEvent](README.md#dkgresultsubmittedevent)
@@ -96,9 +97,8 @@
 - [ErrorMatcherFn](README.md#errormatcherfn)
 - [EthereumSigner](README.md#ethereumsigner)
 - [ExecutionLoggerFn](README.md#executionloggerfn)
+- [L1BitcoinDepositor](README.md#l1bitcoindepositor)
 - [L1CrossChainContracts](README.md#l1crosschaincontracts)
-- [L2Chain](README.md#l2chain)
-- [L2CrossChainContracts](README.md#l2crosschaincontracts)
 - [NewWalletRegisteredEvent](README.md#newwalletregisteredevent)
 - [OptimisticMintingCancelledEvent](README.md#optimisticmintingcancelledevent)
 - [OptimisticMintingFinalizedEvent](README.md#optimisticmintingfinalizedevent)
@@ -181,23 +181,11 @@ Type representing a mapping between specific L1 and L2 chains.
 | `arbitrum?` | [`Arbitrum`](enums/Chains.Arbitrum.md) | Identifier of the Arbitrum L2 chain. |
 | `base?` | [`Base`](enums/Chains.Base.md) | Identifier of the Base L2 chain. |
 | `ethereum?` | [`Ethereum`](enums/Chains.Ethereum.md) | Identifier of the Ethereum L1 chain. |
+| `solana?` | [`Solana`](enums/Chains.Solana.md) | Identifier of the Arbitrum L2 chain. |
 
 #### Defined in
 
-[lib/contracts/chain.ts:31](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L31)
-
-___
-
-### CrossChainContracts
-
-Ƭ **CrossChainContracts**: [`L2CrossChainContracts`](README.md#l2crosschaincontracts) & [`L1CrossChainContracts`](README.md#l1crosschaincontracts)
-
-Convenience type aggregating TBTC cross-chain contracts forming a connector
-between TBTC L1 ledger chain and a specific supported L2/side-chain.
-
-#### Defined in
-
-[lib/contracts/cross-chain.ts:12](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L12)
+[lib/contracts/chain.ts:36](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L36)
 
 ___
 
@@ -214,7 +202,20 @@ Mode of operation for the cross-chain depositor proxy:
 
 #### Defined in
 
-[services/deposits/cross-chain.ts:19](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L19)
+[services/deposits/cross-chain.ts:20](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L20)
+
+___
+
+### CrossChainInterfaces
+
+Ƭ **CrossChainInterfaces**: [`DestinationChainInterfaces`](README.md#destinationchaininterfaces) & [`L1CrossChainContracts`](README.md#l1crosschaincontracts)
+
+Convenience type aggregating TBTC cross-chain contracts forming a connector
+between TBTC L1 ledger chain and a specific supported L2/side-chain.
+
+#### Defined in
+
+[lib/contracts/cross-chain.ts:13](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L13)
 
 ___
 
@@ -227,6 +228,37 @@ Represents an event emitted on deposit reveal to the on-chain bridge.
 #### Defined in
 
 [lib/contracts/bridge.ts:307](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L307)
+
+___
+
+### DestinationChainInterfaces
+
+Ƭ **DestinationChainInterfaces**: `Object`
+
+Aggregates destination chain specific TBTC cross-chain interfaces.
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `destinationChainBitcoinDepositor` | [`BitcoinDepositor`](interfaces/BitcoinDepositor.md) |
+| `destinationChainTbtcToken` | [`DestinationChainTBTCToken`](interfaces/DestinationChainTBTCToken.md) |
+
+#### Defined in
+
+[lib/contracts/cross-chain.ts:19](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L19)
+
+___
+
+### DestinationChainName
+
+Ƭ **DestinationChainName**: `Exclude`\<keyof typeof [`Chains`](modules/Chains.md), ``"Ethereum"``\>
+
+Layer 2 chains supported by tBTC v2 contracts.
+
+#### Defined in
+
+[lib/contracts/chain.ts:31](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L31)
 
 ___
 
@@ -347,6 +379,19 @@ A function that is called with execution status messages.
 
 ___
 
+### L1BitcoinDepositor
+
+Ƭ **L1BitcoinDepositor**: [`BitcoinDepositor`](interfaces/BitcoinDepositor.md) & \{ `getChainIdentifier`: () => [`ChainIdentifier`](interfaces/ChainIdentifier.md) ; `getDepositState`: (`depositId`: `string`) => `Promise`\<[`DepositState`](enums/DepositState.md)\>  }
+
+Interface for communication with the L1BitcoinDepositor on-chain contract
+specific to the given L2 chain, deployed on the L1 chain.
+
+#### Defined in
+
+[lib/contracts/cross-chain.ts:132](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L132)
+
+___
+
 ### L1CrossChainContracts
 
 Ƭ **L1CrossChainContracts**: `Object`
@@ -357,42 +402,11 @@ Aggregates L1-specific TBTC cross-chain contracts.
 
 | Name | Type |
 | :------ | :------ |
-| `l1BitcoinDepositor` | [`L1BitcoinDepositor`](interfaces/L1BitcoinDepositor.md) |
+| `l1BitcoinDepositor` | [`L1BitcoinDepositor`](README.md#l1bitcoindepositor) |
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:25](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L25)
-
-___
-
-### L2Chain
-
-Ƭ **L2Chain**: `Exclude`\<keyof typeof [`Chains`](modules/Chains.md), ``"Ethereum"``\>
-
-Layer 2 chains supported by tBTC v2 contracts.
-
-#### Defined in
-
-[lib/contracts/chain.ts:26](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L26)
-
-___
-
-### L2CrossChainContracts
-
-Ƭ **L2CrossChainContracts**: `Object`
-
-Aggregates L2-specific TBTC cross-chain contracts.
-
-#### Type declaration
-
-| Name | Type |
-| :------ | :------ |
-| `l2BitcoinDepositor` | [`L2BitcoinDepositor`](interfaces/L2BitcoinDepositor.md) |
-| `l2TbtcToken` | [`L2TBTCToken`](interfaces/L2TBTCToken.md) |
-
-#### Defined in
-
-[lib/contracts/cross-chain.ts:17](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L17)
+[lib/contracts/cross-chain.ts:27](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L27)
 
 ___
 
@@ -622,7 +636,7 @@ Utility functions allowing to deal with Bitcoin locktime.
 | Name | Type |
 | :------ | :------ |
 | `calculateLocktime` | (`locktimeStartedAt`: `number`, `locktimeDuration`: `number`) => [`Hex`](classes/Hex.md) |
-| `locktimeToNumber` | (`locktimeLE`: `string` \| `Buffer`) => `number` |
+| `locktimeToNumber` | (`locktimeLE`: `string` \| `Buffer`\<`ArrayBufferLike`\>) => `number` |
 
 #### Defined in
 
@@ -715,7 +729,7 @@ List of chain mappings supported by tBTC v2 contracts.
 
 #### Defined in
 
-[lib/contracts/chain.ts:50](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L50)
+[lib/contracts/chain.ts:60](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L60)
 
 ## Functions
 
@@ -901,7 +915,7 @@ ___
 
 ### ethereumCrossChainContractsLoader
 
-▸ **ethereumCrossChainContractsLoader**(`signer`, `chainId`): `Promise`\<[`CrossChainContractsLoader`](interfaces/CrossChainContractsLoader.md)\>
+▸ **ethereumCrossChainContractsLoader**(`signerOrProvider`, `chainId`): `Promise`\<[`CrossChainContractsLoader`](interfaces/CrossChainContractsLoader.md)\>
 
 Creates the Ethereum implementation of tBTC cross-chain contracts loader.
 The provided signer is attached to loaded L1 contracts. The given
@@ -912,7 +926,7 @@ mapping that provides corresponding L2 chains IDs.
 
 | Name | Type | Description |
 | :------ | :------ | :------ |
-| `signer` | [`EthereumSigner`](README.md#ethereumsigner) | Ethereum L1 signer. |
+| `signerOrProvider` | [`EthereumSigner`](README.md#ethereumsigner) | Ethereum L1 signer or provider. |
 | `chainId` | [`Ethereum`](enums/Chains.Ethereum.md) | Ethereum L1 chain ID. |
 
 #### Returns
@@ -959,7 +973,7 @@ ___
 
 ### loadArbitrumCrossChainContracts
 
-▸ **loadArbitrumCrossChainContracts**(`signer`, `chainId`): `Promise`\<[`L2CrossChainContracts`](README.md#l2crosschaincontracts)\>
+▸ **loadArbitrumCrossChainContracts**(`signer`, `chainId`): `Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
 
 Loads Arbitrum implementation of tBTC cross-chain contracts for the given Arbitrum
 chain ID and attaches the given signer there.
@@ -973,7 +987,7 @@ chain ID and attaches the given signer there.
 
 #### Returns
 
-`Promise`\<[`L2CrossChainContracts`](README.md#l2crosschaincontracts)\>
+`Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
 
 Handle to the contracts.
 
@@ -990,7 +1004,7 @@ ___
 
 ### loadBaseCrossChainContracts
 
-▸ **loadBaseCrossChainContracts**(`signer`, `chainId`): `Promise`\<[`L2CrossChainContracts`](README.md#l2crosschaincontracts)\>
+▸ **loadBaseCrossChainContracts**(`signer`, `chainId`): `Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
 
 Loads Base implementation of tBTC cross-chain contracts for the given Base
 chain ID and attaches the given signer there.
@@ -1004,7 +1018,7 @@ chain ID and attaches the given signer there.
 
 #### Returns
 
-`Promise`\<[`L2CrossChainContracts`](README.md#l2crosschaincontracts)\>
+`Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
 
 Handle to the contracts.
 

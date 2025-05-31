@@ -40,7 +40,7 @@ for reference.
 
 | Name | Type | Default value |
 | :------ | :------ | :------ |
-| `crossChainContracts` | [`CrossChainContracts`](../README.md#crosschaincontracts) | `undefined` |
+| `crossChainContracts` | [`CrossChainInterfaces`](../README.md#crosschaininterfaces) | `undefined` |
 | `revealMode` | [`CrossChainDepositorMode`](../README.md#crosschaindepositormode) | `"L2Transaction"` |
 
 #### Returns
@@ -49,17 +49,17 @@ for reference.
 
 #### Defined in
 
-[services/deposits/cross-chain.ts:31](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L31)
+[services/deposits/cross-chain.ts:32](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L32)
 
 ## Properties
 
 ### #crossChainContracts
 
-• `Private` `Readonly` **#crossChainContracts**: [`CrossChainContracts`](../README.md#crosschaincontracts)
+• `Private` `Readonly` **#crossChainContracts**: [`CrossChainInterfaces`](../README.md#crosschaininterfaces)
 
 #### Defined in
 
-[services/deposits/cross-chain.ts:28](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L28)
+[services/deposits/cross-chain.ts:29](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L29)
 
 ___
 
@@ -69,21 +69,21 @@ ___
 
 #### Defined in
 
-[services/deposits/cross-chain.ts:29](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L29)
+[services/deposits/cross-chain.ts:30](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L30)
 
 ## Methods
 
 ### #extraDataEncoder
 
-▸ **#extraDataEncoder**(): [`CrossChainExtraDataEncoder`](../interfaces/CrossChainExtraDataEncoder.md)
+▸ **#extraDataEncoder**(): [`ExtraDataEncoder`](../interfaces/ExtraDataEncoder.md)
 
 #### Returns
 
-[`CrossChainExtraDataEncoder`](../interfaces/CrossChainExtraDataEncoder.md)
+[`ExtraDataEncoder`](../interfaces/ExtraDataEncoder.md)
 
 #### Defined in
 
-[services/deposits/cross-chain.ts:72](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L72)
+[services/deposits/cross-chain.ts:73](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L73)
 
 ___
 
@@ -107,7 +107,7 @@ Throws if the L2 deposit owner cannot be resolved. This
 
 #### Defined in
 
-[services/deposits/cross-chain.ts:61](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L61)
+[services/deposits/cross-chain.ts:62](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L62)
 
 ___
 
@@ -135,13 +135,13 @@ The chain-specific identifier of the contract that will be
 
 #### Defined in
 
-[services/deposits/cross-chain.ts:49](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L49)
+[services/deposits/cross-chain.ts:50](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L50)
 
 ___
 
 ### revealDeposit
 
-▸ **revealDeposit**(`depositTx`, `depositOutputIndex`, `deposit`, `vault?`): `Promise`\<[`Hex`](Hex.md)\>
+▸ **revealDeposit**(`depositTx`, `depositOutputIndex`, `deposit`, `vault?`): `Promise`\<[`Hex`](Hex.md) \| `TransactionReceipt`\>
 
 Reveals the given deposit depending on the reveal mode.
 
@@ -156,7 +156,7 @@ Reveals the given deposit depending on the reveal mode.
 
 #### Returns
 
-`Promise`\<[`Hex`](Hex.md)\>
+`Promise`\<[`Hex`](Hex.md) \| `TransactionReceipt`\>
 
 **`See`**
 
@@ -169,4 +169,4 @@ Reveals the given deposit depending on the reveal mode.
 
 #### Defined in
 
-[services/deposits/cross-chain.ts:87](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L87)
+[services/deposits/cross-chain.ts:88](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L88)

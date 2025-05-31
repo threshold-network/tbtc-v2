@@ -12,7 +12,7 @@ import {
   DepositReceipt,
   ChainIdentifier,
   EthereumL1BitcoinDepositor,
-  EthereumCrossChainExtraDataEncoder,
+  CrossChainExtraDataEncoder,
 } from "../../src"
 import {
   deployMockContract,
@@ -874,11 +874,11 @@ describe("Ethereum", () => {
     })
   })
 
-  describe("EthereumCrossChainExtraDataEncoder", () => {
-    let encoder: EthereumCrossChainExtraDataEncoder
+  describe("CrossChainExtraDataEncoder", () => {
+    let encoder: CrossChainExtraDataEncoder
 
     beforeEach(async () => {
-      encoder = new EthereumCrossChainExtraDataEncoder()
+      encoder = new CrossChainExtraDataEncoder()
     })
 
     describe("encodeDepositOwner", () => {
@@ -905,7 +905,7 @@ describe("Ethereum", () => {
           }
 
           expect(() => encoder.encodeDepositOwner(depositOwner)).to.throw(
-            "Invalid Ethereum address"
+            "Unsupported address length: 2"
           )
         })
       })
@@ -926,19 +926,16 @@ describe("Ethereum", () => {
         })
       })
 
-      context(
-        "when the extra data doesn't hold a proper Ethereum address",
-        () => {
-          it("should throw", () => {
-            // Build crap extra data.
-            const extraData = Hex.from("0000000000000000000000001234")
+      context("when the extra data isn't a proper bytes32 address", () => {
+        it("should throw", () => {
+          // Build crap extra data.
+          const extraData = Hex.from("0000000000000000000000001234")
 
-            expect(() => encoder.decodeDepositOwner(extraData)).to.throw(
-              "Invalid Ethereum address"
-            )
-          })
-        }
-      )
+          expect(() => encoder.decodeDepositOwner(extraData)).to.throw(
+            "Extra data must be 32 bytes. Got 14."
+          )
+        })
+      })
     })
   })
 

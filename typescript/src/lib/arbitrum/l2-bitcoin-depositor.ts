@@ -7,13 +7,13 @@ import { L2BitcoinDepositor as L2BitcoinDepositorTypechain } from "../../../type
 import {
   ChainIdentifier,
   Chains,
-  CrossChainExtraDataEncoder,
+  ExtraDataEncoder,
   DepositReceipt,
-  L2BitcoinDepositor,
+  BitcoinDepositor,
 } from "../contracts"
 import {
   EthereumAddress,
-  EthereumCrossChainExtraDataEncoder,
+  CrossChainExtraDataEncoder,
   packRevealDepositParameters,
 } from "../ethereum"
 import { Hex } from "../utils"
@@ -28,9 +28,9 @@ import ArbitrumSepoliaL2BitcoinDepositorDeployment from "./artifacts/arbitrumSep
  */
 export class ArbitrumL2BitcoinDepositor
   extends EthersContractHandle<L2BitcoinDepositorTypechain>
-  implements L2BitcoinDepositor
+  implements BitcoinDepositor
 {
-  readonly #extraDataEncoder: CrossChainExtraDataEncoder
+  readonly #extraDataEncoder: ExtraDataEncoder
   #depositOwner: ChainIdentifier | undefined
 
   constructor(config: EthersContractConfig, chainId: Chains.Arbitrum) {
@@ -49,7 +49,7 @@ export class ArbitrumL2BitcoinDepositor
 
     super(config, deployment)
 
-    this.#extraDataEncoder = new EthereumCrossChainExtraDataEncoder()
+    this.#extraDataEncoder = new CrossChainExtraDataEncoder()
   }
 
   // eslint-disable-next-line valid-jsdoc

@@ -14,7 +14,7 @@ for reference.
 
 ## Implements
 
-- [`L2BitcoinDepositor`](../interfaces/L2BitcoinDepositor.md)
+- [`BitcoinDepositor`](../interfaces/BitcoinDepositor.md)
 
 ## Table of contents
 
@@ -79,7 +79,7 @@ ___
 
 ### #extraDataEncoder
 
-• `Private` `Readonly` **#extraDataEncoder**: [`CrossChainExtraDataEncoder`](../interfaces/CrossChainExtraDataEncoder.md)
+• `Private` `Readonly` **#extraDataEncoder**: [`ExtraDataEncoder`](../interfaces/ExtraDataEncoder.md)
 
 #### Defined in
 
@@ -139,17 +139,17 @@ EthersContractHandle.\_totalRetryAttempts
 
 ### extraDataEncoder
 
-▸ **extraDataEncoder**(): [`CrossChainExtraDataEncoder`](../interfaces/CrossChainExtraDataEncoder.md)
+▸ **extraDataEncoder**(): [`CrossChainExtraDataEncoder`](CrossChainExtraDataEncoder.md)
 
 #### Returns
 
-[`CrossChainExtraDataEncoder`](../interfaces/CrossChainExtraDataEncoder.md)
+[`CrossChainExtraDataEncoder`](CrossChainExtraDataEncoder.md)
 
 **`See`**
 
 #### Implementation of
 
-[L2BitcoinDepositor](../interfaces/L2BitcoinDepositor.md).[extraDataEncoder](../interfaces/L2BitcoinDepositor.md#extradataencoder)
+[BitcoinDepositor](../interfaces/BitcoinDepositor.md).[extraDataEncoder](../interfaces/BitcoinDepositor.md#extradataencoder)
 
 #### Defined in
 
@@ -191,7 +191,7 @@ ___
 
 #### Implementation of
 
-[L2BitcoinDepositor](../interfaces/L2BitcoinDepositor.md).[getChainIdentifier](../interfaces/L2BitcoinDepositor.md#getchainidentifier)
+[BitcoinDepositor](../interfaces/BitcoinDepositor.md).[getChainIdentifier](../interfaces/BitcoinDepositor.md#getchainidentifier)
 
 #### Defined in
 
@@ -211,7 +211,7 @@ ___
 
 #### Implementation of
 
-[L2BitcoinDepositor](../interfaces/L2BitcoinDepositor.md).[getDepositOwner](../interfaces/L2BitcoinDepositor.md#getdepositowner)
+[BitcoinDepositor](../interfaces/BitcoinDepositor.md).[getDepositOwner](../interfaces/BitcoinDepositor.md#getdepositowner)
 
 #### Defined in
 
@@ -274,7 +274,7 @@ ___
 
 #### Implementation of
 
-[L2BitcoinDepositor](../interfaces/L2BitcoinDepositor.md).[initializeDeposit](../interfaces/L2BitcoinDepositor.md#initializedeposit)
+[BitcoinDepositor](../interfaces/BitcoinDepositor.md).[initializeDeposit](../interfaces/BitcoinDepositor.md#initializedeposit)
 
 #### Defined in
 
@@ -300,7 +300,7 @@ ___
 
 #### Implementation of
 
-[L2BitcoinDepositor](../interfaces/L2BitcoinDepositor.md).[setDepositOwner](../interfaces/L2BitcoinDepositor.md#setdepositowner)
+[BitcoinDepositor](../interfaces/BitcoinDepositor.md).[setDepositOwner](../interfaces/BitcoinDepositor.md#setdepositowner)
 
 #### Defined in
 

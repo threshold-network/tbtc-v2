@@ -1,7 +1,7 @@
-# Interface: L2BitcoinDepositor
+# Interface: BitcoinDepositor
 
-Interface for communication with the L2BitcoinDepositor on-chain contract
-deployed on the given L2 chain.
+Interface for communication with the BitcoinDepositor on-chain contract
+deployed on the given destination chain.
 
 ## Implemented by
 
@@ -12,28 +12,28 @@ deployed on the given L2 chain.
 
 ### Methods
 
-- [extraDataEncoder](L2BitcoinDepositor.md#extradataencoder)
-- [getChainIdentifier](L2BitcoinDepositor.md#getchainidentifier)
-- [getDepositOwner](L2BitcoinDepositor.md#getdepositowner)
-- [initializeDeposit](L2BitcoinDepositor.md#initializedeposit)
-- [setDepositOwner](L2BitcoinDepositor.md#setdepositowner)
+- [extraDataEncoder](BitcoinDepositor.md#extradataencoder)
+- [getChainIdentifier](BitcoinDepositor.md#getchainidentifier)
+- [getDepositOwner](BitcoinDepositor.md#getdepositowner)
+- [initializeDeposit](BitcoinDepositor.md#initializedeposit)
+- [setDepositOwner](BitcoinDepositor.md#setdepositowner)
 
 ## Methods
 
 ### extraDataEncoder
 
-▸ **extraDataEncoder**(): [`CrossChainExtraDataEncoder`](CrossChainExtraDataEncoder.md)
+▸ **extraDataEncoder**(): [`ExtraDataEncoder`](ExtraDataEncoder.md)
 
 #### Returns
 
-[`CrossChainExtraDataEncoder`](CrossChainExtraDataEncoder.md)
+[`ExtraDataEncoder`](ExtraDataEncoder.md)
 
 Extra data encoder for this contract. The encoder is used to
 encode and decode the extra data included in the cross-chain deposit script.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:92](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L92)
+[lib/contracts/cross-chain.ts:96](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L96)
 
 ___
 
@@ -49,7 +49,7 @@ Gets the chain-specific identifier of this contract.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:72](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L72)
+[lib/contracts/cross-chain.ts:76](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L76)
 
 ___
 
@@ -68,13 +68,13 @@ The identifier of the deposit owner or undefined if not set.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:79](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L79)
+[lib/contracts/cross-chain.ts:83](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L83)
 
 ___
 
 ### initializeDeposit
 
-▸ **initializeDeposit**(`depositTx`, `depositOutputIndex`, `deposit`, `vault?`): `Promise`\<[`Hex`](../classes/Hex.md)\>
+▸ **initializeDeposit**(`depositTx`, `depositOutputIndex`, `deposit`, `vault?`): `Promise`\<[`Hex`](../classes/Hex.md) \| `TransactionReceipt`\>
 
 Initializes the cross-chain deposit indirectly through the given L2 chain.
 
@@ -89,13 +89,13 @@ Initializes the cross-chain deposit indirectly through the given L2 chain.
 
 #### Returns
 
-`Promise`\<[`Hex`](../classes/Hex.md)\>
+`Promise`\<[`Hex`](../classes/Hex.md) \| `TransactionReceipt`\>
 
 Transaction hash of the reveal deposit transaction.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:104](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L104)
+[lib/contracts/cross-chain.ts:108](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L108)
 
 ___
 
@@ -118,4 +118,4 @@ issued by this contract.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:86](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L86)
+[lib/contracts/cross-chain.ts:90](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L90)

@@ -1,8 +1,8 @@
 import {
   ChainIdentifier,
-  L2TBTCToken,
+  DestinationChainTBTCToken,
   L1BitcoinDepositor,
-  L2BitcoinDepositor,
+  BitcoinDepositor,
   CrossChainExtraDataEncoder,
   BitcoinRawTxVectors,
   DepositReceipt,
@@ -11,7 +11,7 @@ import {
 } from "../../src"
 import { BigNumber } from "ethers"
 
-export class MockL2TBTCToken implements L2TBTCToken {
+export class MockL2TBTCToken implements DestinationChainTBTCToken {
   balanceOf(identifier: ChainIdentifier): Promise<BigNumber> {
     throw new Error("Not supported")
   }
@@ -21,7 +21,7 @@ export class MockL2TBTCToken implements L2TBTCToken {
   }
 }
 
-export class MockL2BitcoinDepositor implements L2BitcoinDepositor {
+export class MockL2BitcoinDepositor implements BitcoinDepositor {
   readonly #chainIdentifier: ChainIdentifier
   readonly #encoder: CrossChainExtraDataEncoder
   #depositOwner: ChainIdentifier | undefined
@@ -79,6 +79,14 @@ export class MockL1BitcoinDepositor implements L1BitcoinDepositor {
   ) {
     this.#chainIdentifier = chainIdentifier
     this.#encoder = encoder
+  }
+
+  getDepositOwner(): ChainIdentifier | undefined {
+    throw new Error("Not supported")
+  }
+
+  setDepositOwner(depositOwner: ChainIdentifier | undefined): void {
+    throw new Error("Not supported")
   }
 
   getDepositState(depositId: string): Promise<DepositState> {

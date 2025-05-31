@@ -1,18 +1,18 @@
-# Interface: CrossChainExtraDataEncoder
+# Interface: ExtraDataEncoder
 
 Interface for encoding and decoding the extra data included in the
 cross-chain deposit script.
 
 ## Implemented by
 
-- [`EthereumCrossChainExtraDataEncoder`](../classes/EthereumCrossChainExtraDataEncoder.md)
+- [`CrossChainExtraDataEncoder`](../classes/CrossChainExtraDataEncoder.md)
 
 ## Table of contents
 
 ### Methods
 
-- [decodeDepositOwner](CrossChainExtraDataEncoder.md#decodedepositowner)
-- [encodeDepositOwner](CrossChainExtraDataEncoder.md#encodedepositowner)
+- [decodeDepositOwner](ExtraDataEncoder.md#decodedepositowner)
+- [encodeDepositOwner](ExtraDataEncoder.md#encodedepositowner)
 
 ## Methods
 
@@ -36,7 +36,7 @@ Identifier of the deposit owner.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:184](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L184)
+[lib/contracts/cross-chain.ts:165](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L165)
 
 ___
 
@@ -60,4 +60,4 @@ Encoded extra data.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:177](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L177)
+[lib/contracts/cross-chain.ts:158](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L158)

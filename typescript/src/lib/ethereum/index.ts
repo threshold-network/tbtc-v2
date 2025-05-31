@@ -2,7 +2,7 @@ import {
   ChainMappings,
   Chains,
   CrossChainContractsLoader,
-  L2Chain,
+  DestinationChainName,
   TBTCContracts,
 } from "../contracts"
 import { providers, Signer } from "ethers"
@@ -39,7 +39,7 @@ export type EthereumSigner = Signer | providers.Provider
  * @returns Chain ID as a string.
  */
 export async function chainIdFromSigner(
-  signer: EthereumSigner
+  signer: EthereumSigner | providers.Provider
 ): Promise<string> {
   let chainId: number
   if (Signer.isSigner(signer)) {
@@ -109,17 +109,17 @@ export async function loadEthereumCoreContracts(
  * The provided signer is attached to loaded L1 contracts. The given
  * Ethereum chain ID is used to load the L1 contracts and resolve the chain
  * mapping that provides corresponding L2 chains IDs.
- * @param signer Ethereum L1 signer.
+ * @param signerOrProvider Ethereum L1 signer or provider.
  * @param chainId Ethereum L1 chain ID.
  * @returns Loader for tBTC cross-chain contracts.
  * @throws Throws an error if the signer's Ethereum chain ID is other than
  *         the one used to construct the loader.
  */
 export async function ethereumCrossChainContractsLoader(
-  signer: EthereumSigner,
+  signerOrProvider: EthereumSigner | providers.Provider,
   chainId: Chains.Ethereum
 ): Promise<CrossChainContractsLoader> {
-  const signerChainId = await chainIdFromSigner(signer)
+  const signerChainId = await chainIdFromSigner(signerOrProvider)
   if (signerChainId !== chainId) {
     throw new Error(
       "Signer uses different chain than Ethereum cross-chain contracts"
@@ -129,11 +129,13 @@ export async function ethereumCrossChainContractsLoader(
   const loadChainMapping = () =>
     ChainMappings.find((ecm) => ecm.ethereum === chainId)
 
-  const loadL1Contracts = async (l2ChainName: L2Chain) => ({
+  const loadL1Contracts = async (
+    destinationChainName: DestinationChainName
+  ) => ({
     l1BitcoinDepositor: new EthereumL1BitcoinDepositor(
-      { signerOrProvider: signer },
+      { signerOrProvider },
       chainId,
-      l2ChainName
+      destinationChainName
     ),
   })
 

@@ -5,7 +5,7 @@ import {
 } from "../ethereum"
 import { ArbitrumL2BitcoinDepositor } from "./l2-bitcoin-depositor"
 import { ArbitrumL2TBTCToken } from "./l2-tbtc-token"
-import { Chains, L2CrossChainContracts } from "../contracts"
+import { Chains, DestinationChainInterfaces } from "../contracts"
 
 export * from "./l2-bitcoin-depositor"
 export * from "./l2-tbtc-token"
@@ -22,7 +22,7 @@ export * from "./l2-tbtc-token"
 export async function loadArbitrumCrossChainContracts(
   signer: EthereumSigner,
   chainId: Chains.Arbitrum
-): Promise<L2CrossChainContracts> {
+): Promise<DestinationChainInterfaces> {
   const signerChainId = await chainIdFromSigner(signer)
   if (signerChainId !== chainId) {
     throw new Error(
@@ -42,7 +42,7 @@ export async function loadArbitrumCrossChainContracts(
   )
 
   return {
-    l2BitcoinDepositor,
-    l2TbtcToken,
+    destinationChainBitcoinDepositor: l2BitcoinDepositor,
+    destinationChainTbtcToken: l2TbtcToken,
   }
 }

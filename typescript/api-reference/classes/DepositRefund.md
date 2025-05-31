@@ -90,7 +90,7 @@ ___
 
 ### prepareDepositScript
 
-▸ **prepareDepositScript**(`refunderKeyPair`): `Promise`\<`Buffer`\>
+▸ **prepareDepositScript**(`refunderKeyPair`): `Promise`\<`Buffer`\<`ArrayBufferLike`\>\>
 
 Assembles the deposit script based on the given deposit details. Performs
 validations on values and key formats.
@@ -103,7 +103,7 @@ validations on values and key formats.
 
 #### Returns
 
-`Promise`\<`Buffer`\>
+`Promise`\<`Buffer`\<`ArrayBufferLike`\>\>
 
 A Promise resolving to the assembled deposit script as a Buffer.
 

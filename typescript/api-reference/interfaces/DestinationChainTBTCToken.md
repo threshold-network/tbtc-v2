@@ -1,7 +1,7 @@
-# Interface: L2TBTCToken
+# Interface: DestinationChainTBTCToken
 
 Interface for communication with the on-chain contract of the given
-canonical L2 tBTC token.
+canonical destination chain tBTC token.
 
 ## Implemented by
 
@@ -12,8 +12,8 @@ canonical L2 tBTC token.
 
 ### Methods
 
-- [balanceOf](L2TBTCToken.md#balanceof)
-- [getChainIdentifier](L2TBTCToken.md#getchainidentifier)
+- [balanceOf](DestinationChainTBTCToken.md#balanceof)
+- [getChainIdentifier](DestinationChainTBTCToken.md#getchainidentifier)
 
 ## Methods
 
@@ -37,7 +37,7 @@ The balance of the given identifier in 1e18 precision.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:61](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L61)
+[lib/contracts/cross-chain.ts:65](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L65)
 
 ___
 
@@ -53,4 +53,4 @@ Gets the chain-specific identifier of this contract.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:54](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L54)
+[lib/contracts/cross-chain.ts:58](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L58)

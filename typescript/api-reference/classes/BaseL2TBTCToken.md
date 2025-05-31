@@ -1,6 +1,6 @@
 # Class: BaseL2TBTCToken
 
-Implementation of the Base L2TBTCToken handle.
+Implementation of the Base DestinationChainTBTCToken handle.
 
 **`See`**
 
@@ -14,7 +14,7 @@ for reference.
 
 ## Implements
 
-- [`L2TBTCToken`](../interfaces/L2TBTCToken.md)
+- [`DestinationChainTBTCToken`](../interfaces/DestinationChainTBTCToken.md)
 
 ## Table of contents
 
@@ -58,7 +58,7 @@ EthersContractHandle\&lt;L2TBTCTypechain\&gt;.constructor
 
 #### Defined in
 
-[lib/base/l2-tbtc-token.ts:22](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-tbtc-token.ts#L22)
+[lib/base/l2-tbtc-token.ts:26](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-tbtc-token.ts#L26)
 
 ## Properties
 
@@ -130,11 +130,11 @@ EthersContractHandle.\_totalRetryAttempts
 
 #### Implementation of
 
-[L2TBTCToken](../interfaces/L2TBTCToken.md).[balanceOf](../interfaces/L2TBTCToken.md#balanceof)
+[DestinationChainTBTCToken](../interfaces/DestinationChainTBTCToken.md).[balanceOf](../interfaces/DestinationChainTBTCToken.md#balanceof)
 
 #### Defined in
 
-[lib/base/l2-tbtc-token.ts:51](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-tbtc-token.ts#L51)
+[lib/base/l2-tbtc-token.ts:55](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-tbtc-token.ts#L55)
 
 ___
 
@@ -172,11 +172,11 @@ ___
 
 #### Implementation of
 
-[L2TBTCToken](../interfaces/L2TBTCToken.md).[getChainIdentifier](../interfaces/L2TBTCToken.md#getchainidentifier)
+[DestinationChainTBTCToken](../interfaces/DestinationChainTBTCToken.md).[getChainIdentifier](../interfaces/DestinationChainTBTCToken.md#getchainidentifier)
 
 #### Defined in
 
-[lib/base/l2-tbtc-token.ts:43](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-tbtc-token.ts#L43)
+[lib/base/l2-tbtc-token.ts:47](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-tbtc-token.ts#L47)
 
 ___
 
