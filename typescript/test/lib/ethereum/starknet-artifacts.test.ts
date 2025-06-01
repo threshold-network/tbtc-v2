@@ -12,12 +12,17 @@ describe("StarkNet L1 Bitcoin Depositor Artifacts", () => {
       let artifact: any
 
       beforeEach(() => {
-        artifactPath = join(artifactDir, `${network}/StarkNetL1BitcoinDepositor.json`)
+        artifactPath = join(
+          artifactDir,
+          `${network}/StarkNetL1BitcoinDepositor.json`
+        )
         artifact = JSON.parse(readFileSync(artifactPath, "utf8"))
       })
 
       it("should have zero address", () => {
-        expect(artifact.address).to.equal("0x0000000000000000000000000000000000000000")
+        expect(artifact.address).to.equal(
+          "0x0000000000000000000000000000000000000000"
+        )
       })
 
       it("should have block number 0", () => {
@@ -46,12 +51,16 @@ describe("StarkNet L1 Bitcoin Depositor Artifacts", () => {
       // Test mainnet artifact
       const mainnetArtifact = require("../../../src/lib/ethereum/artifacts/mainnet/StarkNetL1BitcoinDepositor.json")
       expect(mainnetArtifact).to.be.an("object")
-      expect(mainnetArtifact.address).to.equal("0x0000000000000000000000000000000000000000")
+      expect(mainnetArtifact.address).to.equal(
+        "0x0000000000000000000000000000000000000000"
+      )
 
       // Test sepolia artifact
       const sepoliaArtifact = require("../../../src/lib/ethereum/artifacts/sepolia/StarkNetL1BitcoinDepositor.json")
       expect(sepoliaArtifact).to.be.an("object")
-      expect(sepoliaArtifact.address).to.equal("0x0000000000000000000000000000000000000000")
+      expect(sepoliaArtifact.address).to.equal(
+        "0x0000000000000000000000000000000000000000"
+      )
     })
   })
 })

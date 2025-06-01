@@ -49,7 +49,7 @@ for reference.
 
 #### Defined in
 
-[services/deposits/cross-chain.ts:31](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L31)
+[services/deposits/cross-chain.ts:31](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L31)
 
 ## Properties
 
@@ -59,7 +59,7 @@ for reference.
 
 #### Defined in
 
-[services/deposits/cross-chain.ts:28](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L28)
+[services/deposits/cross-chain.ts:28](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L28)
 
 ___
 
@@ -69,7 +69,7 @@ ___
 
 #### Defined in
 
-[services/deposits/cross-chain.ts:29](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L29)
+[services/deposits/cross-chain.ts:29](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L29)
 
 ## Methods
 
@@ -83,7 +83,7 @@ ___
 
 #### Defined in
 
-[services/deposits/cross-chain.ts:72](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L72)
+[services/deposits/cross-chain.ts:72](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L72)
 
 ___
 
@@ -107,7 +107,7 @@ Throws if the L2 deposit owner cannot be resolved. This
 
 #### Defined in
 
-[services/deposits/cross-chain.ts:61](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L61)
+[services/deposits/cross-chain.ts:61](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L61)
 
 ___
 
@@ -135,7 +135,7 @@ The chain-specific identifier of the contract that will be
 
 #### Defined in
 
-[services/deposits/cross-chain.ts:49](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L49)
+[services/deposits/cross-chain.ts:49](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L49)
 
 ___
 
@@ -169,4 +169,4 @@ Reveals the given deposit depending on the reveal mode.
 
 #### Defined in
 
-[services/deposits/cross-chain.ts:87](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L87)
+[services/deposits/cross-chain.ts:87](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L87)

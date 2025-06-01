@@ -25,7 +25,7 @@ Index of the wallet in the list of wallets.
 
 #### Defined in
 
-[lib/utils/types.ts:27](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/utils/types.ts#L27)
+[lib/utils/types.ts:27](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/types.ts#L27)
 
 ___
 
@@ -41,7 +41,7 @@ Omit.mainUtxo
 
 #### Defined in
 
-[lib/utils/types.ts:14](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/utils/types.ts#L14)
+[lib/utils/types.ts:14](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/types.ts#L14)
 
 ___
 
@@ -53,7 +53,7 @@ Balance of the wallet in BTC.
 
 #### Defined in
 
-[lib/utils/types.ts:32](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/utils/types.ts#L32)
+[lib/utils/types.ts:32](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/types.ts#L32)
 
 ___
 
@@ -69,4 +69,4 @@ Omit.walletPublicKey
 
 #### Defined in
 
-[lib/utils/types.ts:9](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/utils/types.ts#L9)
+[lib/utils/types.ts:9](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/types.ts#L9)

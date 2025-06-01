@@ -7,10 +7,12 @@ The StarkNet L1 Bitcoin Depositor artifact files in this directory are **placeho
 ## Current Status
 
 The following placeholder files exist:
+
 - `mainnet/StarkNetL1BitcoinDepositor.json`
 - `sepolia/StarkNetL1BitcoinDepositor.json`
 
 These files contain:
+
 - **Zero address**: `0x0000000000000000000000000000000000000000`
 - **Empty ABI**: `[]`
 - **Zero block number**: `0`
@@ -23,11 +25,12 @@ Once the StarkNet L1 Bitcoin Depositor contracts are deployed:
 1. **Update the address** field with the actual deployed contract address
 2. **Update the ABI** field with the complete contract ABI from the deployment
 3. **Update the receipt.blockNumber** with the actual deployment block number
-4. **Remove or update the _comment** field to reflect the actual deployment
+4. **Remove or update the \_comment** field to reflect the actual deployment
 
 ## Expected ABI Structure
 
 The production ABI should include at least these functions:
+
 - `initializeDeposit`: For initializing Bitcoin deposits destined for StarkNet
 - `deposits`: For querying deposit states
 

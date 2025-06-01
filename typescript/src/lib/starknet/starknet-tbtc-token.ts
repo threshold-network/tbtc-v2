@@ -20,7 +20,7 @@ export class StarkNetTBTCToken implements L2TBTCToken {
   getChainIdentifier(): ChainIdentifier {
     throw new Error(
       "StarkNet TBTC token interface has no chain identifier. " +
-      "Token operations are not supported on StarkNet yet."
+        "Token operations are not supported on StarkNet yet."
     )
   }
 
@@ -37,7 +37,7 @@ export class StarkNetTBTCToken implements L2TBTCToken {
 
     throw new Error(
       "Cannot get balance via StarkNet interface. " +
-      "Token operations are not supported on StarkNet yet."
+        "Token operations are not supported on StarkNet yet."
     )
   }
 }

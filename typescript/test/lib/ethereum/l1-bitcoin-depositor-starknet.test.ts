@@ -78,7 +78,7 @@ describe("EthereumL1BitcoinDepositor - StarkNet Support", () => {
       const encoder = depositor.extraDataEncoder()
       const starknetAddress = StarkNetAddress.from("0x123abc")
       const encoded = encoder.encodeDepositOwner(starknetAddress)
-      
+
       expect(encoded.toPrefixedString()).to.equal(
         "0x0000000000000000000000000000000000000000000000000000000000123abc"
       )
@@ -90,7 +90,7 @@ describe("EthereumL1BitcoinDepositor - StarkNet Support", () => {
         "0x0000000000000000000000000000000000000000000000000000000000123abc"
       )
       const decoded = encoder.decodeDepositOwner(extraData)
-      
+
       expect(decoded).to.be.instanceOf(StarkNetAddress)
       expect(decoded.identifierHex).to.equal(
         "0000000000000000000000000000000000000000000000000000000000123abc"
@@ -105,15 +105,15 @@ describe("EthereumL1BitcoinDepositor - StarkNet Support", () => {
         Chains.Ethereum.Sepolia,
         "StarkNet"
       )
-      
+
       const encoder = depositor.extraDataEncoder()
       expect(encoder).to.be.instanceOf(StarkNetCrossChainExtraDataEncoder)
-      
+
       // Test that it can encode/decode StarkNet addresses
       const starknetAddress = StarkNetAddress.from("0xabcdef")
       const encoded = encoder.encodeDepositOwner(starknetAddress)
       const decoded = encoder.decodeDepositOwner(encoded)
-      
+
       expect(decoded).to.be.instanceOf(StarkNetAddress)
       expect(decoded.equals(starknetAddress)).to.be.true
     })

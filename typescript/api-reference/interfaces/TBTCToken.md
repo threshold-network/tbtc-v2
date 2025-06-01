@@ -40,7 +40,7 @@ through custom integration with the tBTC Bridge contract.
 
 #### Defined in
 
-[lib/contracts/tbtc-token.ts:61](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-token.ts#L61)
+[lib/contracts/tbtc-token.ts:61](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-token.ts#L61)
 
 ___
 
@@ -56,7 +56,7 @@ Gets the chain-specific identifier of this contract.
 
 #### Defined in
 
-[lib/contracts/tbtc-token.ts:13](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-token.ts#L13)
+[lib/contracts/tbtc-token.ts:13](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-token.ts#L13)
 
 ___
 
@@ -86,7 +86,7 @@ Transaction hash of the approve and call transaction.
 
 #### Defined in
 
-[lib/contracts/tbtc-token.ts:40](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-token.ts#L40)
+[lib/contracts/tbtc-token.ts:40](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-token.ts#L40)
 
 ___
 
@@ -110,4 +110,4 @@ with 1e8 precision in satoshi.
 
 #### Defined in
 
-[lib/contracts/tbtc-token.ts:23](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-token.ts#L23)
+[lib/contracts/tbtc-token.ts:23](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-token.ts#L23)

@@ -30,7 +30,7 @@ export class StarkNetDepositorInterface implements L2BitcoinDepositor {
   getChainIdentifier(): ChainIdentifier {
     throw new Error(
       "StarkNet depositor interface has no chain identifier. " +
-      "Deposits are handled via L1 StarkNet Bitcoin Depositor."
+        "Deposits are handled via L1 StarkNet Bitcoin Depositor."
     )
   }
 
@@ -53,7 +53,7 @@ export class StarkNetDepositorInterface implements L2BitcoinDepositor {
       this.#depositOwner = undefined
       return
     }
-    
+
     if (!(depositOwner instanceof StarkNetAddress)) {
       throw new Error("Deposit owner must be a StarkNet address")
     }
@@ -81,7 +81,7 @@ export class StarkNetDepositorInterface implements L2BitcoinDepositor {
   ): Promise<Hex> {
     throw new Error(
       "Cannot initialize deposit via StarkNet interface. " +
-      "Use L1 StarkNet Bitcoin Depositor instead."
+        "Use L1 StarkNet Bitcoin Depositor instead."
     )
   }
 }

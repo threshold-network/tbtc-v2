@@ -30,4 +30,4 @@ Bitcoin Network.
 
 #### Defined in
 
-[lib/bitcoin/network.ts:33](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/network.ts#L33)
+[lib/bitcoin/network.ts:33](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/network.ts#L33)

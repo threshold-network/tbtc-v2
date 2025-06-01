@@ -25,7 +25,7 @@ public key and refund public key.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:212](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L212)
+[lib/contracts/bridge.ts:212](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L212)
 
 ___
 
@@ -37,7 +37,7 @@ Depositor's chain identifier.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:206](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L206)
+[lib/contracts/bridge.ts:206](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L206)
 
 ___
 
@@ -49,7 +49,7 @@ Optional 32-byte extra data.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:237](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L237)
+[lib/contracts/bridge.ts:237](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L237)
 
 ___
 
@@ -61,7 +61,7 @@ A 4-byte little-endian refund locktime.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:232](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L232)
+[lib/contracts/bridge.ts:232](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L232)
 
 ___
 
@@ -76,7 +76,7 @@ You can use `computeHash160` function to get the hash from a public key.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:227](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L227)
+[lib/contracts/bridge.ts:227](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L227)
 
 ___
 
@@ -90,4 +90,4 @@ You can use `computeHash160` function to get the hash from a public key.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:219](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L219)
+[lib/contracts/bridge.ts:219](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L219)

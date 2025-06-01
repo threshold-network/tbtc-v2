@@ -40,7 +40,7 @@ describe("StarkNet Module Integration", () => {
       // Test that we can load StarkNet contracts
       const walletAddress = "0x1234567890abcdef1234567890abcdef12345678"
       const contracts = await loadStarkNetCrossChainContracts(walletAddress)
-      
+
       expect(contracts).to.have.property("l2BitcoinDepositor")
       expect(contracts).to.have.property("l2TbtcToken")
     })

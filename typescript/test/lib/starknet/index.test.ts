@@ -64,7 +64,7 @@ describe("StarkNet Module", () => {
 
     it("should throw error for invalid wallet address", async () => {
       const invalidAddress = "xyz123" // Invalid hex
-      
+
       await expect(
         loadStarkNetCrossChainContracts(invalidAddress)
       ).to.be.rejectedWith("Invalid StarkNet address format")
@@ -72,21 +72,23 @@ describe("StarkNet Module", () => {
 
     it("should throw error for address exceeding field element size", async () => {
       const tooLongAddress = "0x" + "f".repeat(65) // 65 hex chars exceeds limit
-      
+
       await expect(
         loadStarkNetCrossChainContracts(tooLongAddress)
-      ).to.be.rejectedWith("StarkNet address exceeds maximum field element size")
+      ).to.be.rejectedWith(
+        "StarkNet address exceeds maximum field element size"
+      )
     })
 
     it("should handle concurrent calls correctly", async () => {
       const addresses = ["0x111", "0x222", "0x333"]
-      
-      const promises = addresses.map(addr => 
+
+      const promises = addresses.map((addr) =>
         loadStarkNetCrossChainContracts(addr)
       )
-      
+
       const results = await Promise.all(promises)
-      
+
       // Verify each result has the correct deposit owner
       results.forEach((contract, index) => {
         const owner = contract.l2BitcoinDepositor.getDepositOwner()
@@ -96,19 +98,21 @@ describe("StarkNet Module", () => {
     })
 
     it("should handle empty string address", async () => {
-      await expect(
-        loadStarkNetCrossChainContracts("")
-      ).to.be.rejectedWith("Invalid StarkNet address format")
+      await expect(loadStarkNetCrossChainContracts("")).to.be.rejectedWith(
+        "Invalid StarkNet address format"
+      )
     })
 
     it("should create independent instances for different addresses", async () => {
       const contracts1 = await loadStarkNetCrossChainContracts("0x111")
       const contracts2 = await loadStarkNetCrossChainContracts("0x222")
-      
+
       // Verify they are different instances
-      expect(contracts1.l2BitcoinDepositor).to.not.equal(contracts2.l2BitcoinDepositor)
+      expect(contracts1.l2BitcoinDepositor).to.not.equal(
+        contracts2.l2BitcoinDepositor
+      )
       expect(contracts1.l2TbtcToken).to.not.equal(contracts2.l2TbtcToken)
-      
+
       // Verify they have different deposit owners
       const owner1 = contracts1.l2BitcoinDepositor.getDepositOwner()
       const owner2 = contracts2.l2BitcoinDepositor.getDepositOwner()

@@ -7,6 +7,7 @@ canonical L2 tBTC token.
 
 - [`ArbitrumL2TBTCToken`](../classes/ArbitrumL2TBTCToken.md)
 - [`BaseL2TBTCToken`](../classes/BaseL2TBTCToken.md)
+- [`StarkNetTBTCToken`](../classes/StarkNetTBTCToken.md)
 
 ## Table of contents
 
@@ -37,7 +38,7 @@ The balance of the given identifier in 1e18 precision.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:61](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L61)
+[lib/contracts/cross-chain.ts:61](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L61)
 
 ___
 
@@ -53,4 +54,4 @@ Gets the chain-specific identifier of this contract.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:54](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L54)
+[lib/contracts/cross-chain.ts:54](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L54)
