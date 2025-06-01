@@ -99,11 +99,11 @@ ___
 
 ### getHash
 
-▸ **getHash**(): `Promise`\<`Buffer`\<`ArrayBufferLike`\>\>
+▸ **getHash**(): `Promise`\<`Buffer`\>
 
 #### Returns
 
-`Promise`\<`Buffer`\<`ArrayBufferLike`\>\>
+`Promise`\<`Buffer`\>
 
 Hashed deposit script as Buffer.
 

@@ -628,7 +628,7 @@ Utility functions allowing to deal with Bitcoin locktime.
 | Name | Type |
 | :------ | :------ |
 | `calculateLocktime` | (`locktimeStartedAt`: `number`, `locktimeDuration`: `number`) => [`Hex`](classes/Hex.md) |
-| `locktimeToNumber` | (`locktimeLE`: `string` \| `Buffer`\<`ArrayBufferLike`\>) => `number` |
+| `locktimeToNumber` | (`locktimeLE`: `string` \| `Buffer`) => `number` |
 
 #### Defined in
 
