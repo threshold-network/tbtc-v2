@@ -18,6 +18,20 @@ export namespace Chains {
     Arbitrum = "42161",
     ArbitrumSepolia = "421614",
   }
+
+  /**
+   * StarkNet L2 chains.
+   */
+  export enum StarkNet {
+    /**
+     * StarkNet Mainnet.
+     */
+    Mainnet = "0x534e5f4d41494e", // SN_MAIN in hex
+    /**
+     * StarkNet Sepolia testnet.
+     */
+    Sepolia = "0x534e5f5345504f4c4941", // SN_SEPOLIA in hex
+  }
 }
 
 /**
@@ -42,6 +56,10 @@ export type ChainMapping = {
    * Identifier of the Arbitrum L2 chain.
    */
   arbitrum?: Chains.Arbitrum
+  /**
+   * Identifier of the StarkNet L2 chain.
+   */
+  starknet?: Chains.StarkNet
 }
 
 /**
@@ -52,10 +70,12 @@ export const ChainMappings: ChainMapping[] = [
     ethereum: Chains.Ethereum.Mainnet,
     base: Chains.Base.Base,
     arbitrum: Chains.Arbitrum.Arbitrum,
+    starknet: Chains.StarkNet.Mainnet,
   },
   {
     ethereum: Chains.Ethereum.Sepolia,
     base: Chains.Base.BaseSepolia,
     arbitrum: Chains.Arbitrum.ArbitrumSepolia,
+    starknet: Chains.StarkNet.Sepolia,
   },
 ]

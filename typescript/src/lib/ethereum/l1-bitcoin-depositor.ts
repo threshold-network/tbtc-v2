@@ -19,9 +19,11 @@ import { Hex } from "../utils"
 
 import MainnetBaseL1BitcoinDepositorDeployment from "./artifacts/mainnet/BaseL1BitcoinDepositor.json"
 import MainnetArbitrumL1BitcoinDepositorDeployment from "./artifacts/mainnet/ArbitrumOneL1BitcoinDepositor.json"
+import MainnetStarkNetL1BitcoinDepositorDeployment from "./artifacts/mainnet/StarkNetL1BitcoinDepositor.json"
 
 import SepoliaBaseL1BitcoinDepositorDeployment from "./artifacts/sepolia/BaseL1BitcoinDepositor.json"
 import SepoliaArbitrumL1BitcoinDepositorDeployment from "./artifacts/sepolia/ArbitrumL1BitcoinDepositor.json"
+import SepoliaStarkNetL1BitcoinDepositorDeployment from "./artifacts/sepolia/StarkNetL1BitcoinDepositor.json"
 
 const artifactLoader = {
   getMainnet: (l2ChainName: L2Chain) => {
@@ -30,6 +32,8 @@ const artifactLoader = {
         return MainnetBaseL1BitcoinDepositorDeployment
       case "Arbitrum":
         return MainnetArbitrumL1BitcoinDepositorDeployment
+      case "StarkNet":
+        return MainnetStarkNetL1BitcoinDepositorDeployment
       default:
         throw new Error("Unsupported L2 chain")
     }
@@ -41,6 +45,8 @@ const artifactLoader = {
         return SepoliaBaseL1BitcoinDepositorDeployment
       case "Arbitrum":
         return SepoliaArbitrumL1BitcoinDepositorDeployment
+      case "StarkNet":
+        return SepoliaStarkNetL1BitcoinDepositorDeployment
       default:
         throw new Error("Unsupported L2 chain")
     }
@@ -78,7 +84,13 @@ export class EthereumL1BitcoinDepositor
 
     super(config, deployment)
 
-    this.#extraDataEncoder = new EthereumCrossChainExtraDataEncoder()
+    // Use StarkNet encoder for StarkNet, otherwise use Ethereum encoder
+    if (l2ChainName === "StarkNet") {
+      const { StarkNetCrossChainExtraDataEncoder } = require("../starknet")
+      this.#extraDataEncoder = new StarkNetCrossChainExtraDataEncoder()
+    } else {
+      this.#extraDataEncoder = new EthereumCrossChainExtraDataEncoder()
+    }
   }
 
   // eslint-disable-next-line valid-jsdoc

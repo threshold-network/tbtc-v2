@@ -20,6 +20,7 @@ import {
 import { ElectrumClient } from "../lib/electrum"
 import { loadBaseCrossChainContracts } from "../lib/base"
 import { loadArbitrumCrossChainContracts } from "../lib/arbitrum"
+import { loadStarkNetCrossChainContracts } from "../lib/starknet"
 
 /**
  * Entrypoint component of the tBTC v2 SDK.
@@ -196,11 +197,15 @@ export class TBTC {
    *
    * @param l2ChainName Name of the L2 chain for which to initialize
    *                    cross-chain contracts.
-   * @param l2Signer Signer to use with the L2 chain contracts.
+   * @param l2Signer Signer to use with the L2 chain contracts. For StarkNet,
+   *                 this is used to extract the wallet address since StarkNet
+   *                 uses wallet addresses instead of signers.
    * @returns Void promise.
    * @throws Throws an error if:
    *         - Cross-chain contracts loader is not available for this TBTC SDK instance,
-   *         - Chain mapping between the L1 and the given L2 chain is not defined.
+   *         - Chain mapping between the L1 and the given L2 chain is not defined,
+   *         - StarkNet chain ID is not available in chain mapping (StarkNet only),
+   *         - Could not extract wallet address from signer (StarkNet only).
    * @dev In case this function needs to support non-EVM L2 chains that can't
    *      use EthereumSigner as a signer type, the l2Signer parameter should
    *      probably be turned into a union of multiple supported types or
@@ -244,6 +249,21 @@ export class TBTC {
         l2CrossChainContracts = await loadArbitrumCrossChainContracts(
           l2Signer,
           arbitrumChainId
+        )
+        break
+      case "StarkNet":
+        const starknetChainId = chainMapping.starknet
+        if (!starknetChainId) {
+          throw new Error("StarkNet chain ID not available in chain mapping")
+        }
+        // StarkNet uses wallet addresses instead of signers
+        // Extract the address from the signer for compatibility
+        const walletAddress = await ethereumAddressFromSigner(l2Signer)
+        if (!walletAddress) {
+          throw new Error("Could not extract wallet address from signer")
+        }
+        l2CrossChainContracts = await loadStarkNetCrossChainContracts(
+          walletAddress.identifierHex
         )
         break
       default:
