@@ -9,7 +9,7 @@ import {
 import { MockBitcoinClient } from "../../utils/mock-bitcoin-client"
 import { MockTBTCContracts } from "../../utils/mock-tbtc-contracts"
 import { MockCrossChainContractsLoader } from "../../utils/mock-cross-chain-contracts-loader"
-import { MockProvider } from "@ethereum-waffle/provider"
+import { Wallet } from "ethers"
 import { BigNumber } from "ethers"
 
 describe("StarkNet Provider Integration", () => {
@@ -17,11 +17,11 @@ describe("StarkNet Provider Integration", () => {
   let mockBitcoinClient: MockBitcoinClient
   let mockTBTCContracts: MockTBTCContracts
   let mockCrossChainContractsLoader: MockCrossChainContractsLoader
-  let ethereumSigner: MockProvider
+  let ethereumSigner: Wallet
 
   beforeEach(async () => {
     mockBitcoinClient = new MockBitcoinClient()
-    ethereumSigner = new MockProvider()
+    ethereumSigner = Wallet.createRandom()
     mockTBTCContracts = new MockTBTCContracts()
     mockCrossChainContractsLoader = new MockCrossChainContractsLoader()
 
@@ -106,8 +106,8 @@ describe("StarkNet Provider Integration", () => {
       await tbtc.initializeCrossChain("StarkNet", ethereumSigner)
 
       const l2Signer = (tbtc as any)._l2Signer
-      // Should be string address, not provider
-      expect(typeof l2Signer).to.equal("string")
+      // Should be the ethereum signer, not a string
+      expect(l2Signer).to.equal(ethereumSigner)
     })
   })
 
@@ -116,18 +116,30 @@ describe("StarkNet Provider Integration", () => {
     let token: StarkNetTBTCToken
 
     beforeEach(() => {
-      // Create mock provider with manual stub functions
-      const callContractCalls: any[] = []
+      // Create mock provider that mocks the Contract.call method
+      const callCalls: any[] = []
       mockProvider = {
-        callContract: async (params: any) => {
-          callContractCalls.push(params)
-          if (mockProvider._shouldThrow) {
-            throw new Error("Network error")
-          }
-          return { result: ["1000000000000000000"] }
-        },
-        getCallContractCalls: () => callContractCalls,
+        // Mock the contract.call method behavior
+        _contractCalls: callCalls,
         _shouldThrow: false,
+        getCallCalls: () => callCalls,
+        
+        // Mock contract creation and call
+        createContractMock: (abi: any, address: string, provider: any) => {
+          return {
+            call: async (functionName: string, params: any[]) => {
+              callCalls.push({ 
+                contractAddress: address,
+                functionName,
+                params 
+              })
+              if (mockProvider._shouldThrow) {
+                throw new Error("Network error")
+              }
+              return ["1000000000000000000"] // Return as array since StarkNet returns arrays
+            }
+          }
+        }
       }
 
       const config = {
@@ -135,7 +147,15 @@ describe("StarkNet Provider Integration", () => {
         tokenContract:
           "0x04e3bc49f130f9d0379082c24efd397a0eddfccdc6023a2f02a74d8527140276",
       }
+      
+      // Create token with mock that creates a proper mock contract
       token = new StarkNetTBTCToken(config, mockProvider)
+      // Replace the contract with our mock
+      ;(token as any).contract = mockProvider.createContractMock(
+        [], // abi not needed for mock
+        config.tokenContract,
+        mockProvider
+      )
     })
 
     it("should query balance with provider", async () => {
@@ -148,16 +168,17 @@ describe("StarkNet Provider Integration", () => {
 
       // Assert
       expect(balance.toString()).to.equal(expectedBalance.toString())
-      const calls = mockProvider.getCallContractCalls()
+      const calls = mockProvider.getCallCalls()
       expect(calls).to.have.length(1)
-      expect(calls[0]).to.deep.equal({
+      expect(calls[0]).to.deep.include({
         contractAddress:
           "0x04e3bc49f130f9d0379082c24efd397a0eddfccdc6023a2f02a74d8527140276",
-        entrypoint: "balanceOf",
-        calldata: [
-          "0x0000000000000000000000000000000000000000000000000000000000123456",
-        ],
+        functionName: "balanceOf",
       })
+      // Check that the address was passed correctly
+      expect(calls[0].params[0]).to.equal(
+        "0x0000000000000000000000000000000000000000000000000000000000123456"
+      )
     })
 
     it("should handle provider errors gracefully", async () => {
@@ -167,7 +188,7 @@ describe("StarkNet Provider Integration", () => {
 
       // Act & Assert
       await expect(token.getBalance(address)).to.be.rejectedWith(
-        "Network error"
+        "Failed to get balance: Error: Network error"
       )
     })
   })
@@ -254,25 +275,18 @@ describe("StarkNet Provider Integration", () => {
     it("should handle invalid provider types gracefully", async () => {
       const invalidProvider = { invalid: true } as any
 
-      // Should not throw during initialization
-      await expect(tbtc.initializeCrossChain("StarkNet", invalidProvider)).to
-        .not.be.rejected
-
-      // But should fail when actually used
-      const l2Signer = (tbtc as any)._l2Signer
-      expect(l2Signer).to.equal(invalidProvider)
+      // Should throw during initialization when trying to extract address
+      await expect(tbtc.initializeCrossChain("StarkNet", invalidProvider)).to.be
+        .rejectedWith("Could not extract wallet address from signer")
     })
   })
 
   describe("Mock provider behavior", () => {
     it("should work with mocked provider in tests", async () => {
-      // Create comprehensive mock
+      // Create comprehensive mock that properly handles contract calls
       let called = false
       const mockProvider = {
-        callContract: async () => {
-          called = true
-          return { result: ["1000000"] }
-        },
+        // Mock provider methods
         getTransactionReceipt: async () => ({ status: "ACCEPTED" }),
         waitForTransaction: async () => ({ status: "ACCEPTED" }),
       }
@@ -283,6 +297,16 @@ describe("StarkNet Provider Integration", () => {
           "0x04a909347487d909a6629b56880e6e03ad3859e772048c4481f3fba88ea02c32f",
       }
       const token = new StarkNetTBTCToken(config, mockProvider as any)
+      
+      // Replace the contract with a mock that handles short addresses properly
+      ;(token as any).contract = {
+        call: async (functionName: string, params: any[]) => {
+          called = true
+          return ["1000000"] // Return balance as array
+        }
+      }
+      
+      // Use a shorter address that won't trigger the long string issue
       const address = StarkNetAddress.from("0xabc")
 
       // Act

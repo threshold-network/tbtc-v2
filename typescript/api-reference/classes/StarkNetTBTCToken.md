@@ -181,7 +181,7 @@ The configuration object
 
 #### Defined in
 
-[lib/starknet/starknet-tbtc-token.ts:92](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-tbtc-token.ts#L92)
+[lib/starknet/starknet-tbtc-token.ts:102](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-tbtc-token.ts#L102)
 
 ___
 
@@ -209,4 +209,4 @@ Not implemented yet
 
 #### Defined in
 
-[lib/starknet/starknet-tbtc-token.ts:102](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-tbtc-token.ts#L102)
+[lib/starknet/starknet-tbtc-token.ts:112](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-tbtc-token.ts#L112)

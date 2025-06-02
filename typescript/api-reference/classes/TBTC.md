@@ -84,9 +84,13 @@ ___
 
 Internal property to store L2 signer/provider for advanced use cases.
 
+**`Deprecated`**
+
+Will be removed in next major version. Use two-parameter pattern instead.
+
 #### Defined in
 
-[services/tbtc.ts:196](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L196)
+[services/tbtc.ts:197](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L197)
 
 ___
 
@@ -179,16 +183,25 @@ Cross-chain contracts for the given L2 chain or
 
 #### Defined in
 
-[services/tbtc.ts:349](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L349)
+[services/tbtc.ts:391](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L391)
 
 ___
 
 ### initializeCrossChain
 
-▸ **initializeCrossChain**(`l2ChainName`, `l2Signer`): `Promise`\<`void`\>
+▸ **initializeCrossChain**(`l2ChainName`, `signerOrEthereumSigner`, `l2Provider?`): `Promise`\<`void`\>
 
-Initializes cross-chain contracts for the given L2 chain, using the
-given signer. Updates the signer on subsequent calls.
+Initializes cross-chain contracts for the given L2 chain.
+
+For StarkNet, use the two-parameter pattern:
+```
+await tbtc.initializeCrossChain("StarkNet", ethereumSigner, starknetProvider)
+```
+
+For other L2 chains, use the single-parameter pattern:
+```
+await tbtc.initializeCrossChain("Base", ethereumSigner)
+```
 
  THIS IS EXPERIMENTAL CODE THAT CAN BE CHANGED OR REMOVED
               IN FUTURE RELEASES. IT SHOULD BE USED ONLY FOR INTERNAL
@@ -200,7 +213,8 @@ given signer. Updates the signer on subsequent calls.
 | Name | Type | Description |
 | :------ | :------ | :------ |
 | `l2ChainName` | [`L2Chain`](../README.md#l2chain) | Name of the L2 chain for which to initialize cross-chain contracts. |
-| `l2Signer` | [`EthereumSigner`](../README.md#ethereumsigner) \| [`StarkNetProvider`](../README.md#starknetprovider) | Signer to use with the L2 chain contracts. For StarkNet, this can be a StarkNet Provider or Account instance, or an Ethereum signer for backward compatibility. |
+| `signerOrEthereumSigner` | [`EthereumSigner`](../README.md#ethereumsigner) \| [`StarkNetProvider`](../README.md#starknetprovider) | For two-parameter: Ethereum signer (L1 operations). For single-parameter: L2 signer/provider. |
+| `l2Provider?` | [`StarkNetProvider`](../README.md#starknetprovider) | Optional StarkNet provider for two-parameter pattern. |
 
 #### Returns
 
@@ -211,21 +225,15 @@ Void promise.
 **`Throws`**
 
 Throws an error if:
-        - Cross-chain contracts loader is not available for this TBTC SDK instance,
-        - Chain mapping between the L1 and the given L2 chain is not defined,
-        - StarkNet chain ID is not available in chain mapping (StarkNet only),
-        - Could not extract wallet address from signer (StarkNet only).
-
-**`Dev`**
-
-In case this function needs to support non-EVM L2 chains that can't
-     use EthereumSigner as a signer type, the l2Signer parameter should
-     probably be turned into a union of multiple supported types or
-     generalized in some other way.
+        - Cross-chain contracts loader is not available,
+        - Chain mapping is not defined,
+        - Required chain ID is not available,
+        - StarkNet provider is missing (two-parameter mode),
+        - Could not extract wallet address.
 
 #### Defined in
 
-[services/tbtc.ts:223](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L223)
+[services/tbtc.ts:230](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L230)
 
 ___
 

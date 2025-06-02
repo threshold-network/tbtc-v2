@@ -78,11 +78,21 @@ export class StarkNetTBTCToken implements L2TBTCToken {
       throw new Error("Address must be a StarkNet address")
     }
 
-    // Call the balanceOf function on the contract
-    const result = await this.contract.balanceOf(identifier.identifierHex)
+    try {
+      // Use call instead of invoke for read-only operations
+      // For StarkNet addresses, we need to pass as a single felt (field element)
+      // Convert the padded hex to a decimal string for StarkNet.js
+      const addressHex = "0x" + identifier.identifierHex
+      const result = await this.contract.call("balanceOf", [addressHex])
 
-    // Convert the result to BigNumber
-    return BigNumber.from(result.toString())
+      // Result should be an array, take the first element
+      const balance = Array.isArray(result) ? result[0] : result
+      
+      // Convert the result to BigNumber
+      return BigNumber.from(balance.toString())
+    } catch (error) {
+      throw new Error(`Failed to get balance: ${error}`)
+    }
   }
 
   /**
