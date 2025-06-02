@@ -52,11 +52,11 @@ Service exposing features related to tBTC v2 deposits.
 
 • `Private` `Readonly` **#crossChainContracts**: (`_`: [`L2Chain`](../README.md#l2chain)) => `undefined` \| [`CrossChainContracts`](../README.md#crosschaincontracts)
 
+Gets cross-chain contracts for the given supported L2 chain.
+
 #### Type declaration
 
 ▸ (`_`): `undefined` \| [`CrossChainContracts`](../README.md#crosschaincontracts)
-
-Gets cross-chain contracts for the given supported L2 chain.
 
 ##### Parameters
 
@@ -67,9 +67,6 @@ Gets cross-chain contracts for the given supported L2 chain.
 ##### Returns
 
 `undefined` \| [`CrossChainContracts`](../README.md#crosschaincontracts)
-
-Cross-chain contracts for the given L2 chain or
-         undefined if not initialized.
 
 #### Defined in
 

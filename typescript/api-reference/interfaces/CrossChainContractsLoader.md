@@ -17,11 +17,11 @@ on.
 
 • **loadChainMapping**: () => `undefined` \| [`ChainMapping`](../README.md#chainmapping)
 
+Loads the chain mapping based on underlying L1 chain.
+
 #### Type declaration
 
 ▸ (): `undefined` \| [`ChainMapping`](../README.md#chainmapping)
-
-Loads the chain mapping based on underlying L1 chain.
 
 ##### Returns
 
@@ -37,11 +37,11 @@ ___
 
 • **loadL1Contracts**: (`l2ChainName`: [`L2Chain`](../README.md#l2chain)) => `Promise`\<[`L1CrossChainContracts`](../README.md#l1crosschaincontracts)\>
 
+Loads L1-specific TBTC cross-chain contracts for the given L2 chain.
+
 #### Type declaration
 
 ▸ (`l2ChainName`): `Promise`\<[`L1CrossChainContracts`](../README.md#l1crosschaincontracts)\>
-
-Loads L1-specific TBTC cross-chain contracts for the given L2 chain.
 
 ##### Parameters
 
