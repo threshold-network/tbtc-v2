@@ -123,23 +123,23 @@ describe("StarkNet Provider Integration", () => {
         _contractCalls: callCalls,
         _shouldThrow: false,
         getCallCalls: () => callCalls,
-        
+
         // Mock contract creation and call
         createContractMock: (abi: any, address: string, provider: any) => {
           return {
             call: async (functionName: string, params: any[]) => {
-              callCalls.push({ 
+              callCalls.push({
                 contractAddress: address,
                 functionName,
-                params 
+                params,
               })
               if (mockProvider._shouldThrow) {
                 throw new Error("Network error")
               }
               return ["1000000000000000000"] // Return as array since StarkNet returns arrays
-            }
+            },
           }
-        }
+        },
       }
 
       const config = {
@@ -147,7 +147,7 @@ describe("StarkNet Provider Integration", () => {
         tokenContract:
           "0x04e3bc49f130f9d0379082c24efd397a0eddfccdc6023a2f02a74d8527140276",
       }
-      
+
       // Create token with mock that creates a proper mock contract
       token = new StarkNetTBTCToken(config, mockProvider)
       // Replace the contract with our mock
@@ -276,8 +276,9 @@ describe("StarkNet Provider Integration", () => {
       const invalidProvider = { invalid: true } as any
 
       // Should throw during initialization when trying to extract address
-      await expect(tbtc.initializeCrossChain("StarkNet", invalidProvider)).to.be
-        .rejectedWith("Could not extract wallet address from signer")
+      await expect(
+        tbtc.initializeCrossChain("StarkNet", invalidProvider)
+      ).to.be.rejectedWith("Could not extract wallet address from signer")
     })
   })
 
@@ -297,15 +298,15 @@ describe("StarkNet Provider Integration", () => {
           "0x04a909347487d909a6629b56880e6e03ad3859e772048c4481f3fba88ea02c32f",
       }
       const token = new StarkNetTBTCToken(config, mockProvider as any)
-      
+
       // Replace the contract with a mock that handles short addresses properly
       ;(token as any).contract = {
         call: async (functionName: string, params: any[]) => {
           called = true
           return ["1000000"] // Return balance as array
-        }
+        },
       }
-      
+
       // Use a shorter address that won't trigger the long string issue
       const address = StarkNetAddress.from("0xabc")
 

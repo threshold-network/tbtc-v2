@@ -87,7 +87,7 @@ export class StarkNetTBTCToken implements L2TBTCToken {
 
       // Result should be an array, take the first element
       const balance = Array.isArray(result) ? result[0] : result
-      
+
       // Convert the result to BigNumber
       return BigNumber.from(balance.toString())
     } catch (error) {

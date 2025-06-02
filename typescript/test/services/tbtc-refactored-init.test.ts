@@ -37,7 +37,7 @@ describe("Refactored initializeCrossChain", () => {
     })
 
     // Stub console.warn
-    consoleWarnStub = (console.warn as any)
+    consoleWarnStub = console.warn as any
     console.warn = () => {}
   })
 
@@ -59,7 +59,11 @@ describe("Refactored initializeCrossChain", () => {
 
     it("should NOT store _l2Signer property", async () => {
       // Act
-      await tbtc.initializeCrossChain("StarkNet", ethereumSigner, starknetProvider)
+      await tbtc.initializeCrossChain(
+        "StarkNet",
+        ethereumSigner,
+        starknetProvider
+      )
 
       // Assert - should NOT have _l2Signer property in two-parameter mode
       expect((tbtc as any)._l2Signer).to.be.undefined
@@ -67,7 +71,11 @@ describe("Refactored initializeCrossChain", () => {
 
     it("should pass provider directly to loader", async () => {
       // Act
-      await tbtc.initializeCrossChain("StarkNet", ethereumSigner, starknetProvider)
+      await tbtc.initializeCrossChain(
+        "StarkNet",
+        ethereumSigner,
+        starknetProvider
+      )
 
       // Assert - No dynamic imports or type checking needed
       const contracts = tbtc.crossChainContracts("StarkNet")
@@ -78,14 +86,18 @@ describe("Refactored initializeCrossChain", () => {
       // Act & Assert
       await expect(
         tbtc.initializeCrossChain("StarkNet", ethereumSigner, null as any)
-      ).to.be.rejectedWith("StarkNet provider is required for two-parameter initialization")
+      ).to.be.rejectedWith(
+        "StarkNet provider is required for two-parameter initialization"
+      )
     })
   })
 
   describe("backward compatibility", () => {
     it("should still support single parameter pattern with deprecation warning", async () => {
       let warnMessage = ""
-      console.warn = (msg: string) => { warnMessage = msg }
+      console.warn = (msg: string) => {
+        warnMessage = msg
+      }
 
       // Act - old pattern with provider as second parameter
       await tbtc.initializeCrossChain("StarkNet", starknetProvider as any)
@@ -100,9 +112,8 @@ describe("Refactored initializeCrossChain", () => {
 
     it("should support old pattern with Ethereum signer", async () => {
       // Act - old pattern with Ethereum signer
-      await expect(
-        tbtc.initializeCrossChain("StarkNet", ethereumSigner)
-      ).not.to.be.rejected
+      await expect(tbtc.initializeCrossChain("StarkNet", ethereumSigner)).not.to
+        .be.rejected
 
       // Should initialize contracts
       const contracts = tbtc.crossChainContracts("StarkNet")

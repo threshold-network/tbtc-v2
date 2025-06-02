@@ -198,12 +198,12 @@ export class TBTC {
 
   /**
    * Initializes cross-chain contracts for the given L2 chain.
-   * 
+   *
    * For StarkNet, use the two-parameter pattern:
    * ```
    * await tbtc.initializeCrossChain("StarkNet", ethereumSigner, starknetProvider)
    * ```
-   * 
+   *
    * For other L2 chains, use the single-parameter pattern:
    * ```
    * await tbtc.initializeCrossChain("Base", ethereumSigner)
@@ -270,7 +270,9 @@ export class TBTC {
         }
         // For EVM chains, l2Provider should not be provided
         if (l2Provider !== undefined) {
-          throw new Error("Arbitrum does not support two-parameter initialization")
+          throw new Error(
+            "Arbitrum does not support two-parameter initialization"
+          )
         }
         this._l2Signer = signerOrEthereumSigner
         l2CrossChainContracts = await loadArbitrumCrossChainContracts(
@@ -293,9 +295,11 @@ export class TBTC {
           if (!signerOrEthereumSigner) {
             throw new Error("Ethereum signer is required")
           }
-          
+
           if (!l2Provider) {
-            throw new Error("StarkNet provider is required for two-parameter initialization")
+            throw new Error(
+              "StarkNet provider is required for two-parameter initialization"
+            )
           }
 
           // Extract wallet address from Ethereum signer
@@ -303,7 +307,9 @@ export class TBTC {
             signerOrEthereumSigner as EthereumSigner
           )
           if (!walletAddress) {
-            throw new Error("Could not extract wallet address from Ethereum signer")
+            throw new Error(
+              "Could not extract wallet address from Ethereum signer"
+            )
           }
           walletAddressHex = walletAddress.identifierHex
           starknetProvider = l2Provider
@@ -313,7 +319,7 @@ export class TBTC {
           // Single-parameter pattern (deprecated)
           console.warn(
             "Single-parameter initializeCrossChain for StarkNet is deprecated. " +
-            "Please use: initializeCrossChain('StarkNet', ethereumSigner, starknetProvider)"
+              "Please use: initializeCrossChain('StarkNet', ethereumSigner, starknetProvider)"
           )
 
           // Store for backward compatibility
@@ -322,10 +328,12 @@ export class TBTC {
           // Legacy type detection logic
           try {
             // Check if it's a StarkNet Account (has address property)
-            if (signerOrEthereumSigner && 
-                typeof signerOrEthereumSigner === "object" && 
-                "address" in signerOrEthereumSigner &&
-                typeof (signerOrEthereumSigner as any).address === "string") {
+            if (
+              signerOrEthereumSigner &&
+              typeof signerOrEthereumSigner === "object" &&
+              "address" in signerOrEthereumSigner &&
+              typeof (signerOrEthereumSigner as any).address === "string"
+            ) {
               walletAddressHex = (signerOrEthereumSigner as any).address
               starknetProvider = signerOrEthereumSigner as StarkNetProvider
             } else if (
