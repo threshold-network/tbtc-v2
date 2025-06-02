@@ -35,6 +35,7 @@
     "electrum-client-js": "git+https://github.com/keep-network/electrum-client-js.git#v0.1.1",
     "ethers": "^5.5.2",
     "p-timeout": "^4.1.0",
+    "starknet": "^6.24.1",
     "url-parse": "^1.5.10",
     "wif": "2.0.6"
   },

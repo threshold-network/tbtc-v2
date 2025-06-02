@@ -108,3 +108,24 @@ export async function testInvalidAddresses(
     }
   }
 }
+
+/**
+ * Creates a mock StarkNet provider for testing
+ * @returns Mock provider object
+ */
+export function createMockProvider(): any {
+  return {
+    // Mock Provider methods
+    getChainId: () => Promise.resolve("SN_MAIN"),
+    callContract: () => Promise.resolve({ result: ["0x123"] }),
+    getBalance: () => Promise.resolve({ balance: 1000n }),
+    
+    // Mock Account methods (some providers are Accounts)
+    address: "0x123456789abcdef",
+    signer: {},
+    
+    // Provider identification
+    provider: "mock-provider",
+    nodeUrl: "https://mock-starknet-node.com",
+  }
+}
