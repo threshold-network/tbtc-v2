@@ -28,6 +28,7 @@
     "@bitcoinerlab/secp256k1": "^1.0.5",
     "@keep-network/ecdsa": "development",
     "@keep-network/tbtc-v2": "development",
+    "axios": "^1.9.0",
     "bignumber.js": "^9.1.2",
     "bitcoinjs-lib": "^6.1.5",
     "bufio": "^1.0.6",

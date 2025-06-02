@@ -8,6 +8,9 @@ import { DepositReceipt } from "../contracts/bridge"
 import { StarkNetAddress } from "./address"
 import { StarkNetCrossChainExtraDataEncoder } from "./extra-data-encoder"
 import { Hex } from "../utils"
+import { packRevealDepositParameters } from "../ethereum"
+import { TransactionReceipt } from "@ethersproject/providers"
+import axios from "axios"
 
 /**
  * Implementation of the L2BitcoinDepositor interface for StarkNet.
@@ -69,19 +72,60 @@ export class StarkNetDepositorInterface implements L2BitcoinDepositor {
   }
 
   /**
-   * Initializes a cross-chain deposit.
-   * @throws Always throws since StarkNet deposits must go through L1.
+   * Initializes a cross-chain deposit by calling the external relayer service.
+   * 
+   * This method calls the external service at `http://relayer.tbtcscan.com/api/reveal`
+   * to trigger the deposit transaction via a relayer off-chain process.
+   * It returns the transaction hash as a Hex.
+   * 
+   * @param depositTx - The Bitcoin transaction data
+   * @param depositOutputIndex - The output index of the deposit
+   * @param deposit - The deposit receipt containing all deposit parameters
+   * @param vault - Optional vault address
+   * @returns The transaction hash from the relayer response
+   * @throws Error if extra data is missing or relayer returns unexpected response
    */
   // eslint-disable-next-line valid-jsdoc
   async initializeDeposit(
-    _depositTx: BitcoinRawTxVectors,
-    _depositOutputIndex: number,
-    _deposit: DepositReceipt,
-    _vault?: ChainIdentifier
+    depositTx: BitcoinRawTxVectors,
+    depositOutputIndex: number,
+    deposit: DepositReceipt,
+    vault?: ChainIdentifier
   ): Promise<Hex> {
-    throw new Error(
-      "Cannot initialize deposit via StarkNet interface. " +
-        "Use L1 StarkNet Bitcoin Depositor instead."
+    const { fundingTx, reveal, extraData } = packRevealDepositParameters(
+      depositTx,
+      depositOutputIndex,
+      deposit,
+      vault
     )
+
+    if (!extraData) {
+      throw new Error("Extra data is required.")
+    }
+
+    try {
+      const response = await axios.post(
+        "http://relayer.tbtcscan.com/api/reveal",
+        {
+          fundingTx,
+          reveal,
+          l2DepositOwner: extraData,
+          l2Sender: `0x${this.#depositOwner?.identifierHex}`,
+        }
+      )
+
+      const { data } = response
+      if (!data.receipt) {
+        throw new Error(
+          `Unexpected response from /api/reveal: ${JSON.stringify(data)}`
+        )
+      }
+
+      return Hex.from(data.receipt.transactionHash)
+    } catch (error) {
+      // Re-throw with context
+      console.error("Error calling /api/reveal endpoint:", error)
+      throw error
+    }
   }
 }
