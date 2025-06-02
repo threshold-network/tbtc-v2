@@ -46,6 +46,7 @@
 - [Spv](classes/Spv.md)
 - [StarkNetAddress](classes/StarkNetAddress.md)
 - [StarkNetCrossChainExtraDataEncoder](classes/StarkNetCrossChainExtraDataEncoder.md)
+- [StarkNetDepositor](classes/StarkNetDepositor.md)
 - [StarkNetDepositorInterface](classes/StarkNetDepositorInterface.md)
 - [StarkNetTBTCToken](classes/StarkNetTBTCToken.md)
 - [TBTC](classes/TBTC.md)
@@ -79,6 +80,8 @@
 - [RedemptionRequest](interfaces/RedemptionRequest.md)
 - [RedemptionWallet](interfaces/RedemptionWallet.md)
 - [SerializableWallet](interfaces/SerializableWallet.md)
+- [StarkNetDepositorConfig](interfaces/StarkNetDepositorConfig.md)
+- [StarkNetTBTCTokenConfig](interfaces/StarkNetTBTCTokenConfig.md)
 - [TBTCToken](interfaces/TBTCToken.md)
 - [TBTCVault](interfaces/TBTCVault.md)
 - [ValidRedemptionWallet](interfaces/ValidRedemptionWallet.md)
@@ -110,6 +113,7 @@
 - [OptimisticMintingRequestedEvent](README.md#optimisticmintingrequestedevent)
 - [RedemptionRequestedEvent](README.md#redemptionrequestedevent)
 - [RetrierFn](README.md#retrierfn)
+- [StarkNetProvider](README.md#starknetprovider)
 - [TBTCContracts](README.md#tbtccontracts)
 
 ### Variables
@@ -124,6 +128,7 @@
 - [BitcoinScriptUtils](README.md#bitcoinscriptutils)
 - [BitcoinTargetConverter](README.md#bitcointargetconverter)
 - [ChainMappings](README.md#chainmappings)
+- [tbtcABI](README.md#tbtcabi)
 
 ### Functions
 
@@ -515,6 +520,22 @@ ___
 
 ___
 
+### StarkNetProvider
+
+Ƭ **StarkNetProvider**: `Provider` \| `Account`
+
+Represents a StarkNet provider that can be either a Provider or Account instance.
+This follows the pattern similar to Solana's Connection type.
+
+- Provider: For read-only operations (e.g., balance queries)
+- Account: For write operations (e.g., transactions)
+
+#### Defined in
+
+[lib/starknet/types.ts:10](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/types.ts#L10)
+
+___
+
 ### TBTCContracts
 
 Ƭ **TBTCContracts**: `Object`
@@ -722,6 +743,19 @@ List of chain mappings supported by tBTC v2 contracts.
 #### Defined in
 
 [lib/contracts/chain.ts:68](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L68)
+
+___
+
+### tbtcABI
+
+• `Const` **tbtcABI**: `StarkNetABIEntry`[]
+
+tBTC token ABI for StarkNet
+Includes standard ERC20 functions needed for tBTC operations
+
+#### Defined in
+
+[lib/starknet/abi.ts:26](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/abi.ts#L26)
 
 ## Functions
 
@@ -1058,17 +1092,18 @@ ___
 
 ### loadStarkNetCrossChainContracts
 
-▸ **loadStarkNetCrossChainContracts**(`walletAddress`): `Promise`\<[`L2CrossChainContracts`](README.md#l2crosschaincontracts)\>
+▸ **loadStarkNetCrossChainContracts**(`walletAddress`, `provider?`, `chainId?`): `Promise`\<[`L2CrossChainContracts`](README.md#l2crosschaincontracts)\>
 
 Loads StarkNet implementation of tBTC cross-chain contracts.
-Since StarkNet doesn't have L2 contracts, this returns interface-only
-implementations that throw errors for unsupported operations.
+Now supports balance queries with deployed tBTC contracts.
 
 #### Parameters
 
-| Name | Type | Description |
-| :------ | :------ | :------ |
-| `walletAddress` | `string` | The StarkNet wallet address to use as deposit owner |
+| Name | Type | Default value | Description |
+| :------ | :------ | :------ | :------ |
+| `walletAddress` | `string` | `undefined` | The StarkNet wallet address to use as deposit owner |
+| `provider?` | [`StarkNetProvider`](README.md#starknetprovider) | `undefined` | Optional StarkNet provider for balance queries |
+| `chainId` | `string` | `Chains.StarkNet.Sepolia` | Optional chain ID (defaults to Sepolia) |
 
 #### Returns
 
@@ -1078,7 +1113,7 @@ Handle to the contracts
 
 #### Defined in
 
-[lib/starknet/index.ts:19](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L19)
+[lib/starknet/index.ts:38](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L38)
 
 ___
 

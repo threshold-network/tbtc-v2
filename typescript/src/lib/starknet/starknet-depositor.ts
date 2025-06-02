@@ -21,7 +21,7 @@ export interface StarkNetDepositorConfig {
  * Full implementation of the L2BitcoinDepositor interface for StarkNet.
  * This implementation uses a StarkNet provider for operations and supports
  * deposit initialization through the relayer endpoint.
- * 
+ *
  * Unlike other L2 chains, StarkNet deposits are primarily handled through L1
  * contracts, with this depositor serving as a provider-aware interface for
  * future L2 functionality and relayer integration.
@@ -48,7 +48,7 @@ export class StarkNetDepositor implements L2BitcoinDepositor {
     if (!provider) {
       throw new Error("Provider is required for StarkNet depositor")
     }
-    
+
     this.#config = Object.freeze({ ...config })
     this.#chainName = chainName
     this.#provider = provider
@@ -107,7 +107,7 @@ export class StarkNetDepositor implements L2BitcoinDepositor {
     if (!(depositOwner instanceof StarkNetAddress)) {
       throw new Error("Deposit owner must be a StarkNet address")
     }
-    
+
     this.#depositOwner = depositOwner
   }
 

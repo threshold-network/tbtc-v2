@@ -1,12 +1,8 @@
 # Class: StarkNetTBTCToken
 
 Implementation of the L2TBTCToken interface for StarkNet.
-Since StarkNet doesn't have L2 contracts, this is an interface-only
-implementation that throws errors for unsupported operations.
-
-This class is used to maintain compatibility with the cross-chain
-contracts structure. To check tBTC balances on StarkNet, users
-should query the StarkNet chain directly.
+This implementation now supports balance queries using deployed
+tBTC contracts on StarkNet.
 
 ## Implements
 
@@ -18,20 +14,76 @@ should query the StarkNet chain directly.
 
 - [constructor](StarkNetTBTCToken.md#constructor)
 
+### Properties
+
+- [config](StarkNetTBTCToken.md#config)
+- [contract](StarkNetTBTCToken.md#contract)
+- [provider](StarkNetTBTCToken.md#provider)
+
 ### Methods
 
 - [balanceOf](StarkNetTBTCToken.md#balanceof)
+- [getBalance](StarkNetTBTCToken.md#getbalance)
 - [getChainIdentifier](StarkNetTBTCToken.md#getchainidentifier)
+- [getConfig](StarkNetTBTCToken.md#getconfig)
+- [totalSupply](StarkNetTBTCToken.md#totalsupply)
 
 ## Constructors
 
 ### constructor
 
-• **new StarkNetTBTCToken**(): [`StarkNetTBTCToken`](StarkNetTBTCToken.md)
+• **new StarkNetTBTCToken**(`config`, `provider`): [`StarkNetTBTCToken`](StarkNetTBTCToken.md)
+
+Creates a new StarkNetTBTCToken instance.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `config` | [`StarkNetTBTCTokenConfig`](../interfaces/StarkNetTBTCTokenConfig.md) | Configuration containing chainId and token contract address |
+| `provider` | [`StarkNetProvider`](../README.md#starknetprovider) | StarkNet provider for blockchain interaction |
 
 #### Returns
 
 [`StarkNetTBTCToken`](StarkNetTBTCToken.md)
+
+**`Throws`**
+
+Error if provider is not provided or config is invalid
+
+#### Defined in
+
+[lib/starknet/starknet-tbtc-token.ts:32](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-tbtc-token.ts#L32)
+
+## Properties
+
+### config
+
+• `Private` `Readonly` **config**: [`StarkNetTBTCTokenConfig`](../interfaces/StarkNetTBTCTokenConfig.md)
+
+#### Defined in
+
+[lib/starknet/starknet-tbtc-token.ts:22](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-tbtc-token.ts#L22)
+
+___
+
+### contract
+
+• `Private` `Readonly` **contract**: `Contract`
+
+#### Defined in
+
+[lib/starknet/starknet-tbtc-token.ts:24](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-tbtc-token.ts#L24)
+
+___
+
+### provider
+
+• `Private` `Readonly` **provider**: [`StarkNetProvider`](../README.md#starknetprovider)
+
+#### Defined in
+
+[lib/starknet/starknet-tbtc-token.ts:23](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-tbtc-token.ts#L23)
 
 ## Methods
 
@@ -51,9 +103,7 @@ Returns the balance of the given identifier.
 
 `Promise`\<`BigNumber`\>
 
-**`Throws`**
-
-Always throws since balance queries must be done on StarkNet directly.
+The balance as a BigNumber
 
 #### Implementation of
 
@@ -61,7 +111,35 @@ Always throws since balance queries must be done on StarkNet directly.
 
 #### Defined in
 
-[lib/starknet/starknet-tbtc-token.ts:33](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-tbtc-token.ts#L33)
+[lib/starknet/starknet-tbtc-token.ts:63](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-tbtc-token.ts#L63)
+
+___
+
+### getBalance
+
+▸ **getBalance**(`identifier`): `Promise`\<`BigNumber`\>
+
+Gets the balance for a StarkNet address.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `identifier` | [`ChainIdentifier`](../interfaces/ChainIdentifier.md) | Must be a StarkNetAddress instance |
+
+#### Returns
+
+`Promise`\<`BigNumber`\>
+
+The balance as a BigNumber
+
+**`Throws`**
+
+Error if address is not a StarkNetAddress
+
+#### Defined in
+
+[lib/starknet/starknet-tbtc-token.ts:76](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-tbtc-token.ts#L76)
 
 ___
 
@@ -77,7 +155,7 @@ Gets the chain-specific identifier of this contract.
 
 **`Throws`**
 
-Always throws since StarkNet doesn't have an L2 contract.
+Always throws since StarkNet doesn't have an L2 contract identifier.
 
 #### Implementation of
 
@@ -85,4 +163,50 @@ Always throws since StarkNet doesn't have an L2 contract.
 
 #### Defined in
 
-[lib/starknet/starknet-tbtc-token.ts:20](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-tbtc-token.ts#L20)
+[lib/starknet/starknet-tbtc-token.ts:51](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-tbtc-token.ts#L51)
+
+___
+
+### getConfig
+
+▸ **getConfig**(): [`StarkNetTBTCTokenConfig`](../interfaces/StarkNetTBTCTokenConfig.md)
+
+Returns the configuration for this token instance.
+
+#### Returns
+
+[`StarkNetTBTCTokenConfig`](../interfaces/StarkNetTBTCTokenConfig.md)
+
+The configuration object
+
+#### Defined in
+
+[lib/starknet/starknet-tbtc-token.ts:92](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-tbtc-token.ts#L92)
+
+___
+
+### totalSupply
+
+▸ **totalSupply**(`_identifier`): `Promise`\<`BigNumber`\>
+
+Returns the total supply of the token.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `_identifier` | [`ChainIdentifier`](../interfaces/ChainIdentifier.md) | Not used for total supply query |
+
+#### Returns
+
+`Promise`\<`BigNumber`\>
+
+The total supply as a BigNumber
+
+**`Throws`**
+
+Not implemented yet
+
+#### Defined in
+
+[lib/starknet/starknet-tbtc-token.ts:102](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-tbtc-token.ts#L102)

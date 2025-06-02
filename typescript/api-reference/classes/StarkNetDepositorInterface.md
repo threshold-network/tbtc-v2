@@ -49,7 +49,7 @@ the L1 Bitcoin depositor.
 
 #### Defined in
 
-[lib/starknet/starknet-depositor-interface.ts:23](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor-interface.ts#L23)
+[lib/starknet/starknet-depositor-interface.ts:25](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor-interface.ts#L25)
 
 ___
 
@@ -59,7 +59,7 @@ ___
 
 #### Defined in
 
-[lib/starknet/starknet-depositor-interface.ts:22](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor-interface.ts#L22)
+[lib/starknet/starknet-depositor-interface.ts:24](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor-interface.ts#L24)
 
 ## Methods
 
@@ -81,7 +81,7 @@ The StarkNetCrossChainExtraDataEncoder instance.
 
 #### Defined in
 
-[lib/starknet/starknet-depositor-interface.ts:67](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor-interface.ts#L67)
+[lib/starknet/starknet-depositor-interface.ts:69](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor-interface.ts#L69)
 
 ___
 
@@ -105,7 +105,7 @@ Always throws since StarkNet doesn't have an L2 contract.
 
 #### Defined in
 
-[lib/starknet/starknet-depositor-interface.ts:30](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor-interface.ts#L30)
+[lib/starknet/starknet-depositor-interface.ts:32](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor-interface.ts#L32)
 
 ___
 
@@ -127,32 +127,38 @@ The StarkNet address set as deposit owner, or undefined if not set.
 
 #### Defined in
 
-[lib/starknet/starknet-depositor-interface.ts:41](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor-interface.ts#L41)
+[lib/starknet/starknet-depositor-interface.ts:43](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor-interface.ts#L43)
 
 ___
 
 ### initializeDeposit
 
-▸ **initializeDeposit**(`_depositTx`, `_depositOutputIndex`, `_deposit`, `_vault?`): `Promise`\<[`Hex`](Hex.md)\>
+▸ **initializeDeposit**(`depositTx`, `depositOutputIndex`, `deposit`, `vault?`): `Promise`\<[`Hex`](Hex.md)\>
 
-Initializes a cross-chain deposit.
+Initializes a cross-chain deposit by calling the external relayer service.
+
+This method calls the external service at `http://relayer.tbtcscan.com/api/reveal`
+to trigger the deposit transaction via a relayer off-chain process.
+It returns the transaction hash as a Hex.
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `_depositTx` | [`BitcoinRawTxVectors`](../interfaces/BitcoinRawTxVectors.md) |
-| `_depositOutputIndex` | `number` |
-| `_deposit` | [`DepositReceipt`](../interfaces/DepositReceipt.md) |
-| `_vault?` | [`ChainIdentifier`](../interfaces/ChainIdentifier.md) |
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `depositTx` | [`BitcoinRawTxVectors`](../interfaces/BitcoinRawTxVectors.md) | The Bitcoin transaction data |
+| `depositOutputIndex` | `number` | The output index of the deposit |
+| `deposit` | [`DepositReceipt`](../interfaces/DepositReceipt.md) | The deposit receipt containing all deposit parameters |
+| `vault?` | [`ChainIdentifier`](../interfaces/ChainIdentifier.md) | Optional vault address |
 
 #### Returns
 
 `Promise`\<[`Hex`](Hex.md)\>
 
+The transaction hash from the relayer response
+
 **`Throws`**
 
-Always throws since StarkNet deposits must go through L1.
+Error if extra data is missing or relayer returns unexpected response
 
 #### Implementation of
 
@@ -160,7 +166,7 @@ Always throws since StarkNet deposits must go through L1.
 
 #### Defined in
 
-[lib/starknet/starknet-depositor-interface.ts:76](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor-interface.ts#L76)
+[lib/starknet/starknet-depositor-interface.ts:88](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor-interface.ts#L88)
 
 ___
 
@@ -190,4 +196,4 @@ Error if the deposit owner is not a StarkNetAddress and not undefined/null.
 
 #### Defined in
 
-[lib/starknet/starknet-depositor-interface.ts:51](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor-interface.ts#L51)
+[lib/starknet/starknet-depositor-interface.ts:53](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor-interface.ts#L53)

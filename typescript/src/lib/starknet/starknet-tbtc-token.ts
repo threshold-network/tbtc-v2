@@ -33,11 +33,11 @@ export class StarkNetTBTCToken implements L2TBTCToken {
     if (!provider) {
       throw new Error("Provider is required for balance queries")
     }
-    
+
     if (!config || !config.tokenContract) {
       throw new Error("Token contract address is required")
     }
-    
+
     this.config = config
     this.provider = provider
     this.contract = new Contract(tbtcABI, config.tokenContract, provider)
@@ -80,7 +80,7 @@ export class StarkNetTBTCToken implements L2TBTCToken {
 
     // Call the balanceOf function on the contract
     const result = await this.contract.balanceOf(identifier.identifierHex)
-    
+
     // Convert the result to BigNumber
     return BigNumber.from(result.toString())
   }
@@ -95,7 +95,7 @@ export class StarkNetTBTCToken implements L2TBTCToken {
 
   /**
    * Returns the total supply of the token.
-   * @param identifier Not used for total supply query
+   * @param _identifier Not used for total supply query
    * @returns The total supply as a BigNumber
    * @throws Not implemented yet
    */

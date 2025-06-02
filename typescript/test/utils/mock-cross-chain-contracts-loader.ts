@@ -26,7 +26,8 @@ class MockL1BitcoinDepositor implements L1BitcoinDepositor {
   extraDataEncoder(): CrossChainExtraDataEncoder {
     return {
       encodeDepositOwner: (depositOwner: ChainIdentifier) => Hex.from("0x"),
-      decodeDepositOwner: (extraData: Hex) => EthereumAddress.from("0x0000000000000000000000000000000000000000"),
+      decodeDepositOwner: (extraData: Hex) =>
+        EthereumAddress.from("0x0000000000000000000000000000000000000000"),
     }
   }
 
@@ -36,11 +37,15 @@ class MockL1BitcoinDepositor implements L1BitcoinDepositor {
     deposit: DepositReceipt,
     vault?: ChainIdentifier
   ): Promise<Hex> {
-    return Hex.from("0x0000000000000000000000000000000000000000000000000000000000000000")
+    return Hex.from(
+      "0x0000000000000000000000000000000000000000000000000000000000000000"
+    )
   }
 }
 
-export class MockCrossChainContractsLoader implements CrossChainContractsLoader {
+export class MockCrossChainContractsLoader
+  implements CrossChainContractsLoader
+{
   loadChainMapping(): ChainMapping | undefined {
     return {
       ethereum: Chains.Ethereum.Sepolia,

@@ -29,20 +29,19 @@ describe("TBTC - StarkNet Provider Support", () => {
   describe("initializeCrossChain with StarkNet provider", () => {
     it("should accept StarkNet RpcProvider", async () => {
       // Arrange
-      const starknetProvider = new RpcProvider({ 
-        nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6" 
+      const starknetProvider = new RpcProvider({
+        nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
       })
 
       // Act & Assert - should not throw
-      await expect(
-        tbtc.initializeCrossChain("StarkNet", starknetProvider)
-      ).not.to.be.rejected
+      await expect(tbtc.initializeCrossChain("StarkNet", starknetProvider)).not
+        .to.be.rejected
     })
 
     it("should accept StarkNet Account", async () => {
       // Arrange
-      const provider = new RpcProvider({ 
-        nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6" 
+      const provider = new RpcProvider({
+        nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
       })
       const starknetAccount = new Account(
         provider,
@@ -51,9 +50,8 @@ describe("TBTC - StarkNet Provider Support", () => {
       )
 
       // Act & Assert - should not throw
-      await expect(
-        tbtc.initializeCrossChain("StarkNet", starknetAccount)
-      ).not.to.be.rejected
+      await expect(tbtc.initializeCrossChain("StarkNet", starknetAccount)).not
+        .to.be.rejected
     })
 
     it("should maintain backward compatibility with Ethereum signer", async () => {
@@ -62,9 +60,8 @@ describe("TBTC - StarkNet Provider Support", () => {
       const mockEthereumSigner = Wallet.createRandom()
 
       // Act & Assert - should not throw and extract address
-      await expect(
-        tbtc.initializeCrossChain("StarkNet", mockEthereumSigner)
-      ).not.to.be.rejected
+      await expect(tbtc.initializeCrossChain("StarkNet", mockEthereumSigner))
+        .not.to.be.rejected
 
       // Verify cross-chain contracts were initialized
       const contracts = tbtc.crossChainContracts("StarkNet")
@@ -73,8 +70,8 @@ describe("TBTC - StarkNet Provider Support", () => {
 
     it("should store StarkNet provider in _l2Signer property", async () => {
       // Arrange
-      const starknetProvider = new RpcProvider({ 
-        nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6" 
+      const starknetProvider = new RpcProvider({
+        nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
       })
 
       // Act
@@ -89,15 +86,12 @@ describe("TBTC - StarkNet Provider Support", () => {
 
     it("should extract wallet address from StarkNet Account", async () => {
       // Arrange
-      const provider = new RpcProvider({ 
-        nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6" 
+      const provider = new RpcProvider({
+        nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
       })
-      const walletAddress = "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"
-      const starknetAccount = new Account(
-        provider,
-        walletAddress,
-        "0x1"
-      )
+      const walletAddress =
+        "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"
+      const starknetAccount = new Account(provider, walletAddress, "0x1")
 
       // Act
       await tbtc.initializeCrossChain("StarkNet", starknetAccount)

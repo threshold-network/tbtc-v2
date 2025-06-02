@@ -19,11 +19,7 @@ describe("StarkNetProvider Types", () => {
     it("should accept Account instance", () => {
       // Arrange
       const mockProvider = new RpcProvider({ nodeUrl: "http://localhost:5050" })
-      const mockAccount = new Account(
-        mockProvider,
-        "0x123",
-        "0x456"
-      )
+      const mockAccount = new Account(mockProvider, "0x123", "0x456")
 
       // Act
       const provider: StarkNetProvider = mockAccount
@@ -50,11 +46,7 @@ describe("StarkNetProvider Types", () => {
     it("should correctly identify Account type", () => {
       // Arrange
       const mockProvider = new RpcProvider({ nodeUrl: "http://localhost:5050" })
-      const mockAccount = new Account(
-        mockProvider,
-        "0x123",
-        "0x456"
-      )
+      const mockAccount = new Account(mockProvider, "0x123", "0x456")
 
       // Act
       const isAccount = (obj: any): obj is Account => {
@@ -74,11 +66,7 @@ describe("StarkNetProvider Types", () => {
       }
 
       const mockProvider = new RpcProvider({ nodeUrl: "http://localhost:5050" })
-      const mockAccount = new Account(
-        mockProvider,
-        "0x123",
-        "0x456"
-      )
+      const mockAccount = new Account(mockProvider, "0x123", "0x456")
 
       // Act & Assert
       expect(acceptProvider(mockProvider)).to.be.true

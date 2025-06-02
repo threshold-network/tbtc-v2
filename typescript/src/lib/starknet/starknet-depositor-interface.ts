@@ -9,7 +9,6 @@ import { StarkNetAddress } from "./address"
 import { StarkNetCrossChainExtraDataEncoder } from "./extra-data-encoder"
 import { Hex } from "../utils"
 import { packRevealDepositParameters } from "../ethereum"
-import { TransactionReceipt } from "@ethersproject/providers"
 import axios from "axios"
 
 /**
@@ -73,11 +72,11 @@ export class StarkNetDepositorInterface implements L2BitcoinDepositor {
 
   /**
    * Initializes a cross-chain deposit by calling the external relayer service.
-   * 
+   *
    * This method calls the external service at `http://relayer.tbtcscan.com/api/reveal`
    * to trigger the deposit transaction via a relayer off-chain process.
    * It returns the transaction hash as a Hex.
-   * 
+   *
    * @param depositTx - The Bitcoin transaction data
    * @param depositOutputIndex - The output index of the deposit
    * @param deposit - The deposit receipt containing all deposit parameters

@@ -13,7 +13,8 @@ describe("StarkNetTBTCToken", () => {
         // Arrange
         const config = {
           chainId: "0x534e5f5345504f4c4941",
-          tokenContract: "0x04e3bc49f130f9d0379082c24efd397a0eddfccdc6023a2f02a74d8527140276"
+          tokenContract:
+            "0x04e3bc49f130f9d0379082c24efd397a0eddfccdc6023a2f02a74d8527140276",
         }
         const mockProvider = { nodeUrl: "test" }
         token = new StarkNetTBTCToken(config, mockProvider as any)
@@ -26,7 +27,8 @@ describe("StarkNetTBTCToken", () => {
         // Arrange
         const config = {
           chainId: "0x534e5f5345504f4c4941",
-          tokenContract: "0x04e3bc49f130f9d0379082c24efd397a0eddfccdc6023a2f02a74d8527140276"
+          tokenContract:
+            "0x04e3bc49f130f9d0379082c24efd397a0eddfccdc6023a2f02a74d8527140276",
         }
         const mockProvider = { nodeUrl: "test" }
         token = new StarkNetTBTCToken(config, mockProvider as any)
@@ -47,7 +49,8 @@ describe("StarkNetTBTCToken", () => {
         // Arrange
         const config = {
           chainId: "0x534e5f5345504f4c4941",
-          tokenContract: "0x04e3bc49f130f9d0379082c24efd397a0eddfccdc6023a2f02a74d8527140276"
+          tokenContract:
+            "0x04e3bc49f130f9d0379082c24efd397a0eddfccdc6023a2f02a74d8527140276",
         }
         const mockProvider = { nodeUrl: "test" }
         token = new StarkNetTBTCToken(config, mockProvider as any)
@@ -66,7 +69,8 @@ describe("StarkNetTBTCToken", () => {
         // Arrange
         const config = {
           chainId: "0x534e5f5345504f4c4941",
-          tokenContract: "0x04e3bc49f130f9d0379082c24efd397a0eddfccdc6023a2f02a74d8527140276"
+          tokenContract:
+            "0x04e3bc49f130f9d0379082c24efd397a0eddfccdc6023a2f02a74d8527140276",
         }
         const mockProvider = { nodeUrl: "test" }
         token = new StarkNetTBTCToken(config, mockProvider as any)
@@ -86,10 +90,11 @@ describe("StarkNetTBTCToken", () => {
         // Arrange
         const config = {
           chainId: "0x534e5f5345504f4c4941",
-          tokenContract: "0x04e3bc49f130f9d0379082c24efd397a0eddfccdc6023a2f02a74d8527140276"
+          tokenContract:
+            "0x04e3bc49f130f9d0379082c24efd397a0eddfccdc6023a2f02a74d8527140276",
         }
         const mockProvider = {
-          nodeUrl: "https://starknet-testnet.example.com"
+          nodeUrl: "https://starknet-testnet.example.com",
         }
 
         // Act & Assert - This will fail as constructor doesn't accept these parameters yet
@@ -105,13 +110,14 @@ describe("StarkNetTBTCToken", () => {
         // Arrange
         const config = {
           chainId: "0x534e5f5345504f4c4941",
-          tokenContract: "0x04e3bc49f130f9d0379082c24efd397a0eddfccdc6023a2f02a74d8527140276"
+          tokenContract:
+            "0x04e3bc49f130f9d0379082c24efd397a0eddfccdc6023a2f02a74d8527140276",
         }
 
         // Act & Assert - This will fail as constructor doesn't validate provider yet
-        expect(() => new (StarkNetTBTCToken as any)(config, undefined)).to.throw(
-          "Provider is required for balance queries"
-        )
+        expect(
+          () => new (StarkNetTBTCToken as any)(config, undefined)
+        ).to.throw("Provider is required for balance queries")
       })
 
       it("should require token contract address", () => {
@@ -119,13 +125,13 @@ describe("StarkNetTBTCToken", () => {
         const mockProvider = { nodeUrl: "test" }
         const invalidConfig = {
           chainId: "0x534e5f5345504f4c4941",
-          tokenContract: "" // Empty contract address
+          tokenContract: "", // Empty contract address
         }
 
         // Act & Assert
-        expect(() => new StarkNetTBTCToken(invalidConfig, mockProvider as any)).to.throw(
-          "Token contract address is required"
-        )
+        expect(
+          () => new StarkNetTBTCToken(invalidConfig, mockProvider as any)
+        ).to.throw("Token contract address is required")
       })
     })
 
@@ -134,7 +140,8 @@ describe("StarkNetTBTCToken", () => {
         // Arrange
         const config = {
           chainId: "0x534e5f5345504f4c4941",
-          tokenContract: "0x04e3bc49f130f9d0379082c24efd397a0eddfccdc6023a2f02a74d8527140276"
+          tokenContract:
+            "0x04e3bc49f130f9d0379082c24efd397a0eddfccdc6023a2f02a74d8527140276",
         }
         const mockProvider = { nodeUrl: "test" }
 
@@ -154,7 +161,8 @@ describe("StarkNetTBTCToken", () => {
     let token: StarkNetTBTCToken
     const mockConfig = {
       chainId: "0x534e5f5345504f4c4941",
-      tokenContract: "0x04e3bc49f130f9d0379082c24efd397a0eddfccdc6023a2f02a74d8527140276"
+      tokenContract:
+        "0x04e3bc49f130f9d0379082c24efd397a0eddfccdc6023a2f02a74d8527140276",
     }
     const mockProvider = { nodeUrl: "test" }
 
@@ -173,7 +181,7 @@ describe("StarkNetTBTCToken", () => {
     describe("balanceOf", () => {
       it("should throw error for unsupported operation", async () => {
         const address = StarkNetAddress.from("0x123")
-        
+
         await expect(token.balanceOf(address)).to.be.rejectedWith(
           "Token operations are not supported on StarkNet yet."
         )
@@ -181,7 +189,7 @@ describe("StarkNetTBTCToken", () => {
 
       it("should validate address type", async () => {
         const invalidAddress = { identifierHex: "not a starknet address" }
-        
+
         await expect(token.balanceOf(invalidAddress as any)).to.be.rejectedWith(
           "Address must be a StarkNet address"
         )
@@ -191,7 +199,7 @@ describe("StarkNetTBTCToken", () => {
     describe("totalSupply", () => {
       it("should throw not implemented error", async () => {
         const starknetAddress = StarkNetAddress.from("0x123")
-        
+
         await expect(token.totalSupply(starknetAddress)).to.be.rejectedWith(
           "Not implemented yet"
         )

@@ -1,6 +1,9 @@
 import { L2CrossChainContracts } from "../contracts"
 import { StarkNetDepositorInterface } from "./starknet-depositor-interface"
-import { StarkNetTBTCToken, StarkNetTBTCTokenConfig } from "./starknet-tbtc-token"
+import {
+  StarkNetTBTCToken,
+  StarkNetTBTCTokenConfig,
+} from "./starknet-tbtc-token"
 import { StarkNetAddress } from "./address"
 import { StarkNetProvider } from "./types"
 import { Chains } from "../contracts/chain"
@@ -17,8 +20,10 @@ export * from "./abi"
  * Contract addresses for deployed tBTC contracts on StarkNet
  */
 const TBTC_CONTRACT_ADDRESSES: Record<string, string> = {
-  [Chains.StarkNet.Mainnet]: "0x04a909347487d909a6629b56880e6e03ad3859e772048c4481f3fba88ea02c32f",
-  [Chains.StarkNet.Sepolia]: "0x04e3bc49f130f9d0379082c24efd397a0eddfccdc6023a2f02a74d8527140276"
+  [Chains.StarkNet.Mainnet]:
+    "0x04a909347487d909a6629b56880e6e03ad3859e772048c4481f3fba88ea02c32f",
+  [Chains.StarkNet.Sepolia]:
+    "0x04e3bc49f130f9d0379082c24efd397a0eddfccdc6023a2f02a74d8527140276",
 }
 
 /**
@@ -42,33 +47,33 @@ export async function loadStarkNetCrossChainContracts(
 
   // Create token instance based on whether provider is available
   let starkNetTbtcToken: StarkNetTBTCToken
-  
+
   if (provider) {
     // Provider available - create full implementation with balance queries
     const tokenContract = TBTC_CONTRACT_ADDRESSES[chainId]
     if (!tokenContract) {
       throw new Error(`No tBTC contract address for chain ${chainId}`)
     }
-    
+
     const config: StarkNetTBTCTokenConfig = {
       chainId,
-      tokenContract
+      tokenContract,
     }
-    
+
     starkNetTbtcToken = new StarkNetTBTCToken(config, provider)
   } else {
     // No provider - create interface-only implementation
     // This maintains backward compatibility
     const mockConfig: StarkNetTBTCTokenConfig = {
       chainId,
-      tokenContract: "0x0" // Placeholder
+      tokenContract: "0x0", // Placeholder
     }
-    
+
     // Create a mock provider that throws errors
     const mockProvider = {
-      getChainId: () => Promise.resolve(chainId)
+      getChainId: () => Promise.resolve(chainId),
     } as any
-    
+
     starkNetTbtcToken = new StarkNetTBTCToken(mockConfig, mockProvider)
   }
 

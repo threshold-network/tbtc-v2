@@ -119,11 +119,35 @@ export function createMockProvider(): any {
     getChainId: () => Promise.resolve("SN_MAIN"),
     callContract: () => Promise.resolve({ result: ["0x123"] }),
     getBalance: () => Promise.resolve({ balance: 1000n }),
-    
+
     // Mock Account methods (some providers are Accounts)
     address: "0x123456789abcdef",
     signer: {},
-    
+
+    // Provider identification
+    provider: "mock-provider",
+    nodeUrl: "https://mock-starknet-node.com",
+  }
+}
+
+/**
+ * Creates a mock StarkNet provider with sinon stubs for testing
+ * @returns Mock provider object with stubbed methods
+ */
+export function createMockStarkNetProvider(): any {
+  const sinon = require("sinon")
+  return {
+    // Mock Provider methods as stubs
+    getChainId: sinon.stub().resolves("SN_MAIN"),
+    callContract: sinon.stub().resolves({ result: ["0x123"] }),
+    getBalance: sinon.stub().resolves({ balance: 1000n }),
+    getTransactionReceipt: sinon.stub().resolves({ status: "ACCEPTED" }),
+    waitForTransaction: sinon.stub().resolves({ status: "ACCEPTED" }),
+
+    // Mock Account methods (some providers are Accounts)
+    address: "0x123456789abcdef",
+    signer: {},
+
     // Provider identification
     provider: "mock-provider",
     nodeUrl: "https://mock-starknet-node.com",

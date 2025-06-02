@@ -30,14 +30,14 @@ export const tbtcABI: StarkNetABIEntry[] = [
     inputs: [
       {
         name: "account",
-        type: "felt"
-      }
+        type: "felt",
+      },
     ],
     outputs: [
       {
-        type: "Uint256"
-      }
-    ]
+        type: "Uint256",
+      },
+    ],
   },
   {
     name: "transfer",
@@ -45,19 +45,19 @@ export const tbtcABI: StarkNetABIEntry[] = [
     inputs: [
       {
         name: "recipient",
-        type: "felt"
+        type: "felt",
       },
       {
         name: "amount",
-        type: "Uint256"
-      }
+        type: "Uint256",
+      },
     ],
     outputs: [
       {
         name: "success",
-        type: "felt"
-      }
-    ]
+        type: "felt",
+      },
+    ],
   },
   {
     name: "transferFrom",
@@ -65,23 +65,23 @@ export const tbtcABI: StarkNetABIEntry[] = [
     inputs: [
       {
         name: "sender",
-        type: "felt"
+        type: "felt",
       },
       {
         name: "recipient",
-        type: "felt"
+        type: "felt",
       },
       {
         name: "amount",
-        type: "Uint256"
-      }
+        type: "Uint256",
+      },
     ],
     outputs: [
       {
         name: "success",
-        type: "felt"
-      }
-    ]
+        type: "felt",
+      },
+    ],
   },
   {
     name: "totalSupply",
@@ -89,9 +89,9 @@ export const tbtcABI: StarkNetABIEntry[] = [
     inputs: [],
     outputs: [
       {
-        type: "Uint256"
-      }
-    ]
+        type: "Uint256",
+      },
+    ],
   },
   {
     name: "decimals",
@@ -99,8 +99,8 @@ export const tbtcABI: StarkNetABIEntry[] = [
     inputs: [],
     outputs: [
       {
-        type: "felt"
-      }
-    ]
-  }
+        type: "felt",
+      },
+    ],
+  },
 ]

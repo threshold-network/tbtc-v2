@@ -20,7 +20,10 @@ import {
 import { ElectrumClient } from "../lib/electrum"
 import { loadBaseCrossChainContracts } from "../lib/base"
 import { loadArbitrumCrossChainContracts } from "../lib/arbitrum"
-import { loadStarkNetCrossChainContracts, StarkNetProvider } from "../lib/starknet"
+import {
+  loadStarkNetCrossChainContracts,
+  StarkNetProvider,
+} from "../lib/starknet"
 
 /**
  * Entrypoint component of the tBTC v2 SDK.
@@ -264,27 +267,32 @@ export class TBTC {
         if (!starknetChainId) {
           throw new Error("StarkNet chain ID not available in chain mapping")
         }
-        
+
         // Store the L2 signer/provider for later use
         this._l2Signer = l2Signer
-        
+
         let walletAddressHex: string
-        
+
         // Check if it's a StarkNet provider (Provider or Account)
         try {
           // Try to import Account class to check instanceof
           const { Account: StarkNetAccount } = await import("starknet")
-          
+
           if (l2Signer instanceof StarkNetAccount) {
             // Extract address from Account
             walletAddressHex = l2Signer.address
-          } else if ("getChainId" in l2Signer && typeof l2Signer.getChainId === "function") {
+          } else if (
+            "getChainId" in l2Signer &&
+            typeof l2Signer.getChainId === "function"
+          ) {
             // It's a StarkNet Provider - use placeholder address
             // This will be provided when setting deposit owner
             walletAddressHex = "0x0" // Placeholder, actual address set later
           } else {
             // Backward compatibility: Extract address from Ethereum signer
-            const walletAddress = await ethereumAddressFromSigner(l2Signer as EthereumSigner)
+            const walletAddress = await ethereumAddressFromSigner(
+              l2Signer as EthereumSigner
+            )
             if (!walletAddress) {
               throw new Error("Could not extract wallet address from signer")
             }
@@ -292,20 +300,22 @@ export class TBTC {
           }
         } catch (error) {
           // If we can't determine the type, try Ethereum signer for backward compatibility
-          const walletAddress = await ethereumAddressFromSigner(l2Signer as EthereumSigner)
+          const walletAddress = await ethereumAddressFromSigner(
+            l2Signer as EthereumSigner
+          )
           if (!walletAddress) {
             throw new Error("Could not extract wallet address from signer")
           }
           walletAddressHex = walletAddress.identifierHex
         }
-        
+
         // Store the l2Signer for provider access
         this._l2Signer = l2Signer
-        
+
         // Determine chain ID based on whether we're on mainnet or testnet
         // We'll use Sepolia for now and can enhance this logic later
         const chainId = Chains.StarkNet.Sepolia
-        
+
         l2CrossChainContracts = await loadStarkNetCrossChainContracts(
           walletAddressHex,
           l2Signer as StarkNetProvider,
