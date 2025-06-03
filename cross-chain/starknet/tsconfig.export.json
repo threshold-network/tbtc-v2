@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "declaration": true,
+    "outDir": "export"
+  },
+  "include": ["./deploy_l1"],
+  "exclude": ["./test"]
+}
