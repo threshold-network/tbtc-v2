@@ -289,9 +289,51 @@ export class TBTC {
         let walletAddressHex: string
         let starknetProvider: StarkNetProvider | undefined
 
-        // Check if using two-parameter pattern
-        if (l2Provider !== undefined) {
-          // Two-parameter pattern: signerOrEthereumSigner is Ethereum signer
+        // Detect single vs two-parameter mode
+        const isSingleParameterMode = l2Provider === undefined
+
+        if (isSingleParameterMode) {
+          // Single-parameter mode: StarkNet provider only (recommended)
+          if (!signerOrEthereumSigner) {
+            throw new Error("StarkNet provider is required")
+          }
+
+          starknetProvider = signerOrEthereumSigner as StarkNetProvider
+          
+          // Extract address from StarkNet provider
+          if (
+            "address" in starknetProvider &&
+            typeof starknetProvider.address === "string"
+          ) {
+            // Account object
+            walletAddressHex = starknetProvider.address
+          } else if (
+            "account" in starknetProvider &&
+            starknetProvider.account &&
+            typeof (starknetProvider.account as any).address === "string"
+          ) {
+            // Provider with connected account
+            walletAddressHex = (starknetProvider.account as any).address
+          } else if (
+            "getChainId" in starknetProvider &&
+            typeof starknetProvider.getChainId === "function"
+          ) {
+            // Provider-only - use placeholder address for backward compatibility
+            walletAddressHex = "0x0"
+          } else {
+            // Not a valid StarkNet provider
+            throw new Error(
+              "StarkNet provider must be an Account object or Provider with connected account. " +
+              "Ensure your StarkNet wallet is connected."
+            )
+          }
+        } else {
+          // Two-parameter mode: Ethereum signer + StarkNet provider (deprecated)
+          console.warn(
+            "Two-parameter initializeCrossChain for StarkNet is deprecated. " +
+            "Please use: initializeCrossChain('StarkNet', starknetProvider)"
+          )
+          
           if (!signerOrEthereumSigner) {
             throw new Error("Ethereum signer is required")
           }
@@ -313,57 +355,6 @@ export class TBTC {
           }
           walletAddressHex = walletAddress.identifierHex
           starknetProvider = l2Provider
-
-          // Do NOT store _l2Signer in two-parameter mode
-        } else {
-          // Single-parameter pattern (deprecated)
-          console.warn(
-            "Single-parameter initializeCrossChain for StarkNet is deprecated. " +
-              "Please use: initializeCrossChain('StarkNet', ethereumSigner, starknetProvider)"
-          )
-
-          // Store for backward compatibility
-          this._l2Signer = signerOrEthereumSigner
-
-          // Legacy type detection logic
-          try {
-            // Check if it's a StarkNet Account (has address property)
-            if (
-              signerOrEthereumSigner &&
-              typeof signerOrEthereumSigner === "object" &&
-              "address" in signerOrEthereumSigner &&
-              typeof (signerOrEthereumSigner as any).address === "string"
-            ) {
-              walletAddressHex = (signerOrEthereumSigner as any).address
-              starknetProvider = signerOrEthereumSigner as StarkNetProvider
-            } else if (
-              "getChainId" in signerOrEthereumSigner &&
-              typeof signerOrEthereumSigner.getChainId === "function"
-            ) {
-              walletAddressHex = "0x0" // Placeholder for Provider-only case
-              starknetProvider = signerOrEthereumSigner as StarkNetProvider
-            } else {
-              // Ethereum signer for backward compatibility
-              const walletAddress = await ethereumAddressFromSigner(
-                signerOrEthereumSigner as EthereumSigner
-              )
-              if (!walletAddress) {
-                throw new Error("Could not extract wallet address from signer")
-              }
-              walletAddressHex = walletAddress.identifierHex
-              starknetProvider = undefined // No provider in this case
-            }
-          } catch (error) {
-            // Fallback to Ethereum signer
-            const walletAddress = await ethereumAddressFromSigner(
-              signerOrEthereumSigner as EthereumSigner
-            )
-            if (!walletAddress) {
-              throw new Error("Could not extract wallet address from signer")
-            }
-            walletAddressHex = walletAddress.identifierHex
-            starknetProvider = undefined
-          }
         }
 
         l2CrossChainContracts = await loadStarkNetCrossChainContracts(
