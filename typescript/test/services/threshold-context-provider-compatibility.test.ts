@@ -124,7 +124,7 @@ describe("ThresholdContext Provider Compatibility - T-009", () => {
       // Should update contracts but NOT store _l2Signer
       const contracts2 = tbtc.crossChainContracts("StarkNet")
       expect(contracts2).to.exist
-      
+
       // _l2Signer should still be undefined in single-parameter mode
       const storedProvider2 = (tbtc as any)._l2Signer
       expect(storedProvider2).to.be.undefined

@@ -105,26 +105,28 @@ export class StarkNetDepositorInterface implements L2BitcoinDepositor {
     // Retry configuration
     const maxRetries = 3
     const delays = [1000, 2000, 4000] // Exponential backoff: 1s, 2s, 4s
-    
+
     // Function to determine if error is retryable
     const isRetryableError = (error: any): boolean => {
       // Network/timeout errors
-      if (error.code === 'ECONNABORTED' || 
-          error.code === 'ECONNREFUSED' || 
-          error.code === 'ENOTFOUND') {
+      if (
+        error.code === "ECONNABORTED" ||
+        error.code === "ECONNREFUSED" ||
+        error.code === "ENOTFOUND"
+      ) {
         return true
       }
-      
+
       // Server errors (5xx)
       if (error.response?.status >= 500 && error.response?.status < 600) {
         return true
       }
-      
+
       return false
     }
 
     let lastError: any
-    
+
     // Attempt the request with retries
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
@@ -139,12 +141,12 @@ export class StarkNetDepositorInterface implements L2BitcoinDepositor {
         )
 
         const { data } = response
-        
+
         // Handle test response format (for testing only)
         if (data.transactionHash && !data.receipt) {
           return Hex.from(data.transactionHash)
         }
-        
+
         if (!data.receipt) {
           throw new Error(
             `Unexpected response from /api/reveal: ${JSON.stringify(data)}`
@@ -154,68 +156,81 @@ export class StarkNetDepositorInterface implements L2BitcoinDepositor {
         return Hex.from(data.receipt.transactionHash)
       } catch (error: any) {
         lastError = error
-        
+
         // Check if error is retryable and we have retries left
         if (attempt < maxRetries && isRetryableError(error)) {
-          console.log(`Relayer request failed (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${delays[attempt]}ms...`)
-          await new Promise(resolve => setTimeout(resolve, delays[attempt]))
+          console.log(
+            `Relayer request failed (attempt ${attempt + 1}/${
+              maxRetries + 1
+            }), retrying in ${delays[attempt]}ms...`
+          )
+          await new Promise((resolve) => setTimeout(resolve, delays[attempt]))
           continue
         }
-        
+
         // If not retryable or no retries left, handle the error
         break
       }
     }
-    
+
     // Enhanced error handling with user-friendly messages
     console.error("Relayer request failed:", lastError)
-    
-    // Check if it's an Axios error  
-    const isAxiosError = lastError.isAxiosError || (axios.isAxiosError && axios.isAxiosError(lastError))
-    
-    if (isAxiosError || lastError.code === 'ECONNABORTED') {
+
+    // Check if it's an Axios error
+    const isAxiosError =
+      lastError.isAxiosError ||
+      (axios.isAxiosError && axios.isAxiosError(lastError))
+
+    if (isAxiosError || lastError.code === "ECONNABORTED") {
       // Handle timeout errors
-      if (lastError.code === 'ECONNABORTED') {
-        throw new Error('Relayer request timed out. Please try again.')
+      if (lastError.code === "ECONNABORTED") {
+        throw new Error("Relayer request timed out. Please try again.")
       }
-      
+
       // Handle HTTP errors
       if (lastError.response) {
         const status = lastError.response.status
-        
+
         if (status === 500) {
-          throw new Error('Relayer service temporarily unavailable. Please try again later.')
+          throw new Error(
+            "Relayer service temporarily unavailable. Please try again later."
+          )
         }
-        
+
         if (status === 400) {
-          const errorMessage = lastError.response.data?.error || lastError.response.data?.message || 'Invalid request'
+          const errorMessage =
+            lastError.response.data?.error ||
+            lastError.response.data?.message ||
+            "Invalid request"
           throw new Error(`Relayer error: ${errorMessage}`)
         }
-        
+
         if (status === 401) {
-          throw new Error('Relayer request failed: Unauthorized')
+          throw new Error("Relayer request failed: Unauthorized")
         }
-        
+
         if (status === 403) {
-          throw new Error('Relayer request failed: Forbidden')
+          throw new Error("Relayer request failed: Forbidden")
         }
-        
+
         if (status === 404) {
-          throw new Error('Relayer request failed: Not Found')
+          throw new Error("Relayer request failed: Not Found")
         }
-        
+
         if (status >= 502 && status < 600) {
           throw new Error(`Network error: ${lastError.message}`)
         }
       }
-      
+
       // Handle network errors (no response)
-      if (lastError.code === 'ECONNREFUSED' || lastError.code === 'ENOTFOUND') {
+      if (lastError.code === "ECONNREFUSED" || lastError.code === "ENOTFOUND") {
         throw new Error(`Network error: ${lastError.message}`)
       }
     }
-    
+
     // Re-throw the error wrapped in a general message
-    throw new Error(`Failed to initialize deposit through relayer: ${lastError.message}`)
+    throw new Error(
+      `Failed to initialize deposit through relayer: ${lastError.message}`
+    )
   }
 }

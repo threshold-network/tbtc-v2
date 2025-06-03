@@ -19,7 +19,8 @@ describe("StarkNet Depositor Interface - Enhanced Error Handling", () => {
     originalPost = axios.post
 
     // Set up common test data
-    const starknetAddress = "0x04e3bc49f130f9d0379082c24efd397a0eddfccdc6023a2f02a74d8527140276"
+    const starknetAddress =
+      "0x04e3bc49f130f9d0379082c24efd397a0eddfccdc6023a2f02a74d8527140276"
     depositor.setDepositOwner(StarkNetAddress.from(starknetAddress))
 
     depositTx = {
@@ -46,22 +47,23 @@ describe("StarkNet Depositor Interface - Enhanced Error Handling", () => {
   })
 
   describe("Network Timeout Error Handling", () => {
-    it("should handle network timeout with clear message", async function() {
+    it("should handle network timeout with clear message", async function () {
       this.timeout(10000) // Increase timeout to accommodate retry delays
       // Arrange
       const timeoutError = new Error("timeout of 5000ms exceeded")
       ;(timeoutError as any).code = "ECONNABORTED"
-      
+
       axios.post = async () => {
         throw timeoutError
       }
 
       // Act & Assert
-      await expect(depositor.initializeDeposit(depositTx, 0, deposit))
-        .to.be.rejectedWith("Relayer request timed out. Please try again.")
+      await expect(
+        depositor.initializeDeposit(depositTx, 0, deposit)
+      ).to.be.rejectedWith("Relayer request timed out. Please try again.")
     })
 
-    it("should handle axios timeout error", async function() {
+    it("should handle axios timeout error", async function () {
       this.timeout(10000) // Increase timeout to accommodate retry delays
       // Arrange
       const axiosError = {
@@ -69,41 +71,45 @@ describe("StarkNet Depositor Interface - Enhanced Error Handling", () => {
         code: "ECONNABORTED",
         message: "timeout exceeded",
       }
-      
+
       // Mock axios.isAxiosError
       axios.isAxiosError = (error: any) => error.isAxiosError === true
-      
+
       axios.post = async () => {
         throw axiosError
       }
 
       // Act & Assert
-      await expect(depositor.initializeDeposit(depositTx, 0, deposit))
-        .to.be.rejectedWith("Relayer request timed out. Please try again.")
+      await expect(
+        depositor.initializeDeposit(depositTx, 0, deposit)
+      ).to.be.rejectedWith("Relayer request timed out. Please try again.")
     })
   })
 
   describe("Relayer Service Error Handling", () => {
-    it("should handle relayer service error (500)", async function() {
+    it("should handle relayer service error (500)", async function () {
       this.timeout(10000) // Increase timeout to accommodate retry delays
       // Arrange
       const serviceError = {
         isAxiosError: true,
         response: {
           status: 500,
-          data: { error: "Internal server error" }
+          data: { error: "Internal server error" },
         },
         message: "Request failed with status code 500",
       }
-      
+
       axios.isAxiosError = (error: any) => error.isAxiosError === true
       axios.post = async () => {
         throw serviceError
       }
 
       // Act & Assert
-      await expect(depositor.initializeDeposit(depositTx, 0, deposit))
-        .to.be.rejectedWith("Relayer service temporarily unavailable. Please try again later.")
+      await expect(
+        depositor.initializeDeposit(depositTx, 0, deposit)
+      ).to.be.rejectedWith(
+        "Relayer service temporarily unavailable. Please try again later."
+      )
     })
 
     it("should handle relayer bad request (400) with message", async () => {
@@ -112,19 +118,20 @@ describe("StarkNet Depositor Interface - Enhanced Error Handling", () => {
         isAxiosError: true,
         response: {
           status: 400,
-          data: { message: "Invalid reveal data format" }
+          data: { message: "Invalid reveal data format" },
         },
         message: "Request failed with status code 400",
       }
-      
+
       axios.isAxiosError = (error: any) => error.isAxiosError === true
       axios.post = async () => {
         throw badRequestError
       }
 
       // Act & Assert
-      await expect(depositor.initializeDeposit(depositTx, 0, deposit))
-        .to.be.rejectedWith("Relayer error: Invalid reveal data format")
+      await expect(
+        depositor.initializeDeposit(depositTx, 0, deposit)
+      ).to.be.rejectedWith("Relayer error: Invalid reveal data format")
     })
 
     it("should handle relayer bad request (400) without message", async () => {
@@ -133,19 +140,20 @@ describe("StarkNet Depositor Interface - Enhanced Error Handling", () => {
         isAxiosError: true,
         response: {
           status: 400,
-          data: {}
+          data: {},
         },
         message: "Request failed with status code 400",
       }
-      
+
       axios.isAxiosError = (error: any) => error.isAxiosError === true
       axios.post = async () => {
         throw badRequestError
       }
 
       // Act & Assert
-      await expect(depositor.initializeDeposit(depositTx, 0, deposit))
-        .to.be.rejectedWith("Relayer error: Invalid request")
+      await expect(
+        depositor.initializeDeposit(depositTx, 0, deposit)
+      ).to.be.rejectedWith("Relayer error: Invalid request")
     })
   })
 
@@ -157,8 +165,9 @@ describe("StarkNet Depositor Interface - Enhanced Error Handling", () => {
       }
 
       // Act & Assert
-      await expect(depositor.initializeDeposit(depositTx, 0, deposit))
-        .to.be.rejectedWith(/Unexpected response from \/api\/reveal/)
+      await expect(
+        depositor.initializeDeposit(depositTx, 0, deposit)
+      ).to.be.rejectedWith(/Unexpected response from \/api\/reveal/)
     })
 
     it("should handle null response", async () => {
@@ -168,8 +177,9 @@ describe("StarkNet Depositor Interface - Enhanced Error Handling", () => {
       }
 
       // Act & Assert
-      await expect(depositor.initializeDeposit(depositTx, 0, deposit))
-        .to.be.rejectedWith("Failed to initialize deposit through relayer")
+      await expect(
+        depositor.initializeDeposit(depositTx, 0, deposit)
+      ).to.be.rejectedWith("Failed to initialize deposit through relayer")
     })
 
     it("should handle empty response", async () => {
@@ -179,13 +189,14 @@ describe("StarkNet Depositor Interface - Enhanced Error Handling", () => {
       }
 
       // Act & Assert
-      await expect(depositor.initializeDeposit(depositTx, 0, deposit))
-        .to.be.rejectedWith(/Unexpected response from \/api\/reveal/)
+      await expect(
+        depositor.initializeDeposit(depositTx, 0, deposit)
+      ).to.be.rejectedWith(/Unexpected response from \/api\/reveal/)
     })
   })
 
   describe("Network Error Handling", () => {
-    it("should handle network connection error", async function() {
+    it("should handle network connection error", async function () {
       this.timeout(10000) // Increase timeout to accommodate retry delays
       // Arrange
       const networkError = {
@@ -193,15 +204,18 @@ describe("StarkNet Depositor Interface - Enhanced Error Handling", () => {
         code: "ENOTFOUND",
         message: "getaddrinfo ENOTFOUND relayer.tbtcscan.com",
       }
-      
+
       axios.isAxiosError = (error: any) => error.isAxiosError === true
       axios.post = async () => {
         throw networkError
       }
 
       // Act & Assert
-      await expect(depositor.initializeDeposit(depositTx, 0, deposit))
-        .to.be.rejectedWith("Network error: getaddrinfo ENOTFOUND relayer.tbtcscan.com")
+      await expect(
+        depositor.initializeDeposit(depositTx, 0, deposit)
+      ).to.be.rejectedWith(
+        "Network error: getaddrinfo ENOTFOUND relayer.tbtcscan.com"
+      )
     })
 
     it("should handle generic network error", async () => {
@@ -212,8 +226,11 @@ describe("StarkNet Depositor Interface - Enhanced Error Handling", () => {
       }
 
       // Act & Assert
-      await expect(depositor.initializeDeposit(depositTx, 0, deposit))
-        .to.be.rejectedWith("Failed to initialize deposit through relayer: Network error")
+      await expect(
+        depositor.initializeDeposit(depositTx, 0, deposit)
+      ).to.be.rejectedWith(
+        "Failed to initialize deposit through relayer: Network error"
+      )
     })
   })
 
@@ -224,12 +241,12 @@ describe("StarkNet Depositor Interface - Enhanced Error Handling", () => {
       const originalConsoleError = console.error
       let loggedMessage: string = ""
       let loggedError: any
-      
+
       console.error = (message: string, err: any) => {
         loggedMessage = message
         loggedError = err
       }
-      
+
       axios.post = async () => {
         throw error
       }

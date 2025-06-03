@@ -80,7 +80,7 @@ describe("StarkNet Provider Integration", () => {
       const contracts = tbtc.crossChainContracts("StarkNet")
       expect(contracts).to.exist
       expect(contracts!.l2BitcoinDepositor).to.exist
-      
+
       const l2Signer = (tbtc as any)._l2Signer
       expect(l2Signer).to.be.undefined
     })
@@ -111,13 +111,17 @@ describe("StarkNet Provider Integration", () => {
       const starknetProvider = new RpcProvider({
         nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
       })
-      
-      await tbtc.initializeCrossChain("StarkNet", ethereumSigner, starknetProvider)
+
+      await tbtc.initializeCrossChain(
+        "StarkNet",
+        ethereumSigner,
+        starknetProvider
+      )
 
       // In two-parameter mode, _l2Signer should be stored for backward compatibility
       const l2Signer = (tbtc as any)._l2Signer
       expect(l2Signer).to.equal(ethereumSigner)
-      
+
       // But contracts should be created
       const contracts = tbtc.crossChainContracts("StarkNet")
       expect(contracts).to.exist
@@ -254,7 +258,7 @@ describe("StarkNet Provider Integration", () => {
       // Verify contracts were updated but _l2Signer not stored
       const contracts = tbtc.crossChainContracts("StarkNet")
       expect(contracts).to.exist
-      
+
       const l2Signer = (tbtc as any)._l2Signer
       expect(l2Signer).to.be.undefined
     })
@@ -276,7 +280,7 @@ describe("StarkNet Provider Integration", () => {
       // Verify contracts updated but _l2Signer not stored
       const contracts = tbtc.crossChainContracts("StarkNet")
       expect(contracts).to.exist
-      
+
       const l2Signer = (tbtc as any)._l2Signer
       expect(l2Signer).to.be.undefined
     })

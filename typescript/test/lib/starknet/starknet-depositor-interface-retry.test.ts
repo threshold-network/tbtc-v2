@@ -8,28 +8,28 @@ import { Hex } from "../../../src/lib/utils"
 // We need to mock axios globally since it's not injected
 const axios = require("axios")
 
-describe("StarkNetDepositorInterface - Retry Logic", function() {
+describe("StarkNetDepositorInterface - Retry Logic", function () {
   this.timeout(10000) // Set timeout to 10 seconds for retry tests
   let depositor: StarkNetDepositorInterface
   let originalPost: any
   let postCallCount: number
-  let postResponses: any[]
-  const starknetAddress = "0x04e3bc49f130f9d0379082c24efd397a0eddfccdc6023a2f02a74d8527140276"
-  
+  const starknetAddress =
+    "0x04e3bc49f130f9d0379082c24efd397a0eddfccdc6023a2f02a74d8527140276"
+
   const depositTx: BitcoinRawTxVectors = {
     version: Hex.from("02000000"),
     inputs: Hex.from("0101234567890abcdef01234567890abcdef"),
     outputs: Hex.from("01fedcba098765432101fedcba0987654321"),
     locktime: Hex.from("00000000"),
   }
-  
+
   const deposit: DepositReceipt = {
     depositor: StarkNetAddress.from(starknetAddress),
     walletPublicKeyHash: Hex.from("1234567890abcdef1234567890abcdef12345678"),
     refundPublicKeyHash: Hex.from("abcdef1234567890abcdef1234567890abcdef12"),
     blindingFactor: Hex.from("f9f0c90d00039523"),
     refundLocktime: Hex.from("60920000"),
-    extraData: undefined as any
+    extraData: undefined as any,
   }
 
   beforeEach(() => {
@@ -38,10 +38,9 @@ describe("StarkNetDepositorInterface - Retry Logic", function() {
     deposit.extraData = depositor
       .extraDataEncoder()
       .encodeDepositOwner(StarkNetAddress.from(starknetAddress))
-    
+
     originalPost = axios.post
     postCallCount = 0
-    postResponses = []
   })
 
   afterEach(() => {
@@ -53,7 +52,7 @@ describe("StarkNetDepositorInterface - Retry Logic", function() {
       const timeoutError = new Error("timeout")
       ;(timeoutError as any).code = "ECONNABORTED"
       ;(timeoutError as any).isAxiosError = true
-      
+
       postCallCount = 0
       axios.post = async () => {
         postCallCount++
@@ -64,7 +63,9 @@ describe("StarkNetDepositorInterface - Retry Logic", function() {
         await depositor.initializeDeposit(depositTx, 0, deposit)
         expect.fail("Should have thrown error")
       } catch (e: any) {
-        expect(e.message).to.equal("Relayer request timed out. Please try again.")
+        expect(e.message).to.equal(
+          "Relayer request timed out. Please try again."
+        )
         expect(postCallCount).to.equal(4) // Initial + 3 retries
       }
     })
@@ -73,7 +74,7 @@ describe("StarkNetDepositorInterface - Retry Logic", function() {
       const networkError = new Error("connect ECONNREFUSED")
       ;(networkError as any).code = "ECONNREFUSED"
       ;(networkError as any).isAxiosError = true
-      
+
       postCallCount = 0
       axios.post = async () => {
         postCallCount++
@@ -93,7 +94,7 @@ describe("StarkNetDepositorInterface - Retry Logic", function() {
       const serverError = new Error("Internal Server Error")
       ;(serverError as any).response = { status: 500 }
       ;(serverError as any).isAxiosError = true
-      
+
       postCallCount = 0
       axios.post = async () => {
         postCallCount++
@@ -104,7 +105,9 @@ describe("StarkNetDepositorInterface - Retry Logic", function() {
         await depositor.initializeDeposit(depositTx, 0, deposit)
         expect.fail("Should have thrown error")
       } catch (e: any) {
-        expect(e.message).to.equal("Relayer service temporarily unavailable. Please try again later.")
+        expect(e.message).to.equal(
+          "Relayer service temporarily unavailable. Please try again later."
+        )
         expect(postCallCount).to.equal(4)
       }
     })
@@ -113,7 +116,7 @@ describe("StarkNetDepositorInterface - Retry Logic", function() {
       const gatewayError = new Error("Bad Gateway")
       ;(gatewayError as any).response = { status: 502 }
       ;(gatewayError as any).isAxiosError = true
-      
+
       postCallCount = 0
       axios.post = async () => {
         postCallCount++
@@ -133,7 +136,7 @@ describe("StarkNetDepositorInterface - Retry Logic", function() {
       const unavailableError = new Error("Service Unavailable")
       ;(unavailableError as any).response = { status: 503 }
       ;(unavailableError as any).isAxiosError = true
-      
+
       postCallCount = 0
       axios.post = async () => {
         postCallCount++
@@ -153,7 +156,7 @@ describe("StarkNetDepositorInterface - Retry Logic", function() {
       const timeoutError = new Error("timeout")
       ;(timeoutError as any).code = "ECONNABORTED"
       ;(timeoutError as any).isAxiosError = true
-      
+
       postCallCount = 0
       axios.post = async () => {
         postCallCount++
@@ -163,8 +166,8 @@ describe("StarkNetDepositorInterface - Retry Logic", function() {
         return {
           data: {
             success: true,
-            transactionHash: "0xabc123"
-          }
+            transactionHash: "0xabc123",
+          },
         }
       }
 
@@ -177,7 +180,7 @@ describe("StarkNetDepositorInterface - Retry Logic", function() {
       const timeoutError = new Error("timeout")
       ;(timeoutError as any).code = "ECONNABORTED"
       ;(timeoutError as any).isAxiosError = true
-      
+
       const attemptTimes: number[] = []
       axios.post = async () => {
         attemptTimes.push(Date.now())
@@ -189,7 +192,7 @@ describe("StarkNetDepositorInterface - Retry Logic", function() {
       } catch (e: any) {
         // Check that we made 4 attempts
         expect(attemptTimes.length).to.equal(4)
-        
+
         // Check delays between attempts (allowing some tolerance)
         if (attemptTimes.length >= 2) {
           const delay1 = attemptTimes[1] - attemptTimes[0]
@@ -210,9 +213,12 @@ describe("StarkNetDepositorInterface - Retry Logic", function() {
   describe("No retry on non-transient failures", () => {
     it("should not retry on 400 Bad Request", async () => {
       const badRequestError = new Error("Bad Request")
-      ;(badRequestError as any).response = { status: 400, data: { error: "Invalid deposit data" } }
+      ;(badRequestError as any).response = {
+        status: 400,
+        data: { error: "Invalid deposit data" },
+      }
       ;(badRequestError as any).isAxiosError = true
-      
+
       postCallCount = 0
       axios.post = async () => {
         postCallCount++
@@ -232,7 +238,7 @@ describe("StarkNetDepositorInterface - Retry Logic", function() {
       const unauthorizedError = new Error("Unauthorized")
       ;(unauthorizedError as any).response = { status: 401 }
       ;(unauthorizedError as any).isAxiosError = true
-      
+
       postCallCount = 0
       axios.post = async () => {
         postCallCount++
@@ -252,7 +258,7 @@ describe("StarkNetDepositorInterface - Retry Logic", function() {
       const forbiddenError = new Error("Forbidden")
       ;(forbiddenError as any).response = { status: 403 }
       ;(forbiddenError as any).isAxiosError = true
-      
+
       postCallCount = 0
       axios.post = async () => {
         postCallCount++
@@ -272,7 +278,7 @@ describe("StarkNetDepositorInterface - Retry Logic", function() {
       const notFoundError = new Error("Not Found")
       ;(notFoundError as any).response = { status: 404 }
       ;(notFoundError as any).isAxiosError = true
-      
+
       postCallCount = 0
       axios.post = async () => {
         postCallCount++

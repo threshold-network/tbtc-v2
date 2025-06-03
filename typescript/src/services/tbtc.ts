@@ -270,7 +270,7 @@ export class TBTC {
    *               CROSS-CHAIN SUPPORT IS NOT FULLY OPERATIONAL YET.
    *
    * @param l2ChainName Name of the L2 chain
-   * @param signerOrProvider For StarkNet: StarkNet provider/account.
+   * @param signerOrEthereumSigner For StarkNet: StarkNet provider/account.
    *                        For other L2s: Ethereum signer.
    * @param l2Provider [DEPRECATED] For StarkNet two-parameter mode only.
    * @returns Void promise

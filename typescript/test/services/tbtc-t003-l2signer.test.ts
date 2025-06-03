@@ -49,7 +49,8 @@ describe("TBTC T-003: _l2Signer Storage Behavior", () => {
       // Arrange
       const mockProvider = {
         account: {
-          address: "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7",
+          address:
+            "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7",
         },
         getChainId: async () => "0x534e5f5345504f4c4941", // SN_SEPOLIA
       }
@@ -88,7 +89,11 @@ describe("TBTC T-003: _l2Signer Storage Behavior", () => {
       console.warn = () => {}
 
       // Act
-      await tbtc.initializeCrossChain("StarkNet", mockEthSigner, mockStarkNetProvider)
+      await tbtc.initializeCrossChain(
+        "StarkNet",
+        mockEthSigner,
+        mockStarkNetProvider
+      )
 
       // Assert
       expect(tbtc._l2Signer).to.equal(mockEthSigner)
@@ -104,7 +109,8 @@ describe("TBTC T-003: _l2Signer Storage Behavior", () => {
       const { JsonRpcProvider } = await import("@ethersproject/providers")
       const provider = new JsonRpcProvider()
       // Mock the network detection
-      provider.getNetwork = async () => ({ name: 'base', chainId: 84532 } as any)
+      provider.getNetwork = async () =>
+        ({ name: "base", chainId: 84532 } as any)
       const mockEthSigner = Wallet.createRandom().connect(provider)
 
       // Act
@@ -119,7 +125,8 @@ describe("TBTC T-003: _l2Signer Storage Behavior", () => {
       const { JsonRpcProvider } = await import("@ethersproject/providers")
       const provider = new JsonRpcProvider()
       // Mock the network detection
-      provider.getNetwork = async () => ({ name: 'arbitrum', chainId: 421614 } as any)
+      provider.getNetwork = async () =>
+        ({ name: "arbitrum", chainId: 421614 } as any)
       const mockEthSigner = Wallet.createRandom().connect(provider)
 
       // Act
@@ -134,7 +141,9 @@ describe("TBTC T-003: _l2Signer Storage Behavior", () => {
     it("should not affect other functionality when _l2Signer is not stored", async () => {
       // Arrange
       const mockAccount = new Account(
-        new RpcProvider({ nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6" }),
+        new RpcProvider({
+          nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
+        }),
         "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7",
         "0x1"
       )

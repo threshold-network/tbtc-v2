@@ -221,7 +221,7 @@ await tbtc.initializeCrossChain("Base", ethereumSigner)
 | Name | Type | Description |
 | :------ | :------ | :------ |
 | `l2ChainName` | [`L2Chain`](../README.md#l2chain) | Name of the L2 chain |
-| `signerOrEthereumSigner` | [`EthereumSigner`](../README.md#ethereumsigner) \| [`StarkNetProvider`](../README.md#starknetprovider) | - |
+| `signerOrEthereumSigner` | [`EthereumSigner`](../README.md#ethereumsigner) \| [`StarkNetProvider`](../README.md#starknetprovider) | For StarkNet: StarkNet provider/account. For other L2s: Ethereum signer. |
 | `l2Provider?` | [`StarkNetProvider`](../README.md#starknetprovider) | [DEPRECATED] For StarkNet two-parameter mode only. |
 
 #### Returns
