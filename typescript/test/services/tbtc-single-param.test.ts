@@ -18,7 +18,7 @@ describe("TBTC Single-Parameter StarkNet Initialization", () => {
     mockTBTCContracts = new MockTBTCContracts()
     mockBitcoinClient = new MockBitcoinClient()
     mockCrossChainContractsLoader = new MockCrossChainContractsLoader()
-    
+
     // Capture console.warn calls
     consoleWarnCalls = []
     consoleWarnStub = console.warn
@@ -121,8 +121,9 @@ describe("TBTC Single-Parameter StarkNet Initialization", () => {
       // Mock a provider with account property
       const providerWithAccount = Object.assign(provider, {
         account: {
-          address: "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"
-        }
+          address:
+            "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7",
+        },
       })
 
       // Act
@@ -162,10 +163,9 @@ describe("TBTC Single-Parameter StarkNet Initialization", () => {
       })
 
       // Act & Assert - should not throw
-      await expect(
-        tbtc.initializeCrossChain("StarkNet", provider)
-      ).not.to.be.rejected
-      
+      await expect(tbtc.initializeCrossChain("StarkNet", provider)).not.to.be
+        .rejected
+
       // But should use placeholder address
       const contracts = tbtc.crossChainContracts("StarkNet")
       expect(contracts).to.exist
@@ -176,16 +176,11 @@ describe("TBTC Single-Parameter StarkNet Initialization", () => {
       const provider = new RpcProvider({
         nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
       })
-      const invalidAccount = new Account(
-        provider,
-        "invalid-address",
-        "0x1"
-      )
+      const invalidAccount = new Account(provider, "invalid-address", "0x1")
 
       // Act & Assert
-      await expect(
-        tbtc.initializeCrossChain("StarkNet", invalidAccount)
-      ).to.be.rejected // StarkNet Account constructor might throw or we validate later
+      await expect(tbtc.initializeCrossChain("StarkNet", invalidAccount)).to.be
+        .rejected // StarkNet Account constructor might throw or we validate later
     })
 
     it("should fail with null provider", async () => {
@@ -228,7 +223,9 @@ describe("TBTC Single-Parameter StarkNet Initialization", () => {
 
       // Assert
       expect(consoleWarnCalls.length).to.equal(1)
-      expect(consoleWarnCalls[0]).to.match(/Two-parameter initializeCrossChain for StarkNet is deprecated/)
+      expect(consoleWarnCalls[0]).to.match(
+        /Two-parameter initializeCrossChain for StarkNet is deprecated/
+      )
     })
   })
 })

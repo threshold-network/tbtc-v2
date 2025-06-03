@@ -71,20 +71,19 @@ describe("ThresholdContext Provider Compatibility - T-009", () => {
   })
 
   describe("Provider Storage and Access", () => {
-    it("should store StarkNet provider for later use", async () => {
+    it("should NOT store StarkNet provider in single-parameter mode", async () => {
       const provider = new RpcProvider({
         nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
       })
 
       await tbtc.initializeCrossChain("StarkNet", provider)
 
-      // Access the internal _l2Signer property
+      // In single-parameter mode, _l2Signer should NOT be stored
       const storedProvider = (tbtc as any)._l2Signer
-      expect(storedProvider).to.equal(provider)
-      expect(storedProvider).to.be.instanceOf(RpcProvider)
+      expect(storedProvider).to.be.undefined
     })
 
-    it("should store StarkNet account for later use", async () => {
+    it("should NOT store StarkNet account in single-parameter mode", async () => {
       const provider = new RpcProvider({
         nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
       })
@@ -96,21 +95,20 @@ describe("ThresholdContext Provider Compatibility - T-009", () => {
 
       await tbtc.initializeCrossChain("StarkNet", account)
 
-      // Access the internal _l2Signer property
+      // In single-parameter mode, _l2Signer should NOT be stored
       const storedAccount = (tbtc as any)._l2Signer
-      expect(storedAccount).to.equal(account)
-      expect(storedAccount).to.be.instanceOf(Account)
+      expect(storedAccount).to.be.undefined
     })
 
-    it("should update provider on subsequent calls", async () => {
+    it("should update cross-chain contracts on subsequent calls", async () => {
       // First initialization
       const provider1 = new RpcProvider({
         nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
       })
       await tbtc.initializeCrossChain("StarkNet", provider1)
 
-      const storedProvider1 = (tbtc as any)._l2Signer
-      expect(storedProvider1).to.equal(provider1)
+      const contracts1 = tbtc.crossChainContracts("StarkNet")
+      expect(contracts1).to.exist
 
       // Second initialization with different provider
       const provider2 = new RpcProvider({
@@ -123,9 +121,13 @@ describe("ThresholdContext Provider Compatibility - T-009", () => {
       )
       await tbtc.initializeCrossChain("StarkNet", account2)
 
+      // Should update contracts but NOT store _l2Signer
+      const contracts2 = tbtc.crossChainContracts("StarkNet")
+      expect(contracts2).to.exist
+      
+      // _l2Signer should still be undefined in single-parameter mode
       const storedProvider2 = (tbtc as any)._l2Signer
-      expect(storedProvider2).to.equal(account2)
-      expect(storedProvider2).not.to.equal(provider1)
+      expect(storedProvider2).to.be.undefined
     })
   })
 

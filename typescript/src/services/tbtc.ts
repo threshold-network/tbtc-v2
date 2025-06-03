@@ -190,6 +190,54 @@ export class TBTC {
   }
 
   /**
+   * Extracts StarkNet wallet address from a provider or account object.
+   * @param provider StarkNet provider or account object.
+   * @returns The StarkNet wallet address in hex format.
+   * @throws Throws an error if the provider is invalid or address cannot be extracted.
+   * @internal
+   */
+  static async extractStarkNetAddress(
+    provider: StarkNetProvider | null | undefined
+  ): Promise<string> {
+    if (!provider) {
+      throw new Error("StarkNet provider is required")
+    }
+
+    let address: string | undefined
+
+    // Check if it's an Account object with address property
+    if ("address" in provider && typeof provider.address === "string") {
+      address = provider.address
+    }
+    // Check if it's a Provider with connected account
+    else if (
+      "account" in provider &&
+      provider.account &&
+      typeof provider.account === "object" &&
+      "address" in provider.account &&
+      typeof provider.account.address === "string"
+    ) {
+      address = provider.account.address
+    }
+
+    if (!address) {
+      throw new Error(
+        "StarkNet provider must be an Account object or Provider with connected account. " +
+          "Ensure your StarkNet wallet is connected."
+      )
+    }
+
+    // Validate address format (basic check for hex string)
+    // StarkNet addresses are felt252 values represented as hex strings
+    if (!/^0x[0-9a-fA-F]+$/.test(address)) {
+      throw new Error("Invalid StarkNet address format")
+    }
+
+    // Normalize to lowercase for consistency
+    return address.toLowerCase()
+  }
+
+  /**
    * Internal property to store L2 signer/provider for advanced use cases.
    * @internal
    * @deprecated Will be removed in next major version. Use two-parameter pattern instead.
@@ -294,46 +342,41 @@ export class TBTC {
 
         if (isSingleParameterMode) {
           // Single-parameter mode: StarkNet provider only (recommended)
+          // Note: _l2Signer is NOT stored in this mode to encourage the new pattern
           if (!signerOrEthereumSigner) {
             throw new Error("StarkNet provider is required")
           }
 
           starknetProvider = signerOrEthereumSigner as StarkNetProvider
-          
-          // Extract address from StarkNet provider
-          if (
-            "address" in starknetProvider &&
-            typeof starknetProvider.address === "string"
-          ) {
-            // Account object
-            walletAddressHex = starknetProvider.address
-          } else if (
-            "account" in starknetProvider &&
-            starknetProvider.account &&
-            typeof (starknetProvider.account as any).address === "string"
-          ) {
-            // Provider with connected account
-            walletAddressHex = (starknetProvider.account as any).address
-          } else if (
-            "getChainId" in starknetProvider &&
-            typeof starknetProvider.getChainId === "function"
-          ) {
-            // Provider-only - use placeholder address for backward compatibility
-            walletAddressHex = "0x0"
-          } else {
-            // Not a valid StarkNet provider
-            throw new Error(
-              "StarkNet provider must be an Account object or Provider with connected account. " +
-              "Ensure your StarkNet wallet is connected."
+
+          // Extract address from StarkNet provider using the new method
+          try {
+            walletAddressHex = await TBTC.extractStarkNetAddress(
+              starknetProvider
             )
+          } catch (error) {
+            // Check if it's a Provider-only (no account) for backward compatibility
+            // Only apply backward compatibility if it's NOT an Account object
+            if (
+              !("address" in starknetProvider) &&
+              !("account" in starknetProvider) &&
+              "getChainId" in starknetProvider &&
+              typeof starknetProvider.getChainId === "function"
+            ) {
+              // Provider-only - use placeholder address for backward compatibility
+              walletAddressHex = "0x0"
+            } else {
+              // Re-throw the error for invalid providers or invalid addresses
+              throw error
+            }
           }
         } else {
           // Two-parameter mode: Ethereum signer + StarkNet provider (deprecated)
           console.warn(
             "Two-parameter initializeCrossChain for StarkNet is deprecated. " +
-            "Please use: initializeCrossChain('StarkNet', starknetProvider)"
+              "Please use: initializeCrossChain('StarkNet', starknetProvider)"
           )
-          
+
           if (!signerOrEthereumSigner) {
             throw new Error("Ethereum signer is required")
           }
@@ -343,6 +386,9 @@ export class TBTC {
               "StarkNet provider is required for two-parameter initialization"
             )
           }
+
+          // Store _l2Signer for backward compatibility in two-parameter mode
+          this._l2Signer = signerOrEthereumSigner
 
           // Extract wallet address from Ethereum signer
           const walletAddress = await ethereumAddressFromSigner(

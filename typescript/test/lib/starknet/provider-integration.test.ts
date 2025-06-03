@@ -57,10 +57,11 @@ describe("StarkNet Provider Integration", () => {
       // }
 
       // Act & Assert - should not throw
-      expect(() => {
-        // Verify provider was stored
-        const l2Signer = (tbtc as any)._l2Signer
-        expect(l2Signer).to.equal(starknetProvider)
+      expect(async () => {
+        await tbtc.initializeCrossChain("StarkNet", starknetProvider)
+        // Verify contracts were created (not _l2Signer)
+        const contracts = tbtc.crossChainContracts("StarkNet")
+        expect(contracts).to.exist
       }).to.not.throw()
     })
 
@@ -75,9 +76,13 @@ describe("StarkNet Provider Integration", () => {
       // Initialize cross-chain with account
       await tbtc.initializeCrossChain("StarkNet", mockAccount)
 
-      // Act & Assert
+      // Act & Assert - contracts created but _l2Signer not stored
+      const contracts = tbtc.crossChainContracts("StarkNet")
+      expect(contracts).to.exist
+      expect(contracts!.l2BitcoinDepositor).to.exist
+      
       const l2Signer = (tbtc as any)._l2Signer
-      expect(l2Signer).to.equal(mockAccount)
+      expect(l2Signer).to.be.undefined
     })
   })
 
@@ -101,13 +106,21 @@ describe("StarkNet Provider Integration", () => {
         .rejected
     })
 
-    it("should maintain backward compatibility with Ethereum signer", async () => {
-      // This should extract address as before
-      await tbtc.initializeCrossChain("StarkNet", ethereumSigner)
+    it("should maintain backward compatibility with two-parameter mode", async () => {
+      // Two-parameter mode: Ethereum signer + StarkNet provider
+      const starknetProvider = new RpcProvider({
+        nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
+      })
+      
+      await tbtc.initializeCrossChain("StarkNet", ethereumSigner, starknetProvider)
 
+      // In two-parameter mode, _l2Signer should NOT be stored (per TD-3)
       const l2Signer = (tbtc as any)._l2Signer
-      // Should be the ethereum signer, not a string
-      expect(l2Signer).to.equal(ethereumSigner)
+      expect(l2Signer).to.be.undefined
+      
+      // But contracts should be created
+      const contracts = tbtc.crossChainContracts("StarkNet")
+      expect(contracts).to.exist
     })
   })
 
@@ -238,9 +251,12 @@ describe("StarkNet Provider Integration", () => {
       })
       await tbtc.initializeCrossChain("StarkNet", provider2)
 
-      // Verify latest provider is used
+      // Verify contracts were updated but _l2Signer not stored
+      const contracts = tbtc.crossChainContracts("StarkNet")
+      expect(contracts).to.exist
+      
       const l2Signer = (tbtc as any)._l2Signer
-      expect(l2Signer).to.equal(provider2)
+      expect(l2Signer).to.be.undefined
     })
 
     it("should handle mixed provider types", async () => {
@@ -257,9 +273,12 @@ describe("StarkNet Provider Integration", () => {
       } as unknown as Account
       await tbtc.initializeCrossChain("StarkNet", account)
 
-      // Verify account is stored
+      // Verify contracts updated but _l2Signer not stored
+      const contracts = tbtc.crossChainContracts("StarkNet")
+      expect(contracts).to.exist
+      
       const l2Signer = (tbtc as any)._l2Signer
-      expect(l2Signer).to.equal(account)
+      expect(l2Signer).to.be.undefined
     })
   })
 
@@ -278,7 +297,7 @@ describe("StarkNet Provider Integration", () => {
       // Should throw during initialization when trying to extract address
       await expect(
         tbtc.initializeCrossChain("StarkNet", invalidProvider)
-      ).to.be.rejectedWith("Could not extract wallet address from signer")
+      ).to.be.rejectedWith("StarkNet provider must be an Account object")
     })
   })
 

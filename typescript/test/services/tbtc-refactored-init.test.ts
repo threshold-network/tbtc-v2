@@ -93,14 +93,15 @@ describe("Refactored initializeCrossChain", () => {
   })
 
   describe("backward compatibility", () => {
-    it("should still support single parameter pattern with deprecation warning", async () => {
+    it("should support two-parameter pattern with deprecation warning", async () => {
       let warnMessage = ""
       console.warn = (msg: string) => {
         warnMessage = msg
       }
 
-      // Act - old pattern with provider as second parameter
-      await tbtc.initializeCrossChain("StarkNet", starknetProvider as any)
+      // Act - old two-parameter pattern
+      const ethSigner = Wallet.createRandom()
+      await tbtc.initializeCrossChain("StarkNet", ethSigner, starknetProvider)
 
       // Assert - should show deprecation warning
       expect(warnMessage).to.include("deprecated")
