@@ -24,6 +24,8 @@
     "prepublishOnly": "./scripts/prepare-artifacts.sh --network $npm_config_network",
     "deploy:sepolia": "hardhat deploy --network sepolia",
     "deploy:mainnet": "hardhat deploy --network mainnet",
+    "transfer-ownership:sepolia": "hardhat deploy --network sepolia --tags TransferStarkNetBitcoinDepositorOwnership",
+    "transfer-ownership:mainnet": "hardhat deploy --network mainnet --tags TransferStarkNetBitcoinDepositorOwnership",
     "export-artifacts:sepolia": "yarn hardhat export-deployment-artifacts --network sepolia",
     "export-artifacts:mainnet": "yarn hardhat export-deployment-artifacts --network mainnet",
     "verify": "hardhat etherscan-verify --network"
