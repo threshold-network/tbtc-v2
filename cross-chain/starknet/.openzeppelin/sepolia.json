@@ -54,6 +54,11 @@
       "address": "0xf58Ab2a789102BF8429f2E3511559D5453882919",
       "txHash": "0x24f56dc98ddefdcd980a9155a71f758dbf2e7d81530be1510588d732606aacc1",
       "kind": "transparent"
+    },
+    {
+      "address": "0xc2fe2522A5673E56da0D6b754b2d5cA3E9e3e64B",
+      "txHash": "0x6d9ddb7b80fa3a71c10bf717a9a219ebc439c50b3766ab18387d3ad1e0a22eb6",
+      "kind": "transparent"
     }
   ],
   "impls": {
@@ -284,7 +289,11 @@
           },
           "t_enum(DepositState)28785": {
             "label": "enum AbstractL1BTCDepositor.DepositState",
-            "members": ["Unknown", "Initialized", "Finalized"],
+            "members": [
+              "Unknown",
+              "Initialized",
+              "Finalized"
+            ],
             "numberOfBytes": "1"
           },
           "t_mapping(t_address,t_bool)": {
