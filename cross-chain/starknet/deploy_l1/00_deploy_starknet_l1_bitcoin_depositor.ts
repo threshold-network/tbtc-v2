@@ -89,6 +89,12 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     starkGateBridge = "0xae0Ee0A63A2cE6BaeEFFE56e7714FB4EFE48D419" // StarkGate Ethereum Bridge
     // NOTE: Update this address with the actual mainnet tBTC token address on StarkNet before mainnet deployment
     starkNetTBTCToken = "0x" // TODO: Add actual mainnet tBTC token address on StarkNet
+  } else if (["hardhat", "localhost", "development"].includes(hre.network.name)) {
+    // Local testing configuration with mock addresses
+    starkGateBridge = "0x1234567890123456789012345678901234567890" // Mock StarkGate bridge
+    starkNetTBTCToken =
+      "0x0123456789012345678901234567890123456789012345678901234567890123" // Mock StarkNet tBTC token (32 bytes)
+    console.log("⚠️  Using mock addresses for local testing")
   } else {
     throw new Error(`Unsupported network: ${hre.network.name}`)
   }
