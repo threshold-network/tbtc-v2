@@ -23,6 +23,7 @@ Entrypoint component of the tBTC v2 SDK.
 
 - [crossChainContracts](TBTC.md#crosschaincontracts)
 - [initializeCrossChain](TBTC.md#initializecrosschain)
+- [extractStarkNetAddress](TBTC.md#extractstarknetaddress)
 - [initializeCustom](TBTC.md#initializecustom)
 - [initializeEthereum](TBTC.md#initializeethereum)
 - [initializeMainnet](TBTC.md#initializemainnet)
@@ -90,7 +91,7 @@ Will be removed in next major version. Use two-parameter pattern instead.
 
 #### Defined in
 
-[services/tbtc.ts:197](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L197)
+[services/tbtc.ts:245](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L245)
 
 ___
 
@@ -183,7 +184,7 @@ Cross-chain contracts for the given L2 chain or
 
 #### Defined in
 
-[services/tbtc.ts:399](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L399)
+[services/tbtc.ts:448](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L448)
 
 ___
 
@@ -193,12 +194,19 @@ ___
 
 Initializes cross-chain contracts for the given L2 chain.
 
-For StarkNet, use the two-parameter pattern:
+For StarkNet, this method now supports single-parameter initialization:
 ```
+// Recommended: Single-parameter (StarkNet wallet only)
+await tbtc.initializeCrossChain("StarkNet", starknetProvider)
+```
+
+The two-parameter pattern is deprecated but still supported:
+```
+// Deprecated: Two-parameter (requires Ethereum wallet)
 await tbtc.initializeCrossChain("StarkNet", ethereumSigner, starknetProvider)
 ```
 
-For other L2 chains, use the single-parameter pattern:
+For other L2 chains, continue using the standard pattern:
 ```
 await tbtc.initializeCrossChain("Base", ethereumSigner)
 ```
@@ -212,28 +220,67 @@ await tbtc.initializeCrossChain("Base", ethereumSigner)
 
 | Name | Type | Description |
 | :------ | :------ | :------ |
-| `l2ChainName` | [`L2Chain`](../README.md#l2chain) | Name of the L2 chain for which to initialize cross-chain contracts. |
-| `signerOrEthereumSigner` | [`EthereumSigner`](../README.md#ethereumsigner) \| [`StarkNetProvider`](../README.md#starknetprovider) | For two-parameter: Ethereum signer (L1 operations). For single-parameter: L2 signer/provider. |
-| `l2Provider?` | [`StarkNetProvider`](../README.md#starknetprovider) | Optional StarkNet provider for two-parameter pattern. |
+| `l2ChainName` | [`L2Chain`](../README.md#l2chain) | Name of the L2 chain |
+| `signerOrEthereumSigner` | [`EthereumSigner`](../README.md#ethereumsigner) \| [`StarkNetProvider`](../README.md#starknetprovider) | - |
+| `l2Provider?` | [`StarkNetProvider`](../README.md#starknetprovider) | [DEPRECATED] For StarkNet two-parameter mode only. |
 
 #### Returns
 
 `Promise`\<`void`\>
 
-Void promise.
+Void promise
 
 **`Throws`**
 
 Throws an error if:
-        - Cross-chain contracts loader is not available,
-        - Chain mapping is not defined,
-        - Required chain ID is not available,
-        - StarkNet provider is missing (two-parameter mode),
-        - Could not extract wallet address.
+        - Cross-chain contracts loader not available
+        - Invalid provider type for StarkNet
+        - No connected account in StarkNet provider
+
+**`Example`**
+
+```ts
+// StarkNet with single parameter (recommended)
+const starknetAccount = await starknet.connect();
+await tbtc.initializeCrossChain("StarkNet", starknetAccount);
+```
+
+**`Deprecated`**
+
+The two-parameter variant for StarkNet is deprecated.
+           Use single-parameter initialization instead.
 
 #### Defined in
 
-[services/tbtc.ts:230](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L230)
+[services/tbtc.ts:290](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L290)
+
+___
+
+### extractStarkNetAddress
+
+▸ **extractStarkNetAddress**(`provider`): `Promise`\<`string`\>
+
+Extracts StarkNet wallet address from a provider or account object.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `provider` | `undefined` \| ``null`` \| [`StarkNetProvider`](../README.md#starknetprovider) | StarkNet provider or account object. |
+
+#### Returns
+
+`Promise`\<`string`\>
+
+The StarkNet wallet address in hex format.
+
+**`Throws`**
+
+Throws an error if the provider is invalid or address cannot be extracted.
+
+#### Defined in
+
+[services/tbtc.ts:199](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L199)
 
 ___
 

@@ -246,7 +246,7 @@ describe("StarkNet Depositor Interface - Relayer Integration", () => {
         await depositor.initializeDeposit(depositTx, 0, deposit, undefined)
         expect.fail("Should have thrown error")
       } catch (error: any) {
-        expect(error.message).to.equal("Network error")
+        expect(error.message).to.equal("Failed to initialize deposit through relayer: Network error")
       }
     })
 

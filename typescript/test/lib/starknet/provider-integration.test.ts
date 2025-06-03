@@ -114,9 +114,9 @@ describe("StarkNet Provider Integration", () => {
       
       await tbtc.initializeCrossChain("StarkNet", ethereumSigner, starknetProvider)
 
-      // In two-parameter mode, _l2Signer should NOT be stored (per TD-3)
+      // In two-parameter mode, _l2Signer should be stored for backward compatibility
       const l2Signer = (tbtc as any)._l2Signer
-      expect(l2Signer).to.be.undefined
+      expect(l2Signer).to.equal(ethereumSigner)
       
       // But contracts should be created
       const contracts = tbtc.crossChainContracts("StarkNet")

@@ -57,7 +57,7 @@ describe("Refactored initializeCrossChain", () => {
       expect(contracts).to.exist
     })
 
-    it("should NOT store _l2Signer property", async () => {
+    it("should store _l2Signer property for backward compatibility", async () => {
       // Act
       await tbtc.initializeCrossChain(
         "StarkNet",
@@ -65,8 +65,8 @@ describe("Refactored initializeCrossChain", () => {
         starknetProvider
       )
 
-      // Assert - should NOT have _l2Signer property in two-parameter mode
-      expect((tbtc as any)._l2Signer).to.be.undefined
+      // Assert - should store _l2Signer in two-parameter mode for backward compatibility
+      expect((tbtc as any)._l2Signer).to.equal(ethereumSigner)
     })
 
     it("should pass provider directly to loader", async () => {

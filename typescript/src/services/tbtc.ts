@@ -247,12 +247,19 @@ export class TBTC {
   /**
    * Initializes cross-chain contracts for the given L2 chain.
    *
-   * For StarkNet, use the two-parameter pattern:
+   * For StarkNet, this method now supports single-parameter initialization:
    * ```
+   * // Recommended: Single-parameter (StarkNet wallet only)
+   * await tbtc.initializeCrossChain("StarkNet", starknetProvider)
+   * ```
+   *
+   * The two-parameter pattern is deprecated but still supported:
+   * ```
+   * // Deprecated: Two-parameter (requires Ethereum wallet)
    * await tbtc.initializeCrossChain("StarkNet", ethereumSigner, starknetProvider)
    * ```
    *
-   * For other L2 chains, use the single-parameter pattern:
+   * For other L2 chains, continue using the standard pattern:
    * ```
    * await tbtc.initializeCrossChain("Base", ethereumSigner)
    * ```
@@ -262,18 +269,23 @@ export class TBTC {
    *               PURPOSES AND EXTERNAL APPLICATIONS SHOULD NOT DEPEND ON IT.
    *               CROSS-CHAIN SUPPORT IS NOT FULLY OPERATIONAL YET.
    *
-   * @param l2ChainName Name of the L2 chain for which to initialize
-   *                    cross-chain contracts.
-   * @param signerOrEthereumSigner For two-parameter: Ethereum signer (L1 operations).
-   *                               For single-parameter: L2 signer/provider.
-   * @param l2Provider Optional StarkNet provider for two-parameter pattern.
-   * @returns Void promise.
+   * @param l2ChainName Name of the L2 chain
+   * @param signerOrProvider For StarkNet: StarkNet provider/account.
+   *                        For other L2s: Ethereum signer.
+   * @param l2Provider [DEPRECATED] For StarkNet two-parameter mode only.
+   * @returns Void promise
    * @throws Throws an error if:
-   *         - Cross-chain contracts loader is not available,
-   *         - Chain mapping is not defined,
-   *         - Required chain ID is not available,
-   *         - StarkNet provider is missing (two-parameter mode),
-   *         - Could not extract wallet address.
+   *         - Cross-chain contracts loader not available
+   *         - Invalid provider type for StarkNet
+   *         - No connected account in StarkNet provider
+   *
+   * @example
+   * // StarkNet with single parameter (recommended)
+   * const starknetAccount = await starknet.connect();
+   * await tbtc.initializeCrossChain("StarkNet", starknetAccount);
+   *
+   * @deprecated The two-parameter variant for StarkNet is deprecated.
+   *            Use single-parameter initialization instead.
    */
   async initializeCrossChain(
     l2ChainName: L2Chain,
