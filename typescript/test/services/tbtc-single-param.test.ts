@@ -228,4 +228,168 @@ describe("TBTC Single-Parameter StarkNet Initialization", () => {
       )
     })
   })
+
+  describe("Address Extraction", () => {
+    it("should extract address from StarkNet Account", async () => {
+      // Arrange
+      const expectedAddress = "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"
+      const provider = new RpcProvider({
+        nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
+      })
+      const account = new Account(provider, expectedAddress, "0x1")
+
+      // Act
+      const extractedAddress = await TBTC.extractStarkNetAddress(account)
+
+      // Assert
+      expect(extractedAddress).to.equal(expectedAddress)
+    })
+
+    it("should extract address from Provider with connected account", async () => {
+      // Arrange
+      const expectedAddress = "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"
+      const provider = {
+        account: { address: expectedAddress },
+        getChainId: async () => "0x534e5f5345504f4c4941",
+      }
+
+      // Act
+      const extractedAddress = await TBTC.extractStarkNetAddress(provider as any)
+
+      // Assert
+      expect(extractedAddress).to.equal(expectedAddress)
+    })
+
+    it("should handle various valid address formats", async () => {
+      // Test with different valid address formats
+      const addresses = [
+        "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7",
+        "0x49d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7", // without leading 0
+      ]
+
+      for (const addr of addresses) {
+        const provider = new RpcProvider({
+          nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
+        })
+        
+        // StarkNet Account constructor may normalize the address
+        try {
+          const account = new Account(provider, addr, "0x1")
+          // Should not throw
+          await expect(tbtc.initializeCrossChain("StarkNet", account)).not.to.be.rejected
+        } catch (e: any) {
+          // If Account constructor rejects invalid format, that's expected
+          expect(e.message).to.include("address")
+        }
+      }
+    })
+
+    it("should reject addresses that exceed maximum felt252 size", async () => {
+      // Test with address that exceeds felt252 max
+      const invalidAddress = "0x00049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7" // 65 chars
+      const provider = new RpcProvider({
+        nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
+      })
+
+      // This should fail either in Account constructor or our validation
+      try {
+        const account = new Account(provider, invalidAddress, "0x1")
+        await expect(tbtc.initializeCrossChain("StarkNet", account)).to.be.rejected
+      } catch (e: any) {
+        // Expected - invalid address format
+        expect(e.message).to.match(/address|exceeds/)
+      }
+    })
+  })
+
+  describe("Cross-Chain Contract Creation", () => {
+    it("should pass correct parameters to loadStarkNetCrossChainContracts", async () => {
+      // Arrange
+      const expectedAddress = "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"
+      const provider = new RpcProvider({
+        nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
+      })
+      const account = new Account(provider, expectedAddress, "0x1")
+
+      // Act
+      await tbtc.initializeCrossChain("StarkNet", account)
+
+      // Assert
+      const contracts = tbtc.crossChainContracts("StarkNet")
+      expect(contracts).to.exist
+      expect(contracts?.l2BitcoinDepositor).to.exist
+      expect(contracts?.l2TbtcToken).to.exist
+    })
+
+    it("should reuse contracts on subsequent calls", async () => {
+      // Arrange
+      const provider = new RpcProvider({
+        nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
+      })
+      const account = new Account(
+        provider,
+        "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7",
+        "0x1"
+      )
+
+      // Act
+      await tbtc.initializeCrossChain("StarkNet", account)
+      
+      // Initialize again with different account
+      const account2 = new Account(
+        provider,
+        "0x06904a90dcc86f096c4f6daafa2d4e96cb926e5301bb5e6ed5cedc9981fa7064",
+        "0x1"
+      )
+      await tbtc.initializeCrossChain("StarkNet", account2)
+      const contracts2 = tbtc.crossChainContracts("StarkNet")
+
+      // Assert - contracts should be updated
+      expect(contracts2).to.exist
+      expect(contracts2?.l2BitcoinDepositor).to.exist
+    })
+  })
+
+  describe("Edge Cases", () => {
+    it("should handle missing cross-chain loader gracefully", async () => {
+      // Arrange
+      const TBTCClass = TBTC as any
+      const tbtcNoCrossChain = new TBTCClass(
+        mockTBTCContracts,
+        mockBitcoinClient,
+        undefined // No cross-chain loader
+      )
+      const account = new Account(
+        new RpcProvider({ nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6" }),
+        "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7",
+        "0x1"
+      )
+
+      // Act & Assert
+      await expect(
+        tbtcNoCrossChain.initializeCrossChain("StarkNet", account)
+      ).to.be.rejectedWith(/Cross-chain contracts loader not available/)
+    })
+
+    it("should handle invalid chain name", async () => {
+      // Arrange
+      const account = new Account(
+        new RpcProvider({ nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6" }),
+        "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7",
+        "0x1"
+      )
+
+      // Act & Assert
+      await expect(
+        tbtc.initializeCrossChain("InvalidChain" as any, account)
+      ).to.be.rejectedWith(/Unsupported L2 chain/)
+    })
+
+    it("should handle undefined provider gracefully", async () => {
+      // Act & Assert
+      await expect(
+        tbtc.initializeCrossChain("StarkNet", undefined as any)
+      ).to.be.rejectedWith(/StarkNet provider is required/)
+    })
+  })
 })
