@@ -17,9 +17,9 @@ describe("StarkNet Module", () => {
       expect(contracts).to.have.property("l2TbtcToken")
     })
 
-    it("should return a StarkNetDepositorInterface instance", () => {
+    it("should return a StarkNetDepositor instance", () => {
       expect(contracts.l2BitcoinDepositor.constructor.name).to.equal(
-        "StarkNetDepositorInterface"
+        "StarkNetDepositor"
       )
     })
 
@@ -133,11 +133,9 @@ describe("StarkNet Module", () => {
       expect(StarkNetCrossChainExtraDataEncoder).to.exist
     })
 
-    it("should export StarkNetDepositorInterface", async () => {
-      const { StarkNetDepositorInterface } = await import(
-        "../../../src/lib/starknet"
-      )
-      expect(StarkNetDepositorInterface).to.exist
+    it("should export StarkNetDepositor", async () => {
+      const { StarkNetDepositor } = await import("../../../src/lib/starknet")
+      expect(StarkNetDepositor).to.exist
     })
 
     it("should export StarkNetTBTCToken", async () => {

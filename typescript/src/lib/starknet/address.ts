@@ -62,4 +62,12 @@ export class StarkNetAddress implements ChainIdentifier {
   toBytes32(): string {
     return "0x" + this.identifierHex
   }
+
+  /**
+   * Returns the address as a string in the standard StarkNet format.
+   * @returns The address as a 0x-prefixed hex string
+   */
+  toString(): string {
+    return "0x" + this.identifierHex
+  }
 }

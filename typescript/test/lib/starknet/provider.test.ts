@@ -1,51 +1,22 @@
 import { expect } from "chai"
+import { Provider, Account, Contract } from "starknet"
 
 describe("StarkNet.js Integration", () => {
   it("should import Provider from starknet", () => {
-    // Arrange
-    let importError: Error | null = null
-
-    // Act
-    try {
-      const starknet = require("starknet")
-      expect(starknet.Provider).to.exist
-    } catch (error) {
-      importError = error as Error
-    }
-
-    // Assert
-    expect(importError).to.be.null
+    // Assert - if import succeeded, Provider should exist
+    expect(Provider).to.exist
+    expect(Provider).to.be.a("function")
   })
 
   it("should import Account from starknet", () => {
-    // Arrange
-    let importError: Error | null = null
-
-    // Act
-    try {
-      const starknet = require("starknet")
-      expect(starknet.Account).to.exist
-    } catch (error) {
-      importError = error as Error
-    }
-
-    // Assert
-    expect(importError).to.be.null
+    // Assert - if import succeeded, Account should exist
+    expect(Account).to.exist
+    expect(Account).to.be.a("function")
   })
 
   it("should import Contract from starknet", () => {
-    // Arrange
-    let importError: Error | null = null
-
-    // Act
-    try {
-      const starknet = require("starknet")
-      expect(starknet.Contract).to.exist
-    } catch (error) {
-      importError = error as Error
-    }
-
-    // Assert
-    expect(importError).to.be.null
+    // Assert - if import succeeded, Contract should exist
+    expect(Contract).to.exist
+    expect(Contract).to.be.a("function")
   })
 })

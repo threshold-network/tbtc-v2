@@ -8,7 +8,6 @@ deployed on the given L2 chain.
 - [`ArbitrumL2BitcoinDepositor`](../classes/ArbitrumL2BitcoinDepositor.md)
 - [`BaseL2BitcoinDepositor`](../classes/BaseL2BitcoinDepositor.md)
 - [`StarkNetDepositor`](../classes/StarkNetDepositor.md)
-- [`StarkNetDepositorInterface`](../classes/StarkNetDepositorInterface.md)
 
 ## Table of contents
 

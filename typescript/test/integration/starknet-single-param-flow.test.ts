@@ -32,8 +32,21 @@ describe("StarkNet Single-Parameter Deposit Flow", () => {
           provider?: any,
           chainId: string = "0x534e5f5345504f4c4941"
         ) => {
-          const depositorInterface = new starknet.StarkNetDepositorInterface()
-          depositorInterface.setDepositOwner(
+          // Create a mock provider if not provided
+          const mockProvider = provider || {
+            getChainId: () => Promise.resolve(chainId),
+          }
+
+          const depositorConfig: starknet.StarkNetDepositorConfig = {
+            chainId,
+          }
+
+          const depositor = new starknet.StarkNetDepositor(
+            depositorConfig,
+            "StarkNet",
+            mockProvider
+          )
+          depositor.setDepositOwner(
             starknet.StarkNetAddress.from(walletAddress)
           )
 
@@ -43,12 +56,8 @@ describe("StarkNet Single-Parameter Deposit Flow", () => {
               "0x04e3bc49f130f9d0379082c24efd397a0eddfccdc6023a2f02a74d8527140276",
           }
 
-          const mockProvider = provider || {
-            getChainId: () => Promise.resolve(chainId),
-          }
-
           return {
-            l2BitcoinDepositor: depositorInterface,
+            l2BitcoinDepositor: depositor,
             l2TbtcToken: new starknet.StarkNetTBTCToken(
               config,
               mockProvider as any
@@ -106,7 +115,7 @@ describe("StarkNet Single-Parameter Deposit Flow", () => {
         arbitrumOne: 42161,
         optimism: 10,
         polygon: 137,
-        starknet: "0x534e5f4d41494e",
+        starknet: "0x534e5f544553544e4554", // Use testnet chain ID for tests
       }),
       loadL1Contracts: async (l2ChainName: string) => ({
         l1BitcoinDepositor: {

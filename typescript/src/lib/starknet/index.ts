@@ -1,5 +1,8 @@
 import { L2CrossChainContracts } from "../contracts"
-import { StarkNetDepositorInterface } from "./starknet-depositor-interface"
+import {
+  StarkNetDepositor,
+  StarkNetDepositorConfig,
+} from "./starknet-depositor"
 import {
   StarkNetTBTCToken,
   StarkNetTBTCTokenConfig,
@@ -10,7 +13,6 @@ import { Chains } from "../contracts/chain"
 
 export * from "./address"
 export * from "./extra-data-encoder"
-export * from "./starknet-depositor-interface"
 export * from "./starknet-depositor"
 export * from "./starknet-tbtc-token"
 export * from "./types"
@@ -28,10 +30,10 @@ const TBTC_CONTRACT_ADDRESSES: Record<string, string> = {
 
 /**
  * Loads StarkNet implementation of tBTC cross-chain contracts.
- * Now supports balance queries with deployed tBTC contracts.
+ * Now supports balance queries with deployed tBTC contracts and enhanced configuration.
  *
  * @param walletAddress The StarkNet wallet address to use as deposit owner
- * @param provider Optional StarkNet provider for balance queries
+ * @param provider Optional StarkNet provider for blockchain interactions
  * @param chainId Optional chain ID (defaults to Sepolia)
  * @returns Handle to the contracts
  */
@@ -40,12 +42,27 @@ export async function loadStarkNetCrossChainContracts(
   provider?: StarkNetProvider,
   chainId: string = Chains.StarkNet.Sepolia
 ): Promise<L2CrossChainContracts> {
-  const starkNetDepositorInterface = new StarkNetDepositorInterface()
-  starkNetDepositorInterface.setDepositOwner(
-    StarkNetAddress.from(walletAddress)
+  // Build depositor configuration with environment variable support
+  const depositorConfig: StarkNetDepositorConfig = {
+    chainId,
+    relayerUrl: process.env.STARKNET_RELAYER_URL, // Optional override
+    defaultVault: process.env.STARKNET_TBTC_VAULT, // Optional override
+  }
+
+  // Create provider if not provided (for testing/backward compatibility)
+  const actualProvider = provider || createMockProvider()
+
+  // Create the main depositor instance
+  const starkNetDepositor = new StarkNetDepositor(
+    depositorConfig,
+    "StarkNet",
+    actualProvider
   )
 
-  // Create token instance based on whether provider is available
+  // Set the deposit owner
+  starkNetDepositor.setDepositOwner(StarkNetAddress.from(walletAddress))
+
+  // Create token instance
   let starkNetTbtcToken: StarkNetTBTCToken
 
   if (provider) {
@@ -55,15 +72,15 @@ export async function loadStarkNetCrossChainContracts(
       throw new Error(`No tBTC contract address for chain ${chainId}`)
     }
 
-    const config: StarkNetTBTCTokenConfig = {
+    const tokenConfig: StarkNetTBTCTokenConfig = {
       chainId,
       tokenContract,
     }
 
-    starkNetTbtcToken = new StarkNetTBTCToken(config, provider)
+    starkNetTbtcToken = new StarkNetTBTCToken(tokenConfig, provider)
   } else {
     // No provider - create interface-only implementation
-    // This maintains backward compatibility
+    // This maintains backward compatibility for tests
     const mockConfig: StarkNetTBTCTokenConfig = {
       chainId,
       tokenContract: "0x0", // Placeholder
@@ -78,7 +95,18 @@ export async function loadStarkNetCrossChainContracts(
   }
 
   return {
-    l2BitcoinDepositor: starkNetDepositorInterface,
+    l2BitcoinDepositor: starkNetDepositor,
     l2TbtcToken: starkNetTbtcToken,
   }
+}
+
+/**
+ * Creates a mock StarkNet provider for testing purposes
+ * @returns A mock StarkNet provider with minimal interface
+ */
+function createMockProvider(): StarkNetProvider {
+  return {
+    getChainId: () => Promise.resolve("0x534e5f5345504f4c4941"),
+    // Add minimal provider interface for testing
+  } as any
 }

@@ -5,10 +5,10 @@ import { expect } from "chai"
  */
 export const STARKNET_ERROR_MESSAGES = {
   NO_CHAIN_IDENTIFIER:
-    "StarkNet depositor interface has no chain identifier. " +
+    "StarkNet depositor has no chain identifier. " +
     "Deposits are handled via L1 StarkNet Bitcoin Depositor.",
   CANNOT_INITIALIZE:
-    "Cannot initialize deposit via StarkNet interface. " +
+    "Cannot initialize deposit via StarkNet depositor. " +
     "Use L1 StarkNet Bitcoin Depositor instead.",
   MUST_BE_STARKNET_ADDRESS: "Deposit owner must be a StarkNet address",
   TOKEN_NO_CHAIN:
@@ -48,11 +48,12 @@ export const TEST_ADDRESSES = {
  * @returns Mock deposit transaction object
  */
 export function createMockDepositTx(): any {
+  const { Hex } = require("../../../src/lib/utils")
   return {
-    version: "0x" as any,
-    inputs: "0x" as any,
-    outputs: "0x" as any,
-    locktime: "0x" as any,
+    version: Hex.from("0x02000000"),
+    inputs: Hex.from("0x0101234567890abcdef01234567890abcdef"),
+    outputs: Hex.from("0x01fedcba098765432101fedcba0987654321"),
+    locktime: Hex.from("0x00000000"),
   }
 }
 
@@ -61,15 +62,17 @@ export function createMockDepositTx(): any {
  * @returns Mock deposit object
  */
 export function createMockDeposit(): any {
+  const { Hex } = require("../../../src/lib/utils")
+  const { EthereumAddress } = require("../../../src/lib/ethereum/address")
   return {
-    depositor: {
-      identifierHex: "0x742d35Cc6634C0532925a3b844Bc9e7595f7FACE",
-    } as any,
-    walletPublicKeyHash: "0x1234567890abcdef1234567890abcdef12345678" as any,
-    refundPublicKeyHash: "0xabcdef1234567890abcdef1234567890abcdef12" as any,
-    blindingFactor: "0x0123456789abcdef" as any,
-    refundLocktime: "0x60000000" as any,
-    extraData: ("0x" + "00".repeat(32)) as any,
+    depositor: EthereumAddress.from(
+      "0x82883a4c7a8dd73ef165deb402d432613615ced4"
+    ),
+    walletPublicKeyHash: Hex.from("0x1234567890abcdef1234567890abcdef12345678"),
+    refundPublicKeyHash: Hex.from("0xabcdef1234567890abcdef1234567890abcdef12"),
+    blindingFactor: Hex.from("0x0123456789abcdef"),
+    refundLocktime: Hex.from("0x60000000"),
+    extraData: Hex.from("0x" + "00".repeat(32)),
   }
 }
 

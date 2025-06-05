@@ -1,17 +1,7 @@
 import { expect } from "chai"
+import { tbtcABI } from "../../../src/lib/starknet/abi"
 
 describe("StarkNet tBTC ABI", () => {
-  let tbtcABI: any[]
-
-  before(() => {
-    try {
-      const abiModule = require("../../../src/lib/starknet/abi")
-      tbtcABI = abiModule.tbtcABI
-    } catch {
-      tbtcABI = [] // Will cause tests to fail appropriately
-    }
-  })
-
   describe("ABI structure", () => {
     it("should be an array of ABI entries", () => {
       expect(tbtcABI).to.be.an("array")
@@ -27,9 +17,9 @@ describe("StarkNet tBTC ABI", () => {
 
       expect(balanceOfFunction).to.exist
       expect(balanceOfFunction).to.have.property("inputs")
-      expect(balanceOfFunction.inputs).to.have.lengthOf(1)
-      expect(balanceOfFunction.inputs[0]).to.have.property("name", "account")
-      expect(balanceOfFunction.inputs[0]).to.have.property("type", "felt")
+      expect(balanceOfFunction!.inputs).to.have.lengthOf(1)
+      expect(balanceOfFunction!.inputs![0]).to.have.property("name", "account")
+      expect(balanceOfFunction!.inputs![0]).to.have.property("type", "felt")
     })
 
     it("should have correct output type for balanceOf", () => {
@@ -38,8 +28,8 @@ describe("StarkNet tBTC ABI", () => {
       )
 
       expect(balanceOfFunction).to.have.property("outputs")
-      expect(balanceOfFunction.outputs).to.have.lengthOf(1)
-      expect(balanceOfFunction.outputs[0]).to.have.property("type", "Uint256")
+      expect(balanceOfFunction!.outputs).to.have.lengthOf(1)
+      expect(balanceOfFunction!.outputs![0]).to.have.property("type", "Uint256")
     })
   })
 
@@ -51,15 +41,15 @@ describe("StarkNet tBTC ABI", () => {
 
       expect(transferFunction).to.exist
       expect(transferFunction).to.have.property("inputs")
-      expect(transferFunction.inputs).to.have.lengthOf(2)
+      expect(transferFunction!.inputs).to.have.lengthOf(2)
 
       // Check recipient parameter
-      expect(transferFunction.inputs[0]).to.have.property("name", "recipient")
-      expect(transferFunction.inputs[0]).to.have.property("type", "felt")
+      expect(transferFunction!.inputs![0]).to.have.property("name", "recipient")
+      expect(transferFunction!.inputs![0]).to.have.property("type", "felt")
 
       // Check amount parameter
-      expect(transferFunction.inputs[1]).to.have.property("name", "amount")
-      expect(transferFunction.inputs[1]).to.have.property("type", "Uint256")
+      expect(transferFunction!.inputs![1]).to.have.property("name", "amount")
+      expect(transferFunction!.inputs![1]).to.have.property("type", "Uint256")
     })
 
     it("should have correct output type for transfer", () => {
@@ -68,9 +58,9 @@ describe("StarkNet tBTC ABI", () => {
       )
 
       expect(transferFunction).to.have.property("outputs")
-      expect(transferFunction.outputs).to.have.lengthOf(1)
-      expect(transferFunction.outputs[0]).to.have.property("type", "felt")
-      expect(transferFunction.outputs[0]).to.have.property("name", "success")
+      expect(transferFunction!.outputs).to.have.lengthOf(1)
+      expect(transferFunction!.outputs![0]).to.have.property("type", "felt")
+      expect(transferFunction!.outputs![0]).to.have.property("name", "success")
     })
   })
 
@@ -82,22 +72,31 @@ describe("StarkNet tBTC ABI", () => {
 
       expect(transferFromFunction).to.exist
       expect(transferFromFunction).to.have.property("inputs")
-      expect(transferFromFunction.inputs).to.have.lengthOf(3)
+      expect(transferFromFunction!.inputs).to.have.lengthOf(3)
 
       // Check sender parameter
-      expect(transferFromFunction.inputs[0]).to.have.property("name", "sender")
-      expect(transferFromFunction.inputs[0]).to.have.property("type", "felt")
+      expect(transferFromFunction!.inputs![0]).to.have.property(
+        "name",
+        "sender"
+      )
+      expect(transferFromFunction!.inputs![0]).to.have.property("type", "felt")
 
       // Check recipient parameter
-      expect(transferFromFunction.inputs[1]).to.have.property(
+      expect(transferFromFunction!.inputs![1]).to.have.property(
         "name",
         "recipient"
       )
-      expect(transferFromFunction.inputs[1]).to.have.property("type", "felt")
+      expect(transferFromFunction!.inputs![1]).to.have.property("type", "felt")
 
       // Check amount parameter
-      expect(transferFromFunction.inputs[2]).to.have.property("name", "amount")
-      expect(transferFromFunction.inputs[2]).to.have.property("type", "Uint256")
+      expect(transferFromFunction!.inputs![2]).to.have.property(
+        "name",
+        "amount"
+      )
+      expect(transferFromFunction!.inputs![2]).to.have.property(
+        "type",
+        "Uint256"
+      )
     })
   })
 

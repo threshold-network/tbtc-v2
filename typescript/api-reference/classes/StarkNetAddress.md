@@ -21,6 +21,7 @@ StarkNet addresses are field elements (felt252) in the StarkNet prime field.
 
 - [equals](StarkNetAddress.md#equals)
 - [toBytes32](StarkNetAddress.md#tobytes32)
+- [toString](StarkNetAddress.md#tostring)
 - [from](StarkNetAddress.md#from)
 
 ## Constructors
@@ -106,6 +107,24 @@ The address as a 0x-prefixed 64-character hex string
 #### Defined in
 
 [lib/starknet/address.ts:62](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/address.ts#L62)
+
+___
+
+### toString
+
+▸ **toString**(): `string`
+
+Returns the address as a string in the standard StarkNet format.
+
+#### Returns
+
+`string`
+
+The address as a 0x-prefixed hex string
+
+#### Defined in
+
+[lib/starknet/address.ts:70](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/address.ts#L70)
 
 ___
 

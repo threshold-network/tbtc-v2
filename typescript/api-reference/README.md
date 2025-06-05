@@ -47,7 +47,6 @@
 - [StarkNetAddress](classes/StarkNetAddress.md)
 - [StarkNetCrossChainExtraDataEncoder](classes/StarkNetCrossChainExtraDataEncoder.md)
 - [StarkNetDepositor](classes/StarkNetDepositor.md)
-- [StarkNetDepositorInterface](classes/StarkNetDepositorInterface.md)
 - [StarkNetTBTCToken](classes/StarkNetTBTCToken.md)
 - [TBTC](classes/TBTC.md)
 - [WalletTx](classes/WalletTx.md)
@@ -1093,14 +1092,14 @@ ___
 ▸ **loadStarkNetCrossChainContracts**(`walletAddress`, `provider?`, `chainId?`): `Promise`\<[`L2CrossChainContracts`](README.md#l2crosschaincontracts)\>
 
 Loads StarkNet implementation of tBTC cross-chain contracts.
-Now supports balance queries with deployed tBTC contracts.
+Now supports balance queries with deployed tBTC contracts and enhanced configuration.
 
 #### Parameters
 
 | Name | Type | Default value | Description |
 | :------ | :------ | :------ | :------ |
 | `walletAddress` | `string` | `undefined` | The StarkNet wallet address to use as deposit owner |
-| `provider?` | [`StarkNetProvider`](README.md#starknetprovider) | `undefined` | Optional StarkNet provider for balance queries |
+| `provider?` | [`StarkNetProvider`](README.md#starknetprovider) | `undefined` | Optional StarkNet provider for blockchain interactions |
 | `chainId` | `string` | `Chains.StarkNet.Sepolia` | Optional chain ID (defaults to Sepolia) |
 
 #### Returns
@@ -1111,7 +1110,7 @@ Handle to the contracts
 
 #### Defined in
 
-[lib/starknet/index.ts:38](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L38)
+[lib/starknet/index.ts:40](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L40)
 
 ___
 
