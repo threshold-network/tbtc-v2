@@ -8,7 +8,7 @@ import {
   ChainIdentifier,
   Chains,
 } from "../contracts"
-import { backoffRetrier, Hex } from "../utils"
+import { backoffRetrier, Hex, skipRetryWhenMatched } from "../utils"
 import { Event as EthersEvent } from "@ethersproject/contracts"
 import { BigNumber } from "ethers"
 import {
@@ -66,13 +66,16 @@ export class EthereumWalletRegistry
    * @see {WalletRegistry#getWalletPublicKey}
    */
   async getWalletPublicKey(walletID: Hex): Promise<Hex> {
-    const publicKey = await backoffRetrier<string>(this._totalRetryAttempts)(
-      async () => {
-        return await this._instance.getWalletPublicKey(
-          walletID.toPrefixedString()
-        )
-      }
-    )
+    const publicKey = await backoffRetrier<string>(
+      this._totalRetryAttempts,
+      undefined,
+      undefined,
+      skipRetryWhenMatched(["Wallet with the given ID has not been registered"])
+    )(async () => {
+      return await this._instance.getWalletPublicKey(
+        walletID.toPrefixedString()
+      )
+    })
     return Hex.from(publicKey.substring(2))
   }
 
