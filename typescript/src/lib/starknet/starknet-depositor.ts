@@ -62,16 +62,17 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
 
     // Set default relayer URL based on chainId if not provided
     const enhancedConfig = { ...config }
-    if (!enhancedConfig.relayerUrl) {
-      // Mainnet chainId: 0x534e5f4d41494e (SN_MAIN)
-      if (config.chainId === "0x534e5f4d41494e") {
-        enhancedConfig.relayerUrl = "https://relayer.tbtcscan.com/api/reveal"
-      } else {
-        // Default for testnet and other networks - use local relayer for testing
-        enhancedConfig.relayerUrl =
-          "http://localhost:3001/api/starknetTestnet/reveal"
-      }
-    }
+    // COMMENTED OUT: Bypass relayer configuration for now
+    // if (!enhancedConfig.relayerUrl) {
+    //   // Mainnet chainId: 0x534e5f4d41494e (SN_MAIN)
+    //   if (config.chainId === "0x534e5f4d41494e") {
+    //     enhancedConfig.relayerUrl = "https://relayer.tbtcscan.com/api/reveal"
+    //   } else {
+    //     // Default for testnet and other networks - use local relayer for testing
+    //     enhancedConfig.relayerUrl =
+    //       "http://localhost:3001/api/starknetTestnet/reveal"
+    //   }
+    // }
 
     this.#config = Object.freeze(enhancedConfig)
     this.#chainName = chainName
@@ -198,24 +199,38 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
     // Attempt the request with retries
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        const response = await axios.post(
-          this.#config.relayerUrl!,
-          {
-            fundingTx,
-            reveal,
-            // PRIMARY field for StarkNet (new requirement)
-            destinationChainDepositOwner: formattedL2DepositOwner,
-            // Backward compatibility fields
-            l2DepositOwner: formattedL2DepositOwner,
-            l2Sender: formattedL2Sender,
-          },
-          {
-            timeout: 30000, // 30 seconds timeout
-            headers: {
-              "Content-Type": "application/json",
-            },
-          }
-        )
+        // TEMPORARY: Bypass HTTP call and return the payload directly
+        const payload = {
+          fundingTx,
+          reveal,
+          // PRIMARY field for StarkNet (new requirement)
+          destinationChainDepositOwner: formattedL2DepositOwner,
+          // Backward compatibility fields
+          l2DepositOwner: formattedL2DepositOwner,
+          l2Sender: formattedL2Sender,
+        }
+        
+        console.log("Returning deposit payload:", payload)
+        return payload
+        
+        // const response = await axios.post(
+        //   this.#config.relayerUrl!,
+        //   {
+        //     fundingTx,
+        //     reveal,
+        //     // PRIMARY field for StarkNet (new requirement)
+        //     destinationChainDepositOwner: formattedL2DepositOwner,
+        //     // Backward compatibility fields
+        //     l2DepositOwner: formattedL2DepositOwner,
+        //     l2Sender: formattedL2Sender,
+        //   },
+        //   {
+        //     timeout: 30000, // 30 seconds timeout
+        //     headers: {
+        //       "Content-Type": "application/json",
+        //     },
+        //   }
+        // )
 
         const { data } = response
 
