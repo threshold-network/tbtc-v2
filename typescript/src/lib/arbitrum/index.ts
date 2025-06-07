@@ -3,15 +3,15 @@ import {
   ethereumAddressFromSigner,
   EthereumSigner,
 } from "../ethereum"
-import { ArbitrumL2BitcoinDepositor } from "./l2-bitcoin-depositor"
-import { ArbitrumL2TBTCToken } from "./l2-tbtc-token"
-import { Chains, L2CrossChainContracts } from "../contracts"
+import { ArbitrumBitcoinDepositor } from "./l2-bitcoin-depositor"
+import { ArbitrumTBTCToken } from "./l2-tbtc-token"
+import { Chains, DestinationChainInterfaces } from "../contracts"
 
 export * from "./l2-bitcoin-depositor"
 export * from "./l2-tbtc-token"
 
 /**
- * Loads Arbitrum implementation of tBTC cross-chain contracts for the given Arbitrum
+ * Loads Arbitrum implementation of tBTC cross-chain interfaces for the given Arbitrum
  * chain ID and attaches the given signer there.
  * @param signer Signer that should be attached to the contracts.
  * @param chainId Arbitrum chain ID.
@@ -19,10 +19,10 @@ export * from "./l2-tbtc-token"
  * @throws Throws an error if the signer's Arbitrum chain ID is other than
  *         the one used to load contracts.
  */
-export async function loadArbitrumCrossChainContracts(
+export async function loadArbitrumCrossChainInterfaces(
   signer: EthereumSigner,
   chainId: Chains.Arbitrum
-): Promise<L2CrossChainContracts> {
+): Promise<DestinationChainInterfaces> {
   const signerChainId = await chainIdFromSigner(signer)
   if (signerChainId !== chainId) {
     throw new Error(
@@ -30,19 +30,26 @@ export async function loadArbitrumCrossChainContracts(
     )
   }
 
-  const l2BitcoinDepositor = new ArbitrumL2BitcoinDepositor(
+  const destinationChainBitcoinDepositor = new ArbitrumBitcoinDepositor(
     { signerOrProvider: signer },
     chainId
   )
-  l2BitcoinDepositor.setDepositOwner(await ethereumAddressFromSigner(signer))
+  destinationChainBitcoinDepositor.setDepositOwner(
+    await ethereumAddressFromSigner(signer)
+  )
 
-  const l2TbtcToken = new ArbitrumL2TBTCToken(
+  const destinationChainTbtcToken = new ArbitrumTBTCToken(
     { signerOrProvider: signer },
     chainId
   )
 
   return {
-    l2BitcoinDepositor,
-    l2TbtcToken,
+    destinationChainBitcoinDepositor,
+    destinationChainTbtcToken,
   }
 }
+
+/**
+ * @deprecated Use loadArbitrumCrossChainInterfaces instead
+ */
+export const loadArbitrumCrossChainContracts = loadArbitrumCrossChainInterfaces

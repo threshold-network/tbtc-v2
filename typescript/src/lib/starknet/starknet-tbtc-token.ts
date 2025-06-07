@@ -1,4 +1,4 @@
-import { L2TBTCToken, ChainIdentifier } from "../contracts"
+import { DestinationChainTBTCToken, ChainIdentifier } from "../contracts"
 import { BigNumber } from "ethers"
 import { StarkNetAddress } from "./address"
 import { Contract } from "starknet"
@@ -14,11 +14,11 @@ export interface StarkNetTBTCTokenConfig {
 }
 
 /**
- * Implementation of the L2TBTCToken interface for StarkNet.
+ * Implementation of the DestinationChainTBTCToken interface for StarkNet.
  * This implementation now supports balance queries using deployed
  * tBTC contracts on StarkNet.
  */
-export class StarkNetTBTCToken implements L2TBTCToken {
+export class StarkNetTBTCToken implements DestinationChainTBTCToken {
   private readonly config: StarkNetTBTCTokenConfig
   private readonly provider: StarkNetProvider
   private readonly contract: Contract

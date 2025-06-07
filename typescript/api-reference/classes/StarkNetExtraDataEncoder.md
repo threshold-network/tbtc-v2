@@ -1,6 +1,6 @@
-# Class: StarkNetCrossChainExtraDataEncoder
+# Class: StarkNetExtraDataEncoder
 
-Implementation of the StarkNet CrossChainExtraDataEncoder.
+Implementation of the StarkNet ExtraDataEncoder.
 
 This encoder handles the encoding and decoding of StarkNet addresses
 for cross-chain deposits. StarkNet addresses are felt252 field elements
@@ -12,28 +12,28 @@ for reference.
 
 ## Implements
 
-- [`CrossChainExtraDataEncoder`](../interfaces/CrossChainExtraDataEncoder.md)
+- [`ExtraDataEncoder`](../interfaces/ExtraDataEncoder.md)
 
 ## Table of contents
 
 ### Constructors
 
-- [constructor](StarkNetCrossChainExtraDataEncoder.md#constructor)
+- [constructor](StarkNetExtraDataEncoder.md#constructor)
 
 ### Methods
 
-- [decodeDepositOwner](StarkNetCrossChainExtraDataEncoder.md#decodedepositowner)
-- [encodeDepositOwner](StarkNetCrossChainExtraDataEncoder.md#encodedepositowner)
+- [decodeDepositOwner](StarkNetExtraDataEncoder.md#decodedepositowner)
+- [encodeDepositOwner](StarkNetExtraDataEncoder.md#encodedepositowner)
 
 ## Constructors
 
 ### constructor
 
-• **new StarkNetCrossChainExtraDataEncoder**(): [`StarkNetCrossChainExtraDataEncoder`](StarkNetCrossChainExtraDataEncoder.md)
+• **new StarkNetExtraDataEncoder**(): [`StarkNetExtraDataEncoder`](StarkNetExtraDataEncoder.md)
 
 #### Returns
 
-[`StarkNetCrossChainExtraDataEncoder`](StarkNetCrossChainExtraDataEncoder.md)
+[`StarkNetExtraDataEncoder`](StarkNetExtraDataEncoder.md)
 
 ## Methods
 
@@ -63,11 +63,11 @@ Error if the extra data is missing, null, or not exactly 32 bytes.
 
 #### Implementation of
 
-[CrossChainExtraDataEncoder](../interfaces/CrossChainExtraDataEncoder.md).[decodeDepositOwner](../interfaces/CrossChainExtraDataEncoder.md#decodedepositowner)
+[ExtraDataEncoder](../interfaces/ExtraDataEncoder.md).[decodeDepositOwner](../interfaces/ExtraDataEncoder.md#decodedepositowner)
 
 #### Defined in
 
-[lib/starknet/extra-data-encoder.ts:47](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/extra-data-encoder.ts#L47)
+[lib/starknet/extra-data-encoder.ts:44](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/extra-data-encoder.ts#L44)
 
 ___
 
@@ -97,8 +97,8 @@ Error if the deposit owner is not a StarkNetAddress instance.
 
 #### Implementation of
 
-[CrossChainExtraDataEncoder](../interfaces/CrossChainExtraDataEncoder.md).[encodeDepositOwner](../interfaces/CrossChainExtraDataEncoder.md#encodedepositowner)
+[ExtraDataEncoder](../interfaces/ExtraDataEncoder.md).[encodeDepositOwner](../interfaces/ExtraDataEncoder.md#encodedepositowner)
 
 #### Defined in
 
-[lib/starknet/extra-data-encoder.ts:27](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/extra-data-encoder.ts#L27)
+[lib/starknet/extra-data-encoder.ts:24](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/extra-data-encoder.ts#L24)

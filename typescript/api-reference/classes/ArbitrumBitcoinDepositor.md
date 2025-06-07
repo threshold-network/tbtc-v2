@@ -1,6 +1,6 @@
-# Class: BaseL2BitcoinDepositor
+# Class: ArbitrumBitcoinDepositor
 
-Implementation of the Base L2BitcoinDepositor handle.
+Implementation of the Arbitrum BitcoinDepositor handle.
 
 **`See`**
 
@@ -10,52 +10,52 @@ for reference.
 
 - `EthersContractHandle`\<`L2BitcoinDepositorTypechain`\>
 
-  ↳ **`BaseL2BitcoinDepositor`**
+  ↳ **`ArbitrumBitcoinDepositor`**
 
 ## Implements
 
-- [`L2BitcoinDepositor`](../interfaces/L2BitcoinDepositor.md)
+- [`BitcoinDepositor`](../interfaces/BitcoinDepositor.md)
 
 ## Table of contents
 
 ### Constructors
 
-- [constructor](BaseL2BitcoinDepositor.md#constructor)
+- [constructor](ArbitrumBitcoinDepositor.md#constructor)
 
 ### Properties
 
-- [#depositOwner](BaseL2BitcoinDepositor.md##depositowner)
-- [#extraDataEncoder](BaseL2BitcoinDepositor.md##extradataencoder)
-- [\_deployedAtBlockNumber](BaseL2BitcoinDepositor.md#_deployedatblocknumber)
-- [\_instance](BaseL2BitcoinDepositor.md#_instance)
-- [\_totalRetryAttempts](BaseL2BitcoinDepositor.md#_totalretryattempts)
+- [#depositOwner](ArbitrumBitcoinDepositor.md##depositowner)
+- [#extraDataEncoder](ArbitrumBitcoinDepositor.md##extradataencoder)
+- [\_deployedAtBlockNumber](ArbitrumBitcoinDepositor.md#_deployedatblocknumber)
+- [\_instance](ArbitrumBitcoinDepositor.md#_instance)
+- [\_totalRetryAttempts](ArbitrumBitcoinDepositor.md#_totalretryattempts)
 
 ### Methods
 
-- [extraDataEncoder](BaseL2BitcoinDepositor.md#extradataencoder)
-- [getAddress](BaseL2BitcoinDepositor.md#getaddress)
-- [getChainIdentifier](BaseL2BitcoinDepositor.md#getchainidentifier)
-- [getDepositOwner](BaseL2BitcoinDepositor.md#getdepositowner)
-- [getEvents](BaseL2BitcoinDepositor.md#getevents)
-- [initializeDeposit](BaseL2BitcoinDepositor.md#initializedeposit)
-- [setDepositOwner](BaseL2BitcoinDepositor.md#setdepositowner)
+- [extraDataEncoder](ArbitrumBitcoinDepositor.md#extradataencoder)
+- [getAddress](ArbitrumBitcoinDepositor.md#getaddress)
+- [getChainIdentifier](ArbitrumBitcoinDepositor.md#getchainidentifier)
+- [getDepositOwner](ArbitrumBitcoinDepositor.md#getdepositowner)
+- [getEvents](ArbitrumBitcoinDepositor.md#getevents)
+- [initializeDeposit](ArbitrumBitcoinDepositor.md#initializedeposit)
+- [setDepositOwner](ArbitrumBitcoinDepositor.md#setdepositowner)
 
 ## Constructors
 
 ### constructor
 
-• **new BaseL2BitcoinDepositor**(`config`, `chainId`): [`BaseL2BitcoinDepositor`](BaseL2BitcoinDepositor.md)
+• **new ArbitrumBitcoinDepositor**(`config`, `chainId`): [`ArbitrumBitcoinDepositor`](ArbitrumBitcoinDepositor.md)
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
 | `config` | [`EthereumContractConfig`](../interfaces/EthereumContractConfig.md) |
-| `chainId` | [`Base`](../enums/Chains.Base.md) |
+| `chainId` | [`Arbitrum`](../enums/Chains.Arbitrum.md) |
 
 #### Returns
 
-[`BaseL2BitcoinDepositor`](BaseL2BitcoinDepositor.md)
+[`ArbitrumBitcoinDepositor`](ArbitrumBitcoinDepositor.md)
 
 #### Overrides
 
@@ -63,7 +63,7 @@ EthersContractHandle\&lt;L2BitcoinDepositorTypechain\&gt;.constructor
 
 #### Defined in
 
-[lib/base/l2-bitcoin-depositor.ts:36](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L36)
+[lib/arbitrum/l2-bitcoin-depositor.ts:33](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L33)
 
 ## Properties
 
@@ -73,17 +73,17 @@ EthersContractHandle\&lt;L2BitcoinDepositorTypechain\&gt;.constructor
 
 #### Defined in
 
-[lib/base/l2-bitcoin-depositor.ts:34](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L34)
+[lib/arbitrum/l2-bitcoin-depositor.ts:31](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L31)
 
 ___
 
 ### #extraDataEncoder
 
-• `Private` `Readonly` **#extraDataEncoder**: [`CrossChainExtraDataEncoder`](../interfaces/CrossChainExtraDataEncoder.md)
+• `Private` `Readonly` **#extraDataEncoder**: [`ExtraDataEncoder`](../interfaces/ExtraDataEncoder.md)
 
 #### Defined in
 
-[lib/base/l2-bitcoin-depositor.ts:33](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L33)
+[lib/arbitrum/l2-bitcoin-depositor.ts:30](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L30)
 
 ___
 
@@ -139,21 +139,21 @@ EthersContractHandle.\_totalRetryAttempts
 
 ### extraDataEncoder
 
-▸ **extraDataEncoder**(): [`CrossChainExtraDataEncoder`](../interfaces/CrossChainExtraDataEncoder.md)
+▸ **extraDataEncoder**(): [`ExtraDataEncoder`](../interfaces/ExtraDataEncoder.md)
 
 #### Returns
 
-[`CrossChainExtraDataEncoder`](../interfaces/CrossChainExtraDataEncoder.md)
+[`ExtraDataEncoder`](../interfaces/ExtraDataEncoder.md)
 
 **`See`**
 
 #### Implementation of
 
-[L2BitcoinDepositor](../interfaces/L2BitcoinDepositor.md).[extraDataEncoder](../interfaces/L2BitcoinDepositor.md#extradataencoder)
+[BitcoinDepositor](../interfaces/BitcoinDepositor.md).[extraDataEncoder](../interfaces/BitcoinDepositor.md#extradataencoder)
 
 #### Defined in
 
-[lib/base/l2-bitcoin-depositor.ts:83](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L83)
+[lib/arbitrum/l2-bitcoin-depositor.ts:80](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L80)
 
 ___
 
@@ -191,11 +191,11 @@ ___
 
 #### Implementation of
 
-[L2BitcoinDepositor](../interfaces/L2BitcoinDepositor.md).[getChainIdentifier](../interfaces/L2BitcoinDepositor.md#getchainidentifier)
+[BitcoinDepositor](../interfaces/BitcoinDepositor.md).[getChainIdentifier](../interfaces/BitcoinDepositor.md#getchainidentifier)
 
 #### Defined in
 
-[lib/base/l2-bitcoin-depositor.ts:59](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L59)
+[lib/arbitrum/l2-bitcoin-depositor.ts:56](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L56)
 
 ___
 
@@ -211,11 +211,11 @@ ___
 
 #### Implementation of
 
-[L2BitcoinDepositor](../interfaces/L2BitcoinDepositor.md).[getDepositOwner](../interfaces/L2BitcoinDepositor.md#getdepositowner)
+[BitcoinDepositor](../interfaces/BitcoinDepositor.md).[getDepositOwner](../interfaces/BitcoinDepositor.md#getdepositowner)
 
 #### Defined in
 
-[lib/base/l2-bitcoin-depositor.ts:67](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L67)
+[lib/arbitrum/l2-bitcoin-depositor.ts:64](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L64)
 
 ___
 
@@ -226,7 +226,7 @@ ___
 Get events emitted by the Ethereum contract.
 It starts searching from provided block number. If the GetEvents.Options#fromBlock
 option is missing it looks for a contract's defined property
-[_deployedAtBlockNumber](BaseL2BitcoinDepositor.md#_deployedatblocknumber). If the property is missing starts searching
+[_deployedAtBlockNumber](BaseBitcoinDepositor.md#_deployedatblocknumber). If the property is missing starts searching
 from block `0`.
 
 #### Parameters
@@ -255,7 +255,7 @@ ___
 
 ### initializeDeposit
 
-▸ **initializeDeposit**(`depositTx`, `depositOutputIndex`, `deposit`, `vault?`): `Promise`\<[`Hex`](Hex.md)\>
+▸ **initializeDeposit**(`depositTx`, `depositOutputIndex`, `deposit`, `vault?`): `Promise`\<[`Hex`](Hex.md) \| `TransactionReceipt`\>
 
 #### Parameters
 
@@ -268,17 +268,17 @@ ___
 
 #### Returns
 
-`Promise`\<[`Hex`](Hex.md)\>
+`Promise`\<[`Hex`](Hex.md) \| `TransactionReceipt`\>
 
 **`See`**
 
 #### Implementation of
 
-[L2BitcoinDepositor](../interfaces/L2BitcoinDepositor.md).[initializeDeposit](../interfaces/L2BitcoinDepositor.md#initializedeposit)
+[BitcoinDepositor](../interfaces/BitcoinDepositor.md).[initializeDeposit](../interfaces/BitcoinDepositor.md#initializedeposit)
 
 #### Defined in
 
-[lib/base/l2-bitcoin-depositor.ts:91](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L91)
+[lib/arbitrum/l2-bitcoin-depositor.ts:88](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L88)
 
 ___
 
@@ -300,8 +300,8 @@ ___
 
 #### Implementation of
 
-[L2BitcoinDepositor](../interfaces/L2BitcoinDepositor.md).[setDepositOwner](../interfaces/L2BitcoinDepositor.md#setdepositowner)
+[BitcoinDepositor](../interfaces/BitcoinDepositor.md).[setDepositOwner](../interfaces/BitcoinDepositor.md#setdepositowner)
 
 #### Defined in
 
-[lib/base/l2-bitcoin-depositor.ts:75](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L75)
+[lib/arbitrum/l2-bitcoin-depositor.ts:72](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L72)

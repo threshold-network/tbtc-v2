@@ -1,6 +1,6 @@
-# Class: ArbitrumL2TBTCToken
+# Class: ArbitrumTBTCToken
 
-Implementation of the Arbitrum L2TBTCToken handle.
+Implementation of the Arbitrum DestinationChainTBTCToken handle.
 
 **`See`**
 
@@ -10,36 +10,36 @@ for reference.
 
 - `EthersContractHandle`\<`L2TBTCTypechain`\>
 
-  ↳ **`ArbitrumL2TBTCToken`**
+  ↳ **`ArbitrumTBTCToken`**
 
 ## Implements
 
-- [`L2TBTCToken`](../interfaces/L2TBTCToken.md)
+- [`DestinationChainTBTCToken`](../interfaces/DestinationChainTBTCToken.md)
 
 ## Table of contents
 
 ### Constructors
 
-- [constructor](ArbitrumL2TBTCToken.md#constructor)
+- [constructor](ArbitrumTBTCToken.md#constructor)
 
 ### Properties
 
-- [\_deployedAtBlockNumber](ArbitrumL2TBTCToken.md#_deployedatblocknumber)
-- [\_instance](ArbitrumL2TBTCToken.md#_instance)
-- [\_totalRetryAttempts](ArbitrumL2TBTCToken.md#_totalretryattempts)
+- [\_deployedAtBlockNumber](ArbitrumTBTCToken.md#_deployedatblocknumber)
+- [\_instance](ArbitrumTBTCToken.md#_instance)
+- [\_totalRetryAttempts](ArbitrumTBTCToken.md#_totalretryattempts)
 
 ### Methods
 
-- [balanceOf](ArbitrumL2TBTCToken.md#balanceof)
-- [getAddress](ArbitrumL2TBTCToken.md#getaddress)
-- [getChainIdentifier](ArbitrumL2TBTCToken.md#getchainidentifier)
-- [getEvents](ArbitrumL2TBTCToken.md#getevents)
+- [balanceOf](ArbitrumTBTCToken.md#balanceof)
+- [getAddress](ArbitrumTBTCToken.md#getaddress)
+- [getChainIdentifier](ArbitrumTBTCToken.md#getchainidentifier)
+- [getEvents](ArbitrumTBTCToken.md#getevents)
 
 ## Constructors
 
 ### constructor
 
-• **new ArbitrumL2TBTCToken**(`config`, `chainId`): [`ArbitrumL2TBTCToken`](ArbitrumL2TBTCToken.md)
+• **new ArbitrumTBTCToken**(`config`, `chainId`): [`ArbitrumTBTCToken`](ArbitrumTBTCToken.md)
 
 #### Parameters
 
@@ -50,7 +50,7 @@ for reference.
 
 #### Returns
 
-[`ArbitrumL2TBTCToken`](ArbitrumL2TBTCToken.md)
+[`ArbitrumTBTCToken`](ArbitrumTBTCToken.md)
 
 #### Overrides
 
@@ -58,7 +58,7 @@ EthersContractHandle\&lt;L2TBTCTypechain\&gt;.constructor
 
 #### Defined in
 
-[lib/arbitrum/l2-tbtc-token.ts:22](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-tbtc-token.ts#L22)
+[lib/arbitrum/l2-tbtc-token.ts:26](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-tbtc-token.ts#L26)
 
 ## Properties
 
@@ -130,11 +130,11 @@ EthersContractHandle.\_totalRetryAttempts
 
 #### Implementation of
 
-[L2TBTCToken](../interfaces/L2TBTCToken.md).[balanceOf](../interfaces/L2TBTCToken.md#balanceof)
+[DestinationChainTBTCToken](../interfaces/DestinationChainTBTCToken.md).[balanceOf](../interfaces/DestinationChainTBTCToken.md#balanceof)
 
 #### Defined in
 
-[lib/arbitrum/l2-tbtc-token.ts:51](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-tbtc-token.ts#L51)
+[lib/arbitrum/l2-tbtc-token.ts:55](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-tbtc-token.ts#L55)
 
 ___
 
@@ -172,11 +172,11 @@ ___
 
 #### Implementation of
 
-[L2TBTCToken](../interfaces/L2TBTCToken.md).[getChainIdentifier](../interfaces/L2TBTCToken.md#getchainidentifier)
+[DestinationChainTBTCToken](../interfaces/DestinationChainTBTCToken.md).[getChainIdentifier](../interfaces/DestinationChainTBTCToken.md#getchainidentifier)
 
 #### Defined in
 
-[lib/arbitrum/l2-tbtc-token.ts:43](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-tbtc-token.ts#L43)
+[lib/arbitrum/l2-tbtc-token.ts:47](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-tbtc-token.ts#L47)
 
 ___
 
@@ -187,7 +187,7 @@ ___
 Get events emitted by the Ethereum contract.
 It starts searching from provided block number. If the GetEvents.Options#fromBlock
 option is missing it looks for a contract's defined property
-[_deployedAtBlockNumber](BaseL2BitcoinDepositor.md#_deployedatblocknumber). If the property is missing starts searching
+[_deployedAtBlockNumber](BaseBitcoinDepositor.md#_deployedatblocknumber). If the property is missing starts searching
 from block `0`.
 
 #### Parameters

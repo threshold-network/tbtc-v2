@@ -57,7 +57,7 @@ describe("TBTC Single-Parameter StarkNet Initialization", () => {
       // Assert
       const contracts = tbtc.crossChainContracts("StarkNet")
       expect(contracts).to.exist
-      expect(contracts?.l2BitcoinDepositor).to.exist
+      expect(contracts?.destinationChainBitcoinDepositor).to.exist
       // Should NOT warn about deprecation in single-parameter mode
       expect(consoleWarnCalls.length).to.equal(0)
     })
@@ -109,8 +109,8 @@ describe("TBTC Single-Parameter StarkNet Initialization", () => {
       // Assert
       const contracts = tbtc.crossChainContracts("StarkNet")
       expect(contracts).to.exist
-      expect(contracts?.l2BitcoinDepositor).to.exist
-      expect(contracts?.l2TbtcToken).to.exist
+      expect(contracts?.destinationChainBitcoinDepositor).to.exist
+      expect(contracts?.destinationChainTbtcToken).to.exist
     })
 
     it("should initialize with Provider + connected account", async () => {
@@ -150,8 +150,8 @@ describe("TBTC Single-Parameter StarkNet Initialization", () => {
 
       // Assert
       const contracts = tbtc.crossChainContracts("StarkNet")
-      expect(contracts).to.have.property("l2BitcoinDepositor")
-      expect(contracts).to.have.property("l2TbtcToken")
+      expect(contracts).to.have.property("destinationChainBitcoinDepositor")
+      expect(contracts).to.have.property("destinationChainTbtcToken")
     })
   })
 
@@ -325,8 +325,8 @@ describe("TBTC Single-Parameter StarkNet Initialization", () => {
       // Assert
       const contracts = tbtc.crossChainContracts("StarkNet")
       expect(contracts).to.exist
-      expect(contracts?.l2BitcoinDepositor).to.exist
-      expect(contracts?.l2TbtcToken).to.exist
+      expect(contracts?.destinationChainBitcoinDepositor).to.exist
+      expect(contracts?.destinationChainTbtcToken).to.exist
     })
 
     it("should reuse contracts on subsequent calls", async () => {
@@ -354,7 +354,7 @@ describe("TBTC Single-Parameter StarkNet Initialization", () => {
 
       // Assert - contracts should be updated
       expect(contracts2).to.exist
-      expect(contracts2?.l2BitcoinDepositor).to.exist
+      expect(contracts2?.destinationChainBitcoinDepositor).to.exist
     })
   })
 

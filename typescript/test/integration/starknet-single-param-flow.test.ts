@@ -57,8 +57,8 @@ describe("StarkNet Single-Parameter Deposit Flow", () => {
           }
 
           return {
-            l2BitcoinDepositor: depositor,
-            l2TbtcToken: new starknet.StarkNetTBTCToken(
+            destinationChainBitcoinDepositor: depositor,
+            destinationChainTbtcToken: new starknet.StarkNetTBTCToken(
               config,
               mockProvider as any
             ),
@@ -194,11 +194,11 @@ describe("StarkNet Single-Parameter Deposit Flow", () => {
       // Verify cross-chain contracts were initialized
       const contracts = tbtc.crossChainContracts("StarkNet")
       expect(contracts).to.exist
-      expect(contracts!.l2BitcoinDepositor).to.exist
-      expect(contracts!.l2TbtcToken).to.exist
+      expect(contracts!.destinationChainBitcoinDepositor).to.exist
+      expect(contracts!.destinationChainTbtcToken).to.exist
 
       // Verify we can get the depositor
-      const depositor = contracts!.l2BitcoinDepositor
+      const depositor = contracts!.destinationChainBitcoinDepositor
       expect(depositor).to.exist
 
       // Verify deposit owner is set correctly
@@ -252,7 +252,7 @@ describe("StarkNet Single-Parameter Deposit Flow", () => {
       await tbtc.initializeCrossChain("StarkNet", starknetAccount)
       const contracts = tbtc.crossChainContracts("StarkNet")
       expect(contracts).to.exist
-      const depositor = contracts!.l2BitcoinDepositor
+      const depositor = contracts!.destinationChainBitcoinDepositor
       depositor.setDepositOwner(StarkNetAddress.from(starknetAddress))
 
       await depositor.initializeDeposit(
@@ -319,7 +319,7 @@ describe("StarkNet Single-Parameter Deposit Flow", () => {
       await tbtc.initializeCrossChain("StarkNet", starknetAccount)
       const contracts = tbtc.crossChainContracts("StarkNet")
       expect(contracts).to.exist
-      const depositor = contracts!.l2BitcoinDepositor
+      const depositor = contracts!.destinationChainBitcoinDepositor
 
       // Assert
       await expect(
@@ -402,7 +402,7 @@ describe("StarkNet Single-Parameter Deposit Flow", () => {
       await tbtc.initializeCrossChain("StarkNet", starknetAccount)
       const contracts = tbtc.crossChainContracts("StarkNet")
       expect(contracts).to.exist
-      const depositor = contracts!.l2BitcoinDepositor
+      const depositor = contracts!.destinationChainBitcoinDepositor
 
       // Assert
       await expect(

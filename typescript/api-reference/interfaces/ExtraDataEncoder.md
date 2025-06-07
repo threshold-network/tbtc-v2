@@ -1,19 +1,20 @@
-# Interface: CrossChainExtraDataEncoder
+# Interface: ExtraDataEncoder
 
 Interface for encoding and decoding the extra data included in the
 cross-chain deposit script.
 
 ## Implemented by
 
-- [`EthereumCrossChainExtraDataEncoder`](../classes/EthereumCrossChainExtraDataEncoder.md)
-- [`StarkNetCrossChainExtraDataEncoder`](../classes/StarkNetCrossChainExtraDataEncoder.md)
+- [`ArbitrumExtraDataEncoder`](../classes/ArbitrumExtraDataEncoder.md)
+- [`EthereumExtraDataEncoder`](../classes/EthereumExtraDataEncoder.md)
+- [`StarkNetExtraDataEncoder`](../classes/StarkNetExtraDataEncoder.md)
 
 ## Table of contents
 
 ### Methods
 
-- [decodeDepositOwner](CrossChainExtraDataEncoder.md#decodedepositowner)
-- [encodeDepositOwner](CrossChainExtraDataEncoder.md#encodedepositowner)
+- [decodeDepositOwner](ExtraDataEncoder.md#decodedepositowner)
+- [encodeDepositOwner](ExtraDataEncoder.md#encodedepositowner)
 
 ## Methods
 
@@ -37,7 +38,7 @@ Identifier of the deposit owner.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:184](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L184)
+[lib/contracts/cross-chain.ts:189](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L189)
 
 ___
 
@@ -51,7 +52,7 @@ Encodes the given deposit owner identifier into the extra data.
 
 | Name | Type | Description |
 | :------ | :------ | :------ |
-| `depositOwner` | [`ChainIdentifier`](ChainIdentifier.md) | Identifier of the deposit owner to encode. For cross-chain deposits, the deposit owner is typically an identifier on the L2 chain. |
+| `depositOwner` | [`ChainIdentifier`](ChainIdentifier.md) | Identifier of the deposit owner to encode. For cross-chain deposits, the deposit owner is typically an identifier on the destination chain. |
 
 #### Returns
 
@@ -61,4 +62,4 @@ Encoded extra data.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:177](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L177)
+[lib/contracts/cross-chain.ts:182](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L182)

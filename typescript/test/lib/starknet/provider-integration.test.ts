@@ -3,7 +3,7 @@ import { RpcProvider, Account } from "starknet"
 import { TBTC } from "../../../src/services/tbtc"
 import {
   StarkNetAddress,
-  StarkNetDepositor,
+  StarkNetBitcoinDepositor,
   StarkNetTBTCToken,
 } from "../../../src/lib/starknet"
 import { MockBitcoinClient } from "../../utils/mock-bitcoin-client"
@@ -79,7 +79,7 @@ describe("StarkNet Provider Integration", () => {
       // Act & Assert - contracts created but _l2Signer not stored
       const contracts = tbtc.crossChainContracts("StarkNet")
       expect(contracts).to.exist
-      expect(contracts!.l2BitcoinDepositor).to.exist
+      expect(contracts!.destinationChainBitcoinDepositor).to.exist
 
       const l2Signer = (tbtc as any)._l2Signer
       expect(l2Signer).to.be.undefined
@@ -212,14 +212,14 @@ describe("StarkNet Provider Integration", () => {
 
   describe("Depositor with provider", () => {
     let mockProvider: any
-    let depositor: StarkNetDepositor
+    let depositor: StarkNetBitcoinDepositor
 
     beforeEach(() => {
       mockProvider = {
         nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
       }
       const config = { chainId: "SN_MAIN" }
-      depositor = new StarkNetDepositor(config, "StarkNet", mockProvider)
+      depositor = new StarkNetBitcoinDepositor(config, "StarkNet", mockProvider)
     })
 
     it("should store and retrieve provider", () => {
@@ -291,7 +291,7 @@ describe("StarkNet Provider Integration", () => {
       const config = { chainId: "SN_MAIN" }
 
       expect(
-        () => new StarkNetDepositor(config, "StarkNet", undefined as any)
+        () => new StarkNetBitcoinDepositor(config, "StarkNet", undefined as any)
       ).to.throw("Provider is required for StarkNet depositor")
     })
 

@@ -1,7 +1,7 @@
-import { L2CrossChainContracts } from "../contracts"
+import { DestinationChainInterfaces } from "../contracts"
 import {
-  StarkNetDepositor,
-  StarkNetDepositorConfig,
+  StarkNetBitcoinDepositor,
+  StarkNetBitcoinDepositorConfig,
 } from "./starknet-depositor"
 import {
   StarkNetTBTCToken,
@@ -37,13 +37,13 @@ const TBTC_CONTRACT_ADDRESSES: Record<string, string> = {
  * @param chainId Optional chain ID (defaults to Sepolia)
  * @returns Handle to the contracts
  */
-export async function loadStarkNetCrossChainContracts(
+export async function loadStarkNetCrossChainInterfaces(
   walletAddress: string,
   provider?: StarkNetProvider,
   chainId: string = Chains.StarkNet.Sepolia
-): Promise<L2CrossChainContracts> {
+): Promise<DestinationChainInterfaces> {
   // Build depositor configuration with environment variable support
-  const depositorConfig: StarkNetDepositorConfig = {
+  const depositorConfig: StarkNetBitcoinDepositorConfig = {
     chainId,
     relayerUrl: process.env.STARKNET_RELAYER_URL, // Optional override
     defaultVault: process.env.STARKNET_TBTC_VAULT, // Optional override
@@ -53,14 +53,14 @@ export async function loadStarkNetCrossChainContracts(
   const actualProvider = provider || createMockProvider()
 
   // Create the main depositor instance
-  const starkNetDepositor = new StarkNetDepositor(
+  const starkNetBitcoinDepositor = new StarkNetBitcoinDepositor(
     depositorConfig,
     "StarkNet",
     actualProvider
   )
 
   // Set the deposit owner
-  starkNetDepositor.setDepositOwner(StarkNetAddress.from(walletAddress))
+  starkNetBitcoinDepositor.setDepositOwner(StarkNetAddress.from(walletAddress))
 
   // Create token instance
   let starkNetTbtcToken: StarkNetTBTCToken
@@ -95,10 +95,15 @@ export async function loadStarkNetCrossChainContracts(
   }
 
   return {
-    l2BitcoinDepositor: starkNetDepositor,
-    l2TbtcToken: starkNetTbtcToken,
+    destinationChainBitcoinDepositor: starkNetBitcoinDepositor,
+    destinationChainTbtcToken: starkNetTbtcToken,
   }
 }
+
+/**
+ * @deprecated Use loadStarkNetCrossChainInterfaces instead
+ */
+export const loadStarkNetCrossChainContracts = loadStarkNetCrossChainInterfaces
 
 /**
  * Creates a mock StarkNet provider for testing purposes

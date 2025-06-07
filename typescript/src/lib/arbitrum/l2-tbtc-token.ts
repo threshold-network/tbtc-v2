@@ -4,7 +4,11 @@ import {
   EthersContractHandle,
 } from "../ethereum/adapter"
 import { L2TBTC as L2TBTCTypechain } from "../../../typechain/L2TBTC"
-import { ChainIdentifier, Chains, L2TBTCToken } from "../contracts"
+import {
+  ChainIdentifier,
+  Chains,
+  DestinationChainTBTCToken,
+} from "../contracts"
 import { BigNumber } from "ethers"
 import { EthereumAddress } from "../ethereum"
 
@@ -12,12 +16,12 @@ import ArbitrumL2TBTCTokenDeployment from "./artifacts/arbitrumOne/ArbitrumTBTC.
 import ArbitrumSepoliaL2TBTCTokenDeployment from "./artifacts/arbitrumSepolia/ArbitrumTBTC.json"
 
 /**
- * Implementation of the Arbitrum L2TBTCToken handle.
- * @see {L2TBTCToken} for reference.
+ * Implementation of the Arbitrum DestinationChainTBTCToken handle.
+ * @see {DestinationChainTBTCToken} for reference.
  */
-export class ArbitrumL2TBTCToken
+export class ArbitrumTBTCToken
   extends EthersContractHandle<L2TBTCTypechain>
-  implements L2TBTCToken
+  implements DestinationChainTBTCToken
 {
   constructor(config: EthersContractConfig, chainId: Chains.Arbitrum) {
     let deployment: EthersContractDeployment
@@ -38,7 +42,7 @@ export class ArbitrumL2TBTCToken
 
   // eslint-disable-next-line valid-jsdoc
   /**
-   * @see {L2TBTCToken#getChainIdentifier}
+   * @see {DestinationChainTBTCToken#getChainIdentifier}
    */
   getChainIdentifier(): ChainIdentifier {
     return EthereumAddress.from(this._instance.address)
@@ -46,9 +50,14 @@ export class ArbitrumL2TBTCToken
 
   // eslint-disable-next-line valid-jsdoc
   /**
-   * @see {L2TBTCToken#balanceOf}
+   * @see {DestinationChainTBTCToken#balanceOf}
    */
   balanceOf(identifier: ChainIdentifier): Promise<BigNumber> {
     return this._instance.balanceOf(`0x${identifier.identifierHex}`)
   }
 }
+
+/**
+ * @deprecated Use ArbitrumTBTCToken instead
+ */
+export const ArbitrumL2TBTCToken = ArbitrumTBTCToken

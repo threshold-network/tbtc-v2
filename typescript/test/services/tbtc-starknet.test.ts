@@ -99,7 +99,7 @@ describe("TBTC - StarkNet Provider Support", () => {
       // Assert
       const contracts = tbtc.crossChainContracts("StarkNet")
       expect(contracts).to.not.be.undefined
-      expect(contracts?.l2BitcoinDepositor).to.not.be.undefined
+      expect(contracts?.destinationChainBitcoinDepositor).to.not.be.undefined
     })
   })
 })

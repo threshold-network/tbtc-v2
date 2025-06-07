@@ -36,7 +36,7 @@ Service exposing features related to tBTC v2 deposits.
 | :------ | :------ |
 | `tbtcContracts` | [`TBTCContracts`](../README.md#tbtccontracts) |
 | `bitcoinClient` | [`BitcoinClient`](../interfaces/BitcoinClient.md) |
-| `crossChainContracts` | (`_`: [`L2Chain`](../README.md#l2chain)) => `undefined` \| [`CrossChainContracts`](../README.md#crosschaincontracts) |
+| `crossChainContracts` | (`_`: [`DestinationChainName`](../README.md#destinationchainname)) => `undefined` \| [`CrossChainInterfaces`](../README.md#crosschaininterfaces) |
 
 #### Returns
 
@@ -50,23 +50,23 @@ Service exposing features related to tBTC v2 deposits.
 
 ### #crossChainContracts
 
-• `Private` `Readonly` **#crossChainContracts**: (`_`: [`L2Chain`](../README.md#l2chain)) => `undefined` \| [`CrossChainContracts`](../README.md#crosschaincontracts)
+• `Private` `Readonly` **#crossChainContracts**: (`_`: [`DestinationChainName`](../README.md#destinationchainname)) => `undefined` \| [`CrossChainInterfaces`](../README.md#crosschaininterfaces)
 
 Gets cross-chain contracts for the given supported L2 chain.
 
 #### Type declaration
 
-▸ (`_`): `undefined` \| [`CrossChainContracts`](../README.md#crosschaincontracts)
+▸ (`_`): `undefined` \| [`CrossChainInterfaces`](../README.md#crosschaininterfaces)
 
 ##### Parameters
 
 | Name | Type | Description |
 | :------ | :------ | :------ |
-| `_` | [`L2Chain`](../README.md#l2chain) | Name of the L2 chain for which to get cross-chain contracts. |
+| `_` | [`DestinationChainName`](../README.md#destinationchainname) | Name of the L2 chain for which to get cross-chain contracts. |
 
 ##### Returns
 
-`undefined` \| [`CrossChainContracts`](../README.md#crosschaincontracts)
+`undefined` \| [`CrossChainInterfaces`](../README.md#crosschaininterfaces)
 
 #### Defined in
 
@@ -166,7 +166,7 @@ must be initialized along with a L2 signer first.
 | Name | Type | Description |
 | :------ | :------ | :------ |
 | `bitcoinRecoveryAddress` | `string` | P2PKH or P2WPKH Bitcoin address that can be used for emergency recovery of the deposited funds. |
-| `l2ChainName` | [`L2Chain`](../README.md#l2chain) | Name of the L2 chain the deposit is targeting. |
+| `l2ChainName` | [`DestinationChainName`](../README.md#destinationchainname) | Name of the L2 chain the deposit is targeting. |
 
 #### Returns
 

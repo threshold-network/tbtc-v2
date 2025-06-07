@@ -1,20 +1,17 @@
-import { CrossChainExtraDataEncoder } from "../contracts"
-import { ChainIdentifier } from "../contracts"
+import { ExtraDataEncoder, ChainIdentifier } from "../contracts"
 import { StarkNetAddress } from "./address"
 import { Hex } from "../utils"
 
 /**
- * Implementation of the StarkNet CrossChainExtraDataEncoder.
+ * Implementation of the StarkNet ExtraDataEncoder.
  *
  * This encoder handles the encoding and decoding of StarkNet addresses
  * for cross-chain deposits. StarkNet addresses are felt252 field elements
  * that are encoded as 32-byte values for compatibility with L1 contracts.
  *
- * @see {CrossChainExtraDataEncoder} for reference.
+ * @see {ExtraDataEncoder} for reference.
  */
-export class StarkNetCrossChainExtraDataEncoder
-  implements CrossChainExtraDataEncoder
-{
+export class StarkNetExtraDataEncoder implements ExtraDataEncoder {
   /**
    * Encodes a StarkNet address into extra data for cross-chain deposits.
    *
@@ -22,7 +19,7 @@ export class StarkNetCrossChainExtraDataEncoder
    * @returns The encoded extra data as a 32-byte hex value.
    * @throws Error if the deposit owner is not a StarkNetAddress instance.
    *
-   * @see {CrossChainExtraDataEncoder#encodeDepositOwner}
+   * @see {ExtraDataEncoder#encodeDepositOwner}
    */
   encodeDepositOwner(depositOwner: ChainIdentifier): Hex {
     if (!depositOwner || !(depositOwner instanceof StarkNetAddress)) {
@@ -42,7 +39,7 @@ export class StarkNetCrossChainExtraDataEncoder
    * @returns The decoded StarkNetAddress instance.
    * @throws Error if the extra data is missing, null, or not exactly 32 bytes.
    *
-   * @see {CrossChainExtraDataEncoder#decodeDepositOwner}
+   * @see {ExtraDataEncoder#decodeDepositOwner}
    */
   decodeDepositOwner(extraData: Hex): ChainIdentifier {
     if (!extraData) {
@@ -63,3 +60,8 @@ export class StarkNetCrossChainExtraDataEncoder
     return StarkNetAddress.from(extraData.toString())
   }
 }
+
+/**
+ * @deprecated Use StarkNetExtraDataEncoder instead
+ */
+export const StarkNetCrossChainExtraDataEncoder = StarkNetExtraDataEncoder

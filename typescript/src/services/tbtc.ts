@@ -3,11 +3,11 @@ import { MaintenanceService } from "./maintenance"
 import { RedemptionsService } from "./redemptions"
 import {
   Chains,
-  CrossChainContracts,
+  CrossChainInterfaces,
   CrossChainContractsLoader,
   L1CrossChainContracts,
-  L2Chain,
-  L2CrossChainContracts,
+  DestinationChainName,
+  DestinationChainInterfaces,
   TBTCContracts,
 } from "../lib/contracts"
 import { BitcoinClient, BitcoinNetwork } from "../lib/bitcoin"
@@ -18,10 +18,10 @@ import {
   loadEthereumCoreContracts,
 } from "../lib/ethereum"
 import { ElectrumClient } from "../lib/electrum"
-import { loadBaseCrossChainContracts } from "../lib/base"
-import { loadArbitrumCrossChainContracts } from "../lib/arbitrum"
+import { loadBaseCrossChainInterfaces } from "../lib/base"
+import { loadArbitrumCrossChainInterfaces } from "../lib/arbitrum"
 import {
-  loadStarkNetCrossChainContracts,
+  loadStarkNetCrossChainInterfaces,
   StarkNetProvider,
 } from "../lib/starknet"
 
@@ -59,7 +59,7 @@ export class TBTC {
    * Each set of cross-chain contracts must be first initialized using
    * the `initializeCrossChain` method.
    */
-  readonly #crossChainContracts: Map<L2Chain, CrossChainContracts>
+  readonly #crossChainContracts: Map<DestinationChainName, CrossChainInterfaces>
 
   private constructor(
     tbtcContracts: TBTCContracts,
@@ -76,7 +76,10 @@ export class TBTC {
     this.tbtcContracts = tbtcContracts
     this.bitcoinClient = bitcoinClient
     this.#crossChainContractsLoader = crossChainContractsLoader
-    this.#crossChainContracts = new Map<L2Chain, CrossChainContracts>()
+    this.#crossChainContracts = new Map<
+      DestinationChainName,
+      CrossChainInterfaces
+    >()
   }
 
   /**
@@ -288,7 +291,7 @@ export class TBTC {
    *            Use single-parameter initialization instead.
    */
   async initializeCrossChain(
-    l2ChainName: L2Chain,
+    l2ChainName: DestinationChainName,
     signerOrEthereumSigner: EthereumSigner | StarkNetProvider,
     l2Provider?: StarkNetProvider
   ): Promise<void> {
@@ -305,7 +308,7 @@ export class TBTC {
 
     const l1CrossChainContracts: L1CrossChainContracts =
       await this.#crossChainContractsLoader.loadL1Contracts(l2ChainName)
-    let l2CrossChainContracts: L2CrossChainContracts
+    let l2CrossChainContracts: DestinationChainInterfaces
 
     switch (l2ChainName) {
       case "Base":
@@ -318,7 +321,7 @@ export class TBTC {
           throw new Error("Base does not support two-parameter initialization")
         }
         this._l2Signer = signerOrEthereumSigner
-        l2CrossChainContracts = await loadBaseCrossChainContracts(
+        l2CrossChainContracts = await loadBaseCrossChainInterfaces(
           signerOrEthereumSigner as EthereumSigner,
           baseChainId
         )
@@ -335,7 +338,7 @@ export class TBTC {
           )
         }
         this._l2Signer = signerOrEthereumSigner
-        l2CrossChainContracts = await loadArbitrumCrossChainContracts(
+        l2CrossChainContracts = await loadArbitrumCrossChainInterfaces(
           signerOrEthereumSigner as EthereumSigner,
           arbitrumChainId
         )
@@ -415,7 +418,7 @@ export class TBTC {
           starknetProvider = l2Provider
         }
 
-        l2CrossChainContracts = await loadStarkNetCrossChainContracts(
+        l2CrossChainContracts = await loadStarkNetCrossChainInterfaces(
           walletAddressHex,
           starknetProvider,
           starknetChainId
@@ -445,7 +448,9 @@ export class TBTC {
    * @returns Cross-chain contracts for the given L2 chain or
    *          undefined if not initialized.
    */
-  crossChainContracts(l2ChainName: L2Chain): CrossChainContracts | undefined {
+  crossChainContracts(
+    l2ChainName: DestinationChainName
+  ): CrossChainInterfaces | undefined {
     return this.#crossChainContracts.get(l2ChainName)
   }
 }

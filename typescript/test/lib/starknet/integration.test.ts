@@ -1,8 +1,8 @@
 import { expect } from "chai"
 import {
-  loadStarkNetCrossChainContracts,
+  loadStarkNetCrossChainInterfaces,
   StarkNetAddress,
-  StarkNetCrossChainExtraDataEncoder,
+  StarkNetExtraDataEncoder,
 } from "../../../src/lib/starknet"
 import { Chains } from "../../../src/lib/contracts"
 import { Hex } from "../../../src/lib/utils"
@@ -13,10 +13,13 @@ describe("StarkNet Integration Tests", () => {
       // Create StarkNet contracts
       const starkNetRecipient =
         "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"
-      const contracts = await loadStarkNetCrossChainContracts(starkNetRecipient)
+      const contracts = await loadStarkNetCrossChainInterfaces(
+        starkNetRecipient
+      )
 
       // Get the extra data encoder
-      const encoder = contracts.l2BitcoinDepositor.extraDataEncoder()
+      const encoder =
+        contracts.destinationChainBitcoinDepositor.extraDataEncoder()
 
       // Encode the recipient address
       const recipientAddress = StarkNetAddress.from(starkNetRecipient)
@@ -36,7 +39,7 @@ describe("StarkNet Integration Tests", () => {
       const recipientAddress = StarkNetAddress.from(starkNetRecipient)
 
       // Create encoder
-      const encoder = new StarkNetCrossChainExtraDataEncoder()
+      const encoder = new StarkNetExtraDataEncoder()
       const encodedExtraData = encoder.encodeDepositOwner(recipientAddress)
 
       // Verify round-trip encoding
@@ -62,19 +65,21 @@ describe("StarkNet Integration Tests", () => {
     it("should handle deposit owner flow correctly", async () => {
       // Create contracts with initial owner
       const initialOwner = "0xaaa"
-      const contracts = await loadStarkNetCrossChainContracts(initialOwner)
+      const contracts = await loadStarkNetCrossChainInterfaces(initialOwner)
 
       // Verify initial owner is set
-      const owner1 = contracts.l2BitcoinDepositor.getDepositOwner()
+      const owner1 =
+        contracts.destinationChainBitcoinDepositor.getDepositOwner()
       expect(owner1).to.be.instanceOf(StarkNetAddress)
       expect(owner1?.identifierHex).to.include("aaa")
 
       // Change owner
       const newOwner = StarkNetAddress.from("0xbbb")
-      contracts.l2BitcoinDepositor.setDepositOwner(newOwner)
+      contracts.destinationChainBitcoinDepositor.setDepositOwner(newOwner)
 
       // Verify owner changed
-      const owner2 = contracts.l2BitcoinDepositor.getDepositOwner()
+      const owner2 =
+        contracts.destinationChainBitcoinDepositor.getDepositOwner()
       expect(owner2).to.equal(newOwner)
       expect(owner2?.identifierHex).to.include("bbb")
     })
@@ -91,22 +96,26 @@ describe("StarkNet Integration Tests", () => {
         expect(() => StarkNetAddress.from(invalid)).to.throw()
 
         // Module loader should also fail
-        await expect(loadStarkNetCrossChainContracts(invalid)).to.be.rejected
+        await expect(loadStarkNetCrossChainInterfaces(invalid)).to.be.rejected
       }
     })
 
     it.skip("should handle error propagation correctly", async () => {
-      const contracts = await loadStarkNetCrossChainContracts("0x123")
+      const contracts = await loadStarkNetCrossChainInterfaces("0x123")
 
       // Verify errors propagate correctly from token interface
       const validAddress = StarkNetAddress.from("0x456")
       await expect(
-        contracts.l2TbtcToken.balanceOf(validAddress)
+        contracts.destinationChainTbtcToken.balanceOf(validAddress)
       ).to.be.rejectedWith("Token operations are not supported on StarkNet yet")
 
       // Verify errors propagate correctly from depositor interface
       await expect(
-        contracts.l2BitcoinDepositor.initializeDeposit({} as any, 0, {} as any)
+        contracts.destinationChainBitcoinDepositor.initializeDeposit(
+          {} as any,
+          0,
+          {} as any
+        )
       ).to.be.rejectedWith("Use L1 StarkNet Bitcoin Depositor instead")
     })
   })
@@ -116,23 +125,24 @@ describe("StarkNet Integration Tests", () => {
       const addresses = Array.from({ length: 10 }, (_, i) => `0x${i}`)
 
       for (const addr of addresses) {
-        const contracts = await loadStarkNetCrossChainContracts(addr)
+        const contracts = await loadStarkNetCrossChainInterfaces(addr)
         expect(contracts).to.exist
-        expect(contracts.l2BitcoinDepositor).to.exist
-        expect(contracts.l2TbtcToken).to.exist
+        expect(contracts.destinationChainBitcoinDepositor).to.exist
+        expect(contracts.destinationChainTbtcToken).to.exist
       }
     })
 
     it("should maintain isolation between instances", async () => {
-      const contracts1 = await loadStarkNetCrossChainContracts("0x111")
-      const contracts2 = await loadStarkNetCrossChainContracts("0x222")
+      const contracts1 = await loadStarkNetCrossChainInterfaces("0x111")
+      const contracts2 = await loadStarkNetCrossChainInterfaces("0x222")
 
       // Change owner in first instance
       const newOwner = StarkNetAddress.from("0x333")
-      contracts1.l2BitcoinDepositor.setDepositOwner(newOwner)
+      contracts1.destinationChainBitcoinDepositor.setDepositOwner(newOwner)
 
       // Verify second instance is not affected
-      const owner2 = contracts2.l2BitcoinDepositor.getDepositOwner()
+      const owner2 =
+        contracts2.destinationChainBitcoinDepositor.getDepositOwner()
       expect(owner2?.identifierHex).to.not.include("333")
       expect(owner2?.identifierHex).to.include("222")
     })

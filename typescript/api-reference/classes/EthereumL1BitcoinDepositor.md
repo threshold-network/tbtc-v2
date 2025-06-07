@@ -43,7 +43,7 @@ for reference.
 
 ### constructor
 
-• **new EthereumL1BitcoinDepositor**(`config`, `chainId`, `l2ChainName`): [`EthereumL1BitcoinDepositor`](EthereumL1BitcoinDepositor.md)
+• **new EthereumL1BitcoinDepositor**(`config`, `chainId`, `destinationChainName`): [`EthereumL1BitcoinDepositor`](EthereumL1BitcoinDepositor.md)
 
 #### Parameters
 
@@ -51,7 +51,7 @@ for reference.
 | :------ | :------ |
 | `config` | [`EthereumContractConfig`](../interfaces/EthereumContractConfig.md) |
 | `chainId` | [`Ethereum`](../enums/Chains.Ethereum.md) |
-| `l2ChainName` | [`L2Chain`](../README.md#l2chain) |
+| `destinationChainName` | [`DestinationChainName`](../README.md#destinationchainname) |
 
 #### Returns
 
@@ -69,7 +69,7 @@ EthersContractHandle\&lt;L1BitcoinDepositorTypechain\&gt;.constructor
 
 ### #extraDataEncoder
 
-• `Private` `Readonly` **#extraDataEncoder**: [`CrossChainExtraDataEncoder`](../interfaces/CrossChainExtraDataEncoder.md)
+• `Private` `Readonly` **#extraDataEncoder**: [`ExtraDataEncoder`](../interfaces/ExtraDataEncoder.md)
 
 #### Defined in
 
@@ -129,11 +129,11 @@ EthersContractHandle.\_totalRetryAttempts
 
 ### extraDataEncoder
 
-▸ **extraDataEncoder**(): [`CrossChainExtraDataEncoder`](../interfaces/CrossChainExtraDataEncoder.md)
+▸ **extraDataEncoder**(): [`ExtraDataEncoder`](../interfaces/ExtraDataEncoder.md)
 
 #### Returns
 
-[`CrossChainExtraDataEncoder`](../interfaces/CrossChainExtraDataEncoder.md)
+[`ExtraDataEncoder`](../interfaces/ExtraDataEncoder.md)
 
 **`See`**
 
@@ -222,7 +222,7 @@ ___
 Get events emitted by the Ethereum contract.
 It starts searching from provided block number. If the GetEvents.Options#fromBlock
 option is missing it looks for a contract's defined property
-[_deployedAtBlockNumber](BaseL2BitcoinDepositor.md#_deployedatblocknumber). If the property is missing starts searching
+[_deployedAtBlockNumber](BaseBitcoinDepositor.md#_deployedatblocknumber). If the property is missing starts searching
 from block `0`.
 
 #### Parameters

@@ -1,12 +1,12 @@
 # Class: StarkNetTBTCToken
 
-Implementation of the L2TBTCToken interface for StarkNet.
+Implementation of the DestinationChainTBTCToken interface for StarkNet.
 This implementation now supports balance queries using deployed
 tBTC contracts on StarkNet.
 
 ## Implements
 
-- [`L2TBTCToken`](../interfaces/L2TBTCToken.md)
+- [`DestinationChainTBTCToken`](../interfaces/DestinationChainTBTCToken.md)
 
 ## Table of contents
 
@@ -107,7 +107,7 @@ The balance as a BigNumber
 
 #### Implementation of
 
-[L2TBTCToken](../interfaces/L2TBTCToken.md).[balanceOf](../interfaces/L2TBTCToken.md#balanceof)
+[DestinationChainTBTCToken](../interfaces/DestinationChainTBTCToken.md).[balanceOf](../interfaces/DestinationChainTBTCToken.md#balanceof)
 
 #### Defined in
 
@@ -159,7 +159,7 @@ Always throws since StarkNet doesn't have an L2 contract identifier.
 
 #### Implementation of
 
-[L2TBTCToken](../interfaces/L2TBTCToken.md).[getChainIdentifier](../interfaces/L2TBTCToken.md#getchainidentifier)
+[DestinationChainTBTCToken](../interfaces/DestinationChainTBTCToken.md).[getChainIdentifier](../interfaces/DestinationChainTBTCToken.md#getchainidentifier)
 
 #### Defined in
 

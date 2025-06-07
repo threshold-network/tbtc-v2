@@ -3,9 +3,9 @@ import {
   ethereumAddressFromSigner,
   EthereumSigner,
 } from "../ethereum"
-import { BaseL2BitcoinDepositor } from "./l2-bitcoin-depositor"
-import { BaseL2TBTCToken } from "./l2-tbtc-token"
-import { Chains, L2CrossChainContracts } from "../contracts"
+import { BaseBitcoinDepositor } from "./l2-bitcoin-depositor"
+import { BaseTBTCToken } from "./l2-tbtc-token"
+import { Chains, DestinationChainInterfaces } from "../contracts"
 
 export * from "./l2-bitcoin-depositor"
 export * from "./l2-tbtc-token"
@@ -19,10 +19,10 @@ export * from "./l2-tbtc-token"
  * @throws Throws an error if the signer's Base chain ID is other than
  *         the one used to load contracts.
  */
-export async function loadBaseCrossChainContracts(
+export async function loadBaseCrossChainInterfaces(
   signer: EthereumSigner,
   chainId: Chains.Base
-): Promise<L2CrossChainContracts> {
+): Promise<DestinationChainInterfaces> {
   const signerChainId = await chainIdFromSigner(signer)
   if (signerChainId !== chainId) {
     throw new Error(
@@ -30,16 +30,27 @@ export async function loadBaseCrossChainContracts(
     )
   }
 
-  const l2BitcoinDepositor = new BaseL2BitcoinDepositor(
+  const destinationChainBitcoinDepositor = new BaseBitcoinDepositor(
     { signerOrProvider: signer },
     chainId
   )
-  l2BitcoinDepositor.setDepositOwner(await ethereumAddressFromSigner(signer))
+  destinationChainBitcoinDepositor.setDepositOwner(
+    await ethereumAddressFromSigner(signer)
+  )
 
-  const l2TbtcToken = new BaseL2TBTCToken({ signerOrProvider: signer }, chainId)
+  const destinationChainTbtcToken = new BaseTBTCToken(
+    { signerOrProvider: signer },
+    chainId
+  )
 
   return {
-    l2BitcoinDepositor,
-    l2TbtcToken,
+    destinationChainBitcoinDepositor,
+    destinationChainTbtcToken,
   }
 }
+
+// Backward compatibility alias
+/**
+ * @deprecated Use loadBaseCrossChainInterfaces instead
+ */
+export const loadBaseCrossChainContracts = loadBaseCrossChainInterfaces

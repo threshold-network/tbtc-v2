@@ -1,36 +1,37 @@
 import { expect } from "chai"
-import { loadStarkNetCrossChainContracts } from "../../../src/lib/starknet"
+import { loadStarkNetCrossChainInterfaces } from "../../../src/lib/starknet"
 import { StarkNetAddress } from "../../../src/lib/starknet"
-import { L2CrossChainContracts } from "../../../src/lib/contracts"
+import { DestinationChainInterfaces } from "../../../src/lib/contracts"
 
 describe("StarkNet Module", () => {
-  describe("loadStarkNetCrossChainContracts", () => {
-    let contracts: L2CrossChainContracts
+  describe("loadStarkNetCrossChainInterfaces", () => {
+    let contracts: DestinationChainInterfaces
 
     beforeEach(async () => {
       const walletAddress = "0x1234567890abcdef"
-      contracts = await loadStarkNetCrossChainContracts(walletAddress)
+      contracts = await loadStarkNetCrossChainInterfaces(walletAddress)
     })
 
-    it("should return L2CrossChainContracts with required properties", () => {
-      expect(contracts).to.have.property("l2BitcoinDepositor")
-      expect(contracts).to.have.property("l2TbtcToken")
+    it("should return DestinationChainInterfaces with required properties", () => {
+      expect(contracts).to.have.property("destinationChainBitcoinDepositor")
+      expect(contracts).to.have.property("destinationChainTbtcToken")
     })
 
-    it("should return a StarkNetDepositor instance", () => {
-      expect(contracts.l2BitcoinDepositor.constructor.name).to.equal(
-        "StarkNetDepositor"
-      )
+    it("should return a StarkNetBitcoinDepositor instance", () => {
+      expect(
+        contracts.destinationChainBitcoinDepositor.constructor.name
+      ).to.equal("StarkNetBitcoinDepositor")
     })
 
     it("should return a StarkNetTBTCToken instance", () => {
-      expect(contracts.l2TbtcToken.constructor.name).to.equal(
+      expect(contracts.destinationChainTbtcToken.constructor.name).to.equal(
         "StarkNetTBTCToken"
       )
     })
 
     it("should set the deposit owner to the provided wallet address", () => {
-      const depositOwner = contracts.l2BitcoinDepositor.getDepositOwner()
+      const depositOwner =
+        contracts.destinationChainBitcoinDepositor.getDepositOwner()
       expect(depositOwner).to.be.instanceOf(StarkNetAddress)
       expect(depositOwner?.identifierHex).to.equal(
         "0000000000000000000000000000000000000000000000001234567890abcdef"
@@ -39,12 +40,12 @@ describe("StarkNet Module", () => {
 
     it("should handle wallet address without 0x prefix", async () => {
       const walletAddress = "abcdef123456"
-      const contractsWithoutPrefix = await loadStarkNetCrossChainContracts(
+      const contractsWithoutPrefix = await loadStarkNetCrossChainInterfaces(
         walletAddress
       )
 
       const depositOwner =
-        contractsWithoutPrefix.l2BitcoinDepositor.getDepositOwner()
+        contractsWithoutPrefix.destinationChainBitcoinDepositor.getDepositOwner()
       expect(depositOwner).to.be.instanceOf(StarkNetAddress)
       expect(depositOwner?.identifierHex).to.equal(
         "0000000000000000000000000000000000000000000000000000abcdef123456"
@@ -53,12 +54,12 @@ describe("StarkNet Module", () => {
 
     it("should handle full-length wallet address", async () => {
       const walletAddress = "0x" + "f".repeat(64)
-      const contractsFullLength = await loadStarkNetCrossChainContracts(
+      const contractsFullLength = await loadStarkNetCrossChainInterfaces(
         walletAddress
       )
 
       const depositOwner =
-        contractsFullLength.l2BitcoinDepositor.getDepositOwner()
+        contractsFullLength.destinationChainBitcoinDepositor.getDepositOwner()
       expect(depositOwner?.identifierHex).to.equal("f".repeat(64))
     })
 
@@ -66,7 +67,7 @@ describe("StarkNet Module", () => {
       const invalidAddress = "xyz123" // Invalid hex
 
       await expect(
-        loadStarkNetCrossChainContracts(invalidAddress)
+        loadStarkNetCrossChainInterfaces(invalidAddress)
       ).to.be.rejectedWith("Invalid StarkNet address format")
     })
 
@@ -74,7 +75,7 @@ describe("StarkNet Module", () => {
       const tooLongAddress = "0x" + "f".repeat(65) // 65 hex chars exceeds limit
 
       await expect(
-        loadStarkNetCrossChainContracts(tooLongAddress)
+        loadStarkNetCrossChainInterfaces(tooLongAddress)
       ).to.be.rejectedWith(
         "StarkNet address exceeds maximum field element size"
       )
@@ -84,38 +85,43 @@ describe("StarkNet Module", () => {
       const addresses = ["0x111", "0x222", "0x333"]
 
       const promises = addresses.map((addr) =>
-        loadStarkNetCrossChainContracts(addr)
+        loadStarkNetCrossChainInterfaces(addr)
       )
 
       const results = await Promise.all(promises)
 
       // Verify each result has the correct deposit owner
-      results.forEach((contract, index) => {
-        const owner = contract.l2BitcoinDepositor.getDepositOwner()
+      results.forEach((contract: DestinationChainInterfaces, index: number) => {
+        const owner =
+          contract.destinationChainBitcoinDepositor.getDepositOwner()
         expect(owner).to.be.instanceOf(StarkNetAddress)
         expect(owner?.identifierHex).to.include(addresses[index].slice(2))
       })
     })
 
     it("should handle empty string address", async () => {
-      await expect(loadStarkNetCrossChainContracts("")).to.be.rejectedWith(
+      await expect(loadStarkNetCrossChainInterfaces("")).to.be.rejectedWith(
         "Invalid StarkNet address format"
       )
     })
 
     it("should create independent instances for different addresses", async () => {
-      const contracts1 = await loadStarkNetCrossChainContracts("0x111")
-      const contracts2 = await loadStarkNetCrossChainContracts("0x222")
+      const contracts1 = await loadStarkNetCrossChainInterfaces("0x111")
+      const contracts2 = await loadStarkNetCrossChainInterfaces("0x222")
 
       // Verify they are different instances
-      expect(contracts1.l2BitcoinDepositor).to.not.equal(
-        contracts2.l2BitcoinDepositor
+      expect(contracts1.destinationChainBitcoinDepositor).to.not.equal(
+        contracts2.destinationChainBitcoinDepositor
       )
-      expect(contracts1.l2TbtcToken).to.not.equal(contracts2.l2TbtcToken)
+      expect(contracts1.destinationChainTbtcToken).to.not.equal(
+        contracts2.destinationChainTbtcToken
+      )
 
       // Verify they have different deposit owners
-      const owner1 = contracts1.l2BitcoinDepositor.getDepositOwner()
-      const owner2 = contracts2.l2BitcoinDepositor.getDepositOwner()
+      const owner1 =
+        contracts1.destinationChainBitcoinDepositor.getDepositOwner()
+      const owner2 =
+        contracts2.destinationChainBitcoinDepositor.getDepositOwner()
       expect(owner1?.identifierHex).to.not.equal(owner2?.identifierHex)
     })
   })
@@ -126,16 +132,18 @@ describe("StarkNet Module", () => {
       expect(StarkNetAddress).to.exist
     })
 
-    it("should export StarkNetCrossChainExtraDataEncoder", async () => {
-      const { StarkNetCrossChainExtraDataEncoder } = await import(
+    it("should export StarkNetExtraDataEncoder", async () => {
+      const { StarkNetExtraDataEncoder } = await import(
         "../../../src/lib/starknet"
       )
-      expect(StarkNetCrossChainExtraDataEncoder).to.exist
+      expect(StarkNetExtraDataEncoder).to.exist
     })
 
-    it("should export StarkNetDepositor", async () => {
-      const { StarkNetDepositor } = await import("../../../src/lib/starknet")
-      expect(StarkNetDepositor).to.exist
+    it("should export StarkNetBitcoinDepositor", async () => {
+      const { StarkNetBitcoinDepositor } = await import(
+        "../../../src/lib/starknet"
+      )
+      expect(StarkNetBitcoinDepositor).to.exist
     })
 
     it("should export StarkNetTBTCToken", async () => {
@@ -143,11 +151,11 @@ describe("StarkNet Module", () => {
       expect(StarkNetTBTCToken).to.exist
     })
 
-    it("should export loadStarkNetCrossChainContracts", async () => {
-      const { loadStarkNetCrossChainContracts } = await import(
+    it("should export loadStarkNetCrossChainInterfaces", async () => {
+      const { loadStarkNetCrossChainInterfaces } = await import(
         "../../../src/lib/starknet"
       )
-      expect(loadStarkNetCrossChainContracts).to.be.a("function")
+      expect(loadStarkNetCrossChainInterfaces).to.be.a("function")
     })
   })
 })

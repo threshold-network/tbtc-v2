@@ -154,8 +154,8 @@ describe("TBTC T-003: _l2Signer Storage Behavior", () => {
       // Assert
       const contracts = tbtc.crossChainContracts("StarkNet")
       expect(contracts).to.exist
-      expect(contracts?.l2BitcoinDepositor).to.exist
-      expect(contracts?.l2TbtcToken).to.exist
+      expect(contracts?.destinationChainBitcoinDepositor).to.exist
+      expect(contracts?.destinationChainTbtcToken).to.exist
       // Ensure core functionality still works
       expect(tbtc._l2Signer).to.be.undefined
     })

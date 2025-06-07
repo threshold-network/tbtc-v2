@@ -19,10 +19,11 @@
 
 ### Classes
 
-- [ArbitrumL2BitcoinDepositor](classes/ArbitrumL2BitcoinDepositor.md)
-- [ArbitrumL2TBTCToken](classes/ArbitrumL2TBTCToken.md)
-- [BaseL2BitcoinDepositor](classes/BaseL2BitcoinDepositor.md)
-- [BaseL2TBTCToken](classes/BaseL2TBTCToken.md)
+- [ArbitrumBitcoinDepositor](classes/ArbitrumBitcoinDepositor.md)
+- [ArbitrumExtraDataEncoder](classes/ArbitrumExtraDataEncoder.md)
+- [ArbitrumTBTCToken](classes/ArbitrumTBTCToken.md)
+- [BaseBitcoinDepositor](classes/BaseBitcoinDepositor.md)
+- [BaseTBTCToken](classes/BaseTBTCToken.md)
 - [BitcoinTxHash](classes/BitcoinTxHash.md)
 - [CrossChainDepositor](classes/CrossChainDepositor.md)
 - [Deposit](classes/Deposit.md)
@@ -33,8 +34,8 @@
 - [ElectrumClient](classes/ElectrumClient.md)
 - [EthereumAddress](classes/EthereumAddress.md)
 - [EthereumBridge](classes/EthereumBridge.md)
-- [EthereumCrossChainExtraDataEncoder](classes/EthereumCrossChainExtraDataEncoder.md)
 - [EthereumDepositorProxy](classes/EthereumDepositorProxy.md)
+- [EthereumExtraDataEncoder](classes/EthereumExtraDataEncoder.md)
 - [EthereumL1BitcoinDepositor](classes/EthereumL1BitcoinDepositor.md)
 - [EthereumTBTCToken](classes/EthereumTBTCToken.md)
 - [EthereumTBTCVault](classes/EthereumTBTCVault.md)
@@ -45,8 +46,8 @@
 - [RedemptionsService](classes/RedemptionsService.md)
 - [Spv](classes/Spv.md)
 - [StarkNetAddress](classes/StarkNetAddress.md)
-- [StarkNetCrossChainExtraDataEncoder](classes/StarkNetCrossChainExtraDataEncoder.md)
-- [StarkNetDepositor](classes/StarkNetDepositor.md)
+- [StarkNetBitcoinDepositor](classes/StarkNetBitcoinDepositor.md)
+- [StarkNetExtraDataEncoder](classes/StarkNetExtraDataEncoder.md)
 - [StarkNetTBTCToken](classes/StarkNetTBTCToken.md)
 - [TBTC](classes/TBTC.md)
 - [WalletTx](classes/WalletTx.md)
@@ -54,6 +55,7 @@
 ### Interfaces
 
 - [BitcoinClient](interfaces/BitcoinClient.md)
+- [BitcoinDepositor](interfaces/BitcoinDepositor.md)
 - [BitcoinHeader](interfaces/BitcoinHeader.md)
 - [BitcoinRawTx](interfaces/BitcoinRawTx.md)
 - [BitcoinRawTxVectors](interfaces/BitcoinRawTxVectors.md)
@@ -66,20 +68,19 @@
 - [ChainEvent](interfaces/ChainEvent.md)
 - [ChainIdentifier](interfaces/ChainIdentifier.md)
 - [CrossChainContractsLoader](interfaces/CrossChainContractsLoader.md)
-- [CrossChainExtraDataEncoder](interfaces/CrossChainExtraDataEncoder.md)
 - [DepositReceipt](interfaces/DepositReceipt.md)
 - [DepositRequest](interfaces/DepositRequest.md)
 - [DepositorProxy](interfaces/DepositorProxy.md)
+- [DestinationChainTBTCToken](interfaces/DestinationChainTBTCToken.md)
 - [ElectrumCredentials](interfaces/ElectrumCredentials.md)
 - [EthereumContractConfig](interfaces/EthereumContractConfig.md)
+- [ExtraDataEncoder](interfaces/ExtraDataEncoder.md)
 - [L1BitcoinDepositor](interfaces/L1BitcoinDepositor.md)
-- [L2BitcoinDepositor](interfaces/L2BitcoinDepositor.md)
-- [L2TBTCToken](interfaces/L2TBTCToken.md)
 - [RedeemerProxy](interfaces/RedeemerProxy.md)
 - [RedemptionRequest](interfaces/RedemptionRequest.md)
 - [RedemptionWallet](interfaces/RedemptionWallet.md)
 - [SerializableWallet](interfaces/SerializableWallet.md)
-- [StarkNetDepositorConfig](interfaces/StarkNetDepositorConfig.md)
+- [StarkNetBitcoinDepositorConfig](interfaces/StarkNetBitcoinDepositorConfig.md)
 - [StarkNetTBTCTokenConfig](interfaces/StarkNetTBTCTokenConfig.md)
 - [TBTCToken](interfaces/TBTCToken.md)
 - [TBTCVault](interfaces/TBTCVault.md)
@@ -94,7 +95,11 @@
 - [ChainMapping](README.md#chainmapping)
 - [CrossChainContracts](README.md#crosschaincontracts)
 - [CrossChainDepositorMode](README.md#crosschaindepositormode)
+- [CrossChainExtraDataEncoder](README.md#crosschainextradataencoder)
+- [CrossChainInterfaces](README.md#crosschaininterfaces)
 - [DepositRevealedEvent](README.md#depositrevealedevent)
+- [DestinationChainInterfaces](README.md#destinationchaininterfaces)
+- [DestinationChainName](README.md#destinationchainname)
 - [DkgResultApprovedEvent](README.md#dkgresultapprovedevent)
 - [DkgResultChallengedEvent](README.md#dkgresultchallengedevent)
 - [DkgResultSubmittedEvent](README.md#dkgresultsubmittedevent)
@@ -103,8 +108,10 @@
 - [EthereumSigner](README.md#ethereumsigner)
 - [ExecutionLoggerFn](README.md#executionloggerfn)
 - [L1CrossChainContracts](README.md#l1crosschaincontracts)
+- [L2BitcoinDepositor](README.md#l2bitcoindepositor)
 - [L2Chain](README.md#l2chain)
 - [L2CrossChainContracts](README.md#l2crosschaincontracts)
+- [L2TBTCToken](README.md#l2tbtctoken)
 - [NewWalletRegisteredEvent](README.md#newwalletregisteredevent)
 - [OptimisticMintingCancelledEvent](README.md#optimisticmintingcancelledevent)
 - [OptimisticMintingFinalizedEvent](README.md#optimisticmintingfinalizedevent)
@@ -112,11 +119,17 @@
 - [OptimisticMintingRequestedEvent](README.md#optimisticmintingrequestedevent)
 - [RedemptionRequestedEvent](README.md#redemptionrequestedevent)
 - [RetrierFn](README.md#retrierfn)
+- [StarkNetDepositorConfig](README.md#starknetdepositorconfig)
 - [StarkNetProvider](README.md#starknetprovider)
 - [TBTCContracts](README.md#tbtccontracts)
 
 ### Variables
 
+- [ArbitrumCrossChainExtraDataEncoder](README.md#arbitrumcrosschainextradataencoder)
+- [ArbitrumL2BitcoinDepositor](README.md#arbitruml2bitcoindepositor)
+- [ArbitrumL2TBTCToken](README.md#arbitruml2tbtctoken)
+- [BaseL2BitcoinDepositor](README.md#basel2bitcoindepositor)
+- [BaseL2TBTCToken](README.md#basel2tbtctoken)
 - [BitcoinAddressConverter](README.md#bitcoinaddressconverter)
 - [BitcoinCompactSizeUint](README.md#bitcoincompactsizeuint)
 - [BitcoinHashUtils](README.md#bitcoinhashutils)
@@ -127,6 +140,9 @@
 - [BitcoinScriptUtils](README.md#bitcoinscriptutils)
 - [BitcoinTargetConverter](README.md#bitcointargetconverter)
 - [ChainMappings](README.md#chainmappings)
+- [EthereumCrossChainExtraDataEncoder](README.md#ethereumcrosschainextradataencoder)
+- [StarkNetCrossChainExtraDataEncoder](README.md#starknetcrosschainextradataencoder)
+- [StarkNetDepositor](README.md#starknetdepositor)
 - [tbtcABI](README.md#tbtcabi)
 
 ### Functions
@@ -140,9 +156,12 @@
 - [ethereumCrossChainContractsLoader](README.md#ethereumcrosschaincontractsloader)
 - [extractBitcoinRawTxVectors](README.md#extractbitcoinrawtxvectors)
 - [loadArbitrumCrossChainContracts](README.md#loadarbitrumcrosschaincontracts)
+- [loadArbitrumCrossChainInterfaces](README.md#loadarbitrumcrosschaininterfaces)
 - [loadBaseCrossChainContracts](README.md#loadbasecrosschaincontracts)
+- [loadBaseCrossChainInterfaces](README.md#loadbasecrosschaininterfaces)
 - [loadEthereumCoreContracts](README.md#loadethereumcorecontracts)
 - [loadStarkNetCrossChainContracts](README.md#loadstarknetcrosschaincontracts)
+- [loadStarkNetCrossChainInterfaces](README.md#loadstarknetcrosschaininterfaces)
 - [packRevealDepositParameters](README.md#packrevealdepositparameters)
 - [retryAll](README.md#retryall)
 - [skipRetryWhenMatched](README.md#skipretrywhenmatched)
@@ -194,20 +213,21 @@ Type representing a mapping between specific L1 and L2 chains.
 
 #### Defined in
 
-[lib/contracts/chain.ts:45](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L45)
+[lib/contracts/chain.ts:51](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L51)
 
 ___
 
 ### CrossChainContracts
 
-Ƭ **CrossChainContracts**: [`L2CrossChainContracts`](README.md#l2crosschaincontracts) & [`L1CrossChainContracts`](README.md#l1crosschaincontracts)
+Ƭ **CrossChainContracts**: [`CrossChainInterfaces`](README.md#crosschaininterfaces)
 
-Convenience type aggregating TBTC cross-chain contracts forming a connector
-between TBTC L1 ledger chain and a specific supported L2/side-chain.
+**`Deprecated`**
+
+Use CrossChainInterfaces instead
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:12](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L12)
+[lib/contracts/cross-chain.ts:196](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L196)
 
 ___
 
@@ -224,7 +244,34 @@ Mode of operation for the cross-chain depositor proxy:
 
 #### Defined in
 
-[services/deposits/cross-chain.ts:19](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L19)
+[services/deposits/cross-chain.ts:20](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L20)
+
+___
+
+### CrossChainExtraDataEncoder
+
+Ƭ **CrossChainExtraDataEncoder**: [`ExtraDataEncoder`](interfaces/ExtraDataEncoder.md)
+
+**`Deprecated`**
+
+Use ExtraDataEncoder instead
+
+#### Defined in
+
+[lib/contracts/cross-chain.ts:216](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L216)
+
+___
+
+### CrossChainInterfaces
+
+Ƭ **CrossChainInterfaces**: [`DestinationChainInterfaces`](README.md#destinationchaininterfaces) & [`L1CrossChainContracts`](README.md#l1crosschaincontracts)
+
+Convenience type aggregating TBTC cross-chain contracts forming a connector
+between TBTC L1 ledger chain and a specific supported destination chain.
+
+#### Defined in
+
+[lib/contracts/cross-chain.ts:13](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L13)
 
 ___
 
@@ -237,6 +284,38 @@ Represents an event emitted on deposit reveal to the on-chain bridge.
 #### Defined in
 
 [lib/contracts/bridge.ts:307](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L307)
+
+___
+
+### DestinationChainInterfaces
+
+Ƭ **DestinationChainInterfaces**: `Object`
+
+Aggregates destination chain-specific TBTC cross-chain contracts.
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `destinationChainBitcoinDepositor` | [`BitcoinDepositor`](interfaces/BitcoinDepositor.md) |
+| `destinationChainTbtcToken` | [`DestinationChainTBTCToken`](interfaces/DestinationChainTBTCToken.md) |
+
+#### Defined in
+
+[lib/contracts/cross-chain.ts:19](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L19)
+
+___
+
+### DestinationChainName
+
+Ƭ **DestinationChainName**: `Exclude`\<keyof typeof [`Chains`](modules/Chains.md), ``"Ethereum"``\>
+
+Destination chains supported by tBTC v2 contracts.
+These are chains other than the main Ethereum L1 chain.
+
+#### Defined in
+
+[lib/contracts/chain.ts:41](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L41)
 
 ___
 
@@ -369,38 +448,63 @@ Aggregates L1-specific TBTC cross-chain contracts.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:25](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L25)
+[lib/contracts/cross-chain.ts:27](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L27)
+
+___
+
+### L2BitcoinDepositor
+
+Ƭ **L2BitcoinDepositor**: [`BitcoinDepositor`](interfaces/BitcoinDepositor.md)
+
+**`Deprecated`**
+
+Use BitcoinDepositor instead
+
+#### Defined in
+
+[lib/contracts/cross-chain.ts:211](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L211)
 
 ___
 
 ### L2Chain
 
-Ƭ **L2Chain**: `Exclude`\<keyof typeof [`Chains`](modules/Chains.md), ``"Ethereum"``\>
+Ƭ **L2Chain**: [`DestinationChainName`](README.md#destinationchainname)
 
-Layer 2 chains supported by tBTC v2 contracts.
+**`Deprecated`**
+
+Use DestinationChainName instead
 
 #### Defined in
 
-[lib/contracts/chain.ts:40](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L40)
+[lib/contracts/chain.ts:46](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L46)
 
 ___
 
 ### L2CrossChainContracts
 
-Ƭ **L2CrossChainContracts**: `Object`
+Ƭ **L2CrossChainContracts**: [`DestinationChainInterfaces`](README.md#destinationchaininterfaces)
 
-Aggregates L2-specific TBTC cross-chain contracts.
+**`Deprecated`**
 
-#### Type declaration
-
-| Name | Type |
-| :------ | :------ |
-| `l2BitcoinDepositor` | [`L2BitcoinDepositor`](interfaces/L2BitcoinDepositor.md) |
-| `l2TbtcToken` | [`L2TBTCToken`](interfaces/L2TBTCToken.md) |
+Use DestinationChainInterfaces instead
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:17](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L17)
+[lib/contracts/cross-chain.ts:201](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L201)
+
+___
+
+### L2TBTCToken
+
+Ƭ **L2TBTCToken**: [`DestinationChainTBTCToken`](interfaces/DestinationChainTBTCToken.md)
+
+**`Deprecated`**
+
+Use DestinationChainTBTCToken instead
+
+#### Defined in
+
+[lib/contracts/cross-chain.ts:206](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L206)
 
 ___
 
@@ -517,6 +621,20 @@ ___
 
 ___
 
+### StarkNetDepositorConfig
+
+Ƭ **StarkNetDepositorConfig**: [`StarkNetBitcoinDepositorConfig`](interfaces/StarkNetBitcoinDepositorConfig.md)
+
+**`Deprecated`**
+
+Use StarkNetBitcoinDepositorConfig instead
+
+#### Defined in
+
+[lib/starknet/starknet-depositor.ts:29](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L29)
+
+___
+
 ### StarkNetProvider
 
 Ƭ **StarkNetProvider**: `Provider` \| `Account`
@@ -553,6 +671,76 @@ Convenience type aggregating all TBTC core contracts.
 [lib/contracts/index.ts:19](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/index.ts#L19)
 
 ## Variables
+
+### ArbitrumCrossChainExtraDataEncoder
+
+• `Const` **ArbitrumCrossChainExtraDataEncoder**: typeof [`ArbitrumExtraDataEncoder`](classes/ArbitrumExtraDataEncoder.md) = `ArbitrumExtraDataEncoder`
+
+**`Deprecated`**
+
+Use ArbitrumExtraDataEncoder instead
+
+#### Defined in
+
+[lib/arbitrum/l2-bitcoin-depositor.ts:159](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L159)
+
+___
+
+### ArbitrumL2BitcoinDepositor
+
+• `Const` **ArbitrumL2BitcoinDepositor**: typeof [`ArbitrumBitcoinDepositor`](classes/ArbitrumBitcoinDepositor.md) = `ArbitrumBitcoinDepositor`
+
+**`Deprecated`**
+
+Use ArbitrumBitcoinDepositor instead
+
+#### Defined in
+
+[lib/arbitrum/l2-bitcoin-depositor.ts:154](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L154)
+
+___
+
+### ArbitrumL2TBTCToken
+
+• `Const` **ArbitrumL2TBTCToken**: typeof [`ArbitrumTBTCToken`](classes/ArbitrumTBTCToken.md) = `ArbitrumTBTCToken`
+
+**`Deprecated`**
+
+Use ArbitrumTBTCToken instead
+
+#### Defined in
+
+[lib/arbitrum/l2-tbtc-token.ts:63](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-tbtc-token.ts#L63)
+
+___
+
+### BaseL2BitcoinDepositor
+
+• `Const` **BaseL2BitcoinDepositor**: typeof [`BaseBitcoinDepositor`](classes/BaseBitcoinDepositor.md) = `BaseBitcoinDepositor`
+
+**`Deprecated`**
+
+Use BaseBitcoinDepositor instead
+
+#### Defined in
+
+[lib/base/l2-bitcoin-depositor.ts:127](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L127)
+
+___
+
+### BaseL2TBTCToken
+
+• `Const` **BaseL2TBTCToken**: typeof [`BaseTBTCToken`](classes/BaseTBTCToken.md) = `BaseTBTCToken`
+
+**`Deprecated`**
+
+Use BaseTBTCToken instead
+
+#### Defined in
+
+[lib/base/l2-tbtc-token.ts:64](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-tbtc-token.ts#L64)
+
+___
 
 ### BitcoinAddressConverter
 
@@ -739,7 +927,49 @@ List of chain mappings supported by tBTC v2 contracts.
 
 #### Defined in
 
-[lib/contracts/chain.ts:68](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L68)
+[lib/contracts/chain.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L74)
+
+___
+
+### EthereumCrossChainExtraDataEncoder
+
+• `Const` **EthereumCrossChainExtraDataEncoder**: typeof [`EthereumExtraDataEncoder`](classes/EthereumExtraDataEncoder.md) = `EthereumExtraDataEncoder`
+
+**`Deprecated`**
+
+Use EthereumExtraDataEncoder instead
+
+#### Defined in
+
+[lib/ethereum/l1-bitcoin-depositor.ts:190](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L190)
+
+___
+
+### StarkNetCrossChainExtraDataEncoder
+
+• `Const` **StarkNetCrossChainExtraDataEncoder**: typeof [`StarkNetExtraDataEncoder`](classes/StarkNetExtraDataEncoder.md) = `StarkNetExtraDataEncoder`
+
+**`Deprecated`**
+
+Use StarkNetExtraDataEncoder instead
+
+#### Defined in
+
+[lib/starknet/extra-data-encoder.ts:67](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/extra-data-encoder.ts#L67)
+
+___
+
+### StarkNetDepositor
+
+• `Const` **StarkNetDepositor**: typeof [`StarkNetBitcoinDepositor`](classes/StarkNetBitcoinDepositor.md) = `StarkNetBitcoinDepositor`
+
+**`Deprecated`**
+
+Use StarkNetBitcoinDepositor instead
+
+#### Defined in
+
+[lib/starknet/starknet-depositor.ts:399](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L399)
 
 ___
 
@@ -996,9 +1226,34 @@ ___
 
 ### loadArbitrumCrossChainContracts
 
-▸ **loadArbitrumCrossChainContracts**(`signer`, `chainId`): `Promise`\<[`L2CrossChainContracts`](README.md#l2crosschaincontracts)\>
+▸ **loadArbitrumCrossChainContracts**(`signer`, `chainId`): `Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
 
-Loads Arbitrum implementation of tBTC cross-chain contracts for the given Arbitrum
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `signer` | [`EthereumSigner`](README.md#ethereumsigner) |
+| `chainId` | [`Arbitrum`](enums/Chains.Arbitrum.md) |
+
+#### Returns
+
+`Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
+
+**`Deprecated`**
+
+Use loadArbitrumCrossChainInterfaces instead
+
+#### Defined in
+
+[lib/arbitrum/index.ts:55](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/index.ts#L55)
+
+___
+
+### loadArbitrumCrossChainInterfaces
+
+▸ **loadArbitrumCrossChainInterfaces**(`signer`, `chainId`): `Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
+
+Loads Arbitrum implementation of tBTC cross-chain interfaces for the given Arbitrum
 chain ID and attaches the given signer there.
 
 #### Parameters
@@ -1010,7 +1265,7 @@ chain ID and attaches the given signer there.
 
 #### Returns
 
-`Promise`\<[`L2CrossChainContracts`](README.md#l2crosschaincontracts)\>
+`Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
 
 Handle to the contracts.
 
@@ -1027,7 +1282,32 @@ ___
 
 ### loadBaseCrossChainContracts
 
-▸ **loadBaseCrossChainContracts**(`signer`, `chainId`): `Promise`\<[`L2CrossChainContracts`](README.md#l2crosschaincontracts)\>
+▸ **loadBaseCrossChainContracts**(`signer`, `chainId`): `Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `signer` | [`EthereumSigner`](README.md#ethereumsigner) |
+| `chainId` | [`Base`](enums/Chains.Base.md) |
+
+#### Returns
+
+`Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
+
+**`Deprecated`**
+
+Use loadBaseCrossChainInterfaces instead
+
+#### Defined in
+
+[lib/base/index.ts:56](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/index.ts#L56)
+
+___
+
+### loadBaseCrossChainInterfaces
+
+▸ **loadBaseCrossChainInterfaces**(`signer`, `chainId`): `Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
 
 Loads Base implementation of tBTC cross-chain contracts for the given Base
 chain ID and attaches the given signer there.
@@ -1041,7 +1321,7 @@ chain ID and attaches the given signer there.
 
 #### Returns
 
-`Promise`\<[`L2CrossChainContracts`](README.md#l2crosschaincontracts)\>
+`Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
 
 Handle to the contracts.
 
@@ -1089,7 +1369,33 @@ ___
 
 ### loadStarkNetCrossChainContracts
 
-▸ **loadStarkNetCrossChainContracts**(`walletAddress`, `provider?`, `chainId?`): `Promise`\<[`L2CrossChainContracts`](README.md#l2crosschaincontracts)\>
+▸ **loadStarkNetCrossChainContracts**(`walletAddress`, `provider?`, `chainId?`): `Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
+
+#### Parameters
+
+| Name | Type | Default value |
+| :------ | :------ | :------ |
+| `walletAddress` | `string` | `undefined` |
+| `provider?` | [`StarkNetProvider`](README.md#starknetprovider) | `undefined` |
+| `chainId` | `string` | `Chains.StarkNet.Sepolia` |
+
+#### Returns
+
+`Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
+
+**`Deprecated`**
+
+Use loadStarkNetCrossChainInterfaces instead
+
+#### Defined in
+
+[lib/starknet/index.ts:106](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L106)
+
+___
+
+### loadStarkNetCrossChainInterfaces
+
+▸ **loadStarkNetCrossChainInterfaces**(`walletAddress`, `provider?`, `chainId?`): `Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
 
 Loads StarkNet implementation of tBTC cross-chain contracts.
 Now supports balance queries with deployed tBTC contracts and enhanced configuration.
@@ -1104,7 +1410,7 @@ Now supports balance queries with deployed tBTC contracts and enhanced configura
 
 #### Returns
 
-`Promise`\<[`L2CrossChainContracts`](README.md#l2crosschaincontracts)\>
+`Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
 
 Handle to the contracts
 

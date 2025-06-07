@@ -1,13 +1,13 @@
 import { expect } from "chai"
-import { StarkNetCrossChainExtraDataEncoder } from "../../../src/lib/starknet/extra-data-encoder"
+import { StarkNetExtraDataEncoder } from "../../../src/lib/starknet/extra-data-encoder"
 import { StarkNetAddress } from "../../../src/lib/starknet/address"
 import { Hex } from "../../../src/lib/utils"
 
 describe("StarkNet Extra Data Encoder - Destination Chain Support", () => {
-  let encoder: StarkNetCrossChainExtraDataEncoder
+  let encoder: StarkNetExtraDataEncoder
 
   beforeEach(() => {
-    encoder = new StarkNetCrossChainExtraDataEncoder()
+    encoder = new StarkNetExtraDataEncoder()
   })
 
   describe("encodeDepositOwner with destinationChain", () => {

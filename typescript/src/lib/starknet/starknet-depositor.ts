@@ -1,51 +1,58 @@
 import {
-  L2BitcoinDepositor,
+  BitcoinDepositor,
   ChainIdentifier,
-  CrossChainExtraDataEncoder,
+  ExtraDataEncoder,
 } from "../contracts"
 import { BitcoinRawTxVectors } from "../bitcoin"
 import { DepositReceipt } from "../contracts/bridge"
 import { StarkNetAddress } from "./address"
-import { StarkNetCrossChainExtraDataEncoder } from "./extra-data-encoder"
+import { StarkNetExtraDataEncoder } from "./extra-data-encoder"
 import { StarkNetProvider } from "./types"
 import { Hex } from "../utils"
 import { packRevealDepositParameters } from "../ethereum"
 import axios from "axios"
+import { ethers } from "ethers"
+import { TransactionReceipt } from "@ethersproject/providers"
 
 /**
- * Configuration for StarkNetDepositor
+ * Configuration for StarkNetBitcoinDepositor
  */
-export interface StarkNetDepositorConfig {
+export interface StarkNetBitcoinDepositorConfig {
   chainId: string
   relayerUrl?: string
   defaultVault?: string
 }
 
 /**
- * Full implementation of the L2BitcoinDepositor interface for StarkNet.
+ * @deprecated Use StarkNetBitcoinDepositorConfig instead
+ */
+export type StarkNetDepositorConfig = StarkNetBitcoinDepositorConfig
+
+/**
+ * Full implementation of the BitcoinDepositor interface for StarkNet.
  * This implementation uses a StarkNet provider for operations and supports
  * deposit initialization through the relayer endpoint.
  *
- * Unlike other L2 chains, StarkNet deposits are primarily handled through L1
+ * Unlike other destination chains, StarkNet deposits are primarily handled through L1
  * contracts, with this depositor serving as a provider-aware interface for
  * future L2 functionality and relayer integration.
  */
-export class StarkNetDepositor implements L2BitcoinDepositor {
-  readonly #extraDataEncoder = new StarkNetCrossChainExtraDataEncoder()
-  readonly #config: StarkNetDepositorConfig
+export class StarkNetBitcoinDepositor implements BitcoinDepositor {
+  readonly #extraDataEncoder = new StarkNetExtraDataEncoder()
+  readonly #config: StarkNetBitcoinDepositorConfig
   readonly #chainName: string
   readonly #provider: StarkNetProvider
   #depositOwner: ChainIdentifier | undefined
 
   /**
-   * Creates a new StarkNetDepositor instance.
+   * Creates a new StarkNetBitcoinDepositor instance.
    * @param config Configuration containing chainId and other chain-specific settings
    * @param chainName Name of the chain (should be "StarkNet")
    * @param provider StarkNet provider for blockchain interactions (Provider or Account)
    * @throws Error if provider is not provided
    */
   constructor(
-    config: StarkNetDepositorConfig,
+    config: StarkNetBitcoinDepositorConfig,
     chainName: string,
     provider: StarkNetProvider
   ) {
@@ -60,8 +67,9 @@ export class StarkNetDepositor implements L2BitcoinDepositor {
       if (config.chainId === "0x534e5f4d41494e") {
         enhancedConfig.relayerUrl = "https://relayer.tbtcscan.com/api/reveal"
       } else {
-        // Default for testnet and other networks
-        enhancedConfig.relayerUrl = "http://relayer.tbtcscan.com/api/reveal"
+        // Default for testnet and other networks - use local relayer for testing
+        enhancedConfig.relayerUrl =
+          "http://localhost:3001/api/starknetTestnet/reveal"
       }
     }
 
@@ -129,9 +137,9 @@ export class StarkNetDepositor implements L2BitcoinDepositor {
 
   /**
    * Returns the extra data encoder for StarkNet.
-   * @returns The StarkNetCrossChainExtraDataEncoder instance.
+   * @returns The StarkNetExtraDataEncoder instance.
    */
-  extraDataEncoder(): CrossChainExtraDataEncoder {
+  extraDataEncoder(): ExtraDataEncoder {
     return this.#extraDataEncoder
   }
 
@@ -139,13 +147,14 @@ export class StarkNetDepositor implements L2BitcoinDepositor {
    * Initializes a cross-chain deposit by calling the external relayer service.
    *
    * This method calls the external service to trigger the deposit transaction
-   * via a relayer off-chain process. It returns the transaction hash as a Hex.
+   * via a relayer off-chain process. It returns the transaction hash as a Hex
+   * or a full transaction receipt.
    *
    * @param depositTx - The Bitcoin transaction data
    * @param depositOutputIndex - The output index of the deposit
    * @param deposit - The deposit receipt containing all deposit parameters
    * @param vault - Optional vault address
-   * @returns The transaction hash from the relayer response
+   * @returns The transaction hash or full transaction receipt from the relayer response
    * @throws Error if deposit owner not set or relayer returns unexpected response
    */
   // eslint-disable-next-line valid-jsdoc
@@ -154,7 +163,7 @@ export class StarkNetDepositor implements L2BitcoinDepositor {
     depositOutputIndex: number,
     deposit: DepositReceipt,
     vault?: ChainIdentifier
-  ): Promise<Hex> {
+  ): Promise<Hex | TransactionReceipt> {
     // Check if deposit owner is set
     if (!this.#depositOwner) {
       throw new Error(
@@ -175,6 +184,11 @@ export class StarkNetDepositor implements L2BitcoinDepositor {
       : this.#depositOwner.toString()
     const l2Sender = this.#depositOwner.toString()
 
+    // Format addresses for relayer
+    const formattedL2DepositOwner =
+      this.formatStarkNetAddressAsBytes32(l2DepositOwner)
+    const formattedL2Sender = this.formatStarkNetAddressAsBytes32(l2Sender)
+
     // Retry configuration
     const maxRetries = 3
     const delays = [1000, 2000, 4000] // Exponential backoff: 1s, 2s, 4s
@@ -189,15 +203,46 @@ export class StarkNetDepositor implements L2BitcoinDepositor {
           {
             fundingTx,
             reveal,
-            l2DepositOwner,
-            l2Sender,
+            // PRIMARY field for StarkNet (new requirement)
+            destinationChainDepositOwner: formattedL2DepositOwner,
+            // Backward compatibility fields
+            l2DepositOwner: formattedL2DepositOwner,
+            l2Sender: formattedL2Sender,
           },
           {
             timeout: 30000, // 30 seconds timeout
+            headers: {
+              "Content-Type": "application/json",
+            },
           }
         )
 
         const { data } = response
+
+        // Calculate deposit ID
+        let depositId: string | undefined
+        try {
+          // Get funding transaction hash - concatenate raw hex without 0x prefix
+          const fundingTxComponents =
+            depositTx.version.toString() +
+            depositTx.inputs.toString() +
+            depositTx.outputs.toString() +
+            depositTx.locktime.toString()
+
+          // Apply double SHA-256 (Bitcoin standard)
+          const fundingTxHash = ethers.utils.keccak256(
+            ethers.utils.keccak256("0x" + fundingTxComponents)
+          )
+
+          // Calculate deposit ID
+          const depositIdHash = ethers.utils.solidityKeccak256(
+            ["bytes32", "uint256"],
+            [fundingTxHash, depositOutputIndex]
+          )
+          depositId = ethers.BigNumber.from(depositIdHash).toString()
+        } catch (e) {
+          console.warn("Failed to calculate deposit ID:", e)
+        }
 
         // Handle test response format (for testing only)
         if (data.transactionHash && !data.receipt) {
@@ -210,6 +255,11 @@ export class StarkNetDepositor implements L2BitcoinDepositor {
               this.#config.relayerUrl
             }: ${JSON.stringify(data)}`
           )
+        }
+
+        // Log deposit ID if available
+        if (depositId) {
+          console.log(`Deposit initialized with ID: ${depositId}`)
         }
 
         return Hex.from(data.receipt.transactionHash)
@@ -312,4 +362,38 @@ export class StarkNetDepositor implements L2BitcoinDepositor {
     // Default error message
     return `Failed to initialize deposit through relayer: ${error.message}`
   }
+
+  /**
+   * Formats a StarkNet address to ensure it's a valid bytes32 value.
+   * @param address The StarkNet address to format
+   * @returns The formatted address with 0x prefix and 64 hex characters
+   * @throws Error if the address is invalid
+   */
+  private formatStarkNetAddressAsBytes32(address: string): string {
+    // Ensure 0x prefix
+    if (!address.startsWith("0x")) {
+      address = "0x" + address
+    }
+
+    // Must be exactly 66 characters (0x + 64 hex)
+    if (address.length !== 66) {
+      throw new Error(
+        `Invalid StarkNet address length: ${address.length}. Expected 66 characters (0x + 64 hex).`
+      )
+    }
+
+    // Validate hex format
+    if (!/^0x[0-9a-fA-F]{64}$/.test(address)) {
+      throw new Error(
+        `Invalid StarkNet address format: ${address}. Must be 0x followed by 64 hexadecimal characters.`
+      )
+    }
+
+    return address.toLowerCase()
+  }
 }
+
+/**
+ * @deprecated Use StarkNetBitcoinDepositor instead
+ */
+export const StarkNetDepositor = StarkNetBitcoinDepositor

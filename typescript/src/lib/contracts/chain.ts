@@ -35,9 +35,15 @@ export namespace Chains {
 }
 
 /**
- * Layer 2 chains supported by tBTC v2 contracts.
+ * Destination chains supported by tBTC v2 contracts.
+ * These are chains other than the main Ethereum L1 chain.
  */
-export type L2Chain = Exclude<keyof typeof Chains, "Ethereum">
+export type DestinationChainName = Exclude<keyof typeof Chains, "Ethereum">
+
+/**
+ * @deprecated Use DestinationChainName instead
+ */
+export type L2Chain = DestinationChainName
 
 /**
  * Type representing a mapping between specific L1 and L2 chains.

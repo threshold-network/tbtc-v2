@@ -1,14 +1,14 @@
 import { expect } from "chai"
-import { StarkNetCrossChainExtraDataEncoder } from "../../../src/lib/starknet/extra-data-encoder"
+import { StarkNetExtraDataEncoder } from "../../../src/lib/starknet/extra-data-encoder"
 import { StarkNetAddress } from "../../../src/lib/starknet/address"
 import { EthereumAddress } from "../../../src/lib/ethereum"
 import { Hex } from "../../../src/lib/utils"
 
-describe("StarkNetCrossChainExtraDataEncoder", () => {
-  let encoder: StarkNetCrossChainExtraDataEncoder
+describe("StarkNetExtraDataEncoder", () => {
+  let encoder: StarkNetExtraDataEncoder
 
   beforeEach(() => {
-    encoder = new StarkNetCrossChainExtraDataEncoder()
+    encoder = new StarkNetExtraDataEncoder()
   })
 
   describe("encodeDepositOwner", () => {
