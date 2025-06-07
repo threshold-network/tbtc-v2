@@ -90,35 +90,20 @@ export class CrossChainDepositor implements DepositorProxy {
     depositOutputIndex: number,
     deposit: DepositReceipt,
     vault?: ChainIdentifier
-  ): Promise<Hex> {
-    let result: Hex | TransactionReceipt
+  ): Promise<any> {
+    const transactionHash: any =
+      await this.#crossChainContracts.destinationChainBitcoinDepositor.initializeDeposit(
+        depositTx,
+        depositOutputIndex,
+        deposit,
+        vault
+      )
 
-    switch (this.#revealMode) {
-      case "L2Transaction":
-        result =
-          await this.#crossChainContracts.destinationChainBitcoinDepositor.initializeDeposit(
-            depositTx,
-            depositOutputIndex,
-            deposit,
-            vault
-          )
-        break
-      case "L1Transaction":
-        result =
-          await this.#crossChainContracts.l1BitcoinDepositor.initializeDeposit(
-            depositTx,
-            depositOutputIndex,
-            deposit,
-            vault
-          )
-        break
+    // TEMPORARY: If the result is the payload object, return it directly.
+    if (typeof transactionHash === "object" && transactionHash.fundingTx) {
+      return transactionHash
     }
 
-    // If result is a TransactionReceipt, extract the transaction hash
-    if (result instanceof Hex) {
-      return result
-    } else {
-      return Hex.from((result as TransactionReceipt).transactionHash)
-    }
+    return Hex.from(transactionHash as string)
   }
 }

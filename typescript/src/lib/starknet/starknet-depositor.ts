@@ -158,13 +158,12 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
    * @returns The transaction hash or full transaction receipt from the relayer response
    * @throws Error if deposit owner not set or relayer returns unexpected response
    */
-  // eslint-disable-next-line valid-jsdoc
   async initializeDeposit(
     depositTx: BitcoinRawTxVectors,
     depositOutputIndex: number,
     deposit: DepositReceipt,
     vault?: ChainIdentifier
-  ): Promise<Hex | TransactionReceipt> {
+  ): Promise<any> {
     // Check if deposit owner is set
     if (!this.#depositOwner) {
       throw new Error(
@@ -213,71 +212,6 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
         console.log("Returning deposit payload:", payload)
         return payload
         
-        // const response = await axios.post(
-        //   this.#config.relayerUrl!,
-        //   {
-        //     fundingTx,
-        //     reveal,
-        //     // PRIMARY field for StarkNet (new requirement)
-        //     destinationChainDepositOwner: formattedL2DepositOwner,
-        //     // Backward compatibility fields
-        //     l2DepositOwner: formattedL2DepositOwner,
-        //     l2Sender: formattedL2Sender,
-        //   },
-        //   {
-        //     timeout: 30000, // 30 seconds timeout
-        //     headers: {
-        //       "Content-Type": "application/json",
-        //     },
-        //   }
-        // )
-
-        const { data } = response
-
-        // Calculate deposit ID
-        let depositId: string | undefined
-        try {
-          // Get funding transaction hash - concatenate raw hex without 0x prefix
-          const fundingTxComponents =
-            depositTx.version.toString() +
-            depositTx.inputs.toString() +
-            depositTx.outputs.toString() +
-            depositTx.locktime.toString()
-
-          // Apply double SHA-256 (Bitcoin standard)
-          const fundingTxHash = ethers.utils.keccak256(
-            ethers.utils.keccak256("0x" + fundingTxComponents)
-          )
-
-          // Calculate deposit ID
-          const depositIdHash = ethers.utils.solidityKeccak256(
-            ["bytes32", "uint256"],
-            [fundingTxHash, depositOutputIndex]
-          )
-          depositId = ethers.BigNumber.from(depositIdHash).toString()
-        } catch (e) {
-          console.warn("Failed to calculate deposit ID:", e)
-        }
-
-        // Handle test response format (for testing only)
-        if (data.transactionHash && !data.receipt) {
-          return Hex.from(data.transactionHash)
-        }
-
-        if (!data.receipt) {
-          throw new Error(
-            `Unexpected response from ${
-              this.#config.relayerUrl
-            }: ${JSON.stringify(data)}`
-          )
-        }
-
-        // Log deposit ID if available
-        if (depositId) {
-          console.log(`Deposit initialized with ID: ${depositId}`)
-        }
-
-        return Hex.from(data.receipt.transactionHash)
       } catch (error: any) {
         lastError = error
 
