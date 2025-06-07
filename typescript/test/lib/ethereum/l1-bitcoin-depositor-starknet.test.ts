@@ -2,7 +2,7 @@ import { expect } from "chai"
 import { EthereumL1BitcoinDepositor } from "../../../src/lib/ethereum/l1-bitcoin-depositor"
 import { Chains } from "../../../src/lib/contracts"
 import { StarkNetAddress } from "../../../src/lib/starknet"
-import { StarkNetCrossChainExtraDataEncoder } from "../../../src/lib/starknet"
+import { StarkNetExtraDataEncoder } from "../../../src/lib/starknet"
 import { Hex } from "../../../src/lib/utils"
 import { MockProvider } from "@ethereum-waffle/provider"
 import { Wallet } from "ethers"
@@ -43,7 +43,7 @@ describe("EthereumL1BitcoinDepositor - StarkNet Support", () => {
             Chains.Ethereum.Mainnet,
             "UnsupportedChain" as any
           )
-      ).to.throw("Unsupported L2 chain")
+      ).to.throw("Unsupported destination chain")
     })
 
     it("should throw error for unsupported L2 chain on sepolia", () => {
@@ -54,7 +54,7 @@ describe("EthereumL1BitcoinDepositor - StarkNet Support", () => {
             Chains.Ethereum.Sepolia,
             "UnsupportedChain" as any
           )
-      ).to.throw("Unsupported L2 chain")
+      ).to.throw("Unsupported destination chain")
     })
   })
 
@@ -69,9 +69,9 @@ describe("EthereumL1BitcoinDepositor - StarkNet Support", () => {
       )
     })
 
-    it("should use StarkNetCrossChainExtraDataEncoder for StarkNet", () => {
+    it("should use StarkNetExtraDataEncoder for StarkNet", () => {
       const encoder = depositor.extraDataEncoder()
-      expect(encoder).to.be.instanceOf(StarkNetCrossChainExtraDataEncoder)
+      expect(encoder).to.be.instanceOf(StarkNetExtraDataEncoder)
     })
 
     it("should properly encode StarkNet addresses", () => {
@@ -107,7 +107,7 @@ describe("EthereumL1BitcoinDepositor - StarkNet Support", () => {
       )
 
       const encoder = depositor.extraDataEncoder()
-      expect(encoder).to.be.instanceOf(StarkNetCrossChainExtraDataEncoder)
+      expect(encoder).to.be.instanceOf(StarkNetExtraDataEncoder)
 
       // Test that it can encode/decode StarkNet addresses
       const starknetAddress = StarkNetAddress.from("0xabcdef")

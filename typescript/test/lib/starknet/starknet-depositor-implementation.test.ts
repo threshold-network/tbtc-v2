@@ -62,7 +62,7 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
 
       // Assert
       expect(result).to.be.instanceOf(Hex)
-      expect(result.toString()).to.equal("abc123def456")
+      expect((result as Hex).toPrefixedString()).to.equal("0xabc123def456")
 
       // Check axios was called correctly
       const stub = axios.post as sinon.SinonStub
@@ -73,7 +73,7 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
       expect(stub.getCall(0).args[1]).to.have.property("fundingTx")
       expect(stub.getCall(0).args[1]).to.have.property("reveal")
       expect(stub.getCall(0).args[1].l2DepositOwner).to.equal(
-        mockReceipt.extraData.toString()
+        mockReceipt.extraData.toPrefixedString()
       )
       expect(stub.getCall(0).args[1].l2Sender).to.equal(depositOwner.toString())
     })
@@ -137,7 +137,9 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
       )
 
       // Assert
-      expect(result.toString()).to.equal("1234567890abcdef".repeat(4))
+      expect((result as Hex).toPrefixedString()).to.equal(
+        "0x" + "1234567890abcdef".repeat(4)
+      )
       expect(callCount).to.equal(3)
     })
 

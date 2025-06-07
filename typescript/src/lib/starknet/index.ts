@@ -26,6 +26,9 @@ const TBTC_CONTRACT_ADDRESSES: Record<string, string> = {
     "0x04a909347487d909a6629b56880e6e03ad3859e772048c4481f3fba88ea02c32f",
   [Chains.StarkNet.Sepolia]:
     "0x04e3bc49f130f9d0379082c24efd397a0eddfccdc6023a2f02a74d8527140276",
+  // Test chain ID
+  ["0x534e5f544553544e4554"]:
+    "0x04e3bc49f130f9d0379082c24efd397a0eddfccdc6023a2f02a74d8527140276", // Using Sepolia address for tests
 }
 
 /**

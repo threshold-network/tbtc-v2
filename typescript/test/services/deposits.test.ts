@@ -2069,7 +2069,9 @@ describe("Deposits", () => {
                 "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
                 "Base"
               )
-            ).to.be.rejectedWith("Cannot resolve L2 deposit owner")
+            ).to.be.rejectedWith(
+              "Cannot resolve destination chain deposit owner"
+            )
           })
         })
 
@@ -2274,7 +2276,7 @@ describe("Deposits", () => {
               "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
               "Arbitrum"
             )
-          ).to.be.rejectedWith("Cannot resolve L2 deposit owner")
+          ).to.be.rejectedWith("Cannot resolve destination chain deposit owner")
         })
       })
 
@@ -2619,7 +2621,7 @@ describe("Deposits", () => {
         () => {
           it("should throw", () => {
             expect(() => depositor.extraData()).to.throw(
-              "Cannot resolve L2 deposit owner"
+              "Cannot resolve destination chain deposit owner"
             )
           })
         }

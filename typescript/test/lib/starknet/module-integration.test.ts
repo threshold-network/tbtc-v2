@@ -41,8 +41,8 @@ describe("StarkNet Module Integration", () => {
       const walletAddress = "0x1234567890abcdef1234567890abcdef12345678"
       const contracts = await loadStarkNetCrossChainContracts(walletAddress)
 
-      expect(contracts).to.have.property("l2BitcoinDepositor")
-      expect(contracts).to.have.property("l2TbtcToken")
+      expect(contracts).to.have.property("destinationChainBitcoinDepositor")
+      expect(contracts).to.have.property("destinationChainTbtcToken")
     })
   })
 })

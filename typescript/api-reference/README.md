@@ -1389,7 +1389,7 @@ Use loadStarkNetCrossChainInterfaces instead
 
 #### Defined in
 
-[lib/starknet/index.ts:106](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L106)
+[lib/starknet/index.ts:109](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L109)
 
 ___
 
@@ -1416,7 +1416,7 @@ Handle to the contracts
 
 #### Defined in
 
-[lib/starknet/index.ts:40](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L40)
+[lib/starknet/index.ts:43](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L43)
 
 ___
 

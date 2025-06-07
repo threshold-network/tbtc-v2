@@ -213,7 +213,7 @@ describe("StarkNet Single-Parameter Deposit Flow", () => {
       )
       expect(axiosStub.calledOnce).to.be.true
       expect(axiosStub.args[0][0]).to.equal(
-        "http://relayer.tbtcscan.com/api/reveal"
+        "http://localhost:3001/api/starknetTestnet/reveal"
       )
       expect(axiosStub.args[0][1]).to.have.property("l2DepositOwner")
       expect(axiosStub.args[0][1]).to.have.property("l2Sender")
