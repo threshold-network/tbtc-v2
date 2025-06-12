@@ -970,7 +970,11 @@ library Redemption {
             burnableValue = redeemableAmount;
             // Add the request's treasury fee to the total treasury fee
             // value the Bridge will transfer to the treasury.
-            treasuryFee = request.treasuryFee;
+            if (address(self.rebateStaking) != address(0)) { // TODO ask if needed
+                treasuryFee = self.rebateStaking.checkForRebate(request.redeemer, request.treasuryFee);
+            } else {
+                treasuryFee = request.treasuryFee;
+            }
             // Request was properly handled so remove its redemption
             // key from the mapping to make it reusable for further
             // requests.
