@@ -17,10 +17,10 @@ jobs:
     outputs:
       path-filter: ${{ steps.filter.outputs.path-filter }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         if: github.event_name == 'pull_request'
 
-      - uses: dorny/paths-filter@v2
+      - uses: dorny/paths-filter@v3
         if: github.event_name == 'pull_request'
         id: filter
         with:
@@ -39,9 +39,9 @@ jobs:
       run:
         working-directory: ./cross-chain/polygon
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v4
         with:
           node-version: "14.x"
           cache: "yarn"
@@ -71,9 +71,9 @@ jobs:
       run:
         working-directory: ./cross-chain/polygon
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v4
         with:
           node-version: "14.x"
           cache: "yarn"
@@ -100,9 +100,9 @@ jobs:
       run:
         working-directory: ./cross-chain/polygon
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v4
         with:
           node-version: "14.x"
           cache: "yarn"
@@ -132,15 +132,15 @@ jobs:
       run:
         working-directory: ./cross-chain/polygon
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v4
         with:
           node-version: "14.x"
           cache: "yarn"
           cache-dependency-path: cross-chain/polygon/yarn.lock
 
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: 3.10.8
 
