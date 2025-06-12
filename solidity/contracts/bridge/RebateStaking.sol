@@ -19,6 +19,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/math/SafeCastUpgradeable.sol";
 
 
 /// @title Contract for staking T token to get rebate on minting/redemption fees
@@ -34,12 +35,12 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
 
     struct Rebate {
         uint256 timestamp;
-        uint256 feeRebate;
+        uint64 feeRebate;
     }
 
     struct Stake {
-        uint256 stakedAmount;
-        uint256 unstakingAmount;
+        uint64 stakedAmount;
+        uint64 unstakingAmount;
         uint256 unstakingTimestamp;
 
         uint256 rollingWindowStartIndex;
@@ -92,11 +93,11 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         rebatePerToken = _newRebatePerToken;
     }
     
-    function getRebateCap(Stake storage stakeInfo) internal view returns(uint256) {
-        return stakeInfo.stakedAmount * rebatePerToken;
+    function getRebateCap(Stake storage stakeInfo) internal view returns(uint64) {
+        return SafeCastUpgradeable.toUint64(stakeInfo.stakedAmount / rebatePerToken);
     }
 
-    function getRebateInRollingWindow(Stake storage stakeInfo) internal returns(uint256 rebateInWindow) {
+    function getRebateInRollingWindow(Stake storage stakeInfo) internal returns(uint64 rebateInWindow) {
         if (stakeInfo.rebates.length == 0) {
             return 0;
         }
@@ -114,21 +115,21 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         return rebateInWindow;
     }
 
-    function checkForRebate(address user, uint256 treasuryFee) external returns (uint256) {
+    function checkForRebate(address user, uint64 treasuryFee) external returns (uint64) {
         require(msg.sender == bridge, "Only bridge can call this method");
 
         Stake storage stakeInfo = stakes[user];
         
-        uint256 rebateCap = getRebateCap(stakeInfo);
+        uint64 rebateCap = getRebateCap(stakeInfo);
         if (rebateCap == 0) {
             return treasuryFee;
         }
 
-        uint256 currentRebate = getRebateInRollingWindow(stakeInfo);
+        uint64 currentRebate = getRebateInRollingWindow(stakeInfo);
         if (rebateCap <= currentRebate) {
             return treasuryFee;
         }
-        uint256 rebate = rebateCap - currentRebate;
+        uint64 rebate = rebateCap - currentRebate;
         if (rebate > treasuryFee) {
             rebate = treasuryFee;
         }
@@ -137,14 +138,14 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         return treasuryFee - rebate;
     }
 
-    function stake(uint256 amount) external {
+    function stake(uint64 amount) external {
         Stake storage stakeInfo = stakes[msg.sender];
         stakeInfo.stakedAmount += amount;
 
         token.safeTransferFrom(msg.sender, address(this), amount);
     }
 
-    function startUnstaking(uint256 amount) external {
+    function startUnstaking(uint64 amount) external {
         Stake storage stakeInfo = stakes[msg.sender];
         require(stakeInfo.unstakingTimestamp == 0, "Unstaking already started");
         require(amount <= stakeInfo.stakedAmount, "Amount is too big");
@@ -159,7 +160,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
             stakeInfo.unstakingTimestamp + unstakingPeriod <= block.timestamp, 
             "Not enough time passed"
         );
-        uint256 amount = stakeInfo.unstakingAmount;
+        uint64 amount = stakeInfo.unstakingAmount;
         stakeInfo.unstakingTimestamp = 0;
         stakeInfo.unstakingAmount = 0;
         token.safeTransfer(msg.sender, amount);
