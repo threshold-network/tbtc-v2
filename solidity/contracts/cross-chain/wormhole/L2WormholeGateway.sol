@@ -109,6 +109,10 @@ contract L2WormholeGateway is
 
     event MintingLimitUpdated(uint256 mintingLimit);
 
+    /// @notice Wormhole Chain ID for Ethereum. This ID is used by Wormhole for
+    ///         Ethereum Mainnet and its common testnets (e.g., Sepolia, Goerli).
+    uint16 public constant WORMHOLE_ETHEREUM_CHAIN_ID = 2;
+
     function initialize(
         IWormholeTokenBridge _bridge,
         IERC20Upgradeable _bridgeToken,
@@ -226,6 +230,79 @@ contract L2WormholeGateway is
                     abi.encode(recipient)
                 );
         }
+    }
+
+    /// @notice This function is called when the user sends their token from L2.
+    ///         The contract burns the canonical tBTC from the user and sends
+    ///         wormhole tBTC representation over the bridge.
+    ///         Keep in mind that when multiple bridges receive a minting
+    ///         authority on the canonical tBTC, this function may not be able
+    ///         to send all amounts of tBTC through the Wormhole bridge. The
+    ///         capability of Wormhole Bridge to send tBTC from the chain is
+    ///         limited to the amount of tBTC bridged through Wormhole to that
+    ///         chain.
+    /// @dev Requirements:
+    ///      - The sender must have at least `amount` of the canonical tBTC and
+    ///        it has to be approved for L2WormholeGateway.
+    ///      - The L2WormholeGateway must have at least `amount` of the wormhole
+    ///        tBTC.
+    ///      - The recipient must not be 0x0.
+    ///      - The amount to transfer must not be 0,
+    ///      - The amount to transfer must be >= 10^10 (1e18 precision).
+    ///      - The target chain is always Ethereum (Wormhole chain ID 2).
+    ///      This function uses `transferTokensWithPayload` to send tBTC directly
+    ///      to the `recipient` contract address on Ethereum. The `arbiterFee` is
+    ///      not applicable and implicitly 0.
+    /// @param amount The amount of tBTC to be sent.
+    /// @param recipient The Wormhole-formatted address of the target contract on Ethereum
+    ///                  that will receive the tokens and process the payload.
+    /// @param nonce The Wormhole nonce used to batch messages together.
+    /// @param payload The arbitrary data to be passed to and processed by the `recipient`
+    ///                contract on Ethereum.
+    /// @return The Wormhole sequence number.
+    function sendTbtcWithPayloadToEthereum(
+        uint256 amount,
+        bytes32 recipient,
+        uint32 nonce,
+        bytes calldata payload
+    ) external payable nonReentrant returns (uint64) {
+        require(recipient != bytes32(0), "0x0 recipient not allowed");
+        require(amount != 0, "Amount must not be 0");
+
+        // Normalize the amount to bridge. The dust can not be bridged due to
+        // the decimal shift in the Wormhole Bridge contract.
+        amount = WormholeUtils.normalize(amount);
+
+        // Check again after dropping the dust.
+        require(amount != 0, "Amount too low to bridge");
+
+        require(
+            bridgeToken.balanceOf(address(this)) >= amount,
+            "Not enough wormhole tBTC in the gateway to bridge"
+        );
+
+        emit WormholeTbtcSent(
+            amount,
+            WORMHOLE_ETHEREUM_CHAIN_ID,
+            bytes32(0), // No specific tBTC gateway from 'gateways' mapping is used; 'recipient' is the direct target contract.
+            recipient,
+            0, // arbiterFee is 0 as this function sends with payload
+            nonce
+        );
+
+        mintedAmount -= amount;
+        tbtc.burnFrom(msg.sender, amount);
+        bridgeToken.safeApprove(address(bridge), amount);
+
+        return
+            bridge.transferTokensWithPayload{value: msg.value}(
+                address(bridgeToken),
+                amount,
+                WORMHOLE_ETHEREUM_CHAIN_ID,
+                recipient,
+                nonce,
+                payload
+            );
     }
 
     /// @notice This function is called when the user redeems their token on L2.

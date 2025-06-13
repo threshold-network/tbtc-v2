@@ -68,12 +68,28 @@ contract MockBridge is IBridge {
     using BTCUtils for bytes;
 
     mapping(uint256 => IBridgeTypes.DepositRequest) internal _deposits;
+    mapping(uint256 => IBridgeTypes.RedemptionRequest)
+        internal _pendingRedemptions;
 
     uint64 internal _depositDustThreshold = 1000000; // 1000000 satoshi = 0.01 BTC
     uint64 internal _depositTreasuryFeeDivisor = 50; // 1/50 == 100 bps == 2% == 0.02
     uint64 internal _depositTxMaxFee = 1000; // 1000 satoshi = 0.00001 BTC
 
+    uint64 internal _redemptionDustThreshold = 50000; // 0.0005 BTC
+    uint64 internal _redemptionTreasuryFeeDivisor = 200; // 0.5%
+    uint64 internal _redemptionTxMaxFee = 10000; // 0.0001 BTC
+    uint64 internal _redemptionTxMaxTotalFee = 50000; // 0.0005 BTC
+    uint32 internal _redemptionTimeout = 6 * 3600; // 6 hours in seconds
+    uint96 internal _redemptionTimeoutSlashingAmount = 10**18; // 1 TBTC with 18 decimals
+    uint32 internal _redemptionTimeoutNotifierRewardMultiplier = 5; // 5%
+
     event DepositRevealed(uint256 depositKey);
+    event RedemptionRequestedMock(
+        bytes20 walletPubKeyHash,
+        uint64 amount,
+        bytes redeemerOutputScript,
+        uint256 redemptionKey
+    );
 
     function revealDepositWithExtraData(
         IBridgeTypes.BitcoinTxInfo calldata fundingTx,
@@ -110,8 +126,7 @@ contract MockBridge is IBridge {
 
         request.depositor = msg.sender;
         request.amount = fundingOutputAmount;
-        /* solhint-disable-next-line not-rely-on-time */
-        request.revealedAt = uint32(block.timestamp);
+        request.revealedAt = uint32(block.timestamp); // solhint-disable-line not-rely-on-time
         request.vault = reveal.vault;
         request.treasuryFee = _depositTreasuryFeeDivisor > 0
             ? fundingOutputAmount / _depositTreasuryFeeDivisor
@@ -127,8 +142,7 @@ contract MockBridge is IBridge {
     function sweepDeposit(uint256 depositKey) public {
         require(_deposits[depositKey].revealedAt != 0, "Deposit not revealed");
         require(_deposits[depositKey].sweptAt == 0, "Deposit already swept");
-        /* solhint-disable-next-line not-rely-on-time */
-        _deposits[depositKey].sweptAt = uint32(block.timestamp);
+        _deposits[depositKey].sweptAt = uint32(block.timestamp); // solhint-disable-line not-rely-on-time
     }
 
     function deposits(uint256 depositKey)
@@ -166,6 +180,73 @@ contract MockBridge is IBridge {
     function setDepositTxMaxFee(uint64 value) external {
         _depositTxMaxFee = value;
     }
+
+    // --- Redemption related mock functions ---
+    function requestRedemption(
+        bytes20 walletPubKeyHash,
+        BitcoinTx.UTXO calldata, /*mainUtxo*/
+        bytes calldata redeemerOutputScript,
+        uint64 amount
+    ) external {
+        bytes32 scriptHash = keccak256(redeemerOutputScript);
+        uint256 redemptionKey;
+        // solhint-disable-next-line no-inline-assembly
+        assembly {
+            mstore(0, scriptHash)
+            mstore(32, walletPubKeyHash)
+            redemptionKey := keccak256(0, 52)
+        }
+
+        require(
+            _pendingRedemptions[redemptionKey].requestedAt == 0,
+            "Redemption already requested"
+        );
+
+        _pendingRedemptions[redemptionKey] = IBridgeTypes.RedemptionRequest({
+            redeemer: msg.sender,
+            requestedAmount: amount,
+            treasuryFee: amount / _redemptionTreasuryFeeDivisor,
+            txMaxFee: _redemptionTxMaxFee,
+            requestedAt: uint32(block.timestamp) // solhint-disable-line not-rely-on-time
+        });
+
+        emit RedemptionRequestedMock(
+            walletPubKeyHash,
+            amount,
+            redeemerOutputScript,
+            redemptionKey
+        );
+    }
+
+    function pendingRedemptions(uint256 redemptionKey)
+        external
+        view
+        returns (IBridgeTypes.RedemptionRequest memory)
+    {
+        return _pendingRedemptions[redemptionKey];
+    }
+
+    function redemptionParameters()
+        external
+        view
+        returns (
+            uint64 redemptionDustThreshold,
+            uint64 redemptionTreasuryFeeDivisor,
+            uint64 redemptionTxMaxFee,
+            uint64 redemptionTxMaxTotalFee,
+            uint32 redemptionTimeout,
+            uint96 redemptionTimeoutSlashingAmount,
+            uint32 redemptionTimeoutNotifierRewardMultiplier
+        )
+    {
+        redemptionDustThreshold = _redemptionDustThreshold;
+        redemptionTreasuryFeeDivisor = _redemptionTreasuryFeeDivisor;
+        redemptionTxMaxFee = _redemptionTxMaxFee;
+        redemptionTxMaxTotalFee = _redemptionTxMaxTotalFee;
+        redemptionTimeout = _redemptionTimeout;
+        redemptionTimeoutSlashingAmount = _redemptionTimeoutSlashingAmount;
+        redemptionTimeoutNotifierRewardMultiplier = _redemptionTimeoutNotifierRewardMultiplier;
+    }
 }
 
 contract MockTBTCVault is ITBTCVault {
@@ -194,8 +275,7 @@ contract MockTBTCVault is ITBTCVault {
             _requests[depositKey].requestedAt == 0,
             "Request already exists"
         );
-        /* solhint-disable-next-line not-rely-on-time */
-        _requests[depositKey].requestedAt = uint64(block.timestamp);
+        _requests[depositKey].requestedAt = uint64(block.timestamp); // solhint-disable-line not-rely-on-time
     }
 
     /// @dev The function is virtual to allow other projects using this mock
@@ -213,8 +293,7 @@ contract MockTBTCVault is ITBTCVault {
             _requests[depositKey].finalizedAt == 0,
             "Request already finalized"
         );
-        /* solhint-disable-next-line not-rely-on-time */
-        _requests[depositKey].finalizedAt = uint64(block.timestamp);
+        _requests[depositKey].finalizedAt = uint64(block.timestamp); // solhint-disable-line not-rely-on-time
     }
 
     function setOptimisticMintingFeeDivisor(uint32 value) external {
