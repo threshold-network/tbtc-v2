@@ -13,6 +13,7 @@ import {
 import { EthereumAddress } from "../../src/lib/ethereum"
 import { BitcoinRawTxVectors } from "../../src/lib/bitcoin"
 import { Hex } from "../../src/lib/utils"
+import { MockL1BitcoinRedeemer } from "./mock-cross-chain"
 
 class MockL1BitcoinDepositor implements L1BitcoinDepositor {
   async getDepositState(depositId: string): Promise<DepositState> {
@@ -57,9 +58,13 @@ export class MockCrossChainContractsLoader
 
   async loadL1Contracts(l2ChainName: L2Chain): Promise<L1CrossChainContracts> {
     const l1BitcoinDepositor = new MockL1BitcoinDepositor()
+    const l1BitcoinRedeemer = new MockL1BitcoinRedeemer(
+      EthereumAddress.from("D61d47F917Cd1188BfEAC6D79f682a3cCA1BBEc7")
+    )
 
     return {
       l1BitcoinDepositor,
+      l1BitcoinRedeemer,
     }
   }
 }
