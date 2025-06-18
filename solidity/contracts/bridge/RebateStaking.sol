@@ -15,8 +15,8 @@
 
 pragma solidity 0.8.17;
 
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/math/SafeCastUpgradeable.sol";
@@ -24,9 +24,9 @@ import "@openzeppelin/contracts-upgradeable/utils/math/SafeCastUpgradeable.sol";
 
 /// @title Contract for staking T token to get rebate on minting/redemption fees
 contract RebateStaking is Initializable, OwnableUpgradeable {
-    using SafeERC20 for IERC20;
+    using SafeERC20Upgradeable for IERC20Upgradeable;
 
-    IERC20 public token;
+    IERC20Upgradeable public token;
     address public bridge;
     
     uint256 public rollingWindow;
@@ -36,6 +36,15 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     struct Rebate {
         uint256 timestamp;
         uint64 feeRebate;
+
+        // Reserved storage space in case we need to add more variables.
+        // The convention from OpenZeppelin suggests the storage space should
+        // add up to 50 slots. Here we want to have more slots as there are
+        // planned upgrades of the Bridge contract. If more entires are added to
+        // the struct in the upcoming versions we need to reduce the array size.
+        // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
+        // slither-disable-next-line unused-state
+        uint256[50] __gap;
     }
 
     struct Stake {
@@ -49,9 +58,23 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
 
     mapping(address => Stake) public stakes;
 
+    // Reserved storage space in case we need to add more variables.
+    // The convention from OpenZeppelin suggests the storage space should
+    // add up to 50 slots. Here we want to have more slots as there are
+    // planned upgrades of the Bridge contract. If more entires are added to
+    // the struct in the upcoming versions we need to reduce the array size.
+    // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
+    // slither-disable-next-line unused-state
+    uint256[50] __gap;
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
+    }
+
+    modifier onlyBridge() {
+        require(msg.sender == address(bridge), "Caller is not the bridge");
+        _;
     }
 
     /// @dev Initializes upgradable contract on deployment.
@@ -69,7 +92,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
             "Parameters cannot be zero"
         );
         bridge = _bridge;
-        token = IERC20(_token);
+        token = IERC20Upgradeable(_token);
         rollingWindow = _rollingWindow;
         unstakingPeriod = _unstakingPeriod;
         rebatePerToken = _rebatePerToken;
@@ -92,9 +115,40 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     function updateRebatePerToken(uint256 _newRebatePerToken) external onlyOwner {
         rebatePerToken = _newRebatePerToken;
     }
+
+    function getRebateCap(address user) external view returns(uint64) {
+        Stake storage stakeInfo = stakes[user];
+        return getRebateCap(stakeInfo);
+    }
     
     function getRebateCap(Stake storage stakeInfo) internal view returns(uint64) {
+        if (rebatePerToken == 0) {
+            return 0;
+        }
         return SafeCastUpgradeable.toUint64(stakeInfo.stakedAmount / rebatePerToken);
+    }
+
+    // TODO somehow combine with internal method
+    function getAvailableRebate(address user) external view returns(uint64 rebateInWindow) {
+        Stake storage stakeInfo = stakes[user];
+        uint64 rebateCap = getRebateCap(stakeInfo);
+        if (rebateCap == 0) {
+            return 0;
+        }
+
+        if (stakeInfo.rebates.length == 0) {
+            return rebateCap;
+        }
+
+        uint256 windowStart = block.timestamp - rollingWindow;
+        for (uint256 i = stakeInfo.rollingWindowStartIndex; i < stakeInfo.rebates.length; i++) {
+            Rebate storage rebate = stakeInfo.rebates[i];
+            if (rebate.timestamp > windowStart) {
+                rebateInWindow += rebate.feeRebate;
+            }
+        }
+
+        return rebateCap - rebateInWindow;
     }
 
     function getRebateInRollingWindow(Stake storage stakeInfo) internal returns(uint64 rebateInWindow) {
@@ -115,9 +169,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         return rebateInWindow;
     }
 
-    function checkForRebate(address user, uint64 treasuryFee) external returns (uint64) {
-        require(msg.sender == bridge, "Only bridge can call this method");
-
+    function checkForRebate(address user, uint64 treasuryFee) external onlyBridge returns (uint64) {
         Stake storage stakeInfo = stakes[user];
         
         uint64 rebateCap = getRebateCap(stakeInfo);
@@ -134,8 +186,32 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
             rebate = treasuryFee;
         }
 
-        stakeInfo.rebates.push(Rebate(block.timestamp, rebate));
+        Rebate storage value = stakeInfo.rebates.push();
+        value.timestamp = block.timestamp;
+        value.feeRebate = rebate;
         return treasuryFee - rebate;
+    }
+
+    function cancelRebate(address user, uint256 requestedAt) onlyBridge external {
+        require(msg.sender == bridge, "Only bridge can call this method");
+
+        Stake storage stakeInfo = stakes[user];
+        if (stakeInfo.stakedAmount == 0) {
+            return;
+        }
+
+        uint256 windowStart = block.timestamp - rollingWindow;
+        for (uint256 i = stakeInfo.rollingWindowStartIndex; i < stakeInfo.rebates.length; i++) {
+            Rebate storage rebate = stakeInfo.rebates[i];
+            if (rebate.timestamp > requestedAt) {
+                break;
+            } else if (rebate.timestamp <= windowStart) {
+                stakeInfo.rollingWindowStartIndex++;
+            } else if (requestedAt == rebate.timestamp) { // TODO check if it's possible to have more than one
+                rebate.feeRebate = 0;
+                break;
+            }
+        }
     }
 
     function stake(uint64 amount) external {
