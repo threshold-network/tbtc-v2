@@ -339,6 +339,10 @@ library Deposit {
             ? fundingOutputAmount / self.depositTreasuryFeeDivisor
             : 0;
         deposit.extraData = extraData;
+ 
+        if (deposit.treasuryFee > 0 && address(self.rebateStaking) != address(0)) { // TODO ask if needed
+            deposit.treasuryFee = self.rebateStaking.checkForRebate(deposit.depositor, deposit.treasuryFee);
+        }
 
         _emitDepositRevealedEvent(fundingTxHash, fundingOutputAmount, reveal);
     }
