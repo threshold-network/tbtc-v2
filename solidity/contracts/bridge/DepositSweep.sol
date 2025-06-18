@@ -205,7 +205,25 @@ library DepositSweep {
             "Transaction fee is too high"
         );
 
-        totalTreasuryFee = processDepositFees(self, inputsInfo, depositTxFee, depositTxFeeRemainder);
+        // Reduce each deposit amount by treasury fee and transaction fee.
+        for (uint256 i = 0; i < inputsInfo.depositedAmounts.length; i++) {
+            // The last deposit should incur the deposit transaction fee
+            // remainder.
+            uint256 depositTxFeeIncurred = i ==
+                inputsInfo.depositedAmounts.length - 1
+                ? depositTxFee + depositTxFeeRemainder
+                : depositTxFee;
+
+            // There is no need to check whether
+            // `inputsInfo.depositedAmounts[i] - inputsInfo.treasuryFees[i] - txFee > 0`
+            // since the `depositDustThreshold` should force that condition
+            // to be always true.
+            inputsInfo.depositedAmounts[i] =
+                inputsInfo.depositedAmounts[i] -
+                inputsInfo.treasuryFees[i] -
+                depositTxFeeIncurred;
+            totalTreasuryFee += inputsInfo.treasuryFees[i];
+        }
 
         // Record this sweep data and assign them to the wallet public key hash
         // as new main UTXO. Transaction output index is always 0 as sweep
@@ -238,38 +256,6 @@ library DepositSweep {
         // Pass the treasury fee to the treasury address.
         if (totalTreasuryFee > 0) {
             self.bank.increaseBalance(self.treasury, totalTreasuryFee);
-        }
-    }
-
-    // TODO finish docs
-    function processDepositFees(
-        BridgeState.Storage storage self,
-        DepositSweepTxInputsInfo memory inputsInfo,
-        uint256 depositTxFee,
-        uint256 depositTxFeeRemainder
-    ) internal returns(uint256 totalTreasuryFee) {
-        // Reduce each deposit amount by treasury fee and transaction fee.
-        for (uint256 i = 0; i < inputsInfo.depositedAmounts.length; i++) {
-            // The last deposit should incur the deposit transaction fee
-            // remainder.
-            uint256 depositTxFeeIncurred = i ==
-                inputsInfo.depositedAmounts.length - 1
-                ? depositTxFee + depositTxFeeRemainder
-                : depositTxFee;
-
-            // There is no need to check whether
-            // `inputsInfo.depositedAmounts[i] - inputsInfo.treasuryFees[i] - txFee > 0`
-            // since the `depositDustThreshold` should force that condition
-            // to be always true.
-            uint64 treasuryFees = SafeCastUpgradeable.toUint64(inputsInfo.treasuryFees[i]);
-            if (address(self.rebateStaking) != address(0)) { // TODO ask if needed
-                treasuryFees = self.rebateStaking.checkForRebate(inputsInfo.depositors[i], treasuryFees);
-            }
-            inputsInfo.depositedAmounts[i] =
-                inputsInfo.depositedAmounts[i] -
-                treasuryFees -
-                depositTxFeeIncurred;
-            totalTreasuryFee += treasuryFees;
         }
     }
 
