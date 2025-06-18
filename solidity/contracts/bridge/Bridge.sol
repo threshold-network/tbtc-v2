@@ -1966,6 +1966,24 @@ contract Bridge is
         return self.redemptionWatchtower;
     }
 
+    /// @notice Sets the rebate staking address.
+    /// @param rebateStaking Address of the rebate staking.
+    /// @dev Requirements:
+    ///      - Rebate staking address must not be already set,
+    ///      - Rebate staking address must not be 0x0.
+    function setRebateStaking(address rebateStaking)
+        external
+        onlyGovernance
+    {
+        // The internal function is defined in the `BridgeState` library.
+        self.setRebateStaking(rebateStaking);
+    }
+
+    /// @return Address of the rebate staking.
+    function getRebateStaking() external view returns (RebateStaking) {
+        return self.rebateStaking;
+    }
+
     /// @notice Notifies that a redemption request was vetoed in the watchtower.
     ///         This function is responsible for adjusting the Bridge's state
     ///         accordingly.

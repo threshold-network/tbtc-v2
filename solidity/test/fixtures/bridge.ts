@@ -15,6 +15,8 @@ import type {
   BridgeGovernance,
   IRelay,
   RedemptionWatchtower,
+  RebateStaking,
+  IERC20,
 } from "../../typechain"
 
 /**
@@ -45,6 +47,12 @@ export default async function bridgeFixture() {
   const tbtcVault: TBTCVault = await helpers.contracts.getContract("TBTCVault")
 
   const bank: Bank & BankStub = await helpers.contracts.getContract("Bank")
+
+  const t: IERC20 = await helpers.contracts.getContract("T")
+
+  const rebateStaking: RebateStaking = await helpers.contracts.getContract(
+    "RebateStaking"
+  )
 
   const bridge: Bridge & BridgeStub = await helpers.contracts.getContract(
     "Bridge"
@@ -137,6 +145,8 @@ export default async function bridgeFixture() {
     maintainerProxy,
     bridgeGovernance,
     redemptionWatchtower,
+    t,
+    rebateStaking,
     deployBridge,
   }
 }
