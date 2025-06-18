@@ -532,6 +532,9 @@ library Redemption {
         uint64 treasuryFee = self.redemptionTreasuryFeeDivisor > 0
             ? amount / self.redemptionTreasuryFeeDivisor
             : 0;
+        if (treasuryFee > 0 && address(self.rebateStaking) != address(0)) {
+            treasuryFee = self.rebateStaking.checkForRebate(redeemer, treasuryFee);
+        }
         uint64 txMaxFee = self.redemptionTxMaxFee;
 
         // The main wallet UTXO's value doesn't include all pending redemptions.
@@ -970,11 +973,7 @@ library Redemption {
             burnableValue = redeemableAmount;
             // Add the request's treasury fee to the total treasury fee
             // value the Bridge will transfer to the treasury.
-            if (address(self.rebateStaking) != address(0)) { // TODO ask if needed
-                treasuryFee = self.rebateStaking.checkForRebate(request.redeemer, request.treasuryFee);
-            } else {
-                treasuryFee = request.treasuryFee;
-            }
+            treasuryFee = request.treasuryFee;
             // Request was properly handled so remove its redemption
             // key from the mapping to make it reusable for further
             // requests.
@@ -1087,6 +1086,10 @@ library Redemption {
         // Move the redemption from pending redemptions to timed-out redemptions
         self.timedOutRedemptions[redemptionKey] = request;
         delete self.pendingRedemptions[redemptionKey];
+
+        if (address(self.rebateStaking) != address(0)) {
+            self.rebateStaking.cancelRebate(request.redeemer, request.requestedAt);
+        }
 
         // slither-disable-next-line reentrancy-events
         emit RedemptionTimedOut(walletPubKeyHash, redeemerOutputScript);
