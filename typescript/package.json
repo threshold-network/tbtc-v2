@@ -1,6 +1,6 @@
 {
   "name": "@keep-network/tbtc-v2.ts",
-  "version": "2.7.0-dev",
+  "version": "2.6.0",
   "license": "MIT",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
@@ -26,8 +26,8 @@
   },
   "dependencies": {
     "@bitcoinerlab/secp256k1": "^1.0.5",
-    "@keep-network/ecdsa": "development",
-    "@keep-network/tbtc-v2": "development",
+    "@keep-network/ecdsa": "2.0.1",
+    "@keep-network/tbtc-v2": "1.7.0",
     "axios": "^1.9.0",
     "bignumber.js": "^9.1.2",
     "bitcoinjs-lib": "^6.1.5",
