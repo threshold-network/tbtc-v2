@@ -5,13 +5,8 @@
   "license": "GPL-3.0-only",
   "files": [
     "artifacts/",
-    "build/contracts/",
-    "contracts/",
-    "!contracts/hardhat-dependency-compiler",
-    "deploy_l1/",
     "export/",
-    "tasks/",
-    "export.json"
+    "deploy_l1/"
   ],
   "scripts": {
     "clean": "hardhat clean && rm -rf cache/ export/ external/npm export.json",
@@ -43,7 +38,7 @@
     "set-reimburse-fee:mainnet": "hardhat deploy --network mainnet --tags SetReimburseTxMaxFee",
     "transfer-ownership:sepolia": "hardhat deploy --network sepolia --tags TransferStarkNetBitcoinDepositorOwnership",
     "transfer-ownership:mainnet": "hardhat deploy --network mainnet --tags TransferStarkNetBitcoinDepositorOwnership",
-    "prepublishOnly": "./scripts/prepare-artifacts.sh --network $npm_config_network",
+    "prepublishOnly": "./scripts/pre-publish-check.sh && ./scripts/prepare-artifacts.sh --network $npm_config_network",
     "verify": "hardhat etherscan-verify --network"
   },
   "dependencies": {
@@ -64,6 +59,7 @@
     "@nomiclabs/hardhat-waffle": "^2.0.2",
     "@openzeppelin/hardhat-upgrades": "1.22.0",
     "@tenderly/hardhat-tenderly": ">=1.0.12 <1.2.0",
+    "@thesis-co/eslint-config": "github:thesis/eslint-config",
     "@typechain/ethers-v5": "^8.0.5",
     "@typechain/hardhat": "^4.0.0",
     "@types/chai": "^4.3.0",
@@ -73,7 +69,6 @@
     "chai-as-promised": "^7.1.1",
     "dotenv": "^16.3.1",
     "eslint": "^7.32.0",
-    "@thesis-co/eslint-config": "github:thesis/eslint-config",
     "ethereum-waffle": "^3.4.0",
     "ethers": "^5.5.3",
     "hardhat": "^2.10.0",
