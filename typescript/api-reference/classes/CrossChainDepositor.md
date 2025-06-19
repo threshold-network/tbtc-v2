@@ -40,7 +40,7 @@ for reference.
 
 | Name | Type | Default value |
 | :------ | :------ | :------ |
-| `crossChainContracts` | [`CrossChainContracts`](../README.md#crosschaincontracts) | `undefined` |
+| `crossChainContracts` | [`CrossChainInterfaces`](../README.md#crosschaininterfaces) | `undefined` |
 | `revealMode` | [`CrossChainDepositorMode`](../README.md#crosschaindepositormode) | `"L2Transaction"` |
 
 #### Returns
@@ -49,17 +49,17 @@ for reference.
 
 #### Defined in
 
-[services/deposits/cross-chain.ts:31](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L31)
+[services/deposits/cross-chain.ts:32](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L32)
 
 ## Properties
 
 ### #crossChainContracts
 
-• `Private` `Readonly` **#crossChainContracts**: [`CrossChainContracts`](../README.md#crosschaincontracts)
+• `Private` `Readonly` **#crossChainContracts**: [`CrossChainInterfaces`](../README.md#crosschaininterfaces)
 
 #### Defined in
 
-[services/deposits/cross-chain.ts:28](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L28)
+[services/deposits/cross-chain.ts:29](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L29)
 
 ___
 
@@ -69,21 +69,21 @@ ___
 
 #### Defined in
 
-[services/deposits/cross-chain.ts:29](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L29)
+[services/deposits/cross-chain.ts:30](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L30)
 
 ## Methods
 
 ### #extraDataEncoder
 
-▸ **#extraDataEncoder**(): [`CrossChainExtraDataEncoder`](../interfaces/CrossChainExtraDataEncoder.md)
+▸ **#extraDataEncoder**(): [`ExtraDataEncoder`](../interfaces/ExtraDataEncoder.md)
 
 #### Returns
 
-[`CrossChainExtraDataEncoder`](../interfaces/CrossChainExtraDataEncoder.md)
+[`ExtraDataEncoder`](../interfaces/ExtraDataEncoder.md)
 
 #### Defined in
 
-[services/deposits/cross-chain.ts:72](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L72)
+[services/deposits/cross-chain.ts:73](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L73)
 
 ___
 
@@ -96,18 +96,18 @@ ___
 [`Hex`](Hex.md)
 
 Extra data for the cross-chain deposit script. Actually, this is
-         the L2 deposit owner identifier took from the L2BitcoinDepositor
+         the destination chain deposit owner identifier took from the BitcoinDepositor
          contract.
 
 **`Throws`**
 
-Throws if the L2 deposit owner cannot be resolved. This
-        typically happens if the L2BitcoinDepositor operates with
+Throws if the destination chain deposit owner cannot be resolved. This
+        typically happens if the BitcoinDepositor operates with
         a read-only signer whose address cannot be resolved.
 
 #### Defined in
 
-[services/deposits/cross-chain.ts:61](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L61)
+[services/deposits/cross-chain.ts:62](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L62)
 
 ___
 
@@ -135,7 +135,7 @@ The chain-specific identifier of the contract that will be
 
 #### Defined in
 
-[services/deposits/cross-chain.ts:49](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L49)
+[services/deposits/cross-chain.ts:50](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L50)
 
 ___
 
@@ -169,4 +169,4 @@ Reveals the given deposit depending on the reveal mode.
 
 #### Defined in
 
-[services/deposits/cross-chain.ts:87](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L87)
+[services/deposits/cross-chain.ts:88](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L88)

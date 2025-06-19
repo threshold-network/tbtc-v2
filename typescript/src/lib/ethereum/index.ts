@@ -2,7 +2,7 @@ import {
   ChainMappings,
   Chains,
   CrossChainContractsLoader,
-  L2Chain,
+  DestinationChainName,
   TBTCContracts,
 } from "../contracts"
 import { providers, Signer } from "ethers"
@@ -129,11 +129,13 @@ export async function ethereumCrossChainContractsLoader(
   const loadChainMapping = () =>
     ChainMappings.find((ecm) => ecm.ethereum === chainId)
 
-  const loadL1Contracts = async (l2ChainName: L2Chain) => ({
+  const loadL1Contracts = async (
+    destinationChainName: DestinationChainName
+  ) => ({
     l1BitcoinDepositor: new EthereumL1BitcoinDepositor(
       { signerOrProvider: signer },
       chainId,
-      l2ChainName
+      destinationChainName
     ),
   })
 

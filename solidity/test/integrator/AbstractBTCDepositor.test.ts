@@ -47,8 +47,10 @@ describe("AbstractBTCDepositor", () => {
     const MockBridge = await ethers.getContractFactory("MockBridge")
     bridge = await MockBridge.deploy()
 
-    const MockTBTCVault = await ethers.getContractFactory("MockTBTCVault")
-    tbtcVault = await MockTBTCVault.deploy()
+    const MockTBTCVault = await ethers.getContractFactory(
+      "contracts/test/TestBTCDepositor.sol:MockTBTCVault"
+    )
+    tbtcVault = (await MockTBTCVault.deploy()) as MockTBTCVault
 
     fixture = loadFixture(tbtcVault.address)
 

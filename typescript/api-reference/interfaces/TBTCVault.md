@@ -40,7 +40,7 @@ GetEventsFunction
 
 #### Defined in
 
-[lib/contracts/tbtc-vault.ts:107](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L107)
+[lib/contracts/tbtc-vault.ts:107](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L107)
 
 ___
 
@@ -56,7 +56,7 @@ GetEventsFunction
 
 #### Defined in
 
-[lib/contracts/tbtc-vault.ts:113](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L113)
+[lib/contracts/tbtc-vault.ts:113](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L113)
 
 ___
 
@@ -72,7 +72,7 @@ GetEventsFunction
 
 #### Defined in
 
-[lib/contracts/tbtc-vault.ts:101](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L101)
+[lib/contracts/tbtc-vault.ts:101](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L101)
 
 ## Methods
 
@@ -97,7 +97,7 @@ Transaction hash of the optimistic mint cancel transaction.
 
 #### Defined in
 
-[lib/contracts/tbtc-vault.ts:67](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L67)
+[lib/contracts/tbtc-vault.ts:67](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L67)
 
 ___
 
@@ -122,7 +122,7 @@ Transaction hash of the optimistic mint finalize transaction.
 
 #### Defined in
 
-[lib/contracts/tbtc-vault.ts:80](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L80)
+[lib/contracts/tbtc-vault.ts:80](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L80)
 
 ___
 
@@ -138,7 +138,7 @@ Gets the chain-specific identifier of this contract.
 
 #### Defined in
 
-[lib/contracts/tbtc-vault.ts:14](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L14)
+[lib/contracts/tbtc-vault.ts:14](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L14)
 
 ___
 
@@ -156,7 +156,7 @@ Array containing identifiers of all currently registered minters.
 
 #### Defined in
 
-[lib/contracts/tbtc-vault.ts:30](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L30)
+[lib/contracts/tbtc-vault.ts:30](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L30)
 
 ___
 
@@ -178,7 +178,7 @@ Checks if given identifier is registered as guardian.
 
 #### Defined in
 
-[lib/contracts/tbtc-vault.ts:44](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L44)
+[lib/contracts/tbtc-vault.ts:44](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L44)
 
 ___
 
@@ -200,7 +200,7 @@ Checks if given identifier is registered as minter.
 
 #### Defined in
 
-[lib/contracts/tbtc-vault.ts:37](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L37)
+[lib/contracts/tbtc-vault.ts:37](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L37)
 
 ___
 
@@ -221,7 +221,7 @@ Optimistic Minting Delay in seconds.
 
 #### Defined in
 
-[lib/contracts/tbtc-vault.ts:23](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L23)
+[lib/contracts/tbtc-vault.ts:23](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L23)
 
 ___
 
@@ -246,7 +246,7 @@ Optimistic minting request.
 
 #### Defined in
 
-[lib/contracts/tbtc-vault.ts:92](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L92)
+[lib/contracts/tbtc-vault.ts:92](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L92)
 
 ___
 
@@ -271,4 +271,4 @@ Transaction hash of the optimistic mint request transaction.
 
 #### Defined in
 
-[lib/contracts/tbtc-vault.ts:54](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L54)
+[lib/contracts/tbtc-vault.ts:54](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/tbtc-vault.ts#L54)

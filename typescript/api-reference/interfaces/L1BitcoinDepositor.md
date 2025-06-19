@@ -20,18 +20,18 @@ specific to the given L2 chain, deployed on the L1 chain.
 
 ### extraDataEncoder
 
-▸ **extraDataEncoder**(): [`CrossChainExtraDataEncoder`](CrossChainExtraDataEncoder.md)
+▸ **extraDataEncoder**(): [`ExtraDataEncoder`](ExtraDataEncoder.md)
 
 #### Returns
 
-[`CrossChainExtraDataEncoder`](CrossChainExtraDataEncoder.md)
+[`ExtraDataEncoder`](ExtraDataEncoder.md)
 
 Extra data encoder for this contract. The encoder is used to
 encode and decode the extra data included in the cross-chain deposit script.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:145](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L145)
+[lib/contracts/cross-chain.ts:150](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L150)
 
 ___
 
@@ -47,7 +47,7 @@ Gets the chain-specific identifier of this contract.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:139](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L139)
+[lib/contracts/cross-chain.ts:144](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L144)
 
 ___
 
@@ -71,7 +71,7 @@ The state of the deposit.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:134](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L134)
+[lib/contracts/cross-chain.ts:139](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L139)
 
 ___
 
@@ -98,4 +98,4 @@ Transaction hash of the reveal deposit transaction.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:157](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L157)
+[lib/contracts/cross-chain.ts:162](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L162)

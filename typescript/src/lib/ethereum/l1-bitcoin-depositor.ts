@@ -7,11 +7,11 @@ import { L1BitcoinDepositor as L1BitcoinDepositorTypechain } from "../../../type
 import {
   ChainIdentifier,
   Chains,
-  CrossChainExtraDataEncoder,
+  ExtraDataEncoder,
   DepositReceipt,
   DepositState,
   L1BitcoinDepositor,
-  L2Chain,
+  DestinationChainName,
 } from "../contracts"
 import { EthereumAddress, packRevealDepositParameters } from "./index"
 import { BitcoinRawTxVectors } from "../bitcoin"
@@ -19,30 +19,36 @@ import { Hex } from "../utils"
 
 import MainnetBaseL1BitcoinDepositorDeployment from "./artifacts/mainnet/BaseL1BitcoinDepositor.json"
 import MainnetArbitrumL1BitcoinDepositorDeployment from "./artifacts/mainnet/ArbitrumOneL1BitcoinDepositor.json"
+import MainnetStarkNetL1BitcoinDepositorDeployment from "./artifacts/mainnet/StarkNetBitcoinDepositor.json"
 
 import SepoliaBaseL1BitcoinDepositorDeployment from "./artifacts/sepolia/BaseL1BitcoinDepositor.json"
 import SepoliaArbitrumL1BitcoinDepositorDeployment from "./artifacts/sepolia/ArbitrumL1BitcoinDepositor.json"
+import SepoliaStarkNetL1BitcoinDepositorDeployment from "./artifacts/sepolia/StarkNetBitcoinDepositor.json"
 
 const artifactLoader = {
-  getMainnet: (l2ChainName: L2Chain) => {
-    switch (l2ChainName) {
+  getMainnet: (destinationChainName: DestinationChainName) => {
+    switch (destinationChainName) {
       case "Base":
         return MainnetBaseL1BitcoinDepositorDeployment
       case "Arbitrum":
         return MainnetArbitrumL1BitcoinDepositorDeployment
+      case "StarkNet":
+        return MainnetStarkNetL1BitcoinDepositorDeployment
       default:
-        throw new Error("Unsupported L2 chain")
+        throw new Error("Unsupported destination chain")
     }
   },
 
-  getSepolia: (l2ChainName: L2Chain) => {
-    switch (l2ChainName) {
+  getSepolia: (destinationChainName: DestinationChainName) => {
+    switch (destinationChainName) {
       case "Base":
         return SepoliaBaseL1BitcoinDepositorDeployment
       case "Arbitrum":
         return SepoliaArbitrumL1BitcoinDepositorDeployment
+      case "StarkNet":
+        return SepoliaStarkNetL1BitcoinDepositorDeployment
       default:
-        throw new Error("Unsupported L2 chain")
+        throw new Error("Unsupported destination chain")
     }
   },
 }
@@ -56,21 +62,21 @@ export class EthereumL1BitcoinDepositor
   extends EthersContractHandle<L1BitcoinDepositorTypechain>
   implements L1BitcoinDepositor
 {
-  readonly #extraDataEncoder: CrossChainExtraDataEncoder
+  readonly #extraDataEncoder: ExtraDataEncoder
 
   constructor(
     config: EthersContractConfig,
     chainId: Chains.Ethereum,
-    l2ChainName: L2Chain
+    destinationChainName: DestinationChainName
   ) {
     let deployment: EthersContractDeployment
 
     switch (chainId) {
       case Chains.Ethereum.Sepolia:
-        deployment = artifactLoader.getSepolia(l2ChainName)
+        deployment = artifactLoader.getSepolia(destinationChainName)
         break
       case Chains.Ethereum.Mainnet:
-        deployment = artifactLoader.getMainnet(l2ChainName)
+        deployment = artifactLoader.getMainnet(destinationChainName)
         break
       default:
         throw new Error("Unsupported deployment type")
@@ -78,7 +84,13 @@ export class EthereumL1BitcoinDepositor
 
     super(config, deployment)
 
-    this.#extraDataEncoder = new EthereumCrossChainExtraDataEncoder()
+    // Use StarkNet encoder for StarkNet, otherwise use Ethereum encoder
+    if (destinationChainName === "StarkNet") {
+      const { StarkNetExtraDataEncoder } = require("../starknet")
+      this.#extraDataEncoder = new StarkNetExtraDataEncoder()
+    } else {
+      this.#extraDataEncoder = new EthereumExtraDataEncoder()
+    }
   }
 
   // eslint-disable-next-line valid-jsdoc
@@ -101,7 +113,7 @@ export class EthereumL1BitcoinDepositor
   /**
    * @see {L1BitcoinDepositor#extraDataEncoder}
    */
-  extraDataEncoder(): CrossChainExtraDataEncoder {
+  extraDataEncoder(): ExtraDataEncoder {
     return this.#extraDataEncoder
   }
 
@@ -141,15 +153,13 @@ export class EthereumL1BitcoinDepositor
 }
 
 /**
- * Implementation of the Ethereum CrossChainExtraDataEncoder.
- * @see {CrossChainExtraDataEncoder} for reference.
+ * Implementation of the Ethereum ExtraDataEncoder.
+ * @see {ExtraDataEncoder} for reference.
  */
-export class EthereumCrossChainExtraDataEncoder
-  implements CrossChainExtraDataEncoder
-{
+export class EthereumExtraDataEncoder implements ExtraDataEncoder {
   // eslint-disable-next-line valid-jsdoc
   /**
-   * @see {CrossChainExtraDataEncoder#encodeDepositOwner}
+   * @see {ExtraDataEncoder#encodeDepositOwner}
    */
   encodeDepositOwner(depositOwner: ChainIdentifier): Hex {
     // Make sure we are dealing with an Ethereum address. If not, this
@@ -163,7 +173,7 @@ export class EthereumCrossChainExtraDataEncoder
 
   // eslint-disable-next-line valid-jsdoc
   /**
-   * @see {CrossChainExtraDataEncoder#decodeDepositOwner}
+   * @see {ExtraDataEncoder#decodeDepositOwner}
    */
   decodeDepositOwner(extraData: Hex): ChainIdentifier {
     // Cut the first 12 zero bytes of the extra data and convert the rest to
@@ -173,3 +183,8 @@ export class EthereumCrossChainExtraDataEncoder
     )
   }
 }
+
+/**
+ * @deprecated Use EthereumExtraDataEncoder instead
+ */
+export const EthereumCrossChainExtraDataEncoder = EthereumExtraDataEncoder

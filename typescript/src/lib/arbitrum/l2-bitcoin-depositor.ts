@@ -7,30 +7,27 @@ import { L2BitcoinDepositor as L2BitcoinDepositorTypechain } from "../../../type
 import {
   ChainIdentifier,
   Chains,
-  CrossChainExtraDataEncoder,
+  ExtraDataEncoder,
   DepositReceipt,
-  L2BitcoinDepositor,
+  BitcoinDepositor,
 } from "../contracts"
-import {
-  EthereumAddress,
-  EthereumCrossChainExtraDataEncoder,
-  packRevealDepositParameters,
-} from "../ethereum"
+import { EthereumAddress, packRevealDepositParameters } from "../ethereum"
 import { Hex } from "../utils"
 import { BitcoinRawTxVectors } from "../bitcoin"
+import { TransactionReceipt } from "@ethersproject/providers"
 
 import ArbitrumL2BitcoinDepositorDeployment from "./artifacts/arbitrumOne/ArbitrumL2BitcoinDepositor.json"
 import ArbitrumSepoliaL2BitcoinDepositorDeployment from "./artifacts/arbitrumSepolia/ArbitrumL2BitcoinDepositor.json"
 
 /**
- * Implementation of the Arbitrum L2BitcoinDepositor handle.
- * @see {L2BitcoinDepositor} for reference.
+ * Implementation of the Arbitrum BitcoinDepositor handle.
+ * @see {BitcoinDepositor} for reference.
  */
-export class ArbitrumL2BitcoinDepositor
+export class ArbitrumBitcoinDepositor
   extends EthersContractHandle<L2BitcoinDepositorTypechain>
-  implements L2BitcoinDepositor
+  implements BitcoinDepositor
 {
-  readonly #extraDataEncoder: CrossChainExtraDataEncoder
+  readonly #extraDataEncoder: ExtraDataEncoder
   #depositOwner: ChainIdentifier | undefined
 
   constructor(config: EthersContractConfig, chainId: Chains.Arbitrum) {
@@ -49,20 +46,20 @@ export class ArbitrumL2BitcoinDepositor
 
     super(config, deployment)
 
-    this.#extraDataEncoder = new EthereumCrossChainExtraDataEncoder()
+    this.#extraDataEncoder = new ArbitrumExtraDataEncoder()
   }
 
   // eslint-disable-next-line valid-jsdoc
   /**
-   * @see {L2BitcoinDepositor#getChainIdentifier}
+   * @see {BitcoinDepositor#getChainIdentifier}
    */
-  getChainIdentifier(): ChainIdentifier {
+  getChainIdentifier?(): ChainIdentifier {
     return EthereumAddress.from(this._instance.address)
   }
 
   // eslint-disable-next-line valid-jsdoc
   /**
-   * @see {L2BitcoinDepositor#getDepositOwner}
+   * @see {BitcoinDepositor#getDepositOwner}
    */
   getDepositOwner(): ChainIdentifier | undefined {
     return this.#depositOwner
@@ -70,7 +67,7 @@ export class ArbitrumL2BitcoinDepositor
 
   // eslint-disable-next-line valid-jsdoc
   /**
-   * @see {L2BitcoinDepositor#setDepositOwner}
+   * @see {BitcoinDepositor#setDepositOwner}
    */
   setDepositOwner(depositOwner: ChainIdentifier | undefined) {
     this.#depositOwner = depositOwner
@@ -78,22 +75,22 @@ export class ArbitrumL2BitcoinDepositor
 
   // eslint-disable-next-line valid-jsdoc
   /**
-   * @see {L2BitcoinDepositor#extraDataEncoder}
+   * @see {BitcoinDepositor#extraDataEncoder}
    */
-  extraDataEncoder(): CrossChainExtraDataEncoder {
+  extraDataEncoder(): ExtraDataEncoder {
     return this.#extraDataEncoder
   }
 
   // eslint-disable-next-line valid-jsdoc
   /**
-   * @see {L2BitcoinDepositor#initializeDeposit}
+   * @see {BitcoinDepositor#initializeDeposit}
    */
   async initializeDeposit(
     depositTx: BitcoinRawTxVectors,
     depositOutputIndex: number,
     deposit: DepositReceipt,
     vault?: ChainIdentifier
-  ): Promise<Hex> {
+  ): Promise<Hex | TransactionReceipt> {
     const { fundingTx, reveal } = packRevealDepositParameters(
       depositTx,
       depositOutputIndex,
@@ -118,3 +115,45 @@ export class ArbitrumL2BitcoinDepositor
     return Hex.from(tx.hash)
   }
 }
+
+/**
+ * Implementation of the Arbitrum ExtraDataEncoder.
+ * @see {ExtraDataEncoder} for reference.
+ */
+export class ArbitrumExtraDataEncoder implements ExtraDataEncoder {
+  // eslint-disable-next-line valid-jsdoc
+  /**
+   * @see {ExtraDataEncoder#encodeDepositOwner}
+   */
+  encodeDepositOwner(depositOwner: ChainIdentifier): Hex {
+    // Make sure we are dealing with an Ethereum address. If not, this
+    // call will throw.
+    const address = EthereumAddress.from(depositOwner.identifierHex)
+
+    // Extra data must be 32-byte so prefix the 20-byte address with
+    // 12 zero bytes.
+    return Hex.from(`000000000000000000000000${address.identifierHex}`)
+  }
+
+  // eslint-disable-next-line valid-jsdoc
+  /**
+   * @see {ExtraDataEncoder#decodeDepositOwner}
+   */
+  decodeDepositOwner(extraData: Hex): ChainIdentifier {
+    // Cut the first 12 zero bytes of the extra data and convert the rest to
+    // an Ethereum address.
+    return EthereumAddress.from(
+      Hex.from(extraData.toBuffer().subarray(12)).toString()
+    )
+  }
+}
+
+/**
+ * @deprecated Use ArbitrumBitcoinDepositor instead
+ */
+export const ArbitrumL2BitcoinDepositor = ArbitrumBitcoinDepositor
+
+/**
+ * @deprecated Use ArbitrumExtraDataEncoder instead
+ */
+export const ArbitrumCrossChainExtraDataEncoder = ArbitrumExtraDataEncoder

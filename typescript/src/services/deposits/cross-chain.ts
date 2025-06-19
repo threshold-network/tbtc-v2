@@ -1,12 +1,13 @@
 import {
   ChainIdentifier,
-  CrossChainContracts,
-  CrossChainExtraDataEncoder,
+  CrossChainInterfaces,
+  ExtraDataEncoder,
   DepositorProxy,
   DepositReceipt,
 } from "../../lib/contracts"
 import { BitcoinRawTxVectors } from "../../lib/bitcoin"
 import { Hex } from "../../lib/utils"
+import { TransactionReceipt } from "@ethersproject/providers"
 
 /**
  * Mode of operation for the cross-chain depositor proxy:
@@ -25,11 +26,11 @@ export type CrossChainDepositorMode = "L2Transaction" | "L1Transaction"
  * @see {DepositorProxy} for reference.
  */
 export class CrossChainDepositor implements DepositorProxy {
-  readonly #crossChainContracts: CrossChainContracts
+  readonly #crossChainContracts: CrossChainInterfaces
   readonly #revealMode: CrossChainDepositorMode
 
   constructor(
-    crossChainContracts: CrossChainContracts,
+    crossChainContracts: CrossChainInterfaces,
     revealMode: CrossChainDepositorMode = "L2Transaction"
   ) {
     this.#crossChainContracts = crossChainContracts
@@ -52,27 +53,27 @@ export class CrossChainDepositor implements DepositorProxy {
 
   /**
    * @returns Extra data for the cross-chain deposit script. Actually, this is
-   *          the L2 deposit owner identifier took from the L2BitcoinDepositor
+   *          the destination chain deposit owner identifier took from the BitcoinDepositor
    *          contract.
-   * @throws Throws if the L2 deposit owner cannot be resolved. This
-   *         typically happens if the L2BitcoinDepositor operates with
+   * @throws Throws if the destination chain deposit owner cannot be resolved. This
+   *         typically happens if the BitcoinDepositor operates with
    *         a read-only signer whose address cannot be resolved.
    */
   extraData(): Hex {
     const depositOwner =
-      this.#crossChainContracts.l2BitcoinDepositor.getDepositOwner()
+      this.#crossChainContracts.destinationChainBitcoinDepositor.getDepositOwner()
 
     if (!depositOwner) {
-      throw new Error("Cannot resolve L2 deposit owner")
+      throw new Error("Cannot resolve destination chain deposit owner")
     }
 
     return this.#extraDataEncoder().encodeDepositOwner(depositOwner)
   }
 
-  #extraDataEncoder(): CrossChainExtraDataEncoder {
+  #extraDataEncoder(): ExtraDataEncoder {
     switch (this.#revealMode) {
       case "L2Transaction":
-        return this.#crossChainContracts.l2BitcoinDepositor.extraDataEncoder()
+        return this.#crossChainContracts.destinationChainBitcoinDepositor.extraDataEncoder()
       case "L1Transaction":
         return this.#crossChainContracts.l1BitcoinDepositor.extraDataEncoder()
     }
@@ -84,27 +85,40 @@ export class CrossChainDepositor implements DepositorProxy {
    * @see {CrossChainDepositorMode} for reveal modes description.
    * @see {DepositorProxy#revealDeposit}
    */
-  revealDeposit(
+  async revealDeposit(
     depositTx: BitcoinRawTxVectors,
     depositOutputIndex: number,
     deposit: DepositReceipt,
     vault?: ChainIdentifier
   ): Promise<Hex> {
+    let result: Hex | TransactionReceipt
+
     switch (this.#revealMode) {
       case "L2Transaction":
-        return this.#crossChainContracts.l2BitcoinDepositor.initializeDeposit(
-          depositTx,
-          depositOutputIndex,
-          deposit,
-          vault
-        )
+        result =
+          await this.#crossChainContracts.destinationChainBitcoinDepositor.initializeDeposit(
+            depositTx,
+            depositOutputIndex,
+            deposit,
+            vault
+          )
+        break
       case "L1Transaction":
-        return this.#crossChainContracts.l1BitcoinDepositor.initializeDeposit(
-          depositTx,
-          depositOutputIndex,
-          deposit,
-          vault
-        )
+        result =
+          await this.#crossChainContracts.l1BitcoinDepositor.initializeDeposit(
+            depositTx,
+            depositOutputIndex,
+            deposit,
+            vault
+          )
+        break
+    }
+
+    // If result is a TransactionReceipt, extract the transaction hash
+    if (result instanceof Hex) {
+      return result
+    } else {
+      return Hex.from((result as TransactionReceipt).transactionHash)
     }
   }
 }

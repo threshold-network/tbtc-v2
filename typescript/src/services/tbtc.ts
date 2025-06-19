@@ -3,11 +3,11 @@ import { MaintenanceService } from "./maintenance"
 import { RedemptionsService } from "./redemptions"
 import {
   Chains,
-  CrossChainContracts,
+  CrossChainInterfaces,
   CrossChainContractsLoader,
   L1CrossChainContracts,
-  L2Chain,
-  L2CrossChainContracts,
+  DestinationChainName,
+  DestinationChainInterfaces,
   TBTCContracts,
 } from "../lib/contracts"
 import { BitcoinClient, BitcoinNetwork } from "../lib/bitcoin"
@@ -18,8 +18,12 @@ import {
   loadEthereumCoreContracts,
 } from "../lib/ethereum"
 import { ElectrumClient } from "../lib/electrum"
-import { loadBaseCrossChainContracts } from "../lib/base"
-import { loadArbitrumCrossChainContracts } from "../lib/arbitrum"
+import { loadBaseCrossChainInterfaces } from "../lib/base"
+import { loadArbitrumCrossChainInterfaces } from "../lib/arbitrum"
+import {
+  loadStarkNetCrossChainInterfaces,
+  StarkNetProvider,
+} from "../lib/starknet"
 
 /**
  * Entrypoint component of the tBTC v2 SDK.
@@ -55,7 +59,7 @@ export class TBTC {
    * Each set of cross-chain contracts must be first initialized using
    * the `initializeCrossChain` method.
    */
-  readonly #crossChainContracts: Map<L2Chain, CrossChainContracts>
+  readonly #crossChainContracts: Map<DestinationChainName, CrossChainInterfaces>
 
   private constructor(
     tbtcContracts: TBTCContracts,
@@ -72,7 +76,10 @@ export class TBTC {
     this.tbtcContracts = tbtcContracts
     this.bitcoinClient = bitcoinClient
     this.#crossChainContractsLoader = crossChainContractsLoader
-    this.#crossChainContracts = new Map<L2Chain, CrossChainContracts>()
+    this.#crossChainContracts = new Map<
+      DestinationChainName,
+      CrossChainInterfaces
+    >()
   }
 
   /**
@@ -186,29 +193,98 @@ export class TBTC {
   }
 
   /**
-   * Initializes cross-chain contracts for the given L2 chain, using the
-   * given signer. Updates the signer on subsequent calls.
+   * Extracts StarkNet wallet address from a provider or account object.
+   * @param provider StarkNet provider or account object.
+   * @returns The StarkNet wallet address in hex format.
+   * @throws Throws an error if the provider is invalid or address cannot be extracted.
+   * @internal
+   */
+  static async extractStarkNetAddress(
+    provider: StarkNetProvider | null | undefined
+  ): Promise<string> {
+    if (!provider) {
+      throw new Error("StarkNet provider is required")
+    }
+
+    let address: string | undefined
+
+    // Check if it's an Account object with address property
+    if ("address" in provider && typeof provider.address === "string") {
+      address = provider.address
+    }
+    // Check if it's a Provider with connected account
+    else if (
+      "account" in provider &&
+      provider.account &&
+      typeof provider.account === "object" &&
+      "address" in provider.account &&
+      typeof provider.account.address === "string"
+    ) {
+      address = provider.account.address
+    }
+
+    if (!address) {
+      throw new Error(
+        "StarkNet provider must be an Account object or Provider with connected account. " +
+          "Ensure your StarkNet wallet is connected."
+      )
+    }
+
+    // Validate address format (basic check for hex string)
+    // StarkNet addresses are felt252 values represented as hex strings
+    if (!/^0x[0-9a-fA-F]+$/.test(address)) {
+      throw new Error("Invalid StarkNet address format")
+    }
+
+    // Normalize to lowercase for consistency
+    return address.toLowerCase()
+  }
+
+  /**
+   * Internal property to store L2 signer/provider for advanced use cases.
+   * @internal
+   * @deprecated Will be removed in next major version.
+   */
+  _l2Signer?: EthereumSigner | StarkNetProvider
+
+  /**
+   * Initializes cross-chain contracts for the given L2 chain.
+   *
+   * For StarkNet, use single-parameter initialization:
+   * ```
+   * await tbtc.initializeCrossChain("StarkNet", starknetProvider)
+   * ```
+   *
+   * For other L2 chains, use the standard pattern:
+   * ```
+   * await tbtc.initializeCrossChain("Base", ethereumSigner)
+   * ```
    *
    * @experimental THIS IS EXPERIMENTAL CODE THAT CAN BE CHANGED OR REMOVED
    *               IN FUTURE RELEASES. IT SHOULD BE USED ONLY FOR INTERNAL
    *               PURPOSES AND EXTERNAL APPLICATIONS SHOULD NOT DEPEND ON IT.
    *               CROSS-CHAIN SUPPORT IS NOT FULLY OPERATIONAL YET.
    *
-   * @param l2ChainName Name of the L2 chain for which to initialize
-   *                    cross-chain contracts.
-   * @param l2Signer Signer to use with the L2 chain contracts.
-   * @returns Void promise.
+   * @param l2ChainName Name of the L2 chain
+   * @param signerOrEthereumSigner For StarkNet: StarkNet provider/account.
+   *                               For other L2s: Ethereum signer.
+   * @param l2Provider Deprecated parameter - will throw error if provided
+   * @returns Void promise
    * @throws Throws an error if:
-   *         - Cross-chain contracts loader is not available for this TBTC SDK instance,
-   *         - Chain mapping between the L1 and the given L2 chain is not defined.
-   * @dev In case this function needs to support non-EVM L2 chains that can't
-   *      use EthereumSigner as a signer type, the l2Signer parameter should
-   *      probably be turned into a union of multiple supported types or
-   *      generalized in some other way.
+   *         - Cross-chain contracts loader not available
+   *         - Invalid provider type for StarkNet
+   *         - No connected account in StarkNet provider
+   *         - Two-parameter mode is used for StarkNet (no longer supported)
+   *
+   * @example
+   * // StarkNet with single parameter
+   * const starknetAccount = await starknet.connect();
+   * await tbtc.initializeCrossChain("StarkNet", starknetAccount);
    */
   async initializeCrossChain(
-    l2ChainName: L2Chain,
-    l2Signer: EthereumSigner
+    l2ChainName: DestinationChainName,
+    signerOrEthereumSigner: EthereumSigner | StarkNetProvider,
+    l2Provider?: StarkNetProvider
   ): Promise<void> {
     if (!this.#crossChainContractsLoader) {
       throw new Error(
@@ -223,7 +299,7 @@ export class TBTC {
 
     const l1CrossChainContracts: L1CrossChainContracts =
       await this.#crossChainContractsLoader.loadL1Contracts(l2ChainName)
-    let l2CrossChainContracts: L2CrossChainContracts
+    let l2CrossChainContracts: DestinationChainInterfaces
 
     switch (l2ChainName) {
       case "Base":
@@ -231,8 +307,13 @@ export class TBTC {
         if (!baseChainId) {
           throw new Error("Base chain ID not available in chain mapping")
         }
-        l2CrossChainContracts = await loadBaseCrossChainContracts(
-          l2Signer,
+        // For EVM chains, l2Provider should not be provided
+        if (l2Provider !== undefined) {
+          throw new Error("Base does not support two-parameter initialization")
+        }
+        this._l2Signer = signerOrEthereumSigner
+        l2CrossChainContracts = await loadBaseCrossChainInterfaces(
+          signerOrEthereumSigner as EthereumSigner,
           baseChainId
         )
         break
@@ -241,9 +322,63 @@ export class TBTC {
         if (!arbitrumChainId) {
           throw new Error("Arbitrum chain ID not available in chain mapping")
         }
-        l2CrossChainContracts = await loadArbitrumCrossChainContracts(
-          l2Signer,
+        // For EVM chains, l2Provider should not be provided
+        if (l2Provider !== undefined) {
+          throw new Error(
+            "Arbitrum does not support two-parameter initialization"
+          )
+        }
+        this._l2Signer = signerOrEthereumSigner
+        l2CrossChainContracts = await loadArbitrumCrossChainInterfaces(
+          signerOrEthereumSigner as EthereumSigner,
           arbitrumChainId
+        )
+        break
+      case "StarkNet":
+        const starknetChainId = chainMapping.starknet
+        if (!starknetChainId) {
+          throw new Error("StarkNet chain ID not available in chain mapping")
+        }
+
+        // StarkNet only supports single-parameter mode
+        if (l2Provider !== undefined) {
+          throw new Error(
+            "StarkNet does not support two-parameter initialization. " +
+              "Please use: initializeCrossChain('StarkNet', starknetProvider)"
+          )
+        }
+
+        if (!signerOrEthereumSigner) {
+          throw new Error("StarkNet provider is required")
+        }
+
+        const starknetProvider = signerOrEthereumSigner as StarkNetProvider
+        let walletAddressHex: string
+
+        // Extract address from StarkNet provider using the new method
+        try {
+          walletAddressHex = await TBTC.extractStarkNetAddress(starknetProvider)
+        } catch (error) {
+          // Check if it's a Provider-only (no account) for backward compatibility
+          // Only apply backward compatibility if it's NOT an Account object
+          if (
+            !("address" in starknetProvider) &&
+            !("account" in starknetProvider) &&
+            "getChainId" in starknetProvider &&
+            typeof starknetProvider.getChainId === "function"
+          ) {
+            // Provider-only - use placeholder address for backward compatibility
+            walletAddressHex = "0x0"
+          } else {
+            // Re-throw the error for invalid providers or invalid addresses
+            throw error
+          }
+        }
+
+        l2CrossChainContracts = await loadStarkNetCrossChainInterfaces(
+          walletAddressHex,
+          starknetProvider,
+          starknetChainId
         )
         break
       default:
@@ -270,7 +405,9 @@ export class TBTC {
    * @returns Cross-chain contracts for the given L2 chain or
    *          undefined if not initialized.
    */
-  crossChainContracts(l2ChainName: L2Chain): CrossChainContracts | undefined {
+  crossChainContracts(
+    l2ChainName: DestinationChainName
+  ): CrossChainInterfaces | undefined {
     return this.#crossChainContracts.get(l2ChainName)
   }
 }

@@ -48,7 +48,7 @@ This component tries to abstract away that complexity.
 
 #### Defined in
 
-[services/deposits/deposit.ts:47](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L47)
+[services/deposits/deposit.ts:47](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L47)
 
 ## Properties
 
@@ -60,7 +60,7 @@ Bitcoin client handle.
 
 #### Defined in
 
-[services/deposits/deposit.ts:36](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L36)
+[services/deposits/deposit.ts:36](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L36)
 
 ___
 
@@ -73,7 +73,7 @@ generated deposit address.
 
 #### Defined in
 
-[services/deposits/deposit.ts:45](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L45)
+[services/deposits/deposit.ts:45](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L45)
 
 ___
 
@@ -85,7 +85,7 @@ Optional depositor proxy used to initiate minting.
 
 #### Defined in
 
-[services/deposits/deposit.ts:40](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L40)
+[services/deposits/deposit.ts:40](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L40)
 
 ___
 
@@ -97,7 +97,7 @@ Bitcoin script corresponding to this deposit.
 
 #### Defined in
 
-[services/deposits/deposit.ts:28](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L28)
+[services/deposits/deposit.ts:28](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L28)
 
 ___
 
@@ -109,7 +109,7 @@ Handle to tBTC contracts.
 
 #### Defined in
 
-[services/deposits/deposit.ts:32](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L32)
+[services/deposits/deposit.ts:32](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L32)
 
 ## Methods
 
@@ -130,7 +130,7 @@ Specific UTXOs targeting this deposit. Empty array in case
 
 #### Defined in
 
-[services/deposits/deposit.ts:99](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L99)
+[services/deposits/deposit.ts:99](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L99)
 
 ___
 
@@ -146,7 +146,7 @@ Bitcoin address corresponding to this deposit.
 
 #### Defined in
 
-[services/deposits/deposit.ts:88](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L88)
+[services/deposits/deposit.ts:88](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L88)
 
 ___
 
@@ -162,7 +162,7 @@ Receipt corresponding to this deposit.
 
 #### Defined in
 
-[services/deposits/deposit.ts:81](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L81)
+[services/deposits/deposit.ts:81](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L81)
 
 ___
 
@@ -206,7 +206,7 @@ Throws an error if the funding outpoint was already used to
 
 #### Defined in
 
-[services/deposits/deposit.ts:128](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L128)
+[services/deposits/deposit.ts:128](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L128)
 
 ___
 
@@ -229,4 +229,4 @@ ___
 
 #### Defined in
 
-[services/deposits/deposit.ts:61](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L61)
+[services/deposits/deposit.ts:61](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L61)

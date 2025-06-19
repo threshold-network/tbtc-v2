@@ -12,7 +12,7 @@ import {
   DepositReceipt,
   ChainIdentifier,
   EthereumL1BitcoinDepositor,
-  EthereumCrossChainExtraDataEncoder,
+  EthereumExtraDataEncoder,
 } from "../../src"
 import {
   deployMockContract,
@@ -874,11 +874,11 @@ describe("Ethereum", () => {
     })
   })
 
-  describe("EthereumCrossChainExtraDataEncoder", () => {
-    let encoder: EthereumCrossChainExtraDataEncoder
+  describe("EthereumExtraDataEncoder", () => {
+    let encoder: EthereumExtraDataEncoder
 
     beforeEach(async () => {
-      encoder = new EthereumCrossChainExtraDataEncoder()
+      encoder = new EthereumExtraDataEncoder()
     })
 
     describe("encodeDepositOwner", () => {

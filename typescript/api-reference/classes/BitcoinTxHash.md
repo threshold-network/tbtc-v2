@@ -53,7 +53,7 @@ the use cases that expect the Bitcoin internal byte order.
 
 #### Defined in
 
-[lib/utils/hex.ts:7](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/utils/hex.ts#L7)
+[lib/utils/hex.ts:7](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/hex.ts#L7)
 
 ## Properties
 
@@ -67,7 +67,7 @@ the use cases that expect the Bitcoin internal byte order.
 
 #### Defined in
 
-[lib/utils/hex.ts:5](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/utils/hex.ts#L5)
+[lib/utils/hex.ts:5](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/hex.ts#L5)
 
 ## Methods
 
@@ -95,7 +95,7 @@ True if both values are equal, false otherwise.
 
 #### Defined in
 
-[lib/utils/hex.ts:57](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/utils/hex.ts#L57)
+[lib/utils/hex.ts:57](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/hex.ts#L57)
 
 ___
 
@@ -115,7 +115,7 @@ Reversed hexadecimal value.
 
 #### Defined in
 
-[lib/utils/hex.ts:64](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/utils/hex.ts#L64)
+[lib/utils/hex.ts:64](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/hex.ts#L64)
 
 ___
 
@@ -135,7 +135,7 @@ Hexadecimal value as a Buffer.
 
 #### Defined in
 
-[lib/utils/hex.ts:32](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/utils/hex.ts#L32)
+[lib/utils/hex.ts:32](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/hex.ts#L32)
 
 ___
 
@@ -155,7 +155,7 @@ Hexadecimal string prefixed with '0x'.
 
 #### Defined in
 
-[lib/utils/hex.ts:46](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/utils/hex.ts#L46)
+[lib/utils/hex.ts:46](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/hex.ts#L46)
 
 ___
 
@@ -175,7 +175,7 @@ Unprefixed hexadecimal string.
 
 #### Defined in
 
-[lib/utils/hex.ts:39](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/utils/hex.ts#L39)
+[lib/utils/hex.ts:39](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/hex.ts#L39)
 
 ___
 
@@ -199,4 +199,4 @@ ___
 
 #### Defined in
 
-[lib/utils/hex.ts:25](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/utils/hex.ts#L25)
+[lib/utils/hex.ts:25](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/hex.ts#L25)

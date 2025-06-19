@@ -43,7 +43,7 @@ for reference.
 
 ### constructor
 
-• **new EthereumL1BitcoinDepositor**(`config`, `chainId`, `l2ChainName`): [`EthereumL1BitcoinDepositor`](EthereumL1BitcoinDepositor.md)
+• **new EthereumL1BitcoinDepositor**(`config`, `chainId`, `destinationChainName`): [`EthereumL1BitcoinDepositor`](EthereumL1BitcoinDepositor.md)
 
 #### Parameters
 
@@ -51,7 +51,7 @@ for reference.
 | :------ | :------ |
 | `config` | [`EthereumContractConfig`](../interfaces/EthereumContractConfig.md) |
 | `chainId` | [`Ethereum`](../enums/Chains.Ethereum.md) |
-| `l2ChainName` | [`L2Chain`](../README.md#l2chain) |
+| `destinationChainName` | [`DestinationChainName`](../README.md#destinationchainname) |
 
 #### Returns
 
@@ -63,17 +63,17 @@ EthersContractHandle\&lt;L1BitcoinDepositorTypechain\&gt;.constructor
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-depositor.ts:61](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L61)
+[lib/ethereum/l1-bitcoin-depositor.ts:67](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L67)
 
 ## Properties
 
 ### #extraDataEncoder
 
-• `Private` `Readonly` **#extraDataEncoder**: [`CrossChainExtraDataEncoder`](../interfaces/CrossChainExtraDataEncoder.md)
+• `Private` `Readonly` **#extraDataEncoder**: [`ExtraDataEncoder`](../interfaces/ExtraDataEncoder.md)
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-depositor.ts:59](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L59)
+[lib/ethereum/l1-bitcoin-depositor.ts:65](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L65)
 
 ___
 
@@ -91,7 +91,7 @@ EthersContractHandle.\_deployedAtBlockNumber
 
 #### Defined in
 
-[lib/ethereum/adapter.ts:80](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L80)
+[lib/ethereum/adapter.ts:80](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L80)
 
 ___
 
@@ -107,7 +107,7 @@ EthersContractHandle.\_instance
 
 #### Defined in
 
-[lib/ethereum/adapter.ts:74](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L74)
+[lib/ethereum/adapter.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L74)
 
 ___
 
@@ -123,17 +123,17 @@ EthersContractHandle.\_totalRetryAttempts
 
 #### Defined in
 
-[lib/ethereum/adapter.ts:84](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L84)
+[lib/ethereum/adapter.ts:84](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L84)
 
 ## Methods
 
 ### extraDataEncoder
 
-▸ **extraDataEncoder**(): [`CrossChainExtraDataEncoder`](../interfaces/CrossChainExtraDataEncoder.md)
+▸ **extraDataEncoder**(): [`ExtraDataEncoder`](../interfaces/ExtraDataEncoder.md)
 
 #### Returns
 
-[`CrossChainExtraDataEncoder`](../interfaces/CrossChainExtraDataEncoder.md)
+[`ExtraDataEncoder`](../interfaces/ExtraDataEncoder.md)
 
 **`See`**
 
@@ -143,7 +143,7 @@ EthersContractHandle.\_totalRetryAttempts
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-depositor.ts:104](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L104)
+[lib/ethereum/l1-bitcoin-depositor.ts:116](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L116)
 
 ___
 
@@ -165,7 +165,7 @@ EthersContractHandle.getAddress
 
 #### Defined in
 
-[lib/ethereum/adapter.ts:112](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L112)
+[lib/ethereum/adapter.ts:112](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L112)
 
 ___
 
@@ -185,7 +185,7 @@ ___
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-depositor.ts:96](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L96)
+[lib/ethereum/l1-bitcoin-depositor.ts:108](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L108)
 
 ___
 
@@ -211,7 +211,7 @@ ___
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-depositor.ts:88](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L88)
+[lib/ethereum/l1-bitcoin-depositor.ts:100](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L100)
 
 ___
 
@@ -222,7 +222,7 @@ ___
 Get events emitted by the Ethereum contract.
 It starts searching from provided block number. If the GetEvents.Options#fromBlock
 option is missing it looks for a contract's defined property
-[_deployedAtBlockNumber](BaseL2BitcoinDepositor.md#_deployedatblocknumber). If the property is missing starts searching
+[_deployedAtBlockNumber](BaseBitcoinDepositor.md#_deployedatblocknumber). If the property is missing starts searching
 from block `0`.
 
 #### Parameters
@@ -245,7 +245,7 @@ EthersContractHandle.getEvents
 
 #### Defined in
 
-[lib/ethereum/adapter.ts:127](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L127)
+[lib/ethereum/adapter.ts:127](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L127)
 
 ___
 
@@ -274,4 +274,4 @@ ___
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-depositor.ts:112](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L112)
+[lib/ethereum/l1-bitcoin-depositor.ts:124](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L124)

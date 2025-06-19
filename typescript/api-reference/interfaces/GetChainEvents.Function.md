@@ -33,4 +33,4 @@ Array of found events.
 
 #### Defined in
 
-[lib/contracts/chain-event.ts:60](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain-event.ts#L60)
+[lib/contracts/chain-event.ts:60](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain-event.ts#L60)

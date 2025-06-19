@@ -3,8 +3,8 @@ import {
   MockContract,
 } from "@ethereum-waffle/mock-contract"
 import {
-  ArbitrumL2BitcoinDepositor,
-  ArbitrumL2TBTCToken,
+  ArbitrumBitcoinDepositor,
+  ArbitrumTBTCToken,
   BitcoinRawTxVectors,
   ChainIdentifier,
   Chains,
@@ -18,23 +18,23 @@ import { expect } from "chai"
 import { BigNumber } from "ethers"
 
 // ABI imports.
-import { abi as ArbitrumL2BitcoinDepositorABI } from "../../src/lib/arbitrum/artifacts/arbitrumSepolia/ArbitrumL2BitcoinDepositor.json"
-import { abi as ArbitrumL2TBTCTokenABI } from "../../src/lib/arbitrum/artifacts/arbitrumSepolia/ArbitrumTBTC.json"
+import { abi as ArbitrumBitcoinDepositorABI } from "../../src/lib/arbitrum/artifacts/arbitrumSepolia/ArbitrumL2BitcoinDepositor.json"
+import { abi as ArbitrumTBTCTokenABI } from "../../src/lib/arbitrum/artifacts/arbitrumSepolia/ArbitrumTBTC.json"
 
 describe("Arbitrum", () => {
-  describe("ArbitrumL2BitcoinDepositor", () => {
+  describe("ArbitrumBitcoinDepositor", () => {
     let depositorContract: MockContract
-    let depositorHandle: ArbitrumL2BitcoinDepositor
+    let depositorHandle: ArbitrumBitcoinDepositor
 
     beforeEach(async () => {
       const [signer] = new MockProvider().getWallets()
 
       depositorContract = await deployMockContract(
         signer,
-        `${JSON.stringify(ArbitrumL2BitcoinDepositorABI)}`
+        `${JSON.stringify(ArbitrumBitcoinDepositorABI)}`
       )
 
-      depositorHandle = new ArbitrumL2BitcoinDepositor(
+      depositorHandle = new ArbitrumBitcoinDepositor(
         {
           address: depositorContract.address,
           signerOrProvider: signer,
@@ -129,19 +129,19 @@ describe("Arbitrum", () => {
     })
   })
 
-  describe("ArbitrumL2TBTCToken", () => {
+  describe("ArbitrumTBTCToken", () => {
     let tokenContract: MockContract
-    let tokenHandle: ArbitrumL2TBTCToken
+    let tokenHandle: ArbitrumTBTCToken
 
     beforeEach(async () => {
       const [signer] = new MockProvider().getWallets()
 
       tokenContract = await deployMockContract(
         signer,
-        `${JSON.stringify(ArbitrumL2TBTCTokenABI)}`
+        `${JSON.stringify(ArbitrumTBTCTokenABI)}`
       )
 
-      tokenHandle = new ArbitrumL2TBTCToken(
+      tokenHandle = new ArbitrumTBTCToken(
         {
           address: tokenContract.address,
           signerOrProvider: signer,

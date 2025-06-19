@@ -22,7 +22,7 @@ import {
   DepositsService,
   EthereumAddress,
   extractBitcoinRawTxVectors,
-  L2Chain,
+  DestinationChainName,
   CrossChainDepositor,
   Hex,
   CrossChainContracts,
@@ -42,6 +42,7 @@ import { MockDepositorProxy } from "../utils/mock-depositor-proxy"
 import {
   MockCrossChainExtraDataEncoder,
   MockL1BitcoinDepositor,
+  MockBitcoinDepositor,
   MockL2BitcoinDepositor,
   MockL2TBTCToken,
 } from "../utils/mock-cross-chain"
@@ -1635,7 +1636,7 @@ describe("Deposits", () => {
           tbtcContracts,
           bitcoinClient,
           // Mock cross-chain contracts resolver.
-          (_: L2Chain) => undefined
+          (_: DestinationChainName) => undefined
         )
       })
 
@@ -1821,7 +1822,7 @@ describe("Deposits", () => {
           tbtcContracts,
           bitcoinClient,
           // Mock cross-chain contracts resolver.
-          (_: L2Chain) => undefined
+          (_: DestinationChainName) => undefined
         )
       })
 
@@ -2003,7 +2004,7 @@ describe("Deposits", () => {
             tbtcContracts,
             bitcoinClient,
             // Mock cross-chain contracts resolver that always returns undefined.
-            (_: L2Chain) => undefined
+            (_: DestinationChainName) => undefined
           )
         })
 
@@ -2018,7 +2019,7 @@ describe("Deposits", () => {
       })
 
       context("when cross-chain contracts are initialized", () => {
-        let l2BitcoinDepositor: MockL2BitcoinDepositor
+        let l2BitcoinDepositor: MockBitcoinDepositor
         let l1BitcoinDepositor: MockL1BitcoinDepositor
         let crossChainContracts: CrossChainContracts
 
@@ -2041,13 +2042,13 @@ describe("Deposits", () => {
           )
 
           crossChainContracts = {
-            l2TbtcToken: new MockL2TBTCToken(),
-            l2BitcoinDepositor: l2BitcoinDepositor,
+            destinationChainTbtcToken: new MockL2TBTCToken(),
+            destinationChainBitcoinDepositor: l2BitcoinDepositor,
             l1BitcoinDepositor: l1BitcoinDepositor,
           }
 
           const crossChainContractsResolver = (
-            l2ChainName: L2Chain
+            l2ChainName: DestinationChainName
           ): CrossChainContracts | undefined => {
             if (l2ChainName === "Base") {
               return crossChainContracts
@@ -2068,13 +2069,15 @@ describe("Deposits", () => {
                 "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
                 "Base"
               )
-            ).to.be.rejectedWith("Cannot resolve L2 deposit owner")
+            ).to.be.rejectedWith(
+              "Cannot resolve destination chain deposit owner"
+            )
           })
         })
 
         context("when L2 deposit owner can be resolved", () => {
           beforeEach(async () => {
-            crossChainContracts.l2BitcoinDepositor.setDepositOwner(
+            crossChainContracts.destinationChainBitcoinDepositor.setDepositOwner(
               l2DepositOwner
             )
           })
@@ -2206,7 +2209,7 @@ describe("Deposits", () => {
           tbtcContracts,
           bitcoinClient,
           // Mock cross-chain contracts resolver that always returns undefined.
-          (_: L2Chain) => undefined
+          (_: DestinationChainName) => undefined
         )
       })
 
@@ -2223,7 +2226,7 @@ describe("Deposits", () => {
     })
 
     context("when cross-chain contracts are initialized", () => {
-      let l2BitcoinDepositor: MockL2BitcoinDepositor
+      let l2BitcoinDepositor: MockBitcoinDepositor
       let l1BitcoinDepositor: MockL1BitcoinDepositor
       let crossChainContracts: CrossChainContracts
 
@@ -2246,13 +2249,13 @@ describe("Deposits", () => {
         )
 
         crossChainContracts = {
-          l2TbtcToken: new MockL2TBTCToken(),
-          l2BitcoinDepositor: l2BitcoinDepositor,
+          destinationChainTbtcToken: new MockL2TBTCToken(),
+          destinationChainBitcoinDepositor: l2BitcoinDepositor,
           l1BitcoinDepositor: l1BitcoinDepositor,
         }
 
         const crossChainContractsResolver = (
-          l2ChainName: L2Chain
+          l2ChainName: DestinationChainName
         ): CrossChainContracts | undefined => {
           if (l2ChainName === "Arbitrum") {
             return crossChainContracts
@@ -2273,13 +2276,15 @@ describe("Deposits", () => {
               "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
               "Arbitrum"
             )
-          ).to.be.rejectedWith("Cannot resolve L2 deposit owner")
+          ).to.be.rejectedWith("Cannot resolve destination chain deposit owner")
         })
       })
 
       context("when L2 deposit owner can be resolved", () => {
         beforeEach(async () => {
-          crossChainContracts.l2BitcoinDepositor.setDepositOwner(l2DepositOwner)
+          crossChainContracts.destinationChainBitcoinDepositor.setDepositOwner(
+            l2DepositOwner
+          )
         })
 
         context("when active wallet is not set", () => {
@@ -2565,7 +2570,7 @@ describe("Deposits", () => {
       "a7C94958CDC477feE1F7D78705275238134699F5"
     )
 
-    let l2BitcoinDepositor: MockL2BitcoinDepositor
+    let l2BitcoinDepositor: MockBitcoinDepositor
     let l1BitcoinDepositor: MockL1BitcoinDepositor
     let crossChainContracts: CrossChainContracts
     let depositor: CrossChainDepositor
@@ -2592,8 +2597,8 @@ describe("Deposits", () => {
       )
 
       crossChainContracts = {
-        l2TbtcToken: new MockL2TBTCToken(),
-        l2BitcoinDepositor: l2BitcoinDepositor,
+        destinationChainTbtcToken: new MockL2TBTCToken(),
+        destinationChainBitcoinDepositor: l2BitcoinDepositor,
         l1BitcoinDepositor: l1BitcoinDepositor,
       }
 
@@ -2616,7 +2621,7 @@ describe("Deposits", () => {
         () => {
           it("should throw", () => {
             expect(() => depositor.extraData()).to.throw(
-              "Cannot resolve L2 deposit owner"
+              "Cannot resolve destination chain deposit owner"
             )
           })
         }
@@ -2626,7 +2631,7 @@ describe("Deposits", () => {
         "when the deposit owner is set in the L2BitcoinDepositor contract",
         () => {
           beforeEach(async () => {
-            crossChainContracts.l2BitcoinDepositor.setDepositOwner(
+            crossChainContracts.destinationChainBitcoinDepositor.setDepositOwner(
               l2DepositOwner
             )
           })

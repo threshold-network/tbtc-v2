@@ -18,12 +18,32 @@ export namespace Chains {
     Arbitrum = "42161",
     ArbitrumSepolia = "421614",
   }
+
+  /**
+   * StarkNet L2 chains.
+   */
+  export enum StarkNet {
+    /**
+     * StarkNet Mainnet.
+     */
+    Mainnet = "0x534e5f4d41494e", // SN_MAIN in hex
+    /**
+     * StarkNet Sepolia testnet.
+     */
+    Sepolia = "0x534e5f5345504f4c4941", // SN_SEPOLIA in hex
+  }
 }
 
 /**
- * Layer 2 chains supported by tBTC v2 contracts.
+ * Destination chains supported by tBTC v2 contracts.
+ * These are chains other than the main Ethereum L1 chain.
  */
-export type L2Chain = Exclude<keyof typeof Chains, "Ethereum">
+export type DestinationChainName = Exclude<keyof typeof Chains, "Ethereum">
+
+/**
+ * @deprecated Use DestinationChainName instead
+ */
+export type L2Chain = DestinationChainName
 
 /**
  * Type representing a mapping between specific L1 and L2 chains.
@@ -42,6 +62,10 @@ export type ChainMapping = {
    * Identifier of the Arbitrum L2 chain.
    */
   arbitrum?: Chains.Arbitrum
+  /**
+   * Identifier of the StarkNet L2 chain.
+   */
+  starknet?: Chains.StarkNet
 }
 
 /**
@@ -52,10 +76,12 @@ export const ChainMappings: ChainMapping[] = [
     ethereum: Chains.Ethereum.Mainnet,
     base: Chains.Base.Base,
     arbitrum: Chains.Arbitrum.Arbitrum,
+    starknet: Chains.StarkNet.Mainnet,
   },
   {
     ethereum: Chains.Ethereum.Sepolia,
     base: Chains.Base.BaseSepolia,
     arbitrum: Chains.Arbitrum.ArbitrumSepolia,
+    starknet: Chains.StarkNet.Sepolia,
   },
 ]

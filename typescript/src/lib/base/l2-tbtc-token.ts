@@ -4,7 +4,11 @@ import {
   EthersContractHandle,
 } from "../ethereum/adapter"
 import { L2TBTC as L2TBTCTypechain } from "../../../typechain/L2TBTC"
-import { ChainIdentifier, Chains, L2TBTCToken } from "../contracts"
+import {
+  ChainIdentifier,
+  Chains,
+  DestinationChainTBTCToken,
+} from "../contracts"
 import { BigNumber } from "ethers"
 import { EthereumAddress } from "../ethereum"
 
@@ -12,12 +16,12 @@ import BaseL2TBTCTokenDeployment from "./artifacts/base/BaseTBTC.json"
 import BaseSepoliaL2TBTCTokenDeployment from "./artifacts/baseSepolia/BaseTBTC.json"
 
 /**
- * Implementation of the Base L2TBTCToken handle.
- * @see {L2TBTCToken} for reference.
+ * Implementation of the Base DestinationChainTBTCToken handle.
+ * @see {DestinationChainTBTCToken} for reference.
  */
-export class BaseL2TBTCToken
+export class BaseTBTCToken
   extends EthersContractHandle<L2TBTCTypechain>
-  implements L2TBTCToken
+  implements DestinationChainTBTCToken
 {
   constructor(config: EthersContractConfig, chainId: Chains.Base) {
     let deployment: EthersContractDeployment
@@ -38,7 +42,7 @@ export class BaseL2TBTCToken
 
   // eslint-disable-next-line valid-jsdoc
   /**
-   * @see {L2TBTCToken#getChainIdentifier}
+   * @see {DestinationChainTBTCToken#getChainIdentifier}
    */
   getChainIdentifier(): ChainIdentifier {
     return EthereumAddress.from(this._instance.address)
@@ -46,9 +50,15 @@ export class BaseL2TBTCToken
 
   // eslint-disable-next-line valid-jsdoc
   /**
-   * @see {L2TBTCToken#balanceOf}
+   * @see {DestinationChainTBTCToken#balanceOf}
    */
   balanceOf(identifier: ChainIdentifier): Promise<BigNumber> {
     return this._instance.balanceOf(`0x${identifier.identifierHex}`)
   }
 }
+
+// Backward compatibility alias
+/**
+ * @deprecated Use BaseTBTCToken instead
+ */
+export const BaseL2TBTCToken = BaseTBTCToken

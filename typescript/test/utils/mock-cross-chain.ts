@@ -1,8 +1,8 @@
 import {
   ChainIdentifier,
-  L2TBTCToken,
+  DestinationChainTBTCToken,
   L1BitcoinDepositor,
-  L2BitcoinDepositor,
+  BitcoinDepositor,
   CrossChainExtraDataEncoder,
   BitcoinRawTxVectors,
   DepositReceipt,
@@ -11,7 +11,9 @@ import {
 } from "../../src"
 import { BigNumber } from "ethers"
 
-export class MockL2TBTCToken implements L2TBTCToken {
+export class MockDestinationChainTBTCToken
+  implements DestinationChainTBTCToken
+{
   balanceOf(identifier: ChainIdentifier): Promise<BigNumber> {
     throw new Error("Not supported")
   }
@@ -21,7 +23,7 @@ export class MockL2TBTCToken implements L2TBTCToken {
   }
 }
 
-export class MockL2BitcoinDepositor implements L2BitcoinDepositor {
+export class MockBitcoinDepositor implements BitcoinDepositor {
   readonly #chainIdentifier: ChainIdentifier
   readonly #encoder: CrossChainExtraDataEncoder
   #depositOwner: ChainIdentifier | undefined
@@ -139,3 +141,7 @@ type InitializeDepositCall = {
   deposit: DepositReceipt
   vault?: ChainIdentifier
 }
+
+// Backward compatibility aliases
+export const MockL2TBTCToken = MockDestinationChainTBTCToken
+export const MockL2BitcoinDepositor = MockBitcoinDepositor
