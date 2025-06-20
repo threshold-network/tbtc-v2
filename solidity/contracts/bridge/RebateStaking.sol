@@ -67,6 +67,10 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     // slither-disable-next-line unused-state
     uint256[50] __gap;
 
+    event RollingWindowUpdated(uint256 rollingWindow);
+    event UnstakingPeriodUpdated(uint256 unstakingPeriod);
+    event RebatePerTokenUpdated(uint256 rebatePerToken);
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
@@ -100,20 +104,37 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         __Ownable_init();
     }
 
+    /// @notice Updates the rolling window.
+    /// @param _newRollingWindow Duration of the rolling window.
+    /// @dev Requirements:
+    ///      - The caller must be the contract owner,
+    ///      - The new rolling window cannot be zero
     function updateRollingWindow(uint256 _newRollingWindow) external onlyOwner {
         require(
             _newRollingWindow != 0, 
             "Rolling window cannot be zero"
         );
         rollingWindow = _newRollingWindow;
+        emit RollingWindowUpdated(rollingWindow);
     }
 
+    /// @notice Updates the unstaking period.
+    /// @param _newUnstakingPeriod Duration of the unstaking period.
+    /// @dev Requirements:
+    ///      - The caller must be the contract owner
     function updateUnstakingPeriod(uint256 _newUnstakingPeriod) external onlyOwner {
         unstakingPeriod = _newUnstakingPeriod;
+        emit UnstakingPeriodUpdated(unstakingPeriod);
+
     }
 
+    /// @notice Updates the rebate per token.
+    /// @param _newRebatePerToken Rebate coefficient.
+    /// @dev Requirements:
+    ///      - The caller must be the contract owner
     function updateRebatePerToken(uint256 _newRebatePerToken) external onlyOwner {
         rebatePerToken = _newRebatePerToken;
+        emit RebatePerTokenUpdated(rebatePerToken);
     }
 
     function getRebateCap(address user) external view returns(uint64) {
