@@ -1,0 +1,92 @@
+# Environment files - CRITICAL
+.env
+.env.*
+.env.local
+.env.*.local
+*.env
+
+# Private keys and secrets
+*.pem
+*.key
+*.secret
+*-secret.*
+*-private.*
+
+# Development files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Test files
+test/
+tests/
+coverage/
+.nyc_output/
+
+# Build files that shouldn't be published
+cache/
+typechain/
+node_modules/
+
+# Hardhat files
+hardhat.config.ts
+hardhat.config.js
+
+# Scripts that shouldn't be distributed
+scripts/
+
+# Git files
+.git/
+.gitignore
+.gitattributes
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Documentation source files
+docs/
+*.md
+!README.md
+
+# Config files
+.eslintrc*
+.prettierrc*
+.solhint*
+.solhintignore
+.eslintignore
+tsconfig*.json
+.editorconfig
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# OS files
+Thumbs.db
+
+# IDE
+*.iml
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+
+# Other
+.npmrc
+.yarnrc
+yarn.lock
+package-lock.json

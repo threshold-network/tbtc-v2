@@ -207,11 +207,7 @@
           },
           "t_enum(DepositState)4405": {
             "label": "enum AbstractL1BTCDepositor.DepositState",
-            "members": [
-              "Unknown",
-              "Initialized",
-              "Finalized"
-            ],
+            "members": ["Unknown", "Initialized", "Finalized"],
             "numberOfBytes": "1"
           },
           "t_mapping(t_address,t_bool)": {

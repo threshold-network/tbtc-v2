@@ -59,12 +59,12 @@ yarn export-artifacts:mainnet   # Export mainnet deployment artifacts
 ## Network Configuration
 
 ### Sepolia Testnet
-- StarkGate Bridge: `0x95fa1deDF00d6B3c6EF7DfDB36dD954Eb9Dbe829`
-- StarkNet tBTC Token: `0x04e3bc49f130f9d0379082c24efd397a0eddfccdc6023a2f02a74d8527140276`
+- StarkGate Bridge: `0xF6217de888fD6E6b2CbFBB2370973BE4c36a152D`
+- StarkNet tBTC Token: `0x05f09ee6e942b869aa159287924156cb9bc4510a447c0cc80a898780434d5c2c`
 
 ### Mainnet
-- StarkGate Bridge: `0xae0Ee0A63A2cE6BaeEFFE56e7714FB4EFE48D419`
-- StarkNet tBTC Token: **Update required before deployment**
+- StarkGate Bridge: `0x2111A49ebb717959059693a3698872a0aE9866b9`
+- StarkNet tBTC Token: `0x04daa17763b286d1e59b97c283c0b8c949994c361e426a28f743c67bdfe9a32f`
 
 ## Architecture
 

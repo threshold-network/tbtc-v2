@@ -1,0 +1,10 @@
+/build
+/cache
+/coverage
+/export
+/typechain
+/external
+/deployments
+node_modules
+artifacts
+contracts/hardhat-dependency-compiler/
