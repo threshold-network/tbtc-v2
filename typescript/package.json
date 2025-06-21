@@ -22,7 +22,7 @@
     "typechain/"
   ],
   "config": {
-    "contracts": "./node_modules/@keep-network/ecdsa/artifacts/WalletRegistry.json ./node_modules/@keep-network/tbtc-v2/artifacts/{Bridge,TBTCVault,TBTC}.json ./node_modules/@keep-network/tbtc-v2/build/contracts/l2/L1BitcoinDepositor.sol/L1BitcoinDepositor.json ./node_modules/@keep-network/tbtc-v2/build/contracts/l2/L2BitcoinDepositor.sol/L2BitcoinDepositor.json ./node_modules/@keep-network/tbtc-v2/build/contracts/l2/L2TBTC.sol/L2TBTC.json"
+    "contracts": "./src/lib/ethereum/artifacts/sepolia/L1BitcoinRedeemer.json ./src/lib/base/artifacts/baseSepolia/BaseL2BitcoinRedeemer.json ./src/lib/arbitrum/artifacts/arbitrumSepolia/ArbitrumL2BitcoinRedeemer.json ./node_modules/@keep-network/ecdsa/artifacts/WalletRegistry.json ./node_modules/@keep-network/tbtc-v2/artifacts/{Bridge,TBTCVault,TBTC}.json ./node_modules/@keep-network/tbtc-v2/build/contracts/l2/L1BitcoinDepositor.sol/L1BitcoinDepositor.json ./node_modules/@keep-network/tbtc-v2/build/contracts/l2/L2BitcoinDepositor.sol/L2BitcoinDepositor.json ./node_modules/@keep-network/tbtc-v2/build/contracts/l2/L2TBTC.sol/L2TBTC.json"
   },
   "dependencies": {
     "@bitcoinerlab/secp256k1": "^1.0.5",

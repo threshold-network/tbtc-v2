@@ -91,7 +91,7 @@ Will be removed in next major version.
 
 #### Defined in
 
-[services/tbtc.ts:248](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L248)
+[services/tbtc.ts:252](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L252)
 
 ___
 
@@ -184,7 +184,7 @@ Cross-chain contracts for the given L2 chain or
 
 #### Defined in
 
-[services/tbtc.ts:408](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L408)
+[services/tbtc.ts:412](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L412)
 
 ___
 
@@ -241,7 +241,7 @@ await tbtc.initializeCrossChain("StarkNet", starknetAccount);
 
 #### Defined in
 
-[services/tbtc.ts:284](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L284)
+[services/tbtc.ts:288](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L288)
 
 ___
 
@@ -269,7 +269,7 @@ Throws an error if the provider is invalid or address cannot be extracted.
 
 #### Defined in
 
-[services/tbtc.ts:202](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L202)
+[services/tbtc.ts:206](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L206)
 
 ___
 
@@ -301,7 +301,7 @@ This function is especially useful for local development as it gives
 
 #### Defined in
 
-[services/tbtc.ts:188](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L188)
+[services/tbtc.ts:192](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L192)
 
 ___
 
@@ -335,7 +335,7 @@ Throws an error if the underlying signer's Ethereum network is
 
 #### Defined in
 
-[services/tbtc.ts:141](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L141)
+[services/tbtc.ts:145](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L145)
 
 ___
 
@@ -367,7 +367,7 @@ Throws an error if the signer's Ethereum network is other than
 
 #### Defined in
 
-[services/tbtc.ts:95](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L95)
+[services/tbtc.ts:99](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L99)
 
 ___
 
@@ -399,4 +399,4 @@ Throws an error if the signer's Ethereum network is other than
 
 #### Defined in
 
-[services/tbtc.ts:117](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L117)
+[services/tbtc.ts:121](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L121)

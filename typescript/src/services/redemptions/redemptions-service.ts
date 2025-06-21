@@ -1,4 +1,7 @@
 import {
+  CrossChainContracts,
+  DestinationChainName,
+  L2Chain,
   RedemptionRequest,
   TBTCContracts,
   WalletState,
@@ -12,7 +15,7 @@ import {
   BitcoinTxOutput,
   BitcoinUtxo,
 } from "../../lib/bitcoin"
-import { BigNumber, BigNumberish } from "ethers"
+import { BigNumber, BigNumberish, BytesLike } from "ethers"
 import { amountToSatoshi, ApiUrl, endpointUrl, Hex } from "../../lib/utils"
 import { RedeemerProxy } from "./redeemer-proxy"
 import {
@@ -33,10 +36,22 @@ export class RedemptionsService {
    * Bitcoin client handle.
    */
   private readonly bitcoinClient: BitcoinClient
+  /**
+   * Gets cross-chain contracts for the given supported L2 chain.
+   * @param _ Name of the L2 chain for which to get cross-chain contracts.
+   * @returns Cross-chain contracts for the given L2 chain or
+   *          undefined if not initialized.
+   */
+  readonly #crossChainContracts: (_: L2Chain) => CrossChainContracts | undefined
 
-  constructor(tbtcContracts: TBTCContracts, bitcoinClient: BitcoinClient) {
+  constructor(
+    tbtcContracts: TBTCContracts,
+    bitcoinClient: BitcoinClient,
+    crossChainContracts: (_: L2Chain) => CrossChainContracts | undefined
+  ) {
     this.tbtcContracts = tbtcContracts
     this.bitcoinClient = bitcoinClient
+    this.#crossChainContracts = crossChainContracts
   }
 
   /**
@@ -147,6 +162,87 @@ export class RedemptionsService {
     )
 
     return { targetChainTxHash, walletPublicKey }
+  }
+
+  /**
+   * Requests a redemption of TBTC v2 token into BTC using a custom integration.
+   * The function builds the redemption data and handles the redemption request
+   * through the provided redeemer proxy.
+   * @param bitcoinRedeemerAddress Bitcoin address the redeemed BTC should be
+   *        sent to. Only P2PKH, P2WPKH, P2SH, and P2WSH address types are supported.
+   * @param amount The amount to be redeemed with the precision of the tBTC
+   *        on-chain token contract.
+   * @param l2ChainName The name of the L2 chain to request redemption on.
+   * @returns Object containing:
+   *          - Target chain hash of the request redemption transaction
+   *            (for example, Ethereum transaction hash)
+   */
+  async requestCrossChainRedemption(
+    bitcoinRedeemerAddress: string,
+    amount: BigNumber,
+    l2ChainName: L2Chain
+  ): Promise<{
+    targetChainTxHash: Hex
+  }> {
+    const crossChainContracts = this.#crossChainContracts(l2ChainName)
+    if (!crossChainContracts || !crossChainContracts.l2BitcoinRedeemer) {
+      throw new Error(
+        `Cross-chain redeemer contracts for ${l2ChainName} not initialized`
+      )
+    }
+
+    const { redeemerOutputScript } = await this.determineRedemptionData(
+      bitcoinRedeemerAddress,
+      BigNumber.from(amount)
+    )
+
+    const nonce = Math.round(Math.random() * 10000)
+
+    const txHash =
+      await crossChainContracts.l2BitcoinRedeemer.requestRedemption(
+        amount,
+        redeemerOutputScript,
+        nonce
+      )
+
+    return {
+      targetChainTxHash: txHash,
+    }
+  }
+
+  async relayRedemptionRequestToL1(
+    amount: BigNumber,
+    redeemerOutputScript: Hex,
+    encodedVm: BytesLike,
+    l2ChainName: DestinationChainName
+  ): Promise<{
+    targetChainTxHash: Hex
+  }> {
+    const crossChainContracts = this.#crossChainContracts(l2ChainName)
+    if (!crossChainContracts) {
+      throw new Error(
+        `Cross-chain contracts for ${l2ChainName} not initialized`
+      )
+    }
+
+    // The findWalletForRedemption operates on satoshi amount precision (1e8)
+    // while the amount parameter is TBTC token precision (1e18). We need to
+    // convert the amount to get proper results.
+    const { walletPublicKey, mainUtxo } = await this.findWalletForRedemption(
+      redeemerOutputScript,
+      amountToSatoshi(amount)
+    )
+
+    const txHash =
+      await crossChainContracts.l1BitcoinRedeemer.requestRedemption(
+        walletPublicKey,
+        mainUtxo,
+        encodedVm
+      )
+
+    return {
+      targetChainTxHash: txHash,
+    }
   }
 
   /**

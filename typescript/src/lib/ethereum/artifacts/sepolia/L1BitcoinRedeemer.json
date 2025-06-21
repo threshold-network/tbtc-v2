@@ -1,0 +1,509 @@
+{
+  "address": "0xe8312BD306512c5CAD4D650df373D5597B1C697A",
+  "abi": [
+    {
+      "inputs": [],
+      "stateMutability": "nonpayable",
+      "type": "constructor"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "requestRedemptionGasOffset",
+          "type": "uint256"
+        }
+      ],
+      "name": "GasOffsetParametersUpdated",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "uint8",
+          "name": "version",
+          "type": "uint8"
+        }
+      ],
+      "name": "Initialized",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "previousOwner",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "newOwner",
+          "type": "address"
+        }
+      ],
+      "name": "OwnershipTransferred",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "redemptionKey",
+          "type": "uint256"
+        },
+        {
+          "indexed": true,
+          "internalType": "bytes20",
+          "name": "walletPubKeyHash",
+          "type": "bytes20"
+        },
+        {
+          "components": [
+            {
+              "internalType": "bytes32",
+              "name": "txHash",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "uint32",
+              "name": "txOutputIndex",
+              "type": "uint32"
+            },
+            {
+              "internalType": "uint64",
+              "name": "txOutputValue",
+              "type": "uint64"
+            }
+          ],
+          "indexed": false,
+          "internalType": "struct BitcoinTx.UTXO",
+          "name": "mainUtxo",
+          "type": "tuple"
+        },
+        {
+          "indexed": true,
+          "internalType": "bytes",
+          "name": "redemptionOutputScript",
+          "type": "bytes"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "RedemptionRequested",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "_address",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "bool",
+          "name": "authorization",
+          "type": "bool"
+        }
+      ],
+      "name": "ReimbursementAuthorizationUpdated",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "newReimbursementPool",
+          "type": "address"
+        }
+      ],
+      "name": "ReimbursementPoolUpdated",
+      "type": "event"
+    },
+    {
+      "inputs": [],
+      "name": "SATOSHI_MULTIPLIER",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "bank",
+      "outputs": [
+        {
+          "internalType": "contract IBank",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "name": "gasReimbursements",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "receiver",
+          "type": "address"
+        },
+        {
+          "internalType": "uint96",
+          "name": "gasSpent",
+          "type": "uint96"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_thresholdBridge",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_wormholeTokenBridge",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_tbtcToken",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_bank",
+          "type": "address"
+        }
+      ],
+      "name": "initialize",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "owner",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "reimbursementAuthorizations",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "reimbursementPool",
+      "outputs": [
+        {
+          "internalType": "contract ReimbursementPool",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "renounceOwnership",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes20",
+          "name": "walletPubKeyHash",
+          "type": "bytes20"
+        },
+        {
+          "components": [
+            {
+              "internalType": "bytes32",
+              "name": "txHash",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "uint32",
+              "name": "txOutputIndex",
+              "type": "uint32"
+            },
+            {
+              "internalType": "uint64",
+              "name": "txOutputValue",
+              "type": "uint64"
+            }
+          ],
+          "internalType": "struct BitcoinTx.UTXO",
+          "name": "mainUtxo",
+          "type": "tuple"
+        },
+        {
+          "internalType": "bytes",
+          "name": "encodedVm",
+          "type": "bytes"
+        }
+      ],
+      "name": "requestRedemption",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "requestRedemptionGasOffset",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "recipient",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "rescueTbtc",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "tbtcToken",
+      "outputs": [
+        {
+          "internalType": "contract IERC20Upgradeable",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "thresholdBridge",
+      "outputs": [
+        {
+          "internalType": "contract IBridge",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "newOwner",
+          "type": "address"
+        }
+      ],
+      "name": "transferOwnership",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "_requestRedemptionGasOffset",
+          "type": "uint256"
+        }
+      ],
+      "name": "updateGasOffsetParameters",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_address",
+          "type": "address"
+        },
+        {
+          "internalType": "bool",
+          "name": "authorization",
+          "type": "bool"
+        }
+      ],
+      "name": "updateReimbursementAuthorization",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "contract ReimbursementPool",
+          "name": "_reimbursementPool",
+          "type": "address"
+        }
+      ],
+      "name": "updateReimbursementPool",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "wormholeTokenBridge",
+      "outputs": [
+        {
+          "internalType": "contract IWormholeTokenBridge",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    }
+  ],
+  "transactionHash": "0x80c47206452e22911037a90c772ac390a291665fbc074d3b6f03d1494b0ae08b",
+  "receipt": {
+    "to": null,
+    "from": "0x15424dC94D4da488DB0d0e0B7aAdB86835813a63",
+    "contractAddress": "0xe8312BD306512c5CAD4D650df373D5597B1C697A",
+    "transactionIndex": 127,
+    "gasUsed": "750835",
+    "logsBloom": "0x00000000000000000000008000000000400000000000000000800000000000000008000000000800000000000000000000000000001000000000000000000000000000000000000000000000000002000001000000000000000000200000000000000000020000000000000000000800000000800000000000000000000000400000000000000000000000000000000000000000010080000000000000800000000000000000000000000000001400000000000000000000000000000000000000000020000000000000000000040000000000000400000000000000000020000000000800000000000000000000000000000000000000002000000000000000",
+    "blockHash": "0x0ec1cb292930568aae0139a10b1f14cb05df29edfe70dd0fd8212cb11cecc547",
+    "transactionHash": "0x80c47206452e22911037a90c772ac390a291665fbc074d3b6f03d1494b0ae08b",
+    "logs": [
+      {
+        "transactionIndex": 127,
+        "blockNumber": 8558171,
+        "transactionHash": "0x80c47206452e22911037a90c772ac390a291665fbc074d3b6f03d1494b0ae08b",
+        "address": "0xe8312BD306512c5CAD4D650df373D5597B1C697A",
+        "topics": [
+          "0xbc7cd75a20ee27fd9adebab32041f755214dbc6bffa90cc0225b39da2e5c2d3b",
+          "0x000000000000000000000000cdfb1051630aa1cbe500466d96abe9d6ed3a6809"
+        ],
+        "data": "0x",
+        "logIndex": 100,
+        "blockHash": "0x0ec1cb292930568aae0139a10b1f14cb05df29edfe70dd0fd8212cb11cecc547"
+      },
+      {
+        "transactionIndex": 127,
+        "blockNumber": 8558171,
+        "transactionHash": "0x80c47206452e22911037a90c772ac390a291665fbc074d3b6f03d1494b0ae08b",
+        "address": "0xe8312BD306512c5CAD4D650df373D5597B1C697A",
+        "topics": [
+          "0x8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e0",
+          "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "0x00000000000000000000000015424dc94d4da488db0d0e0b7aadb86835813a63"
+        ],
+        "data": "0x",
+        "logIndex": 101,
+        "blockHash": "0x0ec1cb292930568aae0139a10b1f14cb05df29edfe70dd0fd8212cb11cecc547"
+      },
+      {
+        "transactionIndex": 127,
+        "blockNumber": 8558171,
+        "transactionHash": "0x80c47206452e22911037a90c772ac390a291665fbc074d3b6f03d1494b0ae08b",
+        "address": "0xe8312BD306512c5CAD4D650df373D5597B1C697A",
+        "topics": [
+          "0x7f26b83ff96e1f2b6a682f133852f6798a09c465da95921460cefb3847402498"
+        ],
+        "data": "0x0000000000000000000000000000000000000000000000000000000000000001",
+        "logIndex": 102,
+        "blockHash": "0x0ec1cb292930568aae0139a10b1f14cb05df29edfe70dd0fd8212cb11cecc547"
+      },
+      {
+        "transactionIndex": 127,
+        "blockNumber": 8558171,
+        "transactionHash": "0x80c47206452e22911037a90c772ac390a291665fbc074d3b6f03d1494b0ae08b",
+        "address": "0xe8312BD306512c5CAD4D650df373D5597B1C697A",
+        "topics": [
+          "0x7e644d79422f17c01e4894b5f4f588d331ebfa28653d42ae832dc59e38c9798f"
+        ],
+        "data": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000008d58747ef805317270ff7f8e51a8018d3488b17b",
+        "logIndex": 103,
+        "blockHash": "0x0ec1cb292930568aae0139a10b1f14cb05df29edfe70dd0fd8212cb11cecc547"
+      }
+    ],
+    "blockNumber": 8558171,
+    "cumulativeGasUsed": "14203642",
+    "status": 1,
+    "byzantium": true
+  },
+  "numDeployments": 1,
+  "implementation": "0xCdFb1051630AA1cbe500466d96Abe9d6ed3a6809",
+  "devdoc": "Contract deployed as upgradable proxy"
+}

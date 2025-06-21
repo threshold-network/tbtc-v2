@@ -72,7 +72,11 @@ export class TBTC {
       (l2ChainName) => this.crossChainContracts(l2ChainName)
     )
     this.maintenance = new MaintenanceService(tbtcContracts, bitcoinClient)
-    this.redemptions = new RedemptionsService(tbtcContracts, bitcoinClient)
+    this.redemptions = new RedemptionsService(
+      tbtcContracts,
+      bitcoinClient,
+      (l2ChainName) => this.crossChainContracts(l2ChainName)
+    )
     this.tbtcContracts = tbtcContracts
     this.bitcoinClient = bitcoinClient
     this.#crossChainContractsLoader = crossChainContractsLoader

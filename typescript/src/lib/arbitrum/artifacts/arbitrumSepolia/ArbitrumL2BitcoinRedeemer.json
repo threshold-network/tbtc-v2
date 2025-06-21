@@ -1,0 +1,309 @@
+{
+  "address": "0x04F52228223caea97563576bce22FdA854707580",
+  "abi": [
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "uint8",
+          "name": "version",
+          "type": "uint8"
+        }
+      ],
+      "name": "Initialized",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "newMinimumAmount",
+          "type": "uint256"
+        }
+      ],
+      "name": "MinimumRedemptionAmountUpdated",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "previousOwner",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "newOwner",
+          "type": "address"
+        }
+      ],
+      "name": "OwnershipTransferred",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "bytes",
+          "name": "redeemerOutputScript",
+          "type": "bytes"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint32",
+          "name": "nonce",
+          "type": "uint32"
+        }
+      ],
+      "name": "RedemptionRequestedOnL2",
+      "type": "event"
+    },
+    {
+      "inputs": [],
+      "name": "gateway",
+      "outputs": [
+        {
+          "internalType": "contract IL2WormholeGateway",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_tbtc",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_gateway",
+          "type": "address"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "_l1BtcRedeemerWormholeAddress",
+          "type": "bytes32"
+        }
+      ],
+      "name": "initialize",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "l1BtcRedeemerWormholeAddress",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "minimumRedemptionAmount",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "owner",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "redeemedAmount",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "renounceOwnership",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        },
+        {
+          "internalType": "bytes",
+          "name": "redeemerOutputScript",
+          "type": "bytes"
+        },
+        {
+          "internalType": "uint32",
+          "name": "nonce",
+          "type": "uint32"
+        }
+      ],
+      "name": "requestRedemption",
+      "outputs": [
+        {
+          "internalType": "uint64",
+          "name": "",
+          "type": "uint64"
+        }
+      ],
+      "stateMutability": "payable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "tbtc",
+      "outputs": [
+        {
+          "internalType": "contract IERC20Upgradeable",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "newOwner",
+          "type": "address"
+        }
+      ],
+      "name": "transferOwnership",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "_newMinimumRedemptionAmount",
+          "type": "uint256"
+        }
+      ],
+      "name": "updateMinimumRedemptionAmount",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    }
+  ],
+  "transactionHash": "0x4b435fefaf42f005dcf69a29a39036bc868728e16738844c601258e5530d8153",
+  "receipt": {
+    "to": null,
+    "from": "0x15424dC94D4da488DB0d0e0B7aAdB86835813a63",
+    "contractAddress": "0x04F52228223caea97563576bce22FdA854707580",
+    "transactionIndex": 2,
+    "gasUsed": "749735",
+    "logsBloom": "0x00000000000000000000000000000000400000000000000000800000800000000000000000000800000800000000000000000000000000000000000000000000000000000000000000000000000002000001000000000000000000200000000000000000020000000000000000000800000000800010000000000000000000400000000000000000000000000000000000000000010080000000000000800000000000000000000000000000000400002000000000000000000000000000000000000020000000000000000000040000000010000400000000000000000020000000000000000000000000000080000000000000000000000000000000000000",
+    "blockHash": "0x90220cf9839564b811b13f89f6aa91ba95a1aeac893e37b7b31c43359f63a426",
+    "transactionHash": "0x4b435fefaf42f005dcf69a29a39036bc868728e16738844c601258e5530d8153",
+    "logs": [
+      {
+        "transactionIndex": 2,
+        "blockNumber": 163973897,
+        "transactionHash": "0x4b435fefaf42f005dcf69a29a39036bc868728e16738844c601258e5530d8153",
+        "address": "0x04F52228223caea97563576bce22FdA854707580",
+        "topics": [
+          "0xbc7cd75a20ee27fd9adebab32041f755214dbc6bffa90cc0225b39da2e5c2d3b",
+          "0x000000000000000000000000d23f06550b0a7bc98b20eb81d4c21572a97598fa"
+        ],
+        "data": "0x",
+        "logIndex": 2,
+        "blockHash": "0x90220cf9839564b811b13f89f6aa91ba95a1aeac893e37b7b31c43359f63a426"
+      },
+      {
+        "transactionIndex": 2,
+        "blockNumber": 163973897,
+        "transactionHash": "0x4b435fefaf42f005dcf69a29a39036bc868728e16738844c601258e5530d8153",
+        "address": "0x04F52228223caea97563576bce22FdA854707580",
+        "topics": [
+          "0x8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e0",
+          "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "0x00000000000000000000000015424dc94d4da488db0d0e0b7aadb86835813a63"
+        ],
+        "data": "0x",
+        "logIndex": 3,
+        "blockHash": "0x90220cf9839564b811b13f89f6aa91ba95a1aeac893e37b7b31c43359f63a426"
+      },
+      {
+        "transactionIndex": 2,
+        "blockNumber": 163973897,
+        "transactionHash": "0x4b435fefaf42f005dcf69a29a39036bc868728e16738844c601258e5530d8153",
+        "address": "0x04F52228223caea97563576bce22FdA854707580",
+        "topics": [
+          "0x7f26b83ff96e1f2b6a682f133852f6798a09c465da95921460cefb3847402498"
+        ],
+        "data": "0x0000000000000000000000000000000000000000000000000000000000000001",
+        "logIndex": 4,
+        "blockHash": "0x90220cf9839564b811b13f89f6aa91ba95a1aeac893e37b7b31c43359f63a426"
+      },
+      {
+        "transactionIndex": 2,
+        "blockNumber": 163973897,
+        "transactionHash": "0x4b435fefaf42f005dcf69a29a39036bc868728e16738844c601258e5530d8153",
+        "address": "0x04F52228223caea97563576bce22FdA854707580",
+        "topics": [
+          "0x7e644d79422f17c01e4894b5f4f588d331ebfa28653d42ae832dc59e38c9798f"
+        ],
+        "data": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000d53c3559fd18136b376d61a00c476e7452d5a89",
+        "logIndex": 5,
+        "blockHash": "0x90220cf9839564b811b13f89f6aa91ba95a1aeac893e37b7b31c43359f63a426"
+      }
+    ],
+    "blockNumber": 163973897,
+    "cumulativeGasUsed": "809658",
+    "status": 1,
+    "byzantium": true
+  },
+  "numDeployments": 1,
+  "implementation": "0xD23F06550b0A7bC98B20eb81D4c21572a97598FA",
+  "devdoc": "Contract deployed as upgradable proxy"
+}

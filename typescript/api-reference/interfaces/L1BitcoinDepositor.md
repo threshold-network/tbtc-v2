@@ -31,7 +31,7 @@ encode and decode the extra data included in the cross-chain deposit script.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:150](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L150)
+[lib/contracts/cross-chain.ts:180](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L180)
 
 ___
 
@@ -47,7 +47,7 @@ Gets the chain-specific identifier of this contract.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:144](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L144)
+[lib/contracts/cross-chain.ts:174](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L174)
 
 ___
 
@@ -71,7 +71,7 @@ The state of the deposit.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:139](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L139)
+[lib/contracts/cross-chain.ts:169](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L169)
 
 ___
 
@@ -98,4 +98,4 @@ Transaction hash of the reveal deposit transaction.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:162](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L162)
+[lib/contracts/cross-chain.ts:192](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L192)
