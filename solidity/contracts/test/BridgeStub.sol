@@ -171,4 +171,13 @@ contract BridgeStub is Bridge {
     {
         self.depositRevealAheadPeriod = _depositRevealAheadPeriod;
     }
+
+    uint64 public lastTreasuryFee;
+    function applyForRebate(address user, uint64 treasuryFee) external {
+        lastTreasuryFee = self.rebateStaking.applyForRebate(user, treasuryFee);
+    }
+
+    function cancelRebate(address user, uint256 requestedAt) external {
+        self.rebateStaking.cancelRebate(user, requestedAt);
+    }
 }

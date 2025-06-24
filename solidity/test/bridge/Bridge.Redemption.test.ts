@@ -4276,231 +4276,238 @@ describe("Bridge - Redemption", () => {
                 expect(await bridge.liveWalletsCount()).to.be.equal(0)
               })
             })
-            context("when rebate exists for the requested redemption", () => {
-              const stakeAmount = to1e18(5)
-              let availableRebate: number
+            context(
+              "when rebate applicable for the requested redemption",
+              () => {
+                const stakeAmount = to1e18(5)
+                let availableRebate: number
 
-              const data: RedemptionTestData = SinglePendingRequestedRedemption
-              let tx: ContractTransaction
-              let initialPendingRedemptionsValue: BigNumber
-              let initialRedeemerBalance: BigNumber
-              let redemptionRequest: {
-                redeemer: string
-                requestedAmount: BigNumber
-                treasuryFee: BigNumber
-                txMaxFee: BigNumber
-                requestedAt: number
-              }
+                const data: RedemptionTestData =
+                  SinglePendingRequestedRedemption
+                let tx: ContractTransaction
+                let initialPendingRedemptionsValue: BigNumber
+                let initialRedeemerBalance: BigNumber
+                let redemptionRequest: {
+                  redeemer: string
+                  requestedAmount: BigNumber
+                  treasuryFee: BigNumber
+                  txMaxFee: BigNumber
+                  requestedAt: number
+                }
 
-              const walletMembersIDs = [1, 2, 3, 4, 5]
+                const walletMembersIDs = [1, 2, 3, 4, 5]
 
-              before(async () => {
-                await createSnapshot()
+                before(async () => {
+                  await createSnapshot()
 
-                await bridge.setWallet(data.wallet.pubKeyHash, {
-                  ecdsaWalletID: data.wallet.ecdsaWalletID,
-                  mainUtxoHash: ethers.constants.HashZero,
-                  pendingRedemptionsValue: data.wallet.pendingRedemptionsValue,
-                  createdAt: await lastBlockTime(),
-                  movingFundsRequestedAt: 0,
-                  closingStartedAt: 0,
-                  pendingMovedFundsSweepRequestsCount: 0,
-                  state: walletState.Live,
-                  movingFundsTargetWalletsCommitmentHash:
-                    ethers.constants.HashZero,
-                })
-                await bridge.setWalletMainUtxo(
-                  data.wallet.pubKeyHash,
-                  data.mainUtxo
-                )
-                await bridge.setActiveWallet(data.wallet.pubKeyHash)
-
-                const redeemerSigner = await impersonateAccount(
-                  data.redemptionRequests[0].redeemer,
-                  {
-                    from: governance,
-                    value: 10,
-                  }
-                )
-
-                await makeRedemptionAllowance(
-                  redeemerSigner,
-                  data.redemptionRequests[0].amount
-                )
-
-                await t
-                  .connect(deployer)
-                  .mint(redeemerSigner.address, stakeAmount)
-                await t
-                  .connect(redeemerSigner)
-                  .approve(rebateStaking.address, stakeAmount)
-                await rebateStaking.connect(redeemerSigner).stake(stakeAmount)
-
-                await bridge
-                  .connect(redeemerSigner)
-                  .requestRedemption(
+                  await bridge.setWallet(data.wallet.pubKeyHash, {
+                    ecdsaWalletID: data.wallet.ecdsaWalletID,
+                    mainUtxoHash: ethers.constants.HashZero,
+                    pendingRedemptionsValue:
+                      data.wallet.pendingRedemptionsValue,
+                    createdAt: await lastBlockTime(),
+                    movingFundsRequestedAt: 0,
+                    closingStartedAt: 0,
+                    pendingMovedFundsSweepRequestsCount: 0,
+                    state: walletState.Live,
+                    movingFundsTargetWalletsCommitmentHash:
+                      ethers.constants.HashZero,
+                  })
+                  await bridge.setWalletMainUtxo(
                     data.wallet.pubKeyHash,
-                    data.mainUtxo,
-                    data.redemptionRequests[0].redeemerOutputScript,
+                    data.mainUtxo
+                  )
+                  await bridge.setActiveWallet(data.wallet.pubKeyHash)
+
+                  const redeemerSigner = await impersonateAccount(
+                    data.redemptionRequests[0].redeemer,
+                    {
+                      from: governance,
+                      value: 10,
+                    }
+                  )
+
+                  await makeRedemptionAllowance(
+                    redeemerSigner,
                     data.redemptionRequests[0].amount
                   )
-                availableRebate = (
-                  await rebateStaking.getAvailableRebate(redeemerSigner.address)
-                ).toNumber()
 
-                await increaseTime(redemptionTimeout)
+                  await t
+                    .connect(deployer)
+                    .mint(redeemerSigner.address, stakeAmount)
+                  await t
+                    .connect(redeemerSigner)
+                    .approve(rebateStaking.address, stakeAmount)
+                  await rebateStaking.connect(redeemerSigner).stake(stakeAmount)
 
-                initialPendingRedemptionsValue = (
-                  await bridge.wallets(data.wallet.pubKeyHash)
-                ).pendingRedemptionsValue
-
-                initialRedeemerBalance = await bank.balanceOf(
-                  data.redemptionRequests[0].redeemer
-                )
-
-                const redemptionKey = buildRedemptionKey(
-                  data.wallet.pubKeyHash,
-                  data.redemptionRequests[0].redeemerOutputScript
-                )
-
-                redemptionRequest = await bridge.pendingRedemptions(
-                  redemptionKey
-                )
-
-                tx = await bridge
-                  .connect(thirdParty)
-                  .notifyRedemptionTimeout(
-                    data.wallet.pubKeyHash,
-                    walletMembersIDs,
-                    data.redemptionRequests[0].redeemerOutputScript
-                  )
-              })
-
-              after(async () => {
-                walletRegistry.seize.reset()
-
-                await restoreSnapshot()
-              })
-
-              it("should update the wallet's pending redemptions value", async () => {
-                const expectedPendingRedemptionsValue =
-                  initialPendingRedemptionsValue
-                    .sub(data.redemptionRequests[0].amount)
-                    .add(redemptionRequest.treasuryFee)
-
-                const currentPendingRedemptionsValue = (
-                  await bridge.wallets(data.wallet.pubKeyHash)
-                ).pendingRedemptionsValue
-
-                expect(currentPendingRedemptionsValue).to.be.equal(
-                  expectedPendingRedemptionsValue
-                )
-              })
-
-              it("should return the requested amount of tokens to the redeemer", async () => {
-                const expectedRedeemerBalance = initialRedeemerBalance.add(
-                  data.redemptionRequests[0].amount
-                )
-                const currentRedeemerBalance = await bank.balanceOf(
-                  data.redemptionRequests[0].redeemer
-                )
-                expect(currentRedeemerBalance).to.be.equal(
-                  expectedRedeemerBalance
-                )
-              })
-
-              it("should remove the request from the pending redemptions", async () => {
-                const redemptionKey = buildRedemptionKey(
-                  data.wallet.pubKeyHash,
-                  data.redemptionRequests[0].redeemerOutputScript
-                )
-                const request = await bridge.pendingRedemptions(redemptionKey)
-
-                expect(request.requestedAt).to.be.equal(0)
-              })
-
-              it("should add the request to the timed-out redemptions", async () => {
-                const timedOutRequest = await bridge.timedOutRedemptions(
-                  buildRedemptionKey(
-                    data.wallet.pubKeyHash,
-                    data.redemptionRequests[0].redeemerOutputScript
-                  )
-                )
-
-                expect(timedOutRequest.redeemer).to.be.equal(
-                  data.redemptionRequests[0].redeemer
-                )
-                expect(timedOutRequest.requestedAmount).to.be.equal(
-                  redemptionRequest.requestedAmount
-                )
-                expect(timedOutRequest.treasuryFee).to.be.equal(
-                  redemptionRequest.treasuryFee
-                )
-                expect(timedOutRequest.txMaxFee).to.be.equal(
-                  redemptionRequest.txMaxFee
-                )
-                expect(timedOutRequest.requestedAt).to.be.equal(
-                  redemptionRequest.requestedAt
-                )
-              })
-
-              it("should change the wallet's state to MovingFunds", async () => {
-                const wallet = await bridge.wallets(data.wallet.pubKeyHash)
-                expect(wallet.state).to.be.equal(walletState.MovingFunds)
-              })
-
-              it("should set the wallet's move funds requested timestamp", async () => {
-                const wallet = await bridge.wallets(data.wallet.pubKeyHash)
-                expect(wallet.movingFundsRequestedAt).to.be.equal(
-                  await lastBlockTime()
-                )
-              })
-
-              it("should emit WalletMovingFunds event", async () => {
-                await expect(tx)
-                  .to.emit(bridge, "WalletMovingFunds")
-                  .withArgs(data.wallet.ecdsaWalletID, data.wallet.pubKeyHash)
-              })
-
-              it("should delete the active wallet public key hash", async () => {
-                expect(await bridge.activeWalletPubKeyHash()).to.be.equal(
-                  "0x0000000000000000000000000000000000000000"
-                )
-              })
-
-              it("should call the ECDSA wallet registry's seize function", async () => {
-                expect(walletRegistry.seize).to.have.been.calledOnceWith(
-                  redemptionTimeoutSlashingAmount,
-                  redemptionTimeoutNotifierRewardMultiplier,
-                  await thirdParty.getAddress(),
-                  data.wallet.ecdsaWalletID,
-                  walletMembersIDs
-                )
-              })
-
-              it("should emit RedemptionTimedOut event", async () => {
-                await expect(tx)
-                  .to.emit(bridge, "RedemptionTimedOut")
-                  .withArgs(
-                    data.wallet.pubKeyHash,
-                    data.redemptionRequests[0].redeemerOutputScript
-                  )
-              })
-
-              it("should decrease the live wallets counter", async () => {
-                expect(await bridge.liveWalletsCount()).to.be.equal(0)
-              })
-
-              it("should increase rebate cap", async () => {
-                expect(
-                  (
+                  await bridge
+                    .connect(redeemerSigner)
+                    .requestRedemption(
+                      data.wallet.pubKeyHash,
+                      data.mainUtxo,
+                      data.redemptionRequests[0].redeemerOutputScript,
+                      data.redemptionRequests[0].amount
+                    )
+                  availableRebate = (
                     await rebateStaking.getAvailableRebate(
-                      data.redemptionRequests[0].redeemer
+                      redeemerSigner.address
                     )
                   ).toNumber()
-                ).to.be.greaterThan(availableRebate)
-              })
-            })
+
+                  await increaseTime(redemptionTimeout)
+
+                  initialPendingRedemptionsValue = (
+                    await bridge.wallets(data.wallet.pubKeyHash)
+                  ).pendingRedemptionsValue
+
+                  initialRedeemerBalance = await bank.balanceOf(
+                    data.redemptionRequests[0].redeemer
+                  )
+
+                  const redemptionKey = buildRedemptionKey(
+                    data.wallet.pubKeyHash,
+                    data.redemptionRequests[0].redeemerOutputScript
+                  )
+
+                  redemptionRequest = await bridge.pendingRedemptions(
+                    redemptionKey
+                  )
+
+                  tx = await bridge
+                    .connect(thirdParty)
+                    .notifyRedemptionTimeout(
+                      data.wallet.pubKeyHash,
+                      walletMembersIDs,
+                      data.redemptionRequests[0].redeemerOutputScript
+                    )
+                })
+
+                after(async () => {
+                  walletRegistry.seize.reset()
+
+                  await restoreSnapshot()
+                })
+
+                it("should update the wallet's pending redemptions value", async () => {
+                  const expectedPendingRedemptionsValue =
+                    initialPendingRedemptionsValue
+                      .sub(data.redemptionRequests[0].amount)
+                      .add(redemptionRequest.treasuryFee)
+
+                  const currentPendingRedemptionsValue = (
+                    await bridge.wallets(data.wallet.pubKeyHash)
+                  ).pendingRedemptionsValue
+
+                  expect(currentPendingRedemptionsValue).to.be.equal(
+                    expectedPendingRedemptionsValue
+                  )
+                })
+
+                it("should return the requested amount of tokens to the redeemer", async () => {
+                  const expectedRedeemerBalance = initialRedeemerBalance.add(
+                    data.redemptionRequests[0].amount
+                  )
+                  const currentRedeemerBalance = await bank.balanceOf(
+                    data.redemptionRequests[0].redeemer
+                  )
+                  expect(currentRedeemerBalance).to.be.equal(
+                    expectedRedeemerBalance
+                  )
+                })
+
+                it("should remove the request from the pending redemptions", async () => {
+                  const redemptionKey = buildRedemptionKey(
+                    data.wallet.pubKeyHash,
+                    data.redemptionRequests[0].redeemerOutputScript
+                  )
+                  const request = await bridge.pendingRedemptions(redemptionKey)
+
+                  expect(request.requestedAt).to.be.equal(0)
+                })
+
+                it("should add the request to the timed-out redemptions", async () => {
+                  const timedOutRequest = await bridge.timedOutRedemptions(
+                    buildRedemptionKey(
+                      data.wallet.pubKeyHash,
+                      data.redemptionRequests[0].redeemerOutputScript
+                    )
+                  )
+
+                  expect(timedOutRequest.redeemer).to.be.equal(
+                    data.redemptionRequests[0].redeemer
+                  )
+                  expect(timedOutRequest.requestedAmount).to.be.equal(
+                    redemptionRequest.requestedAmount
+                  )
+                  expect(timedOutRequest.treasuryFee).to.be.equal(
+                    redemptionRequest.treasuryFee
+                  )
+                  expect(timedOutRequest.txMaxFee).to.be.equal(
+                    redemptionRequest.txMaxFee
+                  )
+                  expect(timedOutRequest.requestedAt).to.be.equal(
+                    redemptionRequest.requestedAt
+                  )
+                })
+
+                it("should change the wallet's state to MovingFunds", async () => {
+                  const wallet = await bridge.wallets(data.wallet.pubKeyHash)
+                  expect(wallet.state).to.be.equal(walletState.MovingFunds)
+                })
+
+                it("should set the wallet's move funds requested timestamp", async () => {
+                  const wallet = await bridge.wallets(data.wallet.pubKeyHash)
+                  expect(wallet.movingFundsRequestedAt).to.be.equal(
+                    await lastBlockTime()
+                  )
+                })
+
+                it("should emit WalletMovingFunds event", async () => {
+                  await expect(tx)
+                    .to.emit(bridge, "WalletMovingFunds")
+                    .withArgs(data.wallet.ecdsaWalletID, data.wallet.pubKeyHash)
+                })
+
+                it("should delete the active wallet public key hash", async () => {
+                  expect(await bridge.activeWalletPubKeyHash()).to.be.equal(
+                    "0x0000000000000000000000000000000000000000"
+                  )
+                })
+
+                it("should call the ECDSA wallet registry's seize function", async () => {
+                  expect(walletRegistry.seize).to.have.been.calledOnceWith(
+                    redemptionTimeoutSlashingAmount,
+                    redemptionTimeoutNotifierRewardMultiplier,
+                    await thirdParty.getAddress(),
+                    data.wallet.ecdsaWalletID,
+                    walletMembersIDs
+                  )
+                })
+
+                it("should emit RedemptionTimedOut event", async () => {
+                  await expect(tx)
+                    .to.emit(bridge, "RedemptionTimedOut")
+                    .withArgs(
+                      data.wallet.pubKeyHash,
+                      data.redemptionRequests[0].redeemerOutputScript
+                    )
+                })
+
+                it("should decrease the live wallets counter", async () => {
+                  expect(await bridge.liveWalletsCount()).to.be.equal(0)
+                })
+
+                it("should increase rebate cap", async () => {
+                  expect(
+                    (
+                      await rebateStaking.getAvailableRebate(
+                        data.redemptionRequests[0].redeemer
+                      )
+                    ).toNumber()
+                  ).to.be.greaterThan(availableRebate)
+                })
+              }
+            )
           })
 
           context("when the wallet is not the active wallet", () => {

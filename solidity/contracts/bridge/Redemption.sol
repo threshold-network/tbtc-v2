@@ -533,7 +533,7 @@ library Redemption {
             ? amount / self.redemptionTreasuryFeeDivisor
             : 0;
         if (treasuryFee > 0 && address(self.rebateStaking) != address(0)) {
-            treasuryFee = self.rebateStaking.checkForRebate(redeemer, treasuryFee);
+            treasuryFee = self.rebateStaking.applyForRebate(redeemer, treasuryFee);
         }
         uint64 txMaxFee = self.redemptionTxMaxFee;
 
