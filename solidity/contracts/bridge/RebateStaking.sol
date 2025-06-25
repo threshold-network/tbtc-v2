@@ -65,7 +65,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     // the struct in the upcoming versions we need to reduce the array size.
     // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
     // slither-disable-next-line unused-state
-    uint256[50] __gap;
+    uint256[50] private __gap;
 
     event RollingWindowUpdated(uint256 rollingWindow);
     event UnstakingPeriodUpdated(uint256 unstakingPeriod);
@@ -171,6 +171,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
             return rebateCap;
         }
 
+        /* solhint-disable-next-line not-rely-on-time */
         uint256 windowStart = block.timestamp - rollingWindow;
         for (uint256 i = stakeInfo.rollingWindowStartIndex; i < stakeInfo.rebates.length; i++) {
             Rebate storage rebate = stakeInfo.rebates[i];
@@ -190,6 +191,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
             return 0;
         }
 
+        /* solhint-disable-next-line not-rely-on-time */
         uint256 windowStart = block.timestamp - rollingWindow;
         for (uint256 i = stakeInfo.rollingWindowStartIndex; i < stakeInfo.rebates.length; i++) {
             Rebate storage rebate = stakeInfo.rebates[i];
@@ -227,6 +229,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         }
 
         Rebate storage value = stakeInfo.rebates.push();
+        /* solhint-disable-next-line not-rely-on-time */
         value.timestamp = uint32(block.timestamp);
         value.feeRebate = rebate;
         emit RebateReceived(user, rebate);
@@ -238,12 +241,13 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     /// @param requestedAt Timestamp when redeem was requested
     /// @dev Requirements:
     ///      - The caller must be the bridge contract
-    function cancelRebate(address user, uint256 requestedAt) onlyBridge external {
+    function cancelRebate(address user, uint256 requestedAt) external onlyBridge {
         Stake storage stakeInfo = stakes[user];
         if (stakeInfo.stakedAmount == 0) {
             return;
         }
 
+        /* solhint-disable-next-line not-rely-on-time */
         uint256 windowStart = block.timestamp - rollingWindow;
         for (uint256 i = stakeInfo.rollingWindowStartIndex; i < stakeInfo.rebates.length; i++) {
             Rebate storage rebate = stakeInfo.rebates[i];
@@ -276,6 +280,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         Stake storage stakeInfo = stakes[msg.sender];
         require(stakeInfo.unstakingTimestamp == 0, "Unstaking already started");
         require(amount <= stakeInfo.stakedAmount, "Amount is too big");
+        /* solhint-disable-next-line not-rely-on-time */
         stakeInfo.unstakingTimestamp = uint32(block.timestamp);
         stakeInfo.unstakingAmount = amount;
         emit UnstakeStarted(msg.sender, amount);
@@ -289,6 +294,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
             "No unstaking process"
         );
         require(
+            /* solhint-disable-next-line not-rely-on-time */
             stakeInfo.unstakingTimestamp + unstakingPeriod <= block.timestamp, 
             "No finished unstaking process"
         );
