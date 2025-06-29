@@ -41,7 +41,7 @@ import "../../integrator/IL2WormholeGateway.sol";
 ///            - A unique identifier for the transaction..
 ///         4. This L2BTCRedeemerWormhole contract:
 ///            a. Takes custody of the specified amount of L2TBTC from the user.
-///            b. Calls the `sendTbtcWithPayloadToEthereum` function on the
+///            b. Calls the `sendTbtcWithPayload` function on the
 ///               L2WormholeGateway contract.
 ///         5. The L2WormholeGateway contract then:
 ///            a. Burns the L2TBTC tokens (now held by L2BTCRedeemerWormhole).
@@ -132,11 +132,13 @@ contract L2BTCRedeemerWormhole is
     ///      - The `amount` must meet the `minimumRedemptionAmount`.
     ///      - The `amount` after normalization must not be 0.
     /// @param amount The amount of tBTC to be redeemed.
+    /// @param recipientChain The Wormhole chain ID of the recipient chain.
     /// @param redeemerOutputScript The Bitcoin output script for the L1 BTC recipient.
     /// @param nonce The Wormhole nonce (unique identifier for the transaction).
     /// @return The Wormhole sequence number.
     function requestRedemption(
         uint256 amount,
+        uint16 recipientChain,
         bytes calldata redeemerOutputScript,
         uint32 nonce
     ) external payable nonReentrant returns (uint64) {
@@ -167,7 +169,7 @@ contract L2BTCRedeemerWormhole is
         tbtc.safeTransferFrom(msg.sender, address(this), amount);
 
         // Approve the L2WormholeGateway to spend/burn tBTC held by this contract.
-        // This allows the gateway's sendTbtcWithPayloadToEthereum function to
+        // This allows the gateway's sendTbtcWithPayload function to
         // successfully call tbtc.burnFrom(address(this), amount).
         tbtc.safeIncreaseAllowance(address(gateway), amount);
 
@@ -175,8 +177,9 @@ contract L2BTCRedeemerWormhole is
         emit RedemptionRequestedOnL2(amount, redeemerOutputScript, nonce);
 
         return
-            gateway.sendTbtcWithPayloadToEthereum{value: msg.value}(
+            gateway.sendTbtcWithPayload{value: msg.value}(
                 amount,
+                recipientChain,
                 l1BtcRedeemerWormholeAddress,
                 nonce,
                 redeemerOutputScript

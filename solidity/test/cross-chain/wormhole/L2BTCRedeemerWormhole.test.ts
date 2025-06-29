@@ -257,7 +257,7 @@ describe("L2BTCRedeemerWormhole", () => {
 
     beforeEach(async () => {
       await createSnapshot()
-      gateway.sendTbtcWithPayloadToEthereum.reset()
+      gateway.sendTbtcWithPayload.reset()
       await tbtc
         .connect(user)
         .approve(l2BtcRedeemer.address, ethers.constants.MaxUint256)
@@ -284,9 +284,10 @@ describe("L2BTCRedeemerWormhole", () => {
 
       beforeEach(async () => {
         await createSnapshot()
-        gateway.sendTbtcWithPayloadToEthereum
+        gateway.sendTbtcWithPayload
           .whenCalledWith(
             exampleAmount,
+            l1ChainId,
             toWormholeFormat(l1BtcRedeemerWormholeAddress),
             exampleNonce,
             exampleRedeemerOutputScript
@@ -317,11 +318,12 @@ describe("L2BTCRedeemerWormhole", () => {
         expect(allowance).to.be.gte(exampleAmount)
       })
 
-      it("should call gateway.sendTbtcWithPayloadToEthereum with correct parameters", async () => {
+      it("should call gateway.sendTbtcWithPayload with correct parameters", async () => {
         expect(
-          gateway.sendTbtcWithPayloadToEthereum
+          gateway.sendTbtcWithPayload
         ).to.have.been.calledOnceWith(
           exampleAmount,
+          l1ChainId,
           toWormholeFormat(l1BtcRedeemerWormholeAddress),
           exampleNonce,
           exampleRedeemerOutputScript
@@ -336,9 +338,10 @@ describe("L2BTCRedeemerWormhole", () => {
 
       it("should return the sequence number from the gateway", async () => {
         // Re-program mock for this specific static call test
-        gateway.sendTbtcWithPayloadToEthereum
+        gateway.sendTbtcWithPayload
           .whenCalledWith(
             exampleAmount,
+            l1ChainId,
             toWormholeFormat(l1BtcRedeemerWormholeAddress),
             exampleNonce,
             exampleRedeemerOutputScript
@@ -366,9 +369,10 @@ describe("L2BTCRedeemerWormhole", () => {
 
       beforeEach(async () => {
         await createSnapshot()
-        gateway.sendTbtcWithPayloadToEthereum
+        gateway.sendTbtcWithPayload
           .whenCalledWith(
             exampleAmount,
+            l1ChainId,
             toWormholeFormat(l1BtcRedeemerWormholeAddress),
             exampleNonce,
             exampleP2WPKHOutputScript // Use P2WPKH script
@@ -389,11 +393,12 @@ describe("L2BTCRedeemerWormhole", () => {
         )
       })
 
-      it("should call gateway.sendTbtcWithPayloadToEthereum with P2WPKH script", async () => {
+      it("should call gateway.sendTbtcWithPayload with P2WPKH script", async () => {
         expect(
-          gateway.sendTbtcWithPayloadToEthereum
+          gateway.sendTbtcWithPayload
         ).to.have.been.calledOnceWith(
           exampleAmount,
+          l1ChainId,
           toWormholeFormat(l1BtcRedeemerWormholeAddress),
           exampleNonce,
           exampleP2WPKHOutputScript // Use P2WPKH script
@@ -417,9 +422,10 @@ describe("L2BTCRedeemerWormhole", () => {
 
       beforeEach(async () => {
         await createSnapshot()
-        gateway.sendTbtcWithPayloadToEthereum
+        gateway.sendTbtcWithPayload
           .whenCalledWith(
             exampleAmount,
+            l1ChainId,
             toWormholeFormat(l1BtcRedeemerWormholeAddress),
             exampleNonce,
             exampleP2SHOutputScript // Use P2SH script
@@ -440,11 +446,12 @@ describe("L2BTCRedeemerWormhole", () => {
         )
       })
 
-      it("should call gateway.sendTbtcWithPayloadToEthereum with P2SH script", async () => {
+      it("should call gateway.sendTbtcWithPayload with P2SH script", async () => {
         expect(
-          gateway.sendTbtcWithPayloadToEthereum
+          gateway.sendTbtcWithPayload
         ).to.have.been.calledOnceWith(
           exampleAmount,
+          l1ChainId,
           toWormholeFormat(l1BtcRedeemerWormholeAddress),
           exampleNonce,
           exampleP2SHOutputScript // Use P2SH script
@@ -470,9 +477,10 @@ describe("L2BTCRedeemerWormhole", () => {
 
         beforeEach(async () => {
           await createSnapshot()
-          gateway.sendTbtcWithPayloadToEthereum
+          gateway.sendTbtcWithPayload
             .whenCalledWith(
               exampleAmount,
+              l1ChainId,
               toWormholeFormat(l1BtcRedeemerWormholeAddress),
               exampleNonce,
               exampleP2WSHOutputScript // Use P2WSH script
@@ -493,11 +501,12 @@ describe("L2BTCRedeemerWormhole", () => {
           )
         })
 
-        it("should call gateway.sendTbtcWithPayloadToEthereum with P2WSH script", async () => {
+        it("should call gateway.sendTbtcWithPayload with P2WSH script", async () => {
           expect(
-            gateway.sendTbtcWithPayloadToEthereum
+            gateway.sendTbtcWithPayload
           ).to.have.been.calledOnceWith(
             exampleAmount,
+            l1ChainId,
             toWormholeFormat(l1BtcRedeemerWormholeAddress),
             exampleNonce,
             exampleP2WSHOutputScript // Use P2WSH script
@@ -576,11 +585,12 @@ describe("L2BTCRedeemerWormhole", () => {
       })
     })
 
-    context("when gateway.sendTbtcWithPayloadToEthereum reverts", () => {
+    context("when gateway.sendTbtcWithPayload reverts", () => {
       it("should revert", async () => {
-        gateway.sendTbtcWithPayloadToEthereum
+        gateway.sendTbtcWithPayload
           .whenCalledWith(
             exampleAmount,
+            l1ChainId,
             toWormholeFormat(l1BtcRedeemerWormholeAddress),
             exampleNonce,
             exampleRedeemerOutputScript

@@ -109,10 +109,6 @@ contract L2WormholeGateway is
 
     event MintingLimitUpdated(uint256 mintingLimit);
 
-    /// @notice Wormhole Chain ID for Ethereum. This ID is used by Wormhole for
-    ///         Ethereum Mainnet and its common testnets (e.g., Sepolia, Goerli).
-    uint16 public constant WORMHOLE_ETHEREUM_CHAIN_ID = 2;
-
     function initialize(
         IWormholeTokenBridge _bridge,
         IERC20Upgradeable _bridgeToken,
@@ -249,19 +245,20 @@ contract L2WormholeGateway is
     ///      - The recipient must not be 0x0.
     ///      - The amount to transfer must not be 0,
     ///      - The amount to transfer must be >= 10^10 (1e18 precision).
-    ///      - The target chain is always Ethereum (Wormhole chain ID 2).
     ///      This function uses `transferTokensWithPayload` to send tBTC directly
-    ///      to the `recipient` contract address on Ethereum. The `arbiterFee` is
+    ///      to the `recipient` contract address on the recipient chain. The `arbiterFee` is
     ///      not applicable and implicitly 0.
     /// @param amount The amount of tBTC to be sent.
-    /// @param recipient The Wormhole-formatted address of the target contract on Ethereum
+    /// @param recipientChain The Wormhole chain ID of the recipient chain.
+    /// @param recipient The Wormhole-formatted address of the target contract on the recipient chain
     ///                  that will receive the tokens and process the payload.
     /// @param nonce The Wormhole nonce used to batch messages together.
     /// @param payload The arbitrary data to be passed to and processed by the `recipient`
-    ///                contract on Ethereum.
+    ///                contract on the recipient chain.
     /// @return The Wormhole sequence number.
-    function sendTbtcWithPayloadToEthereum(
+    function sendTbtcWithPayload(
         uint256 amount,
+        uint16 recipientChain,
         bytes32 recipient,
         uint32 nonce,
         bytes calldata payload
@@ -283,7 +280,7 @@ contract L2WormholeGateway is
 
         emit WormholeTbtcSent(
             amount,
-            WORMHOLE_ETHEREUM_CHAIN_ID,
+            recipientChain,
             bytes32(0), // No specific tBTC gateway from 'gateways' mapping is used; 'recipient' is the direct target contract.
             recipient,
             0, // arbiterFee is 0 as this function sends with payload
@@ -298,7 +295,7 @@ contract L2WormholeGateway is
             bridge.transferTokensWithPayload{value: msg.value}(
                 address(bridgeToken),
                 amount,
-                WORMHOLE_ETHEREUM_CHAIN_ID,
+                recipientChain,
                 recipient,
                 nonce,
                 payload
