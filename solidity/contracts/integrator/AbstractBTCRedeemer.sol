@@ -23,6 +23,7 @@ import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "./IBridge.sol";
 import "./IBank.sol";
 import "./BitcoinTx.sol";
+import "./ITBTCVault.sol";
 
 /// @title Abstract AbstractBTCRedeemer contract.
 /// @notice This abstract contract is meant to facilitate integration of protocols
@@ -81,6 +82,8 @@ abstract contract AbstractBTCRedeemer is OwnableUpgradeable {
     IERC20Upgradeable public tbtcToken;
     /// @notice Bank contract address.
     IBank public bank;
+    /// @notice TBTC vault contract address.
+    ITBTCVault public tbtcVault;
 
     // Reserved storage space that allows adding more variables without affecting
     // the storage layout of the child contracts. The convention from OpenZeppelin
@@ -96,7 +99,8 @@ abstract contract AbstractBTCRedeemer is OwnableUpgradeable {
     function __AbstractBTCRedeemer_initialize(
         address _thresholdBridge,
         address _tbtcToken,
-        address _bank
+        address _bank,
+        address _tbtcVault
     ) internal {
         require(
             address(thresholdBridge) == address(0) &&
@@ -111,10 +115,12 @@ abstract contract AbstractBTCRedeemer is OwnableUpgradeable {
         );
         require(_tbtcToken != address(0), "TBTC token address cannot be zero");
         require(_bank != address(0), "Bank address cannot be zero");
+        require(_tbtcVault != address(0), "TBTC vault address cannot be zero");
 
         thresholdBridge = IBridge(_thresholdBridge);
         tbtcToken = IERC20Upgradeable(_tbtcToken);
         bank = IBank(_bank);
+        tbtcVault = ITBTCVault(_tbtcVault);
     }
 
     /// @notice Requests a redemption from the Bridge.
@@ -136,11 +142,26 @@ abstract contract AbstractBTCRedeemer is OwnableUpgradeable {
         bytes20 walletPubKeyHash,
         BitcoinTx.UTXO memory mainUtxo,
         bytes memory redemptionOutputScript,
-        uint64 amount
+        uint256 amount
     ) internal returns (uint256 redemptionKey, uint256 tbtcAmount) {
+        // Reset approval to 0 and approve the TBTC vault to pull tBTC tokens from
+        // this contract to proceed with unminting.
+        tbtcToken.safeApprove(address(tbtcVault), 0);
+        tbtcToken.safeApprove(address(tbtcVault), amount);
+        // Unmint tBTC tokens. This burns the ERC-20 tokens and credits this
+        // contract's balance in the Bank with the corresponding value in satoshis.
+        tbtcVault.unmint(amount);
+
+        // Convert the tBTC token amount (1e18 precision) to satoshis
+        // (1e8 precision) for Bridge operations.
+        uint64 amountInSatoshis = uint64(amount / SATOSHI_MULTIPLIER);
+
         // This contract (as balanceOwner) approves the Bridge to spend its Bank balance.
         // The amount for Bank allowance is in satoshi units (which is what `amount` already is).
-        bank.increaseBalanceAllowance(address(thresholdBridge), amount);
+        bank.increaseBalanceAllowance(
+            address(thresholdBridge),
+            amountInSatoshis
+        );
 
         // This contract calls the Bridge. The Bridge will see `msg.sender` (this contract) as the `balanceOwner`.
         // The Bridge's internal Redemption logic will then call `bank.transferBalanceFrom(address(this), address(bridge_or_redemption_contract), amount)`.
@@ -150,7 +171,7 @@ abstract contract AbstractBTCRedeemer is OwnableUpgradeable {
             walletPubKeyHash,
             mainUtxo,
             redemptionOutputScript,
-            amount
+            amountInSatoshis
         );
 
         redemptionKey = _getRedemptionKey(

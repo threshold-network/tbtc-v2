@@ -13,9 +13,15 @@ contract TestBTCRedeemer is AbstractBTCRedeemer {
     function initialize(
         address _bridge,
         address _tbtcToken,
-        address _bank
+        address _bank,
+        address _tbtcVault
     ) external {
-        __AbstractBTCRedeemer_initialize(_bridge, _tbtcToken, _bank);
+        __AbstractBTCRedeemer_initialize(
+            _bridge,
+            _tbtcToken,
+            _bank,
+            _tbtcVault
+        );
         _transferOwnership(msg.sender); // Set owner for rescueTbtc
     }
 
@@ -25,11 +31,13 @@ contract TestBTCRedeemer is AbstractBTCRedeemer {
         bytes calldata redemptionOutputScript,
         uint64 amount
     ) external {
+        // Convert satoshis to tBTC (1e18 precision)
+        uint256 amountInTbtc = uint256(amount) * SATOSHI_MULTIPLIER;
         (uint256 redemptionKey, uint256 tbtcAmount) = _requestRedemption(
             walletPubKeyHash,
             mainUtxo,
             redemptionOutputScript,
-            amount
+            amountInTbtc
         );
         emit RequestRedemptionReturned(redemptionKey, tbtcAmount);
     }

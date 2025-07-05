@@ -106,9 +106,15 @@ contract L1BTCRedeemerWormhole is
         address _thresholdBridge,
         address _wormholeTokenBridge,
         address _tbtcToken,
-        address _bank
+        address _bank,
+        address _tbtcVault
     ) external initializer {
-        __AbstractBTCRedeemer_initialize(_thresholdBridge, _tbtcToken, _bank);
+        __AbstractBTCRedeemer_initialize(
+            _thresholdBridge,
+            _tbtcToken,
+            _bank,
+            _tbtcVault
+        );
         __Ownable_init();
 
         require(
@@ -205,9 +211,6 @@ contract L1BTCRedeemerWormhole is
             .parseTransferWithPayload(encoded)
             .payload;
 
-        // Convert the received ERC20 amount (1e18) to satoshi equivalent (1e8) for Bridge operations.
-        uint64 amountInSatoshis = uint64(amount / SATOSHI_MULTIPLIER);
-
         // Input parameters do not have to be validated in any way.
         // The tBTC Bridge is responsible for validating whether the provided
         // redemption data is correct.
@@ -215,7 +218,7 @@ contract L1BTCRedeemerWormhole is
             walletPubKeyHash,
             mainUtxo,
             redemptionOutputScript,
-            amountInSatoshis
+            amount
         );
 
         // The function is non-reentrant.

@@ -12,6 +12,7 @@ import {
   L2TBTC,
   ReimbursementPool,
   WormholeBridgeStub,
+  MockTBTCVault,
 } from "../../../typechain"
 
 chai.use(smock.matchers)
@@ -37,6 +38,7 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
   let bridge: MockTBTCBridge
   let reimbursementPool: FakeContract<ReimbursementPool>
   let bank: MockBank
+  let tbtcVault: MockTBTCVault
 
   let thirdParty: SignerWithAddress
   let treasury: SignerWithAddress
@@ -75,6 +77,13 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
     const MockBankFactory = await ethers.getContractFactory("MockBank")
     const _bank = (await MockBankFactory.deploy()) as MockBank
     await _bank.deployed()
+
+    // Deploy mock TBTC vault
+    const MockTBTCVaultFactory = await ethers.getContractFactory(
+      "contracts/test/MockTBTCVault.sol:MockTBTCVault"
+    )
+    const _tbtcVault = (await MockTBTCVaultFactory.deploy()) as MockTBTCVault
+    await _tbtcVault.deployed()
 
     //
     // Deploy test token as the Wormhole Bridge L2 tBTC representation.
@@ -116,6 +125,9 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
     await _tbtcToken.connect(_deployer).addMinter(_deployer.address)
     await _tbtcToken.deployed()
 
+    // Set the tbtcToken on the MockTBTCVault
+    await _tbtcVault.setTbtcToken(_tbtcToken.address)
+
     const _wormholeTokenBridge = await smock.fake<IWormholeTokenBridge>(
       "IWormholeTokenBridge"
     )
@@ -136,6 +148,7 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
           _wormholeTokenBridge.address,
           _tbtcToken.address,
           _bank.address,
+          _tbtcVault.address,
         ],
         factoryOpts: { signer: _deployer },
         proxyOpts: {
@@ -172,6 +185,7 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
       bridge: _bridge,
       reimbursementPool: _reimbursementPool,
       bank: _bank,
+      tbtcVault: _tbtcVault,
       tbtcToken: _tbtcToken,
     }
   }
@@ -191,6 +205,7 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
       reimbursementPool,
       bank,
       tbtcToken,
+      tbtcVault,
     } = await waffle.loadFixture(contractsFixture))
   })
 
@@ -543,8 +558,10 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
           )
       })
 
-      it("should transfer tBTC tokens to the contract", async () => {
-        expect(await tbtcToken.balanceOf(l1BtcRedeemer.address)).to.equal(
+      it("should transfer tBTC tokens to the vault", async () => {
+        // After redemption, tokens should be transferred from the redeemer to the vault
+        expect(await tbtcToken.balanceOf(l1BtcRedeemer.address)).to.equal(0)
+        expect(await tbtcToken.balanceOf(tbtcVault.address)).to.equal(
           exampleAmount
         )
       })
@@ -959,6 +976,7 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
 
       it("should handle balance correctly", async () => {
         const balanceBefore = await tbtcToken.balanceOf(l1BtcRedeemer.address)
+        const vaultBalanceBefore = await tbtcToken.balanceOf(tbtcVault.address)
 
         await l1BtcRedeemer
           .connect(relayer)
@@ -969,9 +987,13 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
           )
 
         const balanceAfter = await tbtcToken.balanceOf(l1BtcRedeemer.address)
-        // The mock doesn't actually transfer tokens from Wormhole
-        // The balance should remain the same after redemption in the mock
-        expect(balanceAfter).to.equal(balanceBefore)
+        const vaultBalanceAfter = await tbtcToken.balanceOf(tbtcVault.address)
+
+        // The tokens should be transferred from redeemer to vault during unmint
+        expect(balanceAfter).to.equal(0)
+        expect(vaultBalanceAfter).to.equal(
+          vaultBalanceBefore.add(balanceBefore)
+        )
       })
     })
 

@@ -6,6 +6,7 @@ import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "../cross-chain/wormhole/Wormhole.sol";
 import "../integrator/AbstractBTCRedeemer.sol";
+import "../integrator/IBridge.sol";
 
 contract MockL1BTCRedeemerWormhole is
     AbstractBTCRedeemer,
@@ -51,9 +52,15 @@ contract MockL1BTCRedeemerWormhole is
         address _thresholdBridge,
         address _wormholeTokenBridge,
         address _tbtcToken,
-        address _bank
+        address _bank,
+        address _tbtcVault
     ) external initializer {
-        __AbstractBTCRedeemer_initialize(_thresholdBridge, _tbtcToken, _bank);
+        __AbstractBTCRedeemer_initialize(
+            _thresholdBridge,
+            _tbtcToken,
+            _bank,
+            _tbtcVault
+        );
         __ReentrancyGuard_init();
         __Ownable_init();
 
@@ -106,15 +113,12 @@ contract MockL1BTCRedeemerWormhole is
             amountToUse = 2 * (10**18);
         }
 
-        // Convert to satoshis
-        uint64 amountInSatoshis = uint64(amountToUse / SATOSHI_MULTIPLIER);
-
         // Call the internal _requestRedemption
         (uint256 redemptionKey, ) = _requestRedemption(
             walletPubKeyHash,
             mainUtxo,
             redemptionOutputScriptToUse,
-            amountInSatoshis
+            amountToUse
         );
 
         // Emit event

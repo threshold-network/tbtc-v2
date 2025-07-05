@@ -258,6 +258,9 @@ contract MockTBTCVault is ITBTCVault {
     mapping(uint256 => Request) internal _requests;
 
     uint32 public optimisticMintingFeeDivisor = 100; // 1%
+    uint256 public totalUnminted;
+
+    event Unminted(uint256 amount);
 
     function optimisticMintingRequests(uint256 depositKey)
         external
@@ -298,6 +301,11 @@ contract MockTBTCVault is ITBTCVault {
 
     function setOptimisticMintingFeeDivisor(uint32 value) external {
         optimisticMintingFeeDivisor = value;
+    }
+
+    function unmint(uint256 amount) external override {
+        totalUnminted += amount;
+        emit Unminted(amount);
     }
 
     function tbtcToken() external view returns (address) {
