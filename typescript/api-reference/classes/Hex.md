@@ -37,7 +37,7 @@ Represents a hexadecimal value.
 
 | Name | Type |
 | :------ | :------ |
-| `value` | `string` \| `Buffer` |
+| `value` | `string` \| `Buffer`\<`ArrayBufferLike`\> |
 
 #### Returns
 
@@ -51,7 +51,7 @@ Represents a hexadecimal value.
 
 ### \_hex
 
-• `Protected` `Readonly` **\_hex**: `Buffer`
+• `Protected` `Readonly` **\_hex**: `Buffer`\<`ArrayBufferLike`\>
 
 #### Defined in
 
@@ -101,11 +101,11 @@ ___
 
 ### toBuffer
 
-▸ **toBuffer**(): `Buffer`
+▸ **toBuffer**(): `Buffer`\<`ArrayBufferLike`\>
 
 #### Returns
 
-`Buffer`
+`Buffer`\<`ArrayBufferLike`\>
 
 Hexadecimal value as a Buffer.
 
@@ -155,7 +155,7 @@ ___
 
 | Name | Type |
 | :------ | :------ |
-| `value` | `string` \| `Buffer` |
+| `value` | `string` \| `Buffer`\<`ArrayBufferLike`\> |
 
 #### Returns
 

@@ -1,0 +1,8 @@
+{
+  "extends": "keep",
+  "plugins": [],
+  "rules": {
+    "func-visibility": ["error", { "ignoreConstructors": true }],
+    "quotes": ["error", "double"]
+  }
+}

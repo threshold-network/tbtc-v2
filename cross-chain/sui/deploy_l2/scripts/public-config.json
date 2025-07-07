@@ -1,0 +1,43 @@
+{
+  "l1": {
+    "contracts": {
+      "tbtc": "0x517f2982701695D4E52f1ECFBEf3ba31Df470161",
+      "wormhole": "0x4a8bc80Ed5a4067f1CCf107057b8270E0cC11A78",
+      "tokenBridge": "0xDB5492265f6038831E89f495670FF909aDe94bd9",
+      "btcDepositorWormhole": "0x25b614064293A6B9012E82Bb31BC2B1Be34e36Cb",
+      "bridge": "0x9b1a7fE5a16A15F2f9475C5B231750598b113403",
+      "vault": "0xB5679dE944A79732A75CE556191DF11F489448d5"
+    }
+  },
+  "l2": {
+    "rpc": "https://fullnode.testnet.sui.io",
+    "package": "0x3d78316ce8ee3fe48d7ff85cdc2d0df9d459f43d802d96f58f7b59984c2dd3ae",
+    "objects": {
+      "receiverState": "0x10f421d7960be14c07057fd821332ee8a9d717873c62e7fa370fa99913e8e924",
+      "gatewayState": "0x19ab17536712e3e2efa9a1c01acbf5c09ae53e969cb9046dc382f5f49b603d52",
+      "emitterCapId": "0x1c954cc1588bac88b49dcdee44ac8938ce2ace27c8259c1dc86b79d866d9e6e0",
+      "capabilities": "0xeb0857599ce78686a8e01f4fbb4356151697610cf9f8ea8469581ad326c89425",
+      "treasury": "0xa7f1115226db843a59c3ae554ce4b7cf32648bf705ab543c85759cc1f56e1b78",
+      "tokenState": "0x0d59e4970772269ee917280da592089c7de389ed67164ce4c07ed508917fdf08"
+    },
+    "wormhole": {
+      "core": "0x31358d198147da50db32eda2562951d53973a0c0ad5ed738e9b17d88b213d790",
+      "tokenBridge": "0x6fb10cdb7aa299e9a4308752dadecb049ff55a892de92992a1edbd7912b3d6da",
+      "tokenBridgePackage": "0x562760fc51d90d4ae1835bac3e91e0e6987d3497b06f066941d3e51f6e8d76d0",
+      "wrappedTbtcType": "0xb501e7f0b86ad34eb634835069be3dad295b6a4af139986bcd5447f1ad0a2b94::coin::COIN"
+    }
+  },
+  "bridge": {
+    "defaultAmount": "0.001"
+  },
+  "withdrawal": {
+    "defaultAmount": "0.0005"
+  },
+  "wormhole": {
+    "chainIds": {
+      "sepolia": 10002,
+      "sui": 21
+    },
+    "api": "https://api.testnet.wormholescan.io"
+  }
+}

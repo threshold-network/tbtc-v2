@@ -24,6 +24,7 @@ import {
   loadStarkNetCrossChainInterfaces,
   StarkNetProvider,
 } from "../lib/starknet"
+import { loadSuiCrossChainInterfaces, SuiSignerWithAddress } from "../lib/sui"
 
 /**
  * Entrypoint component of the tBTC v2 SDK.
@@ -72,7 +73,11 @@ export class TBTC {
       (l2ChainName) => this.crossChainContracts(l2ChainName)
     )
     this.maintenance = new MaintenanceService(tbtcContracts, bitcoinClient)
-    this.redemptions = new RedemptionsService(tbtcContracts, bitcoinClient)
+    this.redemptions = new RedemptionsService(
+      tbtcContracts,
+      bitcoinClient,
+      (l2ChainName) => this.crossChainContracts(l2ChainName)
+    )
     this.tbtcContracts = tbtcContracts
     this.bitcoinClient = bitcoinClient
     this.#crossChainContractsLoader = crossChainContractsLoader
@@ -245,7 +250,7 @@ export class TBTC {
    * @internal
    * @deprecated Will be removed in next major version.
    */
-  _l2Signer?: EthereumSigner | StarkNetProvider
+  _l2Signer?: EthereumSigner | StarkNetProvider | SuiSignerWithAddress
 
   /**
    * Initializes cross-chain contracts for the given L2 chain.
@@ -253,6 +258,11 @@ export class TBTC {
    * For StarkNet, use single-parameter initialization:
    * ```
    * await tbtc.initializeCrossChain("StarkNet", starknetProvider)
+   * ```
+   *
+   * For SUI, use single-parameter initialization:
+   * ```
+   * await tbtc.initializeCrossChain("Sui", suiSigner)
    * ```
    *
    * For other L2 chains, use the standard pattern:
@@ -267,23 +277,31 @@ export class TBTC {
    *
    * @param l2ChainName Name of the L2 chain
    * @param signerOrEthereumSigner For StarkNet: StarkNet provider/account.
+   *                               For SUI: SUI signer/wallet.
    *                               For other L2s: Ethereum signer.
    * @param l2Provider Deprecated parameter - will throw error if provided
    * @returns Void promise
    * @throws Throws an error if:
    *         - Cross-chain contracts loader not available
-   *         - Invalid provider type for StarkNet
+   *         - Invalid provider type for StarkNet or SUI
    *         - No connected account in StarkNet provider
-   *         - Two-parameter mode is used for StarkNet (no longer supported)
+   *         - Two-parameter mode is used for StarkNet or SUI (no longer supported)
    *
    * @example
    * // StarkNet with single parameter
    * const starknetAccount = await starknet.connect();
    * await tbtc.initializeCrossChain("StarkNet", starknetAccount);
+   *
+   * // SUI with single parameter
+   * const suiWallet = await wallet.connect();
+   * await tbtc.initializeCrossChain("Sui", suiWallet);
    */
   async initializeCrossChain(
     l2ChainName: DestinationChainName,
-    signerOrEthereumSigner: EthereumSigner | StarkNetProvider,
+    signerOrEthereumSigner:
+      | EthereumSigner
+      | StarkNetProvider
+      | SuiSignerWithAddress,
     l2Provider?: StarkNetProvider
   ): Promise<void> {
     if (!this.#crossChainContractsLoader) {
@@ -379,6 +397,24 @@ export class TBTC {
           walletAddressHex,
           starknetProvider,
           starknetChainId
+        )
+        break
+      case "Sui":
+        const suiChainId = chainMapping.sui
+        if (!suiChainId) {
+          throw new Error("SUI chain ID not available in chain mapping")
+        }
+        // SUI only supports single-parameter mode
+        if (l2Provider !== undefined) {
+          throw new Error(
+            "SUI does not support two-parameter initialization. " +
+              "Please use: initializeCrossChain('Sui', suiSigner)"
+          )
+        }
+        this._l2Signer = signerOrEthereumSigner as SuiSignerWithAddress
+        l2CrossChainContracts = await loadSuiCrossChainInterfaces(
+          signerOrEthereumSigner as SuiSignerWithAddress,
+          suiChainId
         )
         break
       default:

@@ -10,3 +10,4 @@ Chains supported by tBTC v2 contracts.
 - [Base](../enums/Chains.Base.md)
 - [Ethereum](../enums/Chains.Ethereum.md)
 - [StarkNet](../enums/Chains.StarkNet.md)
+- [Sui](../enums/Chains.Sui.md)

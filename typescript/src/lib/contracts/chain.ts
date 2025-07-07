@@ -32,6 +32,24 @@ export namespace Chains {
      */
     Sepolia = "0x534e5f5345504f4c4941", // SN_SEPOLIA in hex
   }
+
+  /**
+   * SUI L2 chains.
+   */
+  export enum Sui {
+    /**
+     * SUI Mainnet.
+     */
+    Mainnet = "sui:mainnet",
+    /**
+     * SUI Testnet.
+     */
+    Testnet = "sui:testnet",
+    /**
+     * SUI Devnet.
+     */
+    Devnet = "sui:devnet",
+  }
 }
 
 /**
@@ -66,6 +84,10 @@ export type ChainMapping = {
    * Identifier of the StarkNet L2 chain.
    */
   starknet?: Chains.StarkNet
+  /**
+   * Identifier of the SUI L2 chain.
+   */
+  sui?: Chains.Sui
 }
 
 /**
@@ -77,11 +99,13 @@ export const ChainMappings: ChainMapping[] = [
     base: Chains.Base.Base,
     arbitrum: Chains.Arbitrum.Arbitrum,
     starknet: Chains.StarkNet.Mainnet,
+    sui: Chains.Sui.Mainnet,
   },
   {
     ethereum: Chains.Ethereum.Sepolia,
     base: Chains.Base.BaseSepolia,
     arbitrum: Chains.Arbitrum.ArbitrumSepolia,
     starknet: Chains.StarkNet.Sepolia,
+    sui: Chains.Sui.Testnet,
   },
 ]

@@ -20,10 +20,12 @@ import { Hex } from "../utils"
 import MainnetBaseL1BitcoinDepositorDeployment from "./artifacts/mainnet/BaseL1BitcoinDepositor.json"
 import MainnetArbitrumL1BitcoinDepositorDeployment from "./artifacts/mainnet/ArbitrumOneL1BitcoinDepositor.json"
 import MainnetStarkNetL1BitcoinDepositorDeployment from "./artifacts/mainnet/StarkNetBitcoinDepositor.json"
+import MainnetSuiBTCDepositorWormholeDeployment from "./artifacts/mainnet/SuiBTCDepositorWormhole.json"
 
 import SepoliaBaseL1BitcoinDepositorDeployment from "./artifacts/sepolia/BaseL1BitcoinDepositor.json"
 import SepoliaArbitrumL1BitcoinDepositorDeployment from "./artifacts/sepolia/ArbitrumL1BitcoinDepositor.json"
 import SepoliaStarkNetL1BitcoinDepositorDeployment from "./artifacts/sepolia/StarkNetBitcoinDepositor.json"
+import SepoliaSuiBTCDepositorWormholeDeployment from "./artifacts/sepolia/SuiBTCDepositorWormhole.json"
 
 const artifactLoader = {
   getMainnet: (destinationChainName: DestinationChainName) => {
@@ -34,6 +36,8 @@ const artifactLoader = {
         return MainnetArbitrumL1BitcoinDepositorDeployment
       case "StarkNet":
         return MainnetStarkNetL1BitcoinDepositorDeployment
+      case "Sui":
+        return MainnetSuiBTCDepositorWormholeDeployment
       default:
         throw new Error("Unsupported destination chain")
     }
@@ -47,6 +51,8 @@ const artifactLoader = {
         return SepoliaArbitrumL1BitcoinDepositorDeployment
       case "StarkNet":
         return SepoliaStarkNetL1BitcoinDepositorDeployment
+      case "Sui":
+        return SepoliaSuiBTCDepositorWormholeDeployment
       default:
         throw new Error("Unsupported destination chain")
     }
@@ -84,10 +90,13 @@ export class EthereumL1BitcoinDepositor
 
     super(config, deployment)
 
-    // Use StarkNet encoder for StarkNet, otherwise use Ethereum encoder
+    // Use appropriate encoder for each destination chain
     if (destinationChainName === "StarkNet") {
       const { StarkNetExtraDataEncoder } = require("../starknet")
       this.#extraDataEncoder = new StarkNetExtraDataEncoder()
+    } else if (destinationChainName === "Sui") {
+      const { SuiExtraDataEncoder } = require("../sui")
+      this.#extraDataEncoder = new SuiExtraDataEncoder()
     } else {
       this.#extraDataEncoder = new EthereumExtraDataEncoder()
     }

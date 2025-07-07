@@ -38,7 +38,7 @@ The balance of the given identifier in 1e18 precision.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:65](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L65)
+[lib/contracts/cross-chain.ts:67](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L67)
 
 ___
 
@@ -54,4 +54,4 @@ Gets the chain-specific identifier of this contract.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:58](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L58)
+[lib/contracts/cross-chain.ts:60](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L60)

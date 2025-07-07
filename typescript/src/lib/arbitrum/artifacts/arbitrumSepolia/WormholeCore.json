@@ -1,0 +1,21 @@
+{
+  "address": "0x6b9C8671cdDC8dEab9c719bB87cBd3e782bA6a35",
+  "abi": [
+    {
+      "inputs": [],
+      "name": "messageFee",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    }
+  ],
+  "receipt": {
+    "blockNumber": 0
+  }
+}

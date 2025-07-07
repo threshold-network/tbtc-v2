@@ -1,0 +1,300 @@
+{
+  "manifestVersion": "3.2",
+  "admin": {
+    "address": "0xB5Bbcb8B23B73009efc4fEef5857805E56a475ce",
+    "txHash": "0xa1eb15dd2aadcfb3dc809b0a5807777894f29b5d81e477035dd044ca8b5d59ce"
+  },
+  "proxies": [
+    {
+      "address": "0x25b614064293A6B9012E82Bb31BC2B1Be34e36Cb",
+      "txHash": "0x3619226cd44fd9aea1e40b1fb0bbf5f3d84d936cc8d29ca1e98274769eaff2a6",
+      "kind": "transparent"
+    }
+  ],
+  "impls": {
+    "de0cdb99356583d16a665779d9fa04aaa74fb7e2379656a7d7a47fa9e70e9545": {
+      "address": "0x8e01863347612b86fa1A635aaa10049E5B0288bd",
+      "txHash": "0x90b2f1c5524a6c29a16c62b9996d9abe5eec3fe569f0aaaba635fc509cac26f4",
+      "layout": {
+        "solcVersion": "0.8.17",
+        "storage": [
+          {
+            "label": "bridge",
+            "offset": 0,
+            "slot": "0",
+            "type": "t_contract(IBridge)4418",
+            "contract": "AbstractBTCDepositor",
+            "src": "@keep-network/tbtc-v2/contracts/integrator/AbstractBTCDepositor.sol:95"
+          },
+          {
+            "label": "tbtcVault",
+            "offset": 0,
+            "slot": "1",
+            "type": "t_contract(ITBTCVault)4444",
+            "contract": "AbstractBTCDepositor",
+            "src": "@keep-network/tbtc-v2/contracts/integrator/AbstractBTCDepositor.sol:96"
+          },
+          {
+            "label": "__gap",
+            "offset": 0,
+            "slot": "2",
+            "type": "t_array(t_uint256)47_storage",
+            "contract": "AbstractBTCDepositor",
+            "src": "@keep-network/tbtc-v2/contracts/integrator/AbstractBTCDepositor.sol:111"
+          },
+          {
+            "label": "_initialized",
+            "offset": 0,
+            "slot": "49",
+            "type": "t_uint8",
+            "contract": "Initializable",
+            "src": "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol:63",
+            "retypedFrom": "bool"
+          },
+          {
+            "label": "_initializing",
+            "offset": 1,
+            "slot": "49",
+            "type": "t_bool",
+            "contract": "Initializable",
+            "src": "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol:68"
+          },
+          {
+            "label": "__gap",
+            "offset": 0,
+            "slot": "50",
+            "type": "t_array(t_uint256)50_storage",
+            "contract": "ContextUpgradeable",
+            "src": "@openzeppelin/contracts-upgradeable/utils/ContextUpgradeable.sol:40"
+          },
+          {
+            "label": "_owner",
+            "offset": 0,
+            "slot": "100",
+            "type": "t_address",
+            "contract": "OwnableUpgradeable",
+            "src": "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol:22"
+          },
+          {
+            "label": "__gap",
+            "offset": 0,
+            "slot": "101",
+            "type": "t_array(t_uint256)49_storage",
+            "contract": "OwnableUpgradeable",
+            "src": "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol:94"
+          },
+          {
+            "label": "reimbursementPool",
+            "offset": 0,
+            "slot": "150",
+            "type": "t_contract(ReimbursementPool)2999",
+            "contract": "Reimbursable",
+            "src": "@keep-network/random-beacon/contracts/Reimbursable.sol:51"
+          },
+          {
+            "label": "__gap",
+            "offset": 0,
+            "slot": "151",
+            "type": "t_array(t_uint256)49_storage",
+            "contract": "Reimbursable",
+            "src": "@keep-network/random-beacon/contracts/Reimbursable.sol:51"
+          },
+          {
+            "label": "deposits",
+            "offset": 0,
+            "slot": "200",
+            "type": "t_mapping(t_uint256,t_enum(DepositState)3024)",
+            "contract": "AbstractL1BTCDepositor",
+            "src": "@keep-network/tbtc-v2/contracts/cross-chain/AbstractL1BTCDepositor.sol:95"
+          },
+          {
+            "label": "tbtcToken",
+            "offset": 0,
+            "slot": "201",
+            "type": "t_contract(IERC20Upgradeable)4824",
+            "contract": "AbstractL1BTCDepositor",
+            "src": "@keep-network/tbtc-v2/contracts/cross-chain/AbstractL1BTCDepositor.sol:96"
+          },
+          {
+            "label": "gasReimbursements",
+            "offset": 0,
+            "slot": "202",
+            "type": "t_mapping(t_uint256,t_struct(GasReimbursement)3031_storage)",
+            "contract": "AbstractL1BTCDepositor",
+            "src": "@keep-network/tbtc-v2/contracts/cross-chain/AbstractL1BTCDepositor.sol:105"
+          },
+          {
+            "label": "initializeDepositGasOffset",
+            "offset": 0,
+            "slot": "203",
+            "type": "t_uint256",
+            "contract": "AbstractL1BTCDepositor",
+            "src": "@keep-network/tbtc-v2/contracts/cross-chain/AbstractL1BTCDepositor.sol:108"
+          },
+          {
+            "label": "finalizeDepositGasOffset",
+            "offset": 0,
+            "slot": "204",
+            "type": "t_uint256",
+            "contract": "AbstractL1BTCDepositor",
+            "src": "@keep-network/tbtc-v2/contracts/cross-chain/AbstractL1BTCDepositor.sol:112"
+          },
+          {
+            "label": "reimbursementAuthorizations",
+            "offset": 0,
+            "slot": "205",
+            "type": "t_mapping(t_address,t_bool)",
+            "contract": "AbstractL1BTCDepositor",
+            "src": "@keep-network/tbtc-v2/contracts/cross-chain/AbstractL1BTCDepositor.sol:118"
+          },
+          {
+            "label": "reimburseTxMaxFee",
+            "offset": 0,
+            "slot": "206",
+            "type": "t_bool",
+            "contract": "AbstractL1BTCDepositor",
+            "src": "@keep-network/tbtc-v2/contracts/cross-chain/AbstractL1BTCDepositor.sol:132"
+          },
+          {
+            "label": "wormhole",
+            "offset": 1,
+            "slot": "206",
+            "type": "t_contract(IWormhole)3813",
+            "contract": "BTCDepositorWormhole",
+            "src": "@keep-network/tbtc-v2/contracts/cross-chain/wormhole/BTCDepositorWormhole.sol:43"
+          },
+          {
+            "label": "wormholeTokenBridge",
+            "offset": 0,
+            "slot": "207",
+            "type": "t_contract(IWormholeTokenBridge)3938",
+            "contract": "BTCDepositorWormhole",
+            "src": "@keep-network/tbtc-v2/contracts/cross-chain/wormhole/BTCDepositorWormhole.sol:47"
+          },
+          {
+            "label": "destinationChainWormholeGateway",
+            "offset": 0,
+            "slot": "208",
+            "type": "t_bytes32",
+            "contract": "BTCDepositorWormhole",
+            "src": "@keep-network/tbtc-v2/contracts/cross-chain/wormhole/BTCDepositorWormhole.sol:54"
+          },
+          {
+            "label": "destinationChainId",
+            "offset": 0,
+            "slot": "209",
+            "type": "t_uint16",
+            "contract": "BTCDepositorWormhole",
+            "src": "@keep-network/tbtc-v2/contracts/cross-chain/wormhole/BTCDepositorWormhole.sol:57"
+          }
+        ],
+        "types": {
+          "t_address": {
+            "label": "address",
+            "numberOfBytes": "20"
+          },
+          "t_array(t_uint256)47_storage": {
+            "label": "uint256[47]",
+            "numberOfBytes": "1504"
+          },
+          "t_array(t_uint256)49_storage": {
+            "label": "uint256[49]",
+            "numberOfBytes": "1568"
+          },
+          "t_array(t_uint256)50_storage": {
+            "label": "uint256[50]",
+            "numberOfBytes": "1600"
+          },
+          "t_bool": {
+            "label": "bool",
+            "numberOfBytes": "1"
+          },
+          "t_bytes32": {
+            "label": "bytes32",
+            "numberOfBytes": "32"
+          },
+          "t_contract(IBridge)4418": {
+            "label": "contract IBridge",
+            "numberOfBytes": "20"
+          },
+          "t_contract(IERC20Upgradeable)4824": {
+            "label": "contract IERC20Upgradeable",
+            "numberOfBytes": "20"
+          },
+          "t_contract(ITBTCVault)4444": {
+            "label": "contract ITBTCVault",
+            "numberOfBytes": "20"
+          },
+          "t_contract(IWormhole)3813": {
+            "label": "contract IWormhole",
+            "numberOfBytes": "20"
+          },
+          "t_contract(IWormholeTokenBridge)3938": {
+            "label": "contract IWormholeTokenBridge",
+            "numberOfBytes": "20"
+          },
+          "t_contract(ReimbursementPool)2999": {
+            "label": "contract ReimbursementPool",
+            "numberOfBytes": "20"
+          },
+          "t_enum(DepositState)3024": {
+            "label": "enum AbstractL1BTCDepositor.DepositState",
+            "members": [
+              "Unknown",
+              "Initialized",
+              "Finalized"
+            ],
+            "numberOfBytes": "1"
+          },
+          "t_mapping(t_address,t_bool)": {
+            "label": "mapping(address => bool)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_uint256,t_enum(DepositState)3024)": {
+            "label": "mapping(uint256 => enum AbstractL1BTCDepositor.DepositState)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_uint256,t_struct(GasReimbursement)3031_storage)": {
+            "label": "mapping(uint256 => struct AbstractL1BTCDepositor.GasReimbursement)",
+            "numberOfBytes": "32"
+          },
+          "t_struct(GasReimbursement)3031_storage": {
+            "label": "struct AbstractL1BTCDepositor.GasReimbursement",
+            "members": [
+              {
+                "label": "receiver",
+                "type": "t_address",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "gasSpent",
+                "type": "t_uint96",
+                "offset": 20,
+                "slot": "0"
+              }
+            ],
+            "numberOfBytes": "32"
+          },
+          "t_uint16": {
+            "label": "uint16",
+            "numberOfBytes": "2"
+          },
+          "t_uint256": {
+            "label": "uint256",
+            "numberOfBytes": "32"
+          },
+          "t_uint8": {
+            "label": "uint8",
+            "numberOfBytes": "1"
+          },
+          "t_uint96": {
+            "label": "uint96",
+            "numberOfBytes": "12"
+          }
+        },
+        "namespaces": {}
+      }
+    }
+  }
+}

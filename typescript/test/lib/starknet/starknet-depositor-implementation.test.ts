@@ -11,6 +11,7 @@ import {
   createMockDeposit,
 } from "./test-helpers"
 import { Hex } from "../../../src/lib/utils"
+import { TransactionReceipt } from "@ethersproject/providers"
 
 // Mock axios
 const axios = require("axios")
@@ -61,8 +62,10 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
       )
 
       // Assert
-      expect(result).to.be.instanceOf(Hex)
-      expect((result as Hex).toPrefixedString()).to.equal("0xabc123def456")
+      expect(result).to.not.be.instanceOf(Hex)
+      expect((result as TransactionReceipt).transactionHash).to.equal(
+        "0xabc123def456"
+      )
 
       // Check axios was called correctly
       const stub = axios.post as sinon.SinonStub
@@ -145,7 +148,7 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
       )
 
       // Assert
-      expect((result as Hex).toPrefixedString()).to.equal(
+      expect((result as TransactionReceipt).transactionHash).to.equal(
         "0x" + "1234567890abcdef".repeat(4)
       )
       expect(callCount).to.equal(3)

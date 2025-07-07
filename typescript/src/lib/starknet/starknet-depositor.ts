@@ -272,7 +272,7 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
           this.#config.relayerUrl!,
           requestPayload,
           {
-            timeout: 30000, // 30 seconds timeout
+            timeout: 90000, // 90 seconds timeout
             headers: {
               "Content-Type": "application/json",
             },
@@ -335,7 +335,7 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
           console.log(`Deposit initialized with ID: ${depositId}`)
         }
 
-        return Hex.from(data.receipt.transactionHash)
+        return data.receipt as TransactionReceipt
       } catch (error: any) {
         lastError = error
 

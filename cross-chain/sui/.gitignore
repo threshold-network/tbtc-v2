@@ -1,0 +1,18 @@
+# Environment variables
+.env
+
+# Hardhat
+/artifacts/
+/build/
+/cache/
+/export/
+/external/npm
+/typechain/
+/export.json
+/deployments/*
+!/deployments/mainnet/
+!/deployments/sepolia/
+
+# OZ
+/.openzeppelin/unknown-*.json
+!/.openzeppelin/unknown-11155111.json

@@ -1,0 +1,85 @@
+:toc: macro
+
+= Threshold cross-chain - Sui
+
+This package brings Bitcoin to Sui blockchain through Wormhole integration. For more details please
+see link:https://github.com/keep-network/tbtc-v2/blob/main/docs/rfc/rfc-8.adoc[RFC 8: Cross-chain Tokenized Threshold BTC]
+
+== How it works?
+
+```
++------------------------------------------------------+         +---------------------------------------------------------------------------------------------------+
+|                      Ethereum                        |         |                                              Sui                                                  |
+|                                                      |         |                                                                                                   |
+|  +----------------------+  +----------------------+  |         |  +----------------------+  +------------------+  +---------------------+  +---------+             |
+|  | BTCDepositorWormhole |--| Wormhole TokenBridge |--|---------|--| Wormhole TokenBridge |--| BitcoinDepositor |--|   WormholeGateway   |--| tBTC    |             |
+|  +----------------------+  +----------------------+  |         |  +----------------------+  |      (Move)      |  |       (Move)        |  | (Move)  |             |
+|                                                      |         |                            +------------------+  +---------------------+  +---------+             |
++------------------------------------------------------+         +---------------------------------------------------------------------------------------------------+
+```
+
+- `BTCDepositorWormhole` is the L1 (Ethereum) contract that initiates tBTC bridging to Sui
+- `Wormhole TokenBridge` (on both chains) handles the cross-chain message passing and token transfers
+- `BitcoinDepositor` is a Move module on Sui that receives Wormhole messages and coordinates the deposit flow
+- `SuiWormholeGateway` is a Move module that manages the minting/burning of tBTC tokens
+- `tBTC` is the native tBTC token implementation on Sui (Move module)
+
+=== Updating Wormhole Gateway mapping
+
+The deployment scripts are responsible for managing updates of the tBTC gateway
+addresses across various chains. These addresses are stored in the `external/`
+directory for a specific network.
+It is important to note that these addresses should remain constant for the 
+mainnet network. However, there may be instances where a new version of a 
+cross-chain module is deployed to the testing network, which would require a 
+manual update of the corresponding address.
+
+=== Deploy contracts
+
+To deploy the L1 BTCDepositorWormhole contract on the given network, please run:
+```
+yarn deploy --network <network>
+```
+
+Supported networks:
+- `hardhat` - for local development
+- `sepolia` - Ethereum Sepolia testnet
+- `mainnet` - Ethereum mainnet
+
+This module deploys the BTCDepositorWormhole contract on L1 (Ethereum) that enables
+tBTC bridging to Sui. The Sui-side contracts (Move modules) are deployed separately
+and their addresses are stored under `external/<network>` dir.
+
+If contracts haven't been built yet or changes occurred, `deploy` task will build
+the contracts before running the deployment script. This command produces
+an `export.json` file containing contract deployment info. Note that for the
+chains other than `hardhat` the following environment variables are needed:
+
+- `L1_CHAIN_API_URL` - URL to access Ethereum blockchain services, e.g. `https://eth-sepolia.g.alchemy.com/v2/YOUR-API-KEY`
+- `L1_ACCOUNTS_PRIVATE_KEYS` - Private keys for the deployer `<0xDeployerPrivKey>`
+- `ETHERSCAN_API_KEY` - Etherscan API key for contract verification
+
+=== Sui Move Contracts
+
+The Sui-side contracts are implemented as Move modules and include:
+
+- `WormholeGateway` - Processes Wormhole messages and mints/burns tBTC
+- `tBTC` - The tBTC token implementation on Sui
+- `BitcoinDepositor` - Handles deposit initialization and processing
+
+These contracts are deployed separately using the Sui CLI and their addresses are
+configured in the `external/suiTestnet/` and `external/sui/` directories.
+
+Current deployment status:
+- **Testnet**: ✅ Deployed
+- **Mainnet**: ⏳ Not yet deployed
+
+=== Configuration
+
+The BTCDepositorWormhole contract requires the following configuration:
+
+1. **Sui Gateway Address**: The address of the WormholeGateway on Sui
+2. **Wormhole Chain ID**: 21 for Sui (both mainnet and testnet)
+3. **Wormhole Core & Token Bridge**: Standard Wormhole infrastructure addresses
+
+These are configured during deployment and can be found in the deployment artifacts.

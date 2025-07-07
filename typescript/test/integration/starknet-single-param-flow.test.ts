@@ -12,6 +12,7 @@ import { DepositReceipt } from "../../src/lib/contracts/bridge"
 import { Hex } from "../../src/lib/utils"
 import { StarkNetAddress } from "../../src/lib/starknet/address"
 import * as starknet from "../../src/lib/starknet"
+import { TransactionReceipt } from "@ethersproject/providers"
 
 // Mock axios for relayer calls
 const axios = require("axios")
@@ -209,8 +210,8 @@ describe("StarkNet Single-Parameter Deposit Flow", () => {
       const result = await depositor.initializeDeposit(depositTx, 0, deposit)
 
       // Assert
-      expect(result.toString()).to.equal(
-        "abc123def456789abc123def456789abc123def456789abc123def456789ab"
+      expect((result as TransactionReceipt).transactionHash).to.equal(
+        "0xabc123def456789abc123def456789abc123def456789abc123def456789ab"
       )
       expect(axiosStub.calledOnce).to.be.true
       expect(axiosStub.args[0][0]).to.equal(

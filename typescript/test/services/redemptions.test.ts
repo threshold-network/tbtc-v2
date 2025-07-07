@@ -8,6 +8,7 @@ import {
   BitcoinUtxo,
   EthereumAddress,
   Hex,
+  L2Chain,
   NewWalletRegisteredEvent,
   RedemptionRequest,
   RedemptionsService,
@@ -145,7 +146,9 @@ describe("Redemptions", () => {
 
           redemptionsService = new RedemptionsService(
             tbtcContracts,
-            bitcoinClient
+            bitcoinClient,
+            // Mock cross-chain contracts resolver.
+            (_: L2Chain) => undefined
           )
         })
 
@@ -183,7 +186,9 @@ describe("Redemptions", () => {
 
           redemptionsService = new RedemptionsService(
             tbtcContracts,
-            bitcoinClient
+            bitcoinClient,
+            // Mock cross-chain contracts resolver.
+            (_: L2Chain) => undefined
           )
         })
 
@@ -206,13 +211,13 @@ describe("Redemptions", () => {
     describe("findWalletForRedemption", () => {
       class TestRedemptionsService extends RedemptionsService {
         public async findWalletForRedemption(
-          redeemerOutputScript: Hex,
-          amount: BigNumber
+          amount: BigNumber,
+          redeemerOutputScript: Hex
         ): Promise<{
           walletPublicKey: Hex
           mainUtxo: BitcoinUtxo
         }> {
-          return super.findWalletForRedemption(redeemerOutputScript, amount)
+          return super.findWalletForRedemption(amount, redeemerOutputScript)
         }
       }
 
@@ -235,15 +240,17 @@ describe("Redemptions", () => {
             tbtcContracts.bridge.newWalletRegisteredEvents = []
             redemptionsService = new TestRedemptionsService(
               tbtcContracts,
-              bitcoinClient
+              bitcoinClient,
+              // Mock cross-chain contracts resolver.
+              (_: L2Chain) => undefined
             )
           })
 
           it("should throw an error", async () => {
             await expect(
               redemptionsService.findWalletForRedemption(
-                redeemerOutputScript,
-                amount
+                amount,
+                redeemerOutputScript
               )
             ).to.be.rejectedWith(
               "Currently, there are no live wallets in the network."
@@ -306,7 +313,9 @@ describe("Redemptions", () => {
 
           redemptionsService = new TestRedemptionsService(
             tbtcContracts,
-            bitcoinClient
+            bitcoinClient,
+            // Mock cross-chain contracts resolver.
+            (_: L2Chain) => undefined
           )
         })
 
@@ -316,8 +325,8 @@ describe("Redemptions", () => {
             const amount: BigNumber = BigNumber.from("1000000") // 0.01 BTC
             beforeEach(async () => {
               result = await redemptionsService.findWalletForRedemption(
-                redeemerOutputScript,
-                amount
+                amount,
+                redeemerOutputScript
               )
             })
 
@@ -357,8 +366,8 @@ describe("Redemptions", () => {
             it("should throw an error", async () => {
               await expect(
                 redemptionsService.findWalletForRedemption(
-                  redeemerOutputScript,
-                  amount
+                  amount,
+                  redeemerOutputScript
                 )
               ).to.be.rejectedWith(
                 `Could not find a wallet with enough funds. Maximum redemption amount is ${expectedMaxAmount.toString()} Satoshi ( ${expectedMaxAmount.div(
@@ -399,8 +408,8 @@ describe("Redemptions", () => {
               tbtcContracts.bridge.setPendingRedemptions(pendingRedemptions)
 
               result = await redemptionsService.findWalletForRedemption(
-                redeemerOutputScript,
-                amount
+                amount,
+                redeemerOutputScript
               )
             })
 
@@ -442,8 +451,8 @@ describe("Redemptions", () => {
               console.log("amount", amount.toString())
 
               result = await redemptionsService.findWalletForRedemption(
-                redeemerOutputScript,
-                amount
+                amount,
+                redeemerOutputScript
               )
             })
 
@@ -502,8 +511,8 @@ describe("Redemptions", () => {
             it("should throw an error", async () => {
               await expect(
                 redemptionsService.findWalletForRedemption(
-                  redeemerOutputScript,
-                  amount
+                  amount,
+                  redeemerOutputScript
                 )
               ).to.be.rejectedWith(
                 "All live wallets in the network have the pending redemption for a given Bitcoin address. Please use another Bitcoin address."
@@ -662,7 +671,9 @@ describe("Redemptions", () => {
         bitcoinClient = new MockBitcoinClient()
         redemptionsService = new TestRedemptionsService(
           tbtcContracts,
-          bitcoinClient
+          bitcoinClient,
+          // Mock cross-chain contracts resolver.
+          (_: L2Chain) => undefined
         )
       })
 
@@ -889,7 +900,9 @@ function prepareRedemptionsService(mainUtxo: BitcoinUtxo) {
 
   const redemptionsService = new RedemptionsService(
     tbtcContracts,
-    bitcoinClient
+    bitcoinClient,
+    // Mock cross-chain contracts resolver.
+    (_: L2Chain) => undefined
   )
   return { redemptionsService, tbtcContracts, bitcoinClient }
 }

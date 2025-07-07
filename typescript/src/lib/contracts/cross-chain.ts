@@ -1,8 +1,8 @@
 import { ChainIdentifier } from "./chain-identifier"
-import { BigNumber } from "ethers"
+import { BigNumber, BytesLike } from "ethers"
 import { TransactionReceipt } from "@ethersproject/providers"
 import { ChainMapping, DestinationChainName } from "./chain"
-import { BitcoinRawTxVectors } from "../bitcoin"
+import { BitcoinRawTxVectors, BitcoinUtxo } from "../bitcoin"
 import { DepositReceipt } from "./bridge"
 import { Hex } from "../utils"
 
@@ -19,6 +19,7 @@ export type CrossChainInterfaces = DestinationChainInterfaces &
 export type DestinationChainInterfaces = {
   destinationChainTbtcToken: DestinationChainTBTCToken
   destinationChainBitcoinDepositor: BitcoinDepositor
+  l2BitcoinRedeemer?: L2BitcoinRedeemer
 }
 
 /**
@@ -26,6 +27,7 @@ export type DestinationChainInterfaces = {
  */
 export type L1CrossChainContracts = {
   l1BitcoinDepositor: L1BitcoinDepositor
+  l1BitcoinRedeemer: L1BitcoinRedeemer | null
 }
 
 /**
@@ -115,6 +117,34 @@ export interface BitcoinDepositor {
 }
 
 /**
+ * Interface for communication with the L2BitcoinRedeemer on-chain contract
+ * deployed on the given L2 chain.
+ */
+export interface L2BitcoinRedeemer {
+  /**
+   * Gets the chain-specific identifier of this contract.
+   */
+  getChainIdentifier(): ChainIdentifier
+
+  /**
+   * Requests redemption in one transaction using the `approveAndCall` function
+   * from the tBTC on-chain token contract. Then the tBTC token contract calls
+   * the `receiveApproval` function from the `TBTCVault` contract which burns
+   * tBTC tokens and requests redemption.
+   * @param redeemerOutputScript - The output script that the redeemed funds
+   *        will be locked to. Must not be prepended with length.
+   * @param amount - The amount to be redeemed with the precision of the tBTC
+   *        on-chain token contract.
+   * @returns Transaction hash of the approve and call transaction.
+   */
+  requestRedemption(
+    amount: BigNumber,
+    redeemerOutputScript: Hex,
+    nonce: number
+  ): Promise<Hex>
+}
+
+/**
  * Represents the state of the deposit.
  */
 export enum DepositState {
@@ -157,13 +187,43 @@ export interface L1BitcoinDepositor {
    * @param deposit Data of the revealed deposit
    * @param vault Optional parameter denoting the vault the given deposit
    *        should be routed to
-   * @returns Transaction hash of the reveal deposit transaction.
+   * @returns Transaction hash of the reveal deposit transaction or a
+   *         transaction result object for non-EVM chains.
    */
   initializeDeposit(
     depositTx: BitcoinRawTxVectors,
     depositOutputIndex: number,
     deposit: DepositReceipt,
     vault?: ChainIdentifier
+  ): Promise<Hex | any>
+}
+
+/**
+ * Interface for communication with the L2BitcoinRedeemer on-chain contract
+ * deployed on the given L2 chain.
+ */
+export interface L1BitcoinRedeemer {
+  /**
+   * Gets the chain-specific identifier of this contract.
+   */
+  getChainIdentifier(): ChainIdentifier
+
+  /**
+   * Requests redemption in one transaction using the `approveAndCall` function
+   * from the tBTC on-chain token contract. Then the tBTC token contract calls
+   * the `receiveApproval` function from the `TBTCVault` contract which burns
+   * tBTC tokens and requests redemption.
+   * @param walletPublicKey - The public key of the wallet that is redeeming the
+   *        tBTC tokens.
+   * @param mainUtxo - The main UTXO of the wallet that is redeeming the tBTC
+   *        tokens.
+   * @param encodedVm - The encoded VM of the redemption.
+   * @returns Transaction hash of the approve and call transaction.
+   */
+  requestRedemption(
+    walletPublicKey: Hex,
+    mainUtxo: BitcoinUtxo,
+    encodedVm: BytesLike
   ): Promise<Hex>
 }
 

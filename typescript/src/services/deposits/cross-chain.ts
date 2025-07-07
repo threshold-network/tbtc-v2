@@ -8,6 +8,7 @@ import {
 import { BitcoinRawTxVectors } from "../../lib/bitcoin"
 import { Hex } from "../../lib/utils"
 import { TransactionReceipt } from "@ethersproject/providers"
+import { SuiTransactionBlockResponse } from "@mysten/sui/client"
 
 /**
  * Mode of operation for the cross-chain depositor proxy:
@@ -91,7 +92,7 @@ export class CrossChainDepositor implements DepositorProxy {
     deposit: DepositReceipt,
     vault?: ChainIdentifier
   ): Promise<Hex> {
-    let result: Hex | TransactionReceipt
+    let result: Hex | TransactionReceipt | SuiTransactionBlockResponse
 
     switch (this.#revealMode) {
       case "L2Transaction":
@@ -116,7 +117,14 @@ export class CrossChainDepositor implements DepositorProxy {
 
     // If result is a TransactionReceipt, extract the transaction hash
     if (result instanceof Hex) {
+      console.log("Hex: ", result)
       return result
+    } else if ((result as SuiTransactionBlockResponse).digest) {
+      const digestBuffer = Buffer.from(
+        (result as SuiTransactionBlockResponse).digest,
+        "utf8"
+      )
+      return Hex.from(digestBuffer)
     } else {
       return Hex.from((result as TransactionReceipt).transactionHash)
     }
