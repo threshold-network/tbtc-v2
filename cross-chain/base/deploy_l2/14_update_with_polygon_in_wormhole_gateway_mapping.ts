@@ -11,8 +11,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     "0x1af5DC16568EFF2d480a43A77E6C409e497FcFb9"
 
   // See https://book.wormhole.com/reference/contracts.html
-  // This ID is valid for both Polygonn Goerli-based Testnet (Mumbai) and
-  // Mainnet. Wormhole does not support the Sepolia-based Amoy Testnet yet.
+  // This ID is valid for Mainnet. Wormhole does not support the Sepolia-based
+  // Amoy Testnet yet.
   // TODO: Update the ID once the support is added.
   const polygonWormholeChainID = 5
 
