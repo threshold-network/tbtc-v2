@@ -1,9 +1,9 @@
 import {
   ChainIdentifier,
-  CrossChainInterfaces,
   ExtraDataEncoder,
   DepositorProxy,
   DepositReceipt,
+  CrossChainInterfaces,
 } from "../../lib/contracts"
 import { BitcoinRawTxVectors } from "../../lib/bitcoin"
 import { Hex } from "../../lib/utils"
@@ -119,14 +119,14 @@ export class CrossChainDepositor implements DepositorProxy {
     if (result instanceof Hex) {
       console.log("Hex: ", result)
       return result
-    } else if ((result as SuiTransactionBlockResponse).digest) {
+    } else if ((result as unknown as SuiTransactionBlockResponse).digest) {
       const digestBuffer = Buffer.from(
-        (result as SuiTransactionBlockResponse).digest,
+        (result as unknown as SuiTransactionBlockResponse).digest,
         "utf8"
       )
       return Hex.from(digestBuffer)
     } else {
-      return Hex.from((result as TransactionReceipt).transactionHash)
+      return Hex.from((result as unknown as TransactionReceipt).transactionHash)
     }
   }
 }

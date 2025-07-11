@@ -19,6 +19,8 @@ import { Hex } from "../utils"
 
 import MainnetBaseL1BitcoinDepositorDeployment from "./artifacts/mainnet/BaseL1BitcoinDepositor.json"
 import MainnetArbitrumL1BitcoinDepositorDeployment from "./artifacts/mainnet/ArbitrumOneL1BitcoinDepositor.json"
+
+import MainnetSolanaL1BitcoinDepositorDeployment from "./artifacts/mainnet/SolanaL1BitcoinDepositor.json"
 import MainnetStarkNetL1BitcoinDepositorDeployment from "./artifacts/mainnet/StarkNetBitcoinDepositor.json"
 import MainnetSuiBTCDepositorWormholeDeployment from "./artifacts/mainnet/SuiBTCDepositorWormhole.json"
 
@@ -27,6 +29,11 @@ import SepoliaArbitrumL1BitcoinDepositorDeployment from "./artifacts/sepolia/Arb
 import SepoliaStarkNetL1BitcoinDepositorDeployment from "./artifacts/sepolia/StarkNetBitcoinDepositor.json"
 import SepoliaSuiBTCDepositorWormholeDeployment from "./artifacts/sepolia/SuiBTCDepositorWormhole.json"
 
+import SepoliaSolanaL1BitcoinDepositorDeployment from "./artifacts/sepolia/SolanaL1BitcoinDepositor.json"
+import { SuiExtraDataEncoder } from "../sui"
+import { StarkNetExtraDataEncoder } from "../starknet"
+import { SolanaExtraDataEncoder } from "../solana"
+
 const artifactLoader = {
   getMainnet: (destinationChainName: DestinationChainName) => {
     switch (destinationChainName) {
@@ -34,6 +41,8 @@ const artifactLoader = {
         return MainnetBaseL1BitcoinDepositorDeployment
       case "Arbitrum":
         return MainnetArbitrumL1BitcoinDepositorDeployment
+      case "Solana":
+        return MainnetSolanaL1BitcoinDepositorDeployment
       case "StarkNet":
         return MainnetStarkNetL1BitcoinDepositorDeployment
       case "Sui":
@@ -49,6 +58,8 @@ const artifactLoader = {
         return SepoliaBaseL1BitcoinDepositorDeployment
       case "Arbitrum":
         return SepoliaArbitrumL1BitcoinDepositorDeployment
+      case "Solana":
+        return SepoliaSolanaL1BitcoinDepositorDeployment
       case "StarkNet":
         return SepoliaStarkNetL1BitcoinDepositorDeployment
       case "Sui":
@@ -69,6 +80,7 @@ export class EthereumL1BitcoinDepositor
   implements L1BitcoinDepositor
 {
   readonly #extraDataEncoder: ExtraDataEncoder
+  #depositOwner: ChainIdentifier | undefined
 
   constructor(
     config: EthersContractConfig,
@@ -90,16 +102,36 @@ export class EthereumL1BitcoinDepositor
 
     super(config, deployment)
 
-    // Use appropriate encoder for each destination chain
-    if (destinationChainName === "StarkNet") {
-      const { StarkNetExtraDataEncoder } = require("../starknet")
-      this.#extraDataEncoder = new StarkNetExtraDataEncoder()
-    } else if (destinationChainName === "Sui") {
-      const { SuiExtraDataEncoder } = require("../sui")
-      this.#extraDataEncoder = new SuiExtraDataEncoder()
-    } else {
-      this.#extraDataEncoder = new EthereumExtraDataEncoder()
+    switch (destinationChainName) {
+      case "StarkNet":
+        this.#extraDataEncoder = new StarkNetExtraDataEncoder()
+        break
+      case "Sui":
+        this.#extraDataEncoder = new SuiExtraDataEncoder()
+        break
+      case "Solana":
+        this.#extraDataEncoder = new SolanaExtraDataEncoder()
+        break
+      default:
+        this.#extraDataEncoder = new EthereumExtraDataEncoder()
+        break
     }
+  }
+
+  // eslint-disable-next-line valid-jsdoc
+  /**
+   * @see {BitcoinDepositor#getDepositOwner}
+   */
+  getDepositOwner(): ChainIdentifier | undefined {
+    return this.#depositOwner
+  }
+
+  // eslint-disable-next-line valid-jsdoc
+  /**
+   * @see {BitcoinDepositor#setDepositOwner}
+   */
+  setDepositOwner(depositOwner: ChainIdentifier | undefined): void {
+    this.#depositOwner = depositOwner
   }
 
   // eslint-disable-next-line valid-jsdoc
@@ -109,7 +141,6 @@ export class EthereumL1BitcoinDepositor
   getDepositState(depositId: string): Promise<DepositState> {
     return this._instance.deposits(depositId)
   }
-
   // eslint-disable-next-line valid-jsdoc
   /**
    * @see {L1BitcoinDepositor#getChainIdentifier}
@@ -161,6 +192,10 @@ export class EthereumL1BitcoinDepositor
   }
 }
 
+/**
+ * Implementation of the Ethereum ExtraDataEncoder.
+ * @see {ExtraDataEncoder} for reference.
+ */
 /**
  * Implementation of the Ethereum ExtraDataEncoder.
  * @see {ExtraDataEncoder} for reference.

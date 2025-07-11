@@ -9,7 +9,6 @@ import {
 import { MockBitcoinClient } from "../../utils/mock-bitcoin-client"
 import { MockTBTCContracts } from "../../utils/mock-tbtc-contracts"
 import { MockCrossChainContractsLoader } from "../../utils/mock-cross-chain-contracts-loader"
-import { Wallet } from "ethers"
 import { BigNumber } from "ethers"
 
 describe("StarkNet Provider Integration", () => {
@@ -17,11 +16,9 @@ describe("StarkNet Provider Integration", () => {
   let mockBitcoinClient: MockBitcoinClient
   let mockTBTCContracts: MockTBTCContracts
   let mockCrossChainContractsLoader: MockCrossChainContractsLoader
-  let ethereumSigner: Wallet
 
   beforeEach(async () => {
     mockBitcoinClient = new MockBitcoinClient()
-    ethereumSigner = Wallet.createRandom()
     mockTBTCContracts = new MockTBTCContracts()
     mockCrossChainContractsLoader = new MockCrossChainContractsLoader()
 
@@ -104,19 +101,6 @@ describe("StarkNet Provider Integration", () => {
 
       await expect(tbtc.initializeCrossChain("StarkNet", account)).to.not.be
         .rejected
-    })
-
-    it("should reject two-parameter mode", async () => {
-      // Two-parameter mode is no longer supported
-      const starknetProvider = new RpcProvider({
-        nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
-      })
-
-      await expect(
-        tbtc.initializeCrossChain("StarkNet", ethereumSigner, starknetProvider)
-      ).to.be.rejectedWith(
-        "StarkNet does not support two-parameter initialization"
-      )
     })
   })
 

@@ -6,6 +6,7 @@ export * from "./lib/contracts"
 export * from "./lib/electrum"
 export * from "./lib/ethereum"
 export * from "./lib/starknet"
+export * from "./lib/solana"
 export * from "./lib/utils"
 
 // Export feature modules (services).

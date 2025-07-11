@@ -44,6 +44,8 @@
 - [MaintenanceService](classes/MaintenanceService.md)
 - [OptimisticMinting](classes/OptimisticMinting.md)
 - [RedemptionsService](classes/RedemptionsService.md)
+- [SolanaAddress](classes/SolanaAddress.md)
+- [SolanaExtraDataEncoder](classes/SolanaExtraDataEncoder.md)
 - [Spv](classes/Spv.md)
 - [StarkNetAddress](classes/StarkNetAddress.md)
 - [StarkNetBitcoinDepositor](classes/StarkNetBitcoinDepositor.md)
@@ -75,7 +77,6 @@
 - [ElectrumCredentials](interfaces/ElectrumCredentials.md)
 - [EthereumContractConfig](interfaces/EthereumContractConfig.md)
 - [ExtraDataEncoder](interfaces/ExtraDataEncoder.md)
-- [L1BitcoinDepositor](interfaces/L1BitcoinDepositor.md)
 - [L1BitcoinRedeemer](interfaces/L1BitcoinRedeemer.md)
 - [L2BitcoinRedeemer](interfaces/L2BitcoinRedeemer.md)
 - [RedeemerProxy](interfaces/RedeemerProxy.md)
@@ -109,6 +110,7 @@
 - [ErrorMatcherFn](README.md#errormatcherfn)
 - [EthereumSigner](README.md#ethereumsigner)
 - [ExecutionLoggerFn](README.md#executionloggerfn)
+- [L1BitcoinDepositor](README.md#l1bitcoindepositor)
 - [L1CrossChainContracts](README.md#l1crosschaincontracts)
 - [L2BitcoinDepositor](README.md#l2bitcoindepositor)
 - [L2Chain](README.md#l2chain)
@@ -143,6 +145,7 @@
 - [BitcoinTargetConverter](README.md#bitcointargetconverter)
 - [ChainMappings](README.md#chainmappings)
 - [EthereumCrossChainExtraDataEncoder](README.md#ethereumcrosschainextradataencoder)
+- [SolanaCrossChainExtraDataEncoder](README.md#solanacrosschainextradataencoder)
 - [StarkNetCrossChainExtraDataEncoder](README.md#starknetcrosschainextradataencoder)
 - [StarkNetDepositor](README.md#starknetdepositor)
 - [tbtcABI](README.md#tbtcabi)
@@ -162,6 +165,7 @@
 - [loadBaseCrossChainContracts](README.md#loadbasecrosschaincontracts)
 - [loadBaseCrossChainInterfaces](README.md#loadbasecrosschaininterfaces)
 - [loadEthereumCoreContracts](README.md#loadethereumcorecontracts)
+- [loadSolanaCrossChainInterfaces](README.md#loadsolanacrosschaininterfaces)
 - [loadStarkNetCrossChainContracts](README.md#loadstarknetcrosschaincontracts)
 - [loadStarkNetCrossChainInterfaces](README.md#loadstarknetcrosschaininterfaces)
 - [packRevealDepositParameters](README.md#packrevealdepositparameters)
@@ -211,12 +215,13 @@ Type representing a mapping between specific L1 and L2 chains.
 | `arbitrum?` | [`Arbitrum`](enums/Chains.Arbitrum.md) | Identifier of the Arbitrum L2 chain. |
 | `base?` | [`Base`](enums/Chains.Base.md) | Identifier of the Base L2 chain. |
 | `ethereum?` | [`Ethereum`](enums/Chains.Ethereum.md) | Identifier of the Ethereum L1 chain. |
+| `solana?` | [`Solana`](enums/Chains.Solana.md) | Identifier of the Arbitrum L2 chain. |
 | `starknet?` | [`StarkNet`](enums/Chains.StarkNet.md) | Identifier of the StarkNet L2 chain. |
 | `sui?` | [`Sui`](enums/Chains.Sui.md) | Identifier of the SUI L2 chain. |
 
 #### Defined in
 
-[lib/contracts/chain.ts:69](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L69)
+[lib/contracts/chain.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L74)
 
 ___
 
@@ -230,7 +235,7 @@ Use CrossChainInterfaces instead
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:256](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L256)
+[lib/contracts/cross-chain.ts:252](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L252)
 
 ___
 
@@ -261,7 +266,7 @@ Use ExtraDataEncoder instead
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:276](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L276)
+[lib/contracts/cross-chain.ts:272](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L272)
 
 ___
 
@@ -319,7 +324,7 @@ These are chains other than the main Ethereum L1 chain.
 
 #### Defined in
 
-[lib/contracts/chain.ts:59](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L59)
+[lib/contracts/chain.ts:64](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L64)
 
 ___
 
@@ -438,6 +443,19 @@ A function that is called with execution status messages.
 
 ___
 
+### L1BitcoinDepositor
+
+Ƭ **L1BitcoinDepositor**: [`BitcoinDepositor`](interfaces/BitcoinDepositor.md) & \{ `extraDataEncoder`: () => [`ExtraDataEncoder`](interfaces/ExtraDataEncoder.md) ; `getChainIdentifier`: () => [`ChainIdentifier`](interfaces/ChainIdentifier.md) ; `getDepositState`: (`depositId`: `string`) => `Promise`\<[`DepositState`](enums/DepositState.md)\> ; `initializeDeposit`: (`depositTx`: [`BitcoinRawTxVectors`](interfaces/BitcoinRawTxVectors.md), `depositOutputIndex`: `number`, `deposit`: [`DepositReceipt`](interfaces/DepositReceipt.md), `vault?`: [`ChainIdentifier`](interfaces/ChainIdentifier.md)) => `Promise`\<`any`\>  }
+
+Interface for communication with the L1BitcoinDepositor on-chain contract
+specific to the given L2 chain, deployed on the L1 chain.
+
+#### Defined in
+
+[lib/contracts/cross-chain.ts:163](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L163)
+
+___
+
 ### L1CrossChainContracts
 
 Ƭ **L1CrossChainContracts**: `Object`
@@ -448,7 +466,7 @@ Aggregates L1-specific TBTC cross-chain contracts.
 
 | Name | Type |
 | :------ | :------ |
-| `l1BitcoinDepositor` | [`L1BitcoinDepositor`](interfaces/L1BitcoinDepositor.md) |
+| `l1BitcoinDepositor` | [`L1BitcoinDepositor`](README.md#l1bitcoindepositor) |
 | `l1BitcoinRedeemer` | [`L1BitcoinRedeemer`](interfaces/L1BitcoinRedeemer.md) \| ``null`` |
 
 #### Defined in
@@ -467,7 +485,7 @@ Use BitcoinDepositor instead
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:271](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L271)
+[lib/contracts/cross-chain.ts:267](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L267)
 
 ___
 
@@ -481,7 +499,7 @@ Use DestinationChainName instead
 
 #### Defined in
 
-[lib/contracts/chain.ts:64](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L64)
+[lib/contracts/chain.ts:69](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L69)
 
 ___
 
@@ -495,7 +513,7 @@ Use DestinationChainInterfaces instead
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:261](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L261)
+[lib/contracts/cross-chain.ts:257](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L257)
 
 ___
 
@@ -509,7 +527,7 @@ Use DestinationChainTBTCToken instead
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:266](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L266)
+[lib/contracts/cross-chain.ts:262](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L262)
 
 ___
 
@@ -932,7 +950,7 @@ List of chain mappings supported by tBTC v2 contracts.
 
 #### Defined in
 
-[lib/contracts/chain.ts:96](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L96)
+[lib/contracts/chain.ts:106](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L106)
 
 ___
 
@@ -946,7 +964,21 @@ Use EthereumExtraDataEncoder instead
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-depositor.ts:199](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L199)
+[lib/ethereum/l1-bitcoin-depositor.ts:234](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L234)
+
+___
+
+### SolanaCrossChainExtraDataEncoder
+
+• `Const` **SolanaCrossChainExtraDataEncoder**: typeof [`SolanaExtraDataEncoder`](classes/SolanaExtraDataEncoder.md) = `SolanaExtraDataEncoder`
+
+**`Deprecated`**
+
+Use SolanaExtraDataEncoder instead
+
+#### Defined in
+
+[lib/solana/extra-data-encoder.ts:60](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/extra-data-encoder.ts#L60)
 
 ___
 
@@ -1281,7 +1313,7 @@ Throws an error if the signer's Arbitrum chain ID is other than
 
 #### Defined in
 
-[lib/arbitrum/index.ts:24](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/index.ts#L24)
+[lib/arbitrum/index.ts:23](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/index.ts#L23)
 
 ___
 
@@ -1306,7 +1338,7 @@ Use loadBaseCrossChainInterfaces instead
 
 #### Defined in
 
-[lib/base/index.ts:63](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/index.ts#L63)
+[lib/base/index.ts:64](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/index.ts#L64)
 
 ___
 
@@ -1369,6 +1401,35 @@ Throws an error if the signer's Ethereum chain ID is other than
 #### Defined in
 
 [lib/ethereum/index.ts:83](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L83)
+
+___
+
+### loadSolanaCrossChainInterfaces
+
+▸ **loadSolanaCrossChainInterfaces**(`solanaProvider`): `Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
+
+Loads Solana implementation of tBTC cross-chain interfaces using
+an AnchorProvider (which includes the connection and the wallet).
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `solanaProvider` | `AnchorProvider` | Anchor provider for Solana. Must include both `connection` and `wallet`. |
+
+#### Returns
+
+`Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
+
+Handle to the cross-chain interfaces for the TBTC interface on Solana.
+
+**`Throws`**
+
+If the connection's genesis hash does not match the expected `genesisHash`.
+
+#### Defined in
+
+[lib/solana/index.ts:20](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/index.ts#L20)
 
 ___
 

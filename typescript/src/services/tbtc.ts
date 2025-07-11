@@ -7,8 +7,8 @@ import {
   CrossChainContractsLoader,
   L1CrossChainContracts,
   DestinationChainName,
-  DestinationChainInterfaces,
   TBTCContracts,
+  DestinationChainInterfaces,
 } from "../lib/contracts"
 import { BitcoinClient, BitcoinNetwork } from "../lib/bitcoin"
 import {
@@ -18,6 +18,9 @@ import {
   loadEthereumCoreContracts,
 } from "../lib/ethereum"
 import { ElectrumClient } from "../lib/electrum"
+import { providers } from "ethers"
+import { AnchorProvider } from "@coral-xyz/anchor"
+import { loadSolanaCrossChainInterfaces } from "../lib/solana"
 import { loadBaseCrossChainInterfaces } from "../lib/base"
 import { loadArbitrumCrossChainInterfaces } from "../lib/arbitrum"
 import {
@@ -70,7 +73,7 @@ export class TBTC {
     this.deposits = new DepositsService(
       tbtcContracts,
       bitcoinClient,
-      (l2ChainName) => this.crossChainContracts(l2ChainName)
+      (destinationChainName) => this.crossChainContracts(destinationChainName)
     )
     this.maintenance = new MaintenanceService(tbtcContracts, bitcoinClient)
     this.redemptions = new RedemptionsService(
@@ -91,18 +94,18 @@ export class TBTC {
    * Initializes the tBTC v2 SDK entrypoint for Ethereum and Bitcoin mainnets.
    * The initialized instance uses default Electrum servers to interact
    * with Bitcoin mainnet
-   * @param signer Ethereum signer.
+   * @param ethereumSignerOrProvider Ethereum signer or provider.
    * @param crossChainSupport Whether to enable cross-chain support. False by default.
    * @returns Initialized tBTC v2 SDK entrypoint.
    * @throws Throws an error if the signer's Ethereum network is other than
    *         Ethereum mainnet.
    */
   static async initializeMainnet(
-    signer: EthereumSigner,
+    ethereumSignerOrProvider: EthereumSigner | providers.Provider,
     crossChainSupport: boolean = false
   ): Promise<TBTC> {
     return TBTC.initializeEthereum(
-      signer,
+      ethereumSignerOrProvider,
       Chains.Ethereum.Mainnet,
       BitcoinNetwork.Mainnet,
       crossChainSupport
@@ -113,18 +116,18 @@ export class TBTC {
    * Initializes the tBTC v2 SDK entrypoint for Ethereum Sepolia and Bitcoin testnet.
    * The initialized instance uses default Electrum servers to interact
    * with Bitcoin testnet
-   * @param signer Ethereum signer.
+   * @param ethereumSignerOrProvider Ethereum signer or provider.
    * @param crossChainSupport Whether to enable cross-chain support. False by default.
    * @returns Initialized tBTC v2 SDK entrypoint.
    * @throws Throws an error if the signer's Ethereum network is other than
    *         Ethereum mainnet.
    */
   static async initializeSepolia(
-    signer: EthereumSigner,
+    ethereumSignerOrProvider: EthereumSigner | providers.Provider,
     crossChainSupport: boolean = false
   ): Promise<TBTC> {
     return TBTC.initializeEthereum(
-      signer,
+      ethereumSignerOrProvider,
       Chains.Ethereum.Sepolia,
       BitcoinNetwork.Testnet,
       crossChainSupport
@@ -135,7 +138,7 @@ export class TBTC {
    * Initializes the tBTC v2 SDK entrypoint for the given Ethereum network and Bitcoin network.
    * The initialized instance uses default Electrum servers to interact
    * with Bitcoin network.
-   * @param signer Ethereum signer.
+   * @param ethereumSignerOrProvider Ethereum signer or provider.
    * @param ethereumChainId Ethereum chain ID.
    * @param bitcoinNetwork Bitcoin network.
    * @param crossChainSupport Whether to enable cross-chain support. False by default.
@@ -144,14 +147,16 @@ export class TBTC {
    *         other than the given Ethereum network.
    */
   private static async initializeEthereum(
-    signer: EthereumSigner,
+    ethereumSignerOrProvider: EthereumSigner | providers.Provider,
     ethereumChainId: Chains.Ethereum,
     bitcoinNetwork: BitcoinNetwork,
     crossChainSupport = false
   ): Promise<TBTC> {
-    const signerAddress = await ethereumAddressFromSigner(signer)
+    const signerAddress = await ethereumAddressFromSigner(
+      ethereumSignerOrProvider
+    )
     const tbtcContracts = await loadEthereumCoreContracts(
-      signer,
+      ethereumSignerOrProvider,
       ethereumChainId
     )
 
@@ -159,7 +164,7 @@ export class TBTC {
       undefined
     if (crossChainSupport) {
       crossChainContractsLoader = await ethereumCrossChainContractsLoader(
-        signer,
+        ethereumSignerOrProvider,
         ethereumChainId
       )
     }
@@ -250,7 +255,11 @@ export class TBTC {
    * @internal
    * @deprecated Will be removed in next major version.
    */
-  _l2Signer?: EthereumSigner | StarkNetProvider | SuiSignerWithAddress
+  _l2Signer?:
+    | EthereumSigner
+    | StarkNetProvider
+    | SuiSignerWithAddress
+    | AnchorProvider
 
   /**
    * Initializes cross-chain contracts for the given L2 chain.
@@ -278,6 +287,7 @@ export class TBTC {
    * @param l2ChainName Name of the L2 chain
    * @param signerOrEthereumSigner For StarkNet: StarkNet provider/account.
    *                               For SUI: SUI signer/wallet.
+   *                               For Solana: Solana provider.
    *                               For other L2s: Ethereum signer.
    * @param l2Provider Deprecated parameter - will throw error if provided
    * @returns Void promise
@@ -301,12 +311,11 @@ export class TBTC {
     signerOrEthereumSigner:
       | EthereumSigner
       | StarkNetProvider
-      | SuiSignerWithAddress,
-    l2Provider?: StarkNetProvider
+      | SuiSignerWithAddress
   ): Promise<void> {
     if (!this.#crossChainContractsLoader) {
       throw new Error(
-        "Cross-chain contracts loader not available for this instance"
+        "L1 Cross-chain contracts loader not available for this instance"
       )
     }
 
@@ -325,10 +334,6 @@ export class TBTC {
         if (!baseChainId) {
           throw new Error("Base chain ID not available in chain mapping")
         }
-        // For EVM chains, l2Provider should not be provided
-        if (l2Provider !== undefined) {
-          throw new Error("Base does not support two-parameter initialization")
-        }
         this._l2Signer = signerOrEthereumSigner
         l2CrossChainContracts = await loadBaseCrossChainInterfaces(
           signerOrEthereumSigner as EthereumSigner,
@@ -340,12 +345,6 @@ export class TBTC {
         if (!arbitrumChainId) {
           throw new Error("Arbitrum chain ID not available in chain mapping")
         }
-        // For EVM chains, l2Provider should not be provided
-        if (l2Provider !== undefined) {
-          throw new Error(
-            "Arbitrum does not support two-parameter initialization"
-          )
-        }
         this._l2Signer = signerOrEthereumSigner
         l2CrossChainContracts = await loadArbitrumCrossChainInterfaces(
           signerOrEthereumSigner as EthereumSigner,
@@ -356,14 +355,6 @@ export class TBTC {
         const starknetChainId = chainMapping.starknet
         if (!starknetChainId) {
           throw new Error("StarkNet chain ID not available in chain mapping")
-        }
-
-        // StarkNet only supports single-parameter mode
-        if (l2Provider !== undefined) {
-          throw new Error(
-            "StarkNet does not support two-parameter initialization. " +
-              "Please use: initializeCrossChain('StarkNet', starknetProvider)"
-          )
         }
 
         if (!signerOrEthereumSigner) {
@@ -404,21 +395,23 @@ export class TBTC {
         if (!suiChainId) {
           throw new Error("SUI chain ID not available in chain mapping")
         }
-        // SUI only supports single-parameter mode
-        if (l2Provider !== undefined) {
-          throw new Error(
-            "SUI does not support two-parameter initialization. " +
-              "Please use: initializeCrossChain('Sui', suiSigner)"
-          )
-        }
         this._l2Signer = signerOrEthereumSigner as SuiSignerWithAddress
         l2CrossChainContracts = await loadSuiCrossChainInterfaces(
           signerOrEthereumSigner as SuiSignerWithAddress,
           suiChainId
         )
         break
+      case "Solana":
+        if (!signerOrEthereumSigner) {
+          throw new Error("Solana provider is required")
+        }
+        this._l2Signer = signerOrEthereumSigner as AnchorProvider
+        l2CrossChainContracts = await loadSolanaCrossChainInterfaces(
+          signerOrEthereumSigner as AnchorProvider
+        )
+        break
       default:
-        throw new Error("Unsupported L2 chain")
+        throw new Error("Unsupported destination chain")
     }
 
     this.#crossChainContracts.set(l2ChainName, {
@@ -429,7 +422,7 @@ export class TBTC {
 
   /**
    * Gets cross-chain contracts for the given supported L2 chain.
-   * The given L2 chain contracts must be first initialized using the
+   * The given destination chain contracts must be first initialized using the
    * `initializeCrossChain` method.
    *
    * @experimental THIS IS EXPERIMENTAL CODE THAT CAN BE CHANGED OR REMOVED
@@ -437,7 +430,7 @@ export class TBTC {
    *               PURPOSES AND EXTERNAL APPLICATIONS SHOULD NOT DEPEND ON IT.
    *               CROSS-CHAIN SUPPORT IS NOT FULLY OPERATIONAL YET.
    *
-   * @param l2ChainName Name of the L2 chain for which to get cross-chain contracts.
+   * @param l2ChainName Name of the destination chain for which to get cross-chain contracts.
    * @returns Cross-chain contracts for the given L2 chain or
    *          undefined if not initialized.
    */

@@ -19,6 +19,11 @@ export namespace Chains {
     ArbitrumSepolia = "421614",
   }
 
+  export enum Solana {
+    Solana = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d",
+    Devnet = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
+  }
+
   /**
    * StarkNet L2 chains.
    */
@@ -80,6 +85,11 @@ export type ChainMapping = {
    * Identifier of the Arbitrum L2 chain.
    */
   arbitrum?: Chains.Arbitrum
+
+  /**
+   * Identifier of the Arbitrum L2 chain.
+   */
+  solana?: Chains.Solana
   /**
    * Identifier of the StarkNet L2 chain.
    */
@@ -98,6 +108,7 @@ export const ChainMappings: ChainMapping[] = [
     ethereum: Chains.Ethereum.Mainnet,
     base: Chains.Base.Base,
     arbitrum: Chains.Arbitrum.Arbitrum,
+    solana: Chains.Solana.Solana,
     starknet: Chains.StarkNet.Mainnet,
     sui: Chains.Sui.Mainnet,
   },
@@ -105,6 +116,7 @@ export const ChainMappings: ChainMapping[] = [
     ethereum: Chains.Ethereum.Sepolia,
     base: Chains.Base.BaseSepolia,
     arbitrum: Chains.Arbitrum.ArbitrumSepolia,
+    solana: Chains.Solana.Devnet,
     starknet: Chains.StarkNet.Sepolia,
     sui: Chains.Sui.Testnet,
   },

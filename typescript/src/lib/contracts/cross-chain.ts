@@ -160,7 +160,12 @@ export enum DepositState {
  * Interface for communication with the L1BitcoinDepositor on-chain contract
  * specific to the given L2 chain, deployed on the L1 chain.
  */
-export interface L1BitcoinDepositor {
+export type L1BitcoinDepositor = BitcoinDepositor & {
+  /**
+   * Gets the chain-specific identifier of this contract.
+   */
+  getChainIdentifier(): ChainIdentifier
+
   /**
    * Gets the deposit state for the given deposit identifier.
    * @param depositId Identifier of the deposit to get the state for.
@@ -168,15 +173,6 @@ export interface L1BitcoinDepositor {
    */
   getDepositState(depositId: string): Promise<DepositState>
 
-  /**
-   * Gets the chain-specific identifier of this contract.
-   */
-  getChainIdentifier(): ChainIdentifier
-
-  /**
-   * @returns Extra data encoder for this contract. The encoder is used to
-   * encode and decode the extra data included in the cross-chain deposit script.
-   */
   extraDataEncoder(): ExtraDataEncoder
 
   /**

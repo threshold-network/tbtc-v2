@@ -40,7 +40,7 @@ export type EthereumSigner = Signer | providers.Provider
  * @returns Chain ID as a string.
  */
 export async function chainIdFromSigner(
-  signer: EthereumSigner
+  signer: EthereumSigner | providers.Provider
 ): Promise<string> {
   let chainId: number
   if (Signer.isSigner(signer)) {
@@ -133,17 +133,18 @@ export async function ethereumCrossChainContractsLoader(
   const loadL1Contracts = async (
     destinationChainName: DestinationChainName
   ) => {
-    let l1BitcoinRedeemer: EthereumL1BitcoinRedeemer | null = null
-    if (
-      destinationChainName === "Base" ||
-      destinationChainName === "Arbitrum"
-    ) {
-      l1BitcoinRedeemer = new EthereumL1BitcoinRedeemer(
-        { signerOrProvider: signer },
-        chainId,
-        destinationChainName
-      )
-    }
+    const l1BitcoinRedeemer: EthereumL1BitcoinRedeemer | null = null
+    // TODO: Uncomment when Ethereum L1BitcoinRedeemer is deployed
+    // if (
+    //   destinationChainName === "Base" ||
+    //   destinationChainName === "Arbitrum"
+    // ) {
+    //   l1BitcoinRedeemer = new EthereumL1BitcoinRedeemer(
+    //     { signerOrProvider: signer },
+    //     chainId,
+    //     destinationChainName
+    //   )
+    // }
 
     return {
       l1BitcoinDepositor: new EthereumL1BitcoinDepositor(

@@ -62,22 +62,6 @@ describe("TBTC Single-Parameter StarkNet Initialization", () => {
       expect(consoleWarnCalls.length).to.equal(0)
     })
 
-    it("should reject two-parameter mode", async () => {
-      // Arrange
-      const { Wallet } = await import("ethers")
-      const mockEthSigner = Wallet.createRandom()
-      const mockProvider = new RpcProvider({
-        nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
-      })
-
-      // Act & Assert
-      await expect(
-        tbtc.initializeCrossChain("StarkNet", mockEthSigner, mockProvider)
-      ).to.be.rejectedWith(
-        "StarkNet does not support two-parameter initialization"
-      )
-    })
-
     it("should error when StarkNet provider is invalid", async () => {
       // Arrange
       const invalidProvider = {} as StarkNetProvider
@@ -205,25 +189,6 @@ describe("TBTC Single-Parameter StarkNet Initialization", () => {
       await tbtc.initializeCrossChain("StarkNet", account)
 
       // Assert
-      expect(consoleWarnCalls.length).to.equal(0)
-    })
-
-    it("should reject two-parameter mode without warning", async () => {
-      // Arrange
-      const { Wallet } = await import("ethers")
-      const ethSigner = Wallet.createRandom()
-      const provider = new RpcProvider({
-        nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
-      })
-
-      // Act & Assert
-      await expect(
-        tbtc.initializeCrossChain("StarkNet", ethSigner, provider)
-      ).to.be.rejectedWith(
-        "StarkNet does not support two-parameter initialization"
-      )
-
-      // Should not warn since it's rejected immediately
       expect(consoleWarnCalls.length).to.equal(0)
     })
   })
@@ -393,7 +358,7 @@ describe("TBTC Single-Parameter StarkNet Initialization", () => {
       // Act & Assert
       await expect(
         tbtc.initializeCrossChain("InvalidChain" as any, account)
-      ).to.be.rejectedWith(/Unsupported L2 chain/)
+      ).to.be.rejectedWith(/Unsupported destination chain/)
     })
 
     it("should handle undefined provider gracefully", async () => {

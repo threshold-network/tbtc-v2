@@ -26,7 +26,7 @@ const artifactLoader = {
   //     case "Arbitrum":
   //       return MainnetArbitrumL1BitcoinRedeemerDeployment
   //     default:
-  //       throw new Error("Unsupported L2 chain")
+  //       throw new Error("Unsupported destination chain")
   //   }
   // },
 
@@ -34,7 +34,7 @@ const artifactLoader = {
     if (l2ChainName === "Base" || l2ChainName === "Arbitrum") {
       return SepoliaL1BitcoinRedeemerDeployment
     }
-    throw new Error("Unsupported L2 chain")
+    throw new Error("Unsupported destination chain")
   },
 }
 

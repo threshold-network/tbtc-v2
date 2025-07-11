@@ -86,6 +86,14 @@ export class MockL1BitcoinDepositor implements L1BitcoinDepositor {
     this.#encoder = encoder
   }
 
+  getDepositOwner(): ChainIdentifier | undefined {
+    throw new Error("Not supported")
+  }
+
+  setDepositOwner(depositOwner: ChainIdentifier | undefined): void {
+    throw new Error("Not supported")
+  }
+
   getDepositState(depositId: string): Promise<DepositState> {
     throw new Error("Not supported")
   }

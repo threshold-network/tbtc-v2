@@ -440,31 +440,4 @@ describe("StarkNet Single-Parameter Deposit Flow", () => {
       setTimeoutStub.restore()
     })
   })
-
-  describe("Backward compatibility", () => {
-    it("should reject two-parameter mode completely", async () => {
-      // Arrange
-      const ethereumSigner = {
-        provider: {},
-        address: "0x1234567890123456789012345678901234567890",
-        getAddress: async () => "0x1234567890123456789012345678901234567890",
-        _isSigner: true,
-        _address: "0x1234567890123456789012345678901234567890",
-      }
-      const starknetProvider = new RpcProvider({
-        nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
-      })
-
-      // Act & Assert - should throw error
-      await expect(
-        tbtc.initializeCrossChain(
-          "StarkNet",
-          ethereumSigner as any,
-          starknetProvider
-        )
-      ).to.be.rejectedWith(
-        "StarkNet does not support two-parameter initialization"
-      )
-    })
-  })
 })

@@ -21,7 +21,7 @@ StarkNet Mainnet.
 
 #### Defined in
 
-[lib/contracts/chain.ts:29](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L29)
+[lib/contracts/chain.ts:34](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L34)
 
 ___
 
@@ -33,4 +33,4 @@ StarkNet Sepolia testnet.
 
 #### Defined in
 
-[lib/contracts/chain.ts:33](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L33)
+[lib/contracts/chain.ts:38](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L38)

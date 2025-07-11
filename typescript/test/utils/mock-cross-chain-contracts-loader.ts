@@ -16,6 +16,14 @@ import { Hex } from "../../src/lib/utils"
 import { MockL1BitcoinRedeemer } from "./mock-cross-chain"
 
 class MockL1BitcoinDepositor implements L1BitcoinDepositor {
+  getDepositOwner(): ChainIdentifier | undefined {
+    return undefined
+  }
+
+  setDepositOwner(depositOwner: ChainIdentifier | undefined): void {
+    return
+  }
+
   async getDepositState(depositId: string): Promise<DepositState> {
     return DepositState.UNKNOWN
   }

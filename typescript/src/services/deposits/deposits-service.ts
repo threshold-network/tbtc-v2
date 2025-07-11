@@ -1,9 +1,9 @@
 import {
   ChainIdentifier,
-  CrossChainContracts,
+  CrossChainInterfaces,
   DepositorProxy,
   DepositReceipt,
-  L2Chain,
+  DestinationChainName,
   TBTCContracts,
 } from "../../lib/contracts"
 import {
@@ -46,12 +46,16 @@ export class DepositsService {
    * @returns Cross-chain contracts for the given L2 chain or
    *          undefined if not initialized.
    */
-  readonly #crossChainContracts: (_: L2Chain) => CrossChainContracts | undefined
+  readonly #crossChainContracts: (
+    _: DestinationChainName
+  ) => CrossChainInterfaces | undefined
 
   constructor(
     tbtcContracts: TBTCContracts,
     bitcoinClient: BitcoinClient,
-    crossChainContracts: (_: L2Chain) => CrossChainContracts | undefined
+    crossChainContracts: (
+      _: DestinationChainName
+    ) => CrossChainInterfaces | undefined
   ) {
     this.tbtcContracts = tbtcContracts
     this.bitcoinClient = bitcoinClient
@@ -146,7 +150,7 @@ export class DepositsService {
    * @param bitcoinRecoveryAddress P2PKH or P2WPKH Bitcoin address that can
    *                               be used for emergency recovery of the
    *                               deposited funds.
-   * @param l2ChainName Name of the L2 chain the deposit is targeting.
+   * @param destinationChainName Name of the L2 chain the deposit is targeting.
    * @returns Handle to the initiated deposit process.
    * @throws Throws an error if one of the following occurs:
    *         - There are no active wallet in the Bridge contract
@@ -162,12 +166,12 @@ export class DepositsService {
    */
   async initiateCrossChainDeposit(
     bitcoinRecoveryAddress: string,
-    l2ChainName: L2Chain
+    destinationChainName: DestinationChainName
   ): Promise<Deposit> {
-    const crossChainContracts = this.#crossChainContracts(l2ChainName)
+    const crossChainContracts = this.#crossChainContracts(destinationChainName)
     if (!crossChainContracts) {
       throw new Error(
-        `Cross-chain contracts for ${l2ChainName} not initialized`
+        `Cross-chain contracts for ${destinationChainName} not initialized`
       )
     }
 

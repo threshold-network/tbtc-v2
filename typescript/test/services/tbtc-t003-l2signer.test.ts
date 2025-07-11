@@ -76,27 +76,6 @@ describe("TBTC T-003: _l2Signer Storage Behavior", () => {
     })
   })
 
-  describe("Two-Parameter Mode (Deprecated)", () => {
-    it("should reject two-parameter mode completely", async () => {
-      // Arrange
-      const mockEthSigner = Wallet.createRandom()
-      const mockStarkNetProvider = new RpcProvider({
-        nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
-      })
-
-      // Act & Assert
-      await expect(
-        tbtc.initializeCrossChain(
-          "StarkNet",
-          mockEthSigner,
-          mockStarkNetProvider
-        )
-      ).to.be.rejectedWith(
-        "StarkNet does not support two-parameter initialization"
-      )
-    })
-  })
-
   describe("Other L2 Chains", () => {
     it("should store _l2Signer for Base (EVM chain)", async () => {
       // Arrange
