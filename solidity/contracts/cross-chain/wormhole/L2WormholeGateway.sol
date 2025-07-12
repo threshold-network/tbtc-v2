@@ -196,6 +196,10 @@ contract L2WormholeGateway is
             nonce
         );
 
+        require(
+            mintedAmount >= amount,
+            "L2WormholeGateway: amount to send exceeds minted amount"
+        );
         mintedAmount -= amount;
         tbtc.burnFrom(msg.sender, amount);
         bridgeToken.safeApprove(address(bridge), amount);
@@ -293,6 +297,10 @@ contract L2WormholeGateway is
             nonce
         );
 
+        require(
+            mintedAmount >= amount,
+            "L2WormholeGateway: amount to send exceeds minted amount"
+        );
         mintedAmount -= amount;
         tbtc.burnFrom(msg.sender, amount);
         bridgeToken.safeApprove(address(bridge), amount);

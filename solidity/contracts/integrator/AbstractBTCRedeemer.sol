@@ -73,6 +73,16 @@ abstract contract AbstractBTCRedeemer is OwnableUpgradeable {
     using SafeERC20Upgradeable for IERC20Upgradeable;
     using BTCUtils for bytes;
 
+    // Custom errors
+    error AlreadyInitialized();
+    error ZeroAddress();
+    error InsufficientBalance();
+
+    /// @notice Emitted when tBTC tokens are rescued from the contract.
+    /// @param recipient The address that received the rescued tBTC tokens.
+    /// @param amount The amount of tBTC rescued.
+    event TbtcRescued(address indexed recipient, uint256 amount);
+
     /// @notice Multiplier to convert satoshi to TBTC token units.
     uint256 public constant SATOSHI_MULTIPLIER = 10**10;
 
@@ -88,7 +98,7 @@ abstract contract AbstractBTCRedeemer is OwnableUpgradeable {
     // Reserved storage space that allows adding more variables without affecting
     // the storage layout of the child contracts. The convention from OpenZeppelin
     // suggests the storage space should add up to 50 slots. If more variables are
-    // added in the upcoming versions one need to reduce the array size accordingly.
+    // added in the upcoming versions one needs to reduce the array size accordingly.
     // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
     // slither-disable-next-line unused-state
     uint256[46] private __gap;
@@ -102,20 +112,18 @@ abstract contract AbstractBTCRedeemer is OwnableUpgradeable {
         address _bank,
         address _tbtcVault
     ) internal {
-        require(
-            address(thresholdBridge) == address(0) &&
-                address(tbtcToken) == address(0) &&
-                address(bank) == address(0),
-            "AbstractBTCRedeemer already initialized"
-        );
+        if (
+            address(thresholdBridge) != address(0) ||
+            address(tbtcToken) != address(0) ||
+            address(bank) != address(0)
+        ) {
+            revert AlreadyInitialized();
+        }
 
-        require(
-            _thresholdBridge != address(0),
-            "Threshold Bridge address cannot be zero"
-        );
-        require(_tbtcToken != address(0), "TBTC token address cannot be zero");
-        require(_bank != address(0), "Bank address cannot be zero");
-        require(_tbtcVault != address(0), "TBTC vault address cannot be zero");
+        if (_thresholdBridge == address(0)) revert ZeroAddress();
+        if (_tbtcToken == address(0)) revert ZeroAddress();
+        if (_bank == address(0)) revert ZeroAddress();
+        if (_tbtcVault == address(0)) revert ZeroAddress();
 
         thresholdBridge = IBridge(_thresholdBridge);
         tbtcToken = IERC20Upgradeable(_tbtcToken);
@@ -244,12 +252,14 @@ abstract contract AbstractBTCRedeemer is OwnableUpgradeable {
     /// @param recipient The address that will receive the rescued tBTC tokens.
     /// @param amount The amount of tBTC (in 18 decimal precision) to transfer.
     function rescueTbtc(address recipient, uint256 amount) external onlyOwner {
-        require(recipient != address(0), "Cannot rescue to zero address");
-        require(
-            tbtcToken.balanceOf(address(this)) >= amount,
-            "Insufficient tBTC token balance in contract"
-        );
+        if (recipient == address(0)) revert ZeroAddress();
+        if (tbtcToken.balanceOf(address(this)) < amount) {
+            revert InsufficientBalance();
+        }
 
         tbtcToken.safeTransfer(recipient, amount);
+
+        // slither-disable-next-line reentrancy-events
+        emit TbtcRescued(recipient, amount);
     }
 }

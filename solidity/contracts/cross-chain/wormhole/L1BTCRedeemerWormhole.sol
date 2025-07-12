@@ -21,7 +21,6 @@ import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 import "./Wormhole.sol";
 import "../../integrator/AbstractBTCRedeemer.sol";
-import "../utils/Crosschain.sol";
 
 /// @title L1BTCRedeemerWormhole
 /// @notice This contract is part of the direct bridging mechanism allowing
@@ -52,21 +51,13 @@ contract L1BTCRedeemerWormhole is
     Reimbursable,
     ReentrancyGuardUpgradeable
 {
-    /// @notice Holds information about a deferred gas reimbursement.
-    struct GasReimbursement {
-        /// @notice Receiver that is supposed to receive the reimbursement.
-        address receiver;
-        /// @notice Gas expenditure that is meant to be reimbursed.
-        uint96 gasSpent;
-    }
+    // Custom errors
+    error CallerNotOwner();
+    error SourceAddressNotAuthorized();
+    error WormholeTokenBridgeAlreadySet();
 
     /// @notice Reference to the Wormhole Token Bridge contract.
     IWormholeTokenBridge public wormholeTokenBridge;
-    /// @notice Holds deferred gas reimbursements for redemption requests
-    ///         (indexed by redemption key). Reimbursement for redemption
-    ///         is typically paid out after the request is successfully relayed and processed.
-    ///         The specifics depend on the reimbursement strategy.
-    mapping(uint256 => GasReimbursement) public gasReimbursements;
     /// @notice Gas that is meant to balance the overall cost of processing a redemption request via L1.
     ///         Can be updated by the owner based on the current market conditions.
     uint256 public requestRedemptionGasOffset;
@@ -74,6 +65,10 @@ contract L1BTCRedeemerWormhole is
     ///         for relaying redemption requests. The authorization is
     ///         granted by the contract owner.
     mapping(address => bool) public reimbursementAuthorizations;
+    /// @notice Maps sender addresses to their authorization status. Only messages
+    ///         from authorized senders will be accepted. The addresses are stored
+    ///         in Wormhole format (bytes32).
+    mapping(bytes32 => bool) public allowedSenders;
 
     event RedemptionRequested(
         uint256 indexed redemptionKey,
@@ -90,10 +85,12 @@ contract L1BTCRedeemerWormhole is
         bool authorization
     );
 
+    event AllowedSenderUpdated(bytes32 indexed sender, bool allowed);
+
     /// @dev This modifier comes from the `Reimbursable` base contract and
     ///      must be overridden to protect the `updateReimbursementPool` call.
     modifier onlyReimbursableAdmin() override {
-        require(msg.sender == owner(), "Caller is not the owner");
+        if (msg.sender != owner()) revert CallerNotOwner();
         _;
     }
 
@@ -117,15 +114,13 @@ contract L1BTCRedeemerWormhole is
         );
         __Ownable_init();
 
-        require(
-            address(wormholeTokenBridge) == address(0),
-            "L1BTCRedeemerWormhole already initialized"
-        );
+        if (address(wormholeTokenBridge) != address(0)) {
+            revert WormholeTokenBridgeAlreadySet();
+        }
 
-        require(
-            _wormholeTokenBridge != address(0),
-            "Wormhole Token Bridge address cannot be zero"
-        );
+        if (_wormholeTokenBridge == address(0)) {
+            revert ZeroAddress();
+        }
 
         wormholeTokenBridge = IWormholeTokenBridge(_wormholeTokenBridge);
         requestRedemptionGasOffset = 60_000;
@@ -134,7 +129,7 @@ contract L1BTCRedeemerWormhole is
     /// @notice Updates the values of gas offset parameters for redemption processing.
     /// @dev Can be called only by the contract owner. The caller is responsible
     ///      for validating parameters.
-    /// @param _requestRedemptionGasOffset New initialize redemption gas offset.
+    /// @param _requestRedemptionGasOffset New redemption gas offset.
     function updateGasOffsetParameters(uint256 _requestRedemptionGasOffset)
         external
         onlyOwner
@@ -157,6 +152,19 @@ contract L1BTCRedeemerWormhole is
         reimbursementAuthorizations[_address] = authorization;
     }
 
+    /// @notice Updates the allowed sender status for a given Wormhole sender address.
+    /// @param _sender The Wormhole sender address (in bytes32 format).
+    /// @param _allowed New allowed status.
+    /// @dev Requirements:
+    ///      - Can be called only by the contract owner.
+    function updateAllowedSender(bytes32 _sender, bool _allowed)
+        external
+        onlyOwner
+    {
+        allowedSenders[_sender] = _allowed;
+        emit AllowedSenderUpdated(_sender, _allowed);
+    }
+
     /// @notice Initiates a redemption on L1 using tBTC received from another chain (e.g., L2)
     ///         via a Wormhole VAA. The tBTC is then used to request a Bitcoin redemption
     ///         from the main tBTC Bridge.
@@ -170,6 +178,7 @@ contract L1BTCRedeemerWormhole is
     ///        with the payload containing the user's destination Bitcoin output script.
     /// @dev Requirements:
     ///      - The Wormhole VAA must be valid and correctly transfer tBTC to this contract.
+    ///      - The VAA must originate from an allowed sender address.
     ///      - The payload of the VAA must be the user's Bitcoin `redemptionOutputScript`.
     ///      - `walletPubKeyHash` and `mainUtxo` must correspond to a live, funded tBTC wallet.
     ///      - All requirements of tBTC `Bridge.requestRedemption` must be met.
@@ -207,9 +216,17 @@ contract L1BTCRedeemerWormhole is
 
         uint256 amount = balanceAfter - balanceBefore;
 
-        bytes memory redemptionOutputScript = wormholeTokenBridge
-            .parseTransferWithPayload(encoded)
-            .payload;
+        // Parse the full transfer data to validate the source
+        IWormholeTokenBridge.TransferWithPayload
+            memory transfer = wormholeTokenBridge.parseTransferWithPayload(
+                encoded
+            );
+
+        // Validate that the message came from an authorized sender
+        bytes32 sender = transfer.fromAddress;
+        if (!allowedSenders[sender]) revert SourceAddressNotAuthorized();
+
+        bytes memory redemptionOutputScript = transfer.payload;
 
         // Input parameters do not have to be validated in any way.
         // The tBTC Bridge is responsible for validating whether the provided

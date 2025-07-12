@@ -485,6 +485,96 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
     })
   })
 
+  describe("updateAllowedSender", () => {
+    const exampleSender = ethers.utils.hexZeroPad("0x1234", 32)
+    const anotherSender = ethers.utils.hexZeroPad("0x5678", 32)
+
+    context("when called by a non-owner", () => {
+      it("should revert", async () => {
+        await expect(
+          l1BtcRedeemer
+            .connect(relayer)
+            .updateAllowedSender(exampleSender, true)
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+    })
+
+    context("when called by the owner", () => {
+      let tx: ContractTransaction
+
+      before(async () => {
+        await createSnapshot()
+        tx = await l1BtcRedeemer
+          .connect(governance)
+          .updateAllowedSender(exampleSender, true)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should update the allowed sender", async () => {
+        expect(await l1BtcRedeemer.allowedSenders(exampleSender)).to.be.true
+      })
+
+      it("should emit AllowedSenderUpdated event", async () => {
+        await expect(tx)
+          .to.emit(l1BtcRedeemer, "AllowedSenderUpdated")
+          .withArgs(exampleSender, true)
+      })
+    })
+
+    context("when revoking allowed sender", () => {
+      let allowTx: ContractTransaction
+      let revokeTx: ContractTransaction
+
+      before(async () => {
+        await createSnapshot()
+        allowTx = await l1BtcRedeemer
+          .connect(governance)
+          .updateAllowedSender(exampleSender, true)
+        revokeTx = await l1BtcRedeemer
+          .connect(governance)
+          .updateAllowedSender(exampleSender, false)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should revoke the allowed sender", async () => {
+        expect(await l1BtcRedeemer.allowedSenders(exampleSender)).to.be.false
+      })
+
+      it("should emit AllowedSenderUpdated event for revocation", async () => {
+        await expect(revokeTx)
+          .to.emit(l1BtcRedeemer, "AllowedSenderUpdated")
+          .withArgs(exampleSender, false)
+      })
+    })
+
+    context("when allowing multiple senders", () => {
+      before(async () => {
+        await createSnapshot()
+        await l1BtcRedeemer
+          .connect(governance)
+          .updateAllowedSender(exampleSender, true)
+        await l1BtcRedeemer
+          .connect(governance)
+          .updateAllowedSender(anotherSender, true)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should track multiple allowed senders correctly", async () => {
+        expect(await l1BtcRedeemer.allowedSenders(exampleSender)).to.be.true
+        expect(await l1BtcRedeemer.allowedSenders(anotherSender)).to.be.true
+      })
+    })
+  })
+
   describe("requestRedemption", () => {
     const encodedVm = "0x1234567890"
     const calculatedRedemptionKey = ethers.utils.solidityKeccak256(
@@ -498,18 +588,192 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
       ]
     )
 
+    // Default sender address for tests (in Wormhole format)
+    const defaultSender = ethers.utils.hexZeroPad("0xABCD", 32)
+    const unauthorizedSender = ethers.utils.hexZeroPad("0xDEAD", 32)
+
+    // Helper function to create a mock TransferWithPayload struct
+    function createMockTransferWithPayload(
+      payload: string,
+      fromAddress: string = defaultSender
+    ) {
+      const transfer = {
+        payloadID: 1,
+        amount: 2,
+        tokenAddress: ethers.utils.hexZeroPad("0x3000", 32),
+        tokenChain: 4,
+        to: ethers.utils.hexZeroPad("0x5000", 32),
+        toChain: 6,
+        fromAddress,
+        payload,
+      }
+      return ethers.utils.defaultAbiCoder.encode(
+        [
+          "tuple(uint8 payloadID, uint256 amount, bytes32 tokenAddress, uint16 tokenChain, bytes32 to, uint16 toChain, bytes32 fromAddress, bytes payload)",
+        ],
+        [transfer]
+      )
+    }
+
     beforeEach(async () => {
       await createSnapshot()
       wormholeTokenBridge.completeTransferWithPayload.reset()
+      wormholeTokenBridge.parseTransferWithPayload.reset()
       reimbursementPool.refund.reset()
-      wormholeTokenBridge.completeTransferWithPayload.returns(
+
+      // Set up default mock behavior
+      const encodedTransfer = createMockTransferWithPayload(
         exampleRedeemerOutputScript
       )
+      wormholeTokenBridge.completeTransferWithPayload.returns(encodedTransfer)
+      wormholeTokenBridge.parseTransferWithPayload
+        .whenCalledWith(encodedTransfer)
+        .returns({
+          payloadID: 1,
+          amount: 2,
+          tokenAddress: ethers.utils.hexZeroPad("0x3000", 32),
+          tokenChain: 4,
+          to: ethers.utils.hexZeroPad("0x5000", 32),
+          toChain: 6,
+          fromAddress: defaultSender,
+          payload: exampleRedeemerOutputScript,
+        })
+
+      // Allow the default sender
+      await l1BtcRedeemer
+        .connect(governance)
+        .updateAllowedSender(defaultSender, true)
+
       await tbtcToken.mint(l1BtcRedeemer.address, exampleAmount)
     })
 
     afterEach(async () => {
       await restoreSnapshot()
+    })
+
+    context("when sender is not authorized", () => {
+      beforeEach(async () => {
+        // Set up mock to return unauthorized sender
+        const encodedTransfer = createMockTransferWithPayload(
+          exampleRedeemerOutputScript,
+          unauthorizedSender
+        )
+        wormholeTokenBridge.completeTransferWithPayload.returns(encodedTransfer)
+        wormholeTokenBridge.parseTransferWithPayload
+          .whenCalledWith(encodedTransfer)
+          .returns({
+            payloadID: 1,
+            amount: 2,
+            tokenAddress: ethers.utils.hexZeroPad("0x3000", 32),
+            tokenChain: 4,
+            to: ethers.utils.hexZeroPad("0x5000", 32),
+            toChain: 6,
+            fromAddress: unauthorizedSender,
+            payload: exampleRedeemerOutputScript,
+          })
+      })
+
+      it("should revert with unauthorized error", async () => {
+        await expect(
+          l1BtcRedeemer
+            .connect(relayer)
+            .requestRedemption(
+              exampleWalletPubKeyHash,
+              exampleMainUtxo,
+              encodedVm
+            )
+        ).to.be.reverted
+      })
+    })
+
+    context("when sender authorization is updated", () => {
+      const newSender = ethers.utils.hexZeroPad("0x9999", 32)
+
+      beforeEach(async () => {
+        // Set up mock to return new sender
+        const encodedTransfer = createMockTransferWithPayload(
+          exampleRedeemerOutputScript,
+          newSender
+        )
+        wormholeTokenBridge.completeTransferWithPayload.returns(encodedTransfer)
+        wormholeTokenBridge.parseTransferWithPayload
+          .whenCalledWith(encodedTransfer)
+          .returns({
+            payloadID: 1,
+            amount: 2,
+            tokenAddress: ethers.utils.hexZeroPad("0x3000", 32),
+            tokenChain: 4,
+            to: ethers.utils.hexZeroPad("0x5000", 32),
+            toChain: 6,
+            fromAddress: newSender,
+            payload: exampleRedeemerOutputScript,
+          })
+      })
+
+      it("should reject before authorization", async () => {
+        await expect(
+          l1BtcRedeemer
+            .connect(relayer)
+            .requestRedemption(
+              exampleWalletPubKeyHash,
+              exampleMainUtxo,
+              encodedVm
+            )
+        ).to.be.reverted
+      })
+
+      it("should accept after authorization", async () => {
+        // Authorize the new sender
+        await l1BtcRedeemer
+          .connect(governance)
+          .updateAllowedSender(newSender, true)
+
+        // Should now succeed
+        const tx = await l1BtcRedeemer
+          .connect(relayer)
+          .requestRedemption(
+            exampleWalletPubKeyHash,
+            exampleMainUtxo,
+            encodedVm
+          )
+
+        await expect(tx)
+          .to.emit(l1BtcRedeemer, "RedemptionRequested")
+          .withArgs(
+            calculatedRedemptionKey,
+            exampleWalletPubKeyHash,
+            [
+              exampleMainUtxo.txHash,
+              exampleMainUtxo.txOutputIndex,
+              exampleMainUtxo.txOutputValue,
+            ],
+            exampleRedeemerOutputScript,
+            exampleAmount
+          )
+      })
+
+      it("should reject after revocation", async () => {
+        // First authorize
+        await l1BtcRedeemer
+          .connect(governance)
+          .updateAllowedSender(newSender, true)
+
+        // Then revoke
+        await l1BtcRedeemer
+          .connect(governance)
+          .updateAllowedSender(newSender, false)
+
+        // Should now fail
+        await expect(
+          l1BtcRedeemer
+            .connect(relayer)
+            .requestRedemption(
+              exampleWalletPubKeyHash,
+              exampleMainUtxo,
+              encodedVm
+            )
+        ).to.be.reverted
+      })
     })
 
     context("when redemption is successful", () => {
@@ -572,9 +836,24 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
         let tx: ContractTransaction
 
         beforeEach(async () => {
-          wormholeTokenBridge.completeTransferWithPayload.returns(
+          const encodedTransfer = createMockTransferWithPayload(
             exampleP2WPKHOutputScript
           )
+          wormholeTokenBridge.completeTransferWithPayload.returns(
+            encodedTransfer
+          )
+          wormholeTokenBridge.parseTransferWithPayload
+            .whenCalledWith(encodedTransfer)
+            .returns({
+              payloadID: 1,
+              amount: 2,
+              tokenAddress: ethers.utils.hexZeroPad("0x3000", 32),
+              tokenChain: 4,
+              to: ethers.utils.hexZeroPad("0x5000", 32),
+              toChain: 6,
+              fromAddress: defaultSender,
+              payload: exampleP2WPKHOutputScript,
+            })
           tx = await l1BtcRedeemer
             .connect(relayer)
             .requestRedemption(
@@ -614,9 +893,24 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
         let tx: ContractTransaction
 
         beforeEach(async () => {
-          wormholeTokenBridge.completeTransferWithPayload.returns(
+          const encodedTransfer = createMockTransferWithPayload(
             exampleP2SHOutputScript
           )
+          wormholeTokenBridge.completeTransferWithPayload.returns(
+            encodedTransfer
+          )
+          wormholeTokenBridge.parseTransferWithPayload
+            .whenCalledWith(encodedTransfer)
+            .returns({
+              payloadID: 1,
+              amount: 2,
+              tokenAddress: ethers.utils.hexZeroPad("0x3000", 32),
+              tokenChain: 4,
+              to: ethers.utils.hexZeroPad("0x5000", 32),
+              toChain: 6,
+              fromAddress: defaultSender,
+              payload: exampleP2SHOutputScript,
+            })
           tx = await l1BtcRedeemer
             .connect(relayer)
             .requestRedemption(
@@ -656,9 +950,24 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
         let tx: ContractTransaction
 
         beforeEach(async () => {
-          wormholeTokenBridge.completeTransferWithPayload.returns(
+          const encodedTransfer = createMockTransferWithPayload(
             exampleP2WSHOutputScript
           )
+          wormholeTokenBridge.completeTransferWithPayload.returns(
+            encodedTransfer
+          )
+          wormholeTokenBridge.parseTransferWithPayload
+            .whenCalledWith(encodedTransfer)
+            .returns({
+              payloadID: 1,
+              amount: 2,
+              tokenAddress: ethers.utils.hexZeroPad("0x3000", 32),
+              tokenChain: 4,
+              to: ethers.utils.hexZeroPad("0x5000", 32),
+              toChain: 6,
+              fromAddress: defaultSender,
+              payload: exampleP2WSHOutputScript,
+            })
           tx = await l1BtcRedeemer
             .connect(relayer)
             .requestRedemption(
@@ -925,15 +1234,65 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
         "0x1976a914aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa88ac"
 
       beforeEach(async () => {
+        // Set up first transfer
+        const encodedTransfer1 = createMockTransferWithPayload(
+          exampleRedeemerOutputScript
+        )
         wormholeTokenBridge.completeTransferWithPayload
           .whenCalledWith(encodedVm)
-          .returns(exampleRedeemerOutputScript)
+          .returns(encodedTransfer1)
+        wormholeTokenBridge.parseTransferWithPayload
+          .whenCalledWith(encodedTransfer1)
+          .returns({
+            payloadID: 1,
+            amount: 2,
+            tokenAddress: ethers.utils.hexZeroPad("0x3000", 32),
+            tokenChain: 4,
+            to: ethers.utils.hexZeroPad("0x5000", 32),
+            toChain: 6,
+            fromAddress: defaultSender,
+            payload: exampleRedeemerOutputScript,
+          })
+
+        // Set up second transfer
+        const encodedTransfer2 = createMockTransferWithPayload(
+          differentOutputScript
+        )
         wormholeTokenBridge.completeTransferWithPayload
           .whenCalledWith(encodedVm2)
-          .returns(differentOutputScript)
+          .returns(encodedTransfer2)
+        wormholeTokenBridge.parseTransferWithPayload
+          .whenCalledWith(encodedTransfer2)
+          .returns({
+            payloadID: 1,
+            amount: 2,
+            tokenAddress: ethers.utils.hexZeroPad("0x3000", 32),
+            tokenChain: 4,
+            to: ethers.utils.hexZeroPad("0x5000", 32),
+            toChain: 6,
+            fromAddress: defaultSender,
+            payload: differentOutputScript,
+          })
+
+        // Set up third transfer
+        const encodedTransfer3 = createMockTransferWithPayload(
+          exampleP2WPKHOutputScript
+        )
         wormholeTokenBridge.completeTransferWithPayload
           .whenCalledWith(encodedVm3)
-          .returns(exampleP2WPKHOutputScript)
+          .returns(encodedTransfer3)
+        wormholeTokenBridge.parseTransferWithPayload
+          .whenCalledWith(encodedTransfer3)
+          .returns({
+            payloadID: 1,
+            amount: 2,
+            tokenAddress: ethers.utils.hexZeroPad("0x3000", 32),
+            tokenChain: 4,
+            to: ethers.utils.hexZeroPad("0x5000", 32),
+            toChain: 6,
+            fromAddress: defaultSender,
+            payload: exampleP2WPKHOutputScript,
+          })
 
         await tbtcToken.mint(l1BtcRedeemer.address, exampleAmount.mul(2)) // Need more tokens
       })
@@ -1001,9 +1360,24 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
       context("when VM is empty", () => {
         it("should handle empty VM", async () => {
           const emptyVm = "0x"
+          const encodedTransfer = createMockTransferWithPayload(
+            exampleRedeemerOutputScript
+          )
           wormholeTokenBridge.completeTransferWithPayload
             .whenCalledWith(emptyVm)
-            .returns(exampleRedeemerOutputScript)
+            .returns(encodedTransfer)
+          wormholeTokenBridge.parseTransferWithPayload
+            .whenCalledWith(encodedTransfer)
+            .returns({
+              payloadID: 1,
+              amount: 2,
+              tokenAddress: ethers.utils.hexZeroPad("0x3000", 32),
+              tokenChain: 4,
+              to: ethers.utils.hexZeroPad("0x5000", 32),
+              toChain: 6,
+              fromAddress: defaultSender,
+              payload: exampleRedeemerOutputScript,
+            })
 
           const tx = await l1BtcRedeemer
             .connect(relayer)
@@ -1078,12 +1452,42 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
   })
 
   describe("setMockRedemptionAmountTBTC", () => {
+    // Default sender address for tests (in Wormhole format)
+    const defaultSender = ethers.utils.hexZeroPad("0xABCD", 32)
+
+    // Helper function to create a mock TransferWithPayload struct
+    function createMockTransferWithPayload(
+      payload: string,
+      fromAddress: string = defaultSender
+    ) {
+      const transfer = {
+        payloadID: 1,
+        amount: 2,
+        tokenAddress: ethers.utils.hexZeroPad("0x3000", 32),
+        tokenChain: 4,
+        to: ethers.utils.hexZeroPad("0x5000", 32),
+        toChain: 6,
+        fromAddress,
+        payload,
+      }
+      return ethers.utils.defaultAbiCoder.encode(
+        [
+          "tuple(uint8 payloadID, uint256 amount, bytes32 tokenAddress, uint16 tokenChain, bytes32 to, uint16 toChain, bytes32 fromAddress, bytes payload)",
+        ],
+        [transfer]
+      )
+    }
+
     context("when setting a new mock amount", () => {
       const newAmount = ethers.utils.parseUnits("5", 18)
 
       before(async () => {
         await createSnapshot()
         await l1BtcRedeemer.setMockRedemptionAmountTBTC(newAmount)
+        // Allow the default sender
+        await l1BtcRedeemer
+          .connect(governance)
+          .updateAllowedSender(defaultSender, true)
       })
 
       after(async () => {
@@ -1097,9 +1501,22 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
       })
 
       it("should use the new amount in redemptions", async () => {
-        wormholeTokenBridge.completeTransferWithPayload.returns(
+        const encodedTransfer = createMockTransferWithPayload(
           exampleRedeemerOutputScript
         )
+        wormholeTokenBridge.completeTransferWithPayload.returns(encodedTransfer)
+        wormholeTokenBridge.parseTransferWithPayload
+          .whenCalledWith(encodedTransfer)
+          .returns({
+            payloadID: 1,
+            amount: 2,
+            tokenAddress: ethers.utils.hexZeroPad("0x3000", 32),
+            tokenChain: 4,
+            to: ethers.utils.hexZeroPad("0x5000", 32),
+            toChain: 6,
+            fromAddress: defaultSender,
+            payload: exampleRedeemerOutputScript,
+          })
         await tbtcToken.mint(l1BtcRedeemer.address, newAmount)
 
         const tx = await l1BtcRedeemer
@@ -1139,6 +1556,10 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
       before(async () => {
         await createSnapshot()
         await l1BtcRedeemer.setMockRedemptionAmountTBTC(0)
+        // Allow the default sender
+        await l1BtcRedeemer
+          .connect(governance)
+          .updateAllowedSender(defaultSender, true)
       })
 
       after(async () => {
@@ -1146,9 +1567,22 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
       })
 
       it("should fallback to default amount in redemptions", async () => {
-        wormholeTokenBridge.completeTransferWithPayload.returns(
+        const encodedTransfer = createMockTransferWithPayload(
           exampleRedeemerOutputScript
         )
+        wormholeTokenBridge.completeTransferWithPayload.returns(encodedTransfer)
+        wormholeTokenBridge.parseTransferWithPayload
+          .whenCalledWith(encodedTransfer)
+          .returns({
+            payloadID: 1,
+            amount: 2,
+            tokenAddress: ethers.utils.hexZeroPad("0x3000", 32),
+            tokenChain: 4,
+            to: ethers.utils.hexZeroPad("0x5000", 32),
+            toChain: 6,
+            fromAddress: defaultSender,
+            payload: exampleRedeemerOutputScript,
+          })
         await tbtcToken.mint(l1BtcRedeemer.address, exampleAmount)
 
         const tx = await l1BtcRedeemer
@@ -1187,11 +1621,56 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
   })
 
   describe("gas estimation scenarios", () => {
+    // Default sender address for tests (in Wormhole format)
+    const defaultSender = ethers.utils.hexZeroPad("0xABCD", 32)
+
+    // Helper function to create a mock TransferWithPayload struct
+    function createMockTransferWithPayload(
+      payload: string,
+      fromAddress: string = defaultSender
+    ) {
+      const transfer = {
+        payloadID: 1,
+        amount: 2,
+        tokenAddress: ethers.utils.hexZeroPad("0x3000", 32),
+        tokenChain: 4,
+        to: ethers.utils.hexZeroPad("0x5000", 32),
+        toChain: 6,
+        fromAddress,
+        payload,
+      }
+      return ethers.utils.defaultAbiCoder.encode(
+        [
+          "tuple(uint8 payloadID, uint256 amount, bytes32 tokenAddress, uint16 tokenChain, bytes32 to, uint16 toChain, bytes32 fromAddress, bytes payload)",
+        ],
+        [transfer]
+      )
+    }
+
     beforeEach(async () => {
       await createSnapshot()
-      wormholeTokenBridge.completeTransferWithPayload.returns(
+      const encodedTransfer = createMockTransferWithPayload(
         exampleRedeemerOutputScript
       )
+      wormholeTokenBridge.completeTransferWithPayload.returns(encodedTransfer)
+      wormholeTokenBridge.parseTransferWithPayload
+        .whenCalledWith(encodedTransfer)
+        .returns({
+          payloadID: 1,
+          amount: 2,
+          tokenAddress: ethers.utils.hexZeroPad("0x3000", 32),
+          tokenChain: 4,
+          to: ethers.utils.hexZeroPad("0x5000", 32),
+          toChain: 6,
+          fromAddress: defaultSender,
+          payload: exampleRedeemerOutputScript,
+        })
+
+      // Allow the default sender
+      await l1BtcRedeemer
+        .connect(governance)
+        .updateAllowedSender(defaultSender, true)
+
       await tbtcToken.mint(l1BtcRedeemer.address, exampleAmount)
     })
 
