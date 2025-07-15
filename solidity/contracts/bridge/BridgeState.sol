@@ -21,6 +21,7 @@ import "@keep-network/random-beacon/contracts/ReimbursementPool.sol";
 import "./IRelay.sol";
 import "./Deposit.sol";
 import "./Redemption.sol";
+import "./RebateStaking.sol";
 import "./Fraud.sol";
 import "./Wallets.sol";
 import "./MovingFunds.sol";
@@ -320,6 +321,8 @@ library BridgeState {
         // Address of the redemption watchtower. The redemption watchtower
         // is responsible for vetoing redemption requests.
         address redemptionWatchtower;
+        // TODO finish the docs
+        RebateStaking rebateStaking;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
@@ -327,7 +330,7 @@ library BridgeState {
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
-        uint256[49] __gap;
+        uint256[48] __gap;
     }
 
     event DepositParametersUpdated(
@@ -381,6 +384,7 @@ library BridgeState {
     event TreasuryUpdated(address treasury);
 
     event RedemptionWatchtowerSet(address redemptionWatchtower);
+    event RebateStakingSet(address rebateStaking);
 
     /// @notice Updates parameters of deposits.
     /// @param _depositDustThreshold New value of the deposit dust threshold in
@@ -856,5 +860,28 @@ library BridgeState {
 
         self.redemptionWatchtower = _redemptionWatchtower;
         emit RedemptionWatchtowerSet(_redemptionWatchtower);
+    }
+
+    /// @notice Sets the rebate staking address.
+    /// @param _rebateStaking Address of the rebate staking.
+    /// @dev Requirements:
+    ///      - Rebate staking address must not be already set,
+    ///      - Rebate staking address must not be 0x0.
+    function setRebateStaking(
+        Storage storage self,
+        address _rebateStaking
+    ) internal {
+        require(
+            address(self.rebateStaking) == address(0),
+            "Rebate staking contract already set"
+        );
+
+        require(
+            _rebateStaking != address(0),
+            "Rebate staking address must not be 0x0"
+        );
+
+        self.rebateStaking = RebateStaking(_rebateStaking);
+        emit RebateStakingSet(_rebateStaking);
     }
 }
