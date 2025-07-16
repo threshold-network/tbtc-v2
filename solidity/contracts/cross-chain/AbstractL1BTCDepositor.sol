@@ -19,6 +19,7 @@ import "@keep-network/random-beacon/contracts/Reimbursable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
 
 import "../integrator/AbstractBTCDepositor.sol";
 import "../integrator/IBridge.sol";
@@ -57,7 +58,8 @@ import "./utils/Crosschain.sol";
 abstract contract AbstractL1BTCDepositor is
     AbstractBTCDepositor,
     OwnableUpgradeable,
-    Reimbursable
+    Reimbursable,
+    ReentrancyGuardUpgradeable
 {
     using SafeERC20Upgradeable for IERC20Upgradeable;
 
@@ -154,7 +156,7 @@ abstract contract AbstractL1BTCDepositor is
         address _tbtcVault
     ) internal {
         __AbstractBTCDepositor_initialize(_tbtcBridge, _tbtcVault);
-
+        __ReentrancyGuard_init();
         tbtcToken = IERC20Upgradeable(ITBTCVault(_tbtcVault).tbtcToken());
 
         initializeDepositGasOffset = 60_000;
@@ -362,7 +364,9 @@ abstract contract AbstractL1BTCDepositor is
     ///        is responsible for executing the deposit finalization on the
     ///        corresponding destination chain. The payment must be equal to the
     ///        value returned by the `quoteFinalizeDeposit` function.
-    function finalizeDeposit(uint256 depositKey) external payable {
+    ///      - For improved security, tBTC is now transferred as the last step
+    ///        after all reimbursements are paid out.
+    function finalizeDeposit(uint256 depositKey) external payable nonReentrant {
         uint256 gasStart = gasleft();
 
         require(
@@ -399,7 +403,7 @@ abstract contract AbstractL1BTCDepositor is
             initialDepositAmount,
             tbtcAmount
         );
-
+        
         // `ReimbursementPool` calls the untrusted receiver address using a
         // low-level call. Reentrancy risk is mitigated by making sure that
         // `ReimbursementPool.refund` is a non-reentrant function and executing
@@ -440,7 +444,7 @@ abstract contract AbstractL1BTCDepositor is
                 );
             }
         }
-
+        
         _transferTbtc(tbtcAmount, destinationChainDepositOwner);
     }
 
