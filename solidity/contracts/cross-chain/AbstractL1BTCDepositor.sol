@@ -403,7 +403,7 @@ abstract contract AbstractL1BTCDepositor is
             initialDepositAmount,
             tbtcAmount
         );
-        
+
         // `ReimbursementPool` calls the untrusted receiver address using a
         // low-level call. Reentrancy risk is mitigated by making sure that
         // `ReimbursementPool.refund` is a non-reentrant function and executing
@@ -444,7 +444,7 @@ abstract contract AbstractL1BTCDepositor is
                 );
             }
         }
-        
+
         _transferTbtc(tbtcAmount, destinationChainDepositOwner);
     }
 
