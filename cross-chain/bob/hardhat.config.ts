@@ -1,3 +1,4 @@
+import "dotenv/config";
 import type { HardhatUserConfig } from "hardhat/config"
 
 import "@nomiclabs/hardhat-etherscan"
@@ -14,6 +15,15 @@ const config: HardhatUserConfig = {
     compilers: [
       {
         version: "0.8.15",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 1000,
+          },
+        },
+      },
+      {
+        version: "0.8.17",
         settings: {
           optimizer: {
             enabled: true,
@@ -133,6 +143,7 @@ const config: HardhatUserConfig = {
   },
   typechain: {
     outDir: "typechain",
+    target: "ethers-v5",
   },
 }
 
