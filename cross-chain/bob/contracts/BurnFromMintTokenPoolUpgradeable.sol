@@ -71,7 +71,7 @@ contract BurnFromMintTokenPoolUpgradeable is IPoolV1, ITypeAndVersion, Initializ
     address[] memory allowlist,
     address rmnProxy,
     address router
-  ) external initializer {
+  ) public virtual initializer {
     __Ownable_init();
     
     s_token = IERC20(token);
