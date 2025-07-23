@@ -63,6 +63,8 @@ contract LockReleaseTokenPoolUpgradeable is
         bool acceptLiquidity,
         address router
     ) external initializer {
+        require(router != address(0), "Router cannot be zero address");
+        require(rmnProxy != address(0), "RMN proxy cannot be zero address");
         __Ownable_init();
 
         s_token = IERC20(token);
@@ -82,14 +84,13 @@ contract LockReleaseTokenPoolUpgradeable is
     ) external override returns (Pool.LockOrBurnOutV1 memory) {
         require(msg.sender == s_router, "Only router");
 
+        emit Locked(msg.sender, lockOrBurnIn.amount);
         // Lock tokens by transferring to this contract
         s_token.safeTransferFrom(
             msg.sender,
             address(this),
             lockOrBurnIn.amount
         );
-
-        emit Locked(msg.sender, lockOrBurnIn.amount);
 
         return
             Pool.LockOrBurnOutV1({
@@ -104,14 +105,13 @@ contract LockReleaseTokenPoolUpgradeable is
     ) external override returns (Pool.ReleaseOrMintOutV1 memory) {
         require(msg.sender == s_router, "Only router");
 
-        // Release tokens by transferring from this contract
-        s_token.safeTransfer(releaseOrMintIn.receiver, releaseOrMintIn.amount);
-
         emit Released(
             msg.sender,
             releaseOrMintIn.receiver,
             releaseOrMintIn.amount
         );
+        // Release tokens by transferring from this contract
+        s_token.safeTransfer(releaseOrMintIn.receiver, releaseOrMintIn.amount);
 
         return
             Pool.ReleaseOrMintOutV1({
