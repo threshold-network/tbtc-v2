@@ -8,10 +8,7 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-
-interface ITypeAndVersion {
-    function typeAndVersion() external pure returns (string memory);
-}
+import { ITypeAndVersion } from "./interfaces/ITypeAndVersion.sol";
 
 /// @notice Upgradeable LockReleaseTokenPool that implements CCIP v1.6.0 interface
 /// @dev This is a working implementation for BOB deployment
