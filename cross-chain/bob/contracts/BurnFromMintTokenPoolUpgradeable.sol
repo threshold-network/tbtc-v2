@@ -7,6 +7,7 @@ import {Pool} from "./libraries/Pool.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import { ITypeAndVersion } from "./interfaces/ITypeAndVersion.sol";
 
 interface IBurnMintERC20 is IERC20 {
     /// @notice Mints new tokens for a given address.
@@ -31,10 +32,6 @@ interface IBurnMintERC20 is IERC20 {
     /// @param amount The number of tokens to be burned.
     /// @dev this function decreases the total supply.
     function burnFrom(address account, uint256 amount) external;
-}
-
-interface ITypeAndVersion {
-    function typeAndVersion() external pure returns (string memory);
 }
 
 /// @notice Upgradeable BurnFromMintTokenPool that implements CCIP v1.6.0 interface
