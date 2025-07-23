@@ -98,14 +98,12 @@ contract BurnFromMintTokenPoolUpgradeable is
         Pool.LockOrBurnInV1 calldata lockOrBurnIn
     ) external override returns (Pool.LockOrBurnOutV1 memory) {
         require(msg.sender == s_router, "Only router");
-
+        emit Burned(msg.sender, lockOrBurnIn.amount);
         // Burn tokens
         IBurnMintERC20(address(s_token)).burnFrom(
             msg.sender,
             lockOrBurnIn.amount
         );
-
-        emit Burned(msg.sender, lockOrBurnIn.amount);
 
         return
             Pool.LockOrBurnOutV1({
@@ -119,15 +117,13 @@ contract BurnFromMintTokenPoolUpgradeable is
         Pool.ReleaseOrMintInV1 calldata releaseOrMintIn
     ) external override returns (Pool.ReleaseOrMintOutV1 memory) {
         require(msg.sender == s_router, "Only router");
-
-        // Mint tokens
-        IBurnMintERC20(address(s_token)).mint(
+        emit Minted(
+            msg.sender,
             releaseOrMintIn.receiver,
             releaseOrMintIn.amount
         );
-
-        emit Minted(
-            msg.sender,
+        // Mint tokens
+        IBurnMintERC20(address(s_token)).mint(
             releaseOrMintIn.receiver,
             releaseOrMintIn.amount
         );
