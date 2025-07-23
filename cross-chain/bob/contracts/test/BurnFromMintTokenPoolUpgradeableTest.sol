@@ -3,7 +3,9 @@ pragma solidity 0.8.17;
 
 import "../BurnFromMintTokenPoolUpgradeable.sol";
 
-contract BurnFromMintTokenPoolUpgradeableTest is BurnFromMintTokenPoolUpgradeable {
+contract BurnFromMintTokenPoolUpgradeableTest is
+    BurnFromMintTokenPoolUpgradeable
+{
     function setRouter(address newRouter) public {
         s_router = newRouter;
     }
@@ -16,4 +18,4 @@ contract BurnFromMintTokenPoolUpgradeableTest is BurnFromMintTokenPoolUpgradeabl
     ) public override initializer {
         super.initialize(token, allowlist, rmnProxy, router);
     }
-} 
+}
