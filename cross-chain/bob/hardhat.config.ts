@@ -10,6 +10,14 @@ import "hardhat-deploy"
 import "@typechain/hardhat"
 import "hardhat-dependency-compiler"
 
+// CCIP Router addresses for deployment
+const ROUTER_ADDRESSES = {
+  bobSepolia: "0x7808184405d6Cbc663764003dE21617fa640bc82",
+  bobMainnet: "0x827716e74F769AB7b6bb374A29235d9c2156932C",
+  ethereumSepolia: "0x0BF3dE8c5D3e8A2B34D2BEeB17ABfCeBaf363A59",
+  ethereumMainnet: "0x80226fc0Ee2b096224EeAc085Bb9a8cba1146f7D"
+}
+
 const config: HardhatUserConfig = {
   solidity: {
     compilers: [
