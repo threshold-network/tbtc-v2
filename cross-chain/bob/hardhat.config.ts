@@ -52,6 +52,10 @@ const config: HardhatUserConfig = {
         // "deploy_l1",
         "deploy_l2",
       ],
+      forking: {
+        url: process.env.BOB_MAINNET_URL || "https://rpc.gobob.xyz/",
+        blockNumber: 20191668,
+      }
     },
     sepolia: {
       url: process.env.L1_CHAIN_API_URL || "",
@@ -158,8 +162,8 @@ const config: HardhatUserConfig = {
       goerli: 0,
       sepolia: 0,
       mainnet: "0x9f6e831c8f8939dc0c830c6e492e7cef4f9c2f5f",
-      bobMainnet: "0x9f6e831c8f8939dc0c830c6e492e7cef4f9c2f5f",
-      bobSepolia: "0x9f6e831c8f8939dc0c830c6e492e7cef4f9c2f5f",
+      bobMainnet: "0x694DeC29F197c76eb13d4Cc549cE38A1e06Cd24C",
+      bobSepolia: "0x15424dC94D4da488DB0d0e0B7aAdB86835813a63",
     },
   },
   mocha: {
