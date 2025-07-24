@@ -16,10 +16,7 @@ describe("LockReleaseTokenPoolUpgradeable", () => {
 
   beforeEach(async () => {
     const signers = await ethers.getSigners()
-    deployer = signers[0]
-    user = signers[1]
-    router = signers[2]
-    rmnProxy = signers[3]
+    ;[deployer, user, router, rmnProxy] = signers
 
     // Deploy mock token
     const ERC20Mock = await ethers.getContractFactory("ERC20Mock")
@@ -358,7 +355,7 @@ describe("LockReleaseTokenPoolUpgradeable", () => {
 
     beforeEach(async () => {
       const signers = await ethers.getSigners()
-      integrationRouter = signers[4] // Use a different signer for integration test
+      ;[, , , , integrationRouter] = signers // Use a different signer for integration test
 
       // Deploy fresh contracts for integration test
       const ERC20Mock = await ethers.getContractFactory("ERC20Mock")
