@@ -7,7 +7,7 @@ import {Pool} from "./libraries/Pool.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { ITypeAndVersion } from "./interfaces/ITypeAndVersion.sol";
+import {ITypeAndVersion} from "./interfaces/ITypeAndVersion.sol";
 
 interface IBurnMintERC20 is IERC20 {
     /// @notice Mints new tokens for a given address.
@@ -54,6 +54,10 @@ contract BurnFromMintTokenPoolUpgradeable is
     /// @notice The RMN proxy address
     address public s_rmnProxy;
 
+    /// @notice The version of this contract
+    string public constant override typeAndVersion =
+        "BurnFromMintTokenPoolUpgradeable 1.6.0";
+
     /// @notice Events
     event Burned(address indexed sender, uint256 amount);
     event Minted(
@@ -62,32 +66,9 @@ contract BurnFromMintTokenPoolUpgradeable is
         uint256 amount
     );
 
-    /// @notice The version of this contract
-    string public constant override typeAndVersion =
-        "BurnFromMintTokenPoolUpgradeable 1.6.0";
-
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
-    }
-
-    /// @notice Initialize the upgradeable contract
-    function initialize(
-        address token,
-        address[] memory allowlist,
-        address rmnProxy,
-        address router
-    ) public virtual initializer {
-        __Ownable_init();
-
-        s_token = IERC20(token);
-        s_router = router;
-        s_rmnProxy = rmnProxy;
-
-        // Set allowlist
-        for (uint256 i = 0; i < allowlist.length; ++i) {
-            s_allowList[allowlist[i]] = true;
-        }
     }
 
     /// @notice Burns tokens from the pool
@@ -131,13 +112,6 @@ contract BurnFromMintTokenPoolUpgradeable is
             });
     }
 
-    /// @notice Checks if a chain is supported
-    function isSupportedChain(
-        uint64 /* remoteChainSelector */
-    ) external pure override returns (bool) {
-        return true; // For demo purposes, accept all chains
-    }
-
     /// @notice Checks if a token is supported
     function isSupportedToken(
         address token
@@ -150,10 +124,36 @@ contract BurnFromMintTokenPoolUpgradeable is
         return address(s_token);
     }
 
+    /// @notice Checks if a chain is supported
+    function isSupportedChain(
+        uint64 /* remoteChainSelector */
+    ) external pure override returns (bool) {
+        return true; // For demo purposes, accept all chains
+    }
+
     /// @notice Check if interface is supported
     function supportsInterface(
         bytes4 interfaceId
     ) external pure returns (bool) {
         return interfaceId == type(IPoolV1).interfaceId;
+    }
+
+    /// @notice Initialize the upgradeable contract
+    function initialize(
+        address token,
+        address[] memory allowlist,
+        address rmnProxy,
+        address router
+    ) public virtual initializer {
+        __Ownable_init();
+
+        s_token = IERC20(token);
+        s_router = router;
+        s_rmnProxy = rmnProxy;
+
+        // Set allowlist
+        for (uint256 i = 0; i < allowlist.length; ++i) {
+            s_allowList[allowlist[i]] = true;
+        }
     }
 }
