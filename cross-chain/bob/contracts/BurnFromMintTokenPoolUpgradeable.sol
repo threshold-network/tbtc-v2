@@ -145,6 +145,10 @@ contract BurnFromMintTokenPoolUpgradeable is
         address rmnProxy,
         address router
     ) public virtual initializer {
+        require(token != address(0), "Token address cannot be zero");
+        require(router != address(0), "Router address cannot be zero");
+        require(rmnProxy != address(0), "RMN proxy address cannot be zero");
+
         __Ownable_init();
 
         s_token = IERC20(token);
