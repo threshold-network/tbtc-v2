@@ -16,10 +16,7 @@ describe("BurnFromMintTokenPoolUpgradeable", () => {
 
   beforeEach(async () => {
     const signers = await ethers.getSigners()
-    deployer = signers[0]
-    user = signers[1]
-    router = signers[2]
-    rmnProxy = signers[3]
+    ;[deployer, user, router, rmnProxy] = signers
 
     // Deploy mock token
     const ERC20Mock = await ethers.getContractFactory("ERC20Mock")
