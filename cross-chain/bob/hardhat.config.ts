@@ -151,7 +151,7 @@ const config: HardhatUserConfig = {
       sepolia: 0,
       mainnet: "0x123694886DBf5Ac94DDA07135349534536D14cAf",
       bobMainnet: "0x123694886DBf5Ac94DDA07135349534536D14cAf",
-      bobSepolia: "0x123694886DBf5Ac94DDA07135349534536D14cAf",
+      bobSepolia: "0xB6A114C2c34eF91eeb0d93bcdDD7B95a9D6892E1",
     },
     governance: {
       default: 2,
