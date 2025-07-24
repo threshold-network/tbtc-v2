@@ -72,9 +72,11 @@ contract BurnFromMintTokenPoolUpgradeable is
     }
 
     /// @notice Burns tokens from the pool
-    function lockOrBurn(
-        Pool.LockOrBurnInV1 calldata lockOrBurnIn
-    ) external override returns (Pool.LockOrBurnOutV1 memory) {
+    function lockOrBurn(Pool.LockOrBurnInV1 calldata lockOrBurnIn)
+        external
+        override
+        returns (Pool.LockOrBurnOutV1 memory)
+    {
         require(msg.sender == s_router, "Only router");
         emit Burned(msg.sender, lockOrBurnIn.amount);
         // Burn tokens
@@ -91,9 +93,11 @@ contract BurnFromMintTokenPoolUpgradeable is
     }
 
     /// @notice Mints tokens to the receiver
-    function releaseOrMint(
-        Pool.ReleaseOrMintInV1 calldata releaseOrMintIn
-    ) external override returns (Pool.ReleaseOrMintOutV1 memory) {
+    function releaseOrMint(Pool.ReleaseOrMintInV1 calldata releaseOrMintIn)
+        external
+        override
+        returns (Pool.ReleaseOrMintOutV1 memory)
+    {
         require(msg.sender == s_router, "Only router");
         emit Minted(
             msg.sender,
@@ -113,9 +117,12 @@ contract BurnFromMintTokenPoolUpgradeable is
     }
 
     /// @notice Checks if a token is supported
-    function isSupportedToken(
-        address token
-    ) external view override returns (bool) {
+    function isSupportedToken(address token)
+        external
+        view
+        override
+        returns (bool)
+    {
         return token == address(s_token);
     }
 
@@ -132,9 +139,11 @@ contract BurnFromMintTokenPoolUpgradeable is
     }
 
     /// @notice Check if interface is supported
-    function supportsInterface(
-        bytes4 interfaceId
-    ) external pure returns (bool) {
+    function supportsInterface(bytes4 interfaceId)
+        external
+        pure
+        returns (bool)
+    {
         return interfaceId == type(IPoolV1).interfaceId;
     }
 

@@ -6,7 +6,6 @@ import "../cross-chain/ccip/LockReleaseTokenPoolUpgradeable.sol";
 contract LockReleaseTokenPoolUpgradeableTest is
     LockReleaseTokenPoolUpgradeable
 {
-
     function setRouter(address newRouter) public {
         s_router = newRouter;
     }

@@ -76,9 +76,11 @@ contract LockReleaseTokenPoolUpgradeable is
     }
 
     /// @notice Locks tokens in the pool
-    function lockOrBurn(
-        Pool.LockOrBurnInV1 calldata lockOrBurnIn
-    ) external override returns (Pool.LockOrBurnOutV1 memory) {
+    function lockOrBurn(Pool.LockOrBurnInV1 calldata lockOrBurnIn)
+        external
+        override
+        returns (Pool.LockOrBurnOutV1 memory)
+    {
         require(msg.sender == s_router, "Only router");
 
         emit Locked(msg.sender, lockOrBurnIn.amount);
@@ -97,9 +99,11 @@ contract LockReleaseTokenPoolUpgradeable is
     }
 
     /// @notice Releases tokens from the pool
-    function releaseOrMint(
-        Pool.ReleaseOrMintInV1 calldata releaseOrMintIn
-    ) external override returns (Pool.ReleaseOrMintOutV1 memory) {
+    function releaseOrMint(Pool.ReleaseOrMintInV1 calldata releaseOrMintIn)
+        external
+        override
+        returns (Pool.ReleaseOrMintOutV1 memory)
+    {
         require(msg.sender == s_router, "Only router");
 
         emit Released(
@@ -117,9 +121,12 @@ contract LockReleaseTokenPoolUpgradeable is
     }
 
     /// @notice Checks if a token is supported
-    function isSupportedToken(
-        address token
-    ) external view override returns (bool) {
+    function isSupportedToken(address token)
+        external
+        view
+        override
+        returns (bool)
+    {
         return token == address(s_token);
     }
 
@@ -141,9 +148,11 @@ contract LockReleaseTokenPoolUpgradeable is
     }
 
     /// @notice Check if interface is supported
-    function supportsInterface(
-        bytes4 interfaceId
-    ) external pure returns (bool) {
+    function supportsInterface(bytes4 interfaceId)
+        external
+        pure
+        returns (bool)
+    {
         return interfaceId == type(IPoolV1).interfaceId;
     }
 }

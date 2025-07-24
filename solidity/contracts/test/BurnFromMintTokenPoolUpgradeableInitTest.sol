@@ -11,4 +11,4 @@ contract BurnFromMintTokenPoolUpgradeableInitTest is
     constructor() {
         // Don't call _disableInitializers() to allow initialization testing
     }
-} 
+}
