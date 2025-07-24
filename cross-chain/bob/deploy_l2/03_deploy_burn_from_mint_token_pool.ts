@@ -1,14 +1,17 @@
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
-import config from "../hardhat.config"
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { ethers, getNamedAccounts, helpers } = hre
   const { deployer, governance } = await getNamedAccounts()
 
-  // Import router addresses from config
-  // @ts-ignore
-  const ROUTER_ADDRESSES = config.ROUTER_ADDRESSES || (global as any).ROUTER_ADDRESSES
+  // Router addresses for different networks
+  const ROUTER_ADDRESSES = {
+    bobSepolia: "0x7808184405d6Cbc663764003dE21617fa640bc82",
+    bobMainnet: "0x827716e74F769AB7b6bb374A29235d9c2156932C",
+    ethereumSepolia: "0x0BF3dE8c5D3e8A2B34D2BEeB17ABfCeBaf363A59",
+    ethereumMainnet: "0x80226fc0Ee2b096224EeAc085Bb9a8cba1146f7D"
+  }
 
   // Set tBTC address and router based on network
   let tbtcAddress: string
