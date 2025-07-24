@@ -13,15 +13,28 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     ethereumMainnet: "0x80226fc0Ee2b096224EeAc085Bb9a8cba1146f7D"
   }
 
-  // Set tBTC address and router based on network
+  const RMN_PROXY_ADDRESS = process.env.RMN_PROXY_ADDRESS || "0x1111111111111111111111111111111111111111"; // fallback fantasy/testnet address
+
+  // Set tBTC address, router, and rmnProxy based on network
   let tbtcAddress: string
   let router: string
+  let rmnProxy: string
   if (hre.network.name === "bobMainnet") {
     tbtcAddress = "0xBBa2eF945D523C4e2608C9E1214C2Cc64D4fc2e2"
     router = ROUTER_ADDRESSES.bobMainnet
+    rmnProxy = "0xYourMainnetRmnProxy" // TODO: set real mainnet RMN proxy
   } else if (hre.network.name === "bobSepolia") {
     tbtcAddress = "0xD23F06550b0A7bC98B20eb81D4c21572a97598FA"
     router = ROUTER_ADDRESSES.bobSepolia
+    rmnProxy = "0xYourSepoliaRmnProxy" // TODO: set real Sepolia RMN proxy
+  } else if (hre.network.name === "hardhat" || hre.network.name === "localhost") {
+    // Deploy a mock ERC20 for local testing
+    const ERC20Mock = await ethers.getContractFactory("ERC20Mock", await ethers.getSigner(deployer))
+    const mockToken = await ERC20Mock.deploy("Mock tBTC", "tBTC", deployer, ethers.utils.parseEther("1000000"))
+    await mockToken.deployed()
+    tbtcAddress = mockToken.address
+    router = ROUTER_ADDRESSES.bobSepolia // Use a fantasy/testnet router address
+    rmnProxy = RMN_PROXY_ADDRESS
   } else {
     throw new Error("Unsupported network for BurnFromMintTokenPoolUpgradeable deployment")
   }
@@ -29,9 +42,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   if (!router || router === ethers.constants.AddressZero) {
     throw new Error("Router address must be set and non-zero for deployment")
   }
+  if (!rmnProxy || rmnProxy === ethers.constants.AddressZero) {
+    throw new Error("RMN proxy address must be set and non-zero for deployment")
+  }
 
   const allowlist: string[] = []
-  const rmnProxy = ethers.constants.AddressZero
 
   const [, proxyDeployment] = await helpers.upgrades.deployProxy(
     "BurnFromMintTokenPoolUpgradeable",
