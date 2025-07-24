@@ -7,19 +7,24 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   // Set tBTC address based on network
   let tbtcAddress: string
+  let router: string
+  let rmnProxy: string
+  
   if (hre.network.name === "mainnet") {
     tbtcAddress = "0x18084fbA666a33d37592fA2633fD49a74DD93a88"
+    router = "0x80226fc0Ee2b096224EeAc085Bb9a8cba1146f7D" // Ethereum Mainnet Router
+    rmnProxy = "0x411dE17f12D1A34ecC7F45f49844626267c75e81" // Ethereum Mainnet RMN proxy
   } else if (hre.network.name === "sepolia") {
     tbtcAddress = "0x517f2982701695D4E52f1ECFBEf3ba31Df470161"
+    router = "0x779877A7B0D9E8603169DdbD7836e478b4624789" // Ethereum Sepolia Router
+    rmnProxy = "0xba3f6251de62dED61Ff98590cB2fDf6871FbB991" // Ethereum Sepolia RMN proxy
   } else {
     throw new Error("Unsupported network for LockReleaseTokenPoolUpgradeable deployment")
   }
 
-  // Minimal allowlist, rmnProxy, router for now (can be updated post-deploy)
+  // Minimal allowlist for now (can be updated post-deploy)
   const allowlist: string[] = []
-  const rmnProxy = ethers.constants.AddressZero
   const acceptLiquidity = false
-  const router = ethers.constants.AddressZero
 
   const [, proxyDeployment, proxyAdmin] = await helpers.upgrades.deployProxy(
     "LockReleaseTokenPoolUpgradeable",
