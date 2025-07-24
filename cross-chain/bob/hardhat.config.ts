@@ -52,6 +52,10 @@ const config: HardhatUserConfig = {
         // "deploy_l1",
         "deploy_l2",
       ],
+      forking: {
+        url: process.env.BOB_MAINNET_URL || "https://rpc.gobob.xyz/",
+        blockNumber: 20191668,
+      }
     },
     sepolia: {
       url: process.env.L1_CHAIN_API_URL || "",
@@ -149,17 +153,17 @@ const config: HardhatUserConfig = {
       default: 1,
       goerli: 0,
       sepolia: 0,
-      mainnet: "0x123694886DBf5Ac94DDA07135349534536D14cAf",
-      bobMainnet: "0x123694886DBf5Ac94DDA07135349534536D14cAf",
-      bobSepolia: "0xB6A114C2c34eF91eeb0d93bcdDD7B95a9D6892E1",
+      mainnet: "0x15424dC94D4da488DB0d0e0B7aAdB86835813a63",
+      bobMainnet: "0x15424dC94D4da488DB0d0e0B7aAdB86835813a63",
+      bobSepolia: "0x15424dC94D4da488DB0d0e0B7aAdB86835813a63",
     },
     governance: {
       default: 2,
       goerli: 0,
       sepolia: 0,
       mainnet: "0x9f6e831c8f8939dc0c830c6e492e7cef4f9c2f5f",
-      bobMainnet: "0x9f6e831c8f8939dc0c830c6e492e7cef4f9c2f5f",
-      bobSepolia: "0x9f6e831c8f8939dc0c830c6e492e7cef4f9c2f5f",
+      bobMainnet: "0x694DeC29F197c76eb13d4Cc549cE38A1e06Cd24C",
+      bobSepolia: "0x15424dC94D4da488DB0d0e0B7aAdB86835813a63",
     },
   },
   mocha: {
