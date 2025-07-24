@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.17;
 
-import "../BurnFromMintTokenPoolUpgradeable.sol";
+import "../cross-chain/ccip/BurnFromMintTokenPoolUpgradeable.sol";
 
 contract BurnFromMintTokenPoolUpgradeableTest is
     BurnFromMintTokenPoolUpgradeable

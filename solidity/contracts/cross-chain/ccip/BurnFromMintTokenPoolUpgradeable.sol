@@ -7,133 +7,157 @@ import {Pool} from "./libraries/Pool.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {ITypeAndVersion} from "./interfaces/ITypeAndVersion.sol";
 
 interface IBurnMintERC20 is IERC20 {
-  /// @notice Mints new tokens for a given address.
-  /// @param account The address to mint the new tokens to.
-  /// @param amount The number of tokens to be minted.
-  /// @dev this function increases the total supply.
-  function mint(address account, uint256 amount) external;
+    /// @notice Mints new tokens for a given address.
+    /// @param account The address to mint the new tokens to.
+    /// @param amount The number of tokens to be minted.
+    /// @dev this function increases the total supply.
+    function mint(address account, uint256 amount) external;
 
-  /// @notice Burns tokens from the sender.
-  /// @param amount The number of tokens to be burned.
-  /// @dev this function decreases the total supply.
-  function burn(uint256 amount) external;
+    /// @notice Burns tokens from the sender.
+    /// @param amount The number of tokens to be burned.
+    /// @dev this function decreases the total supply.
+    function burn(uint256 amount) external;
 
-  /// @notice Burns tokens from a given address..
-  /// @param account The address to burn tokens from.
-  /// @param amount The number of tokens to be burned.
-  /// @dev this function decreases the total supply.
-  function burn(address account, uint256 amount) external;
+    /// @notice Burns tokens from a given address..
+    /// @param account The address to burn tokens from.
+    /// @param amount The number of tokens to be burned.
+    /// @dev this function decreases the total supply.
+    function burn(address account, uint256 amount) external;
 
-  /// @notice Burns tokens from a given address..
-  /// @param account The address to burn tokens from.
-  /// @param amount The number of tokens to be burned.
-  /// @dev this function decreases the total supply.
-  function burnFrom(address account, uint256 amount) external;
-}
-
-interface ITypeAndVersion {
-  function typeAndVersion() external pure returns (string memory);
+    /// @notice Burns tokens from a given address..
+    /// @param account The address to burn tokens from.
+    /// @param amount The number of tokens to be burned.
+    /// @dev this function decreases the total supply.
+    function burnFrom(address account, uint256 amount) external;
 }
 
 /// @notice Upgradeable BurnFromMintTokenPool that implements CCIP v1.6.0 interface
 /// @dev This is a working implementation for BOB deployment
-contract BurnFromMintTokenPoolUpgradeable is IPoolV1, ITypeAndVersion, Initializable, OwnableUpgradeable {
-  
-  /// @notice The token this pool manages
-  IERC20 public s_token;
-  
-  /// @notice Mapping of allowed addresses
-  mapping(address => bool) private s_allowList;
-  
-  /// @notice The router address
-  address public s_router;
-  
-  /// @notice The RMN proxy address  
-  address public s_rmnProxy;
+contract BurnFromMintTokenPoolUpgradeable is
+    IPoolV1,
+    ITypeAndVersion,
+    Initializable,
+    OwnableUpgradeable
+{
+    /// @notice The token this pool manages
+    IERC20 public s_token;
 
-  /// @notice Events
-  event Burned(address indexed sender, uint256 amount);
-  event Minted(address indexed sender, address indexed recipient, uint256 amount);
-  
-  /// @notice The version of this contract
-  string public constant override typeAndVersion = "BurnFromMintTokenPoolUpgradeable 1.6.0";
+    /// @notice Mapping of allowed addresses
+    mapping(address => bool) private s_allowList;
 
-  /// @custom:oz-upgrades-unsafe-allow constructor
-  constructor() {
-    _disableInitializers();
-  }
+    /// @notice The router address
+    address public s_router;
 
-  /// @notice Initialize the upgradeable contract
-  function initialize(
-    address token,
-    address[] memory allowlist,
-    address rmnProxy,
-    address router
-  ) external initializer {
-    __Ownable_init();
-    
-    s_token = IERC20(token);
-    s_router = router;
-    s_rmnProxy = rmnProxy;
-    
-    // Set allowlist
-    for (uint256 i = 0; i < allowlist.length; ++i) {
-      s_allowList[allowlist[i]] = true;
+    /// @notice The RMN proxy address
+    address public s_rmnProxy;
+
+    /// @notice The version of this contract
+    string public constant override typeAndVersion =
+        "BurnFromMintTokenPoolUpgradeable 1.6.0";
+
+    /// @notice Events
+    event Burned(address indexed sender, uint256 amount);
+    event Minted(
+        address indexed sender,
+        address indexed recipient,
+        uint256 amount
+    );
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
     }
-  }
 
-  /// @notice Burns tokens from the pool
-  function lockOrBurn(
-    Pool.LockOrBurnInV1 calldata lockOrBurnIn
-  ) external override returns (Pool.LockOrBurnOutV1 memory) {
-    require(msg.sender == s_router, "Only router");
-    
-    // Burn tokens
-    IBurnMintERC20(address(s_token)).burnFrom(msg.sender, lockOrBurnIn.amount);
-    
-    emit Burned(msg.sender, lockOrBurnIn.amount);
-    
-    return Pool.LockOrBurnOutV1({
-      destTokenAddress: abi.encode(address(s_token)),
-      destPoolData: ""
-    });
-  }
+    /// @notice Burns tokens from the pool
+    function lockOrBurn(
+        Pool.LockOrBurnInV1 calldata lockOrBurnIn
+    ) external override returns (Pool.LockOrBurnOutV1 memory) {
+        require(msg.sender == s_router, "Only router");
+        emit Burned(msg.sender, lockOrBurnIn.amount);
+        // Burn tokens
+        IBurnMintERC20(address(s_token)).burnFrom(
+            msg.sender,
+            lockOrBurnIn.amount
+        );
 
-  /// @notice Mints tokens to the receiver
-  function releaseOrMint(
-    Pool.ReleaseOrMintInV1 calldata releaseOrMintIn
-  ) external override returns (Pool.ReleaseOrMintOutV1 memory) {
-    require(msg.sender == s_router, "Only router");
-    
-    // Mint tokens
-    IBurnMintERC20(address(s_token)).mint(releaseOrMintIn.receiver, releaseOrMintIn.amount);
-    
-    emit Minted(msg.sender, releaseOrMintIn.receiver, releaseOrMintIn.amount);
-    
-    return Pool.ReleaseOrMintOutV1({
-      destinationAmount: releaseOrMintIn.amount
-    });
-  }
+        return
+            Pool.LockOrBurnOutV1({
+                destTokenAddress: abi.encode(address(s_token)),
+                destPoolData: ""
+            });
+    }
 
-  /// @notice Checks if a chain is supported
-  function isSupportedChain(uint64 /* remoteChainSelector */) external pure override returns (bool) {
-    return true; // For demo purposes, accept all chains
-  }
+    /// @notice Mints tokens to the receiver
+    function releaseOrMint(
+        Pool.ReleaseOrMintInV1 calldata releaseOrMintIn
+    ) external override returns (Pool.ReleaseOrMintOutV1 memory) {
+        require(msg.sender == s_router, "Only router");
+        emit Minted(
+            msg.sender,
+            releaseOrMintIn.receiver,
+            releaseOrMintIn.amount
+        );
+        // Mint tokens
+        IBurnMintERC20(address(s_token)).mint(
+            releaseOrMintIn.receiver,
+            releaseOrMintIn.amount
+        );
 
-  /// @notice Checks if a token is supported
-  function isSupportedToken(address token) external view override returns (bool) {
-    return token == address(s_token);
-  }
+        return
+            Pool.ReleaseOrMintOutV1({
+                destinationAmount: releaseOrMintIn.amount
+            });
+    }
 
-  /// @notice Get the token managed by this pool
-  function getToken() external view returns (address) {
-    return address(s_token);
-  }
+    /// @notice Checks if a token is supported
+    function isSupportedToken(
+        address token
+    ) external view override returns (bool) {
+        return token == address(s_token);
+    }
 
-  /// @notice Check if interface is supported
-  function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
-    return interfaceId == type(IPoolV1).interfaceId;
-  }
-} 
+    /// @notice Get the token managed by this pool
+    function getToken() external view returns (address) {
+        return address(s_token);
+    }
+
+    /// @notice Checks if a chain is supported
+    function isSupportedChain(
+        uint64 /* remoteChainSelector */
+    ) external pure override returns (bool) {
+        return true; // For demo purposes, accept all chains
+    }
+
+    /// @notice Check if interface is supported
+    function supportsInterface(
+        bytes4 interfaceId
+    ) external pure returns (bool) {
+        return interfaceId == type(IPoolV1).interfaceId;
+    }
+
+    /// @notice Initialize the upgradeable contract
+    function initialize(
+        address token,
+        address[] memory allowlist,
+        address rmnProxy,
+        address router
+    ) public virtual initializer {
+        require(token != address(0), "Token address cannot be zero");
+        require(router != address(0), "Router address cannot be zero");
+        require(rmnProxy != address(0), "RMN proxy address cannot be zero");
+
+        __Ownable_init();
+
+        s_token = IERC20(token);
+        s_router = router;
+        s_rmnProxy = rmnProxy;
+
+        // Set allowlist
+        for (uint256 i = 0; i < allowlist.length; ++i) {
+            s_allowList[allowlist[i]] = true;
+        }
+    }
+}
