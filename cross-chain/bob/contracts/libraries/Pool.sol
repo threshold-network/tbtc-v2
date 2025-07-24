@@ -3,19 +3,6 @@ pragma solidity ^0.8.0;
 
 /// @notice This library contains various token pool functions to aid constructing the return data.
 library Pool {
-    // The tag used to signal support for the pool v1 standard.
-    // bytes4(keccak256("CCIP_POOL_V1"))
-    bytes4 public constant CCIP_POOL_V1 = 0xaff2afbf;
-
-    // The number of bytes in the return data for a pool v1 releaseOrMint call.
-    // This should match the size of the ReleaseOrMintOutV1 struct.
-    uint16 public constant CCIP_POOL_V1_RET_BYTES = 32;
-
-    // The default max number of bytes in the return data for a pool v1 lockOrBurn call.
-    // This data can be used to send information to the destination chain token pool. Can be overwritten
-    // in the TokenTransferFeeConfig.destBytesOverhead if more data is required.
-    uint32 public constant CCIP_LOCK_OR_BURN_V1_RET_BYTES = 32;
-
     struct LockOrBurnInV1 {
         bytes receiver; //  The recipient of the tokens on the destination chain, abi encoded.
         uint64 remoteChainSelector; // ─╮ The chain ID of the destination chain.
@@ -54,4 +41,17 @@ library Pool {
         // This value is expected to be equal to the ReleaseOrMintInV1.amount in the case of a 1:1 token.
         uint256 destinationAmount;
     }
+
+    // The tag used to signal support for the pool v1 standard.
+    // bytes4(keccak256("CCIP_POOL_V1"))
+    bytes4 public constant CCIP_POOL_V1 = 0xaff2afbf;
+
+    // The number of bytes in the return data for a pool v1 releaseOrMint call.
+    // This should match the size of the ReleaseOrMintOutV1 struct.
+    uint16 public constant CCIP_POOL_V1_RET_BYTES = 32;
+
+    // The default max number of bytes in the return data for a pool v1 lockOrBurn call.
+    // This data can be used to send information to the destination chain token pool. Can be overwritten
+    // in the TokenTransferFeeConfig.destBytesOverhead if more data is required.
+    uint32 public constant CCIP_LOCK_OR_BURN_V1_RET_BYTES = 32;
 }

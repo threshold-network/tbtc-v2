@@ -246,6 +246,16 @@ contract L2TBTC is
         _mint(account, amount);
     }
 
+    /// @notice Allows to fetch a list of all minters.
+    function getMinters() external view returns (address[] memory) {
+        return minters;
+    }
+
+    /// @notice Allows to fetch a list of all guardians.
+    function getGuardians() external view returns (address[] memory) {
+        return guardians;
+    }
+
     /// @notice Destroys `amount` tokens from the caller. Emits a `Transfer`
     ///         event with `to` set to the zero address.
     /// @dev Requirements:
@@ -270,15 +280,5 @@ contract L2TBTC is
         uint256 amount
     ) public override whenNotPaused {
         super.burnFrom(account, amount);
-    }
-
-    /// @notice Allows to fetch a list of all minters.
-    function getMinters() external view returns (address[] memory) {
-        return minters;
-    }
-
-    /// @notice Allows to fetch a list of all guardians.
-    function getGuardians() external view returns (address[] memory) {
-        return guardians;
     }
 }

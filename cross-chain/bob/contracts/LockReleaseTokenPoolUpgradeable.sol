@@ -8,7 +8,7 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import { ITypeAndVersion } from "./interfaces/ITypeAndVersion.sol";
+import {ITypeAndVersion} from "./interfaces/ITypeAndVersion.sol";
 
 /// @notice Upgradeable LockReleaseTokenPool that implements CCIP v1.6.0 interface
 /// @dev This is a working implementation for BOB deployment
@@ -35,6 +35,10 @@ contract LockReleaseTokenPoolUpgradeable is
     /// @notice Whether this pool accepts external liquidity
     bool public s_acceptLiquidity;
 
+    /// @notice The version of this contract
+    string public constant override typeAndVersion =
+        "LockReleaseTokenPoolUpgradeable 1.6.0";
+
     /// @notice Events
     event Locked(address indexed sender, uint256 amount);
     event Released(
@@ -42,10 +46,6 @@ contract LockReleaseTokenPoolUpgradeable is
         address indexed recipient,
         uint256 amount
     );
-
-    /// @notice The version of this contract
-    string public constant override typeAndVersion =
-        "LockReleaseTokenPoolUpgradeable 1.6.0";
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -116,13 +116,6 @@ contract LockReleaseTokenPoolUpgradeable is
             });
     }
 
-    /// @notice Checks if a chain is supported
-    function isSupportedChain(
-        uint64 /* remoteChainSelector */
-    ) external pure override returns (bool) {
-        return true; // For demo purposes, accept all chains
-    }
-
     /// @notice Checks if a token is supported
     function isSupportedToken(
         address token
@@ -138,6 +131,13 @@ contract LockReleaseTokenPoolUpgradeable is
     /// @notice Check if this pool accepts external liquidity
     function canAcceptLiquidity() external view returns (bool) {
         return s_acceptLiquidity;
+    }
+
+    /// @notice Checks if a chain is supported
+    function isSupportedChain(
+        uint64 /* remoteChainSelector */
+    ) external pure override returns (bool) {
+        return true; // For demo purposes, accept all chains
     }
 
     /// @notice Check if interface is supported
