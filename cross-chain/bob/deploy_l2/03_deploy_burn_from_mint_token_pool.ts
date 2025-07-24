@@ -7,7 +7,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   // Router addresses for different networks
   const ROUTER_ADDRESSES = {
-    bobSepolia: "0x7808184405d6Cbc663764003dE21617fa640bc82",
+    bobSepolia: process.env.ROUTER_ADDRESS || "0x7808184405d6Cbc663764003dE21617fa640bc82", // fallback fantasy/testnet address
     bobMainnet: "0x827716e74F769AB7b6bb374A29235d9c2156932C",
     ethereumSepolia: "0x0BF3dE8c5D3e8A2B34D2BEeB17ABfCeBaf363A59",
     ethereumMainnet: "0x80226fc0Ee2b096224EeAc085Bb9a8cba1146f7D"
@@ -22,15 +22,12 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   } else if (hre.network.name === "bobSepolia") {
     tbtcAddress = "0xD23F06550b0A7bC98B20eb81D4c21572a97598FA"
     router = ROUTER_ADDRESSES.bobSepolia
-  } else if (hre.network.name === "hardhat" || hre.network.name === "localhost") {
-    // Deploy a mock ERC20 for local testing
-    const ERC20Mock = await ethers.getContractFactory("ERC20Mock", await ethers.getSigner(deployer))
-    const mockToken = await ERC20Mock.deploy("Mock tBTC", "tBTC", deployer, ethers.utils.parseEther("1000000"))
-    await mockToken.deployed()
-    tbtcAddress = mockToken.address
-    router = ethers.constants.AddressZero
   } else {
-    throw new Error("Unsupported network for BOB pool deployment")
+    throw new Error("Unsupported network for BurnFromMintTokenPoolUpgradeable deployment")
+  }
+
+  if (!router || router === ethers.constants.AddressZero) {
+    throw new Error("Router address must be set and non-zero for deployment")
   }
 
   const allowlist: string[] = []
