@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.15;
+pragma solidity 0.8.17;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
@@ -18,6 +18,7 @@ contract ERC20Mock is ERC20 {
     }
 
     function burnFrom(address account, uint256 amount) public {
+        _spendAllowance(account, _msgSender(), amount);
         _burn(account, amount);
     }
 }
