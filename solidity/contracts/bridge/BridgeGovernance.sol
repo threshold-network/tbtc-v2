@@ -1782,4 +1782,16 @@ contract BridgeGovernance is Ownable {
     {
         bridge.setRedemptionWatchtower(redemptionWatchtower);
     }
+
+    /// @notice Sets the rebate staking address.
+    /// @param rebateStaking Address of the rebate staking.
+    /// @dev Requirements:
+    ///      - Rebate staking address must not be already set,
+    ///      - Rebate staking address must not be 0x0.
+    function setRebateStaking(address rebateStaking)
+        external
+        onlyOwner
+    {
+        bridge.setRebateStaking(rebateStaking);
+    }
 }
