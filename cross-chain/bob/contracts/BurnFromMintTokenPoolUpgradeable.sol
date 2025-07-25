@@ -54,6 +54,9 @@ contract BurnFromMintTokenPoolUpgradeable is
     /// @notice The RMN proxy address
     address public s_rmnProxy;
 
+    /// @notice The single supported remote chain selector
+    uint64 public s_supportedRemoteChainId;
+
     /// @notice The version of this contract
     string public constant override typeAndVersion =
         "BurnFromMintTokenPoolUpgradeable 1.6.0";
@@ -126,9 +129,9 @@ contract BurnFromMintTokenPoolUpgradeable is
 
     /// @notice Checks if a chain is supported
     function isSupportedChain(
-        uint64 /* remoteChainSelector */
-    ) external pure override returns (bool) {
-        return true; // For demo purposes, accept all chains
+        uint64 remoteChainSelector
+    ) external view override returns (bool) {
+        return remoteChainSelector == s_supportedRemoteChainId;
     }
 
     /// @notice Check if interface is supported
@@ -143,7 +146,8 @@ contract BurnFromMintTokenPoolUpgradeable is
         address token,
         address[] memory allowlist,
         address rmnProxy,
-        address router
+        address router,
+        uint64 supportedRemoteChainId
     ) public virtual initializer {
         require(token != address(0), "Token address cannot be zero");
         require(router != address(0), "Router address cannot be zero");
@@ -154,6 +158,7 @@ contract BurnFromMintTokenPoolUpgradeable is
         s_token = IERC20(token);
         s_router = router;
         s_rmnProxy = rmnProxy;
+        s_supportedRemoteChainId = supportedRemoteChainId;
 
         // Set allowlist
         for (uint256 i = 0; i < allowlist.length; ++i) {
