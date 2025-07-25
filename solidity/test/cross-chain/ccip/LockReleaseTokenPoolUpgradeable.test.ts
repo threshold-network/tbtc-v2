@@ -40,7 +40,7 @@ describe("LockReleaseTokenPoolUpgradeable", () => {
         RMN_PROXY_ADDRESS,
         true, // accept liquidity
         ROUTER_ADDRESS,
-        5535534526963509396n // Example: BOB Sepolia chain selector
+        5535534526963509396n, // Example: BOB Sepolia chain selector
       ],
       {
         initializer: "initialize",
@@ -62,7 +62,9 @@ describe("LockReleaseTokenPoolUpgradeable", () => {
       expect(await contract.typeAndVersion()).to.include(
         "LockReleaseTokenPoolUpgradeable"
       )
-      expect(await contract.s_supportedRemoteChainId()).to.equal(5535534526963509396n)
+      expect(await contract.s_supportedRemoteChainId()).to.equal(
+        5535534526963509396n
+      )
     })
 
     it("should have correct initial state", async () => {
@@ -96,7 +98,7 @@ describe("LockReleaseTokenPoolUpgradeable", () => {
             RMN_PROXY_ADDRESS,
             true,
             ethers.constants.AddressZero, // invalid router
-            5535534526963509396n // Example: BOB Sepolia chain selector
+            5535534526963509396n, // Example: BOB Sepolia chain selector
           ],
           {
             initializer: "initialize",
@@ -134,7 +136,7 @@ describe("LockReleaseTokenPoolUpgradeable", () => {
             ethers.constants.AddressZero, // invalid RMN proxy
             true,
             ROUTER_ADDRESS,
-            5535534526963509396n // Example: BOB Sepolia chain selector
+            5535534526963509396n, // Example: BOB Sepolia chain selector
           ],
           {
             initializer: "initialize",
@@ -163,7 +165,9 @@ describe("LockReleaseTokenPoolUpgradeable", () => {
     })
 
     it("should support all chains", async () => {
-      expect(await contract.isSupportedChain(5535534526963509396n)).to.equal(true)
+      expect(await contract.isSupportedChain(5535534526963509396n)).to.equal(
+        true
+      )
       expect(await contract.isSupportedChain(1)).to.equal(false)
       expect(await contract.isSupportedChain(42161)).to.equal(false)
       expect(await contract.isSupportedChain(999999)).to.equal(false)
@@ -383,7 +387,7 @@ describe("LockReleaseTokenPoolUpgradeable", () => {
           RMN_PROXY_ADDRESS,
           true, // accept liquidity
           ROUTER_ADDRESS,
-          5535534526963509396n // Example: BOB Sepolia chain selector
+          5535534526963509396n, // Example: BOB Sepolia chain selector
         ],
         {
           initializer: "initialize",

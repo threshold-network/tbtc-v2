@@ -135,9 +135,12 @@ contract BurnFromMintTokenPoolUpgradeable is
     }
 
     /// @notice Checks if a chain is supported
-    function isSupportedChain(
-        uint64 remoteChainSelector
-    ) external view override returns (bool) {
+    function isSupportedChain(uint64 remoteChainSelector)
+        external
+        view
+        override
+        returns (bool)
+    {
         return remoteChainSelector == s_supportedRemoteChainId;
     }
 
