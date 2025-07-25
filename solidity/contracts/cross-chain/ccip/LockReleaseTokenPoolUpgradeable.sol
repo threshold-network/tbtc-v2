@@ -32,6 +32,9 @@ contract LockReleaseTokenPoolUpgradeable is
     /// @notice The RMN proxy address
     address public s_rmnProxy;
 
+    /// @notice The single supported remote chain selector
+    uint64 public s_supportedRemoteChainId;
+
     /// @notice Whether this pool accepts external liquidity
     bool public s_acceptLiquidity;
 
@@ -58,7 +61,8 @@ contract LockReleaseTokenPoolUpgradeable is
         address[] memory allowlist,
         address rmnProxy,
         bool acceptLiquidity,
-        address router
+        address router,
+        uint64 supportedRemoteChainId
     ) external initializer {
         require(router != address(0), "Router cannot be zero address");
         require(rmnProxy != address(0), "RMN proxy cannot be zero address");
@@ -68,6 +72,7 @@ contract LockReleaseTokenPoolUpgradeable is
         s_router = router;
         s_rmnProxy = rmnProxy;
         s_acceptLiquidity = acceptLiquidity;
+        s_supportedRemoteChainId = supportedRemoteChainId;
 
         // Set allowlist
         for (uint256 i = 0; i < allowlist.length; ++i) {
@@ -142,9 +147,9 @@ contract LockReleaseTokenPoolUpgradeable is
 
     /// @notice Checks if a chain is supported
     function isSupportedChain(
-        uint64 /* remoteChainSelector */
-    ) external pure override returns (bool) {
-        return true; // For demo purposes, accept all chains
+        uint64 remoteChainSelector
+    ) external view override returns (bool) {
+        return remoteChainSelector == s_supportedRemoteChainId;
     }
 
     /// @notice Check if interface is supported

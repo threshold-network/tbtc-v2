@@ -19,14 +19,17 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   let tbtcAddress: string
   let router: string
   let rmnProxy: string
+  let supportedRemoteChainId: string
   if (hre.network.name === "bobMainnet") {
     tbtcAddress = "0xBBa2eF945D523C4e2608C9E1214C2Cc64D4fc2e2"
     router = ROUTER_ADDRESSES.bobMainnet
     rmnProxy = "0xe4D8E0A02C61f6DDe95255E702fe1237428673D8" // BOB Mainnet RMN
+    supportedRemoteChainId = "5009297550715157269" // Ethereum Mainnet
   } else if (hre.network.name === "bobSepolia") {
     tbtcAddress = "0xD23F06550b0A7bC98B20eb81D4c21572a97598FA"
     router = ROUTER_ADDRESSES.bobSepolia
     rmnProxy = "0xD642e08eeF81bb55B8282701234659A3233E2145" // BOB Sepolia testnet RMN
+    supportedRemoteChainId = "16015286601757825753" // Ethereum Sepolia
   } else if (hre.network.name === "hardhat" || hre.network.name === "localhost") {
     // Deploy a mock ERC20 for local testing
     const ERC20Mock = await ethers.getContractFactory("ERC20Mock", await ethers.getSigner(deployer))
@@ -35,6 +38,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     tbtcAddress = mockToken.address
     router = ROUTER_ADDRESSES.bobSepolia // Use a fantasy/testnet router address
     rmnProxy = RMN_PROXY_ADDRESS
+    supportedRemoteChainId = "16015286601757825753" // Default to Sepolia for local
   } else {
     throw new Error("Unsupported network for BurnFromMintTokenPoolUpgradeable deployment")
   }
@@ -51,7 +55,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const [, proxyDeployment] = await helpers.upgrades.deployProxy(
     "BurnFromMintTokenPoolUpgradeable",
     {
-      initializerArgs: [tbtcAddress, allowlist, rmnProxy, router],
+      initializerArgs: [tbtcAddress, allowlist, rmnProxy, router, supportedRemoteChainId],
       factoryOpts: { signer: await ethers.getSigner(deployer) },
       proxyOpts: { kind: "transparent" },
     }

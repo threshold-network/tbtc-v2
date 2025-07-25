@@ -9,13 +9,4 @@ contract BurnFromMintTokenPoolUpgradeableTest is
     function setRouter(address newRouter) public {
         s_router = newRouter;
     }
-
-    function initialize(
-        address token,
-        address[] memory allowlist,
-        address rmnProxy,
-        address router
-    ) public override initializer {
-        super.initialize(token, allowlist, rmnProxy, router);
-    }
 }
