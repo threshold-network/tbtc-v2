@@ -39,7 +39,7 @@ describe("BurnFromMintTokenPoolUpgradeable", () => {
         [], // empty allowlist
         RMN_PROXY_ADDRESS,
         ROUTER_ADDRESS,
-        16015286601757825753n // Example: Ethereum Sepolia chain selector
+        16015286601757825753n, // Example: Ethereum Sepolia chain selector
       ],
       {
         initializer: "initialize",
@@ -64,7 +64,9 @@ describe("BurnFromMintTokenPoolUpgradeable", () => {
       expect(await contract.s_token()).to.equal(token.address)
       expect(await contract.s_router()).to.equal(ROUTER_ADDRESS)
       expect(await contract.s_rmnProxy()).to.equal(RMN_PROXY_ADDRESS)
-      expect(await contract.s_supportedRemoteChainId()).to.equal(16015286601757825753n)
+      expect(await contract.s_supportedRemoteChainId()).to.equal(
+        16015286601757825753n
+      )
     })
 
     it("should revert if token address is zero", async () => {
@@ -177,7 +179,7 @@ describe("BurnFromMintTokenPoolUpgradeable", () => {
           [user.address, router.address], // allowlist with multiple addresses
           RMN_PROXY_ADDRESS,
           ROUTER_ADDRESS,
-          16015286601757825753n // Example: Ethereum Sepolia chain selector
+          16015286601757825753n, // Example: Ethereum Sepolia chain selector
         ],
         {
           initializer: "initialize",
