@@ -40,10 +40,19 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   // Verification for Etherscan
   if (hre.network.tags.etherscan) {
-    await hre.run("verify", {
-      address: proxyDeployment.address,
-      constructorArgsParams: proxyDeployment.args,
-    })
+    console.log(`Contract deployed at: ${proxyDeployment.address}`)
+    console.log("For better verification results, run the verification script with delay:")
+    console.log(`CONTRACT_ADDRESS=${proxyDeployment.address} npx hardhat run scripts/verify-with-delay.ts --network sepolia`)
+    
+    try {
+      await hre.run("verify", {
+        address: proxyDeployment.address,
+        constructorArgsParams: proxyDeployment.args,
+      })
+    } catch (error) {
+      console.log("⚠️  Contract verification failed, but deployment was successful.")
+      console.log("You can manually verify the contract later on Etherscan.")
+    }
   }
 
   // Transfer proxy admin ownership to council multisig on mainnet
