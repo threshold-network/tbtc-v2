@@ -62,10 +62,19 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   )
 
   if (hre.network.tags.bobscan) {
-    await hre.run("verify", {
-      address: proxyDeployment.address,
-      constructorArgsParams: proxyDeployment.args,
-    })
+    console.log(`Contract deployed at: ${proxyDeployment.address}`)
+    console.log("For better verification results, run the verification script with delay:")
+    console.log(`CONTRACT_ADDRESS=${proxyDeployment.address} npx hardhat run scripts/verify-with-delay.ts --network ${hre.network.name}`)
+    
+    try {
+      await hre.run("verify", {
+        address: proxyDeployment.address,
+        constructorArgsParams: proxyDeployment.args,
+      })
+    } catch (error) {
+      console.log("⚠️  Contract verification failed, but deployment was successful.")
+      console.log("You can manually verify the contract later on Bobscan.")
+    }
   }
 }
 

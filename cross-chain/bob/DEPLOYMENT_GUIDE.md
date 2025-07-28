@@ -44,8 +44,9 @@ L1_CHAIN_API_URL=https://sepolia.infura.io/v3/your_api_key
 ETHERSCAN_API_KEY=your_etherscan_api_key
 ```
 
-## Recent Deployment
+## Recent Deployments
 
+### LockReleaseTokenPoolUpgradeable (L1 - Sepolia)
 - **Contract**: LockReleaseTokenPoolUpgradeable
 - **Proxy Address**: 0x2252087dAaCA6B0Ec03ac25039030810435752E7
 - **Implementation Address**: 0xf7a5bFd57aB5FFf959655D70541378BC691C96CE ✅ **VERIFIED**
@@ -53,9 +54,25 @@ ETHERSCAN_API_KEY=your_etherscan_api_key
 - **Transaction**: 0x0ccc09a28534bf91e8683ea40473e0e60be2f237eee760941da90e61f003fe19
 - **Status**: Implementation verified, proxy linked successfully
 
+### BurnFromMintTokenPoolUpgradeable (L2 - BOB Sepolia)
+- **Contract**: BurnFromMintTokenPoolUpgradeable
+- **Proxy Address**: 0x78E48eBCACabdee321e30D62a3144b8552Ce923F ✅ **FULLY VERIFIED**
+- **Implementation Address**: 0xf02Fb224aB2BA95D7C356cD81e933b6d3E616aEb ✅ **VERIFIED**
+- **Network**: BOB Sepolia
+- **Transaction**: 0xa57604dfc1371dc2c6d423938ea1522e26547d974a3043562bd1741e5dab4661
+- **Status**: ✅ **FULLY VERIFIED** (Implementation, Proxy, and Proxy Admin)
+
 ## Verification Results
 
+### LockReleaseTokenPool (Sepolia)
 ✅ **Implementation Contract**: Successfully verified on Etherscan  
 ✅ **Proxy Linking**: Successfully linked to implementation  
 ⚠️ **Proxy Contract**: Minor API issues (functional, can be manually verified if needed)  
-⚠️ **Proxy Admin**: Minor API issues (functional, can be manually verified if needed) 
+⚠️ **Proxy Admin**: Minor API issues (functional, can be manually verified if needed)
+
+### BurnFromMintTokenPool (BOB Sepolia)
+✅ **Implementation Contract**: Successfully verified on Bobscan  
+✅ **Proxy Contract**: Successfully verified on Bobscan  
+✅ **Proxy Admin**: Successfully verified on Bobscan  
+✅ **Proxy Linking**: Successfully linked to implementation  
+🎉 **FULLY VERIFIED** - All components verified successfully 
