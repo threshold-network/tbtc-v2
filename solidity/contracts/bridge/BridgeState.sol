@@ -321,7 +321,8 @@ library BridgeState {
         // Address of the redemption watchtower. The redemption watchtower
         // is responsible for vetoing redemption requests.
         address redemptionWatchtower;
-        // TODO finish the docs
+        // Address of the rebate staking contract. The rebate staking contract
+        // is responsible for providing discount for fees.
         RebateStaking rebateStaking;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
