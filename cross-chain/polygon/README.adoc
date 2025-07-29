@@ -27,7 +27,7 @@ Wormhole-specific tBTC representation into the canonical `PolygonTBTC` token.
 
 The deployment scripts are responsible for managing updates of the tBTC gateway
 addresses across various chains. These addresses are stored in the `external/`
-directory for a specific network, such as `mumbai/ArbitrumWormholeGateway.json.` 
+directory for a specific network, such as `amoy/ArbitrumWormholeGateway.json.` 
 It is important to note that these addresses should remain constant for the 
 mainnet network. However, there may be instances where a new version of a 
 cross-chain module is deployed to the testing network, which would require a 
@@ -42,7 +42,8 @@ yarn deploy --network <network>
 
 Supported networks:
 - `hardhat` - for local development
-- `mumbai` - testing network
+- `mumbai` - testing network (will become deprecated with the end of 2023)
+- `amoy` - testing network
 - `polygon` - mainnet
 
 Currently, this module does not deploy any contracts on L1. All the existing 
