@@ -791,7 +791,9 @@ describe("RebateStaking", () => {
     context("when there is no stake", () => {
       it("should revert", async () => {
         await expect(
-          rebateStaking.connect(governance).finalizeUnstaking()
+          rebateStaking
+            .connect(governance)
+            .finalizeUnstaking(governance.address)
         ).to.be.revertedWith("No unstaking process")
       })
     })
@@ -812,7 +814,9 @@ describe("RebateStaking", () => {
 
       it("should revert", async () => {
         await expect(
-          rebateStaking.connect(thirdParty).finalizeUnstaking()
+          rebateStaking
+            .connect(thirdParty)
+            .finalizeUnstaking(thirdParty.address)
         ).to.be.revertedWith("No finished unstaking process")
       })
     })
@@ -834,7 +838,9 @@ describe("RebateStaking", () => {
 
         const unstakingPeriod = await rebateStaking.unstakingPeriod()
         await increaseTime(unstakingPeriod)
-        tx = await rebateStaking.connect(thirdParty).finalizeUnstaking()
+        tx = await rebateStaking
+          .connect(thirdParty)
+          .finalizeUnstaking(governance.address)
       })
 
       after(async () => {
@@ -842,7 +848,8 @@ describe("RebateStaking", () => {
       })
 
       it("should transfer tokens to the user", async () => {
-        expect(await t.balanceOf(thirdParty.address)).to.be.equal(unstakeAmount)
+        expect(await t.balanceOf(thirdParty.address)).to.be.equal(0)
+        expect(await t.balanceOf(governance.address)).to.be.equal(unstakeAmount)
         expect(await t.balanceOf(rebateStaking.address)).to.be.equal(
           expectedStake
         )
