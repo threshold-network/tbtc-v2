@@ -289,7 +289,8 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     }
 
     /// @notice Finalize unstaking and withdraw tokens
-    function finalizeUnstaking() external {
+    /// @param receiver Address of stake receiver
+    function finalizeUnstaking(address receiver) external {
         Stake storage stakeInfo = stakes[msg.sender];
         require(
             stakeInfo.unstakingTimestamp > 0, 
@@ -307,7 +308,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         stakeInfo.unstakingAmount = 0;
         
         emit UnstakeFinished(msg.sender, amount);
-        token.safeTransfer(msg.sender, amount);
+        token.safeTransfer(receiver, amount);
     }
 
     /// @notice Returns size of rebate array
