@@ -730,6 +730,7 @@ describe("RebateStaking", () => {
     context("when user unstakes part of the stake", () => {
       const unstakeAmount = to1e18(1800000)
       const rebateCap = to1e18(10)
+      const newRebateCap = to1e18(6)
       let tx: ContractTransaction
 
       before(async () => {
@@ -764,10 +765,10 @@ describe("RebateStaking", () => {
         expect(unstakingTimestamp).to.be.equal(await lastBlockTime())
       })
 
-      it("should keep rebate cap", async () => {
+      it("should decrease rebate cap", async () => {
         expect(
           await rebateStaking.getRebateCap(thirdParty.address)
-        ).to.be.equal(rebateCap)
+        ).to.be.equal(newRebateCap)
       })
 
       it("should emit event", async () => {
