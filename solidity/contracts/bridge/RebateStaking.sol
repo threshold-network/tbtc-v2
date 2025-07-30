@@ -155,7 +155,9 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         if (rebatePerToken == 0) {
             return 0;
         }
-        return SafeCastUpgradeable.toUint64(stakeInfo.stakedAmount / rebatePerToken);
+        return SafeCastUpgradeable.toUint64(
+            (stakeInfo.stakedAmount - stakeInfo.unstakingAmount) / rebatePerToken
+        );
     }
 
     /// @notice Calculates available rebate for the specified user.
