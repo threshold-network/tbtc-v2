@@ -1971,10 +1971,7 @@ contract Bridge is
     /// @dev Requirements:
     ///      - Rebate staking address must not be already set,
     ///      - Rebate staking address must not be 0x0.
-    function setRebateStaking(address rebateStaking)
-        external
-        onlyGovernance
-    {
+    function setRebateStaking(address rebateStaking) external onlyGovernance {
         // The internal function is defined in the `BridgeState` library.
         self.setRebateStaking(rebateStaking);
     }

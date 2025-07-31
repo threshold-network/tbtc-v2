@@ -1788,10 +1788,7 @@ contract BridgeGovernance is Ownable {
     /// @dev Requirements:
     ///      - Rebate staking address must not be already set,
     ///      - Rebate staking address must not be 0x0.
-    function setRebateStaking(address rebateStaking)
-        external
-        onlyOwner
-    {
+    function setRebateStaking(address rebateStaking) external onlyOwner {
         bridge.setRebateStaking(rebateStaking);
     }
 }

@@ -533,7 +533,10 @@ library Redemption {
             ? amount / self.redemptionTreasuryFeeDivisor
             : 0;
         if (treasuryFee > 0 && address(self.rebateStaking) != address(0)) {
-            treasuryFee = self.rebateStaking.applyForRebate(redeemer, treasuryFee);
+            treasuryFee = self.rebateStaking.applyForRebate(
+                redeemer,
+                treasuryFee
+            );
         }
         uint64 txMaxFee = self.redemptionTxMaxFee;
 
@@ -1088,7 +1091,10 @@ library Redemption {
         delete self.pendingRedemptions[redemptionKey];
 
         if (address(self.rebateStaking) != address(0)) {
-            self.rebateStaking.cancelRebate(request.redeemer, request.requestedAt);
+            self.rebateStaking.cancelRebate(
+                request.redeemer,
+                request.requestedAt
+            );
         }
 
         // slither-disable-next-line reentrancy-events
