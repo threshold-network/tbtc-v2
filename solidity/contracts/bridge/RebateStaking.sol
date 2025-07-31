@@ -21,7 +21,6 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/math/SafeCastUpgradeable.sol";
 
-
 /// @title Contract for staking T token to get rebate on minting/redemption fees
 contract RebateStaking is Initializable, OwnableUpgradeable {
     using SafeERC20Upgradeable for IERC20Upgradeable;
@@ -29,7 +28,6 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     struct Rebate {
         uint32 timestamp;
         uint64 feeRebate;
-
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
@@ -44,14 +42,13 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         uint96 stakedAmount;
         uint96 unstakingAmount;
         uint32 unstakingTimestamp;
-
         uint256 rollingWindowStartIndex;
         Rebate[] rebates;
     }
 
     IERC20Upgradeable public token;
     address public bridge;
-    
+
     uint256 public rollingWindow;
     uint256 public unstakingPeriod;
     uint256 public rebatePerToken;
@@ -95,9 +92,9 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         uint256 _rebatePerToken
     ) external initializer {
         require(
-            _bridge != address(0) && 
-            _token != address(0) && 
-            _rollingWindow != 0, 
+            _bridge != address(0) &&
+                _token != address(0) &&
+                _rollingWindow != 0,
             "Parameters cannot be zero"
         );
         bridge = _bridge;
@@ -115,10 +112,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     ///      - The caller must be the contract owner,
     ///      - The new rolling window cannot be zero
     function updateRollingWindow(uint256 _newRollingWindow) external onlyOwner {
-        require(
-            _newRollingWindow != 0, 
-            "Rolling window cannot be zero"
-        );
+        require(_newRollingWindow != 0, "Rolling window cannot be zero");
         rollingWindow = _newRollingWindow;
         emit RollingWindowUpdated(rollingWindow);
     }
@@ -127,42 +121,57 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     /// @param _newUnstakingPeriod Duration of the unstaking period.
     /// @dev Requirements:
     ///      - The caller must be the contract owner
-    function updateUnstakingPeriod(uint256 _newUnstakingPeriod) external onlyOwner {
+    function updateUnstakingPeriod(uint256 _newUnstakingPeriod)
+        external
+        onlyOwner
+    {
         unstakingPeriod = _newUnstakingPeriod;
         emit UnstakingPeriodUpdated(unstakingPeriod);
-
     }
 
     /// @notice Updates the rebate per token.
     /// @param _newRebatePerToken Rebate coefficient.
     /// @dev Requirements:
     ///      - The caller must be the contract owner
-    function updateRebatePerToken(uint256 _newRebatePerToken) external onlyOwner {
+    function updateRebatePerToken(uint256 _newRebatePerToken)
+        external
+        onlyOwner
+    {
         rebatePerToken = _newRebatePerToken;
         emit RebatePerTokenUpdated(rebatePerToken);
     }
 
     /// @notice Calculates cap for rebate for the specified user.
     /// @param user Address of depositor or redeemer
-    function getRebateCap(address user) external view returns(uint64) {
+    function getRebateCap(address user) external view returns (uint64) {
         Stake storage stakeInfo = stakes[user];
         return getRebateCap(stakeInfo);
     }
-    
+
     /// @notice Calculates cap for rebate for the specified user.
     /// @param stakeInfo Staker struct
-    function getRebateCap(Stake storage stakeInfo) internal view returns(uint64) {
+    function getRebateCap(Stake storage stakeInfo)
+        internal
+        view
+        returns (uint64)
+    {
         if (rebatePerToken == 0) {
             return 0;
         }
-        return SafeCastUpgradeable.toUint64(
-            (stakeInfo.stakedAmount - stakeInfo.unstakingAmount) / rebatePerToken
-        );
+        return
+            SafeCastUpgradeable.toUint64(
+                (stakeInfo.stakedAmount - stakeInfo.unstakingAmount) /
+                    rebatePerToken
+            );
     }
 
     /// @notice Calculates available rebate for the specified user.
     /// @param user Address of depositor or redeemer
-    function getAvailableRebate(address user) external view returns(uint64 rebateInWindow) {
+    function getAvailableRebate(address user)
+        external
+        view
+        returns (uint64 rebateInWindow)
+    {
         Stake storage stakeInfo = stakes[user];
         uint64 rebateCap = getRebateCap(stakeInfo);
         if (rebateCap == 0) {
@@ -175,7 +184,11 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
 
         /* solhint-disable-next-line not-rely-on-time */
         uint256 windowStart = block.timestamp - rollingWindow;
-        for (uint256 i = stakeInfo.rollingWindowStartIndex; i < stakeInfo.rebates.length; i++) {
+        for (
+            uint256 i = stakeInfo.rollingWindowStartIndex;
+            i < stakeInfo.rebates.length;
+            i++
+        ) {
             Rebate storage rebate = stakeInfo.rebates[i];
             if (rebate.timestamp >= windowStart) {
                 rebateInWindow += rebate.feeRebate;
@@ -188,14 +201,21 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     /// @notice Calculates used rebate in the rolling window.
     /// @param stakeInfo Staker struct
     /// @return rebateInWindow Used rebate in the rolling window
-    function getRebateInRollingWindow(Stake storage stakeInfo) internal returns(uint64 rebateInWindow) {
+    function getRebateInRollingWindow(Stake storage stakeInfo)
+        internal
+        returns (uint64 rebateInWindow)
+    {
         if (stakeInfo.rebates.length == 0) {
             return 0;
         }
 
         /* solhint-disable-next-line not-rely-on-time */
         uint256 windowStart = block.timestamp - rollingWindow;
-        for (uint256 i = stakeInfo.rollingWindowStartIndex; i < stakeInfo.rebates.length; i++) {
+        for (
+            uint256 i = stakeInfo.rollingWindowStartIndex;
+            i < stakeInfo.rebates.length;
+            i++
+        ) {
             Rebate storage rebate = stakeInfo.rebates[i];
             if (rebate.timestamp < windowStart) {
                 stakeInfo.rollingWindowStartIndex++;
@@ -213,9 +233,13 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     /// @return Updated fees considering rebate if applicable
     /// @dev Requirements:
     ///      - The caller must be the bridge contract
-    function applyForRebate(address user, uint64 treasuryFee) external onlyBridge returns (uint64) {
+    function applyForRebate(address user, uint64 treasuryFee)
+        external
+        onlyBridge
+        returns (uint64)
+    {
         Stake storage stakeInfo = stakes[user];
-        
+
         uint64 rebateCap = getRebateCap(stakeInfo);
         if (rebateCap == 0) {
             return treasuryFee;
@@ -243,7 +267,10 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     /// @param requestedAt Timestamp when redeem was requested
     /// @dev Requirements:
     ///      - The caller must be the bridge contract
-    function cancelRebate(address user, uint256 requestedAt) external onlyBridge {
+    function cancelRebate(address user, uint256 requestedAt)
+        external
+        onlyBridge
+    {
         Stake storage stakeInfo = stakes[user];
         if (stakeInfo.stakedAmount == 0) {
             return;
@@ -251,7 +278,11 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
 
         /* solhint-disable-next-line not-rely-on-time */
         uint256 windowStart = block.timestamp - rollingWindow;
-        for (uint256 i = stakeInfo.rollingWindowStartIndex; i < stakeInfo.rebates.length; i++) {
+        for (
+            uint256 i = stakeInfo.rollingWindowStartIndex;
+            i < stakeInfo.rebates.length;
+            i++
+        ) {
             Rebate storage rebate = stakeInfo.rebates[i];
             if (rebate.timestamp > requestedAt) {
                 break;
@@ -292,28 +323,25 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     /// @param receiver Address of stake receiver
     function finalizeUnstaking(address receiver) external {
         Stake storage stakeInfo = stakes[msg.sender];
-        require(
-            stakeInfo.unstakingTimestamp > 0, 
-            "No unstaking process"
-        );
+        require(stakeInfo.unstakingTimestamp > 0, "No unstaking process");
         require(
             /* solhint-disable-next-line not-rely-on-time */
-            stakeInfo.unstakingTimestamp + unstakingPeriod <= block.timestamp, 
+            stakeInfo.unstakingTimestamp + unstakingPeriod <= block.timestamp,
             "No finished unstaking process"
         );
-        
+
         stakeInfo.stakedAmount -= stakeInfo.unstakingAmount;
         uint96 amount = stakeInfo.unstakingAmount;
         stakeInfo.unstakingTimestamp = 0;
         stakeInfo.unstakingAmount = 0;
-        
+
         emit UnstakeFinished(msg.sender, amount);
         token.safeTransfer(receiver, amount);
     }
 
     /// @notice Returns size of rebate array
     /// @param user Address of depositor or redeemer
-    function getRebateLength(address user) external view returns(uint256) {
+    function getRebateLength(address user) external view returns (uint256) {
         return stakes[user].rebates.length;
     }
 
@@ -322,7 +350,11 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     /// @param index Index of the element in the array
     /// @return timestamp Timestamp of rebate
     /// @return feeRebate Amount of rebate
-    function getRebate(address user, uint256 index) external view returns(uint32 timestamp, uint64 feeRebate) {
+    function getRebate(address user, uint256 index)
+        external
+        view
+        returns (uint32 timestamp, uint64 feeRebate)
+    {
         Rebate storage rebateInfo = stakes[user].rebates[index];
         timestamp = rebateInfo.timestamp;
         feeRebate = rebateInfo.feeRebate;
@@ -331,7 +363,11 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     /// @notice Returns information about stake
     /// @param user Address of depositor or redeemer
     /// @return stakedAmount Amount of stake
-    function getStake(address user) external view returns(uint96 stakedAmount) {
+    function getStake(address user)
+        external
+        view
+        returns (uint96 stakedAmount)
+    {
         Stake storage stakeInfo = stakes[user];
         stakedAmount = stakeInfo.stakedAmount;
     }
@@ -340,7 +376,11 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     /// @param user Address of depositor or redeemer
     /// @return unstakingAmount Amount that is currently unstaking
     /// @return unstakingTimestamp Amount of rebate
-    function getUnstakingAmount(address user) external view returns(uint96 unstakingAmount, uint32 unstakingTimestamp) {
+    function getUnstakingAmount(address user)
+        external
+        view
+        returns (uint96 unstakingAmount, uint32 unstakingTimestamp)
+    {
         Stake storage stakeInfo = stakes[user];
         unstakingAmount = stakeInfo.unstakingAmount;
         unstakingTimestamp = stakeInfo.unstakingTimestamp;

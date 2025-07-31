@@ -173,6 +173,7 @@ contract BridgeStub is Bridge {
     }
 
     uint64 public lastTreasuryFee;
+
     function applyForRebate(address user, uint64 treasuryFee) external {
         lastTreasuryFee = self.rebateStaking.applyForRebate(user, treasuryFee);
     }

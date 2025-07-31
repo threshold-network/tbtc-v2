@@ -868,10 +868,9 @@ library BridgeState {
     /// @dev Requirements:
     ///      - Rebate staking address must not be already set,
     ///      - Rebate staking address must not be 0x0.
-    function setRebateStaking(
-        Storage storage self,
-        address _rebateStaking
-    ) internal {
+    function setRebateStaking(Storage storage self, address _rebateStaking)
+        internal
+    {
         require(
             address(self.rebateStaking) == address(0),
             "Rebate staking contract already set"
