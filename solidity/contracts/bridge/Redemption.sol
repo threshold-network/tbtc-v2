@@ -532,6 +532,12 @@ library Redemption {
         uint64 treasuryFee = self.redemptionTreasuryFeeDivisor > 0
             ? amount / self.redemptionTreasuryFeeDivisor
             : 0;
+        if (treasuryFee > 0 && address(self.rebateStaking) != address(0)) {
+            treasuryFee = self.rebateStaking.applyForRebate(
+                redeemer,
+                treasuryFee
+            );
+        }
         uint64 txMaxFee = self.redemptionTxMaxFee;
 
         // The main wallet UTXO's value doesn't include all pending redemptions.
@@ -1083,6 +1089,13 @@ library Redemption {
         // Move the redemption from pending redemptions to timed-out redemptions
         self.timedOutRedemptions[redemptionKey] = request;
         delete self.pendingRedemptions[redemptionKey];
+
+        if (address(self.rebateStaking) != address(0)) {
+            self.rebateStaking.cancelRebate(
+                request.redeemer,
+                request.requestedAt
+            );
+        }
 
         // slither-disable-next-line reentrancy-events
         emit RedemptionTimedOut(walletPubKeyHash, redeemerOutputScript);
