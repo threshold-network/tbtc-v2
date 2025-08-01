@@ -1,6 +1,6 @@
 {
   "filter_paths": "contracts/legacy/|contracts/canonical/|contracts/interfaces/|contracts/test/|node_modules/",
-  "detectors_to_exclude": "assembly,naming-convention,solc-version,timestamp,too-many-digits,similar-names,missing-zero-address-validation",
+  "detectors_to_exclude": "assembly,naming-convention,solc-version,timestamp,too-many-digits,similar-names",
   "exclude_dependencies": true,
   "exclude_informational": false,
   "exclude_low": false,

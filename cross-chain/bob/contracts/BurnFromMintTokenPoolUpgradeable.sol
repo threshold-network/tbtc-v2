@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BUSL-1.1
-pragma solidity 0.8.17;
+pragma solidity 0.8.15;
 
 import {IPoolV1} from "./interfaces/IPoolV1.sol";
 import {Pool} from "./libraries/Pool.sol";

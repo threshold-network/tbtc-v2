@@ -34,16 +34,16 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log("🚀 Deploying LockReleaseTokenPoolUpgradeable with parameters:")
   console.log(`  📍 Network: ${hre.network.name}`)
   console.log(`  🪙 tBTC Token: ${tbtcAddress}`)
+  console.log(`  🔢 Token Decimals: 18`)
   console.log(`  🌐 CCIP Router: ${router}`)
   console.log(`  🔒 RMN Proxy: ${rmnProxy}`)
-  console.log(`  🔗 Remote Chain ID: ${supportedRemoteChainId}`)
   console.log(`  💧 Accept Liquidity: ${acceptLiquidity}`)
   console.log(`  📝 Allowlist: ${allowlist.length === 0 ? 'Empty (permissionless)' : allowlist.join(', ')}`)
 
   const [, proxyDeployment, proxyAdmin] = await helpers.upgrades.deployProxy(
     "LockReleaseTokenPoolUpgradeable",
     {
-      initializerArgs: [tbtcAddress, allowlist, rmnProxy, acceptLiquidity, router, ethers.BigNumber.from(supportedRemoteChainId)],
+      initializerArgs: [tbtcAddress, 18, allowlist, rmnProxy, acceptLiquidity, router],
       factoryOpts: { signer: await ethers.getSigner(deployer) },
       proxyOpts: { kind: "transparent" },
     }
