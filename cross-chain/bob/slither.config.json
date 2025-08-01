@@ -6,6 +6,6 @@
   "exclude_low": false,
   "exclude_medium": false,
   "exclude_high": false,
-  "fail_on": "medium",
-  "hardhat_artifacts_directory": "build"
+  "hardhat_artifacts_directory": "build",
+  "disable_color": false
 }

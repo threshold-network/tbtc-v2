@@ -1,3 +1,4 @@
+import "dotenv/config";
 import type { HardhatUserConfig } from "hardhat/config"
 
 import "@nomiclabs/hardhat-etherscan"
@@ -9,11 +10,28 @@ import "hardhat-deploy"
 import "@typechain/hardhat"
 import "hardhat-dependency-compiler"
 
+// CCIP Router addresses for deployment
+const ROUTER_ADDRESSES = {
+  bobSepolia: "0x7808184405d6Cbc663764003dE21617fa640bc82",
+  bobMainnet: "0x827716e74F769AB7b6bb374A29235d9c2156932C",
+  ethereumSepolia: "0x0BF3dE8c5D3e8A2B34D2BEeB17ABfCeBaf363A59",
+  ethereumMainnet: "0x80226fc0Ee2b096224EeAc085Bb9a8cba1146f7D"
+}
+
 const config: HardhatUserConfig = {
   solidity: {
     compilers: [
       {
         version: "0.8.15",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 1000,
+          },
+        },
+      },
+      {
+        version: "0.8.17",
         settings: {
           optimizer: {
             enabled: true,
@@ -96,6 +114,22 @@ const config: HardhatUserConfig = {
     },
     customChains: [
       {
+        network: "sepolia",
+        chainId: 11155111,
+        urls: {
+          apiURL: "https://api.etherscan.io/v2/api?chainid=11155111",
+          browserURL: "https://sepolia.etherscan.io"
+        }
+      },
+      {
+        network: "mainnet",
+        chainId: 1,
+        urls: {
+          apiURL: "https://api.etherscan.io/v2/api?chainid=1",
+          browserURL: "https://etherscan.io"
+        }
+      },
+      {
         network: "bobMainnet",
         chainId: 60808,
         urls: {
@@ -119,9 +153,9 @@ const config: HardhatUserConfig = {
       default: 1,
       goerli: 0,
       sepolia: 0,
-      mainnet: "0x15424dC94D4da488DB0d0e0B7aAdB86835813a63",
-      bobMainnet: "0x15424dC94D4da488DB0d0e0B7aAdB86835813a63",
-      bobSepolia: "0x15424dC94D4da488DB0d0e0B7aAdB86835813a63",
+      mainnet: "0x123694886DBf5Ac94DDA07135349534536D14cAf",
+      bobMainnet: "0x123694886DBf5Ac94DDA07135349534536D14cAf",
+      bobSepolia: "0xB6A114C2c34eF91eeb0d93bcdDD7B95a9D6892E1",
     },
     governance: {
       default: 2,
@@ -137,6 +171,7 @@ const config: HardhatUserConfig = {
   },
   typechain: {
     outDir: "typechain",
+    target: "ethers-v5",
   },
 }
 
