@@ -2,18 +2,21 @@
 pragma solidity 0.8.17;
 
 import {IPoolV1} from "./interfaces/IPoolV1.sol";
+import {ILiquidityContainer} from "./interfaces/ILiquidityContainer.sol";
 import {Pool} from "./libraries/Pool.sol";
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {ITypeAndVersion} from "./interfaces/ITypeAndVersion.sol";
 
 /// @notice Upgradeable LockReleaseTokenPool that implements CCIP v1.6.0 interface
 /// @dev This is a working implementation for BOB deployment
 contract LockReleaseTokenPoolUpgradeable is
     IPoolV1,
+    ILiquidityContainer,
     ITypeAndVersion,
     Initializable,
     OwnableUpgradeable
@@ -38,9 +41,17 @@ contract LockReleaseTokenPoolUpgradeable is
     /// @notice Whether this pool accepts external liquidity
     bool public s_acceptLiquidity;
 
+    /// @notice The address of the rebalancer
+    address public s_rebalancer;
+
     /// @notice The version of this contract
     string public constant override typeAndVersion =
         "LockReleaseTokenPoolUpgradeable 1.6.0";
+
+    /// @notice Errors
+    error InsufficientLiquidity();
+    error LiquidityNotAccepted();
+    error Unauthorized(address caller);
 
     /// @notice Events
     event Locked(address indexed sender, uint256 amount);
@@ -49,6 +60,8 @@ contract LockReleaseTokenPoolUpgradeable is
         address indexed recipient,
         uint256 amount
     );
+
+    event LiquidityTransferred(address indexed from, uint256 amount);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -81,6 +94,7 @@ contract LockReleaseTokenPoolUpgradeable is
     }
 
     /// @notice Locks tokens in the pool
+    /// @dev The router validation check is an essential security check
     function lockOrBurn(Pool.LockOrBurnInV1 calldata lockOrBurnIn)
         external
         override
@@ -89,6 +103,7 @@ contract LockReleaseTokenPoolUpgradeable is
         require(msg.sender == s_router, "Only router");
 
         emit Locked(msg.sender, lockOrBurnIn.amount);
+        
         // Lock tokens by transferring to this contract
         s_token.safeTransferFrom(
             msg.sender,
@@ -104,6 +119,7 @@ contract LockReleaseTokenPoolUpgradeable is
     }
 
     /// @notice Releases tokens from the pool
+    /// @dev The router validation check is an essential security check
     function releaseOrMint(Pool.ReleaseOrMintInV1 calldata releaseOrMintIn)
         external
         override
@@ -111,13 +127,19 @@ contract LockReleaseTokenPoolUpgradeable is
     {
         require(msg.sender == s_router, "Only router");
 
+        // Check if pool has sufficient liquidity
+        if (s_token.balanceOf(address(this)) < releaseOrMintIn.amount) {
+            revert InsufficientLiquidity();
+        }
+
+        // Release tokens by transferring from this contract
+        s_token.safeTransfer(releaseOrMintIn.receiver, releaseOrMintIn.amount);
+
         emit Released(
             msg.sender,
             releaseOrMintIn.receiver,
             releaseOrMintIn.amount
         );
-        // Release tokens by transferring from this contract
-        s_token.safeTransfer(releaseOrMintIn.receiver, releaseOrMintIn.amount);
 
         return
             Pool.ReleaseOrMintOutV1({
@@ -161,6 +183,59 @@ contract LockReleaseTokenPoolUpgradeable is
         pure
         returns (bool)
     {
-        return interfaceId == type(IPoolV1).interfaceId;
+        return 
+            interfaceId == type(IPoolV1).interfaceId ||
+            interfaceId == type(ILiquidityContainer).interfaceId ||
+            interfaceId == type(IERC165).interfaceId;
+    }
+
+    /// @notice Gets rebalancer, can be address(0) if none is configured.
+    /// @return The current liquidity manager.
+    function getRebalancer() external view returns (address) {
+        return s_rebalancer;
+    }
+
+
+
+    /// @notice Sets the rebalancer address.
+    /// @dev Only callable by the owner.
+    function setRebalancer(address rebalancer) external virtual onlyOwner {
+        s_rebalancer = rebalancer;
+    }
+
+    /// @notice Adds liquidity to the pool. The tokens should be approved first.
+    /// @param amount The amount of liquidity to provide.
+    function provideLiquidity(uint256 amount) external {
+        if (!s_acceptLiquidity) revert LiquidityNotAccepted();
+        if (s_rebalancer != msg.sender) revert Unauthorized(msg.sender);
+
+        s_token.safeTransferFrom(msg.sender, address(this), amount);
+        emit LiquidityAdded(msg.sender, amount);
+    }
+
+    /// @notice Removes liquidity from the pool. The tokens will be sent to msg.sender.
+    /// @param amount The amount of liquidity to remove.
+    function withdrawLiquidity(uint256 amount) external {
+        if (s_rebalancer != msg.sender) revert Unauthorized(msg.sender);
+
+        if (s_token.balanceOf(address(this)) < amount) revert InsufficientLiquidity();
+        s_token.safeTransfer(msg.sender, amount);
+        emit LiquidityRemoved(msg.sender, amount);
+    }
+
+    /// @notice This function can be used to transfer liquidity from an older version of the pool to this pool. To do so
+    /// this pool will have to be set as the rebalancer in the older version of the pool. This allows it to transfer the
+    /// funds in the old pool to the new pool.
+    /// @dev When upgrading a LockRelease pool, this function can be called at the same time as the pool is changed in the
+    /// TokenAdminRegistry. This allows for a smooth transition of both liquidity and transactions to the new pool.
+    /// Alternatively, when no multicall is available, a portion of the funds can be transferred to the new pool before
+    /// changing which pool CCIP uses, to ensure both pools can operate. Then the pool should be changed in the
+    /// TokenAdminRegistry, which will activate the new pool. All new transactions will use the new pool and its
+    /// liquidity. Finally, the remaining liquidity can be transferred to the new pool using this function one more time.
+    /// @param from The address of the old pool.
+    /// @param amount The amount of liquidity to transfer.
+    function transferLiquidity(address from, uint256 amount) external onlyOwner {
+        LockReleaseTokenPoolUpgradeable(from).withdrawLiquidity(amount);
+        emit LiquidityTransferred(from, amount);
     }
 }

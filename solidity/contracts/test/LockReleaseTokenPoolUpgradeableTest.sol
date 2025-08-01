@@ -13,4 +13,8 @@ contract LockReleaseTokenPoolUpgradeableTest is
     function setRmnProxy(address newRmnProxy) public {
         s_rmnProxy = newRmnProxy;
     }
+
+    function setRebalancer(address newRebalancer) public override onlyOwner {
+        s_rebalancer = newRebalancer;
+    }
 }
