@@ -37,6 +37,7 @@
     "test": "hardhat test"
   },
   "dependencies": {
+    "@chainlink/contracts-ccip": "^1.6.0",
     "@keep-network/tbtc-v2": "1.7.2",
     "@openzeppelin/contracts": "^4.8.1",
     "@openzeppelin/contracts-upgradeable": "^4.8.1"
