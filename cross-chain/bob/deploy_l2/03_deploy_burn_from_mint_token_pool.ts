@@ -52,12 +52,19 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   const allowlist: string[] = []
 
+  console.log("Deployment parameters:")
+  console.log("Token Address:", tbtcAddress)
+  console.log("Token Decimals: 18")
+  console.log("Allowlist:", allowlist)
+  console.log("RMN Proxy:", rmnProxy)
+  console.log("Router:", router)
+
   const [, proxyDeployment] = await helpers.upgrades.deployProxy(
     "BurnFromMintTokenPoolUpgradeable",
     {
-      initializerArgs: [tbtcAddress, allowlist, rmnProxy, router, supportedRemoteChainId],
+      initializerArgs: [tbtcAddress, 18, allowlist, rmnProxy, router],
       factoryOpts: { signer: await ethers.getSigner(deployer) },
-      proxyOpts: { kind: "transparent" },
+      proxyOpts: { kind: "uups" },
     }
   )
 
