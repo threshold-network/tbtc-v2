@@ -192,7 +192,10 @@ contract LockReleaseTokenPoolUpgradeable is
         // This is a valid use case for disabling the rebalancer
         // For non-zero addresses, ensure they are valid contract addresses
         if (rebalancer != address(0)) {
-            require(rebalancer.code.length > 0, "Rebalancer must be a contract");
+            require(
+                rebalancer.code.length > 0,
+                "Rebalancer must be a contract"
+            );
         }
         s_rebalancer = rebalancer;
         emit RebalancerSet(rebalancer);
