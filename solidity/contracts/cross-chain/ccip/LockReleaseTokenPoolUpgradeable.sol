@@ -200,7 +200,15 @@ contract LockReleaseTokenPoolUpgradeable is
     /// @notice Sets the rebalancer address.
     /// @dev Only callable by the owner.
     function setRebalancer(address rebalancer) external virtual onlyOwner {
-        // Allow setting to zero address to disable rebalancer
+        // Zero address is intentionally allowed to disable rebalancer functionality
+        // This is a valid use case for disabling the rebalancer
+        // For non-zero addresses, ensure they are valid contract addresses
+        if (rebalancer != address(0)) {
+            require(
+                rebalancer.code.length > 0,
+                "Rebalancer must be a contract"
+            );
+        }
         s_rebalancer = rebalancer;
         emit RebalancerSet(rebalancer);
     }
@@ -248,6 +256,9 @@ contract LockReleaseTokenPoolUpgradeable is
         external
         onlyOwner
     {
+        require(from != address(0), "From address cannot be zero");
+        require(amount > 0, "Amount must be greater than zero");
+
         // CEI pattern: Checks done above, Effects (event) before Interactions
         emit LiquidityTransferred(from, amount);
 
