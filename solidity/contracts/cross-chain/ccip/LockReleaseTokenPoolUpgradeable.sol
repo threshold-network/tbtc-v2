@@ -213,7 +213,7 @@ contract LockReleaseTokenPoolUpgradeable is
 
         // CEI pattern: Checks done above, Effects (event) before Interactions
         emit LiquidityAdded(msg.sender, amount);
-        
+
         // Interactions last
         s_token.safeTransferFrom(msg.sender, address(this), amount);
     }
@@ -225,10 +225,10 @@ contract LockReleaseTokenPoolUpgradeable is
 
         if (s_token.balanceOf(address(this)) < amount)
             revert InsufficientLiquidity();
-        
+
         // CEI pattern: Checks done above, Effects (event) before Interactions
         emit LiquidityRemoved(msg.sender, amount);
-        
+
         // Interactions last
         s_token.safeTransfer(msg.sender, amount);
     }
@@ -250,7 +250,7 @@ contract LockReleaseTokenPoolUpgradeable is
     {
         // CEI pattern: Checks done above, Effects (event) before Interactions
         emit LiquidityTransferred(from, amount);
-        
+
         // Interactions last
         LockReleaseTokenPoolUpgradeable(from).withdrawLiquidity(amount);
     }
