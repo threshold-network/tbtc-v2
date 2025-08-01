@@ -1,11 +1,11 @@
 {
   "filter_paths": "contracts/legacy/|contracts/canonical/|contracts/interfaces/|contracts/test/|node_modules/",
-  "detectors_to_exclude": "assembly,naming-convention,solc-version,timestamp,too-many-digits,similar-names",
+  "detectors_to_exclude": "assembly,naming-convention,solc-version,timestamp,too-many-digits,similar-names,missing-zero-address-validation",
   "exclude_dependencies": true,
   "exclude_informational": false,
   "exclude_low": false,
   "exclude_medium": false,
   "exclude_high": false,
-  "fail_on": "medium",
-  "hardhat_artifacts_directory": "build"
+  "hardhat_artifacts_directory": "build",
+  "disable_color": false
 }

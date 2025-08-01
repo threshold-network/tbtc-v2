@@ -470,7 +470,9 @@ describe("LockReleaseTokenPoolUpgradeable", () => {
 
   describe("Rebalancer Management", () => {
     it("should initially have no rebalancer set", async () => {
-      expect(await contract.getRebalancer()).to.equal(ethers.constants.AddressZero)
+      expect(await contract.getRebalancer()).to.equal(
+        ethers.constants.AddressZero
+      )
     })
 
     it("should allow owner to set rebalancer", async () => {
@@ -487,7 +489,9 @@ describe("LockReleaseTokenPoolUpgradeable", () => {
     it("should allow setting rebalancer to zero address", async () => {
       await contract.setRebalancer(user.address)
       await contract.setRebalancer(ethers.constants.AddressZero)
-      expect(await contract.getRebalancer()).to.equal(ethers.constants.AddressZero)
+      expect(await contract.getRebalancer()).to.equal(
+        ethers.constants.AddressZero
+      )
     })
   })
 
@@ -496,13 +500,17 @@ describe("LockReleaseTokenPoolUpgradeable", () => {
       // Set up rebalancer and provide tokens
       await contract.setRebalancer(user.address)
       await token.mint(user.address, ethers.utils.parseEther("1000"))
-      await token.connect(user).approve(contract.address, ethers.utils.parseEther("1000"))
+      await token
+        .connect(user)
+        .approve(contract.address, ethers.utils.parseEther("1000"))
     })
 
     describe("Provide Liquidity", () => {
       it("should allow rebalancer to provide liquidity when accepted", async () => {
         // First deploy a contract that accepts liquidity
-        const TestPool = await ethers.getContractFactory("LockReleaseTokenPoolUpgradeableTest")
+        const TestPool = await ethers.getContractFactory(
+          "LockReleaseTokenPoolUpgradeableTest"
+        )
         const liquidityContract = await upgrades.deployProxy(
           TestPool,
           [
@@ -529,9 +537,13 @@ describe("LockReleaseTokenPoolUpgradeable", () => {
         const initialBalance = await token.balanceOf(liquidityContract.address)
 
         // Approve tokens to the liquid contract specifically
-        await token.connect(user).approve(liquidityContract.address, provideAmount)
+        await token
+          .connect(user)
+          .approve(liquidityContract.address, provideAmount)
 
-        await expect(liquidityContract.connect(user).provideLiquidity(provideAmount))
+        await expect(
+          liquidityContract.connect(user).provideLiquidity(provideAmount)
+        )
           .to.emit(liquidityContract, "LiquidityAdded")
           .withArgs(user.address, provideAmount)
 
@@ -542,7 +554,9 @@ describe("LockReleaseTokenPoolUpgradeable", () => {
 
       it("should revert when pool doesn't accept liquidity", async () => {
         // Deploy a contract that specifically doesn't accept liquidity
-        const TestPool = await ethers.getContractFactory("LockReleaseTokenPoolUpgradeableTest")
+        const TestPool = await ethers.getContractFactory(
+          "LockReleaseTokenPoolUpgradeableTest"
+        )
         const noLiquidityContract = await upgrades.deployProxy(
           TestPool,
           [
@@ -573,7 +587,9 @@ describe("LockReleaseTokenPoolUpgradeable", () => {
       })
 
       it("should revert when non-rebalancer tries to provide liquidity", async () => {
-        const TestPool = await ethers.getContractFactory("LockReleaseTokenPoolUpgradeableTest")
+        const TestPool = await ethers.getContractFactory(
+          "LockReleaseTokenPoolUpgradeableTest"
+        )
         const liquidityContract = await upgrades.deployProxy(
           TestPool,
           [
@@ -600,7 +616,9 @@ describe("LockReleaseTokenPoolUpgradeable", () => {
 
         // Mint and approve tokens for the deployer account
         await token.mint(deployer.address, provideAmount)
-        await token.connect(deployer).approve(liquidityContract.address, provideAmount)
+        await token
+          .connect(deployer)
+          .approve(liquidityContract.address, provideAmount)
 
         await expect(
           liquidityContract.connect(deployer).provideLiquidity(provideAmount)
@@ -654,7 +672,9 @@ describe("LockReleaseTokenPoolUpgradeable", () => {
 
       beforeEach(async () => {
         // Deploy old pool with liquidity
-        const TestPool = await ethers.getContractFactory("LockReleaseTokenPoolUpgradeableTest")
+        const TestPool = await ethers.getContractFactory(
+          "LockReleaseTokenPoolUpgradeableTest"
+        )
         oldPool = await upgrades.deployProxy(
           TestPool,
           [
@@ -686,7 +706,9 @@ describe("LockReleaseTokenPoolUpgradeable", () => {
         const initialNewPoolBalance = await token.balanceOf(contract.address)
         const initialOldPoolBalance = await token.balanceOf(oldPool.address)
 
-        await expect(contract.transferLiquidity(oldPool.address, transferAmount))
+        await expect(
+          contract.transferLiquidity(oldPool.address, transferAmount)
+        )
           .to.emit(contract, "LiquidityTransferred")
           .withArgs(oldPool.address, transferAmount)
 
@@ -702,7 +724,9 @@ describe("LockReleaseTokenPoolUpgradeable", () => {
         const transferAmount = ethers.utils.parseEther("200")
 
         await expect(
-          contract.connect(user).transferLiquidity(oldPool.address, transferAmount)
+          contract
+            .connect(user)
+            .transferLiquidity(oldPool.address, transferAmount)
         ).to.be.revertedWith("Ownable: caller is not the owner")
       })
     })
@@ -717,7 +741,7 @@ describe("LockReleaseTokenPoolUpgradeable", () => {
     it("should revert releaseOrMint when pool has insufficient liquidity", async () => {
       const releaseAmount = ethers.utils.parseEther("100")
       const contractBalance = await token.balanceOf(contract.address)
-      
+
       // Ensure pool has less than required amount
       expect(contractBalance).to.be.lt(releaseAmount)
 
@@ -743,10 +767,10 @@ describe("LockReleaseTokenPoolUpgradeable", () => {
 
     it("should successfully release when pool has sufficient liquidity", async () => {
       const releaseAmount = ethers.utils.parseEther("100")
-      
+
       // Mint tokens to pool to ensure sufficient liquidity
       await token.mint(contract.address, ethers.utils.parseEther("500"))
-      
+
       const contractBalance = await token.balanceOf(contract.address)
       expect(contractBalance).to.be.gte(releaseAmount)
 
@@ -779,14 +803,16 @@ describe("LockReleaseTokenPoolUpgradeable", () => {
 
   describe("Enhanced Interface Support", () => {
     it("should support IPoolV1 interface", async () => {
-      const IPoolV1Interface = "0x" + "0".repeat(8) // Would need actual interface ID
+      const IPoolV1Interface = `0x${"0".repeat(8)}` // Would need actual interface ID
       // For now, just test that the function exists and returns boolean
       expect(await contract.supportsInterface("0x01ffc9a7")).to.be.a("boolean")
     })
 
     it("should support IERC165 interface", async () => {
       const IERC165_INTERFACE_ID = "0x01ffc9a7"
-      expect(await contract.supportsInterface(IERC165_INTERFACE_ID)).to.equal(true)
+      expect(await contract.supportsInterface(IERC165_INTERFACE_ID)).to.equal(
+        true
+      )
     })
 
     it("should support ILiquidityContainer interface", async () => {
@@ -796,7 +822,7 @@ describe("LockReleaseTokenPoolUpgradeable", () => {
         "function setRebalancer(address rebalancer) external",
         "function canAcceptLiquidity() external view returns (bool)",
         "function provideLiquidity(uint256 amount) external",
-        "function withdrawLiquidity(uint256 amount) external"
+        "function withdrawLiquidity(uint256 amount) external",
       ])
       const interfaceId = ethers.utils.id("ILiquidityContainer").slice(0, 10)
       // For now, just test that our interface is supported - specific ID calculation can be complex
@@ -805,7 +831,9 @@ describe("LockReleaseTokenPoolUpgradeable", () => {
 
     it("should not support unknown interface", async () => {
       const UNKNOWN_INTERFACE_ID = "0xffffffff"
-      expect(await contract.supportsInterface(UNKNOWN_INTERFACE_ID)).to.equal(false)
+      expect(await contract.supportsInterface(UNKNOWN_INTERFACE_ID)).to.equal(
+        false
+      )
     })
   })
 })
