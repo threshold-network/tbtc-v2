@@ -103,7 +103,7 @@ contract LockReleaseTokenPoolUpgradeable is
         require(msg.sender == s_router, "Only router");
 
         emit Locked(msg.sender, lockOrBurnIn.amount);
-        
+
         // Lock tokens by transferring to this contract
         s_token.safeTransferFrom(
             msg.sender,
@@ -183,7 +183,7 @@ contract LockReleaseTokenPoolUpgradeable is
         pure
         returns (bool)
     {
-        return 
+        return
             interfaceId == type(IPoolV1).interfaceId ||
             interfaceId == type(ILiquidityContainer).interfaceId ||
             interfaceId == type(IERC165).interfaceId;
@@ -194,8 +194,6 @@ contract LockReleaseTokenPoolUpgradeable is
     function getRebalancer() external view returns (address) {
         return s_rebalancer;
     }
-
-
 
     /// @notice Sets the rebalancer address.
     /// @dev Only callable by the owner.
@@ -218,7 +216,8 @@ contract LockReleaseTokenPoolUpgradeable is
     function withdrawLiquidity(uint256 amount) external {
         if (s_rebalancer != msg.sender) revert Unauthorized(msg.sender);
 
-        if (s_token.balanceOf(address(this)) < amount) revert InsufficientLiquidity();
+        if (s_token.balanceOf(address(this)) < amount)
+            revert InsufficientLiquidity();
         s_token.safeTransfer(msg.sender, amount);
         emit LiquidityRemoved(msg.sender, amount);
     }
@@ -234,7 +233,10 @@ contract LockReleaseTokenPoolUpgradeable is
     /// liquidity. Finally, the remaining liquidity can be transferred to the new pool using this function one more time.
     /// @param from The address of the old pool.
     /// @param amount The amount of liquidity to transfer.
-    function transferLiquidity(address from, uint256 amount) external onlyOwner {
+    function transferLiquidity(address from, uint256 amount)
+        external
+        onlyOwner
+    {
         LockReleaseTokenPoolUpgradeable(from).withdrawLiquidity(amount);
         emit LiquidityTransferred(from, amount);
     }
