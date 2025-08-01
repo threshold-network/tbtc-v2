@@ -18,7 +18,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     supportedRemoteChainId = "3849287863852499584" // BOB Mainnet
   } else if (hre.network.name === "sepolia") {
     tbtcAddress = "0x517f2982701695D4E52f1ECFBEf3ba31Df470161"
-    router = "0x779877A7B0D9E8603169DdbD7836e478b4624789" // Ethereum Sepolia Router
+    router = "0x0BF3dE8c5D3e8A2B34D2BEeB17ABfCeBaf363A59" // Ethereum Sepolia Router
     rmnProxy = "0xba3f6251de62dED61Ff98590cB2fDf6871FbB991" // Ethereum Sepolia RMN proxy
     supportedRemoteChainId = "5535534526963509396" // BOB Sepolia
   } else {
