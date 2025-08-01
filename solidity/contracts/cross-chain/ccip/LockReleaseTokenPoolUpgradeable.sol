@@ -62,6 +62,7 @@ contract LockReleaseTokenPoolUpgradeable is
     );
 
     event LiquidityTransferred(address indexed from, uint256 amount);
+    event RebalancerSet(address indexed rebalancer);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -132,14 +133,15 @@ contract LockReleaseTokenPoolUpgradeable is
             revert InsufficientLiquidity();
         }
 
-        // Release tokens by transferring from this contract
-        s_token.safeTransfer(releaseOrMintIn.receiver, releaseOrMintIn.amount);
-
+        // CEI pattern: Checks done above, Effects (event) before Interactions
         emit Released(
             msg.sender,
             releaseOrMintIn.receiver,
             releaseOrMintIn.amount
         );
+
+        // Interactions last
+        s_token.safeTransfer(releaseOrMintIn.receiver, releaseOrMintIn.amount);
 
         return
             Pool.ReleaseOrMintOutV1({
@@ -198,7 +200,9 @@ contract LockReleaseTokenPoolUpgradeable is
     /// @notice Sets the rebalancer address.
     /// @dev Only callable by the owner.
     function setRebalancer(address rebalancer) external virtual onlyOwner {
+        // Allow setting to zero address to disable rebalancer
         s_rebalancer = rebalancer;
+        emit RebalancerSet(rebalancer);
     }
 
     /// @notice Adds liquidity to the pool. The tokens should be approved first.
@@ -207,8 +211,11 @@ contract LockReleaseTokenPoolUpgradeable is
         if (!s_acceptLiquidity) revert LiquidityNotAccepted();
         if (s_rebalancer != msg.sender) revert Unauthorized(msg.sender);
 
-        s_token.safeTransferFrom(msg.sender, address(this), amount);
+        // CEI pattern: Checks done above, Effects (event) before Interactions
         emit LiquidityAdded(msg.sender, amount);
+        
+        // Interactions last
+        s_token.safeTransferFrom(msg.sender, address(this), amount);
     }
 
     /// @notice Removes liquidity from the pool. The tokens will be sent to msg.sender.
@@ -218,8 +225,12 @@ contract LockReleaseTokenPoolUpgradeable is
 
         if (s_token.balanceOf(address(this)) < amount)
             revert InsufficientLiquidity();
-        s_token.safeTransfer(msg.sender, amount);
+        
+        // CEI pattern: Checks done above, Effects (event) before Interactions
         emit LiquidityRemoved(msg.sender, amount);
+        
+        // Interactions last
+        s_token.safeTransfer(msg.sender, amount);
     }
 
     /// @notice This function can be used to transfer liquidity from an older version of the pool to this pool. To do so
@@ -237,7 +248,10 @@ contract LockReleaseTokenPoolUpgradeable is
         external
         onlyOwner
     {
-        LockReleaseTokenPoolUpgradeable(from).withdrawLiquidity(amount);
+        // CEI pattern: Checks done above, Effects (event) before Interactions
         emit LiquidityTransferred(from, amount);
+        
+        // Interactions last
+        LockReleaseTokenPoolUpgradeable(from).withdrawLiquidity(amount);
     }
 }
