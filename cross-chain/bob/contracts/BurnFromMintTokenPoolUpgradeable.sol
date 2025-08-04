@@ -53,42 +53,6 @@ contract BurnFromMintTokenPoolUpgradeable is
         _disableInitializers();
     }
 
-    /**
-     * @notice Initializes the contract with the given parameters
-     * @param _token The token this pool will manage
-     * @param _localTokenDecimals The number of decimals the token uses
-     * @param _allowlist The list of allowed addresses (if empty, pool is permissionless)
-     * @param _rmnProxy The address of the Risk Management Network proxy
-     * @param _router The address of the router contract
-     */
-    function initialize(
-        address _token,
-        uint8 _localTokenDecimals,
-        address[] memory _allowlist,
-        address _rmnProxy,
-        address _router
-    ) public initializer {
-        __Ownable_init();
-        __ReentrancyGuard_init();
-        __UUPSUpgradeable_init();
-
-        _initializeTokenPool(
-            _token,
-            _localTokenDecimals,
-            _allowlist,
-            _rmnProxy,
-            _router
-        );
-    }
-
-    // ================================================================
-    // │                    UPGRADEABILITY                            │
-    // ================================================================
-
-    function _authorizeUpgrade(
-        address newImplementation
-    ) internal override onlyOwner {}
-
     // ================================================================
     // │                    CCIP OPERATIONS                           │
     // ================================================================
@@ -134,7 +98,7 @@ contract BurnFromMintTokenPoolUpgradeable is
     function releaseOrMint(
         Pool.ReleaseOrMintInV1 calldata releaseOrMintIn
     )
-        public
+        external
         virtual
         override
         nonReentrant
@@ -178,4 +142,40 @@ contract BurnFromMintTokenPoolUpgradeable is
     function typeAndVersion() external pure returns (string memory) {
         return "BurnFromMintTokenPoolUpgradeable 1.5.1";
     }
+
+    /**
+     * @notice Initializes the contract with the given parameters
+     * @param _token The token this pool will manage
+     * @param _localTokenDecimals The number of decimals the token uses
+     * @param _allowlist The list of allowed addresses (if empty, pool is permissionless)
+     * @param _rmnProxy The address of the Risk Management Network proxy
+     * @param _router The address of the router contract
+     */
+    function initialize(
+        address _token,
+        uint8 _localTokenDecimals,
+        address[] memory _allowlist,
+        address _rmnProxy,
+        address _router
+    ) public initializer {
+        __Ownable_init();
+        __ReentrancyGuard_init();
+        __UUPSUpgradeable_init();
+
+        _initializeTokenPool(
+            _token,
+            _localTokenDecimals,
+            _allowlist,
+            _rmnProxy,
+            _router
+        );
+    }
+
+    // ================================================================
+    // │                    UPGRADEABILITY                            │
+    // ================================================================
+
+    function _authorizeUpgrade(
+        address newImplementation
+    ) internal override onlyOwner {}
 }

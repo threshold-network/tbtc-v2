@@ -52,36 +52,39 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   const allowlist: string[] = []
 
-  console.log("Deployment parameters:")
-  console.log("Token Address:", tbtcAddress)
-  console.log("Token Decimals: 18")
-  console.log("Allowlist:", allowlist)
-  console.log("RMN Proxy:", rmnProxy)
-  console.log("Router:", router)
+  console.log("🚀 Deploying BurnFromMintTokenPoolUpgradeable with parameters:")
+  console.log(`  📍 Network: ${hre.network.name}`)
+  console.log(`  🪙 tBTC Token: ${tbtcAddress}`)
+  console.log(`  🔢 Token Decimals: 18`)
+  console.log(`  🌐 CCIP Router: ${router}`)
+  console.log(`  🔒 RMN Proxy: ${rmnProxy}`)
+  console.log(`  📝 Allowlist: ${allowlist.length === 0 ? 'Empty (permissionless)' : allowlist.join(', ')}`)
 
-  const [, proxyDeployment] = await helpers.upgrades.deployProxy(
-    "BurnFromMintTokenPoolUpgradeable",
-    {
-      initializerArgs: [tbtcAddress, 18, allowlist, rmnProxy, router],
-      factoryOpts: { signer: await ethers.getSigner(deployer) },
-      proxyOpts: { kind: "uups" },
-    }
-  )
+  try {
+    const [, proxyDeployment] = await helpers.upgrades.deployProxy(
+      "BurnFromMintTokenPoolUpgradeable",
+      {
+        initializerArgs: [tbtcAddress, 18, allowlist, rmnProxy, router],
+        factoryOpts: { signer: await ethers.getSigner(deployer) },
+        proxyOpts: { kind: "uups" },
+      }
+    )
 
-  if (hre.network.tags.bobscan) {
-    console.log(`Contract deployed at: ${proxyDeployment.address}`)
-    console.log("For better verification results, run the verification script with delay:")
-    console.log(`CONTRACT_ADDRESS=${proxyDeployment.address} npx hardhat run scripts/verify-with-delay.ts --network ${hre.network.name}`)
-    
-    try {
-      await hre.run("verify", {
-        address: proxyDeployment.address,
-        constructorArgsParams: proxyDeployment.args,
-      })
-    } catch (error) {
-      console.log("⚠️  Contract verification failed, but deployment was successful.")
-      console.log("You can manually verify the contract later on Bobscan.")
+    console.log("✅ BurnFromMintTokenPoolUpgradeable deployed successfully!")
+    console.log(`  📍 Proxy Address: ${proxyDeployment.address}`)
+
+    // Verification for Bobscan
+    if (hre.network.tags.bobscan) {
+      console.log(`Contract deployed at: ${proxyDeployment.address}`)
+      console.log("For better verification results, run the verification script with delay:")
+      console.log(`CONTRACT_ADDRESS=${proxyDeployment.address} npx hardhat run scripts/verify-with-delay.ts --network ${hre.network.name}`)
     }
+
+    // Return early to avoid any post-deployment hooks
+    return
+  } catch (error) {
+    console.error("Deployment failed:", error)
+    throw error
   }
 }
 
