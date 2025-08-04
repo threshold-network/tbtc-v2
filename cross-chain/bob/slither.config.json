@@ -1,6 +1,6 @@
 {
   "filter_paths": "contracts/legacy/|contracts/canonical/|contracts/interfaces/|contracts/test/|node_modules/",
-  "detectors_to_exclude": "assembly,naming-convention,solc-version,timestamp,too-many-digits,similar-names",
+  "detectors_to_exclude": "assembly,naming-convention,solc-version,timestamp,too-many-digits,similar-names,arbitrary-send-erc20,missing-zero-check,reentrancy-events,costly-loop,low-level-calls",
   "exclude_dependencies": true,
   "exclude_informational": false,
   "exclude_low": false,

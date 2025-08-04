@@ -115,10 +115,13 @@ contract LockReleaseTokenPoolUpgradeable is
         _validateLockOrBurn(lockOrBurnIn);
 
         // Transfer tokens from the sender to this pool
-        IERC20Upgradeable(address(token)).transferFrom(
-            lockOrBurnIn.originalSender,
-            address(this),
-            lockOrBurnIn.amount
+        require(
+            IERC20Upgradeable(address(token)).transferFrom(
+                lockOrBurnIn.originalSender,
+                address(this),
+                lockOrBurnIn.amount
+            ),
+            "Transfer failed"
         );
 
         emit Locked(lockOrBurnIn.originalSender, lockOrBurnIn.amount);
@@ -155,9 +158,12 @@ contract LockReleaseTokenPoolUpgradeable is
         );
 
         // Transfer tokens from this pool to the recipient
-        IERC20Upgradeable(address(token)).transfer(
-            releaseOrMintIn.receiver,
-            localAmount
+        require(
+            IERC20Upgradeable(address(token)).transfer(
+                releaseOrMintIn.receiver,
+                localAmount
+            ),
+            "Transfer failed"
         );
 
         emit Released(msg.sender, releaseOrMintIn.receiver, localAmount);
@@ -177,10 +183,13 @@ contract LockReleaseTokenPoolUpgradeable is
         if (!acceptsLiquidity) revert CannotAcceptLiquidity();
         if (amount == 0) revert("Amount must be greater than 0");
 
-        IERC20Upgradeable(address(token)).transferFrom(
-            msg.sender,
-            address(this),
-            amount
+        require(
+            IERC20Upgradeable(address(token)).transferFrom(
+                msg.sender,
+                address(this),
+                amount
+            ),
+            "Transfer failed"
         );
         emit LiquidityProvided(msg.sender, amount);
     }
@@ -198,7 +207,10 @@ contract LockReleaseTokenPoolUpgradeable is
         );
         if (balance < amount) revert InsufficientLiquidity();
 
-        IERC20Upgradeable(address(token)).transfer(rebalancer, amount);
+        require(
+            IERC20Upgradeable(address(token)).transfer(rebalancer, amount),
+            "Transfer failed"
+        );
         emit LiquidityWithdrawn(rebalancer, amount);
     }
 
@@ -213,11 +225,15 @@ contract LockReleaseTokenPoolUpgradeable is
     ) external nonReentrant {
         if (msg.sender != rebalancer) revert RebalancerNotSet();
         if (amount == 0) revert("Amount must be greater than 0");
+        if (from == address(0)) revert("From address cannot be zero");
 
-        IERC20Upgradeable(address(token)).transferFrom(
-            from,
-            address(this),
-            amount
+        require(
+            IERC20Upgradeable(address(token)).transferFrom(
+                from,
+                address(this),
+                amount
+            ),
+            "Transfer failed"
         );
         emit LiquidityTransferred(from, address(this), amount);
     }
