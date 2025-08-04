@@ -200,19 +200,22 @@ abstract contract TokenPoolMutable is
         token = IERC20Upgradeable(_token);
         rmnProxy = _rmnProxy;
 
-        try IERC20MetadataUpgradeable(_token).decimals() returns (
-            uint8 actualTokenDecimals
-        ) {
+        // Verify token decimals if the token implements the decimals() function
+        // This is optional in ERC20 spec, so we use a try-catch pattern
+        (bool success, bytes memory data) = _token.staticcall(
+            abi.encodeWithSelector(IERC20MetadataUpgradeable.decimals.selector)
+        );
+        if (success && data.length >= 32) {
+            uint8 actualTokenDecimals = abi.decode(data, (uint8));
             if (_localTokenDecimals != actualTokenDecimals) {
                 revert InvalidDecimalArgs(
                     _localTokenDecimals,
                     actualTokenDecimals
                 );
             }
-        } catch {
-            // The decimals function doesn't exist, which is possible since it's optional in the ERC20 spec. We skip the check and
-            // assume the supplied token decimals are correct.
         }
+        // If the call fails or returns invalid data, we skip the check and
+        // assume the supplied token decimals are correct.
         tokenDecimals = _localTokenDecimals;
 
         router = IRouter(_router);
@@ -551,10 +554,16 @@ abstract contract TokenPoolMutable is
             bytes32[] memory remotePools = remoteChainConfigs[
                 remoteChainSelectorToRemove
             ].remotePools.values();
-            for (uint256 j = 0; j < remotePools.length; ++j) {
-                remoteChainConfigs[remoteChainSelectorToRemove]
-                    .remotePools
-                    .remove(remotePools[j]);
+            
+            // Clear remote pools if any exist
+            if (remotePools.length > 0) {
+                for (uint256 j = 0; j < remotePools.length; ++j) {
+                    bool removed = remoteChainConfigs[remoteChainSelectorToRemove]
+                        .remotePools
+                        .remove(remotePools[j]);
+                    // The removal should always succeed since we got the value from values()
+                    assert(removed);
+                }
             }
 
             delete remoteChainConfigs[remoteChainSelectorToRemove];
