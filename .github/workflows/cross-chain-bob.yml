@@ -52,10 +52,6 @@ jobs:
       - name: Configure git to not use unauthenticated protocol
         run: git config --global url."https://".insteadOf git://
 
-      # Remove package-lock.json to avoid resolution inconsistencies with yarn
-      - name: Remove conflicting package-lock.json
-        run: rm -f package-lock.json
-
       - name: Install dependencies
         run: yarn install
 
@@ -88,10 +84,6 @@ jobs:
       - name: Configure git to not use unauthenticated protocol
         run: git config --global url."https://".insteadOf git://
 
-      # Remove package-lock.json to avoid resolution inconsistencies with yarn
-      - name: Remove conflicting package-lock.json
-        run: rm -f package-lock.json
-
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
@@ -120,10 +112,6 @@ jobs:
       # prefix instead of the recommended https://
       - name: Configure git to not use unauthenticated protocol
         run: git config --global url."https://".insteadOf git://
-
-      # Remove package-lock.json to avoid resolution inconsistencies with yarn
-      - name: Remove conflicting package-lock.json
-        run: rm -f package-lock.json
 
       - name: Install dependencies
         run: yarn install
@@ -173,10 +161,6 @@ jobs:
       # prefix instead of the recommended https://
       - name: Configure git to not use unauthenticated protocol
         run: git config --global url."https://".insteadOf git://
-
-      # Remove package-lock.json to avoid resolution inconsistencies with yarn
-      - name: Remove conflicting package-lock.json
-        run: rm -f package-lock.json
 
       - name: Install dependencies
         run: yarn install
