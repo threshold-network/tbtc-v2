@@ -3,19 +3,23 @@ import { HardhatRuntimeEnvironment } from "hardhat/types"
 async function main() {
   const hre: HardhatRuntimeEnvironment = require("hardhat")
   const contractAddress = process.env.CONTRACT_ADDRESS
-  const constructorArgs = process.env.CONSTRUCTOR_ARGS ? JSON.parse(process.env.CONSTRUCTOR_ARGS) : []
-  
+  const constructorArgs = process.env.CONSTRUCTOR_ARGS
+    ? JSON.parse(process.env.CONSTRUCTOR_ARGS)
+    : []
+
   if (!contractAddress) {
     console.error("Please provide CONTRACT_ADDRESS environment variable")
     process.exit(1)
   }
 
-  console.log(`Waiting for contract ${contractAddress} to be indexed on Etherscan...`)
-  
+  console.log(
+    `Waiting for contract ${contractAddress} to be indexed on Etherscan...`
+  )
+
   // Wait for 30 seconds for Etherscan indexing
   console.log("Waiting 30 seconds for Etherscan indexing...")
-  await new Promise(resolve => setTimeout(resolve, 30000))
-  
+  await new Promise((resolve) => setTimeout(resolve, 30000))
+
   try {
     console.log("Attempting to verify contract...")
     await hre.run("verify", {
@@ -36,4 +40,4 @@ main()
   .catch((error) => {
     console.error(error)
     process.exit(1)
-  }) 
+  })
