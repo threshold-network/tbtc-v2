@@ -18,9 +18,9 @@ async function main() {
   
   try {
     console.log("Attempting to verify contract...")
-    await hre.run("verify:verify", {
+    await hre.run("verify", {
       address: contractAddress,
-      constructorArguments: constructorArgs,
+      constructorArgsParams: constructorArgs,
     })
     console.log("✅ Contract verification successful!")
   } catch (error) {
