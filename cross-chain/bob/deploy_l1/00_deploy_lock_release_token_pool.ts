@@ -31,14 +31,14 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // Minimal allowlist for now (can be updated post-deploy)
   const allowlist: string[] = []
 
-  console.log("🚀 Deploying LockReleaseTokenPoolUpgradeable with parameters:")
-  console.log(`  📍 Network: ${hre.network.name}`)
-  console.log(`  🪙 tBTC Token: ${tbtcAddress}`)
-  console.log(`  🔢 Token Decimals: 18`)
-  console.log(`  🌐 CCIP Router: ${router}`)
-  console.log(`  🔒 RMN Proxy: ${rmnProxy}`)
-  console.log(`  💧 Accept Liquidity: ${acceptLiquidity}`)
-  console.log(`  📝 Allowlist: ${allowlist.length === 0 ? 'Empty (permissionless)' : allowlist.join(', ')}`)
+  console.log("Deploying LockReleaseTokenPoolUpgradeable with parameters:")
+  console.log(`  Network: ${hre.network.name}`)
+  console.log(`  tBTC Token: ${tbtcAddress}`)
+  console.log(`  Token Decimals: 18`)
+  console.log(`  CCIP Router: ${router}`)
+  console.log(`  RMN Proxy: ${rmnProxy}`)
+  console.log(`  Accept Liquidity: ${acceptLiquidity}`)
+  console.log(`  Allowlist: ${allowlist.length === 0 ? 'Empty (permissionless)' : allowlist.join(', ')}`)
 
   const [, proxyDeployment, proxyAdmin] = await helpers.upgrades.deployProxy(
     "LockReleaseTokenPoolUpgradeable",
@@ -49,10 +49,10 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     }
   )
 
-  console.log("✅ LockReleaseTokenPoolUpgradeable deployed successfully!")
-  console.log(`  📍 Proxy Address: ${proxyDeployment.address}`)
+  console.log("LockReleaseTokenPoolUpgradeable deployed successfully!")
+  console.log(`  Proxy Address: ${proxyDeployment.address}`)
   if (proxyAdmin) {
-    console.log(`  🔧 Proxy Admin: ${proxyAdmin.address}`)
+    console.log(`  Proxy Admin: ${proxyAdmin.address}`)
   }
 
   // Verification for Etherscan
@@ -67,15 +67,15 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         constructorArgsParams: proxyDeployment.args,
       })
     } catch (error) {
-      console.log("⚠️  Contract verification failed, but deployment was successful.")
+      console.log("Contract verification failed, but deployment was successful.")
       console.log("You can manually verify the contract later on Etherscan.")
     }
   }
 
   // Post-deployment configuration info
-  console.log("\n💡 Post-deployment configuration options:")
-  console.log("  🔧 Set Rebalancer: Use setRebalancer(address) to configure liquidity manager")
-  console.log("  💧 Liquidity Management Available:")
+  console.log("\nPost-deployment configuration options:")
+  console.log("  Set Rebalancer: Use setRebalancer(address) to configure liquidity manager")
+  console.log("  Liquidity Management Available:")
   console.log("    - provideLiquidity(uint256): Add liquidity to the pool")
   console.log("    - withdrawLiquidity(uint256): Remove liquidity from the pool")
   console.log("    - transferLiquidity(address, uint256): Transfer liquidity from another pool")
@@ -87,10 +87,10 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   // Transfer proxy admin ownership to council multisig on mainnet
   if (hre.network.name === "mainnet") {
-    console.log("\n🏛️ Transferring proxy admin ownership to council multisig...")
+    console.log("\nTransferring proxy admin ownership to council multisig...")
     const councilMs = "0x9F6e831c8F8939DC0C830C6e492e7cEf4f9c2F5f"
     await helpers.upgrades.transferProxyAdminOwnership(proxyAdmin.address, councilMs)
-    console.log(`✅ Proxy admin ownership transferred to: ${councilMs}`)
+    console.log(`Proxy admin ownership transferred to: ${councilMs}`)
   } else {
     console.log(`\n🔐 Current proxy admin owner: ${deployer}`)
     console.log("   Note: Consider transferring ownership to a multisig for production use")

@@ -24,9 +24,9 @@ async function main() {
   console.log("  Supported Chain ID:", proxyChainId.toString())
 
   if (proxyRouter === "0x0000000000000000000000000000000000000000") {
-    console.log("  ❌ Router is ZERO ADDRESS!")
+    console.log("  Router is ZERO ADDRESS!")
   } else {
-    console.log("  ✅ Router is properly set!")
+    console.log("  Router is properly set!")
   }
 
   console.log("\n🔴 IMPLEMENTATION CONTRACT:", implementationAddress)
@@ -46,14 +46,14 @@ async function main() {
   console.log("  Supported Chain ID:", implChainId.toString())
 
   if (implRouter === "0x0000000000000000000000000000000000000000") {
-    console.log("  ❌ Router is ZERO ADDRESS (EXPECTED for implementation!)")
+    console.log("  Router is ZERO ADDRESS (EXPECTED for implementation!)")
   } else {
-    console.log("  ✅ Router is set (unexpected for implementation)")
+    console.log("  Router is set (unexpected for implementation)")
   }
 
   console.log("\n=== SUMMARY ===")
-  console.log("✅ Always check the PROXY contract for actual values!")
-  console.log("✅ Implementation contracts only contain logic, not state!")
+  console.log("Always check the PROXY contract for actual values!")
+console.log("Implementation contracts only contain logic, not state!")
 }
 
 main().catch((error) => {
