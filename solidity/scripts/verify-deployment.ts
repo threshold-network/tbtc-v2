@@ -1,5 +1,5 @@
 import { ethers } from "hardhat"
-import { LockReleaseTokenPoolUpgradeable } from "../typechain/LockReleaseTokenPoolUpgradeable"
+import { LockReleaseTokenPoolUpgradeable } from "../../cross-chain/bob/typechain/contracts/LockReleaseTokenPoolUpgradeable.js"
 
 async function main() {
   const contractAddress = "0xe3dE7061A112Fb05A1a84a709e03988ae8703e15"
