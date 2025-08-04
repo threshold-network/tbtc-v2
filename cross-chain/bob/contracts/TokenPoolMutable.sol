@@ -554,13 +554,13 @@ abstract contract TokenPoolMutable is
             bytes32[] memory remotePools = remoteChainConfigs[
                 remoteChainSelectorToRemove
             ].remotePools.values();
-            
+
             // Clear remote pools if any exist
             if (remotePools.length > 0) {
                 for (uint256 j = 0; j < remotePools.length; ++j) {
-                    bool removed = remoteChainConfigs[remoteChainSelectorToRemove]
-                        .remotePools
-                        .remove(remotePools[j]);
+                    bool removed = remoteChainConfigs[
+                        remoteChainSelectorToRemove
+                    ].remotePools.remove(remotePools[j]);
                     // The removal should always succeed since we got the value from values()
                     assert(removed);
                 }
