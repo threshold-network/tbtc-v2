@@ -22,9 +22,9 @@ async function main() {
       address: contractAddress,
       constructorArgsParams: constructorArgs,
     })
-    console.log("✅ Contract verification successful!")
+    console.log("Contract verification successful!")
   } catch (error) {
-    console.log("⚠️  Contract verification failed, but deployment was successful.")
+    console.log("Contract verification failed, but deployment was successful.")
     console.log("You can manually verify the contract later on Etherscan.")
     console.log(`Contract address: ${contractAddress}`)
     console.log("Error:", error)
