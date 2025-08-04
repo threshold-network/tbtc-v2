@@ -53,7 +53,7 @@ async function main() {
 
   console.log("\n=== SUMMARY ===")
   console.log("Always check the PROXY contract for actual values!")
-console.log("Implementation contracts only contain logic, not state!")
+  console.log("Implementation contracts only contain logic, not state!")
 }
 
 main().catch((error) => {
