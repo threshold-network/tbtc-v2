@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import {Pool} from "../libraries/Pool.sol";
-import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
+import "../libraries/Pool.sol";
+import "@openzeppelin/contracts-upgradeable/utils/introspection/IERC165Upgradeable.sol";
 
 /// @notice Shared public interface for multiple V1 pool types.
 /// Each pool type handles a different child token model e.g. lock/unlock, mint/burn.
-interface IPoolV1 is IERC165 {
+interface IPoolV1 is IERC165Upgradeable {
     /// @notice Lock tokens into the pool or burn the tokens.
     /// @param lockOrBurnIn Encoded data fields for the processing of tokens on the source chain.
     /// @return lockOrBurnOut Encoded data fields for the processing of tokens on the destination chain.
