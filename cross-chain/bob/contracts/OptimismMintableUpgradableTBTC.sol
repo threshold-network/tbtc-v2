@@ -58,12 +58,6 @@ contract OptimismMintableUpgradableTBTC is
     ///         Incremented on bridge mints, decremented on bridge burns.
     uint256 public legacyCapRemaining;
 
-    /// @dev This empty reserved space is put in place to allow future versions to add new
-    ///      variables without shifting down storage in the inheritance chain.
-    ///      See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
-    // slither-disable-next-line unused-state
-    uint256[45] private __gap;
-
     event MinterAdded(address indexed minter);
     event MinterRemoved(address indexed minter);
 
@@ -89,6 +83,23 @@ contract OptimismMintableUpgradableTBTC is
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
+    }
+
+    /// @notice Initialize v2 of the contract with new functionality
+    /// @custom:oz-upgrades-validate-as-initializer
+    function initializeV2() public reinitializer(2) {
+        __Ownable_init();
+        __Pausable_init();
+
+        // Set legacyCapRemaining to current total supply
+        legacyCapRemaining = totalSupply();
+
+        // Add the standard bridge as a minter
+        if (!isMinter[BRIDGE]) {
+            isMinter[BRIDGE] = true;
+            minters.push(BRIDGE);
+            emit MinterAdded(BRIDGE);
+        }
     }
 
     /// @notice Adds the address to the minters list.
@@ -229,6 +240,49 @@ contract OptimismMintableUpgradableTBTC is
         emit Mint(account, amount);
     }
 
+    /// @notice Destroys `amount` tokens from the caller. Emits a `Transfer`
+    ///         event with `to` set to the zero address.
+    /// @dev Requirements:
+    ///      - The caller must have at least `amount` tokens.
+    /// @param amount The amount of token to be burned.
+    function burn(uint256 amount) public virtual whenNotPaused {
+        _burn(msg.sender, amount);
+        emit Burn(msg.sender, amount);
+    }
+
+    /// @notice Destroys `amount` tokens from `account`, deducting from the
+    ///         caller's allowance. Emits a `Transfer` event with `to` set to
+    ///         the zero address.
+    /// @dev Requirements:
+    ///      - The che caller must have allowance for `accounts`'s tokens of at
+    ///        least `amount`.
+    ///      - `account` must not be the zero address.
+    ///      - `account` must have at least `amount` tokens.
+    ///      - If legacyCapRemaining > 0, only the standard bridge can burn.
+    /// @param account The address owning tokens to be burned.
+    /// @param amount The amount of token to be burned.
+    function burnFrom(
+        address account,
+        uint256 amount
+    ) public virtual whenNotPaused {
+        // If legacyCapRemaining is above zero, only standard bridge can perform the burn
+        if (legacyCapRemaining > 0) {
+            require(
+                msg.sender == BRIDGE,
+                "Only bridge can burn while legacy cap remains"
+            );
+            require(
+                amount <= legacyCapRemaining,
+                "Amount exceeds legacy cap remaining"
+            );
+            legacyCapRemaining -= amount;
+        }
+
+        _spendAllowance(account, msg.sender, amount);
+        _burn(account, amount);
+        emit Burn(account, amount);
+    }
+
     /// @notice Allows the StandardBridge on this network to burn tokens.
     /// @dev This overrides the burn function from OptimismMintableUpgradableERC20.
     ///      Requirements:
@@ -275,63 +329,9 @@ contract OptimismMintableUpgradableTBTC is
         return legacyCapRemaining;
     }
 
-    /// @notice Destroys `amount` tokens from `account`, deducting from the
-    ///         caller's allowance. Emits a `Transfer` event with `to` set to
-    ///         the zero address.
-    /// @dev Requirements:
-    ///      - The che caller must have allowance for `accounts`'s tokens of at
-    ///        least `amount`.
-    ///      - `account` must not be the zero address.
-    ///      - `account` must have at least `amount` tokens.
-    ///      - If legacyCapRemaining > 0, only the standard bridge can burn.
-    /// @param account The address owning tokens to be burned.
-    /// @param amount The amount of token to be burned.
-    function burnFrom(
-        address account,
-        uint256 amount
-    ) public virtual whenNotPaused {
-        // If legacyCapRemaining is above zero, only standard bridge can perform the burn
-        if (legacyCapRemaining > 0) {
-            require(
-                msg.sender == BRIDGE,
-                "Only bridge can burn while legacy cap remains"
-            );
-            require(
-                amount <= legacyCapRemaining,
-                "Amount exceeds legacy cap remaining"
-            );
-            legacyCapRemaining -= amount;
-        }
-
-        _spendAllowance(account, msg.sender, amount);
-        _burn(account, amount);
-        emit Burn(account, amount);
-    }
-
-    /// @notice Destroys `amount` tokens from the caller. Emits a `Transfer`
-    ///         event with `to` set to the zero address.
-    /// @dev Requirements:
-    ///      - The caller must have at least `amount` tokens.
-    /// @param amount The amount of token to be burned.
-    function burn(uint256 amount) public virtual whenNotPaused {
-        _burn(msg.sender, amount);
-        emit Burn(msg.sender, amount);
-    }
-
-    /// @notice Initialize v2 of the contract with new functionality
-    /// @custom:oz-upgrades-validate-as-initializer
-    function initializeV2() public reinitializer(2) {
-        __Ownable_init();
-        __Pausable_init();
-
-        // Set legacyCapRemaining to current total supply
-        legacyCapRemaining = totalSupply();
-
-        // Add the standard bridge as a minter
-        if (!isMinter[BRIDGE]) {
-            isMinter[BRIDGE] = true;
-            minters.push(BRIDGE);
-            emit MinterAdded(BRIDGE);
-        }
-    }
+    /// @dev This empty reserved space is put in place to allow future versions to add new
+    ///      variables without shifting down storage in the inheritance chain.
+    ///      See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
+    // slither-disable-next-line unused-state
+    uint256[45] private __gap;
 }
