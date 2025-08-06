@@ -1,10 +1,11 @@
-// SPDX-License-Identifier: GPL-3.0-only
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-/// @notice Interface for Risk Management Network
+/// @notice This interface contains the only RMN-related functions that might be used on-chain by other CCIP contracts.
 interface IRMN {
-    /// @notice Checks if a chain is cursed by RMN
-    /// @param chainId The chain ID to check
-    /// @return True if the chain is cursed
-    function isCursed(bytes16 chainId) external view returns (bool);
+  /// @notice Iff there is an active global curse, or an active curse for `subject`, this function returns true.
+  /// @param subject To check whether a particular chain is cursed, set to bytes16(uint128(chainSelector)).
+  function isCursed(
+    bytes16 subject
+  ) external view returns (bool);
 }

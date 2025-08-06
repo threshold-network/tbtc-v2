@@ -1,130 +1,79 @@
 // SPDX-License-Identifier: GPL-3.0-only
 pragma solidity 0.8.19;
 
-import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
-
-import "./TokenPoolMutable.sol";
-import "./interfaces/ITypeAndVersion.sol";
 import "./interfaces/ILiquidityContainer.sol";
+import "./interfaces/ITypeAndVersion.sol";
 
-/**
- * @title LockReleaseTokenPoolUpgradeable
- * @notice Upgradeable version of Chainlink CCIP LockReleaseTokenPool with full functionality
- * @dev This contract provides lock/release functionality for cross-chain token transfers with upgradeability
- * and inherits all CCIP features from TokenPoolMutable
- */
+import "./libraries/Pool.sol";
+import "./TokenPoolUpgradeable.sol";
+
+import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
+
+/// @title LockReleaseTokenPoolUpgradeable
+/// @notice Upgradeable version of Chainlink CCIP LockReleaseTokenPool with full functionality
+/// @dev This contract provides lock/release functionality for cross-chain token transfers with upgradeability
+/// and inherits all CCIP features from TokenPoolUpgradeable
 contract LockReleaseTokenPoolUpgradeable is
-    TokenPoolMutable,
-    UUPSUpgradeable,
-    ITypeAndVersion,
-    ILiquidityContainer
+    Initializable,
+    TokenPoolUpgradeable,
+    ILiquidityContainer,
+    ITypeAndVersion
 {
-    // ================================================================
-    // │                        ERRORS                                │
-    // ================================================================
+    using SafeERC20Upgradeable for IERC20Upgradeable;
 
-    error CannotAcceptLiquidity();
     error InsufficientLiquidity();
-    error RebalancerNotSet();
+    error LiquidityNotAccepted();
 
-    // ================================================================
-    // │                        EVENTS                                │
-    // ================================================================
+    event LiquidityTransferred(address indexed from, uint256 amount);
 
-    // Core events are inherited from TokenPoolMutable
-    event LiquidityProvided(address indexed provider, uint256 amount);
-    event LiquidityWithdrawn(address indexed rebalancer, uint256 amount);
-    event LiquidityTransferred(
-        address indexed from,
-        address indexed to,
-        uint256 amount
-    );
-    event RebalancerSet(
-        address indexed oldRebalancer,
-        address indexed newRebalancer
-    );
-
-    // ================================================================
-    // │                    STATE VARIABLES                           │
-    // ================================================================
+    string public constant override typeAndVersion =
+        "LockReleaseTokenPool 1.5.1";
 
     /// @dev Flag indicating if the pool can accept external liquidity
-    bool internal acceptsLiquidity;
+    bool internal i_acceptLiquidity;
     /// @dev Address of the rebalancer that can manage liquidity
-    address internal rebalancer;
-
-    // ================================================================
-    // │                    INITIALIZATION                            │
-    // ================================================================
+    address internal s_rebalancer;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
     }
 
-    /**
-     * @notice Initializes the contract with the given parameters
-     * @param _token The token this pool will manage
-     * @param _localTokenDecimals The number of decimals the token uses
-     * @param _allowlist The list of allowed addresses (if empty, pool is permissionless)
-     * @param _rmnProxy The address of the Risk Management Network proxy
-     * @param _canAcceptLiquidity Whether the pool can accept external liquidity
-     * @param _router The address of the router contract
-     */
+    /// @notice Initializes the contract with the given parameters
+    /// @param _token The token this pool will manage
+    /// @param _localTokenDecimals The number of decimals the token uses
+    /// @param _allowlist The list of allowed addresses (if empty, pool is permissionless)
+    /// @param _rmnProxy The address of the Risk Management Network proxy
+    /// @param _acceptLiquidity Whether the pool can accept external liquidity
+    /// @param _router The address of the router contract
     function initialize(
         address _token,
         uint8 _localTokenDecimals,
         address[] memory _allowlist,
         address _rmnProxy,
-        bool _canAcceptLiquidity,
+        bool _acceptLiquidity,
         address _router
     ) public initializer {
-        __Ownable_init();
-        __ReentrancyGuard_init();
-        __UUPSUpgradeable_init();
-
         _initializeTokenPool(
-            _token,
+            IERC20Upgradeable(_token),
             _localTokenDecimals,
             _allowlist,
             _rmnProxy,
             _router
         );
-        acceptsLiquidity = _canAcceptLiquidity;
+        i_acceptLiquidity = _acceptLiquidity;
     }
 
-    // ================================================================
-    // │                    CCIP OPERATIONS                           │
-    // ================================================================
-
-    /**
-     * @notice Locks tokens in the pool using CCIP struct format
-     * @param lockOrBurnIn The CCIP lock or burn input struct
-     * @return lockOrBurnOut The CCIP lock or burn output struct
-     */
+    /// @notice Locks tokens in the pool using CCIP struct format
+    /// @param lockOrBurnIn The CCIP lock or burn input struct
+    /// @return lockOrBurnOut The CCIP lock or burn output struct
     function lockOrBurn(
         Pool.LockOrBurnInV1 calldata lockOrBurnIn
-    )
-        external
-        virtual
-        override
-        nonReentrant
-        returns (Pool.LockOrBurnOutV1 memory)
-    {
+    ) external virtual override returns (Pool.LockOrBurnOutV1 memory) {
         _validateLockOrBurn(lockOrBurnIn);
 
-        // Transfer tokens from the sender to this pool
-        require(
-            IERC20Upgradeable(address(token)).transferFrom(
-                lockOrBurnIn.originalSender,
-                address(this),
-                lockOrBurnIn.amount
-            ),
-            "Transfer failed"
-        );
-
-        emit Locked(lockOrBurnIn.originalSender, lockOrBurnIn.amount);
+        emit Locked(msg.sender, lockOrBurnIn.amount);
 
         return
             Pool.LockOrBurnOutV1({
@@ -135,20 +84,12 @@ contract LockReleaseTokenPoolUpgradeable is
             });
     }
 
-    /**
-     * @notice Releases tokens from the pool using CCIP struct format
-     * @param releaseOrMintIn The CCIP release or mint input struct
-     * @return releaseOrMintOut The CCIP release or mint output struct
-     */
+    /// @notice Releases tokens from the pool using CCIP struct format
+    /// @param releaseOrMintIn The CCIP release or mint input struct
+    /// @return releaseOrMintOut The CCIP release or mint output struct
     function releaseOrMint(
         Pool.ReleaseOrMintInV1 calldata releaseOrMintIn
-    )
-        public
-        virtual
-        override
-        nonReentrant
-        returns (Pool.ReleaseOrMintOutV1 memory)
-    {
+    ) external virtual override returns (Pool.ReleaseOrMintOutV1 memory) {
         _validateReleaseOrMint(releaseOrMintIn);
 
         // Calculate the local amount
@@ -157,147 +98,81 @@ contract LockReleaseTokenPoolUpgradeable is
             _parseRemoteDecimals(releaseOrMintIn.sourcePoolData)
         );
 
-        // Transfer tokens from this pool to the recipient
-        require(
-            IERC20Upgradeable(address(token)).transfer(
-                releaseOrMintIn.receiver,
-                localAmount
-            ),
-            "Transfer failed"
-        );
+        // Release to the recipient
+        getToken().safeTransfer(releaseOrMintIn.receiver, localAmount);
 
         emit Released(msg.sender, releaseOrMintIn.receiver, localAmount);
 
         return Pool.ReleaseOrMintOutV1({destinationAmount: localAmount});
     }
 
-    // ================================================================
-    // │                    LIQUIDITY MANAGEMENT                       │
-    // ================================================================
-
-    /**
-     * @notice Provides liquidity to the pool
-     * @param amount The amount of tokens to provide
-     */
-    function provideLiquidity(uint256 amount) external nonReentrant {
-        if (!acceptsLiquidity) revert CannotAcceptLiquidity();
-        if (amount == 0) revert("Amount must be greater than 0");
-
-        require(
-            IERC20Upgradeable(address(token)).transferFrom(
-                msg.sender,
-                address(this),
-                amount
-            ),
-            "Transfer failed"
-        );
-        emit LiquidityProvided(msg.sender, amount);
+    /// @notice Checks if the contract supports an interface
+    /// @param interfaceId The interface identifier
+    /// @return True if the contract supports the interface, false otherwise
+    function supportsInterface(
+        bytes4 interfaceId
+    ) public pure virtual override returns (bool) {
+        return
+            interfaceId == type(ILiquidityContainer).interfaceId ||
+            super.supportsInterface(interfaceId);
     }
 
-    /**
-     * @notice Withdraws liquidity from the pool
-     * @param amount The amount of tokens to withdraw
-     */
-    function withdrawLiquidity(uint256 amount) external nonReentrant {
-        if (msg.sender != rebalancer) revert RebalancerNotSet();
-        if (amount == 0) revert("Amount must be greater than 0");
-
-        uint256 balance = IERC20Upgradeable(address(token)).balanceOf(
-            address(this)
-        );
-        if (balance < amount) revert InsufficientLiquidity();
-
-        require(
-            IERC20Upgradeable(address(token)).transfer(rebalancer, amount),
-            "Transfer failed"
-        );
-        emit LiquidityWithdrawn(rebalancer, amount);
+    /// @notice Gets rebalancer, can be address(0) if none is configured.
+    /// @return The current liquidity manager.
+    function getRebalancer() external view returns (address) {
+        return s_rebalancer;
     }
 
-    /**
-     * @notice Transfers liquidity from another pool
-     * @param from The pool to transfer liquidity from
-     * @param amount The amount of tokens to transfer
-     */
+    /// @notice Sets the LiquidityManager address.
+    /// @dev Only callable by the owner.
+    function setRebalancer(address rebalancer) external onlyOwner {
+        s_rebalancer = rebalancer;
+    }
+
+    /// @notice Checks if the pool can accept liquidity.
+    /// @return true if the pool can accept liquidity, false otherwise.
+    function canAcceptLiquidity() external view returns (bool) {
+        return i_acceptLiquidity;
+    }
+
+    /// @notice Provides liquidity to the pool
+    /// @param amount The amount of tokens to provide
+    function provideLiquidity(uint256 amount) external {
+        if (!i_acceptLiquidity) revert LiquidityNotAccepted();
+        if (s_rebalancer != msg.sender) revert Unauthorized(msg.sender);
+
+        i_token.safeTransferFrom(msg.sender, address(this), amount);
+        emit LiquidityAdded(msg.sender, amount);
+    }
+
+    /// @notice Withdraws liquidity from the pool
+    /// @param amount The amount of tokens to withdraw
+    function withdrawLiquidity(uint256 amount) external {
+        if (s_rebalancer != msg.sender) revert Unauthorized(msg.sender);
+
+        if (i_token.balanceOf(address(this)) < amount)
+            revert InsufficientLiquidity();
+        i_token.safeTransfer(msg.sender, amount);
+        emit LiquidityRemoved(msg.sender, amount);
+    }
+
+    /// @notice This function can be used to transfer liquidity from an older version of the pool to this pool. To do so
+    /// this pool will have to be set as the rebalancer in the older version of the pool. This allows it to transfer the
+    /// funds in the old pool to the new pool.
+    /// @dev When upgrading a LockRelease pool, this function can be called at the same time as the pool is changed in the
+    /// TokenAdminRegistry. This allows for a smooth transition of both liquidity and transactions to the new pool.
+    /// Alternatively, when no multicall is available, a portion of the funds can be transferred to the new pool before
+    /// changing which pool CCIP uses, to ensure both pools can operate. Then the pool should be changed in the
+    /// TokenAdminRegistry, which will activate the new pool. All new transactions will use the new pool and its
+    /// liquidity. Finally, the remaining liquidity can be transferred to the new pool using this function one more time.
+    /// @param from The address of the old pool.
+    /// @param amount The amount of liquidity to transfer.
     function transferLiquidity(
         address from,
         uint256 amount
-    ) external nonReentrant {
-        if (msg.sender != rebalancer) revert RebalancerNotSet();
-        if (amount == 0) revert("Amount must be greater than 0");
-        if (from == address(0)) revert("From address cannot be zero");
+    ) external onlyOwner {
+        LockReleaseTokenPoolUpgradeable(from).withdrawLiquidity(amount);
 
-        require(
-            IERC20Upgradeable(address(token)).transferFrom(
-                from,
-                address(this),
-                amount
-            ),
-            "Transfer failed"
-        );
-        emit LiquidityTransferred(from, address(this), amount);
-    }
-
-    /**
-     * @notice Sets the rebalancer address
-     * @param _rebalancer The new rebalancer address (can be zero to disable)
-     */
-    function setRebalancer(address _rebalancer) external onlyOwner {
-        // Allow setting to zero address to disable rebalancer
-        address oldRebalancer = rebalancer;
-        rebalancer = _rebalancer;
-        emit RebalancerSet(oldRebalancer, _rebalancer);
-    }
-
-    // ================================================================
-    // │                    VIEW FUNCTIONS                            │
-    // ================================================================
-
-    /**
-     * @notice Gets the rebalancer address
-     * @return The rebalancer address
-     */
-    function getRebalancer() external view returns (address) {
-        return rebalancer;
-    }
-
-    /**
-     * @notice Checks if the pool can accept external liquidity
-     * @return True if the pool can accept external liquidity
-     */
-    /**
-     * @notice Checks if the pool can accept external liquidity (ILiquidityContainer interface)
-     * @return True if the pool can accept external liquidity
-     */
-    function canAcceptLiquidity() external view returns (bool) {
-        return acceptsLiquidity;
-    }
-
-    // ================================================================
-    // │                    UPGRADEABILITY                            │
-    // ================================================================
-
-    function _authorizeUpgrade(
-        address newImplementation
-    ) internal override onlyOwner {}
-
-    // ================================================================
-    // │                    UTILITY FUNCTIONS                         │
-    // ================================================================
-
-    /**
-     * @notice Gets the pool version
-     * @return version The pool version
-     */
-    function version() external pure returns (string memory) {
-        return "1.5.1-upgradeable";
-    }
-
-    /**
-     * @notice Gets the type and version identifier
-     * @return typeAndVersion The type and version string
-     */
-    function typeAndVersion() external pure returns (string memory) {
-        return "LockReleaseTokenPoolUpgradeable 1.5.1";
+        emit LiquidityTransferred(from, amount);
     }
 }

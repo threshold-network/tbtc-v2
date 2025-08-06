@@ -1,19 +1,18 @@
-// SPDX-License-Identifier: GPL-3.0-only
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-/// @notice Interface for CCIP Router
 interface IRouter {
-    /// @notice Gets the onRamp address for a given chain
-    /// @param chainSelector The chain selector
-    /// @return The onRamp address
-    function getOnRamp(uint64 chainSelector) external view returns (address);
+  error OnlyOffRamp();
 
-    /// @notice Checks if an address is an offRamp for a given chain
-    /// @param chainSelector The chain selector
-    /// @param offRamp The offRamp address to check
-    /// @return True if the address is an offRamp
-    function isOffRamp(
-        uint64 chainSelector,
-        address offRamp
-    ) external view returns (bool);
+  /// @notice Returns the configured onramp for a specific destination chain.
+  /// @param destChainSelector The destination chain Id to get the onRamp for.
+  /// @return onRampAddress The address of the onRamp.
+  function getOnRamp(
+    uint64 destChainSelector
+  ) external view returns (address onRampAddress);
+
+  /// @notice Return true if the given offRamp is a configured offRamp for the given source chain.
+  /// @param sourceChainSelector The source chain selector to check.
+  /// @param offRamp The address of the offRamp to check.
+  function isOffRamp(uint64 sourceChainSelector, address offRamp) external view returns (bool isOffRamp);
 }
