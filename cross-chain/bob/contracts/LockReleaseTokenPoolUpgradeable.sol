@@ -31,9 +31,9 @@ contract LockReleaseTokenPoolUpgradeable is
         "LockReleaseTokenPool 1.5.1";
 
     /// @dev Flag indicating if the pool can accept external liquidity
-    bool internal i_acceptLiquidity;
-    /// @dev Address of the rebalancer that can manage liquidity
-    address internal s_rebalancer;
+    bool internal acceptLiquidity;
+    /// @dev Address of the re'balancer that can manage liquidity
+    address internal rebalancer;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -62,7 +62,7 @@ contract LockReleaseTokenPoolUpgradeable is
             _rmnProxy,
             _router
         );
-        i_acceptLiquidity = _acceptLiquidity;
+        acceptLiquidity = _acceptLiquidity;
     }
 
     /// @notice Locks tokens in the pool using CCIP struct format
@@ -120,39 +120,39 @@ contract LockReleaseTokenPoolUpgradeable is
     /// @notice Gets rebalancer, can be address(0) if none is configured.
     /// @return The current liquidity manager.
     function getRebalancer() external view returns (address) {
-        return s_rebalancer;
+        return rebalancer;
     }
 
     /// @notice Sets the LiquidityManager address.
     /// @dev Only callable by the owner.
-    function setRebalancer(address rebalancer) external onlyOwner {
-        s_rebalancer = rebalancer;
+    function setRebalancer(address _rebalancer) external onlyOwner {
+        rebalancer = _rebalancer;
     }
 
     /// @notice Checks if the pool can accept liquidity.
     /// @return true if the pool can accept liquidity, false otherwise.
     function canAcceptLiquidity() external view returns (bool) {
-        return i_acceptLiquidity;
+        return acceptLiquidity;
     }
 
     /// @notice Provides liquidity to the pool
     /// @param amount The amount of tokens to provide
     function provideLiquidity(uint256 amount) external {
-        if (!i_acceptLiquidity) revert LiquidityNotAccepted();
-        if (s_rebalancer != msg.sender) revert Unauthorized(msg.sender);
+        if (!acceptLiquidity) revert LiquidityNotAccepted();
+        if (rebalancer != msg.sender) revert Unauthorized(msg.sender);
 
-        i_token.safeTransferFrom(msg.sender, address(this), amount);
+        token.safeTransferFrom(msg.sender, address(this), amount);
         emit LiquidityAdded(msg.sender, amount);
     }
 
     /// @notice Withdraws liquidity from the pool
     /// @param amount The amount of tokens to withdraw
     function withdrawLiquidity(uint256 amount) external {
-        if (s_rebalancer != msg.sender) revert Unauthorized(msg.sender);
+        if (rebalancer != msg.sender) revert Unauthorized(msg.sender);
 
-        if (i_token.balanceOf(address(this)) < amount)
+        if (token.balanceOf(address(this)) < amount)
             revert InsufficientLiquidity();
-        i_token.safeTransfer(msg.sender, amount);
+        token.safeTransfer(msg.sender, amount);
         emit LiquidityRemoved(msg.sender, amount);
     }
 
