@@ -8,13 +8,19 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   // Router addresses for different networks
   const ROUTER_ADDRESSES = {
-    bobSepolia: process.env.ROUTER_ADDRESS || "0x7808184405d6Cbc663764003dE21617fa640bc82", // fallback fantasy/testnet address
+    bobSepolia: "0x7808184405d6Cbc663764003dE21617fa640bc82",
     bobMainnet: "0x827716e74F769AB7b6bb374A29235d9c2156932C",
-    ethereumSepolia: "0x0BF3dE8c5D3e8A2B34D2BEeB17ABfCeBaf363A59",
-    ethereumMainnet: "0x80226fc0Ee2b096224EeAc085Bb9a8cba1146f7D"
   }
 
-  const RMN_PROXY_ADDRESS = process.env.RMN_PROXY_ADDRESS || "0x1111111111111111111111111111111111111111"; // fallback testnet address
+  const TBTC_ADDRESS = {
+    bobSepolia: "0xD23F06550b0A7bC98B20eb81D4c21572a97598FA",
+    bobMainnet: "0xBBa2eF945D523C4e2608C9E1214C2Cc64D4fc2e2",
+  }
+
+  const RMN_PROXY_ADDRESS = {
+    bobSepolia: "0xD642e08eeF81bb55B8282701234659A3233E2145",
+    bobMainnet: "0xe4D8E0A02C61f6DDe95255E702fe1237428673D8",
+  }
 
   // Set tBTC address, router, and rmnProxy based on network
   let tbtcAddress: string
@@ -22,21 +28,21 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   let rmnProxy: string
 
   if (hre.network.name === "bobMainnet") {
-    tbtcAddress = "0xBBa2eF945D523C4e2608C9E1214C2Cc64D4fc2e2"
+    tbtcAddress = TBTC_ADDRESS.bobMainnet
     router = ROUTER_ADDRESSES.bobMainnet
-    rmnProxy = "0xe4D8E0A02C61f6DDe95255E702fe1237428673D8" // BOB Mainnet RMN
+    rmnProxy = RMN_PROXY_ADDRESS.bobMainnet
   } else if (hre.network.name === "bobSepolia") {
-    tbtcAddress = "0xD23F06550b0A7bC98B20eb81D4c21572a97598FA"
+    tbtcAddress = TBTC_ADDRESS.bobSepolia
     router = ROUTER_ADDRESSES.bobSepolia
-    rmnProxy = "0xD642e08eeF81bb55B8282701234659A3233E2145" // BOB Sepolia testnet RMN
+    rmnProxy = RMN_PROXY_ADDRESS.bobSepolia
   } else if (hre.network.name === "hardhat" || hre.network.name === "localhost") {
     // Deploy a mock ERC20 for local testing
     const ERC20Mock = await ethers.getContractFactory("ERC20Mock", await ethers.getSigner(deployer))
     const mockToken = await ERC20Mock.deploy("Mock tBTC", "tBTC", deployer, ethers.utils.parseEther("1000000"))
     await mockToken.deployed()
     tbtcAddress = mockToken.address
-    router = ROUTER_ADDRESSES.bobSepolia // Use a fantasy/testnet router address
-    rmnProxy = RMN_PROXY_ADDRESS
+    router = ROUTER_ADDRESSES.bobSepolia
+    rmnProxy = RMN_PROXY_ADDRESS.bobSepolia
   } else {
     throw new Error("Unsupported network for BurnFromMintTokenPoolUpgradeable deployment")
   }
