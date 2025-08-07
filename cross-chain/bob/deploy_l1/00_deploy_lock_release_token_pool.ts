@@ -6,6 +6,21 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { deploy } = deployments
   const { deployer } = await getNamedAccounts()
 
+  const TBTC_ADDRESS = {
+    sepolia: "0x517f2982701695D4E52f1ECFBEf3ba31Df470161",
+    mainnet: "0x18084fbA666a33d37592fA2633fD49a74DD93a88",
+  }
+
+  const ROUTER_ADDRESS = {
+    sepolia: "0x0BF3dE8c5D3e8A2B34D2BEeB17ABfCeBaf363A59",
+    mainnet: "0x80226fc0Ee2b096224EeAc085Bb9a8cba1146f7D",
+  }
+
+  const RMN_PROXY_ADDRESS = {
+    sepolia: "0xba3f6251de62dED61Ff98590cB2fDf6871FbB991",
+    mainnet: "0x411dE17f12D1A34ecC7F45f49844626267c75e81",
+  }
+
   // Set tBTC address based on network
   let tbtcAddress: string
   let router: string
@@ -13,15 +28,15 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   let acceptLiquidity: boolean
   
   if (hre.network.name === "mainnet") {
-    tbtcAddress = "0x18084fbA666a33d37592fA2633fD49a74DD93a88"
-    router = "0x80226fc0Ee2b096224EeAc085Bb9a8cba1146f7D" // Ethereum Mainnet Router
-    rmnProxy = "0x411dE17f12D1A34ecC7F45f49844626267c75e81" // Ethereum Mainnet RMN proxy
-    acceptLiquidity = true // Enable liquidity management for mainnet
+    tbtcAddress = TBTC_ADDRESS.mainnet
+    router = ROUTER_ADDRESS.mainnet
+    rmnProxy = RMN_PROXY_ADDRESS.mainnet
+    acceptLiquidity = true
   } else if (hre.network.name === "sepolia") {
-    tbtcAddress = "0x517f2982701695D4E52f1ECFBEf3ba31Df470161"
-    router = "0x0BF3dE8c5D3e8A2B34D2BEeB17ABfCeBaf363A59" // Ethereum Sepolia Router
-    rmnProxy = "0xba3f6251de62dED61Ff98590cB2fDf6871FbB991" // Ethereum Sepolia RMN proxy
-    acceptLiquidity = true // Enable liquidity management for testing
+    tbtcAddress = TBTC_ADDRESS.sepolia
+    router = ROUTER_ADDRESS.sepolia
+    rmnProxy = RMN_PROXY_ADDRESS.sepolia
+    acceptLiquidity = true
   } else {
     throw new Error("Unsupported network for LockReleaseTokenPoolUpgradeable deployment")
   }

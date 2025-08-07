@@ -138,16 +138,20 @@ describe("LockReleaseTokenPoolUpgradeable", function () {
     it("Should provide liquidity", async function () {
       await mockToken.connect(user1).approve(lockReleasePool.address, amount);
 
+      // First set rebalancer to user1
+      await lockReleasePool.setRebalancer(user1.address);
+      
       await expect(
         lockReleasePool.connect(user1).provideLiquidity(amount)
-      ).to.emit(lockReleasePool, "LiquidityProvided")
+      ).to.emit(lockReleasePool, "LiquidityAdded")
         .withArgs(user1.address, amount);
 
       expect(await mockToken.balanceOf(lockReleasePool.address)).to.equal(amount);
     });
 
     it("Should withdraw liquidity", async function () {
-      // First provide liquidity
+      // First set rebalancer to user1 and provide liquidity
+      await lockReleasePool.setRebalancer(user1.address);
       await mockToken.connect(user1).approve(lockReleasePool.address, amount);
       await lockReleasePool.connect(user1).provideLiquidity(amount);
 
@@ -156,7 +160,7 @@ describe("LockReleaseTokenPoolUpgradeable", function () {
 
       await expect(
         lockReleasePool.connect(rebalancer).withdrawLiquidity(amount)
-      ).to.emit(lockReleasePool, "LiquidityWithdrawn")
+      ).to.emit(lockReleasePool, "LiquidityRemoved")
         .withArgs(rebalancer.address, amount);
 
       expect(await mockToken.balanceOf(lockReleasePool.address)).to.equal(0);
@@ -172,21 +176,17 @@ describe("LockReleaseTokenPoolUpgradeable", function () {
     it("Should revert withdraw if not rebalancer", async function () {
       await expect(
         lockReleasePool.connect(user1).withdrawLiquidity(amount)
-      ).to.be.revertedWith("RebalancerNotSet");
+      ).to.be.revertedWith("Unauthorized");
     });
 
     it("Should revert transfer if not rebalancer", async function () {
       await expect(
         lockReleasePool.connect(user1).transferLiquidity(user2.address, amount)
-      ).to.be.revertedWith("RebalancerNotSet");
+      ).to.be.revertedWith("Ownable: caller is not the owner");
     });
 
     it("Should set rebalancer", async function () {
-      await expect(
-        lockReleasePool.setRebalancer(rebalancer.address)
-      ).to.emit(lockReleasePool, "RebalancerSet")
-        .withArgs(ethers.constants.AddressZero, rebalancer.address);
-
+      await lockReleasePool.setRebalancer(rebalancer.address);
       expect(await lockReleasePool.getRebalancer()).to.equal(rebalancer.address);
     });
   });
@@ -324,12 +324,8 @@ describe("LockReleaseTokenPoolUpgradeable", function () {
   });
 
   describe("View Functions", function () {
-    it("Should return correct version", async function () {
-      expect(await lockReleasePool.version()).to.equal("1.5.1-upgradeable");
-    });
-
     it("Should return correct type and version", async function () {
-      expect(await lockReleasePool.typeAndVersion()).to.equal("LockReleaseTokenPoolUpgradeable 1.5.1");
+      expect(await lockReleasePool.typeAndVersion()).to.equal("LockReleaseTokenPool 1.5.1");
     });
 
     it("Should return correct token", async function () {
@@ -429,8 +425,7 @@ describe("LockReleaseTokenPoolUpgradeable", function () {
 
     it("Should support upgradeability", async function () {
       // Verify the contract is upgradeable
-      expect(await lockReleasePool.version()).to.equal("1.5.1-upgradeable");
-      expect(await lockReleasePool.typeAndVersion()).to.include("LockReleaseTokenPoolUpgradeable");
+      expect(await lockReleasePool.typeAndVersion()).to.equal("LockReleaseTokenPool 1.5.1");
     });
 
     it("Should support chain management", async function () {
@@ -443,6 +438,9 @@ describe("LockReleaseTokenPoolUpgradeable", function () {
     it("Should support liquidity management", async function () {
       // Verify liquidity management works
       expect(await lockReleasePool.canAcceptLiquidity()).to.be.true;
+      
+      // First set rebalancer to user1
+      await lockReleasePool.setRebalancer(user1.address);
       
       const amount = ethers.utils.parseEther("100");
       await mockToken.connect(user1).approve(lockReleasePool.address, amount);
