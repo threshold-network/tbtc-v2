@@ -98,7 +98,7 @@ contract BurnFromMintTokenPoolUpgradeable is
         );
 
         // Mint tokens to the recipient
-        IBurnMintERC20Upgradeable(address(i_token)).mint(
+        IBurnMintERC20Upgradeable(address(token)).mint(
             releaseOrMintIn.receiver,
             localAmount
         );
