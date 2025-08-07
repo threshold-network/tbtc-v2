@@ -2,27 +2,25 @@ import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import type { DeployFunction } from "hardhat-deploy/types"
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
-  const { ethers, getNamedAccounts, helpers } = hre
-  const { deployer, governance } = await getNamedAccounts()
+  const { deployments, getNamedAccounts } = hre
+  const { deploy } = deployments
+  const { deployer } = await getNamedAccounts()
 
   // Set tBTC address based on network
   let tbtcAddress: string
   let router: string
   let rmnProxy: string
-  let supportedRemoteChainId: string
   let acceptLiquidity: boolean
   
   if (hre.network.name === "mainnet") {
     tbtcAddress = "0x18084fbA666a33d37592fA2633fD49a74DD93a88"
     router = "0x80226fc0Ee2b096224EeAc085Bb9a8cba1146f7D" // Ethereum Mainnet Router
     rmnProxy = "0x411dE17f12D1A34ecC7F45f49844626267c75e81" // Ethereum Mainnet RMN proxy
-    supportedRemoteChainId = "3849287863852499584" // BOB Mainnet
     acceptLiquidity = true // Enable liquidity management for mainnet
   } else if (hre.network.name === "sepolia") {
     tbtcAddress = "0x517f2982701695D4E52f1ECFBEf3ba31Df470161"
     router = "0x0BF3dE8c5D3e8A2B34D2BEeB17ABfCeBaf363A59" // Ethereum Sepolia Router
     rmnProxy = "0xba3f6251de62dED61Ff98590cB2fDf6871FbB991" // Ethereum Sepolia RMN proxy
-    supportedRemoteChainId = "5535534526963509396" // BOB Sepolia
     acceptLiquidity = true // Enable liquidity management for testing
   } else {
     throw new Error("Unsupported network for LockReleaseTokenPoolUpgradeable deployment")
@@ -40,31 +38,56 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log(`  Accept Liquidity: ${acceptLiquidity}`)
   console.log(`  Allowlist: ${allowlist.length === 0 ? 'Empty (permissionless)' : allowlist.join(', ')}`)
 
-  const [, proxyDeployment, proxyAdmin] = await helpers.upgrades.deployProxy(
-    "LockReleaseTokenPoolUpgradeable",
-    {
-      initializerArgs: [tbtcAddress, 18, allowlist, rmnProxy, acceptLiquidity, router],
-      factoryOpts: { signer: await ethers.getSigner(deployer) },
-      proxyOpts: { kind: "transparent" },
-    }
-  )
+  // Deploy using hardhat-deploy's built-in proxy support
+  const deployment = await deploy("LockReleaseTokenPoolUpgradeable", {
+    contract: "LockReleaseTokenPoolUpgradeable",
+    from: deployer,
+    log: true,
+    waitConfirmations: 1,
+    proxy: {
+      owner: deployer,
+      proxyContract: "TransparentUpgradeableProxy",
+      execute: {
+        init: {
+          methodName: "initialize",
+          args: [tbtcAddress, 18, allowlist, rmnProxy, acceptLiquidity, router],
+        },
+      },
+    },
+  })
 
   console.log("LockReleaseTokenPoolUpgradeable deployed successfully!")
-  console.log(`  Proxy Address: ${proxyDeployment.address}`)
-  if (proxyAdmin) {
-    console.log(`  Proxy Admin: ${proxyAdmin.address}`)
+  console.log(`  Proxy Address: ${deployment.address}`)
+  if (deployment.implementation) {
+    console.log(`  Implementation Address: ${deployment.implementation}`)
+  }
+
+  // Try to get the ProxyAdmin address from deployment
+  try {
+    const proxyAdminDeployment = await deployments.get("DefaultProxyAdmin")
+    console.log(`  ProxyAdmin Address: ${proxyAdminDeployment.address}`)
+  } catch (error) {
+    console.log("  ProxyAdmin deployment not found (may be managed differently)")
   }
 
   // Verification for Etherscan
   if (hre.network.tags.etherscan) {
-    console.log(`Contract deployed at: ${proxyDeployment.address}`)
+    console.log(`\nContract deployed at: ${deployment.address}`)
     console.log("For better verification results, run the verification script with delay:")
-    console.log(`CONTRACT_ADDRESS=${proxyDeployment.address} npx hardhat run scripts/verify-with-delay.ts --network sepolia`)
+    console.log(`CONTRACT_ADDRESS=${deployment.address} npx hardhat run scripts/verify-with-delay.ts --network ${hre.network.name}`)
     
     try {
-      await hre.run("verify", {
-        address: proxyDeployment.address,
-        constructorArgsParams: proxyDeployment.args,
+      // Verify implementation
+      if (deployment.implementation) {
+        await hre.run("verify:verify", {
+          address: deployment.implementation,
+          constructorArguments: [],
+        })
+      }
+
+      // Verify proxy
+      await hre.run("verify:verify", {
+        address: deployment.address,
       })
     } catch (error) {
       console.log("Contract verification failed, but deployment was successful.")
@@ -89,8 +112,15 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   if (hre.network.name === "mainnet") {
     console.log("\nTransferring proxy admin ownership to council multisig...")
     const councilMs = "0x9F6e831c8F8939DC0C830C6e492e7cEf4f9c2F5f"
-    await helpers.upgrades.transferProxyAdminOwnership(proxyAdmin.address, councilMs)
-    console.log(`Proxy admin ownership transferred to: ${councilMs}`)
+    
+    try {
+      const proxyAdminDeployment = await deployments.get("DefaultProxyAdmin")
+      // Note: You'll need to manually transfer ownership using the ProxyAdmin contract
+      console.log(`ProxyAdmin at ${proxyAdminDeployment.address} needs ownership transfer to: ${councilMs}`)
+      console.log("Execute: proxyAdmin.transferOwnership(councilMs) manually")
+    } catch (error) {
+      console.log("Could not find ProxyAdmin deployment for ownership transfer")
+    }
   } else {
     console.log(`\n🔐 Current proxy admin owner: ${deployer}`)
     console.log("   Note: Consider transferring ownership to a multisig for production use")
