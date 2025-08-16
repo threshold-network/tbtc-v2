@@ -21,7 +21,7 @@ contract BurnFromMintTokenPoolUpgradeable is
     using SafeERC20Upgradeable for IBurnMintERC20Upgradeable;
 
     string public constant override typeAndVersion =
-        "BurnFromMintTokenPool 1.5.1";
+        "BurnFromMintTokenPool 1.6.0";
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {

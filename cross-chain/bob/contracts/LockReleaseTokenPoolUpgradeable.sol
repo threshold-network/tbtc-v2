@@ -28,7 +28,7 @@ contract LockReleaseTokenPoolUpgradeable is
     event LiquidityTransferred(address indexed from, uint256 amount);
 
     string public constant override typeAndVersion =
-        "LockReleaseTokenPool 1.5.1";
+        "LockReleaseTokenPool 1.6.0";
 
     /// @dev Flag indicating if the pool can accept external liquidity
     bool internal acceptLiquidity;
