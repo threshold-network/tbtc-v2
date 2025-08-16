@@ -325,7 +325,7 @@ describe("LockReleaseTokenPoolUpgradeable", function () {
 
   describe("View Functions", function () {
     it("Should return correct type and version", async function () {
-      expect(await lockReleasePool.typeAndVersion()).to.equal("LockReleaseTokenPool 1.5.1");
+      expect(await lockReleasePool.typeAndVersion()).to.equal("LockReleaseTokenPool 1.6.0");
     });
 
     it("Should return correct token", async function () {
@@ -425,7 +425,7 @@ describe("LockReleaseTokenPoolUpgradeable", function () {
 
     it("Should support upgradeability", async function () {
       // Verify the contract is upgradeable
-      expect(await lockReleasePool.typeAndVersion()).to.equal("LockReleaseTokenPool 1.5.1");
+      expect(await lockReleasePool.typeAndVersion()).to.equal("LockReleaseTokenPool 1.6.0");
     });
 
     it("Should support chain management", async function () {

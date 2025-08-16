@@ -267,7 +267,7 @@ describe("BurnFromMintTokenPoolUpgradeable", function () {
 
   describe("View Functions", function () {
     it("Should return correct type and version", async function () {
-      expect(await burnFromMintPool.typeAndVersion()).to.equal("BurnFromMintTokenPool 1.5.1");
+      expect(await burnFromMintPool.typeAndVersion()).to.equal("BurnFromMintTokenPool 1.6.0");
     });
 
     it("Should return correct token", async function () {
@@ -354,7 +354,7 @@ describe("BurnFromMintTokenPoolUpgradeable", function () {
 
     it("Should support upgradeability", async function () {
       // Verify the contract is upgradeable
-      expect(await burnFromMintPool.typeAndVersion()).to.equal("BurnFromMintTokenPool 1.5.1");
+      expect(await burnFromMintPool.typeAndVersion()).to.equal("BurnFromMintTokenPool 1.6.0");
     });
 
     it("Should support chain management", async function () {
