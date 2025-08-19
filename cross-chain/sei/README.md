@@ -94,41 +94,229 @@ function recoverERC721(IERC721Upgradeable token, address recipient, uint256 toke
 - ERC20Burnable with burnFrom functionality
 - Owner-controlled access management
 
-## Deployment Process
+## Deployment System
 
-### 1. Setup Encrypted Private Key
+### Overview
 
-```bash
-# Setup secure key management
-npm run setup-key
+The project features a comprehensive deployment and verification system using `hardhat-deploy` with secure encrypted key management. All scripts support both **Sei Testnet** and **Base Sepolia** networks.
+
+### 📁 File Structure
+
+```
+cross-chain/sei/
+├── deploy/                              # Hardhat-deploy scripts
+│   ├── 01_deploy_sei_testnet_token.ts   # Sei testnet deployment
+│   ├── 02_deploy_base_sepolia_token.ts  # Base Sepolia deployment  
+│   ├── 03_verify_sei_testnet_token.ts   # Sei testnet verification
+│   └── 04_verify_base_sepolia_token.ts  # Base Sepolia verification
+├── scripts/                             # Core deployment utilities
+│   ├── deploy-l2tbtc-encrypted.ts       # Generic deployment function
+│   ├── verify-deployment.ts             # Generic verification function
+│   ├── secure-key-manager.ts            # Encrypted key management
+│   ├── encrypt-account.ts               # Account encryption utility
+│   └── use-account.ts                   # Account usage utility
+└── .env                                 # Environment configuration
 ```
 
-### 2. Deploy L2TBTC on Sei Testnet
+### 🔐 Security Features
 
+- **Encrypted Private Keys**: All private keys stored in `.encrypted-key` files
+- **Console Password Input**: Master password entered securely via console
+- **Multi-Account Support**: Support for multiple encrypted accounts (`.encrypted-key-N`)
+- **Environment Variables**: API keys and dynamic parameters via `.env`
+
+### 🚀 Deployment Commands
+
+#### **Sei Testnet Deployment**
 ```bash
-# Deploy with encrypted private key
-npm run deploy:encrypted
+# Deploy L2TBTC token
+npx hardhat deploy --network sei_atlantic_2 --tags SeiTestnetToken
+
+# Verify deployment (with specific proxy address)
+PROXY_ADDRESS=0x... npx hardhat run scripts/verify-deployment.ts --network sei_atlantic_2
+
+# Deploy + Verify in sequence
+npx hardhat deploy --network sei_atlantic_2 --tags SeiTestnetToken,VerifySeiTestnetToken
 ```
 
-### 3. Verify Contracts
-
+#### **Base Sepolia Deployment**
 ```bash
-# Verify proxy contract
-npm run verify:sei <PROXY_ADDRESS>
+# Deploy L2TBTC token
+npx hardhat deploy --network baseSepolia --tags BaseSepoliaToken
 
-# Verify implementation contract
-npm run verify:sei <IMPLEMENTATION_ADDRESS>
+# Verify deployment (proxy address required)
+PROXY_ADDRESS=0x... npx hardhat run scripts/verify-deployment.ts --network baseSepolia
+
+# Deploy + Verify in sequence  
+PROXY_ADDRESS=0x... npx hardhat deploy --network baseSepolia --tags BaseSepoliaToken,VerifyBaseSepoliaToken
 ```
 
-### 4. Configure Bridge Minters
+### 🔧 Setup Process
+
+#### **1. Install Dependencies**
+```bash
+npm install
+```
+
+#### **2. Setup Environment**
+```bash
+# Get your API key from https://etherscan.io/apis (free registration required)
+# Create .env file with your API key
+echo "ETHERSCAN_API_KEY=your_etherscan_api_key_here" > .env
+
+# Or copy from example and edit
+cp .env.example .env
+# Then edit .env with your actual API key
+```
+
+#### **3. Encrypt Private Key**
+```bash
+# For account #1 (deployer)
+npx hardhat run scripts/encrypt-account.ts
+# Prompts for private key and master password
+
+# For additional accounts
+ACCOUNT_NUMBER=2 npx hardhat run scripts/encrypt-account.ts
+```
+
+#### **4. Deploy and Verify**
+
+**Sei Testnet:**
+```bash
+# Full deployment process
+npx hardhat deploy --network sei_atlantic_2 --tags SeiTestnetToken
+
+# Get deployed proxy address and verify
+PROXY_ADDRESS=0x... npx hardhat run scripts/verify-deployment.ts --network sei_atlantic_2
+```
+
+**Base Sepolia:**
+```bash
+# Full deployment process
+npx hardhat deploy --network baseSepolia --tags BaseSepoliaToken
+
+# Get deployed proxy address and verify
+PROXY_ADDRESS=0x... npx hardhat run scripts/verify-deployment.ts --network baseSepolia
+```
+
+### 📋 Verification Features
+
+The verification system automatically:
+- ✅ **Contract Validation**: Checks owner, name, symbol, decimals, total supply
+- ✅ **Minter Setup**: Adds deployer as minter if not already set
+- ✅ **Token Testing**: Mints 100 test tokens to verify functionality
+- ✅ **Explorer Links**: Provides direct links to block explorers
+- ✅ **Network Detection**: Auto-detects Sei Testnet vs Base Sepolia
+- ✅ **Balance Checks**: Monitors deployer ETH balance
+- ✅ **Error Handling**: Comprehensive error reporting and debugging info
+
+### 🏷️ Available Tags
+
+| Tag | Purpose | Dependencies |
+|-----|---------|--------------|
+| `SeiTestnetToken` | Deploy on Sei Testnet | None |
+| `BaseSepoliaToken` | Deploy on Base Sepolia | None |
+| `VerifySeiTestnetToken` | Verify Sei deployment | `SeiTestnetToken` |
+| `VerifyBaseSepoliaToken` | Verify Base Sepolia deployment | `BaseSepoliaToken` |
+| `L2TBTC` | Generic L2TBTC deployment | Used by network-specific tags |
+| `Verify` | Generic verification | Used by verification tags |
+
+### 🌐 Network Support
+
+#### **Sei Testnet (sei_atlantic_2)**
+- **RPC**: `https://evm-rpc-testnet.sei-apis.com`
+- **Explorer**: `https://seitrace.com`
+- **Chain ID**: `713715`
+- **Token**: `Sei tBTC v2` (`tBTC`)
+
+#### **Base Sepolia (baseSepolia)**
+- **RPC**: `https://sepolia.base.org`
+- **Explorer**: `https://sepolia.basescan.org`
+- **Chain ID**: `84532`
+- **Token**: `Base tBTC v2` (`tBTC`)
+
+### 🔍 Verification Commands
+
+#### **Generic Verification Script**
+```bash
+# Verify any deployed contract
+PROXY_ADDRESS=0x... npx hardhat run scripts/verify-deployment.ts --network <network>
+```
+
+#### **Using Hardhat-Deploy Tags**
+```bash
+# Sei Testnet verification only
+npx hardhat deploy --network sei_atlantic_2 --tags VerifySeiTestnetToken
+
+# Base Sepolia verification only (requires PROXY_ADDRESS)
+PROXY_ADDRESS=0x... npx hardhat deploy --network baseSepolia --tags VerifyBaseSepoliaToken
+```
+
+### 📊 Example Output
 
 ```bash
-# Add bridge as minter (example)
-cast send $PROXY_ADDRESS \
-  "addMinter(address)" $BRIDGE_ADDRESS \
-  --rpc-url https://evm-rpc-testnet.sei-apis.com \
-  --private-key $PRIVATE_KEY
+🔍 Verifying L2TBTC deployment...
+📋 Using proxy address: 0xe3dE7061A112Fb05A1a84a709e03988ae8703e15
+🔐 Loading deployer from encrypted key...
+✅ Using deployer: 0xB6A114C2c34eF91eeb0d93bcdDD7B95a9D6892E1
+
+📋 Contract Information:
+   Proxy Address: 0xe3dE7061A112Fb05A1a84a709e03988ae8703e15
+   Network: Sei Testnet
+   Explorer: https://seitrace.com/address/0xe3dE7061A112Fb05A1a84a709e03988ae8703e15
+💰 Deployer balance: 4.94 ETH
+
+🔍 Reading contract state...
+   Contract Owner: 0xB6A114C2c34eF91eeb0d93bcdDD7B95a9D6892E1
+   Token Name: Sei tBTC v2
+   Token Symbol: tBTC
+   Decimals: 18
+   Total Supply: 100.0 tBTC
+   Is Deployer Minter: true
+   All Minters: 0xB6A114C2c34eF91eeb0d93bcdDD7B95a9D6892E1
+   ✅ Ownership correctly set to deployer
+   ✅ Deployer is already a minter
+
+🎉 Contract verification completed successfully!
+🔗 View on explorer: https://seitrace.com/address/0xe3dE7061A112Fb05A1a84a709e03988ae8703e15
 ```
+
+### 🛠️ Advanced Usage
+
+#### **Multiple Account Management**
+```bash
+# Encrypt additional accounts
+ACCOUNT_NUMBER=2 npx hardhat run scripts/encrypt-account.ts
+ACCOUNT_NUMBER=3 npx hardhat run scripts/encrypt-account.ts
+
+# Use specific account for operations
+ACCOUNT_NUMBER=2 npx hardhat run scripts/use-account.ts
+```
+
+#### **Environment Variables**
+```bash
+# .env file configuration
+ETHERSCAN_API_KEY=your_etherscan_api_key_here
+PROXY_ADDRESS=0x...  # For verification scripts
+ACCOUNT_NUMBER=1     # For account-specific operations
+```
+
+#### **Custom Verification**
+```bash
+# Verify specific proxy address
+PROXY_ADDRESS=0x123... npx hardhat run scripts/verify-deployment.ts --network sei_atlantic_2
+
+# Override default fallback address
+PROXY_ADDRESS=0x456... npx hardhat run scripts/verify-deployment.ts --network baseSepolia
+```
+
+### ⚡ Quick Commands Summary
+
+| Action | Sei Testnet | Base Sepolia |
+|--------|-------------|--------------|
+| **Deploy** | `npx hardhat deploy --network sei_atlantic_2 --tags SeiTestnetToken` | `npx hardhat deploy --network baseSepolia --tags BaseSepoliaToken` |
+| **Verify** | `PROXY_ADDRESS=0x... npx hardhat run scripts/verify-deployment.ts --network sei_atlantic_2` | `PROXY_ADDRESS=0x... npx hardhat run scripts/verify-deployment.ts --network baseSepolia` |
+| **Both** | `npx hardhat deploy --network sei_atlantic_2 --tags SeiTestnetToken,VerifySeiTestnetToken` | `PROXY_ADDRESS=0x... npx hardhat deploy --network baseSepolia --tags BaseSepoliaToken,VerifyBaseSepoliaToken` |
 
 ## Integration with Cross-Chain Bridges
 
@@ -212,15 +400,21 @@ npm test -- --grep "Bitcoin Flow"
 
 ## Contract Addresses
 
-### Testnet (Atlantic-2)
-- **L2TBTC Proxy**: `0x967152D6677baaadBdeFcA6b99307B51e30CeB03`
-- **Implementation**: `0x78E48eBCACabdee321e30D62a3144b8552Ce923F`
-- **Admin**: `0xB6A114C2c34eF91eeb0d93bcdDD7B95a9D6892E1`
+### Sei Testnet (Atlantic-2)
+- **L2TBTC Proxy**: `0xe3dE7061A112Fb05A1a84a709e03988ae8703e15` *(Latest)*
+- **Implementation**: `0x2252087dAaCA6B0Ec03ac25039030810435752E7`
+- **Admin**: `0x98aF01b95f1DE886461213bfB74F91fc782b1948`
+- **Owner**: `0xB6A114C2c34eF91eeb0d93bcdDD7B95a9D6892E1`
 
-### Mainnet (when deployed)
-- **L2TBTC Proxy**: `TBD`
+### Base Sepolia (Testnet)
+- **L2TBTC Proxy**: `TBD` *(Deploy using: `npx hardhat deploy --network baseSepolia --tags BaseSepoliaToken`)*
 - **Implementation**: `TBD`
 - **Admin**: `TBD`
+- **Owner**: `TBD`
+
+### Mainnet (when deployed)
+- **Sei Mainnet**: `TBD`
+- **Base Mainnet**: `TBD`
 
 ## Monitoring and Maintenance
 
@@ -246,22 +440,46 @@ The contract follows the canonical tBTC upgrade process:
 
 ## Available Scripts
 
+### 🔐 Key Management Scripts
 ```bash
-# Key management
-npm run setup-key          # Setup encrypted private key
-npm run test-key           # Test key decryption
-npm run remove-key         # Remove encrypted key
+# Encrypt private keys
+npx hardhat run scripts/encrypt-account.ts                    # Account #1 (default)
+ACCOUNT_NUMBER=2 npx hardhat run scripts/encrypt-account.ts   # Account #2
+ACCOUNT_NUMBER=N npx hardhat run scripts/encrypt-account.ts   # Account #N
 
-# Deployment
-npm run deploy:encrypted   # Deploy with encrypted key
+# Use encrypted accounts
+npx hardhat run scripts/use-account.ts                        # Account #1 (default)
+ACCOUNT_NUMBER=2 npx hardhat run scripts/use-account.ts       # Account #2
+```
 
-# Verification
-npm run verify:sei <ADDRESS>  # Verify contract on SeiTrace
+### 🚀 Deployment Scripts
+```bash
+# Sei Testnet
+npx hardhat deploy --network sei_atlantic_2 --tags SeiTestnetToken
 
-# Development
+# Base Sepolia  
+npx hardhat deploy --network baseSepolia --tags BaseSepoliaToken
+```
+
+### 🔍 Verification Scripts
+```bash
+# Generic verification (both networks)
+PROXY_ADDRESS=0x... npx hardhat run scripts/verify-deployment.ts --network <network>
+
+# Network-specific verification via tags
+npx hardhat deploy --network sei_atlantic_2 --tags VerifySeiTestnetToken
+PROXY_ADDRESS=0x... npx hardhat deploy --network baseSepolia --tags VerifyBaseSepoliaToken
+```
+
+### 🛠️ Development Scripts
+```bash
+# Standard development
 npm run build             # Compile contracts
 npm run test              # Run tests
 npm run clean             # Clean build artifacts
+
+# Direct script execution (legacy)
+npx hardhat run scripts/deploy-l2tbtc-encrypted.ts --network <network>
 ```
 
 ## Benefits Over Complex Interface Approach

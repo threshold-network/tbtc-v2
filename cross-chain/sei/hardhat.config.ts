@@ -2,7 +2,7 @@
 
 import dotenv from 'dotenv';
 import { HardhatUserConfig } from 'hardhat/config';
-import '@nomiclabs/hardhat-etherscan';
+import '@nomicfoundation/hardhat-verify';
 import '@keep-network/hardhat-helpers';
 import '@nomiclabs/hardhat-waffle';
 import 'hardhat-gas-reporter';
@@ -11,11 +11,24 @@ import 'hardhat-deploy';
 import '@typechain/hardhat';
 import 'hardhat-dependency-compiler';
 import '@openzeppelin/hardhat-upgrades';
+import { secureKeyManager } from './scripts/secure-key-manager';
 
 /**
  * Config dotenv first
  */
 dotenv.config();
+
+/**
+ * Get private key for deployment
+ */
+async function getPrivateKey(): Promise<string> {
+  try {
+    return await secureKeyManager.getDecryptedKey();
+  } catch (error) {
+    console.warn('No encrypted key found, using empty accounts array');
+    return '';
+  }
+}
 
 /**
  * Default hardhat configs following Sei tutorial
@@ -46,12 +59,11 @@ const config: HardhatUserConfig = {
     ],
   },
 
+  // Hardhat-deploy configuration
+  deploy: ["deploy"],
+  
   networks: {
-    hardhat: {
-      deploy: [
-        "scripts",
-      ],
-    },
+    hardhat: {},
     localhost: {
       url: "http://127.0.0.1:8545",
     },
@@ -77,6 +89,14 @@ const config: HardhatUserConfig = {
       tags: ["seitrace"],
       gasPrice: 10000000000, // 10 gwei
     },
+    // BaseSepolia network
+    baseSepolia: {
+      url: process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org",
+      chainId: 84532,
+      accounts: [], // Will be populated by getPrivateKey() when needed
+      tags: ["basescan"],
+      gasPrice: 1000000000, // 1 gwei
+    },
   },
 
   namedAccounts: {
@@ -84,11 +104,13 @@ const config: HardhatUserConfig = {
       default: 0,
       seiTestnet: 0,
       seiMainnet: 0,
+      baseSepolia: 0,
     },
     governance: {
       default: 1,
       seiTestnet: 0,
-      seiMainnet: "0x9f6e831c8f8939dc0c830c6e492e7cef4f9c2f5f", // Threshold Council
+      seiMainnet: "0x0000000000000000000000000000000000000000", // TBD - To be determined
+      baseSepolia: 0,
     },
   },
   
@@ -101,14 +123,14 @@ const config: HardhatUserConfig = {
   },
 
   /**
-   * Setup etherscan config following Sei tutorial
+   * Setup verification config with new hardhat-verify plugin
    */
+  sourcify: {
+    enabled: false
+  },
   etherscan: {
-    apiKey: {
-      sei_atlantic_2: 'dummy',
-      seiTestnet: "dummy",
-      seiMainnet: "dummy",
-    },
+    enabled: true,
+    apiKey: process.env.ETHERSCAN_API_KEY, // Using Etherscan v2 API key from env
     customChains: [
       {
         network: 'sei_atlantic_2',
@@ -132,6 +154,14 @@ const config: HardhatUserConfig = {
         urls: {
           apiURL: "https://seitrace.com/pacific-1/api",
           browserURL: "https://seitrace.com/pacific-1",
+        },
+      },
+      {
+        network: "baseSepolia",
+        chainId: 84532,
+        urls: {
+          apiURL: "https://api-sepolia.basescan.org/api",
+          browserURL: "https://sepolia.basescan.org",
         },
       },
     ]
