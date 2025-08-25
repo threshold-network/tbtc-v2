@@ -26,14 +26,13 @@ import "@keep-network/tbtc-v2/contracts/l2/L2TBTC.sol";
 /// @notice Wormhole Token Bridge interface. Contains only selected functions
 ///         used by L2WormholeGateway.
 interface IWormholeTokenBridge {
-    function completeTransferWithPayload(bytes memory encodedVm)
-        external
-        returns (bytes memory);
+    function completeTransferWithPayload(
+        bytes memory encodedVm
+    ) external returns (bytes memory);
 
-    function parseTransferWithPayload(bytes memory encoded)
-        external
-        pure
-        returns (TransferWithPayload memory transfer);
+    function parseTransferWithPayload(
+        bytes memory encoded
+    ) external pure returns (TransferWithPayload memory transfer);
 
     function transferTokens(
         address token,
@@ -339,10 +338,10 @@ contract L2WormholeGateway is
     /// @param chainId Wormhole ID of the chain.
     /// @param gateway Address of tBTC gateway on the given chain in a Wormhole
     ///                format.
-    function updateGatewayAddress(uint16 chainId, bytes32 gateway)
-        external
-        onlyOwner
-    {
+    function updateGatewayAddress(
+        uint16 chainId,
+        bytes32 gateway
+    ) external onlyOwner {
         gateways[chainId] = gateway;
         emit GatewayAddressUpdated(chainId, gateway);
     }
@@ -357,21 +356,17 @@ contract L2WormholeGateway is
 
     /// @notice Converts Ethereum address into Wormhole format.
     /// @param _address The address to convert.
-    function toWormholeAddress(address _address)
-        external
-        pure
-        returns (bytes32)
-    {
+    function toWormholeAddress(
+        address _address
+    ) external pure returns (bytes32) {
         return bytes32(uint256(uint160(_address)));
     }
 
     /// @notice Converts Wormhole address into Ethereum format.
     /// @param _address The address to convert.
-    function fromWormholeAddress(bytes32 _address)
-        public
-        pure
-        returns (address)
-    {
+    function fromWormholeAddress(
+        bytes32 _address
+    ) public pure returns (address) {
         return address(uint160(uint256(_address)));
     }
 
@@ -380,8 +375,8 @@ contract L2WormholeGateway is
     ///      See https://github.com/wormhole-foundation/wormhole/blob/96682bdbeb7c87bfa110eade0554b3d8cbf788d2/ethereum/contracts/bridge/Bridge.sol#L276-L288
     function normalize(uint256 amount) internal pure returns (uint256) {
         // slither-disable-next-line divide-before-multiply
-        amount /= 10**10;
-        amount *= 10**10;
+        amount /= 10 ** 10;
+        amount *= 10 ** 10;
         return amount;
     }
 }
