@@ -8,7 +8,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   const wormholeChains = getWormholeChains(hre.network.name)
 
-  const baseWormholeRelayer = await deployments.get("BaseWormholeRelayer")
+  const baseWormholeRelayer = "0x706F82e9bb5b0813501714Ab5974216704980e31"
   const baseWormholeGateway = await deployments.get("BaseWormholeGateway")
 
   const [, proxyDeployment] = await helpers.upgrades.deployProxy(
@@ -17,7 +17,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       contractName:
         "@keep-network/tbtc-v2/contracts/l2/L2BitcoinDepositor.sol:L2BitcoinDepositor",
       initializerArgs: [
-        baseWormholeRelayer.address,
+        baseWormholeRelayer,
         baseWormholeGateway.address,
         wormholeChains.l1ChainId,
       ],
@@ -45,4 +45,4 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 export default func
 
 func.tags = ["BaseL2BitcoinDepositor"]
-func.dependencies = ["BaseWormholeGateway"]
+func.dependencies = ["BaseWormholeGateway", "BaseWormholeRelayer"]
