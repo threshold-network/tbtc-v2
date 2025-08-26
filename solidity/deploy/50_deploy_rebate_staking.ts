@@ -16,7 +16,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         t.address,
         30 * 24 * 60 * 60, // 30 days rolling window
         30 * 24 * 60 * 60, // 30 days unstaking delay
-        450000, // 0.1 BTC fee rebate per 45000 T tokens staked
+        100000000, // 0.001 BTC fee rebate per 100000 T tokens staked
       ],
       factoryOpts: {
         signer: await ethers.getSigner(deployer),
