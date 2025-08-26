@@ -343,7 +343,6 @@ library Deposit {
         if (
             deposit.treasuryFee > 0 && address(self.rebateStaking) != address(0)
         ) {
-            // TODO ask if needed
             deposit.treasuryFee = self.rebateStaking.applyForRebate(
                 deposit.depositor,
                 deposit.treasuryFee
