@@ -22,6 +22,7 @@ describe("RebateStaking", () => {
   let rebateStaking: RebateStaking
   let deployer: SignerWithAddress
   let thirdParty: SignerWithAddress
+  const defaultStakeAmount = to1e18(100000000)
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
@@ -180,7 +181,7 @@ describe("RebateStaking", () => {
       })
 
       context("when user has a stake", () => {
-        const stakeAmount = to1e18(450000)
+        const stakeAmount = defaultStakeAmount
         const rebateCap = to1e18(1)
         let tx: ContractTransaction
 
@@ -406,7 +407,7 @@ describe("RebateStaking", () => {
       })
 
       context("when user has a stake", () => {
-        const stakeAmount = to1e18(450000)
+        const stakeAmount = defaultStakeAmount
         const rebateCap = to1e18(1)
         let tx: ContractTransaction
 
@@ -573,7 +574,7 @@ describe("RebateStaking", () => {
     })
 
     context("when user didn't have previous stake", () => {
-      const stakeAmount = to1e18(450000)
+      const stakeAmount = defaultStakeAmount
       const rebateCap = to1e18(1)
       let tx: ContractTransaction
 
@@ -616,8 +617,8 @@ describe("RebateStaking", () => {
     })
 
     context("when user tops-up stake", () => {
-      const stakeAmount1 = to1e18(4500000)
-      const stakeAmount2 = to1e18(1800000)
+      const stakeAmount1 = defaultStakeAmount.mul(10)
+      const stakeAmount2 = to1e18(400000000)
       const stakeAmount = stakeAmount1.add(stakeAmount2)
       const rebateCap = to1e18(14)
       let tx: ContractTransaction
@@ -663,7 +664,7 @@ describe("RebateStaking", () => {
   })
 
   describe("startUnstaking", () => {
-    const stakeAmount = to1e18(4500000)
+    const stakeAmount = defaultStakeAmount.mul(10)
 
     before(async () => {
       await createSnapshot()
@@ -728,7 +729,7 @@ describe("RebateStaking", () => {
     })
 
     context("when user unstakes part of the stake", () => {
-      const unstakeAmount = to1e18(1800000)
+      const unstakeAmount = to1e18(400000000)
       const rebateCap = to1e18(10)
       const newRebateCap = to1e18(6)
       let tx: ContractTransaction
@@ -799,7 +800,7 @@ describe("RebateStaking", () => {
     })
 
     context("when unstaking is not finished", () => {
-      const stakeAmount = to1e18(450000)
+      const stakeAmount = defaultStakeAmount
       before(async () => {
         await createSnapshot()
         await t.connect(deployer).mint(thirdParty.address, stakeAmount)
@@ -822,8 +823,8 @@ describe("RebateStaking", () => {
     })
 
     context("when user finishes unstaking process", () => {
-      const stakeAmount = to1e18(4500000)
-      const unstakeAmount = to1e18(1350000)
+      const stakeAmount =defaultStakeAmount.mul(10)
+      const unstakeAmount = to1e18(300000000)
       const expectedStake = stakeAmount.sub(unstakeAmount)
       const rebateCap = to1e18(7)
       let tx: ContractTransaction
