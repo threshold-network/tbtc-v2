@@ -5,6 +5,7 @@
  * Supports:
  * - Sei Testnet (sei_atlantic_2)
  * - Base Sepolia (baseSepolia)
+ * - Ethereum Sepolia (ethereumSepolia)
  * 
  * Usage:
  * - PROXY_ADDRESS=0x... npx hardhat run scripts/verify-deployment.ts --network <network>
@@ -55,6 +56,11 @@ export async function verifyDeployment(
       rpcUrl: 'https://sepolia.base.org',
       explorer: 'https://sepolia.basescan.org',
       name: 'Base Sepolia'
+    },
+    'ethereumSepolia': {
+      rpcUrl: 'https://ethereum-sepolia.publicnode.com',
+      explorer: 'https://sepolia.etherscan.io',
+      name: 'Ethereum Sepolia'
     }
   };
   
@@ -119,21 +125,43 @@ export async function verifyDeployment(
         await addMinterTx.wait();
         console.log('   ✅ Deployer added as minter');
         
-        // Test minting
+        // Verify minter status after adding
+        const isMinterAfterAdd = await l2tbtc.isMinter(deployer);
+        console.log(`   ✅ Minter status verified: ${isMinterAfterAdd}`);
+        
+        if (isMinterAfterAdd) {
+          // Test minting
+          console.log('\n💰 Testing token minting...');
+          const mintAmount = ethers.utils.parseEther('100'); // 100 tokens
+          const mintTx = await l2tbtc.mint(deployer, mintAmount);
+          console.log(`   Transaction hash: ${mintTx.hash}`);
+          await mintTx.wait();
+          console.log('   ✅ Successfully minted 100 tokens');
+          
+          // Check final balance
+          const finalBalance = await l2tbtc.balanceOf(deployer);
+          const finalTotalSupply = await l2tbtc.totalSupply();
+          console.log(`   Final Balance: ${ethers.utils.formatEther(finalBalance)} ${symbol}`);
+          console.log(`   Final Total Supply: ${ethers.utils.formatEther(finalTotalSupply)} ${symbol}`);
+        } else {
+          console.log('   ⚠️  Warning: Minter addition may not have taken effect properly');
+        }
+      } else {
+        console.log('   ✅ Deployer is already a minter');
+        
+        // Test minting for existing minter
         console.log('\n💰 Testing token minting...');
-        const mintAmount = ethers.utils.parseEther('100'); // 100 tokens
+        const mintAmount = ethers.utils.parseEther('10'); // 10 tokens for test
         const mintTx = await l2tbtc.mint(deployer, mintAmount);
         console.log(`   Transaction hash: ${mintTx.hash}`);
         await mintTx.wait();
-        console.log('   ✅ Successfully minted 100 tokens');
+        console.log('   ✅ Successfully minted 10 tokens');
         
         // Check final balance
         const finalBalance = await l2tbtc.balanceOf(deployer);
         const finalTotalSupply = await l2tbtc.totalSupply();
         console.log(`   Final Balance: ${ethers.utils.formatEther(finalBalance)} ${symbol}`);
         console.log(`   Final Total Supply: ${ethers.utils.formatEther(finalTotalSupply)} ${symbol}`);
-      } else {
-        console.log('   ✅ Deployer is already a minter');
       }
     } else {
       console.log('   ⚠️  Warning: Owner is not the deployer');

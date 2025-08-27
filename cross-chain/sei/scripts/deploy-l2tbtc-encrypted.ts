@@ -7,6 +7,10 @@ import { ethers } from 'hardhat';
 import type { HardhatRuntimeEnvironment } from "hardhat/types";
 import { secureKeyManager } from './secure-key-manager';
 
+// 🎲 DEPLOYMENT SALT - Change this for fresh CREATE2 deployments
+// Each change will result in a completely new contract address
+const DEPLOYMENT_SALT = "v2.0.1-base-sepolia"; // Update this for new deployments
+
 export interface NetworkConfig {
   tokenName: string;
   tokenSymbol: string;
@@ -57,15 +61,17 @@ export async function deployL2TBTC(
   }
 
   console.log('\n📦 Deploying L2TBTC with TransparentUpgradeableProxy...');
+  console.log(`🧂 Using deployment salt: "${DEPLOYMENT_SALT}"`);
   
-  // Deploy using OpenZeppelin upgrades plugin
+  // Deploy using OpenZeppelin upgrades plugin with custom salt
   const L2TBTC = await ethers.getContractFactory('L2TBTC', connectedWallet);
   const proxy = await upgrades.deployProxy(
     L2TBTC,
     [networkConfig.tokenName, networkConfig.tokenSymbol],
     { 
       kind: 'transparent',
-      initializer: 'initialize'
+      initializer: 'initialize',
+      salt: ethers.utils.keccak256(ethers.utils.toUtf8Bytes(DEPLOYMENT_SALT))
     }
   );
   
@@ -106,7 +112,7 @@ export async function deployL2TBTC(
   }
 
   // Contract verification for block explorers
-  if (hre.network.tags?.basescan || hre.network.tags?.seitrace) {
+  if (hre.network.tags?.basescan || hre.network.tags?.seitrace || hre.network.tags?.etherscan) {
     console.log('\n🔍 Verifying contracts on block explorer...');
     
     try {
@@ -164,6 +170,13 @@ export const NETWORK_CONFIGS = {
     networkName: 'Base Sepolia',
     explorer: 'https://sepolia.basescan.org',
     rpcUrl: 'https://sepolia.base.org'
+  },
+  ethereumSepolia: {
+    tokenName: 'Ethereum tBTC v2',
+    tokenSymbol: 'tBTC',
+    networkName: 'Ethereum Sepolia',
+    explorer: 'https://sepolia.etherscan.io',
+    rpcUrl: 'https://ethereum-sepolia.publicnode.com'
   }
 } as const;
 
@@ -175,6 +188,7 @@ async function main() {
   console.log('⚠️  This script is deprecated. Use hardhat-deploy instead:');
   console.log('   npx hardhat deploy --network sei_atlantic_2 --tags SeiTestnet');
   console.log('   npx hardhat deploy --network baseSepolia --tags BaseSepolia');
+  console.log('   npx hardhat deploy --network ethereumSepolia --tags EthereumSepolia');
   
   const hre = (global as any).hre;
   if (!hre) {
@@ -188,6 +202,8 @@ async function main() {
     config = NETWORK_CONFIGS.seiTestnet;
   } else if (networkName === 'baseSepolia') {
     config = NETWORK_CONFIGS.baseSepolia;
+  } else if (networkName === 'ethereumSepolia') {
+    config = NETWORK_CONFIGS.ethereumSepolia;
   } else {
     throw new Error(`Unsupported network: ${networkName}`);
   }

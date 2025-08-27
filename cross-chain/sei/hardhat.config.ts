@@ -97,6 +97,14 @@ const config: HardhatUserConfig = {
       tags: ["basescan"],
       gasPrice: 1000000000, // 1 gwei
     },
+    // Ethereum Sepolia network
+    ethereumSepolia: {
+      url: process.env.ETHEREUM_SEPOLIA_RPC_URL || "https://ethereum-sepolia.publicnode.com",
+      chainId: 11155111,
+      accounts: [], // Will be populated by getPrivateKey() when needed
+      tags: ["etherscan"],
+      gasPrice: 20000000000, // 20 gwei
+    },
   },
 
   namedAccounts: {
@@ -105,12 +113,14 @@ const config: HardhatUserConfig = {
       seiTestnet: 0,
       seiMainnet: 0,
       baseSepolia: 0,
+      ethereumSepolia: 0,
     },
     governance: {
       default: 1,
       seiTestnet: 0,
       seiMainnet: "0x0000000000000000000000000000000000000000", // TBD - To be determined
       baseSepolia: 0,
+      ethereumSepolia: 0,
     },
   },
   
