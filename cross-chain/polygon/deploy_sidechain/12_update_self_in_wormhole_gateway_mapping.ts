@@ -8,6 +8,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   // See https://book.wormhole.com/reference/contracts.html
   // This ID is valid for both Polygon Testnet (Mumbai) and Mainnet
+  // TODO: check ID for the Amoy testnet once it's supported by Wormhole.
   const wormholeChainID = 5
 
   const polygonWormholeGateway = await deployments.get("PolygonWormholeGateway")
