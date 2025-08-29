@@ -90,7 +90,9 @@ export function backoffRetrier<T>(
   retries: number,
   backoffStepMs: number = 1000,
   logger: ExecutionLoggerFn = console.debug,
-  errorMatcher: ErrorMatcherFn = retryAll
+  errorMatcher: ErrorMatcherFn = skipRetryWhenMatched([
+    "Wallet with the given ID has not been registered",
+  ])
 ): RetrierFn<T> {
   return async (fn: () => Promise<T>): Promise<T> => {
     for (let attempt = 0; attempt < retries; attempt++) {
