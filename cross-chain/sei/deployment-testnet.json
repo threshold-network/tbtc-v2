@@ -1,0 +1,52 @@
+{
+  "network": "Testnet",
+  "chains": {
+    "Sepolia": {
+      "version": "1.1.0",
+      "mode": "locking",
+      "paused": false,
+      "depositor": "0x0D3b8e20c545564ca6A717C8F4B40b9cF620d6e2", 
+      "owner": "0xB6A114C2c34eF91eeb0d93bcdDD7B95a9D6892E1",
+      "manager": "0x79AA1b04edA5b77265aFd1FDB9646eab065eadEc",
+      "token": "0xd48430eb40F6F89113999cc70A9C415f724F5e59",
+      "transceivers": {
+        "threshold": 1,
+        "wormhole": {
+          "address": "0x86E4038abd972A9218498a553058AF8f085CC295",
+          "pauser": "0xB6A114C2c34eF91eeb0d93bcdDD7B95a9D6892E1",
+          "executor": true
+        }
+      },
+      "limits": {
+        "outbound": "100.000000000000000000",
+        "inbound": {
+          "BaseSepolia": "100.000000000000000000"
+        }
+      },
+      "pauser": "0xB6A114C2c34eF91eeb0d93bcdDD7B95a9D6892E1"
+    },
+    "BaseSepolia": {
+      "version": "1.1.0",
+      "mode": "burning",
+      "paused": false,
+      "owner": "0xB6A114C2c34eF91eeb0d93bcdDD7B95a9D6892E1",
+      "manager": "0xABb0c4fAAE03D51821273657C26Dc7674F6329e2",
+      "token": "0xc10a0886d4Fe06bD61f41ee2855a2215375B82f0",
+      "transceivers": {
+        "threshold": 1,
+        "wormhole": {
+          "address": "0xf79b82b345573F7087375ed758eDAa33acCDeCED",
+          "pauser": "0xB6A114C2c34eF91eeb0d93bcdDD7B95a9D6892E1",
+          "executor": true
+        }
+      },
+      "limits": {
+        "outbound": "100.000000000000000000",
+        "inbound": {
+          "Sepolia": "100.000000000000000000"
+        }
+      },
+      "pauser": "0xB6A114C2c34eF91eeb0d93bcdDD7B95a9D6892E1"
+    }
+  }
+}
