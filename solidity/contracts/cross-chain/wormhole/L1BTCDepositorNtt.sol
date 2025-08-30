@@ -283,27 +283,7 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
         return address(nttManager);
     }
 
-    /// @notice Returns list of supported destination chains
-    /// @return chains Array of supported Wormhole chain IDs
-    function getSupportedChains() external view returns (uint16[] memory chains) {
-        // Count supported chains first
-        uint256 count = 0;
-        for (uint16 i = 1; i <= 65535; i++) {
-            if (supportedChains[i]) {
-                count++;
-            }
-        }
-        
-        // Create array with exact size
-        chains = new uint16[](count);
-        uint256 index = 0;
-        for (uint16 i = 1; i <= 65535; i++) {
-            if (supportedChains[i]) {
-                chains[index] = i;
-                index++;
-            }
-        }
-    }
+
 
     /// @notice Enhanced function to get destination chain from encoded receiver address
     /// @param destinationChainReceiver The encoded receiver with chain ID in first 2 bytes
