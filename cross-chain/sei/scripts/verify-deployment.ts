@@ -4,6 +4,7 @@
  * 
  * Supports:
  * - Sei Testnet (sei_atlantic_2)
+ * - Sei Mainnet (seiMainnet)
  * - Base Sepolia (baseSepolia)
  * - Ethereum Sepolia (ethereumSepolia)
  * 
@@ -51,6 +52,11 @@ export async function verifyDeployment(
       rpcUrl: 'https://evm-rpc-testnet.sei-apis.com',
       explorer: 'https://seitrace.com',
       name: 'Sei Testnet'
+    },
+    'pacific-1': {
+      rpcUrl: 'https://evm-rpc.sei-apis.com',
+      explorer: 'https://seitrace.com/pacific-1',
+      name: 'Sei Pacific-1'
     },
     'baseSepolia': {
       rpcUrl: 'https://sepolia.base.org',

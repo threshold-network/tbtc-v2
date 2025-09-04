@@ -9,3 +9,5 @@ dist/
 yarn-error.log
 CLAUDE.md
 .claude/
+
+.env

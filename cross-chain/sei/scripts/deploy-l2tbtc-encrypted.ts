@@ -7,9 +7,9 @@ import { ethers } from 'hardhat';
 import type { HardhatRuntimeEnvironment } from "hardhat/types";
 import { secureKeyManager } from './secure-key-manager';
 
-// 🎲 DEPLOYMENT SALT - Change this for fresh CREATE2 deployments
-// Each change will result in a completely new contract address
-const DEPLOYMENT_SALT = "v2.0.1-base-sepolia"; // Update this for new deployments
+// 🎲 DEPLOYMENT SALT - Fixed salt for consistent CREATE2 deployments
+// Change this only when you want completely new contract addresses
+const DEPLOYMENT_SALT = "v2.2.0-sei-mainnet-fixed-salt"; // Fixed salt for consistent deployments
 
 export interface NetworkConfig {
   tokenName: string;
@@ -164,6 +164,13 @@ export const NETWORK_CONFIGS = {
     explorer: 'https://seitrace.com',
     rpcUrl: 'https://evm-rpc-testnet.sei-apis.com'
   },
+  seiMainnet: {
+    tokenName: 'Sei tBTC v2',
+    tokenSymbol: 'tBTC',
+    networkName: 'Sei Mainnet',
+    explorer: 'https://seitrace.com',
+    rpcUrl: 'https://evm-rpc.sei-apis.com'
+  },
   baseSepolia: {
     tokenName: 'Base tBTC v2',
     tokenSymbol: 'tBTC',
@@ -200,6 +207,8 @@ async function main() {
   
   if (networkName === 'sei_atlantic_2') {
     config = NETWORK_CONFIGS.seiTestnet;
+  } else if (networkName === 'seiMainnet') {
+    config = NETWORK_CONFIGS.seiMainnet;
   } else if (networkName === 'baseSepolia') {
     config = NETWORK_CONFIGS.baseSepolia;
   } else if (networkName === 'ethereumSepolia') {

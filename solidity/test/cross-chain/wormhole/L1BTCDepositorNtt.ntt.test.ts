@@ -183,6 +183,54 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
       })
     })
 
+    describe("default supported chain management", () => {
+      context("when caller is not owner", () => {
+        it("should revert when setting default supported chain", async () => {
+          await expect(
+            l1BtcDepositorNtt
+              .connect(relayer)
+              .setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
+          ).to.be.revertedWith("Ownable: caller is not the owner")
+        })
+      })
+
+      context("when caller is owner", () => {
+        before(async () => {
+          await l1BtcDepositorNtt
+            .connect(governance)
+            .setSupportedChain(WORMHOLE_CHAIN_SEI, true)
+        })
+
+        it("should set default supported chain successfully", async () => {
+          const tx = await l1BtcDepositorNtt
+            .connect(governance)
+            .setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
+
+          expect(await l1BtcDepositorNtt.defaultSupportedChain()).to.equal(WORMHOLE_CHAIN_SEI)
+
+          await expect(tx)
+            .to.emit(l1BtcDepositorNtt, "DefaultSupportedChainUpdated")
+            .withArgs(WORMHOLE_CHAIN_SEI)
+        })
+
+        it("should revert when setting unsupported chain as default", async () => {
+          await expect(
+            l1BtcDepositorNtt
+              .connect(governance)
+              .setDefaultSupportedChain(WORMHOLE_CHAIN_BASE)
+          ).to.be.revertedWith("Chain must be supported before setting as default")
+        })
+
+        it("should revert when setting zero chain ID as default", async () => {
+          await expect(
+            l1BtcDepositorNtt
+              .connect(governance)
+              .setDefaultSupportedChain(0)
+          ).to.be.revertedWith("Chain ID cannot be zero")
+        })
+      })
+    })
+
     describe("NTT Manager management", () => {
       describe("getNttConfiguration", () => {
         it("should return current NTT Manager address", async () => {

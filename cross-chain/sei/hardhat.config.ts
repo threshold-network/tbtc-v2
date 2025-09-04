@@ -2,7 +2,6 @@
 
 import dotenv from 'dotenv';
 import { HardhatUserConfig } from 'hardhat/config';
-import '@nomicfoundation/hardhat-verify';
 import '@keep-network/hardhat-helpers';
 import '@nomiclabs/hardhat-waffle';
 import 'hardhat-gas-reporter';
@@ -11,6 +10,7 @@ import 'hardhat-deploy';
 import '@typechain/hardhat';
 import 'hardhat-dependency-compiler';
 import '@openzeppelin/hardhat-upgrades';
+import '@nomiclabs/hardhat-etherscan';
 import { secureKeyManager } from './scripts/secure-key-manager';
 
 /**
@@ -89,6 +89,13 @@ const config: HardhatUserConfig = {
       tags: ["seitrace"],
       gasPrice: 10000000000, // 10 gwei
     },
+    "pacific-1": {
+      url: process.env.SEI_MAINNET_RPC_URL || "https://evm-rpc.sei-apis.com",
+      chainId: 1329,
+      accounts: [], // Will be populated by getPrivateKey() when needed
+      tags: ["seitrace"],
+      gasPrice: 10000000000, // 10 gwei
+    },
     // BaseSepolia network
     baseSepolia: {
       url: process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org",
@@ -112,6 +119,7 @@ const config: HardhatUserConfig = {
       default: 0,
       seiTestnet: 0,
       seiMainnet: 0,
+      "pacific-1": 0,
       baseSepolia: 0,
       ethereumSepolia: 0,
     },
@@ -119,6 +127,7 @@ const config: HardhatUserConfig = {
       default: 1,
       seiTestnet: 0,
       seiMainnet: "0x0000000000000000000000000000000000000000", // TBD - To be determined
+      "pacific-1": "0x0000000000000000000000000000000000000000", // TBD - To be determined
       baseSepolia: 0,
       ethereumSepolia: 0,
     },
@@ -133,33 +142,18 @@ const config: HardhatUserConfig = {
   },
 
   /**
-   * Setup verification config with new hardhat-verify plugin
+   * Setup verification config for Seitrace
    */
   sourcify: {
     enabled: false
   },
   etherscan: {
-    enabled: true,
-    apiKey: process.env.ETHERSCAN_API_KEY, // Using Etherscan v2 API key from env
+    apiKey: {
+      "pacific-1": "dummy"
+    },
     customChains: [
       {
-        network: 'sei_atlantic_2',
-        chainId: 1328,
-        urls: {
-          apiURL: 'https://seitrace.com/atlantic-2/api',
-          browserURL: 'https://seitrace.com'
-        }
-      },
-      {
-        network: "seiTestnet",
-        chainId: 1328,
-        urls: {
-          apiURL: "https://seitrace.com/atlantic-2/api",
-          browserURL: "https://seitrace.com/atlantic-2",
-        },
-      },
-      {
-        network: "seiMainnet",
+        network: "pacific-1",
         chainId: 1329,
         urls: {
           apiURL: "https://seitrace.com/pacific-1/api",
@@ -167,13 +161,13 @@ const config: HardhatUserConfig = {
         },
       },
       {
-        network: "baseSepolia",
-        chainId: 84532,
+        network: "sei_atlantic_2",
+        chainId: 1328,
         urls: {
-          apiURL: "https://api-sepolia.basescan.org/api",
-          browserURL: "https://sepolia.basescan.org",
+          apiURL: "https://seitrace.com/atlantic-2/api",
+          browserURL: "https://seitrace.com/atlantic-2",
         },
-      },
+      }
     ]
   }
 };

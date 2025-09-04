@@ -477,6 +477,76 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
       // Test that the contract can be called without errors
       expect(await l1BtcDepositorNtt.getNttConfiguration()).to.equal(nttManager.address)
     })
+
+    it("should handle default supported chain for backward compatibility", async () => {
+      // Initially no default chain is set
+      expect(await l1BtcDepositorNtt.defaultSupportedChain()).to.equal(0)
+
+      // Add a supported chain
+      await l1BtcDepositorNtt
+        .connect(governance)
+        .setSupportedChain(WORMHOLE_CHAIN_SEI, true)
+
+      // Set it as default
+      await l1BtcDepositorNtt
+        .connect(governance)
+        .setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
+
+      expect(await l1BtcDepositorNtt.defaultSupportedChain()).to.equal(WORMHOLE_CHAIN_SEI)
+    })
+
+    it("should maintain backward compatibility when no chain ID is encoded", async () => {
+      // Set up SEI as default chain
+      await l1BtcDepositorNtt
+        .connect(governance)
+        .setSupportedChain(WORMHOLE_CHAIN_SEI, true)
+      
+      await l1BtcDepositorNtt
+        .connect(governance)
+        .setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
+
+      // Test with receiver that has chain ID 0 (backward compatibility)
+      const backwardCompatibleReceiver = "0x00000000000000000000000023b82a7108F9CEb34C3CDC44268be21D151d4124"
+      
+      // Test the encoding/decoding utility functions
+      const decodedChainId = await l1BtcDepositorNtt.decodeDestinationReceiver(backwardCompatibleReceiver)
+      expect(decodedChainId.chainId).to.equal(0)
+      
+      // The default chain should be SEI
+      expect(await l1BtcDepositorNtt.defaultSupportedChain()).to.equal(WORMHOLE_CHAIN_SEI)
+    })
+
+    it("should prioritize encoded chain ID over default chain", async () => {
+      // Set up SEI as default chain
+      await l1BtcDepositorNtt
+        .connect(governance)
+        .setSupportedChain(WORMHOLE_CHAIN_SEI, true)
+      
+      await l1BtcDepositorNtt
+        .connect(governance)
+        .setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
+
+      // Add BASE as supported chain
+      await l1BtcDepositorNtt
+        .connect(governance)
+        .setSupportedChain(WORMHOLE_CHAIN_BASE, true)
+
+      // Test with receiver that has BASE chain ID encoded
+      // BASE chain ID is 30 (0x1e), so we encode it properly as bytes32
+      const baseReceiver = ethers.utils.hexZeroPad(
+        ethers.utils.hexlify(ethers.BigNumber.from(WORMHOLE_CHAIN_BASE).shl(240).or(
+          ethers.BigNumber.from("0x23b82a7108F9CEb34C3CDC44268be21D151d4124")
+        )),
+        32
+      )
+      
+      // Test the encoding/decoding utility functions
+      const decodedChainId = await l1BtcDepositorNtt.decodeDestinationReceiver(baseReceiver)
+      expect(decodedChainId.chainId).to.equal(WORMHOLE_CHAIN_BASE)
+      
+      // The default chain should still be SEI
+      expect(await l1BtcDepositorNtt.defaultSupportedChain()).to.equal(WORMHOLE_CHAIN_SEI)
+    })
   })
 })
 

@@ -96,6 +96,10 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
     /// @dev Only registered chains can receive transfers
     mapping(uint16 => bool) public supportedChains;
 
+    /// @notice Default supported chain ID for backward compatibility
+    /// @dev Used when no specific chain ID is encoded in receiver address
+    uint16 public defaultSupportedChain;
+
     /// @notice Emitted when tokens are transferred via NTT Hub-and-Spoke framework
     /// @param amount Amount of tBTC transferred and locked on L1
     /// @param destinationChain Wormhole chain ID of the destination
@@ -136,6 +140,16 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
         require(_nttManager != address(0), "NTT Manager address cannot be zero");
         
         nttManager = INttManager(_nttManager);
+    }
+
+    /// @notice Sets the default supported chain for backward compatibility
+    /// @param _chainId Wormhole chain ID to set as default
+    /// @dev Only callable by contract owner
+    function setDefaultSupportedChain(uint16 _chainId) external onlyOwner {
+        require(_chainId != 0, "Chain ID cannot be zero");
+        require(supportedChains[_chainId], "Chain must be supported before setting as default");
+        defaultSupportedChain = _chainId;
+        emit DefaultSupportedChainUpdated(_chainId);
     }
 
     /// @notice Allows the owner to retrieve tokens from the contract and send to another wallet.
@@ -216,9 +230,8 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
     ///      2. NTT Manager pulls tBTC from this contract (via approval)
     ///      3. NTT Manager locks tBTC tokens on L1 Hub (locking mode)
     ///      4. NTT framework sends cross-chain message via multiple transceivers
-    ///      5. Spoke chain NTT Manager receives attested message
-    ///      6. Spoke chain NTT Manager mints native tokens to actual recipient
-    ///      7. Result: Bitcoin-backed native tBTC on destination chain
+    ///      5. Spoke chain receives attested message and mints native tokens to actual recipient
+    ///      6. Result: Bitcoin-backed native tBTC on destination chain
     function _transferTbtc(
         uint256 amount, 
         bytes32 destinationChainReceiver
@@ -238,6 +251,7 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
             destinationChain,
             "" // Empty transceiver instructions for basic transfer
         );
+        // TODO: check if this GREATER or STRICTLY EQUAL TO requiredFee.
         require(msg.value >= requiredFee, "Payment for Wormhole NTT is too low");
 
         // The NTT Manager will pull the tBTC amount from this contract
@@ -302,7 +316,7 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
         // If chain ID is 0 or not supported, fall back to default chain
         // This maintains backward compatibility with existing deposits
         if (chainId == 0 || !supportedChains[chainId]) {
-            chainId = _getDefaultSupportedChain();
+            chainId = _getDefaultSupportedChain(); // TODO: check if this is correct.
             require(chainId != 0, "No supported chains configured");
         }
         
@@ -325,15 +339,10 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
     }
 
     /// @notice Internal function to get the default supported chain
-    /// @return chainId The first supported chain ID, or 0 if none
+    /// @return chainId The default supported chain ID, or 0 if none set
     /// @dev Used for backward compatibility when no chain ID is encoded in receiver
     function _getDefaultSupportedChain() internal view returns (uint16 chainId) {
-        for (uint16 i = 1; i <= 65535; i++) {
-            if (supportedChains[i]) {
-                return i;
-            }
-        }
-        return 0;
+        return defaultSupportedChain;
     }
 
     /// @notice Utility function to encode destination chain and recipient into receiver format
@@ -366,4 +375,7 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
 
     /// @notice Emitted when NTT Manager address is updated
     event NttManagerUpdated(address indexed oldManager, address indexed newManager);
+
+    /// @notice Emitted when default supported chain is updated
+    event DefaultSupportedChainUpdated(uint16 indexed chainId);
 }

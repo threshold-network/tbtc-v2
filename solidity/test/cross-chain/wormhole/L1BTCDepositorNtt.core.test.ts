@@ -156,7 +156,85 @@ describe("L1BTCDepositorNtt Core Functions", () => {
       expect(await l1BtcDepositorNtt.owner()).to.equal(governance.address)
     })
 
+    it("should initialize with defaultSupportedChain as 0", async () => {
+      expect(await l1BtcDepositorNtt.defaultSupportedChain()).to.equal(0)
+    })
+  })
 
+  describe("defaultSupportedChain management", () => {
+    context("when the caller is not the owner", () => {
+      it("should revert when setting default supported chain", async () => {
+        await expect(
+          l1BtcDepositorNtt.connect(relayer).setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+    })
+
+    context("when the caller is the owner", () => {
+      context("when setting chain ID to zero", () => {
+        it("should revert", async () => {
+          await expect(
+            l1BtcDepositorNtt.connect(governance).setDefaultSupportedChain(0)
+          ).to.be.revertedWith("Chain ID cannot be zero")
+        })
+      })
+
+      context("when setting unsupported chain as default", () => {
+        it("should revert", async () => {
+          await expect(
+            l1BtcDepositorNtt.connect(governance).setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
+          ).to.be.revertedWith("Chain must be supported before setting as default")
+        })
+      })
+
+      context("when setting supported chain as default", () => {
+        before(async () => {
+          await createSnapshot()
+          await l1BtcDepositorNtt
+            .connect(governance)
+            .setSupportedChain(WORMHOLE_CHAIN_SEI, true)
+        })
+
+        after(async () => {
+          await restoreSnapshot()
+        })
+
+        it("should set the default supported chain successfully", async () => {
+          const tx = await l1BtcDepositorNtt
+            .connect(governance)
+            .setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
+
+          expect(await l1BtcDepositorNtt.defaultSupportedChain()).to.equal(WORMHOLE_CHAIN_SEI)
+
+          await expect(tx)
+            .to.emit(l1BtcDepositorNtt, "DefaultSupportedChainUpdated")
+            .withArgs(WORMHOLE_CHAIN_SEI)
+        })
+
+        it("should allow changing default chain to another supported chain", async () => {
+          // First set SEI as default
+          await l1BtcDepositorNtt
+            .connect(governance)
+            .setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
+
+          // Add BASE as supported
+          await l1BtcDepositorNtt
+            .connect(governance)
+            .setSupportedChain(WORMHOLE_CHAIN_BASE, true)
+
+          // Change default to BASE
+          const tx = await l1BtcDepositorNtt
+            .connect(governance)
+            .setDefaultSupportedChain(WORMHOLE_CHAIN_BASE)
+
+          expect(await l1BtcDepositorNtt.defaultSupportedChain()).to.equal(WORMHOLE_CHAIN_BASE)
+
+          await expect(tx)
+            .to.emit(l1BtcDepositorNtt, "DefaultSupportedChainUpdated")
+            .withArgs(WORMHOLE_CHAIN_BASE)
+        })
+      })
+    })
   })
 
   describe("AbstractL1BTCDepositor core functions", () => {
