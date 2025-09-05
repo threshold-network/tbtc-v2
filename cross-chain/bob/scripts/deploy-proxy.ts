@@ -5,7 +5,7 @@ import { ethers, upgrades } from "hardhat";
 
 async function main() {
   const [deployer] = await ethers.getSigners();
-  
+
   console.log("Deploying OptimismMintableUpgradableERC20 proxy with account:", deployer.address);
   console.log("Account balance:", (await deployer.getBalance()).toString());
 
@@ -22,7 +22,7 @@ async function main() {
   );
 
   console.log("Deploying proxy...");
-  
+
   // Deploy as upgradeable proxy
   const proxy = await upgrades.deployProxy(
     OptimismMintableUpgradableERC20,
@@ -34,11 +34,11 @@ async function main() {
   );
 
   await proxy.deployed();
-  
+
   console.log("Proxy deployed to:", proxy.address);
   console.log("Implementation deployed to:", await upgrades.erc1967.getImplementationAddress(proxy.address));
   console.log("Admin address:", await upgrades.erc1967.getAdminAddress(proxy.address));
-  
+
   // Verify deployment
   console.log("\nDeployment verification:");
   console.log("Token name:", await proxy.name());
@@ -47,7 +47,7 @@ async function main() {
   console.log("Remote token:", await proxy.REMOTE_TOKEN());
   console.log("Bridge:", await proxy.BRIDGE());
   console.log("Version:", await proxy.version());
-  
+
   // Save deployment info
   const deploymentInfo = {
     proxy: proxy.address,
@@ -58,9 +58,9 @@ async function main() {
     deployedAt: new Date().toISOString(),
     network: (await ethers.provider.getNetwork()).name
   };
-  
+
   console.log("\nDeployment info:", JSON.stringify(deploymentInfo, null, 2));
-  
+
   // You might want to save this to a file
   // fs.writeFileSync('deployment-info.json', JSON.stringify(deploymentInfo, null, 2));
 }
