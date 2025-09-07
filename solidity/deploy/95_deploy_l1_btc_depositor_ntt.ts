@@ -1,6 +1,6 @@
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
-import { secureKeyManager } from "../../cross-chain/sei/scripts/secure-key-manager"
+import { secureKeyManager } from "../scripts/secure-key-manager"
 import { ethers, upgrades } from "hardhat"
 
 /**
