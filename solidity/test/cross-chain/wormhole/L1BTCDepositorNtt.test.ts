@@ -18,7 +18,7 @@ const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
 // Wormhole Chain IDs for testing
 const WORMHOLE_CHAIN_ETH = 2
-const WORMHOLE_CHAIN_SEI = 32  
+const WORMHOLE_CHAIN_SEI = 32
 const WORMHOLE_CHAIN_BASE = 30
 
 // Mock NTT Manager interface
@@ -28,11 +28,11 @@ interface INttManager {
     recipientChain: number,
     recipient: string
   ): Promise<any>
-  
+
   quoteDeliveryPrice(
     recipientChain: number,
     transceiverInstructions: string
-  ): Promise<{ priceQuotes: BigNumber[], totalPrice: BigNumber }>
+  ): Promise<{ priceQuotes: BigNumber[]; totalPrice: BigNumber }>
 }
 
 describe("L1BTCDepositorNtt Integration Tests", () => {
@@ -52,8 +52,12 @@ describe("L1BTCDepositorNtt Integration Tests", () => {
     })
     tbtcVault.tbtcToken.returns(tbtcToken.address)
 
-    const nttManager = await smock.fake("contracts/cross-chain/wormhole/L1BTCDepositorNtt.sol:INttManager")
-    const reimbursementPool = await smock.fake<ReimbursementPool>("ReimbursementPool")
+    const nttManager = await smock.fake(
+      "contracts/cross-chain/wormhole/L1BTCDepositorNtt.sol:INttManager"
+    )
+    const reimbursementPool = await smock.fake<ReimbursementPool>(
+      "ReimbursementPool"
+    )
 
     const deployment = await helpers.upgrades.deployProxy(
       // Hacky workaround allowing to deploy proxy contract any number of times
@@ -75,7 +79,9 @@ describe("L1BTCDepositorNtt Integration Tests", () => {
     )
     const l1BtcDepositorNtt = deployment[0] as L1BTCDepositorNtt
 
-    await l1BtcDepositorNtt.connect(deployer).transferOwnership(governance.address)
+    await l1BtcDepositorNtt
+      .connect(deployer)
+      .transferOwnership(governance.address)
 
     return {
       governance,
@@ -129,15 +135,19 @@ describe("L1BTCDepositorNtt Integration Tests", () => {
       await l1BtcDepositorNtt
         .connect(governance)
         .setSupportedChain(WORMHOLE_CHAIN_SEI, true)
-      
+
       await l1BtcDepositorNtt
         .connect(governance)
         .setSupportedChain(WORMHOLE_CHAIN_BASE, true)
 
       // Test that the contract is properly configured
-      expect(await l1BtcDepositorNtt.supportedChains(WORMHOLE_CHAIN_SEI)).to.be.true
-      expect(await l1BtcDepositorNtt.supportedChains(WORMHOLE_CHAIN_BASE)).to.be.true
-      expect(await l1BtcDepositorNtt.getNttConfiguration()).to.equal(nttManager.address)
+      expect(await l1BtcDepositorNtt.supportedChains(WORMHOLE_CHAIN_SEI)).to.be
+        .true
+      expect(await l1BtcDepositorNtt.supportedChains(WORMHOLE_CHAIN_BASE)).to.be
+        .true
+      expect(await l1BtcDepositorNtt.getNttConfiguration()).to.equal(
+        nttManager.address
+      )
     })
   })
 
@@ -147,14 +157,16 @@ describe("L1BTCDepositorNtt Integration Tests", () => {
       await l1BtcDepositorNtt
         .connect(governance)
         .setSupportedChain(WORMHOLE_CHAIN_SEI, true)
-      
+
       await l1BtcDepositorNtt
         .connect(governance)
         .setSupportedChain(WORMHOLE_CHAIN_BASE, true)
 
       // Test that chains are properly set
-      expect(await l1BtcDepositorNtt.supportedChains(WORMHOLE_CHAIN_SEI)).to.be.true
-      expect(await l1BtcDepositorNtt.supportedChains(WORMHOLE_CHAIN_BASE)).to.be.true
+      expect(await l1BtcDepositorNtt.supportedChains(WORMHOLE_CHAIN_SEI)).to.be
+        .true
+      expect(await l1BtcDepositorNtt.supportedChains(WORMHOLE_CHAIN_BASE)).to.be
+        .true
       expect(await l1BtcDepositorNtt.supportedChains(999)).to.be.false
     })
   })
@@ -167,7 +179,9 @@ describe("L1BTCDepositorNtt Integration Tests", () => {
         .setSupportedChain(WORMHOLE_CHAIN_SEI, true)
 
       // Test that the contract has the correct NTT Manager configuration
-      expect(await l1BtcDepositorNtt.getNttConfiguration()).to.equal(nttManager.address)
+      expect(await l1BtcDepositorNtt.getNttConfiguration()).to.equal(
+        nttManager.address
+      )
 
       // Test that the contract can access the NTT Manager
       expect(await l1BtcDepositorNtt.nttManager()).to.equal(nttManager.address)
@@ -184,9 +198,7 @@ describe("L1BTCDepositorNtt Integration Tests", () => {
       ).to.be.revertedWith("Ownable: caller is not the owner")
 
       await expect(
-        l1BtcDepositorNtt
-          .connect(relayer)
-          .updateNttManager(nttManager.address)
+        l1BtcDepositorNtt.connect(relayer).updateNttManager(nttManager.address)
       ).to.be.revertedWith("Ownable: caller is not the owner")
 
       // Test owner can call these functions
@@ -194,27 +206,34 @@ describe("L1BTCDepositorNtt Integration Tests", () => {
         .connect(governance)
         .setSupportedChain(WORMHOLE_CHAIN_SEI, true)
 
-      expect(await l1BtcDepositorNtt.supportedChains(WORMHOLE_CHAIN_SEI)).to.be.true
+      expect(await l1BtcDepositorNtt.supportedChains(WORMHOLE_CHAIN_SEI)).to.be
+        .true
     })
   })
 
   describe("Configuration Management", () => {
     it("should allow configuration updates", async () => {
       // Test NTT Manager update
-      const newNttManager = await smock.fake("contracts/cross-chain/wormhole/L1BTCDepositorNtt.sol:INttManager")
-      
+      const newNttManager = await smock.fake(
+        "contracts/cross-chain/wormhole/L1BTCDepositorNtt.sol:INttManager"
+      )
+
       await l1BtcDepositorNtt
         .connect(governance)
         .updateNttManager(newNttManager.address)
 
-      expect(await l1BtcDepositorNtt.getNttConfiguration()).to.equal(newNttManager.address)
+      expect(await l1BtcDepositorNtt.getNttConfiguration()).to.equal(
+        newNttManager.address
+      )
 
       // Test gas offset parameters
       await l1BtcDepositorNtt
         .connect(governance)
         .updateGasOffsetParameters(1000, 2000)
 
-      expect(await l1BtcDepositorNtt.initializeDepositGasOffset()).to.equal(1000)
+      expect(await l1BtcDepositorNtt.initializeDepositGasOffset()).to.equal(
+        1000
+      )
       expect(await l1BtcDepositorNtt.finalizeDepositGasOffset()).to.equal(2000)
 
       // Test reimbursement authorization
@@ -222,7 +241,9 @@ describe("L1BTCDepositorNtt Integration Tests", () => {
         .connect(governance)
         .updateReimbursementAuthorization(relayer.address, true)
 
-      expect(await l1BtcDepositorNtt.reimbursementAuthorizations(relayer.address)).to.be.true
+      expect(
+        await l1BtcDepositorNtt.reimbursementAuthorizations(relayer.address)
+      ).to.be.true
     })
   })
 })

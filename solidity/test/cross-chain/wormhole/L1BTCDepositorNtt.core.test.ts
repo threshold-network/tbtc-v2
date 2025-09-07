@@ -24,7 +24,7 @@ const { lastBlockTime } = helpers.time
 
 // Wormhole Chain IDs for testing
 const WORMHOLE_CHAIN_ETH = 2
-const WORMHOLE_CHAIN_SEI = 32  
+const WORMHOLE_CHAIN_SEI = 32
 const WORMHOLE_CHAIN_BASE = 30
 
 // Mock NTT Manager interface
@@ -34,11 +34,11 @@ interface INttManager {
     recipientChain: number,
     recipient: string
   ): Promise<ContractTransaction>
-  
+
   quoteDeliveryPrice(
     recipientChain: number,
     transceiverInstructions: string
-  ): Promise<{ priceQuotes: BigNumber[], totalPrice: BigNumber }>
+  ): Promise<{ priceQuotes: BigNumber[]; totalPrice: BigNumber }>
 }
 
 describe("L1BTCDepositorNtt Core Functions", () => {
@@ -61,13 +61,23 @@ describe("L1BTCDepositorNtt Core Functions", () => {
     const nttManager = {
       address: ethers.Wallet.createRandom().address,
       // Add proper function signatures that match the NttManager interface
-      transfer: async function(amount: any, recipientChain: any, recipient: any, refundAddress?: any, shouldQueue?: any, transceiverInstructions?: any) {
+      transfer: async function (
+        amount: any,
+        recipientChain: any,
+        recipient: any,
+        refundAddress?: any,
+        shouldQueue?: any,
+        transceiverInstructions?: any
+      ) {
         // Simulate the transfer function that returns a uint64 sequence
-        return 123;
+        return 123
       },
-      quoteDeliveryPrice: async function(recipientChain: any, transceiverInstructions?: any) {
+      quoteDeliveryPrice: async function (
+        recipientChain: any,
+        transceiverInstructions?: any
+      ) {
         // Simulate the quoteDeliveryPrice function that returns (uint256[], uint256)
-        return [[], BigNumber.from(50000)];
+        return [[], BigNumber.from(50000)]
       },
     } as any
 
@@ -78,13 +88,25 @@ describe("L1BTCDepositorNtt Core Functions", () => {
     nttManager.quoteDeliveryPrice.reset = () => {}
 
     // Add call method to simulate contract calls
-    nttManager.transfer.call = async function(amount: any, recipientChain: any, recipient: any, refundAddress?: any, shouldQueue?: any, transceiverInstructions?: any) {
-      return 123;
+    nttManager.transfer.call = async function (
+      amount: any,
+      recipientChain: any,
+      recipient: any,
+      refundAddress?: any,
+      shouldQueue?: any,
+      transceiverInstructions?: any
+    ) {
+      return 123
     }
-    nttManager.quoteDeliveryPrice.call = async function(recipientChain: any, transceiverInstructions?: any) {
-      return [[], BigNumber.from(50000)];
+    nttManager.quoteDeliveryPrice.call = async function (
+      recipientChain: any,
+      transceiverInstructions?: any
+    ) {
+      return [[], BigNumber.from(50000)]
     }
-    const reimbursementPool = await smock.fake<ReimbursementPool>("ReimbursementPool")
+    const reimbursementPool = await smock.fake<ReimbursementPool>(
+      "ReimbursementPool"
+    )
 
     const deployment = await helpers.upgrades.deployProxy(
       // Hacky workaround allowing to deploy proxy contract any number of times
@@ -106,7 +128,9 @@ describe("L1BTCDepositorNtt Core Functions", () => {
     )
     const l1BtcDepositorNtt = deployment[0] as L1BTCDepositorNtt
 
-    await l1BtcDepositorNtt.connect(deployer).transferOwnership(governance.address)
+    await l1BtcDepositorNtt
+      .connect(deployer)
+      .transferOwnership(governance.address)
 
     return {
       governance,
@@ -146,8 +170,6 @@ describe("L1BTCDepositorNtt Core Functions", () => {
     } = await waffle.loadFixture(contractsFixture))
   })
 
-
-
   describe("initialization", () => {
     it("should initialize with correct parameters", async () => {
       expect(await l1BtcDepositorNtt.bridge()).to.equal(bridge.address)
@@ -165,7 +187,9 @@ describe("L1BTCDepositorNtt Core Functions", () => {
     context("when the caller is not the owner", () => {
       it("should revert when setting default supported chain", async () => {
         await expect(
-          l1BtcDepositorNtt.connect(relayer).setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
+          l1BtcDepositorNtt
+            .connect(relayer)
+            .setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
         ).to.be.revertedWith("Ownable: caller is not the owner")
       })
     })
@@ -182,8 +206,12 @@ describe("L1BTCDepositorNtt Core Functions", () => {
       context("when setting unsupported chain as default", () => {
         it("should revert", async () => {
           await expect(
-            l1BtcDepositorNtt.connect(governance).setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
-          ).to.be.revertedWith("Chain must be supported before setting as default")
+            l1BtcDepositorNtt
+              .connect(governance)
+              .setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
+          ).to.be.revertedWith(
+            "Chain must be supported before setting as default"
+          )
         })
       })
 
@@ -204,7 +232,9 @@ describe("L1BTCDepositorNtt Core Functions", () => {
             .connect(governance)
             .setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
 
-          expect(await l1BtcDepositorNtt.defaultSupportedChain()).to.equal(WORMHOLE_CHAIN_SEI)
+          expect(await l1BtcDepositorNtt.defaultSupportedChain()).to.equal(
+            WORMHOLE_CHAIN_SEI
+          )
 
           await expect(tx)
             .to.emit(l1BtcDepositorNtt, "DefaultSupportedChainUpdated")
@@ -227,7 +257,9 @@ describe("L1BTCDepositorNtt Core Functions", () => {
             .connect(governance)
             .setDefaultSupportedChain(WORMHOLE_CHAIN_BASE)
 
-          expect(await l1BtcDepositorNtt.defaultSupportedChain()).to.equal(WORMHOLE_CHAIN_BASE)
+          expect(await l1BtcDepositorNtt.defaultSupportedChain()).to.equal(
+            WORMHOLE_CHAIN_BASE
+          )
 
           await expect(tx)
             .to.emit(l1BtcDepositorNtt, "DefaultSupportedChainUpdated")
@@ -310,7 +342,9 @@ describe("L1BTCDepositorNtt Core Functions", () => {
           context("when the deposit state is correct", () => {
             before(async () => {
               await createSnapshot()
-              bridge.revealDepositWithExtraData.returns(initializeDepositFixture.depositKey)
+              bridge.revealDepositWithExtraData.returns(
+                initializeDepositFixture.depositKey
+              )
             })
 
             after(async () => {
@@ -329,9 +363,17 @@ describe("L1BTCDepositorNtt Core Functions", () => {
 
               await expect(tx)
                 .to.emit(l1BtcDepositorNtt, "DepositInitialized")
-                .withArgs(initializeDepositFixture.depositKey, initializeDepositFixture.destinationChainDepositOwner.toLowerCase(), relayer.address)
+                .withArgs(
+                  initializeDepositFixture.depositKey,
+                  initializeDepositFixture.destinationChainDepositOwner.toLowerCase(),
+                  relayer.address
+                )
 
-              expect(await l1BtcDepositorNtt.deposits(initializeDepositFixture.depositKey)).to.equal(1)
+              expect(
+                await l1BtcDepositorNtt.deposits(
+                  initializeDepositFixture.depositKey
+                )
+              ).to.equal(1)
             })
           })
         })
@@ -349,10 +391,6 @@ describe("L1BTCDepositorNtt Core Functions", () => {
             ).to.be.revertedWith("Wrong deposit state")
           })
         })
-
-
-
-
       })
 
       context("when the deposit state is correct", () => {
@@ -392,7 +430,10 @@ describe("L1BTCDepositorNtt Core Functions", () => {
             .connect(governance)
             .setSupportedChain(WORMHOLE_CHAIN_SEI, true)
 
-          await tbtcToken.mint(l1BtcDepositorNtt.address, ethers.utils.parseEther("1").mul(10))
+          await tbtcToken.mint(
+            l1BtcDepositorNtt.address,
+            ethers.utils.parseEther("1").mul(10)
+          )
         })
 
         after(async () => {
@@ -403,10 +444,6 @@ describe("L1BTCDepositorNtt Core Functions", () => {
           nttManager.transfer.reset()
           await restoreSnapshot()
         })
-
-
-
-
       })
     })
 
@@ -414,7 +451,9 @@ describe("L1BTCDepositorNtt Core Functions", () => {
       context("when the caller is not the owner", () => {
         it("should revert", async () => {
           await expect(
-            l1BtcDepositorNtt.connect(relayer).updateGasOffsetParameters(1000, 2000)
+            l1BtcDepositorNtt
+              .connect(relayer)
+              .updateGasOffsetParameters(1000, 2000)
           ).to.be.revertedWith("Ownable: caller is not the owner")
         })
       })
@@ -432,8 +471,12 @@ describe("L1BTCDepositorNtt Core Functions", () => {
         })
 
         it("should set the gas offset params properly", async () => {
-          expect(await l1BtcDepositorNtt.initializeDepositGasOffset()).to.be.equal(1000)
-          expect(await l1BtcDepositorNtt.finalizeDepositGasOffset()).to.be.equal(2000)
+          expect(
+            await l1BtcDepositorNtt.initializeDepositGasOffset()
+          ).to.be.equal(1000)
+          expect(
+            await l1BtcDepositorNtt.finalizeDepositGasOffset()
+          ).to.be.equal(2000)
         })
 
         it("should emit GasOffsetParametersUpdated event", async () => {
@@ -491,9 +534,7 @@ describe("L1BTCDepositorNtt Core Functions", () => {
       context("when the caller is not the owner", () => {
         it("should revert", async () => {
           await expect(
-            l1BtcDepositorNtt
-              .connect(relayer)
-              .setReimburseTxMaxFee(true)
+            l1BtcDepositorNtt.connect(relayer).setReimburseTxMaxFee(true)
           ).to.be.revertedWith("Ownable: caller is not the owner")
         })
       })
@@ -512,9 +553,7 @@ describe("L1BTCDepositorNtt Core Functions", () => {
         })
 
         it("should disable transaction max fee reimbursement", async () => {
-          await l1BtcDepositorNtt
-            .connect(governance)
-            .setReimburseTxMaxFee(true)
+          await l1BtcDepositorNtt.connect(governance).setReimburseTxMaxFee(true)
 
           const tx = await l1BtcDepositorNtt
             .connect(governance)

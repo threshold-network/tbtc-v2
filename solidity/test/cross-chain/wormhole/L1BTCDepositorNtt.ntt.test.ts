@@ -28,11 +28,11 @@ interface INttManager {
     recipientChain: number,
     recipient: string
   ): Promise<ContractTransaction>
-  
+
   quoteDeliveryPrice(
     recipientChain: number,
     transceiverInstructions: string
-  ): Promise<{ priceQuotes: BigNumber[], totalPrice: BigNumber }>
+  ): Promise<{ priceQuotes: BigNumber[]; totalPrice: BigNumber }>
 }
 
 describe("L1BTCDepositorNtt NTT Integration", () => {
@@ -47,7 +47,8 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
   let l1BtcDepositorNtt: L1BTCDepositorNtt
 
   const contractsFixture = async () => {
-    const { deployer, governance: gov } = await helpers.signers.getNamedSigners()
+    const { deployer, governance: gov } =
+      await helpers.signers.getNamedSigners()
 
     const accounts = await getUnnamedAccounts()
     const relayer = await ethers.getSigner(accounts[1])
@@ -61,11 +62,21 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
     // Create manual mock for NTT Manager
     nttManager = {
       address: ethers.Wallet.createRandom().address,
-      transfer: async function(amount: any, recipientChain: any, recipient: any, refundAddress?: any, shouldQueue?: any, transceiverInstructions?: any) {
-        return 123;
+      transfer: async function (
+        amount: any,
+        recipientChain: any,
+        recipient: any,
+        refundAddress?: any,
+        shouldQueue?: any,
+        transceiverInstructions?: any
+      ) {
+        return 123
       },
-      quoteDeliveryPrice: async function(recipientChain: any, transceiverInstructions?: any) {
-        return [[], BigNumber.from(50000)];
+      quoteDeliveryPrice: async function (
+        recipientChain: any,
+        transceiverInstructions?: any
+      ) {
+        return [[], BigNumber.from(50000)]
       },
     } as any
     // Add mock methods to the functions
@@ -150,7 +161,8 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
             .connect(governance)
             .setSupportedChain(WORMHOLE_CHAIN_SEI, true)
 
-          expect(await l1BtcDepositorNtt.supportedChains(WORMHOLE_CHAIN_SEI)).to.be.true
+          expect(await l1BtcDepositorNtt.supportedChains(WORMHOLE_CHAIN_SEI)).to
+            .be.true
         })
 
         it("should remove supported chain", async () => {
@@ -158,7 +170,8 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
             .connect(governance)
             .setSupportedChain(WORMHOLE_CHAIN_SEI, false)
 
-          expect(await l1BtcDepositorNtt.supportedChains(WORMHOLE_CHAIN_SEI)).to.be.false
+          expect(await l1BtcDepositorNtt.supportedChains(WORMHOLE_CHAIN_SEI)).to
+            .be.false
         })
       })
     })
@@ -206,7 +219,9 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
             .connect(governance)
             .setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
 
-          expect(await l1BtcDepositorNtt.defaultSupportedChain()).to.equal(WORMHOLE_CHAIN_SEI)
+          expect(await l1BtcDepositorNtt.defaultSupportedChain()).to.equal(
+            WORMHOLE_CHAIN_SEI
+          )
 
           await expect(tx)
             .to.emit(l1BtcDepositorNtt, "DefaultSupportedChainUpdated")
@@ -218,14 +233,14 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
             l1BtcDepositorNtt
               .connect(governance)
               .setDefaultSupportedChain(WORMHOLE_CHAIN_BASE)
-          ).to.be.revertedWith("Chain must be supported before setting as default")
+          ).to.be.revertedWith(
+            "Chain must be supported before setting as default"
+          )
         })
 
         it("should revert when setting zero chain ID as default", async () => {
           await expect(
-            l1BtcDepositorNtt
-              .connect(governance)
-              .setDefaultSupportedChain(0)
+            l1BtcDepositorNtt.connect(governance).setDefaultSupportedChain(0)
           ).to.be.revertedWith("Chain ID cannot be zero")
         })
       })
@@ -268,8 +283,12 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
             before(async () => {
               newNttManager = {
                 address: ethers.Wallet.createRandom().address,
-                transfer: async function() { return 123; },
-                quoteDeliveryPrice: async function() { return [[], BigNumber.from(50000)]; },
+                transfer: async function () {
+                  return 123
+                },
+                quoteDeliveryPrice: async function () {
+                  return [[], BigNumber.from(50000)]
+                },
               } as any
               newNttManager.transfer.returns = () => {}
               newNttManager.transfer.reset = () => {}
@@ -282,7 +301,9 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
             })
 
             it("should update the NTT Manager address", async () => {
-              expect(await l1BtcDepositorNtt.getNttConfiguration()).to.equal(newNttManager.address)
+              expect(await l1BtcDepositorNtt.getNttConfiguration()).to.equal(
+                newNttManager.address
+              )
             })
 
             it("should emit NttManagerUpdated event", async () => {

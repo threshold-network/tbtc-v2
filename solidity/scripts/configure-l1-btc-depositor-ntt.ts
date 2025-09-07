@@ -1,41 +1,41 @@
-import { ethers } from "hardhat";
-import { HardhatRuntimeEnvironment } from "hardhat/types";
+import { ethers } from "hardhat"
+import { HardhatRuntimeEnvironment } from "hardhat/types"
 
 /**
  * L1BTCDepositorNtt Configuration Script
- * 
+ *
  * Configures L1BTCDepositorNtt contract for different networks
  * Sets supported chains, NTT Manager settings, and other parameters
- * 
+ *
  * Usage:
  *   npx hardhat run scripts/configure-l1-btc-depositor-ntt.ts --network baseSepolia
  *   npx hardhat run scripts/configure-l1-btc-depositor-ntt.ts --network sepolia
  *   npx hardhat run scripts/configure-l1-btc-depositor-ntt.ts --network seiTestnet
  *   npx hardhat run scripts/configure-l1-btc-depositor-ntt.ts --network mainnet
- * 
+ *
  * Environment Variables:
  *   L1_BTC_DEPOSITOR_NTT_ADDRESS - Address of deployed L1BTCDepositorNtt contract
  *   NTT_MANAGER_ADDRESS - Address of NTT Manager contract (optional, will be read from contract)
  */
 
 interface ChainConfig {
-  chainId: number;
-  name: string;
-  enabled: boolean;
-  peerAddress?: string; // NTT Manager address on destination chain
-  rateLimitAmount?: string; // Amount in tBTC (18 decimals)
-  rateLimitDuration?: number; // Duration in seconds
+  chainId: number
+  name: string
+  enabled: boolean
+  peerAddress?: string // NTT Manager address on destination chain
+  rateLimitAmount?: string // Amount in tBTC (18 decimals)
+  rateLimitDuration?: number // Duration in seconds
 }
 
 interface NetworkConfiguration {
-  networkName: string;
-  contractAddress?: string;
-  nttManagerAddress?: string;
-  supportedChains: ChainConfig[];
+  networkName: string
+  contractAddress?: string
+  nttManagerAddress?: string
+  supportedChains: ChainConfig[]
   defaultRateLimit: {
-    amount: string; // Default rate limit amount
-    duration: number; // Default duration (1 hour = 3600)
-  };
+    amount: string // Default rate limit amount
+    duration: number // Default duration (1 hour = 3600)
+  }
 }
 
 const NETWORK_CONFIGURATIONS: Record<string, NetworkConfiguration> = {
@@ -53,7 +53,7 @@ const NETWORK_CONFIGURATIONS: Record<string, NetworkConfiguration> = {
       },
       {
         chainId: 10002, // Ethereum Sepolia
-        name: "Ethereum Sepolia", 
+        name: "Ethereum Sepolia",
         enabled: true,
         peerAddress: "0x06413c42e913327Bc9a08B7C1E362BAE7C0b9598", // Sepolia NTT Manager
         rateLimitAmount: ethers.utils.parseEther("1000").toString(), // 1000 tBTC
@@ -66,7 +66,7 @@ const NETWORK_CONFIGURATIONS: Record<string, NetworkConfiguration> = {
     },
   },
 
-  // Ethereum Sepolia - Hub configuration  
+  // Ethereum Sepolia - Hub configuration
   sepolia: {
     networkName: "Ethereum Sepolia",
     supportedChains: [
@@ -81,7 +81,7 @@ const NETWORK_CONFIGURATIONS: Record<string, NetworkConfiguration> = {
       {
         chainId: 32, // Sei
         name: "Sei",
-        enabled: true, 
+        enabled: true,
         peerAddress: "0x0000000000000000000000000000000000000000", // TODO: Sei NTT Manager address
         rateLimitAmount: ethers.utils.parseEther("500").toString(), // 500 tBTC
         rateLimitDuration: 3600, // 1 hour
@@ -145,7 +145,7 @@ const NETWORK_CONFIGURATIONS: Record<string, NetworkConfiguration> = {
       },
       {
         chainId: 8453, // Base Mainnet
-        name: "Base Mainnet", 
+        name: "Base Mainnet",
         enabled: true,
         peerAddress: "0x0000000000000000000000000000000000000000", // TODO: Base Mainnet NTT Manager
         rateLimitAmount: ethers.utils.parseEther("100000").toString(), // 100,000 tBTC
@@ -157,130 +157,159 @@ const NETWORK_CONFIGURATIONS: Record<string, NetworkConfiguration> = {
       duration: 86400, // 24 hours
     },
   },
-};
+}
 
 async function main() {
-  const hre = require("hardhat") as HardhatRuntimeEnvironment;
-  const { network } = hre;
-  const networkName = network.name;
+  const hre = require("hardhat") as HardhatRuntimeEnvironment
+  const { network } = hre
+  const networkName = network.name
 
-  console.log(`\n🔧 Configuring L1BTCDepositorNtt on ${networkName}...`);
+  console.log(`\n🔧 Configuring L1BTCDepositorNtt on ${networkName}...`)
 
   // Get configuration for this network
-  const config = NETWORK_CONFIGURATIONS[networkName];
+  const config = NETWORK_CONFIGURATIONS[networkName]
   if (!config) {
-    throw new Error(`No configuration found for network: ${networkName}`);
+    throw new Error(`No configuration found for network: ${networkName}`)
   }
 
   // Get contract address
-  const contractAddress = 
-    process.env.L1_BTC_DEPOSITOR_NTT_ADDRESS || 
-    config.contractAddress;
+  const contractAddress =
+    process.env.L1_BTC_DEPOSITOR_NTT_ADDRESS || config.contractAddress
 
   if (!contractAddress) {
     throw new Error(
       "Contract address not provided. Set L1_BTC_DEPOSITOR_NTT_ADDRESS environment variable " +
-      "or run deployment script first."
-    );
+        "or run deployment script first."
+    )
   }
 
-  console.log(`📄 Contract Address: ${contractAddress}`);
+  console.log(`📄 Contract Address: ${contractAddress}`)
 
   // Get contract instance
-  const [deployer] = await ethers.getSigners();
+  const [deployer] = await ethers.getSigners()
   const l1BtcDepositorNtt = await ethers.getContractAt(
     "L1BTCDepositorNtt",
     contractAddress,
     deployer
-  );
+  )
 
-  console.log(`👤 Deployer: ${deployer.address}`);
-  console.log(`💰 Balance: ${ethers.utils.formatEther(await deployer.getBalance())} ETH`);
+  console.log(`👤 Deployer: ${deployer.address}`)
+  console.log(
+    `💰 Balance: ${ethers.utils.formatEther(await deployer.getBalance())} ETH`
+  )
 
   // Configure supported chains
-  console.log(`\n🌐 Configuring supported chains for ${config.networkName}...`);
-  
+  console.log(`\n🌐 Configuring supported chains for ${config.networkName}...`)
+
   for (const chain of config.supportedChains) {
     try {
-      console.log(`\n   🔗 Configuring chain: ${chain.name} (ID: ${chain.chainId})`);
-      
-      // Check if chain is already supported
-      const isCurrentlySupported = await l1BtcDepositorNtt.supportedChains(chain.chainId);
-      
-      if (isCurrentlySupported !== chain.enabled) {
-        console.log(`   📝 Setting supported status: ${chain.enabled}`);
-        const tx = await l1BtcDepositorNtt.setSupportedChain(chain.chainId, chain.enabled);
-        await tx.wait();
-        console.log(`   ✅ Transaction: ${tx.hash}`);
-      } else {
-        console.log(`   ℹ️  Chain already configured correctly`);
-      }
+      console.log(
+        `\n   🔗 Configuring chain: ${chain.name} (ID: ${chain.chainId})`
+      )
 
+      // Check if chain is already supported
+      const isCurrentlySupported = await l1BtcDepositorNtt.supportedChains(
+        chain.chainId
+      )
+
+      if (isCurrentlySupported !== chain.enabled) {
+        console.log(`   📝 Setting supported status: ${chain.enabled}`)
+        const tx = await l1BtcDepositorNtt.setSupportedChain(
+          chain.chainId,
+          chain.enabled
+        )
+        await tx.wait()
+        console.log(`   ✅ Transaction: ${tx.hash}`)
+      } else {
+        console.log(`   ℹ️  Chain already configured correctly`)
+      }
     } catch (error) {
-      console.error(`   ❌ Failed to configure ${chain.name}: ${error.message}`);
+      console.error(`   ❌ Failed to configure ${chain.name}: ${error.message}`)
     }
   }
 
   // Get NTT Manager address
-  let nttManagerAddress;
+  let nttManagerAddress
   try {
-    nttManagerAddress = await l1BtcDepositorNtt.nttManager();
-    console.log(`\n🎯 NTT Manager: ${nttManagerAddress}`);
+    nttManagerAddress = await l1BtcDepositorNtt.nttManager()
+    console.log(`\n🎯 NTT Manager: ${nttManagerAddress}`)
   } catch (error) {
-    console.log(`\n⚠️  Could not read NTT Manager address: ${error.message}`);
+    console.log(`\n⚠️  Could not read NTT Manager address: ${error.message}`)
   }
 
   // Display current configuration
-  console.log(`\n📊 Current Configuration Summary:`);
-  console.log(`   Network: ${config.networkName}`);
-  console.log(`   Contract: ${contractAddress}`);
-  console.log(`   NTT Manager: ${nttManagerAddress || "Not available"}`);
-  
-  console.log(`\n   Supported Chains:`);
+  console.log(`\n📊 Current Configuration Summary:`)
+  console.log(`   Network: ${config.networkName}`)
+  console.log(`   Contract: ${contractAddress}`)
+  console.log(`   NTT Manager: ${nttManagerAddress || "Not available"}`)
+
+  console.log(`\n   Supported Chains:`)
   for (const chain of config.supportedChains) {
     try {
-      const isSupported = await l1BtcDepositorNtt.supportedChains(chain.chainId);
-      console.log(`   - ${chain.name} (${chain.chainId}): ${isSupported ? "✅ Enabled" : "❌ Disabled"}`);
+      const isSupported = await l1BtcDepositorNtt.supportedChains(chain.chainId)
+      console.log(
+        `   - ${chain.name} (${chain.chainId}): ${
+          isSupported ? "✅ Enabled" : "❌ Disabled"
+        }`
+      )
     } catch (error) {
-      console.log(`   - ${chain.name} (${chain.chainId}): ❓ Unknown`);
+      console.log(`   - ${chain.name} (${chain.chainId}): ❓ Unknown`)
     }
   }
 
   // Get list of all supported chains
   try {
-    const supportedChainsList = await l1BtcDepositorNtt.getSupportedChains();
-    console.log(`\n   All Supported Chain IDs: [${supportedChainsList.join(", ")}]`);
+    const supportedChainsList = await l1BtcDepositorNtt.getSupportedChains()
+    console.log(
+      `\n   All Supported Chain IDs: [${supportedChainsList.join(", ")}]`
+    )
   } catch (error) {
-    console.log(`\n   ⚠️  Could not retrieve supported chains list: ${error.message}`);
+    console.log(
+      `\n   ⚠️  Could not retrieve supported chains list: ${error.message}`
+    )
   }
 
   // Instructions for NTT Manager configuration
-  if (nttManagerAddress && nttManagerAddress !== "0x0000000000000000000000000000000000000000") {
-    console.log(`\n📋 Next Steps for NTT Manager Configuration:`);
-    console.log(`\n   1. Configure peers on NTT Manager (${nttManagerAddress}):`);
-    
+  if (
+    nttManagerAddress &&
+    nttManagerAddress !== "0x0000000000000000000000000000000000000000"
+  ) {
+    console.log(`\n📋 Next Steps for NTT Manager Configuration:`)
+    console.log(
+      `\n   1. Configure peers on NTT Manager (${nttManagerAddress}):`
+    )
+
     for (const chain of config.supportedChains) {
-      if (chain.peerAddress && chain.peerAddress !== "0x0000000000000000000000000000000000000000") {
-        console.log(`      await nttManager.setPeer(${chain.chainId}, "${chain.peerAddress}");`);
+      if (
+        chain.peerAddress &&
+        chain.peerAddress !== "0x0000000000000000000000000000000000000000"
+      ) {
+        console.log(
+          `      await nttManager.setPeer(${chain.chainId}, "${chain.peerAddress}");`
+        )
       } else {
-        console.log(`      // TODO: Set peer for ${chain.name} (${chain.chainId}) when NTT Manager is deployed`);
+        console.log(
+          `      // TODO: Set peer for ${chain.name} (${chain.chainId}) when NTT Manager is deployed`
+        )
       }
     }
 
-    console.log(`\n   2. Configure rate limits:`);
+    console.log(`\n   2. Configure rate limits:`)
     for (const chain of config.supportedChains) {
       if (chain.rateLimitAmount && chain.rateLimitDuration) {
-        console.log(`      await nttManager.setOutboundLimit(${chain.chainId}, "${chain.rateLimitAmount}", ${chain.rateLimitDuration});`);
+        console.log(
+          `      await nttManager.setOutboundLimit(${chain.chainId}, "${chain.rateLimitAmount}", ${chain.rateLimitDuration});`
+        )
       }
     }
   }
 
-  console.log(`\n✅ Configuration completed for ${config.networkName}!`);
+  console.log(`\n✅ Configuration completed for ${config.networkName}!`)
 }
 
 main()
   .then(() => process.exit(0))
   .catch((error) => {
-    console.error("❌ Configuration failed:", error);
-    process.exit(1);
-  });
+    console.error("❌ Configuration failed:", error)
+    process.exit(1)
+  })
