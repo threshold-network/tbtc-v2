@@ -2359,7 +2359,7 @@
   version "0.0.2"
   resolved "git+ssh://git@github.com/thesis/prettier-config.git#daeaac564056a7885e4366ce12bfde6fd823fc90"
 
-"@thesis/solidity-contracts@github:thesis/solidity-contracts#4985bcf":
+"@thesis/solidity-contracts@git+https://github.com/thesis/solidity-contracts.git#4985bcf", "@thesis/solidity-contracts@github:thesis/solidity-contracts#4985bcf":
   version "0.0.1"
   resolved "git+ssh://git@github.com/thesis/solidity-contracts.git#4985bcfc28e36eed9838993b16710e1b500f9e85"
   dependencies:
