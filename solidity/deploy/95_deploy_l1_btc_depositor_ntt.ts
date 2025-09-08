@@ -1,7 +1,9 @@
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
-import { secureKeyManager } from "../scripts/secure-key-manager"
 import { ethers, upgrades } from "hardhat"
+import { secureKeyManager } from "../scripts/secure-key-manager"
+import * as path from "path"
+import * as fs from "fs"
 
 /**
  * L1BTCDepositorNtt Deployment Script
@@ -131,8 +133,8 @@ const DEPLOYMENT_VERSION = "v2"
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   func.id = `L1BTCDepositorNtt_${DEPLOYMENT_VERSION}`
   const { deployments, getNamedAccounts, network } = hre
-  const { deploy, log, get } = deployments
-  const { governance } = await getNamedAccounts()
+  const { log } = deployments
+  await getNamedAccounts()
 
   const networkName = network.name
   const config = NETWORK_CONFIGS[networkName]
@@ -147,10 +149,6 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   let expectedOwner: string | undefined
   try {
     // Resolve relative to repository root regardless of CWD
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const path = require("path")
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const fs = require("fs")
     const jsonPath = path.join(
       __dirname,
       "../../cross-chain/sei/deployment-testnet.json"
@@ -325,7 +323,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     admin: adminAddress,
   }
 
-  log(`✅ L1BTCDepositorNtt deployed successfully!`)
+  log("✅ L1BTCDepositorNtt deployed successfully!")
   log(`   Proxy Address: ${l1BtcDepositorNtt.address}`)
   log(`   Implementation: ${l1BtcDepositorNtt.implementation}`)
   log(`   Proxy Admin: ${l1BtcDepositorNtt.admin}`)
@@ -353,7 +351,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   if (l1BtcDepositorNtt.newlyDeployed && config.supportedChains.length > 0) {
     log("🔧 Configuring supported destination chains...")
 
-    for (const chain of config.supportedChains) {
+    const chainConfigPromises = config.supportedChains.map(async (chain) => {
       try {
         const tx = await proxy.setSupportedChain(
           chain.chainId,
@@ -365,7 +363,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       } catch (error: any) {
         log(`   ❌ Failed to add chain ${chain.name}: ${error.message}`)
       }
-    }
+    })
+
+    await Promise.all(chainConfigPromises)
   }
 
   // Contract verification
