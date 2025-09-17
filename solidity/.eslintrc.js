@@ -5,7 +5,6 @@ module.exports = {
   },
   plugins: ["prettier", "no-only-tests"],
   extends: [
-    "airbnb",
     "airbnb-typescript",
     "airbnb/hooks",
     "prettier",
