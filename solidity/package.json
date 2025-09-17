@@ -78,5 +78,9 @@
   },
   "engines": {
     "node": ">= 14.0.0"
+  },
+  "resolutions": {
+    "@typescript-eslint/eslint-plugin": "^5.62.0",
+    "@typescript-eslint/parser": "^5.62.0"
   }
 }
