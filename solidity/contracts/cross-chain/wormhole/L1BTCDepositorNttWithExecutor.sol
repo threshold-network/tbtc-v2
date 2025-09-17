@@ -427,9 +427,11 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         _validateSignedQuote(executorArgs.signedQuote);
 
         // Approve the NttManagerWithExecutor to spend tBTC
+        // slither-disable-next-line reentrancy-eth,reentrancy-no-eth
         tbtcToken.safeIncreaseAllowance(address(nttManagerWithExecutor), amount);
 
         // Execute the transfer with executor support
+        // slither-disable-next-line reentrancy-eth,reentrancy-no-eth
         uint64 sequence = nttManagerWithExecutor.transfer{value: msg.value}(
             underlyingNttManager,
             amount,

@@ -285,6 +285,7 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
 
         // The NTT Manager will pull the tBTC amount from this contract
         // We need to approve the transfer first
+        // slither-disable-next-line reentrancy-eth,reentrancy-no-eth
         tbtcToken.safeIncreaseAllowance(address(nttManager), amount);
 
         // Execute NTT Hub-and-Spoke transfer with the actual recipient address
@@ -294,6 +295,7 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
         // 2. Lock them in the NTT Manager (locking mode for Hub)
         // 3. Send cross-chain message via configured transceivers
         // 4. Spoke chain receives attested message and mints native tokens to actual recipient
+        // slither-disable-next-line reentrancy-eth,reentrancy-no-eth
         uint64 sequence = nttManager.transfer{value: msg.value}(
             amount,
             destinationChain,
