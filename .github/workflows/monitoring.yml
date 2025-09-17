@@ -60,7 +60,7 @@ jobs:
         run: git config --global url."https://".insteadOf git://
 
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: yarn install --frozen-lockfile --ignore-engines
 
       - name: Build
         run: yarn build
@@ -141,7 +141,7 @@ jobs:
         run: git config --global url."https://".insteadOf git://
 
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: yarn install --frozen-lockfile --ignore-engines
 
       - name: Check formatting
         run: yarn format

@@ -47,7 +47,7 @@ jobs:
           cache-dependency-path: yearn/yarn.lock
 
       - name: Install dependencies
-        run: yarn install
+        run: yarn install --ignore-engines
 
       - name: Build contracts
         run: yarn build
@@ -81,10 +81,10 @@ jobs:
       - name: Install dependencies in the root directory
         run: |
           cd ..
-          yarn install --frozen-lockfile
+          yarn install --frozen-lockfile --ignore-engines
 
       - name: Install dependencies
-        run: yarn install
+        run: yarn install --ignore-engines
 
       - name: Check formatting
         run: yarn format
