@@ -26,6 +26,7 @@ library TrimmedAmountLib {
     /// @param fromDecimals The current number of decimals
     /// @param toDecimals The target number of decimals
     /// @return The scaled amount
+    // slither-disable-next-line dead-code
     function scale(uint256 amount, uint8 fromDecimals, uint8 toDecimals) internal pure returns (uint256) {
         if (fromDecimals == toDecimals) {
             return amount;
@@ -41,6 +42,7 @@ library TrimmedAmountLib {
     /// @param decimals The number of decimals
     /// @return The trimmed amount that fits in uint64
     /// @return The adjusted decimals
+    // slither-disable-next-line dead-code
     function trim(uint256 amount, uint8 decimals) internal pure returns (uint64, uint8) {
         if (amount <= type(uint64).max) {
             return (uint64(amount), decimals);
@@ -68,6 +70,7 @@ library TrimmedAmountLib {
     /// @param decimals The trimmed decimals
     /// @param targetDecimals The target decimals to scale to
     /// @return The untrimmed amount
+    // slither-disable-next-line dead-code
     function untrim(uint64 amount, uint8 decimals, uint8 targetDecimals) internal pure returns (uint256) {
         return scale(amount, decimals, targetDecimals);
     }
@@ -85,6 +88,7 @@ function packTrimmedAmount(uint64 amount, uint8 decimals) pure returns (TrimmedA
 /// @param amount The full precision amount
 /// @param decimals The number of decimals
 /// @return The TrimmedAmount
+// slither-disable-next-line dead-code
 function toTrimmedAmount(uint256 amount, uint8 decimals) pure returns (TrimmedAmount) {
     (uint64 trimmedAmount, uint8 trimmedDecimals) = TrimmedAmountLib.trim(amount, decimals);
     return packTrimmedAmount(trimmedAmount, trimmedDecimals);

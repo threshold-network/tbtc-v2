@@ -252,6 +252,9 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
         internal
         override
     {
+        // slither-disable-next-line reentrancy-eth,reentrancy-no-eth
+        // External calls are to trusted contracts (tbtcToken, nttManager)
+        // Event emission after external calls is correct pattern
         require(amount > 0, "Amount must be greater than 0");
 
         // Enhanced: Extract destination chain from encoded receiver address

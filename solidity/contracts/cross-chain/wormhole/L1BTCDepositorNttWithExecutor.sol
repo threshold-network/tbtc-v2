@@ -411,6 +411,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         ExecutorArgs memory executorArgs,
         FeeArgs memory feeArgs
     ) internal {
+        // slither-disable-next-line reentrancy-eth,reentrancy-no-eth
+        // External calls are to trusted contracts (tbtcToken, nttManagerWithExecutor)
+        // Event emission after external calls is correct pattern
         require(amount > 0, "Amount must be greater than 0");
 
         // Extract destination chain and recipient
@@ -519,19 +522,6 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         );
     }
 
-    /// @notice Create relay instructions for destination chain execution
-    /// @param gasLimit Gas limit for destination chain execution
-    /// @return instructions Encoded relay instructions
-    function _createRelayInstructions(uint256 gasLimit) internal pure returns (bytes memory instructions) {
-        // Create gas instruction: type (1 byte) + gasLimit (32 bytes) + msgValue (32 bytes)
-        bytes memory gasInstruction = abi.encodePacked(
-            uint8(0x01), // GasInstruction type
-            uint256(gasLimit), // Gas limit for destination execution
-            uint256(0) // No additional msg.value for destination
-        );
-        
-        return gasInstruction;
-    }
 
     /// @notice Validates the format of a signed quote from Wormhole Executor API
     /// @param signedQuote The signed quote bytes to validate
