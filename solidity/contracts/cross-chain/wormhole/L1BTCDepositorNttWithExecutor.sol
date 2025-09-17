@@ -170,6 +170,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @notice Emitted when a destination chain is added or removed
     event SupportedChainUpdated(uint16 indexed chainId, bool supported);
 
+    /// @notice Emitted when default supported chain is updated
+    event DefaultSupportedChainUpdated(uint16 indexed chainId);
+
     /// @notice Emitted when default parameters are updated
     event DefaultParametersUpdated(
         uint256 gasLimit,
@@ -235,6 +238,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
             "Chain must be supported before setting as default"
         );
         defaultSupportedChain = _chainId;
+        emit DefaultSupportedChainUpdated(_chainId);
     }
 
     /// @notice Adds or removes support for a destination chain
@@ -255,6 +259,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         uint16 _feeBps,
         address _feeRecipient
     ) external onlyOwner {
+        require(_feeRecipient != address(0) || _feeBps == 0, "Fee recipient cannot be zero when fee is set");
         defaultDestinationGasLimit = _gasLimit;
         defaultExecutorFeeBps = _feeBps;
         defaultExecutorFeeRecipient = _feeRecipient;
