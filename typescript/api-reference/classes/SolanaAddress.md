@@ -39,7 +39,7 @@ Represents a Solana address.
 
 #### Defined in
 
-[lib/solana/address.ts:10](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/address.ts#L10)
+[lib/solana/address.ts:10](https://github.com/jose-blockchain/tbtc-v2/blob/main/typescript/src/lib/solana/address.ts#L10)
 
 ## Properties
 
@@ -55,7 +55,7 @@ Identifier as an un-prefixed hex string.
 
 #### Defined in
 
-[lib/solana/address.ts:8](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/address.ts#L8)
+[lib/solana/address.ts:8](https://github.com/jose-blockchain/tbtc-v2/blob/main/typescript/src/lib/solana/address.ts#L8)
 
 ## Methods
 
@@ -81,7 +81,7 @@ Checks if two identifiers are equal.
 
 #### Defined in
 
-[lib/solana/address.ts:26](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/address.ts#L26)
+[lib/solana/address.ts:26](https://github.com/jose-blockchain/tbtc-v2/blob/main/typescript/src/lib/solana/address.ts#L26)
 
 ___
 
@@ -101,4 +101,4 @@ ___
 
 #### Defined in
 
-[lib/solana/address.ts:22](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/address.ts#L22)
+[lib/solana/address.ts:22](https://github.com/jose-blockchain/tbtc-v2/blob/main/typescript/src/lib/solana/address.ts#L22)
