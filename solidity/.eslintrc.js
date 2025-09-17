@@ -5,12 +5,10 @@ module.exports = {
   },
   plugins: ["prettier", "no-only-tests"],
   extends: [
-    "airbnb-typescript",
-    "airbnb/hooks",
+    "plugin:@typescript-eslint/recommended",
     "prettier",
     "plugin:import/recommended",
     "plugin:import/typescript",
-    "plugin:@typescript-eslint/recommended",
   ],
   rules: {
     semi: "off",
@@ -35,6 +33,7 @@ module.exports = {
     "no-console": "off",
     "@typescript-eslint/no-unused-vars": "off",
     "@typescript-eslint/no-explicit-any": "off",
+    "@typescript-eslint/no-empty-function": "off",
     "global-require": "off",
     "@typescript-eslint/no-var-requires": "off",
     "class-methods-use-this": "off",

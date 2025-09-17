@@ -54,7 +54,7 @@ contract MockNttManagerWithExecutor {
         bytes32 /* refundAddress */,
         bytes memory /* encodedInstructions */,
         ExecutorArgs calldata executorArgs,
-        FeeArgs calldata /* feeArgs */
+        FeeArgs calldata feeArgs
     ) external payable returns (uint64 msgId) {
         require(supportedChains[recipientChain], "Chain not supported");
         require(msg.value >= executorArgs.value, "Insufficient executor payment");
