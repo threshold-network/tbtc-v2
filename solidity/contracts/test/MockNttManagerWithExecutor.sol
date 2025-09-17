@@ -47,14 +47,14 @@ contract MockNttManagerWithExecutor {
     
     /// @notice Mock implementation of transfer matching real NttManagerWithExecutor
     function transfer(
-        address nttManager,
+        address /* nttManager */,
         uint256 amount,
         uint16 recipientChain,
         bytes32 recipientAddress,
-        bytes32 refundAddress,
-        bytes memory encodedInstructions,
+        bytes32 /* refundAddress */,
+        bytes memory /* encodedInstructions */,
         ExecutorArgs calldata executorArgs,
-        FeeArgs calldata feeArgs
+        FeeArgs calldata /* feeArgs */
     ) external payable returns (uint64 msgId) {
         require(supportedChains[recipientChain], "Chain not supported");
         require(msg.value >= executorArgs.value, "Insufficient executor payment");
@@ -83,11 +83,11 @@ contract MockNttManagerWithExecutor {
     
     /// @notice Mock implementation of quoteDeliveryPrice matching real implementation
     function quoteDeliveryPrice(
-        address nttManager,
+        address /* nttManager */,
         uint16 recipientChain,
-        bytes memory encodedInstructions,
+        bytes memory /* encodedInstructions */,
         ExecutorArgs calldata executorArgs,
-        FeeArgs calldata feeArgs
+        FeeArgs calldata /* feeArgs */
     ) external view returns (uint256 totalCost) {
         require(supportedChains[recipientChain], "Chain not supported");
         require(executorArgs.signedQuote.length > 0, "Empty signed quote");
