@@ -39,20 +39,55 @@ jobs:
       needs.docs-detect-changes.outputs.path-filter == 'true'
         || github.event_name == 'push'
         || github.event_name == 'workflow_dispatch'
-    uses: keep-network/ci/.github/workflows/reusable-solidity-docs.yml@main
-    with:
-      projectDir: /solidity
-      # We need to remove unnecessary `//` comment used in the `@dev`
-      # section of `BitcoinTx` documentation, which was causing problem with
-      # rendering of the `.md` file. We do that by executing
-      # `sed -i ':a;N;$!ba;s_///\n//\n_///\n_g'` on the problematic file. The
-      # command substitutes `///` + newline + `//` + newline with just `///` +
-      # newline and does this in a loop.
-      preProcessingCommand: sed -i ':a;N;$!ba;s_///\n//\n_///\n_g' ./contracts/bridge/BitcoinTx.sol
-      publish: false
-      addTOC: false
-      commentPR: false
-      exportAsGHArtifacts: true
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./solidity
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v3
+        with:
+          node-version: "20.x"
+          cache: "yarn"
+          cache-dependency-path: solidity/yarn.lock
+
+      # Configure git to use HTTPS instead of SSH for GitHub repositories
+      - name: Configure git for CI
+        run: |
+          git config --global url."https://".insteadOf git://
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      # Remove unnecessary `//` comment used in the `@dev` section of `BitcoinTx` documentation
+      - name: Preprocess BitcoinTx.sol
+        run: sed -i ':a;N;$!ba;s_///\n//\n_///\n_g' ./contracts/bridge/BitcoinTx.sol
+
+      - name: Build contracts
+        run: yarn build
+
+      - name: Generate documentation
+        run: npx hardhat docgen
+
+      - name: Create documentation archive
+        run: |
+          mkdir -p docs-archive
+          if [ -d "generated-docs" ] && [ "$(ls -A generated-docs)" ]; then
+            cp -r generated-docs/* docs-archive/
+            tar -czf contracts-docs.tar.gz docs-archive/
+          else
+            echo "No documentation generated" > docs-archive/README.txt
+            tar -czf contracts-docs.tar.gz docs-archive/
+          fi
+
+      - name: Upload documentation artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: contracts-documentation
+          path: contracts-docs.tar.gz
 
   # This job will be triggered for releases which name starts with
   # `refs/tags/solidity/`. It will generate contracts documentation in
@@ -64,26 +99,65 @@ jobs:
     name: Publish contracts documentation
     needs: docs-detect-changes
     if: github.event_name == 'release' && startsWith(github.ref, 'refs/tags/solidity/')
-    uses: keep-network/ci/.github/workflows/reusable-solidity-docs.yml@main
-    with:
-      projectDir: /solidity
-      # We need to remove unnecessary `//` comment used in the `@dev`
-      # section of `BitcoinTx` documentation, which was causing problem with
-      # rendering of the `.md` file. We do that by executing
-      # `sed -i ':a;N;$!ba;s_///\n//\n_///\n_g'` on the problematic file. The
-      # command substitutes `///` + newline + `//` + newline with just `///` +
-      # newline and does this in a loop.
-      preProcessingCommand: sed -i ':a;N;$!ba;s_///\n//\n_///\n_g' ./contracts/bridge/BitcoinTx.sol
-      publish: true
-      addTOC: false
-      verifyCommits: true
-      destinationRepo: threshold-network/threshold
-      destinationFolder: ./docs/app-development/tbtc-v2/tbtc-contracts-api/tbtc-v2-api
-      destinationBaseBranch: main
-      userEmail: 38324465+thesis-valkyrie@users.noreply.github.com
-      userName: Valkyrie
-      rsyncDelete: true
-    secrets:
-      githubToken: ${{ secrets.THRESHOLD_DOCS_GITHUB_TOKEN }}
-      gpgPrivateKey: ${{ secrets.THRESHOLD_DOCS_GPG_PRIVATE_KEY_BASE64 }}
-      gpgPassphrase: ${{ secrets.THRESHOLD_DOCS_GPG_PASSPHRASE }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./solidity
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v3
+        with:
+          node-version: "20.x"
+          cache: "yarn"
+          cache-dependency-path: solidity/yarn.lock
+
+      # Configure git to use HTTPS instead of SSH for GitHub repositories
+      - name: Configure git for CI
+        run: |
+          git config --global url."https://".insteadOf git://
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      # Remove unnecessary `//` comment used in the `@dev` section of `BitcoinTx` documentation
+      - name: Preprocess BitcoinTx.sol
+        run: sed -i ':a;N;$!ba;s_///\n//\n_///\n_g' ./contracts/bridge/BitcoinTx.sol
+
+      - name: Build contracts
+        run: yarn build
+
+      - name: Generate documentation
+        run: npx hardhat docgen
+
+      - name: Publish documentation to threshold repository
+        env:
+          GITHUB_TOKEN: ${{ secrets.THRESHOLD_DOCS_GITHUB_TOKEN }}
+        run: |
+          # Clone the destination repository
+          git clone https://github.com/threshold-network/threshold.git threshold-docs
+          cd threshold-docs
+          
+          # Configure git user
+          git config user.email "38324465+thesis-valkyrie@users.noreply.github.com"
+          git config user.name "Valkyrie"
+          
+          # Copy documentation files
+          rm -rf ./docs/app-development/tbtc-v2/tbtc-contracts-api/tbtc-v2-api
+          mkdir -p ./docs/app-development/tbtc-v2/tbtc-contracts-api/tbtc-v2-api
+          if [ -d "../generated-docs" ] && [ "$(ls -A ../generated-docs)" ]; then
+            cp -r ../generated-docs/* ./docs/app-development/tbtc-v2/tbtc-contracts-api/tbtc-v2-api/
+          else
+            echo "No documentation generated" > ./docs/app-development/tbtc-v2/tbtc-contracts-api/tbtc-v2-api/README.txt
+          fi
+          
+          # Commit and push changes
+          git add .
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update tBTC v2 contracts documentation"
+            git push origin main
+          fi
