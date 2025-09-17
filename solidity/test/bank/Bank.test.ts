@@ -1,13 +1,13 @@
 import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import chai, { expect } from "chai"
-import { FakeContract, smock } from "@defi-wonderland/smock"
+import { fake, matchers } from "../helpers/mockFactory"
 
 import { ContractTransaction, Signature, Wallet } from "ethers"
 import type { Bank, IVault } from "../../typechain"
 import { to1e18, toSatoshis } from "../helpers/contract-test-helpers"
 
-chai.use(smock.matchers)
+chai.use(matchers)
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
@@ -272,12 +272,12 @@ describe("Bank", () => {
 
     let owner: SignerWithAddress
 
-    let mockVault: FakeContract<IVault>
+    let mockVault: any
 
     before(async () => {
       const accounts = await getUnnamedAccounts()
       owner = await ethers.getSigner(accounts[0])
-      mockVault = await smock.fake<IVault>("IVault")
+      mockVault = await fake<IVault>("IVault")
     })
 
     context("when the spender is the zero address", () => {

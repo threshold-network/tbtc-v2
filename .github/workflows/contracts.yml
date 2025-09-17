@@ -79,7 +79,9 @@ jobs:
       # protocol. That protocol is no longer supported. Thanks to this step
       # `https://` is used instead of `git://`.
       - name: Configure git to don't use unauthenticated protocol
-        run: git config --global url."https://".insteadOf git://
+        run: |
+          git config --global url."https://".insteadOf git://
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
 
       - name: Install dependencies
         run: yarn install
@@ -122,7 +124,9 @@ jobs:
       # it re-appeared in the lock file. Now even if it does re-appear, the
       # `yarn install --frozen-lockfile` will not fail.
       - name: Configure git to don't use unauthenticated protocol
-        run: git config --global url."https://".insteadOf git://
+        run: |
+          git config --global url."https://".insteadOf git://
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile
@@ -157,7 +161,9 @@ jobs:
       # error during `yarn install --frozen-lockfile` step in case `git://` gets
       # introduced to tbtc-v2's `yarn.lock`.
       - name: Configure git to don't use unauthenticated protocol
-        run: git config --global url."https://".insteadOf git://
+        run: |
+          git config --global url."https://".insteadOf git://
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile
@@ -252,7 +258,9 @@ jobs:
       # it re-appeared in the lock file. Now even if it does re-appear, the
       # `yarn install --frozen-lockfile` will not fail.
       - name: Configure git to don't use unauthenticated protocol
-        run: git config --global url."https://".insteadOf git://
+        run: |
+          git config --global url."https://".insteadOf git://
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
 
       - name: Install needed dependencies
         run: yarn install --frozen-lockfile
@@ -303,7 +311,9 @@ jobs:
       # error during `yarn install --frozen-lockfile` step in case `git://` gets
       # introduced to tbtc-v2's `yarn.lock`.
       - name: Configure git to don't use unauthenticated protocol
-        run: git config --global url."https://".insteadOf git://
+        run: |
+          git config --global url."https://".insteadOf git://
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile
@@ -376,7 +386,9 @@ jobs:
       # protocol. That protocol is no longer supported. Thanks to this step
       # `https://` is used instead of `git://`.
       - name: Configure git to don't use unauthenticated protocol
-        run: git config --global url."https://".insteadOf git://
+        run: |
+          git config --global url."https://".insteadOf git://
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
 
       - name: Install dependencies
         run: yarn install
@@ -428,7 +440,9 @@ jobs:
       # protocol. That protocol is no longer supported. Thanks to this step
       # `https://` is used instead of `git://`.
       - name: Configure git to don't use unauthenticated protocol
-        run: git config --global url."https://".insteadOf git://
+        run: |
+          git config --global url."https://".insteadOf git://
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
 
       - name: Install dependencies
         run: yarn install
