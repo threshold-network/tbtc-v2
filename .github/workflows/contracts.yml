@@ -69,7 +69,7 @@ jobs:
 
       - uses: actions/setup-node@v3
         with:
-          node-version: "14.x"
+          node-version: "18.x"
           cache: "yarn"
           cache-dependency-path: solidity/yarn.lock
 
@@ -84,7 +84,7 @@ jobs:
           git config --global url."https://github.com/".insteadOf "git@github.com:"
 
       - name: Install dependencies
-        run: yarn install --ignore-engines
+        run: yarn install
 
       - name: Build contracts
         run: yarn build
@@ -113,7 +113,7 @@ jobs:
 
       - uses: actions/setup-node@v3
         with:
-          node-version: "14.x"
+          node-version: "18.x"
           cache: "yarn"
           cache-dependency-path: solidity/yarn.lock
 
@@ -129,7 +129,7 @@ jobs:
           git config --global url."https://github.com/".insteadOf "git@github.com:"
 
       - name: Install dependencies
-        run: yarn install --ignore-engines --frozen-lockfile
+        run: yarn install --frozen-lockfile
 
       - name: Deploy contracts
         run: yarn deploy:test
@@ -148,7 +148,7 @@ jobs:
 
       - uses: actions/setup-node@v3
         with:
-          node-version: "14.x"
+          node-version: "18.x"
           cache: "yarn"
           cache-dependency-path: solidity/yarn.lock
           registry-url: "https://registry.npmjs.org"
@@ -166,7 +166,7 @@ jobs:
           git config --global url."https://github.com/".insteadOf "git@github.com:"
 
       - name: Install dependencies
-        run: yarn install --ignore-engines --frozen-lockfile
+        run: yarn install --frozen-lockfile
 
       - name: Get upstream packages versions
         uses: keep-network/ci/actions/upstream-builds-query@v2
@@ -247,7 +247,7 @@ jobs:
 
       - uses: actions/setup-node@v3
         with:
-          node-version: "14.x"
+          node-version: "18.x"
           cache: "yarn"
           cache-dependency-path: solidity/yarn.lock
 
@@ -263,7 +263,7 @@ jobs:
           git config --global url."https://github.com/".insteadOf "git@github.com:"
 
       - name: Install needed dependencies
-        run: yarn install --ignore-engines --frozen-lockfile
+        run: yarn install --frozen-lockfile
 
       # If we don't remove the contracts from `node-modules`, the
       # `etherscan-verify` plugins tries to verify them, which is not desired.
@@ -298,7 +298,7 @@ jobs:
 
       - uses: actions/setup-node@v3
         with:
-          node-version: "14.x"
+          node-version: "18.x"
           cache: "yarn"
           cache-dependency-path: solidity/yarn.lock
           registry-url: "https://registry.npmjs.org"
@@ -316,7 +316,7 @@ jobs:
           git config --global url."https://github.com/".insteadOf "git@github.com:"
 
       - name: Install dependencies
-        run: yarn install --ignore-engines --frozen-lockfile
+        run: yarn install --frozen-lockfile
 
       - name: Get upstream packages versions
         uses: keep-network/ci/actions/upstream-builds-query@v2
@@ -368,7 +368,7 @@ jobs:
 
       - uses: actions/setup-node@v3
         with:
-          node-version: "14.x"
+          node-version: "18.x"
           cache: "yarn"
           cache-dependency-path: solidity/yarn.lock
 
@@ -378,7 +378,7 @@ jobs:
       - name: Install dependencies in the root directory
         run: |
           cd ..
-          yarn install --frozen-lockfile --ignore-engines
+          yarn install --frozen-lockfile
 
       # We need this step because the `@keep-network/tbtc` which we update in
       # next steps has a dependency to `@summa-tx/relay-sol@2.0.2` package, which
@@ -391,7 +391,7 @@ jobs:
           git config --global url."https://github.com/".insteadOf "git@github.com:"
 
       - name: Install dependencies
-        run: yarn install --ignore-engines
+        run: yarn install
 
       - name: Build
         run: yarn build
@@ -413,7 +413,7 @@ jobs:
 
       - uses: actions/setup-node@v3
         with:
-          node-version: "14.x"
+          node-version: "18.x"
           cache: "yarn"
           cache-dependency-path: solidity/yarn.lock
 
@@ -445,7 +445,7 @@ jobs:
           git config --global url."https://github.com/".insteadOf "git@github.com:"
 
       - name: Install dependencies
-        run: yarn install --ignore-engines
+        run: yarn install
 
       - name: Run Slither
         run: slither --hardhat-artifacts-directory build .
