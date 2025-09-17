@@ -20,7 +20,7 @@ import {
 } from "../ethereum"
 import { Hex } from "../utils"
 import { BitcoinRawTxVectors } from "../bitcoin"
-import { TransactionReceipt } from "ethers"
+import { TransactionReceipt } from "@ethersproject/providers"
 import { BigNumber } from "ethers"
 
 // TODO: Add actual L1 deployment artifacts when contracts are deployed
