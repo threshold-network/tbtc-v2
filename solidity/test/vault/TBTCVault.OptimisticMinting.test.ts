@@ -151,6 +151,13 @@ describe("TBTCVault - OptimisticMinting", () => {
     context("when called by a minter", () => {
       before(async () => {
         await createSnapshot()
+        
+        // Clear any existing minters first
+        const existingMinters = await tbtcVault.getMinters()
+        for (const existingMinter of existingMinters) {
+          await tbtcVault.connect(governance).removeMinter(existingMinter)
+        }
+        
         await tbtcVault.connect(governance).addMinter(minter.address)
       })
 
@@ -222,8 +229,10 @@ describe("TBTCVault - OptimisticMinting", () => {
               .revealDeposit(fundingTx, depositRevealInfo)
 
             // Setting mocks to make the sweeping SPV proof validation pass.
-            relay.getPrevEpochDifficulty.returns(chainDifficulty)
-            relay.getCurrentEpochDifficulty.returns(chainDifficulty)
+            if (relay && relay.getPrevEpochDifficulty) {
+              relay.getPrevEpochDifficulty.returns(chainDifficulty)
+              relay.getCurrentEpochDifficulty.returns(chainDifficulty)
+            }
             await bridge
               .connect(spvMaintainer)
               .submitDepositSweepProof(
@@ -235,8 +244,10 @@ describe("TBTCVault - OptimisticMinting", () => {
           })
 
           after(async () => {
-            relay.getPrevEpochDifficulty.reset()
-            relay.getCurrentEpochDifficulty.reset()
+            if (relay && relay.getPrevEpochDifficulty) {
+              relay.getPrevEpochDifficulty.reset()
+              relay.getCurrentEpochDifficulty.reset()
+            }
             await restoreSnapshot()
           })
 
@@ -339,6 +350,13 @@ describe("TBTCVault - OptimisticMinting", () => {
     context("when called by a minter", () => {
       before(async () => {
         await createSnapshot()
+        
+        // Clear any existing minters first
+        const existingMinters = await tbtcVault.getMinters()
+        for (const existingMinter of existingMinters) {
+          await tbtcVault.connect(governance).removeMinter(existingMinter)
+        }
+        
         await tbtcVault.connect(governance).addMinter(minter.address)
       })
 
@@ -450,8 +468,10 @@ describe("TBTCVault - OptimisticMinting", () => {
           await increaseTime(await tbtcVault.optimisticMintingDelay())
 
           // Setting mocks to make the sweeping SPV proof validation pass.
-          relay.getPrevEpochDifficulty.returns(chainDifficulty)
-          relay.getCurrentEpochDifficulty.returns(chainDifficulty)
+          if (relay && relay.getPrevEpochDifficulty) {
+            relay.getPrevEpochDifficulty.returns(chainDifficulty)
+            relay.getCurrentEpochDifficulty.returns(chainDifficulty)
+          }
           await bridge
             .connect(spvMaintainer)
             .submitDepositSweepProof(
@@ -463,8 +483,10 @@ describe("TBTCVault - OptimisticMinting", () => {
         })
 
         after(async () => {
-          relay.getPrevEpochDifficulty.reset()
-          relay.getCurrentEpochDifficulty.reset()
+          if (relay && relay.getPrevEpochDifficulty) {
+            relay.getPrevEpochDifficulty.reset()
+            relay.getCurrentEpochDifficulty.reset()
+          }
           await restoreSnapshot()
         })
 
@@ -829,6 +851,13 @@ describe("TBTCVault - OptimisticMinting", () => {
     context("when called by a guardian", () => {
       before(async () => {
         await createSnapshot()
+        
+        // Clear any existing minters first
+        const existingMinters = await tbtcVault.getMinters()
+        for (const existingMinter of existingMinters) {
+          await tbtcVault.connect(governance).removeMinter(existingMinter)
+        }
+        
         await tbtcVault.connect(governance).addMinter(minter.address)
         await tbtcVault.connect(governance).addGuardian(guardian.address)
 
@@ -938,6 +967,12 @@ describe("TBTCVault - OptimisticMinting", () => {
         before(async () => {
           await createSnapshot()
 
+          // Clear any existing minters first
+          const existingMinters = await tbtcVault.getMinters()
+          for (const existingMinter of existingMinters) {
+            await tbtcVault.connect(governance).removeMinter(existingMinter)
+          }
+
           tx = await tbtcVault.connect(governance).addMinter(minter.address)
         })
 
@@ -960,6 +995,12 @@ describe("TBTCVault - OptimisticMinting", () => {
       context("when address is a minter", () => {
         before(async () => {
           await createSnapshot()
+
+          // Clear any existing minters first
+          const existingMinters = await tbtcVault.getMinters()
+          for (const existingMinter of existingMinters) {
+            await tbtcVault.connect(governance).removeMinter(existingMinter)
+          }
 
           await tbtcVault.connect(governance).addMinter(minter.address)
         })
@@ -984,6 +1025,12 @@ describe("TBTCVault - OptimisticMinting", () => {
 
         before(async () => {
           await createSnapshot()
+
+          // Clear any existing minters first
+          const existingMinters = await tbtcVault.getMinters()
+          for (const existingMinter of existingMinters) {
+            await tbtcVault.connect(governance).removeMinter(existingMinter)
+          }
 
           await tbtcVault.connect(governance).addMinter(minters[0])
           await tbtcVault.connect(governance).addMinter(minters[1])
@@ -1016,6 +1063,12 @@ describe("TBTCVault - OptimisticMinting", () => {
 
         before(async () => {
           await createSnapshot()
+
+          // Clear any existing minters first
+          const existingMinters = await tbtcVault.getMinters()
+          for (const existingMinter of existingMinters) {
+            await tbtcVault.connect(governance).removeMinter(existingMinter)
+          }
 
           await tbtcVault.connect(governance).addMinter(minter.address)
           tx = await tbtcVault.connect(governance).removeMinter(minter.address)
@@ -1071,6 +1124,12 @@ describe("TBTCVault - OptimisticMinting", () => {
         before(async () => {
           await createSnapshot()
 
+          // Clear any existing minters first
+          const existingMinters = await tbtcVault.getMinters()
+          for (const existingMinter of existingMinters) {
+            await tbtcVault.connect(governance).removeMinter(existingMinter)
+          }
+
           await tbtcVault.connect(governance).addMinter(minter.address)
           await tbtcVault.connect(governance).addGuardian(guardian.address)
           tx = await tbtcVault.connect(guardian).removeMinter(minter.address)
@@ -1102,6 +1161,12 @@ describe("TBTCVault - OptimisticMinting", () => {
 
         before(async () => {
           await createSnapshot()
+
+          // Clear any existing minters first
+          const existingMinters = await tbtcVault.getMinters()
+          for (const existingMinter of existingMinters) {
+            await tbtcVault.connect(governance).removeMinter(existingMinter)
+          }
 
           await tbtcVault.connect(governance).addMinter(minters[0])
           await tbtcVault.connect(governance).addMinter(minters[1])
@@ -1643,6 +1708,13 @@ describe("TBTCVault - OptimisticMinting", () => {
 
         before(async () => {
           await createSnapshot()
+          
+          // Clear any existing minters first
+          const existingMinters = await tbtcVault.getMinters()
+          for (const existingMinter of existingMinters) {
+            await tbtcVault.connect(governance).removeMinter(existingMinter)
+          }
+          
           await tbtcVault.connect(governance).addMinter(minter.address)
 
           await bridge
@@ -1659,8 +1731,10 @@ describe("TBTCVault - OptimisticMinting", () => {
             .finalizeOptimisticMint(fundingTxHash, fundingOutputIndex)
 
           // Setting mocks to make the sweeping SPV proof validation pass.
-          relay.getPrevEpochDifficulty.returns(chainDifficulty)
-          relay.getCurrentEpochDifficulty.returns(chainDifficulty)
+          if (relay && relay.getPrevEpochDifficulty) {
+            relay.getPrevEpochDifficulty.returns(chainDifficulty)
+            relay.getCurrentEpochDifficulty.returns(chainDifficulty)
+          }
           tx = await bridge
             .connect(spvMaintainer)
             .submitDepositSweepProof(
@@ -1672,8 +1746,10 @@ describe("TBTCVault - OptimisticMinting", () => {
         })
 
         after(async () => {
-          relay.getPrevEpochDifficulty.reset()
-          relay.getCurrentEpochDifficulty.reset()
+          if (relay && relay.getPrevEpochDifficulty) {
+            relay.getPrevEpochDifficulty.reset()
+            relay.getCurrentEpochDifficulty.reset()
+          }
           await restoreSnapshot()
         })
 
@@ -1729,7 +1805,7 @@ describe("TBTCVault - OptimisticMinting", () => {
       // Testing multiple-deposits scenarios with mocked bridge is way easier.
       // This function prepares a fixture separate from the main test setup's
       // fixture, just for testing multiple-deposits scenarios.
-      const prepareFixture = async function (): Promise<Fixture> {
+      const prepareFixture = async (): Promise<Fixture> => {
         const mockBank = await smock.fake<Bank>("Bank")
         const mockBridge = await smock.fake<Bridge>("Bridge")
 
