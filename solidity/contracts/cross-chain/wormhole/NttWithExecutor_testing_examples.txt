@@ -1,0 +1,438 @@
+/**
+ * L1BTCDepositorNttWithExecutor Testing Examples
+ * Generated from real Wormhole Executor API responses
+ * 
+ * These examples contain real signed quotes and parameters for unit and integration testing.
+ * Use these in your test suites to ensure proper integration with the Wormhole Executor service.
+ */
+
+// ============================================================================
+// REAL EXECUTOR QUOTE EXAMPLES
+// ============================================================================
+
+/**
+ * Example 1: Working Executor Quote with Gas Instructions
+ * Source: Ethereum (Chain ID: 2)
+ * Destination: Sei EVM (Chain ID: 40)
+ * Gas Limit: 500,000
+ */
+const EXAMPLE_1_WORKING_QUOTE = {
+  // Real signed quote from Wormhole Executor API
+  signedQuote: "0x45513031a54008017941ece968623a0dd8ee907e2b13359600000000000000000000000006a8bfc410a3cc7306d52872f116afb12f1cec6c6000200280000000068c9322e000000000362cb000000004190ab00000028fc9b289e0000000000bdee21a0f32d61acd72bf6ed7e703e163fc2b253c6df6150d503f17a5e18ae0671f4379130357192d627689aff06d5d1ccc4f426315c934c724f4b9a8e589fd9dd187bab1c",
+  
+  // Estimated cost in wei
+  estimatedCost: "22228789591571", // ~0.00002223 ETH
+  
+  // Relay instructions (gas limit: 500,000)
+  relayInstructions: "0x010000000000000000000000000007a12000000000000000000000000000000000",
+  
+  // Metadata
+  quoteLength: 332, // characters including 0x prefix
+  byteLength: 165,  // actual bytes
+  srcChain: 2,      // Ethereum
+  dstChain: 40,     // Sei EVM
+  gasLimit: 500000,
+  timestamp: "2025-09-16T08:47:26.000Z"
+};
+
+/**
+ * Example 2: Empty Instructions Quote
+ * This works with empty relay instructions
+ */
+const EXAMPLE_2_EMPTY_INSTRUCTIONS = {
+  signedQuote: "0x45513031a54008017941ece968623a0dd8ee907e2b13359600000000000000000000000006a8bfc410a3cc7306d52872f116afb12f1cec6c6000200280000000068c9322e000000000362cb000000004190ab00000028fc9b289e0000000000bdee21a0f32d61acd72bf6ed7e703e163fc2b253c6df6150d503f17a5e18ae0671f4379130357192d627689aff06d5d1ccc4f426315c934c724f4b9a8e589fd9dd187bab1c",
+  estimatedCost: "22189900000000", // ~0.00002219 ETH
+  relayInstructions: "0x", // Empty instructions
+  quoteLength: 332,
+  byteLength: 165,
+  srcChain: 2,
+  dstChain: 40,
+  gasLimit: 0, // No specific gas limit
+  timestamp: "2025-09-16T08:47:26.000Z"
+};
+
+// ============================================================================
+// EXECUTOR ARGS EXAMPLES FOR CONTRACT TESTING
+// ============================================================================
+
+/**
+ * ExecutorArgs structure for setExecutorParameters()
+ */
+const EXECUTOR_ARGS_EXAMPLE_1 = {
+  value: "22228789591571", // Must match estimatedCost
+  refundAddress: "0xB6A114C2c34eF91eeb0d93bcdDD7B95a9D6892E1", // User address
+  signedQuote: "0x45513031a54008017941ece968623a0dd8ee907e2b13359600000000000000000000000006a8bfc410a3cc7306d52872f116afb12f1cec6c6000200280000000068c9322e000000000362cb000000004190ab00000028fc9b289e0000000000bdee21a0f32d61acd72bf6ed7e703e163fc2b253c6df6150d503f17a5e18ae0671f4379130357192d627689aff06d5d1ccc4f426315c934c724f4b9a8e589fd9dd187bab1c",
+  instructions: "0x010000000000000000000000000007a12000000000000000000000000000000000"
+};
+
+const EXECUTOR_ARGS_EXAMPLE_2 = {
+  value: "22189900000000", // Different cost
+  refundAddress: "0x742d35Cc6634C0532925a3b8D0eC8A9c4A8f6dFA", // Different user
+  signedQuote: "0x45513031a54008017941ece968623a0dd8ee907e2b13359600000000000000000000000006a8bfc410a3cc7306d52872f116afb12f1cec6c6000200280000000068c9322e000000000362cb000000004190ab00000028fc9b289e0000000000bdee21a0f32d61acd72bf6ed7e703e163fc2b253c6df6150d503f17a5e18ae0671f4379130357192d627689aff06d5d1ccc4f426315c934c724f4b9a8e589fd9dd187bab1c",
+  instructions: "0x" // Empty instructions
+};
+
+// ============================================================================
+// FEE ARGS EXAMPLES
+// ============================================================================
+
+/**
+ * FeeArgs structure examples
+ */
+const FEE_ARGS_NO_FEE = {
+  dbps: 0, // 0% fee
+  payee: "0x0000000000000000000000000000000000000000" // Zero address
+};
+
+const FEE_ARGS_WITH_FEE = {
+  dbps: 100, // 1% fee (100 basis points)
+  payee: "0x742d35Cc6634C0532925a3b8D0eC8A9c4A8f6dFA" // Fee recipient
+};
+
+const FEE_ARGS_HIGHER_FEE = {
+  dbps: 250, // 2.5% fee
+  payee: "0x1234567890123456789012345678901234567890"
+};
+
+// ============================================================================
+// DESTINATION CHAIN RECEIVER EXAMPLES
+// ============================================================================
+
+/**
+ * Encoded receiver format: [2 bytes: Chain ID][30 bytes: Recipient Address]
+ */
+const DESTINATION_RECEIVERS = {
+  // Sei EVM (Chain ID: 40 = 0x0028)
+  SEI_EVM_RECEIVER: "0x0028000000000000000000000000B6A114C2c34eF91eeb0d93bcdDD7B95a9D6892E1",
+  
+  // Base (Chain ID: 8453 = 0x2105)
+  BASE_RECEIVER: "0x2105000000000000000000000000742d35Cc6634C0532925a3b8D0eC8A9c4A8f6dFA",
+  
+  // Arbitrum (Chain ID: 23 = 0x0017)
+  ARBITRUM_RECEIVER: "0x0017000000000000000000000000742d35Cc6634C0532925a3b8D0eC8A9c4A8f6dFA"
+};
+
+// ============================================================================
+// COMPLETE TEST SCENARIOS
+// ============================================================================
+
+/**
+ * Test Scenario 1: Basic Transfer with Real Executor Quote
+ */
+const TEST_SCENARIO_1_BASIC_TRANSFER = {
+  name: "Basic tBTC transfer with executor",
+  
+  // Step 1: Set executor parameters
+  setExecutorParameters: {
+    executorArgs: EXECUTOR_ARGS_EXAMPLE_1,
+    feeArgs: FEE_ARGS_NO_FEE
+  },
+  
+  // Step 2: Quote the transfer
+  expectedQuoteCost: "22228789591571", // Should match executorArgs.value
+  
+  // Step 3: Execute transfer
+  finalizeDeposit: {
+    depositKey: "0x1234567890123456789012345678901234567890123456789012345678901234",
+    msgValue: "22228789591571", // Must match executor cost
+    destinationReceiver: DESTINATION_RECEIVERS.SEI_EVM_RECEIVER
+  },
+  
+  // Expected results
+  expectedEvents: [
+    "ExecutorParametersSet",
+    "DepositFinalized", 
+    "TokensTransferredNttWithExecutor"
+  ],
+  
+  expectedTransferSequence: "1", // Mock sequence number
+  expectedDestinationChain: 40,
+  expectedRecipient: "0x000000000000000000000000B6A114C2c34eF91eeb0d93bcdDD7B95a9D6892E1"
+};
+
+/**
+ * Test Scenario 2: Transfer with Fee
+ */
+const TEST_SCENARIO_2_WITH_FEE = {
+  name: "tBTC transfer with executor fee",
+  
+  setExecutorParameters: {
+    executorArgs: EXECUTOR_ARGS_EXAMPLE_2,
+    feeArgs: FEE_ARGS_WITH_FEE // 1% fee
+  },
+  
+  expectedQuoteCost: "22189900000000",
+  
+  finalizeDeposit: {
+    depositKey: "0xabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdef",
+    msgValue: "22189900000000",
+    destinationReceiver: DESTINATION_RECEIVERS.BASE_RECEIVER
+  },
+  
+  expectedDestinationChain: 8453, // Base
+  expectedFeeRecipient: "0x742d35Cc6634C0532925a3b8D0eC8A9c4A8f6dFA"
+};
+
+// ============================================================================
+// ERROR CASES FOR TESTING
+// ============================================================================
+
+/**
+ * Invalid signed quotes that should fail validation
+ */
+const INVALID_SIGNED_QUOTES = {
+  EMPTY_QUOTE: "",
+  TOO_SHORT: "0x1234", // Less than 64 bytes
+  NO_HEX_PREFIX: "45513031a54008017941ece968623a0dd8ee907e2b133596", // Missing 0x
+  WRONG_LENGTH: "0x4551" // Too short to be valid
+};
+
+/**
+ * Test cases that should revert
+ */
+const ERROR_TEST_CASES = {
+  NO_EXECUTOR_PARAMS: {
+    description: "Should revert if finalizeDeposit called without setting executor parameters",
+    expectedError: "Must call setExecutorParameters() first with real signed quote"
+  },
+  
+  INVALID_QUOTE: {
+    description: "Should revert with invalid signed quote",
+    executorArgs: {
+      ...EXECUTOR_ARGS_EXAMPLE_1,
+      signedQuote: INVALID_SIGNED_QUOTES.TOO_SHORT
+    },
+    expectedError: "Signed quote too short - must be real executor quote"
+  },
+  
+  EMPTY_QUOTE: {
+    description: "Should revert with empty signed quote",
+    executorArgs: {
+      ...EXECUTOR_ARGS_EXAMPLE_1,
+      signedQuote: INVALID_SIGNED_QUOTES.EMPTY_QUOTE
+    },
+    expectedError: "Real signed quote from Wormhole Executor API is required"
+  }
+};
+
+// ============================================================================
+// CONTRACT ADDRESSES FOR TESTING
+// ============================================================================
+
+/**
+ * Contract addresses used in testing (from scripts)
+ */
+const CONTRACT_ADDRESSES = {
+  ETHEREUM_MAINNET: {
+    nttManagerWithExecutor: "0xd2d9c936165a85f27a5a7e07afb974d022b89463",
+    originalNttManager: "0x79eb9aF995a443A102A19b41EDbB58d66e2921c7",
+    tbtcToken: "0x18084fbA666a33d37592fA2633fD49a74DD93a88"
+  },
+  
+  SEI_EVM: {
+    nttManager: "0xc10a0886d4Fe06bD61f41ee2855a2215375B82f0",
+    tbtcToken: "0xF9201c9192249066Aec049ae7951ae298BBEc767"
+  }
+};
+
+// ============================================================================
+// WORMHOLE CHAIN IDS
+// ============================================================================
+
+const WORMHOLE_CHAIN_IDS = {
+  ETHEREUM: 2,
+  SEI_EVM: 40,
+  BASE: 8453,
+  ARBITRUM: 23,
+  POLYGON: 5,
+  AVALANCHE: 6
+};
+
+// ============================================================================
+// RELAY INSTRUCTIONS EXAMPLES
+// ============================================================================
+
+/**
+ * Different relay instruction formats for testing
+ */
+const RELAY_INSTRUCTIONS = {
+  // Gas limit: 500,000 (0x7a120)
+  GAS_500K: "0x010000000000000000000000000007a12000000000000000000000000000000000",
+  
+  // Gas limit: 300,000 (0x493e0)
+  GAS_300K: "0x01000000000000000000000000000493e000000000000000000000000000000000",
+  
+  // Gas limit: 1,000,000 (0xf4240)
+  GAS_1M: "0x0100000000000000000000000000f424000000000000000000000000000000000",
+  
+  // Empty instructions
+  EMPTY: "0x"
+};
+
+// ============================================================================
+// USAGE EXAMPLES IN TESTS
+// ============================================================================
+
+/**
+ * Example test setup using these constants:
+ * 
+ * describe("L1BTCDepositorNttWithExecutor", function() {
+ *   
+ *   it("should set executor parameters and finalize deposit", async function() {
+ *     const { contract } = await loadFixture(deployFixture);
+ *     
+ *     // Set executor parameters with real quote
+ *     await contract.setExecutorParameters(
+ *       EXECUTOR_ARGS_EXAMPLE_1,
+ *       FEE_ARGS_NO_FEE
+ *     );
+ *     
+ *     // Verify parameters are set
+ *     expect(await contract.areExecutorParametersSet()).to.be.true;
+ *     expect(await contract.getStoredExecutorValue()).to.equal(EXECUTOR_ARGS_EXAMPLE_1.value);
+ *     
+ *     // Get quote
+ *     const cost = await contract.quoteFinalizeDeposit();
+ *     expect(cost).to.equal(TEST_SCENARIO_1_BASIC_TRANSFER.expectedQuoteCost);
+ *     
+ *     // Execute transfer
+ *     await expect(
+ *       contract.finalizeDeposit(
+ *         TEST_SCENARIO_1_BASIC_TRANSFER.finalizeDeposit.depositKey,
+ *         { value: TEST_SCENARIO_1_BASIC_TRANSFER.finalizeDeposit.msgValue }
+ *       )
+ *     ).to.emit(contract, "TokensTransferredNttWithExecutor");
+ *   });
+ *   
+ *   it("should revert with invalid signed quote", async function() {
+ *     const { contract } = await loadFixture(deployFixture);
+ *     
+ *     await expect(
+ *       contract.setExecutorParameters(
+ *         ERROR_TEST_CASES.INVALID_QUOTE.executorArgs,
+ *         FEE_ARGS_NO_FEE
+ *       )
+ *     ).to.be.revertedWith(ERROR_TEST_CASES.INVALID_QUOTE.expectedError);
+ *   });
+ * });
+ */
+
+module.exports = {
+  EXAMPLE_1_WORKING_QUOTE,
+  EXAMPLE_2_EMPTY_INSTRUCTIONS,
+  EXECUTOR_ARGS_EXAMPLE_1,
+  EXECUTOR_ARGS_EXAMPLE_2,
+  FEE_ARGS_NO_FEE,
+  FEE_ARGS_WITH_FEE,
+  FEE_ARGS_HIGHER_FEE,
+  DESTINATION_RECEIVERS,
+  TEST_SCENARIO_1_BASIC_TRANSFER,
+  TEST_SCENARIO_2_WITH_FEE,
+  INVALID_SIGNED_QUOTES,
+  ERROR_TEST_CASES,
+  CONTRACT_ADDRESSES,
+  WORMHOLE_CHAIN_IDS,
+  RELAY_INSTRUCTIONS
+};
+
+// ============================================================================
+// ENHANCED ERROR CASES FOR SAFE CHAIN HANDLING
+// ============================================================================
+
+/**
+ * Test cases for the improved chain validation (no fallback to default chain)
+ */
+const SAFE_CHAIN_VALIDATION_TESTS = {
+  ZERO_CHAIN_ID: {
+    description: "Should revert with zero chain ID",
+    destinationReceiver: "0x0000000000000000000000000000B6A114C2c34eF91eeb0d93bcdDD7B95a9D6892E1", // Chain ID = 0
+    expectedError: "Invalid destination: Chain ID cannot be zero. Use encodeDestinationReceiver() to properly encode destination."
+  },
+  
+  UNSUPPORTED_CHAIN: {
+    description: "Should revert with unsupported chain ID",
+    destinationReceiver: "0x03e7000000000000000000000000B6A114C2c34eF91eeb0d93bcdDD7B95a9D6892E1", // Chain ID = 999
+    expectedError: "Unsupported destination chain ID: 999. Supported chains:"
+  },
+  
+  MALFORMED_ENCODING: {
+    description: "Should revert with malformed destination encoding",
+    destinationReceiver: "0x0000000000000000000000000000000000000000000000000000000000000000", // All zeros
+    expectedError: "Invalid destination: Chain ID cannot be zero"
+  }
+};
+
+/**
+ * Validation helper test cases
+ */
+const VALIDATION_HELPER_TESTS = {
+  VALID_DESTINATION: {
+    chainId: 40, // Sei EVM
+    recipient: "0xB6A114C2c34eF91eeb0d93bcdDD7B95a9D6892E1",
+    expectedEncoded: "0x0028000000000000000000000000B6A114C2c34eF91eeb0d93bcdDD7B95a9D6892E1",
+    shouldSucceed: true
+  },
+  
+  ZERO_RECIPIENT: {
+    chainId: 40,
+    recipient: "0x0000000000000000000000000000000000000000",
+    expectedError: "Recipient cannot be zero address",
+    shouldSucceed: false
+  },
+  
+  UNSUPPORTED_CHAIN_ENCODING: {
+    chainId: 999, // Unsupported chain
+    recipient: "0xB6A114C2c34eF91eeb0d93bcdDD7B95a9D6892E1",
+    expectedError: "Chain ID 999 is not supported",
+    shouldSucceed: false
+  }
+};
+
+/**
+ * Example test implementation for safe chain handling:
+ * 
+ * describe("Safe Chain Handling", function() {
+ *   
+ *   it("should revert with informative message for unsupported chain", async function() {
+ *     const { contract } = await loadFixture(deployFixture);
+ *     
+ *     // Try to transfer to unsupported chain
+ *     await expect(
+ *       contract.validateDestination(SAFE_CHAIN_VALIDATION_TESTS.UNSUPPORTED_CHAIN.destinationReceiver)
+ *     ).to.be.revertedWith(SAFE_CHAIN_VALIDATION_TESTS.UNSUPPORTED_CHAIN.expectedError);
+ *   });
+ *   
+ *   it("should encode destination safely with validation", async function() {
+ *     const { contract } = await loadFixture(deployFixture);
+ *     
+ *     // Add supported chain first
+ *     await contract.setSupportedChain(40, true);
+ *     
+ *     // Safe encoding should work
+ *     const encoded = await contract.encodeDestinationReceiverSafe(
+ *       VALIDATION_HELPER_TESTS.VALID_DESTINATION.chainId,
+ *       VALIDATION_HELPER_TESTS.VALID_DESTINATION.recipient
+ *     );
+ *     
+ *     expect(encoded).to.equal(VALIDATION_HELPER_TESTS.VALID_DESTINATION.expectedEncoded);
+ *   });
+ *   
+ *   it("should prevent encoding to unsupported chain", async function() {
+ *     const { contract } = await loadFixture(deployFixture);
+ *     
+ *     // Try to encode to unsupported chain
+ *     await expect(
+ *       contract.encodeDestinationReceiverSafe(
+ *         VALIDATION_HELPER_TESTS.UNSUPPORTED_CHAIN_ENCODING.chainId,
+ *         VALIDATION_HELPER_TESTS.UNSUPPORTED_CHAIN_ENCODING.recipient
+ *       )
+ *     ).to.be.revertedWith(VALIDATION_HELPER_TESTS.UNSUPPORTED_CHAIN_ENCODING.expectedError);
+ *   });
+ * });
+ */
+
+module.exports = {
+  // ... existing exports ...
+  SAFE_CHAIN_VALIDATION_TESTS,
+  VALIDATION_HELPER_TESTS
+};

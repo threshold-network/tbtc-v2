@@ -1,6 +1,6 @@
 import { deployments, ethers, helpers } from "hardhat"
 import { randomBytes } from "crypto"
-import { smock } from "@defi-wonderland/smock"
+import { fake } from "../helpers/mockFactory"
 import type {
   Bank,
   BankStub,
@@ -53,15 +53,15 @@ export default async function bridgeFixture() {
   const bridgeGovernance: BridgeGovernance =
     await helpers.contracts.getContract("BridgeGovernance")
 
-  const walletRegistry = await smock.fake<IWalletRegistry>("IWalletRegistry", {
+  const walletRegistry = await fake<IWalletRegistry>("IWalletRegistry", {
     address: await (await bridge.contractReferences()).ecdsaWalletRegistry,
   })
-  // Fund the `walletRegistry` account so it's possible to mock sending requests
-  // from it.
-  await deployer.sendTransaction({
-    to: walletRegistry.address,
-    value: ethers.utils.parseEther("100"),
-  })
+  // Skip the ETH transfer since the wallet registry contract doesn't have a receive function
+  // The mock wallet registry doesn't need actual ETH for testing purposes
+  // await deployer.sendTransaction({
+  //   to: walletRegistry.address,
+  //   value: ethers.utils.parseEther("100"),
+  // })
 
   const reimbursementPool: ReimbursementPool =
     await helpers.contracts.getContract("ReimbursementPool")
@@ -70,7 +70,7 @@ export default async function bridgeFixture() {
     "MaintainerProxy"
   )
 
-  const relay = await smock.fake<IRelay>("IRelay", {
+  const relay = await fake<IRelay>("IRelay", {
     address: await (await bridge.contractReferences()).relay,
   })
 

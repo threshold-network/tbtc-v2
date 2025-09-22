@@ -55,6 +55,20 @@ export namespace Chains {
      */
     Devnet = "sui:devnet",
   }
+
+  /**
+   * Sei EVM chains.
+   */
+  export enum Sei {
+    /**
+     * Sei Pacific-1 Mainnet (EVM).
+     */
+    Sei = "1329",
+    /**
+     * Sei Atlantic-2 Testnet (EVM).
+     */
+    SeiAtlantic = "1328",
+  }
 }
 
 /**
@@ -87,7 +101,7 @@ export type ChainMapping = {
   arbitrum?: Chains.Arbitrum
 
   /**
-   * Identifier of the Arbitrum L2 chain.
+   * Identifier of the Solana chain.
    */
   solana?: Chains.Solana
   /**
@@ -98,6 +112,10 @@ export type ChainMapping = {
    * Identifier of the SUI L2 chain.
    */
   sui?: Chains.Sui
+  /**
+   * Identifier of the Sei EVM chain.
+   */
+  sei?: Chains.Sei
 }
 
 /**
@@ -111,6 +129,7 @@ export const ChainMappings: ChainMapping[] = [
     solana: Chains.Solana.Solana,
     starknet: Chains.StarkNet.Mainnet,
     sui: Chains.Sui.Mainnet,
+    sei: Chains.Sei.Sei,
   },
   {
     ethereum: Chains.Ethereum.Sepolia,
@@ -119,5 +138,6 @@ export const ChainMappings: ChainMapping[] = [
     solana: Chains.Solana.Devnet,
     starknet: Chains.StarkNet.Sepolia,
     sui: Chains.Sui.Testnet,
+    sei: Chains.Sei.SeiAtlantic,
   },
 ]

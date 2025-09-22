@@ -13,7 +13,7 @@ jobs:
 
       - uses: actions/setup-node@v3
         with:
-          node-version: "18.x"
+          node-version: "20.x"
           cache: "yarn"
           cache-dependency-path: system-tests/yarn.lock
 
@@ -22,7 +22,7 @@ jobs:
 
       - name: Install solidity dependencies
         working-directory: ./solidity
-        run: yarn install
+        run: yarn install --ignore-engines
 
       - name: Run ethereum node
         working-directory: ./solidity
@@ -48,7 +48,7 @@ jobs:
 
       - name: Install system tests dependencies
         working-directory: ./system-tests
-        run: yarn install
+        run: yarn install --ignore-engines
 
       - name: Run scenario
         working-directory: ./system-tests
@@ -69,7 +69,7 @@ jobs:
 
       - uses: actions/setup-node@v3
         with:
-          node-version: "18.x"
+          node-version: "20.x"
           cache: "yarn"
           cache-dependency-path: system-tests/yarn.lock
 
@@ -78,7 +78,7 @@ jobs:
 
       - name: Install solidity dependencies
         working-directory: ./solidity
-        run: yarn install
+        run: yarn install --ignore-engines
 
       - name: Run ethereum node
         working-directory: ./solidity
@@ -104,7 +104,7 @@ jobs:
 
       - name: Install system tests dependencies
         working-directory: ./system-tests
-        run: yarn install
+        run: yarn install --ignore-engines
 
       - name: Run scenario
         working-directory: ./system-tests

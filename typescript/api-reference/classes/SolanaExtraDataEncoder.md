@@ -66,7 +66,7 @@ Error if the extra data is missing, null, or not exactly 32 bytes.
 
 #### Defined in
 
-[lib/solana/extra-data-encoder.ts:41](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/extra-data-encoder.ts#L41)
+[lib/solana/extra-data-encoder.ts:41](https://github.com/jose-blockchain/tbtc-v2/blob/main/typescript/src/lib/solana/extra-data-encoder.ts#L41)
 
 ___
 
@@ -100,4 +100,4 @@ Error if the deposit owner is not a SolanaAddress instance.
 
 #### Defined in
 
-[lib/solana/extra-data-encoder.ts:23](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/solana/extra-data-encoder.ts#L23)
+[lib/solana/extra-data-encoder.ts:23](https://github.com/jose-blockchain/tbtc-v2/blob/main/typescript/src/lib/solana/extra-data-encoder.ts#L23)
