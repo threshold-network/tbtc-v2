@@ -2,10 +2,10 @@
   "extends": "solhint:recommended",
   "rules": {
     "compiler-version": ["warn", "^0.8.0"],
-    "func-visibility": ["warn", {"ignoreConstructors": true}],
+    "func-visibility": ["warn", { "ignoreConstructors": true }],
     "no-empty-blocks": "warn",
     "no-unused-vars": "warn",
-    "reason-string": ["warn", {"maxLength": 64}],
+    "reason-string": ["warn", { "maxLength": 64 }],
     "constructor-syntax": "error",
     "payable-fallback": "warn",
     "visibility-modifier-order": "error",
