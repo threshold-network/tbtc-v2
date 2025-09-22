@@ -82,6 +82,7 @@
     "@nomicfoundation/ethereumjs-util": "8.0.6",
     "cbor": "8.1.0",
     "@typescript-eslint/eslint-plugin": "5.62.0",
-    "@typescript-eslint/parser": "5.62.0"
+    "@typescript-eslint/parser": "5.62.0",
+    "@ethereumjs/util": "8.1.0"
   }
 }

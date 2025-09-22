@@ -305,12 +305,7 @@
   resolved "https://registry.yarnpkg.com/@ethereumjs/rlp/-/rlp-4.0.1.tgz#626fabfd9081baab3d0a3074b0c7ecaf674aaa41"
   integrity sha512-tqsQiBQDQdmPWE1xkkBq4rlSW5QZpLOUJ5RJh2/9fug+q9tnUhuZoVLk7s0scUIKTOzEtR72DFBXI4WiZcMpvw==
 
-"@ethereumjs/rlp@^5.0.2":
-  version "5.0.2"
-  resolved "https://registry.yarnpkg.com/@ethereumjs/rlp/-/rlp-5.0.2.tgz#c89bd82f2f3bec248ab2d517ae25f5bbc4aac842"
-  integrity sha512-DziebCdg4JpGlEqEdGgXmjqcFoJi+JGulUXwEjsZGAscAQ7MyD/7LE/GVCP29vEQxKc7AAwjT3A2ywHp2xfoCA==
-
-"@ethereumjs/util@^8.1.0":
+"@ethereumjs/util@8.1.0", "@ethereumjs/util@^8.1.0", "@ethereumjs/util@^9.1.0":
   version "8.1.0"
   resolved "https://registry.yarnpkg.com/@ethereumjs/util/-/util-8.1.0.tgz#299df97fb6b034e0577ce9f94c7d9d1004409ed4"
   integrity sha512-zQ0IqbdX8FZ9aw11vP+dZkKDkS+kgIvQPHnSAXzP9pLu+Rfu3D3XEeLbicvoXJTYnhZiPmsZUxgdzXwNKxRPbA==
@@ -318,14 +313,6 @@
     "@ethereumjs/rlp" "^4.0.1"
     ethereum-cryptography "^2.0.0"
     micro-ftch "^0.3.1"
-
-"@ethereumjs/util@^9.1.0":
-  version "9.1.0"
-  resolved "https://registry.yarnpkg.com/@ethereumjs/util/-/util-9.1.0.tgz#75e3898a3116d21c135fa9e29886565609129bce"
-  integrity sha512-XBEKsYqLGXLah9PNJbgdkigthkG7TAGvlD/sH12beMXEyHDyigfcbdvHhmLyDWgDyOJn4QwiQUaF7yeuhnjdog==
-  dependencies:
-    "@ethereumjs/rlp" "^5.0.2"
-    ethereum-cryptography "^2.2.1"
 
 "@ethersproject/abi@5.0.0-beta.153":
   version "5.0.0-beta.153"
@@ -3138,7 +3125,7 @@ bn.js@^4.0.0, bn.js@^4.1.0, bn.js@^4.10.0, bn.js@^4.11.0, bn.js@^4.11.6, bn.js@^
   resolved "https://registry.yarnpkg.com/bn.js/-/bn.js-4.12.2.tgz#3d8fed6796c24e177737f7cc5172ee04ef39ec99"
   integrity sha512-n4DSx829VRTRByMRGdjQ9iqsN0Bh4OolPsFnaZBLcbi8iXcB+kJ9s7EnRt4wILZNV3kPLHkRVfOc/HvhC3ovDw==
 
-bn.js@^5.1.1, bn.js@^5.1.2, bn.js@^5.2.0, bn.js@^5.2.1:
+bn.js@^5.1.1, bn.js@^5.1.2, bn.js@^5.2.0, bn.js@^5.2.1, bn.js@^5.2.2:
   version "5.2.2"
   resolved "https://registry.yarnpkg.com/bn.js/-/bn.js-5.2.2.tgz#82c09f9ebbb17107cd72cb7fd39bd1f9d0aaa566"
   integrity sha512-v2YAxEmKaBLahNwE1mjp4WON6huMNeuDvagFZW+ASCuA/ku0bXR9hSMw0XpiqMoA3+rmnyck/tPRSFQkoC9Cuw==
@@ -3254,7 +3241,7 @@ browserify-des@^1.0.0:
     inherits "^2.0.1"
     safe-buffer "^5.1.2"
 
-browserify-rsa@^4.0.0, browserify-rsa@^4.1.0:
+browserify-rsa@^4.0.0, browserify-rsa@^4.1.1:
   version "4.1.1"
   resolved "https://registry.yarnpkg.com/browserify-rsa/-/browserify-rsa-4.1.1.tgz#06e530907fe2949dc21fc3c2e2302e10b1437238"
   integrity sha512-YBjSAiTqM04ZVei6sXighu679a3SqWORA3qZTEqZImnlkDIFtKc6pNutpjyZ8RJTjQtuYfeetkxM11GwoYXMIQ==
@@ -3264,16 +3251,15 @@ browserify-rsa@^4.0.0, browserify-rsa@^4.1.0:
     safe-buffer "^5.2.1"
 
 browserify-sign@^4.0.0:
-  version "4.2.3"
-  resolved "https://registry.yarnpkg.com/browserify-sign/-/browserify-sign-4.2.3.tgz#7afe4c01ec7ee59a89a558a4b75bd85ae62d4208"
-  integrity sha512-JWCZW6SKhfhjJxO8Tyiiy+XYB7cqd2S5/+WeYHsKdNKFlCBhKbblba1A/HN/90YwtxKc8tCErjffZl++UNmGiw==
+  version "4.2.4"
+  resolved "https://registry.yarnpkg.com/browserify-sign/-/browserify-sign-4.2.4.tgz#4b6bdd5a510c1a1a0d9ae40968d821970a61bd90"
+  integrity sha512-pbZw0FHibrwXcpLQlXwHp21A5undDBo+RaGNL0K3KOm8nK8uP6PThhS301VDzoMgURZPiVRWRrVHlo6NyU57kA==
   dependencies:
-    bn.js "^5.2.1"
-    browserify-rsa "^4.1.0"
+    bn.js "^5.2.2"
+    browserify-rsa "^4.1.1"
     create-hash "^1.2.0"
     create-hmac "^1.1.7"
-    elliptic "^6.5.5"
-    hash-base "~3.0"
+    elliptic "^6.6.1"
     inherits "^2.0.4"
     parse-asn1 "^5.1.7"
     readable-stream "^2.3.8"
@@ -4496,7 +4482,7 @@ elliptic@6.5.4:
     minimalistic-assert "^1.0.1"
     minimalistic-crypto-utils "^1.0.1"
 
-elliptic@6.6.1, elliptic@^6.4.0, elliptic@^6.4.1, elliptic@^6.5.2, elliptic@^6.5.3, elliptic@^6.5.4, elliptic@^6.5.5:
+elliptic@6.6.1, elliptic@^6.4.0, elliptic@^6.4.1, elliptic@^6.5.2, elliptic@^6.5.3, elliptic@^6.5.4, elliptic@^6.6.1:
   version "6.6.1"
   resolved "https://registry.yarnpkg.com/elliptic/-/elliptic-6.6.1.tgz#3b8ffb02670bf69e382c7f65bf524c97c5405c06"
   integrity sha512-RaddvvMatK2LJHqFJ+YA4WysVN5Ita9E35botqIYspQ4TkRAlCicdzKOjlyv/1Za5RyTNn7di//eEV0uTAfe3g==
@@ -5238,7 +5224,7 @@ ethereum-cryptography@^1.0.3:
     "@scure/bip32" "1.1.5"
     "@scure/bip39" "1.1.1"
 
-ethereum-cryptography@^2.0.0, ethereum-cryptography@^2.1.2, ethereum-cryptography@^2.2.1:
+ethereum-cryptography@^2.0.0, ethereum-cryptography@^2.1.2:
   version "2.2.1"
   resolved "https://registry.yarnpkg.com/ethereum-cryptography/-/ethereum-cryptography-2.2.1.tgz#58f2810f8e020aecb97de8c8c76147600b0b8ccf"
   integrity sha512-r/W8lkHSiTLxUxW8Rf3u4HGB0xQweG2RyETjywylKZSzLWoWAijRz8WCuOtJ6wah+avllXBqZuk29HCCvhEIRg==
@@ -6621,13 +6607,14 @@ hash-base@^2.0.0:
     inherits "^2.0.1"
 
 hash-base@^3.0.0:
-  version "3.1.0"
-  resolved "https://registry.yarnpkg.com/hash-base/-/hash-base-3.1.0.tgz#55c381d9e06e1d2997a883b4a3fddfe7f0d3af33"
-  integrity sha512-1nmYp/rhMDiE7AYkDw+lLwlAzz0AntGIe51F3RfFfEqyQ3feY2eI/NcwC6umIQVOASPMsWJLJScWKSSvzL9IVA==
+  version "3.1.1"
+  resolved "https://registry.yarnpkg.com/hash-base/-/hash-base-3.1.1.tgz#a5a639d82978dcbb71acf2f0691ff372ce7e9805"
+  integrity sha512-kKPWP4THVMjWxThSgzBNuDzZNQiZmYYzabCEZ+a6jsvKDbrXsiHtMd5CuWGrU28yBv2m0PFMXh4Zs3BQuxv1xQ==
   dependencies:
     inherits "^2.0.4"
-    readable-stream "^3.6.0"
-    safe-buffer "^5.2.0"
+    readable-stream "^2.3.8"
+    safe-buffer "^5.2.1"
+    to-buffer "^1.2.1"
 
 hash-base@~3.0:
   version "3.0.5"
@@ -9761,7 +9748,7 @@ safe-array-concat@^1.1.2, safe-array-concat@^1.1.3:
     has-symbols "^1.1.0"
     isarray "^2.0.5"
 
-safe-buffer@5.2.1, safe-buffer@^5.0.1, safe-buffer@^5.1.0, safe-buffer@^5.1.1, safe-buffer@^5.1.2, safe-buffer@^5.2.0, safe-buffer@^5.2.1, safe-buffer@~5.2.0:
+safe-buffer@5.2.1, safe-buffer@^5.0.1, safe-buffer@^5.1.0, safe-buffer@^5.1.1, safe-buffer@^5.1.2, safe-buffer@^5.2.1, safe-buffer@~5.2.0:
   version "5.2.1"
   resolved "https://registry.yarnpkg.com/safe-buffer/-/safe-buffer-5.2.1.tgz#1eaf9fa9bdb1fdd4ec75f58f9cdb4e6b7827eec6"
   integrity sha512-rp3So07KcdmmKbGvgaNxQSJr7bGVSVk5S9Eq1F+ppbRo70+YeaDxkw5Dd8NPN+GD6bjnYm2VuPuCXmpuYvmCXQ==
@@ -10833,7 +10820,7 @@ tmp@0.1.0:
   dependencies:
     rimraf "^2.6.3"
 
-to-buffer@^1.1.1, to-buffer@^1.2.0:
+to-buffer@^1.1.1, to-buffer@^1.2.0, to-buffer@^1.2.1:
   version "1.2.1"
   resolved "https://registry.yarnpkg.com/to-buffer/-/to-buffer-1.2.1.tgz#2ce650cdb262e9112a18e65dc29dcb513c8155e0"
   integrity sha512-tB82LpAIWjhLYbqjx3X4zEeHN6M8CiuOEy2JY8SEQVdYRe3CCHOFaqrBW1doLDrfpWhplcW7BL+bO3/6S3pcDQ==
