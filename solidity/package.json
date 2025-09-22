@@ -79,6 +79,7 @@
   "resolutions": {
     "secp256k1": "3.8.0",
     "@noble/hashes": "1.0.0",
-    "@nomicfoundation/ethereumjs-util": "8.0.6"
+    "@nomicfoundation/ethereumjs-util": "8.0.6",
+    "cbor": "8.1.0"
   }
 }
