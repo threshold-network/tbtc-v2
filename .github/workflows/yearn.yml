@@ -48,14 +48,17 @@ jobs:
 
       - name: Install dependencies
         run: yarn install
+        working-directory: ./yearn
 
       - name: Build contracts
         run: yarn build
+        working-directory: ./yearn
 
       - name: Run system tests
         env:
           FORKING_URL: ${{ secrets.MAINNET_ETH_HOSTNAME }}
         run: yarn test:system
+        working-directory: ./yearn
 
   yearn-format:
     needs: yearn-detect-changes
