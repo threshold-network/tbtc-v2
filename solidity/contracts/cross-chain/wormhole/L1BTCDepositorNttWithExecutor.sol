@@ -411,7 +411,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         ExecutorArgs memory executorArgs,
         FeeArgs memory feeArgs
     ) internal {
-        // slither-disable-next-line reentrancy-eth,reentrancy-no-eth
+        // slither-disable-next-line reentrancy-vulnerabilities-3
         // External calls are to trusted contracts (tbtcToken, nttManagerWithExecutor)
         // Event emission after external calls is correct pattern
         require(amount > 0, "Amount must be greater than 0");
