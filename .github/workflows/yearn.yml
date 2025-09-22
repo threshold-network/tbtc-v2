@@ -55,10 +55,15 @@ jobs:
         working-directory: ./yearn
 
       - name: Run system tests
+        if: ${{ secrets.MAINNET_ETH_HOSTNAME != '' }}
         env:
           FORKING_URL: ${{ secrets.MAINNET_ETH_HOSTNAME }}
         run: yarn test:system
         working-directory: ./yearn
+
+      - name: Skip system tests (no forking URL available)
+        if: ${{ secrets.MAINNET_ETH_HOSTNAME == '' }}
+        run: echo "Skipping system tests - MAINNET_ETH_HOSTNAME secret not configured. These tests require a mainnet RPC endpoint with archival data."
 
   yearn-format:
     needs: yearn-detect-changes
