@@ -76,6 +76,20 @@
   "engines": {
     "node": ">=14.0.0"
   },
+  "resolutions": {
+    "secp256k1": "3.8.0",
+    "@noble/hashes": "1.0.0",
+    "@nomicfoundation/ethereumjs-util": "8.0.6",
+    "cbor": "8.1.0",
+    "@ethereumjs/util": "8.1.0",
+    "@noble/curves": "1.5.0",
+    "antlr4": "4.10.1",
+    "@openzeppelin/upgrades-core": "1.20.0",
+    "@aws-sdk/types": "3.1.0",
+    "@typescript-eslint/parser": "5.62.0",
+    "@typescript-eslint/eslint-plugin": "5.62.0",
+    "hardhat": "2.8.0"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/threshold-network/tbtc-v2.git",

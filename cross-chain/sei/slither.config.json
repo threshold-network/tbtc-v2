@@ -1,0 +1,9 @@
+{
+  "filter_paths": "contracts/hardhat-dependency-compiler,node_modules,build,cache",
+  "exclude_dependencies": true,
+  "exclude_informational": false,
+  "exclude_low": false,
+  "exclude_medium": false,
+  "exclude_high": false,
+  "solc_remaps": []
+}
