@@ -19,6 +19,7 @@ export CHAIN_API_URL="https://ethereum-sepolia.publicnode.com" \
 ```
 
 Notes:
+
 - You will be prompted for the master password to decrypt `solidity/.encrypted-key`.
 - The script validates the decrypted address equals the expected owner in `cross-chain/sei/deployment-testnet.json`.
 - Fees are in wei. Adjust as needed if the network is congested.

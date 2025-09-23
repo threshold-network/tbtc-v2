@@ -65,7 +65,9 @@ const config: HardhatUserConfig = {
       url: "http://127.0.0.1:8545",
     },
     seiTestnet: {
-      url: process.env.SEI_TESTNET_RPC_URL || "https://evm-rpc-testnet.sei-apis.com",
+      url:
+        process.env.SEI_TESTNET_RPC_URL ||
+        "https://evm-rpc-testnet.sei-apis.com",
       chainId: 1328,
       accounts: process.env.ACCOUNTS_PRIVATE_KEYS
         ? process.env.ACCOUNTS_PRIVATE_KEYS.split(",")
@@ -92,7 +94,9 @@ const config: HardhatUserConfig = {
       gasPrice: 1000000000, // 1 gwei
     },
     sepolia: {
-      url: process.env.SEPOLIA_RPC_URL || "https://ethereum-sepolia.publicnode.com",
+      url:
+        process.env.SEPOLIA_RPC_URL ||
+        "https://ethereum-sepolia.publicnode.com",
       chainId: 11155111,
       accounts: process.env.ACCOUNTS_PRIVATE_KEYS
         ? process.env.ACCOUNTS_PRIVATE_KEYS.split(",")

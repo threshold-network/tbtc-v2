@@ -1,19 +1,29 @@
 import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import type { DeployFunction } from "hardhat-deploy/types"
-import { deployL1BTCDepositorNttWithExecutor, NETWORK_CONFIGS } from '../scripts/deploy-l1btc-depositor-ntt-executor'
+import {
+  deployL1BTCDepositorNttWithExecutor,
+  NETWORK_CONFIGS,
+} from "../scripts/deploy-l1btc-depositor-ntt-executor"
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // Only deploy on Ethereum mainnet
-  if (hre.network.name !== 'mainnet') {
-    console.log(`⏭️  Skipping Mainnet L1BTCDepositorNttWithExecutor deployment on ${hre.network.name}`)
+  if (hre.network.name !== "mainnet") {
+    console.log(
+      `⏭️  Skipping Mainnet L1BTCDepositorNttWithExecutor deployment on ${hre.network.name}`
+    )
     return
   }
 
-  console.log('🎯 Deploying L1BTCDepositorNttWithExecutor on Ethereum Mainnet...')
-  
-  const result = await deployL1BTCDepositorNttWithExecutor(hre, NETWORK_CONFIGS.mainnet)
-  
-  console.log('\n📋 Mainnet L1BTCDepositorNttWithExecutor Deployment Summary:')
+  console.log(
+    "🎯 Deploying L1BTCDepositorNttWithExecutor on Ethereum Mainnet..."
+  )
+
+  const result = await deployL1BTCDepositorNttWithExecutor(
+    hre,
+    NETWORK_CONFIGS.mainnet
+  )
+
+  console.log("\n📋 Mainnet L1BTCDepositorNttWithExecutor Deployment Summary:")
   console.log(`   Network: ${result.network}`)
   console.log(`   Proxy: ${result.proxy}`)
   console.log(`   Implementation: ${result.implementation}`)
@@ -23,11 +33,14 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log(`   tBTC Vault: ${result.tbtcVault}`)
   console.log(`   NTT Manager With Executor: ${result.nttManagerWithExecutor}`)
   console.log(`   Underlying NTT Manager: ${result.underlyingNttManager}`)
-  
+
   return result
 }
 
 export default func
 
-func.tags = ["MainnetL1BTCDepositorNttExecutor", "L1BTCDepositorNttWithExecutor"]
+func.tags = [
+  "MainnetL1BTCDepositorNttExecutor",
+  "L1BTCDepositorNttWithExecutor",
+]
 func.dependencies = []
