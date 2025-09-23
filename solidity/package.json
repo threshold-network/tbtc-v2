@@ -58,14 +58,14 @@
     "eslint": "^7.32.0",
     "ethereum-waffle": "^3.4.0",
     "ethers": "^5.5.3",
-    "hardhat": "^2.10.0",
+    "hardhat": "2.10.0",
     "hardhat-contract-sizer": "^2.5.0",
     "hardhat-dependency-compiler": "^1.1.2",
     "hardhat-deploy": "^0.11.11",
     "hardhat-gas-reporter": "^1.0.8",
     "prettier": "^2.5.1",
     "prettier-plugin-sh": "^0.8.1",
-    "prettier-plugin-solidity": "^1.0.0-beta.19",
+    "prettier-plugin-solidity": "1.1.0",
     "solhint": "^3.3.7",
     "solhint-config-keep": "github:keep-network/solhint-config-keep",
     "solidity-docgen": "^0.6.0-beta.34",
@@ -83,6 +83,13 @@
     "cbor": "8.1.0",
     "@typescript-eslint/eslint-plugin": "5.62.0",
     "@typescript-eslint/parser": "5.62.0",
-    "@ethereumjs/util": "8.1.0"
+    "@ethereumjs/util": "8.1.0",
+    "@noble/curves": "1.5.0",
+    "hardhat": "2.10.0",
+    "prettier-plugin-solidity": "1.1.0",
+    "antlr4": "4.10.1",
+    "@openzeppelin/upgrades-core": "1.20.0",
+    "hardhat-deploy": "0.8.11",
+    "@thesis-co/eslint-config": "0.6.1"
   }
 }

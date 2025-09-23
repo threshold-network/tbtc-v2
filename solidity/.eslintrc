@@ -1,10 +1,21 @@
 {
   "root": true,
-  "extends": ["@thesis-co"],
+  "parser": "@typescript-eslint/parser",
   "parserOptions": {
     "ecmaVersion": 2017,
-    "sourceType": "module"
+    "sourceType": "module",
+    "project": "./.tsconfig-eslint.json"
   },
+  "plugins": ["prettier", "no-only-tests", "@typescript-eslint"],
+  "extends": [
+    "airbnb",
+    "airbnb-typescript",
+    "airbnb/hooks",
+    "prettier",
+    "plugin:import/recommended",
+    "plugin:import/typescript",
+    "plugin:@typescript-eslint/recommended"
+  ],
   "env": {
     "es6": true,
     "mocha": true
@@ -13,7 +24,27 @@
     "new-cap": "off",
     "import/no-extraneous-dependencies": "off",
     "@typescript-eslint/no-use-before-define": "off",
-    "no-plusplus": ["error", { "allowForLoopAfterthoughts": true }]
+    "no-plusplus": ["error", { "allowForLoopAfterthoughts": true }],
+    "semi": ["error", "never"],
+    "quotes": ["error", "double", { "avoidEscape": true }],
+    "@typescript-eslint/semi": ["error", "never"],
+    "@typescript-eslint/quotes": ["error", "double", { "avoidEscape": true }],
+    "@typescript-eslint/no-unused-vars": [
+      "error",
+      { "argsIgnorePattern": "^_+$", "varsIgnorePattern": "^_+$" }
+    ],
+    "no-unused-vars": "off",
+    "no-only-tests/no-only-tests": "error",
+    "func-names": "warn",
+    "no-console": "warn",
+    "global-require": "warn",
+    "@typescript-eslint/no-var-requires": "warn",
+    "no-restricted-syntax": "warn",
+    "no-await-in-loop": "warn",
+    "class-methods-use-this": "warn",
+    "@typescript-eslint/no-explicit-any": "warn",
+    "object-shorthand": "warn",
+    "prefer-template": "warn"
   },
   "overrides": [
     {
