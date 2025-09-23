@@ -80,7 +80,7 @@ describe("RebateStaking", () => {
           it("should revert", async () => {
             await expect(
               rebateStaking.connect(deployer).updateRollingWindow(0)
-            ).to.be.revertedWith("Rolling window cannot be zero")
+            ).to.be.revertedWithCustomError(rebateStaking, "RollingWindowCannotBeZero")
           })
         })
       })
@@ -147,7 +147,7 @@ describe("RebateStaking", () => {
           rebateStaking
             .connect(governance)
             .applyForRebate(thirdParty.address, treasuryFee)
-        ).to.be.revertedWith("Caller is not the bridge")
+        ).to.be.revertedWithCustomError(rebateStaking, "CallerNotBridge")
       })
     })
 
@@ -377,7 +377,7 @@ describe("RebateStaking", () => {
           rebateStaking
             .connect(governance)
             .cancelRebate(thirdParty.address, await lastBlockTime())
-        ).to.be.revertedWith("Caller is not the bridge")
+        ).to.be.revertedWithCustomError(rebateStaking, "CallerNotBridge")
       })
     })
 
@@ -573,6 +573,14 @@ describe("RebateStaking", () => {
       await restoreSnapshot()
     })
 
+    context("when amount is zero", () => {
+      it("should revert", async () => {
+        await expect(
+          rebateStaking.connect(thirdParty).stake(0)
+        ).to.be.revertedWithCustomError(rebateStaking, "AmountCannotBeZero")
+      })
+    })
+
     context("when user didn't have previous stake", () => {
       const stakeAmount = defaultStakeAmount
       const rebateCap = to1e18(1)
@@ -678,7 +686,7 @@ describe("RebateStaking", () => {
       it("should revert", async () => {
         await expect(
           rebateStaking.connect(governance).startUnstaking(0)
-        ).to.be.revertedWith("Amount cannot be 0")
+        ).to.be.revertedWithCustomError(rebateStaking, "AmountCannotBeZero")
       })
     })
 
@@ -697,7 +705,7 @@ describe("RebateStaking", () => {
       it("should revert", async () => {
         await expect(
           rebateStaking.connect(governance).startUnstaking(stakeAmount.add(1))
-        ).to.be.revertedWith("Amount is too big")
+        ).to.be.revertedWithCustomError(rebateStaking, "AmountTooBig")
       })
     })
 
@@ -705,7 +713,7 @@ describe("RebateStaking", () => {
       it("should revert", async () => {
         await expect(
           rebateStaking.connect(governance).startUnstaking(stakeAmount)
-        ).to.be.revertedWith("Amount is too big")
+        ).to.be.revertedWithCustomError(rebateStaking, "AmountTooBig")
       })
     })
 
@@ -724,7 +732,7 @@ describe("RebateStaking", () => {
       it("should revert", async () => {
         await expect(
           rebateStaking.connect(thirdParty).startUnstaking(1)
-        ).to.be.revertedWith("Unstaking already started")
+        ).to.be.revertedWithCustomError(rebateStaking, "UnstakingAlreadyStarted")
       })
     })
 
@@ -789,13 +797,21 @@ describe("RebateStaking", () => {
       await restoreSnapshot()
     })
 
+    context("when receiver is zero address", () => {
+      it("should revert", async () => {
+        await expect(
+          rebateStaking.connect(thirdParty).finalizeUnstaking(ethers.constants.AddressZero)
+        ).to.be.revertedWithCustomError(rebateStaking, "ZeroAddress")
+      })
+    })
+
     context("when there is no stake", () => {
       it("should revert", async () => {
         await expect(
           rebateStaking
             .connect(governance)
             .finalizeUnstaking(governance.address)
-        ).to.be.revertedWith("No unstaking process")
+        ).to.be.revertedWithCustomError(rebateStaking, "NoUnstakingProcess")
       })
     })
 
@@ -818,7 +834,7 @@ describe("RebateStaking", () => {
           rebateStaking
             .connect(thirdParty)
             .finalizeUnstaking(thirdParty.address)
-        ).to.be.revertedWith("No finished unstaking process")
+        ).to.be.revertedWithCustomError(rebateStaking, "UnstakingNotFinished")
       })
     })
 

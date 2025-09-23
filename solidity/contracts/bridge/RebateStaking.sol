@@ -25,6 +25,16 @@ import "@openzeppelin/contracts-upgradeable/utils/math/SafeCastUpgradeable.sol";
 contract RebateStaking is Initializable, OwnableUpgradeable {
     using SafeERC20Upgradeable for IERC20Upgradeable;
 
+    error CallerNotBridge();
+    error ParametersCannotBeZero();
+    error RollingWindowCannotBeZero();
+    error AmountCannotBeZero();
+    error UnstakingAlreadyStarted();
+    error AmountTooBig();
+    error NoUnstakingProcess();
+    error UnstakingNotFinished();
+    error ZeroAddress();
+
     struct Rebate {
         uint32 timestamp;
         uint64 feeRebate;
@@ -79,7 +89,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     }
 
     modifier onlyBridge() {
-        require(msg.sender == address(bridge), "Caller is not the bridge");
+        if (msg.sender != address(bridge)) revert CallerNotBridge();
         _;
     }
 
@@ -91,12 +101,9 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         uint256 _unstakingPeriod,
         uint256 _rebatePerToken
     ) external initializer {
-        require(
-            _bridge != address(0) &&
-                _token != address(0) &&
-                _rollingWindow != 0,
-            "Parameters cannot be zero"
-        );
+        if (_bridge == address(0) || _token == address(0) || _rollingWindow == 0) {
+            revert ParametersCannotBeZero();
+        }
         bridge = _bridge;
         token = IERC20Upgradeable(_token);
         rollingWindow = _rollingWindow;
@@ -112,7 +119,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     ///      - The caller must be the contract owner,
     ///      - The new rolling window cannot be zero
     function updateRollingWindow(uint256 _newRollingWindow) external onlyOwner {
-        require(_newRollingWindow != 0, "Rolling window cannot be zero");
+        if (_newRollingWindow == 0) revert RollingWindowCannotBeZero();
         rollingWindow = _newRollingWindow;
         emit RollingWindowUpdated(rollingWindow);
     }
@@ -211,9 +218,10 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
 
         /* solhint-disable-next-line not-rely-on-time */
         uint256 windowStart = block.timestamp - rollingWindow;
+        uint256 rebatesLength = stakeInfo.rebates.length;
         for (
             uint256 i = stakeInfo.rollingWindowStartIndex;
-            i < stakeInfo.rebates.length;
+            i < rebatesLength;
             i++
         ) {
             Rebate storage rebate = stakeInfo.rebates[i];
@@ -278,9 +286,10 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
 
         /* solhint-disable-next-line not-rely-on-time */
         uint256 windowStart = block.timestamp - rollingWindow;
+        uint256 rebatesLength = stakeInfo.rebates.length;
         for (
             uint256 i = stakeInfo.rollingWindowStartIndex;
-            i < stakeInfo.rebates.length;
+            i < rebatesLength;
             i++
         ) {
             Rebate storage rebate = stakeInfo.rebates[i];
@@ -299,6 +308,8 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     /// @notice Stake T token to be eligible for rebate
     /// @param amount Amount of tokens to stake
     function stake(uint96 amount) external {
+        if (amount == 0) revert AmountCannotBeZero();
+
         Stake storage stakeInfo = stakes[msg.sender];
         stakeInfo.stakedAmount += amount;
 
@@ -309,10 +320,10 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     /// @notice Start unstaking process
     /// @param amount Amount of tokens to unstake
     function startUnstaking(uint96 amount) external {
-        require(amount > 0, "Amount cannot be 0");
+        if (amount == 0) revert AmountCannotBeZero();
         Stake storage stakeInfo = stakes[msg.sender];
-        require(stakeInfo.unstakingTimestamp == 0, "Unstaking already started");
-        require(amount <= stakeInfo.stakedAmount, "Amount is too big");
+        if (stakeInfo.unstakingTimestamp != 0) revert UnstakingAlreadyStarted();
+        if (amount > stakeInfo.stakedAmount) revert AmountTooBig();
         /* solhint-disable-next-line not-rely-on-time */
         stakeInfo.unstakingTimestamp = uint32(block.timestamp);
         stakeInfo.unstakingAmount = amount;
@@ -322,13 +333,14 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     /// @notice Finalize unstaking and withdraw tokens
     /// @param receiver Address of stake receiver
     function finalizeUnstaking(address receiver) external {
+        if (receiver == address(0)) revert ZeroAddress();
+
         Stake storage stakeInfo = stakes[msg.sender];
-        require(stakeInfo.unstakingTimestamp > 0, "No unstaking process");
-        require(
+        if (stakeInfo.unstakingTimestamp == 0) revert NoUnstakingProcess();
+        if (
             /* solhint-disable-next-line not-rely-on-time */
-            stakeInfo.unstakingTimestamp + unstakingPeriod <= block.timestamp,
-            "No finished unstaking process"
-        );
+            stakeInfo.unstakingTimestamp + unstakingPeriod > block.timestamp
+        ) revert UnstakingNotFinished();
 
         stakeInfo.stakedAmount -= stakeInfo.unstakingAmount;
         uint96 amount = stakeInfo.unstakingAmount;
