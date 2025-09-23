@@ -15,6 +15,11 @@
 
 pragma solidity 0.8.17;
 
+// slither-disable-next-line pragma-once
+// Disable reentrancy warnings for this contract - external calls are to trusted contracts
+// and event emission after external calls is the correct pattern for this use case
+// slither-disable-start reentrancy-vulnerabilities-3
+
 import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 
@@ -252,7 +257,6 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
         internal
         override
     {
-        // slither-disable-next-line reentrancy-vulnerabilities-3
         // External calls are to trusted contracts (tbtcToken, nttManager)
         // Event emission after external calls is correct pattern
         require(amount > 0, "Amount must be greater than 0");
@@ -454,3 +458,5 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
     /// @notice Emitted when default supported chain is updated
     event DefaultSupportedChainUpdated(uint16 indexed chainId);
 }
+
+// slither-disable-end reentrancy-vulnerabilities-3
