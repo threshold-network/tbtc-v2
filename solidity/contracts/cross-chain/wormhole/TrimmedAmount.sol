@@ -80,6 +80,7 @@ library TrimmedAmountLib {
 /// @param amount The amount to pack
 /// @param decimals The decimals to pack
 /// @return The packed TrimmedAmount
+// solhint-disable-next-line func-visibility
 function packTrimmedAmount(uint64 amount, uint8 decimals) pure returns (TrimmedAmount) {
     return TrimmedAmount.wrap((uint256(amount) << 8) | uint256(decimals));
 }
@@ -89,6 +90,7 @@ function packTrimmedAmount(uint64 amount, uint8 decimals) pure returns (TrimmedA
 /// @param decimals The number of decimals
 /// @return The TrimmedAmount
 // slither-disable-next-line dead-code
+// solhint-disable-next-line func-visibility
 function toTrimmedAmount(uint256 amount, uint8 decimals) pure returns (TrimmedAmount) {
     (uint64 trimmedAmount, uint8 trimmedDecimals) = TrimmedAmountLib.trim(amount, decimals);
     return packTrimmedAmount(trimmedAmount, trimmedDecimals);

@@ -76,6 +76,7 @@ contract MockNttManagerWithExecutor {
         // Mock refund logic
         uint256 refundAmount = msg.value - executorArgs.value;
         if (refundAmount > 0) {
+            // solhint-disable-next-line avoid-low-level-calls
             (bool success,) = payable(executorArgs.refundAddress).call{value: refundAmount}("");
             require(success, "Refund failed");
         }
