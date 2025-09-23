@@ -1,0 +1,169 @@
+name: Cross-chain Sei
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  push:
+    branches:
+      - main
+    paths:
+      - "cross-chain/sei/**"
+      - ".github/workflows/cross-chain-sei.yml"
+  pull_request:
+
+jobs:
+  contracts-detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      path-filter: ${{ steps.filter.outputs.path-filter }}
+    steps:
+      - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request'
+
+      - uses: dorny/paths-filter@v2
+        if: github.event_name == 'pull_request'
+        id: filter
+        with:
+          filters: |
+            path-filter:
+              - './cross-chain/sei/**'
+              - './.github/workflows/cross-chain-sei.yml'
+
+  contracts-build-and-test:
+    needs: contracts-detect-changes
+    if: |
+      github.event_name != 'pull_request'
+        || needs.contracts-detect-changes.outputs.path-filter == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./cross-chain/sei
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v3
+        with:
+          node-version: "18"
+          cache: "yarn"
+          cache-dependency-path: cross-chain/sei/yarn.lock
+
+      # A workaround for transitive dependencies that use the obsolete git://
+      # prefix instead of the recommended https://
+      - name: Configure git to not use unauthenticated protocol
+        run: git config --global url."https://".insteadOf git://
+
+      - name: Install dependencies
+        run: yarn install
+
+      - name: Build contracts
+        run: yarn build
+
+      - name: Run tests
+        run: yarn test
+
+  contracts-deployment-dry-run:
+    needs: contracts-detect-changes
+    if: |
+      github.event_name != 'pull_request'
+        || needs.contracts-detect-changes.outputs.path-filter == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./cross-chain/sei
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v3
+        with:
+          node-version: "18"
+          cache: "yarn"
+          cache-dependency-path: cross-chain/sei/yarn.lock
+
+      # A workaround for transitive dependencies that use the obsolete git://
+      # prefix instead of the recommended https://
+      - name: Configure git to not use unauthenticated protocol
+        run: git config --global url."https://".insteadOf git://
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Deploy contracts
+        run: yarn deploy
+
+  contracts-format:
+    needs: contracts-detect-changes
+    if: |
+      github.event_name == 'push'
+        || needs.contracts-detect-changes.outputs.path-filter == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./cross-chain/sei
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v3
+        with:
+          node-version: "18"
+          cache: "yarn"
+          cache-dependency-path: cross-chain/sei/yarn.lock
+
+      # A workaround for transitive dependencies that use the obsolete git://
+      # prefix instead of the recommended https://
+      - name: Configure git to not use unauthenticated protocol
+        run: git config --global url."https://".insteadOf git://
+
+      - name: Install dependencies
+        run: yarn install
+
+      - name: Build
+        run: yarn build
+
+      - name: Check formatting
+        run: yarn format
+
+  contracts-slither:
+    needs: contracts-detect-changes
+    if: |
+      github.event_name == 'push'
+        || needs.contracts-detect-changes.outputs.path-filter == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./cross-chain/sei
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v3
+        with:
+          node-version: "18"
+          cache: "yarn"
+          cache-dependency-path: cross-chain/sei/yarn.lock
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: 3.10.8
+
+      - name: Install Solidity
+        env:
+          SOLC_VERSION: 0.8.17 # according to solidity.version in hardhat.config.ts
+        run: |
+          pip3 install solc-select
+          solc-select install $SOLC_VERSION
+          solc-select use $SOLC_VERSION
+
+      - name: Install Slither
+        env:
+          SLITHER_VERSION: 0.8.3
+        run: pip3 install slither-analyzer==$SLITHER_VERSION
+
+      # A workaround for transitive dependencies that use the obsolete git://
+      # prefix instead of the recommended https://
+      - name: Configure git to not use unauthenticated protocol
+        run: git config --global url."https://".insteadOf git://
+
+      - name: Install dependencies
+        run: yarn install
+
+      - name: Run Slither
+        run: slither --hardhat-artifacts-directory build .
