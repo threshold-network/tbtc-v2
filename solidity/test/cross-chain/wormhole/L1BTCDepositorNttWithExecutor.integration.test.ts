@@ -65,7 +65,9 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
     const proxy = await ProxyFactory.deploy(depositorImpl.address, initData)
     await proxy.deployed()
 
-    depositor = L1BTCDepositorFactory.attach(proxy.address) as L1BTCDepositorNttWithExecutor
+    depositor = L1BTCDepositorFactory.attach(
+      proxy.address
+    ) as L1BTCDepositorNttWithExecutor
 
     // Set up supported chains
     await depositor.setSupportedChain(WORMHOLE_CHAIN_SEI, true)
@@ -84,9 +86,11 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
   describe("End-to-End Workflow", () => {
     it("should handle complete deposit workflow", async () => {
       const [, , user] = await ethers.getSigners()
-      
+
       // Set up executor parameters using real signed quote
-      await depositor.connect(user).setExecutorParameters(EXECUTOR_ARGS_REAL_QUOTE, FEE_ARGS_ZERO)
+      await depositor
+        .connect(user)
+        .setExecutorParameters(EXECUTOR_ARGS_REAL_QUOTE, FEE_ARGS_ZERO)
       expect(await depositor.areExecutorParametersSet()).to.be.true
 
       // Verify that executor parameters are properly set
@@ -119,8 +123,8 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
       const executorArgs1 = {
         value: ethers.utils.parseEther("0.01"),
         refundAddress: user.address,
-        signedQuote: "0x" + "1".repeat(128),
-        instructions: "0x" + "2".repeat(64),
+        signedQuote: `0x${"1".repeat(128)}`,
+        instructions: `0x${"2".repeat(64)}`,
       }
 
       const feeArgs1 = {
@@ -128,16 +132,20 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
         payee: user.address,
       }
 
-      await depositor.connect(user).setExecutorParameters(executorArgs1, feeArgs1)
+      await depositor
+        .connect(user)
+        .setExecutorParameters(executorArgs1, feeArgs1)
       expect(await depositor.areExecutorParametersSet()).to.be.true
-      expect(await depositor.getStoredExecutorValue()).to.equal(executorArgs1.value)
+      expect(await depositor.getStoredExecutorValue()).to.equal(
+        executorArgs1.value
+      )
 
       // Update parameters
       const executorArgs2 = {
         value: ethers.utils.parseEther("0.02"),
         refundAddress: user.address,
-        signedQuote: "0x" + "3".repeat(128),
-        instructions: "0x" + "4".repeat(64),
+        signedQuote: `0x${"3".repeat(128)}`,
+        instructions: `0x${"4".repeat(64)}`,
       }
 
       const feeArgs2 = {
@@ -145,9 +153,13 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
         payee: user.address,
       }
 
-      await depositor.connect(user).setExecutorParameters(executorArgs2, feeArgs2)
+      await depositor
+        .connect(user)
+        .setExecutorParameters(executorArgs2, feeArgs2)
       expect(await depositor.areExecutorParametersSet()).to.be.true
-      expect(await depositor.getStoredExecutorValue()).to.equal(executorArgs2.value)
+      expect(await depositor.getStoredExecutorValue()).to.equal(
+        executorArgs2.value
+      )
 
       // Clear parameters
       await depositor.connect(user).clearExecutorParameters()
@@ -169,7 +181,7 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
         value: ethers.utils.parseEther("0.01"),
         refundAddress: user.address,
         signedQuote: "0x", // Empty signed quote
-        instructions: "0x" + "2".repeat(64),
+        instructions: `0x${"2".repeat(64)}`,
       }
 
       const feeArgs = {
@@ -179,7 +191,9 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
 
       await expect(
         depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
-      ).to.be.revertedWith("Real signed quote from Wormhole Executor API is required")
+      ).to.be.revertedWith(
+        "Real signed quote from Wormhole Executor API is required"
+      )
     })
 
     it("should reject quotes for unsupported chains", async () => {
@@ -188,8 +202,8 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
       const executorArgs = {
         value: ethers.utils.parseEther("0.01"),
         refundAddress: user.address,
-        signedQuote: "0x" + "1".repeat(128),
-        instructions: "0x" + "2".repeat(64),
+        signedQuote: `0x${"1".repeat(128)}`,
+        instructions: `0x${"2".repeat(64)}`,
       }
 
       const feeArgs = {
@@ -214,18 +228,20 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
       // Set default parameters
       await depositor.setDefaultParameters(
         600000, // gas limit
-        150,    // 1.5% fee
+        150, // 1.5% fee
         user.address
       )
 
       expect(await depositor.defaultDestinationGasLimit()).to.equal(600000)
       expect(await depositor.defaultExecutorFeeBps()).to.equal(150)
-      expect(await depositor.defaultExecutorFeeRecipient()).to.equal(user.address)
+      expect(await depositor.defaultExecutorFeeRecipient()).to.equal(
+        user.address
+      )
 
       // Update default parameters
       await depositor.setDefaultParameters(
         700000, // gas limit
-        200,    // 2% fee
+        200, // 2% fee
         user.address
       )
 
@@ -239,8 +255,8 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
       const executorArgs = {
         value: ethers.utils.parseEther("0.01"),
         refundAddress: user.address,
-        signedQuote: "0x" + "1".repeat(128), // 64 hex chars = 32 bytes
-        instructions: "0x" + "2".repeat(64),
+        signedQuote: `0x${"1".repeat(128)}`, // 64 hex chars = 32 bytes
+        instructions: `0x${"2".repeat(64)}`,
       }
 
       const feeArgs = {

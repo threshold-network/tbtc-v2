@@ -149,8 +149,11 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
       const mask = BigNumber.from(
         "0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
       )
-      const decodedRecipient =
-        "0x" + encoded.and(mask).toHexString().slice(2).padStart(40, "0")
+      const decodedRecipient = `0x${encoded
+        .and(mask)
+        .toHexString()
+        .slice(2)
+        .padStart(40, "0")}`
 
       expect(decodedChainId).to.equal(testChainId)
       expect(decodedRecipient.toLowerCase()).to.equal(
@@ -170,8 +173,11 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
       const mask = BigNumber.from(
         "0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
       )
-      const decodedRecipient =
-        "0x" + encoded.and(mask).toHexString().slice(2).padStart(40, "0")
+      const decodedRecipient = `0x${encoded
+        .and(mask)
+        .toHexString()
+        .slice(2)
+        .padStart(40, "0")}`
 
       expect(decodedChainId).to.equal(maxChainId)
       expect(decodedRecipient.toLowerCase()).to.equal(maxAddress.toLowerCase())
@@ -189,8 +195,11 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
       const mask = BigNumber.from(
         "0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
       )
-      const decodedRecipient =
-        "0x" + encoded.and(mask).toHexString().slice(2).padStart(40, "0")
+      const decodedRecipient = `0x${encoded
+        .and(mask)
+        .toHexString()
+        .slice(2)
+        .padStart(40, "0")}`
 
       expect(decodedChainId).to.equal(zeroChainId)
       expect(decodedRecipient.toLowerCase()).to.equal(zeroAddress.toLowerCase())
@@ -225,8 +234,11 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
         const mask = BigNumber.from(
           "0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
         )
-        const extractedRecipient =
-          "0x" + encoded.and(mask).toHexString().slice(2).padStart(40, "0")
+        const extractedRecipient = `0x${encoded
+          .and(mask)
+          .toHexString()
+          .slice(2)
+          .padStart(40, "0")}`
 
         expect(extractedChainId, `Test case ${index + 1} chain ID`).to.equal(
           chainId
@@ -294,9 +306,11 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
       const mask = BigNumber.from(
         "0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
       )
-      const actualRecipient =
-        "0x" +
-        encodedReceiver.and(mask).toHexString().slice(2).padStart(40, "0")
+      const actualRecipient = `0x${encodedReceiver
+        .and(mask)
+        .toHexString()
+        .slice(2)
+        .padStart(40, "0")}`
 
       // Validate the logic
       expect(amount.gt(0)).to.be.true // Amount validation
@@ -475,11 +489,15 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
           "0x1111111111111111111111111111111111111111",
         ]
 
+        // Process addresses sequentially to avoid nonce conflicts
+        // eslint-disable-next-line no-restricted-syntax
         for (const address of addresses) {
+          // eslint-disable-next-line no-await-in-loop
           await l1BtcDepositorNtt
             .connect(governance)
             .updateReimbursementAuthorization(address, true)
 
+          // eslint-disable-next-line no-await-in-loop
           expect(await l1BtcDepositorNtt.reimbursementAuthorizations(address))
             .to.be.true
         }
@@ -506,6 +524,7 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
     it("should handle all possible chain IDs", async () => {
       const testChainIds = [1, 2, 100, 1000, 65535]
 
+      // eslint-disable-next-line no-restricted-syntax
       for (const chainId of testChainIds) {
         const testAddress = "0x23b82a7108F9CEb34C3CDC44268be21D151d4124"
 
@@ -529,8 +548,11 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
       const mask = BigNumber.from(
         "0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
       )
-      const decodedAddress =
-        "0x" + encoded.and(mask).toHexString().slice(2).padStart(40, "0")
+      const decodedAddress = `0x${encoded
+        .and(mask)
+        .toHexString()
+        .slice(2)
+        .padStart(40, "0")}`
 
       expect(decodedAddress.toLowerCase()).to.equal(
         addressWithZeros.toLowerCase()
@@ -547,8 +569,11 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
       const mask = BigNumber.from(
         "0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
       )
-      const decodedAddress =
-        "0x" + encoded.and(mask).toHexString().slice(2).padStart(40, "0")
+      const decodedAddress = `0x${encoded
+        .and(mask)
+        .toHexString()
+        .slice(2)
+        .padStart(40, "0")}`
 
       expect(decodedAddress.toLowerCase()).to.equal(addressWithFs.toLowerCase())
     })

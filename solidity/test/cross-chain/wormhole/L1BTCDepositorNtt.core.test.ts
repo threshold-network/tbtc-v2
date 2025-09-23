@@ -61,7 +61,7 @@ describe("L1BTCDepositorNtt Core Functions", () => {
     const nttManager = {
       address: ethers.Wallet.createRandom().address,
       // Add proper function signatures that match the NttManager interface
-      transfer: async function (
+      async transfer(
         amount: any,
         recipientChain: any,
         recipient: any,
@@ -72,7 +72,7 @@ describe("L1BTCDepositorNtt Core Functions", () => {
         // Simulate the transfer function that returns a uint64 sequence
         return 123
       },
-      quoteDeliveryPrice: async function (
+      async quoteDeliveryPrice(
         recipientChain: any,
         transceiverInstructions?: any
       ) {

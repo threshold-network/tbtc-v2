@@ -83,11 +83,10 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
 
     it("should handle maximum chain ID values", async () => {
       const maxChainId = 65535 // Max uint16
-      
+
       // Should not revert when setting max chain ID
-      await expect(
-        depositor.setSupportedChain(maxChainId, true)
-      ).to.not.be.reverted
+      await expect(depositor.setSupportedChain(maxChainId, true)).to.not.be
+        .reverted
 
       expect(await depositor.supportedChains(maxChainId)).to.be.true
     })
@@ -107,10 +106,10 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
   describe("Parameter Management", () => {
     it("should clear executor parameters when not set", async () => {
       expect(await depositor.areExecutorParametersSet()).to.be.false
-      
+
       // Should not revert even when clearing non-existent parameters
       await expect(depositor.clearExecutorParameters()).to.not.be.reverted
-      
+
       expect(await depositor.areExecutorParametersSet()).to.be.false
     })
 
@@ -135,7 +134,7 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
     it("should have proper chain support configuration", async () => {
       expect(await depositor.supportedChains(WORMHOLE_CHAIN_SEI)).to.be.true
       expect(await depositor.supportedChains(WORMHOLE_CHAIN_BASE)).to.be.true
-      
+
       // Unsupported chain should return false
       expect(await depositor.supportedChains(999)).to.be.false
     })
@@ -143,15 +142,17 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
 
   describe("Error Handling", () => {
     it("should revert on quote without parameters", async () => {
-      await expect(
-        depositor["quoteFinalizeDeposit()"]()
-      ).to.be.revertedWith("Must call setExecutorParameters() first with real signed quote")
+      await expect(depositor["quoteFinalizeDeposit()"]()).to.be.revertedWith(
+        "Must call setExecutorParameters() first with real signed quote"
+      )
     })
 
     it("should revert on quote with chain parameter without executor parameters", async () => {
       await expect(
         depositor["quoteFinalizeDeposit(uint16)"](WORMHOLE_CHAIN_SEI)
-      ).to.be.revertedWith("Must call setExecutorParameters() first with real signed quote")
+      ).to.be.revertedWith(
+        "Must call setExecutorParameters() first with real signed quote"
+      )
     })
   })
 

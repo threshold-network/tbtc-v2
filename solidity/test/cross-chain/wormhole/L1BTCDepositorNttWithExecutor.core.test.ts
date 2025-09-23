@@ -59,7 +59,9 @@ describe("L1BTCDepositorNttWithExecutor - Core Functions", () => {
     ])
     const proxy = await ProxyFactory.deploy(depositorImpl.address, initData)
 
-    depositor = L1BTCDepositorFactory.attach(proxy.address) as L1BTCDepositorNttWithExecutor
+    depositor = L1BTCDepositorFactory.attach(
+      proxy.address
+    ) as L1BTCDepositorNttWithExecutor
 
     // Set up supported chains
     await depositor.setSupportedChain(WORMHOLE_CHAIN_SEI, true)
@@ -92,7 +94,9 @@ describe("L1BTCDepositorNttWithExecutor - Core Functions", () => {
     it("should have correct supported chains", async () => {
       expect(await depositor.supportedChains(WORMHOLE_CHAIN_SEI)).to.be.true
       expect(await depositor.supportedChains(WORMHOLE_CHAIN_BASE)).to.be.true
-      expect(await depositor.defaultSupportedChain()).to.equal(WORMHOLE_CHAIN_SEI)
+      expect(await depositor.defaultSupportedChain()).to.equal(
+        WORMHOLE_CHAIN_SEI
+      )
     })
   })
 
@@ -109,7 +113,9 @@ describe("L1BTCDepositorNttWithExecutor - Core Functions", () => {
 
     it("should update default supported chain", async () => {
       await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_BASE)
-      expect(await depositor.defaultSupportedChain()).to.equal(WORMHOLE_CHAIN_BASE)
+      expect(await depositor.defaultSupportedChain()).to.equal(
+        WORMHOLE_CHAIN_BASE
+      )
     })
 
     it("should reject setting default chain that is not supported", async () => {
@@ -126,8 +132,12 @@ describe("L1BTCDepositorNttWithExecutor - Core Functions", () => {
       const chainId = WORMHOLE_CHAIN_SEI
       const recipient = ethers.Wallet.createRandom().address
 
-      const encoded = await depositor.encodeDestinationReceiver(chainId, recipient)
-      const [decodedChainId, decodedRecipient] = await depositor.decodeDestinationReceiver(encoded)
+      const encoded = await depositor.encodeDestinationReceiver(
+        chainId,
+        recipient
+      )
+      const [decodedChainId, decodedRecipient] =
+        await depositor.decodeDestinationReceiver(encoded)
 
       expect(decodedChainId).to.equal(chainId)
       expect(decodedRecipient).to.equal(recipient)
@@ -171,12 +181,8 @@ describe("L1BTCDepositorNttWithExecutor - Core Functions", () => {
       await tbtcToken.mint(depositor.address, amount)
 
       const initialBalance = await tbtcToken.balanceOf(user.address)
-      
-      await depositor.retrieveTokens(
-        tbtcToken.address,
-        user.address,
-        amount
-      )
+
+      await depositor.retrieveTokens(tbtcToken.address, user.address, amount)
 
       const finalBalance = await tbtcToken.balanceOf(user.address)
       expect(finalBalance.sub(initialBalance)).to.equal(amount)
@@ -188,15 +194,11 @@ describe("L1BTCDepositorNttWithExecutor - Core Functions", () => {
       // Note: The contract doesn't have a receive function, so we can't send ETH directly
       // This test verifies the retrieveTokens function works for native tokens
       // In practice, ETH would need to be sent via a contract call or selfdestruct
-      
+
       // For testing purposes, we'll just verify the function doesn't revert
       // when called with zero amount (no ETH to retrieve)
       await expect(
-        depositor.retrieveTokens(
-          ethers.constants.AddressZero,
-          user.address,
-          0
-        )
+        depositor.retrieveTokens(ethers.constants.AddressZero, user.address, 0)
       ).to.not.be.reverted
     })
 
@@ -204,11 +206,9 @@ describe("L1BTCDepositorNttWithExecutor - Core Functions", () => {
       const [, , user] = await ethers.getSigners()
 
       await expect(
-        depositor.connect(user).retrieveTokens(
-          tbtcToken.address,
-          user.address,
-          100
-        )
+        depositor
+          .connect(user)
+          .retrieveTokens(tbtcToken.address, user.address, 100)
       ).to.be.revertedWith("Ownable: caller is not the owner")
     })
   })

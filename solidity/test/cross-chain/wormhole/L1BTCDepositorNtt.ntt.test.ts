@@ -62,7 +62,7 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
     // Create manual mock for NTT Manager
     nttManager = {
       address: ethers.Wallet.createRandom().address,
-      transfer: async function (
+      async transfer(
         amount: any,
         recipientChain: any,
         recipient: any,
@@ -72,7 +72,7 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
       ) {
         return 123
       },
-      quoteDeliveryPrice: async function (
+      async quoteDeliveryPrice(
         recipientChain: any,
         transceiverInstructions?: any
       ) {
@@ -283,10 +283,10 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
             before(async () => {
               newNttManager = {
                 address: ethers.Wallet.createRandom().address,
-                transfer: async function () {
+                async transfer() {
                   return 123
                 },
-                quoteDeliveryPrice: async function () {
+                async quoteDeliveryPrice() {
                   return [[], BigNumber.from(50000)]
                 },
               } as any

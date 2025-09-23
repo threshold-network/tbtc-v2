@@ -59,7 +59,9 @@ describe("L1BTCDepositorNttWithExecutor - Transfer Functions", () => {
     ])
     const proxy = await ProxyFactory.deploy(depositorImpl.address, initData)
 
-    depositor = L1BTCDepositorFactory.attach(proxy.address) as L1BTCDepositorNttWithExecutor
+    depositor = L1BTCDepositorFactory.attach(
+      proxy.address
+    ) as L1BTCDepositorNttWithExecutor
 
     // Set up supported chains
     await depositor.setSupportedChain(WORMHOLE_CHAIN_SEI, true)
@@ -84,12 +86,8 @@ describe("L1BTCDepositorNttWithExecutor - Transfer Functions", () => {
       await tbtcToken.mint(depositor.address, amount)
 
       const initialBalance = await tbtcToken.balanceOf(user.address)
-      
-      await depositor.retrieveTokens(
-        tbtcToken.address,
-        user.address,
-        amount
-      )
+
+      await depositor.retrieveTokens(tbtcToken.address, user.address, amount)
 
       const finalBalance = await tbtcToken.balanceOf(user.address)
       expect(finalBalance.sub(initialBalance)).to.equal(amount)
@@ -101,9 +99,9 @@ describe("L1BTCDepositorNttWithExecutor - Transfer Functions", () => {
       // Note: The contract doesn't have a receive function, so it can't accept ETH
       // This test verifies that the retrieveTokens function works for native tokens
       // when the contract has ETH (which would need to be sent via selfdestruct or other means)
-      
+
       const amount = ethers.utils.parseEther("0.1")
-      
+
       // Since the contract can't receive ETH normally, we'll test the function
       // by checking that it would work if ETH were present
       // The actual ETH retrieval would fail because there's no ETH in the contract
@@ -124,11 +122,9 @@ describe("L1BTCDepositorNttWithExecutor - Transfer Functions", () => {
       await tbtcToken.mint(depositor.address, amount)
 
       await expect(
-        depositor.connect(user).retrieveTokens(
-          tbtcToken.address,
-          user.address,
-          amount
-        )
+        depositor
+          .connect(user)
+          .retrieveTokens(tbtcToken.address, user.address, amount)
       ).to.be.revertedWith("Ownable: caller is not the owner")
     })
 
@@ -142,7 +138,7 @@ describe("L1BTCDepositorNttWithExecutor - Transfer Functions", () => {
       // Retrieve partial amount
       const partialAmount = ethers.utils.parseEther("0.5")
       const initialBalance = await tbtcToken.balanceOf(user.address)
-      
+
       await depositor.retrieveTokens(
         tbtcToken.address,
         user.address,
@@ -167,7 +163,9 @@ describe("L1BTCDepositorNttWithExecutor - Transfer Functions", () => {
       expect(await depositor.owner()).to.equal(user.address)
 
       // New owner should be able to call owner functions
-      await depositor.connect(user).setDefaultParameters(600000, 50, user.address)
+      await depositor
+        .connect(user)
+        .setDefaultParameters(600000, 50, user.address)
 
       // Old owner should not be able to call owner functions
       await expect(
@@ -226,13 +224,9 @@ describe("L1BTCDepositorNttWithExecutor - Transfer Functions", () => {
       await tbtcToken.mint(depositor.address, amount)
 
       const initialBalance = await tbtcToken.balanceOf(user.address)
-      
+
       // Retrieve zero amount
-      await depositor.retrieveTokens(
-        tbtcToken.address,
-        user.address,
-        0
-      )
+      await depositor.retrieveTokens(tbtcToken.address, user.address, 0)
 
       const finalBalance = await tbtcToken.balanceOf(user.address)
       expect(finalBalance).to.equal(initialBalance)

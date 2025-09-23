@@ -160,6 +160,7 @@ const NETWORK_CONFIGURATIONS: Record<string, NetworkConfiguration> = {
 }
 
 async function main() {
+  // eslint-disable-next-line global-require, @typescript-eslint/no-var-requires
   const hre = require("hardhat") as HardhatRuntimeEnvironment
   const { network } = hre
   const networkName = network.name
@@ -201,6 +202,8 @@ async function main() {
   // Configure supported chains
   console.log(`\n🌐 Configuring supported chains for ${config.networkName}...`)
 
+  // Process chains sequentially to avoid nonce conflicts
+  // eslint-disable-next-line no-restricted-syntax
   for (const chain of config.supportedChains) {
     try {
       console.log(
@@ -208,23 +211,28 @@ async function main() {
       )
 
       // Check if chain is already supported
+      // eslint-disable-next-line no-await-in-loop
       const isCurrentlySupported = await l1BtcDepositorNtt.supportedChains(
         chain.chainId
       )
 
       if (isCurrentlySupported !== chain.enabled) {
         console.log(`   📝 Setting supported status: ${chain.enabled}`)
+        // eslint-disable-next-line no-await-in-loop
         const tx = await l1BtcDepositorNtt.setSupportedChain(
           chain.chainId,
           chain.enabled
         )
+        // eslint-disable-next-line no-await-in-loop
         await tx.wait()
         console.log(`   ✅ Transaction: ${tx.hash}`)
       } else {
-        console.log(`   ℹ️  Chain already configured correctly`)
+        console.log("   ℹ️  Chain already configured correctly")
       }
     } catch (error) {
-      console.error(`   ❌ Failed to configure ${chain.name}: ${error.message}`)
+      console.error(
+        `   ❌ Failed to configure ${chain.name}: ${(error as Error).message}`
+      )
     }
   }
 
@@ -234,18 +242,22 @@ async function main() {
     nttManagerAddress = await l1BtcDepositorNtt.nttManager()
     console.log(`\n🎯 NTT Manager: ${nttManagerAddress}`)
   } catch (error) {
-    console.log(`\n⚠️  Could not read NTT Manager address: ${error.message}`)
+    console.log(
+      `\n⚠️  Could not read NTT Manager address: ${(error as Error).message}`
+    )
   }
 
   // Display current configuration
-  console.log(`\n📊 Current Configuration Summary:`)
+  console.log("\n📊 Current Configuration Summary:")
   console.log(`   Network: ${config.networkName}`)
   console.log(`   Contract: ${contractAddress}`)
   console.log(`   NTT Manager: ${nttManagerAddress || "Not available"}`)
 
-  console.log(`\n   Supported Chains:`)
+  console.log("\n   Supported Chains:")
+  // eslint-disable-next-line no-restricted-syntax
   for (const chain of config.supportedChains) {
     try {
+      // eslint-disable-next-line no-await-in-loop
       const isSupported = await l1BtcDepositorNtt.supportedChains(chain.chainId)
       console.log(
         `   - ${chain.name} (${chain.chainId}): ${
@@ -274,12 +286,12 @@ async function main() {
     nttManagerAddress &&
     nttManagerAddress !== "0x0000000000000000000000000000000000000000"
   ) {
-    console.log(`\n📋 Next Steps for NTT Manager Configuration:`)
+    console.log("\n📋 Next Steps for NTT Manager Configuration:")
     console.log(
       `\n   1. Configure peers on NTT Manager (${nttManagerAddress}):`
     )
 
-    for (const chain of config.supportedChains) {
+    config.supportedChains.forEach((chain) => {
       if (
         chain.peerAddress &&
         chain.peerAddress !== "0x0000000000000000000000000000000000000000"
@@ -292,16 +304,16 @@ async function main() {
           `      // TODO: Set peer for ${chain.name} (${chain.chainId}) when NTT Manager is deployed`
         )
       }
-    }
+    })
 
-    console.log(`\n   2. Configure rate limits:`)
-    for (const chain of config.supportedChains) {
+    console.log("\n   2. Configure rate limits:")
+    config.supportedChains.forEach((chain) => {
       if (chain.rateLimitAmount && chain.rateLimitDuration) {
         console.log(
           `      await nttManager.setOutboundLimit(${chain.chainId}, "${chain.rateLimitAmount}", ${chain.rateLimitDuration});`
         )
       }
-    }
+    })
   }
 
   console.log(`\n✅ Configuration completed for ${config.networkName}!`)

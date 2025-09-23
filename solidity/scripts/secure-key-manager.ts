@@ -51,6 +51,7 @@ class SecureKeyManagerImpl implements SecureKeyManager {
   /**
    * Check if encrypted key exists
    */
+  // eslint-disable-next-line class-methods-use-this
   hasEncryptedKey(): boolean {
     return fs.existsSync(ENCRYPTED_KEY_FILE)
   }

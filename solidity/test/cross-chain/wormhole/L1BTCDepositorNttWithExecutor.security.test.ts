@@ -59,7 +59,9 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
     ])
     const proxy = await ProxyFactory.deploy(depositorImpl.address, initData)
 
-    depositor = L1BTCDepositorFactory.attach(proxy.address) as L1BTCDepositorNttWithExecutor
+    depositor = L1BTCDepositorFactory.attach(
+      proxy.address
+    ) as L1BTCDepositorNttWithExecutor
 
     // Set up supported chains
     await depositor.setSupportedChain(WORMHOLE_CHAIN_SEI, true)
@@ -109,11 +111,9 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
 
       // Non-owner cannot retrieve tokens
       await expect(
-        depositor.connect(user).retrieveTokens(
-          tbtcToken.address,
-          user.address,
-          amount
-        )
+        depositor
+          .connect(user)
+          .retrieveTokens(tbtcToken.address, user.address, amount)
       ).to.be.revertedWith("Ownable: caller is not the owner")
     })
 
@@ -124,9 +124,9 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
   describe("Input Validation", () => {
     it("should reject invalid chain configurations", async () => {
       // Cannot set unsupported chain as default
-      await expect(
-        depositor.setDefaultSupportedChain(999)
-      ).to.be.revertedWith("Chain must be supported before setting as default")
+      await expect(depositor.setDefaultSupportedChain(999)).to.be.revertedWith(
+        "Chain must be supported before setting as default"
+      )
     })
 
     it("should reject invalid executor parameters", async () => {
@@ -137,7 +137,7 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
         value: ethers.utils.parseEther("0.01"),
         refundAddress: user.address,
         signedQuote: "0x", // Empty quote
-        instructions: "0x" + "2".repeat(64),
+        instructions: `0x${"2".repeat(64)}`,
       }
 
       const feeArgs = {
@@ -146,8 +146,12 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       }
 
       await expect(
-        depositor.connect(user).setExecutorParameters(invalidExecutorArgs, feeArgs)
-      ).to.be.revertedWith("Real signed quote from Wormhole Executor API is required")
+        depositor
+          .connect(user)
+          .setExecutorParameters(invalidExecutorArgs, feeArgs)
+      ).to.be.revertedWith(
+        "Real signed quote from Wormhole Executor API is required"
+      )
     })
 
     it("should reject operations on unsupported chains", async () => {
@@ -156,8 +160,8 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       const executorArgs = {
         value: ethers.utils.parseEther("0.01"),
         refundAddress: user.address,
-        signedQuote: "0x" + "1".repeat(128),
-        instructions: "0x" + "2".repeat(64),
+        signedQuote: `0x${"1".repeat(128)}`,
+        instructions: `0x${"2".repeat(64)}`,
       }
 
       const feeArgs = {
@@ -186,8 +190,8 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       const executorArgs = {
         value: ethers.utils.parseEther("0.01"),
         refundAddress: user.address,
-        signedQuote: "0x" + "1".repeat(128),
-        instructions: "0x" + "2".repeat(64),
+        signedQuote: `0x${"1".repeat(128)}`,
+        instructions: `0x${"2".repeat(64)}`,
       }
 
       const feeArgs = {
@@ -199,7 +203,9 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
 
       // Check state
       expect(await depositor.areExecutorParametersSet()).to.be.true
-      expect(await depositor.getStoredExecutorValue()).to.equal(executorArgs.value)
+      expect(await depositor.getStoredExecutorValue()).to.equal(
+        executorArgs.value
+      )
 
       // Clear parameters
       await depositor.connect(user).clearExecutorParameters()
@@ -213,12 +219,13 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       const [, , user] = await ethers.getSigners()
 
       // Perform multiple rapid updates
+      // eslint-disable-next-line no-plusplus
       for (let i = 0; i < 3; i++) {
         const executorArgs = {
           value: ethers.utils.parseEther(`${i + 1}`),
           refundAddress: user.address,
-          signedQuote: "0x" + "1".repeat(128),
-          instructions: "0x" + "2".repeat(64),
+          signedQuote: `0x${"1".repeat(128)}`,
+          instructions: `0x${"2".repeat(64)}`,
         }
 
         const feeArgs = {
@@ -226,9 +233,14 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
           payee: user.address,
         }
 
-        await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
+        // eslint-disable-next-line no-await-in-loop
+        await depositor
+          .connect(user)
+          .setExecutorParameters(executorArgs, feeArgs)
 
+        // eslint-disable-next-line no-await-in-loop
         expect(await depositor.areExecutorParametersSet()).to.be.true
+        // eslint-disable-next-line no-await-in-loop
         expect(await depositor.getStoredExecutorValue()).to.equal(
           ethers.utils.parseEther(`${i + 1}`)
         )
@@ -245,8 +257,8 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       const executorArgs = {
         value: maxAmount,
         refundAddress: user.address,
-        signedQuote: "0x" + "1".repeat(128),
-        instructions: "0x" + "2".repeat(64),
+        signedQuote: `0x${"1".repeat(128)}`,
+        instructions: `0x${"2".repeat(64)}`,
       }
 
       const feeArgs = {
@@ -267,8 +279,8 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       const executorArgs = {
         value: BigNumber.from(0),
         refundAddress: user.address,
-        signedQuote: "0x" + "1".repeat(128),
-        instructions: "0x" + "2".repeat(64),
+        signedQuote: `0x${"1".repeat(128)}`,
+        instructions: `0x${"2".repeat(64)}`,
       }
 
       const feeArgs = {

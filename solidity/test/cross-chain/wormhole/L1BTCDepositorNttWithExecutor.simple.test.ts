@@ -1,10 +1,7 @@
 import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { expect } from "chai"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import {
-  L1BTCDepositorNttWithExecutor,
-  TestERC20,
-} from "../../../typechain"
+import { L1BTCDepositorNttWithExecutor, TestERC20 } from "../../../typechain"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
@@ -15,7 +12,8 @@ describe("L1BTCDepositorNttWithExecutor Simple Tests", () => {
   let tbtcToken: TestERC20
 
   before(async () => {
-    const { deployer: dep, governance: gov } = await helpers.signers.getNamedSigners()
+    const { deployer: dep, governance: gov } =
+      await helpers.signers.getNamedSigners()
     deployer = dep
     governance = gov
 

@@ -89,15 +89,17 @@ describe("L1BTCDepositorNttWithExecutor - Fee Handling", () => {
 
   describe("Fee Estimation", () => {
     it("should revert fee estimation without executor parameters", async () => {
-      await expect(
-        depositor["quoteFinalizeDeposit()"]()
-      ).to.be.revertedWith("Must call setExecutorParameters() first with real signed quote")
+      await expect(depositor["quoteFinalizeDeposit()"]()).to.be.revertedWith(
+        "Must call setExecutorParameters() first with real signed quote"
+      )
     })
 
     it("should revert fee estimation with chain parameter without executor parameters", async () => {
       await expect(
         depositor["quoteFinalizeDeposit(uint16)"](WORMHOLE_CHAIN_SEI)
-      ).to.be.revertedWith("Must call setExecutorParameters() first with real signed quote")
+      ).to.be.revertedWith(
+        "Must call setExecutorParameters() first with real signed quote"
+      )
     })
   })
 
@@ -149,7 +151,7 @@ describe("L1BTCDepositorNttWithExecutor - Fee Handling", () => {
 
       // Clear should work even when not set
       await depositor.clearExecutorParameters()
-      
+
       expect(await depositor.areExecutorParametersSet()).to.be.false
       expect(await depositor.getStoredExecutorValue()).to.equal(0)
     })

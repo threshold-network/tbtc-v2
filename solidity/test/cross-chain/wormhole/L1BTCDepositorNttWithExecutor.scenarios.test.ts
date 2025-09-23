@@ -65,7 +65,9 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
     const proxy = await ProxyFactory.deploy(depositorImpl.address, initData)
     await proxy.deployed()
 
-    depositor = L1BTCDepositorFactory.attach(proxy.address) as L1BTCDepositorNttWithExecutor
+    depositor = L1BTCDepositorFactory.attach(
+      proxy.address
+    ) as L1BTCDepositorNttWithExecutor
 
     // Set up supported chains
     await depositor.setSupportedChain(WORMHOLE_CHAIN_SEI, true)
@@ -86,13 +88,15 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
       const [, , user] = await ethers.getSigners()
 
       // Set up executor parameters using real signed quote
-      await depositor.connect(user).setExecutorParameters(EXECUTOR_ARGS_REAL_QUOTE, FEE_ARGS_ZERO)
+      await depositor
+        .connect(user)
+        .setExecutorParameters(EXECUTOR_ARGS_REAL_QUOTE, FEE_ARGS_ZERO)
 
       // Test quotes for different chains - will fail because we're using mock addresses
       await expect(
         depositor["quoteFinalizeDeposit(uint16)"](WORMHOLE_CHAIN_SEI)
       ).to.be.reverted
-      
+
       await expect(
         depositor["quoteFinalizeDeposit(uint16)"](WORMHOLE_CHAIN_BASE)
       ).to.be.reverted
@@ -112,9 +116,9 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
       expect(await depositor.supportedChains(99)).to.be.false
 
       // Should revert when trying to set unsupported chain as default
-      await expect(
-        depositor.setDefaultSupportedChain(99)
-      ).to.be.revertedWith("Chain must be supported before setting as default")
+      await expect(depositor.setDefaultSupportedChain(99)).to.be.revertedWith(
+        "Chain must be supported before setting as default"
+      )
     })
   })
 
@@ -131,11 +135,13 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
       const executorArgs = {
         value: ethers.utils.parseEther("0.01"),
         refundAddress: user.address,
-        signedQuote: "0x" + "1".repeat(128),
-        instructions: "0x" + "2".repeat(64),
+        signedQuote: `0x${"1".repeat(128)}`,
+        instructions: `0x${"2".repeat(64)}`,
       }
 
-      await depositor.connect(user).setExecutorParameters(executorArgs, zeroFeeArgs)
+      await depositor
+        .connect(user)
+        .setExecutorParameters(executorArgs, zeroFeeArgs)
       expect(await depositor.areExecutorParametersSet()).to.be.true
 
       // Test high fee
@@ -144,7 +150,9 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
         payee: user.address,
       }
 
-      await depositor.connect(user).setExecutorParameters(executorArgs, highFeeArgs)
+      await depositor
+        .connect(user)
+        .setExecutorParameters(executorArgs, highFeeArgs)
       expect(await depositor.areExecutorParametersSet()).to.be.true
 
       // Test maximum fee
@@ -153,7 +161,9 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
         payee: user.address,
       }
 
-      await depositor.connect(user).setExecutorParameters(executorArgs, maxFeeArgs)
+      await depositor
+        .connect(user)
+        .setExecutorParameters(executorArgs, maxFeeArgs)
       expect(await depositor.areExecutorParametersSet()).to.be.true
     })
 
@@ -163,8 +173,8 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
       const executorArgs = {
         value: ethers.utils.parseEther("0.01"),
         refundAddress: user.address,
-        signedQuote: "0x" + "1".repeat(128),
-        instructions: "0x" + "2".repeat(64),
+        signedQuote: `0x${"1".repeat(128)}`,
+        instructions: `0x${"2".repeat(64)}`,
       }
 
       // Test with different fee recipients
@@ -173,14 +183,18 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
         payee: user.address,
       }
 
-      await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs1)
+      await depositor
+        .connect(user)
+        .setExecutorParameters(executorArgs, feeArgs1)
 
       const feeArgs2 = {
         dbps: 100,
         payee: feeRecipient.address,
       }
 
-      await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs2)
+      await depositor
+        .connect(user)
+        .setExecutorParameters(executorArgs, feeArgs2)
       expect(await depositor.areExecutorParametersSet()).to.be.true
     })
   })
@@ -190,12 +204,13 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
       const [, , user] = await ethers.getSigners()
 
       // Perform multiple rapid updates
+      // eslint-disable-next-line no-plusplus
       for (let i = 0; i < 5; i++) {
         const executorArgs = {
           value: ethers.utils.parseEther(`${0.01 + i * 0.01}`),
           refundAddress: user.address,
-          signedQuote: "0x" + "1".repeat(128),
-          instructions: "0x" + "2".repeat(64),
+          signedQuote: `0x${"1".repeat(128)}`,
+          instructions: `0x${"2".repeat(64)}`,
         }
 
         const feeArgs = {
@@ -203,9 +218,14 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
           payee: user.address,
         }
 
-        await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
+        // eslint-disable-next-line no-await-in-loop
+        await depositor
+          .connect(user)
+          .setExecutorParameters(executorArgs, feeArgs)
 
+        // eslint-disable-next-line no-await-in-loop
         expect(await depositor.areExecutorParametersSet()).to.be.true
+        // eslint-disable-next-line no-await-in-loop
         expect(await depositor.getStoredExecutorValue()).to.equal(
           ethers.utils.parseEther(`${0.01 + i * 0.01}`)
         )
@@ -219,8 +239,8 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
       const executorArgs = {
         value: ethers.utils.parseEther("0.01"),
         refundAddress: user.address,
-        signedQuote: "0x" + "1".repeat(128),
-        instructions: "0x" + "2".repeat(64),
+        signedQuote: `0x${"1".repeat(128)}`,
+        instructions: `0x${"2".repeat(64)}`,
       }
 
       const feeArgs = {
@@ -250,7 +270,9 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
       expect(await depositor.areExecutorParametersSet()).to.be.false
 
       // Set valid parameters using real signed quote
-      await depositor.connect(user).setExecutorParameters(EXECUTOR_ARGS_REAL_QUOTE, FEE_ARGS_ZERO)
+      await depositor
+        .connect(user)
+        .setExecutorParameters(EXECUTOR_ARGS_REAL_QUOTE, FEE_ARGS_ZERO)
 
       // Verify that executor parameters are now set
       expect(await depositor.areExecutorParametersSet()).to.be.true
@@ -260,13 +282,14 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
       const [, , user] = await ethers.getSigners()
 
       // Use real signed quote
-      await depositor.connect(user).setExecutorParameters(EXECUTOR_ARGS_REAL_QUOTE, FEE_ARGS_ZERO)
+      await depositor
+        .connect(user)
+        .setExecutorParameters(EXECUTOR_ARGS_REAL_QUOTE, FEE_ARGS_ZERO)
 
       // Try to quote for unsupported chain (should fail)
       // Note: This will fail with CALL_EXCEPTION because we're using mock addresses
-      await expect(
-        depositor["quoteFinalizeDeposit(uint16)"](999)
-      ).to.be.reverted
+      await expect(depositor["quoteFinalizeDeposit(uint16)"](999)).to.be
+        .reverted
 
       // Quote for supported chain will also fail because we're using mock addresses
       await expect(
