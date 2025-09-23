@@ -7,7 +7,7 @@ import "@nomiclabs/hardhat-waffle"
 import "@nomiclabs/hardhat-etherscan"
 import "hardhat-gas-reporter"
 import "hardhat-contract-sizer"
-import "hardhat-deploy"
+// import "hardhat-deploy"  // Temporarily disabled for Node.js 14 compatibility
 import "@tenderly/hardhat-tenderly"
 import "@typechain/hardhat"
 import "hardhat-dependency-compiler"
