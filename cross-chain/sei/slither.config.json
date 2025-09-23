@@ -1,5 +1,5 @@
 {
-  "filter_paths": "contracts/hardhat-dependency-compiler/|contracts/test/|node_modules/",
+  "filter_paths": "contracts/test/|node_modules/",
   "detectors_to_exclude": "assembly,naming-convention,solc-version,timestamp,too-many-digits,similar-names,arbitrary-send-erc20,missing-zero-check,reentrancy-events,costly-loop,low-level-calls",
   "exclude_dependencies": true,
   "exclude_informational": false,
