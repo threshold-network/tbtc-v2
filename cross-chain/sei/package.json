@@ -75,6 +75,7 @@
     "hardhat-gas-reporter": "^1.0.8",
     "inquirer": "^8.2.5",
     "prettier": "^2.5.1",
+    "@keep-network/prettier-config-keep": "github:keep-network/prettier-config-keep",
     "prettier-plugin-sh": "^0.8.1",
     "prettier-plugin-solidity": "^1.0.0-beta.19",
     "solhint": "^3.3.7",

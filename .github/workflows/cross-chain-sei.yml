@@ -43,7 +43,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "20.x"
           cache: "yarn"
           cache-dependency-path: cross-chain/sei/yarn.lock
 
@@ -75,7 +75,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "20.x"
           cache: "yarn"
           cache-dependency-path: cross-chain/sei/yarn.lock
 
@@ -104,7 +104,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "20.x"
           cache: "yarn"
           cache-dependency-path: cross-chain/sei/yarn.lock
 
@@ -136,7 +136,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "20.x"
           cache: "yarn"
           cache-dependency-path: cross-chain/sei/yarn.lock
 
@@ -146,7 +146,7 @@ jobs:
 
       - name: Install Solidity
         env:
-          SOLC_VERSION: 0.8.17 # according to solidity.version in hardhat.config.ts
+          SOLC_VERSION: 0.8.15 # according to solidity.version in hardhat.config.ts
         run: |
           pip3 install solc-select
           solc-select install $SOLC_VERSION
@@ -154,7 +154,7 @@ jobs:
 
       - name: Install Slither
         env:
-          SLITHER_VERSION: 0.8.3
+          SLITHER_VERSION: 0.9.0
         run: pip3 install slither-analyzer==$SLITHER_VERSION
 
       # A workaround for transitive dependencies that use the obsolete git://
@@ -166,4 +166,4 @@ jobs:
         run: yarn install
 
       - name: Run Slither
-        run: slither --hardhat-artifacts-directory build .
+        run: slither --config-file slither.config.json .
