@@ -86,7 +86,7 @@ interface INttManagerWithExecutor {
 /// @title L1BTCDepositorNttWithExecutor
 /// @notice Enhanced version of L1BTCDepositorNtt that uses NttManagerWithExecutor for automatic
 /// destination chain execution via the Wormhole Executor service.
-/// 
+///
 /// @dev This contract extends the direct bridging mechanism to support automatic execution
 /// on the destination chain, eliminating the need for manual transaction completion.
 /// The Wormhole Executor service handles the destination chain transaction automatically.
@@ -220,7 +220,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
             "Underlying NTT Manager address cannot be zero"
         );
 
-        nttManagerWithExecutor = INttManagerWithExecutor(_nttManagerWithExecutor);
+        nttManagerWithExecutor = INttManagerWithExecutor(
+            _nttManagerWithExecutor
+        );
         underlyingNttManager = _underlyingNttManager;
 
         // Set reasonable defaults
@@ -244,7 +246,10 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @notice Adds or removes support for a destination chain
     /// @param _chainId Wormhole chain ID of the destination chain
     /// @param _supported Whether to support transfers to this chain
-    function setSupportedChain(uint16 _chainId, bool _supported) external onlyOwner {
+    function setSupportedChain(uint16 _chainId, bool _supported)
+        external
+        onlyOwner
+    {
         require(_chainId != 0, "Chain ID cannot be zero");
         supportedChains[_chainId] = _supported;
         emit SupportedChainUpdated(_chainId, _supported);
@@ -259,18 +264,27 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         uint16 _feeBps,
         address _feeRecipient
     ) external onlyOwner {
-        require(_feeRecipient != address(0) || _feeBps == 0, "Fee recipient cannot be zero when fee is set");
+        require(
+            _feeRecipient != address(0) || _feeBps == 0,
+            "Fee recipient cannot be zero when fee is set"
+        );
         defaultDestinationGasLimit = _gasLimit;
         defaultExecutorFeeBps = _feeBps;
         defaultExecutorFeeRecipient = _feeRecipient;
-        
+
         emit DefaultParametersUpdated(_gasLimit, _feeBps, _feeRecipient);
     }
 
     /// @notice Updates the underlying NTT Manager address
     /// @param _newNttManager New underlying NTT Manager address
-    function updateUnderlyingNttManager(address _newNttManager) external onlyOwner {
-        require(_newNttManager != address(0), "NTT Manager address cannot be zero");
+    function updateUnderlyingNttManager(address _newNttManager)
+        external
+        onlyOwner
+    {
+        require(
+            _newNttManager != address(0),
+            "NTT Manager address cannot be zero"
+        );
         address oldManager = underlyingNttManager;
         underlyingNttManager = _newNttManager;
         emit UnderlyingNttManagerUpdated(oldManager, _newNttManager);
@@ -278,11 +292,22 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
 
     /// @notice Updates the NTT Manager With Executor address
     /// @param _newNttManagerWithExecutor New NTT Manager With Executor address
-    function updateNttManagerWithExecutor(address _newNttManagerWithExecutor) external onlyOwner {
-        require(_newNttManagerWithExecutor != address(0), "Address cannot be zero");
+    function updateNttManagerWithExecutor(address _newNttManagerWithExecutor)
+        external
+        onlyOwner
+    {
+        require(
+            _newNttManagerWithExecutor != address(0),
+            "Address cannot be zero"
+        );
         address oldManager = address(nttManagerWithExecutor);
-        nttManagerWithExecutor = INttManagerWithExecutor(_newNttManagerWithExecutor);
-        emit NttManagerWithExecutorUpdated(oldManager, _newNttManagerWithExecutor);
+        nttManagerWithExecutor = INttManagerWithExecutor(
+            _newNttManagerWithExecutor
+        );
+        emit NttManagerWithExecutorUpdated(
+            oldManager,
+            _newNttManagerWithExecutor
+        );
     }
 
     /// @notice Allows the owner to retrieve tokens from the contract
@@ -294,7 +319,10 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         address _to,
         uint256 _amount
     ) external onlyOwner {
-        require(_to != address(0), "Cannot retrieve tokens to the zero address");
+        require(
+            _to != address(0),
+            "Cannot retrieve tokens to the zero address"
+        );
 
         if (_token == address(0)) {
             payable(_to).transfer(_amount);
@@ -303,25 +331,28 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         }
     }
 
-
     /// @notice Quotes the cost using stored executor parameters
     /// @dev Must call setExecutorParameters() first with real signed quote
     /// @return cost Total cost for the transfer using stored parameters
     function quoteFinalizeDeposit() external view returns (uint256 cost) {
-        require(executorParametersSet, "Must call setExecutorParameters() first with real signed quote");
-        
+        require(
+            executorParametersSet,
+            "Must call setExecutorParameters() first with real signed quote"
+        );
+
         // Extract destination chain from stored executor parameters
         // We'll use the default chain since we don't have the receiver encoded in stored params
         uint16 defaultChain = _getDefaultSupportedChain();
         require(defaultChain != 0, "No supported chains configured");
-        
-        return nttManagerWithExecutor.quoteDeliveryPrice(
-            underlyingNttManager,
-            defaultChain,
-            "", // Empty transceiver instructions for basic transfer
-            storedExecutorArgs,
-            storedFeeArgs
-        );
+
+        return
+            nttManagerWithExecutor.quoteDeliveryPrice(
+                underlyingNttManager,
+                defaultChain,
+                "", // Empty transceiver instructions for basic transfer
+                storedExecutorArgs,
+                storedFeeArgs
+            );
     }
 
     /// @notice Sets executor parameters for the next finalizeDeposit call
@@ -333,7 +364,10 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         FeeArgs memory feeArgs
     ) external {
         // CRITICAL: Validate that we have a real signed quote
-        require(executorArgs.signedQuote.length > 0, "Real signed quote from Wormhole Executor API is required");
+        require(
+            executorArgs.signedQuote.length > 0,
+            "Real signed quote from Wormhole Executor API is required"
+        );
         _validateSignedQuote(executorArgs.signedQuote);
 
         // Store the parameters for use in finalizeDeposit
@@ -351,17 +385,28 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @notice Quotes the cost for a specific destination chain using stored executor parameters
     /// @param _destinationChain Wormhole chain ID of the destination
     /// @return cost Total cost for the transfer to the specified chain
-    function quoteFinalizeDeposit(uint16 _destinationChain) external view returns (uint256 cost) {
-        require(executorParametersSet, "Must call setExecutorParameters() first with real signed quote");
-        require(supportedChains[_destinationChain], "Destination chain not supported");
-        
-        return nttManagerWithExecutor.quoteDeliveryPrice(
-            underlyingNttManager,
-            _destinationChain,
-            "", // Empty transceiver instructions for basic transfer
-            storedExecutorArgs,
-            storedFeeArgs
+    function quoteFinalizeDeposit(uint16 _destinationChain)
+        external
+        view
+        returns (uint256 cost)
+    {
+        require(
+            executorParametersSet,
+            "Must call setExecutorParameters() first with real signed quote"
         );
+        require(
+            supportedChains[_destinationChain],
+            "Destination chain not supported"
+        );
+
+        return
+            nttManagerWithExecutor.quoteDeliveryPrice(
+                underlyingNttManager,
+                _destinationChain,
+                "", // Empty transceiver instructions for basic transfer
+                storedExecutorArgs,
+                storedFeeArgs
+            );
     }
 
     /// @notice Clears stored executor parameters
@@ -388,12 +433,23 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @dev Uses stored executor parameters set via setExecutorParameters()
     /// @param amount Amount of tBTC to transfer
     /// @param destinationChainReceiver Encoded receiver data with chain ID and recipient
-    function _transferTbtc(uint256 amount, bytes32 destinationChainReceiver) internal override {
-        require(executorParametersSet, "Must call setExecutorParameters() first with real signed quote");
-        
+    function _transferTbtc(uint256 amount, bytes32 destinationChainReceiver)
+        internal
+        override
+    {
+        require(
+            executorParametersSet,
+            "Must call setExecutorParameters() first with real signed quote"
+        );
+
         // Use stored executor parameters
-        _transferTbtcWithExecutor(amount, destinationChainReceiver, storedExecutorArgs, storedFeeArgs);
-        
+        _transferTbtcWithExecutor(
+            amount,
+            destinationChainReceiver,
+            storedExecutorArgs,
+            storedFeeArgs
+        );
+
         // Clear parameters after use to prevent reuse
         delete storedExecutorArgs;
         delete storedFeeArgs;
@@ -416,18 +472,31 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         require(amount > 0, "Amount must be greater than 0");
 
         // Extract destination chain and recipient
-        uint16 destinationChain = _getDestinationChainFromReceiver(destinationChainReceiver);
-        require(supportedChains[destinationChain], "Destination chain not supported");
+        uint16 destinationChain = _getDestinationChainFromReceiver(
+            destinationChainReceiver
+        );
+        require(
+            supportedChains[destinationChain],
+            "Destination chain not supported"
+        );
 
-        bytes32 actualRecipient = _getRecipientAddressFromReceiver(destinationChainReceiver);
+        bytes32 actualRecipient = _getRecipientAddressFromReceiver(
+            destinationChainReceiver
+        );
 
         // CRITICAL: Validate that we have a real signed quote
-        require(executorArgs.signedQuote.length > 0, "Real signed quote from Wormhole Executor API is required");
+        require(
+            executorArgs.signedQuote.length > 0,
+            "Real signed quote from Wormhole Executor API is required"
+        );
         _validateSignedQuote(executorArgs.signedQuote);
 
         // Approve the NttManagerWithExecutor to spend tBTC
         // slither-disable-next-line reentrancy-vulnerabilities-3
-        tbtcToken.safeIncreaseAllowance(address(nttManagerWithExecutor), amount);
+        tbtcToken.safeIncreaseAllowance(
+            address(nttManagerWithExecutor),
+            amount
+        );
 
         // Execute the transfer with executor support
         // slither-disable-next-line reentrancy-vulnerabilities-3
@@ -461,51 +530,63 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         returns (uint16 chainId)
     {
         chainId = uint16(bytes2(destinationChainReceiver));
-        
+
         // CRITICAL: No fallback to default chain - user must specify valid chain
         if (chainId == 0) {
             revert("Chain ID cannot be zero");
         }
-        
+
         if (!supportedChains[chainId]) {
-            revert(string(abi.encodePacked(
-                "Chain ", 
-                _uint16ToString(chainId),
-                " not supported"
-            )));
+            revert(
+                string(
+                    abi.encodePacked(
+                        "Chain ",
+                        _uint16ToString(chainId),
+                        " not supported"
+                    )
+                )
+            );
         }
-        
+
         return chainId;
     }
 
     /// @notice Convert uint16 to string for error messages
     /// @param value The uint16 value to convert
     /// @return str The string representation
-    function _uint16ToString(uint16 value) internal pure returns (string memory str) {
+    function _uint16ToString(uint16 value)
+        internal
+        pure
+        returns (string memory str)
+    {
         if (value == 0) {
             return "0";
         }
-        
+
         uint16 temp = value;
         uint256 digits;
         while (temp != 0) {
             digits++;
             temp /= 10;
         }
-        
+
         bytes memory buffer = new bytes(digits);
         while (value != 0) {
             digits -= 1;
             buffer[digits] = bytes1(uint8(48 + uint256(value % 10)));
             value /= 10;
         }
-        
+
         return string(buffer);
     }
 
     /// @notice Get the default supported chain ID
     /// @return chainId The default supported chain ID
-    function _getDefaultSupportedChain() internal view returns (uint16 chainId) {
+    function _getDefaultSupportedChain()
+        internal
+        view
+        returns (uint16 chainId)
+    {
         return defaultSupportedChain;
     }
 
@@ -517,12 +598,12 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         pure
         returns (bytes32 recipient)
     {
-        return bytes32(
-            uint256(destinationChainReceiver) &
-            0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
-        );
+        return
+            bytes32(
+                uint256(destinationChainReceiver) &
+                    0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
+            );
     }
-
 
     /// @notice Validates the format of a signed quote from Wormhole Executor API
     /// @param signedQuote The signed quote bytes to validate
@@ -560,7 +641,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         recipient = address(
             uint160(
                 uint256(encodedReceiver) &
-                0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
+                    0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
             )
         );
     }

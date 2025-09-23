@@ -310,8 +310,6 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
         );
     }
 
-
-
     /// @notice Enhanced function to get destination chain from encoded receiver address
     /// @param destinationChainReceiver The encoded receiver with chain ID in first 2 bytes
     /// @return chainId The destination chain ID
@@ -335,7 +333,6 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
 
         return chainId;
     }
-
 
     /// @notice Internal function to get the default supported chain
     /// @return chainId The default supported chain ID, or 0 if none set
@@ -366,30 +363,6 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
                     0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
             );
     }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     /// @notice Returns the current NTT Manager configuration
     /// @return manager Address of the current NTT Hub Manager
