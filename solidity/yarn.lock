@@ -958,10 +958,10 @@
   dependencies:
     "@noble/hashes" "1.4.0"
 
-"@noble/hashes@1.0.0", "@noble/hashes@1.2.0", "@noble/hashes@1.4.0", "@noble/hashes@^1.4.0", "@noble/hashes@~1.2.0", "@noble/hashes@~1.4.0":
-  version "1.0.0"
-  resolved "https://registry.yarnpkg.com/@noble/hashes/-/hashes-1.0.0.tgz#d5e38bfbdaba174805a4e649f13be9a9ed3351ae"
-  integrity sha512-DZVbtY62kc3kkBtMHqwCOfXrT/hnoORy5BJ4+HU1IR59X0KWAOqsfzQPcUl/lQLlG7qXbe/fZ3r/emxtAl+sqg==
+"@noble/hashes@1.2.0", "@noble/hashes@1.4.0", "@noble/hashes@^1.4.0", "@noble/hashes@~1.2.0", "@noble/hashes@~1.4.0":
+  version "1.2.0"
+  resolved "https://registry.yarnpkg.com/@noble/hashes/-/hashes-1.2.0.tgz#a3150eeb09cc7ab207ebf6d7b9ad311a9bdbed12"
+  integrity sha512-FZfhjEDbT5GRswV3C6uvLPHMiVD6lQBmpoX5+eSiPaMTXte/IKqI5dykDxzZB/WBeK/CDuQRBWarPdi3FNY2zQ==
 
 "@noble/secp256k1@1.7.1":
   version "1.7.1"
