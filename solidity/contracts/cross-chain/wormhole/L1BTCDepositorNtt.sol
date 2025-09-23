@@ -15,11 +15,6 @@
 
 pragma solidity 0.8.17;
 
-// slither-disable-next-line pragma-once
-// Disable reentrancy warnings for this contract - external calls are to trusted contracts
-// and event emission after external calls is the correct pattern for this use case
-// slither-disable-start reentrancy-vulnerabilities-3
-
 import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 
@@ -289,7 +284,7 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
 
         // The NTT Manager will pull the tBTC amount from this contract
         // We need to approve the transfer first
-        // slither-disable-next-line reentrancy-eth,reentrancy-no-eth
+        // slither-disable-next-line reentrancy-vulnerabilities-3
         tbtcToken.safeIncreaseAllowance(address(nttManager), amount);
 
         // Execute NTT Hub-and-Spoke transfer with the actual recipient address
@@ -299,7 +294,7 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
         // 2. Lock them in the NTT Manager (locking mode for Hub)
         // 3. Send cross-chain message via configured transceivers
         // 4. Spoke chain receives attested message and mints native tokens to actual recipient
-        // slither-disable-next-line reentrancy-eth,reentrancy-no-eth
+        // slither-disable-next-line reentrancy-vulnerabilities-3
         uint64 sequence = nttManager.transfer{value: msg.value}(
             amount,
             destinationChain,
@@ -458,5 +453,3 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
     /// @notice Emitted when default supported chain is updated
     event DefaultSupportedChainUpdated(uint16 indexed chainId);
 }
-
-// slither-disable-end reentrancy-vulnerabilities-3

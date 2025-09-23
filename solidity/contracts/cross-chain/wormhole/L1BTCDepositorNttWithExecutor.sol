@@ -15,11 +15,6 @@
 
 pragma solidity 0.8.17;
 
-// slither-disable-next-line pragma-once  
-// Disable reentrancy warnings for this contract - external calls are to trusted contracts
-// and event emission after external calls is the correct pattern for this use case
-// slither-disable-start reentrancy-vulnerabilities-3
-
 import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 
@@ -431,11 +426,11 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         _validateSignedQuote(executorArgs.signedQuote);
 
         // Approve the NttManagerWithExecutor to spend tBTC
-        // slither-disable-next-line reentrancy-eth,reentrancy-no-eth
+        // slither-disable-next-line reentrancy-vulnerabilities-3
         tbtcToken.safeIncreaseAllowance(address(nttManagerWithExecutor), amount);
 
         // Execute the transfer with executor support
-        // slither-disable-next-line reentrancy-eth,reentrancy-no-eth
+        // slither-disable-next-line reentrancy-vulnerabilities-3
         uint64 sequence = nttManagerWithExecutor.transfer{value: msg.value}(
             underlyingNttManager,
             amount,
@@ -570,5 +565,3 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         );
     }
 }
-
-// slither-disable-end reentrancy-vulnerabilities-3
