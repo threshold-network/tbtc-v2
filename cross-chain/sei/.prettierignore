@@ -1,0 +1,11 @@
+# Canonical contracts that cannot be modified
+contracts/L2TBTC.sol
+
+# Build artifacts
+build/
+cache/
+typechain/
+node_modules/
+
+# Generated files
+*.dbg.json
