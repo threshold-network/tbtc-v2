@@ -28,23 +28,23 @@ jobs:
             path-filter:
               - './yearn/**'
 
-#  yearn-build-and-test:
-#    needs: yearn-detect-changes
-#    if: |
-#      github.event_name != 'pull_request'
-#        || needs.yearn-detect-changes.outputs.path-filter == 'true'
-#    runs-on: ubuntu-latest
-#    defaults:
-#      run:
-#        working-directory: ./yearn
-#    steps:
-#      - uses: actions/checkout@v3
+      #  yearn-build-and-test:
+      #    needs: yearn-detect-changes
+      #    if: |
+      #      github.event_name != 'pull_request'
+      #        || needs.yearn-detect-changes.outputs.path-filter == 'true'
+      #    runs-on: ubuntu-latest
+      #    defaults:
+      #      run:
+      #        working-directory: ./yearn
+      #    steps:
+      #      - uses: actions/checkout@v3
 
-#      - uses: actions/setup-node@v3
-#        with:
-#          node-version: "14.x"
-#          cache: "yarn"
-#          cache-dependency-path: yearn/yarn.lock
+      #      - uses: actions/setup-node@v3
+      #        with:
+      #          node-version: "14.x"
+      #          cache: "yarn"
+      #          cache-dependency-path: yearn/yarn.lock
 
       - name: Install dependencies
         run: yarn install
