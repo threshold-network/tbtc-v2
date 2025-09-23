@@ -85,6 +85,7 @@ interface INttManager {
 ///      - 0x0020[Sei address padded]     → Sei (Wormhole Chain ID 32)
 ///      - 0x2105[Base address padded]    → Base (Wormhole Chain ID 8453)
 ///      - 0x0000[address]                → Default chain (backward compatibility)
+// slither-disable-next-line reentrancy-vulnerabilities-3
 contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
     using SafeERC20Upgradeable for IERC20Upgradeable;
 
@@ -248,6 +249,7 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
     ///      4. NTT framework sends cross-chain message via multiple transceivers
     ///      5. Spoke chain receives attested message and mints native tokens to actual recipient
     ///      6. Result: Bitcoin-backed native tBTC on destination chain
+    // slither-disable-next-line reentrancy-vulnerabilities-3
     function _transferTbtc(uint256 amount, bytes32 destinationChainReceiver)
         internal
         override
@@ -284,8 +286,7 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
 
         // The NTT Manager will pull the tBTC amount from this contract
         // We need to approve the transfer first
-        // slither-disable-next-line reentrancy-vulnerabilities-3
-        tbtcToken.safeIncreaseAllowance(address(nttManager), amount);
+        tbtcToken.safeIncreaseAllowance(address(nttManager), amount); // slither-disable-line reentrancy-vulnerabilities-3
 
         // Execute NTT Hub-and-Spoke transfer with the actual recipient address
         // Uses the simple transfer function - NTT Manager handles the complexity
@@ -294,14 +295,13 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
         // 2. Lock them in the NTT Manager (locking mode for Hub)
         // 3. Send cross-chain message via configured transceivers
         // 4. Spoke chain receives attested message and mints native tokens to actual recipient
-        // slither-disable-next-line reentrancy-vulnerabilities-3
-        uint64 sequence = nttManager.transfer{value: msg.value}(
+        uint64 sequence = nttManager.transfer{value: msg.value}( // slither-disable-line reentrancy-vulnerabilities-3
             amount,
             destinationChain,
             actualRecipient // Use cleaned recipient address
         );
 
-        emit TokensTransferredNTT(
+        emit TokensTransferredNTT( // slither-disable-line reentrancy-vulnerabilities-3
             amount,
             destinationChain,
             actualRecipient,

@@ -103,6 +103,7 @@ interface INttManagerWithExecutor {
 /// - Configures gas limits for destination chain execution
 /// - Handles fee payments to executor service
 /// - Provides refund mechanisms for unused gas
+// slither-disable-next-line reentrancy-vulnerabilities-3
 contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     using SafeERC20Upgradeable for IERC20Upgradeable;
 
@@ -461,6 +462,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @param destinationChainReceiver Encoded receiver data with chain ID and recipient
     /// @param executorArgs Real executor arguments with valid signed quote
     /// @param feeArgs Fee arguments for the executor
+    // slither-disable-next-line reentrancy-vulnerabilities-3
     function _transferTbtcWithExecutor(
         uint256 amount,
         bytes32 destinationChainReceiver,
@@ -492,15 +494,13 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         _validateSignedQuote(executorArgs.signedQuote);
 
         // Approve the NttManagerWithExecutor to spend tBTC
-        // slither-disable-next-line reentrancy-vulnerabilities-3
-        tbtcToken.safeIncreaseAllowance(
+        tbtcToken.safeIncreaseAllowance( // slither-disable-line reentrancy-vulnerabilities-3
             address(nttManagerWithExecutor),
             amount
         );
 
         // Execute the transfer with executor support
-        // slither-disable-next-line reentrancy-vulnerabilities-3
-        uint64 sequence = nttManagerWithExecutor.transfer{value: msg.value}(
+        uint64 sequence = nttManagerWithExecutor.transfer{value: msg.value}( // slither-disable-line reentrancy-vulnerabilities-3
             underlyingNttManager,
             amount,
             destinationChain,
@@ -511,7 +511,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
             feeArgs
         );
 
-        emit TokensTransferredNttWithExecutor(
+        emit TokensTransferredNttWithExecutor( // slither-disable-line reentrancy-vulnerabilities-3
             amount,
             destinationChain,
             actualRecipient,
