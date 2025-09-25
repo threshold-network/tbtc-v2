@@ -285,6 +285,52 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
     })
   })
 
+  describe("Default Gas Limit Management", () => {
+    it("should have initial default destination gas limit set to 500000", async () => {
+      expect(await depositor.defaultDestinationGasLimit()).to.equal(500000)
+    })
+
+    it("should allow owner to update default destination gas limit", async () => {
+      const [owner] = await ethers.getSigners()
+      const newGasLimit = 750000
+
+      await expect(
+        depositor.connect(owner).setDefaultDestinationGasLimit(newGasLimit)
+      )
+        .to.emit(depositor, "DefaultDestinationGasLimitUpdated")
+        .withArgs(500000, newGasLimit)
+
+      expect(await depositor.defaultDestinationGasLimit()).to.equal(newGasLimit)
+    })
+
+    it("should reject zero gas limit", async () => {
+      const [owner] = await ethers.getSigners()
+
+      await expect(
+        depositor.connect(owner).setDefaultDestinationGasLimit(0)
+      ).to.be.revertedWith("Gas limit must be greater than zero")
+    })
+
+    it("should reject non-owner attempts to set gas limit", async () => {
+      const [, nonOwner] = await ethers.getSigners()
+
+      await expect(
+        depositor.connect(nonOwner).setDefaultDestinationGasLimit(600000)
+      ).to.be.revertedWith("Ownable: caller is not the owner")
+    })
+
+    it("should accept large gas limits", async () => {
+      const [owner] = await ethers.getSigners()
+      const largeGasLimit = 5000000 // 5M gas
+
+      await expect(
+        depositor.connect(owner).setDefaultDestinationGasLimit(largeGasLimit)
+      ).to.not.be.reverted
+
+      expect(await depositor.defaultDestinationGasLimit()).to.equal(largeGasLimit)
+    })
+  })
+
   describe("Executor Value Management", () => {
     it("should track stored executor value", async () => {
       expect(await depositor.getStoredExecutorValue()).to.equal(0)

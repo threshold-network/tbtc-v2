@@ -127,6 +127,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @notice Maximum basis points value (100%)
     uint16 public constant MAX_BPS = 10000;
 
+    /// @notice Default destination gas limit for execution (500k gas)
+    uint256 private constant DEFAULT_DESTINATION_GAS_LIMIT = 500000;
+
     /// @notice Default executor fee in basis points
     /// @dev Used when no specific fee is configured (e.g., 100 = 1%)
     uint16 public defaultExecutorFeeBps;
@@ -184,6 +187,12 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         address feeRecipient
     );
 
+    /// @notice Emitted when the default destination gas limit is updated
+    event DefaultDestinationGasLimitUpdated(
+        uint256 indexed oldGasLimit,
+        uint256 indexed newGasLimit
+    );
+
     /// @notice Emitted when the underlying NTT Manager is updated
     event UnderlyingNttManagerUpdated(
         address indexed oldManager,
@@ -230,7 +239,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         underlyingNttManager = _underlyingNttManager;
 
         // Set reasonable defaults
-        defaultDestinationGasLimit = 500000; // 500k gas for destination execution
+        defaultDestinationGasLimit = DEFAULT_DESTINATION_GAS_LIMIT;
         defaultExecutorFeeBps = 0; // 0% executor fee by default
         defaultExecutorFeeRecipient = address(0); // No fee recipient by default
     }
@@ -278,6 +287,18 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         defaultExecutorFeeRecipient = _feeRecipient;
 
         emit DefaultParametersUpdated(_gasLimit, _feeBps, _feeRecipient);
+    }
+
+    /// @notice Updates the default destination gas limit
+    /// @param _newGasLimit New default gas limit for destination chain execution
+    function setDefaultDestinationGasLimit(uint256 _newGasLimit)
+        external
+        onlyOwner
+    {
+        require(_newGasLimit > 0, "Gas limit must be greater than zero");
+        uint256 oldGasLimit = defaultDestinationGasLimit;
+        defaultDestinationGasLimit = _newGasLimit;
+        emit DefaultDestinationGasLimitUpdated(oldGasLimit, _newGasLimit);
     }
 
     /// @notice Updates the underlying NTT Manager address
