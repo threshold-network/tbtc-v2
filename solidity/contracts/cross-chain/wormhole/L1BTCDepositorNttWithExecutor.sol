@@ -351,7 +351,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         );
 
         if (_token == address(0)) {
-            payable(_to).transfer(_amount);
+            // Use call instead of transfer for better error handling and gas efficiency
+            (bool success, ) = payable(_to).call{value: _amount}("");
+            require(success, "Failed to transfer native token");
         } else {
             IERC20Upgradeable(_token).safeTransfer(_to, _amount);
         }

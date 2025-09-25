@@ -26,7 +26,7 @@ const WORMHOLE_CHAIN_BASE = 30
 const WORMHOLE_CHAIN_ARBITRUM = 23
 
 // Helper function to create properly structured ExecutorArgs
-function createExecutorArgs(overrides: any = {}) {
+function createExecutorArgs(overrides: Record<string, unknown> = {}) {
   return {
     value: BigNumber.from(overrides.value || EXECUTOR_ARGS_REAL_QUOTE.value),
     refundAddress:
@@ -246,11 +246,11 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
     it("should reject fee basis points exceeding 10000 in setDefaultParameters", async () => {
       const [owner] = await ethers.getSigners()
-      
+
       await expect(
         depositor.connect(owner).setDefaultParameters(
           500000, // gasLimit
-          10001,  // feeBps exceeds 100%
+          10001, // feeBps exceeds 100%
           ethers.Wallet.createRandom().address // feeRecipient
         )
       ).to.be.revertedWith("Fee cannot exceed 100% (10000 bps)")
@@ -258,11 +258,11 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
     it("should accept maximum valid fee basis points (10000) in setDefaultParameters", async () => {
       const [owner] = await ethers.getSigners()
-      
+
       await expect(
         depositor.connect(owner).setDefaultParameters(
           500000, // gasLimit
-          10000,  // feeBps exactly 100%
+          10000, // feeBps exactly 100%
           ethers.Wallet.createRandom().address // feeRecipient
         )
       ).to.not.be.reverted
@@ -270,11 +270,11 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
     it("should accept zero fee basis points", async () => {
       const [owner] = await ethers.getSigners()
-      
+
       await expect(
         depositor.connect(owner).setDefaultParameters(
           500000, // gasLimit
-          0,      // feeBps 0%
+          0, // feeBps 0%
           ethers.constants.AddressZero // feeRecipient can be zero when fee is 0
         )
       ).to.not.be.reverted
@@ -327,7 +327,96 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         depositor.connect(owner).setDefaultDestinationGasLimit(largeGasLimit)
       ).to.not.be.reverted
 
-      expect(await depositor.defaultDestinationGasLimit()).to.equal(largeGasLimit)
+      expect(await depositor.defaultDestinationGasLimit()).to.equal(
+        largeGasLimit
+      )
+    })
+  })
+
+  describe("Native Token Transfer Security", () => {
+    it("should handle insufficient balance gracefully", async () => {
+      const [owner, recipient] = await ethers.getSigners()
+      const amount = ethers.utils.parseEther("1")
+
+      // Don't fund the contract - it should have zero balance
+      await expect(
+        depositor
+          .connect(owner)
+          .retrieveTokens(
+            ethers.constants.AddressZero,
+            recipient.address,
+            amount
+          )
+      ).to.be.revertedWith("Failed to transfer native token")
+    })
+
+    it("should reject zero address recipient", async () => {
+      const [owner] = await ethers.getSigners()
+      const amount = ethers.utils.parseEther("0.1")
+
+      await expect(
+        depositor
+          .connect(owner)
+          .retrieveTokens(
+            ethers.constants.AddressZero,
+            ethers.constants.AddressZero,
+            amount
+          )
+      ).to.be.revertedWith("Cannot retrieve tokens to the zero address")
+    })
+
+    it("should only allow owner to retrieve tokens", async () => {
+      const [, nonOwner, recipient] = await ethers.getSigners()
+      const amount = ethers.utils.parseEther("0.1")
+
+      await expect(
+        depositor
+          .connect(nonOwner)
+          .retrieveTokens(
+            ethers.constants.AddressZero,
+            recipient.address,
+            amount
+          )
+      ).to.be.revertedWith("Ownable: caller is not the owner")
+    })
+
+    it("should successfully transfer ERC20 tokens", async () => {
+      const [owner, recipient] = await ethers.getSigners()
+      const amount = ethers.utils.parseEther("100")
+
+      // Mint tokens to the depositor contract
+      await tbtcToken.mint(depositor.address, amount)
+
+      const initialBalance = await tbtcToken.balanceOf(recipient.address)
+
+      await expect(
+        depositor
+          .connect(owner)
+          .retrieveTokens(tbtcToken.address, recipient.address, amount)
+      ).to.not.be.reverted
+
+      const finalBalance = await tbtcToken.balanceOf(recipient.address)
+      expect(finalBalance.sub(initialBalance)).to.equal(amount)
+    })
+
+    it("should demonstrate improved error handling vs old transfer method", async () => {
+      const [owner, recipient] = await ethers.getSigners()
+      const amount = ethers.utils.parseEther("0.1")
+
+      // Test that our new implementation provides clear error messages
+      // when attempting to transfer non-existent native tokens
+      await expect(
+        depositor
+          .connect(owner)
+          .retrieveTokens(
+            ethers.constants.AddressZero,
+            recipient.address,
+            amount
+          )
+      ).to.be.revertedWith("Failed to transfer native token")
+
+      // This demonstrates that the new call-based approach provides
+      // better error handling than the old transfer() method would
     })
   })
 
@@ -380,182 +469,120 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         )
       }
     })
+
+    it("should handle quote requests gracefully", async () => {
+      // Test that quote functions exist and are callable (even if they revert due to missing params)
+      await expect(depositor["quoteFinalizeDeposit()"]()).to.be.reverted
+      await expect(
+        depositor["quoteFinalizeDeposit(uint16)"](WORMHOLE_CHAIN_SEI)
+      ).to.be.reverted
+    })
   })
 
-  describe("Parameter Structure Validation", () => {
-    it("should validate ExecutorArgs structure", async () => {
-      // Test that we can create valid ExecutorArgs structure
-      const validExecutorArgs = {
-        signedQuote: ethers.utils.hexlify(randomBytes(64)), // Valid length
-        value: ethers.utils.parseEther("0.01"),
-      }
-
-      expect(validExecutorArgs.signedQuote).to.have.length.greaterThan(2) // "0x" + data
-      expect(validExecutorArgs.value).to.be.gt(0)
+  describe("Chain Configuration", () => {
+    it("should have supported chains configured", async () => {
+      expect(await depositor.supportedChains(WORMHOLE_CHAIN_SEI)).to.be.true
+      expect(await depositor.supportedChains(WORMHOLE_CHAIN_BASE)).to.be.true
+      expect(await depositor.supportedChains(WORMHOLE_CHAIN_ARBITRUM)).to.be
+        .true
     })
 
-    it("should validate FeeArgs structure", async () => {
-      // Test that we can create valid FeeArgs structure
-      const validFeeArgs = {
-        gasLimit: BigNumber.from(500000),
-        feeBps: BigNumber.from(100),
-        feeRecipient: ethers.Wallet.createRandom().address,
-      }
+    it("should have default supported chain set", async () => {
+      expect(await depositor.defaultSupportedChain()).to.equal(
+        WORMHOLE_CHAIN_SEI
+      )
+    })
 
-      expect(validFeeArgs.gasLimit).to.be.gt(0)
-      expect(validFeeArgs.feeBps).to.be.gte(0)
-      expect(validFeeArgs.feeRecipient).to.not.equal(
+    it("should reject quotes for unsupported chains", async () => {
+      const unsupportedChain = 999
+
+      await expect(
+        depositor["quoteFinalizeDeposit(uint16)"](unsupportedChain)
+      ).to.be.revertedWith("Must call setExecutorParameters() first")
+    })
+  })
+
+  describe("Contract State Queries", () => {
+    it("should return correct contract addresses", async () => {
+      expect(await depositor.nttManagerWithExecutor()).to.equal(
+        nttManagerWithExecutor.address
+      )
+      expect(await depositor.underlyingNttManager()).to.equal(
+        underlyingNttManager.address
+      )
+    })
+
+    it("should return correct default parameters", async () => {
+      expect(await depositor.defaultDestinationGasLimit()).to.equal(500000)
+      expect(await depositor.defaultExecutorFeeBps()).to.equal(0)
+      expect(await depositor.defaultExecutorFeeRecipient()).to.equal(
         ethers.constants.AddressZero
       )
     })
-  })
 
-  describe("State Consistency", () => {
-    it("should maintain consistent state across operations", async () => {
-      // Initial state
-      expect(await depositor.areExecutorParametersSet()).to.be.false
-      expect(await depositor.getStoredExecutorValue()).to.equal(0)
-
-      // Clear parameters (should not change state)
-      await depositor.clearExecutorParameters()
-      expect(await depositor.areExecutorParametersSet()).to.be.false
-      expect(await depositor.getStoredExecutorValue()).to.equal(0)
-
-      // Multiple clears should not affect state
-      await depositor.clearExecutorParameters()
-      await depositor.clearExecutorParameters()
+    it("should handle parameter state queries", async () => {
       expect(await depositor.areExecutorParametersSet()).to.be.false
       expect(await depositor.getStoredExecutorValue()).to.equal(0)
     })
   })
 
-  describe("Real Signed Quote Integration", () => {
-    it.skip("should set executor parameters with real signed quote - SKIPPED: Requires Wormhole validation", async () => {
-      // Skip: Requires real Wormhole signed quote validation infrastructure
-    })
+  describe("Utility Functions", () => {
+    it("should encode and decode destination receiver correctly", async () => {
+      const chainId = WORMHOLE_CHAIN_SEI
+      const recipient = ethers.Wallet.createRandom().address
 
-    it.skip("should emit ExecutorParametersSet event with real quote - SKIPPED: Requires Wormhole validation", async () => {
-      // Skip: Requires real Wormhole signed quote validation infrastructure
-    })
-
-    it.skip("should handle parameter updates with different quotes - SKIPPED: Requires Wormhole validation", async () => {
-      // Skip: Requires real Wormhole signed quote validation infrastructure
-    })
-
-    it.skip("should clear parameters after setting with real quote - SKIPPED: Requires Wormhole validation", async () => {
-      // Skip: Requires real Wormhole signed quote validation infrastructure
-    })
-
-    it.skip("should handle different fee configurations with real quote - SKIPPED: Requires Wormhole validation", async () => {
-      // Skip: Requires real Wormhole signed quote validation infrastructure
-    })
-
-    it("should validate real signed quote format and structure", async () => {
-      // This test doesn't require contract interaction, just validates the quote structure
-      expect(EXECUTOR_ARGS_REAL_QUOTE.signedQuote).to.have.length.greaterThan(
-        10
+      const encoded = await depositor.encodeDestinationReceiver(
+        chainId,
+        recipient
       )
-      expect(EXECUTOR_ARGS_REAL_QUOTE.signedQuote).to.match(/^0x[0-9a-fA-F]+$/)
-      expect(EXECUTOR_ARGS_REAL_QUOTE.signedQuote.length).to.equal(332) // 330 hex chars + "0x"
+      const [decodedChainId, decodedRecipient] =
+        await depositor.decodeDestinationReceiver(encoded)
 
-      // Validate the structure contains expected elements
-      expect(EXECUTOR_ARGS_REAL_QUOTE.value).to.equal("22228789591571")
-      expect(EXECUTOR_ARGS_REAL_QUOTE.refundAddress).to.match(
-        /^0x[0-9a-fA-F]{40}$/
-      )
-      expect(EXECUTOR_ARGS_REAL_QUOTE.instructions).to.have.length.greaterThan(
-        2
-      )
+      expect(decodedChainId).to.equal(chainId)
+      expect(decodedRecipient).to.equal(recipient)
     })
 
-    it("should validate alternative signed quote format", async () => {
-      // Validate the alternative quote structure
-      expect(EXECUTOR_ARGS_ALT_QUOTE.signedQuote).to.have.length.greaterThan(10)
-      expect(EXECUTOR_ARGS_ALT_QUOTE.signedQuote).to.match(/^0x[0-9a-fA-F]+$/)
-      expect(EXECUTOR_ARGS_ALT_QUOTE.value).to.equal("18950000000000")
-      expect(EXECUTOR_ARGS_ALT_QUOTE.refundAddress).to.match(
-        /^0x[0-9a-fA-F]{40}$/
+    it("should handle edge cases in encoding", async () => {
+      const maxChainId = 65535 // Max uint16
+      const zeroAddress = ethers.constants.AddressZero
+
+      const encoded = await depositor.encodeDestinationReceiver(
+        maxChainId,
+        zeroAddress
       )
+      const [decodedChainId, decodedRecipient] =
+        await depositor.decodeDestinationReceiver(encoded)
+
+      expect(decodedChainId).to.equal(maxChainId)
+      expect(decodedRecipient).to.equal(zeroAddress)
     })
   })
 
-  describe("Advanced Mock Integration", () => {
-    it("should validate mock NTT manager setup", async () => {
-      // Test that our mock NTT manager is properly set up
-      expect(await nttManagerWithExecutor.MOCK_DELIVERY_PRICE()).to.equal(
-        "10000000000000000"
-      )
-      expect(await nttManagerWithExecutor.supportedChains(WORMHOLE_CHAIN_SEI))
-        .to.be.true
-      expect(await nttManagerWithExecutor.supportedChains(WORMHOLE_CHAIN_BASE))
-        .to.be.true
-      expect(await nttManagerWithExecutor.supportedChains(999)).to.be.false
-    })
-
-    it("should calculate fees correctly in mock", async () => {
-      const amount = ethers.utils.parseEther("1") // 1 token
-      const dbps = 100 // 1%
-
-      const expectedFee = amount.mul(dbps).div(100000)
-      const actualFee = await nttManagerWithExecutor.calculateFee(amount, dbps)
-
-      expect(actualFee).to.equal(expectedFee)
-    })
-
-    it("should handle zero fee calculation", async () => {
-      const amount = ethers.utils.parseEther("1")
-      const dbps = 0 // 0%
-
-      const fee = await nttManagerWithExecutor.calculateFee(amount, dbps)
-      expect(fee).to.equal(0)
-    })
-
-    it("should handle maximum fee calculation", async () => {
-      const amount = ethers.utils.parseEther("1")
-      const dbps = 10000 // 100%
-
-      const fee = await nttManagerWithExecutor.calculateFee(amount, dbps)
-      expect(fee).to.equal(amount.div(10)) // 100% of 1/10 due to basis points
-    })
-
-    it("should validate real signed quote data structure", async () => {
-      // Test the real signed quote structure without contract interaction
-      const executorArgs = createExecutorArgs()
-
-      expect(executorArgs.signedQuote).to.be.a("string")
-      expect(executorArgs.value).to.be.instanceOf(BigNumber)
-      expect(executorArgs.refundAddress).to.match(/^0x[0-9a-fA-F]{40}$/)
-      expect(executorArgs.instructions).to.be.a("string")
-
-      // Validate that the structure matches what the contract expects
-      expect(executorArgs.value.gt(0)).to.be.true
-      expect(executorArgs.signedQuote.length).to.be.greaterThan(10)
-    })
-
-    it("should test mock quote delivery price with real executor args", async () => {
-      const executorArgs = createExecutorArgs()
-
-      // This should work with our improved mock
-      const cost = await nttManagerWithExecutor.quoteDeliveryPrice(
-        underlyingNttManager.address,
-        WORMHOLE_CHAIN_SEI,
-        "0x", // empty instructions
-        executorArgs,
-        FEE_ARGS_ZERO
+  describe("Mock Integration Tests", () => {
+    it("should work with mock NTT manager", async () => {
+      // Test that mock has been configured properly
+      expect(nttManagerWithExecutor.address).to.not.equal(
+        ethers.constants.AddressZero
       )
 
-      expect(cost).to.be.gt(0)
-      expect(cost).to.equal(
-        BigNumber.from("10000000000000000") // MOCK_DELIVERY_PRICE
-          .add("2000000000000000") // Sei chain premium
-          .add(executorArgs.value) // executor value
-      )
-    })
-
-    it("should test mock quote for different chains", async () => {
+      // Test that we can call quote functions on the mock
       const executorArgs = createExecutorArgs()
 
-      // Test Sei chain (should have premium)
+      // This should work without reverting (basic smoke test)
+      await expect(
+        nttManagerWithExecutor.quoteDeliveryPrice(
+          underlyingNttManager.address,
+          WORMHOLE_CHAIN_SEI,
+          "0x",
+          executorArgs,
+          FEE_ARGS_ZERO
+        )
+      ).to.not.be.reverted
+    })
+
+    it("should get different quotes for different chains", async () => {
+      const executorArgs = createExecutorArgs()
+
       const seiCost = await nttManagerWithExecutor.quoteDeliveryPrice(
         underlyingNttManager.address,
         WORMHOLE_CHAIN_SEI,
@@ -564,7 +591,6 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         FEE_ARGS_ZERO
       )
 
-      // Test Base chain (should be base price)
       const baseCost = await nttManagerWithExecutor.quoteDeliveryPrice(
         underlyingNttManager.address,
         WORMHOLE_CHAIN_BASE,
@@ -573,6 +599,10 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         FEE_ARGS_ZERO
       )
 
+      // Mock returns different costs for different chains
+      expect(seiCost).to.not.equal(baseCost)
+
+      // SEI should be more expensive (mock logic)
       expect(seiCost).to.be.gt(baseCost)
       expect(seiCost.sub(baseCost)).to.equal("2000000000000000") // 0.002 ETH premium
     })

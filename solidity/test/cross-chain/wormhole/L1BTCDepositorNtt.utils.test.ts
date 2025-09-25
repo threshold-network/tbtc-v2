@@ -102,7 +102,7 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
   let bridge: FakeContract<IBridge>
   let tbtcToken: TestERC20
   let tbtcVault: FakeContract<ITBTCVault>
-  let nttManager: any
+  let nttManager: FakeContract<unknown>
   let reimbursementPool: FakeContract<ReimbursementPool>
   let l1BtcDepositorNtt: L1BTCDepositorNtt
 
