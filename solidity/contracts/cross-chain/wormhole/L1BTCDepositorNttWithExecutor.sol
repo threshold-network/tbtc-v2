@@ -124,6 +124,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @dev Used when no specific gas limit is provided in relay instructions
     uint256 public defaultDestinationGasLimit;
 
+    /// @notice Maximum basis points value (100%)
+    uint16 public constant MAX_BPS = 10000;
+
     /// @notice Default executor fee in basis points
     /// @dev Used when no specific fee is configured (e.g., 100 = 1%)
     uint16 public defaultExecutorFeeBps;
@@ -258,13 +261,14 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
 
     /// @notice Updates default parameters for executor transfers
     /// @param _gasLimit Default gas limit for destination chain execution
-    /// @param _feeBps Default executor fee in basis points
+    /// @param _feeBps Default executor fee in basis points (max 10000 = 100%)
     /// @param _feeRecipient Default executor fee recipient
     function setDefaultParameters(
         uint256 _gasLimit,
         uint16 _feeBps,
         address _feeRecipient
     ) external onlyOwner {
+        require(_feeBps <= MAX_BPS, "Fee cannot exceed 100% (10000 bps)");
         require(
             _feeRecipient != address(0) || _feeBps == 0,
             "Fee recipient cannot be zero when fee is set"
@@ -370,6 +374,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
             "Real signed quote from Wormhole Executor API is required"
         );
         _validateSignedQuote(executorArgs.signedQuote);
+        
+        // Validate fee basis points
+        require(feeArgs.dbps <= MAX_BPS, "Fee cannot exceed 100% (10000 bps)");
 
         // Store the parameters for use in finalizeDeposit
         storedExecutorArgs = executorArgs;

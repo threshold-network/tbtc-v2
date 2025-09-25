@@ -217,6 +217,74 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
     })
   })
 
+  describe("Basis Points Validation", () => {
+    it("should reject fee basis points exceeding 10000 in setExecutorParameters", async () => {
+      const executorArgs = createExecutorArgs()
+      const invalidFeeArgs = {
+        dbps: 10001, // Exceeds 100%
+        payee: ethers.Wallet.createRandom().address,
+      }
+
+      await expect(
+        depositor.setExecutorParameters(executorArgs, invalidFeeArgs)
+      ).to.be.revertedWith("Fee cannot exceed 100% (10000 bps)")
+    })
+
+    it("should accept maximum valid fee basis points (10000) in setExecutorParameters", async () => {
+      const executorArgs = createExecutorArgs()
+      const validFeeArgs = {
+        dbps: 10000, // Exactly 100%
+        payee: ethers.Wallet.createRandom().address,
+      }
+
+      // This should not revert (but will likely revert on quote validation)
+      // We're testing that the BPS validation passes
+      await expect(
+        depositor.setExecutorParameters(executorArgs, validFeeArgs)
+      ).to.not.be.revertedWith("Fee cannot exceed 100% (10000 bps)")
+    })
+
+    it("should reject fee basis points exceeding 10000 in setDefaultParameters", async () => {
+      const [owner] = await ethers.getSigners()
+      
+      await expect(
+        depositor.connect(owner).setDefaultParameters(
+          500000, // gasLimit
+          10001,  // feeBps exceeds 100%
+          ethers.Wallet.createRandom().address // feeRecipient
+        )
+      ).to.be.revertedWith("Fee cannot exceed 100% (10000 bps)")
+    })
+
+    it("should accept maximum valid fee basis points (10000) in setDefaultParameters", async () => {
+      const [owner] = await ethers.getSigners()
+      
+      await expect(
+        depositor.connect(owner).setDefaultParameters(
+          500000, // gasLimit
+          10000,  // feeBps exactly 100%
+          ethers.Wallet.createRandom().address // feeRecipient
+        )
+      ).to.not.be.reverted
+    })
+
+    it("should accept zero fee basis points", async () => {
+      const [owner] = await ethers.getSigners()
+      
+      await expect(
+        depositor.connect(owner).setDefaultParameters(
+          500000, // gasLimit
+          0,      // feeBps 0%
+          ethers.constants.AddressZero // feeRecipient can be zero when fee is 0
+        )
+      ).to.not.be.reverted
+    })
+
+    it("should have MAX_BPS constant set to 10000", async () => {
+      expect(await depositor.MAX_BPS()).to.equal(10000)
+    })
+  })
+
   describe("Executor Value Management", () => {
     it("should track stored executor value", async () => {
       expect(await depositor.getStoredExecutorValue()).to.equal(0)
