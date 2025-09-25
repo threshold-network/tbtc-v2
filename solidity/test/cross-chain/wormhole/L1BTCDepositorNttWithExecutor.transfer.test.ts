@@ -103,15 +103,15 @@ describe("L1BTCDepositorNttWithExecutor - Transfer Functions", () => {
       const amount = ethers.utils.parseEther("0.1")
 
       // Since the contract can't receive ETH normally, we'll test the function
-      // by checking that it would work if ETH were present
-      // The actual ETH retrieval would fail because there's no ETH in the contract
+      // by checking that it properly handles the case when there's insufficient ETH
+      // The ETH retrieval should fail with a clear error message
       await expect(
         depositor.retrieveTokens(
           ethers.constants.AddressZero,
           user.address,
           amount
         )
-      ).to.be.revertedWith("function call failed to execute")
+      ).to.be.revertedWith("Failed to transfer native token")
     })
 
     it("should prevent non-owners from retrieving tokens", async () => {
