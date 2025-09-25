@@ -352,35 +352,12 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
 
         if (_token == address(0)) {
             // Use call instead of transfer for better error handling and gas efficiency
+            // solhint-disable-next-line avoid-low-level-calls
             (bool success, ) = payable(_to).call{value: _amount}("");
             require(success, "Failed to transfer native token");
         } else {
             IERC20Upgradeable(_token).safeTransfer(_to, _amount);
         }
-    }
-
-    /// @notice Quotes the cost using stored executor parameters
-    /// @dev Must call setExecutorParameters() first with real signed quote
-    /// @return cost Total cost for the transfer using stored parameters
-    function quoteFinalizeDeposit() external view returns (uint256 cost) {
-        require(
-            executorParametersSet,
-            "Must call setExecutorParameters() first with real signed quote"
-        );
-
-        // Extract destination chain from stored executor parameters
-        // We'll use the default chain since we don't have the receiver encoded in stored params
-        uint16 defaultChain = _getDefaultSupportedChain();
-        require(defaultChain != 0, "No supported chains configured");
-
-        return
-            nttManagerWithExecutor.quoteDeliveryPrice(
-                underlyingNttManager,
-                defaultChain,
-                "", // Empty transceiver instructions for basic transfer
-                storedExecutorArgs,
-                storedFeeArgs
-            );
     }
 
     /// @notice Sets executor parameters for the next finalizeDeposit call
@@ -413,6 +390,38 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         );
     }
 
+    /// @notice Clears stored executor parameters
+    /// @dev Called automatically after successful transfer or can be called manually
+    function clearExecutorParameters() external {
+        delete storedExecutorArgs;
+        delete storedFeeArgs;
+        executorParametersSet = false;
+    }
+
+    /// @notice Quotes the cost using stored executor parameters
+    /// @dev Must call setExecutorParameters() first with real signed quote
+    /// @return cost Total cost for the transfer using stored parameters
+    function quoteFinalizeDeposit() external view returns (uint256 cost) {
+        require(
+            executorParametersSet,
+            "Must call setExecutorParameters() first with real signed quote"
+        );
+
+        // Extract destination chain from stored executor parameters
+        // We'll use the default chain since we don't have the receiver encoded in stored params
+        uint16 defaultChain = _getDefaultSupportedChain();
+        require(defaultChain != 0, "No supported chains configured");
+
+        return
+            nttManagerWithExecutor.quoteDeliveryPrice(
+                underlyingNttManager,
+                defaultChain,
+                "", // Empty transceiver instructions for basic transfer
+                storedExecutorArgs,
+                storedFeeArgs
+            );
+    }
+
     /// @notice Quotes the cost for a specific destination chain using stored executor parameters
     /// @param _destinationChain Wormhole chain ID of the destination
     /// @return cost Total cost for the transfer to the specified chain
@@ -438,14 +447,6 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
                 storedExecutorArgs,
                 storedFeeArgs
             );
-    }
-
-    /// @notice Clears stored executor parameters
-    /// @dev Called automatically after successful transfer or can be called manually
-    function clearExecutorParameters() external {
-        delete storedExecutorArgs;
-        delete storedFeeArgs;
-        executorParametersSet = false;
     }
 
     /// @notice Checks if executor parameters have been set
