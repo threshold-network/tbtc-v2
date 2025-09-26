@@ -69,21 +69,21 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
         refundAddress?: string,
         shouldQueue?: boolean,
         transceiverInstructions?: string
-      ) {
+      ): Promise<number> {
         return 123
       },
       async quoteDeliveryPrice(
         recipientChain: number,
         transceiverInstructions?: string
-      ) {
+      ): Promise<[unknown[], BigNumber]> {
         return [[], BigNumber.from(50000)]
       },
     } as Record<string, unknown>
     // Add mock methods to the functions
-    nttManager.transfer.returns = (value: unknown) => {}
-    nttManager.transfer.reset = () => {}
-    nttManager.quoteDeliveryPrice.returns = (value: unknown) => {}
-    nttManager.quoteDeliveryPrice.reset = () => {}
+    nttManager.transfer.returns = (value: unknown): void => {}
+    nttManager.transfer.reset = (): void => {}
+    nttManager.quoteDeliveryPrice.returns = (value: unknown): void => {}
+    nttManager.quoteDeliveryPrice.reset = (): void => {}
 
     // Deploy tBTC token
     const tbtcToken = await (
@@ -283,17 +283,17 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
             before(async () => {
               newNttManager = {
                 address: ethers.Wallet.createRandom().address,
-                async transfer() {
+                async transfer(): Promise<number> {
                   return 123
                 },
-                async quoteDeliveryPrice() {
+                async quoteDeliveryPrice(): Promise<[unknown[], BigNumber]> {
                   return [[], BigNumber.from(50000)]
                 },
               } as Record<string, unknown>
-              newNttManager.transfer.returns = () => {}
-              newNttManager.transfer.reset = () => {}
-              newNttManager.quoteDeliveryPrice.returns = () => {}
-              newNttManager.quoteDeliveryPrice.reset = () => {}
+              newNttManager.transfer.returns = (): void => {}
+              newNttManager.transfer.reset = (): void => {}
+              newNttManager.quoteDeliveryPrice.returns = (): void => {}
+              newNttManager.quoteDeliveryPrice.reset = (): void => {}
 
               tx = await l1BtcDepositorNtt
                 .connect(governance)

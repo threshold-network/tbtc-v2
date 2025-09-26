@@ -68,24 +68,24 @@ describe("L1BTCDepositorNtt Core Functions", () => {
         refundAddress?: string,
         shouldQueue?: boolean,
         transceiverInstructions?: string
-      ) {
+      ): Promise<number> {
         // Simulate the transfer function that returns a uint64 sequence
         return 123
       },
       async quoteDeliveryPrice(
         recipientChain: number,
         transceiverInstructions?: string
-      ) {
+      ): Promise<[unknown[], BigNumber]> {
         // Simulate the quoteDeliveryPrice function that returns (uint256[], uint256)
         return [[], BigNumber.from(50000)]
       },
     } as Record<string, unknown>
 
     // Add mock methods to the functions
-    nttManager.transfer.returns = (value: unknown) => {}
-    nttManager.transfer.reset = () => {}
-    nttManager.quoteDeliveryPrice.returns = (value: unknown) => {}
-    nttManager.quoteDeliveryPrice.reset = () => {}
+    nttManager.transfer.returns = (value: unknown): void => {}
+    nttManager.transfer.reset = (): void => {}
+    nttManager.quoteDeliveryPrice.returns = (value: unknown): void => {}
+    nttManager.quoteDeliveryPrice.reset = (): void => {}
 
     // Add call method to simulate contract calls
     nttManager.transfer.call = async function transferCall(
@@ -95,13 +95,13 @@ describe("L1BTCDepositorNtt Core Functions", () => {
       refundAddress?: string,
       shouldQueue?: boolean,
       transceiverInstructions?: string
-    ) {
+    ): Promise<number> {
       return 123
     }
     nttManager.quoteDeliveryPrice.call = async function quoteDeliveryPriceCall(
       recipientChain: number,
       transceiverInstructions?: string
-    ) {
+    ): Promise<[unknown[], BigNumber]> {
       return [[], BigNumber.from(50000)]
     }
     const reimbursementPool = await smock.fake<ReimbursementPool>(

@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 import { ethers } from "hardhat"
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 
