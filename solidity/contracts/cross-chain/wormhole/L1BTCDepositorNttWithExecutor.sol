@@ -374,7 +374,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
             "Real signed quote from Wormhole Executor API is required"
         );
         _validateSignedQuote(executorArgs.signedQuote);
-        
+
         // Validate fee basis points
         require(feeArgs.dbps <= MAX_BPS, "Fee cannot exceed 100% (10000 bps)");
 
@@ -552,6 +552,36 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         );
     }
 
+    /// @notice Utility function to encode destination chain and recipient
+    /// @param chainId Wormhole chain ID of the destination
+    /// @param recipient Recipient address on the destination chain
+    /// @return encoded The encoded receiver data
+    function encodeDestinationReceiver(uint16 chainId, address recipient)
+        external
+        pure
+        returns (bytes32 encoded)
+    {
+        return bytes32((uint256(chainId) << 240) | uint256(uint160(recipient)));
+    }
+
+    /// @notice Utility function to decode destination chain and recipient
+    /// @param encodedReceiver The encoded receiver data
+    /// @return chainId The destination chain ID
+    /// @return recipient The recipient address
+    function decodeDestinationReceiver(bytes32 encodedReceiver)
+        external
+        pure
+        returns (uint16 chainId, address recipient)
+    {
+        chainId = uint16(bytes2(encodedReceiver));
+        recipient = address(
+            uint160(
+                uint256(encodedReceiver) &
+                    0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
+            )
+        );
+    }
+
     /// @notice Extract destination chain from encoded receiver address
     /// @param destinationChainReceiver Encoded receiver with chain ID in first 2 bytes
     /// @return chainId The destination chain ID
@@ -580,6 +610,16 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         }
 
         return chainId;
+    }
+
+    /// @notice Get the default supported chain ID
+    /// @return chainId The default supported chain ID
+    function _getDefaultSupportedChain()
+        internal
+        view
+        returns (uint16 chainId)
+    {
+        return defaultSupportedChain;
     }
 
     /// @notice Convert uint16 to string for error messages
@@ -611,16 +651,6 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         return string(buffer);
     }
 
-    /// @notice Get the default supported chain ID
-    /// @return chainId The default supported chain ID
-    function _getDefaultSupportedChain()
-        internal
-        view
-        returns (uint16 chainId)
-    {
-        return defaultSupportedChain;
-    }
-
     /// @notice Extract recipient address from encoded receiver data
     /// @param destinationChainReceiver Encoded receiver data
     /// @return recipient The recipient address (last 30 bytes, padded to 32 bytes)
@@ -638,42 +668,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
 
     /// @notice Validates the format of a signed quote from Wormhole Executor API
     /// @param signedQuote The signed quote bytes to validate
-    /// @dev This function validates basic format requirements of the executor quote
-    /// @notice Basic validation of signed quote from Wormhole Executor API
-    /// @param signedQuote The signed quote bytes to validate
     /// @dev Keep validation minimal - NttManagerWithExecutor handles detailed validation
     function _validateSignedQuote(bytes memory signedQuote) internal pure {
         require(signedQuote.length > 0, "Signed quote cannot be empty");
         require(signedQuote.length >= 32, "Signed quote too short");
-    }
-
-    /// @notice Utility function to encode destination chain and recipient
-    /// @param chainId Wormhole chain ID of the destination
-    /// @param recipient Recipient address on the destination chain
-    /// @return encoded The encoded receiver data
-    function encodeDestinationReceiver(uint16 chainId, address recipient)
-        external
-        pure
-        returns (bytes32 encoded)
-    {
-        return bytes32((uint256(chainId) << 240) | uint256(uint160(recipient)));
-    }
-
-    /// @notice Utility function to decode destination chain and recipient
-    /// @param encodedReceiver The encoded receiver data
-    /// @return chainId The destination chain ID
-    /// @return recipient The recipient address
-    function decodeDestinationReceiver(bytes32 encodedReceiver)
-        external
-        pure
-        returns (uint16 chainId, address recipient)
-    {
-        chainId = uint16(bytes2(encodedReceiver));
-        recipient = address(
-            uint160(
-                uint256(encodedReceiver) &
-                    0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
-            )
-        );
     }
 }
