@@ -461,6 +461,36 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         return executorParametersSet ? storedExecutorArgs.value : 0;
     }
 
+    /// @notice Utility function to encode destination chain and recipient
+    /// @param chainId Wormhole chain ID of the destination
+    /// @param recipient Recipient address on the destination chain
+    /// @return encoded The encoded receiver data
+    function encodeDestinationReceiver(uint16 chainId, address recipient)
+        external
+        pure
+        returns (bytes32 encoded)
+    {
+        return bytes32((uint256(chainId) << 240) | uint256(uint160(recipient)));
+    }
+
+    /// @notice Utility function to decode destination chain and recipient
+    /// @param encodedReceiver The encoded receiver data
+    /// @return chainId The destination chain ID
+    /// @return recipient The recipient address
+    function decodeDestinationReceiver(bytes32 encodedReceiver)
+        external
+        pure
+        returns (uint16 chainId, address recipient)
+    {
+        chainId = uint16(bytes2(encodedReceiver));
+        recipient = address(
+            uint160(
+                uint256(encodedReceiver) &
+                    0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
+            )
+        );
+    }
+
     /// @notice Transfers tBTC using NTT Manager With Executor for automatic destination execution
     /// @dev Uses stored executor parameters set via setExecutorParameters()
     /// @param amount Amount of tBTC to transfer
@@ -549,36 +579,6 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
             sequence,
             destinationChainReceiver,
             msg.value
-        );
-    }
-
-    /// @notice Utility function to encode destination chain and recipient
-    /// @param chainId Wormhole chain ID of the destination
-    /// @param recipient Recipient address on the destination chain
-    /// @return encoded The encoded receiver data
-    function encodeDestinationReceiver(uint16 chainId, address recipient)
-        external
-        pure
-        returns (bytes32 encoded)
-    {
-        return bytes32((uint256(chainId) << 240) | uint256(uint160(recipient)));
-    }
-
-    /// @notice Utility function to decode destination chain and recipient
-    /// @param encodedReceiver The encoded receiver data
-    /// @return chainId The destination chain ID
-    /// @return recipient The recipient address
-    function decodeDestinationReceiver(bytes32 encodedReceiver)
-        external
-        pure
-        returns (uint16 chainId, address recipient)
-    {
-        chainId = uint16(bytes2(encodedReceiver));
-        recipient = address(
-            uint160(
-                uint256(encodedReceiver) &
-                    0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
-            )
         );
     }
 

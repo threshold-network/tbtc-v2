@@ -62,45 +62,45 @@ describe("L1BTCDepositorNtt Core Functions", () => {
       address: ethers.Wallet.createRandom().address,
       // Add proper function signatures that match the NttManager interface
       async transfer(
-        amount: any,
-        recipientChain: any,
-        recipient: any,
-        refundAddress?: any,
-        shouldQueue?: any,
-        transceiverInstructions?: any
+        amount: string,
+        recipientChain: number,
+        recipient: string,
+        refundAddress?: string,
+        shouldQueue?: boolean,
+        transceiverInstructions?: string
       ) {
         // Simulate the transfer function that returns a uint64 sequence
         return 123
       },
       async quoteDeliveryPrice(
-        recipientChain: any,
-        transceiverInstructions?: any
+        recipientChain: number,
+        transceiverInstructions?: string
       ) {
         // Simulate the quoteDeliveryPrice function that returns (uint256[], uint256)
         return [[], BigNumber.from(50000)]
       },
-    } as any
+    } as Record<string, unknown>
 
     // Add mock methods to the functions
-    nttManager.transfer.returns = (value: any) => {}
+    nttManager.transfer.returns = (value: unknown) => {}
     nttManager.transfer.reset = () => {}
-    nttManager.quoteDeliveryPrice.returns = (value: any) => {}
+    nttManager.quoteDeliveryPrice.returns = (value: unknown) => {}
     nttManager.quoteDeliveryPrice.reset = () => {}
 
     // Add call method to simulate contract calls
-    nttManager.transfer.call = async function (
-      amount: any,
-      recipientChain: any,
-      recipient: any,
-      refundAddress?: any,
-      shouldQueue?: any,
-      transceiverInstructions?: any
+    nttManager.transfer.call = async function transferCall(
+      amount: string,
+      recipientChain: number,
+      recipient: string,
+      refundAddress?: string,
+      shouldQueue?: boolean,
+      transceiverInstructions?: string
     ) {
       return 123
     }
-    nttManager.quoteDeliveryPrice.call = async function (
-      recipientChain: any,
-      transceiverInstructions?: any
+    nttManager.quoteDeliveryPrice.call = async function quoteDeliveryPriceCall(
+      recipientChain: number,
+      transceiverInstructions?: string
     ) {
       return [[], BigNumber.from(50000)]
     }
@@ -151,7 +151,7 @@ describe("L1BTCDepositorNtt Core Functions", () => {
   let bridge: FakeContract<IBridge>
   let tbtcToken: TestERC20
   let tbtcVault: FakeContract<ITBTCVault>
-  let nttManager: any
+  let nttManager: Record<string, unknown>
   let reimbursementPool: FakeContract<ReimbursementPool>
   let l1BtcDepositorNtt: L1BTCDepositorNtt
 

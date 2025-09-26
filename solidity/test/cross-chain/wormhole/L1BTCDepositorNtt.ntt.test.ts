@@ -42,7 +42,7 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
   let bridge: FakeContract<IBridge>
   let tbtcToken: TestERC20
   let tbtcVault: FakeContract<ITBTCVault>
-  let nttManager: any
+  let nttManager: Record<string, unknown>
   let reimbursementPool: FakeContract<ReimbursementPool>
   let l1BtcDepositorNtt: L1BTCDepositorNtt
 
@@ -63,26 +63,26 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
     nttManager = {
       address: ethers.Wallet.createRandom().address,
       async transfer(
-        amount: any,
-        recipientChain: any,
-        recipient: any,
-        refundAddress?: any,
-        shouldQueue?: any,
-        transceiverInstructions?: any
+        amount: string,
+        recipientChain: number,
+        recipient: string,
+        refundAddress?: string,
+        shouldQueue?: boolean,
+        transceiverInstructions?: string
       ) {
         return 123
       },
       async quoteDeliveryPrice(
-        recipientChain: any,
-        transceiverInstructions?: any
+        recipientChain: number,
+        transceiverInstructions?: string
       ) {
         return [[], BigNumber.from(50000)]
       },
-    } as any
+    } as Record<string, unknown>
     // Add mock methods to the functions
-    nttManager.transfer.returns = (value: any) => {}
+    nttManager.transfer.returns = (value: unknown) => {}
     nttManager.transfer.reset = () => {}
-    nttManager.quoteDeliveryPrice.returns = (value: any) => {}
+    nttManager.quoteDeliveryPrice.returns = (value: unknown) => {}
     nttManager.quoteDeliveryPrice.reset = () => {}
 
     // Deploy tBTC token
@@ -277,7 +277,7 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
           })
 
           context("when new NTT Manager is valid", () => {
-            let newNttManager: any
+            let newNttManager: Record<string, unknown>
             let tx: ContractTransaction
 
             before(async () => {
@@ -289,7 +289,7 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
                 async quoteDeliveryPrice() {
                   return [[], BigNumber.from(50000)]
                 },
-              } as any
+              } as Record<string, unknown>
               newNttManager.transfer.returns = () => {}
               newNttManager.transfer.reset = () => {}
               newNttManager.quoteDeliveryPrice.returns = () => {}
