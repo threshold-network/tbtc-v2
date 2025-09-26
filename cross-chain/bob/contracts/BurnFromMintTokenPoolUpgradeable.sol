@@ -14,7 +14,6 @@ import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeab
 /// @dev This contract provides burn/mint functionality for cross-chain token transfers with upgradeability
 /// and inherits all CCIP features from TokenPoolUpgradeable
 contract BurnFromMintTokenPoolUpgradeable is
-    Initializable,
     TokenPoolUpgradeable,
     ITypeAndVersion
 {

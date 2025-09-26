@@ -15,7 +15,6 @@ import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeab
 /// @dev This contract provides lock/release functionality for cross-chain token transfers with upgradeability
 /// and inherits all CCIP features from TokenPoolUpgradeable
 contract LockReleaseTokenPoolUpgradeable is
-    Initializable,
     TokenPoolUpgradeable,
     ILiquidityContainer,
     ITypeAndVersion
