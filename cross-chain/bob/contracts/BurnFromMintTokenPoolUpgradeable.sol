@@ -107,4 +107,7 @@ contract BurnFromMintTokenPoolUpgradeable is
 
         return Pool.ReleaseOrMintOutV1({destinationAmount: localAmount});
     }
+
+    /// @dev Reserved storage space to allow for layout changes in the future.
+    uint256[50] private __gap;
 }

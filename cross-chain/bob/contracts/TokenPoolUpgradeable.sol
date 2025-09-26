@@ -147,6 +147,9 @@ abstract contract TokenPoolUpgradeable is
     /// @dev Can be address(0) if none is configured.
     address internal rateLimitAdmin;
 
+    /// @dev Reserved storage space to allow for layout changes in the future.
+    uint256[50] private __gap;
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
