@@ -181,7 +181,8 @@ abstract contract TokenPoolUpgradeable is
         rmnProxy = _rmnProxy;
 
         // One-time validation to prevent silent misconfiguration of token decimals
-        uint8 actualDecimals = IERC20MetadataUpgradeable(address(_token)).decimals();
+        uint8 actualDecimals = IERC20MetadataUpgradeable(address(_token))
+            .decimals();
         if (actualDecimals != _localTokenDecimals) {
             revert InvalidDecimalArgs(_localTokenDecimals, actualDecimals);
         }
