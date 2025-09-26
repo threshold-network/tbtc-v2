@@ -108,5 +108,6 @@ contract BurnFromMintTokenPoolUpgradeable is
     }
 
     /// @dev Reserved storage space to allow for layout changes in the future.
+    // slither-disable-next-line unused-state
     uint256[50] private __gap;
 }
