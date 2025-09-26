@@ -195,6 +195,21 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
         emit SupportedChainUpdated(_chainId, _supported);
     }
 
+    /// @notice Updates the NTT Manager contract address
+    /// @param _newNttManager New NTT Manager contract address
+    /// @dev Only callable by contract owner. Use with caution as this changes the Hub behavior.
+    function updateNttManager(address _newNttManager) external onlyOwner {
+        require(
+            _newNttManager != address(0),
+            "NTT Manager address cannot be zero"
+        );
+
+        address oldNttManager = address(nttManager);
+        nttManager = INttManager(_newNttManager);
+
+        emit NttManagerUpdated(oldNttManager, _newNttManager);
+    }
+
     /// @notice Quotes the payment that must be attached to the `finalizeDeposit`
     ///         function call for a specific destination chain. The payment is necessary
     ///         to cover the cost of the Wormhole NTT Hub-and-Spoke transfer.
@@ -227,6 +242,45 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
         (, cost) = nttManager.quoteDeliveryPrice(
             defaultChain,
             "" // Empty transceiver instructions for basic transfer
+        );
+    }
+
+    /// @notice Returns the current NTT Manager configuration
+    /// @return manager Address of the current NTT Hub Manager
+    function getNttConfiguration() external view returns (address manager) {
+        return address(nttManager);
+    }
+
+    /// @notice Utility function to encode destination chain and recipient into receiver format
+    /// @param chainId Wormhole chain ID of the destination
+    /// @param recipient Recipient address on the destination chain
+    /// @return encoded The encoded receiver data: [2 bytes: Chain ID][30 bytes: Recipient]
+    /// @dev This is a helper function for frontend/SDK integration
+    function encodeDestinationReceiver(uint16 chainId, address recipient)
+        external
+        pure
+        returns (bytes32 encoded)
+    {
+        // Encode: [2 bytes: Chain ID][30 bytes: Address padded]
+        return bytes32((uint256(chainId) << 240) | uint256(uint160(recipient)));
+    }
+
+    /// @notice Utility function to decode destination chain and recipient from receiver format
+    /// @param encodedReceiver The encoded receiver data
+    /// @return chainId The destination chain ID
+    /// @return recipient The recipient address
+    /// @dev This is a helper function for frontend/SDK integration and testing
+    function decodeDestinationReceiver(bytes32 encodedReceiver)
+        external
+        pure
+        returns (uint16 chainId, address recipient)
+    {
+        chainId = uint16(bytes2(encodedReceiver));
+        recipient = address(
+            uint160(
+                uint256(encodedReceiver) &
+                    0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
+            )
         );
     }
 
@@ -345,7 +399,6 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
         return defaultSupportedChain;
     }
 
-    /// @notice Enhanced function to extract actual recipient address from encoded receiver data
     /// @param destinationChainReceiver The encoded receiver data with chain ID in first 2 bytes
     /// @return recipient The actual recipient address (last 30 bytes, left-padded to 32 bytes)
     /// @dev Removes the chain ID from first 2 bytes and returns the recipient address
@@ -362,59 +415,6 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
                 uint256(destinationChainReceiver) &
                     0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
             );
-    }
-
-    /// @notice Returns the current NTT Manager configuration
-    /// @return manager Address of the current NTT Hub Manager
-    function getNttConfiguration() external view returns (address manager) {
-        return address(nttManager);
-    }
-
-    /// @notice Updates the NTT Manager contract address
-    /// @param _newNttManager New NTT Manager contract address
-    /// @dev Only callable by contract owner. Use with caution as this changes the Hub behavior.
-    function updateNttManager(address _newNttManager) external onlyOwner {
-        require(
-            _newNttManager != address(0),
-            "NTT Manager address cannot be zero"
-        );
-        address oldManager = address(nttManager);
-        nttManager = INttManager(_newNttManager);
-
-        emit NttManagerUpdated(oldManager, _newNttManager);
-    }
-
-    /// @notice Utility function to encode destination chain and recipient into receiver format
-    /// @param chainId Wormhole chain ID of the destination
-    /// @param recipient Recipient address on the destination chain
-    /// @return encoded The encoded receiver data: [2 bytes: Chain ID][30 bytes: Recipient]
-    /// @dev This is a helper function for frontend/SDK integration
-    function encodeDestinationReceiver(uint16 chainId, address recipient)
-        external
-        pure
-        returns (bytes32 encoded)
-    {
-        // Encode: [2 bytes: Chain ID][30 bytes: Address padded]
-        return bytes32((uint256(chainId) << 240) | uint256(uint160(recipient)));
-    }
-
-    /// @notice Utility function to decode destination chain and recipient from receiver format
-    /// @param encodedReceiver The encoded receiver data
-    /// @return chainId The destination chain ID
-    /// @return recipient The recipient address
-    /// @dev This is a helper function for frontend/SDK integration and testing
-    function decodeDestinationReceiver(bytes32 encodedReceiver)
-        external
-        pure
-        returns (uint16 chainId, address recipient)
-    {
-        chainId = uint16(bytes2(encodedReceiver));
-        recipient = address(
-            uint160(
-                uint256(encodedReceiver) &
-                    0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
-            )
-        );
     }
 
     /// @notice Emitted when NTT Manager address is updated
