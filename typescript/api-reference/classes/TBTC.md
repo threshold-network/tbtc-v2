@@ -91,7 +91,7 @@ Will be removed in next major version.
 
 #### Defined in
 
-[services/tbtc.ts:259](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L259)
+[services/tbtc.ts:258](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L258)
 
 ___
 
@@ -184,7 +184,7 @@ Cross-chain contracts for the given L2 chain or
 
 #### Defined in
 
-[services/tbtc.ts:439](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L439)
+[services/tbtc.ts:438](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L438)
 
 ___
 
@@ -249,7 +249,7 @@ await tbtc.initializeCrossChain("Sui", suiWallet);
 
 #### Defined in
 
-[services/tbtc.ts:310](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L310)
+[services/tbtc.ts:309](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L309)
 
 ___
 
@@ -277,7 +277,7 @@ Throws an error if the provider is invalid or address cannot be extracted.
 
 #### Defined in
 
-[services/tbtc.ts:213](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L213)
+[services/tbtc.ts:212](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L212)
 
 ___
 
@@ -309,7 +309,7 @@ This function is especially useful for local development as it gives
 
 #### Defined in
 
-[services/tbtc.ts:199](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L199)
+[services/tbtc.ts:198](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L198)
 
 ___
 
@@ -343,7 +343,7 @@ Throws an error if the underlying signer's Ethereum network is
 
 #### Defined in
 
-[services/tbtc.ts:150](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L150)
+[services/tbtc.ts:149](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L149)
 
 ___
 

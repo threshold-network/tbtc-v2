@@ -24,7 +24,7 @@ ___
 
 ### redeemerOutputScript
 
-• **redeemerOutputScript**: [`Hex`](../classes/Hex.md)
+• `Optional` **redeemerOutputScript**: [`Hex`](../classes/Hex.md)
 
 Redeemer output script of the wallet.
 

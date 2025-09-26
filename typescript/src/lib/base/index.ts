@@ -6,7 +6,7 @@ import {
 import { BaseBitcoinDepositor } from "./l2-bitcoin-depositor"
 import { BaseTBTCToken } from "./l2-tbtc-token"
 import { Chains, DestinationChainInterfaces } from "../contracts"
-// import { BaseL2BitcoinRedeemer } from "./l2-bitcoin-redeemer"
+import { BaseL2BitcoinRedeemer } from "./l2-bitcoin-redeemer"
 
 export * from "./l2-bitcoin-depositor"
 export * from "./l2-tbtc-token"
@@ -39,11 +39,10 @@ export async function loadBaseCrossChainInterfaces(
     await ethereumAddressFromSigner(signer)
   )
 
-  // TODO: Uncomment when Base L2BitcoinRedeemer is deployed
-  // const l2BitcoinRedeemer = new BaseL2BitcoinRedeemer(
-  //   { signerOrProvider: signer },
-  //   chainId
-  // )
+  const l2BitcoinRedeemer = new BaseL2BitcoinRedeemer(
+    { signerOrProvider: signer },
+    chainId
+  )
 
   const destinationChainTbtcToken = new BaseTBTCToken(
     { signerOrProvider: signer },
@@ -53,7 +52,7 @@ export async function loadBaseCrossChainInterfaces(
   return {
     destinationChainBitcoinDepositor,
     destinationChainTbtcToken,
-    // l2BitcoinRedeemer,
+    l2BitcoinRedeemer,
   }
 }
 
