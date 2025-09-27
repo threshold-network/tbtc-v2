@@ -91,10 +91,14 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
       await depositor
         .connect(user)
         .setExecutorParameters(EXECUTOR_ARGS_REAL_QUOTE, FEE_ARGS_ZERO)
-      expect(await depositor.areExecutorParametersSet()).to.be.true
+      const [isSet] = await depositor.connect(user).areExecutorParametersSet()
+      expect(isSet).to.be.true
 
       // Verify that executor parameters are properly set
-      expect(await depositor.areExecutorParametersSet()).to.be.true
+      const [isSetAgain] = await depositor
+        .connect(user)
+        .areExecutorParametersSet()
+      expect(isSetAgain).to.be.true
 
       // Test chain-specific quote - will fail because we're using mock addresses
       await expect(
@@ -135,8 +139,9 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
       await depositor
         .connect(user)
         .setExecutorParameters(executorArgs1, feeArgs1)
-      expect(await depositor.areExecutorParametersSet()).to.be.true
-      expect(await depositor.getStoredExecutorValue()).to.equal(
+      const [isSet] = await depositor.connect(user).areExecutorParametersSet()
+      expect(isSet).to.be.true
+      expect(await depositor.connect(user).getStoredExecutorValue()).to.equal(
         executorArgs1.value
       )
 
@@ -156,22 +161,25 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
       await depositor
         .connect(user)
         .setExecutorParameters(executorArgs2, feeArgs2)
-      expect(await depositor.areExecutorParametersSet()).to.be.true
-      expect(await depositor.getStoredExecutorValue()).to.equal(
+      const [isSet2] = await depositor.connect(user).areExecutorParametersSet()
+      expect(isSet2).to.be.true
+      expect(await depositor.connect(user).getStoredExecutorValue()).to.equal(
         executorArgs2.value
       )
 
       // Clear parameters
       await depositor.connect(user).clearExecutorParameters()
-      expect(await depositor.areExecutorParametersSet()).to.be.false
-      expect(await depositor.getStoredExecutorValue()).to.equal(0)
+      const [isSet3] = await depositor.connect(user).areExecutorParametersSet()
+      expect(isSet3).to.be.false
+      expect(await depositor.connect(user).getStoredExecutorValue()).to.equal(0)
     })
   })
 
   describe("Error Handling", () => {
     it("should reject operations without executor parameters", async () => {
       // Verify that executor parameters are not set initially
-      expect(await depositor.areExecutorParametersSet()).to.be.false
+      const [isSet] = await depositor.areExecutorParametersSet()
+      expect(isSet).to.be.false
     })
 
     it("should reject empty signed quotes", async () => {
@@ -216,7 +224,9 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
       // Try to quote for unsupported chain
       const unsupportedChain = 999
       await expect(
-        depositor["quoteFinalizeDeposit(uint16)"](unsupportedChain)
+        depositor
+          .connect(user)
+          ["quoteFinalizeDeposit(uint16)"](unsupportedChain)
       ).to.be.revertedWith("Destination chain not supported")
     })
   })
@@ -265,11 +275,20 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
       }
 
       // Check for ExecutorParametersSet event
-      await expect(
-        depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
+      const tx = await depositor
+        .connect(user)
+        .setExecutorParameters(executorArgs, feeArgs)
+      const receipt = await tx.wait()
+      const event = receipt.events?.find(
+        (e) => e.event === "ExecutorParametersSet"
       )
-        .to.emit(depositor, "ExecutorParametersSet")
-        .withArgs(user.address, 64, ethers.utils.parseEther("0.01")) // 64 bytes, not 128
+
+      expect(event).to.not.be.undefined
+      expect(event?.args?.sender).to.equal(user.address)
+      expect(event?.args?.signedQuoteLength).to.equal(64)
+      expect(event?.args?.executorValue).to.equal(
+        ethers.utils.parseEther("0.01")
+      )
     })
   })
 })

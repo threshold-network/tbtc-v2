@@ -26,14 +26,22 @@ const WORMHOLE_CHAIN_BASE = 30
 const WORMHOLE_CHAIN_ARBITRUM = 23
 
 // Helper function to create properly structured ExecutorArgs
-function createExecutorArgs(overrides: Record<string, unknown> = {}) {
+function createExecutorArgs(
+  overrides: Partial<{
+    value: BigNumber | string | number
+    refundAddress: string
+    signedQuote: string
+    instructions: string
+  }> = {}
+) {
   return {
     value: BigNumber.from(overrides.value || EXECUTOR_ARGS_REAL_QUOTE.value),
-    refundAddress:
-      overrides.refundAddress || EXECUTOR_ARGS_REAL_QUOTE.refundAddress,
-    signedQuote: overrides.signedQuote || EXECUTOR_ARGS_REAL_QUOTE.signedQuote,
-    instructions:
-      overrides.instructions || EXECUTOR_ARGS_REAL_QUOTE.instructions,
+    refundAddress: (overrides.refundAddress ||
+      EXECUTOR_ARGS_REAL_QUOTE.refundAddress) as string,
+    signedQuote: (overrides.signedQuote ||
+      EXECUTOR_ARGS_REAL_QUOTE.signedQuote) as string,
+    instructions: (overrides.instructions ||
+      EXECUTOR_ARGS_REAL_QUOTE.instructions) as string,
   }
 }
 
@@ -44,8 +52,12 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
   let tbtcToken: TestERC20
   let nttManagerWithExecutor: MockNttManagerWithExecutor
   let underlyingNttManager: TestERC20 // Simple contract for address
+  let owner: any
 
   before(async () => {
+    // Get signers
+    ;[owner] = await ethers.getSigners()
+
     // Deploy mock contracts following StarkNet pattern
     const TestERC20Factory = await ethers.getContractFactory("TestERC20")
     tbtcToken = await TestERC20Factory.deploy()
@@ -111,13 +123,15 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
   describe("Initial State", () => {
     it("should start with no executor parameters set", async () => {
-      expect(await depositor.areExecutorParametersSet()).to.be.false
+      const [isSet] = await depositor.areExecutorParametersSet()
+      expect(isSet).to.be.false
       expect(await depositor.getStoredExecutorValue()).to.equal(0)
     })
 
     it("should have default executor configuration", async () => {
       // Check that we can query the state without parameters set
-      expect(await depositor.areExecutorParametersSet()).to.be.false
+      const [isSet] = await depositor.areExecutorParametersSet()
+      expect(isSet).to.be.false
       expect(await depositor.getStoredExecutorValue()).to.equal(0)
     })
   })
@@ -133,10 +147,27 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       )
     })
 
-    it.skip("should accept valid signed quote - SKIPPED: Requires real Wormhole validation infrastructure", async () => {
-      // Skip this test as it requires real Wormhole signed quote validation
-      // The _validateSignedQuote function in the contract performs complex cryptographic validation
-      // that requires the full Wormhole infrastructure to be available
+    it("should accept valid signed quote", async () => {
+      const executorArgs = {
+        value: ethers.utils.parseEther("0.01"),
+        refundAddress: owner.address,
+        signedQuote: "0x" + "a".repeat(64), // 32 bytes (64 hex chars) - meets minimum requirement
+        instructions: "0x" + "b".repeat(32), // 16 bytes (32 hex chars)
+      }
+
+      const feeArgs = {
+        dbps: 100,
+        payee: owner.address,
+      }
+
+      // Should succeed with valid mock signed quote
+      await expect(
+        depositor.connect(owner).setExecutorParameters(executorArgs, feeArgs)
+      ).to.not.be.reverted
+
+      // Verify parameters are set
+      const [isSet] = await depositor.connect(owner).areExecutorParametersSet()
+      expect(isSet).to.be.true
     })
 
     it("should validate signed quote format", async () => {
@@ -151,25 +182,29 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
   describe("Parameter Management", () => {
     it("should clear executor parameters when not set", async () => {
-      expect(await depositor.areExecutorParametersSet()).to.be.false
+      const [isSet] = await depositor.areExecutorParametersSet()
+      expect(isSet).to.be.false
 
       // Should not revert even when clearing non-existent parameters
       await expect(depositor.clearExecutorParameters()).to.not.be.reverted
 
-      expect(await depositor.areExecutorParametersSet()).to.be.false
+      const [isSetAfter] = await depositor.areExecutorParametersSet()
+      expect(isSetAfter).to.be.false
       expect(await depositor.getStoredExecutorValue()).to.equal(0)
     })
 
     it("should maintain state consistency after clearing", async () => {
       // Initial state
-      expect(await depositor.areExecutorParametersSet()).to.be.false
+      const [isSetInitial] = await depositor.areExecutorParametersSet()
+      expect(isSetInitial).to.be.false
       expect(await depositor.getStoredExecutorValue()).to.equal(0)
 
       // Clear parameters
       await depositor.clearExecutorParameters()
 
       // State should remain consistent
-      expect(await depositor.areExecutorParametersSet()).to.be.false
+      const [isSetAfter] = await depositor.areExecutorParametersSet()
+      expect(isSetAfter).to.be.false
       expect(await depositor.getStoredExecutorValue()).to.equal(0)
     })
   })
@@ -440,16 +475,14 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
   describe("Quote Functions Without Parameters", () => {
     it("should revert quote without executor parameters", async () => {
       await expect(depositor["quoteFinalizeDeposit()"]()).to.be.revertedWith(
-        "Must call setExecutorParameters() first with real signed quote"
+        "Must call setExecutorParameters() first"
       )
     })
 
     it("should revert chain-specific quote without executor parameters", async () => {
       await expect(
         depositor["quoteFinalizeDeposit(uint16)"](WORMHOLE_CHAIN_SEI)
-      ).to.be.revertedWith(
-        "Must call setExecutorParameters() first with real signed quote"
-      )
+      ).to.be.revertedWith("Must call setExecutorParameters() first")
     })
 
     it("should revert for all supported chains without parameters", async () => {
@@ -464,9 +497,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         // eslint-disable-next-line no-await-in-loop
         await expect(
           depositor["quoteFinalizeDeposit(uint16)"](chainId)
-        ).to.be.revertedWith(
-          "Must call setExecutorParameters() first with real signed quote"
-        )
+        ).to.be.revertedWith("Must call setExecutorParameters() first")
       }
     })
 
@@ -521,7 +552,8 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
     })
 
     it("should handle parameter state queries", async () => {
-      expect(await depositor.areExecutorParametersSet()).to.be.false
+      const [isSet] = await depositor.areExecutorParametersSet()
+      expect(isSet).to.be.false
       expect(await depositor.getStoredExecutorValue()).to.equal(0)
     })
   })

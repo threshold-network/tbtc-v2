@@ -142,7 +142,8 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
       await depositor
         .connect(user)
         .setExecutorParameters(executorArgs, zeroFeeArgs)
-      expect(await depositor.areExecutorParametersSet()).to.be.true
+      const [isSet1] = await depositor.connect(user).areExecutorParametersSet()
+      expect(isSet1).to.be.true
 
       // Test high fee
       const highFeeArgs = {
@@ -153,7 +154,8 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
       await depositor
         .connect(user)
         .setExecutorParameters(executorArgs, highFeeArgs)
-      expect(await depositor.areExecutorParametersSet()).to.be.true
+      const [isSet2] = await depositor.connect(user).areExecutorParametersSet()
+      expect(isSet2).to.be.true
 
       // Test maximum fee
       const maxFeeArgs = {
@@ -164,7 +166,8 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
       await depositor
         .connect(user)
         .setExecutorParameters(executorArgs, maxFeeArgs)
-      expect(await depositor.areExecutorParametersSet()).to.be.true
+      const [isSet3] = await depositor.connect(user).areExecutorParametersSet()
+      expect(isSet3).to.be.true
     })
 
     it("should handle fee recipient changes", async () => {
@@ -195,7 +198,8 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
       await depositor
         .connect(user)
         .setExecutorParameters(executorArgs, feeArgs2)
-      expect(await depositor.areExecutorParametersSet()).to.be.true
+      const [isSet] = await depositor.connect(user).areExecutorParametersSet()
+      expect(isSet).to.be.true
     })
   })
 
@@ -224,9 +228,10 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
           .setExecutorParameters(executorArgs, feeArgs)
 
         // eslint-disable-next-line no-await-in-loop
-        expect(await depositor.areExecutorParametersSet()).to.be.true
+        const [isSet] = await depositor.connect(user).areExecutorParametersSet()
+        expect(isSet).to.be.true
         // eslint-disable-next-line no-await-in-loop
-        expect(await depositor.getStoredExecutorValue()).to.equal(
+        expect(await depositor.connect(user).getStoredExecutorValue()).to.equal(
           ethers.utils.parseEther(`${0.01 + i * 0.01}`)
         )
       }
@@ -249,15 +254,18 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
       }
 
       await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
-      expect(await depositor.areExecutorParametersSet()).to.be.true
+      const [isSet1] = await depositor.connect(user).areExecutorParametersSet()
+      expect(isSet1).to.be.true
 
       // Clear parameters
       await depositor.connect(user).clearExecutorParameters()
-      expect(await depositor.areExecutorParametersSet()).to.be.false
+      const [isSet2] = await depositor.connect(user).areExecutorParametersSet()
+      expect(isSet2).to.be.false
 
       // Reset parameters
       await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
-      expect(await depositor.areExecutorParametersSet()).to.be.true
+      const [isSet3] = await depositor.connect(user).areExecutorParametersSet()
+      expect(isSet3).to.be.true
     })
   })
 
@@ -267,7 +275,8 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
 
       // Try to quote without parameters (should fail)
       // Note: This test is simplified to avoid proxy connection issues
-      expect(await depositor.areExecutorParametersSet()).to.be.false
+      const [isSet1] = await depositor.areExecutorParametersSet()
+      expect(isSet1).to.be.false
 
       // Set valid parameters using real signed quote
       await depositor
@@ -275,7 +284,8 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
         .setExecutorParameters(EXECUTOR_ARGS_REAL_QUOTE, FEE_ARGS_ZERO)
 
       // Verify that executor parameters are now set
-      expect(await depositor.areExecutorParametersSet()).to.be.true
+      const [isSet2] = await depositor.connect(user).areExecutorParametersSet()
+      expect(isSet2).to.be.true
     })
 
     it("should handle chain-specific errors", async () => {

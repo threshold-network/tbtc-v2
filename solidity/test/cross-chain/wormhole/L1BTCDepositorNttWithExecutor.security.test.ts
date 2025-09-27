@@ -173,7 +173,7 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
 
       // Try to quote for unsupported chain
       await expect(
-        depositor["quoteFinalizeDeposit(uint16)"](999)
+        depositor.connect(user)["quoteFinalizeDeposit(uint16)"](999)
       ).to.be.revertedWith("Destination chain not supported")
     })
   })
@@ -183,7 +183,8 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       const [, , user] = await ethers.getSigners()
 
       // Initial state
-      expect(await depositor.areExecutorParametersSet()).to.be.false
+      const [isSet1] = await depositor.areExecutorParametersSet()
+      expect(isSet1).to.be.false
       expect(await depositor.getStoredExecutorValue()).to.equal(0)
 
       // Set parameters
@@ -202,8 +203,9 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
 
       // Check state
-      expect(await depositor.areExecutorParametersSet()).to.be.true
-      expect(await depositor.getStoredExecutorValue()).to.equal(
+      const [isSet2] = await depositor.connect(user).areExecutorParametersSet()
+      expect(isSet2).to.be.true
+      expect(await depositor.connect(user).getStoredExecutorValue()).to.equal(
         executorArgs.value
       )
 
@@ -211,7 +213,8 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       await depositor.connect(user).clearExecutorParameters()
 
       // State should be reset
-      expect(await depositor.areExecutorParametersSet()).to.be.false
+      const [isSet3] = await depositor.areExecutorParametersSet()
+      expect(isSet3).to.be.false
       expect(await depositor.getStoredExecutorValue()).to.equal(0)
     })
 
@@ -239,9 +242,10 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
           .setExecutorParameters(executorArgs, feeArgs)
 
         // eslint-disable-next-line no-await-in-loop
-        expect(await depositor.areExecutorParametersSet()).to.be.true
+        const [isSet] = await depositor.connect(user).areExecutorParametersSet()
+        expect(isSet).to.be.true
         // eslint-disable-next-line no-await-in-loop
-        expect(await depositor.getStoredExecutorValue()).to.equal(
+        expect(await depositor.connect(user).getStoredExecutorValue()).to.equal(
           ethers.utils.parseEther(`${i + 1}`)
         )
       }
@@ -270,7 +274,9 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
         depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
       ).to.not.be.reverted
 
-      expect(await depositor.getStoredExecutorValue()).to.equal(maxAmount)
+      expect(await depositor.connect(user).getStoredExecutorValue()).to.equal(
+        maxAmount
+      )
     })
 
     it("should handle zero values correctly", async () => {

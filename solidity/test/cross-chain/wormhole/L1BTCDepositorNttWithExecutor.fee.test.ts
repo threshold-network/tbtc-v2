@@ -20,8 +20,12 @@ describe("L1BTCDepositorNttWithExecutor - Fee Handling", () => {
   let bridge: MockTBTCBridge
   let tbtcVault: MockTBTCVault
   let tbtcToken: TestERC20
+  let owner: any
 
   before(async () => {
+    // Get signers
+    ;[owner] = await ethers.getSigners()
+
     // Deploy mock contracts following StarkNet pattern
     const TestERC20Factory = await ethers.getContractFactory("TestERC20")
     tbtcToken = await TestERC20Factory.deploy()
@@ -78,7 +82,8 @@ describe("L1BTCDepositorNttWithExecutor - Fee Handling", () => {
   describe("Fee Configuration", () => {
     it("should start with default fee parameters", async () => {
       // Check that executor parameters are not set initially
-      expect(await depositor.areExecutorParametersSet()).to.be.false
+      const [isSet] = await depositor.areExecutorParametersSet()
+      expect(isSet).to.be.false
       expect(await depositor.getStoredExecutorValue()).to.equal(0)
     })
 
@@ -90,28 +95,59 @@ describe("L1BTCDepositorNttWithExecutor - Fee Handling", () => {
   describe("Fee Estimation", () => {
     it("should revert fee estimation without executor parameters", async () => {
       await expect(depositor["quoteFinalizeDeposit()"]()).to.be.revertedWith(
-        "Must call setExecutorParameters() first with real signed quote"
+        "Must call setExecutorParameters() first"
       )
     })
 
     it("should revert fee estimation with chain parameter without executor parameters", async () => {
       await expect(
         depositor["quoteFinalizeDeposit(uint16)"](WORMHOLE_CHAIN_SEI)
-      ).to.be.revertedWith(
-        "Must call setExecutorParameters() first with real signed quote"
-      )
+      ).to.be.revertedWith("Must call setExecutorParameters() first")
     })
   })
 
   describe("Executor Parameters Management", () => {
-    it.skip("should reject empty signed quote - SKIPPED: Address validation issue", async () => {
-      // Skip this test due to address validation issues in the contract call
-      // The contract expects specific parameter formats that are complex to mock
+    it("should reject empty signed quote", async () => {
+      const executorArgs = {
+        value: ethers.utils.parseEther("0.01"),
+        refundAddress: owner.address,
+        signedQuote: "0x", // Empty signed quote
+        instructions: "0x",
+      }
+
+      const feeArgs = {
+        dbps: 100,
+        payee: owner.address,
+      }
+
+      await expect(
+        depositor.connect(owner).setExecutorParameters(executorArgs, feeArgs)
+      ).to.be.revertedWith(
+        "Real signed quote from Wormhole Executor API is required"
+      )
     })
 
-    it.skip("should accept valid executor parameters - SKIPPED: Requires real signed quote", async () => {
-      // This test would require a real Wormhole executor signed quote
-      // Skip for now as it's complex integration testing
+    it("should accept valid executor parameters", async () => {
+      const executorArgs = {
+        value: ethers.utils.parseEther("0.01"),
+        refundAddress: owner.address,
+        signedQuote: "0x" + "a".repeat(64), // Mock signed quote (32 bytes)
+        instructions: "0x" + "b".repeat(32), // Mock instructions (16 bytes)
+      }
+
+      const feeArgs = {
+        dbps: 100,
+        payee: owner.address,
+      }
+
+      // Should succeed with mock parameters
+      await expect(
+        depositor.connect(owner).setExecutorParameters(executorArgs, feeArgs)
+      ).to.not.be.reverted
+
+      // Verify parameters are set
+      const [isSet] = await depositor.connect(owner).areExecutorParametersSet()
+      expect(isSet).to.be.true
     })
   })
 
@@ -147,12 +183,14 @@ describe("L1BTCDepositorNttWithExecutor - Fee Handling", () => {
   describe("Fee Parameter Storage", () => {
     it("should clear executor parameters", async () => {
       // Initially not set
-      expect(await depositor.areExecutorParametersSet()).to.be.false
+      const [isSet1] = await depositor.areExecutorParametersSet()
+      expect(isSet1).to.be.false
 
       // Clear should work even when not set
       await depositor.clearExecutorParameters()
 
-      expect(await depositor.areExecutorParametersSet()).to.be.false
+      const [isSet2] = await depositor.areExecutorParametersSet()
+      expect(isSet2).to.be.false
       expect(await depositor.getStoredExecutorValue()).to.equal(0)
     })
 

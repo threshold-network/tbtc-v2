@@ -137,16 +137,23 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @notice Default executor fee recipient
     address public defaultExecutorFeeRecipient;
 
-    /// @notice Stored executor arguments for the next transfer
-    /// @dev Set via setExecutorParameters before calling finalizeDeposit
-    ExecutorArgs private storedExecutorArgs;
+    /// @notice Executor parameter set with metadata for nonce-based storage
+    struct ExecutorParameterSet {
+        ExecutorArgs executorArgs;
+        FeeArgs feeArgs;
+        address user;
+        uint256 timestamp;
+        bool exists;
+    }
 
-    /// @notice Stored fee arguments for the next transfer
-    /// @dev Set via setExecutorParameters before calling finalizeDeposit
-    FeeArgs private storedFeeArgs;
+    /// @notice Mapping of nonce to executor parameter sets for parallel user support
+    mapping(bytes32 => ExecutorParameterSet) private parametersByNonce;
 
-    /// @notice Flag indicating if executor parameters have been set
-    bool private executorParametersSet;
+    /// @notice Mapping of user address to their current nonce sequence counter
+    mapping(address => uint256) private userNonceCounter;
+
+    /// @notice Parameter expiration time in seconds (default: 1 hour)
+    uint256 public parameterExpirationTime = 3600;
 
     /// @notice Emitted when executor parameters are set
     /// @param sender Address that set the parameters
@@ -154,6 +161,19 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @param executorValue Value in wei for executor service
     event ExecutorParametersSet(
         address indexed sender,
+        bytes32 indexed nonce,
+        uint256 signedQuoteLength,
+        uint256 executorValue
+    );
+
+    /// @notice Emitted when executor parameters are refreshed by the same user
+    /// @param sender Address of the user refreshing parameters
+    /// @param nonce Unique nonce hash for these parameters
+    /// @param signedQuoteLength Length of the signed quote in bytes
+    /// @param executorValue Value in wei for executor service
+    event ExecutorParametersRefreshed(
+        address indexed sender,
+        bytes32 indexed nonce,
         uint256 signedQuoteLength,
         uint256 executorValue
     );
@@ -166,6 +186,8 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @param encodedReceiver Original encoded receiver data
     /// @param executorCost Cost paid to executor service in wei
     event TokensTransferredNttWithExecutor(
+        address indexed sender,
+        bytes32 indexed nonce,
         uint256 amount,
         uint16 destinationChain,
         bytes32 actualRecipient,
@@ -360,55 +382,120 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         }
     }
 
-    /// @notice Sets executor parameters for the next finalizeDeposit call
+    /// @notice Sets executor parameters and returns the nonce for reference
     /// @param executorArgs Real executor arguments with valid signed quote from Wormhole Executor API
     /// @param feeArgs Fee arguments for the executor service
+    /// @return nonce The nonce hash for these parameters (for informational purposes)
     /// @dev Must be called before finalizeDeposit() to provide real signed quote
     function setExecutorParameters(
         ExecutorArgs memory executorArgs,
         FeeArgs memory feeArgs
-    ) external {
+    ) external returns (bytes32 nonce) {
         // CRITICAL: Validate that we have a real signed quote
         require(
             executorArgs.signedQuote.length > 0,
             "Real signed quote from Wormhole Executor API is required"
         );
-        _validateSignedQuote(executorArgs.signedQuote);
+        _validateSignedQuoteFormat(executorArgs.signedQuote);
 
         // Validate fee basis points
         require(feeArgs.dbps <= MAX_BPS, "Fee cannot exceed 100% (10000 bps)");
 
-        // Store the parameters for use in finalizeDeposit
-        storedExecutorArgs = executorArgs;
-        storedFeeArgs = feeArgs;
-        executorParametersSet = true;
+        // SAFETY CHECK: Handle existing parameters - allow refresh or prevent new workflow
+        if (userNonceCounter[msg.sender] > 0) {
+            bytes32 latestNonce = _generateNonce(
+                msg.sender,
+                userNonceCounter[msg.sender] - 1
+            );
+            ExecutorParameterSet storage existingParams = parametersByNonce[
+                latestNonce
+            ];
+
+            if (existingParams.exists) {
+                // Check if parameters have expired
+                bool expired = block.timestamp >
+                    existingParams.timestamp + parameterExpirationTime;
+
+                if (!expired) {
+                    // Allow refreshing existing parameters (same user, same nonce)
+                    existingParams.executorArgs = executorArgs;
+                    existingParams.feeArgs = feeArgs;
+                    existingParams.timestamp = block.timestamp;
+
+                    emit ExecutorParametersRefreshed(
+                        msg.sender,
+                        latestNonce,
+                        executorArgs.signedQuote.length,
+                        executorArgs.value
+                    );
+
+                    return latestNonce; // Return existing nonce
+                }
+            }
+        }
+
+        // Generate nonce for this user's current sequence
+        uint256 currentSequence = userNonceCounter[msg.sender];
+        nonce = _generateNonce(msg.sender, currentSequence);
+
+        // Increment sequence for next time
+        userNonceCounter[msg.sender] = currentSequence + 1;
+
+        // Store parameters with metadata
+        parametersByNonce[nonce] = ExecutorParameterSet({
+            executorArgs: executorArgs,
+            feeArgs: feeArgs,
+            user: msg.sender,
+            timestamp: block.timestamp,
+            exists: true
+        });
 
         emit ExecutorParametersSet(
             msg.sender,
+            nonce,
             executorArgs.signedQuote.length,
             executorArgs.value
         );
+
+        return nonce; // Return for informational purposes
     }
 
-    /// @notice Clears stored executor parameters
-    /// @dev Called automatically after successful transfer or can be called manually
+    /// @notice Clears the latest executor parameters for msg.sender
+    /// @dev Users can clear their own latest parameters if needed
     function clearExecutorParameters() external {
-        delete storedExecutorArgs;
-        delete storedFeeArgs;
-        executorParametersSet = false;
-    }
+        // Allow clearing even when no parameters are set (backward compatibility)
+        if (userNonceCounter[msg.sender] == 0) {
+            return; // Nothing to clear
+        }
 
-    /// @notice Quotes the cost using stored executor parameters
-    /// @dev Must call setExecutorParameters() first with real signed quote
-    /// @return cost Total cost for the transfer using stored parameters
-    function quoteFinalizeDeposit() external view returns (uint256 cost) {
-        require(
-            executorParametersSet,
-            "Must call setExecutorParameters() first with real signed quote"
+        bytes32 latestNonce = _generateNonce(
+            msg.sender,
+            userNonceCounter[msg.sender] - 1
         );
 
-        // Extract destination chain from stored executor parameters
-        // We'll use the default chain since we don't have the receiver encoded in stored params
+        ExecutorParameterSet storage params = parametersByNonce[latestNonce];
+        if (params.exists) {
+            delete parametersByNonce[latestNonce];
+        }
+        // If parameters don't exist, that's fine - already cleared
+    }
+
+    /// @notice Quotes cost using the latest parameters for msg.sender
+    /// @return cost Total cost for the transfer
+    function quoteFinalizeDeposit() external view returns (uint256 cost) {
+        require(
+            userNonceCounter[msg.sender] > 0,
+            "Must call setExecutorParameters() first"
+        );
+
+        bytes32 latestNonce = _generateNonce(
+            msg.sender,
+            userNonceCounter[msg.sender] - 1
+        );
+
+        ExecutorParameterSet storage params = parametersByNonce[latestNonce];
+        require(params.exists, "Parameters not found - may have been cleared");
+
         uint16 defaultChain = _getDefaultSupportedChain();
         require(defaultChain != 0, "No supported chains configured");
 
@@ -416,49 +503,79 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
             nttManagerWithExecutor.quoteDeliveryPrice(
                 underlyingNttManager,
                 defaultChain,
-                "", // Empty transceiver instructions for basic transfer
-                storedExecutorArgs,
-                storedFeeArgs
+                "",
+                params.executorArgs,
+                params.feeArgs
             );
     }
 
-    /// @notice Quotes the cost for a specific destination chain using stored executor parameters
-    /// @param _destinationChain Wormhole chain ID of the destination
-    /// @return cost Total cost for the transfer to the specified chain
-    function quoteFinalizeDeposit(uint16 _destinationChain)
+    /// @notice Quotes cost for specific destination chain using latest parameters
+    /// @param destinationChain Target chain ID
+    /// @return cost Total cost for the transfer
+    function quoteFinalizeDeposit(uint16 destinationChain)
         external
         view
         returns (uint256 cost)
     {
         require(
-            executorParametersSet,
-            "Must call setExecutorParameters() first with real signed quote"
+            userNonceCounter[msg.sender] > 0,
+            "Must call setExecutorParameters() first"
         );
         require(
-            supportedChains[_destinationChain],
+            supportedChains[destinationChain],
             "Destination chain not supported"
         );
+
+        bytes32 latestNonce = _generateNonce(
+            msg.sender,
+            userNonceCounter[msg.sender] - 1
+        );
+
+        ExecutorParameterSet storage params = parametersByNonce[latestNonce];
+        require(params.exists, "Parameters not found - may have been cleared");
 
         return
             nttManagerWithExecutor.quoteDeliveryPrice(
                 underlyingNttManager,
-                _destinationChain,
-                "", // Empty transceiver instructions for basic transfer
-                storedExecutorArgs,
-                storedFeeArgs
+                destinationChain,
+                "",
+                params.executorArgs,
+                params.feeArgs
             );
     }
 
-    /// @notice Checks if executor parameters have been set
-    /// @return isSet True if executor parameters are set and ready for finalizeDeposit
-    function areExecutorParametersSet() external view returns (bool isSet) {
-        return executorParametersSet;
+    /// @notice Checks if the current user has executor parameters set
+    /// @return isSet True if parameters are set and ready for finalizeDeposit
+    /// @return nonce The nonce of the latest parameters (if set)
+    function areExecutorParametersSet()
+        external
+        view
+        returns (bool isSet, bytes32 nonce)
+    {
+        if (userNonceCounter[msg.sender] == 0) {
+            return (false, bytes32(0));
+        }
+
+        nonce = _generateNonce(msg.sender, userNonceCounter[msg.sender] - 1);
+        ExecutorParameterSet storage params = parametersByNonce[nonce];
+
+        return (params.exists, nonce);
     }
 
-    /// @notice Gets the stored executor value (for informational purposes)
+    /// @notice Gets the stored executor value for the latest parameters
     /// @return value The executor value in wei, or 0 if not set
     function getStoredExecutorValue() external view returns (uint256 value) {
-        return executorParametersSet ? storedExecutorArgs.value : 0;
+        if (userNonceCounter[msg.sender] == 0) {
+            return 0;
+        }
+
+        bytes32 latestNonce = _generateNonce(
+            msg.sender,
+            userNonceCounter[msg.sender] - 1
+        );
+
+        ExecutorParameterSet storage params = parametersByNonce[latestNonce];
+        return params.exists ? params.executorArgs.value : 0;
     }
 
     /// @notice Utility function to encode destination chain and recipient
@@ -492,7 +609,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     }
 
     /// @notice Transfers tBTC using NTT Manager With Executor for automatic destination execution
-    /// @dev Uses stored executor parameters set via setExecutorParameters()
+    /// @dev Uses the latest executor parameters for msg.sender (auto-nonce approach)
     /// @param amount Amount of tBTC to transfer
     /// @param destinationChainReceiver Encoded receiver data with chain ID and recipient
     function _transferTbtc(uint256 amount, bytes32 destinationChainReceiver)
@@ -500,22 +617,36 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         override
     {
         require(
-            executorParametersSet,
-            "Must call setExecutorParameters() first with real signed quote"
+            userNonceCounter[msg.sender] > 0,
+            "Must call setExecutorParameters() first"
         );
 
-        // Use stored executor parameters
+        // Calculate the latest nonce for this user
+        bytes32 latestNonce = _generateNonce(
+            msg.sender,
+            userNonceCounter[msg.sender] - 1 // Most recent sequence
+        );
+
+        ExecutorParameterSet storage params = parametersByNonce[latestNonce];
+        require(params.exists, "Parameters not found - may have been cleared");
+
+        // Optional: Add expiration check
+        require(
+            block.timestamp <= params.timestamp + parameterExpirationTime,
+            "Parameters have expired - call setExecutorParameters() again"
+        );
+
+        // Call internal transfer with stored parameters
         _transferTbtcWithExecutor(
             amount,
             destinationChainReceiver,
-            storedExecutorArgs,
-            storedFeeArgs
+            params.executorArgs,
+            params.feeArgs,
+            latestNonce
         );
 
         // Clear parameters after use to prevent reuse
-        delete storedExecutorArgs;
-        delete storedFeeArgs;
-        executorParametersSet = false;
+        delete parametersByNonce[latestNonce];
     }
 
     /// @notice Enhanced transfer function that requires real executor parameters
@@ -523,12 +654,14 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @param destinationChainReceiver Encoded receiver data with chain ID and recipient
     /// @param executorArgs Real executor arguments with valid signed quote
     /// @param feeArgs Fee arguments for the executor
+    /// @param nonce The nonce used for this transfer
     // slither-disable-next-line reentrancy-vulnerabilities-3
     function _transferTbtcWithExecutor(
         uint256 amount,
         bytes32 destinationChainReceiver,
         ExecutorArgs memory executorArgs,
-        FeeArgs memory feeArgs
+        FeeArgs memory feeArgs,
+        bytes32 nonce
     ) internal {
         // External calls are to trusted contracts (tbtcToken, nttManagerWithExecutor)
         // Event emission after external calls is correct pattern
@@ -552,7 +685,13 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
             executorArgs.signedQuote.length > 0,
             "Real signed quote from Wormhole Executor API is required"
         );
-        _validateSignedQuote(executorArgs.signedQuote);
+        _validateSignedQuoteFormat(executorArgs.signedQuote);
+
+        // CRITICAL: Validate payment amount before calling NTT manager
+        require(
+            msg.value >= executorArgs.value,
+            "Insufficient payment for executor service"
+        );
 
         // Approve the NttManagerWithExecutor to spend tBTC
         tbtcToken.safeIncreaseAllowance( // slither-disable-line reentrancy-vulnerabilities-3
@@ -573,6 +712,8 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         );
 
         emit TokensTransferredNttWithExecutor( // slither-disable-line reentrancy-vulnerabilities-3
+            msg.sender,
+            nonce,
             amount,
             destinationChain,
             actualRecipient,
@@ -669,8 +810,199 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @notice Validates the format of a signed quote from Wormhole Executor API
     /// @param signedQuote The signed quote bytes to validate
     /// @dev Keep validation minimal - NttManagerWithExecutor handles detailed validation
-    function _validateSignedQuote(bytes memory signedQuote) internal pure {
+    function _validateSignedQuoteFormat(bytes memory signedQuote)
+        internal
+        pure
+    {
         require(signedQuote.length > 0, "Signed quote cannot be empty");
         require(signedQuote.length >= 32, "Signed quote too short");
+    }
+
+    /// @notice Generates a unique nonce for a user's parameter set
+    /// @param user The user address
+    /// @param sequence The sequence number for this user
+    /// @return nonce A unique nonce hash
+    function _generateNonce(address user, uint256 sequence)
+        internal
+        pure
+        returns (bytes32 nonce)
+    {
+        return keccak256(abi.encodePacked(user, sequence));
+    }
+
+    /// @notice Checks if a user has an active workflow (parameters set but not used)
+    /// @param user The user address to check
+    /// @return hasActiveWorkflow True if user has parameters set and ready for transfer
+    /// @return nonce The nonce of the active workflow (if any)
+    /// @return timestamp When the parameters were set
+    function getUserWorkflowStatus(address user)
+        external
+        view
+        returns (
+            bool hasActiveWorkflow,
+            bytes32 nonce,
+            uint256 timestamp
+        )
+    {
+        if (userNonceCounter[user] == 0) {
+            return (false, bytes32(0), 0);
+        }
+
+        nonce = _generateNonce(user, userNonceCounter[user] - 1);
+        ExecutorParameterSet storage params = parametersByNonce[nonce];
+
+        if (!params.exists) {
+            return (false, bytes32(0), 0);
+        }
+
+        // Check if parameters have expired
+        bool expired = block.timestamp >
+            params.timestamp + parameterExpirationTime;
+
+        return (!expired, nonce, params.timestamp);
+    }
+
+    /// @notice Gets the current nonce sequence for a user
+    /// @param user The user address
+    /// @return sequence The current sequence number (0 if never set parameters)
+    function getUserNonceSequence(address user)
+        external
+        view
+        returns (uint256 sequence)
+    {
+        return userNonceCounter[user];
+    }
+
+    /// @notice Checks if parameters for a specific nonce exist and are valid
+    /// @param nonce The nonce to check
+    /// @return exists True if parameters exist for this nonce
+    /// @return expired True if parameters have expired
+    /// @return user The user who set these parameters
+    function getNonceStatus(bytes32 nonce)
+        external
+        view
+        returns (
+            bool exists,
+            bool expired,
+            address user
+        )
+    {
+        ExecutorParameterSet storage params = parametersByNonce[nonce];
+
+        if (!params.exists) {
+            return (false, false, address(0));
+        }
+
+        expired = block.timestamp > params.timestamp + parameterExpirationTime;
+        return (true, expired, params.user);
+    }
+
+    /// @notice Sets the parameter expiration time (owner only)
+    /// @param newExpirationTime New expiration time in seconds
+    function setParameterExpirationTime(uint256 newExpirationTime)
+        external
+        onlyOwner
+    {
+        require(
+            newExpirationTime > 0,
+            "Expiration time must be greater than 0"
+        );
+        parameterExpirationTime = newExpirationTime;
+    }
+
+    /// @notice Checks if a user can start a new workflow (no active workflow exists)
+    /// @param user The user address to check
+    /// @return canStart True if user can start a new workflow
+    /// @return reason Human-readable reason if cannot start (empty if can start)
+    function canUserStartNewWorkflow(address user)
+        external
+        view
+        returns (bool canStart, string memory reason)
+    {
+        if (userNonceCounter[user] == 0) {
+            return (true, "");
+        }
+
+        bytes32 latestNonce = _generateNonce(user, userNonceCounter[user] - 1);
+        ExecutorParameterSet storage params = parametersByNonce[latestNonce];
+
+        if (!params.exists) {
+            return (true, "");
+        }
+
+        // Check if parameters have expired
+        bool expired = block.timestamp >
+            params.timestamp + parameterExpirationTime;
+
+        if (expired) {
+            return (true, "");
+        }
+
+        return (
+            false,
+            "User has an active workflow. Complete or clear the current workflow before starting a new one."
+        );
+    }
+
+    /// @notice Gets comprehensive workflow information for a user (UI helper)
+    /// @param user The user address to check
+    /// @return hasActiveWorkflow True if user has an active workflow
+    /// @return nonce The nonce of the active workflow (if any)
+    /// @return timestamp When the parameters were set
+    /// @return timeRemaining Seconds until expiration (0 if expired or no workflow)
+    /// @return canStartNew True if user can start a new workflow
+    /// @return reason Human-readable reason if cannot start new workflow
+    function getUserWorkflowInfo(address user)
+        external
+        view
+        returns (
+            bool hasActiveWorkflow,
+            bytes32 nonce,
+            uint256 timestamp,
+            uint256 timeRemaining,
+            bool canStartNew,
+            string memory reason
+        )
+    {
+        if (userNonceCounter[user] == 0) {
+            return (false, bytes32(0), 0, 0, true, "");
+        }
+
+        nonce = _generateNonce(user, userNonceCounter[user] - 1);
+        ExecutorParameterSet storage params = parametersByNonce[nonce];
+
+        if (!params.exists) {
+            return (false, bytes32(0), 0, 0, true, "");
+        }
+
+        timestamp = params.timestamp;
+        uint256 expirationTime = timestamp + parameterExpirationTime;
+
+        // Check if parameters have expired
+        bool expired = block.timestamp > expirationTime;
+
+        if (expired) {
+            return (false, nonce, timestamp, 0, true, "");
+        }
+
+        timeRemaining = expirationTime - block.timestamp;
+        return (
+            true,
+            nonce,
+            timestamp,
+            timeRemaining,
+            false,
+            "User has an active workflow. Complete or clear the current workflow before starting a new one."
+        );
+    }
+
+    /// @notice Gets the total number of active workflows across all users
+    /// @return count Number of active (non-expired) workflows
+    function getTotalActiveWorkflows() external view returns (uint256 count) {
+        // Note: This is a gas-intensive operation and should be used sparingly
+        // In practice, this would require iterating through all nonces
+        // For now, we'll return 0 as this is mainly for informational purposes
+        // A more efficient implementation would require additional storage
+        return 0;
     }
 }
