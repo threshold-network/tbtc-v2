@@ -2,6 +2,7 @@ import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 import { BigNumber } from "ethers"
 import { randomBytes } from "crypto"
+import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import type {
   L1BTCDepositorNttWithExecutor,
   MockTBTCBridge,
@@ -52,10 +53,11 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
   let tbtcToken: TestERC20
   let nttManagerWithExecutor: MockNttManagerWithExecutor
   let underlyingNttManager: TestERC20 // Simple contract for address
-  let owner: any
+  let owner: SignerWithAddress
 
   before(async () => {
     // Get signers
+    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;[owner] = await ethers.getSigners()
 
     // Deploy mock contracts following StarkNet pattern
@@ -151,8 +153,8 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       const executorArgs = {
         value: ethers.utils.parseEther("0.01"),
         refundAddress: owner.address,
-        signedQuote: "0x" + "a".repeat(64), // 32 bytes (64 hex chars) - meets minimum requirement
-        instructions: "0x" + "b".repeat(32), // 16 bytes (32 hex chars)
+        signedQuote: `0x${"a".repeat(64)}`, // 32 bytes (64 hex chars) - meets minimum requirement
+        instructions: `0x${"b".repeat(32)}`, // 16 bytes (32 hex chars)
       }
 
       const feeArgs = {

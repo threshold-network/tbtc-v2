@@ -1,11 +1,13 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 import { BigNumber } from "ethers"
+import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import type {
   L1BTCDepositorNttWithExecutor,
   MockTBTCBridge,
   MockTBTCVault,
   TestERC20,
+  MockNttManagerWithExecutor,
 } from "../../../typechain"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
@@ -19,12 +21,13 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
   let bridge: MockTBTCBridge
   let tbtcVault: MockTBTCVault
   let tbtcToken: TestERC20
-  let nttManagerWithExecutor: any
+  let nttManagerWithExecutor: MockNttManagerWithExecutor
   let underlyingNttManager: TestERC20
-  let owner: any
+  let owner: SignerWithAddress
 
   before(async () => {
     // Get signers
+    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;[owner] = await ethers.getSigners()
 
     // Deploy mock contracts following StarkNet pattern
@@ -179,8 +182,8 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
       const executorArgs = {
         value: ethers.utils.parseEther("0.01"),
         refundAddress: owner.address,
-        signedQuote: "0x" + "a".repeat(64), // 32 bytes - meets minimum requirement
-        instructions: "0x" + "b".repeat(32), // 16 bytes
+        signedQuote: `0x${"a".repeat(64)}`, // 32 bytes - meets minimum requirement
+        instructions: `0x${"b".repeat(32)}`, // 16 bytes
       }
 
       const feeArgs = {
@@ -207,8 +210,8 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
       const newExecutorArgs = {
         value: ethers.utils.parseEther("0.02"),
         refundAddress: owner.address,
-        signedQuote: "0x" + "b".repeat(64), // Different signed quote
-        instructions: "0x" + "c".repeat(32),
+        signedQuote: `0x${"b".repeat(64)}`, // Different signed quote
+        instructions: `0x${"c".repeat(32)}`,
       }
 
       // Should allow refresh
@@ -227,8 +230,8 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
       const executorArgs = {
         value: ethers.utils.parseEther("0.01"),
         refundAddress: owner.address,
-        signedQuote: "0x" + "a".repeat(64), // 32 bytes - meets minimum requirement
-        instructions: "0x" + "b".repeat(32), // 16 bytes
+        signedQuote: `0x${"a".repeat(64)}`, // 32 bytes - meets minimum requirement
+        instructions: `0x${"b".repeat(32)}`, // 16 bytes
       }
 
       const feeArgs = {
@@ -268,8 +271,8 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
       const executorArgs = {
         value: ethers.utils.parseEther("0.01"),
         refundAddress: owner.address,
-        signedQuote: "0x" + "a".repeat(64), // Mock signed quote (32 bytes)
-        instructions: "0x" + "b".repeat(32), // Mock instructions (16 bytes)
+        signedQuote: `0x${"a".repeat(64)}`, // Mock signed quote (32 bytes)
+        instructions: `0x${"b".repeat(32)}`, // Mock instructions (16 bytes)
       }
 
       const feeArgs = {
