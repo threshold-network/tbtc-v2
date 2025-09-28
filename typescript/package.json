@@ -1,6 +1,6 @@
 {
   "name": "@keep-network/tbtc-v2.ts",
-  "version": "2.9.0-dev",
+  "version": "3.0                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     .0",
   "license": "MIT",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
@@ -27,8 +27,8 @@
   "dependencies": {
     "@bitcoinerlab/secp256k1": "^1.0.5",
     "@coral-xyz/anchor": "0.28.0",
-    "@keep-network/ecdsa": "development",
-    "@keep-network/tbtc-v2": "development",
+    "@keep-network/ecdsa": "2.0.1",
+    "@keep-network/tbtc-v2": "1.7.0",
     "@solana/spl-token": "0.3.9",
     "@solana/web3.js": "^1.98.0",
     "@mysten/sui": "1.34.0",
