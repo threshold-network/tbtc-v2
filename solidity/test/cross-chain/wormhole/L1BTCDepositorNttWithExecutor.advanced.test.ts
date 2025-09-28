@@ -166,14 +166,14 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
   describe("Error Handling", () => {
     it("should revert on quote without parameters", async () => {
       await expect(depositor["quoteFinalizeDeposit()"]()).to.be.revertedWith(
-        "Must call setExecutorParameters() first"
+        "Executor parameters not set"
       )
     })
 
     it("should revert on quote with chain parameter without executor parameters", async () => {
       await expect(
         depositor["quoteFinalizeDeposit(uint16)"](WORMHOLE_CHAIN_SEI)
-      ).to.be.revertedWith("Must call setExecutorParameters() first")
+      ).to.be.revertedWith("Executor parameters not set")
     })
   })
 

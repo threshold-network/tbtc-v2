@@ -487,7 +487,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     function quoteFinalizeDeposit() external view returns (uint256 cost) {
         require(
             userNonceCounter[msg.sender] > 0,
-            "Must call setExecutorParameters() first"
+            "Executor parameters not set"
         );
 
         bytes32 latestNonce = _generateNonce(
@@ -496,7 +496,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         );
 
         ExecutorParameterSet storage params = parametersByNonce[latestNonce];
-        require(params.exists, "Parameters not found - may have been cleared");
+        require(params.exists, "Executor parameters not set");
 
         uint16 defaultChain = _getDefaultSupportedChain();
         require(defaultChain != 0, "No supported chains configured");
@@ -521,7 +521,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     {
         require(
             userNonceCounter[msg.sender] > 0,
-            "Must call setExecutorParameters() first"
+            "Executor parameters not set"
         );
         require(
             supportedChains[destinationChain],
@@ -534,7 +534,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         );
 
         ExecutorParameterSet storage params = parametersByNonce[latestNonce];
-        require(params.exists, "Parameters not found - may have been cleared");
+        require(params.exists, "Executor parameters not set");
 
         return
             nttManagerWithExecutor.quoteDeliveryPrice(
@@ -620,7 +620,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     {
         require(
             userNonceCounter[msg.sender] > 0,
-            "Must call setExecutorParameters() first"
+            "Executor parameters not set"
         );
 
         // Calculate the latest nonce for this user
@@ -630,12 +630,12 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         );
 
         ExecutorParameterSet storage params = parametersByNonce[latestNonce];
-        require(params.exists, "Parameters not found - may have been cleared");
+        require(params.exists, "Executor parameters not set");
 
         // Optional: Add expiration check
         require(
             block.timestamp <= params.timestamp + parameterExpirationTime, // solhint-disable-line not-rely-on-time
-            "Parameters have expired - call setExecutorParameters() again"
+            "Executor parameters expired"
         );
 
         // Call internal transfer with stored parameters
@@ -741,15 +741,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         }
 
         if (!supportedChains[chainId]) {
-            revert(
-                string(
-                    abi.encodePacked(
-                        "Chain ",
-                        _uint16ToString(chainId),
-                        " not supported"
-                    )
-                )
-            );
+            revert("Destination chain not supported");
         }
 
         return chainId;
@@ -763,35 +755,6 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         returns (uint16 chainId)
     {
         return defaultSupportedChain;
-    }
-
-    /// @notice Convert uint16 to string for error messages
-    /// @param value The uint16 value to convert
-    /// @return str The string representation
-    function _uint16ToString(uint16 value)
-        internal
-        pure
-        returns (string memory str)
-    {
-        if (value == 0) {
-            return "0";
-        }
-
-        uint16 temp = value;
-        uint256 digits;
-        while (temp != 0) {
-            digits++;
-            temp /= 10;
-        }
-
-        bytes memory buffer = new bytes(digits);
-        while (value != 0) {
-            digits -= 1;
-            buffer[digits] = bytes1(uint8(48 + uint256(value % 10)));
-            value /= 10;
-        }
-
-        return string(buffer);
     }
 
     /// @notice Extract recipient address from encoded receiver data

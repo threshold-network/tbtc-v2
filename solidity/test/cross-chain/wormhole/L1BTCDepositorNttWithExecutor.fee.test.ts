@@ -97,14 +97,14 @@ describe("L1BTCDepositorNttWithExecutor - Fee Handling", () => {
   describe("Fee Estimation", () => {
     it("should revert fee estimation without executor parameters", async () => {
       await expect(depositor["quoteFinalizeDeposit()"]()).to.be.revertedWith(
-        "Must call setExecutorParameters() first"
+        "Executor parameters not set"
       )
     })
 
     it("should revert fee estimation with chain parameter without executor parameters", async () => {
       await expect(
         depositor["quoteFinalizeDeposit(uint16)"](WORMHOLE_CHAIN_SEI)
-      ).to.be.revertedWith("Must call setExecutorParameters() first")
+      ).to.be.revertedWith("Executor parameters not set")
     })
   })
 

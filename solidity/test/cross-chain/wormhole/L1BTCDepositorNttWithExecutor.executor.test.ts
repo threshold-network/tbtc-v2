@@ -477,14 +477,14 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
   describe("Quote Functions Without Parameters", () => {
     it("should revert quote without executor parameters", async () => {
       await expect(depositor["quoteFinalizeDeposit()"]()).to.be.revertedWith(
-        "Must call setExecutorParameters() first"
+        "Executor parameters not set"
       )
     })
 
     it("should revert chain-specific quote without executor parameters", async () => {
       await expect(
         depositor["quoteFinalizeDeposit(uint16)"](WORMHOLE_CHAIN_SEI)
-      ).to.be.revertedWith("Must call setExecutorParameters() first")
+      ).to.be.revertedWith("Executor parameters not set")
     })
 
     it("should revert for all supported chains without parameters", async () => {
@@ -499,7 +499,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         // eslint-disable-next-line no-await-in-loop
         await expect(
           depositor["quoteFinalizeDeposit(uint16)"](chainId)
-        ).to.be.revertedWith("Must call setExecutorParameters() first")
+        ).to.be.revertedWith("Executor parameters not set")
       }
     })
 
@@ -531,7 +531,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
       await expect(
         depositor["quoteFinalizeDeposit(uint16)"](unsupportedChain)
-      ).to.be.revertedWith("Must call setExecutorParameters() first")
+      ).to.be.revertedWith("Executor parameters not set")
     })
   })
 
