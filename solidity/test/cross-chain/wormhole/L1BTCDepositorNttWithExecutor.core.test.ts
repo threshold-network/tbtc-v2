@@ -159,7 +159,15 @@ describe("L1BTCDepositorNttWithExecutor - Core Functions", () => {
 
       // Non-owner cannot update
       await expect(
-        depositor.connect(user).setDefaultParameters(600000, 50, user.address, 0, ethers.constants.AddressZero)
+        depositor
+          .connect(user)
+          .setDefaultParameters(
+            600000,
+            50,
+            user.address,
+            0,
+            ethers.constants.AddressZero
+          )
       ).to.be.revertedWith("Ownable: caller is not the owner")
     })
 

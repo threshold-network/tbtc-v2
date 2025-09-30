@@ -201,13 +201,15 @@ describe("L1BTCDepositorNttWithExecutor - Transfer Functions", () => {
       // After ownership is renounced, owner-only functions should revert for any caller
       const [, , user] = await ethers.getSigners()
       await expect(
-        depositor.connect(user).setDefaultParameters(
-          600000,
-          50,
-          user.address,
-          0,
-          ethers.constants.AddressZero
-        )
+        depositor
+          .connect(user)
+          .setDefaultParameters(
+            600000,
+            50,
+            user.address,
+            0,
+            ethers.constants.AddressZero
+          )
       ).to.be.revertedWith("Ownable: caller is not the owner")
       await expect(
         depositor.setDefaultParameters(
