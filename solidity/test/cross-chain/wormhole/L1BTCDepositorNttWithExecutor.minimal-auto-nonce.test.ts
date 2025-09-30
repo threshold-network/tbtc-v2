@@ -99,7 +99,7 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
       }
 
       const feeArgs = {
-        dbps: 100, // 1%
+        dbps: 100, // 0.1% (100/100000) // 0.1% (100/100000)
         payee: owner.address,
       }
 
@@ -149,7 +149,7 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
       }
 
       const feeArgs = {
-        dbps: 100,
+        dbps: 100, // 0.1% (100/100000)
         payee: owner.address,
       }
 
@@ -185,7 +185,7 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
       }
 
       const feeArgs = {
-        dbps: 100,
+        dbps: 100, // 0.1% (100/100000)
         payee: owner.address,
       }
 
@@ -222,7 +222,7 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
       }
 
       const feeArgs = {
-        dbps: 100,
+        dbps: 100, // 0.1% (100/100000)
         payee: owner.address,
       }
 

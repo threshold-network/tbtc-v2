@@ -147,7 +147,7 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
 
       // Test high fee
       const highFeeArgs = {
-        dbps: 1000, // 10%
+        dbps: 1000, // 1% (1000/100000)
         payee: user.address,
       }
 
@@ -159,7 +159,7 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
 
       // Test maximum fee
       const maxFeeArgs = {
-        dbps: 10000, // 100%
+        dbps: 10000, // 10% (10000/100000)
         payee: user.address,
       }
 
@@ -182,7 +182,7 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
 
       // Test with different fee recipients
       const feeArgs1 = {
-        dbps: 100,
+        dbps: 100, // 0.1% (100/100000)
         payee: user.address,
       }
 
@@ -191,7 +191,7 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
         .setExecutorParameters(executorArgs, feeArgs1)
 
       const feeArgs2 = {
-        dbps: 100,
+        dbps: 100, // 0.1% (100/100000)
         payee: feeRecipient.address,
       }
 
@@ -249,7 +249,7 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
       }
 
       const feeArgs = {
-        dbps: 100,
+        dbps: 100, // 0.1% (100/100000)
         payee: user.address,
       }
 

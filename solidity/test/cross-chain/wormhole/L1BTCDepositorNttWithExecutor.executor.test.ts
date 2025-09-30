@@ -158,7 +158,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       }
 
       const feeArgs = {
-        dbps: 100,
+        dbps: 100, // 0.1% (100/100000)
         payee: owner.address,
       }
 
@@ -258,7 +258,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
     it("should reject fee basis points exceeding 10000 in setExecutorParameters", async () => {
       const executorArgs = createExecutorArgs()
       const invalidFeeArgs = {
-        dbps: 10001, // Exceeds 100%
+        dbps: 10001, // Exceeds 10% (10001/100000)
         payee: ethers.Wallet.createRandom().address,
       }
 
@@ -270,7 +270,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
     it("should accept maximum valid fee basis points (10000) in setExecutorParameters", async () => {
       const executorArgs = createExecutorArgs()
       const validFeeArgs = {
-        dbps: 10000, // Exactly 100%
+        dbps: 10000, // Exactly 10% (10000/100000)
         payee: ethers.Wallet.createRandom().address,
       }
 
@@ -287,7 +287,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       await expect(
         depositor.connect(owner).setDefaultParameters(
           500000, // gasLimit
-          10001, // feeBps exceeds 100%
+          10001, // feeBps exceeds 10% (10001/100000)
           ethers.Wallet.createRandom().address // feeRecipient
         )
       ).to.be.revertedWith("Fee cannot exceed 100% (10000 bps)")
@@ -299,7 +299,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       await expect(
         depositor.connect(owner).setDefaultParameters(
           500000, // gasLimit
-          10000, // feeBps exactly 100%
+          10000, // feeBps exactly 10% (10000/100000)
           ethers.Wallet.createRandom().address // feeRecipient
         )
       ).to.not.be.reverted

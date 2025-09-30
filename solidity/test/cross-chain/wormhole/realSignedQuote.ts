@@ -88,7 +88,7 @@ export const FEE_ARGS_ZERO = {
 }
 
 export const FEE_ARGS_STANDARD = {
-  dbps: 100, // 1%
+  dbps: 100, // 0.1% (100/100000)
   payee: "0xB6A114C2c34eF91eeb0d93bcdDD7B95a9D6892E1",
 }
 

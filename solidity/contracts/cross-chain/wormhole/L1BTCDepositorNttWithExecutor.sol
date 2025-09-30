@@ -134,6 +134,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     uint256 public defaultDestinationGasLimit;
 
     /// @notice Maximum basis points value (100%)
+    /// @dev NttManagerWithExecutor uses 100000 as divisor, so 100% = 10000 dbps
     uint16 public constant MAX_BPS = 10000;
 
     /// @notice Default destination gas limit for execution (500k gas)
@@ -783,18 +784,6 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         require(signedQuote.length >= 32, "Signed quote too short");
     }
 
-    /// @notice Generates a unique nonce for a user's parameter set
-    /// @param user The user address
-    /// @param sequence The sequence number for this user
-    /// @return nonce A unique nonce hash
-    function _generateNonce(address user, uint256 sequence)
-        internal
-        pure
-        returns (bytes32 nonce)
-    {
-        return keccak256(abi.encodePacked(user, sequence));
-    }
-
     /// @notice Checks if a user has an active workflow (parameters set but not used)
     /// @param user The user address to check
     /// @return hasActiveWorkflow True if user has parameters set and ready for transfer
@@ -826,6 +815,18 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
             params.timestamp + parameterExpirationTime;
 
         return (!expired, nonce, params.timestamp);
+    }
+
+    /// @notice Generates a unique nonce for a user's parameter set
+    /// @param user The user address
+    /// @param sequence The sequence number for this user
+    /// @return nonce A unique nonce hash
+    function _generateNonce(address user, uint256 sequence)
+        internal
+        pure
+        returns (bytes32 nonce)
+    {
+        return keccak256(abi.encodePacked(user, sequence));
     }
 
     /// @notice Gets the current nonce sequence for a user

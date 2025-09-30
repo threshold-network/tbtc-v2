@@ -141,7 +141,7 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       }
 
       const feeArgs = {
-        dbps: 100,
+        dbps: 100, // 0.1% (100/100000)
         payee: user.address,
       }
 
@@ -165,7 +165,7 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       }
 
       const feeArgs = {
-        dbps: 100,
+        dbps: 100, // 0.1% (100/100000)
         payee: user.address,
       }
 
@@ -196,7 +196,7 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       }
 
       const feeArgs = {
-        dbps: 100,
+        dbps: 100, // 0.1% (100/100000)
         payee: user.address,
       }
 
@@ -266,7 +266,7 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       }
 
       const feeArgs = {
-        dbps: 10000, // 100% fee
+        dbps: 10000, // 10% fee (10000/100000)
         payee: user.address,
       }
 

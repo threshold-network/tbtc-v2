@@ -132,7 +132,7 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
       }
 
       const feeArgs1 = {
-        dbps: 100,
+        dbps: 100, // 0.1% (100/100000)
         payee: user.address,
       }
 
@@ -193,7 +193,7 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
       }
 
       const feeArgs = {
-        dbps: 100,
+        dbps: 100, // 0.1% (100/100000)
         payee: user.address,
       }
 
@@ -215,7 +215,7 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
       }
 
       const feeArgs = {
-        dbps: 100,
+        dbps: 100, // 0.1% (100/100000)
         payee: user.address,
       }
 
@@ -270,7 +270,7 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
       }
 
       const feeArgs = {
-        dbps: 100,
+        dbps: 100, // 0.1% (100/100000)
         payee: user.address,
       }
 

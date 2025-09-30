@@ -187,7 +187,7 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
       }
 
       const feeArgs = {
-        dbps: 100, // 1% fee
+        dbps: 100, // 0.1% fee (100/100000)
         payee: owner.address,
       }
 
@@ -235,7 +235,7 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
       }
 
       const feeArgs = {
-        dbps: 100, // 1% fee
+        dbps: 100, // 0.1% fee (100/100000)
         payee: owner.address,
       }
 
@@ -276,7 +276,7 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
       }
 
       const feeArgs = {
-        dbps: 100, // 1% fee
+        dbps: 100, // 0.1% fee (100/100000)
         payee: owner.address,
       }
 

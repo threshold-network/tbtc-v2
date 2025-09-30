@@ -98,7 +98,7 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
       }
 
       const feeArgs = {
-        dbps: 100,
+        dbps: 100, // 0.1% (100/100000)
         payee: owner.address,
       }
 
@@ -131,7 +131,7 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
       }
 
       const feeArgs = {
-        dbps: 100,
+        dbps: 100, // 0.1% (100/100000)
         payee: owner.address,
       }
 
@@ -189,7 +189,7 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
       }
 
       const feeArgs = {
-        dbps: 100,
+        dbps: 100, // 0.1% (100/100000)
         payee: owner.address,
       }
 
@@ -230,7 +230,7 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
       }
 
       const feeArgs = {
-        dbps: 100,
+        dbps: 100, // 0.1% (100/100000)
         payee: owner.address,
       }
 
@@ -281,7 +281,7 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
       }
 
       const feeArgs = {
-        dbps: 100,
+        dbps: 100, // 0.1% (100/100000)
         payee: owner.address,
       }
 
@@ -335,7 +335,7 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
       }
 
       const feeArgs = {
-        dbps: 100,
+        dbps: 100, // 0.1% (100/100000)
         payee: owner.address,
       }
 
