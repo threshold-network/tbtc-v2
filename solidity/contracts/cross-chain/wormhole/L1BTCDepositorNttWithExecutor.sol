@@ -147,6 +147,14 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @dev Used when no specific gas limit is provided in relay instructions
     uint256 public defaultDestinationGasLimit;
 
+    /// @notice Default TBTC platform fee in basis points
+    /// @dev Default is 0 (no fee). 100 = 0.1% (100/100000)
+    uint16 public defaultPlatformFeeBps;
+
+    /// @notice Default platform fee recipient address
+    /// @dev Address to receive TBTC platform fees
+    address public defaultPlatformFeeRecipient;
+
     /// @notice Maximum basis points value (100%)
     /// @dev NttManagerWithExecutor uses 100000 as divisor, so 100% = 10000 dbps
     uint16 public constant MAX_BPS = 10000;
@@ -230,6 +238,18 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         uint256 indexed newGasLimit
     );
 
+    /// @notice Emitted when the default platform fee basis points is updated
+    event DefaultPlatformFeeBpsUpdated(
+        uint16 indexed oldFeeBps,
+        uint16 indexed newFeeBps
+    );
+
+    /// @notice Emitted when the default platform fee recipient is updated
+    event DefaultPlatformFeeRecipientUpdated(
+        address indexed oldRecipient,
+        address indexed newRecipient
+    );
+
     /// @notice Emitted when the underlying NTT Manager is updated
     event UnderlyingNttManagerUpdated(
         address indexed oldManager,
@@ -309,19 +329,33 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @param _gasLimit Default gas limit for destination chain execution
     /// @param _feeBps Default executor fee in basis points (max 10000 = 100%)
     /// @param _feeRecipient Default executor fee recipient
+    /// @param _platformFeeBps Default TBTC platform fee in basis points (max 10000 = 100%)
+    /// @param _platformFeeRecipient Default TBTC platform fee recipient
     function setDefaultParameters(
         uint256 _gasLimit,
         uint16 _feeBps,
-        address _feeRecipient
+        address _feeRecipient,
+        uint16 _platformFeeBps,
+        address _platformFeeRecipient
     ) external onlyOwner {
         require(_feeBps <= MAX_BPS, "Fee cannot exceed 100% (10000 bps)");
+        require(
+            _platformFeeBps <= MAX_BPS,
+            "Platform fee cannot exceed 100% (10000 bps)"
+        );
         require(
             _feeRecipient != address(0) || _feeBps == 0,
             "Fee recipient cannot be zero when fee is set"
         );
+        require(
+            _platformFeeRecipient != address(0) || _platformFeeBps == 0,
+            "Platform fee recipient cannot be zero when platform fee is set"
+        );
         defaultDestinationGasLimit = _gasLimit;
         defaultExecutorFeeBps = _feeBps;
         defaultExecutorFeeRecipient = _feeRecipient;
+        defaultPlatformFeeBps = _platformFeeBps;
+        defaultPlatformFeeRecipient = _platformFeeRecipient;
 
         emit DefaultParametersUpdated(_gasLimit, _feeBps, _feeRecipient);
     }
@@ -336,6 +370,30 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         uint256 oldGasLimit = defaultDestinationGasLimit;
         defaultDestinationGasLimit = _newGasLimit;
         emit DefaultDestinationGasLimitUpdated(oldGasLimit, _newGasLimit);
+    }
+
+    /// @notice Sets the default TBTC platform fee in basis points
+    /// @param _newFeeBps New default platform fee in basis points (100 = 0.1%)
+    function setDefaultPlatformFeeBps(uint16 _newFeeBps) external onlyOwner {
+        require(_newFeeBps <= MAX_BPS, "Fee cannot exceed 100% (10000 bps)");
+        uint16 oldFeeBps = defaultPlatformFeeBps;
+        defaultPlatformFeeBps = _newFeeBps;
+        emit DefaultPlatformFeeBpsUpdated(oldFeeBps, _newFeeBps);
+    }
+
+    /// @notice Sets the default platform fee recipient address
+    /// @param _newRecipient New platform fee recipient address
+    function setDefaultPlatformFeeRecipient(address _newRecipient)
+        external
+        onlyOwner
+    {
+        require(
+            _newRecipient != address(0) || defaultPlatformFeeBps == 0,
+            "Recipient address cannot be zero when platform fee is set"
+        );
+        address oldRecipient = defaultPlatformFeeRecipient;
+        defaultPlatformFeeRecipient = _newRecipient;
+        emit DefaultPlatformFeeRecipientUpdated(oldRecipient, _newRecipient);
     }
 
     /// @notice Updates the underlying NTT Manager address
@@ -415,6 +473,10 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
 
         // Validate fee basis points
         require(feeArgs.dbps <= MAX_BPS, "Fee cannot exceed 100% (10000 bps)");
+        require(
+            feeArgs.dbps >= defaultPlatformFeeBps,
+            "Fee must be at least the default platform fee"
+        );
 
         // SAFETY CHECK: Handle existing parameters - allow refresh or prevent new workflow
         if (userNonceCounter[msg.sender] > 0) {
