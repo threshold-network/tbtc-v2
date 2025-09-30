@@ -1,0 +1,18 @@
+# Hardhat
+/artifacts/
+/build/
+/cache/
+/export/
+/external/npm
+/typechain/
+/export.json
+/deployments/*
+!/deployments/mainnet/
+!/deployments/arbitrumOne/
+!/deployments/arbitrumGoerli/
+!/deployments/arbitrumSepolia/
+
+# OZ
+/.openzeppelin/unknown-*.json
+!/.openzeppelin/unknown-42161.json
+!/.openzeppelin/unknown-421613.json
