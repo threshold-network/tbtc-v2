@@ -929,8 +929,9 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       const executorArgs = {
         value: 0, // Zero executor cost
         refundAddress: user.address,
-        signedQuote: `0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef`,
-        instructions: `0x1234567890abcdef1234567890abcdef`,
+        signedQuote:
+          "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+        instructions: "0x1234567890abcdef1234567890abcdef",
       }
 
       const feeArgs = {
@@ -1071,8 +1072,9 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       const executorArgs = {
         value: ethers.utils.parseEther("0.05"), // 0.05 ETH executor cost
         refundAddress: user.address,
-        signedQuote: `0x3456789012cdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef`,
-        instructions: `0x3456789012cdef1234567890abcdef`,
+        signedQuote:
+          "0x3456789012cdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+        instructions: "0x3456789012cdef1234567890abcdef",
       }
 
       const feeArgs = {
@@ -1090,7 +1092,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       // Simulate frontend validation
       const userEthBalance = ethers.utils.parseEther("0.1") // User has 0.1 ETH
 
-      console.log(`Frontend validation:`)
+      console.log("Frontend validation:")
       console.log(
         `NTT delivery: ${ethers.utils.formatEther(nttDeliveryPrice)} ETH`
       )
@@ -1111,7 +1113,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
       // This should not throw since user has enough ETH
       expect(userEthBalance).to.be.gte(totalCost)
-      console.log(`✅ User has sufficient ETH for the transfer`)
+      console.log("✅ User has sufficient ETH for the transfer")
     })
 
     it("should simulate frontend validation failure", async () => {
@@ -1139,21 +1141,21 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       // Simulate user with insufficient balance
       const userEthBalance = ethers.utils.parseEther("0.1") // User only has 0.1 ETH
 
-      console.log(`Frontend validation (insufficient balance):`)
+      console.log("Frontend validation (insufficient balance):")
       console.log(
         `NTT delivery: ${ethers.utils.formatEther(nttDeliveryPrice)} ETH`
       )
       console.log(
-        `Executor cost: ${ethers.utils.formatEther(executorCost)} ETH`
+        "Executor cost: ${ethers.utils.formatEther(executorCost)} ETH"
       )
-      console.log(`Total required: ${ethers.utils.formatEther(totalCost)} ETH`)
+      console.log("Total required: ${ethers.utils.formatEther(totalCost)} ETH")
       console.log(
         `User balance: ${ethers.utils.formatEther(userEthBalance)} ETH`
       )
 
       // This should fail validation
       expect(userEthBalance).to.be.lt(totalCost)
-      console.log(`❌ User has insufficient ETH for the transfer`)
+      console.log("❌ User has insufficient ETH for the transfer")
     })
   })
 })

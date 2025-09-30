@@ -165,11 +165,11 @@ describe("L1BTCDepositorNttWithExecutor - Transfer Functions", () => {
       // New owner should be able to call owner functions
       await depositor
         .connect(user)
-        .setDefaultParameters(600000, 50, user.address)
+        .setDefaultParameters(600000, 50, user.address, 0, ethers.constants.AddressZero)
 
       // Old owner should not be able to call owner functions
       await expect(
-        depositor.setDefaultParameters(600000, 50, user.address)
+        depositor.setDefaultParameters(600000, 50, user.address, 0, ethers.constants.AddressZero)
       ).to.be.revertedWith("Ownable: caller is not the owner")
     })
 
@@ -189,7 +189,7 @@ describe("L1BTCDepositorNttWithExecutor - Transfer Functions", () => {
       // No one should be able to call owner functions after renunciation
       const [, , user] = await ethers.getSigners()
       await expect(
-        depositor.connect(user).setDefaultParameters(600000, 50, user.address)
+        depositor.connect(user).setDefaultParameters(600000, 50, user.address, 0, ethers.constants.AddressZero)
       ).to.be.revertedWith("Ownable: caller is not the owner")
     })
   })

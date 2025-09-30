@@ -239,7 +239,9 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
       await depositor.setDefaultParameters(
         600000, // gas limit
         150, // 1.5% fee
-        user.address
+        user.address, // fee recipient
+        0, // platform fee bps
+        ethers.constants.AddressZero // platform fee recipient
       )
 
       expect(await depositor.defaultDestinationGasLimit()).to.equal(600000)
@@ -252,7 +254,9 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
       await depositor.setDefaultParameters(
         700000, // gas limit
         200, // 2% fee
-        user.address
+        user.address, // fee recipient
+        0, // platform fee bps
+        ethers.constants.AddressZero // platform fee recipient
       )
 
       expect(await depositor.defaultDestinationGasLimit()).to.equal(700000)
