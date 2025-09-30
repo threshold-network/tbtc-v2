@@ -149,7 +149,13 @@ describe("L1BTCDepositorNttWithExecutor - Core Functions", () => {
       const [, , user] = await ethers.getSigners()
 
       // Owner can update
-      await depositor.setDefaultParameters(600000, 50, user.address, 0, ethers.constants.AddressZero)
+      await depositor.setDefaultParameters(
+        600000, // gasLimit
+        50, // executorFeeBps
+        user.address, // executorFeeRecipient
+        0, // platformFeeBps
+        ethers.constants.AddressZero // platformFeeRecipient
+      )
 
       // Non-owner cannot update
       await expect(

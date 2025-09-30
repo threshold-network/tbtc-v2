@@ -81,9 +81,15 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
     it("should prevent non-owners from updating configuration", async () => {
       const [, , user] = await ethers.getSigners()
 
-      // Non-owner cannot update default parameters
+      // Non-owner should be reverted when updating default parameters
       await expect(
-        depositor.connect(user).setDefaultParameters(600000, 50, user.address, 0, ethers.constants.AddressZero)
+        depositor.connect(user).setDefaultParameters(
+          600000,
+          50,
+          user.address,
+          0,
+          ethers.constants.AddressZero
+        )
       ).to.be.revertedWith("Ownable: caller is not the owner")
 
       // Non-owner cannot update NTT managers

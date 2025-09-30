@@ -165,11 +165,23 @@ describe("L1BTCDepositorNttWithExecutor - Transfer Functions", () => {
       // New owner should be able to call owner functions
       await depositor
         .connect(user)
-        .setDefaultParameters(600000, 50, user.address, 0, ethers.constants.AddressZero)
+        .setDefaultParameters(
+          600000,
+          50,
+          user.address,
+          0,
+          ethers.constants.AddressZero
+        )
 
       // Old owner should not be able to call owner functions
       await expect(
-        depositor.setDefaultParameters(600000, 50, user.address, 0, ethers.constants.AddressZero)
+        depositor.setDefaultParameters(
+          600000,
+          50,
+          user.address,
+          0,
+          ethers.constants.AddressZero
+        )
       ).to.be.revertedWith("Ownable: caller is not the owner")
     })
 
@@ -186,10 +198,25 @@ describe("L1BTCDepositorNttWithExecutor - Transfer Functions", () => {
       await depositor.renounceOwnership()
       expect(await depositor.owner()).to.equal(ethers.constants.AddressZero)
 
-      // No one should be able to call owner functions after renunciation
+      // After ownership is renounced, owner-only functions should revert for any caller
       const [, , user] = await ethers.getSigners()
       await expect(
-        depositor.connect(user).setDefaultParameters(600000, 50, user.address, 0, ethers.constants.AddressZero)
+        depositor.connect(user).setDefaultParameters(
+          600000,
+          50,
+          user.address,
+          0,
+          ethers.constants.AddressZero
+        )
+      ).to.be.revertedWith("Ownable: caller is not the owner")
+      await expect(
+        depositor.setDefaultParameters(
+          600000,
+          50,
+          user.address,
+          0,
+          ethers.constants.AddressZero
+        )
       ).to.be.revertedWith("Ownable: caller is not the owner")
     })
   })
