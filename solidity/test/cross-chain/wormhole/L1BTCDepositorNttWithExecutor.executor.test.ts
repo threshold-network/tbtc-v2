@@ -1146,9 +1146,9 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         `NTT delivery: ${ethers.utils.formatEther(nttDeliveryPrice)} ETH`
       )
       console.log(
-        "Executor cost: ${ethers.utils.formatEther(executorCost)} ETH"
+        `Executor cost: ${ethers.utils.formatEther(executorCost)} ETH`
       )
-      console.log("Total required: ${ethers.utils.formatEther(totalCost)} ETH")
+      console.log(`Total required: ${ethers.utils.formatEther(totalCost)} ETH`)
       console.log(
         `User balance: ${ethers.utils.formatEther(userEthBalance)} ETH`
       )
