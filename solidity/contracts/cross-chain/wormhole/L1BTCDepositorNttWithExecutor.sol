@@ -43,6 +43,20 @@ struct FeeArgs {
     address payee;
 }
 
+/// @notice NTT Manager interface for basic cross-chain transfers
+/// @dev Interface for the underlying NTT Manager contract
+interface INttManager {
+    /// @notice Quote the delivery price for a given recipient chain transfer
+    /// @param recipientChain The Wormhole chain ID of the target chain
+    /// @param transceiverInstructions Additional instructions for transceivers
+    /// @return priceQuotes Array of individual transceiver price quotes
+    /// @return totalPrice Total price for the transfer
+    function quoteDeliveryPrice(
+        uint16 recipientChain,
+        bytes memory transceiverInstructions
+    ) external view returns (uint256[] memory priceQuotes, uint256 totalPrice);
+}
+
 /// @notice NTT Manager With Executor interface for cross-chain transfers with executor support
 /// @dev Interface for the enhanced NTT Manager that supports Wormhole Executor integration
 interface INttManagerWithExecutor {
@@ -547,6 +561,53 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
             );
     }
 
+    /// @notice Quotes the underlying NTT delivery price and total cost including executor fees
+    /// @param destinationChain Target chain ID
+    /// @return nttDeliveryPrice The NTT delivery price from the underlying manager
+    /// @return executorCost The executor cost from the signed quote
+    /// @return totalCost The total cost (NTT + executor)
+    /// @dev This function calls the underlying NTT manager's quoteDeliveryPrice and returns
+    ///      the breakdown of costs. The caller should validate that their msg.value >= totalCost
+    function quoteFinalizedDeposit(uint16 destinationChain)
+        external
+        view
+        returns (
+            uint256 nttDeliveryPrice,
+            uint256 executorCost,
+            uint256 totalCost
+        )
+    {
+        require(
+            userNonceCounter[msg.sender] > 0,
+            "Executor parameters not set"
+        );
+        require(
+            supportedChains[destinationChain],
+            "Destination chain not supported"
+        );
+
+        bytes32 latestNonce = _generateNonce(
+            msg.sender,
+            userNonceCounter[msg.sender] - 1
+        );
+
+        ExecutorParameterSet storage params = parametersByNonce[latestNonce];
+        require(params.exists, "Executor parameters not set");
+
+        // Get NTT delivery price from underlying manager
+        INttManager nttManager = INttManager(underlyingNttManager);
+        (, nttDeliveryPrice) = nttManager.quoteDeliveryPrice(
+            destinationChain,
+            "" // Empty transceiver instructions for basic transfer
+        );
+
+        // Get executor cost from the signed quote (value field)
+        executorCost = params.executorArgs.value;
+
+        // Calculate total cost
+        totalCost = nttDeliveryPrice + executorCost;
+    }
+
     /// @notice Checks if the current user has executor parameters set
     /// @return isSet True if parameters are set and ready for finalizeDeposit
     /// @return nonce The nonce of the latest parameters (if set)
@@ -969,7 +1030,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
 
     /// @notice Gets the total number of active workflows across all users
     /// @return count Number of active (non-expired) workflows
-    function getTotalActiveWorkflows() external view returns (uint256 count) {
+    function getTotalActiveWorkflows() external pure returns (uint256 count) {
         // Note: This is a gas-intensive operation and should be used sparingly
         // In practice, this would require iterating through all nonces
         // For now, we'll return 0 as this is mainly for informational purposes

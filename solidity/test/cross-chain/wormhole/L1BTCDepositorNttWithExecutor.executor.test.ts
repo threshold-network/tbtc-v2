@@ -9,6 +9,7 @@ import type {
   MockTBTCVault,
   TestERC20,
   MockNttManagerWithExecutor,
+  MockNttManager,
 } from "../../../typechain"
 import {
   REAL_SIGNED_QUOTE,
@@ -52,7 +53,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
   let tbtcVault: MockTBTCVault
   let tbtcToken: TestERC20
   let nttManagerWithExecutor: MockNttManagerWithExecutor
-  let underlyingNttManager: TestERC20 // Simple contract for address
+  let underlyingNttManager: MockNttManager // Mock NTT manager for testing
   let owner: SignerWithAddress
 
   before(async () => {
@@ -79,8 +80,11 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
     )
     nttManagerWithExecutor = await MockNttManagerWithExecutorFactory.deploy()
 
-    // Use a simple ERC20 as underlying NTT manager (just need an address)
-    underlyingNttManager = await TestERC20Factory.deploy()
+    // Deploy mock NTT manager for underlying manager
+    const MockNttManagerFactory = await ethers.getContractFactory(
+      "MockNttManager"
+    )
+    underlyingNttManager = await MockNttManagerFactory.deploy()
 
     // Set up mock NTT manager to support our test chains
     await nttManagerWithExecutor.setSupportedChain(WORMHOLE_CHAIN_SEI, true)
@@ -653,6 +657,358 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
           FEE_ARGS_ZERO
         )
       ).to.be.revertedWith("Chain not supported")
+    })
+  })
+
+  describe("quoteFinalizedDeposit Function", () => {
+    it("should return detailed cost breakdown for supported chain", async () => {
+      const [, , user] = await ethers.getSigners()
+
+      // Set up executor parameters first
+      const executorArgs = {
+        value: ethers.utils.parseEther("0.01"), // 0.01 ETH executor cost
+        refundAddress: user.address,
+        signedQuote: `0x${"a".repeat(64)}`, // Mock signed quote
+        instructions: `0x${"b".repeat(32)}`, // Mock instructions
+      }
+
+      const feeArgs = {
+        dbps: 100, // 0.1% (100/100000)
+        payee: user.address,
+      }
+
+      await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
+
+      // Call the new quote function
+      const [nttDeliveryPrice, executorCost, totalCost] = await depositor
+        .connect(user)
+        .quoteFinalizedDeposit(WORMHOLE_CHAIN_SEI)
+
+      // Verify the breakdown
+      expect(nttDeliveryPrice).to.be.gt(0) // NTT delivery price should be positive
+      expect(executorCost).to.equal(ethers.utils.parseEther("0.01")) // Should match executor value
+      expect(totalCost).to.equal(nttDeliveryPrice.add(executorCost)) // Should be sum of both
+
+      console.log(
+        `NTT delivery: ${ethers.utils.formatEther(nttDeliveryPrice)} ETH`
+      )
+      console.log(
+        `Executor cost: ${ethers.utils.formatEther(executorCost)} ETH`
+      )
+      console.log(`Total required: ${ethers.utils.formatEther(totalCost)} ETH`)
+    })
+
+    it("should return different costs for different chains", async () => {
+      const [, , user] = await ethers.getSigners()
+
+      const executorArgs = {
+        value: ethers.utils.parseEther("0.005"), // 0.005 ETH executor cost
+        refundAddress: user.address,
+        signedQuote: `0x${"c".repeat(64)}`,
+        instructions: `0x${"d".repeat(32)}`,
+      }
+
+      const feeArgs = {
+        dbps: 50, // 0.05% (50/100000)
+        payee: user.address,
+      }
+
+      await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
+
+      // Get quotes for different chains
+      const [seiNttPrice, seiExecutorCost, seiTotal] = await depositor
+        .connect(user)
+        .quoteFinalizedDeposit(WORMHOLE_CHAIN_SEI)
+
+      const [baseNttPrice, baseExecutorCost, baseTotal] = await depositor
+        .connect(user)
+        .quoteFinalizedDeposit(WORMHOLE_CHAIN_BASE)
+
+      // Executor cost should be the same (from stored parameters)
+      expect(seiExecutorCost).to.equal(baseExecutorCost)
+      expect(seiExecutorCost).to.equal(ethers.utils.parseEther("0.005"))
+
+      // NTT prices might be different for different chains
+      expect(seiNttPrice).to.be.gt(0)
+      expect(baseNttPrice).to.be.gt(0)
+
+      // Total costs should be calculated correctly
+      expect(seiTotal).to.equal(seiNttPrice.add(seiExecutorCost))
+      expect(baseTotal).to.equal(baseNttPrice.add(baseExecutorCost))
+
+      console.log(
+        `Sei chain - NTT: ${ethers.utils.formatEther(
+          seiNttPrice
+        )} ETH, Total: ${ethers.utils.formatEther(seiTotal)} ETH`
+      )
+      console.log(
+        `Base chain - NTT: ${ethers.utils.formatEther(
+          baseNttPrice
+        )} ETH, Total: ${ethers.utils.formatEther(baseTotal)} ETH`
+      )
+    })
+
+    it("should revert when executor parameters are not set", async () => {
+      const [, , user] = await ethers.getSigners()
+
+      await expect(
+        depositor.connect(user).quoteFinalizedDeposit(WORMHOLE_CHAIN_SEI)
+      ).to.be.revertedWith("Executor parameters not set")
+    })
+
+    it("should revert for unsupported chain", async () => {
+      const [, , user] = await ethers.getSigners()
+
+      const executorArgs = {
+        value: ethers.utils.parseEther("0.01"),
+        refundAddress: user.address,
+        signedQuote: `0x${"e".repeat(64)}`,
+        instructions: `0x${"f".repeat(32)}`,
+      }
+
+      const feeArgs = {
+        dbps: 0,
+        payee: ethers.constants.AddressZero,
+      }
+
+      await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
+
+      await expect(
+        depositor.connect(user).quoteFinalizedDeposit(999) // Unsupported chain
+      ).to.be.revertedWith("Destination chain not supported")
+    })
+
+    it("should handle zero executor cost", async () => {
+      const [, , user] = await ethers.getSigners()
+
+      const executorArgs = {
+        value: 0, // Zero executor cost
+        refundAddress: user.address,
+        signedQuote: `0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef`,
+        instructions: `0x1234567890abcdef1234567890abcdef`,
+      }
+
+      const feeArgs = {
+        dbps: 0,
+        payee: ethers.constants.AddressZero,
+      }
+
+      await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
+
+      const [nttDeliveryPrice, executorCost, totalCost] = await depositor
+        .connect(user)
+        .quoteFinalizedDeposit(WORMHOLE_CHAIN_SEI)
+
+      expect(executorCost).to.equal(0)
+      expect(totalCost).to.equal(nttDeliveryPrice) // Should equal NTT price when executor cost is 0
+      expect(nttDeliveryPrice).to.be.gt(0) // NTT price should still be positive
+
+      console.log(
+        `Zero executor cost - NTT: ${ethers.utils.formatEther(
+          nttDeliveryPrice
+        )} ETH, Total: ${ethers.utils.formatEther(totalCost)} ETH`
+      )
+    })
+
+    it("should handle high executor cost", async () => {
+      const [, , user] = await ethers.getSigners()
+
+      const highExecutorCost = ethers.utils.parseEther("0.1") // 0.1 ETH executor cost
+
+      const executorArgs = {
+        value: highExecutorCost,
+        refundAddress: user.address,
+        signedQuote: REAL_SIGNED_QUOTE.signedQuote,
+        instructions: REAL_SIGNED_QUOTE.relayInstructions,
+      }
+
+      const feeArgs = {
+        dbps: 1000, // 1% (1000/100000)
+        payee: user.address,
+      }
+
+      await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
+
+      const [nttDeliveryPrice, executorCost, totalCost] = await depositor
+        .connect(user)
+        .quoteFinalizedDeposit(WORMHOLE_CHAIN_SEI)
+
+      expect(executorCost).to.equal(highExecutorCost)
+      expect(totalCost).to.equal(nttDeliveryPrice.add(highExecutorCost))
+      expect(totalCost).to.be.gt(nttDeliveryPrice) // Total should be higher than NTT price
+
+      console.log(
+        `High executor cost - NTT: ${ethers.utils.formatEther(
+          nttDeliveryPrice
+        )} ETH, Executor: ${ethers.utils.formatEther(
+          executorCost
+        )} ETH, Total: ${ethers.utils.formatEther(totalCost)} ETH`
+      )
+    })
+
+    it("should work with different users independently", async () => {
+      const [, , user1, user2] = await ethers.getSigners()
+
+      // User 1 sets parameters
+      const executorArgs1 = {
+        value: ethers.utils.parseEther("0.02"),
+        refundAddress: user1.address,
+        signedQuote: `0x${"1".repeat(64)}`,
+        instructions: `0x${"1".repeat(32)}`,
+      }
+
+      const feeArgs1 = {
+        dbps: 200, // 0.2% (200/100000)
+        payee: user1.address,
+      }
+
+      await depositor
+        .connect(user1)
+        .setExecutorParameters(executorArgs1, feeArgs1)
+
+      // User 2 sets different parameters
+      const executorArgs2 = {
+        value: ethers.utils.parseEther("0.03"),
+        refundAddress: user2.address,
+        signedQuote: `0x${"2".repeat(64)}`,
+        instructions: `0x${"2".repeat(32)}`,
+      }
+
+      const feeArgs2 = {
+        dbps: 300, // 0.3% (300/100000)
+        payee: user2.address,
+      }
+
+      await depositor
+        .connect(user2)
+        .setExecutorParameters(executorArgs2, feeArgs2)
+
+      // Get quotes for both users
+      const [user1Ntt, user1Executor, user1Total] = await depositor
+        .connect(user1)
+        .quoteFinalizedDeposit(WORMHOLE_CHAIN_SEI)
+
+      const [user2Ntt, user2Executor, user2Total] = await depositor
+        .connect(user2)
+        .quoteFinalizedDeposit(WORMHOLE_CHAIN_SEI)
+
+      // NTT prices should be the same (same chain, same underlying manager)
+      expect(user1Ntt).to.equal(user2Ntt)
+
+      // Executor costs should be different (different user parameters)
+      expect(user1Executor).to.equal(ethers.utils.parseEther("0.02"))
+      expect(user2Executor).to.equal(ethers.utils.parseEther("0.03"))
+
+      // Total costs should be different
+      expect(user1Total).to.equal(user1Ntt.add(user1Executor))
+      expect(user2Total).to.equal(user2Ntt.add(user2Executor))
+      expect(user2Total).to.be.gt(user1Total) // User 2 should have higher total cost
+
+      console.log(
+        `User 1 - NTT: ${ethers.utils.formatEther(
+          user1Ntt
+        )} ETH, Executor: ${ethers.utils.formatEther(
+          user1Executor
+        )} ETH, Total: ${ethers.utils.formatEther(user1Total)} ETH`
+      )
+      console.log(
+        `User 2 - NTT: ${ethers.utils.formatEther(
+          user2Ntt
+        )} ETH, Executor: ${ethers.utils.formatEther(
+          user2Executor
+        )} ETH, Total: ${ethers.utils.formatEther(user2Total)} ETH`
+      )
+    })
+
+    it("should simulate frontend validation logic", async () => {
+      const [, , user] = await ethers.getSigners()
+
+      const executorArgs = {
+        value: ethers.utils.parseEther("0.05"), // 0.05 ETH executor cost
+        refundAddress: user.address,
+        signedQuote: `0x3456789012cdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef`,
+        instructions: `0x3456789012cdef1234567890abcdef`,
+      }
+
+      const feeArgs = {
+        dbps: 500, // 0.5% (500/100000)
+        payee: user.address,
+      }
+
+      await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
+
+      // Simulate frontend getting cost breakdown
+      const [nttDeliveryPrice, executorCost, totalCost] = await depositor
+        .connect(user)
+        .quoteFinalizedDeposit(WORMHOLE_CHAIN_SEI)
+
+      // Simulate frontend validation
+      const userEthBalance = ethers.utils.parseEther("0.1") // User has 0.1 ETH
+
+      console.log(`Frontend validation:`)
+      console.log(
+        `NTT delivery: ${ethers.utils.formatEther(nttDeliveryPrice)} ETH`
+      )
+      console.log(
+        `Executor cost: ${ethers.utils.formatEther(executorCost)} ETH`
+      )
+      console.log(`Total required: ${ethers.utils.formatEther(totalCost)} ETH`)
+      console.log(
+        `User balance: ${ethers.utils.formatEther(userEthBalance)} ETH`
+      )
+
+      // Frontend validation logic
+      if (userEthBalance.lt(totalCost)) {
+        throw new Error(
+          `Insufficient ETH. Need ${ethers.utils.formatEther(totalCost)} ETH`
+        )
+      }
+
+      // This should not throw since user has enough ETH
+      expect(userEthBalance).to.be.gte(totalCost)
+      console.log(`✅ User has sufficient ETH for the transfer`)
+    })
+
+    it("should simulate frontend validation failure", async () => {
+      const [, , user] = await ethers.getSigners()
+
+      const executorArgs = {
+        value: ethers.utils.parseEther("0.2"), // High executor cost
+        refundAddress: user.address,
+        signedQuote: REAL_SIGNED_QUOTE.signedQuote,
+        instructions: REAL_SIGNED_QUOTE.relayInstructions,
+      }
+
+      const feeArgs = {
+        dbps: 1000, // 1% (1000/100000)
+        payee: user.address,
+      }
+
+      await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
+
+      // Get cost breakdown
+      const [nttDeliveryPrice, executorCost, totalCost] = await depositor
+        .connect(user)
+        .quoteFinalizedDeposit(WORMHOLE_CHAIN_SEI)
+
+      // Simulate user with insufficient balance
+      const userEthBalance = ethers.utils.parseEther("0.1") // User only has 0.1 ETH
+
+      console.log(`Frontend validation (insufficient balance):`)
+      console.log(
+        `NTT delivery: ${ethers.utils.formatEther(nttDeliveryPrice)} ETH`
+      )
+      console.log(
+        `Executor cost: ${ethers.utils.formatEther(executorCost)} ETH`
+      )
+      console.log(`Total required: ${ethers.utils.formatEther(totalCost)} ETH`)
+      console.log(
+        `User balance: ${ethers.utils.formatEther(userEthBalance)} ETH`
+      )
+
+      // This should fail validation
+      expect(userEthBalance).to.be.lt(totalCost)
+      console.log(`❌ User has insufficient ETH for the transfer`)
     })
   })
 })
