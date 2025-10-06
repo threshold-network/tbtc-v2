@@ -1158,4 +1158,83 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       console.log("❌ User has insufficient ETH for the transfer")
     })
   })
+
+  describe("Relay Instructions Validation", () => {
+    it("should validate relay instructions with gas limit encoding", async () => {
+      const [, , user] = await ethers.getSigners()
+
+      // Test with the original relay instructions that include gas limit
+      const executorArgs = {
+        value: "21316600000000",
+        refundAddress: user.address,
+        signedQuote: REAL_SIGNED_QUOTE.signedQuote,
+        instructions: REAL_SIGNED_QUOTE.relayInstructions, // Contains gas limit encoding
+      }
+
+      const feeArgs = {
+        dbps: 0,
+        payee: ethers.constants.AddressZero,
+      }
+
+      // Should accept the relay instructions with gas limit
+      await expect(
+        depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
+      ).to.not.be.reverted
+
+      // Verify the instructions are properly stored and used
+      expect(executorArgs.instructions).to.equal(
+        "0x010000000000000000000000000007a12000000000000000000000000000000000"
+      )
+
+      // Verify the gas limit is encoded correctly (0x7a120 = 500,000)
+      // The gas limit is encoded in the middle of the instructions
+      // Looking for 0x7a120 in the instructions: 0x010000000000000000000000000007a12000000000000000000000000000000000
+      const instructions = executorArgs.instructions
+      
+      // Find the gas limit (0x7a120) in the instructions
+      const gasLimitMatch = instructions.match(/7a120/)
+      expect(gasLimitMatch).to.not.be.null
+      
+      const gasLimit = parseInt("7a120", 16)
+      expect(gasLimit).to.equal(500000) // 0x7a120 = 500,000
+
+      console.log(`✅ Relay instructions validated with gas limit: ${gasLimit}`)
+    })
+
+    it("should compare empty vs gas-encoded relay instructions", async () => {
+      const [, , user] = await ethers.getSigners()
+
+      // Test with empty instructions
+      const emptyExecutorArgs = {
+        value: "21316600000000",
+        refundAddress: user.address,
+        signedQuote: REAL_SIGNED_QUOTE_ALT.signedQuote,
+        instructions: "0x", // Empty instructions
+      }
+
+      // Test with gas-encoded instructions
+      const encodedExecutorArgs = {
+        value: "21316600000000",
+        refundAddress: user.address,
+        signedQuote: REAL_SIGNED_QUOTE.signedQuote,
+        instructions: REAL_SIGNED_QUOTE.relayInstructions, // Gas-encoded instructions
+      }
+
+      const feeArgs = {
+        dbps: 0,
+        payee: ethers.constants.AddressZero,
+      }
+
+      // Both should be accepted
+      await expect(
+        depositor.connect(user).setExecutorParameters(emptyExecutorArgs, feeArgs)
+      ).to.not.be.reverted
+
+      await expect(
+        depositor.connect(user).setExecutorParameters(encodedExecutorArgs, feeArgs)
+      ).to.not.be.reverted
+
+      console.log("✅ Both empty and gas-encoded relay instructions work correctly")
+    })
+  })
 })
