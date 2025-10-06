@@ -381,7 +381,7 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
         // If chain ID is 0 or not supported, fall back to default chain
         // This maintains backward compatibility with existing deposits
         if (chainId == 0 || !supportedChains[chainId]) {
-            chainId = _getDefaultSupportedChain(); // TODO: check if this is correct.
+            chainId = _getDefaultSupportedChain(); // Fallback for backward compatibility
             require(chainId != 0, "No supported chains configured");
         }
 
