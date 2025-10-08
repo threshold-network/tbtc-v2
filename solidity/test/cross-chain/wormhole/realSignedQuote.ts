@@ -4,7 +4,7 @@
  *
  * This quote contains real signed data from the Wormhole Executor service
  * for testing the setExecutorParameters() function in L1BTCDepositorNttWithExecutor
- * 
+ *
  * REGENERATED: 2025-10-06T18:32:48.132Z
  */
 
@@ -28,7 +28,8 @@ export const REAL_SIGNED_QUOTE = {
   estimatedCost: "21316600000000", // ~0.00002132 ETH
 
   // Relay instructions with gas limit
-  relayInstructions: "0x010000000000000000000000000007a12000000000000000000000000000000000",
+  relayInstructions:
+    "0x010000000000000000000000000007a12000000000000000000000000000000000",
 
   // Quote metadata
   quoteLength: 332, // characters including 0x prefix
@@ -104,7 +105,8 @@ export const EXECUTOR_ARGS_REAL_QUOTE = {
   refundAddress: "0xB6A114C2c34eF91eeb0d93bcdDD7B95a9D6892E1", // User address
   signedQuote:
     "0x45513031a54008017941ece968623a0dd8ee907e2b1335960000000000000000000000006a8bfc410a3cc7306d52872f116afb12f1cec6c6000200280000000068e4195f00000000000340ae00000000789ce33d00002aaa7540fc0000000000b51cbf0022cb85d8fab0662d61d54754279bd59721187d73c3bd6bbb364ae987c53258e90d80f630dbd2d6d81ae10ca83a0a57422851986b76ab0bd5a19abedacf98d7cb1c",
-  instructions: "0x010000000000000000000000000007a12000000000000000000000000000000000",
+  instructions:
+    "0x010000000000000000000000000007a12000000000000000000000000000000000",
 }
 
 /**

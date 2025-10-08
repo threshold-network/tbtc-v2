@@ -1189,13 +1189,13 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       // Verify the gas limit is encoded correctly (0x7a120 = 500,000)
       // The gas limit is encoded in the middle of the instructions
       // Looking for 0x7a120 in the instructions: 0x010000000000000000000000000007a12000000000000000000000000000000000
-      const instructions = executorArgs.instructions
-      
+      const { instructions } = executorArgs
+
       // Find the gas limit (0x7a120) in the instructions
       const gasLimitMatch = instructions.match(/7a120/)
       expect(gasLimitMatch).to.not.be.null
-      
-      const gasLimit = parseInt("7a120", 16)
+
+      const gasLimit = 0x7a120
       expect(gasLimit).to.equal(500000) // 0x7a120 = 500,000
 
       console.log(`✅ Relay instructions validated with gas limit: ${gasLimit}`)
@@ -1227,14 +1227,20 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
       // Both should be accepted
       await expect(
-        depositor.connect(user).setExecutorParameters(emptyExecutorArgs, feeArgs)
+        depositor
+          .connect(user)
+          .setExecutorParameters(emptyExecutorArgs, feeArgs)
       ).to.not.be.reverted
 
       await expect(
-        depositor.connect(user).setExecutorParameters(encodedExecutorArgs, feeArgs)
+        depositor
+          .connect(user)
+          .setExecutorParameters(encodedExecutorArgs, feeArgs)
       ).to.not.be.reverted
 
-      console.log("✅ Both empty and gas-encoded relay instructions work correctly")
+      console.log(
+        "✅ Both empty and gas-encoded relay instructions work correctly"
+      )
     })
   })
 })

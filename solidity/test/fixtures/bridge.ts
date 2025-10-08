@@ -20,7 +20,27 @@ import type {
 /**
  * Common fixture for tests suites targeting the Bridge contract.
  */
-export default async function bridgeFixture() {
+export default async function bridgeFixture(): Promise<{
+  deployer: any
+  governance: any
+  spvMaintainer: any
+  thirdParty: any
+  treasury: any
+  redemptionWatchtowerManager: any
+  guardians: any[]
+  tbtc: any
+  vendingMachine: any
+  tbtcVault: any
+  bank: any
+  relay: any
+  walletRegistry: any
+  bridge: any
+  reimbursementPool: any
+  maintainerProxy: any
+  bridgeGovernance: any
+  redemptionWatchtower: any
+  deployBridge: any
+}> {
   await deployments.fixture()
 
   const {
