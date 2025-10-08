@@ -332,7 +332,6 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
             destinationChain,
             "" // Empty transceiver instructions for basic transfer
         );
-        // TODO: check if this GREATER or STRICTLY EQUAL TO requiredFee.
         require(
             msg.value >= requiredFee,
             "Payment for Wormhole NTT is too low"
