@@ -358,9 +358,9 @@ abstract contract AbstractL1BTCDepositor is
     ///      - `initializeDeposit` was called for the given deposit before,
     ///      - ERC20 L1 tBTC was minted by tBTC Bridge to this contract,
     ///      - The function was not called for the given deposit before,
-    ///      - The call must carry a payment for the briding system that 
-    ///        is responsible for executing the deposit finalization on the 
-    ///        corresponding destination chain. The payment must be greater than or 
+    ///      - The call must carry a payment for the briding system that
+    ///        is responsible for executing the deposit finalization on the
+    ///        corresponding destination chain. The payment must be greater than or
     ///        equal to the value returned by the `quoteFinalizeDeposit` function.
     function finalizeDeposit(uint256 depositKey) external payable {
         uint256 gasStart = gasleft();

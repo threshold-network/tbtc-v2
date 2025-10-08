@@ -1,6 +1,7 @@
 import { deployments, ethers, helpers } from "hardhat"
 import { randomBytes } from "crypto"
-import { smock } from "@defi-wonderland/smock"
+import { smock, FakeContract } from "@defi-wonderland/smock"
+import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import type {
   Bank,
   BankStub,
@@ -21,25 +22,25 @@ import type {
  * Common fixture for tests suites targeting the Bridge contract.
  */
 export default async function bridgeFixture(): Promise<{
-  deployer: any
-  governance: any
-  spvMaintainer: any
-  thirdParty: any
-  treasury: any
-  redemptionWatchtowerManager: any
-  guardians: any[]
-  tbtc: any
-  vendingMachine: any
-  tbtcVault: any
-  bank: any
-  relay: any
-  walletRegistry: any
-  bridge: any
-  reimbursementPool: any
-  maintainerProxy: any
-  bridgeGovernance: any
-  redemptionWatchtower: any
-  deployBridge: any
+  deployer: SignerWithAddress
+  governance: SignerWithAddress
+  spvMaintainer: SignerWithAddress
+  thirdParty: SignerWithAddress
+  treasury: SignerWithAddress
+  redemptionWatchtowerManager: SignerWithAddress
+  guardians: SignerWithAddress[]
+  tbtc: TBTC
+  vendingMachine: VendingMachine
+  tbtcVault: TBTCVault
+  bank: Bank & BankStub
+  relay: FakeContract<IRelay>
+  walletRegistry: FakeContract<IWalletRegistry>
+  bridge: Bridge & BridgeStub
+  reimbursementPool: ReimbursementPool
+  maintainerProxy: MaintainerProxy
+  bridgeGovernance: BridgeGovernance
+  redemptionWatchtower: RedemptionWatchtower
+  deployBridge: (txProofDifficultyFactor: number) => Promise<any>
 }> {
   await deployments.fixture()
 
