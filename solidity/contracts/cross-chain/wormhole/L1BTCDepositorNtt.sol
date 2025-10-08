@@ -368,7 +368,7 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
     /// @return chainId The destination chain ID
     /// @dev Enhanced implementation that extracts chain ID from first 2 bytes of receiver address.
     ///      Format: [2 bytes: Chain ID][30 bytes: Recipient Address]
-    ///      Falls back to default supported chain if chain ID is 0 or invalid for backward compatibility
+    ///      Reverts if chain ID is 0 or not supported - no fallback behavior
     function _getDestinationChainFromReceiver(bytes32 destinationChainReceiver)
         internal
         view
@@ -377,11 +377,13 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
         // Extract chain ID from first 2 bytes of receiver
         chainId = uint16(bytes2(destinationChainReceiver));
 
-        // If chain ID is 0 or not supported, fall back to default chain
-        // This maintains backward compatibility with existing deposits
-        if (chainId == 0 || !supportedChains[chainId]) {
-            chainId = _getDefaultSupportedChain(); // Fallback for backward compatibility
-            require(chainId != 0, "No supported chains configured");
+        // CRITICAL: No fallback to default chain - user must specify valid chain
+        if (chainId == 0) {
+            revert("Chain ID cannot be zero");
+        }
+
+        if (!supportedChains[chainId]) {
+            revert("Destination chain not supported");
         }
 
         return chainId;
