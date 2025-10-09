@@ -12,8 +12,9 @@ import { BigNumber, Contract } from "ethers"
 import ArbitrumSepoliaL2BitcoinRedeemerDeployment from "./artifacts/arbitrumSepolia/ArbitrumL2BitcoinRedeemer.json"
 import ArbitrumSepoliaWormholeCoreDeployment from "./artifacts/arbitrumSepolia/WormholeCore.json"
 import { WORMHOLE_CHAIN_IDS } from "../utils/wormhole"
-// TODO: Uncomment when Arbitrum L2BitcoinRedeemer is deployed
-// import ArbitrumWormholeCoreDeployment from "./artifacts/arbitrum/WormholeCore.json"
+
+import ArbitrumWormholeCoreDeployment from "./artifacts/arbitrumOne/WormholeCore.json"
+import ArbitrumL2BitcoinRedeemerDeployment from "./artifacts/arbitrumOne/ArbitrumL2BitcoinRedeemer.json"
 
 /**
  * Implementation of the Arbitrum L2BitcoinRedeemer handle.
@@ -35,14 +36,13 @@ export class ArbitrumL2BitcoinRedeemer
       case Chains.Arbitrum.ArbitrumSepolia:
         deployment = ArbitrumSepoliaL2BitcoinRedeemerDeployment
         wormholeCoreDeployment = ArbitrumSepoliaWormholeCoreDeployment
-        recipientChain = WORMHOLE_CHAIN_IDS[Chains.Ethereum.Sepolia] // Ethereum Sepolia
+        recipientChain = WORMHOLE_CHAIN_IDS[Chains.Ethereum.Sepolia]
         break
-      // TODO: Uncomment when Arbitrum L2BitcoinRedeemer is deployed
-      // case Chains.Arbitrum.Arbitrum:
-      //   deployment = ArbitrumL2BitcoinRedeemerDeployment
-      //   wormholeCoreDeployment = ArbitrumWormholeCoreDeployment
-      //   recipientChain = 2 // Ethereum mainnet
-      //   break
+      case Chains.Arbitrum.Arbitrum:
+        deployment = ArbitrumL2BitcoinRedeemerDeployment
+        wormholeCoreDeployment = ArbitrumWormholeCoreDeployment
+        recipientChain = WORMHOLE_CHAIN_IDS[Chains.Ethereum.Mainnet]
+        break
       default:
         throw new Error("Unsupported deployment type")
     }
