@@ -55,7 +55,7 @@ const config: HardhatUserConfig = {
     governance: {
       default: 1,
       seiTestnet: 0,
-      seiMainnet: "0x0000000000000000000000000000000000000000", // TBD
+      seiMainnet: "0xd101f2B25bCBF992BdF55dB67c104FE7646F5447", // TokenholderGovernor
     },
   },
 
