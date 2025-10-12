@@ -28,16 +28,15 @@ import "../cross-chain/utils/Crosschain.sol";
 contract NativeBTCDepositor is AbstractL1BTCDepositor {
     using SafeERC20Upgradeable for IERC20Upgradeable;
 
-
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
     }
 
-    function initialize(
-        address _tbtcBridge,
-        address _tbtcVault
-    ) external initializer {
+    function initialize(address _tbtcBridge, address _tbtcVault)
+        external
+        initializer
+    {
         __AbstractL1BTCDepositor_initialize(_tbtcBridge, _tbtcVault);
         __Ownable_init();
     }
