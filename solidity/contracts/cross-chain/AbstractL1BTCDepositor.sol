@@ -360,8 +360,8 @@ abstract contract AbstractL1BTCDepositor is
     ///      - The function was not called for the given deposit before,
     ///      - The call must carry a payment for the briding system that
     ///        is responsible for executing the deposit finalization on the
-    ///        corresponding destination chain. The payment must be equal to the
-    ///        value returned by the `quoteFinalizeDeposit` function.
+    ///        corresponding destination chain. The payment must be greater than or
+    ///        equal to the value returned by the `quoteFinalizeDeposit` function.
     function finalizeDeposit(uint256 depositKey) external payable {
         uint256 gasStart = gasleft();
 
