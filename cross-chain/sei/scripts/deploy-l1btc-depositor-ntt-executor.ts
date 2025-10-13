@@ -8,7 +8,7 @@ import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import { secureKeyManager } from "./secure-key-manager"
 
 // 🎲 DEPLOYMENT SALT - Fixed salt for consistent CREATE2 deployments
-const DEPLOYMENT_SALT = "v1.0.0-l1btc-depositor-ntt-executor"
+const DEPLOYMENT_SALT = "v1.0.0-l1btc-ntt-exec"
 
 export interface L1BTCDepositorNetworkConfig {
   networkName: string
@@ -226,12 +226,11 @@ async function main() {
     process.exit(1)
   }
 
-  // Mock HRE for direct usage
-  const hre = {
-    ethers,
-    upgrades: require("@openzeppelin/hardhat-upgrades"),
-    network: { name: network },
-  } as any
+  // Use hardhat-deploy system instead of direct script
+  console.log("⚠️  Direct script execution not fully supported.")
+  console.log("Please use the hardhat-deploy system instead:")
+  console.log(`   npx hardhat deploy --network ${network} --tags MainnetL1BTCDepositorNttExecutor`)
+  process.exit(1)
 
   const result = await deployL1BTCDepositorNttWithExecutor(
     hre,

@@ -176,7 +176,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     mapping(address => uint256) private userNonceCounter;
 
     /// @notice Parameter expiration time in seconds (default: 1 hour)
-    uint256 public parameterExpirationTime = 3600;
+    uint256 public parameterExpirationTime;
 
     /// @notice Emitted when executor parameters are set
     /// @param sender Address that set the parameters
@@ -299,6 +299,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         defaultDestinationGasLimit = DEFAULT_DESTINATION_GAS_LIMIT;
         defaultExecutorFeeBps = 0; // 0% executor fee by default
         defaultExecutorFeeRecipient = address(0); // No fee recipient by default
+        parameterExpirationTime = 3600; // 1 hour default expiration time
     }
 
     /// @notice Sets the default supported chain for backward compatibility

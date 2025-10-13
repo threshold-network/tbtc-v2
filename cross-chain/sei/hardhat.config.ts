@@ -36,7 +36,10 @@ const config: HardhatUserConfig = {
   },
 
   paths: {
-    artifacts: "./build",
+    artifacts: "../../solidity/build",
+    sources: "./contracts",
+    cache: "./cache",
+    tests: "./test",
   },
 
   // Compile external dependencies so their artifacts are available
@@ -44,6 +47,15 @@ const config: HardhatUserConfig = {
     paths: [
       "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol",
       "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol",
+    ],
+  },
+
+  // External configuration to use artifacts from solidity directory
+  external: {
+    contracts: [
+      {
+        artifacts: "../../solidity/build",
+      },
     ],
   },
 
@@ -98,6 +110,15 @@ const config: HardhatUserConfig = {
         process.env.SEPOLIA_RPC_URL ||
         "https://ethereum-sepolia.publicnode.com",
       chainId: 11155111,
+      accounts: process.env.ACCOUNTS_PRIVATE_KEYS
+        ? process.env.ACCOUNTS_PRIVATE_KEYS.split(",")
+        : [],
+      tags: ["etherscan"],
+      gasPrice: 20000000000, // 20 gwei
+    },
+    mainnet: {
+      url: process.env.MAINNET_RPC_URL || "https://ethereum.publicnode.com",
+      chainId: 1,
       accounts: process.env.ACCOUNTS_PRIVATE_KEYS
         ? process.env.ACCOUNTS_PRIVATE_KEYS.split(",")
         : [],
