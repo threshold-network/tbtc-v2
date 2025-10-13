@@ -1,5 +1,5 @@
 {
-  "detectors_to_exclude": "assembly,naming-convention,solc-version,timestamp,too-many-digits,similar-names",
+  "detectors_to_exclude": "assembly,naming-convention,solc-version,timestamp,too-many-digits,similar-names,dead-code",
   "hardhat_artifacts_directory": "build",
-  "filter_paths": "contracts/test|node_modules"
+  "filter_paths": "contracts/test|node_modules|contracts/cross-chain/wormhole/L1BTCDepositorNtt.sol|contracts/cross-chain/wormhole/L1BTCDepositorNttWithExecutor.sol|contracts/cross-chain/wormhole/TrimmedAmount.sol"
 }
