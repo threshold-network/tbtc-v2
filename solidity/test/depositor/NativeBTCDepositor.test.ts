@@ -11,11 +11,11 @@ import {
   ReimbursementPool,
   TestERC20,
 } from "../../typechain"
+import { to1ePrecision } from "../helpers/contract-test-helpers"
 import type {
   BitcoinTxInfoStruct,
   DepositRevealInfoStruct,
-} from "../../typechain/Bridge"
-import { to1ePrecision } from "../helpers/contract-test-helpers"
+} from "../../typechain/IBridge"
 
 chai.use(smock.matchers)
 
@@ -962,7 +962,9 @@ describe("NativeBTCDepositor", () => {
 
             it("should transfer tBTC to the ethereum receiver", async () => {
               const receiverAddress = ethers.utils.getAddress(
-                `0x${initializeDepositFixture.ethereumReceiverBytes32.slice(-40)}`
+                `0x${initializeDepositFixture.ethereumReceiverBytes32.slice(
+                  -40
+                )}`
               )
               expect(await tbtcToken.balanceOf(receiverAddress)).to.equal(
                 expectedTbtcAmount
@@ -1099,7 +1101,9 @@ describe("NativeBTCDepositor", () => {
 
               it("should transfer tBTC to the ethereum receiver", async () => {
                 const receiverAddress = ethers.utils.getAddress(
-                  `0x${initializeDepositFixture.ethereumReceiverBytes32.slice(-40)}`
+                  `0x${initializeDepositFixture.ethereumReceiverBytes32.slice(
+                    -40
+                  )}`
                 )
                 expect(await tbtcToken.balanceOf(receiverAddress)).to.equal(
                   expectedTbtcAmount
@@ -1262,7 +1266,9 @@ describe("NativeBTCDepositor", () => {
 
               it("should transfer tBTC to the ethereum receiver", async () => {
                 const receiverAddress = ethers.utils.getAddress(
-                  `0x${initializeDepositFixture.ethereumReceiverBytes32.slice(-40)}`
+                  `0x${initializeDepositFixture.ethereumReceiverBytes32.slice(
+                    -40
+                  )}`
                 )
                 expect(await tbtcToken.balanceOf(receiverAddress)).to.equal(
                   expectedTbtcAmount
