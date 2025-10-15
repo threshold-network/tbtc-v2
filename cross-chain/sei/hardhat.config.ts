@@ -19,7 +19,7 @@ const config: HardhatUserConfig = {
         settings: {
           optimizer: {
             enabled: true,
-            runs: 1000,
+            runs: 200, // Reduced from 1000 to prioritize bytecode size over gas efficiency
           },
         },
       },
@@ -28,11 +28,23 @@ const config: HardhatUserConfig = {
         settings: {
           optimizer: {
             enabled: true,
-            runs: 1000,
+            runs: 200, // Reduced from 1000 to prioritize bytecode size over gas efficiency
           },
         },
       },
     ],
+    overrides: {
+      // Optimize L1BTCDepositorNttWithExecutor for minimal bytecode size
+      "contracts/cross-chain/wormhole/L1BTCDepositorNttWithExecutor.sol": {
+        version: "0.8.17",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 1, // Minimal runs to minimize bytecode size
+          },
+        },
+      },
+    },
   },
 
   paths: {
@@ -139,6 +151,7 @@ const config: HardhatUserConfig = {
     apiKey: {
       seiTestnet: "dummy",
       seiMainnet: "dummy",
+      mainnet: process.env.ETHERSCAN_API_KEY,
     },
     customChains: [
       {
@@ -157,6 +170,14 @@ const config: HardhatUserConfig = {
           browserURL: "https://seitrace.com/pacific-1",
         },
       },
+      {
+        network: "mainnet",
+        chainId: 1,
+        urls: {
+          apiURL: "https://api.etherscan.io/v2/api?chainid=1",
+          browserURL: "https://etherscan.io"
+        }
+      }
     ],
   },
 }
