@@ -317,10 +317,10 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @notice Adds or removes support for a destination chain
     /// @param _chainId Wormhole chain ID of the destination chain
     /// @param _supported Whether to support transfers to this chain
-    function setSupportedChain(uint16 _chainId, bool _supported)
-        external
-        onlyOwner
-    {
+    function setSupportedChain(
+        uint16 _chainId,
+        bool _supported
+    ) external onlyOwner {
         require(_chainId != 0, "Chain ID cannot be zero");
         supportedChains[_chainId] = _supported;
         emit SupportedChainUpdated(_chainId, _supported);
@@ -363,10 +363,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
 
     /// @notice Updates the default destination gas limit
     /// @param _newGasLimit New default gas limit for destination chain execution
-    function setDefaultDestinationGasLimit(uint256 _newGasLimit)
-        external
-        onlyOwner
-    {
+    function setDefaultDestinationGasLimit(
+        uint256 _newGasLimit
+    ) external onlyOwner {
         require(_newGasLimit > 0, "Gas limit must be greater than zero");
         uint256 oldGasLimit = defaultDestinationGasLimit;
         defaultDestinationGasLimit = _newGasLimit;
@@ -384,10 +383,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
 
     /// @notice Sets the default platform fee recipient address
     /// @param _newRecipient New platform fee recipient address
-    function setDefaultPlatformFeeRecipient(address _newRecipient)
-        external
-        onlyOwner
-    {
+    function setDefaultPlatformFeeRecipient(
+        address _newRecipient
+    ) external onlyOwner {
         require(
             _newRecipient != address(0) || defaultPlatformFeeBps == 0,
             "Recipient address cannot be zero when platform fee is set"
@@ -399,10 +397,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
 
     /// @notice Updates the underlying NTT Manager address
     /// @param _newNttManager New underlying NTT Manager address
-    function updateUnderlyingNttManager(address _newNttManager)
-        external
-        onlyOwner
-    {
+    function updateUnderlyingNttManager(
+        address _newNttManager
+    ) external onlyOwner {
         require(
             _newNttManager != address(0),
             "NTT Manager address cannot be zero"
@@ -414,10 +411,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
 
     /// @notice Updates the NTT Manager With Executor address
     /// @param _newNttManagerWithExecutor New NTT Manager With Executor address
-    function updateNttManagerWithExecutor(address _newNttManagerWithExecutor)
-        external
-        onlyOwner
-    {
+    function updateNttManagerWithExecutor(
+        address _newNttManagerWithExecutor
+    ) external onlyOwner {
         require(
             _newNttManagerWithExecutor != address(0),
             "Address cannot be zero"
@@ -592,11 +588,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @notice Quotes cost for specific destination chain using latest parameters
     /// @param destinationChain Target chain ID
     /// @return cost Total cost for the transfer
-    function quoteFinalizeDeposit(uint16 destinationChain)
-        external
-        view
-        returns (uint256 cost)
-    {
+    function quoteFinalizeDeposit(
+        uint16 destinationChain
+    ) external view returns (uint256 cost) {
         require(
             userNonceCounter[msg.sender] > 0,
             "Executor parameters not set"
@@ -631,7 +625,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @return totalCost The total cost (NTT + executor)
     /// @dev This function calls the underlying NTT manager's quoteDeliveryPrice and returns
     ///      the breakdown of costs. The caller should validate that their msg.value >= totalCost
-    function quoteFinalizedDeposit(uint16 destinationChain)
+    function quoteFinalizedDeposit(
+        uint16 destinationChain
+    )
         external
         view
         returns (
@@ -705,15 +701,14 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         return params.exists ? params.executorArgs.value : 0;
     }
 
-
     /// @notice Transfers tBTC using NTT Manager With Executor for automatic destination execution
     /// @dev Uses the latest executor parameters for msg.sender (auto-nonce approach)
     /// @param amount Amount of tBTC to transfer
     /// @param destinationChainReceiver Encoded receiver data with chain ID and recipient
-    function _transferTbtc(uint256 amount, bytes32 destinationChainReceiver)
-        internal
-        override
-    {
+    function _transferTbtc(
+        uint256 amount,
+        bytes32 destinationChainReceiver
+    ) internal override {
         require(
             userNonceCounter[msg.sender] > 0,
             "Executor parameters not set"
@@ -824,11 +819,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @notice Extract destination chain from encoded receiver address
     /// @param destinationChainReceiver Encoded receiver with chain ID in first 2 bytes
     /// @return chainId The destination chain ID
-    function _getDestinationChainFromReceiver(bytes32 destinationChainReceiver)
-        internal
-        view
-        returns (uint16 chainId)
-    {
+    function _getDestinationChainFromReceiver(
+        bytes32 destinationChainReceiver
+    ) internal view returns (uint16 chainId) {
         chainId = uint16(bytes2(destinationChainReceiver));
 
         // CRITICAL: No fallback to default chain - user must specify valid chain
@@ -856,11 +849,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @notice Extract recipient address from encoded receiver data
     /// @param destinationChainReceiver Encoded receiver data
     /// @return recipient The recipient address (last 30 bytes, padded to 32 bytes)
-    function _getRecipientAddressFromReceiver(bytes32 destinationChainReceiver)
-        internal
-        pure
-        returns (bytes32 recipient)
-    {
+    function _getRecipientAddressFromReceiver(
+        bytes32 destinationChainReceiver
+    ) internal pure returns (bytes32 recipient) {
         return
             bytes32(
                 uint256(destinationChainReceiver) &
@@ -871,10 +862,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @notice Validates the format of a signed quote from Wormhole Executor API
     /// @param signedQuote The signed quote bytes to validate
     /// @dev Keep validation minimal - NttManagerWithExecutor handles detailed validation
-    function _validateSignedQuoteFormat(bytes memory signedQuote)
-        internal
-        pure
-    {
+    function _validateSignedQuoteFormat(
+        bytes memory signedQuote
+    ) internal pure {
         require(signedQuote.length > 0, "Signed quote cannot be empty");
         require(signedQuote.length >= 32, "Signed quote too short");
     }
@@ -884,14 +874,12 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @return hasActiveWorkflow True if user has parameters set and ready for transfer
     /// @return nonce The nonce of the active workflow (if any)
     /// @return timestamp When the parameters were set
-    function getUserWorkflowStatus(address user)
+    function getUserWorkflowStatus(
+        address user
+    )
         external
         view
-        returns (
-            bool hasActiveWorkflow,
-            bytes32 nonce,
-            uint256 timestamp
-        )
+        returns (bool hasActiveWorkflow, bytes32 nonce, uint256 timestamp)
     {
         if (userNonceCounter[user] == 0) {
             return (false, bytes32(0), 0);
@@ -916,21 +904,18 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @param user The user address
     /// @param sequence The sequence number for this user
     /// @return nonce A unique nonce hash
-    function _generateNonce(address user, uint256 sequence)
-        internal
-        pure
-        returns (bytes32 nonce)
-    {
+    function _generateNonce(
+        address user,
+        uint256 sequence
+    ) internal pure returns (bytes32 nonce) {
         return keccak256(abi.encodePacked(user, sequence));
     }
 
-
     /// @notice Sets the parameter expiration time (owner only)
     /// @param newExpirationTime New expiration time in seconds
-    function setParameterExpirationTime(uint256 newExpirationTime)
-        external
-        onlyOwner
-    {
+    function setParameterExpirationTime(
+        uint256 newExpirationTime
+    ) external onlyOwner {
         require(
             newExpirationTime > 0,
             "Expiration time must be greater than 0"
@@ -941,11 +926,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @notice Checks if a user can start a new workflow (no active workflow exists)
     /// @param user The user address to check
     /// @return canStart True if user can start a new workflow
-    function canUserStartNewWorkflow(address user)
-        external
-        view
-        returns (bool canStart)
-    {
+    function canUserStartNewWorkflow(
+        address user
+    ) external view returns (bool canStart) {
         if (userNonceCounter[user] == 0) {
             return true;
         }
@@ -971,7 +954,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @return nonce The nonce of the active workflow (if any)
     /// @return timestamp When the parameters were set
     /// @return timeRemaining Seconds until expiration (0 if expired or no workflow)
-    function getUserWorkflowInfo(address user)
+    function getUserWorkflowInfo(
+        address user
+    )
         external
         view
         returns (
