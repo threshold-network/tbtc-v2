@@ -157,21 +157,21 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
       await depositor
         .connect(user1)
         .setExecutorParameters(executorArgs, feeArgs)
-      
+
       // getUserNonceSequence was removed to reduce contract size
       // Nonce tracking is still internal, just not exposed via getter
-      
+
       // Clear parameters first, then set again
       await depositor.connect(user1).clearExecutorParameters()
       await depositor
         .connect(user1)
         .setExecutorParameters(executorArgs, feeArgs)
-      
+
       // User 2's sequence should be independent
       await depositor
         .connect(user2)
         .setExecutorParameters(executorArgs, feeArgs)
-      
+
       // Verify parameters were set successfully by checking from each user's context
       const [isSet1] = await depositor.connect(user1).areExecutorParametersSet()
       const [isSet2] = await depositor.connect(user2).areExecutorParametersSet()

@@ -104,7 +104,7 @@ describe("L1BTCDepositorNttWithExecutor - Workflow Observers", () => {
     it("should provide comprehensive workflow information", async () => {
       const user = ethers.Wallet.createRandom().address
 
-      const [hasActiveWorkflow, nonce, timestamp, timeRemaining] = 
+      const [hasActiveWorkflow, nonce, timestamp, timeRemaining] =
         await depositor.getUserWorkflowInfo(user)
       expect(hasActiveWorkflow).to.be.false
       expect(nonce).to.equal(ethers.constants.HashZero)
