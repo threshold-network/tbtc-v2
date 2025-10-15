@@ -556,6 +556,18 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         // If parameters don't exist, that's fine - already cleared
     }
 
+    /// @notice Sets the parameter expiration time (owner only)
+    /// @param newExpirationTime New expiration time in seconds
+    function setParameterExpirationTime(
+        uint256 newExpirationTime
+    ) external onlyOwner {
+        require(
+            newExpirationTime > 0,
+            "Expiration time must be greater than 0"
+        );
+        parameterExpirationTime = newExpirationTime;
+    }
+
     /// @notice Quotes cost using the latest parameters for msg.sender
     /// @return cost Total cost for the transfer
     function quoteFinalizeDeposit() external view returns (uint256 cost) {
@@ -699,6 +711,107 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
 
         ExecutorParameterSet storage params = parametersByNonce[latestNonce];
         return params.exists ? params.executorArgs.value : 0;
+    }
+
+    /// @notice Checks if a user has an active workflow (parameters set but not used)
+    /// @param user The user address to check
+    /// @return hasActiveWorkflow True if user has parameters set and ready for transfer
+    /// @return nonce The nonce of the active workflow (if any)
+    /// @return timestamp When the parameters were set
+    function getUserWorkflowStatus(
+        address user
+    )
+        external
+        view
+        returns (bool hasActiveWorkflow, bytes32 nonce, uint256 timestamp)
+    {
+        if (userNonceCounter[user] == 0) {
+            return (false, bytes32(0), 0);
+        }
+
+        nonce = _generateNonce(user, userNonceCounter[user] - 1);
+        ExecutorParameterSet storage params = parametersByNonce[nonce];
+
+        if (!params.exists) {
+            return (false, bytes32(0), 0);
+        }
+
+        // Check if parameters have expired
+        // solhint-disable-next-line not-rely-on-time
+        bool expired = block.timestamp >
+            params.timestamp + parameterExpirationTime;
+
+        return (!expired, nonce, params.timestamp);
+    }
+
+    /// @notice Checks if a user can start a new workflow (no active workflow exists)
+    /// @param user The user address to check
+    /// @return canStart True if user can start a new workflow
+    function canUserStartNewWorkflow(
+        address user
+    ) external view returns (bool canStart) {
+        if (userNonceCounter[user] == 0) {
+            return true;
+        }
+
+        bytes32 latestNonce = _generateNonce(user, userNonceCounter[user] - 1);
+        ExecutorParameterSet storage params = parametersByNonce[latestNonce];
+
+        if (!params.exists) {
+            return true;
+        }
+
+        // Check if parameters have expired
+        // solhint-disable-next-line not-rely-on-time
+        bool expired = block.timestamp >
+            params.timestamp + parameterExpirationTime;
+
+        return expired;
+    }
+
+    /// @notice Gets comprehensive workflow information for a user (UI helper)
+    /// @param user The user address to check
+    /// @return hasActiveWorkflow True if user has an active workflow
+    /// @return nonce The nonce of the active workflow (if any)
+    /// @return timestamp When the parameters were set
+    /// @return timeRemaining Seconds until expiration (0 if expired or no workflow)
+    function getUserWorkflowInfo(
+        address user
+    )
+        external
+        view
+        returns (
+            bool hasActiveWorkflow,
+            bytes32 nonce,
+            uint256 timestamp,
+            uint256 timeRemaining
+        )
+    {
+        if (userNonceCounter[user] == 0) {
+            return (false, bytes32(0), 0, 0);
+        }
+
+        nonce = _generateNonce(user, userNonceCounter[user] - 1);
+        ExecutorParameterSet storage params = parametersByNonce[nonce];
+
+        if (!params.exists) {
+            return (false, bytes32(0), 0, 0);
+        }
+
+        timestamp = params.timestamp;
+        uint256 expirationTime = timestamp + parameterExpirationTime;
+
+        // Check if parameters have expired
+        // solhint-disable-next-line not-rely-on-time
+        bool expired = block.timestamp > expirationTime;
+
+        if (expired) {
+            return (false, nonce, timestamp, 0);
+        }
+
+        // solhint-disable-next-line not-rely-on-time
+        timeRemaining = expirationTime - block.timestamp;
+        return (true, nonce, timestamp, timeRemaining);
     }
 
     /// @notice Transfers tBTC using NTT Manager With Executor for automatic destination execution
@@ -869,37 +982,6 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         require(signedQuote.length >= 32, "Signed quote too short");
     }
 
-    /// @notice Checks if a user has an active workflow (parameters set but not used)
-    /// @param user The user address to check
-    /// @return hasActiveWorkflow True if user has parameters set and ready for transfer
-    /// @return nonce The nonce of the active workflow (if any)
-    /// @return timestamp When the parameters were set
-    function getUserWorkflowStatus(
-        address user
-    )
-        external
-        view
-        returns (bool hasActiveWorkflow, bytes32 nonce, uint256 timestamp)
-    {
-        if (userNonceCounter[user] == 0) {
-            return (false, bytes32(0), 0);
-        }
-
-        nonce = _generateNonce(user, userNonceCounter[user] - 1);
-        ExecutorParameterSet storage params = parametersByNonce[nonce];
-
-        if (!params.exists) {
-            return (false, bytes32(0), 0);
-        }
-
-        // Check if parameters have expired
-        // solhint-disable-next-line not-rely-on-time
-        bool expired = block.timestamp >
-            params.timestamp + parameterExpirationTime;
-
-        return (!expired, nonce, params.timestamp);
-    }
-
     /// @notice Generates a unique nonce for a user's parameter set
     /// @param user The user address
     /// @param sequence The sequence number for this user
@@ -909,87 +991,5 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         uint256 sequence
     ) internal pure returns (bytes32 nonce) {
         return keccak256(abi.encodePacked(user, sequence));
-    }
-
-    /// @notice Sets the parameter expiration time (owner only)
-    /// @param newExpirationTime New expiration time in seconds
-    function setParameterExpirationTime(
-        uint256 newExpirationTime
-    ) external onlyOwner {
-        require(
-            newExpirationTime > 0,
-            "Expiration time must be greater than 0"
-        );
-        parameterExpirationTime = newExpirationTime;
-    }
-
-    /// @notice Checks if a user can start a new workflow (no active workflow exists)
-    /// @param user The user address to check
-    /// @return canStart True if user can start a new workflow
-    function canUserStartNewWorkflow(
-        address user
-    ) external view returns (bool canStart) {
-        if (userNonceCounter[user] == 0) {
-            return true;
-        }
-
-        bytes32 latestNonce = _generateNonce(user, userNonceCounter[user] - 1);
-        ExecutorParameterSet storage params = parametersByNonce[latestNonce];
-
-        if (!params.exists) {
-            return true;
-        }
-
-        // Check if parameters have expired
-        // solhint-disable-next-line not-rely-on-time
-        bool expired = block.timestamp >
-            params.timestamp + parameterExpirationTime;
-
-        return expired;
-    }
-
-    /// @notice Gets comprehensive workflow information for a user (UI helper)
-    /// @param user The user address to check
-    /// @return hasActiveWorkflow True if user has an active workflow
-    /// @return nonce The nonce of the active workflow (if any)
-    /// @return timestamp When the parameters were set
-    /// @return timeRemaining Seconds until expiration (0 if expired or no workflow)
-    function getUserWorkflowInfo(
-        address user
-    )
-        external
-        view
-        returns (
-            bool hasActiveWorkflow,
-            bytes32 nonce,
-            uint256 timestamp,
-            uint256 timeRemaining
-        )
-    {
-        if (userNonceCounter[user] == 0) {
-            return (false, bytes32(0), 0, 0);
-        }
-
-        nonce = _generateNonce(user, userNonceCounter[user] - 1);
-        ExecutorParameterSet storage params = parametersByNonce[nonce];
-
-        if (!params.exists) {
-            return (false, bytes32(0), 0, 0);
-        }
-
-        timestamp = params.timestamp;
-        uint256 expirationTime = timestamp + parameterExpirationTime;
-
-        // Check if parameters have expired
-        // solhint-disable-next-line not-rely-on-time
-        bool expired = block.timestamp > expirationTime;
-
-        if (expired) {
-            return (false, nonce, timestamp, 0);
-        }
-
-        // solhint-disable-next-line not-rely-on-time
-        timeRemaining = expirationTime - block.timestamp;
-        return (true, nonce, timestamp, timeRemaining);
     }
 }
