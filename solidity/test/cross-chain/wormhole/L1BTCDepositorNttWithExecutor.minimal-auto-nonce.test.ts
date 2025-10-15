@@ -157,23 +157,26 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
       await depositor
         .connect(user1)
         .setExecutorParameters(executorArgs, feeArgs)
-      const sequence1 = await depositor.getUserNonceSequence(user1.address)
-      expect(sequence1).to.equal(1)
-
+      
+      // getUserNonceSequence was removed to reduce contract size
+      // Nonce tracking is still internal, just not exposed via getter
+      
       // Clear parameters first, then set again
       await depositor.connect(user1).clearExecutorParameters()
       await depositor
         .connect(user1)
         .setExecutorParameters(executorArgs, feeArgs)
-      const sequence2 = await depositor.getUserNonceSequence(user1.address)
-      expect(sequence2).to.equal(2)
-
+      
       // User 2's sequence should be independent
       await depositor
         .connect(user2)
         .setExecutorParameters(executorArgs, feeArgs)
-      const user2Sequence = await depositor.getUserNonceSequence(user2.address)
-      expect(user2Sequence).to.equal(1)
+      
+      // Verify parameters were set successfully
+      const [isSet1] = await depositor.getExecutorParameters(user1.address)
+      const [isSet2] = await depositor.getExecutorParameters(user2.address)
+      expect(isSet1).to.be.true
+      expect(isSet2).to.be.true
     })
 
     it("should provide workflow status information", async () => {
