@@ -172,9 +172,9 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
         .connect(user2)
         .setExecutorParameters(executorArgs, feeArgs)
       
-      // Verify parameters were set successfully
-      const [isSet1] = await depositor.getExecutorParameters(user1.address)
-      const [isSet2] = await depositor.getExecutorParameters(user2.address)
+      // Verify parameters were set successfully by checking from each user's context
+      const [isSet1] = await depositor.connect(user1).areExecutorParametersSet()
+      const [isSet2] = await depositor.connect(user2).areExecutorParametersSet()
       expect(isSet1).to.be.true
       expect(isSet2).to.be.true
     })
