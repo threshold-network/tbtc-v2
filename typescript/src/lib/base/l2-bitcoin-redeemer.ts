@@ -12,8 +12,9 @@ import { BigNumber, Contract } from "ethers"
 import BaseSepoliaL2BitcoinRedeemerDeployment from "./artifacts/baseSepolia/BaseL2BitcoinRedeemer.json"
 import BaseSepoliaWormholeCoreDeployment from "./artifacts/baseSepolia/WormholeCore.json"
 import { WORMHOLE_CHAIN_IDS } from "../utils/wormhole"
-// TODO: Uncomment when Base L2BitcoinRedeemer is deployed
-// import BaseWormholeCoreDeployment from "./artifacts/base/WormholeCore.json"
+
+import BaseWormholeCoreDeployment from "./artifacts/base/WormholeCore.json"
+import BaseL2BitcoinRedeemerDeployment from "./artifacts/base/BaseL2BitcoinRedeemer.json"
 
 /**
  * Implementation of the Base L2BitcoinRedeemer handle.
@@ -35,14 +36,13 @@ export class BaseL2BitcoinRedeemer
       case Chains.Base.BaseSepolia:
         deployment = BaseSepoliaL2BitcoinRedeemerDeployment
         wormholeCoreDeployment = BaseSepoliaWormholeCoreDeployment
-        recipientChain = WORMHOLE_CHAIN_IDS[Chains.Ethereum.Sepolia] // Ethereum Sepolia
+        recipientChain = WORMHOLE_CHAIN_IDS[Chains.Ethereum.Sepolia]
         break
-      // TODO: Uncomment when Base L2BitcoinRedeemer is deployed
-      // case Chains.Base.Base:
-      //   deployment = BaseL2BitcoinRedeemerDeployment
-      //   wormholeCoreDeployment = BaseWormholeCoreDeployment
-      //   recipientChain = 2 // Ethereum mainnet
-      //   break
+      case Chains.Base.Base:
+        deployment = BaseL2BitcoinRedeemerDeployment
+        wormholeCoreDeployment = BaseWormholeCoreDeployment
+        recipientChain = WORMHOLE_CHAIN_IDS[Chains.Ethereum.Mainnet]
+        break
       default:
         throw new Error("Unsupported deployment type")
     }

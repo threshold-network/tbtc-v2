@@ -126,7 +126,6 @@ export class TBTC {
     ethereumSignerOrProvider: EthereumSigner | providers.Provider,
     crossChainSupport: boolean = false
   ): Promise<TBTC> {
-    console.log("initializeSepolia")
     return TBTC.initializeEthereum(
       ethereumSignerOrProvider,
       Chains.Ethereum.Sepolia,

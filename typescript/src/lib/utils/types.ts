@@ -16,7 +16,7 @@ export interface RedemptionWallet {
   /**
    * Redeemer output script of the wallet.
    */
-  redeemerOutputScript: Hex
+  redeemerOutputScript?: Hex
 }
 
 export interface ValidRedemptionWallet
