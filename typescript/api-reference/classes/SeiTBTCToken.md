@@ -1,6 +1,6 @@
-# Class: BaseTBTCToken
+# Class: SeiTBTCToken
 
-Implementation of the Base DestinationChainTBTCToken handle.
+Implementation of the Sei DestinationChainTBTCToken handle.
 
 **`See`**
 
@@ -10,7 +10,7 @@ for reference.
 
 - `EthersContractHandle`\<`L2TBTCTypechain`\>
 
-  ↳ **`BaseTBTCToken`**
+  ↳ **`SeiTBTCToken`**
 
 ## Implements
 
@@ -20,37 +20,37 @@ for reference.
 
 ### Constructors
 
-- [constructor](BaseTBTCToken.md#constructor)
+- [constructor](SeiTBTCToken.md#constructor)
 
 ### Properties
 
-- [\_deployedAtBlockNumber](BaseTBTCToken.md#_deployedatblocknumber)
-- [\_instance](BaseTBTCToken.md#_instance)
-- [\_totalRetryAttempts](BaseTBTCToken.md#_totalretryattempts)
+- [\_deployedAtBlockNumber](SeiTBTCToken.md#_deployedatblocknumber)
+- [\_instance](SeiTBTCToken.md#_instance)
+- [\_totalRetryAttempts](SeiTBTCToken.md#_totalretryattempts)
 
 ### Methods
 
-- [balanceOf](BaseTBTCToken.md#balanceof)
-- [getAddress](BaseTBTCToken.md#getaddress)
-- [getChainIdentifier](BaseTBTCToken.md#getchainidentifier)
-- [getEvents](BaseTBTCToken.md#getevents)
+- [balanceOf](SeiTBTCToken.md#balanceof)
+- [getAddress](SeiTBTCToken.md#getaddress)
+- [getChainIdentifier](SeiTBTCToken.md#getchainidentifier)
+- [getEvents](SeiTBTCToken.md#getevents)
 
 ## Constructors
 
 ### constructor
 
-• **new BaseTBTCToken**(`config`, `chainId`): [`BaseTBTCToken`](BaseTBTCToken.md)
+• **new SeiTBTCToken**(`config`, `chainId`): [`SeiTBTCToken`](SeiTBTCToken.md)
 
 #### Parameters
 
 | Name | Type |
 | :------ | :------ |
 | `config` | [`EthereumContractConfig`](../interfaces/EthereumContractConfig.md) |
-| `chainId` | [`Base`](../enums/Chains.Base.md) |
+| `chainId` | [`Sei`](../enums/Chains.Sei.md) |
 
 #### Returns
 
-[`BaseTBTCToken`](BaseTBTCToken.md)
+[`SeiTBTCToken`](SeiTBTCToken.md)
 
 #### Overrides
 
@@ -58,7 +58,7 @@ EthersContractHandle\&lt;L2TBTCTypechain\&gt;.constructor
 
 #### Defined in
 
-[lib/base/l2-tbtc-token.ts:26](https://github.com/jose-blockchain/tbtc-v2/blob/main/typescript/src/lib/base/l2-tbtc-token.ts#L26)
+[lib/sei/l2-tbtc-token.ts:26](https://github.com/jose-blockchain/tbtc-v2/blob/main/typescript/src/lib/sei/l2-tbtc-token.ts#L26)
 
 ## Properties
 
@@ -134,7 +134,7 @@ EthersContractHandle.\_totalRetryAttempts
 
 #### Defined in
 
-[lib/base/l2-tbtc-token.ts:55](https://github.com/jose-blockchain/tbtc-v2/blob/main/typescript/src/lib/base/l2-tbtc-token.ts#L55)
+[lib/sei/l2-tbtc-token.ts:55](https://github.com/jose-blockchain/tbtc-v2/blob/main/typescript/src/lib/sei/l2-tbtc-token.ts#L55)
 
 ___
 
@@ -176,7 +176,7 @@ ___
 
 #### Defined in
 
-[lib/base/l2-tbtc-token.ts:47](https://github.com/jose-blockchain/tbtc-v2/blob/main/typescript/src/lib/base/l2-tbtc-token.ts#L47)
+[lib/sei/l2-tbtc-token.ts:47](https://github.com/jose-blockchain/tbtc-v2/blob/main/typescript/src/lib/sei/l2-tbtc-token.ts#L47)
 
 ___
 

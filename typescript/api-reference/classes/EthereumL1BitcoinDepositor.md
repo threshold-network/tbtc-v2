@@ -66,7 +66,7 @@ EthersContractHandle\&lt;L1BitcoinDepositorTypechain\&gt;.constructor
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-depositor.ts:85](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L85)
+[lib/ethereum/l1-bitcoin-depositor.ts:91](https://github.com/jose-blockchain/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L91)
 
 ## Properties
 
@@ -76,7 +76,7 @@ EthersContractHandle\&lt;L1BitcoinDepositorTypechain\&gt;.constructor
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-depositor.ts:83](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L83)
+[lib/ethereum/l1-bitcoin-depositor.ts:89](https://github.com/jose-blockchain/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L89)
 
 ___
 
@@ -86,7 +86,7 @@ ___
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-depositor.ts:82](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L82)
+[lib/ethereum/l1-bitcoin-depositor.ts:88](https://github.com/jose-blockchain/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L88)
 
 ___
 
@@ -104,7 +104,7 @@ EthersContractHandle.\_deployedAtBlockNumber
 
 #### Defined in
 
-[lib/ethereum/adapter.ts:80](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L80)
+[lib/ethereum/adapter.ts:80](https://github.com/jose-blockchain/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L80)
 
 ___
 
@@ -120,7 +120,7 @@ EthersContractHandle.\_instance
 
 #### Defined in
 
-[lib/ethereum/adapter.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L74)
+[lib/ethereum/adapter.ts:74](https://github.com/jose-blockchain/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L74)
 
 ___
 
@@ -136,7 +136,7 @@ EthersContractHandle.\_totalRetryAttempts
 
 #### Defined in
 
-[lib/ethereum/adapter.ts:84](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L84)
+[lib/ethereum/adapter.ts:84](https://github.com/jose-blockchain/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L84)
 
 ## Methods
 
@@ -156,7 +156,7 @@ L1BitcoinDepositor.extraDataEncoder
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-depositor.ts:156](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L156)
+[lib/ethereum/l1-bitcoin-depositor.ts:162](https://github.com/jose-blockchain/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L162)
 
 ___
 
@@ -178,7 +178,7 @@ EthersContractHandle.getAddress
 
 #### Defined in
 
-[lib/ethereum/adapter.ts:112](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L112)
+[lib/ethereum/adapter.ts:112](https://github.com/jose-blockchain/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L112)
 
 ___
 
@@ -198,7 +198,7 @@ L1BitcoinDepositor.getChainIdentifier
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-depositor.ts:148](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L148)
+[lib/ethereum/l1-bitcoin-depositor.ts:154](https://github.com/jose-blockchain/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L154)
 
 ___
 
@@ -218,7 +218,7 @@ L1BitcoinDepositor.getDepositOwner
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-depositor.ts:125](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L125)
+[lib/ethereum/l1-bitcoin-depositor.ts:131](https://github.com/jose-blockchain/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L131)
 
 ___
 
@@ -244,7 +244,7 @@ L1BitcoinDepositor.getDepositState
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-depositor.ts:141](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L141)
+[lib/ethereum/l1-bitcoin-depositor.ts:147](https://github.com/jose-blockchain/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L147)
 
 ___
 
@@ -278,7 +278,7 @@ EthersContractHandle.getEvents
 
 #### Defined in
 
-[lib/ethereum/adapter.ts:127](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L127)
+[lib/ethereum/adapter.ts:127](https://github.com/jose-blockchain/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L127)
 
 ___
 
@@ -307,7 +307,7 @@ L1BitcoinDepositor.initializeDeposit
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-depositor.ts:164](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L164)
+[lib/ethereum/l1-bitcoin-depositor.ts:170](https://github.com/jose-blockchain/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L170)
 
 ___
 
@@ -333,4 +333,4 @@ L1BitcoinDepositor.setDepositOwner
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-depositor.ts:133](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L133)
+[lib/ethereum/l1-bitcoin-depositor.ts:139](https://github.com/jose-blockchain/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L139)

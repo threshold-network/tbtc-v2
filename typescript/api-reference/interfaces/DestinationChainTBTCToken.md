@@ -7,6 +7,7 @@ canonical destination chain tBTC token.
 
 - [`ArbitrumTBTCToken`](../classes/ArbitrumTBTCToken.md)
 - [`BaseTBTCToken`](../classes/BaseTBTCToken.md)
+- [`SeiTBTCToken`](../classes/SeiTBTCToken.md)
 - [`StarkNetTBTCToken`](../classes/StarkNetTBTCToken.md)
 
 ## Table of contents
@@ -38,7 +39,7 @@ The balance of the given identifier in 1e18 precision.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:67](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L67)
+[lib/contracts/cross-chain.ts:67](https://github.com/jose-blockchain/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L67)
 
 ___
 
@@ -54,4 +55,4 @@ Gets the chain-specific identifier of this contract.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:60](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L60)
+[lib/contracts/cross-chain.ts:60](https://github.com/jose-blockchain/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L60)
