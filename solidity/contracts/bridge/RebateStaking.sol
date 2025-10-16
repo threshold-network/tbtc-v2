@@ -101,7 +101,9 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         uint256 _unstakingPeriod,
         uint256 _rebatePerToken
     ) external initializer {
-        if (_bridge == address(0) || _token == address(0) || _rollingWindow == 0) {
+        if (
+            _bridge == address(0) || _token == address(0) || _rollingWindow == 0
+        ) {
             revert ParametersCannotBeZero();
         }
         bridge = _bridge;

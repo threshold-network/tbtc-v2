@@ -80,7 +80,7 @@ describe("RebateStaking", () => {
           it("should revert", async () => {
             await expect(
               rebateStaking.connect(deployer).updateRollingWindow(0)
-            ).to.be.revertedWithCustomError(rebateStaking, "RollingWindowCannotBeZero")
+            ).to.be.revertedWith("RollingWindowCannotBeZero")
           })
         })
       })
@@ -147,7 +147,7 @@ describe("RebateStaking", () => {
           rebateStaking
             .connect(governance)
             .applyForRebate(thirdParty.address, treasuryFee)
-        ).to.be.revertedWithCustomError(rebateStaking, "CallerNotBridge")
+        ).to.be.revertedWith("CallerNotBridge")
       })
     })
 
@@ -377,7 +377,7 @@ describe("RebateStaking", () => {
           rebateStaking
             .connect(governance)
             .cancelRebate(thirdParty.address, await lastBlockTime())
-        ).to.be.revertedWithCustomError(rebateStaking, "CallerNotBridge")
+        ).to.be.revertedWith("CallerNotBridge")
       })
     })
 
@@ -577,7 +577,7 @@ describe("RebateStaking", () => {
       it("should revert", async () => {
         await expect(
           rebateStaking.connect(thirdParty).stake(0)
-        ).to.be.revertedWithCustomError(rebateStaking, "AmountCannotBeZero")
+        ).to.be.revertedWith("AmountCannotBeZero")
       })
     })
 
@@ -686,7 +686,7 @@ describe("RebateStaking", () => {
       it("should revert", async () => {
         await expect(
           rebateStaking.connect(governance).startUnstaking(0)
-        ).to.be.revertedWithCustomError(rebateStaking, "AmountCannotBeZero")
+        ).to.be.revertedWith("AmountCannotBeZero")
       })
     })
 
@@ -705,7 +705,7 @@ describe("RebateStaking", () => {
       it("should revert", async () => {
         await expect(
           rebateStaking.connect(governance).startUnstaking(stakeAmount.add(1))
-        ).to.be.revertedWithCustomError(rebateStaking, "AmountTooBig")
+        ).to.be.revertedWith("AmountTooBig")
       })
     })
 
@@ -713,7 +713,7 @@ describe("RebateStaking", () => {
       it("should revert", async () => {
         await expect(
           rebateStaking.connect(governance).startUnstaking(stakeAmount)
-        ).to.be.revertedWithCustomError(rebateStaking, "AmountTooBig")
+        ).to.be.revertedWith("AmountTooBig")
       })
     })
 
@@ -732,7 +732,7 @@ describe("RebateStaking", () => {
       it("should revert", async () => {
         await expect(
           rebateStaking.connect(thirdParty).startUnstaking(1)
-        ).to.be.revertedWithCustomError(rebateStaking, "UnstakingAlreadyStarted")
+        ).to.be.revertedWith("UnstakingAlreadyStarted")
       })
     })
 
@@ -800,8 +800,10 @@ describe("RebateStaking", () => {
     context("when receiver is zero address", () => {
       it("should revert", async () => {
         await expect(
-          rebateStaking.connect(thirdParty).finalizeUnstaking(ethers.constants.AddressZero)
-        ).to.be.revertedWithCustomError(rebateStaking, "ZeroAddress")
+          rebateStaking
+            .connect(thirdParty)
+            .finalizeUnstaking(ethers.constants.AddressZero)
+        ).to.be.revertedWith("ZeroAddress")
       })
     })
 
@@ -811,7 +813,7 @@ describe("RebateStaking", () => {
           rebateStaking
             .connect(governance)
             .finalizeUnstaking(governance.address)
-        ).to.be.revertedWithCustomError(rebateStaking, "NoUnstakingProcess")
+        ).to.be.revertedWith("NoUnstakingProcess")
       })
     })
 
@@ -834,12 +836,12 @@ describe("RebateStaking", () => {
           rebateStaking
             .connect(thirdParty)
             .finalizeUnstaking(thirdParty.address)
-        ).to.be.revertedWithCustomError(rebateStaking, "UnstakingNotFinished")
+        ).to.be.revertedWith("UnstakingNotFinished")
       })
     })
 
     context("when user finishes unstaking process", () => {
-      const stakeAmount =defaultStakeAmount.mul(10)
+      const stakeAmount = defaultStakeAmount.mul(10)
       const unstakeAmount = to1e18(300000000)
       const expectedStake = stakeAmount.sub(unstakeAmount)
       const rebateCap = to1e18(7)
