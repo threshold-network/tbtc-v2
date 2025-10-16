@@ -1,7 +1,4 @@
-import {
-  chainIdFromSigner,
-  EthereumSigner,
-} from "../ethereum"
+import { chainIdFromSigner, EthereumSigner } from "../ethereum"
 import { SeiTBTCToken } from "./l2-tbtc-token"
 import { Chains, DestinationChainInterfaces } from "../contracts"
 
@@ -12,7 +9,7 @@ export * from "./l2-tbtc-token"
  * Sei follows the Starknet pattern with L1BTCDepositorNttWithExecutor on
  * Ethereum L1 and only the L2TBTC token on Sei. An offchain relayer bot
  * handles the deposit bridging logic.
- * 
+ *
  * @param signer Signer that should be attached to the Sei contracts.
  * @param chainId Sei chain ID.
  * @returns Handle to the Sei tBTC token contract.
@@ -49,4 +46,3 @@ export async function loadSeiCrossChainInterfaces(
  * @deprecated Use loadSeiCrossChainInterfaces instead
  */
 export const loadSeiCrossChainContracts = loadSeiCrossChainInterfaces
-

@@ -62,4 +62,3 @@ export class SeiTBTCToken
  * @deprecated Use SeiTBTCToken instead
  */
 export const SeiL2TBTCToken = SeiTBTCToken
-
