@@ -11,7 +11,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log("===================================================\n")
 
   // Get BridgeGovernance contract
-  const bridgeGovernanceAddress = (await deployments.get("BridgeGovernance")).address
+  const bridgeGovernanceAddress = (await deployments.get("BridgeGovernance"))
+    .address
   const bridgeGovernanceABI = [
     "function governanceUpdates(uint256) view returns (uint256 timelock, bytes4[] memory functionSelectors, address[] memory targets, uint256[] memory values, bytes[] memory calldatas)",
     "function governanceUpdatesCount() view returns (uint256)",
@@ -35,11 +36,13 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   // Get the latest update (assuming it's the one we want)
   const latestUpdateIndex = updatesCount.sub(1)
-  const latestUpdate = await bridgeGovernance.governanceUpdates(latestUpdateIndex)
+  const latestUpdate = await bridgeGovernance.governanceUpdates(
+    latestUpdateIndex
+  )
   const timelockTimestamp = latestUpdate.timelock.toNumber()
   const currentTimestamp = Math.floor(Date.now() / 1000)
 
-  console.log("Governance update #" + latestUpdateIndex.toString() + " details:")
+  console.log(`Governance update #${latestUpdateIndex.toString()} details:`)
   console.log("  Timelock timestamp:", timelockTimestamp)
   console.log("  Current timestamp: ", currentTimestamp)
 
@@ -51,8 +54,12 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
     console.log("\n⏰ Governance update is still in timelock!")
     console.log(`   Time remaining: ${hours}h ${minutes}m ${seconds}s`)
-    console.log(`   Executable at: ${new Date(timelockTimestamp * 1000).toISOString()}`)
-    console.log("\n   Please wait for the timelock to expire before running this script again.")
+    console.log(
+      `   Executable at: ${new Date(timelockTimestamp * 1000).toISOString()}`
+    )
+    console.log(
+      "\n   Please wait for the timelock to expire before running this script again."
+    )
     return
   }
 

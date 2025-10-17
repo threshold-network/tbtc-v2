@@ -1,7 +1,9 @@
 # Rebate Deployment Instructions for All Actors
 
 ## Overview
+
 The rebate functionality requires coordination between three actors:
+
 1. **Deployer** - Deploys contracts and prepares transactions
 2. **ProxyAdmin Owner** - Upgrades Bridge proxy
 3. **Governance** - Sets RebateStaking in Bridge
@@ -11,6 +13,7 @@ The rebate functionality requires coordination between three actors:
 ## Actor 1: Deployer
 
 ### Prerequisites:
+
 - Access to deployment wallet with ETH
 - Environment variables set:
   ```bash
@@ -19,13 +22,16 @@ The rebate functionality requires coordination between three actors:
   ```
 
 ### Steps:
+
 1. **Deploy all contracts:**
+
    ```bash
    cd solidity
    yarn deploy --tags DeployRebateAndPrepareTxs --network mainnet
    ```
 
 2. **Save the output** - It contains:
+
    - Deployed contract addresses
    - Transaction data for other actors
    - JSON file location with all deployment info
@@ -40,6 +46,7 @@ The rebate functionality requires coordination between three actors:
 ## Actor 2: ProxyAdmin Owner (Multisig/Hardware Wallet)
 
 ### What you'll receive from Deployer:
+
 ```
 ACTION REQUIRED BY PROXY ADMIN OWNER:
 ================================================
@@ -54,12 +61,15 @@ Decoded:
 ```
 
 ### Steps:
+
 1. **Execute the upgrade transaction:**
+
    - **To:** ProxyAdmin address provided
    - **Data:** Use encoded data provided
    - **Value:** 0 ETH
 
    **For Gnosis Safe:**
+
    - New Transaction → Contract Interaction
    - Contract: ProxyAdmin address
    - Method: `upgrade`
@@ -75,6 +85,7 @@ Decoded:
 ## Actor 3: Governance (Threshold Council)
 
 ### What you'll receive from Deployer:
+
 ```
 ACTION REQUIRED BY GOVERNANCE:
 ================================================
@@ -90,11 +101,13 @@ WARNING: Only submit AFTER Bridge proxy is upgraded!
 1. **Wait for confirmation** that ProxyAdmin has upgraded Bridge
 
 2. **Submit governance proposal:**
+
    - **To:** BridgeGovernance address
    - **Data:** Use encoded data provided
    - **Value:** 0 ETH
 
 3. **Wait for timelock:**
+
    - Mainnet: 48 hours
    - Sepolia: 60 seconds
 
@@ -108,7 +121,7 @@ WARNING: Only submit AFTER Bridge proxy is upgraded!
 ## Verification
 
 ### Check deployment status at any time:
+
 ```bash
 yarn deploy --tags VerifyRebateDeployment --network mainnet
 ```
-

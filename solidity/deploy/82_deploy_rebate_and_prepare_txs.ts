@@ -95,7 +95,10 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const bridgeImplementation = await BridgeFactory.deploy()
   await bridgeImplementation.deployed()
 
-  console.log("✓ Bridge implementation deployed at:", bridgeImplementation.address)
+  console.log(
+    "✓ Bridge implementation deployed at:",
+    bridgeImplementation.address
+  )
 
   // Step 5: Find ProxyAdmin address
   console.log("\nStep 5: Finding ProxyAdmin...")
@@ -122,9 +125,13 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     // Try to get it from the proxy slot
     // The admin slot for TransparentUpgradeableProxy is at:
     // 0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103
-    const adminSlot = "0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103"
-    const adminData = await ethers.provider.getStorageAt(Bridge.address, adminSlot)
-    proxyAdminAddress = ethers.utils.getAddress("0x" + adminData.slice(26))
+    const adminSlot =
+      "0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103"
+    const adminData = await ethers.provider.getStorageAt(
+      Bridge.address,
+      adminSlot
+    )
+    proxyAdminAddress = ethers.utils.getAddress(`0x${adminData.slice(26)}`)
   }
 
   console.log("✓ ProxyAdmin found at:", proxyAdminAddress)
@@ -145,11 +152,14 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   ])
 
   // 6b: Encode setRebateStaking transaction for BridgeGovernance
-  const bridgeGovernanceAddress = (await deployments.get("BridgeGovernance")).address
+  const bridgeGovernanceAddress = (await deployments.get("BridgeGovernance"))
+    .address
   const bridgeGovernanceABI = [
     "function beginGovernanceUpdate(bytes4[] memory functionSelectors, address[] memory targets, uint256[] memory values, bytes[] memory calldatas)",
   ]
-  const bridgeGovernanceInterface = new ethers.utils.Interface(bridgeGovernanceABI)
+  const bridgeGovernanceInterface = new ethers.utils.Interface(
+    bridgeGovernanceABI
+  )
 
   // Encode the Bridge.setRebateStaking call
   const bridgeABI = ["function setRebateStaking(address rebateStaking)"]
@@ -175,7 +185,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const deploymentSummary = {
     network: hre.network.name,
     timestamp: new Date().toISOString(),
-    deployer: deployer,
+    deployer,
     deployedContracts: {
       rebateStaking: rebateStaking.address,
       depositLibrary: Deposit.address,
@@ -204,12 +214,13 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         note: "Simple upgrade call to ProxyAdmin contract",
       },
       governance: {
-        description: "Set RebateStaking contract in Bridge via governance (AFTER proxy upgrade)",
+        description:
+          "Set RebateStaking contract in Bridge via governance (AFTER proxy upgrade)",
         to: bridgeGovernanceAddress,
         data: governanceCalldata,
         method: "beginGovernanceUpdate",
         params: {
-          functionSelector: functionSelector,
+          functionSelector,
           target: Bridge.address,
           value: 0,
           calldata: setRebateStakingCalldata,
@@ -253,9 +264,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log("  Method: beginGovernanceUpdate")
   console.log("  Will call Bridge.setRebateStaking with:")
   console.log("    rebateStaking:", rebateStaking.address)
-  console.log("\nNOTE: Governance action has a",
+  console.log(
+    "\nNOTE: Governance action has a",
     hre.network.name === "sepolia" ? "60 second" : "48-hour",
-    "timelock")
+    "timelock"
+  )
 
   console.log("\n================================================")
   console.log("Deployment summary saved to:", summaryPath)
@@ -288,7 +301,10 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         },
       })
     } catch (error) {
-      console.log("Bridge implementation verification may have failed:", error.message)
+      console.log(
+        "Bridge implementation verification may have failed:",
+        error.message
+      )
     }
   }
 

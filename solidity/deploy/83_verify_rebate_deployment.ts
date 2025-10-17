@@ -11,7 +11,10 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log("==================================================\n")
 
   // Step 1: Find the most recent deployment summary
-  const deploymentsDir = path.join(__dirname, `../deployments/${hre.network.name}`)
+  const deploymentsDir = path.join(
+    __dirname,
+    `../deployments/${hre.network.name}`
+  )
   const files = fs.readdirSync(deploymentsDir)
   const rebateDeployments = files
     .filter((f) => f.startsWith("rebate-deployment-") && f.endsWith(".json"))
@@ -41,15 +44,20 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // Get the implementation address from the proxy
   // Implementation slot for TransparentUpgradeableProxy is at:
   // 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc
-  const implementationSlot = "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc"
+  const implementationSlot =
+    "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc"
   const implementationData = await ethers.provider.getStorageAt(
     Bridge.address,
     implementationSlot
   )
-  const currentImplementation = ethers.utils.getAddress("0x" + implementationData.slice(26))
+  const currentImplementation = ethers.utils.getAddress(
+    `0x${implementationData.slice(26)}`
+  )
 
   // Check if upgraded to our implementation
-  const isUpgraded = currentImplementation.toLowerCase() === summary.deployedContracts.bridgeImplementation.toLowerCase()
+  const isUpgraded =
+    currentImplementation.toLowerCase() ===
+    summary.deployedContracts.bridgeImplementation.toLowerCase()
 
   if (isUpgraded) {
     console.log("✅ Bridge proxy has been upgraded to new implementation!")
@@ -57,7 +65,10 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   } else {
     console.log("⚠️  Bridge proxy has NOT been upgraded yet")
     console.log("   Current implementation: ", currentImplementation)
-    console.log("   Expected implementation:", summary.deployedContracts.bridgeImplementation)
+    console.log(
+      "   Expected implementation:",
+      summary.deployedContracts.bridgeImplementation
+    )
     console.log("\n   Waiting for ProxyAdmin owner to execute:")
     console.log("   To:  ", summary.requiredActions.proxyAdminOwner.to)
     console.log("   Data:", summary.requiredActions.proxyAdminOwner.data)
@@ -66,21 +77,28 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // Step 3: Check if RebateStaking is set in Bridge
   console.log("\nStep 2: Checking RebateStaking configuration...")
 
-  let rebateStakingAddress: string = "0x0000000000000000000000000000000000000000"
+  let rebateStakingAddress = "0x0000000000000000000000000000000000000000"
 
   try {
     // Try to call getRebateStaking() - this will only work if Bridge has been upgraded
     rebateStakingAddress = await bridgeContract.getRebateStaking()
   } catch (error) {
-    console.log("⚠️  Cannot read RebateStaking from Bridge (upgrade may be pending)")
+    console.log(
+      "⚠️  Cannot read RebateStaking from Bridge (upgrade may be pending)"
+    )
   }
 
   if (rebateStakingAddress === summary.deployedContracts.rebateStaking) {
     console.log("✅ RebateStaking has been set in Bridge!")
     console.log("   RebateStaking address:", rebateStakingAddress)
-  } else if (rebateStakingAddress === "0x0000000000000000000000000000000000000000") {
+  } else if (
+    rebateStakingAddress === "0x0000000000000000000000000000000000000000"
+  ) {
     console.log("⚠️  RebateStaking has NOT been set in Bridge yet")
-    console.log("   Expected RebateStaking:", summary.deployedContracts.rebateStaking)
+    console.log(
+      "   Expected RebateStaking:",
+      summary.deployedContracts.rebateStaking
+    )
 
     // Check if there's a pending governance action
     const bridgeGovernanceAddress = summary.existingContracts.bridgeGovernance
@@ -102,7 +120,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
       if (updatesCount.gt(0)) {
         // Check the latest update
-        const latestUpdate = await bridgeGovernance.governanceUpdates(updatesCount.sub(1))
+        const latestUpdate = await bridgeGovernance.governanceUpdates(
+          updatesCount.sub(1)
+        )
         const timelockTimestamp = latestUpdate.timelock.toNumber()
         const currentTimestamp = Math.floor(Date.now() / 1000)
 
@@ -113,10 +133,16 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
           console.log("   ⏰ Governance action is in timelock!")
           console.log(`      Time remaining: ${hours}h ${minutes}m`)
-          console.log(`      Executable at: ${new Date(timelockTimestamp * 1000).toISOString()}`)
+          console.log(
+            `      Executable at: ${new Date(
+              timelockTimestamp * 1000
+            ).toISOString()}`
+          )
         } else {
           console.log("   ✅ Governance action is ready to execute!")
-          console.log("      Call finalizeGovernanceUpdate() on BridgeGovernance")
+          console.log(
+            "      Call finalizeGovernanceUpdate() on BridgeGovernance"
+          )
         }
       } else {
         console.log("\n   Waiting for Governance to execute transaction:")
@@ -127,7 +153,10 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       console.log("   Could not check governance status")
     }
   } else {
-    console.log("⚠️  Unexpected RebateStaking address in Bridge:", rebateStakingAddress)
+    console.log(
+      "⚠️  Unexpected RebateStaking address in Bridge:",
+      rebateStakingAddress
+    )
     console.log("   Expected:", summary.deployedContracts.rebateStaking)
   }
 
@@ -155,12 +184,31 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     const rebatePerToken = await rebateStaking.rebatePerToken()
 
     console.log("✅ RebateStaking contract is deployed and configured:")
-    console.log("   Address:          ", summary.deployedContracts.rebateStaking)
+    console.log(
+      "   Address:          ",
+      summary.deployedContracts.rebateStaking
+    )
     console.log("   Bridge:           ", bridge)
     console.log("   Token:            ", token)
-    console.log("   Rolling window:   ", rollingWindow.toString(), "seconds (", rollingWindow.div(86400).toString(), "days)")
-    console.log("   Unstaking period: ", unstakingPeriod.toString(), "seconds (", unstakingPeriod.div(86400).toString(), "days)")
-    console.log("   Rebate per token: ", rebatePerToken.toString(), "(0.001 BTC per 100,000 T)")
+    console.log(
+      "   Rolling window:   ",
+      rollingWindow.toString(),
+      "seconds (",
+      rollingWindow.div(86400).toString(),
+      "days)"
+    )
+    console.log(
+      "   Unstaking period: ",
+      unstakingPeriod.toString(),
+      "seconds (",
+      unstakingPeriod.div(86400).toString(),
+      "days)"
+    )
+    console.log(
+      "   Rebate per token: ",
+      rebatePerToken.toString(),
+      "(0.001 BTC per 100,000 T)"
+    )
   } catch (error) {
     console.log("❌ Could not verify RebateStaking contract")
   }
@@ -168,8 +216,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // Step 5: Summary
   console.log("\n========== DEPLOYMENT STATUS SUMMARY ==========")
 
-  const bridgeUpgraded = currentImplementation.toLowerCase() === summary.deployedContracts.bridgeImplementation.toLowerCase()
-  const isConnected = rebateStakingAddress === summary.deployedContracts.rebateStaking
+  const bridgeUpgraded =
+    currentImplementation.toLowerCase() ===
+    summary.deployedContracts.bridgeImplementation.toLowerCase()
+  const isConnected =
+    rebateStakingAddress === summary.deployedContracts.rebateStaking
 
   if (bridgeUpgraded && isConnected) {
     console.log("✅ DEPLOYMENT COMPLETE!")
