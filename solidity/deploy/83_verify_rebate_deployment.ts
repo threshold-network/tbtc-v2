@@ -168,15 +168,15 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // Step 5: Summary
   console.log("\n========== DEPLOYMENT STATUS SUMMARY ==========")
 
-  const isUpgraded = currentImplementation.toLowerCase() === summary.deployedContracts.bridgeImplementation.toLowerCase()
+  const bridgeUpgraded = currentImplementation.toLowerCase() === summary.deployedContracts.bridgeImplementation.toLowerCase()
   const isConnected = rebateStakingAddress === summary.deployedContracts.rebateStaking
 
-  if (isUpgraded && isConnected) {
+  if (bridgeUpgraded && isConnected) {
     console.log("✅ DEPLOYMENT COMPLETE!")
     console.log("   All contracts are deployed and configured correctly.")
   } else {
     console.log("⚠️  DEPLOYMENT IN PROGRESS")
-    if (!isUpgraded) {
+    if (!bridgeUpgraded) {
       console.log("   [ ] Bridge proxy upgrade (waiting for ProxyAdmin)")
     } else {
       console.log("   [✓] Bridge proxy upgrade")
