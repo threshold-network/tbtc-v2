@@ -14,46 +14,75 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log("Deployer:", deployer)
   console.log("=================================================\n")
 
+  // Verify we're using existing mainnet deployments - do NOT redeploy!
+  console.log("Verifying existing mainnet infrastructure...")
+  try {
+    const Bridge = await deployments.get("Bridge")
+    const BridgeGovernance = await deployments.get("BridgeGovernance")
+    console.log("✓ Using existing Bridge at:", Bridge.address)
+    console.log(
+      "✓ Using existing BridgeGovernance at:",
+      BridgeGovernance.address
+    )
+  } catch (error) {
+    console.log("❌ Error: Missing required mainnet deployments!")
+    throw error
+  }
+
   // Step 1: Deploy RebateStaking
   console.log("Step 1: Deploying RebateStaking contract...")
 
   const Bridge = await deployments.get("Bridge")
-  const t = await helpers.contracts.getContract("T")
 
-  const [rebateStaking, rebateProxyDeployment] =
-    await helpers.upgrades.deployProxy("RebateStaking", {
-      contractName: "RebateStaking",
-      initializerArgs: [
-        Bridge.address,
-        t.address,
-        30 * 24 * 60 * 60, // 30 days rolling window
-        30 * 24 * 60 * 60, // 30 days unstaking delay
-        100000000, // 0.001 BTC fee rebate per 100000 T tokens staked
-      ],
-      factoryOpts: {
-        signer: await ethers.getSigner(deployer),
-      },
-      proxyOpts: {
-        kind: "transparent",
-      },
-    })
+  // Use the mainnet T token address directly (Threshold Network token)
+  const T_TOKEN_ADDRESS = "0xCdF7028ceAB81fA0C6971208e83fa7872994beE5" // Mainnet T token
+  const t = { address: T_TOKEN_ADDRESS }
 
-  console.log("✓ RebateStaking deployed at:", rebateStaking.address)
+  let rebateStaking: any
+  let rebateProxyDeployment: any
 
-  // Step 2: Deploy updated libraries for Bridge
-  console.log("\nStep 2: Deploying updated libraries...")
-
-  const deployOptions: DeployOptions = {
-    from: deployer,
-    log: true,
-    waitConfirmations: 1,
+  try {
+    // Try to get existing deployment first
+    const existingRebateStaking = await deployments.get("RebateStaking")
+    console.log(
+      "✓ Using existing RebateStaking at:",
+      existingRebateStaking.address
+    )
+    rebateStaking = await ethers.getContractAt(
+      "RebateStaking",
+      existingRebateStaking.address
+    )
+    rebateProxyDeployment = existingRebateStaking
+  } catch (error) {
+    // Deploy if doesn't exist
+    ;[rebateStaking, rebateProxyDeployment] =
+      await helpers.upgrades.deployProxy("RebateStaking", {
+        contractName: "RebateStaking",
+        initializerArgs: [
+          Bridge.address,
+          t.address,
+          30 * 24 * 60 * 60, // 30 days rolling window
+          30 * 24 * 60 * 60, // 30 days unstaking delay
+          100000000, // 0.001 BTC fee rebate per 100000 T tokens staked
+        ],
+        factoryOpts: {
+          signer: await ethers.getSigner(deployer),
+        },
+        proxyOpts: {
+          kind: "transparent",
+        },
+      })
+    console.log("✓ RebateStaking deployed at:", rebateStaking.address)
   }
 
-  const Deposit = await deploy("Deposit", deployOptions)
-  const Redemption = await deploy("Redemption", deployOptions)
+  // Step 2: Use existing libraries for Bridge
+  console.log("\nStep 2: Using existing libraries...")
 
-  console.log("✓ Deposit library deployed at:", Deposit.address)
-  console.log("✓ Redemption library deployed at:", Redemption.address)
+  const Deposit = await get("Deposit")
+  const Redemption = await get("Redemption")
+
+  console.log("✓ Using existing Deposit library at:", Deposit.address)
+  console.log("✓ Using existing Redemption library at:", Redemption.address)
 
   // Step 3: Get existing libraries for Bridge upgrade
   console.log("\nStep 3: Collecting existing libraries...")
@@ -325,4 +354,5 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 export default func
 
 func.tags = ["DeployRebateAndPrepareTxs"]
-func.dependencies = ["Bridge", "BridgeGovernance"]
+// Dependencies removed to avoid redeploying existing mainnet contracts
+// func.dependencies = ["Bridge", "BridgeGovernance"]
