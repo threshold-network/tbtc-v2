@@ -13,7 +13,7 @@
 //               ▐████▌    ▐████▌
 //               ▐████▌    ▐████▌
 
-pragma solidity 0.8.17;
+pragma solidity ^0.8.17;
 
 import "@keep-network/random-beacon/contracts/Governable.sol";
 import "@keep-network/random-beacon/contracts/ReimbursementPool.sol";
@@ -32,6 +32,7 @@ import "./EcdsaLib.sol";
 import "./Wallets.sol";
 import "./Fraud.sol";
 import "./MovingFunds.sol";
+import "./ReservedDeposit.sol";
 
 import "../bank/IReceiveBalanceApproval.sol";
 import "../bank/Bank.sol";
@@ -70,6 +71,7 @@ contract Bridge is
     using MovingFunds for BridgeState.Storage;
     using Wallets for BridgeState.Storage;
     using Fraud for BridgeState.Storage;
+    using ReservedDeposit for BridgeState.Storage;
 
     BridgeState.Storage internal self;
 
@@ -462,6 +464,52 @@ contract Bridge is
         address vault
     ) external onlySpvMaintainer {
         self.submitDepositSweepProof(sweepTx, sweepProof, mainUtxo, vault);
+    }
+
+    /// @notice Reveals a deposit with UTXO reservation for tax-efficient custody.
+    ///         Allows depositors to reserve a specific Bitcoin UTXO and later redeem
+    ///         the exact same BTC, maintaining custody continuity for tax purposes.
+    ///         The depositor receives tBTC minus a storage fee (0.1% annually,
+    ///         minimum 0.01 BTC per year).
+    /// @param fundingTx Bitcoin funding transaction data.
+    /// @param reveal Deposit reveal data including wallet and refund information.
+    /// @param reservationDays Number of days to reserve the UTXO (1-1460 days).
+    /// @param btcRedemptionAddress Pre-committed Bitcoin address (20 or 32 bytes)
+    ///        where the BTC will be sent upon redemption.
+    /// @dev Storage fee is split: 90% to treasury immediately, 10% reserved for
+    ///      liquidation incentive. Maintains perfect 1:1 BTC:tBTC backing.
+    function revealReservedDeposit(
+        BitcoinTx.Info calldata fundingTx,
+        Deposit.DepositRevealInfo calldata reveal,
+        uint32 reservationDays,
+        bytes calldata btcRedemptionAddress
+    ) external {
+        self.revealReservedDeposit(
+            fundingTx,
+            reveal,
+            msg.sender,
+            reservationDays,
+            btcRedemptionAddress
+        );
+    }
+
+    /// @notice Redeems a reserved deposit, returning the depositor's tBTC to the
+    ///         Bridge and queuing a Bitcoin transaction to send the exact same
+    ///         UTXO back to the pre-committed redemption address.
+    /// @param utxoHash Hash of the reserved UTXO to redeem.
+    /// @dev Can only be called by the original depositor before reservation expiry.
+    ///      Burns the depositor's tBTC and sends liquidation bonus to treasury.
+    function redeemReservedDeposit(bytes32 utxoHash) external {
+        self.redeemReservedDeposit(utxoHash, msg.sender);
+    }
+
+    /// @notice Liquidates an expired reservation, releasing the UTXO back to the
+    ///         general pool and rewarding the liquidator with a bonus.
+    /// @param utxoHash Hash of the expired reservation to liquidate.
+    /// @dev Liquidator receives 10% of the original storage fee as incentive.
+    ///      Can be called by anyone after reservation expiry.
+    function liquidateExpiredReservation(bytes32 utxoHash) external {
+        self.liquidateExpiredReservation(utxoHash, msg.sender);
     }
 
     /// @notice Requests redemption of the given amount from the specified
@@ -1634,6 +1682,39 @@ contract Bridge is
     /// @return The current count of wallets being in the Live state.
     function liveWalletsCount() external view returns (uint32) {
         return self.liveWalletsCount;
+    }
+
+    /// @notice Gets details about a reserved deposit.
+    /// @param utxoHash The hash of the reserved UTXO.
+    /// @return Reserved deposit details.
+    function reservedDeposits(bytes32 utxoHash)
+        external
+        view
+        returns (BridgeState.ReservedDeposit memory)
+    {
+        return self.reservedDeposits[utxoHash];
+    }
+
+    /// @notice Gets details about a priority redemption request.
+    /// @param redemptionKey The key identifying the redemption request.
+    /// @return Priority redemption details.
+    function priorityRedemptions(bytes32 redemptionKey)
+        external
+        view
+        returns (BridgeState.PriorityRedemption memory)
+    {
+        return self.priorityRedemptions[redemptionKey];
+    }
+
+    /// @notice Gets all reservation UTXOs for a depositor.
+    /// @param depositor The address of the depositor.
+    /// @return Array of UTXO hashes for the depositor's reservations.
+    function getDepositorReservations(address depositor)
+        external
+        view
+        returns (bytes32[] memory)
+    {
+        return self.depositorReservations[depositor];
     }
 
     /// @notice Returns the fraud challenge identified by the given key built
