@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-pragma solidity 0.8.17;
+pragma solidity ^0.8.17;
 
 import "@keep-network/random-beacon/contracts/Reimbursable.sol";
 import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";

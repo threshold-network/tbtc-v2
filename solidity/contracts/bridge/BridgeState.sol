@@ -13,7 +13,7 @@
 //               ▐████▌    ▐████▌
 //               ▐████▌    ▐████▌
 
-pragma solidity 0.8.17;
+pragma solidity ^0.8.17;
 
 import {IWalletRegistry as EcdsaWalletRegistry} from "@keep-network/ecdsa/contracts/api/IWalletRegistry.sol";
 import "@keep-network/random-beacon/contracts/ReimbursementPool.sol";
@@ -28,6 +28,9 @@ import "./MovingFunds.sol";
 import "../bank/Bank.sol";
 
 library BridgeState {
+    bytes32 internal constant RESERVED_DEPOSIT_EXTRA_DATA =
+        keccak256("tbtc-reserved-deposit");
+
     struct Storage {
         // Address of the Bank the Bridge belongs to.
         Bank bank;
@@ -320,6 +323,12 @@ library BridgeState {
         // Address of the redemption watchtower. The redemption watchtower
         // is responsible for vetoing redemption requests.
         address redemptionWatchtower;
+
+        // Reserved Deposit Storage
+        mapping(bytes32 => ReservedDeposit) reservedDeposits;
+        mapping(address => bytes32[]) depositorReservations;
+        mapping(bytes32 => PriorityRedemption) priorityRedemptions;
+
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
@@ -327,7 +336,51 @@ library BridgeState {
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
-        uint256[49] __gap;
+        // Reduced from 49 to 46 to account for 3 new storage slots used above
+        uint256[46] __gap;
+    }
+
+    /// @notice Represents a BTC UTXO reservation for tax-efficient custody
+    struct ReservedDeposit {
+        bytes32 utxoHash;           // Hash of the UTXO
+        address depositor;          // Original depositor address
+        uint64 btcAmount;           // Amount of BTC deposited (satoshis)
+        uint64 tbtcMinted;          // Amount of tBTC minted to user
+        uint64 treasuryFee;         // Fee that went to treasury (90% of storage fee)
+        uint64 liquidationBonus;     // Reserved for liquidator/treasury (10% of storage fee)
+        uint256 depositTimestamp;   // When the deposit was made
+        uint256 expiryTimestamp;    // When the reservation expires
+        bytes btcRedemptionAddress; // Pre-committed BTC redemption address
+        bytes20 walletPubKeyHash;   // Wallet that holds this UTXO
+        uint32 fundingOutputIndex;  // Output index in the funding transaction
+        bool isActive;              // Whether reservation is still active
+    }
+
+    /// @notice Represents a priority redemption for reserved UTXOs
+    struct PriorityRedemption {
+        bytes32 utxoHash;                // Hash of the UTXO to redeem
+        bytes20 walletPubKeyHash;        // Wallet handling the redemption
+        address redeemer;                // Address requesting redemption
+        bytes redeemerOutputScript;      // Bitcoin script for redemption
+        uint64 requestedAmount;          // Amount to redeem (satoshis)
+        uint64 treasuryFee;              // Treasury fee (0 for reserved)
+        uint64 txMaxFee;                 // Max transaction fee
+        uint256 requestedAt;             // When redemption was requested
+        bool isPriority;                 // Flag for priority processing
+    }
+
+    struct ReservationProcessingContext {
+        uint64 btcAmount;
+        uint64 totalFee;
+        uint64 liquidationBonus;
+        uint256 expiryTimestamp;
+    }
+
+    struct ReservedSweepResult {
+        address depositor;
+        uint256 mintAmount;
+        uint256 treasuryFee;
+        uint256 liquidationBonus;
     }
 
     event DepositParametersUpdated(

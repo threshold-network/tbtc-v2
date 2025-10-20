@@ -13,7 +13,7 @@
 //               ▐████▌    ▐████▌
 //               ▐████▌    ▐████▌
 
-pragma solidity 0.8.17;
+pragma solidity ^0.8.17;
 
 /// @title Interface for the Bitcoin relay
 /// @notice Contains only the methods needed by tBTC v2. The Bitcoin relay

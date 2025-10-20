@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache 2
-pragma solidity >=0.8.8 <0.9.0;
+pragma solidity ^0.8.17;
 
 // Note: These imports would normally be from wormhole-solidity-sdk
 // For this temporary location, we'll define the required functions inline

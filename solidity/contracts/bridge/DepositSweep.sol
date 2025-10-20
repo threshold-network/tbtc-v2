@@ -13,13 +13,14 @@
 //               ▐████▌    ▐████▌
 //               ▐████▌    ▐████▌
 
-pragma solidity 0.8.17;
+pragma solidity ^0.8.17;
 
 import {BTCUtils} from "@keep-network/bitcoin-spv-sol/contracts/BTCUtils.sol";
 
 import "./BitcoinTx.sol";
 import "./BridgeState.sol";
 import "./Wallets.sol";
+import "./ReservedDeposit.sol";
 
 import "../bank/Bank.sol";
 
@@ -36,6 +37,7 @@ import "../bank/Bank.sol";
 library DepositSweep {
     using BridgeState for BridgeState.Storage;
     using BitcoinTx for BridgeState.Storage;
+    using ReservedDeposit for BridgeState.Storage;
 
     using BTCUtils for bytes;
 
@@ -88,6 +90,11 @@ library DepositSweep {
         // UTXO doesn't exist) or less by one (main UTXO exists and is pointed
         // by one of the inputs).
         uint256[] treasuryFees;
+        // Deposit identifiers (keccak256 of funding tx hash and output index)
+        // aligned with the `depositors` array.
+        bytes32[] depositKeys;
+        // Flags indicating whether the processed deposit has been reserved.
+        bool[] isReserved;
         // This struct doesn't contain `__gap` property as the structure is not
         // stored, it is used as a function's memory argument.
     }
@@ -182,48 +189,8 @@ library DepositSweep {
                 )
             );
 
-        // Helper variable that will hold the sum of treasury fees paid by
-        // all deposits.
-        uint256 totalTreasuryFee = 0;
-
-        // Determine the transaction fee that should be incurred by each deposit
-        // and the indivisible remainder that should be additionally incurred
-        // by the last deposit.
-        (
-            uint256 depositTxFee,
-            uint256 depositTxFeeRemainder
-        ) = depositSweepTxFeeDistribution(
-                inputsInfo.inputsTotalValue,
-                sweepTxOutputValue,
-                inputsInfo.depositedAmounts.length
-            );
-
-        // Make sure the highest value of the deposit transaction fee does not
-        // exceed the maximum value limited by the governable parameter.
-        require(
-            depositTxFee + depositTxFeeRemainder <= self.depositTxMaxFee,
-            "Transaction fee is too high"
-        );
-
-        // Reduce each deposit amount by treasury fee and transaction fee.
-        for (uint256 i = 0; i < inputsInfo.depositedAmounts.length; i++) {
-            // The last deposit should incur the deposit transaction fee
-            // remainder.
-            uint256 depositTxFeeIncurred = i ==
-                inputsInfo.depositedAmounts.length - 1
-                ? depositTxFee + depositTxFeeRemainder
-                : depositTxFee;
-
-            // There is no need to check whether
-            // `inputsInfo.depositedAmounts[i] - inputsInfo.treasuryFees[i] - txFee > 0`
-            // since the `depositDustThreshold` should force that condition
-            // to be always true.
-            inputsInfo.depositedAmounts[i] =
-                inputsInfo.depositedAmounts[i] -
-                inputsInfo.treasuryFees[i] -
-                depositTxFeeIncurred;
-            totalTreasuryFee += inputsInfo.treasuryFees[i];
-        }
+        (uint256 totalTreasuryFee, uint256 totalLiquidationBonus) =
+            _processDepositFees(self, inputsInfo, sweepTxOutputValue);
 
         // Record this sweep data and assign them to the wallet public key hash
         // as new main UTXO. Transaction output index is always 0 as sweep
@@ -256,6 +223,10 @@ library DepositSweep {
         // Pass the treasury fee to the treasury address.
         if (totalTreasuryFee > 0) {
             self.bank.increaseBalance(self.treasury, totalTreasuryFee);
+        }
+
+        if (totalLiquidationBonus > 0) {
+            self.bank.increaseBalance(address(this), totalLiquidationBonus);
         }
     }
 
@@ -352,13 +323,209 @@ library DepositSweep {
         return (walletPubKeyHash, value);
     }
 
+    /// @notice Processes deposit fees and updates deposit amounts by deducting
+    ///         transaction fees and treasury fees. Returns total fees collected.
+    /// @param inputsInfo Information about deposits to process.
+    /// @param sweepTxOutputValue Value of the sweep transaction output.
+    /// @return totalTreasuryFee Total treasury fees collected from all deposits.
+    /// @return totalLiquidationBonus Total liquidation bonuses from reserved deposits.
+    function _processDepositFees(
+        BridgeState.Storage storage self,
+        DepositSweepTxInputsInfo memory inputsInfo,
+        uint64 sweepTxOutputValue
+    )
+        private
+        returns (uint256 totalTreasuryFee, uint256 totalLiquidationBonus)
+    {
+        // Determine the transaction fee that should be incurred by each deposit
+        // and the indivisible remainder that should be additionally incurred
+        // by the last deposit.
+        (
+            uint256 depositTxFee,
+            uint256 depositTxFeeRemainder
+        ) = depositSweepTxFeeDistribution(
+                inputsInfo.inputsTotalValue,
+                sweepTxOutputValue,
+                inputsInfo.depositedAmounts.length
+            );
+
+        // Make sure the highest value of the deposit transaction fee does not
+        // exceed the maximum value limited by the governable parameter.
+        require(
+            depositTxFee + depositTxFeeRemainder <= self.depositTxMaxFee,
+            "Transaction fee is too high"
+        );
+
+        // Reduce each deposit amount by treasury fee and transaction fee.
+        for (uint256 i = 0; i < inputsInfo.depositedAmounts.length; i++) {
+            uint256 depositTxFeeIncurred = i ==
+                inputsInfo.depositedAmounts.length - 1
+                ? depositTxFee + depositTxFeeRemainder
+                : depositTxFee;
+
+            if (inputsInfo.isReserved[i]) {
+                (uint256 reservedTreasury, uint256 reservedBonus) =
+                    _processReservedDepositSweepInput(
+                        self,
+                        inputsInfo.depositors,
+                        inputsInfo.depositedAmounts,
+                        i,
+                        inputsInfo.depositKeys[i],
+                        depositTxFeeIncurred
+                    );
+
+                totalTreasuryFee += reservedTreasury;
+                totalLiquidationBonus += reservedBonus;
+            } else {
+                uint256 treasuryFee = inputsInfo.treasuryFees[i];
+                uint256 depositAmount = inputsInfo.depositedAmounts[i];
+
+                require(
+                    depositAmount > treasuryFee + depositTxFeeIncurred,
+                    "Deposit amount too small"
+                );
+
+                inputsInfo.depositedAmounts[i] =
+                    depositAmount - treasuryFee - depositTxFeeIncurred;
+                totalTreasuryFee += treasuryFee;
+            }
+        }
+    }
+
     /// @notice Processes the Bitcoin sweep transaction input vector. It
     ///         extracts each input and tries to obtain associated deposit or
     ///         main UTXO data, depending on the input type. Reverts
     ///         if one of the inputs cannot be recognized as a pointer to a
     ///         revealed deposit or expected main UTXO.
     ///         This function also marks each processed deposit as swept.
-    /// @return resultInfo Outcomes of the processing.
+    function _processReservedDepositSweepInput(
+        BridgeState.Storage storage self,
+        address[] memory depositors,
+        uint256[] memory depositedAmounts,
+        uint256 index,
+        bytes32 depositKey,
+        uint256 depositTxFee
+    ) private returns (uint256 treasuryFee, uint256 liquidationBonus) {
+        BridgeState.ReservedSweepResult memory sweepResult =
+            ReservedDeposit.finalizeReservedDepositSweep(
+                self,
+                depositKey,
+                depositTxFee
+            );
+
+        depositors[index] = sweepResult.depositor;
+        depositedAmounts[index] = sweepResult.mintAmount;
+
+        treasuryFee = sweepResult.treasuryFee;
+        liquidationBonus = sweepResult.liquidationBonus;
+    }
+
+
+    struct SweepInputProcessingState {
+        uint256 inputStartingIndex;
+        uint256 processedDepositsCount;
+        bool mainUtxoFound;
+    }
+
+    /// @notice Processes a single sweep transaction input.
+    /// @param sweepTxInputVector The sweep transaction input vector.
+    /// @param mainUtxo The main UTXO data.
+    /// @param vault The expected vault address.
+    /// @param resultInfo The result info structure to update.
+    /// @param state The processing state to update.
+    function _processSweepTxInput(
+        BridgeState.Storage storage self,
+        bytes memory sweepTxInputVector,
+        BitcoinTx.UTXO memory mainUtxo,
+        address vault,
+        DepositSweepTxInputsInfo memory resultInfo,
+        SweepInputProcessingState memory state
+    )
+        private
+    {
+        (
+            bytes32 outpointTxHash,
+            uint32 outpointIndex,
+            uint256 inputLength
+        ) = parseDepositSweepTxInputAt(
+                sweepTxInputVector,
+                state.inputStartingIndex
+            );
+
+        bytes32 depositKey = keccak256(
+            abi.encodePacked(outpointTxHash, outpointIndex)
+        );
+
+        {
+            Deposit.DepositRequest storage deposit = self.deposits[
+                uint256(depositKey)
+            ];
+
+            if (deposit.revealedAt != 0) {
+                // If we entered here, that means the input was identified as
+                // a revealed deposit.
+                require(deposit.sweptAt == 0, "Deposit already swept");
+
+                require(
+                    deposit.vault == vault,
+                    "Deposit should be routed to another vault"
+                );
+
+                bool reservedDeposit =
+                    deposit.extraData == BridgeState.RESERVED_DEPOSIT_EXTRA_DATA;
+
+                if (reservedDeposit) {
+                    require(
+                        self.reservedDeposits[depositKey].depositor !=
+                            address(0),
+                        "Missing reservation"
+                    );
+                }
+
+                if (state.processedDepositsCount == resultInfo.depositors.length) {
+                    revert(
+                        "Expected main UTXO not present in sweep transaction inputs"
+                    );
+                }
+
+                /* solhint-disable-next-line not-rely-on-time */
+                deposit.sweptAt = uint32(block.timestamp);
+
+                resultInfo.depositors[state.processedDepositsCount] = deposit.depositor;
+                resultInfo.depositedAmounts[state.processedDepositsCount] = deposit.amount;
+                resultInfo.inputsTotalValue += resultInfo.depositedAmounts[
+                    state.processedDepositsCount
+                ];
+                resultInfo.treasuryFees[state.processedDepositsCount] = deposit.treasuryFee;
+                resultInfo.depositKeys[state.processedDepositsCount] = depositKey;
+                resultInfo.isReserved[state.processedDepositsCount] = reservedDeposit;
+
+                state.processedDepositsCount++;
+                state.inputStartingIndex += inputLength;
+                return;
+            }
+        }
+
+        bool mainUtxoExpected = mainUtxo.txHash != bytes32(0);
+        if (
+            mainUtxoExpected != state.mainUtxoFound &&
+            mainUtxo.txHash == outpointTxHash &&
+            mainUtxo.txOutputIndex == outpointIndex
+        ) {
+            // If we entered here, that means the input was identified as
+            // the expected main UTXO.
+            resultInfo.inputsTotalValue += mainUtxo.txOutputValue;
+
+            // Main UTXO used as an input, mark it as spent.
+            self.spentMainUTXOs[uint256(depositKey)] = true;
+
+            state.mainUtxoFound = true;
+            state.inputStartingIndex += inputLength;
+        } else {
+            revert("Unknown input type");
+        }
+    }
+
     function processDepositSweepTxInputs(
         BridgeState.Storage storage self,
         DepositSweepTxInputsProcessingInfo memory processInfo
@@ -403,89 +570,30 @@ library DepositSweep {
             resultInfo.depositors.length
         );
         resultInfo.treasuryFees = new uint256[](resultInfo.depositors.length);
+        resultInfo.depositKeys = new bytes32[](resultInfo.depositors.length);
+        resultInfo.isReserved = new bool[](resultInfo.depositors.length);
 
         // Initialize helper variables.
-        uint256 processedDepositsCount = 0;
+        SweepInputProcessingState memory state = SweepInputProcessingState({
+            inputStartingIndex: inputStartingIndex,
+            processedDepositsCount: 0,
+            mainUtxoFound: false
+        });
 
         // Inputs processing loop.
         for (uint256 i = 0; i < inputsCount; i++) {
-            (
-                bytes32 outpointTxHash,
-                uint32 outpointIndex,
-                uint256 inputLength
-            ) = parseDepositSweepTxInputAt(
-                    processInfo.sweepTxInputVector,
-                    inputStartingIndex
-                );
-
-            Deposit.DepositRequest storage deposit = self.deposits[
-                uint256(
-                    keccak256(abi.encodePacked(outpointTxHash, outpointIndex))
-                )
-            ];
-
-            if (deposit.revealedAt != 0) {
-                // If we entered here, that means the input was identified as
-                // a revealed deposit.
-                require(deposit.sweptAt == 0, "Deposit already swept");
-
-                require(
-                    deposit.vault == processInfo.vault,
-                    "Deposit should be routed to another vault"
-                );
-
-                if (processedDepositsCount == resultInfo.depositors.length) {
-                    // If this condition is true, that means a deposit input
-                    // took place of an expected main UTXO input.
-                    // In other words, there is no expected main UTXO
-                    // input and all inputs come from valid, revealed deposits.
-                    revert(
-                        "Expected main UTXO not present in sweep transaction inputs"
-                    );
-                }
-
-                /* solhint-disable-next-line not-rely-on-time */
-                deposit.sweptAt = uint32(block.timestamp);
-
-                resultInfo.depositors[processedDepositsCount] = deposit
-                    .depositor;
-                resultInfo.depositedAmounts[processedDepositsCount] = deposit
-                    .amount;
-                resultInfo.inputsTotalValue += resultInfo.depositedAmounts[
-                    processedDepositsCount
-                ];
-                resultInfo.treasuryFees[processedDepositsCount] = deposit
-                    .treasuryFee;
-
-                processedDepositsCount++;
-            } else if (
-                mainUtxoExpected != mainUtxoFound &&
-                processInfo.mainUtxo.txHash == outpointTxHash &&
-                processInfo.mainUtxo.txOutputIndex == outpointIndex
-            ) {
-                // If we entered here, that means the input was identified as
-                // the expected main UTXO.
-                resultInfo.inputsTotalValue += processInfo
-                    .mainUtxo
-                    .txOutputValue;
-                mainUtxoFound = true;
-
-                // Main UTXO used as an input, mark it as spent.
-                self.spentMainUTXOs[
-                    uint256(
-                        keccak256(
-                            abi.encodePacked(outpointTxHash, outpointIndex)
-                        )
-                    )
-                ] = true;
-            } else {
-                revert("Unknown input type");
-            }
-
-            // Make the `inputStartingIndex` pointing to the next input by
-            // increasing it by current input's length.
-            inputStartingIndex += inputLength;
+            _processSweepTxInput(
+                self,
+                processInfo.sweepTxInputVector,
+                processInfo.mainUtxo,
+                processInfo.vault,
+                resultInfo,
+                state
+            );
         }
+
+        uint256 processedDepositsCount = state.processedDepositsCount;
+        mainUtxoFound = state.mainUtxoFound;
 
         // Construction of the input processing loop guarantees that:
         // `processedDepositsCount == resultInfo.depositors.length == resultInfo.depositedAmounts.length`

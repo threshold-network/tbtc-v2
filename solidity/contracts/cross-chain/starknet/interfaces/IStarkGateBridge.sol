@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-pragma solidity 0.8.17;
+pragma solidity ^0.8.17;
 
 /// @title IStarkGateBridge Interface
 /// @notice Interface for the StarkGate bridge contract that enables L1→L2 token transfers

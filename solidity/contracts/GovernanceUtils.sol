@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-pragma solidity 0.8.17;
+pragma solidity ^0.8.17;
 
 library GovernanceUtils {
     /// @notice Reverts if the governance delay has not passed since

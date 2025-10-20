@@ -42,7 +42,22 @@ export default async function bridgeFixture(): Promise<{
   redemptionWatchtower: RedemptionWatchtower
   deployBridge: (txProofDifficultyFactor: number) => Promise<any>
 }> {
-  await deployments.fixture()
+  // Deploy only core contracts, skip authorization scripts that require
+  // specific ownership configurations
+  await deployments.fixture([
+    "ReimbursementPool",
+    "WalletRegistry",
+    "LightRelay",
+    "Bank",
+    "TBTC",
+    "VendingMachine",
+    "TBTCVault",
+    "DonationVault",
+    "BridgeGovernance",
+    "MaintainerProxy",
+    "Bridge",
+    "RedemptionWatchtower",
+  ])
 
   const {
     deployer,
@@ -95,7 +110,8 @@ export default async function bridgeFixture(): Promise<{
     address: await (await bridge.contractReferences()).relay,
   })
 
-  await bank.connect(governance).updateBridge(bridge.address)
+  // Bank is owned by deployer, not governance
+  await bank.connect(deployer).updateBridge(bridge.address)
 
   const redemptionWatchtower: RedemptionWatchtower =
     await helpers.contracts.getContract("RedemptionWatchtower")

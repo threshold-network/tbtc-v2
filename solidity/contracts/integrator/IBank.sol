@@ -13,7 +13,7 @@
 //               ▐████▌    ▐████▌
 //               ▐████▌    ▐████▌
 
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.17;
 
 /// @notice Interface of the Bank contract.
 /// @dev See bank/Bank.sol

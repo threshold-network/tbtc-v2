@@ -1,3 +1,4 @@
+/// <reference types="@tenderly/hardhat-tenderly" />
 import { HardhatUserConfig } from "hardhat/config"
 import "./tasks"
 
@@ -8,13 +9,18 @@ import "@nomiclabs/hardhat-etherscan"
 import "hardhat-gas-reporter"
 import "hardhat-contract-sizer"
 import "hardhat-deploy"
-import "@tenderly/hardhat-tenderly"
 import "@typechain/hardhat"
 import "hardhat-dependency-compiler"
 import "solidity-docgen"
 
+const enableTenderly = process.env.ENABLE_TENDERLY === "true"
+
+if (enableTenderly) {
+  require("@tenderly/hardhat-tenderly")
+}
+
 const ecdsaSolidityCompilerConfig = {
-  version: "0.8.17",
+  version: "0.8.30",
   settings: {
     optimizer: {
       enabled: true,
@@ -26,7 +32,7 @@ const ecdsaSolidityCompilerConfig = {
 // Reduce the number of optimizer runs to 100 to keep the contract size sane.
 // BridgeGovernance contract does not need to be super gas-efficient.
 const bridgeGovernanceCompilerConfig = {
-  version: "0.8.17",
+  version: "0.8.30",
   settings: {
     optimizer: {
       enabled: true,
@@ -54,24 +60,178 @@ const config: HardhatUserConfig = {
   solidity: {
     compilers: [
       {
+        version: "0.8.30",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 200,
+          },
+        },
+      },
+      {
         version: "0.8.17",
         settings: {
           optimizer: {
             enabled: true,
-            runs: 1000,
+            runs: 200,
           },
         },
       },
     ],
     overrides: {
-      "@keep-network/ecdsa/contracts/WalletRegistry.sol":
-        ecdsaSolidityCompilerConfig,
-      "contracts/bridge/BridgeGovernance.sol": bridgeGovernanceCompilerConfig,
+      "@keep-network/ecdsa/contracts/WalletRegistry.sol": {
+        version: "0.8.17",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 200,
+          },
+        },
+      },
+      "contracts/bank/Bank.sol": {
+        version: "0.8.17",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 200,
+          },
+        },
+      },
+      "contracts/test/BankStub.sol": {
+        version: "0.8.17",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 200,
+          },
+        },
+      },
+      "contracts/test/BridgeStub.sol": {
+        version: "0.8.17",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 200,
+          },
+        },
+      },
+      "contracts/relay/LightRelay.sol": {
+        version: "0.8.17",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 200,
+          },
+        },
+      },
+      "contracts/test/WalletRegistryMock.sol": {
+        version: "0.8.17",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 200,
+          },
+        },
+      },
+      "contracts/token/TBTC.sol": {
+        version: "0.8.17",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 200,
+          },
+        },
+      },
+      "contracts/test/TBTCTokenStub.sol": {
+        version: "0.8.17",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 200,
+          },
+        },
+      },
+      "contracts/bridge/VendingMachine.sol": {
+        version: "0.8.17",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 200,
+          },
+        },
+      },
+      "contracts/vault/TBTCVault.sol": {
+        version: "0.8.17",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 200,
+          },
+        },
+      },
+      "contracts/vault/TBTCOptimisticMinting.sol": {
+        version: "0.8.17",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 200,
+          },
+        },
+      },
+      "contracts/vault/DonationVault.sol": {
+        version: "0.8.17",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 200,
+          },
+        },
+      },
+      "contracts/governance/Governable.sol": {
+        version: "0.8.17",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 200,
+          },
+        },
+      },
+      "contracts/governance/GovernanceUtils.sol": {
+        version: "0.8.17",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 200,
+          },
+        },
+      },
+      "contracts/bridge/BridgeGovernance.sol": {
+        version: "0.8.17",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 100,
+          },
+        },
+      },
+      "contracts/bridge/BridgeGovernanceParameters.sol": {
+        version: "0.8.17",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 200,
+          },
+        },
+      },
     },
   },
 
   paths: {
     artifacts: "./build",
+  },
+
+  gasReporter: {
+    enabled: process.env.REPORT_GAS === "true",
   },
 
   networks: {
@@ -127,10 +287,14 @@ const config: HardhatUserConfig = {
     },
   },
 
-  tenderly: {
-    username: "thesis",
-    project: "",
-  },
+  ...(enableTenderly
+    ? {
+        tenderly: {
+          username: "thesis",
+          project: "",
+        },
+      }
+    : {}),
 
   // Define local networks configuration file path to load networks from file.
   // localNetworksConfig: "./.hardhat/networks.ts",
@@ -239,6 +403,7 @@ const config: HardhatUserConfig = {
       // external artifacts section, hence we have to compile the contracts from
       // sources.
       "@keep-network/ecdsa/contracts/WalletRegistry.sol",
+      "@keep-network/random-beacon/contracts/ReimbursementPool.sol",
     ],
     keep: true,
   },

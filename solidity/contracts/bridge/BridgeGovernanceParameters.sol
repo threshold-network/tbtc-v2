@@ -13,7 +13,7 @@
 //               ▐████▌    ▐████▌
 //               ▐████▌    ▐████▌
 
-pragma solidity 0.8.17;
+pragma solidity ^0.8.17;
 
 /// @title Bridge Governance library for storing updatable parameters.
 library BridgeGovernanceParameters {
