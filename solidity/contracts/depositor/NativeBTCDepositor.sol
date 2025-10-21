@@ -58,6 +58,7 @@ contract NativeBTCDepositor is AbstractL1BTCDepositor {
         override
     {
         require(amount > 0, "Amount too low to transfer");
+        require(ethereumReceiverBytes32 != bytes32(0), "Receiver cannot be zero");
 
         address ethereumReceiver = CrosschainUtils.bytes32ToAddress(
             ethereumReceiverBytes32
