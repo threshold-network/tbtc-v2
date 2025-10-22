@@ -1,13 +1,12 @@
 import { HardhatRuntimeEnvironment } from "hardhat/types"
-import { DeployFunction, DeployOptions } from "hardhat-deploy/types"
-import { Contract } from "ethers"
+import { DeployFunction } from "hardhat-deploy/types"
 import fs from "fs"
 import path from "path"
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { ethers, helpers, deployments, getNamedAccounts } = hre
-  const { deploy, get, save } = deployments
-  const { deployer, treasury, governance } = await getNamedAccounts()
+  const { get } = deployments
+  const { deployer } = await getNamedAccounts()
 
   console.log("\n========== REBATE DEPLOYMENT STARTING ==========")
   console.log("Network:", hre.network.name)
@@ -55,7 +54,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     rebateProxyDeployment = existingRebateStaking
   } catch (error) {
     // Deploy if doesn't exist
-    ;[rebateStaking, rebateProxyDeployment] =
+    [rebateStaking, rebateProxyDeployment] =
       await helpers.upgrades.deployProxy("RebateStaking", {
         contractName: "RebateStaking",
         initializerArgs: [
@@ -105,7 +104,6 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const LightRelay = await deployments.get("LightRelay")
   const WalletRegistry = await deployments.get("WalletRegistry")
   const ReimbursementPool = await deployments.get("ReimbursementPool")
-  const txProofDifficultyFactor = 6
 
   // Deploy the Bridge implementation with linked libraries
   // This is just the implementation, not the proxy
