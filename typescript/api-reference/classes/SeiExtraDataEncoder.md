@@ -60,7 +60,7 @@ Error if the data cannot be decoded as a Sei address
 
 #### Defined in
 
-[lib/sei/extra-data-encoder.ts:38](https://github.com/threshold-network/tbtc-v2/blob/ntt-typescript/typescript/src/lib/sei/extra-data-encoder.ts#L38)
+[lib/sei/extra-data-encoder.ts:38](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/extra-data-encoder.ts#L38)
 
 ___
 
@@ -92,4 +92,4 @@ Error if depositOwner is not a SeiAddress
 
 #### Defined in
 
-[lib/sei/extra-data-encoder.ts:18](https://github.com/threshold-network/tbtc-v2/blob/ntt-typescript/typescript/src/lib/sei/extra-data-encoder.ts#L18)
+[lib/sei/extra-data-encoder.ts:18](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/extra-data-encoder.ts#L18)

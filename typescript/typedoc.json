@@ -5,7 +5,7 @@
   "plugin": ["typedoc-plugin-markdown"],
   "githubPages": false,
   "readme": "none",
-  "gitRevision": "ntt-typescript",
+  "gitRevision": "main",
   "gitRemote": "upstream",
   "hideBreadcrumbs": true,
   "compilerOptions": {

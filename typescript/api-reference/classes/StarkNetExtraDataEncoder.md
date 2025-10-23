@@ -67,7 +67,7 @@ Error if the extra data is missing, null, or not exactly 32 bytes.
 
 #### Defined in
 
-[lib/starknet/extra-data-encoder.ts:44](https://github.com/threshold-network/tbtc-v2/blob/ntt-typescript/typescript/src/lib/starknet/extra-data-encoder.ts#L44)
+[lib/starknet/extra-data-encoder.ts:44](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/extra-data-encoder.ts#L44)
 
 ___
 
@@ -101,4 +101,4 @@ Error if the deposit owner is not a StarkNetAddress instance.
 
 #### Defined in
 
-[lib/starknet/extra-data-encoder.ts:24](https://github.com/threshold-network/tbtc-v2/blob/ntt-typescript/typescript/src/lib/starknet/extra-data-encoder.ts#L24)
+[lib/starknet/extra-data-encoder.ts:24](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/extra-data-encoder.ts#L24)

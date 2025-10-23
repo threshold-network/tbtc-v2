@@ -18,7 +18,7 @@ Represents the state of the deposit.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:156](https://github.com/threshold-network/tbtc-v2/blob/ntt-typescript/typescript/src/lib/contracts/cross-chain.ts#L156)
+[lib/contracts/cross-chain.ts:156](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L156)
 
 ___
 
@@ -28,7 +28,7 @@ ___
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:154](https://github.com/threshold-network/tbtc-v2/blob/ntt-typescript/typescript/src/lib/contracts/cross-chain.ts#L154)
+[lib/contracts/cross-chain.ts:154](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L154)
 
 ___
 
@@ -38,4 +38,4 @@ ___
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:152](https://github.com/threshold-network/tbtc-v2/blob/ntt-typescript/typescript/src/lib/contracts/cross-chain.ts#L152)
+[lib/contracts/cross-chain.ts:152](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L152)

@@ -17,7 +17,7 @@ Configuration for StarkNetTBTCToken
 
 #### Defined in
 
-[lib/starknet/starknet-tbtc-token.ts:12](https://github.com/threshold-network/tbtc-v2/blob/ntt-typescript/typescript/src/lib/starknet/starknet-tbtc-token.ts#L12)
+[lib/starknet/starknet-tbtc-token.ts:12](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-tbtc-token.ts#L12)
 
 ___
 
@@ -27,4 +27,4 @@ ___
 
 #### Defined in
 
-[lib/starknet/starknet-tbtc-token.ts:13](https://github.com/threshold-network/tbtc-v2/blob/ntt-typescript/typescript/src/lib/starknet/starknet-tbtc-token.ts#L13)
+[lib/starknet/starknet-tbtc-token.ts:13](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-tbtc-token.ts#L13)
