@@ -15,14 +15,14 @@ export class SeiAddress implements ChainIdentifier {
   private constructor(address: string) {
     // Normalize address - ensure 0x prefix
     const normalized = address.startsWith("0x") ? address : `0x${address}`
-    
+
     // Validate Ethereum-style address format
     if (!normalized.match(/^0x[0-9a-fA-F]{40}$/)) {
       throw new Error(
         `Invalid Sei address format: ${address}. Expected 0x followed by 40 hex characters.`
       )
     }
-    
+
     // Store without 0x prefix, lowercase
     this.identifierHex = normalized.slice(2).toLowerCase()
   }
@@ -33,7 +33,8 @@ export class SeiAddress implements ChainIdentifier {
    * @returns A new SeiAddress instance
    */
   static from(address: string | Hex): SeiAddress {
-    const addressStr = typeof address === "string" ? address : address.toString()
+    const addressStr =
+      typeof address === "string" ? address : address.toString()
     return new SeiAddress(addressStr)
   }
 
@@ -57,4 +58,3 @@ export class SeiAddress implements ChainIdentifier {
     return this.identifierHex === otherValue.identifierHex
   }
 }
-

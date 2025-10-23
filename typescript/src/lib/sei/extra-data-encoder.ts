@@ -55,4 +55,3 @@ export class SeiExtraDataEncoder implements ExtraDataEncoder {
     return SeiAddress.from(`0x${addressHex}`)
   }
 }
-

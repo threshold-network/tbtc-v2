@@ -512,4 +512,3 @@ export class SeiBitcoinDepositor implements BitcoinDepositor {
     return `0x${paddedAddress}`.toLowerCase()
   }
 }
-

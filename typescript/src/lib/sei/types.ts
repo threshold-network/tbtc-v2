@@ -9,4 +9,3 @@ export type SeiProvider = ethers.providers.Provider
  * Sei signer type - uses standard Ethereum signer
  */
 export type SeiSigner = ethers.Signer
-
