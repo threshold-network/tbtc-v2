@@ -29,7 +29,7 @@ Identifier as an un-prefixed hex string.
 
 #### Defined in
 
-[lib/contracts/chain-identifier.ts:8](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain-identifier.ts#L8)
+[lib/contracts/chain-identifier.ts:8](https://github.com/threshold-network/tbtc-v2/blob/ntt-typescript/typescript/src/lib/contracts/chain-identifier.ts#L8)
 
 ## Methods
 
@@ -51,4 +51,4 @@ Checks if two identifiers are equal.
 
 #### Defined in
 
-[lib/contracts/chain-identifier.ts:14](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain-identifier.ts#L14)
+[lib/contracts/chain-identifier.ts:14](https://github.com/threshold-network/tbtc-v2/blob/ntt-typescript/typescript/src/lib/contracts/chain-identifier.ts#L14)

@@ -42,7 +42,7 @@ StarkNet addresses are field elements (felt252) in the StarkNet prime field.
 
 #### Defined in
 
-[lib/starknet/address.ts:14](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/address.ts#L14)
+[lib/starknet/address.ts:14](https://github.com/threshold-network/tbtc-v2/blob/ntt-typescript/typescript/src/lib/starknet/address.ts#L14)
 
 ## Properties
 
@@ -59,7 +59,7 @@ This is always normalized to lowercase and padded to 32 bytes.
 
 #### Defined in
 
-[lib/starknet/address.ts:12](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/address.ts#L12)
+[lib/starknet/address.ts:12](https://github.com/threshold-network/tbtc-v2/blob/ntt-typescript/typescript/src/lib/starknet/address.ts#L12)
 
 ## Methods
 
@@ -87,7 +87,7 @@ true if both are StarkNetAddress instances with the same identifierHex
 
 #### Defined in
 
-[lib/starknet/address.ts:50](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/address.ts#L50)
+[lib/starknet/address.ts:50](https://github.com/threshold-network/tbtc-v2/blob/ntt-typescript/typescript/src/lib/starknet/address.ts#L50)
 
 ___
 
@@ -106,7 +106,7 @@ The address as a 0x-prefixed 64-character hex string
 
 #### Defined in
 
-[lib/starknet/address.ts:62](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/address.ts#L62)
+[lib/starknet/address.ts:62](https://github.com/threshold-network/tbtc-v2/blob/ntt-typescript/typescript/src/lib/starknet/address.ts#L62)
 
 ___
 
@@ -124,7 +124,7 @@ The address as a 0x-prefixed hex string
 
 #### Defined in
 
-[lib/starknet/address.ts:70](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/address.ts#L70)
+[lib/starknet/address.ts:70](https://github.com/threshold-network/tbtc-v2/blob/ntt-typescript/typescript/src/lib/starknet/address.ts#L70)
 
 ___
 
@@ -152,4 +152,4 @@ Error if the address format is invalid or exceeds field element size
 
 #### Defined in
 
-[lib/starknet/address.ts:41](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/address.ts#L41)
+[lib/starknet/address.ts:41](https://github.com/threshold-network/tbtc-v2/blob/ntt-typescript/typescript/src/lib/starknet/address.ts#L41)
