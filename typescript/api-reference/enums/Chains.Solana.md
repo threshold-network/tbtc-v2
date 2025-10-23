@@ -17,7 +17,7 @@
 
 #### Defined in
 
-[lib/contracts/chain.ts:24](https://github.com/jose-blockchain/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L24)
+[lib/contracts/chain.ts:24](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L24)
 
 ___
 
@@ -27,4 +27,4 @@ ___
 
 #### Defined in
 
-[lib/contracts/chain.ts:23](https://github.com/jose-blockchain/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L23)
+[lib/contracts/chain.ts:23](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L23)

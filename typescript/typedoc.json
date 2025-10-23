@@ -6,6 +6,7 @@
   "githubPages": false,
   "readme": "none",
   "gitRevision": "main",
+  "gitRemote": "upstream",
   "hideBreadcrumbs": true,
   "compilerOptions": {
     "skipLibCheck": true
