@@ -7,6 +7,7 @@ cross-chain deposit script.
 
 - [`ArbitrumExtraDataEncoder`](../classes/ArbitrumExtraDataEncoder.md)
 - [`EthereumExtraDataEncoder`](../classes/EthereumExtraDataEncoder.md)
+- [`SeiExtraDataEncoder`](../classes/SeiExtraDataEncoder.md)
 - [`SolanaExtraDataEncoder`](../classes/SolanaExtraDataEncoder.md)
 - [`StarkNetExtraDataEncoder`](../classes/StarkNetExtraDataEncoder.md)
 
@@ -39,7 +40,7 @@ Identifier of the deposit owner.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:245](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L245)
+[lib/contracts/cross-chain.ts:245](https://github.com/jose-blockchain/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L245)
 
 ___
 
@@ -63,4 +64,4 @@ Encoded extra data.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:238](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L238)
+[lib/contracts/cross-chain.ts:238](https://github.com/jose-blockchain/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L238)
