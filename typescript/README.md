@@ -148,6 +148,27 @@ yarn docs
 Generated API reference in form of Markdown files is saved
 to the [`api-reference`](./api-reference) directory.
 
+## NTT Utilities
+
+The SDK includes utility functions for NTT (Native Token Transfer) bridges, particularly useful for SEI and other cross-chain operations:
+
+```typescript
+import { 
+  encodeDestinationReceiver, 
+  decodeDestinationReceiver 
+} from "@keep-network/tbtc-v2"
+
+// Encode destination chain and recipient
+const encoded = encodeDestinationReceiver(40, "0x1234567890123456789012345678901234567890")
+
+// Decode back to original values
+const { chainId, recipient } = decodeDestinationReceiver(encoded)
+```
+
+These utilities were removed from on-chain contracts to reduce bytecode size but are available off-chain for encoding and decoding destination chain and recipient data.
+
+For more details, see the [NTT Utilities documentation](./src/lib/utils/README.md).
+
 ## Documentation
 
 This README provides just a basic guidance. Comprehensive documentation for
