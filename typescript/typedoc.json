@@ -5,7 +5,7 @@
   "plugin": ["typedoc-plugin-markdown"],
   "githubPages": false,
   "readme": "none",
-  "gitRevision": "main",
+  "sourceLinkTemplate": "{path}#L{line}",
   "hideBreadcrumbs": true,
   "compilerOptions": {
     "skipLibCheck": true
