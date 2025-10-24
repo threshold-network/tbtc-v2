@@ -127,22 +127,8 @@ describe("L1BTCDepositorNttWithExecutor - Core Functions", () => {
     })
   })
 
-  describe("Destination Receiver Encoding/Decoding", () => {
-    it("should encode and decode destination receiver correctly", async () => {
-      const chainId = WORMHOLE_CHAIN_SEI
-      const recipient = ethers.Wallet.createRandom().address
-
-      const encoded = await depositor.encodeDestinationReceiver(
-        chainId,
-        recipient
-      )
-      const [decodedChainId, decodedRecipient] =
-        await depositor.decodeDestinationReceiver(encoded)
-
-      expect(decodedChainId).to.equal(chainId)
-      expect(decodedRecipient).to.equal(recipient)
-    })
-  })
+  // Destination Receiver Encoding/Decoding functions were removed to reduce contract size
+  // These utility functions can be implemented off-chain if needed
 
   describe("Access Control", () => {
     it("should allow only owner to update configuration", async () => {
