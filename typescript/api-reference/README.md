@@ -163,9 +163,14 @@
 - [backoffRetrier](README.md#backoffretrier)
 - [chainIdFromSigner](README.md#chainidfromsigner)
 - [computeElectrumScriptHash](README.md#computeelectrumscripthash)
+- [decodeDestinationReceiver](README.md#decodedestinationreceiver)
+- [encodeDestinationReceiver](README.md#encodedestinationreceiver)
 - [ethereumAddressFromSigner](README.md#ethereumaddressfromsigner)
 - [ethereumCrossChainContractsLoader](README.md#ethereumcrosschaincontractsloader)
 - [extractBitcoinRawTxVectors](README.md#extractbitcoinrawtxvectors)
+- [getChainIdFromEncodedReceiver](README.md#getchainidfromencodedreceiver)
+- [getRecipientFromEncodedReceiver](README.md#getrecipientfromencodedreceiver)
+- [isValidEncodedReceiver](README.md#isvalidencodedreceiver)
 - [loadArbitrumCrossChainContracts](README.md#loadarbitrumcrosschaincontracts)
 - [loadArbitrumCrossChainInterfaces](README.md#loadarbitrumcrosschaininterfaces)
 - [loadBaseCrossChainContracts](README.md#loadbasecrosschaincontracts)
@@ -1204,6 +1209,74 @@ Electrum script hash as a hex string.
 
 ___
 
+### decodeDestinationReceiver
+
+▸ **decodeDestinationReceiver**(`encodedReceiver`): `Object`
+
+Decodes destination chain ID and recipient address from encoded receiver data.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `encodedReceiver` | `string` \| [`Hex`](classes/Hex.md) | The encoded receiver data (32 bytes) |
+
+#### Returns
+
+`Object`
+
+Object containing the decoded chain ID and recipient address
+
+| Name | Type |
+| :------ | :------ |
+| `chainId` | `number` |
+| `recipient` | `string` |
+
+**`Example`**
+
+```typescript
+const { chainId, recipient } = decodeDestinationReceiver("0x00000000000000000000000000000000000000000000000000000000000000281234567890123456789012345678901234567890")
+// Returns: { chainId: 40, recipient: "0x1234567890123456789012345678901234567890" }
+```
+
+#### Defined in
+
+[lib/utils/ntt.ts:59](typescript/src/lib/utils/ntt.ts#L59)
+
+___
+
+### encodeDestinationReceiver
+
+▸ **encodeDestinationReceiver**(`chainId`, `recipient`): [`Hex`](classes/Hex.md)
+
+Encodes destination chain ID and recipient address into a 32-byte value.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `chainId` | `number` | Wormhole chain ID of the destination chain (uint16) |
+| `recipient` | `string` | Recipient address on the destination chain (20 bytes) |
+
+#### Returns
+
+[`Hex`](classes/Hex.md)
+
+The encoded receiver data as a 32-byte hex string
+
+**`Example`**
+
+```typescript
+const encoded = encodeDestinationReceiver(40, "0x1234567890123456789012345678901234567890")
+// Returns: "0x00000000000000000000000000000000000000000000000000000000000000281234567890123456789012345678901234567890"
+```
+
+#### Defined in
+
+[lib/utils/ntt.ts:23](typescript/src/lib/utils/ntt.ts#L23)
+
+___
+
 ### ethereumAddressFromSigner
 
 ▸ **ethereumAddressFromSigner**(`signer`): `Promise`\<[`EthereumAddress`](classes/EthereumAddress.md) \| `undefined`\>
@@ -1289,6 +1362,78 @@ Transaction data with fields represented as un-prefixed hex strings.
 #### Defined in
 
 [lib/bitcoin/tx.ts:133](typescript/src/lib/bitcoin/tx.ts#L133)
+
+___
+
+### getChainIdFromEncodedReceiver
+
+▸ **getChainIdFromEncodedReceiver**(`encodedReceiver`): `number`
+
+Gets the chain ID from encoded receiver data without full decoding.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `encodedReceiver` | `string` \| [`Hex`](classes/Hex.md) | The encoded receiver data |
+
+#### Returns
+
+`number`
+
+The chain ID
+
+#### Defined in
+
+[lib/utils/ntt.ts:133](typescript/src/lib/utils/ntt.ts#L133)
+
+___
+
+### getRecipientFromEncodedReceiver
+
+▸ **getRecipientFromEncodedReceiver**(`encodedReceiver`): `string`
+
+Gets the recipient address from encoded receiver data without full decoding.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `encodedReceiver` | `string` \| [`Hex`](classes/Hex.md) | The encoded receiver data |
+
+#### Returns
+
+`string`
+
+The recipient address
+
+#### Defined in
+
+[lib/utils/ntt.ts:159](typescript/src/lib/utils/ntt.ts#L159)
+
+___
+
+### isValidEncodedReceiver
+
+▸ **isValidEncodedReceiver**(`encodedReceiver`): `boolean`
+
+Validates that an encoded receiver has the correct format.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `encodedReceiver` | `string` \| [`Hex`](classes/Hex.md) | The encoded receiver data to validate |
+
+#### Returns
+
+`boolean`
+
+True if the format is valid, false otherwise
+
+#### Defined in
+
+[lib/utils/ntt.ts:100](typescript/src/lib/utils/ntt.ts#L100)
 
 ___
 
