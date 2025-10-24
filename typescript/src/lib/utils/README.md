@@ -9,16 +9,21 @@ This module provides utility functions for NTT (Native Token Transfer) bridges. 
 Encodes a destination chain ID and recipient address into a 32-byte value.
 
 **Parameters:**
+
 - `chainId` (number): Wormhole chain ID of the destination chain (0-65535)
 - `recipient` (string): Recipient address on the destination chain (20 bytes, hex format)
 
 **Returns:** `Hex` - The encoded receiver data as a 32-byte hex string
 
 **Example:**
+
 ```typescript
 import { encodeDestinationReceiver } from "@keep-network/tbtc-v2"
 
-const encoded = encodeDestinationReceiver(40, "0x1234567890123456789012345678901234567890")
+const encoded = encodeDestinationReceiver(
+  40,
+  "0x1234567890123456789012345678901234567890"
+)
 console.log(encoded.toPrefixedString())
 // Output: "0x00000000000000000000000000000000000000000000000000000000000000281234567890123456789012345678901234567890"
 ```
@@ -28,11 +33,13 @@ console.log(encoded.toPrefixedString())
 Decodes destination chain ID and recipient address from encoded receiver data.
 
 **Parameters:**
+
 - `encodedReceiver` (Hex | string): The encoded receiver data (32 bytes)
 
 **Returns:** `{ chainId: number, recipient: string }` - Object containing the decoded chain ID and recipient address
 
 **Example:**
+
 ```typescript
 import { decodeDestinationReceiver } from "@keep-network/tbtc-v2"
 
@@ -46,6 +53,7 @@ console.log(recipient) // "0x1234567890123456789012345678901234567890"
 Validates that an encoded receiver has the correct format.
 
 **Parameters:**
+
 - `encodedReceiver` (Hex | string): The encoded receiver data to validate
 
 **Returns:** `boolean` - True if the format is valid, false otherwise
@@ -55,6 +63,7 @@ Validates that an encoded receiver has the correct format.
 Gets the chain ID from encoded receiver data without full decoding.
 
 **Parameters:**
+
 - `encodedReceiver` (Hex | string): The encoded receiver data
 
 **Returns:** `number` - The chain ID
@@ -64,6 +73,7 @@ Gets the chain ID from encoded receiver data without full decoding.
 Gets the recipient address from encoded receiver data without full decoding.
 
 **Parameters:**
+
 - `encodedReceiver` (Hex | string): The encoded receiver data
 
 **Returns:** `string` - The recipient address
@@ -73,9 +83,9 @@ Gets the recipient address from encoded receiver data without full decoding.
 These utilities are particularly useful for SEI and other NTT bridges where you need to encode destination chain and recipient information for cross-chain transfers.
 
 ```typescript
-import { 
-  encodeDestinationReceiver, 
-  decodeDestinationReceiver 
+import {
+  encodeDestinationReceiver,
+  decodeDestinationReceiver,
 } from "@keep-network/tbtc-v2"
 
 // Encode destination for SEI chain
@@ -87,7 +97,8 @@ const encoded = encodeDestinationReceiver(seiChainId, recipient)
 // ...
 
 // Later, decode to get the original values
-const { chainId, recipient: decodedRecipient } = decodeDestinationReceiver(encoded)
+const { chainId, recipient: decodedRecipient } =
+  decodeDestinationReceiver(encoded)
 ```
 
 ## Error Handling

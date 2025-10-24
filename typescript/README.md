@@ -153,13 +153,16 @@ to the [`api-reference`](./api-reference) directory.
 The SDK includes utility functions for NTT (Native Token Transfer) bridges, particularly useful for SEI and other cross-chain operations:
 
 ```typescript
-import { 
-  encodeDestinationReceiver, 
-  decodeDestinationReceiver 
+import {
+  encodeDestinationReceiver,
+  decodeDestinationReceiver,
 } from "@keep-network/tbtc-v2"
 
 // Encode destination chain and recipient
-const encoded = encodeDestinationReceiver(40, "0x1234567890123456789012345678901234567890")
+const encoded = encodeDestinationReceiver(
+  40,
+  "0x1234567890123456789012345678901234567890"
+)
 
 // Decode back to original values
 const { chainId, recipient } = decodeDestinationReceiver(encoded)

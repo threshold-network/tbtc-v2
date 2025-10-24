@@ -6,16 +6,15 @@ import {
   getChainIdFromEncodedReceiver,
   getRecipientFromEncodedReceiver,
 } from "../../src/lib/utils/ntt"
-import { Hex } from "../../src"
 
 describe("NTT Utilities", () => {
   describe("encodeDestinationReceiver", () => {
     it("should encode chain ID and recipient correctly", () => {
       const chainId = 40 // Sei chain ID
       const recipient = "0x1234567890123456789012345678901234567890"
-      
+
       const encoded = encodeDestinationReceiver(chainId, recipient)
-      
+
       // Should be 32 bytes (64 hex characters)
       assert.equal(encoded.toString().length, 64)
       assert.equal(encoded.toPrefixedString().length, 66) // with 0x prefix
@@ -25,10 +24,10 @@ describe("NTT Utilities", () => {
       // Maximum chain ID
       const maxChainId = 65535
       const recipient = "0x1234567890123456789012345678901234567890"
-      
+
       const encoded = encodeDestinationReceiver(maxChainId, recipient)
       assert.equal(encoded.toString().length, 64)
-      
+
       // Zero chain ID
       const zeroChainId = 0
       const encodedZero = encodeDestinationReceiver(zeroChainId, recipient)
@@ -37,13 +36,13 @@ describe("NTT Utilities", () => {
 
     it("should throw error for invalid chain ID", () => {
       const recipient = "0x1234567890123456789012345678901234567890"
-      
+
       assert.throws(
         () => encodeDestinationReceiver(-1, recipient),
         Error,
         "Chain ID must be between 0 and 65535"
       )
-      
+
       assert.throws(
         () => encodeDestinationReceiver(65536, recipient),
         Error,
@@ -53,13 +52,13 @@ describe("NTT Utilities", () => {
 
     it("should throw error for invalid recipient address", () => {
       const chainId = 40
-      
+
       assert.throws(
         () => encodeDestinationReceiver(chainId, "invalid-address"),
         Error,
         "Invalid recipient address format"
       )
-      
+
       assert.throws(
         () => encodeDestinationReceiver(chainId, "0x123"),
         Error,
@@ -72,10 +71,10 @@ describe("NTT Utilities", () => {
     it("should decode encoded data correctly", () => {
       const chainId = 40
       const recipient = "0x1234567890123456789012345678901234567890"
-      
+
       const encoded = encodeDestinationReceiver(chainId, recipient)
       const decoded = decodeDestinationReceiver(encoded)
-      
+
       assert.equal(decoded.chainId, chainId)
       assert.equal(decoded.recipient, recipient)
     })
@@ -83,11 +82,11 @@ describe("NTT Utilities", () => {
     it("should work with string input", () => {
       const chainId = 40
       const recipient = "0x1234567890123456789012345678901234567890"
-      
+
       const encoded = encodeDestinationReceiver(chainId, recipient)
       const encodedString = encoded.toPrefixedString()
       const decoded = decodeDestinationReceiver(encodedString)
-      
+
       assert.equal(decoded.chainId, chainId)
       assert.equal(decoded.recipient, recipient)
     })
@@ -96,18 +95,18 @@ describe("NTT Utilities", () => {
       // Maximum chain ID
       const maxChainId = 65535
       const recipient = "0x1234567890123456789012345678901234567890"
-      
+
       const encoded = encodeDestinationReceiver(maxChainId, recipient)
       const decoded = decodeDestinationReceiver(encoded)
-      
+
       assert.equal(decoded.chainId, maxChainId)
       assert.equal(decoded.recipient, recipient)
-      
+
       // Zero chain ID
       const zeroChainId = 0
       const encodedZero = encodeDestinationReceiver(zeroChainId, recipient)
       const decodedZero = decodeDestinationReceiver(encodedZero)
-      
+
       assert.equal(decodedZero.chainId, zeroChainId)
       assert.equal(decodedZero.recipient, recipient)
     })
@@ -118,7 +117,7 @@ describe("NTT Utilities", () => {
         Error,
         "Invalid encoded receiver length"
       )
-      
+
       assert.throws(
         () => decodeDestinationReceiver("0x123"),
         Error,
@@ -131,9 +130,9 @@ describe("NTT Utilities", () => {
     it("should return true for valid encoded data", () => {
       const chainId = 40
       const recipient = "0x1234567890123456789012345678901234567890"
-      
+
       const encoded = encodeDestinationReceiver(chainId, recipient)
-      
+
       assert.isTrue(isValidEncodedReceiver(encoded))
       assert.isTrue(isValidEncodedReceiver(encoded.toPrefixedString()))
     })
@@ -150,20 +149,22 @@ describe("NTT Utilities", () => {
     it("should extract chain ID correctly", () => {
       const chainId = 40
       const recipient = "0x1234567890123456789012345678901234567890"
-      
+
       const encoded = encodeDestinationReceiver(chainId, recipient)
       const extractedChainId = getChainIdFromEncodedReceiver(encoded)
-      
+
       assert.equal(extractedChainId, chainId)
     })
 
     it("should work with string input", () => {
       const chainId = 40
       const recipient = "0x1234567890123456789012345678901234567890"
-      
+
       const encoded = encodeDestinationReceiver(chainId, recipient)
-      const extractedChainId = getChainIdFromEncodedReceiver(encoded.toPrefixedString())
-      
+      const extractedChainId = getChainIdFromEncodedReceiver(
+        encoded.toPrefixedString()
+      )
+
       assert.equal(extractedChainId, chainId)
     })
 
@@ -180,20 +181,22 @@ describe("NTT Utilities", () => {
     it("should extract recipient correctly", () => {
       const chainId = 40
       const recipient = "0x1234567890123456789012345678901234567890"
-      
+
       const encoded = encodeDestinationReceiver(chainId, recipient)
       const extractedRecipient = getRecipientFromEncodedReceiver(encoded)
-      
+
       assert.equal(extractedRecipient, recipient)
     })
 
     it("should work with string input", () => {
       const chainId = 40
       const recipient = "0x1234567890123456789012345678901234567890"
-      
+
       const encoded = encodeDestinationReceiver(chainId, recipient)
-      const extractedRecipient = getRecipientFromEncodedReceiver(encoded.toPrefixedString())
-      
+      const extractedRecipient = getRecipientFromEncodedReceiver(
+        encoded.toPrefixedString()
+      )
+
       assert.equal(extractedRecipient, recipient)
     })
 
@@ -210,7 +213,10 @@ describe("NTT Utilities", () => {
     const testCases = [
       { chainId: 0, recipient: "0x0000000000000000000000000000000000000000" },
       { chainId: 40, recipient: "0x1234567890123456789012345678901234567890" },
-      { chainId: 65535, recipient: "0xffffffffffffffffffffffffffffffffffffffff" },
+      {
+        chainId: 65535,
+        recipient: "0xffffffffffffffffffffffffffffffffffffffff",
+      },
       { chainId: 1, recipient: "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd" },
     ]
 
@@ -218,7 +224,7 @@ describe("NTT Utilities", () => {
       it(`should round-trip chainId=${chainId}, recipient=${recipient}`, () => {
         const encoded = encodeDestinationReceiver(chainId, recipient)
         const decoded = decodeDestinationReceiver(encoded)
-        
+
         assert.equal(decoded.chainId, chainId)
         assert.equal(decoded.recipient, recipient)
       })
