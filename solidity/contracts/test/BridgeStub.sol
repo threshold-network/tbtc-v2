@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-pragma solidity 0.8.17;
+pragma solidity ^0.8.17;
 
 import "../bridge/BitcoinTx.sol";
 import "../bridge/Bridge.sol";
 import "../bridge/MovingFunds.sol";
 import "../bridge/Wallets.sol";
+import "../bridge/ReservedDeposit.sol";
 
 contract BridgeStub is Bridge {
     function setSweptDeposits(BitcoinTx.UTXO[] calldata utxos) external {
@@ -170,5 +171,44 @@ contract BridgeStub is Bridge {
         external
     {
         self.depositRevealAheadPeriod = _depositRevealAheadPeriod;
+    }
+
+    function finalizeReservedDepositForTest(
+        bytes32 utxoHash,
+        uint256 depositTxFee
+    ) external {
+        BridgeState.ReservedDeposit storage reservation = self
+            .reservedDeposits[utxoHash];
+
+        require(reservation.depositor != address(0), "Not reserved");
+        require(!reservation.isActive, "Reservation already active");
+
+        uint256 mintBeforeFee = reservation.tbtcMinted;
+        uint256 treasuryFee = reservation.treasuryFee;
+        uint256 liquidationBonus = reservation.liquidationBonus;
+
+        require(
+            mintBeforeFee + treasuryFee + liquidationBonus ==
+                reservation.btcAmount,
+            "Reserved deposit invariant broken"
+        );
+
+        require(mintBeforeFee > depositTxFee, "Fees exceed mint amount");
+
+        uint256 mintAmount = mintBeforeFee - depositTxFee;
+        reservation.tbtcMinted = uint64(mintAmount);
+        reservation.isActive = true;
+
+        if (mintAmount > 0) {
+            self.bank.increaseBalance(reservation.depositor, mintAmount);
+        }
+
+        if (treasuryFee > 0) {
+            self.bank.increaseBalance(self.treasury, treasuryFee);
+        }
+
+        if (liquidationBonus > 0) {
+            self.bank.increaseBalance(address(this), liquidationBonus);
+        }
     }
 }

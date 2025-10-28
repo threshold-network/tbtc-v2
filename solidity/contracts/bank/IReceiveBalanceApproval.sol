@@ -13,7 +13,7 @@
 //               ▐████▌    ▐████▌
 //               ▐████▌    ▐████▌
 
-pragma solidity 0.8.17;
+pragma solidity ^0.8.17;
 
 /// @title IReceiveBalanceApproval
 /// @notice `IReceiveBalanceApproval` is an interface for a smart contract

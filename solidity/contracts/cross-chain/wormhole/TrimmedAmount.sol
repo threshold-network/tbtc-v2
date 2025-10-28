@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache 2
-pragma solidity >=0.8.8 <0.9.0;
+pragma solidity ^0.8.17;
 
 /// @dev TrimmedAmount is a packed representation of an amount and its decimals
 /// The amount is stored as a uint64 and the decimals as a uint8
