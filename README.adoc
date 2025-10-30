@@ -1,3 +1,4 @@
+tab
 :toc: macro
 
 = tBTC v2
@@ -35,7 +36,7 @@ tBTC v2 protects against any malicious individual or group of operators seizing
 control. Unlike other solutions on the market, users on tBTC v2 are reliant on
 math, not hardware or people. Additionally, tBTC v2 is open and accessible to
 anyone.
-
+tab
 tBTC v2 allows anyone to use Bitcoin in the expanding DeFi and Web3 universe
 without a third-party intermediary.
 
