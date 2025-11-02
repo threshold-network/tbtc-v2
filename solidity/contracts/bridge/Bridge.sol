@@ -186,6 +186,11 @@ contract Bridge is
         bool isTrusted
     );
 
+    event AuthorizedBalanceIncreaserUpdated(
+        address indexed increaser,
+        bool authorized
+    );
+
     event DepositParametersUpdated(
         uint64 depositDustThreshold,
         uint64 depositTreasuryFeeDivisor,
@@ -1201,6 +1206,20 @@ contract Bridge is
         );
     }
 
+    /// @notice Allows Governance to manage contracts authorized to request
+    ///         Bank balance increases through the Bridge.
+    /// @param increaser Address of the contract requesting authorization.
+    /// @param authorized Whether the address should be authorized.
+    function setAuthorizedBalanceIncreaser(address increaser, bool authorized)
+        external
+        onlyGovernance
+    {
+        require(increaser != address(0), "Increaser address must not be 0x0");
+
+        self.authorizedBalanceIncreasers[increaser] = authorized;
+        emit AuthorizedBalanceIncreaserUpdated(increaser, authorized);
+    }
+
     /// @notice Allows the Governance to mark the given vault address as trusted
     ///         or no longer trusted. Vaults are not trusted by default.
     ///         Trusted vault must meet the following criteria:
@@ -1541,6 +1560,49 @@ contract Bridge is
         self.updateTreasury(treasury);
     }
 
+    /// @notice Allows authorized controllers to increase Bank balances via the
+    ///         Bridge.
+    /// @param recipient Address receiving the balance increase.
+    /// @param amount Amount by which the balance is increased.
+    function controllerIncreaseBalance(address recipient, uint256 amount)
+        external
+    {
+        require(
+            self.authorizedBalanceIncreasers[msg.sender],
+            "Caller is not an authorized increaser"
+        );
+        self.bank.increaseBalance(recipient, amount);
+    }
+
+    /// @notice Allows authorized controllers to increase multiple Bank
+    ///         balances via the Bridge.
+    /// @param recipients Addresses receiving the balance increases.
+    /// @param amounts Amounts by which balances are increased.
+    function controllerIncreaseBalances(
+        address[] calldata recipients,
+        uint256[] calldata amounts
+    ) external {
+        require(
+            self.authorizedBalanceIncreasers[msg.sender],
+            "Caller is not an authorized increaser"
+        );
+        self.bank.increaseBalances(recipients, amounts);
+    }
+
+    /// @notice Sets the redemption watchtower address.
+    /// @param redemptionWatchtower Address of the redemption watchtower.
+    /// @dev Requirements:
+    ///      - The caller must be the governance,
+    ///      - Redemption watchtower address must not be already set,
+    ///      - Redemption watchtower address must not be 0x0.
+    function setRedemptionWatchtower(address redemptionWatchtower)
+        external
+        onlyGovernance
+    {
+        // The internal function is defined in the `BridgeState` library.
+        self.setRedemptionWatchtower(redemptionWatchtower);
+    }
+
     /// @notice Collection of all revealed deposits indexed by
     ///         keccak256(fundingTxHash | fundingOutputIndex).
     ///         The fundingTxHash is bytes32 (ordered as in Bitcoin internally)
@@ -1672,6 +1734,17 @@ contract Bridge is
     ///         address.
     function isVaultTrusted(address vault) external view returns (bool) {
         return self.isVaultTrusted[vault];
+    }
+
+    /// @notice Indicates if the address is authorized to request Bank balance
+    ///         increases through the Bridge.
+    /// @param increaser Address to check.
+    function authorizedBalanceIncreasers(address increaser)
+        external
+        view
+        returns (bool)
+    {
+        return self.authorizedBalanceIncreasers[increaser];
     }
 
     /// @notice Returns the current values of Bridge deposit parameters.
@@ -1947,21 +2020,6 @@ contract Bridge is
         return self.txProofDifficultyFactor;
     }
 
-    /// @notice Sets the redemption watchtower address.
-    /// @param redemptionWatchtower Address of the redemption watchtower.
-    /// @dev Requirements:
-    ///      - The caller must be the governance,
-    ///      - Redemption watchtower address must not be already set,
-    ///      - Redemption watchtower address must not be 0x0.
-    function setRedemptionWatchtower(address redemptionWatchtower)
-        external
-        onlyGovernance
-    {
-        // The internal function is defined in the `BridgeState` library.
-        self.setRedemptionWatchtower(redemptionWatchtower);
-    }
-
-    /// @return Address of the redemption watchtower.
     function getRedemptionWatchtower() external view returns (address) {
         return self.redemptionWatchtower;
     }

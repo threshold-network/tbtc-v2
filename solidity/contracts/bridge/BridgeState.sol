@@ -320,14 +320,19 @@ library BridgeState {
         // Address of the redemption watchtower. The redemption watchtower
         // is responsible for vetoing redemption requests.
         address redemptionWatchtower;
+        // Governance-managed set of contracts allowed to request Bank balance
+        // increases through the Bridge.
+        mapping(address => bool) authorizedBalanceIncreasers;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
         // planned upgrades of the Bridge contract. If more entires are added to
         // the struct in the upcoming versions we need to reduce the array size.
+        // One slot is consumed by `authorizedBalanceIncreasers`, so the gap
+        // size is reduced accordingly.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
-        uint256[49] __gap;
+        uint256[48] __gap;
     }
 
     event DepositParametersUpdated(

@@ -1,10 +1,11 @@
-import { helpers, waffle } from "hardhat"
+import { ethers, helpers, waffle } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { expect } from "chai"
 import { ContractTransaction } from "ethers"
-import type { BridgeGovernance, Bridge } from "../../typechain"
+import type { BridgeGovernance, Bridge, Bank } from "../../typechain"
 import { constants } from "../fixtures"
 import bridgeFixture from "../fixtures/bridge"
+import { to1e18 } from "../helpers/contract-test-helpers"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
@@ -13,10 +14,12 @@ describe("Bridge - Governance", () => {
   let thirdParty: SignerWithAddress
   let bridgeGovernance: BridgeGovernance
   let bridge: Bridge
+  let guardians: SignerWithAddress[]
+  let bank: Bank
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ governance, thirdParty, bridgeGovernance, bridge } =
+    ;({ governance, thirdParty, bridgeGovernance, bridge, guardians, bank } =
       await waffle.loadFixture(bridgeFixture))
   })
 
@@ -123,6 +126,150 @@ describe("Bridge - Governance", () => {
         })
       }
     )
+  })
+
+  describe("setAuthorizedBalanceIncreaser", () => {
+    const increaser = () => thirdParty.address
+
+    context("when caller is not the owner", () => {
+      it("should revert", async () => {
+        await expect(
+          bridgeGovernance
+            .connect(thirdParty)
+            .setAuthorizedBalanceIncreaser(increaser(), true)
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+    })
+
+    context("when increaser address is zero", () => {
+      it("should revert", async () => {
+        await expect(
+          bridgeGovernance
+            .connect(governance)
+            .setAuthorizedBalanceIncreaser(ethers.constants.AddressZero, true)
+        ).to.be.revertedWith("Increaser address must not be 0x0")
+      })
+    })
+
+    context("when called by the governance with a valid address", () => {
+      let tx: ContractTransaction
+
+      before(async () => {
+        await createSnapshot()
+        tx = await bridgeGovernance
+          .connect(governance)
+          .setAuthorizedBalanceIncreaser(increaser(), true)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should update increaser authorization", async () => {
+        expect(await bridge.authorizedBalanceIncreasers(increaser())).to.be.true
+      })
+
+      it("should emit AuthorizedBalanceIncreaserUpdated event", async () => {
+        await expect(tx)
+          .to.emit(bridge, "AuthorizedBalanceIncreaserUpdated")
+          .withArgs(increaser(), true)
+      })
+    })
+  })
+
+  describe("controllerIncreaseBalance", () => {
+    const recipient = () => guardians[0].address
+    const amount = to1e18(1)
+
+    context("when caller is not authorized", () => {
+      it("should revert", async () => {
+        await expect(
+          bridge
+            .connect(thirdParty)
+            .controllerIncreaseBalance(recipient(), amount)
+        ).to.be.revertedWith("Caller is not an authorized increaser")
+      })
+    })
+
+    context("when caller is authorized", () => {
+      let tx: ContractTransaction
+
+      before(async () => {
+        await createSnapshot()
+        await bridgeGovernance
+          .connect(governance)
+          .setAuthorizedBalanceIncreaser(thirdParty.address, true)
+        tx = await bridge
+          .connect(thirdParty)
+          .controllerIncreaseBalance(recipient(), amount)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should increase recipient balance in the bank", async () => {
+        expect(await bank.balanceOf(recipient())).to.equal(amount)
+      })
+
+      it("should emit BalanceIncreased event", async () => {
+        await expect(tx)
+          .to.emit(bank, "BalanceIncreased")
+          .withArgs(recipient(), amount)
+      })
+    })
+  })
+
+  describe("controllerIncreaseBalances", () => {
+    const recipients = () => guardians.map((guardian) => guardian.address)
+    const amounts = [to1e18(1), to1e18(2), to1e18(3)]
+
+    context("when caller is not authorized", () => {
+      it("should revert", async () => {
+        await expect(
+          bridge
+            .connect(thirdParty)
+            .controllerIncreaseBalances(recipients(), amounts)
+        ).to.be.revertedWith("Caller is not an authorized increaser")
+      })
+    })
+
+    context("when caller is authorized", () => {
+      let tx: ContractTransaction
+
+      before(async () => {
+        await createSnapshot()
+        await bridgeGovernance
+          .connect(governance)
+          .setAuthorizedBalanceIncreaser(thirdParty.address, true)
+        tx = await bridge
+          .connect(thirdParty)
+          .controllerIncreaseBalances(recipients(), amounts)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should increase all recipients balances in the bank", async () => {
+        const balances = await Promise.all(
+          recipients().map((addr) => bank.balanceOf(addr))
+        )
+        balances.forEach((balance, index) =>
+          expect(balance).to.equal(amounts[index])
+        )
+      })
+
+      it("should emit BalanceIncreased events", async () => {
+        await Promise.all(
+          recipients().map((addr, index) =>
+            expect(tx)
+              .to.emit(bank, "BalanceIncreased")
+              .withArgs(addr, amounts[index])
+          )
+        )
+      })
+    })
   })
 
   describe("beginBridgeGovernanceTransfer", () => {
