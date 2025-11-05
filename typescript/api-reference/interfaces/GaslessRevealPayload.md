@@ -37,7 +37,7 @@ Format varies by chain:
 
 #### Defined in
 
-[services/deposits/deposits-service.ts:139](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L139)
+[services/deposits/deposits-service.ts:142](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L142)
 
 ___
 
@@ -50,7 +50,7 @@ Must match the chain specified during deposit initiation.
 
 #### Defined in
 
-[services/deposits/deposits-service.ts:145](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L145)
+[services/deposits/deposits-service.ts:148](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L148)
 
 ___
 
@@ -72,7 +72,7 @@ This structure matches the on-chain contract requirements.
 
 #### Defined in
 
-[services/deposits/deposits-service.ts:72](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L72)
+[services/deposits/deposits-service.ts:75](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L75)
 
 ___
 
@@ -95,4 +95,4 @@ Deposit reveal information matching on-chain reveal structure.
 
 #### Defined in
 
-[services/deposits/deposits-service.ts:97](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L97)
+[services/deposits/deposits-service.ts:100](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L100)
