@@ -8,6 +8,7 @@ import { EthereumAddress } from "./address"
 
 export * from "./address"
 export * from "./bridge"
+export * from "./constants"
 export * from "./depositor-proxy"
 export * from "./tbtc-token"
 export * from "./tbtc-vault"
