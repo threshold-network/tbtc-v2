@@ -54,6 +54,7 @@ import {
   MockL2BitcoinRedeemer,
   MockL1BitcoinRedeemer,
 } from "../utils/mock-cross-chain"
+import { NATIVE_BTC_DEPOSITOR_ADDRESSES } from "../../src/lib/ethereum/constants"
 
 describe("Deposits", () => {
   const depositCreatedAt: number = 1640181600
@@ -3244,7 +3245,9 @@ describe("Deposits", () => {
                 "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
                 "L1"
               )
-            ).to.be.rejectedWith("NativeBTCDepositor address not available")
+            ).to.be.rejectedWith(
+              /NativeBTCDepositor address not available/
+            )
           })
         })
 
@@ -3351,6 +3354,70 @@ describe("Deposits", () => {
                 expect(result.receipt.extraData).to.be.undefined
               })
             })
+          })
+        })
+
+        context("when NativeBTCDepositor address should auto-resolve from mapping (Mainnet)", () => {
+          let result: GaslessDepositResult
+          beforeEach(async () => {
+            // Switch to mainnet so mapping contains a valid address
+            bitcoinClient.network = BitcoinNetwork.Mainnet
+            tbtcContracts.bridge.setActiveWalletPublicKey(
+              Hex.from(
+                "03989d253b17a6a0f41838b84ff0d20e8898f9d7b1a98f2564da4cc29dcf8581d9"
+              )
+            )
+            // Create service without providing native depositor override
+            depositService = new DepositsService(
+              tbtcContracts,
+              bitcoinClient,
+              (_: DestinationChainName) => undefined
+            )
+
+            result = await depositService.initiateGaslessDeposit(
+              "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+              "L1"
+            )
+          })
+
+          it("should use the address from NATIVE_BTC_DEPOSITOR_ADDRESSES", () => {
+            const expected = NATIVE_BTC_DEPOSITOR_ADDRESSES[BitcoinNetwork.Mainnet]
+            expect(result.receipt.depositor.identifierHex).to.equal(
+              // EthereumAddress normalizes to lowercase hex without 0x
+              expected.substring(2).toLowerCase()
+            )
+          })
+        })
+
+        context("when overriding NativeBTCDepositor via setter", () => {
+          let result: GaslessDepositResult
+          const overrideAddress = EthereumAddress.from(
+            "0x1111111111111111111111111111111111111111"
+          )
+
+          beforeEach(async () => {
+            // Keep testnet; mapping is invalid so override must be used
+            bitcoinClient.network = BitcoinNetwork.Testnet
+            tbtcContracts.bridge.setActiveWalletPublicKey(
+              Hex.from(
+                "03989d253b17a6a0f41838b84ff0d20e8898f9d7b1a98f2564da4cc29dcf8581d9"
+              )
+            )
+            depositService = new DepositsService(
+              tbtcContracts,
+              bitcoinClient,
+              (_: DestinationChainName) => undefined
+            )
+            depositService.setNativeBTCDepositor(overrideAddress as any)
+
+            result = await depositService.initiateGaslessDeposit(
+              "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+              "L1"
+            )
+          })
+
+          it("should use the override address for depositor", () => {
+            expect(result.receipt.depositor).to.equal(overrideAddress)
           })
         })
       })
