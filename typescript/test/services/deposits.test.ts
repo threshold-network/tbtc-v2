@@ -3374,8 +3374,9 @@ describe("Deposits", () => {
               (_: DestinationChainName) => undefined
             )
 
+            // Use a valid mainnet P2PKH address for mainnet network
             result = await depositService.initiateGaslessDeposit(
-              "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+              "1BoatSLRHtKNngkdXEeobR76b53LETtpyT",
               "L1"
             )
           })
