@@ -31,6 +31,7 @@ export class SolanaTBTCToken
     }
     const programId = new PublicKey(SolanaTBTCTokenIdl.metadata.address)
 
+    // @ts-expect-error - IDL type mismatch with Anchor version, but works at runtime
     super(SolanaTBTCTokenIdl as Idl, programId, provider)
 
     // derive your mint:

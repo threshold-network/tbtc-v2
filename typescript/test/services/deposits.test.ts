@@ -1,5 +1,8 @@
-import { expect } from "chai"
+import { expect, use } from "chai"
+import chaiAsPromised from "chai-as-promised"
 import { BigNumber } from "ethers"
+
+use(chaiAsPromised)
 import {
   testnetAddress,
   testnetPrivateKey,
@@ -29,6 +32,8 @@ import {
   ChainIdentifier,
   BitcoinRawTxVectors,
   CrossChainContracts,
+  GaslessDepositResult,
+  GaslessRevealPayload,
 } from "../../src"
 import { MockBitcoinClient } from "../utils/mock-bitcoin-client"
 import { MockTBTCContracts } from "../utils/mock-tbtc-contracts"
@@ -3002,6 +3007,920 @@ describe("Deposits", () => {
             deposit,
             vault,
           })
+        })
+      })
+    })
+  })
+
+  describe("Gasless Type Definitions", () => {
+    describe("GaslessDepositResult", () => {
+      it("should have required fields with correct types", () => {
+        const mockDeposit = {} as Deposit
+        const mockReceipt: DepositReceipt = {
+          depositor: EthereumAddress.from(
+            "934b98637ca318a4d6e7ca6ffd1690b8e77df637"
+          ),
+          blindingFactor: Hex.from("f9f0c90d00039523"),
+          walletPublicKeyHash: Hex.from(
+            "8db50eb52063ea9d98b3eac91489a90f738986f6"
+          ),
+          refundPublicKeyHash: Hex.from(
+            "28e081f285138ccbe389c1eb8985716230129f89"
+          ),
+          refundLocktime: Hex.from("60bcea61"),
+        }
+
+        const result: GaslessDepositResult = {
+          deposit: mockDeposit,
+          receipt: mockReceipt,
+          destinationChainName: "Arbitrum",
+        }
+
+        expect(result.deposit).to.exist
+        expect(result.receipt).to.exist
+        expect(result.destinationChainName).to.be.a("string")
+      })
+
+      it("should accept various destination chain names", () => {
+        const mockDeposit = {} as Deposit
+        const mockReceipt: DepositReceipt = {
+          depositor: EthereumAddress.from(
+            "934b98637ca318a4d6e7ca6ffd1690b8e77df637"
+          ),
+          blindingFactor: Hex.from("f9f0c90d00039523"),
+          walletPublicKeyHash: Hex.from(
+            "8db50eb52063ea9d98b3eac91489a90f738986f6"
+          ),
+          refundPublicKeyHash: Hex.from(
+            "28e081f285138ccbe389c1eb8985716230129f89"
+          ),
+          refundLocktime: Hex.from("60bcea61"),
+        }
+
+        const validChains = ["L1", "Arbitrum", "Base", "Optimism", "Solana"]
+
+        validChains.forEach((chainName) => {
+          const result: GaslessDepositResult = {
+            deposit: mockDeposit,
+            receipt: mockReceipt,
+            destinationChainName: chainName,
+          }
+          expect(result.destinationChainName).to.equal(chainName)
+        })
+      })
+    })
+
+    describe("GaslessRevealPayload", () => {
+      it("should have required fields with correct types", () => {
+        const payload: GaslessRevealPayload = {
+          fundingTx: {
+            version: "0x01000000",
+            inputVector: "0x0101",
+            outputVector: "0x0101",
+            locktime: "0x00000000",
+          },
+          reveal: {
+            fundingOutputIndex: 0,
+            blindingFactor: "0xf9f0c90d00039523",
+            walletPubKeyHash: "0x8db50eb52063ea9d98b3eac91489a90f738986f6",
+            refundPubKeyHash: "0x28e081f285138ccbe389c1eb8985716230129f89",
+            refundLocktime: "0x60bcea61",
+            vault: "0x1234567890123456789012345678901234567890",
+          },
+          destinationChainDepositOwner:
+            "0xabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+          destinationChainName: "L1",
+        }
+
+        expect(payload.fundingTx).to.exist
+        expect(payload.reveal).to.exist
+        expect(payload.destinationChainDepositOwner).to.be.a("string")
+        expect(payload.destinationChainName).to.be.a("string")
+      })
+
+      it("should have properly structured nested objects", () => {
+        const payload: GaslessRevealPayload = {
+          fundingTx: {
+            version: "0x01000000",
+            inputVector: "0x0101",
+            outputVector: "0x0101",
+            locktime: "0x00000000",
+          },
+          reveal: {
+            fundingOutputIndex: 0,
+            blindingFactor: "0xf9f0c90d00039523",
+            walletPubKeyHash: "0x8db50eb52063ea9d98b3eac91489a90f738986f6",
+            refundPubKeyHash: "0x28e081f285138ccbe389c1eb8985716230129f89",
+            refundLocktime: "0x60bcea61",
+            vault: "0x1234567890123456789012345678901234567890",
+          },
+          destinationChainDepositOwner:
+            "0xabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+          destinationChainName: "L1",
+        }
+
+        expect(payload.fundingTx).to.have.all.keys(
+          "version",
+          "inputVector",
+          "outputVector",
+          "locktime"
+        )
+        expect(payload.reveal).to.have.all.keys(
+          "fundingOutputIndex",
+          "blindingFactor",
+          "walletPubKeyHash",
+          "refundPubKeyHash",
+          "refundLocktime",
+          "vault"
+        )
+        expect(payload.destinationChainDepositOwner).to.match(/^0x[0-9a-f]+$/i)
+        expect(payload.destinationChainName).to.be.a("string")
+      })
+
+      it("should accept numeric fundingOutputIndex", () => {
+        const payload: GaslessRevealPayload = {
+          fundingTx: {
+            version: "0x01000000",
+            inputVector: "0x0101",
+            outputVector: "0x0101",
+            locktime: "0x00000000",
+          },
+          reveal: {
+            fundingOutputIndex: 0,
+            blindingFactor: "0xf9f0c90d00039523",
+            walletPubKeyHash: "0x8db50eb52063ea9d98b3eac91489a90f738986f6",
+            refundPubKeyHash: "0x28e081f285138ccbe389c1eb8985716230129f89",
+            refundLocktime: "0x60bcea61",
+            vault: "0x1234567890123456789012345678901234567890",
+          },
+          destinationChainDepositOwner: "0xabcd",
+          destinationChainName: "L1",
+        }
+
+        expect(payload.reveal.fundingOutputIndex).to.be.a("number")
+        expect(payload.reveal.fundingOutputIndex).to.equal(0)
+      })
+    })
+
+    describe("Type Exports", () => {
+      it("should export types from deposits module", () => {
+        // This test passes if imports compile successfully
+        // TypeScript will fail compilation if exports are missing
+        const typeCheck: GaslessDepositResult = {} as any
+        const typeCheck2: GaslessRevealPayload = {} as any
+        expect(typeCheck).to.exist
+        expect(typeCheck2).to.exist
+      })
+    })
+
+    describe("initiateGaslessDeposit", () => {
+      let bitcoinClient: MockBitcoinClient
+      let tbtcContracts: MockTBTCContracts
+      let depositService: DepositsService
+
+      beforeEach(() => {
+        bitcoinClient = new MockBitcoinClient()
+        tbtcContracts = new MockTBTCContracts()
+        bitcoinClient.network = BitcoinNetwork.Testnet
+      })
+
+      context("when bitcoinRecoveryAddress is invalid", () => {
+        beforeEach(() => {
+          depositService = new DepositsService(
+            tbtcContracts,
+            bitcoinClient,
+            (_: DestinationChainName) => undefined
+          )
+
+          tbtcContracts.bridge.setActiveWalletPublicKey(
+            Hex.from(
+              "03989d253b17a6a0f41838b84ff0d20e8898f9d7b1a98f2564da4cc29dcf8581d9"
+            )
+          )
+        })
+
+        it("should reject P2SH addresses", async () => {
+          await expect(
+            depositService.initiateGaslessDeposit(
+              "2N5WZpig3vgpSdjSherS2Lv7GnPuxCvkQjT", // P2SH address
+              "L1"
+            )
+          ).to.be.rejectedWith(
+            "Bitcoin recovery address must be P2PKH or P2WPKH"
+          )
+        })
+
+        it("should reject invalid addresses", async () => {
+          await expect(
+            depositService.initiateGaslessDeposit("invalidaddress", "L1")
+          ).to.be.rejected
+        })
+      })
+
+      context("when destinationChainName is L1", () => {
+        const nativeBTCDepositorAddress = EthereumAddress.from(
+          "0x1234567890123456789012345678901234567890"
+        )
+
+        context("when NativeBTCDepositor address is not available", () => {
+          beforeEach(() => {
+            // Create service without NativeBTCDepositor address
+            depositService = new DepositsService(
+              tbtcContracts,
+              bitcoinClient,
+              (_: DestinationChainName) => undefined
+            )
+
+            tbtcContracts.bridge.setActiveWalletPublicKey(
+              Hex.from(
+                "03989d253b17a6a0f41838b84ff0d20e8898f9d7b1a98f2564da4cc29dcf8581d9"
+              )
+            )
+          })
+
+          it("should throw descriptive error", async () => {
+            await expect(
+              depositService.initiateGaslessDeposit(
+                "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+                "L1"
+              )
+            ).to.be.rejectedWith("NativeBTCDepositor address not available")
+          })
+        })
+
+        context("when NativeBTCDepositor address is available", () => {
+          context("when active wallet is not set", () => {
+            beforeEach(() => {
+              // Create service without setting active wallet
+              depositService = new DepositsService(
+                tbtcContracts,
+                bitcoinClient,
+                (_: DestinationChainName) => undefined,
+                nativeBTCDepositorAddress as any
+              )
+            })
+
+            it("should throw active wallet error", async () => {
+              await expect(
+                depositService.initiateGaslessDeposit(
+                  "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+                  "L1"
+                )
+              ).to.be.rejectedWith("Could not get active wallet public key")
+            })
+          })
+
+          context("when active wallet is set", () => {
+            beforeEach(() => {
+              tbtcContracts.bridge.setActiveWalletPublicKey(
+                Hex.from(
+                  "03989d253b17a6a0f41838b84ff0d20e8898f9d7b1a98f2564da4cc29dcf8581d9"
+                )
+              )
+              depositService = new DepositsService(
+                tbtcContracts,
+                bitcoinClient,
+                (_: DestinationChainName) => undefined,
+                nativeBTCDepositorAddress as any
+              )
+            })
+
+            context("when bitcoinRecoveryAddress is P2PKH", () => {
+              let result: GaslessDepositResult
+
+              beforeEach(async () => {
+                result = await depositService.initiateGaslessDeposit(
+                  "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+                  "L1"
+                )
+              })
+
+              it("should generate L1 gasless deposit with correct depositor", () => {
+                expect(result.receipt.depositor).to.be.equal(
+                  nativeBTCDepositorAddress
+                )
+              })
+
+              it("should return GaslessDepositResult with correct structure", () => {
+                expect(result.deposit).to.be.instanceOf(Deposit)
+                expect(result.receipt).to.exist
+                expect(result.destinationChainName).to.equal("L1")
+              })
+
+              it("should set destinationChainName to L1", () => {
+                expect(result.destinationChainName).to.equal("L1")
+              })
+
+              it("should not include extraData in receipt", () => {
+                expect(result.receipt.extraData).to.be.undefined
+              })
+
+              it("should have correct wallet and refund hashes", () => {
+                expect(result.receipt.walletPublicKeyHash).to.be.deep.equal(
+                  Hex.from("8db50eb52063ea9d98b3eac91489a90f738986f6")
+                )
+
+                expect(result.receipt.refundPublicKeyHash).to.be.deep.equal(
+                  Hex.from("2cd680318747b720d67bf4246eb7403b476adb34")
+                )
+
+                expect(
+                  result.receipt.blindingFactor.toBuffer().length
+                ).to.equal(8)
+              })
+            })
+
+            context("when bitcoinRecoveryAddress is P2WPKH", () => {
+              let result: GaslessDepositResult
+
+              beforeEach(async () => {
+                result = await depositService.initiateGaslessDeposit(
+                  "tb1qumuaw3exkxdhtut0u85latkqfz4ylgwstkdzsx",
+                  "L1"
+                )
+              })
+
+              it("should generate L1 gasless deposit successfully", () => {
+                expect(result.destinationChainName).to.equal("L1")
+                expect(result.receipt.depositor).to.be.equal(
+                  nativeBTCDepositorAddress
+                )
+                expect(result.receipt.refundPublicKeyHash).to.be.deep.equal(
+                  Hex.from("e6f9d74726b19b75f16fe1e9feaec048aa4fa1d0")
+                )
+                expect(result.receipt.extraData).to.be.undefined
+              })
+            })
+          })
+        })
+      })
+
+      context("when destinationChainName is L2 (Base)", () => {
+        const l2DepositOwner = EthereumAddress.from(
+          "934b98637ca318a4d6e7ca6ffd1690b8e77df637"
+        )
+
+        context("when cross-chain contracts not initialized", () => {
+          beforeEach(() => {
+            depositService = new DepositsService(
+              tbtcContracts,
+              bitcoinClient,
+              (_: DestinationChainName) => undefined
+            )
+
+            tbtcContracts.bridge.setActiveWalletPublicKey(
+              Hex.from(
+                "03989d253b17a6a0f41838b84ff0d20e8898f9d7b1a98f2564da4cc29dcf8581d9"
+              )
+            )
+          })
+
+          it("should throw cross-chain contracts error", async () => {
+            await expect(
+              depositService.initiateGaslessDeposit(
+                "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+                "Base"
+              )
+            ).to.be.rejectedWith(
+              "Cross-chain contracts for Base not initialized"
+            )
+          })
+        })
+
+        context("when cross-chain contracts initialized", () => {
+          let l2BitcoinDepositor: MockBitcoinDepositor
+          let l1BitcoinDepositor: MockL1BitcoinDepositor
+          let crossChainContracts: CrossChainContracts
+
+          beforeEach(() => {
+            const l2BitcoinDepositorEncoder =
+              new MockCrossChainExtraDataEncoder()
+            l2BitcoinDepositorEncoder.setEncoding(
+              l2DepositOwner,
+              Hex.from(
+                `000000000000000000000000${l2DepositOwner.identifierHex}`
+              )
+            )
+
+            l2BitcoinDepositor = new MockL2BitcoinDepositor(
+              EthereumAddress.from("49D1e49013Df517Ea30306DE2F462F2D0170212f"),
+              l2BitcoinDepositorEncoder
+            )
+
+            l1BitcoinDepositor = new MockL1BitcoinDepositor(
+              EthereumAddress.from("F4c1B212B37775769c73353264ac48dD7fA5B71E"),
+              new MockCrossChainExtraDataEncoder()
+            )
+
+            const l1BitcoinRedeemer = new MockL1BitcoinRedeemer(
+              EthereumAddress.from("0x1111111111111111111111111111111111111111")
+            )
+
+            const l2BitcoinRedeemer = new MockL2BitcoinRedeemer(
+              EthereumAddress.from("0x2222222222222222222222222222222222222222")
+            )
+
+            crossChainContracts = {
+              destinationChainTbtcToken: new MockL2TBTCToken(),
+              destinationChainBitcoinDepositor: l2BitcoinDepositor,
+              l1BitcoinDepositor: l1BitcoinDepositor,
+              l1BitcoinRedeemer: l1BitcoinRedeemer,
+              l2BitcoinRedeemer: l2BitcoinRedeemer,
+            }
+
+            const crossChainContractsResolver = (
+              chainName: DestinationChainName
+            ): CrossChainContracts | undefined => {
+              return chainName === "Base" ? crossChainContracts : undefined
+            }
+
+            depositService = new DepositsService(
+              tbtcContracts,
+              bitcoinClient,
+              crossChainContractsResolver
+            )
+          })
+
+          context("when deposit owner cannot be resolved", () => {
+            beforeEach(() => {
+              tbtcContracts.bridge.setActiveWalletPublicKey(
+                Hex.from(
+                  "03989d253b17a6a0f41838b84ff0d20e8898f9d7b1a98f2564da4cc29dcf8581d9"
+                )
+              )
+            })
+
+            it("should throw deposit owner resolution error", async () => {
+              await expect(
+                depositService.initiateGaslessDeposit(
+                  "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+                  "Base"
+                )
+              ).to.be.rejectedWith(
+                "Cannot resolve destination chain deposit owner"
+              )
+            })
+          })
+
+          context("when deposit owner can be resolved", () => {
+            beforeEach(() => {
+              crossChainContracts.destinationChainBitcoinDepositor.setDepositOwner(
+                l2DepositOwner
+              )
+            })
+
+            context("when active wallet is not set", () => {
+              it("should throw active wallet error", async () => {
+                await expect(
+                  depositService.initiateGaslessDeposit(
+                    "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+                    "Base"
+                  )
+                ).to.be.rejectedWith("Could not get active wallet public key")
+              })
+            })
+
+            context("when active wallet is set", () => {
+              beforeEach(() => {
+                tbtcContracts.bridge.setActiveWalletPublicKey(
+                  Hex.from(
+                    "03989d253b17a6a0f41838b84ff0d20e8898f9d7b1a98f2564da4cc29dcf8581d9"
+                  )
+                )
+              })
+
+              context("when bitcoinRecoveryAddress is P2PKH", () => {
+                let result: GaslessDepositResult
+
+                beforeEach(async () => {
+                  result = await depositService.initiateGaslessDeposit(
+                    "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+                    "Base"
+                  )
+                })
+
+                it("should generate L2 gasless deposit with L1BitcoinDepositor", () => {
+                  expect(result.receipt.depositor).to.equal(
+                    l1BitcoinDepositor.getChainIdentifier()
+                  )
+                })
+
+                it("should include extraData in receipt", () => {
+                  expect(result.receipt.extraData).to.not.be.undefined
+                  expect(result.receipt.extraData!.toString().length).to.equal(
+                    64
+                  ) // 32 bytes
+                })
+
+                it("should return GaslessDepositResult with L2 chain name", () => {
+                  expect(result.destinationChainName).to.equal("Base")
+                  expect(result.deposit).to.be.instanceOf(Deposit)
+                })
+
+                it("should encode deposit owner in extraData", () => {
+                  expect(result.receipt.extraData).to.be.eql(
+                    Hex.from(
+                      `000000000000000000000000${l2DepositOwner.identifierHex}`
+                    )
+                  )
+                })
+
+                it("should have correct refund hash", () => {
+                  expect(result.receipt.refundPublicKeyHash).to.be.deep.equal(
+                    Hex.from("2cd680318747b720d67bf4246eb7403b476adb34")
+                  )
+                })
+              })
+
+              context("when bitcoinRecoveryAddress is P2WPKH", () => {
+                let result: GaslessDepositResult
+
+                beforeEach(async () => {
+                  result = await depositService.initiateGaslessDeposit(
+                    "tb1qumuaw3exkxdhtut0u85latkqfz4ylgwstkdzsx",
+                    "Base"
+                  )
+                })
+
+                it("should generate L2 gasless deposit successfully", () => {
+                  expect(result.destinationChainName).to.equal("Base")
+                  expect(result.receipt.depositor).to.equal(
+                    l1BitcoinDepositor.getChainIdentifier()
+                  )
+                  expect(result.receipt.extraData).to.not.be.undefined
+                  expect(result.receipt.refundPublicKeyHash).to.be.deep.equal(
+                    Hex.from("e6f9d74726b19b75f16fe1e9feaec048aa4fa1d0")
+                  )
+                })
+              })
+            })
+          })
+        })
+      })
+
+      context("when destinationChainName is unsupported L2", () => {
+        beforeEach(() => {
+          depositService = new DepositsService(
+            tbtcContracts,
+            bitcoinClient,
+            (_: DestinationChainName) => undefined
+          )
+
+          tbtcContracts.bridge.setActiveWalletPublicKey(
+            Hex.from(
+              "03989d253b17a6a0f41838b84ff0d20e8898f9d7b1a98f2564da4cc29dcf8581d9"
+            )
+          )
+        })
+
+        it("should reject unsupported L2 chain names", async () => {
+          await expect(
+            depositService.initiateGaslessDeposit(
+              "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+              "InvalidChain"
+            )
+          ).to.be.rejectedWith(
+            "Cross-chain contracts for InvalidChain not initialized"
+          )
+        })
+
+        it("should reject empty chain name", async () => {
+          await expect(
+            depositService.initiateGaslessDeposit(
+              "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+              ""
+            )
+          ).to.be.rejectedWith("Cross-chain contracts for  not initialized")
+        })
+      })
+    })
+
+    describe("buildGaslessRelayPayload", () => {
+      let bitcoinClient: MockBitcoinClient
+      let tbtcContracts: MockTBTCContracts
+      let depositService: DepositsService
+
+      // Test fixtures
+      const l1ReceiptFixture: DepositReceipt = {
+        depositor: EthereumAddress.from(
+          "934b98637ca318a4d6e7ca6ffd1690b8e77df637"
+        ),
+        walletPublicKeyHash: Hex.from(
+          "8db50eb52063ea9d98b3eac91489a90f738986f6"
+        ),
+        refundPublicKeyHash: Hex.from(
+          "28e081f285138ccbe389c1eb8985716230129f89"
+        ),
+        blindingFactor: Hex.from("f9f0c90d00039523"),
+        refundLocktime: Hex.from("60bcea61"),
+        extraData: undefined,
+      }
+
+      const l1ReceiptWithExtraDataFixture: DepositReceipt = {
+        ...l1ReceiptFixture,
+        extraData: Hex.from(
+          "000000000000000000000000abcdef1234567890abcdef1234567890abcdef12"
+        ),
+      }
+
+      const l2ReceiptWith32ByteExtraDataFixture: DepositReceipt = {
+        ...l1ReceiptFixture,
+        extraData: Hex.from(
+          "000000000000000000000000a9b38ea6435c8941d6eda6a46b68e3e211719699"
+        ),
+      }
+
+      const l2ReceiptWith20ByteExtraDataFixture: DepositReceipt = {
+        ...l1ReceiptFixture,
+        extraData: Hex.from("a9b38ea6435c8941d6eda6a46b68e3e211719699"),
+      }
+
+      const l2ReceiptWithInvalidExtraDataFixture: DepositReceipt = {
+        ...l1ReceiptFixture,
+        extraData: Hex.from("abcdef"), // Only 3 bytes
+      }
+
+      beforeEach(() => {
+        bitcoinClient = new MockBitcoinClient()
+        tbtcContracts = new MockTBTCContracts()
+        bitcoinClient.network = BitcoinNetwork.Testnet
+
+        // Setup Bitcoin TX mock with testnet transaction
+        const rawTransactions = new Map<string, BitcoinRawTx>()
+        rawTransactions.set(
+          testnetTransactionHash.toString(),
+          testnetTransaction
+        )
+        bitcoinClient.rawTransactions = rawTransactions
+
+        depositService = new DepositsService(
+          tbtcContracts,
+          bitcoinClient,
+          (_: DestinationChainName) => undefined
+        )
+      })
+
+      context("when destination chain is L1", () => {
+        context("when receipt has no extraData", () => {
+          let payload: GaslessRevealPayload
+
+          beforeEach(async () => {
+            payload = await depositService.buildGaslessRelayPayload(
+              l1ReceiptFixture,
+              testnetTransactionHash,
+              0,
+              "L1"
+            )
+          })
+
+          it("should encode owner as bytes32 (left-padded address)", () => {
+            expect(payload.destinationChainDepositOwner).to.equal(
+              "0x000000000000000000000000934b98637ca318a4d6e7ca6ffd1690b8e77df637"
+            )
+          })
+
+          it("should include correct Bitcoin transaction vectors with 0x prefix", () => {
+            expect(payload.fundingTx.version).to.match(/^0x[0-9a-f]+$/i)
+            expect(payload.fundingTx.inputVector).to.match(/^0x[0-9a-f]+$/i)
+            expect(payload.fundingTx.outputVector).to.match(/^0x[0-9a-f]+$/i)
+            expect(payload.fundingTx.locktime).to.match(/^0x[0-9a-f]+$/i)
+          })
+
+          it("should include correct reveal parameters", () => {
+            expect(payload.reveal.fundingOutputIndex).to.equal(0)
+            expect(payload.reveal.blindingFactor).to.equal("0xf9f0c90d00039523")
+            expect(payload.reveal.walletPubKeyHash).to.equal(
+              "0x8db50eb52063ea9d98b3eac91489a90f738986f6"
+            )
+            expect(payload.reveal.refundPubKeyHash).to.equal(
+              "0x28e081f285138ccbe389c1eb8985716230129f89"
+            )
+            expect(payload.reveal.refundLocktime).to.equal("0x60bcea61")
+          })
+
+          it("should include vault address from tbtcContracts", () => {
+            // MockTBTCVault returns this address via getChainIdentifier()
+            expect(payload.reveal.vault).to.equal(
+              "0x594cfd89700040163727828ae20b52099c58f02c"
+            )
+          })
+
+          it("should include destination chain name", () => {
+            expect(payload.destinationChainName).to.equal("L1")
+          })
+
+          it("should have version field as 4-byte hex (8 hex chars + 0x)", () => {
+            expect(payload.fundingTx.version.length).to.equal(10)
+          })
+        })
+
+        context("when receipt has extraData", () => {
+          let payload: GaslessRevealPayload
+
+          beforeEach(async () => {
+            payload = await depositService.buildGaslessRelayPayload(
+              l1ReceiptWithExtraDataFixture,
+              testnetTransactionHash,
+              0,
+              "L1"
+            )
+          })
+
+          it("should use extraData as bytes32 owner directly", () => {
+            expect(payload.destinationChainDepositOwner).to.equal(
+              "0x000000000000000000000000abcdef1234567890abcdef1234567890abcdef12"
+            )
+          })
+
+          it("should NOT use depositor address when extraData present", () => {
+            expect(payload.destinationChainDepositOwner).to.not.equal(
+              "0x000000000000000000000000934b98637ca318a4d6e7ca6ffd1690b8e77df637"
+            )
+          })
+        })
+      })
+
+      context("when destination chain is L2", () => {
+        context("when receipt has valid 32-byte extraData", () => {
+          let payload: GaslessRevealPayload
+
+          beforeEach(async () => {
+            payload = await depositService.buildGaslessRelayPayload(
+              l2ReceiptWith32ByteExtraDataFixture,
+              testnetTransactionHash,
+              0,
+              "Arbitrum"
+            )
+          })
+
+          it("should extract address from last 20 bytes of 32-byte extraData", () => {
+            expect(payload.destinationChainDepositOwner).to.equal(
+              "0xa9b38ea6435c8941d6eda6a46b68e3e211719699"
+            )
+          })
+
+          it("should have 20-byte address format (42 chars: 0x + 40)", () => {
+            expect(payload.destinationChainDepositOwner.length).to.equal(42)
+          })
+
+          it("should include correct Bitcoin transaction vectors", () => {
+            expect(payload.fundingTx.version).to.match(/^0x[0-9a-f]+$/i)
+            expect(payload.fundingTx.inputVector).to.match(/^0x[0-9a-f]+$/i)
+            expect(payload.fundingTx.outputVector).to.match(/^0x[0-9a-f]+$/i)
+            expect(payload.fundingTx.locktime).to.match(/^0x[0-9a-f]+$/i)
+          })
+
+          it("should include destination chain name", () => {
+            expect(payload.destinationChainName).to.equal("Arbitrum")
+          })
+        })
+
+        context("when receipt has valid 20-byte extraData", () => {
+          let payload: GaslessRevealPayload
+
+          beforeEach(async () => {
+            payload = await depositService.buildGaslessRelayPayload(
+              l2ReceiptWith20ByteExtraDataFixture,
+              testnetTransactionHash,
+              0,
+              "Base"
+            )
+          })
+
+          it("should use 20-byte extraData directly as address", () => {
+            expect(payload.destinationChainDepositOwner).to.equal(
+              "0xa9b38ea6435c8941d6eda6a46b68e3e211719699"
+            )
+          })
+
+          it("should have correct address length", () => {
+            expect(payload.destinationChainDepositOwner.length).to.equal(42)
+          })
+        })
+
+        context("when receipt has no extraData", () => {
+          it("should throw error for missing extraData on L2", async () => {
+            await expect(
+              depositService.buildGaslessRelayPayload(
+                l1ReceiptFixture, // No extraData
+                testnetTransactionHash,
+                0,
+                "Optimism"
+              )
+            ).to.be.rejectedWith("extraData required")
+          })
+        })
+
+        context("when receipt has invalid extraData length", () => {
+          it("should throw error for extraData not 20 or 32 bytes", async () => {
+            await expect(
+              depositService.buildGaslessRelayPayload(
+                l2ReceiptWithInvalidExtraDataFixture,
+                testnetTransactionHash,
+                0,
+                "Base"
+              )
+            ).to.be.rejectedWith("Invalid extraData length")
+          })
+        })
+      })
+
+      context("Bitcoin transaction vector extraction", () => {
+        let payload: GaslessRevealPayload
+
+        beforeEach(async () => {
+          payload = await depositService.buildGaslessRelayPayload(
+            l1ReceiptFixture,
+            testnetTransactionHash,
+            0,
+            "L1"
+          )
+        })
+
+        it("should correctly extract and format Bitcoin transaction vectors", () => {
+          // Verify vectors extracted from testnetTransaction
+          const vectors = extractBitcoinRawTxVectors(testnetTransaction)
+
+          expect(payload.fundingTx.version).to.equal(
+            vectors.version.toPrefixedString()
+          )
+          expect(payload.fundingTx.inputVector).to.equal(
+            vectors.inputs.toPrefixedString()
+          )
+          expect(payload.fundingTx.outputVector).to.equal(
+            vectors.outputs.toPrefixedString()
+          )
+          expect(payload.fundingTx.locktime).to.equal(
+            vectors.locktime.toPrefixedString()
+          )
+        })
+
+        it("should have all fundingTx fields as 0x-prefixed hex strings", () => {
+          expect(payload.fundingTx.version.startsWith("0x")).to.be.true
+          expect(payload.fundingTx.inputVector.startsWith("0x")).to.be.true
+          expect(payload.fundingTx.outputVector.startsWith("0x")).to.be.true
+          expect(payload.fundingTx.locktime.startsWith("0x")).to.be.true
+        })
+      })
+
+      context("fundingOutputIndex parameter", () => {
+        it("should correctly pass through fundingOutputIndex value", async () => {
+          const payload = await depositService.buildGaslessRelayPayload(
+            l1ReceiptFixture,
+            testnetTransactionHash,
+            5, // Test with different index
+            "L1"
+          )
+
+          expect(payload.reveal.fundingOutputIndex).to.equal(5)
+        })
+
+        it("should handle fundingOutputIndex 0", async () => {
+          const payload = await depositService.buildGaslessRelayPayload(
+            l1ReceiptFixture,
+            testnetTransactionHash,
+            0,
+            "L1"
+          )
+
+          expect(payload.reveal.fundingOutputIndex).to.equal(0)
+        })
+      })
+
+      context("receipt field mapping to reveal structure", () => {
+        let payload: GaslessRevealPayload
+
+        beforeEach(async () => {
+          payload = await depositService.buildGaslessRelayPayload(
+            l1ReceiptFixture,
+            testnetTransactionHash,
+            0,
+            "L1"
+          )
+        })
+
+        it("should map blindingFactor from receipt to reveal", () => {
+          expect(payload.reveal.blindingFactor).to.equal(
+            l1ReceiptFixture.blindingFactor.toPrefixedString()
+          )
+        })
+
+        it("should map walletPublicKeyHash from receipt to reveal", () => {
+          expect(payload.reveal.walletPubKeyHash).to.equal(
+            l1ReceiptFixture.walletPublicKeyHash.toPrefixedString()
+          )
+        })
+
+        it("should map refundPublicKeyHash from receipt to reveal", () => {
+          expect(payload.reveal.refundPubKeyHash).to.equal(
+            l1ReceiptFixture.refundPublicKeyHash.toPrefixedString()
+          )
+        })
+
+        it("should map refundLocktime from receipt to reveal", () => {
+          expect(payload.reveal.refundLocktime).to.equal(
+            l1ReceiptFixture.refundLocktime.toPrefixedString()
+          )
         })
       })
     })
