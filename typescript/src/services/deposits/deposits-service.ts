@@ -14,10 +14,13 @@ import {
   BitcoinScriptUtils,
   BitcoinTxHash,
 } from "../../lib/bitcoin"
+import { BitcoinNetwork } from "../../lib/bitcoin/network"
 import { Hex } from "../../lib/utils"
 import { Deposit } from "./deposit"
 import * as crypto from "crypto"
 import { CrossChainDepositor } from "./cross-chain"
+import { NATIVE_BTC_DEPOSITOR_ADDRESSES } from "../../lib/ethereum/constants"
+import { EthereumAddress } from "../../lib/ethereum/address"
 
 /**
  * Result of initiating a gasless deposit where the relayer backend pays all
@@ -199,7 +202,7 @@ export class DepositsService {
    * Chain-specific identifier of the NativeBTCDepositor contract used for
    * L1 gasless deposits.
    */
-  readonly #nativeBTCDepositor: ChainIdentifier | undefined
+  #nativeBTCDepositor: ChainIdentifier | undefined
 
   constructor(
     tbtcContracts: TBTCContracts,
@@ -391,9 +394,15 @@ export class DepositsService {
   private async initiateL1GaslessDeposit(
     bitcoinRecoveryAddress: string
   ): Promise<GaslessDepositResult> {
-    const depositor = this.getNativeBTCDepositorAddress()
+    let depositor = this.getNativeBTCDepositorAddress()
     if (!depositor) {
-      throw new Error("NativeBTCDepositor address not available")
+      depositor = await this.resolveNativeBTCDepositorFromNetwork()
+    }
+    if (!depositor) {
+      const network = await this.bitcoinClient.getNetwork()
+      throw new Error(
+        `NativeBTCDepositor address not available for Bitcoin network: ${network}`
+      )
     }
 
     const receipt = await this.generateDepositReceipt(
@@ -604,6 +613,40 @@ export class DepositsService {
    */
   private getNativeBTCDepositorAddress(): ChainIdentifier | undefined {
     return this.#nativeBTCDepositor
+  }
+
+  /**
+   * Sets the NativeBTCDepositor address override used for L1 gasless deposits.
+   * Useful for custom deployments or testing environments.
+   */
+  setNativeBTCDepositor(nativeBTCDepositor: ChainIdentifier) {
+    this.#nativeBTCDepositor = nativeBTCDepositor
+  }
+
+  /**
+   * Resolves the NativeBTCDepositor address from the current Bitcoin network
+   * using the NATIVE_BTC_DEPOSITOR_ADDRESSES mapping.
+   * Returns undefined if the mapping is missing or invalid for the network.
+   */
+  private async resolveNativeBTCDepositorFromNetwork(): Promise<
+    ChainIdentifier | undefined
+  > {
+    const network = await this.bitcoinClient.getNetwork()
+    if (
+      network !== BitcoinNetwork.Mainnet &&
+      network !== BitcoinNetwork.Testnet
+    ) {
+      return undefined
+    }
+
+    const address = NATIVE_BTC_DEPOSITOR_ADDRESSES[network]
+    if (!address) return undefined
+
+    try {
+      return EthereumAddress.from(address)
+    } catch {
+      return undefined
+    }
   }
 
   private async generateDepositReceipt(
