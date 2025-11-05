@@ -1012,7 +1012,7 @@ console.log(depositorAddress) // "0xad7c6d46F4a4bc2D3A227067d03218d6D7c9aaa5"
 
 #### Defined in
 
-lib/ethereum/constants.ts:35
+[lib/ethereum/constants.ts:35](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/constants.ts#L35)
 
 ___
 
