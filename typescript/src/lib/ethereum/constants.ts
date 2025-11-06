@@ -37,5 +37,5 @@ export const NATIVE_BTC_DEPOSITOR_ADDRESSES: Record<
   string
 > = {
   [BitcoinNetwork.Mainnet]: "0xad7c6d46F4a4bc2D3A227067d03218d6D7c9aaa5",
-  [BitcoinNetwork.Testnet]: "0x...", // TODO: Get Sepolia address from deployment
+  [BitcoinNetwork.Testnet]: "0xb673147244A39d0206b36925A8A456EB91a7Abc0",
 }
