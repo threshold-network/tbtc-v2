@@ -142,8 +142,9 @@ export interface GaslessRevealPayload {
   destinationChainDepositOwner: string
 
   /**
-   * Target chain name for backend routing.
-   * Must match the chain specified during deposit initiation.
+   * Target chain name for backend routing (normalized to lowercase).
+   * - "L1" remains as-is for L1 deposits
+   * - L2 chain names are lowercase: "arbitrum", "base", "sui", "starknet"
    */
   destinationChainName: string
 }
@@ -157,6 +158,22 @@ export class DepositsService {
    * This is 9 month in seconds assuming 1 month = 30 days
    */
   private readonly depositRefundLocktimeDuration = 23328000
+
+  /**
+   * List of chains that support gasless deposits.
+   * - "L1": Direct L1 deposits via NativeBTCDepositor
+   * - "Arbitrum", "Base", "Sui", "StarkNet": L2 deposits via L1BitcoinDepositor
+   *
+   * Note: "Solana" is excluded as it uses a different architecture and
+   * gasless deposit support is not yet confirmed.
+   */
+  private readonly SUPPORTED_GASLESS_CHAINS = [
+    "L1",
+    "Arbitrum",
+    "Base",
+    "Sui",
+    "StarkNet",
+  ] as const
 
   /**
    * Hex string length for a bytes32 value (0x prefix + 64 hex characters).
@@ -349,12 +366,19 @@ export class DepositsService {
    * proper extraData encoding for the destination chain.
    *
    * @param bitcoinRecoveryAddress P2PKH or P2WPKH Bitcoin address for emergency recovery
-   * @param destinationChainName Target chain name: "L1" for direct L1 deposits, or
-   *                             any supported L2 chain name (e.g., "Arbitrum", "Base")
+   * @param destinationChainName Target chain name for the deposit. Must be one of the
+   *                             supported chains (case-sensitive):
+   *                             - "L1" - Direct L1 deposits via NativeBTCDepositor
+   *                             - "Arbitrum" - Arbitrum L2 deposits
+   *                             - "Base" - Base L2 deposits
+   *                             - "Sui" - Sui L2 deposits
+   *                             - "StarkNet" - StarkNet L2 deposits (note: capital 'N')
+   *                             Note: "Solana" is not currently supported for gasless deposits
    * @returns GaslessDepositResult containing deposit object, receipt, and chain name
    * @throws Throws an error if:
    *         - Bitcoin recovery address is not P2PKH or P2WPKH
-   *         - Destination chain name is unsupported or contracts not initialized
+   *         - Destination chain name is not in the supported list
+   *         - Destination chain contracts not initialized (for L2 deposits)
    *         - NativeBTCDepositor address not available (for L1 deposits)
    *         - Deposit owner cannot be resolved (for L2 deposits)
    *         - No active wallet in Bridge contract
@@ -363,6 +387,14 @@ export class DepositsService {
     bitcoinRecoveryAddress: string,
     destinationChainName: string
   ): Promise<GaslessDepositResult> {
+    // Validate that the chain supports gasless deposits
+    if (!this.SUPPORTED_GASLESS_CHAINS.includes(destinationChainName as any)) {
+      throw new Error(
+        `Gasless deposits are not supported for chain: ${destinationChainName}. ` +
+          `Supported chains: ${this.SUPPORTED_GASLESS_CHAINS.join(", ")}`
+      )
+    }
+
     // Validate Bitcoin recovery address early for consistent error behavior
     const bitcoinNetwork = await this.bitcoinClient.getNetwork()
     const recoveryOutputScript = BitcoinAddressConverter.addressToOutputScript(
@@ -479,12 +511,18 @@ export class DepositsService {
    * - Deposit reveal parameters from the receipt (blinding factor, wallet PKH,
    *   refund PKH, refund locktime, vault)
    * - Destination chain deposit owner (encoding varies by chain type)
-   * - Destination chain name for backend routing
+   * - Destination chain name for backend routing (normalized to lowercase)
    *
    * CRITICAL: This method provides raw Bitcoin transaction vectors to the
    * backend. The backend computes the depositKey using Bitcoin's hash256
    * (double-SHA256) algorithm, NOT keccak256. The SDK does not compute the
    * depositKey directly.
+   *
+   * IMPORTANT: Chain names are automatically normalized to lowercase for
+   * backend compatibility. The SDK accepts capitalized chain names (e.g.,
+   * "Arbitrum", "Base") but converts them to lowercase (e.g., "arbitrum",
+   * "base") in the returned payload. The exception is "L1" which remains
+   * as-is.
    *
    * @param receipt - Deposit receipt from initiateGaslessDeposit containing
    *                  all deposit parameters. For L2 deposits, receipt MUST
@@ -495,12 +533,14 @@ export class DepositsService {
    * @param fundingOutputIndex - Zero-based index of the deposit output in the
    *                             funding transaction. Use the output index where
    *                             the deposit script address received the funds.
-   * @param destinationChainName - Target chain name for the deposit:
-   *                               - "L1" for direct L1 deposits
-   *                               - L2 chain name (e.g., "Arbitrum", "Base",
-   *                                 "Optimism") for cross-chain deposits
+   * @param destinationChainName - Target chain name for the deposit. Should match
+   *                               the chain name used in initiateGaslessDeposit:
+   *                               - "L1" for direct L1 deposits (remains "L1")
+   *                               - L2 chain names: "Arbitrum", "Base", "Sui",
+   *                                 "StarkNet" (converted to lowercase in payload)
    * @returns Promise resolving to GaslessRevealPayload ready for submission to
-   *          backend POST /tbtc/gasless-reveal endpoint
+   *          backend POST /tbtc/gasless-reveal endpoint. The
+   *          destinationChainName field will be lowercase (except "L1")
    * @throws Error if extraData is missing for L2 deposits (cross-chain)
    * @throws Error if extraData has invalid length for L2 deposits (must be 20
    *         or 32 bytes)
@@ -570,7 +610,15 @@ export class DepositsService {
       }
     }
 
-    // Step 4: Build and return payload
+    // Step 4: Normalize chain name for backend compatibility
+    // Backend expects lowercase chain names (e.g., "arbitrum", "base")
+    // except "L1" which should remain as-is
+    const normalizedChainName =
+      destinationChainName === "L1"
+        ? "L1"
+        : destinationChainName.toLowerCase()
+
+    // Step 5: Build and return payload
     return {
       fundingTx: {
         version: fundingTxVectors.version.toPrefixedString(),
@@ -587,7 +635,7 @@ export class DepositsService {
         vault: vaultAddress,
       },
       destinationChainDepositOwner: destinationOwner,
-      destinationChainName,
+      destinationChainName: normalizedChainName,
     }
   }
 

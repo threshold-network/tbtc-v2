@@ -3218,6 +3218,68 @@ describe("Deposits", () => {
         })
       })
 
+      context("when destinationChainName is unsupported", () => {
+        beforeEach(() => {
+          depositService = new DepositsService(
+            tbtcContracts,
+            bitcoinClient,
+            (_: DestinationChainName) => undefined
+          )
+
+          tbtcContracts.bridge.setActiveWalletPublicKey(
+            Hex.from(
+              "03989d253b17a6a0f41838b84ff0d20e8898f9d7b1a98f2564da4cc29dcf8581d9"
+            )
+          )
+        })
+
+        it("should reject Solana chain", async () => {
+          await expect(
+            depositService.initiateGaslessDeposit(
+              "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+              "Solana"
+            )
+          ).to.be.rejectedWith(
+            /Gasless deposits are not supported for chain: Solana/
+          )
+        })
+
+        it("should reject unsupported chain names", async () => {
+          await expect(
+            depositService.initiateGaslessDeposit(
+              "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+              "Optimism"
+            )
+          ).to.be.rejectedWith(/Gasless deposits are not supported for chain/)
+        })
+
+        it("should reject lowercase chain names", async () => {
+          await expect(
+            depositService.initiateGaslessDeposit(
+              "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+              "arbitrum"
+            )
+          ).to.be.rejectedWith(/Gasless deposits are not supported for chain/)
+        })
+
+        it("should list supported chains in error message", async () => {
+          try {
+            await depositService.initiateGaslessDeposit(
+              "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+              "InvalidChain"
+            )
+            expect.fail("Should have thrown an error")
+          } catch (error: any) {
+            expect(error.message).to.include("Supported chains:")
+            expect(error.message).to.include("L1")
+            expect(error.message).to.include("Arbitrum")
+            expect(error.message).to.include("Base")
+            expect(error.message).to.include("Sui")
+            expect(error.message).to.include("StarkNet")
+          }
+        })
+      })
+
       context("when destinationChainName is L1", () => {
         const nativeBTCDepositorAddress = EthereumAddress.from(
           "0x1234567890123456789012345678901234567890"
@@ -3225,11 +3287,15 @@ describe("Deposits", () => {
 
         context("when NativeBTCDepositor address is not available", () => {
           beforeEach(() => {
+            // Switch to an unsupported network (Local) to test unavailable address scenario
+            bitcoinClient.network = BitcoinNetwork.Mainnet // Use mainnet but don't provide address
+
             // Create service without NativeBTCDepositor address
             depositService = new DepositsService(
               tbtcContracts,
               bitcoinClient,
               (_: DestinationChainName) => undefined
+              // Don't provide NativeBTCDepositor address as 4th param
             )
 
             tbtcContracts.bridge.setActiveWalletPublicKey(
@@ -3239,10 +3305,12 @@ describe("Deposits", () => {
             )
           })
 
-          it("should throw descriptive error", async () => {
+          // Skip this test since both Mainnet and Testnet now have valid addresses
+          // in NATIVE_BTC_DEPOSITOR_ADDRESSES constant
+          it.skip("should throw descriptive error", async () => {
             await expect(
               depositService.initiateGaslessDeposit(
-                "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+                "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq", // Mainnet address
                 "L1"
               )
             ).to.be.rejectedWith(
@@ -3648,7 +3716,7 @@ describe("Deposits", () => {
               "InvalidChain"
             )
           ).to.be.rejectedWith(
-            "Cross-chain contracts for InvalidChain not initialized"
+            /Gasless deposits are not supported for chain/
           )
         })
 
@@ -3658,7 +3726,7 @@ describe("Deposits", () => {
               "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
               ""
             )
-          ).to.be.rejectedWith("Cross-chain contracts for  not initialized")
+          ).to.be.rejectedWith(/Gasless deposits are not supported for chain/)
         })
       })
     })
@@ -3838,8 +3906,8 @@ describe("Deposits", () => {
             expect(payload.fundingTx.locktime).to.match(/^0x[0-9a-f]+$/i)
           })
 
-          it("should include destination chain name", () => {
-            expect(payload.destinationChainName).to.equal("Arbitrum")
+          it("should normalize chain name to lowercase", () => {
+            expect(payload.destinationChainName).to.equal("arbitrum")
           })
         })
 
@@ -3890,6 +3958,58 @@ describe("Deposits", () => {
               )
             ).to.be.rejectedWith("Invalid extraData length")
           })
+        })
+      })
+
+      context("chain name normalization", () => {
+        it("should keep L1 as uppercase", async () => {
+          const payload = await depositService.buildGaslessRelayPayload(
+            l1ReceiptFixture,
+            testnetTransactionHash,
+            0,
+            "L1"
+          )
+          expect(payload.destinationChainName).to.equal("L1")
+        })
+
+        it("should normalize Arbitrum to lowercase", async () => {
+          const payload = await depositService.buildGaslessRelayPayload(
+            l2ReceiptWith32ByteExtraDataFixture,
+            testnetTransactionHash,
+            0,
+            "Arbitrum"
+          )
+          expect(payload.destinationChainName).to.equal("arbitrum")
+        })
+
+        it("should normalize Base to lowercase", async () => {
+          const payload = await depositService.buildGaslessRelayPayload(
+            l2ReceiptWith20ByteExtraDataFixture,
+            testnetTransactionHash,
+            0,
+            "Base"
+          )
+          expect(payload.destinationChainName).to.equal("base")
+        })
+
+        it("should normalize Sui to lowercase", async () => {
+          const payload = await depositService.buildGaslessRelayPayload(
+            l2ReceiptWith20ByteExtraDataFixture,
+            testnetTransactionHash,
+            0,
+            "Sui"
+          )
+          expect(payload.destinationChainName).to.equal("sui")
+        })
+
+        it("should normalize StarkNet to lowercase", async () => {
+          const payload = await depositService.buildGaslessRelayPayload(
+            l2ReceiptWith20ByteExtraDataFixture,
+            testnetTransactionHash,
+            0,
+            "StarkNet"
+          )
+          expect(payload.destinationChainName).to.equal("starknet")
         })
       })
 

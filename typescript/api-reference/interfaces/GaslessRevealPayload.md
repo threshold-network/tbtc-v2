@@ -45,12 +45,13 @@ ___
 
 • **destinationChainName**: `string`
 
-Target chain name for backend routing.
-Must match the chain specified during deposit initiation.
+Target chain name for backend routing (normalized to lowercase).
+- "L1" remains as-is for L1 deposits
+- L2 chain names are lowercase: "arbitrum", "base", "sui", "starknet"
 
 #### Defined in
 
-[services/deposits/deposits-service.ts:148](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L148)
+[services/deposits/deposits-service.ts:149](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L149)
 
 ___
 
