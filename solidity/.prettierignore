@@ -8,3 +8,4 @@ hardhat-dependency-compiler/
 typechain/
 docgen-templates/
 export.json
+contracts/cross-chain/wormhole/L1BTCDepositorNttWithExecutor.sol
