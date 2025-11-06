@@ -99,15 +99,15 @@ async function main() {
   console.log("⏳ Waiting for proxy deployment...")
   await proxy.deployed()
 
-  console.log(`✅ L1BTCDepositorNttWithExecutor deployed successfully!`)
+  console.log("✅ L1BTCDepositorNttWithExecutor deployed successfully!")
   console.log(`   Proxy address: ${proxy.address}`)
   console.log(`   Implementation: ${implementation.address}`)
   console.log(`   Admin: ${deployer.address}`)
 
   console.log("\n🎉 Deployment completed successfully!")
   console.log("📋 Summary:")
-  console.log(`   Network: Sepolia`)
-  console.log(`   Explorer: https://sepolia.etherscan.io`)
+  console.log("   Network: Sepolia")
+  console.log("   Explorer: https://sepolia.etherscan.io")
   console.log(`   Proxy: ${proxy.address}`)
   console.log(`   Implementation: ${implementation.address}`)
   console.log(`   Admin: ${deployer.address}`)
