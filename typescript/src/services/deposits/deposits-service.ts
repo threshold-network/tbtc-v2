@@ -135,9 +135,14 @@ export interface GaslessRevealPayload {
 
   /**
    * Destination chain deposit owner address.
-   * Format varies by chain:
-   * - L1: 32-byte hex (left-padded Ethereum address)
-   * - L2 (Wormhole): 20-byte Ethereum address hex
+   * Format varies by chain based on the contract parameter type:
+   * - L1 (Ethereum): bytes32 - 32-byte hex (left-padded Ethereum address, e.g., "0x000000000000000000000000" + address)
+   * - Arbitrum: address - 20-byte Ethereum address hex (e.g., "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1")
+   * - Base: address - 20-byte Ethereum address hex (e.g., "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1")
+   * - Sui: bytes32 - 32-byte hex (left-padded Ethereum address)
+   * - StarkNet: bytes32 - 32-byte hex (left-padded Ethereum address)
+   *
+   * Note: Backend will automatically pad 20-byte addresses to bytes32 for chains that require it.
    */
   destinationChainDepositOwner: string
 
