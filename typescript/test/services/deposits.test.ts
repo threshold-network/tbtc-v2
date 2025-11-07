@@ -34,6 +34,7 @@ import {
   CrossChainContracts,
   GaslessDepositResult,
   GaslessRevealPayload,
+  GaslessDestination,
 } from "../../src"
 import { MockBitcoinClient } from "../utils/mock-bitcoin-client"
 import { MockTBTCContracts } from "../utils/mock-tbtc-contracts"
@@ -3058,7 +3059,7 @@ describe("Deposits", () => {
           refundLocktime: Hex.from("60bcea61"),
         }
 
-        const validChains = ["L1", "Arbitrum", "Base", "Optimism", "Solana"]
+        const validChains: GaslessDestination[] = ["L1", "Arbitrum", "Base", "Sui", "StarkNet", "Solana"]
 
         validChains.forEach((chainName) => {
           const result: GaslessDepositResult = {
