@@ -625,9 +625,7 @@ export class DepositsService {
     // Backend expects lowercase chain names (e.g., "arbitrum", "base")
     // except "L1" which should remain as-is
     const normalizedChainName =
-      destinationChainName === "L1"
-        ? "L1"
-        : destinationChainName.toLowerCase()
+      destinationChainName === "L1" ? "L1" : destinationChainName.toLowerCase()
 
     // Step 5: Build and return payload
     return {
@@ -677,6 +675,8 @@ export class DepositsService {
   /**
    * Sets the NativeBTCDepositor address override used for L1 gasless deposits.
    * Useful for custom deployments or testing environments.
+   * @param nativeBTCDepositor - Chain identifier of the NativeBTCDepositor contract to use.
+   * @returns {void}
    */
   setNativeBTCDepositor(nativeBTCDepositor: ChainIdentifier) {
     this.#nativeBTCDepositor = nativeBTCDepositor
@@ -685,7 +685,8 @@ export class DepositsService {
   /**
    * Resolves the NativeBTCDepositor address from the current Bitcoin network
    * using the NATIVE_BTC_DEPOSITOR_ADDRESSES mapping.
-   * Returns undefined if the mapping is missing or invalid for the network.
+   * @returns Chain identifier of the NativeBTCDepositor contract, or undefined
+   *          if the mapping is missing or invalid for the network.
    */
   private async resolveNativeBTCDepositorFromNetwork(): Promise<
     ChainIdentifier | undefined

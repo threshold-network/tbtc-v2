@@ -3059,7 +3059,14 @@ describe("Deposits", () => {
           refundLocktime: Hex.from("60bcea61"),
         }
 
-        const validChains: GaslessDestination[] = ["L1", "Arbitrum", "Base", "Sui", "StarkNet", "Solana"]
+        const validChains: GaslessDestination[] = [
+          "L1",
+          "Arbitrum",
+          "Base",
+          "Sui",
+          "StarkNet",
+          "Solana",
+        ]
 
         validChains.forEach((chainName) => {
           const result: GaslessDepositResult = {
@@ -3314,9 +3321,7 @@ describe("Deposits", () => {
                 "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq", // Mainnet address
                 "L1"
               )
-            ).to.be.rejectedWith(
-              /NativeBTCDepositor address not available/
-            )
+            ).to.be.rejectedWith(/NativeBTCDepositor address not available/)
           })
         })
 
@@ -3426,38 +3431,42 @@ describe("Deposits", () => {
           })
         })
 
-        context("when NativeBTCDepositor address should auto-resolve from mapping (Mainnet)", () => {
-          let result: GaslessDepositResult
-          beforeEach(async () => {
-            // Switch to mainnet so mapping contains a valid address
-            bitcoinClient.network = BitcoinNetwork.Mainnet
-            tbtcContracts.bridge.setActiveWalletPublicKey(
-              Hex.from(
-                "03989d253b17a6a0f41838b84ff0d20e8898f9d7b1a98f2564da4cc29dcf8581d9"
+        context(
+          "when NativeBTCDepositor address should auto-resolve from mapping (Mainnet)",
+          () => {
+            let result: GaslessDepositResult
+            beforeEach(async () => {
+              // Switch to mainnet so mapping contains a valid address
+              bitcoinClient.network = BitcoinNetwork.Mainnet
+              tbtcContracts.bridge.setActiveWalletPublicKey(
+                Hex.from(
+                  "03989d253b17a6a0f41838b84ff0d20e8898f9d7b1a98f2564da4cc29dcf8581d9"
+                )
               )
-            )
-            // Create service without providing native depositor override
-            depositService = new DepositsService(
-              tbtcContracts,
-              bitcoinClient,
-              (_: DestinationChainName) => undefined
-            )
+              // Create service without providing native depositor override
+              depositService = new DepositsService(
+                tbtcContracts,
+                bitcoinClient,
+                (_: DestinationChainName) => undefined
+              )
 
-            // Use a valid mainnet P2PKH address for mainnet network
-            result = await depositService.initiateGaslessDeposit(
-              "1BoatSLRHtKNngkdXEeobR76b53LETtpyT",
-              "L1"
-            )
-          })
+              // Use a valid mainnet P2PKH address for mainnet network
+              result = await depositService.initiateGaslessDeposit(
+                "1BoatSLRHtKNngkdXEeobR76b53LETtpyT",
+                "L1"
+              )
+            })
 
-          it("should use the address from NATIVE_BTC_DEPOSITOR_ADDRESSES", () => {
-            const expected = NATIVE_BTC_DEPOSITOR_ADDRESSES[BitcoinNetwork.Mainnet]
-            expect(result.receipt.depositor.identifierHex).to.equal(
-              // EthereumAddress normalizes to lowercase hex without 0x
-              expected.substring(2).toLowerCase()
-            )
-          })
-        })
+            it("should use the address from NATIVE_BTC_DEPOSITOR_ADDRESSES", () => {
+              const expected =
+                NATIVE_BTC_DEPOSITOR_ADDRESSES[BitcoinNetwork.Mainnet]
+              expect(result.receipt.depositor.identifierHex).to.equal(
+                // EthereumAddress normalizes to lowercase hex without 0x
+                expected.substring(2).toLowerCase()
+              )
+            })
+          }
+        )
 
         context("when overriding NativeBTCDepositor via setter", () => {
           let result: GaslessDepositResult
@@ -3716,9 +3725,7 @@ describe("Deposits", () => {
               "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
               "InvalidChain"
             )
-          ).to.be.rejectedWith(
-            /Gasless deposits are not supported for chain/
-          )
+          ).to.be.rejectedWith(/Gasless deposits are not supported for chain/)
         })
 
         it("should reject empty chain name", async () => {

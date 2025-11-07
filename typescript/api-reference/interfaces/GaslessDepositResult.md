@@ -31,20 +31,20 @@ Use `deposit.detectFunding()` to monitor for Bitcoin transactions.
 
 #### Defined in
 
-[services/deposits/deposits-service.ts:41](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L41)
+[services/deposits/deposits-service.ts:47](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L47)
 
 ___
 
 ### destinationChainName
 
-• **destinationChainName**: `string`
+• **destinationChainName**: [`GaslessDestination`](../README.md#gaslessdestination)
 
 Target chain name for the deposit.
 Can be "L1" or any L2 chain name (e.g., "Arbitrum", "Base", "Optimism").
 
 #### Defined in
 
-[services/deposits/deposits-service.ts:53](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L53)
+[services/deposits/deposits-service.ts:59](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L59)
 
 ___
 
@@ -57,4 +57,4 @@ This is serializable and can be stored for later payload construction.
 
 #### Defined in
 
-[services/deposits/deposits-service.ts:47](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L47)
+[services/deposits/deposits-service.ts:53](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L53)
