@@ -117,6 +117,7 @@
 - [ErrorMatcherFn](README.md#errormatcherfn)
 - [EthereumSigner](README.md#ethereumsigner)
 - [ExecutionLoggerFn](README.md#executionloggerfn)
+- [GaslessDestination](README.md#gaslessdestination)
 - [L1BitcoinDepositor](README.md#l1bitcoindepositor)
 - [L1CrossChainContracts](README.md#l1crosschaincontracts)
 - [L2BitcoinDepositor](README.md#l2bitcoindepositor)
@@ -455,6 +456,19 @@ A function that is called with execution status messages.
 #### Defined in
 
 [src/lib/utils/backoff.ts:56](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/backoff.ts#L56)
+
+___
+
+### GaslessDestination
+
+Ƭ **GaslessDestination**: ``"L1"`` \| [`DestinationChainName`](README.md#destinationchainname)
+
+Supported destination chains for gasless deposits.
+Includes "L1" for direct Ethereum L1 deposits and all supported L2 chains.
+
+#### Defined in
+
+[services/deposits/deposits-service.ts:29](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L29)
 
 ___
 
