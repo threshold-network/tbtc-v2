@@ -110,6 +110,10 @@
     "secp256k1": "4.0.3",
     "@solana/web3.js": "1.97.0"
   },
+  "engines": {
+    "node": ">=20"
+  }
+  },
   "overrides": {
     "secp256k1": "4.0.3",
     "@solana/web3.js": "1.97.0"
