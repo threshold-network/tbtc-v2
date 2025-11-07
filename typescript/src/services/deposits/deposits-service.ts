@@ -23,6 +23,12 @@ import { NATIVE_BTC_DEPOSITOR_ADDRESSES } from "../../lib/ethereum/constants"
 import { EthereumAddress } from "../../lib/ethereum/address"
 
 /**
+ * Supported destination chains for gasless deposits.
+ * Includes "L1" for direct Ethereum L1 deposits and all supported L2 chains.
+ */
+export type GaslessDestination = "L1" | DestinationChainName
+
+/**
  * Result of initiating a gasless deposit where the relayer backend pays all
  * gas fees.
  *
@@ -50,7 +56,7 @@ export interface GaslessDepositResult {
    * Target chain name for the deposit.
    * Can be "L1" or any L2 chain name (e.g., "Arbitrum", "Base", "Optimism").
    */
-  destinationChainName: string
+  destinationChainName: GaslessDestination
 }
 
 /**
