@@ -466,7 +466,7 @@ proper extraData encoding for the destination chain.
 | :------ | :------ | :------ |
 | `bitcoinRecoveryAddress` | `string` | P2PKH or P2WPKH Bitcoin address for emergency recovery |
 | `depositOwner` | `string` | Ethereum address that will receive the minted tBTC. For L1 deposits, this is the user's Ethereum address. For L2 deposits, this is typically the signer's address (obtained from the destination chain BitcoinDepositor). |
-| `destinationChainName` | `string` | Target chain name for the deposit. Must be one of the supported chains (case-sensitive): - "L1" - Direct L1 deposits via NativeBTCDepositor - "Arbitrum" - Arbitrum L2 deposits - "Base" - Base L2 deposits - "Sui" - Sui L2 deposits - "StarkNet" - StarkNet L2 deposits (note: capital 'N') Note: "Solana" is not currently supported for gasless deposits |
+| `destinationChainName` | [`GaslessDestination`](../README.md#gaslessdestination) | Target chain name for the deposit. Must be one of the supported chains (case-sensitive): - "L1" - Direct L1 deposits via NativeBTCDepositor - "Arbitrum" - Arbitrum L2 deposits - "Base" - Base L2 deposits - "Sui" - Sui L2 deposits - "StarkNet" - StarkNet L2 deposits (note: capital 'N') Note: "Solana" is not currently supported for gasless deposits |
 
 #### Returns
 

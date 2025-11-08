@@ -3263,7 +3263,7 @@ describe("Deposits", () => {
             depositService.initiateGaslessDeposit(
               "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
               "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
-              "Optimism"
+              "Optimism" as GaslessDestination
             )
           ).to.be.rejectedWith(/Gasless deposits are not supported for chain/)
         })
@@ -3273,7 +3273,7 @@ describe("Deposits", () => {
             depositService.initiateGaslessDeposit(
               "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
               "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
-              "arbitrum"
+              "arbitrum" as GaslessDestination
             )
           ).to.be.rejectedWith(/Gasless deposits are not supported for chain/)
         })
@@ -3283,7 +3283,7 @@ describe("Deposits", () => {
             await depositService.initiateGaslessDeposit(
               "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
               "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
-              "InvalidChain"
+              "InvalidChain" as GaslessDestination
             )
             expect.fail("Should have thrown an error")
           } catch (error: any) {
@@ -3748,7 +3748,7 @@ describe("Deposits", () => {
             depositService.initiateGaslessDeposit(
               "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
               "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
-              "InvalidChain"
+              "InvalidChain" as GaslessDestination
             )
           ).to.be.rejectedWith(/Gasless deposits are not supported for chain/)
         })
@@ -3758,7 +3758,7 @@ describe("Deposits", () => {
             depositService.initiateGaslessDeposit(
               "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
               "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
-              ""
+              "" as GaslessDestination
             )
           ).to.be.rejectedWith(/Gasless deposits are not supported for chain/)
         })
