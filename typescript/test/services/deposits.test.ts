@@ -3403,7 +3403,9 @@ describe("Deposits", () => {
               it("should include extraData with depositOwner in receipt", () => {
                 expect(result.receipt.extraData).to.exist
                 // Verify it's bytes32 encoded (66 chars: 0x + 64 hex chars)
-                expect(result.receipt.extraData!.toPrefixedString().length).to.equal(66)
+                expect(
+                  result.receipt.extraData!.toPrefixedString().length
+                ).to.equal(66)
               })
 
               it("should have correct wallet and refund hashes", () => {

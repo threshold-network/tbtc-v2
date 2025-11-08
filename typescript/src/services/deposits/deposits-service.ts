@@ -412,19 +412,6 @@ export class DepositsService {
       )
     }
 
-    // Validate Bitcoin recovery address early for consistent error behavior
-    const bitcoinNetwork = await this.bitcoinClient.getNetwork()
-    const recoveryOutputScript = BitcoinAddressConverter.addressToOutputScript(
-      bitcoinRecoveryAddress,
-      bitcoinNetwork
-    )
-    if (
-      !BitcoinScriptUtils.isP2PKHScript(recoveryOutputScript) &&
-      !BitcoinScriptUtils.isP2WPKHScript(recoveryOutputScript)
-    ) {
-      throw new Error("Bitcoin recovery address must be P2PKH or P2WPKH")
-    }
-
     if (destinationChainName === "L1") {
       return this.initiateL1GaslessDeposit(bitcoinRecoveryAddress, depositOwner)
     } else {
@@ -595,21 +582,30 @@ export class DepositsService {
     // L1 contracts expect bytes32 owner (32 bytes), L2 contracts expect address (20 bytes)
     let destinationOwner: string
 
-    if (!receipt.extraData) {
-      throw new Error(
-        `extraData is required for gasless deposits but was not found in the receipt. ` +
-          `This should not happen - please ensure you used initiateGaslessDeposit() to generate the deposit.`
-      )
-    }
-
-    const extraDataHex = receipt.extraData.toPrefixedString()
-
     if (destinationChainName === "L1") {
-      // L1: Use bytes32 encoding for owner (extraData is already bytes32)
-      destinationOwner = extraDataHex
+      // L1: Use bytes32 encoding for owner
+      if (receipt.extraData) {
+        // If extraData is present, use it directly (already bytes32)
+        destinationOwner = receipt.extraData.toPrefixedString()
+      } else {
+        // If no extraData, encode depositor address as bytes32 (left-padded)
+        destinationOwner = ethers.utils.hexZeroPad(
+          `0x${receipt.depositor.identifierHex}`,
+          32
+        )
+      }
     } else {
-      // L2: Extract 20-byte address from extraData
-      // L2 contracts (e.g., Arbitrum, Base, Optimism) expect address type, not bytes32
+      // L2: extraData is required and must contain the deposit owner address
+      if (!receipt.extraData) {
+        throw new Error(
+          `extraData required for cross-chain gasless deposits but was not found in the receipt. ` +
+            `This should not happen - please ensure you used initiateGaslessDeposit() to generate the deposit.`
+        )
+      }
+
+      const extraDataHex = receipt.extraData.toPrefixedString()
+
+      // L2 contracts (e.g., Arbitrum, Base) expect address type, not bytes32
       if (extraDataHex.length === this.BYTES32_HEX_LENGTH) {
         // 32 bytes: Extract last 20 bytes (address) from bytes32 extraData
         // The address is stored in the rightmost 20 bytes of the 32-byte value
