@@ -377,6 +377,10 @@ export class DepositsService {
    * proper extraData encoding for the destination chain.
    *
    * @param bitcoinRecoveryAddress P2PKH or P2WPKH Bitcoin address for emergency recovery
+   * @param depositOwner Ethereum address that will receive the minted tBTC.
+   *                     For L1 deposits, this is the user's Ethereum address.
+   *                     For L2 deposits, this is typically the signer's address
+   *                     (obtained from the destination chain BitcoinDepositor).
    * @param destinationChainName Target chain name for the deposit. Must be one of the
    *                             supported chains (case-sensitive):
    *                             - "L1" - Direct L1 deposits via NativeBTCDepositor
@@ -388,6 +392,7 @@ export class DepositsService {
    * @returns GaslessDepositResult containing deposit object, receipt, and chain name
    * @throws Throws an error if:
    *         - Bitcoin recovery address is not P2PKH or P2WPKH
+   *         - Deposit owner is not a valid Ethereum address
    *         - Destination chain name is not in the supported list
    *         - Destination chain contracts not initialized (for L2 deposits)
    *         - NativeBTCDepositor address not available (for L1 deposits)
@@ -396,6 +401,7 @@ export class DepositsService {
    */
   async initiateGaslessDeposit(
     bitcoinRecoveryAddress: string,
+    depositOwner: string,
     destinationChainName: string
   ): Promise<GaslessDepositResult> {
     // Validate that the chain supports gasless deposits
@@ -420,7 +426,7 @@ export class DepositsService {
     }
 
     if (destinationChainName === "L1") {
-      return this.initiateL1GaslessDeposit(bitcoinRecoveryAddress)
+      return this.initiateL1GaslessDeposit(bitcoinRecoveryAddress, depositOwner)
     } else {
       return this.initiateL2GaslessDeposit(
         bitcoinRecoveryAddress,
@@ -432,10 +438,12 @@ export class DepositsService {
   /**
    * Internal helper for L1 gasless deposits using NativeBTCDepositor.
    * @param bitcoinRecoveryAddress - Bitcoin address for recovery if deposit fails (P2PKH or P2WPKH).
+   * @param depositOwner - Ethereum address that will receive the minted tBTC on L1.
    * @returns Promise resolving to GaslessDepositResult containing deposit, receipt, and "L1" chain name.
    */
   private async initiateL1GaslessDeposit(
-    bitcoinRecoveryAddress: string
+    bitcoinRecoveryAddress: string,
+    depositOwner: string
   ): Promise<GaslessDepositResult> {
     let depositor = this.getNativeBTCDepositorAddress()
     if (!depositor) {
@@ -448,10 +456,16 @@ export class DepositsService {
       )
     }
 
+    // Encode depositOwner as bytes32 for L1 contract
+    const { ethers } = await import("ethers")
+    const depositOwnerBytes32 = Hex.from(
+      ethers.utils.hexZeroPad(depositOwner, 32)
+    )
+
     const receipt = await this.generateDepositReceipt(
       bitcoinRecoveryAddress,
       depositor,
-      undefined
+      depositOwnerBytes32
     )
 
     const deposit = await Deposit.fromReceipt(
@@ -581,29 +595,21 @@ export class DepositsService {
     // L1 contracts expect bytes32 owner (32 bytes), L2 contracts expect address (20 bytes)
     let destinationOwner: string
 
+    if (!receipt.extraData) {
+      throw new Error(
+        `extraData is required for gasless deposits but was not found in the receipt. ` +
+          `This should not happen - please ensure you used initiateGaslessDeposit() to generate the deposit.`
+      )
+    }
+
+    const extraDataHex = receipt.extraData.toPrefixedString()
+
     if (destinationChainName === "L1") {
-      // L1: Use bytes32 encoding for owner
-      // If extraData provided (e.g., from NativeBTCDepositor), use it directly as bytes32
-      // Otherwise, left-pad the depositor address to 32 bytes
-      if (receipt.extraData) {
-        destinationOwner = receipt.extraData.toPrefixedString()
-      } else {
-        destinationOwner = this.encodeOwnerAddressAsBytes32(
-          receipt.depositor,
-          ethers
-        )
-      }
+      // L1: Use bytes32 encoding for owner (extraData is already bytes32)
+      destinationOwner = extraDataHex
     } else {
       // L2: Extract 20-byte address from extraData
       // L2 contracts (e.g., Arbitrum, Base, Optimism) expect address type, not bytes32
-      if (!receipt.extraData) {
-        throw new Error(
-          `extraData required for cross-chain gasless deposit to ${destinationChainName}. ` +
-            `L2 deposits must include the deposit owner address in the extraData field.`
-        )
-      }
-
-      const extraDataHex = receipt.extraData.toPrefixedString()
       if (extraDataHex.length === this.BYTES32_HEX_LENGTH) {
         // 32 bytes: Extract last 20 bytes (address) from bytes32 extraData
         // The address is stored in the rightmost 20 bytes of the 32-byte value
@@ -646,21 +652,6 @@ export class DepositsService {
       destinationChainDepositOwner: destinationOwner,
       destinationChainName: normalizedChainName,
     }
-  }
-
-  /**
-   * Encodes an owner address as bytes32 (left-padded).
-   * Used for L1 gasless deposits where the owner is encoded as bytes32.
-   * @param owner - Chain identifier containing the Ethereum address to encode.
-   * @param ethers - Ethers.js library instance for hexZeroPad utility.
-   * @returns Bytes32-encoded address (0x-prefixed hex string, 66 characters).
-   */
-  private encodeOwnerAddressAsBytes32(
-    owner: ChainIdentifier,
-    ethers: any
-  ): string {
-    const address = `0x${owner.identifierHex}`
-    return ethers.utils.hexZeroPad(address, 32)
   }
 
   /**

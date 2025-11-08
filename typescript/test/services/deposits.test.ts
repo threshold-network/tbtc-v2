@@ -3212,6 +3212,7 @@ describe("Deposits", () => {
           await expect(
             depositService.initiateGaslessDeposit(
               "2N5WZpig3vgpSdjSherS2Lv7GnPuxCvkQjT", // P2SH address
+              "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1", // depositOwner
               "L1"
             )
           ).to.be.rejectedWith(
@@ -3221,7 +3222,11 @@ describe("Deposits", () => {
 
         it("should reject invalid addresses", async () => {
           await expect(
-            depositService.initiateGaslessDeposit("invalidaddress", "L1")
+            depositService.initiateGaslessDeposit(
+              "invalidaddress",
+              "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
+              "L1"
+            )
           ).to.be.rejected
         })
       })
@@ -3245,6 +3250,7 @@ describe("Deposits", () => {
           await expect(
             depositService.initiateGaslessDeposit(
               "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+              "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
               "Solana"
             )
           ).to.be.rejectedWith(
@@ -3256,6 +3262,7 @@ describe("Deposits", () => {
           await expect(
             depositService.initiateGaslessDeposit(
               "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+              "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
               "Optimism"
             )
           ).to.be.rejectedWith(/Gasless deposits are not supported for chain/)
@@ -3265,6 +3272,7 @@ describe("Deposits", () => {
           await expect(
             depositService.initiateGaslessDeposit(
               "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+              "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
               "arbitrum"
             )
           ).to.be.rejectedWith(/Gasless deposits are not supported for chain/)
@@ -3274,6 +3282,7 @@ describe("Deposits", () => {
           try {
             await depositService.initiateGaslessDeposit(
               "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+              "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
               "InvalidChain"
             )
             expect.fail("Should have thrown an error")
@@ -3319,6 +3328,7 @@ describe("Deposits", () => {
             await expect(
               depositService.initiateGaslessDeposit(
                 "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq", // Mainnet address
+                "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
                 "L1"
               )
             ).to.be.rejectedWith(/NativeBTCDepositor address not available/)
@@ -3341,6 +3351,7 @@ describe("Deposits", () => {
               await expect(
                 depositService.initiateGaslessDeposit(
                   "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+                  "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
                   "L1"
                 )
               ).to.be.rejectedWith("Could not get active wallet public key")
@@ -3368,6 +3379,7 @@ describe("Deposits", () => {
               beforeEach(async () => {
                 result = await depositService.initiateGaslessDeposit(
                   "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+                  "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
                   "L1"
                 )
               })
@@ -3388,8 +3400,10 @@ describe("Deposits", () => {
                 expect(result.destinationChainName).to.equal("L1")
               })
 
-              it("should not include extraData in receipt", () => {
-                expect(result.receipt.extraData).to.be.undefined
+              it("should include extraData with depositOwner in receipt", () => {
+                expect(result.receipt.extraData).to.exist
+                // Verify it's bytes32 encoded (66 chars: 0x + 64 hex chars)
+                expect(result.receipt.extraData!.toPrefixedString().length).to.equal(66)
               })
 
               it("should have correct wallet and refund hashes", () => {
@@ -3413,6 +3427,7 @@ describe("Deposits", () => {
               beforeEach(async () => {
                 result = await depositService.initiateGaslessDeposit(
                   "tb1qumuaw3exkxdhtut0u85latkqfz4ylgwstkdzsx",
+                  "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
                   "L1"
                 )
               })
@@ -3425,7 +3440,7 @@ describe("Deposits", () => {
                 expect(result.receipt.refundPublicKeyHash).to.be.deep.equal(
                   Hex.from("e6f9d74726b19b75f16fe1e9feaec048aa4fa1d0")
                 )
-                expect(result.receipt.extraData).to.be.undefined
+                expect(result.receipt.extraData).to.exist
               })
             })
           })
@@ -3453,6 +3468,7 @@ describe("Deposits", () => {
               // Use a valid mainnet P2PKH address for mainnet network
               result = await depositService.initiateGaslessDeposit(
                 "1BoatSLRHtKNngkdXEeobR76b53LETtpyT",
+                "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
                 "L1"
               )
             })
@@ -3491,6 +3507,7 @@ describe("Deposits", () => {
 
             result = await depositService.initiateGaslessDeposit(
               "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+              "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
               "L1"
             )
           })
@@ -3525,6 +3542,7 @@ describe("Deposits", () => {
             await expect(
               depositService.initiateGaslessDeposit(
                 "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+                "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
                 "Base"
               )
             ).to.be.rejectedWith(
@@ -3600,6 +3618,7 @@ describe("Deposits", () => {
               await expect(
                 depositService.initiateGaslessDeposit(
                   "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+                  "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
                   "Base"
                 )
               ).to.be.rejectedWith(
@@ -3620,6 +3639,7 @@ describe("Deposits", () => {
                 await expect(
                   depositService.initiateGaslessDeposit(
                     "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+                    "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
                     "Base"
                   )
                 ).to.be.rejectedWith("Could not get active wallet public key")
@@ -3641,6 +3661,7 @@ describe("Deposits", () => {
                 beforeEach(async () => {
                   result = await depositService.initiateGaslessDeposit(
                     "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+                    "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
                     "Base"
                   )
                 })
@@ -3684,6 +3705,7 @@ describe("Deposits", () => {
                 beforeEach(async () => {
                   result = await depositService.initiateGaslessDeposit(
                     "tb1qumuaw3exkxdhtut0u85latkqfz4ylgwstkdzsx",
+                    "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
                     "Base"
                   )
                 })
@@ -3723,6 +3745,7 @@ describe("Deposits", () => {
           await expect(
             depositService.initiateGaslessDeposit(
               "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+              "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
               "InvalidChain"
             )
           ).to.be.rejectedWith(/Gasless deposits are not supported for chain/)
@@ -3732,6 +3755,7 @@ describe("Deposits", () => {
           await expect(
             depositService.initiateGaslessDeposit(
               "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+              "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
               ""
             )
           ).to.be.rejectedWith(/Gasless deposits are not supported for chain/)
