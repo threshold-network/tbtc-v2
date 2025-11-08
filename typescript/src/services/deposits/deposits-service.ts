@@ -423,7 +423,7 @@ export class DepositsService {
   async initiateGaslessDeposit(
     bitcoinRecoveryAddress: string,
     depositOwner: string,
-    destinationChainName: string
+    destinationChainName: GaslessDestination
   ): Promise<GaslessDepositResult> {
     // Validate that the chain supports gasless deposits
     if (!this.SUPPORTED_GASLESS_CHAINS.includes(destinationChainName as any)) {
