@@ -6,7 +6,6 @@ import os from "os"
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { ethers, helpers, deployments, getNamedAccounts } = hre
-  const { deploy } = deployments
   const { deployer, treasury: namedTreasury } = await getNamedAccounts()
 
   // Prefer cached deployment; fall back to env if cache missing.
@@ -55,7 +54,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   )
 
   const treasuryAddress =
-    process.env.BRIDGE_TREASURY_ADDRESS ?? namedTreasury ?? ethers.constants.AddressZero
+    process.env.BRIDGE_TREASURY_ADDRESS ??
+    namedTreasury ??
+    ethers.constants.AddressZero
 
   const txProofDifficultyFactor = 6
 
@@ -63,11 +64,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // `get` function to load the ones that were already published before.
   // If there are any changes in the external libraries make sure to deploy fresh
   // versions of the libraries and link them to the implementation.
-  const depositLib = await resolveLibrary(
-    deployments,
-    signerAddress,
-    "Deposit"
-  )
+  const depositLib = await resolveLibrary(deployments, signerAddress, "Deposit")
   const depositSweepLib = await resolveLibrary(
     deployments,
     signerAddress,
@@ -78,28 +75,15 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     signerAddress,
     "Redemption"
   )
-  const walletsLib = await resolveLibrary(
-    deployments,
-    signerAddress,
-    "Wallets"
-  )
-  const fraudLib = await resolveLibrary(
-    deployments,
-    signerAddress,
-    "Fraud"
-  )
+  const walletsLib = await resolveLibrary(deployments, signerAddress, "Wallets")
+  const fraudLib = await resolveLibrary(deployments, signerAddress, "Fraud")
   const movingFundsLib = await resolveLibrary(
     deployments,
     signerAddress,
     "MovingFunds"
   )
 
-  await ensureDeploymentRecord(
-    deployments,
-    "Bridge",
-    bridgeAddress,
-    "Bridge"
-  )
+  await ensureDeploymentRecord(deployments, "Bridge", bridgeAddress, "Bridge")
 
   const libraryAddresses = {
     Deposit: depositLib,

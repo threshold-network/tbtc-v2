@@ -8,7 +8,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   // Use the governance key or named governance account; do not fall back to
   // ProxyAdmin signer for governance actions.
-  let signer = undefined as any
+  let signer: import("ethers").Signer
   const governancePk = process.env.BRIDGE_GOVERNANCE_PK
   if (governancePk) {
     signer = new ethers.Wallet(governancePk, ethers.provider)
@@ -90,5 +90,7 @@ func.dependencies = [
 func.runAtTheEnd = true
 
 function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms)
+  })
 }
