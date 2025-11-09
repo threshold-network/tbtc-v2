@@ -1,3 +1,4 @@
+import "dotenv/config"
 import { HardhatUserConfig } from "hardhat/config"
 import "./tasks"
 
@@ -12,6 +13,7 @@ import "@tenderly/hardhat-tenderly"
 import "@typechain/hardhat"
 import "hardhat-dependency-compiler"
 import "solidity-docgen"
+import "@openzeppelin/hardhat-upgrades"
 
 const ecdsaSolidityCompilerConfig = {
   version: "0.8.17",
@@ -23,14 +25,15 @@ const ecdsaSolidityCompilerConfig = {
   },
 }
 
-// Reduce the number of optimizer runs to 100 to keep the contract size sane.
-// BridgeGovernance contract does not need to be super gas-efficient.
+// Use 200 optimizer runs for BridgeGovernance to balance code size and gas.
+// BridgeGovernance does not need to be extremely gas-efficient, and 200 runs
+// keeps bytecode size within limits while remaining practical.
 const bridgeGovernanceCompilerConfig = {
   version: "0.8.17",
   settings: {
     optimizer: {
       enabled: true,
-      runs: 200,
+      runs: 100,
     },
   },
 }
@@ -58,7 +61,7 @@ const config: HardhatUserConfig = {
         settings: {
           optimizer: {
             enabled: true,
-            runs: 1000,
+            runs: 200,
           },
         },
       },
@@ -110,9 +113,14 @@ const config: HardhatUserConfig = {
       tags: ["allowStubs"],
     },
     sepolia: {
-      url: process.env.CHAIN_API_URL || "",
+      url:
+        process.env.SEPOLIA_CHAIN_API_URL ||
+        process.env.CHAIN_API_URL ||
+        "",
       chainId: 11155111,
-      accounts: process.env.ACCOUNTS_PRIVATE_KEYS
+      accounts: process.env.SEPOLIA_PRIVATE_KEYS
+        ? process.env.SEPOLIA_PRIVATE_KEYS.split(",")
+        : process.env.ACCOUNTS_PRIVATE_KEYS
         ? process.env.ACCOUNTS_PRIVATE_KEYS.split(",")
         : undefined,
       tags: ["tenderly"],
