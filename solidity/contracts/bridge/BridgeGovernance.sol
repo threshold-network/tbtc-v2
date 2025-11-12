@@ -20,6 +20,12 @@ import "./BridgeGovernanceParameters.sol";
 
 import "./Bridge.sol";
 
+/// @dev Minimal interface for calling new Bridge implementations
+///      that support Rebate Staking configuration.
+interface IBridgeRebateStaking {
+    function setRebateStaking(address rebateStaking) external;
+}
+
 /// @title Bridge Governance
 /// @notice Owns the `Bridge` contract and is responsible for updating
 ///         its governable parameters in respect to governance delay individual
@@ -1781,5 +1787,19 @@ contract BridgeGovernance is Ownable {
         onlyOwner
     {
         bridge.setRedemptionWatchtower(redemptionWatchtower);
+    }
+
+    /// @notice Sets the rebate staking address. This function does not
+    ///         have a governance delay as setting the rebate staking is
+    ///         a one-off action performed during initialization of the
+    ///         rebate mechanism.
+    /// @param rebateStaking Address of the rebate staking contract.
+    /// @dev Requirements:
+    ///      - The caller must be the owner,
+    ///      - Rebate staking address must not be already set,
+    ///      - Rebate staking address must not be 0x0.
+    function setRebateStaking(address rebateStaking) external onlyOwner {
+        // Cast to minimal interface to support newer Bridge implementations.
+        IBridgeRebateStaking(address(bridge)).setRebateStaking(rebateStaking);
     }
 }

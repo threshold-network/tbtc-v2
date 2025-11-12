@@ -1,4 +1,4 @@
-import { helpers, waffle } from "hardhat"
+import { ethers, helpers, waffle } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { expect } from "chai"
 import { ContractTransaction } from "ethers"
@@ -4459,6 +4459,65 @@ describe("Bridge - Governance", () => {
       // ensure correctness of the BridgeGovernance's ACL.
       it("should not revert", async () => {
         await expect(tx).to.not.be.reverted
+      })
+    })
+  })
+
+  describe("setRebateStaking", () => {
+    const rebateStakingAddr = "0xE41d2489571d322189246DaFA5ebDe1F4699F498"
+
+    context("when the caller is not the owner", () => {
+      it("should revert", async () => {
+        await expect(
+          bridgeGovernance
+            .connect(thirdParty)
+            .setRebateStaking(rebateStakingAddr)
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+    })
+
+    context("when the caller is the owner", () => {
+      let mockBridge: any
+      let localBridgeGovernance: BridgeGovernance
+
+      before(async () => {
+        await createSnapshot()
+
+        const mockFactory = await ethers.getContractFactory(
+          "MockBridgeWithRebateStaking"
+        )
+        mockBridge = await mockFactory.connect(governance).deploy()
+        await mockBridge.deployed()
+
+        const paramsLib = await helpers.contracts.getContract(
+          "BridgeGovernanceParameters"
+        )
+        const govFactory = await ethers.getContractFactory("BridgeGovernance", {
+          libraries: {
+            BridgeGovernanceParameters: paramsLib.address,
+          },
+        })
+        localBridgeGovernance = (await govFactory
+          .connect(governance)
+          .deploy(
+            mockBridge.address,
+            constants.governanceDelay
+          )) as BridgeGovernance
+        await localBridgeGovernance.deployed()
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should forward call to Bridge implementation", async () => {
+        await expect(
+          localBridgeGovernance
+            .connect(governance)
+            .setRebateStaking(rebateStakingAddr)
+        ).to.not.be.reverted
+
+        expect(await mockBridge.rebateStaking()).to.equal(rebateStakingAddr)
       })
     })
   })
