@@ -8,7 +8,6 @@ import type {
   MockBridgeWithRebateStaking,
 } from "../../typechain"
 import { constants } from "../fixtures"
-import rebateConstants from "../fixtures/rebate"
 import bridgeFixture from "../fixtures/bridge"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
@@ -4469,7 +4468,7 @@ describe("Bridge - Governance", () => {
   })
 
   describe("setRebateStaking", () => {
-    const { rebateStakingAddress } = rebateConstants
+    const { rebateStakingAddress } = constants
 
     context("when the caller is not the owner", () => {
       it("should revert", async () => {

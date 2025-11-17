@@ -4,7 +4,6 @@ import { expect } from "chai"
 import { ContractTransaction } from "ethers"
 import type { Bridge, BridgeStub, BridgeGovernance } from "../../typechain"
 import { constants } from "../fixtures"
-import rebateConstants from "../fixtures/rebate"
 import bridgeFixture from "../fixtures/bridge"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
@@ -1914,7 +1913,7 @@ describe("Bridge - Parameters", () => {
   })
 
   describe("setRebateStaking", () => {
-    const { rebateStakingAddress } = rebateConstants
+    const { rebateStakingAddress } = constants
 
     context("when caller is not the contract guvnor", () => {
       it("should revert", async () => {
