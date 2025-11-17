@@ -875,10 +875,7 @@ library BridgeState {
     function setRebateStaking(Storage storage self, address _rebateStaking)
         internal
     {
-        require(
-            self.rebateStaking == address(0),
-            "Rebate staking already set"
-        );
+        require(self.rebateStaking == address(0), "Rebate staking already set");
 
         require(
             _rebateStaking != address(0),

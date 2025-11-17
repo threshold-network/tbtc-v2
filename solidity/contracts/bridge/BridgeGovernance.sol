@@ -26,7 +26,7 @@ import "./IBridgeRebateStaking.sol";
 ///         its governable parameters in respect to governance delay individual
 ///         for each parameter. The other responsibility is marking a vault
 ///         address as trusted or no longer trusted.
-contract BridgeGovernance is Ownable {
+contract BridgeGovernance is Ownable, IBridgeRebateStaking {
     using BridgeGovernanceParameters for BridgeGovernanceParameters.DepositData;
     using BridgeGovernanceParameters for BridgeGovernanceParameters.RedemptionData;
     using BridgeGovernanceParameters for BridgeGovernanceParameters.MovingFundsData;

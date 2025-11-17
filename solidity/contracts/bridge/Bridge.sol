@@ -1962,10 +1962,7 @@ contract Bridge is
     ///      part of the rebate mechanism wiring governed by the
     ///      Bridge governance contract. See the bridge rebate
     ///      governance deployment runbook for operational details.
-    function setRebateStaking(address rebateStaking)
-        external
-        onlyGovernance
-    {
+    function setRebateStaking(address rebateStaking) external onlyGovernance {
         self.setRebateStaking(rebateStaking);
     }
 
