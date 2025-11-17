@@ -867,6 +867,11 @@ library BridgeState {
     /// @dev Requirements:
     ///      - Rebate staking address must not be already set,
     ///      - Rebate staking address must not be 0x0.
+    ///
+    /// @dev This function is designed to support a one-time
+    ///      initialization of the rebate staking contract. Changing
+    ///      the rebate staking address after it is set requires a
+    ///      dedicated upgrade path.
     function setRebateStaking(Storage storage self, address _rebateStaking)
         internal
     {

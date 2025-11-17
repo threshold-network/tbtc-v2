@@ -12,7 +12,10 @@ contract MockBridgeWithRebateStaking {
 
     function setRebateStaking(address _rebateStaking) external {
         require(rebateStaking == address(0), "Rebate staking already set");
-        require(_rebateStaking != address(0), "Rebate staking must not be 0x0");
+        require(
+            _rebateStaking != address(0),
+            "Rebate staking address must not be 0x0"
+        );
         rebateStaking = _rebateStaking;
         emit RebateStakingSet(_rebateStaking);
     }

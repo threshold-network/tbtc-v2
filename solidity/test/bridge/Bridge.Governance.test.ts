@@ -8,6 +8,7 @@ import type {
   MockBridgeWithRebateStaking,
 } from "../../typechain"
 import { constants } from "../fixtures"
+import { rebateConstants } from "../fixtures/rebate"
 import bridgeFixture from "../fixtures/bridge"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
@@ -4468,14 +4469,14 @@ describe("Bridge - Governance", () => {
   })
 
   describe("setRebateStaking", () => {
-    const rebateStakingAddr = "0xE41d2489571d322189246DaFA5ebDe1F4699F498"
+    const { rebateStakingAddress } = rebateConstants
 
     context("when the caller is not the owner", () => {
       it("should revert", async () => {
         await expect(
           bridgeGovernance
             .connect(thirdParty)
-            .setRebateStaking(rebateStakingAddr)
+            .setRebateStaking(rebateStakingAddress)
         ).to.be.revertedWith("Ownable: caller is not the owner")
       })
     })
@@ -4520,10 +4521,12 @@ describe("Bridge - Governance", () => {
         await expect(
           localBridgeGovernance
             .connect(governance)
-            .setRebateStaking(rebateStakingAddr)
+            .setRebateStaking(rebateStakingAddress)
         ).to.not.be.reverted
 
-        expect(await mockBridge.rebateStaking()).to.equal(rebateStakingAddr)
+        expect(await mockBridge.rebateStaking()).to.equal(
+          rebateStakingAddress
+        )
       })
     })
   })

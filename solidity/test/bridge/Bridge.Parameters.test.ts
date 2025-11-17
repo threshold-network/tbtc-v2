@@ -4,6 +4,7 @@ import { expect } from "chai"
 import { ContractTransaction } from "ethers"
 import type { Bridge, BridgeStub, BridgeGovernance } from "../../typechain"
 import { constants } from "../fixtures"
+import { rebateConstants } from "../fixtures/rebate"
 import bridgeFixture from "../fixtures/bridge"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
@@ -1913,12 +1914,12 @@ describe("Bridge - Parameters", () => {
   })
 
   describe("setRebateStaking", () => {
-    const rebateStakingAddr = "0xE41d2489571d322189246DaFA5ebDe1F4699F498"
+    const { rebateStakingAddress } = rebateConstants
 
     context("when caller is not the contract guvnor", () => {
       it("should revert", async () => {
         await expect(
-          bridge.connect(thirdParty).setRebateStaking(rebateStakingAddr)
+          bridge.connect(thirdParty).setRebateStaking(rebateStakingAddress)
         ).to.be.revertedWith("Caller is not the governance")
       })
     })
@@ -1948,7 +1949,9 @@ describe("Bridge - Parameters", () => {
         before(async () => {
           await createSnapshot()
 
-          await bridge.connect(governance).setRebateStaking(rebateStakingAddr)
+          await bridge
+            .connect(governance)
+            .setRebateStaking(rebateStakingAddress)
         })
 
         after(async () => {
@@ -1979,7 +1982,7 @@ describe("Bridge - Parameters", () => {
 
             tx = await bridge
               .connect(governance)
-              .setRebateStaking(rebateStakingAddr)
+              .setRebateStaking(rebateStakingAddress)
           })
 
           after(async () => {
@@ -1987,13 +1990,15 @@ describe("Bridge - Parameters", () => {
           })
 
           it("should set the rebate staking address", async () => {
-            expect(await bridge.getRebateStaking()).to.equal(rebateStakingAddr)
+            expect(await bridge.getRebateStaking()).to.equal(
+              rebateStakingAddress
+            )
           })
 
           it("should emit RebateStakingSet event", async () => {
             await expect(tx)
               .to.emit(bridge, "RebateStakingSet")
-              .withArgs(rebateStakingAddr)
+              .withArgs(rebateStakingAddress)
           })
         })
       })

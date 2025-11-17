@@ -5,6 +5,10 @@ pragma solidity 0.8.17;
 /// @title Bridge Rebate Staking Interface
 /// @notice Minimal interface implemented by Bridge contracts that support
 ///         configuration of the rebate staking address.
+/// @dev Typical implementations are expected to restrict
+///      {setRebateStaking} so that it can only be called by the
+///      Bridge governance owner, and to treat it as a one-time
+///      initialization hook.
 interface IBridgeRebateStaking {
     /// @notice Sets the rebate staking address.
     /// @param rebateStaking Address of the rebate staking contract.
@@ -13,4 +17,3 @@ interface IBridgeRebateStaking {
     ///      - Rebate staking address must not be 0x0.
     function setRebateStaking(address rebateStaking) external;
 }
-
