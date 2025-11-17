@@ -321,6 +321,9 @@ library BridgeState {
         // is responsible for vetoing redemption requests.
         address redemptionWatchtower;
         // Address of the rebate staking contract used by the rebate mechanism.
+        // This value is intended to be initialized exactly once via
+        // governance wiring; changing it afterwards requires a dedicated
+        // upgrade path of the Bridge implementation.
         address rebateStaking;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
@@ -384,6 +387,10 @@ library BridgeState {
 
     event RedemptionWatchtowerSet(address redemptionWatchtower);
 
+    // Event emitted when the rebate staking address is initialized. Declared
+    // in this library as the event is emitted from within `BridgeState` and
+    // used by the Bridge contract following the same pattern as other
+    // parameter events.
     event RebateStakingSet(address rebateStaking);
 
     /// @notice Updates parameters of deposits.

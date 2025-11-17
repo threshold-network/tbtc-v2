@@ -1913,12 +1913,12 @@ describe("Bridge - Parameters", () => {
   })
 
   describe("setRebateStaking", () => {
-    const { rebateStakingAddress } = constants
+    const { testRebateStakingAddress } = constants
 
     context("when caller is not the contract guvnor", () => {
       it("should revert", async () => {
         await expect(
-          bridge.connect(thirdParty).setRebateStaking(rebateStakingAddress)
+          bridge.connect(thirdParty).setRebateStaking(testRebateStakingAddress)
         ).to.be.revertedWith("Caller is not the governance")
       })
     })
@@ -1950,7 +1950,7 @@ describe("Bridge - Parameters", () => {
 
           await bridge
             .connect(governance)
-            .setRebateStaking(rebateStakingAddress)
+            .setRebateStaking(testRebateStakingAddress)
         })
 
         after(async () => {
@@ -1981,7 +1981,7 @@ describe("Bridge - Parameters", () => {
 
             tx = await bridge
               .connect(governance)
-              .setRebateStaking(rebateStakingAddress)
+              .setRebateStaking(testRebateStakingAddress)
           })
 
           after(async () => {
@@ -1990,14 +1990,14 @@ describe("Bridge - Parameters", () => {
 
           it("should set the rebate staking address", async () => {
             expect(await bridge.getRebateStaking()).to.equal(
-              rebateStakingAddress
+              testRebateStakingAddress
             )
           })
 
           it("should emit RebateStakingSet event", async () => {
             await expect(tx)
               .to.emit(bridge, "RebateStakingSet")
-              .withArgs(rebateStakingAddress)
+              .withArgs(testRebateStakingAddress)
           })
         })
       })

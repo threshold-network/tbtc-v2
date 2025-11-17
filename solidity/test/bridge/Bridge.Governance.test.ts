@@ -4468,14 +4468,14 @@ describe("Bridge - Governance", () => {
   })
 
   describe("setRebateStaking", () => {
-    const { rebateStakingAddress } = constants
+    const { testRebateStakingAddress } = constants
 
     context("when the caller is not the owner", () => {
       it("should revert", async () => {
         await expect(
           bridgeGovernance
             .connect(thirdParty)
-            .setRebateStaking(rebateStakingAddress)
+            .setRebateStaking(testRebateStakingAddress)
         ).to.be.revertedWith("Ownable: caller is not the owner")
       })
     })
@@ -4495,6 +4495,9 @@ describe("Bridge - Governance", () => {
           .deploy()) as MockBridgeWithRebateStaking
         await mockBridge.deployed()
 
+        // Deploy a fresh BridgeGovernance instance wired to the mock bridge
+        // to isolate and verify the forwarding behaviour of
+        // `setRebateStaking` without relying on the full bridge fixture.
         const paramsLib = await helpers.contracts.getContract(
           "BridgeGovernanceParameters"
         )
@@ -4520,10 +4523,12 @@ describe("Bridge - Governance", () => {
         await expect(
           localBridgeGovernance
             .connect(governance)
-            .setRebateStaking(rebateStakingAddress)
+            .setRebateStaking(testRebateStakingAddress)
         ).to.not.be.reverted
 
-        expect(await mockBridge.rebateStaking()).to.equal(rebateStakingAddress)
+        expect(await mockBridge.rebateStaking()).to.equal(
+          testRebateStakingAddress
+        )
       })
     })
   })

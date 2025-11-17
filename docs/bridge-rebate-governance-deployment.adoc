@@ -17,6 +17,11 @@ to a new implementation that supports rebate staking ("Action 1"
 from the October 22 Deployment Plan), and focuses on the missing
 governance hook ("Action 2").
 
+The Bridge implementation enforces that the rebate staking address
+is configured exactly once and cannot be changed via governance;
+changing it later requires a dedicated Bridge implementation
+upgrade.
+
 == Key Contracts & Parameters
 
 * Network: Ethereum Mainnet
@@ -106,7 +111,7 @@ NEW `BridgeGovernance` must be deployed from the PR implementation
 that includes:
 
 * `setRebateStaking(address rebateStaking)` forwarding to the
-  Bridge via a minimal `IBridgeRebateStaking` interface, and
+  Bridge implementation, and
 * The constructor:
   `constructor(Bridge _bridge, uint256 _governanceDelay)`.
 
@@ -304,8 +309,11 @@ Tx template:
 Decoded call path:
 
 * External:: `BridgeGovernance(NEW).setRebateStaking(RebateStakingProxy)`
-* Internal:: `IBridgeRebateStaking(address(bridge)).setRebateStaking(...)`
-* Bridge implementation:: `Bridge.setRebateStaking(RebateStakingProxy)`
+* Internal:: `Bridge.setRebateStaking(RebateStakingProxy)`
+* Bridge state library:: `BridgeState.setRebateStaking(RebateStakingProxy)`
+
+This transaction is expected to succeed exactly once for a given
+Bridge implementation; subsequent attempts will revert on-chain.
 
 Post-condition check:
 
@@ -341,4 +349,3 @@ npx hardhat deploy --network mainnet --tags VerifyRebateDeployment
 
 If all checks pass, the tBTC Rebate System is fully wired and
 governable via the new BridgeGovernance contract.
-

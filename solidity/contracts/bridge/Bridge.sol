@@ -32,7 +32,6 @@ import "./EcdsaLib.sol";
 import "./Wallets.sol";
 import "./Fraud.sol";
 import "./MovingFunds.sol";
-import "./IBridgeRebateStaking.sol";
 
 import "../bank/IReceiveBalanceApproval.sol";
 import "../bank/Bank.sol";
@@ -62,8 +61,7 @@ contract Bridge is
     Governable,
     EcdsaWalletOwner,
     Initializable,
-    IReceiveBalanceApproval,
-    IBridgeRebateStaking
+    IReceiveBalanceApproval
 {
     using BridgeState for BridgeState.Storage;
     using Deposit for BridgeState.Storage;

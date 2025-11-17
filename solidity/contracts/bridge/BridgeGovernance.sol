@@ -19,14 +19,13 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "./BridgeGovernanceParameters.sol";
 
 import "./Bridge.sol";
-import "./IBridgeRebateStaking.sol";
 
 /// @title Bridge Governance
 /// @notice Owns the `Bridge` contract and is responsible for updating
 ///         its governable parameters in respect to governance delay individual
 ///         for each parameter. The other responsibility is marking a vault
 ///         address as trusted or no longer trusted.
-contract BridgeGovernance is Ownable, IBridgeRebateStaking {
+contract BridgeGovernance is Ownable {
     using BridgeGovernanceParameters for BridgeGovernanceParameters.DepositData;
     using BridgeGovernanceParameters for BridgeGovernanceParameters.RedemptionData;
     using BridgeGovernanceParameters for BridgeGovernanceParameters.MovingFundsData;
@@ -1768,6 +1767,14 @@ contract BridgeGovernance is Ownable, IBridgeRebateStaking {
         return governanceDelays[0];
     }
 
+    // === One-off wiring hooks ===
+    //
+    // The following functions are one-time configuration hooks used during
+    // initialization of auxiliary components. They are intentionally not
+    // subject to the standard governance delay and are expected to succeed
+    // exactly once for a given Bridge implementation. Changing their
+    // configuration afterwards requires a dedicated upgrade path.
+
     /// @notice Sets the redemption watchtower address. This function does not
     ///         have a governance delay as setting the redemption watchtower is
     ///         a one-off action performed during initialization of the
@@ -1791,17 +1798,13 @@ contract BridgeGovernance is Ownable, IBridgeRebateStaking {
     /// @param rebateStaking Address of the rebate staking contract.
     /// @dev Requirements:
     ///      - The caller must be the owner,
-    ///      - The underlying Bridge implementation must implement
-    ///        {IBridgeRebateStaking.setRebateStaking},
-    ///      - The Bridge is expected to enforce that the rebate staking
-    ///        address is set exactly once and is not 0x0.
+    ///      - The Bridge implementation is expected to enforce that the
+    ///        rebate staking address is set exactly once and is not 0x0.
     ///
     /// @notice This function forwards the call to the underlying Bridge
-    ///         implementation using the minimal {IBridgeRebateStaking}
-    ///         interface. If the Bridge implementation does not support
+    ///         implementation. If the Bridge implementation does not support
     ///         rebate staking configuration, this call will revert.
     function setRebateStaking(address rebateStaking) external onlyOwner {
-        // Cast to minimal interface to support newer Bridge implementations.
-        IBridgeRebateStaking(address(bridge)).setRebateStaking(rebateStaking);
+        bridge.setRebateStaking(rebateStaking);
     }
 }
