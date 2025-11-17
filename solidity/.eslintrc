@@ -30,6 +30,12 @@
       }
     },
     {
+      "files": ["test/helpers/smock-compat.ts"],
+      "rules": {
+        "no-underscore-dangle": "off"
+      }
+    },
+    {
       "files": ["deploy/**/*.ts", "deploy/**/*.js"],
       "rules": {
         "@typescript-eslint/unbound-method": "off",

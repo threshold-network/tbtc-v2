@@ -280,6 +280,7 @@ const config: HardhatUserConfig = {
   },
   mocha: {
     timeout: 60_000,
+    require: ["./test/helpers/smock-compat.ts"],
   },
   typechain: {
     outDir: "typechain",

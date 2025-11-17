@@ -116,7 +116,7 @@ The following section preserves the original Sepolia run report for traceability
    Updated `.env` and `.env.sepolia` to point at the new governance address and to use the treasury signer private key for governance actions.
 
 4. Snapshots & tooling  
-   Captured pre/post-upgrade snapshots (`deployments/sepolia/bridge-upgrade.json`) and verified proxy admin / implementation slots to confirm the upgrade.
+   Captured pre/post-upgrade snapshots in an internal upgrade log and verified proxy admin / implementation slots to confirm the upgrade.
 
 ### Post‑Upgrade State Verification
 
@@ -174,4 +174,4 @@ Parameters (deposit, redemption, moving funds, wallet), treasury and external re
 - Governance owner: `0x68ad60CC5e8f3B7cC53beaB321cf0e6036962dBc`
 - No controllers are currently authorized; the allowlist feature is live and verified, but left empty by design.
 
-Snapshots before and after the change are appended to `solidity/deployments/sepolia/bridge-upgrade.json`.
+Snapshots before and after the change are recorded in the internal upgrade log used for Sepolia operations (not committed to this repository).
