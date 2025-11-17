@@ -35,6 +35,7 @@ import SepoliaSolanaL1BitcoinDepositorDeployment from "./artifacts/sepolia/Solan
 import { SuiExtraDataEncoder } from "../sui"
 import { StarkNetExtraDataEncoder } from "../starknet"
 import { SolanaExtraDataEncoder } from "../solana"
+import { SeiExtraDataEncoder } from "../sei"
 
 const artifactLoader = {
   getMainnet: (destinationChainName: DestinationChainName) => {
@@ -117,6 +118,9 @@ export class EthereumL1BitcoinDepositor
         break
       case "Solana":
         this.#extraDataEncoder = new SolanaExtraDataEncoder()
+        break
+      case "Sei":
+        this.#extraDataEncoder = new SeiExtraDataEncoder()
         break
       default:
         this.#extraDataEncoder = new EthereumExtraDataEncoder()
