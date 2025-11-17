@@ -81,7 +81,7 @@ abstract contract AbstractBTCDepositor {
     using BTCUtils for bytes;
 
     /// @notice Multiplier to convert satoshi to TBTC token units.
-    uint256 public constant SATOSHI_MULTIPLIER = 10 ** 10;
+    uint256 public constant SATOSHI_MULTIPLIER = 10**10;
 
     /// @notice Bridge contract address.
     IBridge public bridge;
@@ -175,9 +175,7 @@ abstract contract AbstractBTCDepositor {
     ///      approximation. See documentation of the `calculateTbtcAmount`
     ///      responsible for calculating this value for more details.
     // slither-disable-next-line dead-code
-    function _finalizeDeposit(
-        uint256 depositKey
-    )
+    function _finalizeDeposit(uint256 depositKey)
         internal
         returns (
             uint256 initialDepositAmount,
@@ -280,9 +278,11 @@ abstract contract AbstractBTCDepositor {
     /// @param txInfo Bitcoin transaction data, see `IBridgeTypes.BitcoinTxInfo` struct.
     /// @return txHash Bitcoin transaction hash.
     // slither-disable-next-line dead-code
-    function _calculateBitcoinTxHash(
-        IBridgeTypes.BitcoinTxInfo memory txInfo
-    ) internal view returns (bytes32) {
+    function _calculateBitcoinTxHash(IBridgeTypes.BitcoinTxInfo memory txInfo)
+        internal
+        view
+        returns (bytes32)
+    {
         return
             abi
                 .encodePacked(

@@ -41,16 +41,24 @@ contract MockTBTCBridge is IBridge {
         emit DepositRevealed(depositKey);
     }
 
-    function deposits(
-        uint256 depositKey
-    ) external view override returns (IBridgeTypes.DepositRequest memory) {
+    function deposits(uint256 depositKey)
+        external
+        view
+        override
+        returns (IBridgeTypes.DepositRequest memory)
+    {
         return _deposits[depositKey];
     }
 
     function depositParameters()
         external
         pure
-        returns (uint64, uint64, uint64 depositTxMaxFee, uint32)
+        returns (
+            uint64,
+            uint64,
+            uint64 depositTxMaxFee,
+            uint32
+        )
     {
         return (0, 0, 1000000, 0); // 0.01 BTC max fee
     }

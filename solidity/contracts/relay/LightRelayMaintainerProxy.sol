@@ -122,9 +122,10 @@ contract LightRelayMaintainerProxy is Ownable, Reimbursable {
     ///      for validating the parameter. The function does not implement any
     ///      governance delay.
     /// @param newRetargetGasOffset New retarget gas offset.
-    function updateRetargetGasOffset(
-        uint256 newRetargetGasOffset
-    ) external onlyOwner {
+    function updateRetargetGasOffset(uint256 newRetargetGasOffset)
+        external
+        onlyOwner
+    {
         retargetGasOffset = newRetargetGasOffset;
         emit RetargetGasOffsetUpdated(retargetGasOffset);
     }

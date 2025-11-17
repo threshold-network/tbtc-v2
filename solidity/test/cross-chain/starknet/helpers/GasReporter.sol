@@ -64,19 +64,18 @@ contract GasReporter is Test {
         return gasleft();
     }
 
-    function endMeasurement(
-        string memory functionName,
-        uint256 gasStart
-    ) external returns (uint256 gasUsed) {
+    function endMeasurement(string memory functionName, uint256 gasStart)
+        external
+        returns (uint256 gasUsed)
+    {
         gasUsed = gasStart - gasleft();
         _recordGasUsage(functionName, gasUsed);
         return gasUsed;
     }
 
-    function _recordGasUsage(
-        string memory functionName,
-        uint256 gasUsed
-    ) internal {
+    function _recordGasUsage(string memory functionName, uint256 gasUsed)
+        internal
+    {
         uint256 gasCost = gasUsed * GAS_PRICE;
         uint256 limit = gasLimits[functionName];
         bool withinLimit = limit == 0 || gasUsed <= limit;
@@ -124,10 +123,10 @@ contract GasReporter is Test {
         delete reports;
     }
 
-    function assertGasWithinLimit(
-        string memory functionName,
-        uint256 gasUsed
-    ) external view {
+    function assertGasWithinLimit(string memory functionName, uint256 gasUsed)
+        external
+        view
+    {
         uint256 limit = gasLimits[functionName];
         if (limit > 0) {
             assertLe(

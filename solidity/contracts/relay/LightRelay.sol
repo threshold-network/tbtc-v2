@@ -40,20 +40,20 @@ interface ILightRelay is IRelay {
 
     function retarget(bytes memory headers) external;
 
-    function validateChain(
-        bytes memory headers
-    )
+    function validateChain(bytes memory headers)
         external
         view
         returns (uint256 startingHeaderTimestamp, uint256 headerCount);
 
-    function getBlockDifficulty(
-        uint256 blockNumber
-    ) external view returns (uint256);
+    function getBlockDifficulty(uint256 blockNumber)
+        external
+        view
+        returns (uint256);
 
-    function getEpochDifficulty(
-        uint256 epochNumber
-    ) external view returns (uint256);
+    function getEpochDifficulty(uint256 epochNumber)
+        external
+        view
+        returns (uint256);
 
     function getRelayRange()
         external
@@ -70,10 +70,11 @@ library RelayUtils {
     /// @return The timestamp of the header.
     /// @dev Assumes that the specified position contains a valid header.
     /// Performs no validation whatsoever.
-    function extractTimestampAt(
-        bytes memory headers,
-        uint256 at
-    ) internal pure returns (uint32) {
+    function extractTimestampAt(bytes memory headers, uint256 at)
+        internal
+        pure
+        returns (uint32)
+    {
         return BTCUtils.reverseUint32(uint32(headers.slice4(68 + at)));
     }
 }
@@ -369,9 +370,7 @@ contract LightRelay is Ownable, ILightRelay {
     /// present, creating fraudulent proofs for earlier epochs becomes easier.
     /// Users of the relay should check the timestamps of valid headers and
     /// only accept appropriately recent ones.
-    function validateChain(
-        bytes memory headers
-    )
+    function validateChain(bytes memory headers)
         external
         view
         returns (uint256 startingHeaderTimestamp, uint256 headerCount)
@@ -507,9 +506,11 @@ contract LightRelay is Ownable, ILightRelay {
     /// range (at or after the relay genesis, and at or before the end of the
     /// most recent epoch proven to the relay).
     /// @return The difficulty of the epoch.
-    function getBlockDifficulty(
-        uint256 blockNumber
-    ) external view returns (uint256) {
+    function getBlockDifficulty(uint256 blockNumber)
+        external
+        view
+        returns (uint256)
+    {
         return getEpochDifficulty(blockNumber / 2016);
     }
 
@@ -564,9 +565,11 @@ contract LightRelay is Ownable, ILightRelay {
     /// @param epochNumber The number of the epoch (the height of the first
     /// block of the epoch, divided by 2016). Must fall within the relay range.
     /// @return The difficulty of the epoch.
-    function getEpochDifficulty(
-        uint256 epochNumber
-    ) public view returns (uint256) {
+    function getEpochDifficulty(uint256 epochNumber)
+        public
+        view
+        returns (uint256)
+    {
         require(epochNumber >= genesisEpoch, "Epoch is before relay genesis");
         require(
             epochNumber <= currentEpoch,

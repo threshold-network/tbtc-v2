@@ -43,9 +43,12 @@ contract MockTBTCVault is ITBTCVault {
         });
     }
 
-    function optimisticMintingRequests(
-        uint256 depositKey
-    ) external view override returns (uint64 requestedAt, uint64 finalizedAt) {
+    function optimisticMintingRequests(uint256 depositKey)
+        external
+        view
+        override
+        returns (uint64 requestedAt, uint64 finalizedAt)
+    {
         DepositInfo memory info = deposits[depositKey];
         if (info.revealedAt != 0) {
             return (uint64(info.revealedAt), uint64(block.timestamp)); // solhint-disable-line not-rely-on-time
@@ -53,9 +56,11 @@ contract MockTBTCVault is ITBTCVault {
         return (0, 0);
     }
 
-    function isOptimisticMintingFinalized(
-        bytes32 depositKey
-    ) external view returns (bool) {
+    function isOptimisticMintingFinalized(bytes32 depositKey)
+        external
+        view
+        returns (bool)
+    {
         DepositInfo memory info = deposits[uint256(depositKey)];
         return info.revealedAt != 0;
     }

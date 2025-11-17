@@ -138,9 +138,11 @@ contract TestSetup is Test {
         return users;
     }
 
-    function generateTestFundingTx(
-        uint256 seed
-    ) public pure returns (IBridgeTypes.BitcoinTxInfo memory) {
+    function generateTestFundingTx(uint256 seed)
+        public
+        pure
+        returns (IBridgeTypes.BitcoinTxInfo memory)
+    {
         return
             IBridgeTypes.BitcoinTxInfo({
                 version: bytes4(uint32(seed)),
@@ -150,10 +152,11 @@ contract TestSetup is Test {
             });
     }
 
-    function generateTestReveal(
-        address vault,
-        uint256 seed
-    ) public pure returns (IBridgeTypes.DepositRevealInfo memory) {
+    function generateTestReveal(address vault, uint256 seed)
+        public
+        pure
+        returns (IBridgeTypes.DepositRevealInfo memory)
+    {
         return
             IBridgeTypes.DepositRevealInfo({
                 fundingOutputIndex: uint32(seed),
@@ -180,9 +183,10 @@ contract TestSetup is Test {
         string operation;
     }
 
-    function startGasMeasurement(
-        string memory operation
-    ) public returns (GasMeasurement memory) {
+    function startGasMeasurement(string memory operation)
+        public
+        returns (GasMeasurement memory)
+    {
         return
             GasMeasurement({
                 gasStart: gasleft(),
@@ -191,9 +195,11 @@ contract TestSetup is Test {
             });
     }
 
-    function endGasMeasurement(
-        GasMeasurement memory measurement
-    ) public view returns (uint256 gasUsed) {
+    function endGasMeasurement(GasMeasurement memory measurement)
+        public
+        view
+        returns (uint256 gasUsed)
+    {
         gasUsed = measurement.gasStart - gasleft();
         return gasUsed;
     }

@@ -92,13 +92,14 @@ interface IWormholeReceiver {
 /// @notice Wormhole Token Bridge interface.
 /// @dev See: https://github.com/wormhole-foundation/wormhole-solidity-sdk/blob/2b7db51f99b49eda99b44f4a044e751cb0b2e8ea/src/interfaces/ITokenBridge.sol#L9
 interface IWormholeTokenBridge {
-    function completeTransferWithPayload(
-        bytes memory encodedVm
-    ) external returns (bytes memory);
+    function completeTransferWithPayload(bytes memory encodedVm)
+        external
+        returns (bytes memory);
 
-    function parseTransferWithPayload(
-        bytes memory encoded
-    ) external pure returns (TransferWithPayload memory transfer);
+    function parseTransferWithPayload(bytes memory encoded)
+        external
+        pure
+        returns (TransferWithPayload memory transfer);
 
     function transferTokens(
         address token,
@@ -135,17 +136,21 @@ interface IWormholeTokenBridge {
 library WormholeUtils {
     /// @notice Converts Ethereum address into Wormhole format.
     /// @param _address The address to convert.
-    function toWormholeAddress(
-        address _address
-    ) internal pure returns (bytes32) {
+    function toWormholeAddress(address _address)
+        internal
+        pure
+        returns (bytes32)
+    {
         return bytes32(uint256(uint160(_address)));
     }
 
     /// @notice Converts Wormhole address into Ethereum format.
     /// @param _address The address to convert.
-    function fromWormholeAddress(
-        bytes32 _address
-    ) internal pure returns (address) {
+    function fromWormholeAddress(bytes32 _address)
+        internal
+        pure
+        returns (address)
+    {
         return address(uint160(uint256(_address)));
     }
 
@@ -154,8 +159,8 @@ library WormholeUtils {
     ///      See https://github.com/wormhole-foundation/wormhole/blob/96682bdbeb7c87bfa110eade0554b3d8cbf788d2/ethereum/contracts/bridge/Bridge.sol#L276-L288
     function normalize(uint256 amount) internal pure returns (uint256) {
         // slither-disable-next-line divide-before-multiply
-        amount /= 10 ** 10;
-        amount *= 10 ** 10;
+        amount /= 10**10;
+        amount *= 10**10;
         return amount;
     }
 }

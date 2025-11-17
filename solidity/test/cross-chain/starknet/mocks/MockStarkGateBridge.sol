@@ -61,9 +61,12 @@ contract MockStarkGateBridge is IStarkGateBridge {
         return messageNonce;
     }
 
-    function isDepositCancellable(
-        uint256
-    ) external pure override returns (bool) {
+    function isDepositCancellable(uint256)
+        external
+        pure
+        override
+        returns (bool)
+    {
         return true;
     }
 

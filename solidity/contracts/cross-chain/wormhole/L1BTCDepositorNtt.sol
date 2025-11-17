@@ -186,10 +186,10 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
     /// @param _chainId Wormhole chain ID of the destination chain
     /// @param _supported Whether to support transfers to this chain
     /// @dev Only callable by contract owner
-    function setSupportedChain(
-        uint16 _chainId,
-        bool _supported
-    ) external onlyOwner {
+    function setSupportedChain(uint16 _chainId, bool _supported)
+        external
+        onlyOwner
+    {
         require(_chainId != 0, "Chain ID cannot be zero");
         supportedChains[_chainId] = _supported;
         emit SupportedChainUpdated(_chainId, _supported);
@@ -217,9 +217,11 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
     /// @return cost The cost of the `finalizeDeposit` function call in WEI.
     /// @dev This function queries the NTT Manager for delivery pricing,
     ///      which includes fees for all configured transceivers (e.g., Wormhole, Axelar)
-    function quoteFinalizeDeposit(
-        uint16 _destinationChain
-    ) external view returns (uint256 cost) {
+    function quoteFinalizeDeposit(uint16 _destinationChain)
+        external
+        view
+        returns (uint256 cost)
+    {
         require(
             supportedChains[_destinationChain],
             "Destination chain not supported"
@@ -254,10 +256,11 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
     /// @param recipient Recipient address on the destination chain
     /// @return encoded The encoded receiver data: [2 bytes: Chain ID][30 bytes: Recipient]
     /// @dev This is a helper function for frontend/SDK integration
-    function encodeDestinationReceiver(
-        uint16 chainId,
-        address recipient
-    ) external pure returns (bytes32 encoded) {
+    function encodeDestinationReceiver(uint16 chainId, address recipient)
+        external
+        pure
+        returns (bytes32 encoded)
+    {
         // Encode: [2 bytes: Chain ID][30 bytes: Address padded]
         return bytes32((uint256(chainId) << 240) | uint256(uint160(recipient)));
     }
@@ -267,9 +270,11 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
     /// @return chainId The destination chain ID
     /// @return recipient The recipient address
     /// @dev This is a helper function for frontend/SDK integration and testing
-    function decodeDestinationReceiver(
-        bytes32 encodedReceiver
-    ) external pure returns (uint16 chainId, address recipient) {
+    function decodeDestinationReceiver(bytes32 encodedReceiver)
+        external
+        pure
+        returns (uint16 chainId, address recipient)
+    {
         chainId = uint16(bytes2(encodedReceiver));
         recipient = address(
             uint160(
@@ -299,10 +304,10 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
     ///      5. Spoke chain receives attested message and mints native tokens to actual recipient
     ///      6. Result: Bitcoin-backed native tBTC on destination chain
     // slither-disable-next-line reentrancy-vulnerabilities-3
-    function _transferTbtc(
-        uint256 amount,
-        bytes32 destinationChainReceiver
-    ) internal override {
+    function _transferTbtc(uint256 amount, bytes32 destinationChainReceiver)
+        internal
+        override
+    {
         // External calls are to trusted contracts (tbtcToken, nttManager)
         // Event emission after external calls is correct pattern
         require(amount > 0, "Amount must be greater than 0");
@@ -364,9 +369,11 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
     /// @dev Enhanced implementation that extracts chain ID from first 2 bytes of receiver address.
     ///      Format: [2 bytes: Chain ID][30 bytes: Recipient Address]
     ///      Reverts if chain ID is 0 or not supported - no fallback behavior
-    function _getDestinationChainFromReceiver(
-        bytes32 destinationChainReceiver
-    ) internal view returns (uint16 chainId) {
+    function _getDestinationChainFromReceiver(bytes32 destinationChainReceiver)
+        internal
+        view
+        returns (uint16 chainId)
+    {
         // Extract chain ID from first 2 bytes of receiver
         chainId = uint16(bytes2(destinationChainReceiver));
 
@@ -397,9 +404,11 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
     /// @return recipient The actual recipient address (last 30 bytes, left-padded to 32 bytes)
     /// @dev Removes the chain ID from first 2 bytes and returns the recipient address
     ///      Format: [2 bytes: Chain ID][30 bytes: Recipient] → [32 bytes: Recipient padded]
-    function _getRecipientAddressFromReceiver(
-        bytes32 destinationChainReceiver
-    ) internal pure returns (bytes32 recipient) {
+    function _getRecipientAddressFromReceiver(bytes32 destinationChainReceiver)
+        internal
+        pure
+        returns (bytes32 recipient)
+    {
         // Remove chain ID (first 2 bytes) and keep recipient address (last 30 bytes)
         // Mask: 0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
         return

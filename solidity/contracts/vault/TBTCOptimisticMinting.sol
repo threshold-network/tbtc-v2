@@ -47,7 +47,7 @@ abstract contract TBTCOptimisticMinting is Ownable {
     uint256 public constant GOVERNANCE_DELAY = 24 hours;
 
     /// @notice Multiplier to convert satoshi to TBTC token units.
-    uint256 public constant SATOSHI_MULTIPLIER = 10 ** 10;
+    uint256 public constant SATOSHI_MULTIPLIER = 10**10;
 
     Bridge public immutable bridge;
 
@@ -543,10 +543,10 @@ abstract contract TBTCOptimisticMinting is Ownable {
     /// @param amount The balance increase amount for the depositor received.
     /// @return The TBTC amount that should be minted after paying off the
     ///         optimistic minting debt.
-    function repayOptimisticMintingDebt(
-        address depositor,
-        uint256 amount
-    ) internal returns (uint256) {
+    function repayOptimisticMintingDebt(address depositor, uint256 amount)
+        internal
+        returns (uint256)
+    {
         uint256 debt = optimisticMintingDebt[depositor];
         if (debt == 0) {
             return amount;

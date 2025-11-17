@@ -16,7 +16,7 @@ contract MockBridgeForStarkNet is IBridge {
     uint64 internal _redemptionTxMaxFee = 10000; // 0.0001 BTC
     uint64 internal _redemptionTxMaxTotalFee = 50000; // 0.0005 BTC
     uint32 internal _redemptionTimeout = 6 * 3600; // 6 hours in seconds
-    uint96 internal _redemptionTimeoutSlashingAmount = 10 ** 18; // 1 TBTC with 18 decimals
+    uint96 internal _redemptionTimeoutSlashingAmount = 10**18; // 1 TBTC with 18 decimals
     uint32 internal _redemptionTimeoutNotifierRewardMultiplier = 5; // 5%
 
     mapping(uint256 => IBridgeTypes.DepositRequest) private _deposits;
@@ -88,7 +88,7 @@ contract MockBridgeForStarkNet is IBridge {
     // --- Redemption related mock functions ---
     function requestRedemption(
         bytes20 walletPubKeyHash,
-        BitcoinTx.UTXO calldata /*mainUtxo*/, // Marked unused
+        BitcoinTx.UTXO calldata, /*mainUtxo*/ // Marked unused
         bytes calldata redeemerOutputScript,
         uint64 amount
     ) external override {
@@ -129,9 +129,12 @@ contract MockBridgeForStarkNet is IBridge {
         _deposits[depositKey].sweptAt = uint32(block.timestamp); // solhint-disable-line not-rely-on-time
     }
 
-    function deposits(
-        uint256 depositKey
-    ) external view override returns (IBridgeTypes.DepositRequest memory) {
+    function deposits(uint256 depositKey)
+        external
+        view
+        override
+        returns (IBridgeTypes.DepositRequest memory)
+    {
         return _deposits[depositKey];
     }
 
@@ -144,9 +147,12 @@ contract MockBridgeForStarkNet is IBridge {
         return lastDepositKey;
     }
 
-    function pendingRedemptions(
-        uint256 redemptionKey
-    ) external view override returns (IBridgeTypes.RedemptionRequest memory) {
+    function pendingRedemptions(uint256 redemptionKey)
+        external
+        view
+        override
+        returns (IBridgeTypes.RedemptionRequest memory)
+    {
         return _pendingRedemptions[redemptionKey];
     }
 
@@ -176,7 +182,12 @@ contract MockBridgeForStarkNet is IBridge {
     function depositParameters()
         external
         pure
-        returns (uint64, uint64, uint64 depositTxMaxFee, uint32)
+        returns (
+            uint64,
+            uint64,
+            uint64 depositTxMaxFee,
+            uint32
+        )
     {
         return (0, 0, 1000000, 0); // 0.01 BTC max fee
     }

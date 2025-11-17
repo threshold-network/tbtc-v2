@@ -5,7 +5,7 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 contract MockTBTCToken is ERC20 {
     constructor() ERC20("Mock tBTC", "tBTC") {
-        _mint(msg.sender, 1000000 * 10 ** 18);
+        _mint(msg.sender, 1000000 * 10**18);
     }
 
     function mint(address to, uint256 amount) external {

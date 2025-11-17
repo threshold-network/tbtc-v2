@@ -87,10 +87,10 @@ contract VendingMachineV3 is Ownable {
     ///         upgrade of all tBTC v1 left on the market.
     /// @param recipient The address which should receive withdrawn tokens.
     /// @param amount The amount to withdraw.
-    function withdrawTbtcV2(
-        address recipient,
-        uint256 amount
-    ) external onlyOwner {
+    function withdrawTbtcV2(address recipient, uint256 amount)
+        external
+        onlyOwner
+    {
         require(
             tbtcV1.totalSupply() <= tbtcV2.balanceOf(address(this)) - amount,
             "tBTC v1 must not be left unbacked"

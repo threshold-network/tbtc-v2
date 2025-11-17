@@ -7,7 +7,7 @@ contract MockTBTCToken is ERC20 {
     bool private _shouldFailApprove;
 
     constructor() ERC20("Mock tBTC", "tBTC") {
-        _mint(msg.sender, 1000000 * 10 ** 18);
+        _mint(msg.sender, 1000000 * 10**18);
     }
 
     function mint(address to, uint256 amount) external {
@@ -18,10 +18,11 @@ contract MockTBTCToken is ERC20 {
         _shouldFailApprove = shouldFail;
     }
 
-    function approve(
-        address spender,
-        uint256 amount
-    ) public override returns (bool) {
+    function approve(address spender, uint256 amount)
+        public
+        override
+        returns (bool)
+    {
         if (_shouldFailApprove) {
             revert("Mock approve failed");
         }

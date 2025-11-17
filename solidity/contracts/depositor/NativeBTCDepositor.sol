@@ -33,10 +33,10 @@ contract NativeBTCDepositor is AbstractL1BTCDepositor {
         _disableInitializers();
     }
 
-    function initialize(
-        address _tbtcBridge,
-        address _tbtcVault
-    ) external initializer {
+    function initialize(address _tbtcBridge, address _tbtcVault)
+        external
+        initializer
+    {
         __AbstractL1BTCDepositor_initialize(_tbtcBridge, _tbtcVault);
         __Ownable_init();
     }
@@ -53,10 +53,10 @@ contract NativeBTCDepositor is AbstractL1BTCDepositor {
     /// @notice Transfers ERC20 L1 tBTC directly to the Ethereum L1 receiver address.
     /// @param amount Amount of tBTC L1 ERC20 to transfer (1e18 precision).
     /// @param ethereumReceiverBytes32 Ethereum receiver address encoded as 32 bytes (left-padded).
-    function _transferTbtc(
-        uint256 amount,
-        bytes32 ethereumReceiverBytes32
-    ) internal override {
+    function _transferTbtc(uint256 amount, bytes32 ethereumReceiverBytes32)
+        internal
+        override
+    {
         require(amount > 0, "Amount too low to transfer");
         require(
             ethereumReceiverBytes32 != bytes32(0),

@@ -202,10 +202,10 @@ contract RedemptionWatchtower is OwnableUpgradeable {
     ///      - The caller must be the owner,
     ///      - Watchtower must not be enabled already,
     ///      - Manager address must not be zero.
-    function enableWatchtower(
-        address _manager,
-        address[] calldata _guardians
-    ) external onlyOwner {
+    function enableWatchtower(address _manager, address[] calldata _guardians)
+        external
+        onlyOwner
+    {
         require(watchtowerEnabledAt == 0, "Already enabled");
 
         require(_manager != address(0), "Manager address must not be 0x0");
@@ -409,10 +409,11 @@ contract RedemptionWatchtower is OwnableUpgradeable {
     /// @return Redemption delay.
     /// @dev If the watchtower has been disabled, the delay is always zero,
     ///      for any redemption request.
-    function _redemptionDelay(
-        uint8 objectionsCount,
-        uint64 requestedAmount
-    ) internal view returns (uint32) {
+    function _redemptionDelay(uint8 objectionsCount, uint64 requestedAmount)
+        internal
+        view
+        returns (uint32)
+    {
         if (watchtowerDisabledAt != 0) {
             return 0;
         }
@@ -448,9 +449,11 @@ contract RedemptionWatchtower is OwnableUpgradeable {
     /// @return Redemption delay.
     /// @dev If the watchtower has been disabled, the delay is always zero,
     ///      for any redemption request.
-    function getRedemptionDelay(
-        uint256 redemptionKey
-    ) external view returns (uint32) {
+    function getRedemptionDelay(uint256 redemptionKey)
+        external
+        view
+        returns (uint32)
+    {
         Redemption.RedemptionRequest memory redemption = bridge
             .pendingRedemptions(redemptionKey);
 

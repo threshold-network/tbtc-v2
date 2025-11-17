@@ -278,10 +278,11 @@ library BitcoinTx {
     /// @dev Requirements:
     ///      - The output must be of P2PKH or P2WPKH type and lock the funds
     ///        on a 20-byte public key hash.
-    function extractPubKeyHash(
-        BridgeState.Storage storage,
-        bytes memory output
-    ) internal pure returns (bytes20 pubKeyHash) {
+    function extractPubKeyHash(BridgeState.Storage storage, bytes memory output)
+        internal
+        pure
+        returns (bytes20 pubKeyHash)
+    {
         bytes memory pubKeyHashBytes = output.extractHash();
 
         require(
@@ -341,9 +342,11 @@ library BitcoinTx {
     ///      - 0xac: OP_CHECKSIG
     ///      which matches the P2PKH structure as per:
     ///      https://en.bitcoin.it/wiki/Transaction#Pay-to-PubkeyHash
-    function makeP2PKHScript(
-        bytes20 pubKeyHash
-    ) internal pure returns (bytes26) {
+    function makeP2PKHScript(bytes20 pubKeyHash)
+        internal
+        pure
+        returns (bytes26)
+    {
         bytes26 P2PKHScriptMask = hex"1976a914000000000000000000000000000000000000000088ac";
 
         return ((bytes26(pubKeyHash) >> 32) | P2PKHScriptMask);
@@ -360,9 +363,11 @@ library BitcoinTx {
     ///      - 0x14: Byte length of the public key hash
     ///      which matches the P2WPKH structure as per:
     ///      https://github.com/bitcoin/bips/blob/master/bip-0141.mediawiki#P2WPKH
-    function makeP2WPKHScript(
-        bytes20 pubKeyHash
-    ) internal pure returns (bytes23) {
+    function makeP2WPKHScript(bytes20 pubKeyHash)
+        internal
+        pure
+        returns (bytes23)
+    {
         bytes23 P2WPKHScriptMask = hex"1600140000000000000000000000000000000000000000";
 
         return ((bytes23(pubKeyHash) >> 24) | P2WPKHScriptMask);

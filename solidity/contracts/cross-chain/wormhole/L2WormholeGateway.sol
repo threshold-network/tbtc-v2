@@ -386,10 +386,10 @@ contract L2WormholeGateway is
     /// @param chainId Wormhole ID of the chain.
     /// @param gateway Address of tBTC gateway on the given chain in a Wormhole
     ///                format.
-    function updateGatewayAddress(
-        uint16 chainId,
-        bytes32 gateway
-    ) external onlyOwner {
+    function updateGatewayAddress(uint16 chainId, bytes32 gateway)
+        external
+        onlyOwner
+    {
         gateways[chainId] = gateway;
         emit GatewayAddressUpdated(chainId, gateway);
     }
@@ -404,17 +404,21 @@ contract L2WormholeGateway is
 
     /// @notice Converts Ethereum address into Wormhole format.
     /// @param _address The address to convert.
-    function toWormholeAddress(
-        address _address
-    ) external pure returns (bytes32) {
+    function toWormholeAddress(address _address)
+        external
+        pure
+        returns (bytes32)
+    {
         return WormholeUtils.toWormholeAddress(_address);
     }
 
     /// @notice Converts Wormhole address into Ethereum format.
     /// @param _address The address to convert.
-    function fromWormholeAddress(
-        bytes32 _address
-    ) public pure returns (address) {
+    function fromWormholeAddress(bytes32 _address)
+        public
+        pure
+        returns (address)
+    {
         return WormholeUtils.fromWormholeAddress(_address);
     }
 }

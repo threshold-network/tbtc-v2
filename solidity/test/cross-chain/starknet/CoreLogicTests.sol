@@ -601,9 +601,11 @@ contract CoreLogicTests is Test, TestSetup, GasReporter {
             });
     }
 
-    function _isWithinGasLimit(
-        string memory operation
-    ) internal view returns (bool) {
+    function _isWithinGasLimit(string memory operation)
+        internal
+        view
+        returns (bool)
+    {
         return isWithinGasLimit(operation);
     }
 }

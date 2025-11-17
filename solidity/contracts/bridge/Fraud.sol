@@ -442,9 +442,11 @@ library Fraud {
     ///        the preimage depends on the transaction input the signature is
     ///        produced for. See BIP-143 for reference
     /// @return utxoKey UTXO key that identifies spent input.
-    function extractUtxoKeyFromWitnessPreimage(
-        bytes calldata preimage
-    ) internal pure returns (uint256 utxoKey) {
+    function extractUtxoKeyFromWitnessPreimage(bytes calldata preimage)
+        internal
+        pure
+        returns (uint256 utxoKey)
+    {
         // The expected structure of the preimage created during signing of a
         // witness input:
         // - transaction version (4 bytes)
@@ -480,9 +482,11 @@ library Fraud {
     ///        the preimage depends on the transaction input the signature is
     ///        produced for. See BIP-143 for reference.
     /// @return utxoKey UTXO key that identifies spent input.
-    function extractUtxoKeyFromNonWitnessPreimage(
-        bytes calldata preimage
-    ) internal pure returns (uint256 utxoKey) {
+    function extractUtxoKeyFromNonWitnessPreimage(bytes calldata preimage)
+        internal
+        pure
+        returns (uint256 utxoKey)
+    {
         // The expected structure of the preimage created during signing of a
         // non-witness input:
         // - transaction version (4 bytes)
@@ -564,9 +568,11 @@ library Fraud {
     /// @dev Sighash type is stored as the last 4 bytes in the preimage (little
     ///      endian).
     /// @return sighashType Sighash type as a 32-bit integer.
-    function extractSighashType(
-        bytes calldata preimage
-    ) internal pure returns (uint32 sighashType) {
+    function extractSighashType(bytes calldata preimage)
+        internal
+        pure
+        returns (uint32 sighashType)
+    {
         bytes4 sighashTypeBytes = preimage.slice4(preimage.length - 4);
         uint32 sighashTypeLE = uint32(sighashTypeBytes);
         return sighashTypeLE.reverseUint32();

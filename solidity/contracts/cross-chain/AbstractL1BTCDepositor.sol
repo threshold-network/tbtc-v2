@@ -452,9 +452,11 @@ abstract contract AbstractL1BTCDepositor is
     /// @return Refund value as gas spent.
     /// @dev This function is the reverse of the logic used
     ///      within `ReimbursementPool.refund`.
-    function _refundToGasSpent(
-        uint256 refund
-    ) internal virtual returns (uint256) {
+    function _refundToGasSpent(uint256 refund)
+        internal
+        virtual
+        returns (uint256)
+    {
         uint256 maxGasPrice = reimbursementPool.maxGasPrice();
         uint256 staticGas = reimbursementPool.staticGas();
 
@@ -483,8 +485,7 @@ abstract contract AbstractL1BTCDepositor is
     /// @dev In child contracts, this can be LayerZero, Wormhole, or any bridging code.
     /// @param amount Amount of tBTC in 1e18 precision.
     /// @param destinationChainReceiver destination chain deposit owner (32 bytes format).
-    function _transferTbtc(
-        uint256 amount,
-        bytes32 destinationChainReceiver
-    ) internal virtual;
+    function _transferTbtc(uint256 amount, bytes32 destinationChainReceiver)
+        internal
+        virtual;
 }

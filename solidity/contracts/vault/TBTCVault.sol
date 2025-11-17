@@ -162,10 +162,9 @@ contract TBTCVault is IVault, Ownable, TBTCOptimisticMinting {
     /// @param redemptionData Redemption data in a format expected from
     ///        `redemptionData` parameter of Bridge's `receiveBalanceApproval`
     ///        function.
-    function unmintAndRedeem(
-        uint256 amount,
-        bytes calldata redemptionData
-    ) external {
+    function unmintAndRedeem(uint256 amount, bytes calldata redemptionData)
+        external
+    {
         (uint256 convertibleAmount, , ) = amountToSatoshis(amount);
 
         _unmintAndRedeem(msg.sender, convertibleAmount, redemptionData);
@@ -308,12 +307,14 @@ contract TBTCVault is IVault, Ownable, TBTCOptimisticMinting {
     ///         by SATOSHI_MULTIPLIER.
     /// @return satoshis Amount in satoshis - the Bank balance to be transferred
     ///         for the given mint/unmint
-    function amountToSatoshis(
-        uint256 amount
-    )
+    function amountToSatoshis(uint256 amount)
         public
         view
-        returns (uint256 convertibleAmount, uint256 remainder, uint256 satoshis)
+        returns (
+            uint256 convertibleAmount,
+            uint256 remainder,
+            uint256 satoshis
+        )
     {
         remainder = amount % SATOSHI_MULTIPLIER;
         convertibleAmount = amount - remainder;

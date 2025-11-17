@@ -23,9 +23,11 @@ library CrosschainUtils {
      * @param _address The address needed to be converted.
      * @return The converted address.
      */
-    function addressToBytes32(
-        address _address
-    ) internal pure returns (bytes32) {
+    function addressToBytes32(address _address)
+        internal
+        pure
+        returns (bytes32)
+    {
         return bytes32(uint256(uint160(_address)));
     }
 
@@ -35,9 +37,11 @@ library CrosschainUtils {
      * @return The converted address.
      */
     // slither-disable-next-line dead-code
-    function bytes32ToAddress(
-        bytes32 _address
-    ) internal pure returns (address) {
+    function bytes32ToAddress(bytes32 _address)
+        internal
+        pure
+        returns (address)
+    {
         return address(uint160(uint256(_address)));
     }
 }

@@ -84,7 +84,7 @@ abstract contract AbstractBTCRedeemer is OwnableUpgradeable {
     event TbtcRescued(address indexed recipient, uint256 amount);
 
     /// @notice Multiplier to convert satoshi to TBTC token units.
-    uint256 public constant SATOSHI_MULTIPLIER = 10 ** 10;
+    uint256 public constant SATOSHI_MULTIPLIER = 10**10;
 
     /// @notice Bridge contract address.
     IBridge public thresholdBridge;
@@ -230,10 +230,11 @@ abstract contract AbstractBTCRedeemer is OwnableUpgradeable {
     /// @param walletPubKeyHash the pubkey hash of the wallet.
     /// @param script the output script of the redemption.
     /// @return The key = keccak256(keccak256(script) | walletPubKeyHash).
-    function _getRedemptionKey(
-        bytes20 walletPubKeyHash,
-        bytes memory script
-    ) internal pure returns (uint256) {
+    function _getRedemptionKey(bytes20 walletPubKeyHash, bytes memory script)
+        internal
+        pure
+        returns (uint256)
+    {
         bytes32 scriptHash = keccak256(script);
         uint256 key;
         /* solhint-disable-next-line no-inline-assembly */
