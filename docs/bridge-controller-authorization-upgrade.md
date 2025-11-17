@@ -48,10 +48,8 @@ Supporting scripts (names as in repo):
 
 - `solidity/deploy/80_upgrade_bridge_v2.ts` — upgrade Bridge, resolve libraries/addresses, conditional Tenderly verify.
 - `solidity/deploy/09_deploy_bridge_governance.ts` — deploy BridgeGovernance (+Parameters), conditional Tenderly verify.
-- `solidity/deploy/21_transfer_bridge_governance.ts` — initiate/wait/finalize governance transfer.
+- `solidity/deploy/21_transfer_bridge_governance.ts` + `solidity/deploy/utils/governance-transfer.ts` — initiate/wait/finalize governance transfer while respecting the governance delay.
 - `solidity/deploy/99_configure_bridge_controllers.ts` + `solidity/deploy/utils/bridge-controller-authorization.ts` — sync allowlist from env.
-- `solidity/scripts/upgrade-bridge-sepolia.ts` — end‑to‑end orchestration incl. snapshots and optional allowlist sync.
-- `solidity/scripts/rollback-bridge-sepolia.ts` — revert implementation and governance, reapply allowlist from snapshot.
 
 ## Risks & Mitigations
 
