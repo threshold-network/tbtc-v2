@@ -8,7 +8,7 @@ import type {
   MockBridgeWithRebateStaking,
 } from "../../typechain"
 import { constants } from "../fixtures"
-import { rebateConstants } from "../fixtures/rebate"
+import rebateConstants from "../fixtures/rebate"
 import bridgeFixture from "../fixtures/bridge"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
@@ -4524,9 +4524,7 @@ describe("Bridge - Governance", () => {
             .setRebateStaking(rebateStakingAddress)
         ).to.not.be.reverted
 
-        expect(await mockBridge.rebateStaking()).to.equal(
-          rebateStakingAddress
-        )
+        expect(await mockBridge.rebateStaking()).to.equal(rebateStakingAddress)
       })
     })
   })

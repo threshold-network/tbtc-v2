@@ -1,4 +1,5 @@
-export const rebateConstants = {
+const rebateConstants = {
   rebateStakingAddress: "0xE41d2489571d322189246DaFA5ebDe1F4699F498",
 }
 
+export default rebateConstants
