@@ -234,7 +234,11 @@ async function verifyLibraryBytecodes(
   for (const [name, address] of Object.entries(libs)) {
     try {
       const artifact = await deployments.getArtifact(name)
-      const expected = (artifact.deployedBytecode || artifact.bytecode || "").toLowerCase()
+      const expected = (
+        artifact.deployedBytecode ||
+        artifact.bytecode ||
+        ""
+      ).toLowerCase()
       const onchain = (await ethers.provider.getCode(address)).toLowerCase()
 
       if (!onchain || onchain === "0x") {
@@ -253,7 +257,9 @@ async function verifyLibraryBytecodes(
       }
     } catch (error) {
       deployments.log(
-        `⚠️  Skipping bytecode check for ${name} at ${address}: ${String(error)}`
+        `⚠️  Skipping bytecode check for ${name} at ${address}: ${String(
+          error
+        )}`
       )
     }
   }

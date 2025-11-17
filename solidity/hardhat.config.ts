@@ -82,7 +82,8 @@ const config: HardhatUserConfig = {
       "@keep-network/ecdsa/contracts/WalletRegistry.sol":
         ecdsaSolidityCompilerConfig,
       "contracts/bridge/BridgeGovernance.sol": bridgeGovernanceCompilerConfig,
-      "contracts/bridge/BridgeGovernanceParameters.sol": bridgeGovernanceParametersCompilerConfig,
+      "contracts/bridge/BridgeGovernanceParameters.sol":
+        bridgeGovernanceParametersCompilerConfig,
     },
   },
 
@@ -134,11 +135,9 @@ const config: HardhatUserConfig = {
       tags: ["allowStubs"],
     },
     sepolia: {
-      url:
-        process.env.SEPOLIA_CHAIN_API_URL ||
-        process.env.CHAIN_API_URL ||
-        "",
+      url: process.env.SEPOLIA_CHAIN_API_URL || process.env.CHAIN_API_URL || "",
       chainId: 11155111,
+      // eslint-disable-next-line no-nested-ternary
       accounts: process.env.SEPOLIA_PRIVATE_KEYS
         ? process.env.SEPOLIA_PRIVATE_KEYS.split(",")
         : process.env.ACCOUNTS_PRIVATE_KEYS

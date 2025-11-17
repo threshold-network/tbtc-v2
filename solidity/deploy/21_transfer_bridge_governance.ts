@@ -2,7 +2,10 @@ import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
 import { ethers } from "hardhat"
 
-import { transferBridgeGovernanceWithDelay } from "./utils/governance-transfer"
+import {
+  transferBridgeGovernanceWithDelay,
+  type GovernanceTransferMode,
+} from "./utils/governance-transfer"
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { getNamedAccounts, deployments } = hre
@@ -51,10 +54,15 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     signer
   )
 
+  const modeEnv = process.env.BRIDGE_GOVERNANCE_TRANSFER_MODE
+  const mode: GovernanceTransferMode =
+    modeEnv === "begin" || modeEnv === "finalize" ? modeEnv : "full"
+
   await transferBridgeGovernanceWithDelay(
     bridgeGovernance,
     newGovernance,
-    deployments.log
+    deployments.log,
+    { mode }
   )
 }
 

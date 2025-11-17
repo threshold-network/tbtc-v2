@@ -16,6 +16,31 @@ This model provides:
 - On‑chain audit trail via events.
 - Operationally simple management via BridgeGovernance.
 
+## Trust Model & Operational Guardrails
+
+- Controllers are high‑privilege actors. Any address authorized in the
+  `authorizedBalanceIncreasers` mapping can increase arbitrary Bank balances via
+  the Bridge and should be treated as having governance‑level minting power.
+- Only fully reviewed and audited contracts should ever be added as
+  controllers. In particular, controller contracts must not expose generic
+  "increase balance" surfaces to untrusted callers and should implement their
+  own internal policy checks (limits, roles, pause switches) as appropriate.
+- Governance is responsible for keeping the allowlist tight and
+  human‑auditable:
+  - Additions and removals must be performed through BridgeGovernance, which
+    emits `AuthorizedBalanceIncreaserUpdated` events for each change.
+  - Off‑chain monitoring should alert on any unexpected controller additions,
+    removals, or large `BalanceIncreased` events.
+- The controller sync tooling is explicitly conservative by default:
+  - When no desired controller list is provided, existing authorizations are
+    left unchanged unless mass‑revoke is explicitly enabled.
+  - Mass revocation requires an explicit opt‑in via either a function
+    parameter or the `BRIDGE_ALLOW_MASS_CONTROLLER_REVOKE=true` env flag.
+
+Operationally, controllers should be treated as part of the governance surface
+area and managed via the same change‑management process (multi‑sig, change
+review, deployment runbooks, and monitoring).
+
 ## What Changed (Contracts)
 
 - Bridge (proxy):
@@ -48,8 +73,8 @@ Supporting scripts (names as in repo):
 
 - `solidity/deploy/80_upgrade_bridge_v2.ts` — upgrade Bridge, resolve libraries/addresses, conditional Tenderly verify.
 - `solidity/deploy/09_deploy_bridge_governance.ts` — deploy BridgeGovernance (+Parameters), conditional Tenderly verify.
-- `solidity/deploy/21_transfer_bridge_governance.ts` + `solidity/deploy/utils/governance-transfer.ts` — initiate/wait/finalize governance transfer while respecting the governance delay.
-- `solidity/deploy/99_configure_bridge_controllers.ts` + `solidity/deploy/utils/bridge-controller-authorization.ts` — sync allowlist from env.
+- `solidity/deploy/21_transfer_bridge_governance.ts` + `solidity/deploy/utils/governance-transfer.ts` — initiate/finalize governance transfer while respecting the governance delay (with optional begin‑only/finalize‑only modes for long delays).
+- `solidity/scripts/configure-bridge-controllers.ts` + `solidity/deploy/utils/bridge-controller-authorization.ts` — sync the controller allowlist from env when explicitly invoked as a Hardhat script.
 
 ## Risks & Mitigations
 
@@ -62,6 +87,7 @@ Supporting scripts (names as in repo):
 - Env keys used during orchestration include: `BRIDGE_ADDRESS`, `PROXY_ADMIN_PK`, `BRIDGE_GOVERNANCE_PK`, `BRIDGE_AUTHORIZED_INCREASERS`, and library/core contract address fallbacks.
 - Mass revocation safeguard: to revoke all existing controller authorizations when no `BRIDGE_AUTHORIZED_INCREASERS` are provided, set `BRIDGE_ALLOW_MASS_CONTROLLER_REVOKE=true` (otherwise existing authorizations are left unchanged).
 - Sepolia RPC: prefer `SEPOLIA_CHAIN_API_URL`/`SEPOLIA_PRIVATE_KEYS` where applicable.
+- Governance transfer helper: `BRIDGE_GOVERNANCE_TRANSFER_MODE` can be set to `begin`, `finalize`, or left unset (default `full`) to control how `21_transfer_bridge_governance.ts` orchestrates begin/finalize steps for long governance delays.
 
 ---
 

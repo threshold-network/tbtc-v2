@@ -1,12 +1,25 @@
 /* eslint-disable no-console */
 
-import type { Contract } from "ethers"
-import type { BigNumber } from "ethers"
+import type { Contract, BigNumber } from "ethers"
 import type { DeployFunction } from "hardhat-deploy/types"
 
+export type GovernanceTransferMode = "full" | "begin" | "finalize"
+
+export interface GovernanceTransferOptions {
+  // Mode selection:
+  // - "full": begin + wait for delay + finalize (default)
+  // - "begin": only initiate transfer and log earliest finalization time
+  // - "finalize": only attempt finalization (no waiting), assuming begin was
+  //               done previously and the governance delay has elapsed
+  mode?: GovernanceTransferMode
+
+  // Extra buffer applied when waiting in "full" mode, in seconds.
+  waitBufferSeconds?: number
+}
+
 /**
- * Begins and finalizes a Bridge governance transfer, respecting the configured
- * governance delay and waiting long enough for finalization to succeed.
+ * Begins and/or finalizes a Bridge governance transfer, respecting the
+ * configured governance delay.
  *
  * The provided `bridgeGovernance` contract is expected to expose:
  * - function governanceDelays(uint256) view returns (uint256)
@@ -17,35 +30,55 @@ import type { DeployFunction } from "hardhat-deploy/types"
 export async function transferBridgeGovernanceWithDelay(
   bridgeGovernance: Contract,
   newGovernance: string,
-  log: (message: string) => void = console.log
+  log: (message: string) => void = console.log,
+  options: GovernanceTransferOptions = {}
 ): Promise<void> {
+  const mode: GovernanceTransferMode = options.mode ?? "full"
+  const waitBufferSeconds = options.waitBufferSeconds ?? 5
+
   const delay: BigNumber = await bridgeGovernance.governanceDelays(0)
   let changeInitiated: BigNumber =
     await bridgeGovernance.bridgeGovernanceTransferChangeInitiated()
 
-  if (changeInitiated.eq(0)) {
+  if (mode !== "finalize" && changeInitiated.eq(0)) {
     const beginTx = await bridgeGovernance.beginBridgeGovernanceTransfer(
       newGovernance
     )
-    log(
-      `Initiated bridge governance transfer (tx: ${beginTx.hash}), waiting for delay…`
-    )
+    log(`Initiated bridge governance transfer (tx: ${beginTx.hash}).`)
     await beginTx.wait(1)
 
     changeInitiated =
       await bridgeGovernance.bridgeGovernanceTransferChangeInitiated()
-  } else {
+  } else if (mode !== "finalize") {
     log("Bridge governance transfer already initiated; skipping begin.")
   }
 
   const earliestFinalization = changeInitiated.add(delay)
-  const block = await bridgeGovernance.provider.getBlock("latest")
-  if (block.timestamp < earliestFinalization.toNumber()) {
-    // Add a small buffer to avoid edge cases where the block timestamp is
-    // exactly equal to the finalization time.
-    const waitSeconds = earliestFinalization.toNumber() - block.timestamp + 5
-    log(`Waiting ${waitSeconds} seconds for governance delay to elapse…`)
-    await delayMs(waitSeconds * 1000)
+
+  if (mode === "begin") {
+    log(
+      `Bridge governance transfer initiated. Earliest finalization timestamp (unix): ${earliestFinalization.toString()}`
+    )
+    return
+  }
+
+  if (changeInitiated.eq(0)) {
+    log(
+      "Bridge governance transfer has not been initiated yet; cannot finalize."
+    )
+    return
+  }
+
+  if (mode === "full") {
+    const block = await bridgeGovernance.provider.getBlock("latest")
+    if (block.timestamp < earliestFinalization.toNumber()) {
+      // Add a small buffer to avoid edge cases where the block timestamp is
+      // exactly equal to the finalization time.
+      const waitSeconds =
+        earliestFinalization.toNumber() - block.timestamp + waitBufferSeconds
+      log(`Waiting ${waitSeconds} seconds for governance delay to elapse…`)
+      await delayMs(waitSeconds * 1000)
+    }
   }
 
   const finalizeTx = await bridgeGovernance.finalizeBridgeGovernanceTransfer()
