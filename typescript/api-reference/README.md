@@ -47,6 +47,7 @@
 - [SeiAddress](classes/SeiAddress.md)
 - [SeiBitcoinDepositor](classes/SeiBitcoinDepositor.md)
 - [SeiExtraDataEncoder](classes/SeiExtraDataEncoder.md)
+- [SeiTBTCToken](classes/SeiTBTCToken.md)
 - [SolanaAddress](classes/SolanaAddress.md)
 - [SolanaExtraDataEncoder](classes/SolanaExtraDataEncoder.md)
 - [Spv](classes/Spv.md)
@@ -151,6 +152,7 @@
 - [BitcoinTargetConverter](README.md#bitcointargetconverter)
 - [ChainMappings](README.md#chainmappings)
 - [EthereumCrossChainExtraDataEncoder](README.md#ethereumcrosschainextradataencoder)
+- [SeiL2TBTCToken](README.md#seil2tbtctoken)
 - [SolanaCrossChainExtraDataEncoder](README.md#solanacrosschainextradataencoder)
 - [StarkNetCrossChainExtraDataEncoder](README.md#starknetcrosschainextradataencoder)
 - [StarkNetDepositor](README.md#starknetdepositor)
@@ -1000,7 +1002,21 @@ Use EthereumExtraDataEncoder instead
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-depositor.ts:240](typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L240)
+[lib/ethereum/l1-bitcoin-depositor.ts:244](typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L244)
+
+___
+
+### SeiL2TBTCToken
+
+• `Const` **SeiL2TBTCToken**: typeof [`SeiTBTCToken`](classes/SeiTBTCToken.md) = `SeiTBTCToken`
+
+**`Deprecated`**
+
+Use SeiTBTCToken instead
+
+#### Defined in
+
+[lib/sei/l2-tbtc-token.ts:64](typescript/src/lib/sei/l2-tbtc-token.ts#L64)
 
 ___
 

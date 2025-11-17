@@ -66,7 +66,7 @@ EthersContractHandle\&lt;L1BitcoinDepositorTypechain\&gt;.constructor
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-depositor.ts:91](typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L91)
+[lib/ethereum/l1-bitcoin-depositor.ts:92](typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L92)
 
 ## Properties
 
@@ -76,7 +76,7 @@ EthersContractHandle\&lt;L1BitcoinDepositorTypechain\&gt;.constructor
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-depositor.ts:89](typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L89)
+[lib/ethereum/l1-bitcoin-depositor.ts:90](typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L90)
 
 ___
 
@@ -86,7 +86,7 @@ ___
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-depositor.ts:88](typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L88)
+[lib/ethereum/l1-bitcoin-depositor.ts:89](typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L89)
 
 ___
 
@@ -156,7 +156,7 @@ L1BitcoinDepositor.extraDataEncoder
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-depositor.ts:162](typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L162)
+[lib/ethereum/l1-bitcoin-depositor.ts:166](typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L166)
 
 ___
 
@@ -198,7 +198,7 @@ L1BitcoinDepositor.getChainIdentifier
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-depositor.ts:154](typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L154)
+[lib/ethereum/l1-bitcoin-depositor.ts:158](typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L158)
 
 ___
 
@@ -218,7 +218,7 @@ L1BitcoinDepositor.getDepositOwner
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-depositor.ts:131](typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L131)
+[lib/ethereum/l1-bitcoin-depositor.ts:135](typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L135)
 
 ___
 
@@ -244,7 +244,7 @@ L1BitcoinDepositor.getDepositState
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-depositor.ts:147](typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L147)
+[lib/ethereum/l1-bitcoin-depositor.ts:151](typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L151)
 
 ___
 
@@ -307,7 +307,7 @@ L1BitcoinDepositor.initializeDeposit
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-depositor.ts:170](typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L170)
+[lib/ethereum/l1-bitcoin-depositor.ts:174](typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L174)
 
 ___
 
@@ -333,4 +333,4 @@ L1BitcoinDepositor.setDepositOwner
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-depositor.ts:139](typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L139)
+[lib/ethereum/l1-bitcoin-depositor.ts:143](typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L143)

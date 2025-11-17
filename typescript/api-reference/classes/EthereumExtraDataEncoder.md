@@ -55,7 +55,7 @@ for reference.
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-depositor.ts:228](typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L228)
+[lib/ethereum/l1-bitcoin-depositor.ts:232](typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L232)
 
 ___
 
@@ -81,4 +81,4 @@ ___
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-depositor.ts:214](typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L214)
+[lib/ethereum/l1-bitcoin-depositor.ts:218](typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L218)
