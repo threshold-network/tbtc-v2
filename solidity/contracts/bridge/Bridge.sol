@@ -32,6 +32,7 @@ import "./EcdsaLib.sol";
 import "./Wallets.sol";
 import "./Fraud.sol";
 import "./MovingFunds.sol";
+import "./IBridgeRebateStaking.sol";
 
 import "../bank/IReceiveBalanceApproval.sol";
 import "../bank/Bank.sol";
@@ -61,7 +62,8 @@ contract Bridge is
     Governable,
     EcdsaWalletOwner,
     Initializable,
-    IReceiveBalanceApproval
+    IReceiveBalanceApproval,
+    IBridgeRebateStaking
 {
     using BridgeState for BridgeState.Storage;
     using Deposit for BridgeState.Storage;
@@ -237,6 +239,8 @@ contract Bridge is
     event TreasuryUpdated(address treasury);
 
     event RedemptionWatchtowerSet(address redemptionWatchtower);
+
+    event RebateStakingSet(address rebateStaking);
 
     modifier onlySpvMaintainer() {
         require(
@@ -1945,6 +1949,24 @@ contract Bridge is
     ///         successfully evaluate an SPV proof.
     function txProofDifficultyFactor() external view returns (uint256) {
         return self.txProofDifficultyFactor;
+    }
+
+    /// @notice Sets the rebate staking address.
+    /// @param rebateStaking Address of the rebate staking contract.
+    /// @dev Requirements:
+    ///      - The caller must be the governance,
+    ///      - Rebate staking address must not be already set,
+    ///      - Rebate staking address must not be 0x0.
+    function setRebateStaking(address rebateStaking)
+        external
+        onlyGovernance
+    {
+        self.setRebateStaking(rebateStaking);
+    }
+
+    /// @return Address of the rebate staking contract.
+    function getRebateStaking() external view returns (address) {
+        return self.rebateStaking;
     }
 
     /// @notice Sets the redemption watchtower address.

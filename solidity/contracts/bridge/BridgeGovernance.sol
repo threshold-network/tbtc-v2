@@ -19,12 +19,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "./BridgeGovernanceParameters.sol";
 
 import "./Bridge.sol";
-
-/// @dev Minimal interface for calling new Bridge implementations
-///      that support Rebate Staking configuration.
-interface IBridgeRebateStaking {
-    function setRebateStaking(address rebateStaking) external;
-}
+import "./IBridgeRebateStaking.sol";
 
 /// @title Bridge Governance
 /// @notice Owns the `Bridge` contract and is responsible for updating
@@ -1796,8 +1791,15 @@ contract BridgeGovernance is Ownable {
     /// @param rebateStaking Address of the rebate staking contract.
     /// @dev Requirements:
     ///      - The caller must be the owner,
-    ///      - Rebate staking address must not be already set,
-    ///      - Rebate staking address must not be 0x0.
+    ///      - The underlying Bridge implementation must implement
+    ///        {IBridgeRebateStaking.setRebateStaking},
+    ///      - The Bridge is expected to enforce that the rebate staking
+    ///        address is set exactly once and is not 0x0.
+    ///
+    /// @notice This function forwards the call to the underlying Bridge
+    ///         implementation using the minimal {IBridgeRebateStaking}
+    ///         interface. If the Bridge implementation does not support
+    ///         rebate staking configuration, this call will revert.
     function setRebateStaking(address rebateStaking) external onlyOwner {
         // Cast to minimal interface to support newer Bridge implementations.
         IBridgeRebateStaking(address(bridge)).setRebateStaking(rebateStaking);

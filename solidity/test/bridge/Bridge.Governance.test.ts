@@ -2,7 +2,11 @@ import { ethers, helpers, waffle } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { expect } from "chai"
 import { ContractTransaction } from "ethers"
-import type { BridgeGovernance, Bridge } from "../../typechain"
+import type {
+  BridgeGovernance,
+  Bridge,
+  MockBridgeWithRebateStaking,
+} from "../../typechain"
 import { constants } from "../fixtures"
 import bridgeFixture from "../fixtures/bridge"
 
@@ -4477,7 +4481,7 @@ describe("Bridge - Governance", () => {
     })
 
     context("when the caller is the owner", () => {
-      let mockBridge: any
+      let mockBridge: MockBridgeWithRebateStaking
       let localBridgeGovernance: BridgeGovernance
 
       before(async () => {
@@ -4486,7 +4490,9 @@ describe("Bridge - Governance", () => {
         const mockFactory = await ethers.getContractFactory(
           "MockBridgeWithRebateStaking"
         )
-        mockBridge = await mockFactory.connect(governance).deploy()
+        mockBridge = (await mockFactory
+          .connect(governance)
+          .deploy()) as MockBridgeWithRebateStaking
         await mockBridge.deployed()
 
         const paramsLib = await helpers.contracts.getContract(
