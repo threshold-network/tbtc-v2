@@ -1,5 +1,9 @@
 ## Sepolia – BridgeGovernance Redeploy (Summary)
 
+> NOTE: This report has been consolidated into the main controller-authorization explainer at
+> `docs/bridge-controller-authorization-upgrade.md` (Appendix B). This file is kept for historical
+> reference and a convenient, standalone snapshot of the operation.
+
 - Date (UTC): 2025-11-16
 - Network: Sepolia (chainId 11155111)
 
