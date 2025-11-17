@@ -62,9 +62,10 @@ contract BridgeStub is Bridge {
         );
     }
 
-    function setWallet(bytes20 walletPubKeyHash, Wallets.Wallet calldata wallet)
-        external
-    {
+    function setWallet(
+        bytes20 walletPubKeyHash,
+        Wallets.Wallet calldata wallet
+    ) external {
         self.registeredWallets[walletPubKeyHash] = wallet;
 
         if (wallet.state == Wallets.WalletState.Live) {
@@ -80,9 +81,9 @@ contract BridgeStub is Bridge {
         self.depositTxMaxFee = _depositTxMaxFee;
     }
 
-    function setRedemptionDustThreshold(uint64 _redemptionDustThreshold)
-        external
-    {
+    function setRedemptionDustThreshold(
+        uint64 _redemptionDustThreshold
+    ) external {
         self.redemptionDustThreshold = _redemptionDustThreshold;
     }
 
@@ -166,9 +167,9 @@ contract BridgeStub is Bridge {
         self.movedFundsSweepTxMaxTotalFee = _movedFundsSweepTxMaxTotalFee;
     }
 
-    function setDepositRevealAheadPeriod(uint32 _depositRevealAheadPeriod)
-        external
-    {
+    function setDepositRevealAheadPeriod(
+        uint32 _depositRevealAheadPeriod
+    ) external {
         self.depositRevealAheadPeriod = _depositRevealAheadPeriod;
     }
 }

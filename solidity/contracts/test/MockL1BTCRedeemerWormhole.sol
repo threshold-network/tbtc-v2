@@ -76,17 +76,16 @@ contract MockL1BTCRedeemerWormhole is
 
         wormholeTokenBridge = IWormholeTokenBridge(_wormholeTokenBridge);
         requestRedemptionGasOffset = 60_000;
-        mockRedemptionAmountTBTC = 2 * (10**18); // Default to 2 tBTC
+        mockRedemptionAmountTBTC = 2 * (10 ** 18); // Default to 2 tBTC
     }
 
     function setMockRedemptionAmountTBTC(uint256 _amount) external {
         mockRedemptionAmountTBTC = _amount;
     }
 
-    function updateGasOffsetParameters(uint256 _requestRedemptionGasOffset)
-        external
-        onlyOwner
-    {
+    function updateGasOffsetParameters(
+        uint256 _requestRedemptionGasOffset
+    ) external onlyOwner {
         requestRedemptionGasOffset = _requestRedemptionGasOffset;
         emit GasOffsetParametersUpdated(_requestRedemptionGasOffset);
     }
@@ -99,10 +98,10 @@ contract MockL1BTCRedeemerWormhole is
         reimbursementAuthorizations[_address] = authorization;
     }
 
-    function updateAllowedSender(bytes32 _sender, bool _allowed)
-        external
-        onlyOwner
-    {
+    function updateAllowedSender(
+        bytes32 _sender,
+        bool _allowed
+    ) external onlyOwner {
         allowedSenders[_sender] = _allowed;
         emit AllowedSenderUpdated(_sender, _allowed);
     }
@@ -136,7 +135,7 @@ contract MockL1BTCRedeemerWormhole is
         // Use the mock-specific redemption amount
         uint256 amountToUse = mockRedemptionAmountTBTC;
         if (amountToUse == 0) {
-            amountToUse = 2 * (10**18);
+            amountToUse = 2 * (10 ** 18);
         }
 
         // Call the internal _requestRedemption

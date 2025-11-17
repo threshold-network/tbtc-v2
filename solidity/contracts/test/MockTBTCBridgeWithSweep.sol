@@ -14,7 +14,7 @@ contract MockTBTCBridgeWithSweep is IBridge {
     uint64 internal _redemptionTxMaxFee = 10000;
     uint64 internal _redemptionTxMaxTotalFee = 50000;
     uint32 internal _redemptionTimeout = 6 * 3600;
-    uint96 internal _redemptionTimeoutSlashingAmount = 10**18;
+    uint96 internal _redemptionTimeoutSlashingAmount = 10 ** 18;
     uint32 internal _redemptionTimeoutNotifierRewardMultiplier = 5;
 
     // Track calls for testing
@@ -59,24 +59,16 @@ contract MockTBTCBridgeWithSweep is IBridge {
         emit DepositRevealed(depositKey);
     }
 
-    function deposits(uint256 depositKey)
-        external
-        view
-        override
-        returns (IBridgeTypes.DepositRequest memory)
-    {
+    function deposits(
+        uint256 depositKey
+    ) external view override returns (IBridgeTypes.DepositRequest memory) {
         return _deposits[depositKey];
     }
 
     function depositParameters()
         external
         pure
-        returns (
-            uint64,
-            uint64,
-            uint64 depositTxMaxFee,
-            uint32
-        )
+        returns (uint64, uint64, uint64 depositTxMaxFee, uint32)
     {
         return (0, 0, 1000000, 0); // 0.01 BTC max fee
     }
@@ -103,7 +95,7 @@ contract MockTBTCBridgeWithSweep is IBridge {
     // --- Redemption related mock functions ---
     function requestRedemption(
         bytes20 walletPubKeyHash,
-        BitcoinTx.UTXO calldata, /*mainUtxo*/ // Marked unused
+        BitcoinTx.UTXO calldata /*mainUtxo*/, // Marked unused
         bytes calldata redeemerOutputScript,
         uint64 amount
     ) external override {
@@ -139,12 +131,9 @@ contract MockTBTCBridgeWithSweep is IBridge {
         );
     }
 
-    function pendingRedemptions(uint256 redemptionKey)
-        external
-        view
-        override
-        returns (IBridgeTypes.RedemptionRequest memory)
-    {
+    function pendingRedemptions(
+        uint256 redemptionKey
+    ) external view override returns (IBridgeTypes.RedemptionRequest memory) {
         return _pendingRedemptions[redemptionKey];
     }
 

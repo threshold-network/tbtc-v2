@@ -356,10 +356,10 @@ contract WalletProposalValidator {
     ///      - The sweep tx fee must be grater than zero,
     ///      - The maximum per-deposit sweep tx fee must be lesser than or equal
     ///        the maximum fee allowed by the Bridge (`Bridge.depositTxMaxFee`).
-    function validateSweepTxFee(uint256 sweepTxFee, uint256 depositsCount)
-        internal
-        view
-    {
+    function validateSweepTxFee(
+        uint256 sweepTxFee,
+        uint256 depositsCount
+    ) internal view {
         require(sweepTxFee > 0, "Proposed transaction fee cannot be zero");
 
         // Compute the indivisible remainder that remains after dividing the
@@ -538,11 +538,9 @@ contract WalletProposalValidator {
     ///        elapsed since their creation time,
     ///      - Each request must have the timeout safety margin preserved,
     ///      - Each request must be unique.
-    function validateRedemptionProposal(RedemptionProposal calldata proposal)
-        external
-        view
-        returns (bool)
-    {
+    function validateRedemptionProposal(
+        RedemptionProposal calldata proposal
+    ) external view returns (bool) {
         Wallets.Wallet memory wallet = bridge.wallets(
             proposal.walletPubKeyHash
         );
@@ -885,11 +883,9 @@ contract WalletProposalValidator {
     /// @return True if the proposal is valid. Reverts otherwise.
     /// @dev Requirements:
     ///      - The message to sign is a valid heartbeat message.
-    function validateHeartbeatProposal(HeartbeatProposal calldata proposal)
-        external
-        view
-        returns (bool)
-    {
+    function validateHeartbeatProposal(
+        HeartbeatProposal calldata proposal
+    ) external view returns (bool) {
         require(
             Heartbeat.isValidHeartbeatMessage(proposal.message),
             "Not a valid heartbeat message"

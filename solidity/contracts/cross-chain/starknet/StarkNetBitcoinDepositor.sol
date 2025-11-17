@@ -103,10 +103,10 @@ contract StarkNetBitcoinDepositor is AbstractL1BTCDepositor {
     /// @dev This function overrides the abstract function in AbstractL1BTCDepositor
     /// @param amount The amount of tBTC to bridge (in 1e18 precision)
     /// @param destinationChainReceiver The recipient address on StarkNet (as bytes32)
-    function _transferTbtc(uint256 amount, bytes32 destinationChainReceiver)
-        internal
-        override
-    {
+    function _transferTbtc(
+        uint256 amount,
+        bytes32 destinationChainReceiver
+    ) internal override {
         // This function is called by finalizeDeposit which is payable
         // The caller must send ETH to cover the StarkGate bridge fee
         uint256 fee = estimateFee();

@@ -57,10 +57,9 @@ interface IRedemptionWatchtower {
     /// @param redemptionKey Redemption key built as
     ///        `keccak256(keccak256(redeemerOutputScript) | walletPubKeyHash)`.
     /// @return Redemption delay.
-    function getRedemptionDelay(uint256 redemptionKey)
-        external
-        view
-        returns (uint32);
+    function getRedemptionDelay(
+        uint256 redemptionKey
+    ) external view returns (uint32);
 }
 
 /// @notice Aggregates functions common to the redemption transaction proof
@@ -1095,11 +1094,10 @@ library Redemption {
     /// @param walletPubKeyHash the pubkey hash of the wallet.
     /// @param script the output script of the redemption.
     /// @return The key = keccak256(keccak256(script) | walletPubKeyHash).
-    function getRedemptionKey(bytes20 walletPubKeyHash, bytes memory script)
-        internal
-        pure
-        returns (uint256)
-    {
+    function getRedemptionKey(
+        bytes20 walletPubKeyHash,
+        bytes memory script
+    ) internal pure returns (uint256) {
         bytes32 scriptHash = keccak256(script);
         uint256 key;
         /* solhint-disable-next-line no-inline-assembly */
@@ -1115,11 +1113,10 @@ library Redemption {
     /// @param walletPubKeyHash the pubkey hash of the wallet.
     /// @param scriptHash the output script hash of the redemption.
     /// @return The key = keccak256(scriptHash | walletPubKeyHash).
-    function _getRedemptionKey(bytes20 walletPubKeyHash, bytes32 scriptHash)
-        internal
-        pure
-        returns (uint256)
-    {
+    function _getRedemptionKey(
+        bytes20 walletPubKeyHash,
+        bytes32 scriptHash
+    ) internal pure returns (uint256) {
         uint256 key;
         /* solhint-disable-next-line no-inline-assembly */
         assembly {

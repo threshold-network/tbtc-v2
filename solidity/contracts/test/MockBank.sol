@@ -8,19 +8,16 @@ contract MockBank is IBank {
     mapping(address => uint256) private _balances;
     mapping(address => mapping(address => uint256)) private _allowances;
 
-    function balanceAvailable(address account)
-        external
-        view
-        override
-        returns (uint256)
-    {
+    function balanceAvailable(
+        address account
+    ) external view override returns (uint256) {
         return _balances[account];
     }
 
-    function increaseBalanceAllowance(address spender, uint256 amount)
-        external
-        override
-    {
+    function increaseBalanceAllowance(
+        address spender,
+        uint256 amount
+    ) external override {
         _allowances[msg.sender][spender] += amount;
         emit BalanceApproval(
             msg.sender,
@@ -51,11 +48,10 @@ contract MockBank is IBank {
         _balances[account] = amount;
     }
 
-    function getAllowance(address owner, address spender)
-        external
-        view
-        returns (uint256)
-    {
+    function getAllowance(
+        address owner,
+        address spender
+    ) external view returns (uint256) {
         return _allowances[owner][spender];
     }
 }

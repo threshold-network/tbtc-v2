@@ -159,9 +159,10 @@ contract Bank is Ownable {
     ///         `spender` by the given `addedValue`.
     /// @param spender The spender address for which the allowance is increased.
     /// @param addedValue The amount by which the allowance is increased.
-    function increaseBalanceAllowance(address spender, uint256 addedValue)
-        external
-    {
+    function increaseBalanceAllowance(
+        address spender,
+        uint256 addedValue
+    ) external {
         _approveBalance(
             msg.sender,
             spender,
@@ -177,9 +178,10 @@ contract Bank is Ownable {
     ///        the `subtractedValue`.
     /// @param spender The spender address for which the allowance is decreased.
     /// @param subtractedValue The amount by which the allowance is decreased.
-    function decreaseBalanceAllowance(address spender, uint256 subtractedValue)
-        external
-    {
+    function decreaseBalanceAllowance(
+        address spender,
+        uint256 subtractedValue
+    ) external {
         uint256 currentAllowance = allowance[msg.sender][spender];
         require(
             currentAllowance >= subtractedValue,
@@ -317,10 +319,10 @@ contract Bank is Ownable {
     ///      - `recipient` address must not point to the Bank.
     /// @param recipient Balance increase recipient.
     /// @param amount Amount by which the balance is increased.
-    function increaseBalance(address recipient, uint256 amount)
-        external
-        onlyBridge
-    {
+    function increaseBalance(
+        address recipient,
+        uint256 amount
+    ) external onlyBridge {
         _increaseBalance(recipient, amount);
     }
 

@@ -184,10 +184,9 @@ contract L2BTCRedeemerWormhole is
 
     /// @notice Lets the governance update the minimum redemption amount.
     /// @param _newMinimumRedemptionAmount The new minimum redemption amount.
-    function updateMinimumRedemptionAmount(uint256 _newMinimumRedemptionAmount)
-        external
-        onlyOwner
-    {
+    function updateMinimumRedemptionAmount(
+        uint256 _newMinimumRedemptionAmount
+    ) external onlyOwner {
         if (_newMinimumRedemptionAmount == 0) {
             revert MinimumRedemptionAmountZero();
         }

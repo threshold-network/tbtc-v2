@@ -80,7 +80,7 @@ contract MockBridge is IBridge {
     uint64 internal _redemptionTxMaxFee = 10000; // 0.0001 BTC
     uint64 internal _redemptionTxMaxTotalFee = 50000; // 0.0005 BTC
     uint32 internal _redemptionTimeout = 6 * 3600; // 6 hours in seconds
-    uint96 internal _redemptionTimeoutSlashingAmount = 10**18; // 1 TBTC with 18 decimals
+    uint96 internal _redemptionTimeoutSlashingAmount = 10 ** 18; // 1 TBTC with 18 decimals
     uint32 internal _redemptionTimeoutNotifierRewardMultiplier = 5; // 5%
 
     event DepositRevealed(uint256 depositKey);
@@ -145,11 +145,9 @@ contract MockBridge is IBridge {
         _deposits[depositKey].sweptAt = uint32(block.timestamp); // solhint-disable-line not-rely-on-time
     }
 
-    function deposits(uint256 depositKey)
-        external
-        view
-        returns (IBridgeTypes.DepositRequest memory)
-    {
+    function deposits(
+        uint256 depositKey
+    ) external view returns (IBridgeTypes.DepositRequest memory) {
         return _deposits[depositKey];
     }
 
@@ -184,7 +182,7 @@ contract MockBridge is IBridge {
     // --- Redemption related mock functions ---
     function requestRedemption(
         bytes20 walletPubKeyHash,
-        BitcoinTx.UTXO calldata, /*mainUtxo*/
+        BitcoinTx.UTXO calldata /*mainUtxo*/,
         bytes calldata redeemerOutputScript,
         uint64 amount
     ) external {
@@ -218,11 +216,9 @@ contract MockBridge is IBridge {
         );
     }
 
-    function pendingRedemptions(uint256 redemptionKey)
-        external
-        view
-        returns (IBridgeTypes.RedemptionRequest memory)
-    {
+    function pendingRedemptions(
+        uint256 redemptionKey
+    ) external view returns (IBridgeTypes.RedemptionRequest memory) {
         return _pendingRedemptions[redemptionKey];
     }
 
@@ -262,10 +258,9 @@ contract MockTBTCVault is ITBTCVault {
 
     event Unminted(uint256 amount);
 
-    function optimisticMintingRequests(uint256 depositKey)
-        external
-        returns (uint64 requestedAt, uint64 finalizedAt)
-    {
+    function optimisticMintingRequests(
+        uint256 depositKey
+    ) external returns (uint64 requestedAt, uint64 finalizedAt) {
         Request memory request = _requests[depositKey];
         return (request.requestedAt, request.finalizedAt);
     }
@@ -284,10 +279,9 @@ contract MockTBTCVault is ITBTCVault {
     /// @dev The function is virtual to allow other projects using this mock
     ///      for AbtractBTCDepositor-based contract tests to add any custom
     ///      logic needed.
-    function finalizeOptimisticMintingRequest(uint256 depositKey)
-        public
-        virtual
-    {
+    function finalizeOptimisticMintingRequest(
+        uint256 depositKey
+    ) public virtual {
         require(
             _requests[depositKey].requestedAt != 0,
             "Request does not exist"
