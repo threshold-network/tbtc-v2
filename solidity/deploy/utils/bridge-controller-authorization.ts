@@ -8,6 +8,11 @@ export interface BridgeControllerAuthorizationSyncOptions {
   bridgeGovernanceAddress?: string
   increaserAddresses?: string[]
   governancePrivateKey?: string
+  // When true, allows revoking all existing authorizations when
+  // `increaserAddresses` is empty or omitted. If false/omitted, a completely
+  // empty desired set will leave existing authorizations untouched unless the
+  // `BRIDGE_ALLOW_MASS_CONTROLLER_REVOKE` env var is set to "true".
+  allowMassRevoke?: boolean
 }
 
 const BRIDGE_ABI = [
@@ -42,6 +47,10 @@ export async function syncBridgeControllerAuthorizations(
       })
     )
   )
+
+  const allowMassRevokeEnv =
+    process.env.BRIDGE_ALLOW_MASS_CONTROLLER_REVOKE === "true"
+  const allowMassRevoke = options.allowMassRevoke === true || allowMassRevokeEnv
 
   let bridgeAddress = options.bridgeAddress
   if (!bridgeAddress) {
@@ -140,6 +149,13 @@ export async function syncBridgeControllerAuthorizations(
 
     if (existingIncreasers.size === 0) {
       console.log("ℹ️  No increaser addresses provided; nothing to configure.")
+      return
+    }
+
+    if (!allowMassRevoke) {
+      console.log(
+        "ℹ️  No increaser addresses provided; existing authorizations will be left unchanged (mass revoke disabled). Set BRIDGE_ALLOW_MASS_CONTROLLER_REVOKE=true or pass allowMassRevoke to enable revocation."
+      )
       return
     }
 

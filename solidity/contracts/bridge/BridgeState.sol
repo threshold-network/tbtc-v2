@@ -321,7 +321,10 @@ library BridgeState {
         // is responsible for vetoing redemption requests.
         address redemptionWatchtower;
         // Governance-managed set of contracts allowed to request Bank balance
-        // increases through the Bridge.
+        // increases through the Bridge. These contracts are often referred to
+        // as "controllers" in off-chain tooling and documentation; the
+        // on-chain source of truth is this mapping and the
+        // `setAuthorizedBalanceIncreaser` governance function.
         mapping(address => bool) authorizedBalanceIncreasers;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should

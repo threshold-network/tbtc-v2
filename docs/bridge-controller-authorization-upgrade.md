@@ -62,6 +62,7 @@ Supporting scripts (names as in repo):
 ## Environment Notes
 
 - Env keys used during orchestration include: `BRIDGE_ADDRESS`, `PROXY_ADMIN_PK`, `BRIDGE_GOVERNANCE_PK`, `BRIDGE_AUTHORIZED_INCREASERS`, and library/core contract address fallbacks.
+- Mass revocation safeguard: to revoke all existing controller authorizations when no `BRIDGE_AUTHORIZED_INCREASERS` are provided, set `BRIDGE_ALLOW_MASS_CONTROLLER_REVOKE=true` (otherwise existing authorizations are left unchanged).
 - Sepolia RPC: prefer `SEPOLIA_CHAIN_API_URL`/`SEPOLIA_PRIVATE_KEYS` where applicable.
 
 ---

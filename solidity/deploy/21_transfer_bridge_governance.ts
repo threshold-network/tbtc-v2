@@ -2,8 +2,21 @@ import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
 import { ethers } from "hardhat"
 
+import { transferBridgeGovernanceWithDelay } from "./utils/governance-transfer"
+
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { getNamedAccounts, deployments } = hre
+
+  // This script is intended for live networks (e.g. Sepolia/mainnet). For the
+  // in-process Hardhat network used in tests we skip to avoid unnecessary
+  // governance transfer attempts against ephemeral fixtures.
+  if (hre.network.name === "hardhat") {
+    deployments.log(
+      "Skipping Bridge governance transfer on hardhat network (tests use their own fixture wiring)."
+    )
+    return
+  }
+
   const { governance } = await getNamedAccounts()
 
   // Use the governance key or named governance account; do not fall back to
@@ -38,39 +51,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     signer
   )
 
-  const governanceDelay = await bridgeGovernance.governanceDelays(0)
-  const changeInitiated =
-    await bridgeGovernance.bridgeGovernanceTransferChangeInitiated()
-
-  if (changeInitiated.eq(0)) {
-    const beginTx = await bridgeGovernance.beginBridgeGovernanceTransfer(
-      newGovernance
-    )
-    deployments.log(
-      `Initiated bridge governance transfer (tx: ${beginTx.hash}), waiting for delay…`
-    )
-    await beginTx.wait(1)
-  } else {
-    deployments.log("Bridge governance transfer already initiated; skipping.")
-  }
-
-  const currentTimestamp = (await ethers.provider.getBlock("latest")).timestamp
-  const initiatedAt =
-    await bridgeGovernance.bridgeGovernanceTransferChangeInitiated()
-  const earliestFinalize = initiatedAt.add(governanceDelay)
-  if (currentTimestamp < earliestFinalize.toNumber()) {
-    const waitSeconds = earliestFinalize.toNumber() - currentTimestamp + 5
-    deployments.log(
-      `Waiting ${waitSeconds} seconds for governance delay to elapse…`
-    )
-    await delay(waitSeconds * 1000)
-  }
-
-  const finalizeTx = await bridgeGovernance.finalizeBridgeGovernanceTransfer()
-  deployments.log(
-    `Finalized bridge governance transfer in tx: ${finalizeTx.hash}`
+  await transferBridgeGovernanceWithDelay(
+    bridgeGovernance,
+    newGovernance,
+    deployments.log
   )
-  await finalizeTx.wait(1)
 }
 
 export default func
@@ -88,9 +73,3 @@ func.dependencies = [
   "AuthorizeSpvMaintainer",
 ]
 func.runAtTheEnd = true
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms)
-  })
-}

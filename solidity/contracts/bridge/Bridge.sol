@@ -1208,6 +1208,9 @@ contract Bridge is
 
     /// @notice Allows Governance to manage contracts authorized to request
     ///         Bank balance increases through the Bridge.
+    /// @dev Off-chain tooling and documentation refer to these authorized
+    ///      contracts as "controllers". The on-chain allowlist is maintained
+    ///      via this function and the `authorizedBalanceIncreasers` mapping.
     /// @param increaser Address of the contract requesting authorization.
     /// @param authorized Whether the address should be authorized.
     function setAuthorizedBalanceIncreaser(address increaser, bool authorized)
@@ -1562,6 +1565,9 @@ contract Bridge is
 
     /// @notice Allows authorized controllers to increase Bank balances via the
     ///         Bridge.
+    /// @dev "Controllers" here are addresses that have been authorized via
+    ///      `setAuthorizedBalanceIncreaser` and stored in the
+    ///      `authorizedBalanceIncreasers` mapping.
     /// @param recipient Address receiving the balance increase.
     /// @param amount Amount by which the balance is increased.
     function controllerIncreaseBalance(address recipient, uint256 amount)
@@ -1576,6 +1582,8 @@ contract Bridge is
 
     /// @notice Allows authorized controllers to increase multiple Bank
     ///         balances via the Bridge.
+    /// @dev See `controllerIncreaseBalance` for the definition of a
+    ///      controller and how authorization is managed.
     /// @param recipients Addresses receiving the balance increases.
     /// @param amounts Amounts by which balances are increased.
     function controllerIncreaseBalances(
