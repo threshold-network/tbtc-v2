@@ -1967,9 +1967,7 @@ describe("Bridge - Parameters", () => {
           it("should revert", async () => {
             await expect(
               bridge.connect(governance).setRebateStaking(ZERO_ADDRESS)
-            ).to.be.revertedWith(
-              "Rebate staking address must not be 0x0"
-            )
+            ).to.be.revertedWith("Rebate staking address must not be 0x0")
           })
         })
 
