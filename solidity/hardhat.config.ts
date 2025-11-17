@@ -5,7 +5,7 @@ import "./tasks"
 import "@keep-network/hardhat-helpers"
 import "@keep-network/hardhat-local-networks-config"
 import "@nomiclabs/hardhat-waffle"
-import "@nomiclabs/hardhat-etherscan"
+import "@nomicfoundation/hardhat-verify"
 import "hardhat-gas-reporter"
 import "hardhat-contract-sizer"
 import "hardhat-deploy"
@@ -25,15 +25,27 @@ const ecdsaSolidityCompilerConfig = {
   },
 }
 
-// Use 200 optimizer runs for BridgeGovernance to balance code size and gas.
-// BridgeGovernance does not need to be extremely gas-efficient, and 200 runs
-// keeps bytecode size within limits while remaining practical.
+// NOTE: For Etherscan/Tenderly verification we must match the exact optimizer
+// runs used at deployment time per-contract. Deployment metadata shows:
+// - BridgeGovernanceParameters: runs=1000
+// - BridgeGovernance: runs=100 (current Sepolia deployment)
+// Others default to 200.
 const bridgeGovernanceCompilerConfig = {
   version: "0.8.17",
   settings: {
     optimizer: {
       enabled: true,
       runs: 100,
+    },
+  },
+}
+
+const bridgeGovernanceParametersCompilerConfig = {
+  version: "0.8.17",
+  settings: {
+    optimizer: {
+      enabled: true,
+      runs: 1000,
     },
   },
 }
@@ -70,7 +82,16 @@ const config: HardhatUserConfig = {
       "@keep-network/ecdsa/contracts/WalletRegistry.sol":
         ecdsaSolidityCompilerConfig,
       "contracts/bridge/BridgeGovernance.sol": bridgeGovernanceCompilerConfig,
+      "contracts/bridge/BridgeGovernanceParameters.sol": bridgeGovernanceParametersCompilerConfig,
     },
+  },
+
+  // Etherscan (V2) configuration
+  // Use a single Etherscan.io API key for all supported networks
+  // to avoid the deprecated per-network (V1) API key format.
+  etherscan: {
+    apiKey: process.env.ETHERSCAN_API_KEY || "",
+    // customChains: [] can be added here for non-Etherscan explorers
   },
 
   paths: {
@@ -136,8 +157,9 @@ const config: HardhatUserConfig = {
   },
 
   tenderly: {
-    username: "thesis",
-    project: "",
+    // Allow overriding via env; fall back to provided values
+    username: process.env.TENDERLY_USERNAME || "pioros",
+    project: process.env.TENDERLY_PROJECT || "project",
   },
 
   // Define local networks configuration file path to load networks from file.
@@ -249,9 +271,6 @@ const config: HardhatUserConfig = {
       "@keep-network/ecdsa/contracts/WalletRegistry.sol",
     ],
     keep: true,
-  },
-  etherscan: {
-    apiKey: process.env.ETHERSCAN_API_KEY,
   },
   contractSizer: {
     alphaSort: true,
