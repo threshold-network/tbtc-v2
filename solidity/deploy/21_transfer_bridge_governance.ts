@@ -61,6 +61,14 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     signer
   )
 
+  if (
+    bridgeGovernance.address.toLowerCase() !== currentGovernance.toLowerCase()
+  ) {
+    throw new Error(
+      "Resolved BridgeGovernance address does not match Bridge.governance(); aborting transfer."
+    )
+  }
+
   const modeEnv = process.env.BRIDGE_GOVERNANCE_TRANSFER_MODE
   const mode: GovernanceTransferMode =
     modeEnv === "begin" || modeEnv === "finalize" ? modeEnv : "full"

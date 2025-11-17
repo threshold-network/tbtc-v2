@@ -24,9 +24,15 @@ import { syncBridgeControllerAuthorizations } from "../deploy/utils/bridge-contr
  *   BRIDGE_AUTHORIZED_INCREASERS    - comma-separated list of controller
  *                                     addresses to authorize
  *   BRIDGE_ALLOW_MASS_CONTROLLER_REVOKE=true
- *                                   - optional safeguard override; when set,
+ *                                   - optional safeguard override; when set
+ *                                     together with BRIDGE_ALLOW_MASS_CONTROLLER_REVOKE_CONFIRM=YES,
  *                                     an empty desired set will revoke all
  *                                     existing controller authorizations
+ *   BRIDGE_ALLOW_MASS_CONTROLLER_REVOKE_CONFIRM=YES
+ *                                   - explicit confirmation required to allow
+ *                                     mass-revoking all existing controllers
+ *   BRIDGE_CONTROLLER_SYNC_DRY_RUN  - when set to \"true\" or \"1\", computes
+ *                                     and logs the plan without sending txs
  */
 
 async function main(): Promise<void> {
@@ -39,6 +45,9 @@ async function main(): Promise<void> {
     bridgeAddress: process.env.BRIDGE_ADDRESS,
     increaserAddresses: process.env.BRIDGE_AUTHORIZED_INCREASERS?.split(","),
     governancePrivateKey: process.env.BRIDGE_GOVERNANCE_PK,
+    dryRun:
+      process.env.BRIDGE_CONTROLLER_SYNC_DRY_RUN === "true" ||
+      process.env.BRIDGE_CONTROLLER_SYNC_DRY_RUN === "1",
   })
 
   console.log("\n✅ Controller allowlist synchronization complete.")

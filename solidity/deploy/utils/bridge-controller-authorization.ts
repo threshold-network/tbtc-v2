@@ -9,6 +9,9 @@ export interface BridgeControllerAuthorizationSyncOptions {
   bridgeGovernanceAddress?: string
   increaserAddresses?: string[]
   governancePrivateKey?: string
+  // When true, only logs the computed authorization plan without sending
+  // any transactions on-chain.
+  dryRun?: boolean
   // When true, allows revoking all existing authorizations when
   // `increaserAddresses` is empty or omitted. If false/omitted, a completely
   // empty desired set will leave existing authorizations untouched unless the
@@ -17,6 +20,7 @@ export interface BridgeControllerAuthorizationSyncOptions {
 }
 
 const BRIDGE_ABI = [
+  "function governance() view returns (address)",
   "function authorizedBalanceIncreasers(address) view returns (bool)",
   "event AuthorizedBalanceIncreaserUpdated(address indexed increaser, bool authorized)",
 ]
@@ -93,6 +97,18 @@ async function resolveBridgeContracts(
     BRIDGE_GOVERNANCE_ABI,
     provider
   )
+
+  const onChainGovernance = await bridge.governance()
+  if (
+    onChainGovernance.toLowerCase() !== bridgeGovernance.address.toLowerCase()
+  ) {
+    console.log(
+      "⚠️  Bridge.governance() does not match provided BridgeGovernance address; controller synchronization requires governance to be transferred first."
+    )
+    throw new Error(
+      "Bridge governance mismatch; run governance transfer before controller sync."
+    )
+  }
 
   return { bridge, bridgeGovernance }
 }
@@ -192,9 +208,22 @@ function computeAuthorizationPlan(
       return undefined
     }
 
+    const confirmEnv =
+      process.env.BRIDGE_ALLOW_MASS_CONTROLLER_REVOKE_CONFIRM ?? ""
+
     if (!allowMassRevoke) {
       console.log(
-        "ℹ️  No increaser addresses provided; existing authorizations will be left unchanged (mass revoke disabled). Set BRIDGE_ALLOW_MASS_CONTROLLER_REVOKE=true or pass allowMassRevoke to enable revocation."
+        "ℹ️  No increaser addresses provided; existing authorizations will be left unchanged (mass revoke disabled). " +
+          "Set BRIDGE_ALLOW_MASS_CONTROLLER_REVOKE=true and BRIDGE_ALLOW_MASS_CONTROLLER_REVOKE_CONFIRM=YES " +
+          "or pass allowMassRevoke to enable revocation."
+      )
+      return undefined
+    }
+
+    if (confirmEnv.toUpperCase() !== "YES") {
+      console.log(
+        "ℹ️  Mass revoke requested but BRIDGE_ALLOW_MASS_CONTROLLER_REVOKE_CONFIRM!=YES; refusing to revoke. " +
+          "Set the confirm variable to YES for this run if you intend to revoke all existing controllers."
       )
       return undefined
     }
@@ -224,9 +253,37 @@ function computeAuthorizationPlan(
 async function applyAuthorizationPlan(
   bridge: Contract,
   bridgeGovernanceWithSigner: Contract,
-  plan: AuthorizationPlan
+  plan: AuthorizationPlan,
+  dryRun: boolean
 ): Promise<void> {
   const { desiredIncreasers, existingIncreasers, increasersToRevoke } = plan
+
+  if (desiredIncreasers.length === 0 && increasersToRevoke.length === 0) {
+    console.log("ℹ️  Authorization plan is empty; nothing to do.")
+    return
+  }
+
+  console.log("\n📋 Bridge controller authorization plan:")
+  if (desiredIncreasers.length > 0) {
+    console.log("   Will authorize controllers:")
+    desiredIncreasers.forEach((addr) => console.log(`     • ${addr}`))
+  } else {
+    console.log("   No new controllers to authorize.")
+  }
+
+  if (existingIncreasers && increasersToRevoke.length > 0) {
+    console.log("   Will revoke controllers:")
+    increasersToRevoke.forEach((addr) => console.log(`     • ${addr}`))
+  } else {
+    console.log("   No controllers to revoke.")
+  }
+
+  if (dryRun) {
+    console.log(
+      "\nℹ️  Dry-run enabled; no on-chain authorization changes will be submitted."
+    )
+    return
+  }
 
   for (const addr of desiredIncreasers) {
     try {
@@ -281,6 +338,11 @@ export async function syncBridgeControllerAuthorizations(
   hre: HardhatRuntimeEnvironment,
   options: BridgeControllerAuthorizationSyncOptions = {}
 ): Promise<void> {
+  const dryRunEnv =
+    process.env.BRIDGE_CONTROLLER_SYNC_DRY_RUN === "true" ||
+    process.env.BRIDGE_CONTROLLER_SYNC_DRY_RUN === "1"
+  const dryRun = options.dryRun === true || dryRunEnv
+
   const desiredIncreasers = await getDesiredIncreasers(
     hre,
     options.increaserAddresses
@@ -313,7 +375,7 @@ export async function syncBridgeControllerAuthorizations(
     return
   }
 
-  await applyAuthorizationPlan(bridge, bridgeGovernanceWithSigner, plan)
+  await applyAuthorizationPlan(bridge, bridgeGovernanceWithSigner, plan, dryRun)
 }
 
 const noopDeploy: DeployFunction = async () => {}

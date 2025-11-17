@@ -36,6 +36,13 @@ export async function transferBridgeGovernanceWithDelay(
   const mode: GovernanceTransferMode = options.mode ?? "full"
   const waitBufferSeconds = options.waitBufferSeconds ?? 5
 
+  if (
+    !newGovernance ||
+    newGovernance === "0x0000000000000000000000000000000000000000"
+  ) {
+    throw new Error("New governance address must be non-zero")
+  }
+
   const delay: BigNumber = await bridgeGovernance.governanceDelays(0)
   let changeInitiated: BigNumber =
     await bridgeGovernance.bridgeGovernanceTransferChangeInitiated()
@@ -54,6 +61,11 @@ export async function transferBridgeGovernanceWithDelay(
   }
 
   const earliestFinalization = changeInitiated.add(delay)
+
+  log(
+    `Bridge governance transfer mode=${mode}, delay=${delay.toString()} seconds, ` +
+      `changeInitiated=${changeInitiated.toString()}, earliestFinalization=${earliestFinalization.toString()}`
+  )
 
   if (mode === "begin") {
     log(
@@ -76,7 +88,10 @@ export async function transferBridgeGovernanceWithDelay(
       // exactly equal to the finalization time.
       const waitSeconds =
         earliestFinalization.toNumber() - block.timestamp + waitBufferSeconds
-      log(`Waiting ${waitSeconds} seconds for governance delay to elapse…`)
+      log(
+        `Waiting ${waitSeconds} seconds for governance delay to elapse (currentTime=${block.timestamp}, ` +
+          `earliestFinalization=${earliestFinalization.toNumber()})…`
+      )
       await delayMs(waitSeconds * 1000)
     }
   }

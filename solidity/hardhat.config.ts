@@ -135,6 +135,8 @@ const config: HardhatUserConfig = {
       tags: ["allowStubs"],
     },
     sepolia: {
+      // For Sepolia we prefer network-specific RPC and key env vars when
+      // present, falling back to the generic ones for backwards compatibility.
       url: process.env.SEPOLIA_CHAIN_API_URL || process.env.CHAIN_API_URL || "",
       chainId: 11155111,
       // eslint-disable-next-line no-nested-ternary

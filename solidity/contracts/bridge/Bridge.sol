@@ -1597,6 +1597,24 @@ contract Bridge is
         self.bank.increaseBalances(recipients, amounts);
     }
 
+    /// @notice Batch helper returning authorization status for given addresses.
+    /// @param increasers Addresses to check for controller authorization.
+    /// @return flags Array of booleans indicating authorization status.
+    function getAuthorizedBalanceIncreasers(address[] calldata increasers)
+        external
+        view
+        returns (bool[] memory)
+    {
+        uint256 length = increasers.length;
+        bool[] memory flags = new bool[](length);
+
+        for (uint256 i = 0; i < length; i++) {
+            flags[i] = self.authorizedBalanceIncreasers[increasers[i]];
+        }
+
+        return flags;
+    }
+
     /// @notice Sets the redemption watchtower address.
     /// @param redemptionWatchtower Address of the redemption watchtower.
     /// @dev Requirements:

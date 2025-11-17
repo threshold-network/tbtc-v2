@@ -29,4 +29,9 @@ interface IBridgeMintingAuthorization {
         external
         view
         returns (bool);
+
+    function getAuthorizedBalanceIncreasers(address[] calldata increasers)
+        external
+        view
+        returns (bool[] memory);
 }
