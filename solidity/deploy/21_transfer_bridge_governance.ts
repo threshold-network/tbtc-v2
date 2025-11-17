@@ -10,12 +10,19 @@ import {
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { getNamedAccounts, deployments } = hre
 
-  // This script is intended for live networks (e.g. Sepolia/mainnet). For the
-  // in-process Hardhat network used in tests we skip to avoid unnecessary
-  // governance transfer attempts against ephemeral fixtures.
+  // For the in-process Hardhat network used in tests we want to preserve the
+  // original behaviour of this script and transfer governance immediately,
+  // without waiting for any delay. Tests rely on `BridgeGovernance` being the
+  // active governance contract for `Bridge`.
   if (hre.network.name === "hardhat") {
-    deployments.log(
-      "Skipping Bridge governance transfer on hardhat network (tests use their own fixture wiring)."
+    const { deployer } = await getNamedAccounts()
+    const BridgeGovernance = await deployments.get("BridgeGovernance")
+
+    await deployments.execute(
+      "Bridge",
+      { from: deployer, log: true, waitConfirmations: 1 },
+      "transferGovernance",
+      BridgeGovernance.address
     )
     return
   }
