@@ -1590,10 +1590,9 @@ contract Bridge is
             self.authorizedBalanceIncreasers[msg.sender],
             "Caller is not an authorized increaser"
         );
+        emit ControllerBalanceIncreased(msg.sender, recipient, amount);
 
         self.bank.increaseBalance(recipient, amount);
-
-        emit ControllerBalanceIncreased(msg.sender, recipient, amount);
     }
 
     /// @notice Allows authorized controllers to increase multiple Bank
@@ -1611,9 +1610,10 @@ contract Bridge is
             self.authorizedBalanceIncreasers[msg.sender],
             "Caller is not an authorized increaser"
         );
-        self.bank.increaseBalances(recipients, amounts);
 
         emit ControllerBalancesIncreased(msg.sender, recipients, amounts);
+
+        self.bank.increaseBalances(recipients, amounts);
     }
 
     /// @notice Batch helper returning authorization status for given addresses.

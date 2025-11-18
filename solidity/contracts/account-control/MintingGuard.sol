@@ -176,13 +176,12 @@ contract MintingGuard is Ownable {
             return;
         }
 
-        uint256 newTotal = _increaseTotalMintedInternal(amount);
-
         require(address(bridge) != address(0), "MintingGuard: bridge not set");
 
-        bridge.controllerIncreaseBalance(recipient, amount);
+        uint256 newTotal = _increaseTotalMintedInternal(amount);
 
         emit BankMintExecuted(controller, recipient, amount, newTotal);
+        bridge.controllerIncreaseBalance(recipient, amount);
     }
 
     /// @notice Reduces exposure and burns TBTC via Bank/Vault as appropriate.
