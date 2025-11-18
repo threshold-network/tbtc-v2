@@ -353,6 +353,7 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
         emit TotalMintedDecreased(amount, newTotal);
     }
 
+    /* solhint-disable not-rely-on-time */
     function _enforceMintRateLimit(uint256 amount) private {
         uint256 limit = mintRateLimit;
         uint256 window = mintRateLimitWindow;
@@ -379,6 +380,8 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
 
         mintRateWindowAmount = nextWindowAmount;
     }
+
+    /* solhint-enable not-rely-on-time */
 
     /// @notice Updates the global mint cap.
     /// @param newCap New global mint cap; zero disables the cap.
