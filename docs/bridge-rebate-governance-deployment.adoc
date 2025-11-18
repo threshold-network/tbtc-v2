@@ -345,7 +345,18 @@ cast call 0x5e4861a80B55f035D899f66772117F00FA0E8e7B \
 
 # 3. (Optional) Run the existing verification script
 npx hardhat deploy --network mainnet --tags VerifyRebateDeployment
+
+== Governance follow-up overview
+
+After Action 1 produces the new governance address, the Council EOA (the owner
+of the OLD `BridgeGovernance`) must: (1) call
+`beginBridgeGovernanceTransfer(<NEW_BRIDGE_GOVERNANCE>)`, (2) wait the 48-hour
+delay, and (3) call `finalizeBridgeGovernanceTransfer()` to hand control of the
+Bridge proxy to the new contract. All calldata templates above are illustrative;
+replace `<NEW_BRIDGE_GOVERNANCE>` with the coordinate address generated in
+Action 1. No other state-changing calls are required until Action 4.
 ----
 
 If all checks pass, the tBTC Rebate System is fully wired and
 governable via the new BridgeGovernance contract.
+

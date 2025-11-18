@@ -4532,4 +4532,52 @@ describe("Bridge - Governance", () => {
       })
     })
   })
+
+  describe("rebate staking governance workflow", () => {
+    let newBridgeGovernance: BridgeGovernance
+
+    before(async () => {
+      await createSnapshot()
+
+      const paramsLib = await helpers.contracts.getContract(
+        "BridgeGovernanceParameters"
+      )
+      const govFactory = await ethers.getContractFactory("BridgeGovernance", {
+        libraries: {
+          BridgeGovernanceParameters: paramsLib.address,
+        },
+      })
+
+      newBridgeGovernance = (await govFactory
+        .connect(governance)
+        .deploy(bridge.address, constants.governanceDelay)) as BridgeGovernance
+      await newBridgeGovernance.deployed()
+    })
+
+    after(async () => {
+      await restoreSnapshot()
+    })
+
+    it("deploys, transfers governance, and wires rebate staking", async () => {
+      await bridgeGovernance
+        .connect(governance)
+        .beginBridgeGovernanceTransfer(newBridgeGovernance.address)
+
+      await helpers.time.increaseTime(constants.governanceDelay)
+
+      await bridgeGovernance
+        .connect(governance)
+        .finalizeBridgeGovernanceTransfer()
+
+      expect(await bridge.governance()).to.equal(newBridgeGovernance.address)
+
+      await newBridgeGovernance
+        .connect(governance)
+        .setRebateStaking(constants.testRebateStakingAddress)
+
+      expect(await bridge.getRebateStaking()).to.equal(
+        constants.testRebateStakingAddress
+      )
+    })
+  })
 })
