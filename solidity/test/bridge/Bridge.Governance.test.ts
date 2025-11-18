@@ -217,6 +217,12 @@ describe("Bridge - Governance", () => {
           .to.emit(bank, "BalanceIncreased")
           .withArgs(recipient(), amount)
       })
+
+      it("should emit ControllerBalanceIncreased event", async () => {
+        await expect(tx)
+          .to.emit(bridge, "ControllerBalanceIncreased")
+          .withArgs(thirdParty.address, recipient(), amount)
+      })
     })
   })
 
@@ -268,6 +274,236 @@ describe("Bridge - Governance", () => {
               .withArgs(addr, amounts[index])
           )
         )
+      })
+
+      it("should emit ControllerBalancesIncreased event", async () => {
+        await expect(tx)
+          .to.emit(bridge, "ControllerBalancesIncreased")
+          .withArgs(thirdParty.address, recipients(), amounts)
+      })
+    })
+  })
+
+  describe("controller minting circuit breaker", () => {
+    const recipient = () => guardians[0].address
+    const amount = to1e18(1)
+
+    context("when controller minting is paused", () => {
+      before(async () => {
+        await createSnapshot()
+
+        await bridgeGovernance
+          .connect(governance)
+          .setAuthorizedBalanceIncreaser(thirdParty.address, true)
+
+        await bridgeGovernance
+          .connect(governance)
+          .setControllerMintingPaused(true)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should report controller minting as paused", async () => {
+        expect(await bridge.controllerMintingPaused()).to.be.true
+      })
+
+      it("should revert controllerIncreaseBalance", async () => {
+        await expect(
+          bridge
+            .connect(thirdParty)
+            .controllerIncreaseBalance(recipient(), amount)
+        ).to.be.revertedWith("Controller minting is paused")
+      })
+
+      it("should revert controllerIncreaseBalances", async () => {
+        await expect(
+          bridge
+            .connect(thirdParty)
+            .controllerIncreaseBalances([recipient()], [amount])
+        ).to.be.revertedWith("Controller minting is paused")
+      })
+    })
+
+    context("when controller minting is unpaused again", () => {
+      before(async () => {
+        await createSnapshot()
+
+        await bridgeGovernance
+          .connect(governance)
+          .setAuthorizedBalanceIncreaser(thirdParty.address, true)
+
+        await bridgeGovernance
+          .connect(governance)
+          .setControllerMintingPaused(true)
+
+        await bridgeGovernance
+          .connect(governance)
+          .setControllerMintingPaused(false)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should report controller minting as not paused", async () => {
+        expect(await bridge.controllerMintingPaused()).to.be.false
+      })
+
+      it("should allow controllerIncreaseBalance", async () => {
+        await bridge
+          .connect(thirdParty)
+          .controllerIncreaseBalance(recipient(), amount)
+
+        expect(await bank.balanceOf(recipient())).to.equal(amount)
+      })
+    })
+  })
+
+  describe("controller minting lifetime caps", () => {
+    const recipient = () => guardians[0].address
+    const unit = to1e18(1)
+    const lifetimeCap = unit.mul(2)
+
+    context("when caller is authorized and under the cap", () => {
+      before(async () => {
+        await createSnapshot()
+
+        await bridgeGovernance
+          .connect(governance)
+          .setAuthorizedBalanceIncreaser(thirdParty.address, true)
+
+        await bridgeGovernance
+          .connect(governance)
+          .updateControllerMintingConfig(thirdParty.address, lifetimeCap, 0)
+
+        await bridge
+          .connect(thirdParty)
+          .controllerIncreaseBalance(recipient(), unit)
+
+        await bridge
+          .connect(thirdParty)
+          .controllerIncreaseBalance(recipient(), unit)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should allow minting up to the lifetime cap", async () => {
+        expect(await bank.balanceOf(recipient())).to.equal(lifetimeCap)
+      })
+    })
+
+    context("when caller attempts to exceed the lifetime cap", () => {
+      before(async () => {
+        await createSnapshot()
+
+        await bridgeGovernance
+          .connect(governance)
+          .setAuthorizedBalanceIncreaser(thirdParty.address, true)
+
+        await bridgeGovernance
+          .connect(governance)
+          .updateControllerMintingConfig(thirdParty.address, lifetimeCap, 0)
+
+        await bridge
+          .connect(thirdParty)
+          .controllerIncreaseBalance(recipient(), unit.mul(2))
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should revert further minting attempts", async () => {
+        await expect(
+          bridge
+            .connect(thirdParty)
+            .controllerIncreaseBalance(recipient(), unit)
+        ).to.be.revertedWith("Controller minting lifetime cap exceeded")
+      })
+    })
+  })
+
+  describe("controller minting window caps", () => {
+    const recipient = () => guardians[0].address
+    const unit = to1e18(1)
+    const windowCap = unit.mul(2)
+    const windowDuration = 60 // 60 seconds
+
+    context("when caller attempts to exceed window cap", () => {
+      before(async () => {
+        await createSnapshot()
+
+        await bridgeGovernance
+          .connect(governance)
+          .setAuthorizedBalanceIncreaser(thirdParty.address, true)
+
+        await bridgeGovernance
+          .connect(governance)
+          .setControllerMintingWindowDuration(windowDuration)
+
+        await bridgeGovernance
+          .connect(governance)
+          .updateControllerMintingConfig(thirdParty.address, 0, windowCap)
+
+        await bridge
+          .connect(thirdParty)
+          .controllerIncreaseBalance(recipient(), unit)
+
+        await bridge
+          .connect(thirdParty)
+          .controllerIncreaseBalance(recipient(), unit)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should revert minting beyond the window cap", async () => {
+        await expect(
+          bridge
+            .connect(thirdParty)
+            .controllerIncreaseBalance(recipient(), unit)
+        ).to.be.revertedWith("Controller minting window cap exceeded")
+      })
+    })
+
+    context("when the window has elapsed", () => {
+      before(async () => {
+        await createSnapshot()
+
+        await bridgeGovernance
+          .connect(governance)
+          .setAuthorizedBalanceIncreaser(thirdParty.address, true)
+
+        await bridgeGovernance
+          .connect(governance)
+          .setControllerMintingWindowDuration(windowDuration)
+
+        await bridgeGovernance
+          .connect(governance)
+          .updateControllerMintingConfig(thirdParty.address, 0, windowCap)
+
+        await bridge
+          .connect(thirdParty)
+          .controllerIncreaseBalance(recipient(), unit.mul(2))
+
+        await helpers.time.increaseTime(windowDuration + 1)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should allow minting again in a new window", async () => {
+        await bridge
+          .connect(thirdParty)
+          .controllerIncreaseBalance(recipient(), unit)
+
+        expect(await bank.balanceOf(recipient())).to.equal(unit.mul(3))
       })
     })
   })

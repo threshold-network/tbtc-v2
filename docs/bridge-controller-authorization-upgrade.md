@@ -19,12 +19,14 @@ This model provides:
 ## Trust Model & Operational Guardrails
 
 - Controllers are high‑privilege actors. Any address authorized in the
-  `authorizedBalanceIncreasers` mapping can increase arbitrary Bank balances via
-  the Bridge and should be treated as having governance‑level minting power.
+  `authorizedBalanceIncreasers` mapping can increase Bank balances via the
+  Bridge up to governance‑configured caps and should be treated as having
+  governance‑level minting power within that allowance.
 - Only fully reviewed and audited contracts should ever be added as
   controllers. In particular, controller contracts must not expose generic
   "increase balance" surfaces to untrusted callers and should implement their
-  own internal policy checks (limits, roles, pause switches) as appropriate.
+  own internal policy checks (limits, roles, pause switches) as appropriate,
+  in addition to the Bridge‑level circuit breakers and caps.
 - Governance is responsible for keeping the allowlist tight and
   human‑auditable:
   - Additions and removals must be performed through BridgeGovernance, which
@@ -44,15 +46,37 @@ review, deployment runbooks, and monitoring).
 ## What Changed (Contracts)
 
 - Bridge (proxy):
-  - New state: `authorizedBalanceIncreasers` mapping (storage layout extended).
-  - New events: `AuthorizedBalanceIncreaserUpdated(address,bool)`.
-  - New methods (gated at runtime by allowlist):
+  - New state:
+    - `authorizedBalanceIncreasers` mapping (governance‑managed controller allowlist).
+    - Controller minting accounting and limits:
+      - Per‑controller lifetime minted total and lifetime cap.
+      - Per‑controller rolling window minted total and per‑window cap.
+      - Global controller minting window duration and global pause flag.
+  - New events:
+    - `AuthorizedBalanceIncreaserUpdated(address,bool)`.
+    - `ControllerMintingConfigUpdated(address,uint256,uint256)`.
+    - `ControllerMintingWindowDurationUpdated(uint256)`.
+    - `ControllerMintingPaused(bool)`.
+    - `ControllerBalanceIncreased(address,address,uint256)`.
+    - `ControllerBalancesIncreased(address,address[],uint256[])`.
+  - New methods (gated at runtime by allowlist and minting limits):
     - `controllerIncreaseBalance(address,uint256)`
     - `controllerIncreaseBalances(address[],uint256[])`
     - `authorizedBalanceIncreasers(address) -> bool`
-  - New governance setter: `setAuthorizedBalanceIncreaser(address,bool)` (onlyGovernance).
+    - `controllerMintingState(address) -> (lifetimeMinted,lifetimeCap,windowMinted,windowCap,windowStart)`
+    - `controllerMintingWindowDuration() -> uint256`
+    - `controllerMintingPaused() -> bool`
+  - New governance setters (onlyGovernance):
+    - `setAuthorizedBalanceIncreaser(address,bool)`
+    - `updateControllerMintingConfig(address,uint256,uint256)` (per‑controller lifetime + window caps)
+    - `setControllerMintingWindowDuration(uint256)` (global window size)
+    - `setControllerMintingPaused(bool)` (global circuit breaker)
 - BridgeGovernance (regular contract):
-  - New owner‑only forwarder: `setAuthorizedBalanceIncreaser(address,bool)` that calls into Bridge.
+  - New owner‑only forwarders that call into Bridge:
+    - `setAuthorizedBalanceIncreaser(address,bool)`
+    - `updateControllerMintingConfig(address,uint256,uint256)`
+    - `setControllerMintingWindowDuration(uint256)`
+    - `setControllerMintingPaused(bool)`
 - New interface for integrators: `IBridgeMintingAuthorization` (minimal surface consumed by account‑control).
 
 ## Why Governance Redeploy Is Needed
@@ -78,8 +102,12 @@ Supporting scripts (names as in repo):
 
 ## Risks & Mitigations
 
-- Storage layout changes: uses mapped slot and reduces the storage gap accordingly; upgrade path accounted for in implementation.
+- Storage layout changes: uses mapped slots for controller accounting and reduces the storage gap accordingly; upgrade path accounted for in implementation.
 - Misconfiguration risk: snapshot + rollback scripts provided; allowlist sync is explicit and evented.
+- Controller over‑minting risk:
+  - Bridge‑level lifetime and rolling‑window caps bound worst‑case on‑chain damage from a compromised controller.
+  - A global controller‑minting pause switch plus dedicated controller minting events simplify emergency response and monitoring.
+  - Controllers are still expected to enforce their own stricter internal limits; Bridge caps are coarse circuit breakers, not primary policy.
 - Tenderly availability: verification is conditional on local Tenderly config to avoid deployment failures.
 
 ## Environment Notes

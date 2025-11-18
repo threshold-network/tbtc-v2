@@ -326,16 +326,40 @@ library BridgeState {
         // on-chain source of truth is this mapping and the
         // `setAuthorizedBalanceIncreaser` governance function.
         mapping(address => bool) authorizedBalanceIncreasers;
+        // Total amount minted via controller-based balance increases per
+        // controller address. This value is used together with
+        // `controllerMintingLifetimeCap` as a coarse circuit breaker.
+        mapping(address => uint256) controllerMintedTotal;
+        // Lifetime minting cap per controller. A value of zero means "no
+        // lifetime cap" and is interpreted as unlimited minting, subject to
+        // other system constraints.
+        mapping(address => uint256) controllerMintingLifetimeCap;
+        // Per-window minting cap per controller. A value of zero means "no
+        // per-window cap". The window size is defined by
+        // `controllerMintingWindowDuration`.
+        mapping(address => uint256) controllerMintingWindowCap;
+        // Amount minted by the controller in the current window.
+        mapping(address => uint256) controllerMintedInWindow;
+        // Start timestamp (in seconds) of the current minting window per
+        // controller.
+        mapping(address => uint256) controllerWindowStart;
+        // Global duration of the controller minting window in seconds.
+        // A value of zero disables per-window limits for all controllers.
+        uint256 controllerMintingWindowDuration;
+        // Global circuit breaker flag for controller-based minting. A non-zero
+        // value means controller minting is paused.
+        uint256 controllerMintingPaused;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
         // planned upgrades of the Bridge contract. If more entires are added to
         // the struct in the upcoming versions we need to reduce the array size.
-        // One slot is consumed by `authorizedBalanceIncreasers`, so the gap
-        // size is reduced accordingly.
+        // Slots are consumed by `authorizedBalanceIncreasers` and controller
+        // minting-related fields above, so the gap size is reduced
+        // accordingly.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
-        uint256[48] __gap;
+        uint256[41] __gap;
     }
 
     event DepositParametersUpdated(
@@ -389,6 +413,102 @@ library BridgeState {
     event TreasuryUpdated(address treasury);
 
     event RedemptionWatchtowerSet(address redemptionWatchtower);
+
+    event ControllerMintingConfigUpdated(
+        address indexed controller,
+        uint256 lifetimeCap,
+        uint256 windowCap
+    );
+
+    event ControllerMintingWindowDurationUpdated(uint256 duration);
+
+    event ControllerMintingPaused(bool paused);
+
+    function setControllerMintingPaused(Storage storage self, bool paused)
+        internal
+    {
+        bool currentlyPaused = self.controllerMintingPaused != 0;
+        if (currentlyPaused == paused) {
+            return;
+        }
+
+        self.controllerMintingPaused = paused ? 1 : 0;
+        emit ControllerMintingPaused(paused);
+    }
+
+    function updateControllerMintingWindowDuration(
+        Storage storage self,
+        uint256 duration
+    ) internal {
+        self.controllerMintingWindowDuration = duration;
+        emit ControllerMintingWindowDurationUpdated(duration);
+    }
+
+    function updateControllerMintingConfig(
+        Storage storage self,
+        address controller,
+        uint256 lifetimeCap,
+        uint256 windowCap
+    ) internal {
+        require(controller != address(0), "Controller address must not be 0x0");
+
+        self.controllerMintingLifetimeCap[controller] = lifetimeCap;
+        self.controllerMintingWindowCap[controller] = windowCap;
+
+        emit ControllerMintingConfigUpdated(controller, lifetimeCap, windowCap);
+    }
+
+    function enforceControllerMintingLimits(
+        Storage storage self,
+        address controller,
+        uint256 amount
+    ) internal {
+        if (amount == 0) {
+            return;
+        }
+
+        require(
+            self.controllerMintingPaused == 0,
+            "Controller minting is paused"
+        );
+
+        uint256 newTotal = self.controllerMintedTotal[controller] + amount;
+        self.controllerMintedTotal[controller] = newTotal;
+
+        uint256 lifetimeCap = self.controllerMintingLifetimeCap[controller];
+        if (lifetimeCap != 0) {
+            require(
+                newTotal <= lifetimeCap,
+                "Controller minting lifetime cap exceeded"
+            );
+        }
+
+        uint256 windowDuration = self.controllerMintingWindowDuration;
+        uint256 windowCap = self.controllerMintingWindowCap[controller];
+
+        if (windowDuration != 0 && windowCap != 0) {
+            // solhint-disable-next-line not-rely-on-time
+            uint256 currentTime = block.timestamp;
+            uint256 windowStart = self.controllerWindowStart[controller];
+            uint256 mintedInWindow = self.controllerMintedInWindow[controller];
+
+            if (
+                windowStart == 0 || currentTime >= windowStart + windowDuration
+            ) {
+                windowStart = currentTime;
+                mintedInWindow = 0;
+            }
+
+            uint256 newMintedInWindow = mintedInWindow + amount;
+            require(
+                newMintedInWindow <= windowCap,
+                "Controller minting window cap exceeded"
+            );
+
+            self.controllerWindowStart[controller] = windowStart;
+            self.controllerMintedInWindow[controller] = newMintedInWindow;
+        }
+    }
 
     /// @notice Updates parameters of deposits.
     /// @param _depositDustThreshold New value of the deposit dust threshold in

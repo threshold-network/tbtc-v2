@@ -16,6 +16,19 @@
 pragma solidity 0.8.17;
 
 /// @notice Minimal Bridge surface consumed by AccountControl for minting.
+/// @dev Security model:
+///      - The Bridge exposes controller-based minting entrypoints that are
+///        restricted to governance-authorized controller contracts via the
+///        `authorizedBalanceIncreasers` mapping.
+///      - The Bridge may enforce coarse, governance-configured caps and
+///        rate limits for controller-based minting, but these are circuit
+///        breakers only and are not a substitute for per-protocol policy.
+///      - Controller contracts MUST implement their own access control,
+///        limits, and pause/kill switches so that a compromise or bug in a
+///        controller does not result in unbounded system-wide minting within
+///        their configured allowance.
+///      - Only fully reviewed and audited contracts, under governance
+///        control, should ever be authorized as controllers.
 interface IBridgeMintingAuthorization {
     function controllerIncreaseBalance(address recipient, uint256 amount)
         external;

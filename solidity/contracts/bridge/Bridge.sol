@@ -191,6 +191,18 @@ contract Bridge is
         bool authorized
     );
 
+    event ControllerBalanceIncreased(
+        address indexed controller,
+        address indexed recipient,
+        uint256 amount
+    );
+
+    event ControllerBalancesIncreased(
+        address indexed controller,
+        address[] recipients,
+        uint256[] amounts
+    );
+
     event DepositParametersUpdated(
         uint64 depositDustThreshold,
         uint64 depositTreasuryFeeDivisor,
@@ -1223,6 +1235,38 @@ contract Bridge is
         emit AuthorizedBalanceIncreaserUpdated(increaser, authorized);
     }
 
+    /// @notice Updates controller minting limits for the given controller.
+    /// @dev Both `lifetimeCap` and `windowCap` are coarse circuit breakers.
+    ///      A value of zero means "no cap" for the respective limit.
+    /// @param controller Address of the controller whose limits are updated.
+    /// @param lifetimeCap Maximum total amount the controller can mint via
+    ///        controller-based balance increases. Zero means unlimited.
+    /// @param windowCap Maximum amount the controller can mint within a single
+    ///        controller minting window. Zero means unlimited.
+    function updateControllerMintingConfig(
+        address controller,
+        uint256 lifetimeCap,
+        uint256 windowCap
+    ) external onlyGovernance {
+        self.updateControllerMintingConfig(controller, lifetimeCap, windowCap);
+    }
+
+    /// @notice Updates the global duration of the controller minting window.
+    /// @dev A value of zero disables per-window limits for all controllers.
+    /// @param duration New window duration in seconds.
+    function setControllerMintingWindowDuration(uint256 duration)
+        external
+        onlyGovernance
+    {
+        self.updateControllerMintingWindowDuration(duration);
+    }
+
+    /// @notice Enables or disables controller-based minting globally.
+    /// @param paused True to pause controller minting, false to unpause.
+    function setControllerMintingPaused(bool paused) external onlyGovernance {
+        self.setControllerMintingPaused(paused);
+    }
+
     /// @notice Allows the Governance to mark the given vault address as trusted
     ///         or no longer trusted. Vaults are not trusted by default.
     ///         Trusted vault must meet the following criteria:
@@ -1577,7 +1621,11 @@ contract Bridge is
             self.authorizedBalanceIncreasers[msg.sender],
             "Caller is not an authorized increaser"
         );
+
+        self.enforceControllerMintingLimits(msg.sender, amount);
         self.bank.increaseBalance(recipient, amount);
+
+        emit ControllerBalanceIncreased(msg.sender, recipient, amount);
     }
 
     /// @notice Allows authorized controllers to increase multiple Bank
@@ -1594,7 +1642,16 @@ contract Bridge is
             self.authorizedBalanceIncreasers[msg.sender],
             "Caller is not an authorized increaser"
         );
+        uint256 length = amounts.length;
+        uint256 totalAmount;
+        for (uint256 i = 0; i < length; i++) {
+            totalAmount += amounts[i];
+        }
+
+        self.enforceControllerMintingLimits(msg.sender, totalAmount);
         self.bank.increaseBalances(recipients, amounts);
+
+        emit ControllerBalancesIncreased(msg.sender, recipients, amounts);
     }
 
     /// @notice Batch helper returning authorization status for given addresses.
@@ -1771,6 +1828,51 @@ contract Bridge is
         returns (bool)
     {
         return self.authorizedBalanceIncreasers[increaser];
+    }
+
+    /// @notice Returns the current global controller minting window duration.
+    /// @return duration Controller minting window duration in seconds. Zero
+    ///         means per-window limits are disabled.
+    function controllerMintingWindowDuration()
+        external
+        view
+        returns (uint256 duration)
+    {
+        return self.controllerMintingWindowDuration;
+    }
+
+    /// @notice Indicates whether controller-based minting is globally paused.
+    /// @return paused True if controller minting is paused, false otherwise.
+    function controllerMintingPaused() external view returns (bool paused) {
+        return self.controllerMintingPaused != 0;
+    }
+
+    /// @notice Returns controller minting state for a given controller.
+    /// @param controller Address of the controller.
+    /// @return lifetimeMinted Total amount minted by the controller via
+    ///         controller-based balance increases.
+    /// @return lifetimeCap Lifetime cap configured for the controller
+    ///         (zero means unlimited).
+    /// @return windowMinted Amount minted in the current window.
+    /// @return windowCap Per-window cap configured for the controller
+    ///         (zero means unlimited).
+    /// @return windowStart Start timestamp of the current window.
+    function controllerMintingState(address controller)
+        external
+        view
+        returns (
+            uint256 lifetimeMinted,
+            uint256 lifetimeCap,
+            uint256 windowMinted,
+            uint256 windowCap,
+            uint256 windowStart
+        )
+    {
+        lifetimeMinted = self.controllerMintedTotal[controller];
+        lifetimeCap = self.controllerMintingLifetimeCap[controller];
+        windowMinted = self.controllerMintedInWindow[controller];
+        windowCap = self.controllerMintingWindowCap[controller];
+        windowStart = self.controllerWindowStart[controller];
     }
 
     /// @notice Returns the current values of Bridge deposit parameters.
