@@ -134,22 +134,19 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
     /// @notice Configures the Bridge contract used for execution helpers.
     /// @param bridge_ Bridge contract used for controller-based minting.
     function setBridge(IBridgeMintingAuthorization bridge_) external onlyOwner {
-        require(address(bridge_) != address(0), "Bridge must not be 0x0");
-        bridge = bridge_;
+        _setBridge(bridge_);
     }
 
     /// @notice Configures the Bank contract used for burn helpers.
     /// @param bank_ Bank contract used for burning TBTC bank balances.
     function setBank(IBankLike bank_) external onlyOwner {
-        require(address(bank_) != address(0), "Bank must not be 0x0");
-        bank = bank_;
+        _setBank(bank_);
     }
 
     /// @notice Configures the Vault contract used for unmint helpers.
     /// @param vault_ Vault contract used for unminting TBTC.
     function setVault(ITBTCVault vault_) external onlyOwner {
-        require(address(vault_) != address(0), "Vault must not be 0x0");
-        vault = vault_;
+        _setVault(vault_);
     }
 
     /// @notice Atomically wires Bridge, Bank, and Vault addresses.
@@ -160,9 +157,24 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
         IBankLike bank_,
         ITBTCVault vault_
     ) external onlyOwner {
-        setBridge(bridge_);
-        setBank(bank_);
-        setVault(vault_);
+        _setBridge(bridge_);
+        _setBank(bank_);
+        _setVault(vault_);
+    }
+
+    function _setBridge(IBridgeMintingAuthorization bridge_) private {
+        require(address(bridge_) != address(0), "Bridge must not be 0x0");
+        bridge = bridge_;
+    }
+
+    function _setBank(IBankLike bank_) private {
+        require(address(bank_) != address(0), "Bank must not be 0x0");
+        bank = bank_;
+    }
+
+    function _setVault(ITBTCVault vault_) private {
+        require(address(vault_) != address(0), "Vault must not be 0x0");
+        vault = vault_;
     }
 
     /// @notice Increases the global net-minted exposure.
