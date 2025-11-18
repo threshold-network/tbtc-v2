@@ -186,9 +186,9 @@ contract Bridge is
         bool isTrusted
     );
 
-    event AuthorizedBalanceIncreaserUpdated(
-        address indexed increaser,
-        bool authorized
+    event ControllerBalanceIncreaserUpdated(
+        address indexed previousController,
+        address indexed newController
     );
 
     event ControllerBalanceIncreased(
@@ -1218,21 +1218,17 @@ contract Bridge is
         );
     }
 
-    /// @notice Allows Governance to manage contracts authorized to request
-    ///         Bank balance increases through the Bridge.
-    /// @dev Off-chain tooling and documentation refer to these authorized
-    ///      contracts as "controllers". The on-chain allowlist is maintained
-    ///      via this function and the `authorizedBalanceIncreasers` mapping.
-    /// @param increaser Address of the contract requesting authorization.
-    /// @param authorized Whether the address should be authorized.
-    function setAuthorizedBalanceIncreaser(address increaser, bool authorized)
+    /// @notice Allows Governance to designate a single controller that can
+    ///         request Bank balance increases through the Bridge.
+    /// @param controller Address of the controller contract (MintBurnGuard).
+    /// @dev Setting to the zero address effectively removes the controller.
+    function setControllerBalanceIncreaser(address controller)
         external
         onlyGovernance
     {
-        require(increaser != address(0), "Increaser address must not be 0x0");
-
-        self.authorizedBalanceIncreasers[increaser] = authorized;
-        emit AuthorizedBalanceIncreaserUpdated(increaser, authorized);
+        address previous = self.controllerBalanceIncreaser;
+        self.controllerBalanceIncreaser = controller;
+        emit ControllerBalanceIncreaserUpdated(previous, controller);
     }
 
     /// @notice Allows the Governance to mark the given vault address as trusted
@@ -1575,11 +1571,8 @@ contract Bridge is
         self.updateTreasury(treasury);
     }
 
-    /// @notice Allows authorized controllers to increase Bank balances via the
-    ///         Bridge.
-    /// @dev "Controllers" here are addresses that have been authorized via
-    ///      `setAuthorizedBalanceIncreaser` and stored in the
-    ///      `authorizedBalanceIncreasers` mapping.
+    /// @notice Allows the configured controller to increase Bank balances via
+    ///         the Bridge.
     /// @param recipient Address receiving the balance increase.
     /// @param amount Amount by which the balance is increased.
     // slither-disable-next-line reentrancy-vulnerabilities-3 reentrancy-vulnerabilities-2
@@ -1587,18 +1580,16 @@ contract Bridge is
         external
     {
         require(
-            self.authorizedBalanceIncreasers[msg.sender],
-            "Caller is not an authorized increaser"
+            msg.sender == self.controllerBalanceIncreaser,
+            "Caller is not the authorized controller"
         );
         emit ControllerBalanceIncreased(msg.sender, recipient, amount);
 
         self.bank.increaseBalance(recipient, amount);
     }
 
-    /// @notice Allows authorized controllers to increase multiple Bank
+    /// @notice Allows the configured controller to increase multiple Bank
     ///         balances via the Bridge.
-    /// @dev See `controllerIncreaseBalance` for the definition of a
-    ///      controller and how authorization is managed.
     /// @param recipients Addresses receiving the balance increases.
     /// @param amounts Amounts by which balances are increased.
     // slither-disable-next-line reentrancy-vulnerabilities-3 reentrancy-vulnerabilities-2
@@ -1607,8 +1598,8 @@ contract Bridge is
         uint256[] calldata amounts
     ) external {
         require(
-            self.authorizedBalanceIncreasers[msg.sender],
-            "Caller is not an authorized increaser"
+            msg.sender == self.controllerBalanceIncreaser,
+            "Caller is not the authorized controller"
         );
 
         emit ControllerBalancesIncreased(msg.sender, recipients, amounts);
@@ -1616,22 +1607,9 @@ contract Bridge is
         self.bank.increaseBalances(recipients, amounts);
     }
 
-    /// @notice Batch helper returning authorization status for given addresses.
-    /// @param increasers Addresses to check for controller authorization.
-    /// @return flags Array of booleans indicating authorization status.
-    function getAuthorizedBalanceIncreasers(address[] calldata increasers)
-        external
-        view
-        returns (bool[] memory)
-    {
-        uint256 length = increasers.length;
-        bool[] memory flags = new bool[](length);
-
-        for (uint256 i = 0; i < length; i++) {
-            flags[i] = self.authorizedBalanceIncreasers[increasers[i]];
-        }
-
-        return flags;
+    /// @notice Returns the currently configured controller address.
+    function controllerBalanceIncreaser() external view returns (address) {
+        return self.controllerBalanceIncreaser;
     }
 
     /// @notice Sets the redemption watchtower address.
@@ -1779,17 +1757,6 @@ contract Bridge is
     ///         address.
     function isVaultTrusted(address vault) external view returns (bool) {
         return self.isVaultTrusted[vault];
-    }
-
-    /// @notice Indicates if the address is authorized to request Bank balance
-    ///         increases through the Bridge.
-    /// @param increaser Address to check.
-    function authorizedBalanceIncreasers(address increaser)
-        external
-        view
-        returns (bool)
-    {
-        return self.authorizedBalanceIncreasers[increaser];
     }
 
     /// @notice Returns the current values of Bridge deposit parameters.

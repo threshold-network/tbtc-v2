@@ -305,13 +305,13 @@ contract BridgeGovernance is Ownable {
         bridge.setVaultStatus(vault, isTrusted);
     }
 
-    /// @notice Grants or revokes permission for an address to request Bank
-    ///         balance increases via the Bridge.
-    function setAuthorizedBalanceIncreaser(address increaser, bool authorized)
+    /// @notice Sets the controller contract that can request Bank balance
+    ///         increases via the Bridge.
+    function setControllerBalanceIncreaser(address controller)
         external
         onlyOwner
     {
-        bridge.setAuthorizedBalanceIncreaser(increaser, authorized);
+        bridge.setControllerBalanceIncreaser(controller);
     }
 
     /// @notice Allows the Governance to mark the given address as trusted

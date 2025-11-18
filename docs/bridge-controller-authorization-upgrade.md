@@ -2,11 +2,11 @@
 
 ## Summary
 
-- Objective: enable a governance‑managed allowlist of controller contracts that can mint via the Bridge by increasing Bank balances.
-- Approach: upgrade the Bridge proxy implementation to add the allowlist and controller entrypoints; redeploy BridgeGovernance with a forwarder function; transfer governance; optionally sync the allowlist.
+- Objective: pin the Bridge’s controller pointer to a single governance‑managed MintBurnGuard instance that can mint via the Bridge by increasing Bank balances.
+- Approach: upgrade the Bridge proxy implementation to add the controller pointer and execution entrypoints; redeploy BridgeGovernance with a forwarder setter; transfer governance; optionally sync the configured controller.
 - Safety: evented changes, explicit zero‑address checks, governance‑only setters, snapshot + rollback tooling.
 
-> **Note on AccountControl integration:** For AccountControl‑managed flows, the **MintBurnGuard** primitive (implemented in `solidity/contracts/account-control/MintBurnGuard.sol`) is the _only_ contract that should appear in the Bridge `authorizedBalanceIncreasers` mapping. AccountControl itself is never directly authorized on the Bridge; instead, it acts as the sole controller of MintBurnGuard, and MintBurnGuard acts as the sole controller of the Bridge for those flows, executing both mint and burn/unmint operations on tBTC v2.
+> **Note on AccountControl integration:** For AccountControl‑managed flows, the **MintBurnGuard** primitive (implemented in `solidity/contracts/account-control/MintBurnGuard.sol`) is the _only_ contract that should ever be configured as the Bridge controller via `setControllerBalanceIncreaser`. AccountControl itself is never directly authorized on the Bridge; instead, it acts as the sole controller of MintBurnGuard, and MintBurnGuard acts as the sole controller of the Bridge for those flows, executing both mint and burn/unmint operations on tBTC v2.
 
 ## Motivation
 
@@ -18,55 +18,46 @@ This model provides:
 - On‑chain audit trail via events.
 - Operationally simple management via BridgeGovernance.
 - A clean separation between:
-  - Bridge: controller allowlisting + minting entrypoints + events. Bridge **does not** implement per‑controller caps or rate limits; it only enforces _who_ can mint.
+  - Bridge: controller pointer + minting entrypoints + events. Bridge **does not** implement per‑controller caps or rate limits; it only enforces _who_ can mint.
 - System-level net exposure caps and pauses, enforced by MintBurnGuard
   (implemented in `solidity/contracts/account-control/MintBurnGuard.sol`) and higher-level controller logic
   (e.g. AccountControl), which must route all AccountControl-managed TBTC
   mint and burn/unmint flows through MintBurnGuard.
 
-## Trust Model & Operational Guardrails
-
-- Controllers are high‑privilege actors. Any address authorized in the
-  `authorizedBalanceIncreasers` mapping can increase Bank balances via the
-  Bridge and should be treated as having governance‑level minting power within
-  the bounds configured in MintBurnGuard and controller logic.
-- Only fully reviewed and audited contracts should ever be added as
-  controllers. In particular, controller contracts must not expose generic
-  "increase balance" surfaces to untrusted callers and should implement their
-  own internal policy checks (limits, roles, pause switches) as appropriate,
-  in addition to the Bridge‑level circuit breakers and caps.
-- Governance is responsible for keeping the allowlist tight and
-  human‑auditable:
-  - Additions and removals must be performed through BridgeGovernance, which
-    emits `AuthorizedBalanceIncreaserUpdated` events for each change.
-  - Off‑chain monitoring should alert on any unexpected controller additions,
-    removals, or large `BalanceIncreased` events.
-- The controller sync tooling is explicitly conservative by default:
-  - When no desired controller list is provided, existing authorizations are
-    left unchanged unless mass‑revoke is explicitly enabled.
-  - Mass revocation requires an explicit opt‑in via either a function
-    parameter or the `BRIDGE_ALLOW_MASS_CONTROLLER_REVOKE=true` env flag.
-
-Operationally, controllers should be treated as part of the governance surface
-area and managed via the same change‑management process (multi‑sig, change
-review, deployment runbooks, and monitoring).
+- Controllers are high‑privilege actors. BridgeGovernance must point
+  `setControllerBalanceIncreaser` at a reviewed MintBurnGuard before any
+  controller-driven minting flow is enabled, and it should only be changed
+  through the same multi-sig/change-review process that governs other
+  system-critical parameters.
+- Off-chain monitoring should alert on any unexpected `ControllerBalanceIncreaserUpdated`
+  events or unusually large `BalanceIncreased` events; the controller pointer is now the
+  main indicator of governance changes.
+- The controller configuration tooling is intentionally conservative:
+  - When no controller address is supplied via `BRIDGE_CONTROLLER_ADDRESS`,
+    it simply reports the current pointer and exits without submitting
+    transactions.
+  - When `BRIDGE_CONTROLLER_SYNC_DRY_RUN=true`, it logs the plan without
+    submitting any on-chain updates.
+    Operationally, controllers should be treated as part of the governance surface
+    area and managed via the same change‑management process (multi‑sig, change
+    review, deployment runbooks, and monitoring).
 
 ## What Changed (Contracts)
 
 - Bridge (proxy):
   - New state:
-    - `authorizedBalanceIncreasers` mapping (governance‑managed controller allowlist).
+    - `controllerBalanceIncreaser` – a single governance‑managed controller contract that can increase Bank balances.
   - New events:
-    - `AuthorizedBalanceIncreaserUpdated(address,bool)`.
+    - `ControllerBalanceIncreaserUpdated(address indexed previousController, address indexed newController)`.
     - `ControllerBalanceIncreased(address,address,uint256)`.
     - `ControllerBalancesIncreased(address,address[],uint256[])`.
-  - New methods (gated at runtime by allowlist):
-    - `controllerIncreaseBalance(address,uint256)`
-    - `controllerIncreaseBalances(address[],uint256[])`
-    - `authorizedBalanceIncreasers(address) -> bool`
+  - New methods:
+    - `setControllerBalanceIncreaser(address)` – owner‑only setter used by BridgeGovernance.
+    - `controllerBalanceIncreaser() -> address` – read-only pointer for off-chain tooling.
+    - `controllerIncreaseBalance(address,uint256)` / `controllerIncreaseBalances(address[],uint256[])` – entrypoints guarded by the pointer.
 - BridgeGovernance (regular contract):
-  - New owner‑only forwarders that call into Bridge:
-    - `setAuthorizedBalanceIncreaser(address,bool)`
+  - New owner‑only forwarder:
+    - `setControllerBalanceIncreaser(address)` – updates the Bridge pointer.
 - MintBurnGuard (global mint/burn guard implemented in `solidity/contracts/account-control/MintBurnGuard.sol`):
   - State:
     - `controller` – the only contract allowed to adjust totals and execute mints/burns (for AccountControl flows, this is `AccountControl`).
@@ -101,11 +92,11 @@ review, deployment runbooks, and monitoring).
 
 ## Upgrade Plan (High‑Level)
 
-1. Pre‑upgrade snapshot of Bridge state (implementation/admin/governance, parameters, allowlists).
-2. Upgrade Bridge proxy implementation via ProxyAdmin to the version with controller allowlist.
+1. Pre‑upgrade snapshot of Bridge state (implementation/admin/governance, parameters, controllers).
+2. Upgrade Bridge proxy implementation via ProxyAdmin to the version with the controller pointer entrypoints.
 3. Redeploy BridgeGovernance (fresh instance) and transfer governance:
    - Begin transfer, wait governance delay, finalize.
-4. Optionally sync authorized controllers from env/config; emit events for adds/removals.
+4. Optionally sync the configured controller pointer from env/config; emit `ControllerBalanceIncreaserUpdated` for changes.
 5. Post‑upgrade snapshot; compare and archive.
 
 Supporting scripts (names as in repo):
@@ -113,12 +104,12 @@ Supporting scripts (names as in repo):
 - `solidity/deploy/80_upgrade_bridge_v2.ts` — upgrade Bridge, resolve libraries/addresses, conditional Tenderly verify.
 - `solidity/deploy/09_deploy_bridge_governance.ts` — deploy BridgeGovernance (+Parameters), conditional Tenderly verify.
 - `solidity/deploy/21_transfer_bridge_governance.ts` + `solidity/deploy/utils/governance-transfer.ts` — initiate/finalize governance transfer while respecting the governance delay (with optional begin‑only/finalize‑only modes for long delays).
-- `solidity/scripts/configure-bridge-controllers.ts` + `solidity/deploy/utils/bridge-controller-authorization.ts` — sync the controller allowlist from env when explicitly invoked as a Hardhat script.
+- `solidity/scripts/configure-bridge-controllers.ts` + `solidity/deploy/utils/bridge-controller-authorization.ts` — ensure the Bridge controller pointer matches `BRIDGE_CONTROLLER_ADDRESS` when explicitly invoked as a Hardhat script.
 
 ## Risks & Mitigations
 
-- Storage layout changes: Bridge uses mapped slots for controller allowlist and keeps an ample storage gap; MintBurnGuard is a separate contract with its own state. Upgrade paths are accounted for in implementation.
-- Misconfiguration risk (Bridge allowlist): snapshot + rollback scripts provided; allowlist sync is explicit and evented.
+- Storage layout changes: Bridge reserves a slot for `controllerBalanceIncreaser` and keeps an ample storage gap; MintBurnGuard is a separate contract with its own state. Upgrade paths are accounted for in implementation.
+- Misconfiguration risk (controller pointer): controller updates are still gated by governance and subject to `ControllerBalanceIncreaserUpdated` events; the sync tooling logs the planned pointer before submitting txs.
 - Controller over‑minting risk:
   - Bridge enforces _who_ can mint but does not implement per‑controller caps or rate limits.
   - System‑level net exposure caps and global pauses are enforced by MintBurnGuard and controller logic (e.g. AccountControl) which must call MintBurnGuard on every net mint/burn operation.
@@ -127,8 +118,8 @@ Supporting scripts (names as in repo):
 
 ## Environment Notes
 
-- Env keys used during orchestration include: `BRIDGE_ADDRESS`, `PROXY_ADMIN_PK`, `BRIDGE_GOVERNANCE_PK`, `BRIDGE_AUTHORIZED_INCREASERS`, and library/core contract address fallbacks.
-- Mass revocation safeguard: to revoke all existing controller authorizations when no `BRIDGE_AUTHORIZED_INCREASERS` are provided, set `BRIDGE_ALLOW_MASS_CONTROLLER_REVOKE=true` (otherwise existing authorizations are left unchanged).
+- Env keys used during orchestration include: `BRIDGE_ADDRESS`, `PROXY_ADMIN_PK`, `BRIDGE_GOVERNANCE_PK`, `BRIDGE_CONTROLLER_ADDRESS`, `BRIDGE_CONTROLLER_SYNC_DRY_RUN`, and library/core contract address fallbacks.
+- Controller configuration tooling is driven by `BRIDGE_CONTROLLER_ADDRESS`; omit it to leave the current pointer untouched or set `BRIDGE_CONTROLLER_SYNC_DRY_RUN=true` to only log the planned update.
 - Sepolia RPC: prefer `SEPOLIA_CHAIN_API_URL`/`SEPOLIA_PRIVATE_KEYS` where applicable.
 - Governance transfer helper: `BRIDGE_GOVERNANCE_TRANSFER_MODE` can be set to `begin`, `finalize`, or left unset (default `begin`) to control how `21_transfer_bridge_governance.ts` orchestrates begin/finalize steps for long governance delays.
 

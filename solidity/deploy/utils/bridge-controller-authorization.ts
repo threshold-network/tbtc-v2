@@ -1,56 +1,27 @@
-/* eslint-disable no-await-in-loop, no-continue, no-restricted-syntax, prefer-destructuring, no-console */
+/* eslint-disable no-console */
 
 import type { Contract } from "ethers"
 import type { DeployFunction } from "hardhat-deploy/types"
-import { HardhatRuntimeEnvironment } from "hardhat/types"
+import type { HardhatRuntimeEnvironment } from "hardhat/types"
+import { ethers } from "hardhat"
 
 export interface BridgeControllerAuthorizationSyncOptions {
   bridgeAddress?: string
   bridgeGovernanceAddress?: string
-  increaserAddresses?: string[]
+  controllerAddress?: string
   governancePrivateKey?: string
-  // When true, only logs the computed authorization plan without sending
-  // any transactions on-chain.
   dryRun?: boolean
-  // When true, allows revoking all existing authorizations when
-  // `increaserAddresses` is empty or omitted. If false/omitted, a completely
-  // empty desired set will leave existing authorizations untouched unless the
-  // `BRIDGE_ALLOW_MASS_CONTROLLER_REVOKE` env var is set to "true".
-  allowMassRevoke?: boolean
 }
 
 const BRIDGE_ABI = [
   "function governance() view returns (address)",
-  "function authorizedBalanceIncreasers(address) view returns (bool)",
-  "event AuthorizedBalanceIncreaserUpdated(address indexed increaser, bool authorized)",
+  "function controllerBalanceIncreaser() view returns (address)",
+  "event ControllerBalanceIncreaserUpdated(address indexed previousController, address indexed newController)",
 ]
 
 const BRIDGE_GOVERNANCE_ABI = [
-  "function setAuthorizedBalanceIncreaser(address,bool)",
+  "function setControllerBalanceIncreaser(address)",
 ]
-
-async function getDesiredIncreasers(
-  hre: HardhatRuntimeEnvironment,
-  rawAddresses: string[] | undefined
-): Promise<string[]> {
-  const { ethers } = hre
-  const increaserAddresses =
-    rawAddresses
-      ?.map((addr) => addr.trim())
-      .filter((addr) => addr.length > 0) ?? []
-
-  return Array.from(
-    new Set(
-      increaserAddresses.map((addr) => {
-        try {
-          return ethers.utils.getAddress(addr)
-        } catch (error) {
-          throw new Error(`Invalid increaser address provided: ${addr}`)
-        }
-      })
-    )
-  )
-}
 
 async function resolveBridgeContracts(
   hre: HardhatRuntimeEnvironment,
@@ -60,8 +31,8 @@ async function resolveBridgeContracts(
   bridge: Contract
   bridgeGovernance: Contract
 }> {
-  const { ethers, deployments } = hre
-  const provider = ethers.provider
+  const { ethers: hardhatEthers, deployments } = hre
+  const provider = hardhatEthers.provider
 
   let resolvedBridgeAddress = bridgeAddress
   if (!resolvedBridgeAddress) {
@@ -69,7 +40,7 @@ async function resolveBridgeContracts(
   }
 
   if (!resolvedBridgeAddress) {
-    console.log("⚠️  Bridge address not provided; skipping controller setup.")
+    console.warn("⚠️  Bridge address not provided; skipping controller setup.")
     throw new Error("Bridge address not provided")
   }
 
@@ -81,18 +52,18 @@ async function resolveBridgeContracts(
   }
 
   if (!resolvedBridgeGovernanceAddress) {
-    console.log(
-      "⚠️  BridgeGovernance address not provided; cannot perform authorization."
+    console.warn(
+      "⚠️  BridgeGovernance address not provided; cannot configure controller."
     )
     throw new Error("BridgeGovernance address not provided")
   }
 
-  const bridge = new ethers.Contract(
+  const bridge = new hardhatEthers.Contract(
     resolvedBridgeAddress,
     BRIDGE_ABI,
     provider
   )
-  const bridgeGovernance = new ethers.Contract(
+  const bridgeGovernance = new hardhatEthers.Contract(
     resolvedBridgeGovernanceAddress,
     BRIDGE_GOVERNANCE_ABI,
     provider
@@ -102,11 +73,11 @@ async function resolveBridgeContracts(
   if (
     onChainGovernance.toLowerCase() !== bridgeGovernance.address.toLowerCase()
   ) {
-    console.log(
-      "⚠️  Bridge.governance() does not match provided BridgeGovernance address; controller synchronization requires governance to be transferred first."
+    console.warn(
+      "⚠️  Bridge.governance() does not match provided BridgeGovernance address."
     )
     throw new Error(
-      "Bridge governance mismatch; run governance transfer before controller sync."
+      "Bridge governance mismatch; run governance transfer before configuring controller."
     )
   }
 
@@ -117,8 +88,7 @@ async function getGovernanceSigner(
   hre: HardhatRuntimeEnvironment,
   governancePrivateKey?: string
 ) {
-  const { ethers, getNamedAccounts } = hre
-  const provider = ethers.provider
+  const { getNamedAccounts } = hre
 
   let resolvedPrivateKey = governancePrivateKey
   if (!resolvedPrivateKey) {
@@ -129,12 +99,12 @@ async function getGovernanceSigner(
   }
 
   if (resolvedPrivateKey) {
-    return new ethers.Wallet(resolvedPrivateKey, provider)
+    return new ethers.Wallet(resolvedPrivateKey, hre.ethers.provider)
   }
 
   const { governance } = await getNamedAccounts()
   if (!governance) {
-    console.log(
+    console.warn(
       "⚠️  No governance account configured and no private key supplied; skipping."
     )
     return undefined
@@ -143,195 +113,56 @@ async function getGovernanceSigner(
   return ethers.getSigner(governance)
 }
 
-async function readExistingAuthorizedIncreasers(
-  hre: HardhatRuntimeEnvironment,
-  bridge: Contract
-): Promise<Set<string> | undefined> {
-  const { deployments, ethers } = hre
-
-  try {
-    const bridgeDeployment = await deployments.getOrNull("Bridge")
-    const fromBlock =
-      (bridgeDeployment?.receipt?.blockNumber as number | undefined) ?? 0
-    const events = await bridge.queryFilter(
-      bridge.filters.AuthorizedBalanceIncreaserUpdated(),
-      fromBlock,
-      "latest"
-    )
-
-    const existingIncreasers = new Set<string>()
-    for (const event of events) {
-      const increaser = event.args?.increaser
-      const authorized = event.args?.authorized
-      if (!increaser || authorized === undefined) {
-        continue
-      }
-      const normalized = ethers.utils.getAddress(increaser)
-      if (authorized) {
-        existingIncreasers.add(normalized)
-      } else {
-        existingIncreasers.delete(normalized)
-      }
-    }
-
-    return existingIncreasers
-  } catch (error) {
-    console.warn(
-      "⚠️  Failed to fetch existing authorized increasers; revocations will be skipped.",
-      error
-    )
+function parseControllerAddress(raw?: string): string | undefined {
+  if (!raw) {
     return undefined
   }
-}
 
-interface AuthorizationPlan {
-  desiredIncreasers: string[]
-  existingIncreasers?: Set<string>
-  increasersToRevoke: string[]
-}
-
-function computeAuthorizationPlan(
-  desiredIncreasers: string[],
-  existingIncreasers: Set<string> | undefined,
-  allowMassRevoke: boolean
-): AuthorizationPlan | undefined {
-  if (desiredIncreasers.length === 0) {
-    if (!existingIncreasers) {
-      console.log(
-        "ℹ️  No increaser addresses provided and existing authorizations could not be determined; nothing to configure."
-      )
-      return undefined
-    }
-
-    if (existingIncreasers.size === 0) {
-      console.log("ℹ️  No increaser addresses provided; nothing to configure.")
-      return undefined
-    }
-
-    const confirmEnv =
-      process.env.BRIDGE_ALLOW_MASS_CONTROLLER_REVOKE_CONFIRM ?? ""
-
-    if (!allowMassRevoke) {
-      console.log(
-        "ℹ️  No increaser addresses provided; existing authorizations will be left unchanged (mass revoke disabled). " +
-          "Set BRIDGE_ALLOW_MASS_CONTROLLER_REVOKE=true and BRIDGE_ALLOW_MASS_CONTROLLER_REVOKE_CONFIRM=YES " +
-          "or pass allowMassRevoke to enable revocation."
-      )
-      return undefined
-    }
-
-    if (confirmEnv.toUpperCase() !== "YES") {
-      console.log(
-        "ℹ️  Mass revoke requested but BRIDGE_ALLOW_MASS_CONTROLLER_REVOKE_CONFIRM!=YES; refusing to revoke. " +
-          "Set the confirm variable to YES for this run if you intend to revoke all existing controllers."
-      )
-      return undefined
-    }
-
-    console.log(
-      "ℹ️  No increaser addresses provided; existing authorizations will be revoked."
-    )
+  const trimmed = raw.trim()
+  if (trimmed.length === 0) {
+    return undefined
   }
 
-  const increasersToRevoke: string[] = []
-  if (existingIncreasers) {
-    const desiredIncreaserSet = new Set(desiredIncreasers)
-    for (const addr of existingIncreasers) {
-      if (!desiredIncreaserSet.has(addr)) {
-        increasersToRevoke.push(addr)
-      }
-    }
-  }
-
-  return {
-    desiredIncreasers,
-    existingIncreasers,
-    increasersToRevoke,
+  try {
+    return ethers.utils.getAddress(trimmed)
+  } catch (error) {
+    throw new Error(`Invalid controller address provided: ${trimmed}`)
   }
 }
 
-async function applyAuthorizationPlan(
+async function applyControllerConfiguration(
   bridge: Contract,
   bridgeGovernanceWithSigner: Contract,
-  plan: AuthorizationPlan,
+  controller: string,
   dryRun: boolean
-): Promise<void> {
-  const { desiredIncreasers, existingIncreasers, increasersToRevoke } = plan
+) {
+  const current = await bridge.controllerBalanceIncreaser()
 
-  if (desiredIncreasers.length === 0 && increasersToRevoke.length === 0) {
-    console.log("ℹ️  Authorization plan is empty; nothing to do.")
+  console.log("\n📋 Bridge controller configuration plan:")
+  console.log(`   Desired controller: ${controller}`)
+  console.log(`   Current controller: ${current}`)
+
+  if (
+    current !== ethers.constants.AddressZero &&
+    current.toLowerCase() === controller.toLowerCase()
+  ) {
+    console.log("   Controller already configured; nothing to do.")
     return
-  }
-
-  console.log("\n📋 Bridge controller authorization plan:")
-  if (desiredIncreasers.length > 0) {
-    console.log("   Will authorize controllers:")
-    desiredIncreasers.forEach((addr) => console.log(`     • ${addr}`))
-  } else {
-    console.log("   No new controllers to authorize.")
-  }
-
-  if (existingIncreasers && increasersToRevoke.length > 0) {
-    console.log("   Will revoke controllers:")
-    increasersToRevoke.forEach((addr) => console.log(`     • ${addr}`))
-  } else {
-    console.log("   No controllers to revoke.")
   }
 
   if (dryRun) {
-    console.log(
-      "\nℹ️  Dry-run enabled; no on-chain authorization changes will be submitted."
-    )
+    console.log("\nℹ️  Dry-run enabled; no on-chain changes will be submitted.")
     return
   }
 
-  for (const addr of desiredIncreasers) {
-    try {
-      const alreadyAuthorized = await bridge.authorizedBalanceIncreasers(addr)
-      if (alreadyAuthorized) {
-        console.log(`   ♻️  ${addr} already authorized`)
-        continue
-      }
-
-      const tx = await bridgeGovernanceWithSigner.setAuthorizedBalanceIncreaser(
-        addr,
-        true
-      )
-      console.log(
-        `   ⛓️  Submitted authorization for ${addr}. Tx hash: ${tx.hash}`
-      )
-      await tx.wait()
-      console.log(`   ✅ Authorized ${addr}`)
-    } catch (error) {
-      console.error(`   ❌ Failed to authorize ${addr}`, error)
-    }
-  }
-
-  if (!existingIncreasers || increasersToRevoke.length === 0) {
-    return
-  }
-
-  for (const addr of increasersToRevoke) {
-    try {
-      const stillAuthorized = await bridge.authorizedBalanceIncreasers(addr)
-      if (!stillAuthorized) {
-        console.log(`   ♻️  ${addr} already deauthorized`)
-        continue
-      }
-
-      const tx = await bridgeGovernanceWithSigner.setAuthorizedBalanceIncreaser(
-        addr,
-        false
-      )
-      console.log(
-        `   ⛔  Submitted deauthorization for ${addr}. Tx hash: ${tx.hash}`
-      )
-      await tx.wait()
-      console.log(`   ✅ Deauthorized ${addr}`)
-    } catch (error) {
-      console.error(`   ❌ Failed to revoke ${addr}`, error)
-    }
-  }
+  const tx = await bridgeGovernanceWithSigner.setControllerBalanceIncreaser(
+    controller
+  )
+  console.log(
+    `   ⛓️  Submitted controller update (${controller}). Tx hash: ${tx.hash}`
+  )
+  await tx.wait()
+  console.log("   ✅ Controller configuration complete.")
 }
 
 export async function syncBridgeControllerAuthorizations(
@@ -343,14 +174,14 @@ export async function syncBridgeControllerAuthorizations(
     process.env.BRIDGE_CONTROLLER_SYNC_DRY_RUN === "1"
   const dryRun = options.dryRun === true || dryRunEnv
 
-  const desiredIncreasers = await getDesiredIncreasers(
-    hre,
-    options.increaserAddresses
-  )
+  const desiredController =
+    parseControllerAddress(options.controllerAddress) ??
+    parseControllerAddress(process.env.BRIDGE_CONTROLLER_ADDRESS)
 
-  const allowMassRevokeEnv =
-    process.env.BRIDGE_ALLOW_MASS_CONTROLLER_REVOKE === "true"
-  const allowMassRevoke = options.allowMassRevoke === true || allowMassRevokeEnv
+  if (!desiredController) {
+    console.log("ℹ️  No Bridge controller address provided; skipping.")
+    return
+  }
 
   const { bridge, bridgeGovernance } = await resolveBridgeContracts(
     hre,
@@ -364,18 +195,13 @@ export async function syncBridgeControllerAuthorizations(
   }
 
   const bridgeGovernanceWithSigner = bridgeGovernance.connect(signer)
-  const existingIncreasers = await readExistingAuthorizedIncreasers(hre, bridge)
 
-  const plan = computeAuthorizationPlan(
-    desiredIncreasers,
-    existingIncreasers,
-    allowMassRevoke
+  await applyControllerConfiguration(
+    bridge,
+    bridgeGovernanceWithSigner,
+    desiredController,
+    dryRun
   )
-  if (!plan) {
-    return
-  }
-
-  await applyAuthorizationPlan(bridge, bridgeGovernanceWithSigner, plan, dryRun)
 }
 
 const noopDeploy: DeployFunction = async () => {}

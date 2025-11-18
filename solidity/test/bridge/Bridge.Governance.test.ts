@@ -128,26 +128,16 @@ describe("Bridge - Governance", () => {
     )
   })
 
-  describe("setAuthorizedBalanceIncreaser", () => {
-    const increaser = () => thirdParty.address
+  describe("setControllerBalanceIncreaser", () => {
+    const controller = () => thirdParty.address
 
     context("when caller is not the owner", () => {
       it("should revert", async () => {
         await expect(
           bridgeGovernance
             .connect(thirdParty)
-            .setAuthorizedBalanceIncreaser(increaser(), true)
+            .setControllerBalanceIncreaser(controller())
         ).to.be.revertedWith("Ownable: caller is not the owner")
-      })
-    })
-
-    context("when increaser address is zero", () => {
-      it("should revert", async () => {
-        await expect(
-          bridgeGovernance
-            .connect(governance)
-            .setAuthorizedBalanceIncreaser(ethers.constants.AddressZero, true)
-        ).to.be.revertedWith("Increaser address must not be 0x0")
       })
     })
 
@@ -158,21 +148,51 @@ describe("Bridge - Governance", () => {
         await createSnapshot()
         tx = await bridgeGovernance
           .connect(governance)
-          .setAuthorizedBalanceIncreaser(increaser(), true)
+          .setControllerBalanceIncreaser(controller())
       })
 
       after(async () => {
         await restoreSnapshot()
       })
 
-      it("should update increaser authorization", async () => {
-        expect(await bridge.authorizedBalanceIncreasers(increaser())).to.be.true
+      it("should update the controller reference", async () => {
+        expect(await bridge.controllerBalanceIncreaser()).to.equal(controller())
       })
 
-      it("should emit AuthorizedBalanceIncreaserUpdated event", async () => {
+      it("should emit ControllerBalanceIncreaserUpdated event", async () => {
         await expect(tx)
-          .to.emit(bridge, "AuthorizedBalanceIncreaserUpdated")
-          .withArgs(increaser(), true)
+          .to.emit(bridge, "ControllerBalanceIncreaserUpdated")
+          .withArgs(ethers.constants.AddressZero, controller())
+      })
+    })
+
+    context("when clearing the controller", () => {
+      let tx: ContractTransaction
+
+      before(async () => {
+        await createSnapshot()
+        await bridgeGovernance
+          .connect(governance)
+          .setControllerBalanceIncreaser(controller())
+        tx = await bridgeGovernance
+          .connect(governance)
+          .setControllerBalanceIncreaser(ethers.constants.AddressZero)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should remove the controller reference", async () => {
+        expect(await bridge.controllerBalanceIncreaser()).to.equal(
+          ethers.constants.AddressZero
+        )
+      })
+
+      it("should emit ControllerBalanceIncreaserUpdated with previous address", async () => {
+        await expect(tx)
+          .to.emit(bridge, "ControllerBalanceIncreaserUpdated")
+          .withArgs(controller(), ethers.constants.AddressZero)
       })
     })
   })
@@ -187,7 +207,7 @@ describe("Bridge - Governance", () => {
           bridge
             .connect(thirdParty)
             .controllerIncreaseBalance(recipient(), amount)
-        ).to.be.revertedWith("Caller is not an authorized increaser")
+        ).to.be.revertedWith("Caller is not the authorized controller")
       })
     })
 
@@ -198,7 +218,7 @@ describe("Bridge - Governance", () => {
         await createSnapshot()
         await bridgeGovernance
           .connect(governance)
-          .setAuthorizedBalanceIncreaser(thirdParty.address, true)
+          .setControllerBalanceIncreaser(thirdParty.address)
         tx = await bridge
           .connect(thirdParty)
           .controllerIncreaseBalance(recipient(), amount)
@@ -236,7 +256,7 @@ describe("Bridge - Governance", () => {
           bridge
             .connect(thirdParty)
             .controllerIncreaseBalances(recipients(), amounts)
-        ).to.be.revertedWith("Caller is not an authorized increaser")
+        ).to.be.revertedWith("Caller is not the authorized controller")
       })
     })
 
@@ -247,7 +267,7 @@ describe("Bridge - Governance", () => {
         await createSnapshot()
         await bridgeGovernance
           .connect(governance)
-          .setAuthorizedBalanceIncreaser(thirdParty.address, true)
+          .setControllerBalanceIncreaser(thirdParty.address)
         tx = await bridge
           .connect(thirdParty)
           .controllerIncreaseBalances(recipients(), amounts)

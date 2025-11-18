@@ -8,12 +8,11 @@ import "../account-control/interfaces/IBridgeMintingAuthorization.sol";
 /// @notice Minimal Bridge stub implementing IBridgeMintingAuthorization for MintBurnGuard tests.
 contract MockBridgeMintingAuthorization is IBridgeMintingAuthorization {
     address public owner;
+    address private _controllerBalanceIncreaser;
 
-    mapping(address => bool) private _authorizedIncreasers;
-
-    event ControllerAuthorizationUpdated(
-        address indexed controller,
-        bool authorized
+    event ControllerBalanceIncreaserUpdated(
+        address indexed previousController,
+        address indexed newController
     );
 
     modifier onlyOwner() {
@@ -27,13 +26,14 @@ contract MockBridgeMintingAuthorization is IBridgeMintingAuthorization {
         owner = msg.sender;
     }
 
-    /// @notice Updates authorization status for a controller in tests.
-    function setAuthorizedBalanceIncreaser(address controller, bool authorized)
+    /// @notice Updates the controller referenced in tests.
+    function setControllerBalanceIncreaser(address controller)
         external
         onlyOwner
     {
-        _authorizedIncreasers[controller] = authorized;
-        emit ControllerAuthorizationUpdated(controller, authorized);
+        address previous = _controllerBalanceIncreaser;
+        _controllerBalanceIncreaser = controller;
+        emit ControllerBalanceIncreaserUpdated(previous, controller);
     }
 
     /// @inheritdoc IBridgeMintingAuthorization
@@ -41,7 +41,10 @@ contract MockBridgeMintingAuthorization is IBridgeMintingAuthorization {
         address, /*recipient*/
         uint256 /*amount*/
     ) external override {
-        require(_authorizedIncreasers[msg.sender], "MockBridge: unauthorized");
+        require(
+            msg.sender == _controllerBalanceIncreaser,
+            "MockBridge: unauthorized"
+        );
         // No-op body; external effects are not required for current tests.
     }
 
@@ -50,31 +53,20 @@ contract MockBridgeMintingAuthorization is IBridgeMintingAuthorization {
         address[] calldata, /*recipients*/
         uint256[] calldata /*amounts*/
     ) external override {
-        require(_authorizedIncreasers[msg.sender], "MockBridge: unauthorized");
+        require(
+            msg.sender == _controllerBalanceIncreaser,
+            "MockBridge: unauthorized"
+        );
         // No-op body; external effects are not required for current tests.
     }
 
     /// @inheritdoc IBridgeMintingAuthorization
-    function authorizedBalanceIncreasers(address controller)
+    function controllerBalanceIncreaser()
         external
         view
         override
-        returns (bool)
+        returns (address)
     {
-        return _authorizedIncreasers[controller];
-    }
-
-    /// @inheritdoc IBridgeMintingAuthorization
-    function getAuthorizedBalanceIncreasers(address[] calldata increasers)
-        external
-        view
-        override
-        returns (bool[] memory flags)
-    {
-        uint256 length = increasers.length;
-        flags = new bool[](length);
-        for (uint256 i = 0; i < length; i++) {
-            flags[i] = _authorizedIncreasers[increasers[i]];
-        }
+        return _controllerBalanceIncreaser;
     }
 }

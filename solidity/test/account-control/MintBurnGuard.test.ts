@@ -49,9 +49,7 @@ describe("MintBurnGuard", () => {
     await vault.deployed()
 
     await guard.connect(owner).setBridge(bridge.address)
-    await bridge
-      .connect(owner)
-      .setAuthorizedBalanceIncreaser(guard.address, true)
+    await bridge.connect(owner).setControllerBalanceIncreaser(guard.address)
     await guard.connect(owner).setBank(bank.address)
     await guard.connect(owner).setVault(vault.address)
   })
