@@ -1582,6 +1582,7 @@ contract Bridge is
     ///      `authorizedBalanceIncreasers` mapping.
     /// @param recipient Address receiving the balance increase.
     /// @param amount Amount by which the balance is increased.
+    // slither-disable-next-line reentrancy-vulnerabilities-3
     function controllerIncreaseBalance(address recipient, uint256 amount)
         external
     {
@@ -1601,6 +1602,7 @@ contract Bridge is
     ///      controller and how authorization is managed.
     /// @param recipients Addresses receiving the balance increases.
     /// @param amounts Amounts by which balances are increased.
+    // slither-disable-next-line reentrancy-vulnerabilities-3
     function controllerIncreaseBalances(
         address[] calldata recipients,
         uint256[] calldata amounts

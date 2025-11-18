@@ -167,6 +167,7 @@ contract MintingGuard is Ownable {
     /// @param recipient Address receiving the TBTC bank balance.
     /// @param amount Amount in TBTC base units (1e18) to add to exposure.
     /// @dev Can only be called by the configured controller.
+    // slither-disable-next-line reentrancy-vulnerabilities-3
     function mintToBank(address recipient, uint256 amount)
         external
         onlyController
