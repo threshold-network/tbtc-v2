@@ -18,12 +18,17 @@ pragma solidity 0.8.17;
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "./interfaces/IBridgeMintingAuthorization.sol";
 import "./interfaces/IMintBurnGuard.sol";
-import "../vault/interfaces/IVaultLike.sol";
 
 /// @dev Minimal Bank-like interface exposing only the burn primitive needed
 ///      by MintBurnGuard.
 interface IBankLike {
     function decreaseBalance(uint256 amount) external;
+}
+
+/// @dev Minimal Vault-like interface exposing only the unmint primitive
+///      needed by MintBurnGuard.
+interface IVaultLike {
+    function unmint(uint256 amount) external;
 }
 
 /// @title Mint/Burn Guard

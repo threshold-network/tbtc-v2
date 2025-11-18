@@ -21,7 +21,6 @@ import "./IVault.sol";
 import "./TBTCOptimisticMinting.sol";
 import "../bank/Bank.sol";
 import "../token/TBTC.sol";
-import "./interfaces/IVaultLike.sol";
 
 /// @title TBTC application vault
 /// @notice TBTC is a fully Bitcoin-backed ERC-20 token pegged to the price of
@@ -31,7 +30,7 @@ import "./interfaces/IVaultLike.sol";
 ///         Bank.
 /// @dev TBTC Vault is the owner of TBTC token contract and is the only contract
 ///      minting the token.
-contract TBTCVault is IVault, Ownable, TBTCOptimisticMinting, IVaultLike {
+contract TBTCVault is IVault, Ownable, TBTCOptimisticMinting {
     using SafeERC20 for IERC20;
 
     Bank public immutable bank;
