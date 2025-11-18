@@ -6,8 +6,8 @@ import type { DeployFunction } from "hardhat-deploy/types"
 export type GovernanceTransferMode = "full" | "begin" | "finalize"
 
 export interface GovernanceTransferOptions {
-  // Mode selection:
-  // - "full": begin + wait for delay + finalize (default)
+  // Mode selection (omitting mode defaults to "begin" to avoid blocking):
+  // - "full": begin + wait for delay + finalize
   // - "begin": only initiate transfer and log earliest finalization time
   // - "finalize": only attempt finalization (no waiting), assuming begin was
   //               done previously and the governance delay has elapsed
@@ -33,7 +33,7 @@ export async function transferBridgeGovernanceWithDelay(
   log: (message: string) => void = console.log,
   options: GovernanceTransferOptions = {}
 ): Promise<void> {
-  const mode: GovernanceTransferMode = options.mode ?? "full"
+  const mode: GovernanceTransferMode = options.mode ?? "begin"
   const waitBufferSeconds = options.waitBufferSeconds ?? 5
 
   if (

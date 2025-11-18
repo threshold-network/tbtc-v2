@@ -19,7 +19,7 @@ pragma solidity 0.8.17;
 /// @notice Minimal surface used by external controller logic (e.g. AccountControl)
 ///         to respect system-level caps and coordinate TBTC mint/burn execution.
 /// @dev This interface is intentionally aligned with the AccountControl-side
-///      `IMintingGuard` interface defined in the tbtc-v2-ac repository. Any
+///      `IMintBurnGuard` interface defined in the tbtc-v2-ac repository. Any
 ///      cross-repo changes to this surface should be kept in sync.
 interface IMintBurnGuard {
     /// @notice Returns the current global net minted amount tracked by the guard.

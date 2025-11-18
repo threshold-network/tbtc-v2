@@ -71,7 +71,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   const modeEnv = process.env.BRIDGE_GOVERNANCE_TRANSFER_MODE
   const mode: GovernanceTransferMode =
-    modeEnv === "begin" || modeEnv === "finalize" ? modeEnv : "full"
+    modeEnv === "full" || modeEnv === "begin" || modeEnv === "finalize"
+      ? modeEnv
+      : "begin"
 
   await transferBridgeGovernanceWithDelay(
     bridgeGovernance,

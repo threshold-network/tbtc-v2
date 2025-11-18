@@ -12,15 +12,15 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // - owner: deployer
   // - controller: unset (0x0) and configured later via governance.
   const owner =
-    process.env.MINTING_GUARD_OWNER &&
-    process.env.MINTING_GUARD_OWNER.length > 0
-      ? process.env.MINTING_GUARD_OWNER
+    process.env.MINT_BURN_GUARD_OWNER &&
+    process.env.MINT_BURN_GUARD_OWNER.length > 0
+      ? process.env.MINT_BURN_GUARD_OWNER
       : deployer
 
   const controller =
-    process.env.MINTING_GUARD_CONTROLLER &&
-    process.env.MINTING_GUARD_CONTROLLER.length > 0
-      ? process.env.MINTING_GUARD_CONTROLLER
+    process.env.MINT_BURN_GUARD_CONTROLLER &&
+    process.env.MINT_BURN_GUARD_CONTROLLER.length > 0
+      ? process.env.MINT_BURN_GUARD_CONTROLLER
       : "0x0000000000000000000000000000000000000000"
 
   const deployment = await deploy("MintBurnGuard", {

@@ -116,7 +116,7 @@ describe("MintBurnGuard", () => {
       const current = await guard.totalMinted()
       await expect(
         guard.connect(controller).decreaseTotalMinted(current.add(1))
-      ).to.be.revertedWith("MintingGuard: underflow")
+      ).to.be.revertedWith("MintBurnGuard: underflow")
     })
 
     it("mints via bridge and updates exposure", async () => {

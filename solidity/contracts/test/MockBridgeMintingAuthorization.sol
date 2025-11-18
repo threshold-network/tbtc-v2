@@ -5,7 +5,7 @@ pragma solidity 0.8.17;
 import "../account-control/interfaces/IBridgeMintingAuthorization.sol";
 
 /// @title MockBridgeMintingAuthorization
-/// @notice Minimal Bridge stub implementing IBridgeMintingAuthorization for MintingGuard tests.
+/// @notice Minimal Bridge stub implementing IBridgeMintingAuthorization for MintBurnGuard tests.
 contract MockBridgeMintingAuthorization is IBridgeMintingAuthorization {
     address public owner;
 

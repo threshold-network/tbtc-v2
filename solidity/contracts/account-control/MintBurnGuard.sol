@@ -17,7 +17,7 @@ pragma solidity 0.8.17;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "./interfaces/IBridgeMintingAuthorization.sol";
-import "./interfaces/IMintingGuard.sol";
+import "./interfaces/IMintBurnGuard.sol";
 
 /// @dev Minimal Bank-like interface exposing only the burn primitive needed
 ///      by MintBurnGuard.
@@ -90,6 +90,13 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
 
     event VaultUnmintExecuted(
         address indexed controller,
+        uint256 amountSats,
+        uint256 newTotalMinted
+    );
+
+    event ExposureReduced(
+        address indexed controller,
+        address indexed from,
         uint256 amountSats,
         uint256 newTotalMinted
     );
@@ -209,7 +216,7 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
             return;
         }
 
-        require(address(bridge) != address(0), "MintingGuard: bridge not set");
+        require(address(bridge) != address(0), "MintBurnGuard: bridge not set");
 
         uint256 newTotal = _increaseTotalMintedInternal(amount);
 
@@ -235,7 +242,7 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
 
         uint256 newTotal = _decreaseTotalMintedInternal(amount);
 
-        emit BankBurnExecuted(controller, from, amount, newTotal);
+        emit ExposureReduced(controller, from, amount, newTotal);
     }
 
     /// @notice Burns TBTC bank balance and reduces global exposure.
@@ -307,7 +314,7 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
         returns (uint256 newTotal)
     {
         uint256 current = totalMinted;
-        require(amount <= current, "MintingGuard: underflow");
+        require(amount <= current, "MintBurnGuard: underflow");
 
         unchecked {
             newTotal = current - amount;

@@ -6,7 +6,7 @@
 - Approach: upgrade the Bridge proxy implementation to add the allowlist and controller entrypoints; redeploy BridgeGovernance with a forwarder function; transfer governance; optionally sync the allowlist.
 - Safety: evented changes, explicit zero‑address checks, governance‑only setters, snapshot + rollback tooling.
 
-> **Note on AccountControl integration:** For AccountControl‑managed flows, the **MintBurnGuard** primitive (currently implemented as `MintingGuard` in `solidity/contracts/account-control/MintingGuard.sol`) is the _only_ contract that should appear in the Bridge `authorizedBalanceIncreasers` mapping. AccountControl itself is never directly authorized on the Bridge; instead, it acts as the sole controller of MintBurnGuard, and MintBurnGuard acts as the sole controller of the Bridge for those flows, executing both mint and burn/unmint operations on tBTC v2.
+> **Note on AccountControl integration:** For AccountControl‑managed flows, the **MintBurnGuard** primitive (implemented in `solidity/contracts/account-control/MintBurnGuard.sol`) is the _only_ contract that should appear in the Bridge `authorizedBalanceIncreasers` mapping. AccountControl itself is never directly authorized on the Bridge; instead, it acts as the sole controller of MintBurnGuard, and MintBurnGuard acts as the sole controller of the Bridge for those flows, executing both mint and burn/unmint operations on tBTC v2.
 
 ## Motivation
 
@@ -19,10 +19,10 @@ This model provides:
 - Operationally simple management via BridgeGovernance.
 - A clean separation between:
   - Bridge: controller allowlisting + minting entrypoints + events. Bridge **does not** implement per‑controller caps or rate limits; it only enforces _who_ can mint.
-  - System-level net exposure caps and pauses, enforced by MintBurnGuard
-    (currently deployed as `MintingGuard`) and higher-level controller logic
-    (e.g. AccountControl), which must route all AccountControl-managed TBTC
-    mint and burn/unmint flows through MintBurnGuard.
+- System-level net exposure caps and pauses, enforced by MintBurnGuard
+  (implemented in `solidity/contracts/account-control/MintBurnGuard.sol`) and higher-level controller logic
+  (e.g. AccountControl), which must route all AccountControl-managed TBTC
+  mint and burn/unmint flows through MintBurnGuard.
 
 ## Trust Model & Operational Guardrails
 
@@ -67,7 +67,7 @@ review, deployment runbooks, and monitoring).
 - BridgeGovernance (regular contract):
   - New owner‑only forwarders that call into Bridge:
     - `setAuthorizedBalanceIncreaser(address,bool)`
-- MintBurnGuard (global mint/burn guard; currently implemented as `MintingGuard` in `solidity/contracts/account-control/MintingGuard.sol`, to be renamed in a follow‑up):
+- MintBurnGuard (global mint/burn guard implemented in `solidity/contracts/account-control/MintBurnGuard.sol`):
   - State:
     - `controller` – the only contract allowed to adjust totals and execute mints/burns (for AccountControl flows, this is `AccountControl`).
     - `totalMinted` – global net‑minted TBTC exposure for controller‑managed flows (expressed in TBTC base units, 1e18).
@@ -117,7 +117,7 @@ Supporting scripts (names as in repo):
 
 ## Risks & Mitigations
 
-- Storage layout changes: Bridge uses mapped slots for controller allowlist and keeps an ample storage gap; MintingGuard is a separate contract with its own state. Upgrade paths are accounted for in implementation.
+- Storage layout changes: Bridge uses mapped slots for controller allowlist and keeps an ample storage gap; MintBurnGuard is a separate contract with its own state. Upgrade paths are accounted for in implementation.
 - Misconfiguration risk (Bridge allowlist): snapshot + rollback scripts provided; allowlist sync is explicit and evented.
 - Controller over‑minting risk:
   - Bridge enforces _who_ can mint but does not implement per‑controller caps or rate limits.
@@ -130,7 +130,7 @@ Supporting scripts (names as in repo):
 - Env keys used during orchestration include: `BRIDGE_ADDRESS`, `PROXY_ADMIN_PK`, `BRIDGE_GOVERNANCE_PK`, `BRIDGE_AUTHORIZED_INCREASERS`, and library/core contract address fallbacks.
 - Mass revocation safeguard: to revoke all existing controller authorizations when no `BRIDGE_AUTHORIZED_INCREASERS` are provided, set `BRIDGE_ALLOW_MASS_CONTROLLER_REVOKE=true` (otherwise existing authorizations are left unchanged).
 - Sepolia RPC: prefer `SEPOLIA_CHAIN_API_URL`/`SEPOLIA_PRIVATE_KEYS` where applicable.
-- Governance transfer helper: `BRIDGE_GOVERNANCE_TRANSFER_MODE` can be set to `begin`, `finalize`, or left unset (default `full`) to control how `21_transfer_bridge_governance.ts` orchestrates begin/finalize steps for long governance delays.
+- Governance transfer helper: `BRIDGE_GOVERNANCE_TRANSFER_MODE` can be set to `begin`, `finalize`, or left unset (default `begin`) to control how `21_transfer_bridge_governance.ts` orchestrates begin/finalize steps for long governance delays.
 
 ---
 
