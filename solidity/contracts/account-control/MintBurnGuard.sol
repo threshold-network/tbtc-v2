@@ -364,7 +364,7 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
         uint256 currentTimestamp = block.timestamp;
         uint256 windowStart = mintRateWindowStart;
 
-        if (windowStart == 0 || currentTimestamp >= windowStart + window) {
+        if (currentTimestamp >= windowStart + window) {
             if (amount > limit) {
                 revert MintRateLimitExceeded(amount, limit);
             }
