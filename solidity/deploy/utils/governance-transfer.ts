@@ -7,14 +7,10 @@ export type GovernanceTransferMode = "full" | "begin" | "finalize"
 
 export interface GovernanceTransferOptions {
   // Mode selection (omitting mode defaults to "begin" to avoid blocking):
-  // - "full": begin + wait for delay + finalize
+  // - "full": begin + attempt finalize (no blocking)
   // - "begin": only initiate transfer and log earliest finalization time
-  // - "finalize": only attempt finalization (no waiting), assuming begin was
-  //               done previously and the governance delay has elapsed
+  // - "finalize": only attempt finalization (no waiting)
   mode?: GovernanceTransferMode
-
-  // Extra buffer applied when waiting in "full" mode, in seconds.
-  waitBufferSeconds?: number
 }
 
 /**
@@ -34,7 +30,6 @@ export async function transferBridgeGovernanceWithDelay(
   options: GovernanceTransferOptions = {}
 ): Promise<void> {
   const mode: GovernanceTransferMode = options.mode ?? "begin"
-  const waitBufferSeconds = options.waitBufferSeconds ?? 5
 
   if (
     !newGovernance ||
@@ -81,28 +76,22 @@ export async function transferBridgeGovernanceWithDelay(
     return
   }
 
-  if (mode === "full") {
-    const block = await bridgeGovernance.provider.getBlock("latest")
-    if (block.timestamp < earliestFinalization.toNumber()) {
-      // Add a small buffer to avoid edge cases where the block timestamp is
-      // exactly equal to the finalization time.
-      const waitSeconds =
-        earliestFinalization.toNumber() - block.timestamp + waitBufferSeconds
-      log(
-        `Waiting ${waitSeconds} seconds for governance delay to elapse (currentTime=${block.timestamp}, ` +
-          `earliestFinalization=${earliestFinalization.toNumber()})…`
-      )
-      await delayMs(waitSeconds * 1000)
-    }
+  const block = await bridgeGovernance.provider.getBlock("latest")
+  const currentTime = block.timestamp
+  if (currentTime < earliestFinalization.toNumber()) {
+    const waitSeconds = earliestFinalization.toNumber() - currentTime
+    log(
+      `Governance delay still running (currentTime=${currentTime}, earliestFinalization=${earliestFinalization.toNumber()}, waitSeconds=${waitSeconds}). ` +
+        "Run with mode=finalize after the delay has elapsed."
+    )
+    return
   }
 
-  const finalizeTx = await bridgeGovernance.finalizeBridgeGovernanceTransfer()
-  log(`Finalized bridge governance transfer in tx: ${finalizeTx.hash}`)
-  await finalizeTx.wait(1)
-}
-
-async function delayMs(ms: number): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, ms))
+  if (mode === "finalize" || mode === "full") {
+    const finalizeTx = await bridgeGovernance.finalizeBridgeGovernanceTransfer()
+    log(`Finalized bridge governance transfer in tx: ${finalizeTx.hash}`)
+    await finalizeTx.wait(1)
+  }
 }
 
 // Expose a no-op deploy script so that hardhat-deploy can safely load this

@@ -158,9 +158,9 @@ const config: HardhatUserConfig = {
   },
 
   tenderly: {
-    // Allow overriding via env; fall back to provided values
-    username: process.env.TENDERLY_USERNAME || "pioros",
-    project: process.env.TENDERLY_PROJECT || "project",
+    // Allow overriding via env; fall back to empty string so we don't publish
+    username: process.env.TENDERLY_USERNAME || "",
+    project: process.env.TENDERLY_PROJECT || "",
   },
 
   // Define local networks configuration file path to load networks from file.

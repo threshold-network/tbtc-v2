@@ -152,6 +152,19 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
         vault = vault_;
     }
 
+    /// @notice Atomically wires Bridge, Bank, and Vault addresses.
+    /// @dev Prevents partial deployments that forget to configure one of the
+    ///      execution targets when enabling mint/burn helpers.
+    function configureExecutionTargets(
+        IBridgeMintingAuthorization bridge_,
+        IBankLike bank_,
+        ITBTCVault vault_
+    ) external onlyOwner {
+        setBridge(bridge_);
+        setBank(bank_);
+        setVault(vault_);
+    }
+
     /// @notice Increases the global net-minted exposure.
     /// @param amount Amount to add to the total minted exposure.
     /// @return newTotal The updated total minted amount.
