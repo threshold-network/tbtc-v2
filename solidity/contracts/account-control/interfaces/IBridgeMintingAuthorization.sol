@@ -22,8 +22,8 @@ pragma solidity 0.8.17;
 ///        `authorizedBalanceIncreasers` mapping.
 ///      - The Bridge **does not** enforce per-controller caps or rate limits;
 ///        it only enforces _who_ can mint. Global caps, pauses, and any
-///        per-protocol policy must be implemented in MintingGuard and the
-///        controller contracts themselves.
+///        per-protocol policy must be implemented in MintBurnGuard/MintingGuard
+///        and the controller contracts themselves.
 ///      - Controller contracts MUST implement their own access control,
 ///        limits, and pause/kill switches so that a compromise or bug in a
 ///        controller does not result in unbounded system-wide minting within

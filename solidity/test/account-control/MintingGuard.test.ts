@@ -2,15 +2,22 @@ import { ethers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { expect } from "chai"
 
-import type { MintingGuard, MockBridgeMintingAuthorization } from "../typechain"
+import type {
+  MintBurnGuard,
+  MockBridgeMintingAuthorization,
+  MockBurnBank,
+  MockBurnVault,
+} from "../typechain"
 
-describe("MintingGuard", () => {
+describe("MintBurnGuard", () => {
   let owner: SignerWithAddress
   let controller: SignerWithAddress
   let thirdParty: SignerWithAddress
 
-  let guard: MintingGuard
+  let guard: MintBurnGuard
   let bridge: MockBridgeMintingAuthorization
+  let bank: MockBurnBank
+  let vault: MockBurnVault
 
   before(async () => {
     const signers = await ethers.getSigners()
@@ -24,17 +31,29 @@ describe("MintingGuard", () => {
     )) as MockBridgeMintingAuthorization
     await bridge.deployed()
 
-    const MintingGuardFactory = await ethers.getContractFactory("MintingGuard")
-    guard = (await MintingGuardFactory.deploy(
+    const MintBurnGuardFactory = await ethers.getContractFactory(
+      "MintBurnGuard"
+    )
+    guard = (await MintBurnGuardFactory.deploy(
       owner.address,
       controller.address
-    )) as MintingGuard
+    )) as MintBurnGuard
     await guard.deployed()
+
+    const MockBankFactory = await ethers.getContractFactory("MockBurnBank")
+    bank = (await MockBankFactory.deploy()) as MockBurnBank
+    await bank.deployed()
+
+    const MockVaultFactory = await ethers.getContractFactory("MockBurnVault")
+    vault = (await MockVaultFactory.deploy()) as MockBurnVault
+    await vault.deployed()
 
     await guard.connect(owner).setBridge(bridge.address)
     await bridge
       .connect(owner)
       .setAuthorizedBalanceIncreaser(guard.address, true)
+    await guard.connect(owner).setBank(bank.address)
+    await guard.connect(owner).setVault(vault.address)
   })
 
   describe("initialization", () => {
@@ -132,6 +151,32 @@ describe("MintingGuard", () => {
         .withArgs(burnAmount, current.sub(burnAmount))
 
       expect(await guard.totalMinted()).to.equal(current.sub(burnAmount))
+    })
+
+    it("burns via bank and updates exposure", async () => {
+      const burnAmount = 50n
+
+      const current = await guard.totalMinted()
+      await expect(
+        guard.connect(controller).burnFromBank(controller.address, burnAmount)
+      )
+        .to.emit(guard, "TotalMintedDecreased")
+        .withArgs(burnAmount, current.sub(burnAmount))
+
+      expect(await guard.totalMinted()).to.equal(current.sub(burnAmount))
+      expect(await bank.lastBurnAmount()).to.equal(burnAmount)
+    })
+
+    it("unmints via vault and updates exposure", async () => {
+      const current = await guard.totalMinted()
+      const unmintAmount = current.div(4)
+
+      await expect(guard.connect(controller).unmintFromVault(unmintAmount))
+        .to.emit(guard, "TotalMintedDecreased")
+        .withArgs(unmintAmount, current.sub(unmintAmount))
+
+      expect(await guard.totalMinted()).to.equal(current.sub(unmintAmount))
+      expect(await vault.lastUnmintAmount()).to.equal(unmintAmount)
     })
   })
 })

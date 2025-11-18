@@ -17,14 +17,27 @@ pragma solidity 0.8.17;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "./interfaces/IBridgeMintingAuthorization.sol";
+import "./interfaces/IMintingGuard.sol";
 
-/// @title Minting Guard
+/// @dev Minimal Bank-like interface exposing only the burn primitive needed
+///      by MintBurnGuard.
+interface IBankLike {
+    function decreaseBalance(uint256 amount) external;
+}
+
+/// @dev Minimal Vault-like interface exposing only the unmint primitive
+///      needed by MintBurnGuard.
+interface IVaultLike {
+    function unmint(uint256 amount) external;
+}
+
+/// @title Mint/Burn Guard
 /// @notice Tracks global net-minted exposure for a controller and enforces
 ///         system-level caps and pause semantics.
 /// @dev This contract is intentionally minimal and oblivious to reserve-level
 ///      details. It is expected that a single controller contract (e.g.
 ///      AccountControl) reports all mint and burn operations via this guard.
-contract MintingGuard is Ownable {
+contract MintBurnGuard is Ownable, IMintBurnGuard {
     /// @notice Address of the controller allowed to adjust the total minted
     ///         exposure tracked by this guard and call execution helpers.
     address public controller;
@@ -44,6 +57,12 @@ contract MintingGuard is Ownable {
 
     /// @notice Bridge contract used to mint TBTC into the Bank.
     IBridgeMintingAuthorization public bridge;
+
+    /// @notice Bank contract used for burning TBTC bank balances when needed.
+    IBankLike public bank;
+
+    /// @notice Vault contract used for unminting TBTC held in the vault.
+    IVaultLike public vault;
 
     event ControllerUpdated(
         address indexed previousController,
@@ -115,6 +134,20 @@ contract MintingGuard is Ownable {
     function setBridge(IBridgeMintingAuthorization bridge_) external onlyOwner {
         require(address(bridge_) != address(0), "Bridge must not be 0x0");
         bridge = bridge_;
+    }
+
+    /// @notice Configures the Bank contract used for burn helpers.
+    /// @param bank_ Bank contract used for burning TBTC bank balances.
+    function setBank(IBankLike bank_) external onlyOwner {
+        require(address(bank_) != address(0), "Bank must not be 0x0");
+        bank = bank_;
+    }
+
+    /// @notice Configures the Vault contract used for unmint helpers.
+    /// @param vault_ Vault contract used for unminting TBTC.
+    function setVault(IVaultLike vault_) external onlyOwner {
+        require(address(vault_) != address(0), "Vault must not be 0x0");
+        vault = vault_;
     }
 
     /// @notice Increases the global net-minted exposure.
@@ -189,7 +222,9 @@ contract MintingGuard is Ownable {
     /// @param amount Amount in TBTC base units (1e18) to reduce from exposure.
     /// @dev The controller is responsible for choosing the correct `from`
     ///      semantics per flow. This helper only coordinates accounting and
-    ///      calls into the configured Bank/Vault.
+    ///      emits an accounting event; any concrete Bank/Vault calls must be
+    ///      executed by the controller or by dedicated helpers before or after
+    ///      calling into this function.
     function reduceExposureAndBurn(address from, uint256 amount)
         external
         onlyController
@@ -200,10 +235,48 @@ contract MintingGuard is Ownable {
 
         uint256 newTotal = _decreaseTotalMintedInternal(amount);
 
-        // This helper only coordinates global exposure accounting; the actual
-        // Bank/Vault burns are executed by the controller (e.g. AccountControl)
-        // before calling into this function.
         emit BankBurnExecuted(controller, from, amount, newTotal);
+    }
+
+    /// @notice Burns TBTC bank balance and reduces global exposure.
+    /// @param from Source address for which the burn semantics are tracked.
+    /// @param amount Amount in TBTC base units (1e18) to burn from the Bank.
+    /// @dev This helper assumes that the Bank exposes a `decreaseBalance`
+    ///      primitive that burns the caller's bank balance. The `from` address
+    ///      is emitted for monitoring purposes; it is up to higher-level
+    ///      logic to ensure that balances are held in an account that can be
+    ///      safely burned by this helper.
+    function burnFromBank(address from, uint256 amount)
+        external
+        onlyController
+    {
+        if (amount == 0) {
+            return;
+        }
+
+        require(address(bank) != address(0), "MintBurnGuard: bank not set");
+
+        uint256 newTotal = _decreaseTotalMintedInternal(amount);
+
+        emit BankBurnExecuted(controller, from, amount, newTotal);
+        bank.decreaseBalance(amount);
+    }
+
+    /// @notice Unmints TBTC via the configured vault and reduces global
+    ///         exposure.
+    /// @param amount Amount in TBTC base units (1e18) to unmint.
+    /// @dev Can only be called by the configured controller.
+    function unmintFromVault(uint256 amount) external onlyController {
+        if (amount == 0) {
+            return;
+        }
+
+        require(address(vault) != address(0), "MintBurnGuard: vault not set");
+
+        uint256 newTotal = _decreaseTotalMintedInternal(amount);
+
+        emit VaultUnmintExecuted(controller, amount, newTotal);
+        vault.unmint(amount);
     }
 
     /// @notice Internal helper increasing `totalMinted` with cap and pause checks.

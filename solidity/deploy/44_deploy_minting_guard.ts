@@ -7,7 +7,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   const { deployer } = await getNamedAccounts()
 
-  // Allow overriding the MintingGuard owner and controller via env vars.
+  // Allow overriding the MintBurnGuard owner and controller via env vars.
   // Defaults:
   // - owner: deployer
   // - controller: unset (0x0) and configured later via governance.
@@ -23,16 +23,16 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       ? process.env.MINTING_GUARD_CONTROLLER
       : "0x0000000000000000000000000000000000000000"
 
-  const deployment = await deploy("MintingGuard", {
+  const deployment = await deploy("MintBurnGuard", {
     from: deployer,
     args: [owner, controller],
     log: true,
     waitConfirmations: 1,
   })
 
-  log(`MintingGuard deployed at ${deployment.address}`)
+  log(`MintBurnGuard deployed at ${deployment.address}`)
 }
 
 export default func
 
-func.tags = ["MintingGuard"]
+func.tags = ["MintBurnGuard"]

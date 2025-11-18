@@ -6,7 +6,7 @@
 - Approach: upgrade the Bridge proxy implementation to add the allowlist and controller entrypoints; redeploy BridgeGovernance with a forwarder function; transfer governance; optionally sync the allowlist.
 - Safety: evented changes, explicit zero‑address checks, governance‑only setters, snapshot + rollback tooling.
 
-> **Note on AccountControl integration:** For AccountControl‑managed flows, `MintingGuard` is the _only_ contract that should appear in the Bridge `authorizedBalanceIncreasers` mapping. AccountControl itself is never directly authorized on the Bridge; instead, it acts as the sole controller of MintingGuard, and MintingGuard acts as the sole controller of the Bridge for those flows.
+> **Note on AccountControl integration:** For AccountControl‑managed flows, the **MintBurnGuard** primitive (currently implemented as `MintingGuard` in `solidity/contracts/account-control/MintingGuard.sol`) is the _only_ contract that should appear in the Bridge `authorizedBalanceIncreasers` mapping. AccountControl itself is never directly authorized on the Bridge; instead, it acts as the sole controller of MintBurnGuard, and MintBurnGuard acts as the sole controller of the Bridge for those flows, executing both mint and burn/unmint operations on tBTC v2.
 
 ## Motivation
 
@@ -19,15 +19,17 @@ This model provides:
 - Operationally simple management via BridgeGovernance.
 - A clean separation between:
   - Bridge: controller allowlisting + minting entrypoints + events. Bridge **does not** implement per‑controller caps or rate limits; it only enforces _who_ can mint.
-  - System-level net exposure caps and pauses, enforced by the MintingGuard
-    contract and higher-level controller logic (e.g. AccountControl).
+  - System-level net exposure caps and pauses, enforced by MintBurnGuard
+    (currently deployed as `MintingGuard`) and higher-level controller logic
+    (e.g. AccountControl), which must route all AccountControl-managed TBTC
+    mint and burn/unmint flows through MintBurnGuard.
 
 ## Trust Model & Operational Guardrails
 
 - Controllers are high‑privilege actors. Any address authorized in the
   `authorizedBalanceIncreasers` mapping can increase Bank balances via the
   Bridge and should be treated as having governance‑level minting power within
-  the bounds configured in MintingGuard and controller logic.
+  the bounds configured in MintBurnGuard and controller logic.
 - Only fully reviewed and audited contracts should ever be added as
   controllers. In particular, controller contracts must not expose generic
   "increase balance" surfaces to untrusted callers and should implement their
@@ -65,20 +67,31 @@ review, deployment runbooks, and monitoring).
 - BridgeGovernance (regular contract):
   - New owner‑only forwarders that call into Bridge:
     - `setAuthorizedBalanceIncreaser(address,bool)`
-- MintingGuard (global minting guard; implemented in `solidity/contracts/account-control/MintingGuard.sol`):
-  - New state:
-    - `totalMinted` – global net‑minted exposure reported by the controller.
+- MintBurnGuard (global mint/burn guard; currently implemented as `MintingGuard` in `solidity/contracts/account-control/MintingGuard.sol`, to be renamed in a follow‑up):
+  - State:
+    - `controller` – the only contract allowed to adjust totals and execute mints/burns (for AccountControl flows, this is `AccountControl`).
+    - `totalMinted` – global net‑minted TBTC exposure for controller‑managed flows (expressed in TBTC base units, 1e18).
     - `globalMintCap` – optional system‑level cap on `totalMinted` (0 disables).
     - `mintingPaused` – global pause flag for controller‑driven minting.
-  - New methods:
-    - `increaseTotalMinted(uint256 amount)` / `decreaseTotalMinted(uint256 amount)` – base accounting helpers callable by the controller.
-    - `mintToBank(address recipient, uint256 tbtcAmount)` – called by the controller to mint via Bridge while updating global exposure.
-    - `reduceExposureAndBurn(address from, uint256 tbtcAmount)` – called by the controller when net exposure is reduced (redemption/unmint); updates exposure only.
-    - `setGlobalMintCap(uint256 newCap)` – owner‑only.
-    - `setMintingPaused(bool paused)` – owner‑only.
+    - References to core tBTC v2 contracts:
+      - `IBridgeMintingAuthorization bridge` – used to mint TBTC into the Bank via `controllerIncreaseBalance(s)`.
+      - Minimal Bank/Vault interfaces for burn/unmint operations.
+  - Methods (high‑level):
+    - Accounting helpers:
+      - `increaseTotalMinted(uint256 amount)` / `decreaseTotalMinted(uint256 amount)` – accounting helpers enforcing pause/cap/underflow, callable only by the configured controller.
+    - Mint executor:
+      - `mintToBank(address recipient, uint256 tbtcAmount)` – enforces `mintingPaused` and `globalMintCap`, bumps `totalMinted`, emits a `BankMintExecuted` event, and calls `bridge.controllerIncreaseBalance(recipient, tbtcAmount)` to mint into the Bank.
+    - Burn/unmint executors:
+      - `burnFromBank(address from, uint256 tbtcAmount)` – decreases `totalMinted`, emits `BankBurnExecuted`, and calls Bank to burn TBTC from the given Bank balance.
+      - `unmintFromVault(uint256 tbtcAmount)` – decreases `totalMinted`, emits `VaultUnmintExecuted`, and calls Vault to unmint/burn TBTC held in the vault.
+      - `reduceExposureAndBurn(address from, uint256 tbtcAmount)` – optional pure accounting helper (no Bank/Vault calls) used for flows that only need to reduce global exposure.
+    - Governance:
+      - `setGlobalMintCap(uint256 newCap)` – owner‑only.
+      - `setMintingPaused(bool paused)` – owner‑only.
+      - `setController(address newController)` / `setBridge(...)` / `setBank(...)` / `setVault(...)` – owner‑only wiring functions.
   - Access model:
-    - A single controller address (e.g. AccountControl) is allowed to adjust totals and use the execution helpers.
-    - The owner (tBTC governance) configures caps and pauses.
+    - A single controller address (e.g. AccountControl) is allowed to use the execution helpers.
+    - The owner (tBTC governance) configures caps, pauses, and underlying core contract references.
 - New interface for integrators: `IBridgeMintingAuthorization` (minimal Bridge surface consumed by controller logic such as AccountControl).
 
 ## Why Governance Redeploy Is Needed
@@ -108,8 +121,8 @@ Supporting scripts (names as in repo):
 - Misconfiguration risk (Bridge allowlist): snapshot + rollback scripts provided; allowlist sync is explicit and evented.
 - Controller over‑minting risk:
   - Bridge enforces _who_ can mint but does not implement per‑controller caps or rate limits.
-  - System‑level net exposure caps and global pauses are enforced by MintingGuard and controller logic (e.g. AccountControl) which must call MintingGuard on every mint/burn.
-  - Controllers are still expected to implement their own internal limits and pause/kill switches; MintingGuard is a coarse global circuit breaker, not a per‑reserve/per‑user policy engine.
+  - System‑level net exposure caps and global pauses are enforced by MintBurnGuard and controller logic (e.g. AccountControl) which must call MintBurnGuard on every net mint/burn operation.
+  - Controllers are still expected to implement their own internal limits and pause/kill switches; MintBurnGuard is a coarse global circuit breaker, not a per‑reserve/per‑user policy engine.
 - Tenderly availability: verification is conditional on local Tenderly config to avoid deployment failures.
 
 ## Environment Notes
