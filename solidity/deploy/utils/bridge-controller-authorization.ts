@@ -104,10 +104,10 @@ async function getGovernanceSigner(
 
   const { governance } = await getNamedAccounts()
   if (!governance) {
-    console.warn(
-      "⚠️  No governance account configured and no private key supplied; skipping."
-    )
-    return undefined
+    const message =
+      "No governance account configured and no private key supplied; aborting controller synchronization."
+    console.warn(`⚠️  ${message}`)
+    throw new Error(message)
   }
 
   return ethers.getSigner(governance)

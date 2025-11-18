@@ -190,21 +190,7 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
             return totalMinted;
         }
 
-        if (mintingPaused) {
-            revert MintingPausedError();
-        }
-
-        unchecked {
-            newTotal = totalMinted + amount;
-        }
-
-        uint256 cap = globalMintCap;
-        if (cap != 0 && newTotal > cap) {
-            revert GlobalMintCapExceeded(newTotal, cap);
-        }
-
-        totalMinted = newTotal;
-        emit TotalMintedIncreased(amount, newTotal);
+        newTotal = _increaseTotalMintedInternal(amount);
     }
 
     /// @notice Decreases the global net-minted exposure.
