@@ -9,6 +9,7 @@ import "@thesis/solidity-contracts/contracts/token/IReceiveApproval.sol";
 
 import "../token/TBTC.sol";
 import "../GovernanceUtils.sol";
+import "../vault/interfaces/IVaultLike.sol";
 
 /// @title TBTC v2 Vending Machine
 /// @notice The Vending Machine is the owner of TBTC v2 token and can mint
@@ -31,7 +32,7 @@ import "../GovernanceUtils.sol";
 ///         proposes the change by initiating the update and the finalizer
 ///         (contract owner) may approve it by finalizing the change after the
 ///         governance delay passes.
-contract VendingMachine is Ownable, IReceiveApproval {
+contract VendingMachine is Ownable, IReceiveApproval, IVaultLike {
     using SafeERC20 for IERC20;
     using SafeERC20 for TBTC;
 
