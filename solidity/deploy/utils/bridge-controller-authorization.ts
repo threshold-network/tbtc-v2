@@ -32,7 +32,7 @@ async function resolveBridgeContracts(
   bridgeGovernance: Contract
 }> {
   const { ethers: hardhatEthers, deployments } = hre
-  const provider = hardhatEthers.provider
+  const { provider } = hardhatEthers
 
   let resolvedBridgeAddress = bridgeAddress
   if (!resolvedBridgeAddress) {

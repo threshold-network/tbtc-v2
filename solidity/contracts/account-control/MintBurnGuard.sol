@@ -18,17 +18,12 @@ pragma solidity 0.8.17;
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "./interfaces/IBridgeMintingAuthorization.sol";
 import "./interfaces/IMintBurnGuard.sol";
+import "../integrator/ITBTCVault.sol";
 
 /// @dev Minimal Bank-like interface exposing only the burn primitive needed
 ///      by MintBurnGuard.
 interface IBankLike {
     function decreaseBalance(uint256 amount) external;
-}
-
-/// @dev Minimal Vault-like interface exposing only the unmint primitive
-///      needed by MintBurnGuard.
-interface IVaultLike {
-    function unmint(uint256 amount) external;
 }
 
 /// @title Mint/Burn Guard
@@ -62,7 +57,7 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
     IBankLike public bank;
 
     /// @notice Vault contract used for unminting TBTC held in the vault.
-    IVaultLike public vault;
+    ITBTCVault public vault;
 
     event ControllerUpdated(
         address indexed previousController,
@@ -152,7 +147,7 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
 
     /// @notice Configures the Vault contract used for unmint helpers.
     /// @param vault_ Vault contract used for unminting TBTC.
-    function setVault(IVaultLike vault_) external onlyOwner {
+    function setVault(ITBTCVault vault_) external onlyOwner {
         require(address(vault_) != address(0), "Vault must not be 0x0");
         vault = vault_;
     }
