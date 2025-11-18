@@ -59,6 +59,20 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
     /// @notice Vault contract used for unminting TBTC held in the vault.
     ITBTCVault public vault;
 
+    /// @notice Maximum amount that may be minted within a single rate window.
+    /// @dev A value of zero disables rate limiting entirely.
+    uint256 public mintRateLimit;
+
+    /// @notice Duration, in seconds, of the rate window governed by `mintRateLimit`.
+    /// @dev This value must be non-zero when `mintRateLimit` is enabled.
+    uint256 public mintRateLimitWindow;
+
+    /// @notice Timestamp that marks the beginning of the current rate window.
+    uint256 public mintRateWindowStart;
+
+    /// @notice Amount minted so far during the current rate window.
+    uint256 public mintRateWindowAmount;
+
     event ControllerUpdated(
         address indexed previousController,
         address indexed newController
@@ -68,6 +82,12 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
     event TotalMintedDecreased(uint256 amount, uint256 newTotal);
     event GlobalMintCapUpdated(uint256 previousCap, uint256 newCap);
     event MintingPaused(bool paused);
+    event MintRateLimitUpdated(
+        uint256 previousLimit,
+        uint256 previousWindow,
+        uint256 newLimit,
+        uint256 newWindow
+    );
 
     event BankMintExecuted(
         address indexed controller,
@@ -99,6 +119,7 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
     error NotController(address caller);
     error MintingPausedError();
     error GlobalMintCapExceeded(uint256 newTotal, uint256 cap);
+    error MintRateLimitExceeded(uint256 windowTotal, uint256 limit);
 
     modifier onlyController() {
         if (msg.sender != controller) {
@@ -301,6 +322,8 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
             revert MintingPausedError();
         }
 
+        _enforceMintRateLimit(amount);
+
         unchecked {
             newTotal = totalMinted + amount;
         }
@@ -330,6 +353,33 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
         emit TotalMintedDecreased(amount, newTotal);
     }
 
+    function _enforceMintRateLimit(uint256 amount) private {
+        uint256 limit = mintRateLimit;
+        uint256 window = mintRateLimitWindow;
+        if (limit == 0 || window == 0) {
+            return;
+        }
+
+        uint256 currentTimestamp = block.timestamp;
+        uint256 windowStart = mintRateWindowStart;
+
+        if (windowStart == 0 || currentTimestamp >= windowStart + window) {
+            if (amount > limit) {
+                revert MintRateLimitExceeded(amount, limit);
+            }
+            mintRateWindowStart = currentTimestamp;
+            mintRateWindowAmount = amount;
+            return;
+        }
+
+        uint256 nextWindowAmount = mintRateWindowAmount + amount;
+        if (nextWindowAmount > limit) {
+            revert MintRateLimitExceeded(nextWindowAmount, limit);
+        }
+
+        mintRateWindowAmount = nextWindowAmount;
+    }
+
     /// @notice Updates the global mint cap.
     /// @param newCap New global mint cap; zero disables the cap.
     /// @dev Can only be called by the owner.
@@ -348,5 +398,36 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
         }
         mintingPaused = paused;
         emit MintingPaused(paused);
+    }
+
+    /// @notice Configures the mint rate limit parameters.
+    /// @param limit Maximum TBTC base units allowed per window; zero disables.
+    /// @param windowSeconds Duration of the rate window in seconds.
+    /// @dev When `limit` is non-zero, `windowSeconds` must also be non-zero.
+    function setMintRateLimit(uint256 limit, uint256 windowSeconds)
+        external
+        onlyOwner
+    {
+        uint256 previousLimit = mintRateLimit;
+        uint256 previousWindow = mintRateLimitWindow;
+
+        if (limit == 0) {
+            mintRateLimit = 0;
+            mintRateLimitWindow = 0;
+        } else {
+            require(windowSeconds != 0, "MintBurnGuard: window must not be 0");
+            mintRateLimit = limit;
+            mintRateLimitWindow = windowSeconds;
+        }
+
+        mintRateWindowStart = 0;
+        mintRateWindowAmount = 0;
+
+        emit MintRateLimitUpdated(
+            previousLimit,
+            previousWindow,
+            mintRateLimit,
+            mintRateLimitWindow
+        );
     }
 }

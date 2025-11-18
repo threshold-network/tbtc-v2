@@ -177,4 +177,51 @@ describe("MintBurnGuard", () => {
       expect(await vault.lastUnmintAmount()).to.equal(unmintAmount)
     })
   })
+
+  describe("rate limiting", () => {
+    it("enforces the configured limit within a window", async () => {
+      await guard.connect(owner).setMintRateLimit(500, 60)
+
+      await guard.connect(controller).increaseTotalMinted(200)
+      await guard.connect(controller).increaseTotalMinted(300)
+
+      const totalBeforeRevert = await guard.totalMinted()
+
+      await expect(guard.connect(controller).increaseTotalMinted(1)).to.be
+        .reverted
+
+      expect(await guard.totalMinted()).to.equal(totalBeforeRevert)
+      expect(await guard.mintRateWindowAmount()).to.equal(500)
+    })
+
+    it("resets the rate window after the configured duration", async () => {
+      const windowSeconds = 60
+      await guard.connect(owner).setMintRateLimit(200, windowSeconds)
+
+      await guard.connect(controller).increaseTotalMinted(200)
+
+      await ethers.provider.send("evm_increaseTime", [windowSeconds + 1])
+      await ethers.provider.send("evm_mine", [])
+
+      await guard.connect(controller).increaseTotalMinted(100)
+      expect(await guard.mintRateWindowAmount()).to.equal(100)
+    })
+
+    it("allows disabling the rate limit via zero configuration", async () => {
+      await guard.connect(owner).setMintRateLimit(300, 120)
+
+      await guard.connect(controller).increaseTotalMinted(300)
+      const totalBeforeRevert = await guard.totalMinted()
+
+      await expect(guard.connect(controller).increaseTotalMinted(1)).to.be
+        .reverted
+
+      expect(await guard.totalMinted()).to.equal(totalBeforeRevert)
+      expect(await guard.mintRateWindowAmount()).to.equal(300)
+
+      await guard.connect(owner).setMintRateLimit(0, 0)
+
+      await guard.connect(controller).increaseTotalMinted(1)
+    })
+  })
 })
