@@ -1235,38 +1235,6 @@ contract Bridge is
         emit AuthorizedBalanceIncreaserUpdated(increaser, authorized);
     }
 
-    /// @notice Updates controller minting limits for the given controller.
-    /// @dev Both `lifetimeCap` and `windowCap` are coarse circuit breakers.
-    ///      A value of zero means "no cap" for the respective limit.
-    /// @param controller Address of the controller whose limits are updated.
-    /// @param lifetimeCap Maximum total amount the controller can mint via
-    ///        controller-based balance increases. Zero means unlimited.
-    /// @param windowCap Maximum amount the controller can mint within a single
-    ///        controller minting window. Zero means unlimited.
-    function updateControllerMintingConfig(
-        address controller,
-        uint256 lifetimeCap,
-        uint256 windowCap
-    ) external onlyGovernance {
-        self.updateControllerMintingConfig(controller, lifetimeCap, windowCap);
-    }
-
-    /// @notice Updates the global duration of the controller minting window.
-    /// @dev A value of zero disables per-window limits for all controllers.
-    /// @param duration New window duration in seconds.
-    function setControllerMintingWindowDuration(uint256 duration)
-        external
-        onlyGovernance
-    {
-        self.updateControllerMintingWindowDuration(duration);
-    }
-
-    /// @notice Enables or disables controller-based minting globally.
-    /// @param paused True to pause controller minting, false to unpause.
-    function setControllerMintingPaused(bool paused) external onlyGovernance {
-        self.setControllerMintingPaused(paused);
-    }
-
     /// @notice Allows the Governance to mark the given vault address as trusted
     ///         or no longer trusted. Vaults are not trusted by default.
     ///         Trusted vault must meet the following criteria:

@@ -6,6 +6,8 @@
 - Approach: upgrade the Bridge proxy implementation to add the allowlist and controller entrypoints; redeploy BridgeGovernance with a forwarder function; transfer governance; optionally sync the allowlist.
 - Safety: evented changes, explicit zero‑address checks, governance‑only setters, snapshot + rollback tooling.
 
+> **Note on AccountControl integration:** For AccountControl‑managed flows, `MintingGuard` is the _only_ contract that should appear in the Bridge `authorizedBalanceIncreasers` mapping. AccountControl itself is never directly authorized on the Bridge; instead, it acts as the sole controller of MintingGuard, and MintingGuard acts as the sole controller of the Bridge for those flows.
+
 ## Motivation
 
 Integrations need a narrow, auditable way to mint balances through the Bridge without broad privileges. Introducing an “authorized balance increaser” allowlist lets governance approve specific controller contracts to call controlled minting functions, minimizing surface area while preserving the existing flow and roles.
@@ -16,7 +18,7 @@ This model provides:
 - On‑chain audit trail via events.
 - Operationally simple management via BridgeGovernance.
 - A clean separation between:
-  - Bridge: allowlisting + minting entrypoints + events, and
+  - Bridge: controller allowlisting + minting entrypoints + events. Bridge **does not** implement per‑controller caps or rate limits; it only enforces _who_ can mint.
   - System-level net exposure caps and pauses, enforced by the MintingGuard
     contract and higher-level controller logic (e.g. AccountControl).
 
@@ -24,8 +26,8 @@ This model provides:
 
 - Controllers are high‑privilege actors. Any address authorized in the
   `authorizedBalanceIncreasers` mapping can increase Bank balances via the
-  Bridge up to governance‑configured caps and should be treated as having
-  governance‑level minting power within that allowance.
+  Bridge and should be treated as having governance‑level minting power within
+  the bounds configured in MintingGuard and controller logic.
 - Only fully reviewed and audited contracts should ever be added as
   controllers. In particular, controller contracts must not expose generic
   "increase balance" surfaces to untrusted callers and should implement their
@@ -69,12 +71,13 @@ review, deployment runbooks, and monitoring).
     - `globalMintCap` – optional system‑level cap on `totalMinted` (0 disables).
     - `mintingPaused` – global pause flag for controller‑driven minting.
   - New methods:
-    - `increaseTotalMinted(uint256 amount)` – called by the controller before minting; enforces `mintingPaused` and `globalMintCap`.
-    - `decreaseTotalMinted(uint256 amount)` – called by the controller when net exposure is reduced (redemption/unmint).
+    - `increaseTotalMinted(uint256 amount)` / `decreaseTotalMinted(uint256 amount)` – base accounting helpers callable by the controller.
+    - `mintToBank(address recipient, uint256 tbtcAmount)` – called by the controller to mint via Bridge while updating global exposure.
+    - `reduceExposureAndBurn(address from, uint256 tbtcAmount)` – called by the controller when net exposure is reduced (redemption/unmint); updates exposure only.
     - `setGlobalMintCap(uint256 newCap)` – owner‑only.
     - `setMintingPaused(bool paused)` – owner‑only.
   - Access model:
-    - A single controller address (e.g. AccountControl) is allowed to adjust totals.
+    - A single controller address (e.g. AccountControl) is allowed to adjust totals and use the execution helpers.
     - The owner (tBTC governance) configures caps and pauses.
 - New interface for integrators: `IBridgeMintingAuthorization` (minimal Bridge surface consumed by controller logic such as AccountControl).
 
@@ -104,7 +107,7 @@ Supporting scripts (names as in repo):
 - Storage layout changes: Bridge uses mapped slots for controller allowlist and keeps an ample storage gap; MintingGuard is a separate contract with its own state. Upgrade paths are accounted for in implementation.
 - Misconfiguration risk (Bridge allowlist): snapshot + rollback scripts provided; allowlist sync is explicit and evented.
 - Controller over‑minting risk:
-  - Bridge enforces _who_ can mint but does not implement per‑controller caps or rate limits anymore.
+  - Bridge enforces _who_ can mint but does not implement per‑controller caps or rate limits.
   - System‑level net exposure caps and global pauses are enforced by MintingGuard and controller logic (e.g. AccountControl) which must call MintingGuard on every mint/burn.
   - Controllers are still expected to implement their own internal limits and pause/kill switches; MintingGuard is a coarse global circuit breaker, not a per‑reserve/per‑user policy engine.
 - Tenderly availability: verification is conditional on local Tenderly config to avoid deployment failures.

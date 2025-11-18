@@ -2,7 +2,7 @@ import { ethers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { expect } from "chai"
 
-import type { MintingGuard } from "../typechain"
+import type { MintingGuard, MockBridgeMintingAuthorization } from "../typechain"
 
 describe("MintingGuard", () => {
   let owner: SignerWithAddress
@@ -10,10 +10,19 @@ describe("MintingGuard", () => {
   let thirdParty: SignerWithAddress
 
   let guard: MintingGuard
+  let bridge: MockBridgeMintingAuthorization
 
   before(async () => {
     const signers = await ethers.getSigners()
     ;[owner, controller, thirdParty] = signers
+
+    const MockBridgeFactory = await ethers.getContractFactory(
+      "MockBridgeMintingAuthorization"
+    )
+    bridge = (await MockBridgeFactory.deploy(
+      owner.address
+    )) as MockBridgeMintingAuthorization
+    await bridge.deployed()
 
     const MintingGuardFactory = await ethers.getContractFactory("MintingGuard")
     guard = (await MintingGuardFactory.deploy(
@@ -21,6 +30,11 @@ describe("MintingGuard", () => {
       controller.address
     )) as MintingGuard
     await guard.deployed()
+
+    await guard.connect(owner).setBridge(bridge.address)
+    await bridge
+      .connect(owner)
+      .setAuthorizedBalanceIncreaser(guard.address, true)
   })
 
   describe("initialization", () => {
@@ -85,6 +99,36 @@ describe("MintingGuard", () => {
       await expect(
         guard.connect(controller).decreaseTotalMinted(current.add(1))
       ).to.be.revertedWith("MintingGuard: underflow")
+    })
+
+    it("mints via bridge and updates exposure", async () => {
+      const amount = 1_000n
+
+      const previousTotal = await guard.totalMinted()
+      await expect(
+        guard.connect(controller).mintToBank(controller.address, amount)
+      )
+        .to.emit(guard, "TotalMintedIncreased")
+        .withArgs(amount, previousTotal.add(amount))
+
+      expect(await guard.totalMinted()).to.equal(previousTotal.add(amount))
+      // Bridge is a mock; as long as it does not revert, we rely on its own
+      // tests to verify forwarding to Bank.
+    })
+
+    it("reduces exposure without affecting external state", async () => {
+      const current = await guard.totalMinted()
+      const burnAmount = current.div(2)
+
+      await expect(
+        guard
+          .connect(controller)
+          .reduceExposureAndBurn(controller.address, burnAmount)
+      )
+        .to.emit(guard, "TotalMintedDecreased")
+        .withArgs(burnAmount, current.sub(burnAmount))
+
+      expect(await guard.totalMinted()).to.equal(current.sub(burnAmount))
     })
   })
 })

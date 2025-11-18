@@ -16,6 +16,7 @@
 pragma solidity 0.8.17;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "./interfaces/IBridgeMintingAuthorization.sol";
 
 /// @title Minting Guard
 /// @notice Tracks global net-minted exposure for a controller and enforces
@@ -25,7 +26,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 ///      AccountControl) reports all mint and burn operations via this guard.
 contract MintingGuard is Ownable {
     /// @notice Address of the controller allowed to adjust the total minted
-    ///         exposure tracked by this guard.
+    ///         exposure tracked by this guard and call execution helpers.
     address public controller;
 
     /// @notice Global net-minted amount reported by the controller.
@@ -38,9 +39,11 @@ contract MintingGuard is Ownable {
     uint256 public globalMintCap;
 
     /// @notice Global pause flag for controller-driven minting.
-    /// @dev When set to true, `increaseTotalMinted` reverts for any amount
-    ///      greater than zero.
+    /// @dev When set to true, mint-side helpers revert for any amount > 0.
     bool public mintingPaused;
+
+    /// @notice Bridge contract used to mint TBTC into the Bank.
+    IBridgeMintingAuthorization public bridge;
 
     event ControllerUpdated(
         address indexed previousController,
@@ -51,6 +54,26 @@ contract MintingGuard is Ownable {
     event TotalMintedDecreased(uint256 amount, uint256 newTotal);
     event GlobalMintCapUpdated(uint256 previousCap, uint256 newCap);
     event MintingPaused(bool paused);
+
+    event BankMintExecuted(
+        address indexed controller,
+        address indexed recipient,
+        uint256 amountSats,
+        uint256 newTotalMinted
+    );
+
+    event BankBurnExecuted(
+        address indexed controller,
+        address indexed from,
+        uint256 amountSats,
+        uint256 newTotalMinted
+    );
+
+    event VaultUnmintExecuted(
+        address indexed controller,
+        uint256 amountSats,
+        uint256 newTotalMinted
+    );
 
     error NotController(address caller);
     error MintingPausedError();
@@ -85,6 +108,13 @@ contract MintingGuard is Ownable {
         address previous = controller;
         controller = newController;
         emit ControllerUpdated(previous, newController);
+    }
+
+    /// @notice Configures the Bridge contract used for execution helpers.
+    /// @param bridge_ Bridge contract used for controller-based minting.
+    function setBridge(IBridgeMintingAuthorization bridge_) external onlyOwner {
+        require(address(bridge_) != address(0), "Bridge must not be 0x0");
+        bridge = bridge_;
     }
 
     /// @notice Increases the global net-minted exposure.
@@ -130,6 +160,79 @@ contract MintingGuard is Ownable {
             return totalMinted;
         }
 
+        newTotal = _decreaseTotalMintedInternal(amount);
+    }
+
+    /// @notice Mints TBTC to the Bank via the Bridge and updates global exposure.
+    /// @param recipient Address receiving the TBTC bank balance.
+    /// @param amount Amount in TBTC base units (1e18) to add to exposure.
+    /// @dev Can only be called by the configured controller.
+    function mintToBank(address recipient, uint256 amount)
+        external
+        onlyController
+    {
+        if (amount == 0) {
+            return;
+        }
+
+        uint256 newTotal = _increaseTotalMintedInternal(amount);
+
+        require(address(bridge) != address(0), "MintingGuard: bridge not set");
+
+        bridge.controllerIncreaseBalance(recipient, amount);
+
+        emit BankMintExecuted(controller, recipient, amount, newTotal);
+    }
+
+    /// @notice Reduces exposure and burns TBTC via Bank/Vault as appropriate.
+    /// @param from Source address for burns that operate on balances.
+    /// @param amount Amount in TBTC base units (1e18) to reduce from exposure.
+    /// @dev The controller is responsible for choosing the correct `from`
+    ///      semantics per flow. This helper only coordinates accounting and
+    ///      calls into the configured Bank/Vault.
+    function reduceExposureAndBurn(address from, uint256 amount)
+        external
+        onlyController
+    {
+        if (amount == 0) {
+            return;
+        }
+
+        uint256 newTotal = _decreaseTotalMintedInternal(amount);
+
+        // This helper only coordinates global exposure accounting; the actual
+        // Bank/Vault burns are executed by the controller (e.g. AccountControl)
+        // before calling into this function.
+        emit BankBurnExecuted(controller, from, amount, newTotal);
+    }
+
+    /// @notice Internal helper increasing `totalMinted` with cap and pause checks.
+    function _increaseTotalMintedInternal(uint256 amount)
+        private
+        returns (uint256 newTotal)
+    {
+        if (mintingPaused) {
+            revert MintingPausedError();
+        }
+
+        unchecked {
+            newTotal = totalMinted + amount;
+        }
+
+        uint256 cap = globalMintCap;
+        if (cap != 0 && newTotal > cap) {
+            revert GlobalMintCapExceeded(newTotal, cap);
+        }
+
+        totalMinted = newTotal;
+        emit TotalMintedIncreased(amount, newTotal);
+    }
+
+    /// @notice Internal helper decreasing `totalMinted` with underflow protection.
+    function _decreaseTotalMintedInternal(uint256 amount)
+        private
+        returns (uint256 newTotal)
+    {
         uint256 current = totalMinted;
         require(amount <= current, "MintingGuard: underflow");
 

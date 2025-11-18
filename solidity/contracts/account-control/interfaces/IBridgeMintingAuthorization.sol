@@ -20,9 +20,10 @@ pragma solidity 0.8.17;
 ///      - The Bridge exposes controller-based minting entrypoints that are
 ///        restricted to governance-authorized controller contracts via the
 ///        `authorizedBalanceIncreasers` mapping.
-///      - The Bridge may enforce coarse, governance-configured caps and
-///        rate limits for controller-based minting, but these are circuit
-///        breakers only and are not a substitute for per-protocol policy.
+///      - The Bridge **does not** enforce per-controller caps or rate limits;
+///        it only enforces _who_ can mint. Global caps, pauses, and any
+///        per-protocol policy must be implemented in MintingGuard and the
+///        controller contracts themselves.
 ///      - Controller contracts MUST implement their own access control,
 ///        limits, and pause/kill switches so that a compromise or bug in a
 ///        controller does not result in unbounded system-wide minting within
