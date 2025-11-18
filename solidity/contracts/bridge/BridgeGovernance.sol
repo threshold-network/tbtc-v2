@@ -314,37 +314,6 @@ contract BridgeGovernance is Ownable {
         bridge.setAuthorizedBalanceIncreaser(increaser, authorized);
     }
 
-    /// @notice Updates controller minting limits for the given controller.
-    /// @dev See `Bridge.updateControllerMintingConfig` for semantics. This
-    ///      function does not apply any additional governance delay.
-    function updateControllerMintingConfig(
-        address controller,
-        uint256 lifetimeCap,
-        uint256 windowCap
-    ) external onlyOwner {
-        bridge.updateControllerMintingConfig(
-            controller,
-            lifetimeCap,
-            windowCap
-        );
-    }
-
-    /// @notice Updates the global controller minting window duration.
-    /// @dev This is a direct governance action without an additional delay.
-    function setControllerMintingWindowDuration(uint256 duration)
-        external
-        onlyOwner
-    {
-        bridge.setControllerMintingWindowDuration(duration);
-    }
-
-    /// @notice Enables or disables controller-based minting globally.
-    /// @dev This is intended as an emergency circuit breaker and is not
-    ///      subject to a governance delay.
-    function setControllerMintingPaused(bool paused) external onlyOwner {
-        bridge.setControllerMintingPaused(paused);
-    }
-
     /// @notice Allows the Governance to mark the given address as trusted
     ///         or no longer trusted SPV maintainer. Addresses are not trusted
     ///         as SPV maintainers by default.

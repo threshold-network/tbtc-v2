@@ -1622,7 +1622,6 @@ contract Bridge is
             "Caller is not an authorized increaser"
         );
 
-        self.enforceControllerMintingLimits(msg.sender, amount);
         self.bank.increaseBalance(recipient, amount);
 
         emit ControllerBalanceIncreased(msg.sender, recipient, amount);
@@ -1642,13 +1641,6 @@ contract Bridge is
             self.authorizedBalanceIncreasers[msg.sender],
             "Caller is not an authorized increaser"
         );
-        uint256 length = amounts.length;
-        uint256 totalAmount;
-        for (uint256 i = 0; i < length; i++) {
-            totalAmount += amounts[i];
-        }
-
-        self.enforceControllerMintingLimits(msg.sender, totalAmount);
         self.bank.increaseBalances(recipients, amounts);
 
         emit ControllerBalancesIncreased(msg.sender, recipients, amounts);
@@ -1828,51 +1820,6 @@ contract Bridge is
         returns (bool)
     {
         return self.authorizedBalanceIncreasers[increaser];
-    }
-
-    /// @notice Returns the current global controller minting window duration.
-    /// @return duration Controller minting window duration in seconds. Zero
-    ///         means per-window limits are disabled.
-    function controllerMintingWindowDuration()
-        external
-        view
-        returns (uint256 duration)
-    {
-        return self.controllerMintingWindowDuration;
-    }
-
-    /// @notice Indicates whether controller-based minting is globally paused.
-    /// @return paused True if controller minting is paused, false otherwise.
-    function controllerMintingPaused() external view returns (bool paused) {
-        return self.controllerMintingPaused != 0;
-    }
-
-    /// @notice Returns controller minting state for a given controller.
-    /// @param controller Address of the controller.
-    /// @return lifetimeMinted Total amount minted by the controller via
-    ///         controller-based balance increases.
-    /// @return lifetimeCap Lifetime cap configured for the controller
-    ///         (zero means unlimited).
-    /// @return windowMinted Amount minted in the current window.
-    /// @return windowCap Per-window cap configured for the controller
-    ///         (zero means unlimited).
-    /// @return windowStart Start timestamp of the current window.
-    function controllerMintingState(address controller)
-        external
-        view
-        returns (
-            uint256 lifetimeMinted,
-            uint256 lifetimeCap,
-            uint256 windowMinted,
-            uint256 windowCap,
-            uint256 windowStart
-        )
-    {
-        lifetimeMinted = self.controllerMintedTotal[controller];
-        lifetimeCap = self.controllerMintingLifetimeCap[controller];
-        windowMinted = self.controllerMintedInWindow[controller];
-        windowCap = self.controllerMintingWindowCap[controller];
-        windowStart = self.controllerWindowStart[controller];
     }
 
     /// @notice Returns the current values of Bridge deposit parameters.
