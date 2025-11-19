@@ -97,11 +97,13 @@ export class SeiBitcoinDepositor implements BitcoinDepositor {
     const enhancedConfig = { ...config }
     if (!enhancedConfig.relayerUrl) {
       // Check if we're in development mode
+      // Supports both browser (localhost/127.0.0.1) and Node.js (NODE_ENV) environments
       const isDevelopment =
-        typeof window !== "undefined" &&
-        (window.location.hostname === "localhost" ||
-          window.location.hostname === "127.0.0.1") &&
-        false
+        (typeof window !== "undefined" &&
+          (window.location.hostname === "localhost" ||
+            window.location.hostname === "127.0.0.1")) ||
+        (typeof process !== "undefined" &&
+          process.env?.NODE_ENV === "development")
 
       // Determine chain name for URL
       const chainNameMap: Record<string, string> = {
