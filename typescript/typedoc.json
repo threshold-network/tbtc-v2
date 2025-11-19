@@ -5,7 +5,7 @@
   "plugin": ["typedoc-plugin-markdown"],
   "githubPages": false,
   "readme": "none",
-  "sourceLinkTemplate": "{path}#L{line}",
+  "sourceLinkTemplate": "https://github.com/threshold-network/tbtc-v2/blob/main/{path}#L{line}",
   "hideBreadcrumbs": true,
   "compilerOptions": {
     "skipLibCheck": true

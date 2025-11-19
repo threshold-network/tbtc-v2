@@ -63,7 +63,7 @@ EthersContractHandle\&lt;L2BitcoinDepositorTypechain\&gt;.constructor
 
 #### Defined in
 
-[lib/arbitrum/l2-bitcoin-depositor.ts:33](typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L33)
+[lib/arbitrum/l2-bitcoin-depositor.ts:33](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L33)
 
 ## Properties
 
@@ -73,7 +73,7 @@ EthersContractHandle\&lt;L2BitcoinDepositorTypechain\&gt;.constructor
 
 #### Defined in
 
-[lib/arbitrum/l2-bitcoin-depositor.ts:31](typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L31)
+[lib/arbitrum/l2-bitcoin-depositor.ts:31](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L31)
 
 ___
 
@@ -83,7 +83,7 @@ ___
 
 #### Defined in
 
-[lib/arbitrum/l2-bitcoin-depositor.ts:30](typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L30)
+[lib/arbitrum/l2-bitcoin-depositor.ts:30](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L30)
 
 ___
 
@@ -101,7 +101,7 @@ EthersContractHandle.\_deployedAtBlockNumber
 
 #### Defined in
 
-[lib/ethereum/adapter.ts:80](typescript/src/lib/ethereum/adapter.ts#L80)
+[lib/ethereum/adapter.ts:80](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L80)
 
 ___
 
@@ -117,7 +117,7 @@ EthersContractHandle.\_instance
 
 #### Defined in
 
-[lib/ethereum/adapter.ts:74](typescript/src/lib/ethereum/adapter.ts#L74)
+[lib/ethereum/adapter.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L74)
 
 ___
 
@@ -133,7 +133,7 @@ EthersContractHandle.\_totalRetryAttempts
 
 #### Defined in
 
-[lib/ethereum/adapter.ts:84](typescript/src/lib/ethereum/adapter.ts#L84)
+[lib/ethereum/adapter.ts:84](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L84)
 
 ## Methods
 
@@ -153,7 +153,7 @@ EthersContractHandle.\_totalRetryAttempts
 
 #### Defined in
 
-[lib/arbitrum/l2-bitcoin-depositor.ts:80](typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L80)
+[lib/arbitrum/l2-bitcoin-depositor.ts:80](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L80)
 
 ___
 
@@ -175,7 +175,7 @@ EthersContractHandle.getAddress
 
 #### Defined in
 
-[lib/ethereum/adapter.ts:112](typescript/src/lib/ethereum/adapter.ts#L112)
+[lib/ethereum/adapter.ts:112](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L112)
 
 ___
 
@@ -195,7 +195,7 @@ ___
 
 #### Defined in
 
-[lib/arbitrum/l2-bitcoin-depositor.ts:56](typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L56)
+[lib/arbitrum/l2-bitcoin-depositor.ts:56](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L56)
 
 ___
 
@@ -215,7 +215,7 @@ ___
 
 #### Defined in
 
-[lib/arbitrum/l2-bitcoin-depositor.ts:64](typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L64)
+[lib/arbitrum/l2-bitcoin-depositor.ts:64](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L64)
 
 ___
 
@@ -249,7 +249,7 @@ EthersContractHandle.getEvents
 
 #### Defined in
 
-[lib/ethereum/adapter.ts:127](typescript/src/lib/ethereum/adapter.ts#L127)
+[lib/ethereum/adapter.ts:127](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L127)
 
 ___
 
@@ -278,7 +278,7 @@ ___
 
 #### Defined in
 
-[lib/arbitrum/l2-bitcoin-depositor.ts:88](typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L88)
+[lib/arbitrum/l2-bitcoin-depositor.ts:88](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L88)
 
 ___
 
@@ -304,4 +304,4 @@ ___
 
 #### Defined in
 
-[lib/arbitrum/l2-bitcoin-depositor.ts:72](typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L72)
+[lib/arbitrum/l2-bitcoin-depositor.ts:72](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L72)

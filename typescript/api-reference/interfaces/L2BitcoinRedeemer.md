@@ -24,7 +24,7 @@ Gets the chain-specific identifier of this contract.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:127](typescript/src/lib/contracts/cross-chain.ts#L127)
+[lib/contracts/cross-chain.ts:127](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L127)
 
 ___
 
@@ -53,4 +53,4 @@ Transaction hash of the approve and call transaction.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:140](typescript/src/lib/contracts/cross-chain.ts#L140)
+[lib/contracts/cross-chain.ts:140](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L140)
