@@ -65,7 +65,7 @@ Error if provider is not provided
 
 #### Defined in
 
-[lib/sei/sei-depositor.ts:87](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L87)
+[lib/sei/sei-depositor.ts:88](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L88)
 
 ## Properties
 
@@ -75,7 +75,7 @@ Error if provider is not provided
 
 #### Defined in
 
-[lib/sei/sei-depositor.ts:76](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L76)
+[lib/sei/sei-depositor.ts:77](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L77)
 
 ___
 
@@ -85,7 +85,7 @@ ___
 
 #### Defined in
 
-[lib/sei/sei-depositor.ts:75](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L75)
+[lib/sei/sei-depositor.ts:76](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L76)
 
 ___
 
@@ -95,7 +95,7 @@ ___
 
 #### Defined in
 
-[lib/sei/sei-depositor.ts:78](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L78)
+[lib/sei/sei-depositor.ts:79](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L79)
 
 ___
 
@@ -105,7 +105,7 @@ ___
 
 #### Defined in
 
-[lib/sei/sei-depositor.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L74)
+[lib/sei/sei-depositor.ts:75](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L75)
 
 ___
 
@@ -115,7 +115,7 @@ ___
 
 #### Defined in
 
-[lib/sei/sei-depositor.ts:77](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L77)
+[lib/sei/sei-depositor.ts:78](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L78)
 
 ## Methods
 
@@ -137,7 +137,7 @@ The SeiExtraDataEncoder instance.
 
 #### Defined in
 
-[lib/sei/sei-depositor.ts:191](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L191)
+[lib/sei/sei-depositor.ts:192](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L192)
 
 ___
 
@@ -161,7 +161,7 @@ Formatted error message
 
 #### Defined in
 
-[lib/sei/sei-depositor.ts:422](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L422)
+[lib/sei/sei-depositor.ts:423](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L423)
 
 ___
 
@@ -190,7 +190,7 @@ Error if the address is invalid
 
 #### Defined in
 
-[lib/sei/sei-depositor.ts:497](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L497)
+[lib/sei/sei-depositor.ts:498](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L498)
 
 ___
 
@@ -214,7 +214,7 @@ Always throws since Sei deposits are handled via L1.
 
 #### Defined in
 
-[lib/sei/sei-depositor.ts:151](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L151)
+[lib/sei/sei-depositor.ts:152](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L152)
 
 ___
 
@@ -232,7 +232,7 @@ The chain name (e.g., "Sei")
 
 #### Defined in
 
-[lib/sei/sei-depositor.ts:134](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L134)
+[lib/sei/sei-depositor.ts:135](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L135)
 
 ___
 
@@ -254,7 +254,7 @@ The Sei address set as deposit owner, or undefined if not set.
 
 #### Defined in
 
-[lib/sei/sei-depositor.ts:162](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L162)
+[lib/sei/sei-depositor.ts:163](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L163)
 
 ___
 
@@ -272,7 +272,7 @@ The Sei provider instance
 
 #### Defined in
 
-[lib/sei/sei-depositor.ts:142](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L142)
+[lib/sei/sei-depositor.ts:143](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L143)
 
 ___
 
@@ -311,7 +311,7 @@ Error if deposit owner not set or relayer returns unexpected response
 
 #### Defined in
 
-[lib/sei/sei-depositor.ts:210](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L210)
+[lib/sei/sei-depositor.ts:211](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L211)
 
 ___
 
@@ -335,7 +335,7 @@ True if the error is retryable
 
 #### Defined in
 
-[lib/sei/sei-depositor.ts:394](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L394)
+[lib/sei/sei-depositor.ts:395](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L395)
 
 ___
 
@@ -365,4 +365,4 @@ Error if the deposit owner is not a SeiAddress and not undefined/null.
 
 #### Defined in
 
-[lib/sei/sei-depositor.ts:172](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L172)
+[lib/sei/sei-depositor.ts:173](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L173)
