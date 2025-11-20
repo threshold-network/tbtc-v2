@@ -1,6 +1,7 @@
 import {
   BitcoinDepositor,
   ChainIdentifier,
+  Chains,
   ExtraDataEncoder,
 } from "../contracts"
 import { BitcoinRawTxVectors } from "../bitcoin"
@@ -106,12 +107,12 @@ export class SeiBitcoinDepositor implements BitcoinDepositor {
           process.env?.NODE_ENV === "development")
 
       // Determine chain name for URL
-      const chainNameMap: Record<string, string> = {
-        "1329": "SeiMainnet", // Sei Pacific-1 Mainnet
-        "1328": "SeiTestnet", // Sei Atlantic-2 Testnet
-      }
-
-      const chainName = chainNameMap[config.chainId] || "SeiTestnet"
+      const chainName =
+        config.chainId === Chains.Sei.Mainnet
+          ? "SeiMainnet"
+          : config.chainId === Chains.Sei.Testnet
+            ? "SeiTestnet"
+            : "SeiTestnet"
 
       if (isDevelopment) {
         // Use local relayer for development with chain-specific endpoint
