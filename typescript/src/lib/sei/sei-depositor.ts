@@ -111,8 +111,8 @@ export class SeiBitcoinDepositor implements BitcoinDepositor {
         config.chainId === Chains.Sei.Mainnet
           ? "SeiMainnet"
           : config.chainId === Chains.Sei.Testnet
-            ? "SeiTestnet"
-            : "SeiTestnet"
+          ? "SeiTestnet"
+          : "SeiTestnet"
 
       if (isDevelopment) {
         // Use local relayer for development with chain-specific endpoint
