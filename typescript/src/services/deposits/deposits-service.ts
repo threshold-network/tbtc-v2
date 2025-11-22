@@ -187,6 +187,12 @@ export class DepositsService {
   ] as const
 
   /**
+   * EVM-compatible L2 chains that require 20-byte address format for deposit owners.
+   * Non-EVM L2s (Sui, StarkNet) require 32-byte format.
+   */
+  private readonly EVM_L2_CHAINS = ["Arbitrum", "Base"] as const
+
+  /**
    * Hex string length for a bytes32 value (0x prefix + 64 hex characters).
    * Used for L1 deposit owner encoding and extraData validation.
    */
@@ -244,6 +250,17 @@ export class DepositsService {
     this.bitcoinClient = bitcoinClient
     this.#crossChainContracts = crossChainContracts
     this.#nativeBTCDepositor = nativeBTCDepositor
+  }
+
+  /**
+   * Checks if the given chain name is an EVM-compatible L2 chain.
+   * @param chainName - Name of the destination chain to check
+   * @returns true if the chain is an EVM L2 (Arbitrum, Base), false otherwise
+   */
+  private isEVML2Chain(chainName: string): boolean {
+    return this.EVM_L2_CHAINS.some(
+      (chain) => chain.toLowerCase() === chainName.toLowerCase()
+    )
   }
 
   /**
@@ -378,9 +395,13 @@ export class DepositsService {
    *
    * @param bitcoinRecoveryAddress P2PKH or P2WPKH Bitcoin address for emergency recovery
    * @param depositOwner Ethereum address that will receive the minted tBTC.
-   *                     For L1 deposits, this is the user's Ethereum address.
-   *                     For L2 deposits, this is typically the signer's address
-   *                     (obtained from the destination chain BitcoinDepositor).
+   *                     - For L1 deposits: This address is used directly and encoded
+   *                       as bytes32 in the deposit's extraData.
+   *                     - For L2 deposits: This parameter is currently ignored; the
+   *                       deposit owner is automatically resolved from the destination
+   *                       chain's BitcoinDepositor contract (typically the signer's
+   *                       address). This ensures proper integration with the L2
+   *                       cross-chain infrastructure.
    * @param destinationChainName Target chain name for the deposit. Must be one of the
    *                             supported chains (case-sensitive):
    *                             - "L1" - Direct L1 deposits via NativeBTCDepositor
@@ -392,11 +413,10 @@ export class DepositsService {
    * @returns GaslessDepositResult containing deposit object, receipt, and chain name
    * @throws Throws an error if:
    *         - Bitcoin recovery address is not P2PKH or P2WPKH
-   *         - Deposit owner is not a valid Ethereum address
    *         - Destination chain name is not in the supported list
    *         - Destination chain contracts not initialized (for L2 deposits)
    *         - NativeBTCDepositor address not available (for L1 deposits)
-   *         - Deposit owner cannot be resolved (for L2 deposits)
+   *         - Deposit owner cannot be resolved from L2 signer (for L2 deposits)
    *         - No active wallet in Bridge contract
    */
   async initiateGaslessDeposit(
@@ -424,9 +444,17 @@ export class DepositsService {
 
   /**
    * Internal helper for L1 gasless deposits using NativeBTCDepositor.
+   *
+   * This method creates an L1 deposit where the depositOwner is encoded as
+   * bytes32 extraData in the deposit receipt. The NativeBTCDepositor address
+   * is resolved either from the constructor parameter, the setter override,
+   * or the network-based mapping.
+   *
    * @param bitcoinRecoveryAddress - Bitcoin address for recovery if deposit fails (P2PKH or P2WPKH).
    * @param depositOwner - Ethereum address that will receive the minted tBTC on L1.
+   *                       This is encoded as bytes32 and stored in extraData.
    * @returns Promise resolving to GaslessDepositResult containing deposit, receipt, and "L1" chain name.
+   * @throws Error if NativeBTCDepositor address is not available for the current network.
    */
   private async initiateL1GaslessDeposit(
     bitcoinRecoveryAddress: string,
@@ -470,10 +498,16 @@ export class DepositsService {
 
   /**
    * Internal helper for L2 gasless deposits using L1BitcoinDepositor.
-   * Pattern based on initiateCrossChainDeposit.
+   *
+   * This method creates a cross-chain deposit where the deposit owner is
+   * automatically resolved from the L2 BitcoinDepositor contract. The pattern
+   * is based on initiateCrossChainDeposit but returns the enriched
+   * GaslessDepositResult instead of just a Deposit object.
+   *
    * @param bitcoinRecoveryAddress - Bitcoin address for recovery if deposit fails (P2PKH or P2WPKH).
-   * @param destinationChainName - Name of the L2 destination chain (e.g., "Base", "Arbitrum", "Optimism").
+   * @param destinationChainName - Name of the L2 destination chain (e.g., "Base", "Arbitrum", "Sui", "StarkNet").
    * @returns Promise resolving to GaslessDepositResult containing deposit, receipt, and destination chain name.
+   * @throws Error if cross-chain contracts are not initialized or deposit owner cannot be resolved.
    */
   private async initiateL2GaslessDeposit(
     bitcoinRecoveryAddress: string,
@@ -605,21 +639,33 @@ export class DepositsService {
 
       const extraDataHex = receipt.extraData.toPrefixedString()
 
-      // L2 contracts (e.g., Arbitrum, Base) expect address type, not bytes32
-      if (extraDataHex.length === this.BYTES32_HEX_LENGTH) {
-        // 32 bytes: Extract last 20 bytes (address) from bytes32 extraData
-        // The address is stored in the rightmost 20 bytes of the 32-byte value
-        destinationOwner = `0x${extraDataHex.slice(-this.ADDRESS_HEX_CHARS)}`
-      } else if (extraDataHex.length === this.ADDRESS_HEX_LENGTH) {
-        // Already 20 bytes (address format) - use directly
-        destinationOwner = extraDataHex
+      // Format owner based on destination chain requirements
+      if (this.isEVML2Chain(destinationChainName)) {
+        // EVM L2s (Arbitrum, Base): Extract 20-byte address from bytes32 or use 20 bytes directly
+        if (extraDataHex.length === this.BYTES32_HEX_LENGTH) {
+          // 32 bytes: Extract last 20 bytes (address) from bytes32 extraData
+          // The address is stored in the rightmost 20 bytes of the 32-byte value
+          destinationOwner = `0x${extraDataHex.slice(-this.ADDRESS_HEX_CHARS)}`
+        } else if (extraDataHex.length === this.ADDRESS_HEX_LENGTH) {
+          // Already 20 bytes (address format) - use directly
+          destinationOwner = extraDataHex
+        } else {
+          throw new Error(
+            `Invalid extraData length for EVM L2 deposit owner: received ${
+              (extraDataHex.length - 2) / 2
+            } bytes, expected 20 or 32 bytes.`
+          )
+        }
       } else {
-        throw new Error(
-          `Invalid extraData length for L2 deposit owner: received ${
-            (extraDataHex.length - 2) / 2
-          } bytes, expected 20 or 32 bytes. ` +
-            `ExtraData must contain the destination chain deposit owner address.`
-        )
+        // Non-EVM L2s (Sui, StarkNet): Use full 32-byte extraData
+        if (extraDataHex.length !== this.BYTES32_HEX_LENGTH) {
+          throw new Error(
+            `${destinationChainName} requires 32-byte extraData for deposit owner, got ${
+              (extraDataHex.length - 2) / 2
+            } bytes.`
+          )
+        }
+        destinationOwner = extraDataHex
       }
     }
 
