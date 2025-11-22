@@ -77,6 +77,8 @@
 - [ElectrumCredentials](interfaces/ElectrumCredentials.md)
 - [EthereumContractConfig](interfaces/EthereumContractConfig.md)
 - [ExtraDataEncoder](interfaces/ExtraDataEncoder.md)
+- [GaslessDepositResult](interfaces/GaslessDepositResult.md)
+- [GaslessRevealPayload](interfaces/GaslessRevealPayload.md)
 - [L1BitcoinRedeemer](interfaces/L1BitcoinRedeemer.md)
 - [L2BitcoinRedeemer](interfaces/L2BitcoinRedeemer.md)
 - [RedeemerProxy](interfaces/RedeemerProxy.md)
@@ -110,6 +112,7 @@
 - [ErrorMatcherFn](README.md#errormatcherfn)
 - [EthereumSigner](README.md#ethereumsigner)
 - [ExecutionLoggerFn](README.md#executionloggerfn)
+- [GaslessDestination](README.md#gaslessdestination)
 - [L1BitcoinDepositor](README.md#l1bitcoindepositor)
 - [L1CrossChainContracts](README.md#l1crosschaincontracts)
 - [L2BitcoinDepositor](README.md#l2bitcoindepositor)
@@ -145,6 +148,7 @@
 - [BitcoinTargetConverter](README.md#bitcointargetconverter)
 - [ChainMappings](README.md#chainmappings)
 - [EthereumCrossChainExtraDataEncoder](README.md#ethereumcrosschainextradataencoder)
+- [NATIVE\_BTC\_DEPOSITOR\_ADDRESSES](README.md#native_btc_depositor_addresses)
 - [SolanaCrossChainExtraDataEncoder](README.md#solanacrosschainextradataencoder)
 - [StarkNetCrossChainExtraDataEncoder](README.md#starknetcrosschainextradataencoder)
 - [StarkNetDepositor](README.md#starknetdepositor)
@@ -413,7 +417,7 @@ or a Provider that works only in the read-only mode.
 
 #### Defined in
 
-[lib/ethereum/index.ts:35](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L35)
+[lib/ethereum/index.ts:36](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L36)
 
 ___
 
@@ -440,6 +444,19 @@ A function that is called with execution status messages.
 #### Defined in
 
 [lib/utils/backoff.ts:56](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/backoff.ts#L56)
+
+___
+
+### GaslessDestination
+
+Ƭ **GaslessDestination**: ``"L1"`` \| [`DestinationChainName`](README.md#destinationchainname)
+
+Supported destination chains for gasless deposits.
+Includes "L1" for direct Ethereum L1 deposits and all supported L2 chains.
+
+#### Defined in
+
+[services/deposits/deposits-service.ts:29](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L29)
 
 ___
 
@@ -968,6 +985,51 @@ Use EthereumExtraDataEncoder instead
 
 ___
 
+### NATIVE\_BTC\_DEPOSITOR\_ADDRESSES
+
+• `Const` **NATIVE\_BTC\_DEPOSITOR\_ADDRESSES**: `Record`\<[`Mainnet`](enums/BitcoinNetwork-1.md#mainnet) \| [`Testnet`](enums/BitcoinNetwork-1.md#testnet), `string`\>
+
+NativeBTCDepositor contract addresses for gasless L1 tBTC deposits.
+
+These contracts enable users to make Bitcoin deposits to L1 Ethereum
+without paying gas fees. The relayer backend handles all transaction costs.
+The depositor contract acts as an intermediary that accepts Bitcoin deposits
+and automatically initiates the tBTC minting process on the user's behalf.
+
+**`Remarks`**
+
+This constant maps Bitcoin network types to their corresponding
+NativeBTCDepositor smart contract addresses deployed on Ethereum.
+It is used by the DepositsService to select the appropriate contract
+address based on the Bitcoin network environment (mainnet vs testnet).
+
+The gasless deposit flow works as follows:
+1. User makes a Bitcoin deposit to the depositor contract address
+2. Relayer backend detects the deposit and covers gas costs
+3. Depositor contract initiates tBTC minting on Ethereum L1
+4. User receives tBTC without paying any Ethereum transaction fees
+
+**`Example`**
+
+```typescript
+import { NATIVE_BTC_DEPOSITOR_ADDRESSES } from "@keep-network/tbtc-v2.ts"
+import { BitcoinNetwork } from "@keep-network/tbtc-v2.ts"
+
+const bitcoinNetwork = BitcoinNetwork.Mainnet
+const depositorAddress = NATIVE_BTC_DEPOSITOR_ADDRESSES[bitcoinNetwork]
+console.log(depositorAddress) // "0xad7c6d46F4a4bc2D3A227067d03218d6D7c9aaa5"
+```
+
+**`See`**
+
+[https://github.com/keep-network/tbtc-v2/blob/main/solidity/contracts/depositor/NativeBTCDepositor.sol](https://github.com/keep-network/tbtc-v2/blob/main/solidity/contracts/depositor/NativeBTCDepositor.sol) for contract implementation
+
+#### Defined in
+
+[lib/ethereum/constants.ts:35](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/constants.ts#L35)
+
+___
+
 ### SolanaCrossChainExtraDataEncoder
 
 • `Const` **SolanaCrossChainExtraDataEncoder**: typeof [`SolanaExtraDataEncoder`](classes/SolanaExtraDataEncoder.md) = `SolanaExtraDataEncoder`
@@ -1144,7 +1206,7 @@ Chain ID as a string.
 
 #### Defined in
 
-[lib/ethereum/index.ts:42](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L42)
+[lib/ethereum/index.ts:43](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L43)
 
 ___
 
@@ -1199,7 +1261,7 @@ Throws an error if the address of the signer is not a proper
 
 #### Defined in
 
-[lib/ethereum/index.ts:64](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L64)
+[lib/ethereum/index.ts:65](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L65)
 
 ___
 
@@ -1232,7 +1294,7 @@ Throws an error if the signer's Ethereum chain ID is other than
 
 #### Defined in
 
-[lib/ethereum/index.ts:119](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L119)
+[lib/ethereum/index.ts:120](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L120)
 
 ___
 
@@ -1400,7 +1462,7 @@ Throws an error if the signer's Ethereum chain ID is other than
 
 #### Defined in
 
-[lib/ethereum/index.ts:83](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L83)
+[lib/ethereum/index.ts:84](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L84)
 
 ___
 

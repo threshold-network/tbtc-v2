@@ -16,6 +16,7 @@ import { EthereumL1BitcoinRedeemer } from "./l1-bitcoin-redeemer"
 
 export * from "./address"
 export * from "./bridge"
+export * from "./constants"
 export * from "./depositor-proxy"
 export * from "./l1-bitcoin-depositor"
 export * from "./tbtc-token"
