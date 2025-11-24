@@ -69,7 +69,7 @@ describe("SeiTBTCToken", () => {
           },
           "9999" as any
         )
-      }).to.throw("Unsupported deployment type")
+      }).to.throw("Unsupported Sei chainId: 9999")
     })
   })
 

@@ -34,7 +34,7 @@ export class SeiTBTCToken
         deployment = SeiL2TBTCTokenDeployment
         break
       default:
-        throw new Error("Unsupported deployment type")
+        throw new Error(`Unsupported Sei chainId: ${chainId}`)
     }
 
     super(config, deployment)
