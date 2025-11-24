@@ -18,10 +18,10 @@ Encodes a destination chain ID and recipient address into a 32-byte value.
 **Example:**
 
 ```typescript
-import { encodeDestinationReceiver } from "@keep-network/tbtc-v2"
+import { encodeDestinationReceiver, WORMHOLE_CHAIN_IDS, Chains } from "@keep-network/tbtc-v2"
 
 const encoded = encodeDestinationReceiver(
-  40,
+  WORMHOLE_CHAIN_IDS[Chains.Sei.Testnet], // 40
   "0x1234567890123456789012345678901234567890"
 )
 console.log(encoded.toPrefixedString())
@@ -86,12 +86,16 @@ These utilities are particularly useful for SEI and other NTT bridges where you 
 import {
   encodeDestinationReceiver,
   decodeDestinationReceiver,
+  WORMHOLE_CHAIN_IDS,
+  Chains,
 } from "@keep-network/tbtc-v2"
 
 // Encode destination for SEI chain
-const seiChainId = 40
 const recipient = "0x1234567890123456789012345678901234567890"
-const encoded = encodeDestinationReceiver(seiChainId, recipient)
+const encoded = encodeDestinationReceiver(
+  WORMHOLE_CHAIN_IDS[Chains.Sei.Testnet],
+  recipient
+)
 
 // Use the encoded value in your NTT bridge operations
 // ...
