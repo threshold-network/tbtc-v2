@@ -18,7 +18,11 @@ Encodes a destination chain ID and recipient address into a 32-byte value.
 **Example:**
 
 ```typescript
-import { encodeDestinationReceiver, WORMHOLE_CHAIN_IDS, Chains } from "@keep-network/tbtc-v2"
+import {
+  encodeDestinationReceiver,
+  WORMHOLE_CHAIN_IDS,
+  Chains,
+} from "@keep-network/tbtc-v2"
 
 const encoded = encodeDestinationReceiver(
   WORMHOLE_CHAIN_IDS[Chains.Sei.Testnet], // 40

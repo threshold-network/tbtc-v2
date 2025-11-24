@@ -156,6 +156,7 @@
 - [SolanaCrossChainExtraDataEncoder](README.md#solanacrosschainextradataencoder)
 - [StarkNetCrossChainExtraDataEncoder](README.md#starknetcrosschainextradataencoder)
 - [StarkNetDepositor](README.md#starknetdepositor)
+- [WORMHOLE\_CHAIN\_IDS](README.md#wormhole_chain_ids)
 - [tbtcABI](README.md#tbtcabi)
 
 ### Functions
@@ -1059,6 +1060,40 @@ Use StarkNetBitcoinDepositor instead
 #### Defined in
 
 [lib/starknet/starknet-depositor.ts:527](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L527)
+
+___
+
+### WORMHOLE\_CHAIN\_IDS
+
+• `Const` **WORMHOLE\_CHAIN\_IDS**: `Object`
+
+Mapping of chain identifiers to their corresponding Wormhole chain IDs.
+Use these constants instead of hardcoded chain IDs when encoding destination
+receivers for NTT (Native Token Transfer) bridges.
+
+**`Example`**
+
+```typescript
+import { WORMHOLE_CHAIN_IDS, Chains, encodeDestinationReceiver } from "@keep-network/tbtc-v2"
+
+const encoded = encodeDestinationReceiver(
+  WORMHOLE_CHAIN_IDS[Chains.Sei.Testnet],
+  "0x1234567890123456789012345678901234567890"
+)
+```
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `1` | `number` |
+| `11155111` | `number` |
+| `1328` | `number` |
+| `1329` | `number` |
+
+#### Defined in
+
+[lib/utils/wormhole.ts:18](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/wormhole.ts#L18)
 
 ___
 
