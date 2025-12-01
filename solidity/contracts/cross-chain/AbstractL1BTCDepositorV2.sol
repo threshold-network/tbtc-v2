@@ -27,7 +27,7 @@ import "./utils/Crosschain.sol";
 
 /// @title AbstractL1BTCDepositorV2
 /// @notice Enhanced version of AbstractL1BTCDepositor with security fixes for
-///         refund vulnerabilities (MB-H1, MB-H2, MB-H3).
+///         refund vulnerabilities.
 ///         This contract is part of the direct bridging mechanism allowing
 ///         users to obtain ERC20 tBTC on supported chains, without the need
 ///         to interact with the L1 tBTC ledger chain where minting occurs.
@@ -88,7 +88,7 @@ abstract contract AbstractL1BTCDepositorV2 is
     }
 
     /// @notice Holds information about a finalization reimbursement.
-    /// @dev Stored separately to allow claiming even if pool was unavailable during finalization (MB-H2)
+    /// @dev Stored separately to allow claiming even if pool was unavailable during finalization
     struct FinalizationReimbursement {
         /// @notice Receiver that is supposed to receive the reimbursement.
         address receiver;
@@ -115,8 +115,8 @@ abstract contract AbstractL1BTCDepositorV2 is
     mapping(uint256 => GasReimbursement) public gasReimbursements;
     
     /// @notice Holds pending finalization reimbursements (indexed by deposit key)
-    /// @dev REFUND BLOCKING FIX (MB-H2): Allows reimbursement claims even if pool
-    ///      was unavailable during finalization. Prevents deposit blocking.
+    /// @dev Allows reimbursement claims even if pool was unavailable during finalization.
+    ///      Prevents deposit blocking.
     mapping(uint256 => FinalizationReimbursement) public finalizationReimbursements;
     /// @notice Gas that is meant to balance the overall cost of deposit initialization.
     ///         Can be updated by the owner based on the current market conditions.
@@ -437,7 +437,7 @@ abstract contract AbstractL1BTCDepositorV2 is
 
         _transferTbtc(tbtcAmount, destinationChainDepositOwner);
 
-        // REFUND BLOCKING FIX (MB-H2): Store reimbursement data instead of paying immediately
+        // Store reimbursement data instead of paying immediately
         // This allows deposit finalization to succeed even if ReimbursementPool is unavailable
         // Users can claim their reimbursements later via claimReimbursement()
         
@@ -513,9 +513,9 @@ abstract contract AbstractL1BTCDepositorV2 is
 
     /// @notice Allows users to claim pending reimbursements for a deposit
     /// @param depositKey The deposit key for which to claim reimbursement
-    /// @dev REFUND BLOCKING FIX (MB-H2): This function allows users to claim
-    ///      reimbursements even if the pool was unavailable during finalization.
-    ///      Prevents loss of reimbursement eligibility due to temporary pool issues.
+    /// @dev This function allows users to claim reimbursements even if the pool
+    ///      was unavailable during finalization. Prevents loss of reimbursement
+    ///      eligibility due to temporary pool issues.
     function claimReimbursement(uint256 depositKey) external {
         require(
             address(reimbursementPool) != address(0),

@@ -607,14 +607,15 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositorV2 {
         uint16 defaultChain = _getDefaultSupportedChain();
         require(defaultChain != 0, "No supported chains configured");
 
-        return
-            nttManagerWithExecutor.quoteDeliveryPrice(
-                underlyingNttManager,
-                defaultChain,
-                "",
-                params.executorArgs,
-                params.feeArgs
-            );
+        // INCOMPATIBILITY FIX (MB-M2): Query underlying NTT manager directly
+        // The deployed NttManagerWithExecutor doesn't expose quoteDeliveryPrice()
+        INttManager nttManager = INttManager(underlyingNttManager);
+        (, uint256 nttDeliveryPrice) = nttManager.quoteDeliveryPrice(
+            defaultChain,
+            "" // Empty transceiver instructions for basic transfer
+        );
+
+        return nttDeliveryPrice + params.executorArgs.value;
     }
 
     /// @notice Quotes cost for specific destination chain using latest parameters
@@ -640,14 +641,15 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositorV2 {
         ExecutorParameterSet storage params = parametersByNonce[latestNonce];
         require(params.exists, "Executor parameters not set");
 
-        return
-            nttManagerWithExecutor.quoteDeliveryPrice(
-                underlyingNttManager,
-                destinationChain,
-                "",
-                params.executorArgs,
-                params.feeArgs
-            );
+        // INCOMPATIBILITY FIX (MB-M2): Query underlying NTT manager directly
+        // The deployed NttManagerWithExecutor doesn't expose quoteDeliveryPrice()
+        INttManager nttManager = INttManager(underlyingNttManager);
+        (, uint256 nttDeliveryPrice) = nttManager.quoteDeliveryPrice(
+            destinationChain,
+            "" // Empty transceiver instructions for basic transfer
+        );
+
+        return nttDeliveryPrice + params.executorArgs.value;
     }
 
     /// @notice Quotes the underlying NTT delivery price and total cost including executor fees
