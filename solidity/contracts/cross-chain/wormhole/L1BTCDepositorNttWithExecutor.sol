@@ -514,8 +514,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
                     // Allow refreshing existing parameters (same user, same nonce)
                     existingParams.executorArgs = executorArgs;
                     existingParams.feeArgs = feeArgs;
-                    // solhint-disable-next-line not-rely-on-time
-                    existingParams.timestamp = block.timestamp;
+                    // C2 FIX: Do NOT refresh timestamp to prevent artificially
+                    // extending quote validity beyond Wormhole Executor's intended expiration
+                    // Keep original timestamp for accurate expiration tracking
 
                     emit ExecutorParametersRefreshed(
                         msg.sender,
@@ -911,12 +912,19 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
             "Real signed quote from Wormhole Executor API is required"
         );
         _validateSignedQuoteFormat(executorArgs.signedQuote);
+        
+        // C2 FIX: Validate embedded expiry time
+        _validateAndExtractQuoteExpiry(executorArgs.signedQuote);
 
-        // CRITICAL: Validate payment amount before calling NTT manager
-        require(
-            msg.value >= executorArgs.value,
-            "Insufficient payment for executor service"
-        );
+        // C2 FIX: Validate total payment includes executor cost + NTT delivery price
+        {
+            (, uint256 nttDeliveryPrice) = INttManager(underlyingNttManager)
+                .quoteDeliveryPrice(destinationChain, "");
+            require(
+                msg.value >= executorArgs.value + nttDeliveryPrice,
+                "Insufficient payment for executor service and NTT delivery"
+            );
+        }
 
         // Approve the NttManagerWithExecutor to spend tBTC
         tbtcToken.safeIncreaseAllowance( // slither-disable-line reentrancy-vulnerabilities-3
@@ -999,6 +1007,30 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     ) internal pure {
         require(signedQuote.length > 0, "Signed quote cannot be empty");
         require(signedQuote.length >= 32, "Signed quote too short");
+    }
+
+    /// @notice Extracts and validates the embedded expiry time from a signed quote
+    /// @param signedQuote The signed quote bytes from Wormhole Executor API
+    /// @dev The expiry timestamp is embedded at byte offset 60 in the signed quote
+    function _validateAndExtractQuoteExpiry(
+        bytes memory signedQuote
+    ) internal view returns (uint64 quoteExpiry) {
+        require(signedQuote.length >= 92, "Signed quote too short for expiry extraction");
+        
+        // Extract expiry timestamp from signed quote (at byte offset 60)
+        assembly {
+            // signedQuote in memory: [length (32 bytes)][data...]
+            // Byte offset 60 in data = 60 + 32 (length prefix) = 92
+            quoteExpiry := mload(add(signedQuote, 92))
+            // Shift right to get the actual uint64 value (8 bytes)
+            quoteExpiry := shr(192, quoteExpiry)
+        }
+        
+        // solhint-disable-next-line not-rely-on-time
+        require(
+            quoteExpiry > block.timestamp,
+            "Signed quote expired - embedded expiry time has passed"
+        );
     }
 
     /// @notice Generates a unique nonce for a user's parameter set
