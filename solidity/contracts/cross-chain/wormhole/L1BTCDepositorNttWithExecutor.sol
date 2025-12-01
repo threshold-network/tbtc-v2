@@ -18,7 +18,7 @@ pragma solidity 0.8.17;
 import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 
-import "../AbstractL1BTCDepositor.sol";
+import "../AbstractL1BTCDepositorV2.sol";
 import "./TransceiverStructs.sol";
 
 /// @notice Executor arguments for NttManagerWithExecutor transfers
@@ -118,7 +118,7 @@ interface INttManagerWithExecutor {
 /// - Handles fee payments to executor service
 /// - Provides refund mechanisms for unused gas
 // slither-disable-next-line reentrancy-vulnerabilities-3
-contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
+contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositorV2 {
     using SafeERC20Upgradeable for IERC20Upgradeable;
 
     /// @notice Executor parameter set with metadata for nonce-based storage
