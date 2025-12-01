@@ -78,6 +78,18 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
 
     // Set parameter expiration time to 1 hour for testing
     await depositor.setParameterExpirationTime(3600)
+
+    // Get owner address for platform fee recipient
+    const [ownerAddr] = await ethers.getSigners()
+    
+    // Set default platform fee to allow owner.address as payee (C1 fix compatibility)
+    await depositor.setDefaultParameters(
+      500000, // gas limit
+      0, // executor fee
+      ethers.constants.AddressZero, // executor fee recipient
+      100, // 0.1% platform fee
+      ownerAddr.address // platform fee recipient (matches test payee addresses)
+    )
   })
 
   beforeEach(async () => {

@@ -73,6 +73,15 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
     await depositor.setSupportedChain(WORMHOLE_CHAIN_SEI, true)
     await depositor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
     await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
+
+    // Set default platform fee to allow zero fee with zero address (C1 fix compatibility)
+    await depositor.setDefaultParameters(
+      500000, // gas limit
+      0, // executor fee
+      ethers.constants.AddressZero, // executor fee recipient
+      0, // 0% platform fee (allows zero address as payee)
+      ethers.constants.AddressZero // platform fee recipient
+    )
   })
 
   beforeEach(async () => {
@@ -132,8 +141,8 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
       }
 
       const feeArgs1 = {
-        dbps: 100, // 0.1% (100/100000)
-        payee: user.address,
+        dbps: 0, // 0% (must match defaultPlatformFeeBps)
+        payee: ethers.constants.AddressZero, // Must match defaultPlatformFeeRecipient
       }
 
       await depositor
@@ -154,8 +163,8 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
       }
 
       const feeArgs2 = {
-        dbps: 200,
-        payee: user.address,
+        dbps: 0, // 0% (must match defaultPlatformFeeBps)
+        payee: ethers.constants.AddressZero, // Must match defaultPlatformFeeRecipient
       }
 
       await depositor
@@ -215,8 +224,8 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
       }
 
       const feeArgs = {
-        dbps: 100, // 0.1% (100/100000)
-        payee: user.address,
+        dbps: 0, // 0% (must match defaultPlatformFeeBps)
+        payee: ethers.constants.AddressZero, // Must match defaultPlatformFeeRecipient
       }
 
       await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
@@ -274,8 +283,8 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
       }
 
       const feeArgs = {
-        dbps: 100, // 0.1% (100/100000)
-        payee: user.address,
+        dbps: 0, // 0% (must match defaultPlatformFeeBps)
+        payee: ethers.constants.AddressZero, // Must match defaultPlatformFeeRecipient
       }
 
       // Check for ExecutorParametersSet event

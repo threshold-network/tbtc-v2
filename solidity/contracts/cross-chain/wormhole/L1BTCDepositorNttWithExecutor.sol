@@ -299,6 +299,8 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         defaultDestinationGasLimit = DEFAULT_DESTINATION_GAS_LIMIT;
         defaultExecutorFeeBps = 0; // 0% executor fee by default
         defaultExecutorFeeRecipient = address(0); // No fee recipient by default
+        defaultPlatformFeeBps = 0; // 0% platform fee by default
+        defaultPlatformFeeRecipient = 0x9F6e831c8F8939DC0C830C6e492e7cEf4f9C2F5f; // Threshold Committee wallet
         parameterExpirationTime = 3600; // 1 hour default expiration time
     }
 
@@ -474,6 +476,23 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
             feeArgs.dbps >= defaultPlatformFeeBps,
             "Fee must be at least the default platform fee"
         );
+
+        // C1 FIX: Validate fee payee to prevent deposit theft
+        // Fee payee must match the protocol-controlled platform fee recipient
+        // Exception: If platform fee is zero, payee can be zero address
+        if (defaultPlatformFeeBps > 0) {
+            require(
+                feeArgs.payee == defaultPlatformFeeRecipient,
+                "Fee payee must match default platform fee recipient"
+            );
+        } else {
+            // When platform fee is zero, allow zero address
+            require(
+                feeArgs.payee == defaultPlatformFeeRecipient ||
+                    feeArgs.payee == address(0),
+                "Fee payee must match default platform fee recipient or be zero"
+            );
+        }
 
         // SAFETY CHECK: Handle existing parameters - allow refresh or prevent new workflow
         if (userNonceCounter[msg.sender] > 0) {

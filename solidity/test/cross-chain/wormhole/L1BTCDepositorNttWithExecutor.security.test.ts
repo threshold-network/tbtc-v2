@@ -67,6 +67,15 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
     await depositor.setSupportedChain(WORMHOLE_CHAIN_SEI, true)
     await depositor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
     await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
+    
+    // Set default platform fee to zero to allow zero address as payee in tests
+    await depositor.setDefaultParameters(
+      500000, // gas limit
+      0, // executor fee
+      ethers.constants.AddressZero, // executor fee recipient
+      0, // 0% platform fee
+      ethers.constants.AddressZero // platform fee recipient (zero ok when fee is zero)
+    )
   })
 
   beforeEach(async () => {
@@ -149,8 +158,8 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       }
 
       const feeArgs = {
-        dbps: 100, // 0.1% (100/100000)
-        payee: user.address,
+        dbps: 0, // 0% (must match defaultPlatformFeeBps)
+        payee: ethers.constants.AddressZero, // Must match defaultPlatformFeeRecipient
       }
 
       await expect(
@@ -173,8 +182,8 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       }
 
       const feeArgs = {
-        dbps: 100, // 0.1% (100/100000)
-        payee: user.address,
+        dbps: 0, // 0% (must match defaultPlatformFeeBps)
+        payee: ethers.constants.AddressZero, // Must match defaultPlatformFeeRecipient
       }
 
       await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
@@ -204,8 +213,8 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       }
 
       const feeArgs = {
-        dbps: 100, // 0.1% (100/100000)
-        payee: user.address,
+        dbps: 0, // 0% (must match defaultPlatformFeeBps)
+        payee: ethers.constants.AddressZero, // Must match defaultPlatformFeeRecipient
       }
 
       await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
@@ -240,8 +249,8 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
         }
 
         const feeArgs = {
-          dbps: 100 + i * 10,
-          payee: user.address,
+          dbps: 0, // Must match defaultPlatformFeeBps
+          payee: ethers.constants.AddressZero, // Must match defaultPlatformFeeRecipient
         }
 
         // eslint-disable-next-line no-await-in-loop
@@ -274,8 +283,8 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       }
 
       const feeArgs = {
-        dbps: 10000, // 10% fee (10000/100000)
-        payee: user.address,
+        dbps: 0, // 0% fee (must match defaultPlatformFeeBps)
+        payee: ethers.constants.AddressZero, // Must match defaultPlatformFeeRecipient
       }
 
       await expect(

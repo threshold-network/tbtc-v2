@@ -71,6 +71,15 @@ describe("L1BTCDepositorNttWithExecutor - Fee Handling", () => {
     await depositor.setSupportedChain(WORMHOLE_CHAIN_SEI, true)
     await depositor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
     await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
+
+    // Set default platform fee to allow owner.address as payee (C1 fix compatibility)
+    await depositor.setDefaultParameters(
+      500000, // gas limit
+      0, // executor fee
+      ethers.constants.AddressZero, // executor fee recipient
+      100, // 0.1% platform fee
+      owner.address // platform fee recipient (matches test payee addresses)
+    )
   })
 
   beforeEach(async () => {
