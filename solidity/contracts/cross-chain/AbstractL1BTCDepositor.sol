@@ -82,6 +82,17 @@ abstract contract AbstractL1BTCDepositor is
         uint96 gasSpent;
     }
 
+    /// @notice Holds information about a finalization reimbursement.
+    /// @dev Stored separately to allow claiming even if pool was unavailable during finalization
+    struct FinalizationReimbursement {
+        /// @notice Receiver that is supposed to receive the reimbursement.
+        address receiver;
+        /// @notice Gas expenditure that is meant to be reimbursed.
+        uint96 gasSpent;
+        /// @notice Whether this reimbursement has been claimed.
+        bool claimed;
+    }
+
     /// @notice Holds the deposit state, keyed by the deposit key calculated for
     ///         the individual deposit during the call to `initializeDeposit`
     ///         function.
@@ -97,6 +108,11 @@ abstract contract AbstractL1BTCDepositor is
     ///         reimbursement pool vulnerable to malicious actors that could
     ///         drain it by initializing invalid deposits.
     mapping(uint256 => GasReimbursement) public gasReimbursements;
+    
+    /// @notice Holds pending finalization reimbursements (indexed by deposit key)
+    /// @dev REFUND BLOCKING FIX (MB-H2): Allows reimbursement claims even if pool
+    ///      was unavailable during finalization. Prevents deposit blocking.
+    mapping(uint256 => FinalizationReimbursement) public finalizationReimbursements;
     /// @notice Gas that is meant to balance the overall cost of deposit initialization.
     ///         Can be updated by the owner based on the current market conditions.
     uint256 public initializeDepositGasOffset;
@@ -126,6 +142,13 @@ abstract contract AbstractL1BTCDepositor is
         address indexed l1Sender,
         uint256 initialAmount,
         uint256 tbtcAmount
+    );
+
+    event ReimbursementClaimed(
+        uint256 indexed depositKey,
+        address indexed receiver,
+        uint256 initializationGas,
+        uint256 finalizationGas
     );
 
     event GasOffsetParametersUpdated(
@@ -402,56 +425,129 @@ abstract contract AbstractL1BTCDepositor is
 
         _transferTbtc(tbtcAmount, destinationChainDepositOwner);
 
-        // `ReimbursementPool` calls the untrusted receiver address using a
-        // low-level call. Reentrancy risk is mitigated by making sure that
-        // `ReimbursementPool.refund` is a non-reentrant function and executing
-        // reimbursements as the last step of the deposit finalization.
-        if (address(reimbursementPool) != address(0)) {
-            // REFUND VULNERABILITY FIX: Pay finalization refund BEFORE initialization refund
-            // This prevents the gas consumed during initialization refund's
-            // external call from being included in the finalization refund calculation.
-            // Without this fix, if the same address initializes and finalizes,
-            // they could execute expensive operations in their fallback during
-            // initialization refund and get reimbursed twice for that gas.
+        // REFUND BLOCKING FIX (MB-H2): Store reimbursement data instead of paying immediately
+        // This allows deposit finalization to succeed even if ReimbursementPool is unavailable
+        // Users can claim their reimbursements later via claimReimbursement()
+        
+        // Store finalization reimbursement if the caller is authorized
+        if (reimbursementAuthorizations[msg.sender]) {
+            // As this call is payable and this transaction carries out a
+            // msg.value that covers the Bridging cost, we need to reimburse
+            // that as well. However, the `ReimbursementPool` issues refunds
+            // based on gas spent. We need to convert msg.value accordingly
+            // using the `_refundToGasSpent` function.
+            uint256 msgValueOffset = _refundToGasSpent(msg.value);
+            uint256 totalGasSpent = (gasStart - gasleft()) +
+                msgValueOffset +
+                finalizeDepositGasOffset;
             
-            // Pay out the reimbursement for deposit finalization if the caller
-            // is authorized to receive reimbursements.
-            if (reimbursementAuthorizations[msg.sender]) {
-                // As this call is payable and this transaction carries out a
-                // msg.value that covers the Bridging cost, we need to reimburse
-                // that as well. However, the `ReimbursementPool` issues refunds
-                // based on gas spent. We need to convert msg.value accordingly
-                // using the `_refundToGasSpent` function.
-                uint256 msgValueOffset = _refundToGasSpent(msg.value);
-                reimbursementPool.refund(
-                    (gasStart - gasleft()) +
-                        msgValueOffset +
-                        finalizeDepositGasOffset,
-                    msg.sender
-                );
+            // Store for later claim - prevents blocking if pool unavailable
+            if (totalGasSpent <= type(uint96).max) {
+                finalizationReimbursements[depositKey] = FinalizationReimbursement({
+                    receiver: msg.sender,
+                    gasSpent: uint96(totalGasSpent),
+                    claimed: false
+                });
+            }
+        }
+        
+        // Try to pay out immediately if pool is available
+        // If it fails, users can still claim later via claimReimbursement()
+        if (address(reimbursementPool) != address(0)) {
+            // Try finalization reimbursement first (MB-H1 fix - prevents gas double-counting)
+            FinalizationReimbursement storage finalizationReimbursement = 
+                finalizationReimbursements[depositKey];
+            if (finalizationReimbursement.receiver != address(0) && 
+                !finalizationReimbursement.claimed) {
+                // Use try-catch to prevent blocking deposit finalization
+                try reimbursementPool.refund(
+                    finalizationReimbursement.gasSpent,
+                    finalizationReimbursement.receiver
+                ) {
+                    finalizationReimbursement.claimed = true;
+                } catch {
+                    // Reimbursement failed but deposit finalization continues
+                    // User can claim later via claimReimbursement()
+                }
             }
             
-            // If there is a deferred reimbursement for this deposit
-            // initialization, pay it out now. No need to check reimbursement
-            // authorization for the initialization caller. If the deferred
-            // reimbursement is here, that implies the caller was authorized
-            // to receive it.
+            // Try initialization reimbursement
             // NOTE: This is executed AFTER finalization refund to prevent
             // gas consumed in this external call from being counted in
-            // the finalization refund (refund vulnerability fix).
-            GasReimbursement memory reimbursement = gasReimbursements[
-                depositKey
-            ];
+            // the finalization refund (MB-H1 fix).
+            GasReimbursement memory reimbursement = gasReimbursements[depositKey];
             if (reimbursement.receiver != address(0)) {
                 // slither-disable-next-line reentrancy-benign
                 delete gasReimbursements[depositKey];
 
-                reimbursementPool.refund(
+                // Use try-catch to prevent blocking deposit finalization
+                try reimbursementPool.refund(
                     reimbursement.gasSpent,
                     reimbursement.receiver
-                );
+                ) {
+                    // Success - initialization reimbursement paid
+                } catch {
+                    // Reimbursement failed - restore to allow later claim
+                    gasReimbursements[depositKey] = reimbursement;
+                }
             }
         }
+    }
+
+    /// @notice Allows users to claim pending reimbursements for a deposit
+    /// @param depositKey The deposit key for which to claim reimbursement
+    /// @dev REFUND BLOCKING FIX (MB-H2): This function allows users to claim
+    ///      reimbursements even if the pool was unavailable during finalization.
+    ///      Prevents loss of reimbursement eligibility due to temporary pool issues.
+    function claimReimbursement(uint256 depositKey) external {
+        require(
+            address(reimbursementPool) != address(0),
+            "Reimbursement pool not attached"
+        );
+        
+        uint256 finalizationGas = 0;
+        uint256 initializationGas = 0;
+        address receiver = address(0);
+        
+        // Claim finalization reimbursement if available
+        FinalizationReimbursement storage finalizationReimbursement = 
+            finalizationReimbursements[depositKey];
+        if (finalizationReimbursement.receiver != address(0) && 
+            !finalizationReimbursement.claimed) {
+            finalizationReimbursement.claimed = true;
+            finalizationGas = finalizationReimbursement.gasSpent;
+            receiver = finalizationReimbursement.receiver;
+            reimbursementPool.refund(
+                finalizationReimbursement.gasSpent,
+                finalizationReimbursement.receiver
+            );
+        }
+        
+        // Claim initialization reimbursement if available
+        GasReimbursement memory initReimbursement = gasReimbursements[depositKey];
+        if (initReimbursement.receiver != address(0)) {
+            delete gasReimbursements[depositKey];
+            initializationGas = initReimbursement.gasSpent;
+            if (receiver == address(0)) {
+                receiver = initReimbursement.receiver;
+            }
+            reimbursementPool.refund(
+                initReimbursement.gasSpent,
+                initReimbursement.receiver
+            );
+        }
+        
+        require(
+            finalizationGas > 0 || initializationGas > 0,
+            "No reimbursement available for this deposit"
+        );
+        
+        emit ReimbursementClaimed(
+            depositKey,
+            receiver,
+            initializationGas,
+            finalizationGas
+        );
     }
 
     /// @notice The `ReimbursementPool` contract issues refunds based on
