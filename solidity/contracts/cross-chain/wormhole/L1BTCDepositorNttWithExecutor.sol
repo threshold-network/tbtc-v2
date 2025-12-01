@@ -203,6 +203,14 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositorV2 {
         uint256 executorValue
     );
 
+    /// @notice Emitted when executor parameters are cleared by a user
+    /// @param sender Address of the user clearing parameters
+    /// @param nonce Unique nonce hash of the cleared parameters
+    event ExecutorParametersCleared(
+        address indexed sender,
+        bytes32 indexed nonce
+    );
+
     /// @notice Emitted when tokens are transferred via NTT Manager With Executor
     /// @param amount Amount of tBTC transferred
     /// @param destinationChain Wormhole chain ID of the destination
@@ -343,6 +351,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositorV2 {
         uint16 _platformFeeBps,
         address _platformFeeRecipient
     ) external onlyOwner {
+        require(_gasLimit > 0, "Gas limit must be greater than zero");
         require(_feeBps <= MAX_BPS, "Fee cannot exceed 10% (10000 bps)");
         require(
             _platformFeeBps <= MAX_BPS,
@@ -466,10 +475,6 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositorV2 {
         FeeArgs memory feeArgs
     ) external returns (bytes32 nonce) {
         // CRITICAL: Validate that we have a real signed quote
-        require(
-            executorArgs.signedQuote.length > 0,
-            "Real signed quote from Wormhole Executor API is required"
-        );
         _validateSignedQuoteFormat(executorArgs.signedQuote);
 
         // Validate fee basis points
@@ -574,6 +579,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositorV2 {
         ExecutorParameterSet storage params = parametersByNonce[latestNonce];
         if (params.exists) {
             delete parametersByNonce[latestNonce];
+            emit ExecutorParametersCleared(msg.sender, latestNonce);
         }
         // If parameters don't exist, that's fine - already cleared
     }
@@ -911,10 +917,6 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositorV2 {
         );
 
         // CRITICAL: Validate that we have a real signed quote
-        require(
-            executorArgs.signedQuote.length > 0,
-            "Real signed quote from Wormhole Executor API is required"
-        );
         _validateSignedQuoteFormat(executorArgs.signedQuote);
         
         // PARAMETER VALIDATION FIX: Validate embedded expiry time
@@ -1009,7 +1011,6 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositorV2 {
     function _validateSignedQuoteFormat(
         bytes memory signedQuote
     ) internal pure {
-        require(signedQuote.length > 0, "Signed quote cannot be empty");
         require(signedQuote.length >= 32, "Signed quote too short");
     }
 

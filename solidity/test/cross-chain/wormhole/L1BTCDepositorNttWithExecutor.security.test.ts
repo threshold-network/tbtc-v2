@@ -167,7 +167,7 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
           .connect(user)
           .setExecutorParameters(invalidExecutorArgs, feeArgs)
       ).to.be.revertedWith(
-        "Real signed quote from Wormhole Executor API is required"
+        "Signed quote too short"
       )
     })
 

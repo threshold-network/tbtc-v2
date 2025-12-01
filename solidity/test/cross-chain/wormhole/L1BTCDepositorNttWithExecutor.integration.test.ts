@@ -209,7 +209,7 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
       await expect(
         depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
       ).to.be.revertedWith(
-        "Real signed quote from Wormhole Executor API is required"
+        "Signed quote too short"
       )
     })
 

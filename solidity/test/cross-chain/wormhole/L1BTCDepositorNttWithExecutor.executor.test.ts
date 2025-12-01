@@ -241,7 +241,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       await expect(
         depositor.setExecutorParameters(executorArgs, FEE_ARGS_ZERO)
       ).to.be.revertedWith(
-        "Real signed quote from Wormhole Executor API is required"
+        "Signed quote too short"
       )
     })
 
