@@ -186,7 +186,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
     it("should reject platform fee exceeding 100%", async () => {
       await expect(
         depositor.setDefaultPlatformFeeBps(10001)
-      ).to.be.revertedWith("Fee cannot exceed 100% (10000 bps)")
+      ).to.be.revertedWith("Fee cannot exceed 10% (10000 bps)")
     })
 
     it("should reject zero recipient when fee is set", async () => {
@@ -364,7 +364,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
       await expect(
         depositor.setExecutorParameters(executorArgs, invalidFeeArgs)
-      ).to.be.revertedWith("Fee cannot exceed 100% (10000 bps)")
+      ).to.be.revertedWith("Fee cannot exceed 10% (10000 bps)")
     })
 
     it("should accept maximum valid fee basis points (10000) in setExecutorParameters", async () => {
@@ -378,7 +378,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       // We're testing that the BPS validation passes
       await expect(
         depositor.setExecutorParameters(executorArgs, validFeeArgs)
-      ).to.not.be.revertedWith("Fee cannot exceed 100% (10000 bps)")
+      ).to.not.be.revertedWith("Fee cannot exceed 10% (10000 bps)")
     })
 
     it("should reject fee basis points exceeding 10000 in setDefaultParameters", async () => {
@@ -392,7 +392,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
           0, // platformFeeBps 0%
           ethers.constants.AddressZero // platformFeeRecipient
         )
-      ).to.be.revertedWith("Fee cannot exceed 100% (10000 bps)")
+      ).to.be.revertedWith("Fee cannot exceed 10% (10000 bps)")
     })
 
     it("should accept maximum valid fee basis points (10000) in setDefaultParameters", async () => {

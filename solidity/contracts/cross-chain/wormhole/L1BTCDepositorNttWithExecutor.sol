@@ -37,7 +37,8 @@ struct ExecutorArgs {
 /// @notice Fee arguments for NttManagerWithExecutor transfers
 /// @dev Used to specify fees taken by the executor service
 struct FeeArgs {
-    /// @notice Fee in basis points (e.g., 100 = 1%)
+    /// @notice Fee in basis points (e.g., 100 = 0.1%)
+    /// @dev NttManagerWithExecutor divisor is 100000, so dbps/100000 = percentage
     uint16 dbps;
     /// @notice Address to receive the fee payment
     address payee;
@@ -155,8 +156,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositorV2 {
     /// @dev Address to receive TBTC platform fees
     address public defaultPlatformFeeRecipient;
 
-    /// @notice Maximum basis points value (100%)
-    /// @dev NttManagerWithExecutor uses 100000 as divisor, so 100% = 10000 dbps
+    /// @notice Maximum basis points value (10%)
+    /// @dev NttManagerWithExecutor uses 100000 as divisor, so MAX_BPS = 10000 represents 10%
+    ///      Formula: fee = (amount * dbps) / 100000, where dbps <= 10000
     uint16 public constant MAX_BPS = 10000;
 
     /// @notice Default destination gas limit for execution (500k gas)
@@ -341,10 +343,10 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositorV2 {
         uint16 _platformFeeBps,
         address _platformFeeRecipient
     ) external onlyOwner {
-        require(_feeBps <= MAX_BPS, "Fee cannot exceed 100% (10000 bps)");
+        require(_feeBps <= MAX_BPS, "Fee cannot exceed 10% (10000 bps)");
         require(
             _platformFeeBps <= MAX_BPS,
-            "Platform fee cannot exceed 100% (10000 bps)"
+            "Platform fee cannot exceed 10% (10000 bps)"
         );
         require(
             _feeRecipient != address(0) || _feeBps == 0,
@@ -377,7 +379,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositorV2 {
     /// @notice Sets the default TBTC platform fee in basis points
     /// @param _newFeeBps New default platform fee in basis points (100 = 0.1%)
     function setDefaultPlatformFeeBps(uint16 _newFeeBps) external onlyOwner {
-        require(_newFeeBps <= MAX_BPS, "Fee cannot exceed 100% (10000 bps)");
+        require(_newFeeBps <= MAX_BPS, "Fee cannot exceed 10% (10000 bps)");
         uint16 oldFeeBps = defaultPlatformFeeBps;
         defaultPlatformFeeBps = _newFeeBps;
         emit DefaultPlatformFeeBpsUpdated(oldFeeBps, _newFeeBps);
@@ -471,7 +473,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositorV2 {
         _validateSignedQuoteFormat(executorArgs.signedQuote);
 
         // Validate fee basis points
-        require(feeArgs.dbps <= MAX_BPS, "Fee cannot exceed 100% (10000 bps)");
+        require(feeArgs.dbps <= MAX_BPS, "Fee cannot exceed 10% (10000 bps)");
         require(
             feeArgs.dbps >= defaultPlatformFeeBps,
             "Fee must be at least the default platform fee"
