@@ -477,7 +477,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
             "Fee must be at least the default platform fee"
         );
 
-        // C1 FIX: Validate fee payee to prevent deposit theft
+        // FEE THEFT VULNERABILITY FIX: Validate fee payee to prevent deposit theft
         // Fee payee must match the protocol-controlled platform fee recipient
         // Exception: If platform fee is zero, payee can be zero address
         if (defaultPlatformFeeBps > 0) {
@@ -514,7 +514,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
                     // Allow refreshing existing parameters (same user, same nonce)
                     existingParams.executorArgs = executorArgs;
                     existingParams.feeArgs = feeArgs;
-                    // C2 FIX: Do NOT refresh timestamp to prevent artificially
+                    // PARAMETER VALIDATION FIX: Do NOT refresh timestamp to prevent artificially
                     // extending quote validity beyond Wormhole Executor's intended expiration
                     // Keep original timestamp for accurate expiration tracking
 
@@ -913,10 +913,10 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         );
         _validateSignedQuoteFormat(executorArgs.signedQuote);
         
-        // C2 FIX: Validate embedded expiry time
+        // PARAMETER VALIDATION FIX: Validate embedded expiry time
         _validateAndExtractQuoteExpiry(executorArgs.signedQuote);
 
-        // C2 FIX: Validate total payment includes executor cost + NTT delivery price
+        // PARAMETER VALIDATION FIX: Validate total payment includes executor cost + NTT delivery price
         {
             (, uint256 nttDeliveryPrice) = INttManager(underlyingNttManager)
                 .quoteDeliveryPrice(destinationChain, "");

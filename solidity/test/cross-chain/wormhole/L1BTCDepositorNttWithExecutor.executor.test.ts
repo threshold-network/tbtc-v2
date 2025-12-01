@@ -119,7 +119,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
     await depositor.setSupportedChain(WORMHOLE_CHAIN_ARBITRUM, true)
     await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
 
-    // Set default platform fee to 0 (C1 fix compatibility - tests will configure as needed)
+    // Set default platform fee to 0 (fee theft fix compatibility - tests will configure as needed)
     await depositor.setDefaultParameters(
       500000, // gas limit
       0, // executor fee

@@ -407,24 +407,13 @@ abstract contract AbstractL1BTCDepositor is
         // `ReimbursementPool.refund` is a non-reentrant function and executing
         // reimbursements as the last step of the deposit finalization.
         if (address(reimbursementPool) != address(0)) {
-            // If there is a deferred reimbursement for this deposit
-            // initialization, pay it out now. No need to check reimbursement
-            // authorization for the initialization caller. If the deferred
-            // reimbursement is here, that implies the caller was authorized
-            // to receive it.
-            GasReimbursement memory reimbursement = gasReimbursements[
-                depositKey
-            ];
-            if (reimbursement.receiver != address(0)) {
-                // slither-disable-next-line reentrancy-benign
-                delete gasReimbursements[depositKey];
-
-                reimbursementPool.refund(
-                    reimbursement.gasSpent,
-                    reimbursement.receiver
-                );
-            }
-
+            // REFUND VULNERABILITY FIX: Pay finalization refund BEFORE initialization refund
+            // This prevents the gas consumed during initialization refund's
+            // external call from being included in the finalization refund calculation.
+            // Without this fix, if the same address initializes and finalizes,
+            // they could execute expensive operations in their fallback during
+            // initialization refund and get reimbursed twice for that gas.
+            
             // Pay out the reimbursement for deposit finalization if the caller
             // is authorized to receive reimbursements.
             if (reimbursementAuthorizations[msg.sender]) {
@@ -439,6 +428,27 @@ abstract contract AbstractL1BTCDepositor is
                         msgValueOffset +
                         finalizeDepositGasOffset,
                     msg.sender
+                );
+            }
+            
+            // If there is a deferred reimbursement for this deposit
+            // initialization, pay it out now. No need to check reimbursement
+            // authorization for the initialization caller. If the deferred
+            // reimbursement is here, that implies the caller was authorized
+            // to receive it.
+            // NOTE: This is executed AFTER finalization refund to prevent
+            // gas consumed in this external call from being counted in
+            // the finalization refund (refund vulnerability fix).
+            GasReimbursement memory reimbursement = gasReimbursements[
+                depositKey
+            ];
+            if (reimbursement.receiver != address(0)) {
+                // slither-disable-next-line reentrancy-benign
+                delete gasReimbursements[depositKey];
+
+                reimbursementPool.refund(
+                    reimbursement.gasSpent,
+                    reimbursement.receiver
                 );
             }
         }

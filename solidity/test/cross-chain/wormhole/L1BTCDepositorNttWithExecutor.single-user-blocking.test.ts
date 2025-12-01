@@ -82,7 +82,7 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
     // Get owner address for platform fee recipient
     const [ownerAddr] = await ethers.getSigners()
     
-    // Set default platform fee to allow owner.address as payee (C1 fix compatibility)
+    // Set default platform fee to allow owner.address as payee (fee theft fix compatibility)
     await depositor.setDefaultParameters(
       500000, // gas limit
       0, // executor fee
