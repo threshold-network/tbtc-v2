@@ -129,6 +129,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositorV2 {
         address user;
         uint256 timestamp;
         bool exists;
+        uint256 expiryTimestamp; // Absolute expiration time locked at creation
     }
 
     /// @notice NTT Manager With Executor contract for enhanced cross-chain transfers
@@ -512,10 +513,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositorV2 {
             ];
 
             if (existingParams.exists) {
-                // Check if parameters have expired
+                // Check if parameters have expired using locked expiration timestamp
                 // solhint-disable-next-line not-rely-on-time
-                bool expired = block.timestamp >
-                    existingParams.timestamp + parameterExpirationTime;
+                bool expired = block.timestamp > existingParams.expiryTimestamp;
 
                 if (!expired) {
                     // Allow refreshing existing parameters (same user, same nonce)
@@ -545,12 +545,15 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositorV2 {
         userNonceCounter[msg.sender] = currentSequence + 1;
 
         // Store parameters with metadata
+        // solhint-disable-next-line not-rely-on-time
+        uint256 currentTime = block.timestamp;
         parametersByNonce[nonce] = ExecutorParameterSet({
             executorArgs: executorArgs,
             feeArgs: feeArgs,
             user: msg.sender,
-            timestamp: block.timestamp, // solhint-disable-line not-rely-on-time
-            exists: true
+            timestamp: currentTime,
+            exists: true,
+            expiryTimestamp: currentTime + parameterExpirationTime // Lock expiration
         });
 
         emit ExecutorParametersSet(
@@ -766,10 +769,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositorV2 {
             return (false, bytes32(0), 0);
         }
 
-        // Check if parameters have expired
+        // Check if parameters have expired using locked expiration timestamp
         // solhint-disable-next-line not-rely-on-time
-        bool expired = block.timestamp >
-            params.timestamp + parameterExpirationTime;
+        bool expired = block.timestamp > params.expiryTimestamp;
 
         return (!expired, nonce, params.timestamp);
     }
@@ -791,10 +793,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositorV2 {
             return true;
         }
 
-        // Check if parameters have expired
+        // Check if parameters have expired using locked expiration timestamp
         // solhint-disable-next-line not-rely-on-time
-        bool expired = block.timestamp >
-            params.timestamp + parameterExpirationTime;
+        bool expired = block.timestamp > params.expiryTimestamp;
 
         return expired;
     }
@@ -829,9 +830,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositorV2 {
         }
 
         timestamp = params.timestamp;
-        uint256 expirationTime = timestamp + parameterExpirationTime;
+        uint256 expirationTime = params.expiryTimestamp;
 
-        // Check if parameters have expired
+        // Check if parameters have expired using locked expiration timestamp
         // solhint-disable-next-line not-rely-on-time
         bool expired = block.timestamp > expirationTime;
 
@@ -866,9 +867,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositorV2 {
         ExecutorParameterSet storage params = parametersByNonce[latestNonce];
         require(params.exists, "Executor parameters not set");
 
-        // Optional: Add expiration check
+        // Optional: Add expiration check using locked expiration timestamp
         require(
-            block.timestamp <= params.timestamp + parameterExpirationTime, // solhint-disable-line not-rely-on-time
+            block.timestamp <= params.expiryTimestamp, // solhint-disable-line not-rely-on-time
             "Executor parameters expired"
         );
 
