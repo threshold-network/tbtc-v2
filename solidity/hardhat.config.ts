@@ -84,6 +84,15 @@ const config: HardhatUserConfig = {
       "contracts/bridge/BridgeGovernance.sol": bridgeGovernanceCompilerConfig,
       "contracts/bridge/BridgeGovernanceParameters.sol":
         bridgeGovernanceParametersCompilerConfig,
+      "contracts/cross-chain/wormhole/L1BTCDepositorNttWithExecutor.sol": {
+        version: "0.8.17",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 1, // Minimal runs to minimize bytecode size
+          },
+        },
+      },
     },
   },
 

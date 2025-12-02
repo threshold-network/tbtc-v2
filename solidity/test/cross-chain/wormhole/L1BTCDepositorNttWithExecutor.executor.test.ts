@@ -709,37 +709,8 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
     })
   })
 
-  describe("Utility Functions", () => {
-    it("should encode and decode destination receiver correctly", async () => {
-      const chainId = WORMHOLE_CHAIN_SEI
-      const recipient = ethers.Wallet.createRandom().address
-
-      const encoded = await depositor.encodeDestinationReceiver(
-        chainId,
-        recipient
-      )
-      const [decodedChainId, decodedRecipient] =
-        await depositor.decodeDestinationReceiver(encoded)
-
-      expect(decodedChainId).to.equal(chainId)
-      expect(decodedRecipient).to.equal(recipient)
-    })
-
-    it("should handle edge cases in encoding", async () => {
-      const maxChainId = 65535 // Max uint16
-      const zeroAddress = ethers.constants.AddressZero
-
-      const encoded = await depositor.encodeDestinationReceiver(
-        maxChainId,
-        zeroAddress
-      )
-      const [decodedChainId, decodedRecipient] =
-        await depositor.decodeDestinationReceiver(encoded)
-
-      expect(decodedChainId).to.equal(maxChainId)
-      expect(decodedRecipient).to.equal(zeroAddress)
-    })
-  })
+  // Utility Functions (encodeDestinationReceiver, decodeDestinationReceiver) were removed
+  // to reduce contract size. These can be implemented off-chain if needed.
 
   describe("Mock Integration Tests", () => {
     it("should work with mock NTT manager", async () => {
