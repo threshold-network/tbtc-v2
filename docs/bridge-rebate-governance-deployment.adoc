@@ -59,6 +59,16 @@ cast call 0x5e4861a80B55f035D899f66772117F00FA0E8e7B \
 # Expected: 0x0000000000000000000000000000000000000000
 ----
 
+== Pre-checks (read-only)
+
+* Bridge proxy implementation is already upgraded to the rebate-aware version.
+* Bridge governance owner is the OLD BridgeGovernance:
+** `cast call <BRIDGE> "governance()(address)"` -> `0xf286EA706A2512d2B9232FE7F8b2724880230b45`
+* RebateStaking wiring is not yet set:
+** `cast call <BRIDGE> "getRebateStaking()(address)"` -> `0x0000...0000`
+* RebateStaking proxy points at the Bridge proxy:
+** `cast call <REBATE_STAKING> "bridge()(address)"` -> `<BRIDGE>`
+
 == High-Level Steps
 
 0. (Already executed) Upgrade the Bridge proxy implementation.
@@ -68,13 +78,15 @@ cast call 0x5e4861a80B55f035D899f66772117F00FA0E8e7B \
    Council EOA.
 3. Using OLD `BridgeGovernance`, call
    `beginBridgeGovernanceTransfer(newBridgeGovernance)` to start the
-   48-hour timelock for Bridge governance transfer.
+   governance timelock for Bridge governance transfer (48 hours on
+   mainnet, 60 seconds on Sepolia).
 4. After the governance delay elapses, call
    `finalizeBridgeGovernanceTransfer()` on OLD `BridgeGovernance` to
    make NEW `BridgeGovernance` the Bridge owner.
 5. Using NEW `BridgeGovernance`, call
    `setRebateStaking(RebateStakingProxy)` once to connect the
-   RebateStaking contract to the Bridge implementation.
+   RebateStaking contract to the Bridge implementation. This call
+   reverts if the address is zero or already set.
 6. Verify post-conditions on-chain and, optionally, via the
    existing Hardhat verification script.
 
@@ -359,4 +371,3 @@ Action 1. No other state-changing calls are required until Action 4.
 
 If all checks pass, the tBTC Rebate System is fully wired and
 governable via the new BridgeGovernance contract.
-

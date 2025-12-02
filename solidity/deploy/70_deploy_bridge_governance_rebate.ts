@@ -6,7 +6,16 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { deploy } = deployments
   const { deployer } = await getNamedAccounts()
 
-  const Bridge = await deployments.get("Bridge")
+  // Reuse existing Bridge deployment; do not redeploy core contracts.
+  const bridgeDeployment = await deployments.getOrNull("Bridge")
+  const bridgeAddress =
+    process.env.BRIDGE_ADDRESS ?? bridgeDeployment?.address ?? ""
+
+  if (!bridgeAddress) {
+    throw new Error(
+      "Bridge deployment not found. Set BRIDGE_ADDRESS or ensure deployments/mainnet contains Bridge.json."
+    )
+  }
 
   const bridgeGovernanceParameters = await deployments.deploy(
     "BridgeGovernanceParameters",
@@ -22,7 +31,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const bridgeGovernance = await deploy("BridgeGovernance", {
     contract: "BridgeGovernance",
     from: deployer,
-    args: [Bridge.address, GOVERNANCE_DELAY],
+    args: [bridgeAddress, GOVERNANCE_DELAY],
     log: true,
     libraries: {
       BridgeGovernanceParameters: bridgeGovernanceParameters.address,
@@ -45,4 +54,3 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
 export default func
 func.tags = ["DeployBridgeGovernanceRebate", "VerifyRebateDeployment"]
-func.dependencies = ["Bridge"]
