@@ -61,28 +61,38 @@ This model provides:
 - MintBurnGuard (global mint/burn guard implemented in `solidity/contracts/account-control/MintBurnGuard.sol`):
   - State:
     - `controller` – the only contract allowed to adjust totals and execute mints/burns (for AccountControl flows, this is `AccountControl`).
-    - `totalMinted` – global net‑minted TBTC exposure for controller‑managed flows (expressed in TBTC base units, 1e18).
-    - `globalMintCap` – optional system‑level cap on `totalMinted` (0 disables).
+    - `totalMinted` – global net‑minted TBTC exposure for controller‑managed flows (expressed in TBTC satoshis, 1e8).
+    - `globalMintCap` – optional system‑level cap on `totalMinted` (0 disables, value in satoshis).
     - `mintingPaused` – global pause flag for controller‑driven minting.
     - References to core tBTC v2 contracts:
-      - `IBridgeMintingAuthorization bridge` – used to mint TBTC into the Bank via `controllerIncreaseBalance(s)`.
+      - `IBridgeMintingAuthorization bridge` – used to mint TBTC into the Bank via `controllerIncreaseBalance(s)`; MintBurnGuard converts satoshi-denominated inputs to 1e18 TBTC base units for Bridge/Bank/Vault calls.
       - Minimal Bank/Vault interfaces for burn/unmint operations.
   - Methods (high‑level):
     - Accounting helpers:
-      - `increaseTotalMinted(uint256 amount)` / `decreaseTotalMinted(uint256 amount)` – accounting helpers enforcing pause/cap/underflow, callable only by the configured controller.
+      - `setTotalMinted(uint256 newTotal)` – owner-only accounting helper for migrations/corrections; controllers cannot mutate totals directly and cap checks apply.
     - Mint executor:
-      - `mintToBank(address recipient, uint256 tbtcAmount)` – enforces `mintingPaused` and `globalMintCap`, bumps `totalMinted`, emits a `BankMintExecuted` event, and calls `bridge.controllerIncreaseBalance(recipient, tbtcAmount)` to mint into the Bank.
+      - `mintToBank(address recipient, uint256 tbtcAmount)` – enforces `mintingPaused` and `globalMintCap`, bumps `totalMinted`, emits a `BankMintExecuted` event, and calls `bridge.controllerIncreaseBalance(recipient, tbtcAmount)` with the satoshi amount converted to TBTC base units (1e18) to mint into the Bank.
     - Burn/unmint executors:
-      - `burnFromBank(address from, uint256 tbtcAmount)` – decreases `totalMinted`, emits `BankBurnExecuted`, and calls Bank to burn TBTC from the given Bank balance.
-      - `unmintFromVault(uint256 tbtcAmount)` – decreases `totalMinted`, emits `VaultUnmintExecuted`, and calls Vault to unmint/burn TBTC held in the vault.
-      - `reduceExposureAndBurn(address from, uint256 tbtcAmount)` – optional pure accounting helper (no Bank/Vault calls) used for flows that only need to reduce global exposure.
+      - `burnFromBank(address from, uint256 tbtcAmount)` – decreases `totalMinted`, emits `BankBurnExecuted`, and calls Bank to burn TBTC from the given Bank balance (converted from satoshis to TBTC base units).
+      - `unmintFromVault(uint256 tbtcAmount)` – decreases `totalMinted`, emits `VaultUnmintExecuted`, and calls Vault to unmint/burn TBTC held in the vault (converted from satoshis to TBTC base units).
     - Governance:
       - `setGlobalMintCap(uint256 newCap)` – owner‑only.
       - `setMintingPaused(bool paused)` – owner‑only.
       - `setController(address newController)` / `setBridge(...)` / `setBank(...)` / `setVault(...)` – owner‑only wiring functions.
+    - Units:
+      - Controller/owner inputs, caps, rate limits, and events use satoshis (1e8).
+      - Mint/Burn/Unmint execution calls convert satoshi inputs to TBTC base units (1e18) for Bridge/Bank/Vault interactions.
+    - Configuration notes:
+      - Keep `globalMintCap` (when enabled) ≥ current `totalMinted` and any active `mintRateLimit`; prefer tightening after pausing to avoid unexpected mint reverts.
+      - `setMintRateLimit(limit, windowSeconds)` requires `windowSeconds > 0` when `limit > 0` and `limit` ≤ `globalMintCap` when the cap is set; calling it resets the rate window.
   - Access model:
     - A single controller address (e.g. AccountControl) is allowed to use the execution helpers.
     - The owner (tBTC governance) configures caps, pauses, and underlying core contract references.
+  - Roles/Usage:
+    - Governance/owner: sets the Bridge controller pointer to MintBurnGuard, wires bridge/bank/vault, sets `globalMintCap`/`mintRateLimit`/`mintingPaused`, and uses `setTotalMinted` for migrations; AccountControl cannot change totals.
+    - Controller (AccountControl): after validating reserve caps/backing, calls `mintToBank`/`burnFromBank`/`unmintFromVault` with satoshi amounts; these are the only controller-facing helpers and they obey the guard’s pause/cap/rate checks.
+  - Flow:
+    - AccountControl validates reserve/backing → calls MintBurnGuard (sats) → MintBurnGuard enforces pause/cap/rate, updates accounting, converts to 1e18, and forwards to Bridge/Bank/Vault for execution. Bridge is only whitelisting MintBurnGuard as the controller.
 - New interface for integrators: `IBridgeMintingAuthorization` (minimal Bridge surface consumed by controller logic such as AccountControl).
 
 ## Why Governance Redeploy Is Needed
