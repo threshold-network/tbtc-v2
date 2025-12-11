@@ -7,6 +7,7 @@ cross-chain deposit script.
 
 - [`ArbitrumExtraDataEncoder`](../classes/ArbitrumExtraDataEncoder.md)
 - [`EthereumExtraDataEncoder`](../classes/EthereumExtraDataEncoder.md)
+- [`SeiExtraDataEncoder`](../classes/SeiExtraDataEncoder.md)
 - [`SolanaExtraDataEncoder`](../classes/SolanaExtraDataEncoder.md)
 - [`StarkNetExtraDataEncoder`](../classes/StarkNetExtraDataEncoder.md)
 

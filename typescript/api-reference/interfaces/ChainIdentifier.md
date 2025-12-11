@@ -5,6 +5,7 @@ Represents a generic chain identifier.
 ## Implemented by
 
 - [`EthereumAddress`](../classes/EthereumAddress.md)
+- [`SeiAddress`](../classes/SeiAddress.md)
 - [`SolanaAddress`](../classes/SolanaAddress.md)
 - [`StarkNetAddress`](../classes/StarkNetAddress.md)
 

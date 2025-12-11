@@ -92,58 +92,36 @@ describe("L1BTCDepositorNttWithExecutor - Workflow Observers", () => {
     })
 
     it("should allow user to start new workflow initially", async () => {
-      const [canStart, reason] = await depositor.canUserStartNewWorkflow(
+      const canStart = await depositor.canUserStartNewWorkflow(
         ethers.constants.AddressZero
       )
       expect(canStart).to.be.true
-      expect(reason).to.equal("")
     })
 
-    it("should track nonce sequences per user", async () => {
-      const user1 = ethers.Wallet.createRandom().address
-      const user2 = ethers.Wallet.createRandom().address
-
-      // Initially sequence should be 0
-      const sequence1 = await depositor.getUserNonceSequence(user1)
-      const sequence2 = await depositor.getUserNonceSequence(user2)
-      expect(sequence1).to.equal(0)
-      expect(sequence2).to.equal(0)
-
-      // Test that different users have independent sequences
-      // We can't test nonce generation directly since it's internal,
-      // but we can test the sequence tracking
-      expect(sequence1).to.equal(sequence2) // Both start at 0
-    })
+    // getUserNonceSequence was removed to reduce contract size
+    // Nonce tracking is still internal, just not exposed via getter
 
     it("should provide comprehensive workflow information", async () => {
       const user = ethers.Wallet.createRandom().address
 
-      const workflowInfo = await depositor.getUserWorkflowInfo(user)
-      expect(workflowInfo.hasActiveWorkflow).to.be.false
-      expect(workflowInfo.nonce).to.equal(ethers.constants.HashZero)
-      expect(workflowInfo.timestamp).to.equal(0)
-      expect(workflowInfo.timeRemaining).to.equal(0)
-      expect(workflowInfo.canStartNew).to.be.true
-      expect(workflowInfo.reason).to.equal("")
+      const [hasActiveWorkflow, nonce, timestamp, timeRemaining] =
+        await depositor.getUserWorkflowInfo(user)
+      expect(hasActiveWorkflow).to.be.false
+      expect(nonce).to.equal(ethers.constants.HashZero)
+      expect(timestamp).to.equal(0)
+      expect(timeRemaining).to.equal(0)
+      // canStartNew and reason were removed to reduce contract size
     })
 
-    it("should handle nonce status queries", async () => {
-      const nonExistentNonce = ethers.constants.HashZero
-
-      const [exists, expired, user] = await depositor.getNonceStatus(
-        nonExistentNonce
-      )
-      expect(exists).to.be.false
-      expect(expired).to.be.false
-      expect(user).to.equal(ethers.constants.AddressZero)
-    })
+    // getNonceStatus was removed to reduce contract size
+    // Nonce status can be inferred from getUserWorkflowInfo
   })
 
   describe("Parameter Expiration", () => {
     it("should have configurable expiration time", async () => {
       const currentExpiration = await depositor.parameterExpirationTime()
-      // The initial value is 0 (not initialized)
-      expect(currentExpiration).to.equal(0)
+      // The initial value is 3600 (1 hour, set in initialize function)
+      expect(currentExpiration).to.equal(3600)
 
       // Test setting new expiration time (only owner can do this)
       const newExpirationTime = 7200 // 2 hours
@@ -161,35 +139,20 @@ describe("L1BTCDepositorNttWithExecutor - Workflow Observers", () => {
   })
 
   describe("Multi-User Support", () => {
-    it("should track independent sequences for different users", async () => {
-      const user1 = ethers.Wallet.createRandom().address
-      const user2 = ethers.Wallet.createRandom().address
-
-      // Both users should start with sequence 0
-      const sequence1 = await depositor.getUserNonceSequence(user1)
-      const sequence2 = await depositor.getUserNonceSequence(user2)
-
-      expect(sequence1).to.equal(0)
-      expect(sequence2).to.equal(0)
-      expect(sequence1).to.equal(sequence2) // Both start at 0
-    })
+    // getUserNonceSequence was removed to reduce contract size
+    // Nonce tracking is still internal, just not exposed via getter
 
     it("should provide workflow status for different users", async () => {
       const user1 = ethers.Wallet.createRandom().address
       const user2 = ethers.Wallet.createRandom().address
 
       // Both users should have no active workflow initially
-      const [canStart1, reason1] = await depositor.canUserStartNewWorkflow(
-        user1
-      )
-      const [canStart2, reason2] = await depositor.canUserStartNewWorkflow(
-        user2
-      )
+      const canStart1 = await depositor.canUserStartNewWorkflow(user1)
+      const canStart2 = await depositor.canUserStartNewWorkflow(user2)
 
       expect(canStart1).to.be.true
       expect(canStart2).to.be.true
-      expect(reason1).to.equal("")
-      expect(reason2).to.equal("")
+      // reason was removed to reduce contract size
     })
   })
 
