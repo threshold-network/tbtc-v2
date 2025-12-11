@@ -55,6 +55,20 @@ export namespace Chains {
      */
     Devnet = "sui:devnet",
   }
+
+  /**
+   * Sei L2 chains.
+   */
+  export enum Sei {
+    /**
+     * Sei Mainnet (Pacific-1).
+     */
+    Mainnet = "1329",
+    /**
+     * Sei Testnet (Atlantic-2).
+     */
+    Testnet = "1328",
+  }
 }
 
 /**
@@ -98,6 +112,10 @@ export type ChainMapping = {
    * Identifier of the SUI L2 chain.
    */
   sui?: Chains.Sui
+  /**
+   * Identifier of the Sei L2 chain.
+   */
+  sei?: Chains.Sei
 }
 
 /**
@@ -111,6 +129,7 @@ export const ChainMappings: ChainMapping[] = [
     solana: Chains.Solana.Solana,
     starknet: Chains.StarkNet.Mainnet,
     sui: Chains.Sui.Mainnet,
+    sei: Chains.Sei.Mainnet,
   },
   {
     ethereum: Chains.Ethereum.Sepolia,
@@ -119,5 +138,6 @@ export const ChainMappings: ChainMapping[] = [
     solana: Chains.Solana.Devnet,
     starknet: Chains.StarkNet.Sepolia,
     sui: Chains.Sui.Testnet,
+    sei: Chains.Sei.Testnet,
   },
 ]

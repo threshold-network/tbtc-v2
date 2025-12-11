@@ -20,6 +20,7 @@ import {BytesLib} from "@keep-network/bitcoin-spv-sol/contracts/BytesLib.sol";
 
 import "./BitcoinTx.sol";
 import "./BridgeState.sol";
+import "./RebateStaking.sol";
 import "./Wallets.sol";
 
 import "../bank/Bank.sol";
@@ -532,8 +533,8 @@ library Redemption {
         uint64 treasuryFee = self.redemptionTreasuryFeeDivisor > 0
             ? amount / self.redemptionTreasuryFeeDivisor
             : 0;
-        if (treasuryFee > 0 && address(self.rebateStaking) != address(0)) {
-            treasuryFee = self.rebateStaking.applyForRebate(
+        if (treasuryFee > 0 && self.rebateStaking != address(0)) {
+            treasuryFee = RebateStaking(self.rebateStaking).applyForRebate(
                 redeemer,
                 treasuryFee
             );
@@ -1090,8 +1091,8 @@ library Redemption {
         self.timedOutRedemptions[redemptionKey] = request;
         delete self.pendingRedemptions[redemptionKey];
 
-        if (address(self.rebateStaking) != address(0)) {
-            self.rebateStaking.cancelRebate(
+        if (self.rebateStaking != address(0)) {
+            RebateStaking(self.rebateStaking).cancelRebate(
                 request.redeemer,
                 request.requestedAt
             );

@@ -7,8 +7,13 @@ import { ethers } from "hardhat"
 import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import { secureKeyManager } from "./secure-key-manager"
 
+// Set the RPC URL for mainnet if not already set
+if (!process.env.CHAIN_API_URL) {
+  process.env.CHAIN_API_URL = "https://ethereum.publicnode.com"
+}
+
 // 🎲 DEPLOYMENT SALT - Fixed salt for consistent CREATE2 deployments
-const DEPLOYMENT_SALT = "v1.0.0-l1btc-depositor-ntt-executor"
+const DEPLOYMENT_SALT = "v1.0.0-l1btc-ntt-exec"
 
 export interface L1BTCDepositorNetworkConfig {
   networkName: string
@@ -86,7 +91,7 @@ export async function deployL1BTCDepositorNttWithExecutor(
 
   console.log("🔨 Deploying with upgrades proxy...")
 
-  // Deploy with upgrades proxy
+  // Deploy with upgrades proxy using the same pattern as our successful deployment
   const proxy = await upgrades.deployProxy(
     L1BTCDepositorNttWithExecutor,
     [
@@ -99,6 +104,8 @@ export async function deployL1BTCDepositorNttWithExecutor(
       initializer: "initialize",
       kind: "transparent",
       salt: ethers.utils.formatBytes32String(DEPLOYMENT_SALT),
+      // Add gas limit to handle complex contract deployment
+      gasLimit: 8000000,
     }
   )
 
@@ -194,9 +201,9 @@ export const NETWORK_CONFIGS: Record<string, L1BTCDepositorNetworkConfig> = {
     // Sepolia contract addresses (these need to be updated with actual deployed addresses)
     tbtcBridge: "0x9b1a7fE5a16A15F2f9475C5B231750598b113403", // Sepolia Bridge
     tbtcVault: "0x6c9FC64A53c1b71FB3f9Af64d1ae3A4931A5f4E9", // Sepolia Vault
-    nttManagerWithExecutor: "0x0000000000000000000000000000000000000000", // TODO: Update with actual address
-    underlyingNttManager: "0x0000000000000000000000000000000000000000", // TODO: Update with actual address
-    seiChainId: 32, // Wormhole chain ID for Sei
+    nttManagerWithExecutor: "0x54DD7080aE169DD923fE56d0C4f814a0a17B8f41", // NTT Manager With Executor
+    underlyingNttManager: "0x79AA1b04edA5b77265aFd1FDB9646eab065eadEc", // Underlying NTT Manager
+    seiChainId: 40, // Wormhole chain ID for SeiEVM
     baseSepolia: {
       chainId: 30, // Wormhole chain ID for Base Sepolia
     },
@@ -204,13 +211,13 @@ export const NETWORK_CONFIGS: Record<string, L1BTCDepositorNetworkConfig> = {
   mainnet: {
     networkName: "Ethereum Mainnet",
     explorer: "https://etherscan.io",
-    rpcUrl: "https://mainnet.infura.io/v3/",
-    // Mainnet contract addresses
-    tbtcBridge: "0x5e4861a80B55f035D899f66772b54192c156E5c7", // Mainnet Bridge
+    rpcUrl: "https://ethereum.publicnode.com", // Updated to working RPC provider
+    // Mainnet contract addresses (checksummed)
+    tbtcBridge: "0x5e4861a80B55F035D899F66772b54192C156e5c7", // Mainnet Bridge
     tbtcVault: "0x9C070027cdC9dc8F82416B2e5314E11DFb4FE3CD", // Mainnet Vault
-    nttManagerWithExecutor: "0x0000000000000000000000000000000000000000", // TODO: Update with actual address
-    underlyingNttManager: "0x0000000000000000000000000000000000000000", // TODO: Update with actual address
-    seiChainId: 32, // Wormhole chain ID for Sei
+    nttManagerWithExecutor: "0xD2D9c936165a85F27a5a7e07aFb974D022B89463", // NTT Manager With Executor
+    underlyingNttManager: "0x79eb9aF995a443A102A19b41EDbB58d66e2921c7", // Underlying NTT Manager
+    seiChainId: 40, // Wormhole chain ID for SeiEVM
   },
 }
 
@@ -226,12 +233,11 @@ async function main() {
     process.exit(1)
   }
 
-  // Mock HRE for direct usage
-  const hre = {
-    ethers,
-    upgrades: require("@openzeppelin/hardhat-upgrades"),
-    network: { name: network },
-  } as any
+  // Use hardhat-deploy system instead of direct script
+  console.log("⚠️  Direct script execution not fully supported.")
+  console.log("Please use the hardhat-deploy system instead:")
+  console.log(`   npx hardhat deploy --network ${network} --tags MainnetL1BTCDepositorNttExecutor`)
+  process.exit(1)
 
   const result = await deployL1BTCDepositorNttWithExecutor(
     hre,

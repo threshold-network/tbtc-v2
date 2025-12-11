@@ -7,6 +7,7 @@ deployed on the given destination chain.
 
 - [`ArbitrumBitcoinDepositor`](../classes/ArbitrumBitcoinDepositor.md)
 - [`BaseBitcoinDepositor`](../classes/BaseBitcoinDepositor.md)
+- [`SeiBitcoinDepositor`](../classes/SeiBitcoinDepositor.md)
 - [`StarkNetBitcoinDepositor`](../classes/StarkNetBitcoinDepositor.md)
 
 ## Table of contents

@@ -20,6 +20,7 @@ import {BytesLib} from "@keep-network/bitcoin-spv-sol/contracts/BytesLib.sol";
 
 import "./BitcoinTx.sol";
 import "./BridgeState.sol";
+import "./RebateStaking.sol";
 import "./Wallets.sol";
 
 /// @title Bridge deposit
@@ -340,10 +341,8 @@ library Deposit {
             : 0;
         deposit.extraData = extraData;
 
-        if (
-            deposit.treasuryFee > 0 && address(self.rebateStaking) != address(0)
-        ) {
-            deposit.treasuryFee = self.rebateStaking.applyForRebate(
+        if (deposit.treasuryFee > 0 && self.rebateStaking != address(0)) {
+            deposit.treasuryFee = RebateStaking(self.rebateStaking).applyForRebate(
                 deposit.depositor,
                 deposit.treasuryFee
             );
