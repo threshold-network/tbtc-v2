@@ -342,10 +342,8 @@ library Deposit {
         deposit.extraData = extraData;
 
         if (deposit.treasuryFee > 0 && self.rebateStaking != address(0)) {
-            deposit.treasuryFee = RebateStaking(self.rebateStaking).applyForRebate(
-                deposit.depositor,
-                deposit.treasuryFee
-            );
+            deposit.treasuryFee = RebateStaking(self.rebateStaking)
+                .applyForRebate(deposit.depositor, deposit.treasuryFee);
         }
 
         _emitDepositRevealedEvent(fundingTxHash, fundingOutputAmount, reveal);
