@@ -33,9 +33,37 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   const Bridge = await deployments.get("Bridge")
 
-  // Use the mainnet T token address directly (Threshold Network token)
-  const T_TOKEN_ADDRESS = "0xCdF7028ceAB81fA0C6971208e83fa7872994beE5" // Mainnet T token
-  const t = { address: T_TOKEN_ADDRESS }
+  // Resolve T token: use mainnet address if available, otherwise fall back to
+  // a stub token for local test networks.
+  const MAINNET_T_TOKEN = "0xCdF7028ceAB81fA0C6971208e83fa7872994beE5"
+  const existingT = await deployments.getOrNull("T")
+  const hasMainnetT =
+    (await ethers.provider.getCode(MAINNET_T_TOKEN)) !== "0x"
+
+  let tAddress: string
+
+  if (hasMainnetT) {
+    tAddress = MAINNET_T_TOKEN
+    console.log("✓ Using mainnet T token at:", tAddress)
+  } else if (existingT) {
+    tAddress = existingT.address
+    console.log("✓ Using existing T token at:", tAddress)
+  } else {
+    if (!hre.network.tags.allowStubs) {
+      throw new Error("T token deployment not found and stubs are disabled")
+    }
+
+    const deployedT = await deployments.deploy("T", {
+      contract: "TestERC20",
+      from: deployer,
+      log: true,
+    })
+
+    tAddress = deployedT.address
+    console.log("✓ Deployed stub T token at:", tAddress)
+  }
+
+  const t = { address: tAddress }
 
   let rebateStaking: any
   let rebateProxyDeployment: any
