@@ -37,8 +37,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // a stub token for local test networks.
   const MAINNET_T_TOKEN = "0xCdF7028ceAB81fA0C6971208e83fa7872994beE5"
   const existingT = await deployments.getOrNull("T")
-  const hasMainnetT =
-    (await ethers.provider.getCode(MAINNET_T_TOKEN)) !== "0x"
+  const hasMainnetT = (await ethers.provider.getCode(MAINNET_T_TOKEN)) !== "0x"
 
   let tAddress: string
 
@@ -287,11 +286,19 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     },
   }
 
+  const summaryDir = path.join(__dirname, "..", "deployments", hre.network.name)
+  fs.mkdirSync(summaryDir, { recursive: true })
+
+  const chainIdFile = path.join(summaryDir, ".chainId")
+  if (!fs.existsSync(chainIdFile)) {
+    const chainId = await hre.getChainId()
+    fs.writeFileSync(chainIdFile, chainId)
+  }
+
   const summaryPath = path.join(
-    __dirname,
-    `../deployments/${hre.network.name}/rebate-deployment-${Date.now()}.json`
+    summaryDir,
+    `rebate-deployment-${Date.now()}.json`
   )
-  fs.mkdirSync(path.dirname(summaryPath), { recursive: true })
   fs.writeFileSync(summaryPath, JSON.stringify(deploymentSummary, null, 2))
 
   // Step 8: Print summary
