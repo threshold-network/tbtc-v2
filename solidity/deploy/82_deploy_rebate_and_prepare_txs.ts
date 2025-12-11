@@ -54,7 +54,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     rebateProxyDeployment = existingRebateStaking
   } catch (error) {
     // Deploy if doesn't exist
-    [rebateStaking, rebateProxyDeployment] =
+    const [deployedRebateStaking, deployedRebateProxy] =
       await helpers.upgrades.deployProxy("RebateStaking", {
         contractName: "RebateStaking",
         initializerArgs: [
@@ -71,6 +71,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
           kind: "transparent",
         },
       })
+    rebateStaking = deployedRebateStaking
+    rebateProxyDeployment = deployedRebateProxy
     console.log("✓ RebateStaking deployed at:", rebateStaking.address)
   }
 
@@ -261,6 +263,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     __dirname,
     `../deployments/${hre.network.name}/rebate-deployment-${Date.now()}.json`
   )
+  fs.mkdirSync(path.dirname(summaryPath), { recursive: true })
   fs.writeFileSync(summaryPath, JSON.stringify(deploymentSummary, null, 2))
 
   // Step 8: Print summary
