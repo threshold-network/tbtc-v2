@@ -305,6 +305,15 @@ contract BridgeGovernance is Ownable {
         bridge.setVaultStatus(vault, isTrusted);
     }
 
+    /// @notice Sets the controller contract that can request Bank balance
+    ///         increases via the Bridge.
+    function setControllerBalanceIncreaser(address controller)
+        external
+        onlyOwner
+    {
+        bridge.setControllerBalanceIncreaser(controller);
+    }
+
     /// @notice Allows the Governance to mark the given address as trusted
     ///         or no longer trusted SPV maintainer. Addresses are not trusted
     ///         as SPV maintainers by default.
@@ -1762,11 +1771,6 @@ contract BridgeGovernance is Ownable {
         bridge.updateTreasury(newTreasury);
     }
 
-    /// @notice Gets the governance delay parameter.
-    function governanceDelay() internal view returns (uint256) {
-        return governanceDelays[0];
-    }
-
     /// @notice Sets the redemption watchtower address. This function does not
     ///         have a governance delay as setting the redemption watchtower is
     ///         a one-off action performed during initialization of the
@@ -1781,5 +1785,10 @@ contract BridgeGovernance is Ownable {
         onlyOwner
     {
         bridge.setRedemptionWatchtower(redemptionWatchtower);
+    }
+
+    /// @notice Gets the governance delay parameter.
+    function governanceDelay() internal view returns (uint256) {
+        return governanceDelays[0];
     }
 }
