@@ -9,7 +9,6 @@
 /deployments/*
 !/deployments/mainnet/
 !/deployments/base/
-!/deployments/baseGoerli/
 !/deployments/baseSepolia/
 
 # OZ
