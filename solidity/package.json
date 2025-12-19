@@ -26,6 +26,13 @@
     "lint:fix:sol": "solhint 'contracts/**/*.sol' --fix",
     "test": "USE_EXTERNAL_DEPLOY=true TEST_USE_STUBS_TBTC=true hardhat test",
     "test:integration": "NODE_ENV=integration-test USE_EXTERNAL_DEPLOY=true TEST_USE_STUBS_TBTC=true hardhat test ./test/integration/*.test.ts",
+    "security:authorize-controller": "hardhat run scripts/bridge-controller-authorize.ts",
+    "governance:transfer-properly": "hardhat run scripts/bridge-governance-handoff.ts",
+    "security:configure": "hardhat run scripts/bridge-controller-sync.ts",
+    "bridge:upgrade": "if [ \"$ENABLE_UPGRADE_BRIDGE\" != \"true\" ]; then echo \"ENABLE_UPGRADE_BRIDGE=true required\" >&2; exit 1; fi; hardhat deploy --tags UpgradeBridge",
+    "mintburn:deploy": "hardhat deploy --tags MintBurnGuard",
+    "mintburn:configure": "hardhat deploy --tags MintBurnGuardSecurity",
+    "mintburn:set-controller": "hardhat run scripts/mintburnguard-set-controller.ts",
     "prepack": "tsc -p tsconfig.export.json && hardhat export-artifacts export/artifacts",
     "prepublishOnly": "./scripts/prepare-artifacts.sh --network $npm_config_network"
   },

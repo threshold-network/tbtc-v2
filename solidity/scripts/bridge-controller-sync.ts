@@ -12,7 +12,7 @@ import { syncBridgeControllerAuthorizations } from "../deploy/utils/bridge-contr
  * contract (typically MintBurnGuard) from the environment configuration.
  *
  * Usage (examples):
- *   npx hardhat run scripts/configure-bridge-controllers.ts --network sepolia \
+ *   npx hardhat run scripts/bridge-controller-sync.ts --network sepolia \
  *     --show-stack-traces
  *
  * Environment variables:
@@ -35,6 +35,9 @@ async function main(): Promise<void> {
 
   await syncBridgeControllerAuthorizations(hre, {
     bridgeAddress: process.env.BRIDGE_ADDRESS,
+    bridgeGovernanceAddress:
+      process.env.BRIDGE_GOVERNANCE_ADDRESS ??
+      process.env.NEW_BRIDGE_GOVERNANCE,
     controllerAddress: process.env.BRIDGE_CONTROLLER_ADDRESS,
     governancePrivateKey: process.env.BRIDGE_GOVERNANCE_PK,
     dryRun:

@@ -51,7 +51,7 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
     bool public mintingPaused;
 
     /// @notice Bridge contract used to mint TBTC into the Bank.
-    IBridgeMintingAuthorization public bridge;
+    IBridgeMintingAuthorization public bridge; 
 
     /// @notice Bank contract used for burning TBTC bank balances when needed.
     IBankLike public bank;
@@ -80,6 +80,7 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
 
     event TotalMintedIncreased(uint256 amount, uint256 newTotal);
     event TotalMintedDecreased(uint256 amount, uint256 newTotal);
+    event TotalMintedSet(uint256 previousTotal, uint256 newTotal);
     event GlobalMintCapUpdated(uint256 previousCap, uint256 newCap);
     event MintingPaused(bool paused);
     event MintRateLimitUpdated(
@@ -128,13 +129,41 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
         _;
     }
 
-    /// @notice Sets the initial owner and, optionally, the controller.
+    /// @notice Sets the initial owner, controller, and accounting state.
     /// @param initialOwner Address that will become the contract owner.
     /// @param initialController Optional controller address; can be zero and
     ///        set later via `setController`.
-    constructor(address initialOwner, address initialController) {
+    /// @param initialTotalMinted Initial net-minted exposure to seed.
+    /// @param initialGlobalMintCap Initial global mint cap; zero disables the cap.
+    constructor(
+        address initialOwner,
+        address initialController,
+        uint256 initialTotalMinted,
+        uint256 initialGlobalMintCap
+    ) {
         require(initialOwner != address(0), "Owner must not be 0x0");
         _transferOwnership(initialOwner);
+
+        if (
+            initialGlobalMintCap != 0 &&
+            initialTotalMinted > initialGlobalMintCap
+        ) {
+            revert GlobalMintCapExceeded(
+                initialTotalMinted,
+                initialGlobalMintCap
+            );
+        }
+
+        globalMintCap = initialGlobalMintCap;
+        totalMinted = initialTotalMinted;
+
+        if (initialGlobalMintCap != 0) {
+            emit GlobalMintCapUpdated(0, initialGlobalMintCap);
+        }
+
+        if (initialTotalMinted != 0) {
+            emit TotalMintedSet(0, initialTotalMinted);
+        }
 
         if (initialController != address(0)) {
             controller = initialController;
@@ -324,9 +353,9 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
 
         _enforceMintRateLimit(amount);
 
-        unchecked {
-            newTotal = totalMinted + amount;
-        }
+        // Rely on Solidity's built-in overflow checks to prevent wrap-around when
+        // mint limits are disabled and extremely large amounts are minted.
+        newTotal = totalMinted + amount;
 
         uint256 cap = globalMintCap;
         if (cap != 0 && newTotal > cap) {
@@ -401,6 +430,24 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
         }
         mintingPaused = paused;
         emit MintingPaused(paused);
+    }
+
+    /// @notice Updates the global net-minted exposure tracked by the guard.
+    /// @param newTotal New total minted amount.
+    /// @dev Can only be called by the owner.
+    function setTotalMinted(uint256 newTotal) external onlyOwner {
+        uint256 cap = globalMintCap;
+        if (cap != 0 && newTotal > cap) {
+            revert GlobalMintCapExceeded(newTotal, cap);
+        }
+
+        uint256 previousTotal = totalMinted;
+        if (newTotal == previousTotal) {
+            return;
+        }
+
+        totalMinted = newTotal;
+        emit TotalMintedSet(previousTotal, newTotal);
     }
 
     /// @notice Configures the mint rate limit parameters.

@@ -31,9 +31,15 @@ async function main(): Promise<void> {
   validateAddress(vaultAddress, "TBTC_VAULT_ADDRESS")
 
   const signerPrivateKey =
-    process.env.MINTBURN_GUARD_OWNER_PK ||
-    process.env.BRIDGE_GOVERNANCE_PK ||
-    process.env.GOVERNANCE_PK
+    readPrivateKey(
+      process.env.MINTBURN_GUARD_OWNER_PK,
+      "MINTBURN_GUARD_OWNER_PK"
+    ) ??
+    readPrivateKey(
+      process.env.BRIDGE_GOVERNANCE_PK,
+      "BRIDGE_GOVERNANCE_PK"
+    ) ??
+    readPrivateKey(process.env.GOVERNANCE_PK, "GOVERNANCE_PK")
 
   const signer = signerPrivateKey
     ? new ethers.Wallet(signerPrivateKey, ethers.provider)
@@ -82,6 +88,21 @@ function validateAddress(value: string | undefined, name: string): void {
   if (!value || value === ZERO_ADDRESS) {
     throw new Error(`${name} must be set to a non-zero address.`)
   }
+}
+
+function readPrivateKey(
+  value: string | undefined,
+  name: string
+): string | undefined {
+  if (!value) {
+    return undefined
+  }
+  const trimmed = value.trim()
+  if (ethers.utils.isHexString(trimmed, 32)) {
+    return trimmed
+  }
+  console.warn(`⚠️  ${name} is set but invalid; ignoring.`)
+  return undefined
 }
 
 main().catch((error) => {

@@ -9,6 +9,7 @@ dist/
 # Local environment files for Solidity
 solidity/.env
 solidity/.env.sepolia
+solidity/contracts/account-control/.openzeppelin/unknown-*.json
 
 yarn-error.log
 CLAUDE.md

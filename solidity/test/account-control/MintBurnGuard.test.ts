@@ -36,7 +36,9 @@ describe("MintBurnGuard", () => {
     )
     guard = (await MintBurnGuardFactory.deploy(
       owner.address,
-      controller.address
+      controller.address,
+      0,
+      0
     )) as MintBurnGuard
     await guard.deployed()
 
@@ -58,6 +60,77 @@ describe("MintBurnGuard", () => {
     it("should set owner and controller", async () => {
       expect(await guard.owner()).to.equal(owner.address)
       expect(await guard.controller()).to.equal(controller.address)
+    })
+
+    it("should set initial totals and cap", async () => {
+      const MintBurnGuardFactory = await ethers.getContractFactory(
+        "MintBurnGuard"
+      )
+      const initialTotalMinted = 100
+      const initialGlobalMintCap = 200
+
+      const seededGuard = (await MintBurnGuardFactory.deploy(
+        owner.address,
+        controller.address,
+        initialTotalMinted,
+        initialGlobalMintCap
+      )) as MintBurnGuard
+      await seededGuard.deployed()
+
+      expect(await seededGuard.totalMinted()).to.equal(initialTotalMinted)
+      expect(await seededGuard.globalMintCap()).to.equal(initialGlobalMintCap)
+    })
+
+    it("should allow non-zero initial total when cap disabled", async () => {
+      const MintBurnGuardFactory = await ethers.getContractFactory(
+        "MintBurnGuard"
+      )
+      const initialTotalMinted = 100
+
+      const seededGuard = (await MintBurnGuardFactory.deploy(
+        owner.address,
+        controller.address,
+        initialTotalMinted,
+        0
+      )) as MintBurnGuard
+      await seededGuard.deployed()
+
+      expect(await seededGuard.totalMinted()).to.equal(initialTotalMinted)
+      expect(await seededGuard.globalMintCap()).to.equal(0)
+    })
+
+    it("should emit constructor events for initial totals and cap", async () => {
+      const MintBurnGuardFactory = await ethers.getContractFactory(
+        "MintBurnGuard"
+      )
+      const initialTotalMinted = 100
+      const initialGlobalMintCap = 200
+
+      const seededGuard = (await MintBurnGuardFactory.deploy(
+        owner.address,
+        controller.address,
+        initialTotalMinted,
+        initialGlobalMintCap
+      )) as MintBurnGuard
+
+      await expect(seededGuard.deployTransaction)
+        .to.emit(seededGuard, "TotalMintedSet")
+        .withArgs(0, initialTotalMinted)
+      await expect(seededGuard.deployTransaction)
+        .to.emit(seededGuard, "GlobalMintCapUpdated")
+        .withArgs(0, initialGlobalMintCap)
+
+      await seededGuard.deployed()
+    })
+
+    it("should revert when initial total exceeds cap", async () => {
+      const MintBurnGuardFactory = await ethers.getContractFactory(
+        "MintBurnGuard"
+      )
+
+      await expect(
+        MintBurnGuardFactory.deploy(owner.address, controller.address, 201, 200)
+      ).to.be.reverted
     })
   })
 
@@ -115,6 +188,32 @@ describe("MintBurnGuard", () => {
       await expect(
         guard.connect(controller).decreaseTotalMinted(current.add(1))
       ).to.be.revertedWith("MintBurnGuard: underflow")
+    })
+
+    it("allows owner to set totalMinted", async () => {
+      const previousTotal = await guard.totalMinted()
+      const newTotal = previousTotal.add(20)
+
+      await expect(guard.connect(owner).setTotalMinted(newTotal))
+        .to.emit(guard, "TotalMintedSet")
+        .withArgs(previousTotal, newTotal)
+
+      expect(await guard.totalMinted()).to.equal(newTotal)
+    })
+
+    it("reverts when non-owner tries to set totalMinted", async () => {
+      await expect(guard.connect(thirdParty).setTotalMinted(1)).to.be
+        .revertedWith("Ownable: caller is not the owner")
+    })
+
+    it("should enforce global mint cap on totalMinted updates", async () => {
+      const cap = await guard.globalMintCap()
+      const previousTotal = await guard.totalMinted()
+      const overCap = cap.add(1)
+
+      await expect(guard.connect(owner).setTotalMinted(overCap)).to.be.reverted
+
+      expect(await guard.totalMinted()).to.equal(previousTotal)
     })
 
     it("mints via bridge and updates exposure", async () => {
