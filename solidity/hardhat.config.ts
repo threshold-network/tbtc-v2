@@ -163,6 +163,8 @@ const config: HardhatUserConfig = {
         ? [process.env.CONTRACT_OWNER_ACCOUNT_PRIVATE_KEY]
         : undefined,
       tags: ["etherscan", "tenderly"],
+      timeout: 300000, // 5 minutes
+      httpHeaders: {},
     },
   },
 

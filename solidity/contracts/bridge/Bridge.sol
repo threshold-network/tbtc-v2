@@ -255,6 +255,8 @@ contract Bridge is
 
     event RedemptionWatchtowerSet(address redemptionWatchtower);
 
+    event RebateStakingSet(address rebateStaking);
+
     modifier onlySpvMaintainer() {
         require(
             self.isSpvMaintainer[msg.sender],
@@ -2032,6 +2034,27 @@ contract Bridge is
         return self.txProofDifficultyFactor;
     }
 
+    /// @notice Sets the rebate staking address.
+    /// @param rebateStaking Address of the rebate staking contract.
+    /// @dev Requirements:
+    ///      - The caller must be the governance,
+    ///      - Rebate staking address must not be already set,
+    ///      - Rebate staking address must not be 0x0.
+    ///
+    /// @dev This function is intended to be called exactly once as
+    ///      part of the rebate mechanism wiring governed by the
+    ///      Bridge governance contract. See the bridge rebate
+    ///      governance deployment runbook for operational details.
+    function setRebateStaking(address rebateStaking) external onlyGovernance {
+        self.setRebateStaking(rebateStaking);
+    }
+
+    /// @return Address of the rebate staking contract.
+    function getRebateStaking() external view returns (address) {
+        return self.rebateStaking;
+    }
+
+    /// @return Address of the redemption watchtower.
     function getRedemptionWatchtower() external view returns (address) {
         return self.redemptionWatchtower;
     }

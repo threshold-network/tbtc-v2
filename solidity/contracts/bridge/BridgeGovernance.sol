@@ -1791,4 +1791,21 @@ contract BridgeGovernance is Ownable {
     function governanceDelay() internal view returns (uint256) {
         return governanceDelays[0];
     }
+
+    /// @notice Sets the rebate staking address. This function does not
+    ///         have a governance delay as setting the rebate staking is
+    ///         a one-off action performed during initialization of the
+    ///         rebate mechanism.
+    /// @param rebateStaking Address of the rebate staking contract.
+    /// @dev Requirements:
+    ///      - The caller must be the owner,
+    ///      - The Bridge implementation is expected to enforce that the
+    ///        rebate staking address is set exactly once and is not 0x0.
+    ///
+    /// @notice This function forwards the call to the underlying Bridge
+    ///         implementation. If the Bridge implementation does not support
+    ///         rebate staking configuration, this call will revert.
+    function setRebateStaking(address rebateStaking) external onlyOwner {
+        bridge.setRebateStaking(rebateStaking);
+    }
 }

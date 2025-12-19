@@ -14,3 +14,4 @@
 
 # OpenZeppelin
 /.openzeppelin/unknown-*.json
+solcInputs/
