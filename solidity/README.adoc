@@ -78,6 +78,6 @@ an `export.json` file containing contract deployment info.
 
 == Mint/Burn Guard rate limiting
 
-The `MintBurnGuard` contract exposes `mintRateLimit` and `mintRateLimitWindow` globals that gate how much TBTC can be minted inside any single window. Governance can adjust the cap (measured in TBTC base units) together with the window duration via `setMintRateLimit(limit, windowSeconds)`; passing `limit = 0` disables the rate limit entirely and resets the in-flight window counters, which is equivalent to allowing unlimited per-window minting.
+The `MintBurnGuard` contract exposes `mintRateLimitTbtc` and `mintRateLimitWindowSeconds` globals that gate how much TBTC can be minted inside any single window. Governance can adjust the cap (measured in TBTC base units) together with the window duration via `setMintRateLimit(limitTbtc, windowSeconds)`; passing `limitTbtc = 0` disables the rate limit entirely and resets the in-flight window counters, which is equivalent to allowing unlimited per-window minting.
 
-Rate limits are enforced only on controller-driven minting helpers, so controllers may still disable minting entirely via `setMintingPaused` or cap total minting via `setGlobalMintCap` when per-window throttling is insufficient.
+Rate limits are enforced only on controller-driven minting helpers, so controllers may still disable minting entirely via `setMintingPaused` or cap total minting via `setGlobalMintCapTbtc` when per-window throttling is insufficient.

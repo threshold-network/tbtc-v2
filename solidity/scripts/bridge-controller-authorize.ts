@@ -181,10 +181,10 @@ async function runVerificationGate(ctx: VerificationContext): Promise<void> {
     )
   }
 
-  const expectedCap = ethers.utils.parseEther(
+  const expectedCapTbtc = ethers.utils.parseEther(
     getRequiredNumber("MINT_BURN_GUARD_GLOBAL_CAP")
   )
-  const expectedRateLimit = ethers.utils.parseEther(
+  const expectedRateLimitTbtc = ethers.utils.parseEther(
     getRequiredNumber("MINT_BURN_GUARD_RATE_LIMIT")
   )
   const expectedRateWindow = parseInt(
@@ -192,25 +192,34 @@ async function runVerificationGate(ctx: VerificationContext): Promise<void> {
     10
   )
 
-  const [globalCap, rateLimit, rateWindowBn, mintingPaused, totalMinted] =
+  const [
+    globalCapTbtc,
+    rateLimitTbtc,
+    rateWindowBn,
+    mintingPaused,
+    totalMintedTbtc,
+  ] =
     await Promise.all([
-      mintBurnGuard.globalMintCap(),
-      mintBurnGuard.mintRateLimit(),
-      mintBurnGuard.mintRateLimitWindow(),
+      mintBurnGuard.globalMintCapTbtc(),
+      mintBurnGuard.mintRateLimitTbtc(),
+      mintBurnGuard.mintRateLimitWindowSeconds(),
       mintBurnGuard.mintingPaused(),
-      mintBurnGuard.totalMinted(),
+      mintBurnGuard.totalMintedTbtc(),
     ])
   const rateWindow = rateWindowBn.toNumber()
 
-  if (!globalCap.eq(expectedCap)) {
+  if (!globalCapTbtc.eq(expectedCapTbtc)) {
     throw new Error(
       `MintBurnGuard global cap mismatch (${ethers.utils.formatEther(
-        globalCap
-      )} vs env ${ethers.utils.formatEther(expectedCap)})`
+        globalCapTbtc
+      )} vs env ${ethers.utils.formatEther(expectedCapTbtc)})`
     )
   }
 
-  if (!rateLimit.eq(expectedRateLimit) || rateWindow !== expectedRateWindow) {
+  if (
+    !rateLimitTbtc.eq(expectedRateLimitTbtc) ||
+    rateWindow !== expectedRateWindow
+  ) {
     throw new Error(
       "MintBurnGuard rate limit/window does not match configured env values"
     )
@@ -220,8 +229,8 @@ async function runVerificationGate(ctx: VerificationContext): Promise<void> {
     throw new Error("MintBurnGuard is paused; unpause before authorizing.")
   }
 
-  if (totalMinted.gt(globalCap)) {
-    throw new Error("MintBurnGuard totalMinted exceeds global cap.")
+  if (totalMintedTbtc.gt(globalCapTbtc)) {
+    throw new Error("MintBurnGuard totalMintedTbtc exceeds global cap.")
   }
 
   const currentController = await bridge.controllerBalanceIncreaser()

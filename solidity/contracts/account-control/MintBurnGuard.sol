@@ -32,19 +32,20 @@ interface IBankLike {
 /// @dev This contract is intentionally minimal and oblivious to reserve-level
 ///      details. It is expected that a single controller contract (e.g.
 ///      AccountControl) reports all mint and burn operations via this guard.
+/// @notice Unit conventions:
+///         - All amounts, caps, and totals use TBTC base units (1e18).
 contract MintBurnGuard is Ownable, IMintBurnGuard {
     /// @notice Address of the controller allowed to adjust the total minted
     ///         exposure tracked by this guard and call execution helpers.
     address public controller;
 
     /// @notice Global net-minted amount reported by the controller.
-    /// @dev Expressed in base units agreed upon with the controller, e.g.
-    ///      satoshis for TBTC exposure.
-    uint256 public totalMinted;
+    /// @dev Expressed in TBTC base units (1e18).
+    uint256 public totalMintedTbtc;
 
     /// @notice Global mint cap enforced across all controller-managed lines.
     /// @dev A value of zero disables the global cap check.
-    uint256 public globalMintCap;
+    uint256 public globalMintCapTbtc;
 
     /// @notice Global pause flag for controller-driven minting.
     /// @dev When set to true, mint-side helpers revert for any amount > 0.
@@ -61,66 +62,69 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
 
     /// @notice Maximum amount that may be minted within a single rate window.
     /// @dev A value of zero disables rate limiting entirely.
-    uint256 public mintRateLimit;
+    uint256 public mintRateLimitTbtc;
 
-    /// @notice Duration, in seconds, of the rate window governed by `mintRateLimit`.
-    /// @dev This value must be non-zero when `mintRateLimit` is enabled.
-    uint256 public mintRateLimitWindow;
+    /// @notice Duration, in seconds, of the rate window governed by `mintRateLimitTbtc`.
+    /// @dev This value must be non-zero when `mintRateLimitTbtc` is enabled.
+    uint256 public mintRateLimitWindowSeconds;
 
-    /// @notice Timestamp that marks the beginning of the current rate window.
-    uint256 public mintRateWindowStart;
+    /// @notice Timestamp (seconds) that marks the beginning of the current rate window.
+    uint256 public mintRateWindowStartTimestamp;
 
-    /// @notice Amount minted so far during the current rate window.
-    uint256 public mintRateWindowAmount;
+    /// @notice Amount minted so far during the current rate window (1e18).
+    uint256 public mintRateWindowAmountTbtc;
 
     event ControllerUpdated(
         address indexed previousController,
         address indexed newController
     );
 
-    event TotalMintedIncreased(uint256 amount, uint256 newTotal);
-    event TotalMintedDecreased(uint256 amount, uint256 newTotal);
-    event TotalMintedSet(uint256 previousTotal, uint256 newTotal);
-    event GlobalMintCapUpdated(uint256 previousCap, uint256 newCap);
+    event TotalMintedIncreased(uint256 amountTbtc, uint256 newTotalMintedTbtc);
+    event TotalMintedDecreased(uint256 amountTbtc, uint256 newTotalMintedTbtc);
+    event TotalMintedSet(
+        uint256 previousTotalMintedTbtc,
+        uint256 newTotalMintedTbtc
+    );
+    event GlobalMintCapUpdated(uint256 previousCapTbtc, uint256 newCapTbtc);
     event MintingPaused(bool paused);
     event MintRateLimitUpdated(
-        uint256 previousLimit,
-        uint256 previousWindow,
-        uint256 newLimit,
-        uint256 newWindow
+        uint256 previousLimitTbtc,
+        uint256 previousWindowSeconds,
+        uint256 newLimitTbtc,
+        uint256 newWindowSeconds
     );
 
     event BankMintExecuted(
         address indexed controller,
         address indexed recipient,
-        uint256 amountSats,
-        uint256 newTotalMinted
+        uint256 amountTbtc,
+        uint256 newTotalMintedTbtc
     );
 
     event BankBurnExecuted(
         address indexed controller,
         address indexed from,
-        uint256 amountSats,
-        uint256 newTotalMinted
+        uint256 amountTbtc,
+        uint256 newTotalMintedTbtc
     );
 
     event VaultUnmintExecuted(
         address indexed controller,
-        uint256 amountSats,
-        uint256 newTotalMinted
+        uint256 amountTbtc,
+        uint256 newTotalMintedTbtc
     );
 
     event ExposureReduced(
         address indexed controller,
         address indexed from,
-        uint256 amountSats,
-        uint256 newTotalMinted
+        uint256 amountTbtc,
+        uint256 newTotalMintedTbtc
     );
 
     error NotController(address caller);
     error MintingPausedError();
-    error GlobalMintCapExceeded(uint256 newTotal, uint256 cap);
-    error MintRateLimitExceeded(uint256 windowTotal, uint256 limit);
+    error GlobalMintCapExceeded(uint256 newTotalTbtc, uint256 capTbtc);
+    error MintRateLimitExceeded(uint256 windowTotalTbtc, uint256 limitTbtc);
 
     modifier onlyController() {
         if (msg.sender != controller) {
@@ -133,36 +137,36 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
     /// @param initialOwner Address that will become the contract owner.
     /// @param initialController Optional controller address; can be zero and
     ///        set later via `setController`.
-    /// @param initialTotalMinted Initial net-minted exposure to seed.
-    /// @param initialGlobalMintCap Initial global mint cap; zero disables the cap.
+    /// @param initialTotalMintedTbtc Initial net-minted exposure to seed.
+    /// @param initialGlobalMintCapTbtc Initial global mint cap; zero disables the cap.
     constructor(
         address initialOwner,
         address initialController,
-        uint256 initialTotalMinted,
-        uint256 initialGlobalMintCap
+        uint256 initialTotalMintedTbtc,
+        uint256 initialGlobalMintCapTbtc
     ) {
         require(initialOwner != address(0), "Owner must not be 0x0");
         _transferOwnership(initialOwner);
 
         if (
-            initialGlobalMintCap != 0 &&
-            initialTotalMinted > initialGlobalMintCap
+            initialGlobalMintCapTbtc != 0 &&
+            initialTotalMintedTbtc > initialGlobalMintCapTbtc
         ) {
             revert GlobalMintCapExceeded(
-                initialTotalMinted,
-                initialGlobalMintCap
+                initialTotalMintedTbtc,
+                initialGlobalMintCapTbtc
             );
         }
 
-        globalMintCap = initialGlobalMintCap;
-        totalMinted = initialTotalMinted;
+        globalMintCapTbtc = initialGlobalMintCapTbtc;
+        totalMintedTbtc = initialTotalMintedTbtc;
 
-        if (initialGlobalMintCap != 0) {
-            emit GlobalMintCapUpdated(0, initialGlobalMintCap);
+        if (initialGlobalMintCapTbtc != 0) {
+            emit GlobalMintCapUpdated(0, initialGlobalMintCapTbtc);
         }
 
-        if (initialTotalMinted != 0) {
-            emit TotalMintedSet(0, initialTotalMinted);
+        if (initialTotalMintedTbtc != 0) {
+            emit TotalMintedSet(0, initialTotalMintedTbtc);
         }
 
         if (initialController != address(0)) {
@@ -228,197 +232,197 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
     }
 
     /// @notice Increases the global net-minted exposure.
-    /// @param amount Amount to add to the total minted exposure.
-    /// @return newTotal The updated total minted amount.
+    /// @param amountTbtc Amount to add to the total minted exposure (1e18).
+    /// @return newTotalTbtc The updated total minted amount (1e18).
     /// @dev Can only be called by the configured controller.
-    function increaseTotalMinted(uint256 amount)
+    function increaseTotalMinted(uint256 amountTbtc)
         external
         onlyController
-        returns (uint256 newTotal)
+        returns (uint256 newTotalTbtc)
     {
-        if (amount == 0) {
-            return totalMinted;
+        if (amountTbtc == 0) {
+            return totalMintedTbtc;
         }
 
-        newTotal = _increaseTotalMintedInternal(amount);
+        newTotalTbtc = _increaseTotalMintedInternal(amountTbtc);
     }
 
     /// @notice Decreases the global net-minted exposure.
-    /// @param amount Amount to subtract from the total minted exposure.
-    /// @return newTotal The updated total minted amount.
+    /// @param amountTbtc Amount to subtract from the total minted exposure (1e18).
+    /// @return newTotalTbtc The updated total minted amount (1e18).
     /// @dev Can only be called by the configured controller.
-    function decreaseTotalMinted(uint256 amount)
+    function decreaseTotalMinted(uint256 amountTbtc)
         external
         onlyController
-        returns (uint256 newTotal)
+        returns (uint256 newTotalTbtc)
     {
-        if (amount == 0) {
-            return totalMinted;
+        if (amountTbtc == 0) {
+            return totalMintedTbtc;
         }
 
-        newTotal = _decreaseTotalMintedInternal(amount);
+        newTotalTbtc = _decreaseTotalMintedInternal(amountTbtc);
     }
 
     /// @notice Mints TBTC to the Bank via the Bridge and updates global exposure.
     /// @param recipient Address receiving the TBTC bank balance.
-    /// @param amount Amount in TBTC base units (1e18) to add to exposure.
+    /// @param amountTbtc Amount in TBTC base units (1e18) to add to exposure.
     /// @dev Can only be called by the configured controller.
     // slither-disable-next-line reentrancy-vulnerabilities-3 reentrancy-vulnerabilities-2
-    function mintToBank(address recipient, uint256 amount)
+    function mintToBank(address recipient, uint256 amountTbtc)
         external
         onlyController
     {
-        if (amount == 0) {
+        if (amountTbtc == 0) {
             return;
         }
 
         require(address(bridge) != address(0), "MintBurnGuard: bridge not set");
 
-        uint256 newTotal = _increaseTotalMintedInternal(amount);
+        uint256 newTotalTbtc = _increaseTotalMintedInternal(amountTbtc);
 
-        emit BankMintExecuted(controller, recipient, amount, newTotal);
-        bridge.controllerIncreaseBalance(recipient, amount);
+        emit BankMintExecuted(controller, recipient, amountTbtc, newTotalTbtc);
+        bridge.controllerIncreaseBalance(recipient, amountTbtc);
     }
 
     /// @notice Reduces exposure and burns TBTC via Bank/Vault as appropriate.
     /// @param from Source address for burns that operate on balances.
-    /// @param amount Amount in TBTC base units (1e18) to reduce from exposure.
+    /// @param amountTbtc Amount in TBTC base units (1e18) to reduce from exposure.
     /// @dev The controller is responsible for choosing the correct `from`
     ///      semantics per flow. This helper only coordinates accounting and
     ///      emits an accounting event; any concrete Bank/Vault calls must be
     ///      executed by the controller or by dedicated helpers before or after
     ///      calling into this function.
-    function reduceExposureAndBurn(address from, uint256 amount)
+    function reduceExposureAndBurn(address from, uint256 amountTbtc)
         external
         onlyController
     {
-        if (amount == 0) {
+        if (amountTbtc == 0) {
             return;
         }
 
-        uint256 newTotal = _decreaseTotalMintedInternal(amount);
+        uint256 newTotalTbtc = _decreaseTotalMintedInternal(amountTbtc);
 
-        emit ExposureReduced(controller, from, amount, newTotal);
+        emit ExposureReduced(controller, from, amountTbtc, newTotalTbtc);
     }
 
     /// @notice Burns TBTC bank balance and reduces global exposure.
     /// @param from Source address for which the burn semantics are tracked.
-    /// @param amount Amount in TBTC base units (1e18) to burn from the Bank.
+    /// @param amountTbtc Amount in TBTC base units (1e18) to burn from the Bank.
     /// @dev This helper assumes that the Bank exposes a `decreaseBalance`
     ///      primitive that burns the caller's bank balance. The `from` address
     ///      is emitted for monitoring purposes; it is up to higher-level
     ///      logic to ensure that balances are held in an account that can be
     ///      safely burned by this helper.
-    function burnFromBank(address from, uint256 amount)
+    function burnFromBank(address from, uint256 amountTbtc)
         external
         onlyController
     {
-        if (amount == 0) {
+        if (amountTbtc == 0) {
             return;
         }
 
         require(address(bank) != address(0), "MintBurnGuard: bank not set");
 
-        uint256 newTotal = _decreaseTotalMintedInternal(amount);
+        uint256 newTotalTbtc = _decreaseTotalMintedInternal(amountTbtc);
 
-        emit BankBurnExecuted(controller, from, amount, newTotal);
-        bank.decreaseBalance(amount);
+        emit BankBurnExecuted(controller, from, amountTbtc, newTotalTbtc);
+        bank.decreaseBalance(amountTbtc);
     }
 
     /// @notice Unmints TBTC via the configured vault and reduces global
     ///         exposure.
-    /// @param amount Amount in TBTC base units (1e18) to unmint.
+    /// @param amountTbtc Amount in TBTC base units (1e18) to unmint.
     /// @dev Can only be called by the configured controller.
-    function unmintFromVault(uint256 amount) external onlyController {
-        if (amount == 0) {
+    function unmintFromVault(uint256 amountTbtc) external onlyController {
+        if (amountTbtc == 0) {
             return;
         }
 
         require(address(vault) != address(0), "MintBurnGuard: vault not set");
 
-        uint256 newTotal = _decreaseTotalMintedInternal(amount);
+        uint256 newTotalTbtc = _decreaseTotalMintedInternal(amountTbtc);
 
-        emit VaultUnmintExecuted(controller, amount, newTotal);
-        vault.unmint(amount);
+        emit VaultUnmintExecuted(controller, amountTbtc, newTotalTbtc);
+        vault.unmint(amountTbtc);
     }
 
-    /// @notice Internal helper increasing `totalMinted` with cap and pause checks.
-    function _increaseTotalMintedInternal(uint256 amount)
+    /// @notice Internal helper increasing `totalMintedTbtc` with cap and pause checks.
+    function _increaseTotalMintedInternal(uint256 amountTbtc)
         private
-        returns (uint256 newTotal)
+        returns (uint256 newTotalTbtc)
     {
         if (mintingPaused) {
             revert MintingPausedError();
         }
 
-        _enforceMintRateLimit(amount);
+        _enforceMintRateLimit(amountTbtc);
 
         // Rely on Solidity's built-in overflow checks to prevent wrap-around when
         // mint limits are disabled and extremely large amounts are minted.
-        newTotal = totalMinted + amount;
+        newTotalTbtc = totalMintedTbtc + amountTbtc;
 
-        uint256 cap = globalMintCap;
-        if (cap != 0 && newTotal > cap) {
-            revert GlobalMintCapExceeded(newTotal, cap);
+        uint256 cap = globalMintCapTbtc;
+        if (cap != 0 && newTotalTbtc > cap) {
+            revert GlobalMintCapExceeded(newTotalTbtc, cap);
         }
 
-        totalMinted = newTotal;
-        emit TotalMintedIncreased(amount, newTotal);
+        totalMintedTbtc = newTotalTbtc;
+        emit TotalMintedIncreased(amountTbtc, newTotalTbtc);
     }
 
-    /// @notice Internal helper decreasing `totalMinted` with underflow protection.
-    function _decreaseTotalMintedInternal(uint256 amount)
+    /// @notice Internal helper decreasing `totalMintedTbtc` with underflow protection.
+    function _decreaseTotalMintedInternal(uint256 amountTbtc)
         private
-        returns (uint256 newTotal)
+        returns (uint256 newTotalTbtc)
     {
-        uint256 current = totalMinted;
-        require(amount <= current, "MintBurnGuard: underflow");
+        uint256 current = totalMintedTbtc;
+        require(amountTbtc <= current, "MintBurnGuard: underflow");
 
         unchecked {
-            newTotal = current - amount;
+            newTotalTbtc = current - amountTbtc;
         }
 
-        totalMinted = newTotal;
-        emit TotalMintedDecreased(amount, newTotal);
+        totalMintedTbtc = newTotalTbtc;
+        emit TotalMintedDecreased(amountTbtc, newTotalTbtc);
     }
 
     /* solhint-disable not-rely-on-time */
-    function _enforceMintRateLimit(uint256 amount) private {
-        uint256 limit = mintRateLimit;
-        uint256 window = mintRateLimitWindow;
-        if (limit == 0 || window == 0) {
+    function _enforceMintRateLimit(uint256 amountTbtc) private {
+        uint256 limitTbtc = mintRateLimitTbtc;
+        uint256 windowSeconds = mintRateLimitWindowSeconds;
+        if (limitTbtc == 0 || windowSeconds == 0) {
             return;
         }
 
         uint256 currentTimestamp = block.timestamp;
-        uint256 windowStart = mintRateWindowStart;
+        uint256 windowStart = mintRateWindowStartTimestamp;
 
-        if (currentTimestamp >= windowStart + window) {
-            if (amount > limit) {
-                revert MintRateLimitExceeded(amount, limit);
+        if (currentTimestamp >= windowStart + windowSeconds) {
+            if (amountTbtc > limitTbtc) {
+                revert MintRateLimitExceeded(amountTbtc, limitTbtc);
             }
-            mintRateWindowStart = currentTimestamp;
-            mintRateWindowAmount = amount;
+            mintRateWindowStartTimestamp = currentTimestamp;
+            mintRateWindowAmountTbtc = amountTbtc;
             return;
         }
 
-        uint256 nextWindowAmount = mintRateWindowAmount + amount;
-        if (nextWindowAmount > limit) {
-            revert MintRateLimitExceeded(nextWindowAmount, limit);
+        uint256 nextWindowAmountTbtc = mintRateWindowAmountTbtc + amountTbtc;
+        if (nextWindowAmountTbtc > limitTbtc) {
+            revert MintRateLimitExceeded(nextWindowAmountTbtc, limitTbtc);
         }
 
-        mintRateWindowAmount = nextWindowAmount;
+        mintRateWindowAmountTbtc = nextWindowAmountTbtc;
     }
 
     /* solhint-enable not-rely-on-time */
 
     /// @notice Updates the global mint cap.
-    /// @param newCap New global mint cap; zero disables the cap.
+    /// @param newCapTbtc New global mint cap; zero disables the cap.
     /// @dev Can only be called by the owner.
-    function setGlobalMintCap(uint256 newCap) external onlyOwner {
-        uint256 previousCap = globalMintCap;
-        globalMintCap = newCap;
-        emit GlobalMintCapUpdated(previousCap, newCap);
+    function setGlobalMintCapTbtc(uint256 newCapTbtc) external onlyOwner {
+        uint256 previousCapTbtc = globalMintCapTbtc;
+        globalMintCapTbtc = newCapTbtc;
+        emit GlobalMintCapUpdated(previousCapTbtc, newCapTbtc);
     }
 
     /// @notice Updates the global minting pause flag.
@@ -433,51 +437,51 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
     }
 
     /// @notice Updates the global net-minted exposure tracked by the guard.
-    /// @param newTotal New total minted amount.
+    /// @param newTotalTbtc New total minted amount (1e18).
     /// @dev Can only be called by the owner.
-    function setTotalMinted(uint256 newTotal) external onlyOwner {
-        uint256 cap = globalMintCap;
-        if (cap != 0 && newTotal > cap) {
-            revert GlobalMintCapExceeded(newTotal, cap);
+    function setTotalMintedTbtc(uint256 newTotalTbtc) external onlyOwner {
+        uint256 cap = globalMintCapTbtc;
+        if (cap != 0 && newTotalTbtc > cap) {
+            revert GlobalMintCapExceeded(newTotalTbtc, cap);
         }
 
-        uint256 previousTotal = totalMinted;
-        if (newTotal == previousTotal) {
+        uint256 previousTotalTbtc = totalMintedTbtc;
+        if (newTotalTbtc == previousTotalTbtc) {
             return;
         }
 
-        totalMinted = newTotal;
-        emit TotalMintedSet(previousTotal, newTotal);
+        totalMintedTbtc = newTotalTbtc;
+        emit TotalMintedSet(previousTotalTbtc, newTotalTbtc);
     }
 
     /// @notice Configures the mint rate limit parameters.
-    /// @param limit Maximum TBTC base units allowed per window; zero disables.
+    /// @param limitTbtc Maximum TBTC base units allowed per window; zero disables.
     /// @param windowSeconds Duration of the rate window in seconds.
-    /// @dev When `limit` is non-zero, `windowSeconds` must also be non-zero.
-    function setMintRateLimit(uint256 limit, uint256 windowSeconds)
+    /// @dev When `limitTbtc` is non-zero, `windowSeconds` must also be non-zero.
+    function setMintRateLimit(uint256 limitTbtc, uint256 windowSeconds)
         external
         onlyOwner
     {
-        uint256 previousLimit = mintRateLimit;
-        uint256 previousWindow = mintRateLimitWindow;
+        uint256 previousLimitTbtc = mintRateLimitTbtc;
+        uint256 previousWindowSeconds = mintRateLimitWindowSeconds;
 
-        if (limit == 0) {
-            mintRateLimit = 0;
-            mintRateLimitWindow = 0;
+        if (limitTbtc == 0) {
+            mintRateLimitTbtc = 0;
+            mintRateLimitWindowSeconds = 0;
         } else {
             require(windowSeconds != 0, "MintBurnGuard: window must not be 0");
-            mintRateLimit = limit;
-            mintRateLimitWindow = windowSeconds;
+            mintRateLimitTbtc = limitTbtc;
+            mintRateLimitWindowSeconds = windowSeconds;
         }
 
-        mintRateWindowStart = 0;
-        mintRateWindowAmount = 0;
+        mintRateWindowStartTimestamp = 0;
+        mintRateWindowAmountTbtc = 0;
 
         emit MintRateLimitUpdated(
-            previousLimit,
-            previousWindow,
-            mintRateLimit,
-            mintRateLimitWindow
+            previousLimitTbtc,
+            previousWindowSeconds,
+            mintRateLimitTbtc,
+            mintRateLimitWindowSeconds
         );
     }
 }

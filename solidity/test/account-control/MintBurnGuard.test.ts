@@ -66,59 +66,65 @@ describe("MintBurnGuard", () => {
       const MintBurnGuardFactory = await ethers.getContractFactory(
         "MintBurnGuard"
       )
-      const initialTotalMinted = 100
-      const initialGlobalMintCap = 200
+      const initialTotalMintedTbtc = 100
+      const initialGlobalMintCapTbtc = 200
 
       const seededGuard = (await MintBurnGuardFactory.deploy(
         owner.address,
         controller.address,
-        initialTotalMinted,
-        initialGlobalMintCap
+        initialTotalMintedTbtc,
+        initialGlobalMintCapTbtc
       )) as MintBurnGuard
       await seededGuard.deployed()
 
-      expect(await seededGuard.totalMinted()).to.equal(initialTotalMinted)
-      expect(await seededGuard.globalMintCap()).to.equal(initialGlobalMintCap)
+      expect(await seededGuard.totalMintedTbtc()).to.equal(
+        initialTotalMintedTbtc
+      )
+      expect(await seededGuard.globalMintCapTbtc()).to.equal(
+        initialGlobalMintCapTbtc
+      )
     })
 
     it("should allow non-zero initial total when cap disabled", async () => {
       const MintBurnGuardFactory = await ethers.getContractFactory(
         "MintBurnGuard"
       )
-      const initialTotalMinted = 100
+      const initialTotalMintedTbtc = 100
 
       const seededGuard = (await MintBurnGuardFactory.deploy(
         owner.address,
         controller.address,
-        initialTotalMinted,
+        initialTotalMintedTbtc,
         0
       )) as MintBurnGuard
       await seededGuard.deployed()
 
-      expect(await seededGuard.totalMinted()).to.equal(initialTotalMinted)
-      expect(await seededGuard.globalMintCap()).to.equal(0)
+      expect(await seededGuard.totalMintedTbtc()).to.equal(
+        initialTotalMintedTbtc
+      )
+      expect(await seededGuard.globalMintCapTbtc()).to.equal(0)
     })
 
     it("should emit constructor events for initial totals and cap", async () => {
       const MintBurnGuardFactory = await ethers.getContractFactory(
         "MintBurnGuard"
       )
-      const initialTotalMinted = 100
-      const initialGlobalMintCap = 200
+      const initialTotalMintedTbtc = 100
+      const initialGlobalMintCapTbtc = 200
 
       const seededGuard = (await MintBurnGuardFactory.deploy(
         owner.address,
         controller.address,
-        initialTotalMinted,
-        initialGlobalMintCap
+        initialTotalMintedTbtc,
+        initialGlobalMintCapTbtc
       )) as MintBurnGuard
 
       await expect(seededGuard.deployTransaction)
         .to.emit(seededGuard, "TotalMintedSet")
-        .withArgs(0, initialTotalMinted)
+        .withArgs(0, initialTotalMintedTbtc)
       await expect(seededGuard.deployTransaction)
         .to.emit(seededGuard, "GlobalMintCapUpdated")
-        .withArgs(0, initialGlobalMintCap)
+        .withArgs(0, initialGlobalMintCapTbtc)
 
       await seededGuard.deployed()
     })
@@ -135,19 +141,19 @@ describe("MintBurnGuard", () => {
   })
 
   describe("minting accounting", () => {
-    it("should allow controller to increase and decrease totalMinted", async () => {
+    it("should allow controller to increase and decrease totalMintedTbtc", async () => {
       const amount = 100
       await expect(guard.connect(controller).increaseTotalMinted(amount))
         .to.emit(guard, "TotalMintedIncreased")
         .withArgs(amount, amount)
 
-      expect(await guard.totalMinted()).to.equal(amount)
+      expect(await guard.totalMintedTbtc()).to.equal(amount)
 
       await expect(guard.connect(controller).decreaseTotalMinted(amount))
         .to.emit(guard, "TotalMintedDecreased")
         .withArgs(amount, 0)
 
-      expect(await guard.totalMinted()).to.equal(0)
+      expect(await guard.totalMintedTbtc()).to.equal(0)
     })
 
     it("should revert when non-controller tries to mutate totals", async () => {
@@ -159,16 +165,16 @@ describe("MintBurnGuard", () => {
     })
 
     it("should enforce global mint cap", async () => {
-      await guard.connect(owner).setGlobalMintCap(200)
+      await guard.connect(owner).setGlobalMintCapTbtc(200)
 
       await guard.connect(controller).increaseTotalMinted(150)
-      expect(await guard.totalMinted()).to.equal(150)
+      expect(await guard.totalMintedTbtc()).to.equal(150)
 
       await expect(guard.connect(controller).increaseTotalMinted(100)).to.be
         .reverted
 
       // Ensure failed mint did not change exposure.
-      expect(await guard.totalMinted()).to.equal(150)
+      expect(await guard.totalMintedTbtc()).to.equal(150)
     })
 
     it("should enforce minting pause", async () => {
@@ -180,40 +186,40 @@ describe("MintBurnGuard", () => {
       await guard.connect(owner).setMintingPaused(false)
 
       await guard.connect(controller).increaseTotalMinted(10)
-      expect(await guard.totalMinted()).to.equal(160) // 150 + 10
+      expect(await guard.totalMintedTbtc()).to.equal(160) // 150 + 10
     })
 
     it("should prevent underflow on decrease", async () => {
-      const current = await guard.totalMinted()
+      const current = await guard.totalMintedTbtc()
       await expect(
         guard.connect(controller).decreaseTotalMinted(current.add(1))
       ).to.be.revertedWith("MintBurnGuard: underflow")
     })
 
-    it("allows owner to set totalMinted", async () => {
-      const previousTotal = await guard.totalMinted()
-      const newTotal = previousTotal.add(20)
+    it("allows owner to set totalMintedTbtc", async () => {
+      const previousTotalTbtc = await guard.totalMintedTbtc()
+      const newTotalTbtc = previousTotalTbtc.add(20)
 
-      await expect(guard.connect(owner).setTotalMinted(newTotal))
+      await expect(guard.connect(owner).setTotalMintedTbtc(newTotalTbtc))
         .to.emit(guard, "TotalMintedSet")
-        .withArgs(previousTotal, newTotal)
+        .withArgs(previousTotalTbtc, newTotalTbtc)
 
-      expect(await guard.totalMinted()).to.equal(newTotal)
+      expect(await guard.totalMintedTbtc()).to.equal(newTotalTbtc)
     })
 
-    it("reverts when non-owner tries to set totalMinted", async () => {
-      await expect(guard.connect(thirdParty).setTotalMinted(1)).to.be
+    it("reverts when non-owner tries to set totalMintedTbtc", async () => {
+      await expect(guard.connect(thirdParty).setTotalMintedTbtc(1)).to.be
         .revertedWith("Ownable: caller is not the owner")
     })
 
-    it("should enforce global mint cap on totalMinted updates", async () => {
-      const cap = await guard.globalMintCap()
-      const previousTotal = await guard.totalMinted()
+    it("should enforce global mint cap on totalMintedTbtc updates", async () => {
+      const cap = await guard.globalMintCapTbtc()
+      const previousTotalTbtc = await guard.totalMintedTbtc()
       const overCap = cap.add(1)
 
-      await expect(guard.connect(owner).setTotalMinted(overCap)).to.be.reverted
+      await expect(guard.connect(owner).setTotalMintedTbtc(overCap)).to.be.reverted
 
-      expect(await guard.totalMinted()).to.equal(previousTotal)
+      expect(await guard.totalMintedTbtc()).to.equal(previousTotalTbtc)
     })
 
     it("mints via bridge and updates exposure", async () => {
@@ -221,22 +227,24 @@ describe("MintBurnGuard", () => {
 
       // Ensure caps and pause do not interfere with this happy-path test.
       await guard.connect(owner).setMintingPaused(false)
-      await guard.connect(owner).setGlobalMintCap(0)
+      await guard.connect(owner).setGlobalMintCapTbtc(0)
 
-      const previousTotal = await guard.totalMinted()
+      const previousTotalTbtc = await guard.totalMintedTbtc()
       await expect(
         guard.connect(controller).mintToBank(controller.address, amount)
       )
         .to.emit(guard, "TotalMintedIncreased")
-        .withArgs(amount, previousTotal.add(amount))
+        .withArgs(amount, previousTotalTbtc.add(amount))
 
-      expect(await guard.totalMinted()).to.equal(previousTotal.add(amount))
+      expect(await guard.totalMintedTbtc()).to.equal(
+        previousTotalTbtc.add(amount)
+      )
       // Bridge is a mock; as long as it does not revert, we rely on its own
       // tests to verify forwarding to Bank.
     })
 
     it("reduces exposure without affecting external state", async () => {
-      const current = await guard.totalMinted()
+      const current = await guard.totalMintedTbtc()
       const burnAmount = current.div(2)
 
       await expect(
@@ -247,32 +255,32 @@ describe("MintBurnGuard", () => {
         .to.emit(guard, "TotalMintedDecreased")
         .withArgs(burnAmount, current.sub(burnAmount))
 
-      expect(await guard.totalMinted()).to.equal(current.sub(burnAmount))
+      expect(await guard.totalMintedTbtc()).to.equal(current.sub(burnAmount))
     })
 
     it("burns via bank and updates exposure", async () => {
       const burnAmount = 50n
 
-      const current = await guard.totalMinted()
+      const current = await guard.totalMintedTbtc()
       await expect(
         guard.connect(controller).burnFromBank(controller.address, burnAmount)
       )
         .to.emit(guard, "TotalMintedDecreased")
         .withArgs(burnAmount, current.sub(burnAmount))
 
-      expect(await guard.totalMinted()).to.equal(current.sub(burnAmount))
+      expect(await guard.totalMintedTbtc()).to.equal(current.sub(burnAmount))
       expect(await bank.lastBurnAmount()).to.equal(burnAmount)
     })
 
     it("unmints via vault and updates exposure", async () => {
-      const current = await guard.totalMinted()
+      const current = await guard.totalMintedTbtc()
       const unmintAmount = current.div(4)
 
       await expect(guard.connect(controller).unmintFromVault(unmintAmount))
         .to.emit(guard, "TotalMintedDecreased")
         .withArgs(unmintAmount, current.sub(unmintAmount))
 
-      expect(await guard.totalMinted()).to.equal(current.sub(unmintAmount))
+      expect(await guard.totalMintedTbtc()).to.equal(current.sub(unmintAmount))
       expect(await vault.lastUnmintAmount()).to.equal(unmintAmount)
     })
   })
@@ -284,13 +292,13 @@ describe("MintBurnGuard", () => {
       await guard.connect(controller).increaseTotalMinted(200)
       await guard.connect(controller).increaseTotalMinted(300)
 
-      const totalBeforeRevert = await guard.totalMinted()
+      const totalBeforeRevert = await guard.totalMintedTbtc()
 
       await expect(guard.connect(controller).increaseTotalMinted(1)).to.be
         .reverted
 
-      expect(await guard.totalMinted()).to.equal(totalBeforeRevert)
-      expect(await guard.mintRateWindowAmount()).to.equal(500)
+      expect(await guard.totalMintedTbtc()).to.equal(totalBeforeRevert)
+      expect(await guard.mintRateWindowAmountTbtc()).to.equal(500)
     })
 
     it("resets the rate window after the configured duration", async () => {
@@ -303,20 +311,20 @@ describe("MintBurnGuard", () => {
       await ethers.provider.send("evm_mine", [])
 
       await guard.connect(controller).increaseTotalMinted(100)
-      expect(await guard.mintRateWindowAmount()).to.equal(100)
+      expect(await guard.mintRateWindowAmountTbtc()).to.equal(100)
     })
 
     it("allows disabling the rate limit via zero configuration", async () => {
       await guard.connect(owner).setMintRateLimit(300, 120)
 
       await guard.connect(controller).increaseTotalMinted(300)
-      const totalBeforeRevert = await guard.totalMinted()
+      const totalBeforeRevert = await guard.totalMintedTbtc()
 
       await expect(guard.connect(controller).increaseTotalMinted(1)).to.be
         .reverted
 
-      expect(await guard.totalMinted()).to.equal(totalBeforeRevert)
-      expect(await guard.mintRateWindowAmount()).to.equal(300)
+      expect(await guard.totalMintedTbtc()).to.equal(totalBeforeRevert)
+      expect(await guard.mintRateWindowAmountTbtc()).to.equal(300)
 
       await guard.connect(owner).setMintRateLimit(0, 0)
 

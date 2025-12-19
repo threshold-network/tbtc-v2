@@ -44,15 +44,15 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   }
 
   // Configuration parameters (env overrides supported)
-  const maxMintCap = parseEnvEther(
+  const maxMintCapTbtc = parseEnvEther(
     process.env.MINT_BURN_GUARD_GLOBAL_CAP,
     "MINT_BURN_GUARD_GLOBAL_CAP"
   )
-  const rateLimit = parseEnvEther(
+  const rateLimitTbtc = parseEnvEther(
     process.env.MINT_BURN_GUARD_RATE_LIMIT,
     "MINT_BURN_GUARD_RATE_LIMIT"
   )
-  const rateLimitWindow = rateLimit.isZero()
+  const rateLimitWindowSeconds = rateLimitTbtc.isZero()
     ? 0
     : parseEnvInt(
         process.env.MINT_BURN_GUARD_RATE_WINDOW,
@@ -60,23 +60,26 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       )
 
   log("\n📋 Configuration parameters:")
-  log(`  Global Mint Cap: ${ethers.utils.formatEther(maxMintCap)} TBTC`)
-  log(`  Rate Limit: ${ethers.utils.formatEther(rateLimit)} TBTC per window`)
-  log(`  Rate Window: ${rateLimitWindow} seconds (24 hours)`)
+  log(`  Global Mint Cap: ${ethers.utils.formatEther(maxMintCapTbtc)} TBTC`)
+  log(
+    `  Rate Limit: ${ethers.utils.formatEther(rateLimitTbtc)} TBTC per window`
+  )
+  log(`  Rate Window: ${rateLimitWindowSeconds} seconds (24 hours)`)
 
   // Check current configuration to avoid unnecessary transactions
-  const currentGlobalCap = await mintBurnGuard.globalMintCap()
-  const currentRateLimit = await mintBurnGuard.mintRateLimit()
-  const currentRateWindow = await mintBurnGuard.mintRateLimitWindow()
+  const currentGlobalCapTbtc = await mintBurnGuard.globalMintCapTbtc()
+  const currentRateLimitTbtc = await mintBurnGuard.mintRateLimitTbtc()
+  const currentRateWindowSeconds =
+    await mintBurnGuard.mintRateLimitWindowSeconds()
 
   let configNeeded = false
 
   // Step 1: Set global mint cap if needed
-  if (!currentGlobalCap.eq(maxMintCap)) {
+  if (!currentGlobalCapTbtc.eq(maxMintCapTbtc)) {
     log("1️⃣  Setting global mint cap...")
     const capTx = await mintBurnGuard
       .connect(signer)
-      .setGlobalMintCap(maxMintCap)
+      .setGlobalMintCapTbtc(maxMintCapTbtc)
     log(`   Transaction submitted: ${capTx.hash}`)
     await capTx.wait()
     log("   ✅ Global mint cap set successfully")
@@ -87,13 +90,13 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   // Step 2: Set rate limits if needed
   if (
-    !currentRateLimit.eq(rateLimit) ||
-    !currentRateWindow.eq(rateLimitWindow)
+    !currentRateLimitTbtc.eq(rateLimitTbtc) ||
+    !currentRateWindowSeconds.eq(rateLimitWindowSeconds)
   ) {
     log("2️⃣  Setting rate limits...")
     const rateTx = await mintBurnGuard
       .connect(signer)
-      .setMintRateLimit(rateLimit, rateLimitWindow)
+      .setMintRateLimit(rateLimitTbtc, rateLimitWindowSeconds)
     log(`   Transaction submitted: ${rateTx.hash}`)
     await rateTx.wait()
     log("   ✅ Rate limits set successfully")
@@ -155,49 +158,55 @@ async function verifyMintBurnGuardSecurity(
   ethers: HardhatRuntimeEnvironment["ethers"],
   log: (message: string) => void
 ): Promise<void> {
-  const globalCap = await mintBurnGuard.globalMintCap()
-  const rateLimit = await mintBurnGuard.mintRateLimit()
-  const rateWindow = await mintBurnGuard.mintRateLimitWindow()
+  const globalCapTbtc = await mintBurnGuard.globalMintCapTbtc()
+  const rateLimitTbtc = await mintBurnGuard.mintRateLimitTbtc()
+  const rateWindowSeconds = await mintBurnGuard.mintRateLimitWindowSeconds()
 
-  const totalMinted = await mintBurnGuard.totalMinted()
-  const rateWindowAmount = await mintBurnGuard.mintRateWindowAmount()
+  const totalMintedTbtc = await mintBurnGuard.totalMintedTbtc()
+  const rateWindowAmountTbtc = await mintBurnGuard.mintRateWindowAmountTbtc()
   const mintingPaused = await mintBurnGuard.mintingPaused()
 
-  const remainingGlobal = globalCap.gt(totalMinted)
-    ? globalCap.sub(totalMinted)
+  const remainingGlobalTbtc = globalCapTbtc.gt(totalMintedTbtc)
+    ? globalCapTbtc.sub(totalMintedTbtc)
     : ethers.constants.Zero
-  const remainingRate = rateLimit.gt(rateWindowAmount)
-    ? rateLimit.sub(rateWindowAmount)
+  const remainingRateTbtc = rateLimitTbtc.gt(rateWindowAmountTbtc)
+    ? rateLimitTbtc.sub(rateWindowAmountTbtc)
     : ethers.constants.Zero
-  const currentCapacity = remainingGlobal.lt(remainingRate)
-    ? remainingGlobal
-    : remainingRate
+  const currentCapacityTbtc = remainingGlobalTbtc.lt(remainingRateTbtc)
+    ? remainingGlobalTbtc
+    : remainingRateTbtc
 
   log("\n🔍 MintBurnGuard security verification:")
-  log(`  Global Mint Cap: ${ethers.utils.formatEther(globalCap)} TBTC`)
-  log(`  Rate Limit: ${ethers.utils.formatEther(rateLimit)} TBTC`)
-  log(`  Rate Window: ${rateWindow.toString()} seconds`)
+  log(`  Global Mint Cap: ${ethers.utils.formatEther(globalCapTbtc)} TBTC`)
+  log(`  Rate Limit: ${ethers.utils.formatEther(rateLimitTbtc)} TBTC`)
+  log(`  Rate Window: ${rateWindowSeconds.toString()} seconds`)
   log(`  Minting paused: ${mintingPaused}`)
-  log(`  Total minted so far: ${ethers.utils.formatEther(totalMinted)} TBTC`)
   log(
-    `  Rate window amount: ${ethers.utils.formatEther(rateWindowAmount)} TBTC`
+    `  Total minted so far: ${ethers.utils.formatEther(totalMintedTbtc)} TBTC`
   )
   log(
-    `  Remaining global capacity: ${ethers.utils.formatEther(
-      remainingGlobal
+    `  Rate window amount: ${ethers.utils.formatEther(
+      rateWindowAmountTbtc
     )} TBTC`
   )
   log(
-    `  Remaining rate capacity: ${ethers.utils.formatEther(remainingRate)} TBTC`
+    `  Remaining global capacity: ${ethers.utils.formatEther(
+      remainingGlobalTbtc
+    )} TBTC`
+  )
+  log(
+    `  Remaining rate capacity: ${ethers.utils.formatEther(
+      remainingRateTbtc
+    )} TBTC`
   )
   log(
     `  Effective minting capacity: ${ethers.utils.formatEther(
-      currentCapacity
+      currentCapacityTbtc
     )} TBTC`
   )
 
   log("  🔐 Minted vs cap check:")
-  if (totalMinted.gt(globalCap)) {
+  if (totalMintedTbtc.gt(globalCapTbtc)) {
     log("  ❌ Total minted exceeds global cap! Investigate before continuing.")
     throw new Error("MintBurnGuard total minted exceeds configured cap.")
   } else {

@@ -23,7 +23,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       ? process.env.MINT_BURN_GUARD_CONTROLLER
       : "0x0000000000000000000000000000000000000000"
 
-  const initialTotalMinted =
+  const initialTotalMintedTbtc =
     process.env.MINT_BURN_GUARD_INITIAL_TOTAL_MINTED &&
     process.env.MINT_BURN_GUARD_INITIAL_TOTAL_MINTED.length > 0
       ? ethers.utils.parseEther(
@@ -31,7 +31,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         )
       : ethers.constants.Zero
 
-  const initialGlobalMintCap =
+  const initialGlobalMintCapTbtc =
     process.env.MINT_BURN_GUARD_GLOBAL_CAP &&
     process.env.MINT_BURN_GUARD_GLOBAL_CAP.length > 0
       ? ethers.utils.parseEther(process.env.MINT_BURN_GUARD_GLOBAL_CAP)
@@ -39,7 +39,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   const deployment = await deploy("MintBurnGuard", {
     from: deployer,
-    args: [owner, controller, initialTotalMinted, initialGlobalMintCap],
+    args: [owner, controller, initialTotalMintedTbtc, initialGlobalMintCapTbtc],
     log: true,
     waitConfirmations: 1,
   })
@@ -53,12 +53,14 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   const deployedOwner = await mintBurnGuard.owner()
   const deployedController = await mintBurnGuard.controller()
-  const deployedTotalMinted = await mintBurnGuard.totalMinted()
-  const deployedGlobalMintCap = await mintBurnGuard.globalMintCap()
+  const deployedTotalMintedTbtc = await mintBurnGuard.totalMintedTbtc()
+  const deployedGlobalMintCapTbtc = await mintBurnGuard.globalMintCapTbtc()
   log(`MintBurnGuard owner: ${deployedOwner}`)
   log(`MintBurnGuard controller: ${deployedController}`)
-  log(`MintBurnGuard totalMinted: ${deployedTotalMinted.toString()}`)
-  log(`MintBurnGuard globalMintCap: ${deployedGlobalMintCap.toString()}`)
+  log(`MintBurnGuard totalMintedTbtc: ${deployedTotalMintedTbtc.toString()}`)
+  log(
+    `MintBurnGuard globalMintCapTbtc: ${deployedGlobalMintCapTbtc.toString()}`
+  )
 
   if (deployedOwner.toLowerCase() !== owner.toLowerCase()) {
     throw new Error(
@@ -75,15 +77,15 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     )
   }
 
-  if (!deployedTotalMinted.eq(initialTotalMinted)) {
+  if (!deployedTotalMintedTbtc.eq(initialTotalMintedTbtc)) {
     throw new Error(
-      "MintBurnGuard totalMinted mismatch after deployment. Manual intervention required."
+      "MintBurnGuard totalMintedTbtc mismatch after deployment. Manual intervention required."
     )
   }
 
-  if (!deployedGlobalMintCap.eq(initialGlobalMintCap)) {
+  if (!deployedGlobalMintCapTbtc.eq(initialGlobalMintCapTbtc)) {
     throw new Error(
-      "MintBurnGuard globalMintCap mismatch after deployment. Manual intervention required."
+      "MintBurnGuard globalMintCapTbtc mismatch after deployment. Manual intervention required."
     )
   }
 }

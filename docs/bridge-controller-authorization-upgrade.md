@@ -61,8 +61,8 @@ This model provides:
 - MintBurnGuard (global mint/burn guard implemented in `solidity/contracts/account-control/MintBurnGuard.sol`):
   - State:
     - `controller` – the only contract allowed to adjust totals and execute mints/burns (for AccountControl flows, this is `AccountControl`).
-    - `totalMinted` – global net‑minted TBTC exposure for controller‑managed flows (expressed in TBTC base units, 1e18).
-    - `globalMintCap` – optional system‑level cap on `totalMinted` (0 disables).
+    - `totalMintedTbtc` – global net‑minted TBTC exposure for controller‑managed flows (expressed in TBTC base units, 1e18).
+    - `globalMintCapTbtc` – optional system‑level cap on `totalMintedTbtc` (0 disables).
     - `mintingPaused` – global pause flag for controller‑driven minting.
     - References to core tBTC v2 contracts:
       - `IBridgeMintingAuthorization bridge` – used to mint TBTC into the Bank via `controllerIncreaseBalance(s)`.
@@ -71,13 +71,13 @@ This model provides:
     - Accounting helpers:
       - `increaseTotalMinted(uint256 amount)` / `decreaseTotalMinted(uint256 amount)` – accounting helpers enforcing pause/cap/underflow, callable only by the configured controller.
     - Mint executor:
-      - `mintToBank(address recipient, uint256 tbtcAmount)` – enforces `mintingPaused` and `globalMintCap`, bumps `totalMinted`, emits a `BankMintExecuted` event, and calls `bridge.controllerIncreaseBalance(recipient, tbtcAmount)` to mint into the Bank.
+      - `mintToBank(address recipient, uint256 tbtcAmount)` – enforces `mintingPaused` and `globalMintCapTbtc`, bumps `totalMintedTbtc`, emits a `BankMintExecuted` event, and calls `bridge.controllerIncreaseBalance(recipient, tbtcAmount)` to mint into the Bank.
     - Burn/unmint executors:
-      - `burnFromBank(address from, uint256 tbtcAmount)` – decreases `totalMinted`, emits `BankBurnExecuted`, and calls Bank to burn TBTC from the given Bank balance.
-      - `unmintFromVault(uint256 tbtcAmount)` – decreases `totalMinted`, emits `VaultUnmintExecuted`, and calls Vault to unmint/burn TBTC held in the vault.
+      - `burnFromBank(address from, uint256 tbtcAmount)` – decreases `totalMintedTbtc`, emits `BankBurnExecuted`, and calls Bank to burn TBTC from the given Bank balance.
+      - `unmintFromVault(uint256 tbtcAmount)` – decreases `totalMintedTbtc`, emits `VaultUnmintExecuted`, and calls Vault to unmint/burn TBTC held in the vault.
       - `reduceExposureAndBurn(address from, uint256 tbtcAmount)` – optional pure accounting helper (no Bank/Vault calls) used for flows that only need to reduce global exposure.
     - Governance:
-      - `setGlobalMintCap(uint256 newCap)` – owner‑only.
+      - `setGlobalMintCapTbtc(uint256 newCapTbtc)` – owner‑only.
       - `setMintingPaused(bool paused)` – owner‑only.
       - `setController(address newController)` / `setBridge(...)` / `setBank(...)` / `setVault(...)` – owner‑only wiring functions.
   - Access model:
