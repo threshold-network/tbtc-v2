@@ -1,0 +1,93 @@
+= Fee Rebates Deployment Script Changes
+
+This document explains the script changes introduced to fix fee rebates not
+being applied on redemption requests.
+
+== Overview
+
+Root issue: the Bridge implementation was linked against an older Redemption
+library that did not call `applyForRebate`. The fix requires redeploying the
+Redemption library and then upgrading the Bridge implementation to link the new
+library address.
+
+== Script Changes
+
+=== New: `solidity/deploy/81_deploy_redemption_library.ts`
+
+* What changed:
+  - Added a dedicated deployment script for the Redemption library.
+  - Always redeploys (does not reuse existing deployments).
+  - Logs existing and new addresses for traceability.
+  - Tagged `RedemptionLibrary` for targeted runs.
+* Why:
+  - The library is linked at compile time; an older library address means the
+    upgraded Bridge implementation still omits the rebate call path.
+  - A dedicated script avoids accidentally reusing the old library address.
+
+=== Updated: `solidity/deploy/80_upgrade_bridge_v2.ts`
+
+* What changed:
+  - Uses a shared `bridgeLibraries` map for explicit linking.
+  - Deploys a fresh Bridge implementation via hardhat-deploy
+    (`BridgeImplementation`) with the linked libraries.
+  - Checks the OpenZeppelin manifest before `forceImport` to avoid address
+    clashes.
+  - Reads the ProxyAdmin from the EIP-1967 admin slot and checks owner.
+  - If the deployer is not the ProxyAdmin owner, prints upgrade calldata and
+    exits instead of failing.
+  - If the deployer is the owner, executes the upgrade directly and logs the
+    tx hash.
+  - Gate execution behind `UPGRADE_BRIDGE=true` to avoid accidental upgrades.
+* Why:
+  - We need a fresh implementation linked to the new Redemption library address.
+  - Explicit owner checks and calldata output support multi-sig or governance
+    upgrades without running a privileged account locally.
+  - The `UPGRADE_BRIDGE` gate prevents accidental upgrades during unrelated
+    deploys.
+
+=== New helper: `scripts/update-deployment-from-receipt.ts`
+
+* What changed:
+  - Added a small Bun + TypeScript script to update deployment JSON from a tx
+    receipt.
+* Why:
+  - Some provider stacks format contract-creation tx responses with an empty
+    `to` field, which causes hardhat-deploy to error even when the tx is mined.
+  - This helper lets us keep `solidity/deployments/*` in sync with on-chain
+    results by pulling receipt data directly.
+
+== How to Use
+
+Redeploy the Redemption library:
+
+----
+cd solidity
+CHAIN_API_URL="$ETHEREUM_MAINNET_RPC_URL" \
+  CONTRACT_OWNER_ACCOUNT_PRIVATE_KEY="$ETHEREUM_MAINNET_SHARED_ENG_PRIVATE_KEY" \
+  yarn deploy --tags RedemptionLibrary --network mainnet
+----
+
+Prepare the Bridge upgrade (deploy implementation + print calldata):
+
+----
+cd solidity
+CHAIN_API_URL="$ETHEREUM_MAINNET_RPC_URL" \
+  CONTRACT_OWNER_ACCOUNT_PRIVATE_KEY="$ETHEREUM_MAINNET_SHARED_ENG_PRIVATE_KEY" \
+  UPGRADE_BRIDGE=true \
+  yarn deploy --tags UpgradeBridge --network mainnet
+----
+
+If needed, update a deployment JSON from a receipt:
+
+----
+bun scripts/update-deployment-from-receipt.ts \
+  <deploymentPath> <txHash> <address> <rpcUrl>
+----
+
+== Operational Notes
+
+* If the deploy run throws an "invalid address" error during contract creation,
+  verify the transaction on-chain. The tx may have succeeded even when the
+  provider formatter fails.
+* The upgrade step must be executed by the ProxyAdmin owner, or the printed
+  calldata must be executed by governance.
