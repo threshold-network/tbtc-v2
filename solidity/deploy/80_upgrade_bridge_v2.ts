@@ -99,6 +99,20 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     implementationAddress,
   ])
 
+  if (hre.network.tags.etherscan) {
+    try {
+      await hre.run("verify:verify", {
+        address: implementationAddress,
+        constructorArguments: [],
+        libraries: bridgeLibraries,
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.error("Bridge implementation verification failed:", message)
+      throw error
+    }
+  }
+
   if (proxyAdminOwner.toLowerCase() !== deployerAddress.toLowerCase()) {
     console.log("ProxyAdmin owner:", proxyAdminOwner)
     console.log("ProxyAdmin address:", proxyAdminAddress)

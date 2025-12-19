@@ -4,7 +4,7 @@ import { DeployFunction, DeployOptions } from "hardhat-deploy/types"
 const func: DeployFunction = async function (
   hre: HardhatRuntimeEnvironment
 ) {
-  const { deployments, getNamedAccounts } = hre
+  const { deployments, getNamedAccounts, helpers } = hre
   const { deploy, getOrNull } = deployments
   const { deployer } = await getNamedAccounts()
 
@@ -22,6 +22,16 @@ const func: DeployFunction = async function (
 
   const Redemption = await deploy("Redemption", deployOptions)
   console.log("Redemption library deployed at:", Redemption.address)
+
+  if (hre.network.tags.etherscan) {
+    try {
+      await helpers.etherscan.verify(Redemption)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.error("Redemption verification failed:", message)
+      throw error
+    }
+  }
 }
 
 export default func
