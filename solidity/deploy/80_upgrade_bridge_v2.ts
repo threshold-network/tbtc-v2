@@ -1,8 +1,10 @@
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
+import fs from "fs"
+import path from "path"
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
-  const { ethers, helpers, deployments, getNamedAccounts } = hre
+  const { ethers, deployments, getNamedAccounts } = hre
   const { get } = deployments
   const { deployer, treasury } = await getNamedAccounts()
 
@@ -24,62 +26,106 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const Fraud = await get("Fraud")
   const MovingFunds = await get("MovingFunds")
 
-  const [bridge, proxyDeployment] = await helpers.upgrades.upgradeProxy(
-    "Bridge",
-    "Bridge",
-    {
-      contractName: "Bridge",
-      initializerArgs: [
-        Bank.address,
-        LightRelay.address,
-        treasury,
-        WalletRegistry.address,
-        ReimbursementPool.address,
-        txProofDifficultyFactor,
-      ],
-      factoryOpts: {
-        signer: await ethers.getSigner(deployer),
-        libraries: {
-          Deposit: Deposit.address,
-          DepositSweep: DepositSweep.address,
-          Redemption: Redemption.address,
-          Wallets: Wallets.address,
-          Fraud: Fraud.address,
-          MovingFunds: MovingFunds.address,
-        },
-      },
-      proxyOpts: {
-        kind: "transparent",
-        // Allow external libraries linking. We need to ensure manually that the
-        // external  libraries we link are upgrade safe, as the OpenZeppelin plugin
-        // doesn't perform such a validation yet.
-        // See: https://docs.openzeppelin.com/upgrades-plugins/1.x/faq#why-cant-i-use-external-libraries
-        unsafeAllow: ["external-library-linking"],
-      },
-    }
+  const Bridge = await deployments.get("Bridge")
+
+  const bridgeLibraries = {
+    Deposit: Deposit.address,
+    DepositSweep: DepositSweep.address,
+    Redemption: Redemption.address,
+    Wallets: Wallets.address,
+    Fraud: Fraud.address,
+    MovingFunds: MovingFunds.address,
+  }
+
+  const bridgeFactory = await ethers.getContractFactory("Bridge", {
+    signer: await ethers.getSigner(deployer),
+    libraries: bridgeLibraries,
+  })
+
+  const deployBridgeImplementation = async (): Promise<string> => {
+    const implementationDeployment = await deployments.deploy(
+      "BridgeImplementation",
+      {
+        contract: "Bridge",
+        from: deployer,
+        log: true,
+        waitConfirmations: 1,
+        skipIfAlreadyDeployed: false,
+        libraries: bridgeLibraries,
+      }
+    )
+    return implementationDeployment.address
+  }
+
+  let isProxyRegistered = false
+  const ozNetworkFile = path.join(
+    __dirname,
+    `../.openzeppelin/${hre.network.name}.json`
   )
-
-  if (hre.network.tags.etherscan) {
-    // We use `verify` instead of `verify:verify` as the `verify` task is defined
-    // in "@openzeppelin/hardhat-upgrades" to perform Etherscan verification
-    // of Proxy and Implementation contracts.
-    await hre.run("verify", {
-      address: proxyDeployment.address,
-      constructorArgsParams: proxyDeployment.args,
+  if (fs.existsSync(ozNetworkFile)) {
+    const ozData = JSON.parse(fs.readFileSync(ozNetworkFile, "utf8"))
+    isProxyRegistered = (ozData.proxies || []).some(
+      (proxy: { address?: string }) =>
+        proxy.address?.toLowerCase() === Bridge.address.toLowerCase()
+    )
+  }
+  if (!isProxyRegistered) {
+    await hre.upgrades.forceImport(Bridge.address, bridgeFactory, {
+      kind: "transparent",
     })
   }
 
-  if (hre.network.tags.tenderly) {
-    await hre.tenderly.verify({
-      name: "Bridge",
-      address: bridge.address,
-    })
+  const adminSlot =
+    "0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103"
+  const adminData = await ethers.provider.getStorageAt(
+    Bridge.address,
+    adminSlot
+  )
+  const proxyAdminAddress = ethers.utils.getAddress(`0x${adminData.slice(26)}`)
+  const proxyAdmin = await ethers.getContractAt(
+    ["function owner() view returns (address)"],
+    proxyAdminAddress
+  )
+  const proxyAdminOwner = await proxyAdmin.owner()
+  const deployerSigner = await ethers.getSigner(deployer)
+  const deployerAddress = await deployerSigner.getAddress()
+
+  const implementationAddress = await deployBridgeImplementation()
+  const proxyAdminInterface = new ethers.utils.Interface([
+    "function upgrade(address proxy, address implementation)",
+  ])
+  const upgradeCalldata = proxyAdminInterface.encodeFunctionData("upgrade", [
+    Bridge.address,
+    implementationAddress,
+  ])
+
+  if (proxyAdminOwner.toLowerCase() !== deployerAddress.toLowerCase()) {
+    console.log("ProxyAdmin owner:", proxyAdminOwner)
+    console.log("ProxyAdmin address:", proxyAdminAddress)
+    console.log("Bridge implementation:", implementationAddress)
+    console.log("Upgrade calldata:", upgradeCalldata)
+    return
   }
+
+  const proxyAdminWithUpgrade = await ethers.getContractAt(
+    ["function upgrade(address proxy, address implementation)"],
+    proxyAdminAddress
+  )
+  const upgradeTx = await proxyAdminWithUpgrade.upgrade(
+    Bridge.address,
+    implementationAddress
+  )
+  await upgradeTx.wait(1)
+  console.log("ProxyAdmin owner:", proxyAdminOwner)
+  console.log("ProxyAdmin address:", proxyAdminAddress)
+  console.log("Bridge implementation:", implementationAddress)
+  console.log("Upgrade tx:", upgradeTx.hash)
+  console.log("Upgrade calldata:", upgradeCalldata)
 }
 
 export default func
 
 func.tags = ["UpgradeBridge"]
-// When running an upgrade uncomment the skip below and run the command:
+// Set UPGRADE_BRIDGE=true when running an upgrade.
 // yarn deploy --tags UpgradeBridge --network <NETWORK>
-func.skip = async () => true
+func.skip = async () => process.env.UPGRADE_BRIDGE !== "true"
