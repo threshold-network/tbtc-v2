@@ -29,9 +29,6 @@ Relevant scripts:
 ## Next Steps
 
 ### Deployer
-- [ ] Set environment for mainnet deployment:
-  - `export CHAIN_API_URL="$ETHEREUM_MAINNET_RPC_URL"`
-  - `export CONTRACT_OWNER_ACCOUNT_PRIVATE_KEY="$ETHEREUM_MAINNET_SHARED_ENG_PRIVATE_KEY"`
 - [x] Deploy the Redemption library on mainnet:
   - `yarn deploy --tags RedemptionLibrary --network mainnet`
 - [x] Record the Redemption deployment details:
