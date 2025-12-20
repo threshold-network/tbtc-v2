@@ -6,7 +6,7 @@ https://github.com/keep-network/tbtc-v2/actions/workflows/contracts.yml[image:ht
 https://github.com/keep-network/tbtc-v2/actions/workflows/typescript.yml[image:https://img.shields.io/github/actions/workflow/status/keep-network/tbtc-v2/typescript.yml?branch=main&event=push&label=SDK%20build[SDK build status]]
 https://github.com/keep-network/tbtc-v2/actions/workflows/yearn.yml[image:https://img.shields.io/github/actions/workflow/status/keep-network/tbtc-v2/yearn.yml?branch=main&vent=push&label=Yearn%20contracts%20build[Yearn contracts build status]]
 https://github.com/keep-network/tbtc-v2/actions/workflows/system-tests.yml[image:https://img.shields.io/github/actions/workflow/status/keep-network/tbtc-v2/system-tests.yml?branch=main&event=schedule&label=System%20tests[System tests status]]
-https://github.com/keep-network/tbtc-v2/actions/workflows/monitoring.yml[image:https://img.shields.io/github/actions/workflow/status/keep-network/tbtc-v2/monitoring.yml?branch=main&event=push&label=Monitoring%20build[Monitoring build status]]
+https://github.com/keep-network/tbtc-v2/actions/workflows/monitoring.yml[image:https://github.com/threshold-network/tbtc-v2/actions/workflows/monitoring.yml/badge.svg[Monitoring build status]]
 
 https://docs.threshold.network/fundamentals/tbtc-v2[image:https://img.shields.io/badge/docs-website-green.svg[Docs]]
 https://discord.gg/threshold[image:https://img.shields.io/badge/chat-Discord-5865f2.svg[Chat with us on Discord]]
