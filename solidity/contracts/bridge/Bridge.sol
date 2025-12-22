@@ -186,11 +186,6 @@ contract Bridge is
         bool isTrusted
     );
 
-    event ControllerBalanceIncreaserUpdated(
-        address indexed previousController,
-        address indexed newController
-    );
-
     event ControllerBalanceIncreased(
         address indexed controller,
         address indexed recipient,
@@ -256,6 +251,8 @@ contract Bridge is
     event RedemptionWatchtowerSet(address redemptionWatchtower);
 
     event RebateStakingSet(address rebateStaking);
+
+    event ControllerBalanceIncreaserSet(address controller);
 
     modifier onlySpvMaintainer() {
         require(
@@ -1220,19 +1217,6 @@ contract Bridge is
         );
     }
 
-    /// @notice Allows Governance to designate a single controller that can
-    ///         request Bank balance increases through the Bridge.
-    /// @param controller Address of the controller contract (MintBurnGuard).
-    /// @dev Setting to the zero address effectively removes the controller.
-    function setControllerBalanceIncreaser(address controller)
-        external
-        onlyGovernance
-    {
-        address previous = self.controllerBalanceIncreaser;
-        self.controllerBalanceIncreaser = controller;
-        emit ControllerBalanceIncreaserUpdated(previous, controller);
-    }
-
     /// @notice Allows the Governance to mark the given vault address as trusted
     ///         or no longer trusted. Vaults are not trusted by default.
     ///         Trusted vault must meet the following criteria:
@@ -2052,6 +2036,26 @@ contract Bridge is
     /// @return Address of the rebate staking contract.
     function getRebateStaking() external view returns (address) {
         return self.rebateStaking;
+    }
+
+    /// @notice Allows Governance to designate a single controller that can
+    ///         request Bank balance increases through the Bridge.
+    /// @param controller Address of the controller contract (MintBurnGuard).
+    /// @dev Requirements:
+    ///      - The caller must be the governance,
+    ///
+    /// @dev Setting to the zero address effectively removes the controller.
+    function setControllerBalanceIncreaser(address controller)
+        external
+        onlyGovernance
+    {
+        self.setControllerBalanceIncreaser(controller);
+    }
+
+    /// @notice Returns the address of the controller allowed to request
+    ///         Bank balance increases via the Bridge.
+    function getControllerBalanceIncreaser() external view returns (address) {
+        return self.controllerBalanceIncreaser;
     }
 
     /// @return Address of the redemption watchtower.

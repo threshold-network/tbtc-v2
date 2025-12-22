@@ -164,10 +164,10 @@ describe("Bridge - Governance", () => {
         expect(await bridge.controllerBalanceIncreaser()).to.equal(controller())
       })
 
-      it("should emit ControllerBalanceIncreaserUpdated event", async () => {
+      it("should emit ControllerBalanceIncreaserSet event", async () => {
         await expect(tx)
-          .to.emit(bridge, "ControllerBalanceIncreaserUpdated")
-          .withArgs(ethers.constants.AddressZero, controller())
+          .to.emit(bridge, "ControllerBalanceIncreaserSet")
+          .withArgs(controller())
       })
     })
 
@@ -194,10 +194,10 @@ describe("Bridge - Governance", () => {
         )
       })
 
-      it("should emit ControllerBalanceIncreaserUpdated with previous address", async () => {
+      it("should emit ControllerBalanceIncreaserSet with previous address", async () => {
         await expect(tx)
-          .to.emit(bridge, "ControllerBalanceIncreaserUpdated")
-          .withArgs(controller(), ethers.constants.AddressZero)
+          .to.emit(bridge, "ControllerBalanceIncreaserSet")
+          .withArgs(ethers.constants.AddressZero)
       })
     })
   })

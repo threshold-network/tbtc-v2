@@ -29,7 +29,7 @@ This model provides:
   controller-driven minting flow is enabled, and it should only be changed
   through the same multi-sig/change-review process that governs other
   system-critical parameters.
-- Off-chain monitoring should alert on any unexpected `ControllerBalanceIncreaserUpdated`
+- Off-chain monitoring should alert on any unexpected `ControllerBalanceIncreaserSet`
   events or unusually large `BalanceIncreased` events; the controller pointer is now the
   main indicator of governance changes.
 - The controller configuration tooling is intentionally conservative:
@@ -48,7 +48,7 @@ This model provides:
   - New state:
     - `controllerBalanceIncreaser` – a single governance‑managed controller contract that can increase Bank balances.
   - New events:
-    - `ControllerBalanceIncreaserUpdated(address indexed previousController, address indexed newController)`.
+    - `ControllerBalanceIncreaserSet(address controller)`.
     - `ControllerBalanceIncreased(address,address,uint256)`.
     - `ControllerBalancesIncreased(address,address[],uint256[])`.
   - New methods:
@@ -106,7 +106,7 @@ This model provides:
 2. Upgrade Bridge proxy implementation via ProxyAdmin to the version with the controller pointer entrypoints.
 3. Redeploy BridgeGovernance (fresh instance) and transfer governance:
    - Begin transfer, wait governance delay, finalize.
-4. Optionally sync the configured controller pointer from env/config; emit `ControllerBalanceIncreaserUpdated` for changes.
+4. Optionally sync the configured controller pointer from env/config; emit `ControllerBalanceIncreaserSet` for changes.
 5. Post‑upgrade snapshot; compare and archive.
 
 Supporting scripts (names as in repo):
@@ -119,7 +119,7 @@ Supporting scripts (names as in repo):
 ## Risks & Mitigations
 
 - Storage layout changes: Bridge reserves a slot for `controllerBalanceIncreaser` and keeps an ample storage gap; MintBurnGuard is a separate contract with its own state. Upgrade paths are accounted for in implementation.
-- Misconfiguration risk (controller pointer): controller updates are still gated by governance and subject to `ControllerBalanceIncreaserUpdated` events; the sync tooling logs the planned pointer before submitting txs.
+- Misconfiguration risk (controller pointer): controller updates are still gated by governance and subject to `ControllerBalanceIncreaserSet` events; the sync tooling logs the planned pointer before submitting txs.
 - Controller over‑minting risk:
   - Bridge enforces _who_ can mint but does not implement per‑controller caps or rate limits.
   - System‑level net exposure caps and global pauses are enforced by MintBurnGuard and controller logic (e.g. AccountControl) which must call MintBurnGuard on every net mint/burn operation.

@@ -10,10 +10,7 @@ contract MockBridgeMintingAuthorization is IBridgeMintingAuthorization {
     address public owner;
     address private _controllerBalanceIncreaser;
 
-    event ControllerBalanceIncreaserUpdated(
-        address indexed previousController,
-        address indexed newController
-    );
+    event ControllerBalanceIncreaserSet(address controller);
 
     modifier onlyOwner() {
         require(msg.sender == owner, "MockBridge: only owner");
@@ -33,7 +30,7 @@ contract MockBridgeMintingAuthorization is IBridgeMintingAuthorization {
     {
         address previous = _controllerBalanceIncreaser;
         _controllerBalanceIncreaser = controller;
-        emit ControllerBalanceIncreaserUpdated(previous, controller);
+        emit ControllerBalanceIncreaserSet(controller);
     }
 
     /// @inheritdoc IBridgeMintingAuthorization

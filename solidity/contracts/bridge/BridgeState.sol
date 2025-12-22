@@ -400,6 +400,11 @@ library BridgeState {
     // parameter events.
     event RebateStakingSet(address rebateStaking);
 
+    // Event emitted when the controller balance increaser address is updated.
+    // Note: The actual event declaration is in Bridge.sol to maintain
+    // consistency with other governance events that include previous values.
+    event ControllerBalanceIncreaserSet(address controller);
+
     /// @notice Updates parameters of deposits.
     /// @param _depositDustThreshold New value of the deposit dust threshold in
     ///        satoshis. It is the minimal amount that can be requested to
@@ -898,5 +903,23 @@ library BridgeState {
 
         self.rebateStaking = _rebateStaking;
         emit RebateStakingSet(_rebateStaking);
+    }
+
+    /// @notice Sets the controller contract that can request Bank balance
+    ///         increases via the Bridge.
+    /// @param _controller Address of the controller contract.
+    /// @dev Setting to the zero address effectively removes the controller.
+    ///
+    /// @dev This function allows governance to set the controller contract
+    ///      responsible for requesting Bank balance increases through
+    ///      the Bridge. The designated controller will have the authority
+    ///      to initiate balance increase requests, enabling controlled
+    ///      minting flows within the system.
+    function setControllerBalanceIncreaser(
+        Storage storage self,
+        address _controller
+    ) internal {
+        self.controllerBalanceIncreaser = _controller;
+        emit ControllerBalanceIncreaserSet(_controller);
     }
 }

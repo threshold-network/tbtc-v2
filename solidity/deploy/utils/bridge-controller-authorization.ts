@@ -16,7 +16,7 @@ export interface BridgeControllerAuthorizationSyncOptions {
 const BRIDGE_ABI = [
   "function governance() view returns (address)",
   "function controllerBalanceIncreaser() view returns (address)",
-  "event ControllerBalanceIncreaserUpdated(address indexed previousController, address indexed newController)",
+  "event ControllerBalanceIncreaserSet(address controller)",
 ]
 
 const BRIDGE_GOVERNANCE_ABI = [
