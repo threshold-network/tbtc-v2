@@ -320,17 +320,21 @@ library BridgeState {
         // Address of the redemption watchtower. The redemption watchtower
         // is responsible for vetoing redemption requests.
         address redemptionWatchtower;
-        // Governance-managed controller responsible for requesting Bank balance
-        // increases through the Bridge. This contract is set via a dedicated
-        // governance function and is the single authority for controller-driven
-        // minting flows.
-        address controllerBalanceIncreaser;
+        // Address of the rebate staking contract used by the rebate mechanism.
+        // This value is intended to be initialized exactly once via
+        // governance wiring; changing it afterwards requires a dedicated
+        // upgrade path of the Bridge implementation.
+        address rebateStaking;
+        // Governance-managed controller responsible for minting TBTC through
+        // the Bridge. This contract is set via a dedicated governance function
+        // and is the single authority for controller-driven minting flows.
+        address mintingController;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
         // planned upgrades of the Bridge contract. If more entires are added to
         // the struct in the upcoming versions we need to reduce the array size.
-        // One slot is consumed by `controllerBalanceIncreaser`, so the gap
+        // One slot is consumed by `mintingController`, so the gap
         // size is reduced accordingly.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
@@ -388,6 +392,17 @@ library BridgeState {
     event TreasuryUpdated(address treasury);
 
     event RedemptionWatchtowerSet(address redemptionWatchtower);
+
+    // Event emitted when the rebate staking address is initialized. Declared
+    // in this library as the event is emitted from within `BridgeState` and
+    // used by the Bridge contract following the same pattern as other
+    // parameter events.
+    event RebateStakingSet(address rebateStaking);
+
+    // Event emitted when the minting controller address is updated.
+    // Note: The actual event declaration is in Bridge.sol to maintain
+    // consistency with other governance events that include previous values.
+    event MintingControllerSet(address controller);
 
     /// @notice Updates parameters of deposits.
     /// @param _depositDustThreshold New value of the deposit dust threshold in
@@ -863,5 +878,44 @@ library BridgeState {
 
         self.redemptionWatchtower = _redemptionWatchtower;
         emit RedemptionWatchtowerSet(_redemptionWatchtower);
+    }
+
+    /// @notice Sets the rebate staking address.
+    /// @param _rebateStaking Address of the rebate staking contract.
+    /// @dev Requirements:
+    ///      - Rebate staking address must not be already set,
+    ///      - Rebate staking address must not be 0x0.
+    ///
+    /// @dev This function is designed to support a one-time
+    ///      initialization of the rebate staking contract. Changing
+    ///      the rebate staking address after it is set requires a
+    ///      dedicated upgrade path.
+    function setRebateStaking(Storage storage self, address _rebateStaking)
+        internal
+    {
+        require(self.rebateStaking == address(0), "Rebate staking already set");
+
+        require(
+            _rebateStaking != address(0),
+            "Rebate staking address must not be 0x0"
+        );
+
+        self.rebateStaking = _rebateStaking;
+        emit RebateStakingSet(_rebateStaking);
+    }
+
+    /// @notice Sets the controller contract that can mint TBTC via the Bridge.
+    /// @param _controller Address of the minting controller contract.
+    /// @dev Setting to the zero address effectively removes the controller.
+    ///
+    /// @dev This function allows governance to set the controller contract
+    ///      responsible for minting TBTC through the Bridge. The designated
+    ///      controller will have the authority to initiate minting operations,
+    ///      enabling controlled minting flows within the system.
+    function setMintingController(Storage storage self, address _controller)
+        internal
+    {
+        self.mintingController = _controller;
+        emit MintingControllerSet(_controller);
     }
 }

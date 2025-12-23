@@ -2,7 +2,12 @@ import { ethers, helpers, waffle } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { expect } from "chai"
 import { ContractTransaction } from "ethers"
-import type { BridgeGovernance, Bridge, Bank } from "../../typechain"
+import type {
+  Bank,
+  BridgeGovernance,
+  Bridge,
+  MockBridgeWithRebateStaking,
+} from "../../typechain"
 import { constants } from "../fixtures"
 import bridgeFixture from "../fixtures/bridge"
 import { to1e18 } from "../helpers/contract-test-helpers"
@@ -128,7 +133,7 @@ describe("Bridge - Governance", () => {
     )
   })
 
-  describe("setControllerBalanceIncreaser", () => {
+  describe("setMintingController", () => {
     const controller = () => thirdParty.address
 
     context("when caller is not the owner", () => {
@@ -136,7 +141,7 @@ describe("Bridge - Governance", () => {
         await expect(
           bridgeGovernance
             .connect(thirdParty)
-            .setControllerBalanceIncreaser(controller())
+            .setMintingController(controller())
         ).to.be.revertedWith("Ownable: caller is not the owner")
       })
     })
@@ -148,7 +153,7 @@ describe("Bridge - Governance", () => {
         await createSnapshot()
         tx = await bridgeGovernance
           .connect(governance)
-          .setControllerBalanceIncreaser(controller())
+          .setMintingController(controller())
       })
 
       after(async () => {
@@ -156,13 +161,13 @@ describe("Bridge - Governance", () => {
       })
 
       it("should update the controller reference", async () => {
-        expect(await bridge.controllerBalanceIncreaser()).to.equal(controller())
+        expect(await bridge.mintingController()).to.equal(controller())
       })
 
-      it("should emit ControllerBalanceIncreaserUpdated event", async () => {
+      it("should emit MintingControllerSet event", async () => {
         await expect(tx)
-          .to.emit(bridge, "ControllerBalanceIncreaserUpdated")
-          .withArgs(ethers.constants.AddressZero, controller())
+          .to.emit(bridge, "MintingControllerSet")
+          .withArgs(controller())
       })
     })
 
@@ -173,10 +178,10 @@ describe("Bridge - Governance", () => {
         await createSnapshot()
         await bridgeGovernance
           .connect(governance)
-          .setControllerBalanceIncreaser(controller())
+          .setMintingController(controller())
         tx = await bridgeGovernance
           .connect(governance)
-          .setControllerBalanceIncreaser(ethers.constants.AddressZero)
+          .setMintingController(ethers.constants.AddressZero)
       })
 
       after(async () => {
@@ -184,15 +189,15 @@ describe("Bridge - Governance", () => {
       })
 
       it("should remove the controller reference", async () => {
-        expect(await bridge.controllerBalanceIncreaser()).to.equal(
+        expect(await bridge.mintingController()).to.equal(
           ethers.constants.AddressZero
         )
       })
 
-      it("should emit ControllerBalanceIncreaserUpdated with previous address", async () => {
+      it("should emit MintingControllerSet event", async () => {
         await expect(tx)
-          .to.emit(bridge, "ControllerBalanceIncreaserUpdated")
-          .withArgs(controller(), ethers.constants.AddressZero)
+          .to.emit(bridge, "MintingControllerSet")
+          .withArgs(ethers.constants.AddressZero)
       })
     })
   })
@@ -218,7 +223,7 @@ describe("Bridge - Governance", () => {
         await createSnapshot()
         await bridgeGovernance
           .connect(governance)
-          .setControllerBalanceIncreaser(thirdParty.address)
+          .setMintingController(thirdParty.address)
         tx = await bridge
           .connect(thirdParty)
           .controllerIncreaseBalance(recipient(), amount)
@@ -267,7 +272,7 @@ describe("Bridge - Governance", () => {
         await createSnapshot()
         await bridgeGovernance
           .connect(governance)
-          .setControllerBalanceIncreaser(thirdParty.address)
+          .setMintingController(thirdParty.address)
         tx = await bridge
           .connect(thirdParty)
           .controllerIncreaseBalances(recipients(), amounts)
@@ -4639,6 +4644,120 @@ describe("Bridge - Governance", () => {
       it("should not revert", async () => {
         await expect(tx).to.not.be.reverted
       })
+    })
+  })
+
+  describe("setRebateStaking", () => {
+    const { testRebateStakingAddress } = constants
+
+    context("when the caller is not the owner", () => {
+      it("should revert", async () => {
+        await expect(
+          bridgeGovernance
+            .connect(thirdParty)
+            .setRebateStaking(testRebateStakingAddress)
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+    })
+
+    context("when the caller is the owner", () => {
+      let mockBridge: MockBridgeWithRebateStaking
+      let localBridgeGovernance: BridgeGovernance
+
+      before(async () => {
+        await createSnapshot()
+
+        const mockFactory = await ethers.getContractFactory(
+          "MockBridgeWithRebateStaking"
+        )
+        mockBridge = (await mockFactory
+          .connect(governance)
+          .deploy()) as MockBridgeWithRebateStaking
+        await mockBridge.deployed()
+
+        // Deploy a fresh BridgeGovernance instance wired to the mock bridge
+        // to isolate and verify the forwarding behaviour of
+        // `setRebateStaking` without relying on the full bridge fixture.
+        const paramsLib = await helpers.contracts.getContract(
+          "BridgeGovernanceParameters"
+        )
+        const govFactory = await ethers.getContractFactory("BridgeGovernance", {
+          libraries: {
+            BridgeGovernanceParameters: paramsLib.address,
+          },
+        })
+        localBridgeGovernance = (await govFactory
+          .connect(governance)
+          .deploy(
+            mockBridge.address,
+            constants.governanceDelay
+          )) as BridgeGovernance
+        await localBridgeGovernance.deployed()
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should forward call to Bridge implementation", async () => {
+        await expect(
+          localBridgeGovernance
+            .connect(governance)
+            .setRebateStaking(testRebateStakingAddress)
+        ).to.not.be.reverted
+
+        expect(await mockBridge.rebateStaking()).to.equal(
+          testRebateStakingAddress
+        )
+      })
+    })
+  })
+
+  describe("rebate staking governance workflow", () => {
+    let newBridgeGovernance: BridgeGovernance
+
+    before(async () => {
+      await createSnapshot()
+
+      const paramsLib = await helpers.contracts.getContract(
+        "BridgeGovernanceParameters"
+      )
+      const govFactory = await ethers.getContractFactory("BridgeGovernance", {
+        libraries: {
+          BridgeGovernanceParameters: paramsLib.address,
+        },
+      })
+
+      newBridgeGovernance = (await govFactory
+        .connect(governance)
+        .deploy(bridge.address, constants.governanceDelay)) as BridgeGovernance
+      await newBridgeGovernance.deployed()
+    })
+
+    after(async () => {
+      await restoreSnapshot()
+    })
+
+    it("deploys, transfers governance, and wires rebate staking", async () => {
+      await bridgeGovernance
+        .connect(governance)
+        .beginBridgeGovernanceTransfer(newBridgeGovernance.address)
+
+      await helpers.time.increaseTime(constants.governanceDelay)
+
+      await bridgeGovernance
+        .connect(governance)
+        .finalizeBridgeGovernanceTransfer()
+
+      expect(await bridge.governance()).to.equal(newBridgeGovernance.address)
+
+      await newBridgeGovernance
+        .connect(governance)
+        .setRebateStaking(constants.testRebateStakingAddress)
+
+      expect(await bridge.getRebateStaking()).to.equal(
+        constants.testRebateStakingAddress
+      )
     })
   })
 })

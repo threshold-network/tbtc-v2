@@ -16,7 +16,7 @@
 pragma solidity 0.8.17;
 
 /// @title Mint/Burn Guard interface
-/// @notice Minimal surface used by external controller logic (e.g. AccountControl)
+/// @notice Minimal surface used by external operator logic (e.g. AccountControl)
 ///         to respect system-level caps and coordinate TBTC mint/burn execution.
 /// @dev Owner-only migration helpers are intentionally omitted. Keep this in
 ///      sync with the AccountControl-side `IMintBurnGuard` in the tbtc-v2-ac
@@ -30,7 +30,7 @@ interface IMintBurnGuard {
     /// @dev A value of zero means the global cap is not enforced.
     function globalMintCap() external view returns (uint256);
 
-    /// @notice Indicates whether controller-driven minting is globally paused.
+    /// @notice Indicates whether operator-driven minting is globally paused.
     function mintingPaused() external view returns (bool);
 
     /// @notice Mints TBTC into the Bank via the Bridge and updates global net exposure.

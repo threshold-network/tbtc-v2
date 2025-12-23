@@ -5,7 +5,7 @@ import { expect } from "chai"
 
 import type {
   MintBurnGuard,
-  MockBridgeMintingAuthorization,
+  MockBridgeController,
   MockBurnBank,
   MockBurnVault,
 } from "../typechain"
@@ -18,7 +18,7 @@ describe("MintBurnGuard", () => {
   let thirdParty: SignerWithAddress
 
   let guard: MintBurnGuard
-  let bridge: MockBridgeMintingAuthorization
+  let bridge: MockBridgeController
   let bank: MockBurnBank
   let vault: MockBurnVault
 
@@ -27,11 +27,11 @@ describe("MintBurnGuard", () => {
     ;[owner, controller, thirdParty] = signers
 
     const MockBridgeFactory = await ethers.getContractFactory(
-      "MockBridgeMintingAuthorization"
+      "MockBridgeController"
     )
     bridge = (await MockBridgeFactory.deploy(
       owner.address
-    )) as MockBridgeMintingAuthorization
+    )) as MockBridgeController
     await bridge.deployed()
 
     const MintBurnGuardFactory = await ethers.getContractFactory(
@@ -52,15 +52,15 @@ describe("MintBurnGuard", () => {
     await vault.deployed()
 
     await guard.connect(owner).setBridge(bridge.address)
-    await bridge.connect(owner).setControllerBalanceIncreaser(guard.address)
+    await bridge.connect(owner).setMintingController(guard.address)
     await guard.connect(owner).setBank(bank.address)
     await guard.connect(owner).setVault(vault.address)
   })
 
   describe("initialization", () => {
-    it("should set owner and controller", async () => {
+    it("should set owner and operator", async () => {
       expect(await guard.owner()).to.equal(owner.address)
-      expect(await guard.controller()).to.equal(controller.address)
+      expect(await guard.operator()).to.equal(controller.address)
     })
   })
 

@@ -6,7 +6,7 @@
 - Approach: upgrade the Bridge proxy implementation to add the controller pointer and execution entrypoints; redeploy BridgeGovernance with a forwarder setter; transfer governance; optionally sync the configured controller.
 - Safety: evented changes, explicit zero‑address checks, governance‑only setters, snapshot + rollback tooling.
 
-> **Note on AccountControl integration:** For AccountControl‑managed flows, the **MintBurnGuard** primitive (implemented in `solidity/contracts/account-control/MintBurnGuard.sol`) is the _only_ contract that should ever be configured as the Bridge controller via `setControllerBalanceIncreaser`. AccountControl itself is never directly authorized on the Bridge; instead, it acts as the sole controller of MintBurnGuard, and MintBurnGuard acts as the sole controller of the Bridge for those flows, executing both mint and burn/unmint operations on tBTC v2.
+> **Note on AccountControl integration:** For AccountControl‑managed flows, the **MintBurnGuard** primitive (implemented in `solidity/contracts/account-control/MintBurnGuard.sol`) is the _only_ contract that should ever be configured as the Bridge controller via `setMintingController`. AccountControl itself is never directly authorized on the Bridge; instead, it acts as the sole controller of MintBurnGuard, and MintBurnGuard acts as the sole controller of the Bridge for those flows, executing both mint and burn/unmint operations on tBTC v2.
 
 ## Motivation
 
@@ -25,11 +25,11 @@ This model provides:
   mint and burn/unmint flows through MintBurnGuard.
 
 - Controllers are high‑privilege actors. BridgeGovernance must point
-  `setControllerBalanceIncreaser` at a reviewed MintBurnGuard before any
+  `setMintingController` at a reviewed MintBurnGuard before any
   controller-driven minting flow is enabled, and it should only be changed
   through the same multi-sig/change-review process that governs other
   system-critical parameters.
-- Off-chain monitoring should alert on any unexpected `ControllerBalanceIncreaserUpdated`
+- Off-chain monitoring should alert on any unexpected `MintingControllerSet`
   events or unusually large `BalanceIncreased` events; the controller pointer is now the
   main indicator of governance changes.
 - The controller configuration tooling is intentionally conservative:
@@ -46,18 +46,18 @@ This model provides:
 
 - Bridge (proxy):
   - New state:
-    - `controllerBalanceIncreaser` – a single governance‑managed controller contract that can increase Bank balances.
+    - `mintingController` – a single governance‑managed controller contract that can increase Bank balances.
   - New events:
-    - `ControllerBalanceIncreaserUpdated(address indexed previousController, address indexed newController)`.
+    - `MintingControllerSet(address controller)`.
     - `ControllerBalanceIncreased(address,address,uint256)`.
     - `ControllerBalancesIncreased(address,address[],uint256[])`.
   - New methods:
-    - `setControllerBalanceIncreaser(address)` – owner‑only setter used by BridgeGovernance.
-    - `controllerBalanceIncreaser() -> address` – read-only pointer for off-chain tooling.
+    - `setMintingController(address)` – owner‑only setter used by BridgeGovernance.
+    - `mintingController() -> address` – read-only pointer for off-chain tooling.
     - `controllerIncreaseBalance(address,uint256)` / `controllerIncreaseBalances(address[],uint256[])` – entrypoints guarded by the pointer.
 - BridgeGovernance (regular contract):
   - New owner‑only forwarder:
-    - `setControllerBalanceIncreaser(address)` – updates the Bridge pointer.
+    - `setMintingController(address)` – updates the Bridge pointer.
 - MintBurnGuard (global mint/burn guard implemented in `solidity/contracts/account-control/MintBurnGuard.sol`):
   - State:
     - `controller` – the only contract allowed to adjust totals and execute mints/burns (for AccountControl flows, this is `AccountControl`).
@@ -65,7 +65,7 @@ This model provides:
     - `globalMintCap` – optional system‑level cap on `totalMinted` (0 disables, value in satoshis).
     - `mintingPaused` – global pause flag for controller‑driven minting.
     - References to core tBTC v2 contracts:
-      - `IBridgeMintingAuthorization bridge` – used to mint TBTC into the Bank via `controllerIncreaseBalance(s)`; MintBurnGuard converts satoshi-denominated inputs to 1e18 TBTC base units for Bridge/Bank/Vault calls.
+      - `IBridgeController bridge` – used to mint TBTC into the Bank via `controllerIncreaseBalance(s)`; MintBurnGuard converts satoshi-denominated inputs to 1e18 TBTC base units for Bridge/Bank/Vault calls.
       - Minimal Bank/Vault interfaces for burn/unmint operations.
   - Methods (high‑level):
     - Accounting helpers:
@@ -93,7 +93,7 @@ This model provides:
     - Controller (AccountControl): after validating reserve caps/backing, calls `mintToBank`/`burnFromBank`/`unmintFromVault` with satoshi amounts; these are the only controller-facing helpers and they obey the guard’s pause/cap/rate checks.
   - Flow:
     - AccountControl validates reserve/backing → calls MintBurnGuard (sats) → MintBurnGuard enforces pause/cap/rate, updates accounting, converts to 1e18, and forwards to Bridge/Bank/Vault for execution. Bridge is only whitelisting MintBurnGuard as the controller.
-- New interface for integrators: `IBridgeMintingAuthorization` (minimal Bridge surface consumed by controller logic such as AccountControl).
+- New interface for integrators: `IBridgeController` (minimal Bridge surface consumed by controller logic such as AccountControl).
 
 ## Why Governance Redeploy Is Needed
 
@@ -106,7 +106,7 @@ This model provides:
 2. Upgrade Bridge proxy implementation via ProxyAdmin to the version with the controller pointer entrypoints.
 3. Redeploy BridgeGovernance (fresh instance) and transfer governance:
    - Begin transfer, wait governance delay, finalize.
-4. Optionally sync the configured controller pointer from env/config; emit `ControllerBalanceIncreaserUpdated` for changes.
+4. Optionally sync the configured controller pointer from env/config; emit `MintingControllerSet` for changes.
 5. Post‑upgrade snapshot; compare and archive.
 
 Supporting scripts (names as in repo):
@@ -118,8 +118,8 @@ Supporting scripts (names as in repo):
 
 ## Risks & Mitigations
 
-- Storage layout changes: Bridge reserves a slot for `controllerBalanceIncreaser` and keeps an ample storage gap; MintBurnGuard is a separate contract with its own state. Upgrade paths are accounted for in implementation.
-- Misconfiguration risk (controller pointer): controller updates are still gated by governance and subject to `ControllerBalanceIncreaserUpdated` events; the sync tooling logs the planned pointer before submitting txs.
+- Storage layout changes: Bridge reserves a slot for `mintingController` and keeps an ample storage gap; MintBurnGuard is a separate contract with its own state. Upgrade paths are accounted for in implementation.
+- Misconfiguration risk (controller pointer): controller updates are still gated by governance and subject to `MintingControllerSet` events; the sync tooling logs the planned pointer before submitting txs.
 - Controller over‑minting risk:
   - Bridge enforces _who_ can mint but does not implement per‑controller caps or rate limits.
   - System‑level net exposure caps and global pauses are enforced by MintBurnGuard and controller logic (e.g. AccountControl) which must call MintBurnGuard on every net mint/burn operation.

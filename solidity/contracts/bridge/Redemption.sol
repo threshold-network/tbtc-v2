@@ -20,6 +20,7 @@ import {BytesLib} from "@keep-network/bitcoin-spv-sol/contracts/BytesLib.sol";
 
 import "./BitcoinTx.sol";
 import "./BridgeState.sol";
+import "./RebateStaking.sol";
 import "./Wallets.sol";
 
 import "../bank/Bank.sol";
@@ -532,6 +533,12 @@ library Redemption {
         uint64 treasuryFee = self.redemptionTreasuryFeeDivisor > 0
             ? amount / self.redemptionTreasuryFeeDivisor
             : 0;
+        if (treasuryFee > 0 && self.rebateStaking != address(0)) {
+            treasuryFee = RebateStaking(self.rebateStaking).applyForRebate(
+                redeemer,
+                treasuryFee
+            );
+        }
         uint64 txMaxFee = self.redemptionTxMaxFee;
 
         // The main wallet UTXO's value doesn't include all pending redemptions.
@@ -1083,6 +1090,13 @@ library Redemption {
         // Move the redemption from pending redemptions to timed-out redemptions
         self.timedOutRedemptions[redemptionKey] = request;
         delete self.pendingRedemptions[redemptionKey];
+
+        if (self.rebateStaking != address(0)) {
+            RebateStaking(self.rebateStaking).cancelRebate(
+                request.redeemer,
+                request.requestedAt
+            );
+        }
 
         // slither-disable-next-line reentrancy-events
         emit RedemptionTimedOut(walletPubKeyHash, redeemerOutputScript);
