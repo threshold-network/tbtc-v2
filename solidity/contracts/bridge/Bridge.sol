@@ -252,7 +252,7 @@ contract Bridge is
 
     event RebateStakingSet(address rebateStaking);
 
-    event ControllerBalanceIncreaserSet(address controller);
+    event MintingControllerSet(address controller);
 
     modifier onlySpvMaintainer() {
         require(
@@ -1566,7 +1566,7 @@ contract Bridge is
         external
     {
         require(
-            msg.sender == self.controllerBalanceIncreaser,
+            msg.sender == self.mintingController,
             "Caller is not the authorized controller"
         );
         emit ControllerBalanceIncreased(msg.sender, recipient, amount);
@@ -1584,7 +1584,7 @@ contract Bridge is
         uint256[] calldata amounts
     ) external {
         require(
-            msg.sender == self.controllerBalanceIncreaser,
+            msg.sender == self.mintingController,
             "Caller is not the authorized controller"
         );
 
@@ -1593,9 +1593,9 @@ contract Bridge is
         self.bank.increaseBalances(recipients, amounts);
     }
 
-    /// @notice Returns the currently configured controller address.
-    function controllerBalanceIncreaser() external view returns (address) {
-        return self.controllerBalanceIncreaser;
+    /// @notice Returns the currently configured minting controller address.
+    function mintingController() external view returns (address) {
+        return self.mintingController;
     }
 
     /// @notice Sets the redemption watchtower address.
@@ -2039,23 +2039,19 @@ contract Bridge is
     }
 
     /// @notice Allows Governance to designate a single controller that can
-    ///         request Bank balance increases through the Bridge.
-    /// @param controller Address of the controller contract (MintBurnGuard).
+    ///         mint TBTC through the Bridge.
+    /// @param controller Address of the minting controller contract (MintBurnGuard).
     /// @dev Requirements:
     ///      - The caller must be the governance,
     ///
     /// @dev Setting to the zero address effectively removes the controller.
-    function setControllerBalanceIncreaser(address controller)
-        external
-        onlyGovernance
-    {
-        self.setControllerBalanceIncreaser(controller);
+    function setMintingController(address controller) external onlyGovernance {
+        self.setMintingController(controller);
     }
 
-    /// @notice Returns the address of the controller allowed to request
-    ///         Bank balance increases via the Bridge.
-    function getControllerBalanceIncreaser() external view returns (address) {
-        return self.controllerBalanceIncreaser;
+    /// @notice Returns the address of the minting controller.
+    function getMintingController() external view returns (address) {
+        return self.mintingController;
     }
 
     /// @return Address of the redemption watchtower.

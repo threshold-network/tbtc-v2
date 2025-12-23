@@ -16,7 +16,7 @@
 pragma solidity 0.8.17;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "./interfaces/IBridgeMintingAuthorization.sol";
+import "./interfaces/IBridgeController.sol";
 import "./interfaces/IMintBurnGuard.sol";
 import "../integrator/ITBTCVault.sol";
 
@@ -54,7 +54,7 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
     bool public mintingPaused;
 
     /// @notice Bridge contract used to mint TBTC into the Bank.
-    IBridgeMintingAuthorization public bridge;
+    IBridgeController public bridge;
 
     /// @notice Bank contract used for burning TBTC bank balances when needed.
     IBankLike public bank;
@@ -160,7 +160,7 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
 
     /// @notice Configures the Bridge contract used for execution helpers.
     /// @param bridge_ Bridge contract used for controller-based minting.
-    function setBridge(IBridgeMintingAuthorization bridge_) external onlyOwner {
+    function setBridge(IBridgeController bridge_) external onlyOwner {
         _setBridge(bridge_);
     }
 
@@ -180,7 +180,7 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
     /// @dev Prevents partial deployments that forget to configure one of the
     ///      execution targets when enabling mint/burn helpers.
     function configureExecutionTargets(
-        IBridgeMintingAuthorization bridge_,
+        IBridgeController bridge_,
         IBankLike bank_,
         ITBTCVault vault_
     ) external onlyOwner {
@@ -189,7 +189,7 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
         _setVault(vault_);
     }
 
-    function _setBridge(IBridgeMintingAuthorization bridge_) private {
+    function _setBridge(IBridgeController bridge_) private {
         if (address(bridge_) == address(0)) {
             revert ZeroAddress("bridge");
         }

@@ -3201,7 +3201,7 @@ bn.js@4.11.8:
   resolved "https://registry.npmjs.org/bn.js/-/bn.js-4.11.8.tgz"
   integrity sha512-ItfYfPLkWHUjckQCk8xC+LwxgK8NYcXywGigJgSwOP8Y2iyWT4f2vsZnoOXTTbo+o5yXmIUJ4gn5538SO5S3gA==
 
-bn.js@^4.0.0, bn.js@^4.1.0, bn.js@^4.10.0, bn.js@^4.11.0, bn.js@^4.11.6, bn.js@^4.11.8, bn.js@^4.11.9, bn.js@^4.4.0, bn.js@^4.8.0:
+bn.js@^4.0.0, bn.js@^4.1.0, bn.js@^4.11.0, bn.js@^4.11.6, bn.js@^4.11.8, bn.js@^4.11.9, bn.js@^4.4.0:
   version "4.12.2"
   resolved "https://registry.npmjs.org/bn.js/-/bn.js-4.12.2.tgz"
   integrity sha512-n4DSx829VRTRByMRGdjQ9iqsN0Bh4OolPsFnaZBLcbi8iXcB+kJ9s7EnRt4wILZNV3kPLHkRVfOc/HvhC3ovDw==
@@ -5318,15 +5318,7 @@ ethereum-waffle@^3.4.0:
     "@ethereum-waffle/provider" "^3.4.4"
     ethers "^5.0.1"
 
-ethereumjs-abi@0.6.5:
-  version "0.6.5"
-  resolved "https://registry.yarnpkg.com/ethereumjs-abi/-/ethereumjs-abi-0.6.5.tgz#5a637ef16ab43473fa72a29ad90871405b3f5241"
-  integrity sha512-rCjJZ/AE96c/AAZc6O3kaog4FhOsAViaysBxqJNy2+LHP0ttH0zkZ7nXdVHOAyt6lFwLO0nlCwWszysG/ao1+g==
-  dependencies:
-    bn.js "^4.10.0"
-    ethereumjs-util "^4.3.0"
-
-ethereumjs-abi@0.6.8, ethereumjs-abi@^0.6.8:
+ethereumjs-abi@0.6.5, ethereumjs-abi@0.6.8, ethereumjs-abi@^0.6.8, "ethereumjs-abi@git+https://github.com/ethereumjs/ethereumjs-abi.git":
   version "0.6.8"
   resolved "https://registry.yarnpkg.com/ethereumjs-abi/-/ethereumjs-abi-0.6.8.tgz#71bc152db099f70e62f108b7cdfca1b362c6fcae"
   integrity sha512-Tx0r/iXI6r+lRsdvkFDlut0N08jWMnKRZ6Gkq+Nmw75lZe4e6o3EkSnkaBP5NF6+m5PTGAr9JP43N3LyeoglsA==
