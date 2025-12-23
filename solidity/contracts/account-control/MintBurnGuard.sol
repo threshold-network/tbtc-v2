@@ -27,28 +27,28 @@ interface IBankLike {
 }
 
 /// @title Mint/Burn Guard
-/// @notice Tracks global net-minted exposure for a controller and enforces
+/// @notice Tracks global net-minted exposure for an operator and enforces
 ///         system-level caps and pause semantics.
 /// @dev This contract is intentionally minimal and oblivious to reserve-level
-///      details. It is expected that a single controller contract (e.g.
+///      details. It is expected that a single operator contract (e.g.
 ///      AccountControl) reports all mint and burn operations via this guard.
 contract MintBurnGuard is Ownable, IMintBurnGuard {
     uint256 private constant TBTC_BASE_UNITS_PER_SAT = 1e10;
 
-    /// @notice Address of the controller allowed to adjust the total minted
+    /// @notice Address of the operator allowed to adjust the total minted
     ///         exposure tracked by this guard and call execution helpers.
-    address public controller;
+    address public operator;
 
-    /// @notice Global net-minted amount reported by the controller.
+    /// @notice Global net-minted amount reported by the operator.
     /// @dev Expressed in TBTC satoshis (1e8).
     uint256 public totalMinted;
 
-    /// @notice Global mint cap enforced across all controller-managed lines.
+    /// @notice Global mint cap enforced across all operator-managed lines.
     /// @dev Expressed in TBTC satoshis (1e8). A value of zero disables the
     ///      global cap check.
     uint256 public globalMintCap;
 
-    /// @notice Global pause flag for controller-driven minting.
+    /// @notice Global pause flag for operator-driven minting.
     /// @dev When true, `mintToBank` reverts for any amount > 0; burn/unmint
     ///      helpers remain available to reduce exposure.
     bool public mintingPaused;
@@ -77,9 +77,9 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
     /// @notice Amount minted so far during the current rate window (satoshis).
     uint256 public mintRateWindowAmount;
 
-    event ControllerUpdated(
-        address indexed previousController,
-        address indexed newController
+    event OperatorUpdated(
+        address indexed previousOperator,
+        address indexed newOperator
     );
 
     event TotalMintedIncreased(uint256 amount, uint256 newTotal);
@@ -94,26 +94,26 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
     );
 
     event BankMintExecuted(
-        address indexed controller,
+        address indexed operator,
         address indexed recipient,
         uint256 amountSats,
         uint256 newTotalMinted
     );
 
     event BankBurnExecuted(
-        address indexed controller,
+        address indexed operator,
         address indexed from,
         uint256 amountSats,
         uint256 newTotalMinted
     );
 
     event VaultUnmintExecuted(
-        address indexed controller,
+        address indexed operator,
         uint256 amountSats,
         uint256 newTotalMinted
     );
 
-    error NotController(address caller);
+    error NotOperator(address caller);
     error MintingPausedError();
     error ZeroAddress(string field);
     error WindowMustNotBeZero();
@@ -123,39 +123,39 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
     error Underflow();
     error AmountConversionOverflow(uint256 amountSats);
 
-    modifier onlyController() {
-        if (msg.sender != controller) {
-            revert NotController(msg.sender);
+    modifier onlyOperator() {
+        if (msg.sender != operator) {
+            revert NotOperator(msg.sender);
         }
         _;
     }
 
-    /// @notice Sets the initial owner and, optionally, the controller.
+    /// @notice Sets the initial owner and, optionally, the operator.
     /// @param initialOwner Address that will become the contract owner.
-    /// @param initialController Optional controller address; can be zero and
-    ///        set later via `setController`.
-    constructor(address initialOwner, address initialController) {
+    /// @param initialOperator Optional operator address; can be zero and
+    ///        set later via `setOperator`.
+    constructor(address initialOwner, address initialOperator) {
         if (initialOwner == address(0)) {
             revert ZeroAddress("owner");
         }
         _transferOwnership(initialOwner);
 
-        if (initialController != address(0)) {
-            controller = initialController;
-            emit ControllerUpdated(address(0), initialController);
+        if (initialOperator != address(0)) {
+            operator = initialOperator;
+            emit OperatorUpdated(address(0), initialOperator);
         }
     }
 
-    /// @notice Updates the controller address.
-    /// @param newController Address of the new controller contract.
+    /// @notice Updates the operator address.
+    /// @param newOperator Address of the new operator contract.
     /// @dev Can only be called by the owner.
-    function setController(address newController) external onlyOwner {
-        if (newController == address(0)) {
-            revert ZeroAddress("controller");
+    function setOperator(address newOperator) external onlyOwner {
+        if (newOperator == address(0)) {
+            revert ZeroAddress("operator");
         }
-        address previous = controller;
-        controller = newController;
-        emit ControllerUpdated(previous, newController);
+        address previous = operator;
+        operator = newOperator;
+        emit OperatorUpdated(previous, newOperator);
     }
 
     /// @notice Configures the Bridge contract used for execution helpers.
@@ -246,11 +246,11 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
     /// @notice Mints TBTC to the Bank via the Bridge and updates global exposure.
     /// @param recipient Address receiving the TBTC bank balance.
     /// @param amount Amount in TBTC satoshis (1e8) to add to exposure.
-    /// @dev Can only be called by the configured controller.
+    /// @dev Can only be called by the configured operator.
     // slither-disable-next-line reentrancy-vulnerabilities-3 reentrancy-vulnerabilities-2
     function mintToBank(address recipient, uint256 amount)
         external
-        onlyController
+        onlyOperator
     {
         if (amount == 0) {
             return;
@@ -262,7 +262,7 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
 
         uint256 newTotal = _increaseTotalMintedInternal(amount);
 
-        emit BankMintExecuted(controller, recipient, amount, newTotal);
+        emit BankMintExecuted(operator, recipient, amount, newTotal);
         bridge.controllerIncreaseBalance(recipient, _toTbtcBaseUnits(amount));
     }
 
@@ -272,10 +272,7 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
     /// @dev Burns the guard contract's own Bank balance via `decreaseBalance`;
     ///      reverts if the guard lacks balance. `from` is emitted for
     ///      monitoring only and does not affect which balance is burned.
-    function burnFromBank(address from, uint256 amount)
-        external
-        onlyController
-    {
+    function burnFromBank(address from, uint256 amount) external onlyOperator {
         if (amount == 0) {
             return;
         }
@@ -286,7 +283,7 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
 
         uint256 newTotal = _decreaseTotalMintedInternal(amount);
 
-        emit BankBurnExecuted(controller, from, amount, newTotal);
+        emit BankBurnExecuted(operator, from, amount, newTotal);
         bank.decreaseBalance(_toTbtcBaseUnits(amount));
     }
 
@@ -296,7 +293,7 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
     /// @dev Burns TBTC held/approved to the guard via `vault.unmint`; reverts
     ///      if the guard lacks TBTC/allowance. Bank balance is returned to the
     ///      guard contract.
-    function unmintFromVault(uint256 amount) external onlyController {
+    function unmintFromVault(uint256 amount) external onlyOperator {
         if (amount == 0) {
             return;
         }
@@ -307,7 +304,7 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
 
         uint256 newTotal = _decreaseTotalMintedInternal(amount);
 
-        emit VaultUnmintExecuted(controller, amount, newTotal);
+        emit VaultUnmintExecuted(operator, amount, newTotal);
         vault.unmint(_toTbtcBaseUnits(amount));
     }
 

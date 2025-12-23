@@ -58,9 +58,9 @@ describe("MintBurnGuard", () => {
   })
 
   describe("initialization", () => {
-    it("should set owner and controller", async () => {
+    it("should set owner and operator", async () => {
       expect(await guard.owner()).to.equal(owner.address)
-      expect(await guard.controller()).to.equal(controller.address)
+      expect(await guard.operator()).to.equal(controller.address)
     })
   })
 
