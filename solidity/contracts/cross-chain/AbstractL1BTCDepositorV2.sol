@@ -56,6 +56,10 @@ import "./utils/Crosschain.sol";
 ///            The details of that bridging are handled by `_transferTbtc(...)`
 ///            in whichever specialized child contract extends this abstract one.
 ///            address.
+/// @dev This contract does not hold ETH - payable functions are used for gas
+///      measurement only. The `_transferTbtc` function is intentionally abstract
+///      to be implemented by child contracts.
+// slither-disable-next-line locked-ether,unimplemented-functions
 abstract contract AbstractL1BTCDepositorV2 is
     AbstractBTCDepositor,
     OwnableUpgradeable,
@@ -397,6 +401,7 @@ abstract contract AbstractL1BTCDepositorV2 is
     ///        is responsible for executing the deposit finalization on the
     ///        corresponding destination chain. The payment must be greater than or
     ///        equal to the value returned by the `quoteFinalizeDeposit` function.
+    // slither-disable-next-line reentrancy-benign,reentrancy-no-eth
     function finalizeDeposit(uint256 depositKey) external payable {
         uint256 gasStart = gasleft();
 
@@ -516,6 +521,7 @@ abstract contract AbstractL1BTCDepositorV2 is
     /// @dev This function allows users to claim reimbursements even if the pool
     ///      was unavailable during finalization. Prevents loss of reimbursement
     ///      eligibility due to temporary pool issues.
+    // slither-disable-next-line reentrancy-benign,reentrancy-events
     function claimReimbursement(uint256 depositKey) external {
         require(
             address(reimbursementPool) != address(0),
