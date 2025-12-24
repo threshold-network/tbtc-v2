@@ -1006,15 +1006,6 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositorV2 {
             );
     }
 
-    /// @notice Validates the format of a signed quote from Wormhole Executor API
-    /// @param signedQuote The signed quote bytes to validate
-    /// @dev Keep validation minimal - NttManagerWithExecutor handles detailed validation
-    function _validateSignedQuoteFormat(
-        bytes memory signedQuote
-    ) internal pure {
-        require(signedQuote.length >= 32, "Signed quote too short");
-    }
-
     /// @notice Extracts and validates the embedded expiry time from a signed quote
     /// @param signedQuote The signed quote bytes from Wormhole Executor API
     /// @dev The expiry timestamp is embedded at byte offset 60 in the signed quote
@@ -1024,6 +1015,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositorV2 {
         require(signedQuote.length >= 92, "Signed quote too short for expiry extraction");
         
         // Extract expiry timestamp from signed quote (at byte offset 60)
+        // solhint-disable-next-line no-inline-assembly
         assembly {
             // signedQuote in memory: [length (32 bytes)][data...]
             // Byte offset 60 in data = 60 + 32 (length prefix) = 92
@@ -1033,10 +1025,16 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositorV2 {
         }
         
         // solhint-disable-next-line not-rely-on-time
-        require(
-            quoteExpiry > block.timestamp,
-            "Signed quote expired - embedded expiry time has passed"
-        );
+        require(quoteExpiry > block.timestamp, "Signed quote expired - embedded expiry time has passed");
+    }
+
+    /// @notice Validates the format of a signed quote from Wormhole Executor API
+    /// @param signedQuote The signed quote bytes to validate
+    /// @dev Keep validation minimal - NttManagerWithExecutor handles detailed validation
+    function _validateSignedQuoteFormat(
+        bytes memory signedQuote
+    ) internal pure {
+        require(signedQuote.length >= 32, "Signed quote too short");
     }
 
     /// @notice Generates a unique nonce for a user's parameter set
