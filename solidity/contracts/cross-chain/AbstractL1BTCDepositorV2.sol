@@ -181,19 +181,6 @@ abstract contract AbstractL1BTCDepositorV2 is
         _;
     }
 
-    function __AbstractL1BTCDepositor_initialize(
-        address _tbtcBridge,
-        address _tbtcVault
-    ) internal {
-        __AbstractBTCDepositor_initialize(_tbtcBridge, _tbtcVault);
-
-        tbtcToken = IERC20Upgradeable(ITBTCVault(_tbtcVault).tbtcToken());
-
-        initializeDepositGasOffset = 60_000;
-        finalizeDepositGasOffset = 20_000;
-        reimburseTxMaxFee = false;
-    }
-
     /// @notice Updates the values of gas offset parameters.
     /// @dev Can be called only by the contract owner. The caller is responsible
     ///      for validating parameters.
@@ -232,6 +219,20 @@ abstract contract AbstractL1BTCDepositorV2 is
     function setReimburseTxMaxFee(bool _reimburseTxMaxFee) external onlyOwner {
         reimburseTxMaxFee = _reimburseTxMaxFee;
         emit ReimburseTxMaxFeeUpdated(_reimburseTxMaxFee);
+    }
+
+    // solhint-disable-next-line func-name-mixedcase,ordering
+    function __AbstractL1BTCDepositor_initialize(
+        address _tbtcBridge,
+        address _tbtcVault
+    ) internal {
+        __AbstractBTCDepositor_initialize(_tbtcBridge, _tbtcVault);
+
+        tbtcToken = IERC20Upgradeable(ITBTCVault(_tbtcVault).tbtcToken());
+
+        initializeDepositGasOffset = 60_000;
+        finalizeDepositGasOffset = 20_000;
+        reimburseTxMaxFee = false;
     }
 
     /// @notice Initializes the deposit process on L1 by revealing the deposit
@@ -302,6 +303,7 @@ abstract contract AbstractL1BTCDepositorV2 is
     ///        will revert,
     ///      - All the requirements of tBTC Bridge.revealDepositWithExtraData
     ///        must be met.
+    // solhint-disable-next-line ordering
     function initializeDeposit(
         IBridgeTypes.BitcoinTxInfo calldata fundingTx,
         IBridgeTypes.DepositRevealInfo calldata reveal,
