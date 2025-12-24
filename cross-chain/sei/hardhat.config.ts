@@ -129,7 +129,7 @@ const config: HardhatUserConfig = {
       gasPrice: 20000000000, // 20 gwei
     },
     mainnet: {
-      url: process.env.MAINNET_RPC_URL || "https://ethereum.publicnode.com",
+      url: process.env.MAINNET_RPC_URL || "https://ethereum-rpc.publicnode.com",
       chainId: 1,
       accounts: process.env.ACCOUNTS_PRIVATE_KEYS
         ? process.env.ACCOUNTS_PRIVATE_KEYS.split(",")
