@@ -87,10 +87,8 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
 
   beforeEach(async () => {
     await createSnapshot()
-    const signers = await ethers.getSigners()
-    owner = signers[0]
-    user1 = signers[1]
-    user2 = signers[2]
+    // eslint-disable-next-line @typescript-eslint/no-extra-semi
+    ;[owner, user1, user2] = await ethers.getSigners()
   })
 
   afterEach(async () => {

@@ -27,9 +27,7 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    const signers = await ethers.getSigners()
-    owner = signers[0]
-    user1 = signers[1]
+    ;[owner, user1] = await ethers.getSigners()
 
     // Deploy mock contracts following the working pattern
     const TestERC20Factory = await ethers.getContractFactory("TestERC20")
