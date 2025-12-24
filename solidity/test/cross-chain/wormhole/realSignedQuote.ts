@@ -159,7 +159,8 @@ export const FEE_ARGS_STANDARD = {
 }
 
 // Platform fee recipient address for testing (matches FEE_ARGS_STANDARD.payee)
-export const PLATFORM_FEE_RECIPIENT = "0xB6A114C2c34eF91eeb0d93bcdDD7B95a9D6892E1"
+export const PLATFORM_FEE_RECIPIENT =
+  "0xB6A114C2c34eF91eeb0d93bcdDD7B95a9D6892E1"
 
 // ============================================================================
 // QUOTE VALIDATION NOTES

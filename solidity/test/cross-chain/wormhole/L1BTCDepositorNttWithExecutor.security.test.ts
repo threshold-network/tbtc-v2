@@ -67,7 +67,7 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
     await depositor.setSupportedChain(WORMHOLE_CHAIN_SEI, true)
     await depositor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
     await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
-    
+
     // Set default platform fee to zero to allow zero address as payee in tests
     await depositor.setDefaultParameters(
       500000, // gas limit
@@ -166,9 +166,7 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
         depositor
           .connect(user)
           .setExecutorParameters(invalidExecutorArgs, feeArgs)
-      ).to.be.revertedWith(
-        "Signed quote too short"
-      )
+      ).to.be.revertedWith("Signed quote too short")
     })
 
     it("should reject operations on unsupported chains", async () => {

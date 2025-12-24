@@ -157,7 +157,7 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
       // Test high fee - configure platform fee recipient first
       await depositor.setDefaultPlatformFeeBps(1000) // 1% (1000/100000)
       await depositor.setDefaultPlatformFeeRecipient(user.address)
-      
+
       const highFeeArgs = {
         dbps: 1000, // 1% (1000/100000)
         payee: user.address,
@@ -171,7 +171,7 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
 
       // Test maximum fee - update platform fee
       await depositor.setDefaultPlatformFeeBps(10000) // 10% (10000/100000)
-      
+
       const maxFeeArgs = {
         dbps: 10000, // 10% (10000/100000)
         payee: user.address,
@@ -197,7 +197,7 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
       // Test with first fee recipient - configure platform fee
       await depositor.setDefaultPlatformFeeBps(100) // 0.1% (100/100000)
       await depositor.setDefaultPlatformFeeRecipient(user.address)
-      
+
       const feeArgs1 = {
         dbps: 100, // 0.1% (100/100000)
         payee: user.address,
@@ -209,7 +209,7 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
 
       // Change platform fee recipient
       await depositor.setDefaultPlatformFeeRecipient(feeRecipient.address)
-      
+
       const feeArgs2 = {
         dbps: 100, // 0.1% (100/100000)
         payee: feeRecipient.address,

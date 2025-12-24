@@ -60,7 +60,8 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
   before(async () => {
     // Get signers
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;[owner] = await ethers.getSigners()
+    const signers = await ethers.getSigners()
+    owner = signers[0]
 
     // Deploy mock contracts following StarkNet pattern
     const TestERC20Factory = await ethers.getContractFactory("TestERC20")
@@ -240,9 +241,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
       await expect(
         depositor.setExecutorParameters(executorArgs, FEE_ARGS_ZERO)
-      ).to.be.revertedWith(
-        "Signed quote too short"
-      )
+      ).to.be.revertedWith("Signed quote too short")
     })
 
     it("should accept valid signed quote", async () => {

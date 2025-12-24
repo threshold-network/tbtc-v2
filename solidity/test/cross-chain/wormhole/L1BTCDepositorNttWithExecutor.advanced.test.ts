@@ -28,7 +28,8 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
   before(async () => {
     // Get signers
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;[owner] = await ethers.getSigners()
+    const signers = await ethers.getSigners()
+    owner = signers[0]
 
     // Deploy mock contracts following StarkNet pattern
     const TestERC20Factory = await ethers.getContractFactory("TestERC20")

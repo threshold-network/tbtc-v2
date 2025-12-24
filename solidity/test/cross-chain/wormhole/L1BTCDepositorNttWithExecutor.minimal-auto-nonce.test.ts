@@ -74,7 +74,7 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
 
     // Get owner address for platform fee recipient
     const [ownerAddr] = await ethers.getSigners()
-    
+
     // Set default platform fee to allow owner.address as payee (fee theft fix compatibility)
     await depositor.setDefaultParameters(
       500000, // gas limit
@@ -87,7 +87,10 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
 
   beforeEach(async () => {
     await createSnapshot()
-    ;[owner, user1, user2] = await ethers.getSigners()
+    const signers = await ethers.getSigners()
+    owner = signers[0]
+    user1 = signers[1]
+    user2 = signers[2]
   })
 
   afterEach(async () => {

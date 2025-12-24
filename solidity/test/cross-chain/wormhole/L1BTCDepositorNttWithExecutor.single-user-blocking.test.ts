@@ -27,7 +27,9 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;[owner, user1] = await ethers.getSigners()
+    const signers = await ethers.getSigners()
+    owner = signers[0]
+    user1 = signers[1]
 
     // Deploy mock contracts following the working pattern
     const TestERC20Factory = await ethers.getContractFactory("TestERC20")
@@ -81,7 +83,7 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
 
     // Get owner address for platform fee recipient
     const [ownerAddr] = await ethers.getSigners()
-    
+
     // Set default platform fee to allow owner.address as payee (fee theft fix compatibility)
     await depositor.setDefaultParameters(
       500000, // gas limit

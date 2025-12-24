@@ -208,9 +208,7 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
 
       await expect(
         depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
-      ).to.be.revertedWith(
-        "Signed quote too short"
-      )
+      ).to.be.revertedWith("Signed quote too short")
     })
 
     it("should reject quotes for unsupported chains", async () => {
