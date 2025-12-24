@@ -44,6 +44,10 @@
 - [MaintenanceService](classes/MaintenanceService.md)
 - [OptimisticMinting](classes/OptimisticMinting.md)
 - [RedemptionsService](classes/RedemptionsService.md)
+- [SeiAddress](classes/SeiAddress.md)
+- [SeiBitcoinDepositor](classes/SeiBitcoinDepositor.md)
+- [SeiExtraDataEncoder](classes/SeiExtraDataEncoder.md)
+- [SeiTBTCToken](classes/SeiTBTCToken.md)
 - [SolanaAddress](classes/SolanaAddress.md)
 - [SolanaExtraDataEncoder](classes/SolanaExtraDataEncoder.md)
 - [Spv](classes/Spv.md)
@@ -82,6 +86,7 @@
 - [RedeemerProxy](interfaces/RedeemerProxy.md)
 - [RedemptionRequest](interfaces/RedemptionRequest.md)
 - [RedemptionWallet](interfaces/RedemptionWallet.md)
+- [SeiBitcoinDepositorConfig](interfaces/SeiBitcoinDepositorConfig.md)
 - [SerializableWallet](interfaces/SerializableWallet.md)
 - [StarkNetBitcoinDepositorConfig](interfaces/StarkNetBitcoinDepositorConfig.md)
 - [StarkNetTBTCTokenConfig](interfaces/StarkNetTBTCTokenConfig.md)
@@ -123,6 +128,8 @@
 - [OptimisticMintingRequestedEvent](README.md#optimisticmintingrequestedevent)
 - [RedemptionRequestedEvent](README.md#redemptionrequestedevent)
 - [RetrierFn](README.md#retrierfn)
+- [SeiProvider](README.md#seiprovider)
+- [SeiSigner](README.md#seisigner)
 - [StarkNetDepositorConfig](README.md#starknetdepositorconfig)
 - [StarkNetProvider](README.md#starknetprovider)
 - [TBTCContracts](README.md#tbtccontracts)
@@ -145,9 +152,11 @@
 - [BitcoinTargetConverter](README.md#bitcointargetconverter)
 - [ChainMappings](README.md#chainmappings)
 - [EthereumCrossChainExtraDataEncoder](README.md#ethereumcrosschainextradataencoder)
+- [SeiL2TBTCToken](README.md#seil2tbtctoken)
 - [SolanaCrossChainExtraDataEncoder](README.md#solanacrosschainextradataencoder)
 - [StarkNetCrossChainExtraDataEncoder](README.md#starknetcrosschainextradataencoder)
 - [StarkNetDepositor](README.md#starknetdepositor)
+- [WORMHOLE\_CHAIN\_IDS](README.md#wormhole_chain_ids)
 - [tbtcABI](README.md#tbtcabi)
 
 ### Functions
@@ -157,9 +166,14 @@
 - [backoffRetrier](README.md#backoffretrier)
 - [chainIdFromSigner](README.md#chainidfromsigner)
 - [computeElectrumScriptHash](README.md#computeelectrumscripthash)
+- [decodeDestinationReceiver](README.md#decodedestinationreceiver)
+- [encodeDestinationReceiver](README.md#encodedestinationreceiver)
 - [ethereumAddressFromSigner](README.md#ethereumaddressfromsigner)
 - [ethereumCrossChainContractsLoader](README.md#ethereumcrosschaincontractsloader)
 - [extractBitcoinRawTxVectors](README.md#extractbitcoinrawtxvectors)
+- [getChainIdFromEncodedReceiver](README.md#getchainidfromencodedreceiver)
+- [getRecipientFromEncodedReceiver](README.md#getrecipientfromencodedreceiver)
+- [isValidEncodedReceiver](README.md#isvalidencodedreceiver)
 - [loadArbitrumCrossChainContracts](README.md#loadarbitrumcrosschaincontracts)
 - [loadArbitrumCrossChainInterfaces](README.md#loadarbitrumcrosschaininterfaces)
 - [loadBaseCrossChainContracts](README.md#loadbasecrosschaincontracts)
@@ -215,13 +229,14 @@ Type representing a mapping between specific L1 and L2 chains.
 | `arbitrum?` | [`Arbitrum`](enums/Chains.Arbitrum.md) | Identifier of the Arbitrum L2 chain. |
 | `base?` | [`Base`](enums/Chains.Base.md) | Identifier of the Base L2 chain. |
 | `ethereum?` | [`Ethereum`](enums/Chains.Ethereum.md) | Identifier of the Ethereum L1 chain. |
+| `sei?` | [`Sei`](enums/Chains.Sei.md) | Identifier of the Sei L2 chain. |
 | `solana?` | [`Solana`](enums/Chains.Solana.md) | Identifier of the Arbitrum L2 chain. |
 | `starknet?` | [`StarkNet`](enums/Chains.StarkNet.md) | Identifier of the StarkNet L2 chain. |
 | `sui?` | [`Sui`](enums/Chains.Sui.md) | Identifier of the SUI L2 chain. |
 
 #### Defined in
 
-[lib/contracts/chain.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L74)
+[lib/contracts/chain.ts:88](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L88)
 
 ___
 
@@ -324,7 +339,7 @@ These are chains other than the main Ethereum L1 chain.
 
 #### Defined in
 
-[lib/contracts/chain.ts:64](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L64)
+[lib/contracts/chain.ts:78](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L78)
 
 ___
 
@@ -499,7 +514,7 @@ Use DestinationChainName instead
 
 #### Defined in
 
-[lib/contracts/chain.ts:69](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L69)
+[lib/contracts/chain.ts:83](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L83)
 
 ___
 
@@ -641,6 +656,30 @@ ___
 #### Defined in
 
 [lib/utils/backoff.ts:51](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/backoff.ts#L51)
+
+___
+
+### SeiProvider
+
+Ƭ **SeiProvider**: `ethers.providers.Provider`
+
+Sei provider type - uses standard Ethereum provider since Sei is EVM-compatible
+
+#### Defined in
+
+[lib/sei/types.ts:6](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/types.ts#L6)
+
+___
+
+### SeiSigner
+
+Ƭ **SeiSigner**: `ethers.Signer`
+
+Sei signer type - uses standard Ethereum signer
+
+#### Defined in
+
+[lib/sei/types.ts:11](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/types.ts#L11)
 
 ___
 
@@ -950,7 +989,7 @@ List of chain mappings supported by tBTC v2 contracts.
 
 #### Defined in
 
-[lib/contracts/chain.ts:106](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L106)
+[lib/contracts/chain.ts:124](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L124)
 
 ___
 
@@ -964,7 +1003,21 @@ Use EthereumExtraDataEncoder instead
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-depositor.ts:234](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L234)
+[lib/ethereum/l1-bitcoin-depositor.ts:244](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L244)
+
+___
+
+### SeiL2TBTCToken
+
+• `Const` **SeiL2TBTCToken**: typeof [`SeiTBTCToken`](classes/SeiTBTCToken.md) = `SeiTBTCToken`
+
+**`Deprecated`**
+
+Use SeiTBTCToken instead
+
+#### Defined in
+
+[lib/sei/l2-tbtc-token.ts:64](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/l2-tbtc-token.ts#L64)
 
 ___
 
@@ -1007,6 +1060,40 @@ Use StarkNetBitcoinDepositor instead
 #### Defined in
 
 [lib/starknet/starknet-depositor.ts:527](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L527)
+
+___
+
+### WORMHOLE\_CHAIN\_IDS
+
+• `Const` **WORMHOLE\_CHAIN\_IDS**: `Object`
+
+Mapping of chain identifiers to their corresponding Wormhole chain IDs.
+Use these constants instead of hardcoded chain IDs when encoding destination
+receivers for NTT (Native Token Transfer) bridges.
+
+**`Example`**
+
+```typescript
+import { WORMHOLE_CHAIN_IDS, Chains, encodeDestinationReceiver } from "@keep-network/tbtc-v2"
+
+const encoded = encodeDestinationReceiver(
+  WORMHOLE_CHAIN_IDS[Chains.Sei.Testnet],
+  "0x1234567890123456789012345678901234567890"
+)
+```
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `1` | `number` |
+| `11155111` | `number` |
+| `1328` | `number` |
+| `1329` | `number` |
+
+#### Defined in
+
+[lib/utils/wormhole.ts:18](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/wormhole.ts#L18)
 
 ___
 
@@ -1173,6 +1260,74 @@ Electrum script hash as a hex string.
 
 ___
 
+### decodeDestinationReceiver
+
+▸ **decodeDestinationReceiver**(`encodedReceiver`): `Object`
+
+Decodes destination chain ID and recipient address from encoded receiver data.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `encodedReceiver` | `string` \| [`Hex`](classes/Hex.md) | The encoded receiver data (32 bytes) |
+
+#### Returns
+
+`Object`
+
+Object containing the decoded chain ID and recipient address
+
+| Name | Type |
+| :------ | :------ |
+| `chainId` | `number` |
+| `recipient` | `string` |
+
+**`Example`**
+
+```typescript
+const { chainId, recipient } = decodeDestinationReceiver("0x00000000000000000000000000000000000000000000000000000000000000281234567890123456789012345678901234567890")
+// Returns: { chainId: 40, recipient: "0x1234567890123456789012345678901234567890" }
+```
+
+#### Defined in
+
+[lib/utils/ntt.ts:59](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/ntt.ts#L59)
+
+___
+
+### encodeDestinationReceiver
+
+▸ **encodeDestinationReceiver**(`chainId`, `recipient`): [`Hex`](classes/Hex.md)
+
+Encodes destination chain ID and recipient address into a 32-byte value.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `chainId` | `number` | Wormhole chain ID of the destination chain (uint16) |
+| `recipient` | `string` | Recipient address on the destination chain (20 bytes) |
+
+#### Returns
+
+[`Hex`](classes/Hex.md)
+
+The encoded receiver data as a 32-byte hex string
+
+**`Example`**
+
+```typescript
+const encoded = encodeDestinationReceiver(40, "0x1234567890123456789012345678901234567890")
+// Returns: "0x00000000000000000000000000000000000000000000000000000000000000281234567890123456789012345678901234567890"
+```
+
+#### Defined in
+
+[lib/utils/ntt.ts:23](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/ntt.ts#L23)
+
+___
+
 ### ethereumAddressFromSigner
 
 ▸ **ethereumAddressFromSigner**(`signer`): `Promise`\<[`EthereumAddress`](classes/EthereumAddress.md) \| `undefined`\>
@@ -1258,6 +1413,78 @@ Transaction data with fields represented as un-prefixed hex strings.
 #### Defined in
 
 [lib/bitcoin/tx.ts:133](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L133)
+
+___
+
+### getChainIdFromEncodedReceiver
+
+▸ **getChainIdFromEncodedReceiver**(`encodedReceiver`): `number`
+
+Gets the chain ID from encoded receiver data without full decoding.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `encodedReceiver` | `string` \| [`Hex`](classes/Hex.md) | The encoded receiver data |
+
+#### Returns
+
+`number`
+
+The chain ID
+
+#### Defined in
+
+[lib/utils/ntt.ts:133](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/ntt.ts#L133)
+
+___
+
+### getRecipientFromEncodedReceiver
+
+▸ **getRecipientFromEncodedReceiver**(`encodedReceiver`): `string`
+
+Gets the recipient address from encoded receiver data without full decoding.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `encodedReceiver` | `string` \| [`Hex`](classes/Hex.md) | The encoded receiver data |
+
+#### Returns
+
+`string`
+
+The recipient address
+
+#### Defined in
+
+[lib/utils/ntt.ts:159](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/ntt.ts#L159)
+
+___
+
+### isValidEncodedReceiver
+
+▸ **isValidEncodedReceiver**(`encodedReceiver`): `boolean`
+
+Validates that an encoded receiver has the correct format.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `encodedReceiver` | `string` \| [`Hex`](classes/Hex.md) | The encoded receiver data to validate |
+
+#### Returns
+
+`boolean`
+
+True if the format is valid, false otherwise
+
+#### Defined in
+
+[lib/utils/ntt.ts:100](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/ntt.ts#L100)
 
 ___
 

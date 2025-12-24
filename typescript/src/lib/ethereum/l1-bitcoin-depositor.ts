@@ -23,16 +23,19 @@ import MainnetArbitrumL1BitcoinDepositorDeployment from "./artifacts/mainnet/Arb
 import MainnetSolanaL1BitcoinDepositorDeployment from "./artifacts/mainnet/SolanaL1BitcoinDepositor.json"
 import MainnetStarkNetL1BitcoinDepositorDeployment from "./artifacts/mainnet/StarkNetBitcoinDepositor.json"
 import MainnetSuiBTCDepositorWormholeDeployment from "./artifacts/mainnet/SuiBTCDepositorWormhole.json"
+import MainnetSeiL1BitcoinDepositorDeployment from "./artifacts/mainnet/SeiL1BitcoinDepositor.json"
 
 import SepoliaBaseL1BitcoinDepositorDeployment from "./artifacts/sepolia/BaseL1BitcoinDepositor.json"
 import SepoliaArbitrumL1BitcoinDepositorDeployment from "./artifacts/sepolia/ArbitrumL1BitcoinDepositor.json"
 import SepoliaStarkNetL1BitcoinDepositorDeployment from "./artifacts/sepolia/StarkNetBitcoinDepositor.json"
 import SepoliaSuiBTCDepositorWormholeDeployment from "./artifacts/sepolia/SuiBTCDepositorWormhole.json"
+import SepoliaSeiL1BitcoinDepositorDeployment from "./artifacts/sepolia/SeiL1BitcoinDepositor.json"
 
 import SepoliaSolanaL1BitcoinDepositorDeployment from "./artifacts/sepolia/SolanaL1BitcoinDepositor.json"
 import { SuiExtraDataEncoder } from "../sui"
 import { StarkNetExtraDataEncoder } from "../starknet"
 import { SolanaExtraDataEncoder } from "../solana"
+import { SeiExtraDataEncoder } from "../sei"
 
 const artifactLoader = {
   getMainnet: (destinationChainName: DestinationChainName) => {
@@ -47,6 +50,8 @@ const artifactLoader = {
         return MainnetStarkNetL1BitcoinDepositorDeployment
       case "Sui":
         return MainnetSuiBTCDepositorWormholeDeployment
+      case "Sei":
+        return MainnetSeiL1BitcoinDepositorDeployment
       default:
         throw new Error("Unsupported destination chain")
     }
@@ -64,6 +69,8 @@ const artifactLoader = {
         return SepoliaStarkNetL1BitcoinDepositorDeployment
       case "Sui":
         return SepoliaSuiBTCDepositorWormholeDeployment
+      case "Sei":
+        return SepoliaSeiL1BitcoinDepositorDeployment
       default:
         throw new Error("Unsupported destination chain")
     }
@@ -111,6 +118,9 @@ export class EthereumL1BitcoinDepositor
         break
       case "Solana":
         this.#extraDataEncoder = new SolanaExtraDataEncoder()
+        break
+      case "Sei":
+        this.#extraDataEncoder = new SeiExtraDataEncoder()
         break
       default:
         this.#extraDataEncoder = new EthereumExtraDataEncoder()

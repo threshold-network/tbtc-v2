@@ -1,8 +1,12 @@
-import { helpers, waffle } from "hardhat"
+import { ethers, helpers, waffle } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { expect } from "chai"
 import { ContractTransaction } from "ethers"
-import type { BridgeGovernance, Bridge } from "../../typechain"
+import type {
+  BridgeGovernance,
+  Bridge,
+  MockBridgeWithRebateStaking,
+} from "../../typechain"
 import { constants } from "../fixtures"
 import bridgeFixture from "../fixtures/bridge"
 
@@ -4460,6 +4464,120 @@ describe("Bridge - Governance", () => {
       it("should not revert", async () => {
         await expect(tx).to.not.be.reverted
       })
+    })
+  })
+
+  describe("setRebateStaking", () => {
+    const { testRebateStakingAddress } = constants
+
+    context("when the caller is not the owner", () => {
+      it("should revert", async () => {
+        await expect(
+          bridgeGovernance
+            .connect(thirdParty)
+            .setRebateStaking(testRebateStakingAddress)
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+    })
+
+    context("when the caller is the owner", () => {
+      let mockBridge: MockBridgeWithRebateStaking
+      let localBridgeGovernance: BridgeGovernance
+
+      before(async () => {
+        await createSnapshot()
+
+        const mockFactory = await ethers.getContractFactory(
+          "MockBridgeWithRebateStaking"
+        )
+        mockBridge = (await mockFactory
+          .connect(governance)
+          .deploy()) as MockBridgeWithRebateStaking
+        await mockBridge.deployed()
+
+        // Deploy a fresh BridgeGovernance instance wired to the mock bridge
+        // to isolate and verify the forwarding behaviour of
+        // `setRebateStaking` without relying on the full bridge fixture.
+        const paramsLib = await helpers.contracts.getContract(
+          "BridgeGovernanceParameters"
+        )
+        const govFactory = await ethers.getContractFactory("BridgeGovernance", {
+          libraries: {
+            BridgeGovernanceParameters: paramsLib.address,
+          },
+        })
+        localBridgeGovernance = (await govFactory
+          .connect(governance)
+          .deploy(
+            mockBridge.address,
+            constants.governanceDelay
+          )) as BridgeGovernance
+        await localBridgeGovernance.deployed()
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should forward call to Bridge implementation", async () => {
+        await expect(
+          localBridgeGovernance
+            .connect(governance)
+            .setRebateStaking(testRebateStakingAddress)
+        ).to.not.be.reverted
+
+        expect(await mockBridge.rebateStaking()).to.equal(
+          testRebateStakingAddress
+        )
+      })
+    })
+  })
+
+  describe("rebate staking governance workflow", () => {
+    let newBridgeGovernance: BridgeGovernance
+
+    before(async () => {
+      await createSnapshot()
+
+      const paramsLib = await helpers.contracts.getContract(
+        "BridgeGovernanceParameters"
+      )
+      const govFactory = await ethers.getContractFactory("BridgeGovernance", {
+        libraries: {
+          BridgeGovernanceParameters: paramsLib.address,
+        },
+      })
+
+      newBridgeGovernance = (await govFactory
+        .connect(governance)
+        .deploy(bridge.address, constants.governanceDelay)) as BridgeGovernance
+      await newBridgeGovernance.deployed()
+    })
+
+    after(async () => {
+      await restoreSnapshot()
+    })
+
+    it("deploys, transfers governance, and wires rebate staking", async () => {
+      await bridgeGovernance
+        .connect(governance)
+        .beginBridgeGovernanceTransfer(newBridgeGovernance.address)
+
+      await helpers.time.increaseTime(constants.governanceDelay)
+
+      await bridgeGovernance
+        .connect(governance)
+        .finalizeBridgeGovernanceTransfer()
+
+      expect(await bridge.governance()).to.equal(newBridgeGovernance.address)
+
+      await newBridgeGovernance
+        .connect(governance)
+        .setRebateStaking(constants.testRebateStakingAddress)
+
+      expect(await bridge.getRebateStaking()).to.equal(
+        constants.testRebateStakingAddress
+      )
     })
   })
 })

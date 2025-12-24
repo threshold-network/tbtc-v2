@@ -320,6 +320,11 @@ library BridgeState {
         // Address of the redemption watchtower. The redemption watchtower
         // is responsible for vetoing redemption requests.
         address redemptionWatchtower;
+        // Address of the rebate staking contract used by the rebate mechanism.
+        // This value is intended to be initialized exactly once via
+        // governance wiring; changing it afterwards requires a dedicated
+        // upgrade path of the Bridge implementation.
+        address rebateStaking;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
@@ -327,7 +332,7 @@ library BridgeState {
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
-        uint256[49] __gap;
+        uint256[48] __gap;
     }
 
     event DepositParametersUpdated(
@@ -381,6 +386,12 @@ library BridgeState {
     event TreasuryUpdated(address treasury);
 
     event RedemptionWatchtowerSet(address redemptionWatchtower);
+
+    // Event emitted when the rebate staking address is initialized. Declared
+    // in this library as the event is emitted from within `BridgeState` and
+    // used by the Bridge contract following the same pattern as other
+    // parameter events.
+    event RebateStakingSet(address rebateStaking);
 
     /// @notice Updates parameters of deposits.
     /// @param _depositDustThreshold New value of the deposit dust threshold in
@@ -856,5 +867,29 @@ library BridgeState {
 
         self.redemptionWatchtower = _redemptionWatchtower;
         emit RedemptionWatchtowerSet(_redemptionWatchtower);
+    }
+
+    /// @notice Sets the rebate staking address.
+    /// @param _rebateStaking Address of the rebate staking contract.
+    /// @dev Requirements:
+    ///      - Rebate staking address must not be already set,
+    ///      - Rebate staking address must not be 0x0.
+    ///
+    /// @dev This function is designed to support a one-time
+    ///      initialization of the rebate staking contract. Changing
+    ///      the rebate staking address after it is set requires a
+    ///      dedicated upgrade path.
+    function setRebateStaking(Storage storage self, address _rebateStaking)
+        internal
+    {
+        require(self.rebateStaking == address(0), "Rebate staking already set");
+
+        require(
+            _rebateStaking != address(0),
+            "Rebate staking address must not be 0x0"
+        );
+
+        self.rebateStaking = _rebateStaking;
+        emit RebateStakingSet(_rebateStaking);
     }
 }
