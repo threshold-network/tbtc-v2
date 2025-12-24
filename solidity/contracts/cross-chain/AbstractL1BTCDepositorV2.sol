@@ -117,11 +117,12 @@ abstract contract AbstractL1BTCDepositorV2 is
     ///         reimbursement pool vulnerable to malicious actors that could
     ///         drain it by initializing invalid deposits.
     mapping(uint256 => GasReimbursement) public gasReimbursements;
-    
+
     /// @notice Holds pending finalization reimbursements (indexed by deposit key)
     /// @dev Allows reimbursement claims even if pool was unavailable during finalization.
     ///      Prevents deposit blocking.
-    mapping(uint256 => FinalizationReimbursement) public finalizationReimbursements;
+    mapping(uint256 => FinalizationReimbursement)
+        public finalizationReimbursements;
     /// @notice Gas that is meant to balance the overall cost of deposit initialization.
     ///         Can be updated by the owner based on the current market conditions.
     uint256 public initializeDepositGasOffset;
@@ -357,7 +358,9 @@ abstract contract AbstractL1BTCDepositorV2 is
             // Lock reimbursement to current gas price (capped by maxGasPrice) to prevent
             // attacker from profiting by initializing at low gas price and finalizing at high gas price
             uint256 maxGasPrice = reimbursementPool.maxGasPrice();
-            uint256 currentGasPrice = tx.gasprice < maxGasPrice ? tx.gasprice : maxGasPrice;
+            uint256 currentGasPrice = tx.gasprice < maxGasPrice
+                ? tx.gasprice
+                : maxGasPrice;
             uint256 weiAmount = gasSpent * currentGasPrice;
 
             // Should not happen as long as initializeDepositGasOffset is
@@ -447,7 +450,7 @@ abstract contract AbstractL1BTCDepositorV2 is
         // Store reimbursement data instead of paying immediately
         // This allows deposit finalization to succeed even if ReimbursementPool is unavailable
         // Users can claim their reimbursements later via claimReimbursement()
-        
+
         // Store finalization reimbursement if the caller is authorized
         if (reimbursementAuthorizations[msg.sender]) {
             // As this call is payable and this transaction carries out a
@@ -459,42 +462,52 @@ abstract contract AbstractL1BTCDepositorV2 is
             uint256 totalGasSpent = (gasStart - gasleft()) +
                 msgValueOffset +
                 finalizeDepositGasOffset;
-            
+
             // Store for later claim - prevents blocking if pool unavailable
             if (totalGasSpent <= type(uint96).max) {
-                finalizationReimbursements[depositKey] = FinalizationReimbursement({
+                finalizationReimbursements[
+                    depositKey
+                ] = FinalizationReimbursement({
                     receiver: msg.sender,
                     gasSpent: uint96(totalGasSpent),
                     claimed: false
                 });
             }
         }
-        
+
         // Try to pay out immediately if pool is available
         // If it fails, users can still claim later via claimReimbursement()
         if (address(reimbursementPool) != address(0)) {
             // Try finalization reimbursement first (MB-H1 fix - prevents gas double-counting)
-            FinalizationReimbursement storage finalizationReimbursement = 
-                finalizationReimbursements[depositKey];
-            if (finalizationReimbursement.receiver != address(0) && 
-                !finalizationReimbursement.claimed) {
+            FinalizationReimbursement
+                storage finalizationReimbursement = finalizationReimbursements[
+                    depositKey
+                ];
+            if (
+                finalizationReimbursement.receiver != address(0) &&
+                !finalizationReimbursement.claimed
+            ) {
                 // Use try-catch to prevent blocking deposit finalization
-                try reimbursementPool.refund(
-                    finalizationReimbursement.gasSpent,
-                    finalizationReimbursement.receiver
-                ) {
+                try
+                    reimbursementPool.refund(
+                        finalizationReimbursement.gasSpent,
+                        finalizationReimbursement.receiver
+                    )
+                {
                     finalizationReimbursement.claimed = true;
                 } catch {
                     // Reimbursement failed but deposit finalization continues
                     // User can claim later via claimReimbursement()
                 }
             }
-            
+
             // Try initialization reimbursement
             // NOTE: This is executed AFTER finalization refund to prevent
             // gas consumed in this external call from being counted in
             // the finalization refund (MB-H1 fix).
-            GasReimbursement memory reimbursement = gasReimbursements[depositKey];
+            GasReimbursement memory reimbursement = gasReimbursements[
+                depositKey
+            ];
             if (reimbursement.receiver != address(0)) {
                 // slither-disable-next-line reentrancy-benign
                 delete gasReimbursements[depositKey];
@@ -502,13 +515,17 @@ abstract contract AbstractL1BTCDepositorV2 is
                 // GAS PRICE ARBITRAGE FIX (MB-H3): Convert stored wei amount to gas units
                 // for ReimbursementPool.refund() call. This pays the exact amount stored
                 // at initialization, not recalculated at current gas price.
-                uint256 gasUnitsToPass = _weiToGasUnits(reimbursement.weiAmount);
+                uint256 gasUnitsToPass = _weiToGasUnits(
+                    reimbursement.weiAmount
+                );
 
                 // Use try-catch to prevent blocking deposit finalization
-                try reimbursementPool.refund(
-                    gasUnitsToPass,
-                    reimbursement.receiver
-                ) {
+                try
+                    reimbursementPool.refund(
+                        gasUnitsToPass,
+                        reimbursement.receiver
+                    )
+                {
                     // Success - initialization reimbursement paid
                 } catch {
                     // Reimbursement failed - restore to allow later claim
@@ -529,16 +546,20 @@ abstract contract AbstractL1BTCDepositorV2 is
             address(reimbursementPool) != address(0),
             "Reimbursement pool not attached"
         );
-        
+
         uint256 finalizationGas = 0;
         uint256 initializationGas = 0;
         address receiver = address(0);
-        
+
         // Claim finalization reimbursement if available
-        FinalizationReimbursement storage finalizationReimbursement = 
-            finalizationReimbursements[depositKey];
-        if (finalizationReimbursement.receiver != address(0) && 
-            !finalizationReimbursement.claimed) {
+        FinalizationReimbursement
+            storage finalizationReimbursement = finalizationReimbursements[
+                depositKey
+            ];
+        if (
+            finalizationReimbursement.receiver != address(0) &&
+            !finalizationReimbursement.claimed
+        ) {
             finalizationReimbursement.claimed = true;
             finalizationGas = finalizationReimbursement.gasSpent;
             receiver = finalizationReimbursement.receiver;
@@ -547,30 +568,34 @@ abstract contract AbstractL1BTCDepositorV2 is
                 finalizationReimbursement.receiver
             );
         }
-        
+
         // Claim initialization reimbursement if available
-        GasReimbursement memory initReimbursement = gasReimbursements[depositKey];
+        GasReimbursement memory initReimbursement = gasReimbursements[
+            depositKey
+        ];
         if (initReimbursement.receiver != address(0)) {
             delete gasReimbursements[depositKey];
             initializationGas = initReimbursement.weiAmount;
             if (receiver == address(0)) {
                 receiver = initReimbursement.receiver;
             }
-            
+
             // GAS PRICE ARBITRAGE FIX (MB-H3): Convert stored wei amount to gas units
-            uint256 gasUnitsToPass = _weiToGasUnits(initReimbursement.weiAmount);
-            
+            uint256 gasUnitsToPass = _weiToGasUnits(
+                initReimbursement.weiAmount
+            );
+
             reimbursementPool.refund(
                 gasUnitsToPass,
                 initReimbursement.receiver
             );
         }
-        
+
         require(
             finalizationGas > 0 || initializationGas > 0,
             "No reimbursement available for this deposit"
         );
-        
+
         emit ReimbursementClaimed(
             depositKey,
             receiver,
@@ -585,19 +610,17 @@ abstract contract AbstractL1BTCDepositorV2 is
     /// @dev GAS PRICE ARBITRAGE FIX (MB-H3): This function allows paying exact wei amounts
     ///      by converting them to gas units that ReimbursementPool.refund() expects.
     ///      The pool will multiply these units by current gas price, resulting in our target wei amount.
-    function _weiToGasUnits(uint256 weiAmount)
-        internal
-        view
-        returns (uint256)
-    {
+    function _weiToGasUnits(uint256 weiAmount) internal view returns (uint256) {
         uint256 maxGasPrice = reimbursementPool.maxGasPrice();
-        uint256 currentGasPrice = tx.gasprice < maxGasPrice ? tx.gasprice : maxGasPrice;
-        
+        uint256 currentGasPrice = tx.gasprice < maxGasPrice
+            ? tx.gasprice
+            : maxGasPrice;
+
         // Avoid division by zero
         if (currentGasPrice == 0) {
             return 0;
         }
-        
+
         // gasUnits = weiAmount / currentGasPrice
         // When refund() is called, it will calculate: gasUnits * currentGasPrice = weiAmount
         return weiAmount / currentGasPrice;
@@ -611,11 +634,9 @@ abstract contract AbstractL1BTCDepositorV2 is
     /// @return Refund value as gas spent.
     /// @dev This function is the reverse of the logic used
     ///      within `ReimbursementPool.refund`.
-    function _refundToGasSpent(uint256 refund)
-        internal
-        virtual
-        returns (uint256)
-    {
+    function _refundToGasSpent(
+        uint256 refund
+    ) internal virtual returns (uint256) {
         uint256 maxGasPrice = reimbursementPool.maxGasPrice();
         uint256 staticGas = reimbursementPool.staticGas();
 
@@ -644,7 +665,8 @@ abstract contract AbstractL1BTCDepositorV2 is
     /// @dev In child contracts, this can be LayerZero, Wormhole, or any bridging code.
     /// @param amount Amount of tBTC in 1e18 precision.
     /// @param destinationChainReceiver destination chain deposit owner (32 bytes format).
-    function _transferTbtc(uint256 amount, bytes32 destinationChainReceiver)
-        internal
-        virtual;
+    function _transferTbtc(
+        uint256 amount,
+        bytes32 destinationChainReceiver
+    ) internal virtual;
 }
