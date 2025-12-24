@@ -4,6 +4,8 @@
  * Uses secure encrypted key management
  */
 
+/* eslint-disable no-console */
+
 import { ethers } from "hardhat"
 import { secureKeyManager } from "./secure-key-manager"
 
@@ -28,8 +30,11 @@ async function main() {
   try {
     const privateKey = await secureKeyManager.getDecryptedKey()
     deployer = new ethers.Wallet(privateKey, ethers.provider)
-  } catch (error: any) {
-    if (error.message.includes("No encrypted key found")) {
+  } catch (error: unknown) {
+    if (
+      error instanceof Error &&
+      error.message.includes("No encrypted key found")
+    ) {
       console.log(
         "❌ No encrypted key found. Please set up your private key first:"
       )
