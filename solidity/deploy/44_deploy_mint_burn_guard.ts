@@ -1,31 +1,33 @@
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
 
-const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
+const func: DeployFunction = async function deployMintBurnGuard(
+  hre: HardhatRuntimeEnvironment
+) {
   const { deployments, getNamedAccounts } = hre
   const { deploy, log } = deployments
 
   const { deployer } = await getNamedAccounts()
 
-  // Allow overriding the MintBurnGuard owner and controller via env vars.
+  // Allow overriding the MintBurnGuard owner and operator via env vars.
   // Defaults:
   // - owner: deployer
-  // - controller: unset (0x0) and configured later via governance.
+  // - operator: unset (0x0) and configured later via governance.
   const owner =
     process.env.MINT_BURN_GUARD_OWNER &&
     process.env.MINT_BURN_GUARD_OWNER.length > 0
       ? process.env.MINT_BURN_GUARD_OWNER
       : deployer
 
-  const controller =
-    process.env.MINT_BURN_GUARD_CONTROLLER &&
-    process.env.MINT_BURN_GUARD_CONTROLLER.length > 0
-      ? process.env.MINT_BURN_GUARD_CONTROLLER
+  const operator =
+    process.env.MINT_BURN_GUARD_OPERATOR &&
+    process.env.MINT_BURN_GUARD_OPERATOR.length > 0
+      ? process.env.MINT_BURN_GUARD_OPERATOR
       : "0x0000000000000000000000000000000000000000"
 
   const deployment = await deploy("MintBurnGuard", {
     from: deployer,
-    args: [owner, controller],
+    args: [owner, operator],
     log: true,
     waitConfirmations: 1,
   })
