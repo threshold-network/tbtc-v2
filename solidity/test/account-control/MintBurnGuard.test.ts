@@ -68,6 +68,48 @@ describe("MintBurnGuard", () => {
       expect(await guard.owner()).to.equal(owner.address)
       expect(await guard.operator()).to.equal(controller.address)
     })
+
+    it("should allow owner to change operator", async () => {
+      const newOperator = thirdParty
+
+      // Change operator
+      await expect(guard.connect(owner).setOperator(newOperator.address))
+        .to.emit(guard, "OperatorUpdated")
+        .withArgs(controller.address, newOperator.address)
+
+      expect(await guard.operator()).to.equal(newOperator.address)
+
+      // Old operator can no longer call functions
+      await expect(guard.connect(controller).mintToBank(controller.address, 1))
+        .to.be.reverted
+
+      // New operator can call functions
+      await guard.connect(owner).setMintingPaused(false)
+      await expect(
+        guard.connect(newOperator).mintToBank(newOperator.address, 1)
+      ).to.not.be.reverted
+
+      expect(await guard.totalMinted()).to.equal(1)
+
+      // Change back to original operator for other tests
+      await guard.connect(owner).setOperator(controller.address)
+    })
+
+    it("should not allow non-owner to change operator", async () => {
+      await expect(
+        guard.connect(controller).setOperator(thirdParty.address)
+      ).to.be.revertedWith("Ownable: caller is not the owner")
+
+      await expect(
+        guard.connect(thirdParty).setOperator(thirdParty.address)
+      ).to.be.revertedWith("Ownable: caller is not the owner")
+    })
+
+    it("should not allow setting operator to zero address", async () => {
+      await expect(
+        guard.connect(owner).setOperator(ethers.constants.AddressZero)
+      ).to.be.reverted
+    })
   })
 
   describe("minting accounting", () => {
