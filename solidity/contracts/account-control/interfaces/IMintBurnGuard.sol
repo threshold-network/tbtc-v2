@@ -38,13 +38,14 @@ interface IMintBurnGuard {
     /// @param tbtcAmount Amount in TBTC satoshis (1e8) to add to exposure.
     function mintToBank(address recipient, uint256 tbtcAmount) external;
 
-    /// @notice Burns TBTC bank balance via the underlying Bank and reduces
-    ///         global net exposure.
-    /// @param from Source address for burns that operate on balances.
-    /// @param tbtcAmount Amount in TBTC satoshis (1e8) to burn from the Bank.
-    function burnFromBank(address from, uint256 tbtcAmount) external;
+    /// @notice Unmints TBTC from a user, burns the Bank balance, and reduces
+    ///         global net exposure atomically.
+    /// @param from User whose TBTC will be unminted (must have approved TBTC to guard).
+    /// @param tbtcAmount Amount in TBTC satoshis (1e8) to unmint and burn.
+    function unmintAndBurnFrom(address from, uint256 tbtcAmount) external;
 
-    /// @notice Unmints TBTC via the underlying Vault and reduces global net exposure.
-    /// @param tbtcAmount Amount in TBTC satoshis (1e8) to unmint.
-    function unmintFromVault(uint256 tbtcAmount) external;
+    /// @notice Burns Bank balance from a user and reduces global exposure.
+    /// @param from User whose Bank balance will be burned (must have approved Bank balance to guard).
+    /// @param tbtcAmount Amount in TBTC satoshis (1e8) to burn from Bank.
+    function burnFrom(address from, uint256 tbtcAmount) external;
 }

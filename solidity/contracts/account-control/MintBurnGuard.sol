@@ -16,15 +16,11 @@
 pragma solidity 0.8.17;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./interfaces/IBridgeController.sol";
 import "./interfaces/IMintBurnGuard.sol";
+import "../integrator/IBank.sol";
 import "../integrator/ITBTCVault.sol";
-
-/// @dev Minimal Bank-like interface exposing only the burn primitive needed
-///      by MintBurnGuard.
-interface IBankLike {
-    function decreaseBalance(uint256 amount) external;
-}
 
 /// @title Mint/Burn Guard
 /// @notice Tracks global net-minted exposure for an operator and enforces
@@ -53,12 +49,6 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
     ///      helpers remain available to reduce exposure.
     bool public mintingPaused;
 
-    /// @notice Bridge contract used to mint TBTC into the Bank.
-    IBridgeController public bridge;
-
-    /// @notice Bank contract used for burning TBTC bank balances when needed.
-    IBankLike public bank;
-
     /// @notice Vault contract used for unminting TBTC held in the vault.
     ITBTCVault public vault;
 
@@ -82,6 +72,8 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
         address indexed newOperator
     );
 
+    event VaultUpdated(address indexed previousVault, address indexed newVault);
+
     event TotalMintedIncreased(uint256 amount, uint256 newTotal);
     event TotalMintedDecreased(uint256 amount, uint256 newTotal);
     event GlobalMintCapUpdated(uint256 previousCap, uint256 newCap);
@@ -100,15 +92,16 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
         uint256 newTotalMinted
     );
 
-    event BankBurnExecuted(
+    event UnmintAndBurnExecuted(
         address indexed operator,
         address indexed from,
         uint256 amountSats,
         uint256 newTotalMinted
     );
 
-    event VaultUnmintExecuted(
+    event BurnExecuted(
         address indexed operator,
+        address indexed from,
         uint256 amountSats,
         uint256 newTotalMinted
     );
@@ -134,16 +127,19 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
     /// @param initialOwner Address that will become the contract owner.
     /// @param initialOperator Optional operator address; can be zero and
     ///        set later via `setOperator`.
-    constructor(address initialOwner, address initialOperator) {
+    /// @param initialVault Initial Vault contract used for unminting TBTC.
+    constructor(
+        address initialOwner,
+        address initialOperator,
+        ITBTCVault initialVault
+    ) {
         if (initialOwner == address(0)) {
             revert ZeroAddress("owner");
         }
         _transferOwnership(initialOwner);
 
-        if (initialOperator != address(0)) {
-            operator = initialOperator;
-            emit OperatorUpdated(address(0), initialOperator);
-        }
+        operator = initialOperator;
+        vault = initialVault;
     }
 
     /// @notice Updates the operator address.
@@ -158,56 +154,16 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
         emit OperatorUpdated(previous, newOperator);
     }
 
-    /// @notice Configures the Bridge contract used for execution helpers.
-    /// @param bridge_ Bridge contract used for controller-based minting.
-    function setBridge(IBridgeController bridge_) external onlyOwner {
-        _setBridge(bridge_);
-    }
-
-    /// @notice Configures the Bank contract used for burn helpers.
-    /// @param bank_ Bank contract used for burning TBTC bank balances.
-    function setBank(IBankLike bank_) external onlyOwner {
-        _setBank(bank_);
-    }
-
-    /// @notice Configures the Vault contract used for unmint helpers.
-    /// @param vault_ Vault contract used for unminting TBTC.
-    function setVault(ITBTCVault vault_) external onlyOwner {
-        _setVault(vault_);
-    }
-
-    /// @notice Atomically wires Bridge, Bank, and Vault addresses.
-    /// @dev Prevents partial deployments that forget to configure one of the
-    ///      execution targets when enabling mint/burn helpers.
-    function configureExecutionTargets(
-        IBridgeController bridge_,
-        IBankLike bank_,
-        ITBTCVault vault_
-    ) external onlyOwner {
-        _setBridge(bridge_);
-        _setBank(bank_);
-        _setVault(vault_);
-    }
-
-    function _setBridge(IBridgeController bridge_) private {
-        if (address(bridge_) == address(0)) {
-            revert ZeroAddress("bridge");
-        }
-        bridge = bridge_;
-    }
-
-    function _setBank(IBankLike bank_) private {
-        if (address(bank_) == address(0)) {
-            revert ZeroAddress("bank");
-        }
-        bank = bank_;
-    }
-
-    function _setVault(ITBTCVault vault_) private {
-        if (address(vault_) == address(0)) {
+    /// @notice Updates the Vault contract used for unmint helpers.
+    /// @param newVault Vault contract used for unminting TBTC.
+    /// @dev Can only be called by the owner.
+    function setVault(ITBTCVault newVault) external onlyOwner {
+        if (address(newVault) == address(0)) {
             revert ZeroAddress("vault");
         }
-        vault = vault_;
+        address previous = address(vault);
+        vault = newVault;
+        emit VaultUpdated(previous, address(newVault));
     }
 
     /// @notice Owner-only helper to set global net-minted exposure for
@@ -256,56 +212,127 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
             return;
         }
 
-        if (address(bridge) == address(0)) {
-            revert ZeroAddress("bridge");
+        if (address(vault) == address(0)) {
+            revert ZeroAddress("vault");
         }
 
         uint256 newTotal = _increaseTotalMintedInternal(amount);
 
         emit BankMintExecuted(operator, recipient, amount, newTotal);
+
+        IBridgeController bridge = IBridgeController(vault.bridge());
         bridge.controllerIncreaseBalance(recipient, _toTbtcBaseUnits(amount));
     }
 
-    /// @notice Burns TBTC bank balance and reduces global exposure.
-    /// @param from Source address for which the burn semantics are tracked.
-    /// @param amount Amount in TBTC satoshis (1e8) to burn from the Bank.
-    /// @dev Burns the guard contract's own Bank balance via `decreaseBalance`;
-    ///      reverts if the guard lacks balance. `from` is emitted for
-    ///      monitoring only and does not affect which balance is burned.
-    function burnFromBank(address from, uint256 amount) external onlyOperator {
+    /// @notice Unmints TBTC from a user by first unminting via Vault, then
+    ///         transferring and burning the Bank balance atomically.
+    /// @param from User whose TBTC will be unminted (must have approved TBTC to guard).
+    /// @param amount Amount in TBTC satoshis (1e8) to unmint and burn.
+    /// @dev This is an atomic operation that ensures:
+    ///      1. Guard receives TBTC from user
+    ///      2. Guard approves Vault to spend TBTC
+    ///      3. Vault unmints TBTC from guard
+    ///      4. Guard receives Bank balance from vault
+    ///      5. Guard burns its Bank balance
+    ///      6. Global exposure is reduced
+    ///
+    ///      Flow:
+    ///      - User approves TBTC tokens to the Guard
+    ///      - Operator calls this function which:
+    ///        a) Transfers TBTC from user to guard
+    ///        b) Approves vault to spend guard's TBTC
+    ///        c) Unmints via vault --> guard gets Bank balance
+    ///        d) Burns the Bank balance
+    ///        e) Reduces global exposure
+    ///
+    ///      Prerequisites:
+    ///      - User must have TBTC token allowance approved to this guard
+    ///
+    ///      This guarantees accounting consistency for redemptions.
+    function unmintAndBurnFrom(address from, uint256 amount)
+        external
+        onlyOperator
+    {
         if (amount == 0) {
             return;
         }
 
-        if (address(bank) == address(0)) {
-            revert ZeroAddress("bank");
-        }
-
-        uint256 newTotal = _decreaseTotalMintedInternal(amount);
-
-        emit BankBurnExecuted(operator, from, amount, newTotal);
-        bank.decreaseBalance(_toTbtcBaseUnits(amount));
-    }
-
-    /// @notice Unmints TBTC via the configured vault and reduces global
-    ///         exposure.
-    /// @param amount Amount in TBTC satoshis (1e8) to unmint.
-    /// @dev Burns TBTC held/approved to the guard via `vault.unmint`; reverts
-    ///      if the guard lacks TBTC/allowance. Bank balance is returned to the
-    ///      guard contract.
-    function unmintFromVault(uint256 amount) external onlyOperator {
-        if (amount == 0) {
-            return;
+        if (from == address(0)) {
+            revert ZeroAddress("from");
         }
 
         if (address(vault) == address(0)) {
             revert ZeroAddress("vault");
         }
 
+        uint256 tbtcBaseUnits = _toTbtcBaseUnits(amount);
+
+        // Step 1: Transfer TBTC from user to this guard
+        // User must have approved TBTC to this guard
+        address tbtcToken = vault.tbtcToken();
+        IERC20(tbtcToken).transferFrom(from, address(this), tbtcBaseUnits);
+
+        // Step 2: Approve vault to spend guard's TBTC
+        IERC20(tbtcToken).approve(address(vault), tbtcBaseUnits);
+
+        // Step 3: Unmint via Vault (guard is now the unminter)
+        // This burns guard's TBTC and gives guard Bank balance
+        vault.unmint(tbtcBaseUnits);
+
+        address bank = vault.bank();
+
+        // Step 4: Burn the guard's Bank balance
+        IBank(bank).decreaseBalance(tbtcBaseUnits);
+
+        // Step 5: Reduce global exposure
         uint256 newTotal = _decreaseTotalMintedInternal(amount);
 
-        emit VaultUnmintExecuted(operator, amount, newTotal);
-        vault.unmint(_toTbtcBaseUnits(amount));
+        emit UnmintAndBurnExecuted(operator, from, amount, newTotal);
+    }
+
+    /// @notice Burns Bank balance from a user and reduces global exposure.
+    /// @param from User whose Bank balance will be burned (must have approved Bank balance to guard).
+    /// @param amount Amount in TBTC satoshis (1e8) to burn from Bank.
+    /// @dev This function assumes the user has already handled their TBTC tokens
+    ///      (e.g., unminted via vault) and now only needs to burn the Bank balance.
+    ///
+    ///      Flow:
+    ///      1. User unmints TBTC via vault.unmint() --> gets Bank balance
+    ///      2. User approves Bank balance to this guard
+    ///      3. Operator calls this function which:
+    ///         a) Transfers Bank balance from user to guard
+    ///         b) Burns the guard's Bank balance
+    ///         c) Reduces global exposure
+    ///
+    ///      Prerequisites:
+    ///      - User must have Bank balance allowance approved to this guard
+    ///
+    ///      This is used when users handle TBTC token operations themselves
+    ///      and only need the guard to burn Bank balance and track exposure.
+    function burnFrom(address from, uint256 amount) external onlyOperator {
+        if (amount == 0) {
+            return;
+        }
+
+        if (from == address(0)) {
+            revert ZeroAddress("from");
+        }
+
+        uint256 tbtcBaseUnits = _toTbtcBaseUnits(amount);
+
+        address bank = vault.bank();
+
+        // Step 1: Transfer Bank balance from user to this guard
+        // User must have approved Bank balance to this guard
+        IBank(bank).transferBalanceFrom(from, address(this), amount);
+
+        // Step 2: Burn the guard's Bank balance
+        IBank(bank).decreaseBalance(tbtcBaseUnits);
+
+        // Step 3: Reduce global exposure
+        uint256 newTotal = _decreaseTotalMintedInternal(amount);
+
+        emit BurnExecuted(operator, from, amount, newTotal);
     }
 
     /// @notice Converts a TBTC amount expressed in satoshis (1e8) to base units

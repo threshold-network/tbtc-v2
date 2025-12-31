@@ -5,9 +5,11 @@ const func: DeployFunction = async function deployMintBurnGuard(
   hre: HardhatRuntimeEnvironment
 ) {
   const { deployments, getNamedAccounts } = hre
-  const { deploy, log } = deployments
+  const { deploy, get, log } = deployments
 
   const { deployer } = await getNamedAccounts()
+
+  const TBTCVault = await get("TBTCVault")
 
   // Allow overriding the MintBurnGuard owner and operator via env vars.
   // Defaults:
@@ -27,7 +29,7 @@ const func: DeployFunction = async function deployMintBurnGuard(
 
   const deployment = await deploy("MintBurnGuard", {
     from: deployer,
-    args: [owner, operator],
+    args: [owner, operator, TBTCVault.address],
     log: true,
     waitConfirmations: 1,
   })
@@ -38,3 +40,4 @@ const func: DeployFunction = async function deployMintBurnGuard(
 export default func
 
 func.tags = ["MintBurnGuard"]
+func.dependencies = ["TBTCVault"]

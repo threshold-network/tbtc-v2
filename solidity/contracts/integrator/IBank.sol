@@ -33,6 +33,10 @@ interface IBank {
         uint256 value
     );
 
+    /// @notice Decrease the balance of the caller by `amount`.
+    /// @param amount Amount to decrease.
+    function decreaseBalance(uint256 amount) external;
+
     /// @notice Increase the allowance of the spender address.
     /// @param spender Address of the spender.
     /// @param amount Amount of the allowance to increase.

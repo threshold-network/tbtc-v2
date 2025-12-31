@@ -8,6 +8,7 @@ import type {
   MockBridgeController,
   MockBurnBank,
   MockBurnVault,
+  MockTBTC,
 } from "../typechain"
 
 describe("MintBurnGuard", () => {
@@ -21,6 +22,7 @@ describe("MintBurnGuard", () => {
   let bridge: MockBridgeController
   let bank: MockBurnBank
   let vault: MockBurnVault
+  let tbtcToken: MockTBTC
 
   before(async () => {
     const signers = await ethers.getSigners()
@@ -34,27 +36,31 @@ describe("MintBurnGuard", () => {
     )) as MockBridgeController
     await bridge.deployed()
 
-    const MintBurnGuardFactory = await ethers.getContractFactory(
-      "MintBurnGuard"
-    )
-    guard = (await MintBurnGuardFactory.deploy(
-      owner.address,
-      controller.address
-    )) as MintBurnGuard
-    await guard.deployed()
-
     const MockBankFactory = await ethers.getContractFactory("MockBurnBank")
     bank = (await MockBankFactory.deploy()) as MockBurnBank
     await bank.deployed()
 
     const MockVaultFactory = await ethers.getContractFactory("MockBurnVault")
-    vault = (await MockVaultFactory.deploy()) as MockBurnVault
+    vault = (await MockVaultFactory.deploy(
+      bank.address,
+      bridge.address
+    )) as MockBurnVault
     await vault.deployed()
 
-    await guard.connect(owner).setBridge(bridge.address)
+    const tbtcTokenAddress = await vault.tbtcToken()
+    tbtcToken = await ethers.getContractAt("MockTBTC", tbtcTokenAddress)
+
+    const MintBurnGuardFactory = await ethers.getContractFactory(
+      "MintBurnGuard"
+    )
+    guard = (await MintBurnGuardFactory.deploy(
+      owner.address,
+      controller.address,
+      vault.address
+    )) as MintBurnGuard
+    await guard.deployed()
+
     await bridge.connect(owner).setMintingController(guard.address)
-    await guard.connect(owner).setBank(bank.address)
-    await guard.connect(owner).setVault(vault.address)
   })
 
   describe("initialization", () => {
@@ -120,9 +126,10 @@ describe("MintBurnGuard", () => {
       await expect(guard.connect(thirdParty).mintToBank(thirdParty.address, 1))
         .to.be.reverted
       await expect(
-        guard.connect(thirdParty).burnFromBank(thirdParty.address, 1)
+        guard.connect(thirdParty).unmintAndBurnFrom(thirdParty.address, 1)
       ).to.be.reverted
-      await expect(guard.connect(thirdParty).unmintFromVault(1)).to.be.reverted
+      await expect(guard.connect(thirdParty).burnFrom(thirdParty.address, 1)).to
+        .be.reverted
     })
 
     it("should prevent underflow on decrease", async () => {
@@ -131,7 +138,7 @@ describe("MintBurnGuard", () => {
       await expect(
         guard
           .connect(controller)
-          .burnFromBank(controller.address, current.add(1))
+          .unmintAndBurnFrom(controller.address, current.add(1))
       ).to.be.reverted
     })
 
@@ -153,36 +160,69 @@ describe("MintBurnGuard", () => {
       // tests to verify forwarding to Bank.
     })
 
-    it("burns via bank and updates exposure", async () => {
+    it("unmints and burns via vault and updates exposure", async () => {
       const burnAmount = BigNumber.from(50)
+      const tbtcAmount = burnAmount.mul(SATOSHI_MULTIPLIER)
 
       await guard.connect(owner).setTotalMinted(burnAmount)
       const current = await guard.totalMinted()
+
+      // Mint TBTC tokens to controller for testing
+      await tbtcToken.mint(controller.address, tbtcAmount)
+
+      // Controller approves guard to spend TBTC
+      await tbtcToken.connect(controller).approve(guard.address, tbtcAmount)
+
       await expect(
-        guard.connect(controller).burnFromBank(controller.address, burnAmount)
+        guard
+          .connect(controller)
+          .unmintAndBurnFrom(controller.address, burnAmount)
       )
-        .to.emit(guard, "TotalMintedDecreased")
+        .to.emit(guard, "UnmintAndBurnExecuted")
+        .withArgs(
+          controller.address,
+          controller.address,
+          burnAmount,
+          current.sub(burnAmount)
+        )
+        .and.to.emit(guard, "TotalMintedDecreased")
         .withArgs(burnAmount, current.sub(burnAmount))
 
       expect(await guard.totalMinted()).to.equal(current.sub(burnAmount))
-      expect(await bank.lastBurnAmount()).to.equal(
-        burnAmount.mul(SATOSHI_MULTIPLIER)
-      )
+      expect(await vault.lastUnmintAmount()).to.equal(tbtcAmount)
+      expect(await bank.lastBurnAmount()).to.equal(tbtcAmount)
     })
 
-    it("unmints via vault and updates exposure", async () => {
-      await guard.connect(owner).setTotalMinted(100)
+    it("burns from bank balance and updates exposure", async () => {
+      const burnAmount = BigNumber.from(100)
+      const tbtcAmount = burnAmount.mul(SATOSHI_MULTIPLIER)
+
+      await guard.connect(owner).setTotalMinted(burnAmount)
       const current = await guard.totalMinted()
-      const unmintAmount = current.div(4)
 
-      await expect(guard.connect(controller).unmintFromVault(unmintAmount))
-        .to.emit(guard, "TotalMintedDecreased")
-        .withArgs(unmintAmount, current.sub(unmintAmount))
+      // Set up bank balance for controller
+      await bank.setBalance(controller.address, tbtcAmount)
 
-      expect(await guard.totalMinted()).to.equal(current.sub(unmintAmount))
-      expect(await vault.lastUnmintAmount()).to.equal(
-        unmintAmount.mul(SATOSHI_MULTIPLIER)
+      // Controller approves guard to transfer bank balance
+      await bank.connect(controller).approve(guard.address, burnAmount)
+
+      await expect(
+        guard.connect(controller).burnFrom(controller.address, burnAmount)
       )
+        .to.emit(guard, "BurnExecuted")
+        .withArgs(
+          controller.address,
+          controller.address,
+          burnAmount,
+          current.sub(burnAmount)
+        )
+        .and.to.emit(guard, "TotalMintedDecreased")
+        .withArgs(burnAmount, current.sub(burnAmount))
+
+      expect(await guard.totalMinted()).to.equal(current.sub(burnAmount))
+      expect(await bank.lastBurnAmount()).to.equal(tbtcAmount)
+      expect(await bank.lastTransferFrom()).to.equal(controller.address)
+      expect(await bank.lastTransferTo()).to.equal(guard.address)
     })
   })
 
@@ -264,23 +304,264 @@ describe("MintBurnGuard", () => {
     })
   })
 
-  describe("wiring", () => {
-    it("reverts on zero addresses", async () => {
-      await expect(guard.connect(owner).setBridge(ethers.constants.AddressZero))
-        .to.be.reverted
-      await expect(guard.connect(owner).setBank(ethers.constants.AddressZero))
-        .to.be.reverted
-      await expect(guard.connect(owner).setVault(ethers.constants.AddressZero))
-        .to.be.reverted
+  describe("approval requirements", () => {
+    beforeEach(async () => {
+      await guard.connect(owner).setGlobalMintCap(0)
+      await guard.connect(owner).setMintingPaused(false)
+      await guard.connect(owner).setMintRateLimit(0, 0)
+      await guard.connect(owner).setTotalMinted(100)
+    })
+
+    it("unmintAndBurnFrom requires TBTC token approval", async () => {
+      const burnAmount = BigNumber.from(50)
+      const tbtcAmount = burnAmount.mul(SATOSHI_MULTIPLIER)
+
+      // Mint TBTC to third party
+      await tbtcToken.mint(thirdParty.address, tbtcAmount)
+
+      // Try to unmint and burn without approval - should fail
       await expect(
         guard
-          .connect(owner)
-          .configureExecutionTargets(
-            ethers.constants.AddressZero,
-            bank.address,
-            vault.address
-          )
+          .connect(controller)
+          .unmintAndBurnFrom(thirdParty.address, burnAmount)
+      ).to.be.revertedWith("ERC20: insufficient allowance")
+
+      // Approve guard to spend TBTC
+      await tbtcToken.connect(thirdParty).approve(guard.address, tbtcAmount)
+
+      // Now it should work
+      await expect(
+        guard
+          .connect(controller)
+          .unmintAndBurnFrom(thirdParty.address, burnAmount)
+      ).to.not.be.reverted
+
+      expect(await guard.totalMinted()).to.equal(50)
+    })
+
+    it("burnFrom requires Bank balance approval", async () => {
+      const burnAmount = BigNumber.from(50)
+      const tbtcAmount = burnAmount.mul(SATOSHI_MULTIPLIER)
+
+      // Set up bank balance for third party
+      await bank.setBalance(thirdParty.address, tbtcAmount)
+
+      // Try to burn without approval - should fail
+      await expect(
+        guard.connect(controller).burnFrom(thirdParty.address, burnAmount)
+      ).to.be.revertedWith("MockBurnBank: insufficient allowance")
+
+      // Approve guard to transfer bank balance
+      await bank.connect(thirdParty).approve(guard.address, burnAmount)
+
+      // Now it should work
+      await expect(
+        guard.connect(controller).burnFrom(thirdParty.address, burnAmount)
+      ).to.not.be.reverted
+
+      expect(await guard.totalMinted()).to.equal(50)
+    })
+
+    it("unmintAndBurnFrom fails with insufficient TBTC balance", async () => {
+      const burnAmount = BigNumber.from(50)
+      const tbtcAmount = burnAmount.mul(SATOSHI_MULTIPLIER)
+
+      // Mint less than required
+      await tbtcToken.mint(thirdParty.address, tbtcAmount.div(2))
+
+      // Approve guard to spend TBTC
+      await tbtcToken.connect(thirdParty).approve(guard.address, tbtcAmount)
+
+      // Should fail due to insufficient balance
+      await expect(
+        guard
+          .connect(controller)
+          .unmintAndBurnFrom(thirdParty.address, burnAmount)
+      ).to.be.revertedWith("ERC20: transfer amount exceeds balance")
+    })
+  })
+
+  describe("exposure modification tracking", () => {
+    beforeEach(async () => {
+      await guard.connect(owner).setGlobalMintCap(0)
+      await guard.connect(owner).setMintingPaused(false)
+      await guard.connect(owner).setMintRateLimit(0, 0)
+      await guard.connect(owner).setTotalMinted(0)
+    })
+
+    it("tracks exposure correctly through mint operations", async () => {
+      expect(await guard.totalMinted()).to.equal(0)
+
+      await guard.connect(controller).mintToBank(controller.address, 100)
+      expect(await guard.totalMinted()).to.equal(100)
+
+      await guard.connect(controller).mintToBank(controller.address, 50)
+      expect(await guard.totalMinted()).to.equal(150)
+
+      await guard.connect(controller).mintToBank(controller.address, 25)
+      expect(await guard.totalMinted()).to.equal(175)
+    })
+
+    it("tracks exposure correctly through unmintAndBurnFrom operations", async () => {
+      // Start with some minted exposure
+      await guard.connect(owner).setTotalMinted(200)
+      expect(await guard.totalMinted()).to.equal(200)
+
+      const burnAmount1 = BigNumber.from(50)
+      const tbtcAmount1 = burnAmount1.mul(SATOSHI_MULTIPLIER)
+      await tbtcToken.mint(controller.address, tbtcAmount1)
+      await tbtcToken.connect(controller).approve(guard.address, tbtcAmount1)
+
+      await guard
+        .connect(controller)
+        .unmintAndBurnFrom(controller.address, burnAmount1)
+      expect(await guard.totalMinted()).to.equal(150)
+
+      const burnAmount2 = BigNumber.from(75)
+      const tbtcAmount2 = burnAmount2.mul(SATOSHI_MULTIPLIER)
+      await tbtcToken.mint(controller.address, tbtcAmount2)
+      await tbtcToken.connect(controller).approve(guard.address, tbtcAmount2)
+
+      await guard
+        .connect(controller)
+        .unmintAndBurnFrom(controller.address, burnAmount2)
+      expect(await guard.totalMinted()).to.equal(75)
+    })
+
+    it("tracks exposure correctly through burnFrom operations", async () => {
+      // Start with some minted exposure
+      await guard.connect(owner).setTotalMinted(300)
+      expect(await guard.totalMinted()).to.equal(300)
+
+      const burnAmount1 = BigNumber.from(100)
+      const tbtcAmount1 = burnAmount1.mul(SATOSHI_MULTIPLIER)
+      await bank.setBalance(controller.address, tbtcAmount1)
+      await bank.connect(controller).approve(guard.address, burnAmount1)
+
+      await guard.connect(controller).burnFrom(controller.address, burnAmount1)
+      expect(await guard.totalMinted()).to.equal(200)
+
+      const burnAmount2 = BigNumber.from(50)
+      const tbtcAmount2 = burnAmount2.mul(SATOSHI_MULTIPLIER)
+      await bank.setBalance(controller.address, tbtcAmount2)
+      await bank.connect(controller).approve(guard.address, burnAmount2)
+
+      await guard.connect(controller).burnFrom(controller.address, burnAmount2)
+      expect(await guard.totalMinted()).to.equal(150)
+    })
+
+    it("tracks exposure correctly through mixed operations", async () => {
+      expect(await guard.totalMinted()).to.equal(0)
+
+      // Mint
+      await guard.connect(controller).mintToBank(controller.address, 100)
+      expect(await guard.totalMinted()).to.equal(100)
+
+      // Mint more
+      await guard.connect(controller).mintToBank(controller.address, 50)
+      expect(await guard.totalMinted()).to.equal(150)
+
+      // Unmint and burn
+      const unmintAmount = BigNumber.from(30)
+      const tbtcAmount = unmintAmount.mul(SATOSHI_MULTIPLIER)
+      await tbtcToken.mint(controller.address, tbtcAmount)
+      await tbtcToken.connect(controller).approve(guard.address, tbtcAmount)
+      await guard
+        .connect(controller)
+        .unmintAndBurnFrom(controller.address, unmintAmount)
+      expect(await guard.totalMinted()).to.equal(120)
+
+      // Burn from bank
+      const burnAmount = BigNumber.from(20)
+      const tbtcAmount2 = burnAmount.mul(SATOSHI_MULTIPLIER)
+      await bank.setBalance(controller.address, tbtcAmount2)
+      await bank.connect(controller).approve(guard.address, burnAmount)
+      await guard.connect(controller).burnFrom(controller.address, burnAmount)
+      expect(await guard.totalMinted()).to.equal(100)
+
+      // Mint again
+      await guard.connect(controller).mintToBank(controller.address, 75)
+      expect(await guard.totalMinted()).to.equal(175)
+    })
+
+    it("emits correct events for exposure changes", async () => {
+      // Test mint event
+      await expect(
+        guard.connect(controller).mintToBank(controller.address, 100)
+      )
+        .to.emit(guard, "BankMintExecuted")
+        .withArgs(controller.address, controller.address, 100, 100)
+        .and.to.emit(guard, "TotalMintedIncreased")
+        .withArgs(100, 100)
+
+      // Test unmintAndBurnFrom event
+      const unmintAmount = BigNumber.from(30)
+      const tbtcAmount = unmintAmount.mul(SATOSHI_MULTIPLIER)
+      await tbtcToken.mint(controller.address, tbtcAmount)
+      await tbtcToken.connect(controller).approve(guard.address, tbtcAmount)
+
+      await expect(
+        guard
+          .connect(controller)
+          .unmintAndBurnFrom(controller.address, unmintAmount)
+      )
+        .to.emit(guard, "UnmintAndBurnExecuted")
+        .withArgs(controller.address, controller.address, 30, 70)
+        .and.to.emit(guard, "TotalMintedDecreased")
+        .withArgs(30, 70)
+
+      // Test burnFrom event
+      const burnAmount = BigNumber.from(20)
+      const tbtcAmount2 = burnAmount.mul(SATOSHI_MULTIPLIER)
+      await bank.setBalance(controller.address, tbtcAmount2)
+      await bank.connect(controller).approve(guard.address, burnAmount)
+
+      await expect(
+        guard.connect(controller).burnFrom(controller.address, burnAmount)
+      )
+        .to.emit(guard, "BurnExecuted")
+        .withArgs(controller.address, controller.address, 20, 50)
+        .and.to.emit(guard, "TotalMintedDecreased")
+        .withArgs(20, 50)
+    })
+
+    it("prevents exposure underflow on unmintAndBurnFrom", async () => {
+      await guard.connect(owner).setTotalMinted(50)
+
+      const burnAmount = BigNumber.from(100)
+      const tbtcAmount = burnAmount.mul(SATOSHI_MULTIPLIER)
+      await tbtcToken.mint(controller.address, tbtcAmount)
+      await tbtcToken.connect(controller).approve(guard.address, tbtcAmount)
+
+      await expect(
+        guard
+          .connect(controller)
+          .unmintAndBurnFrom(controller.address, burnAmount)
       ).to.be.reverted
+
+      expect(await guard.totalMinted()).to.equal(50)
+    })
+
+    it("prevents exposure underflow on burnFrom", async () => {
+      await guard.connect(owner).setTotalMinted(50)
+
+      const burnAmount = BigNumber.from(100)
+      const tbtcAmount = burnAmount.mul(SATOSHI_MULTIPLIER)
+      await bank.setBalance(controller.address, tbtcAmount)
+      await bank.connect(controller).approve(guard.address, burnAmount)
+
+      await expect(
+        guard.connect(controller).burnFrom(controller.address, burnAmount)
+      ).to.be.reverted
+
+      expect(await guard.totalMinted()).to.equal(50)
+    })
+  })
+
+  describe("wiring", () => {
+    it("reverts on zero addresses", async () => {
+      await expect(guard.connect(owner).setVault(ethers.constants.AddressZero))
+        .to.be.reverted
     })
   })
 })

@@ -5,24 +5,10 @@ const func: DeployFunction = async function configureMintBurnGuard(
   hre: HardhatRuntimeEnvironment
 ) {
   const { deployments, getNamedAccounts } = hre
-  const { execute, get, log } = deployments
+  const { execute, log } = deployments
   const { deployer } = await getNamedAccounts()
 
-  const Bridge = await get("Bridge")
-  const Bank = await get("Bank")
-  const TBTCVault = await get("TBTCVault")
-
-  log("configuring MintBurnGuard execution targets...")
-
-  // Configure execution targets (Bridge, Bank, Vault)
-  await execute(
-    "MintBurnGuard",
-    { from: deployer, log: true, waitConfirmations: 1 },
-    "configureExecutionTargets",
-    Bridge.address,
-    Bank.address,
-    TBTCVault.address
-  )
+  log("configuring MintBurnGuard...")
 
   // Set global mint cap if provided via environment variable
   const globalMintCap = process.env.MINT_BURN_GUARD_GLOBAL_CAP
@@ -67,4 +53,4 @@ const func: DeployFunction = async function configureMintBurnGuard(
 export default func
 
 func.tags = ["ConfigureMintBurnGuard"]
-func.dependencies = ["MintBurnGuard", "Bridge", "Bank", "TBTCVault"]
+func.dependencies = ["MintBurnGuard"]
