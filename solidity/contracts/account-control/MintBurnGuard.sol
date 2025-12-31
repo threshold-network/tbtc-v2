@@ -118,6 +118,7 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
     error CapBelowRateLimit(uint256 cap, uint256 rateLimit);
     error Underflow();
     error AmountConversionOverflow(uint256 amountSats);
+    error BanktransferFailed();
 
     modifier onlyOperator() {
         if (msg.sender != operator) {
@@ -337,7 +338,14 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
 
         // Step 2: Transfer Bank balance from user to this guard
         // User must have approved Bank balance to this guard
-        IBank(bank).transferBalanceFrom(from, address(this), amount);
+        bool success = IBank(bank).transferBalanceFrom(
+            from,
+            address(this),
+            amount
+        );
+        if (!success) {
+            revert BanktransferFailed();
+        }
 
         // Step 3: Burn the guard's Bank balance
         IBank(bank).decreaseBalance(tbtcBaseUnits);
