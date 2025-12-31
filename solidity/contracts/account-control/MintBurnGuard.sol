@@ -17,6 +17,7 @@ pragma solidity 0.8.17;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./interfaces/IBridgeController.sol";
 import "./interfaces/IMintBurnGuard.sol";
 import "../integrator/IBank.sol";
@@ -29,6 +30,8 @@ import "../integrator/ITBTCVault.sol";
 ///      details. It is expected that a single operator contract (e.g.
 ///      AccountControl) reports all mint and burn operations via this guard.
 contract MintBurnGuard is Ownable, IMintBurnGuard {
+    using SafeERC20 for IERC20;
+
     uint256 private constant TBTC_BASE_UNITS_PER_SAT = 1e10;
 
     /// @notice Address of the operator allowed to adjust the total minted
@@ -138,8 +141,12 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
         }
         _transferOwnership(initialOwner);
 
-        operator = initialOperator;
-        vault = initialVault;
+        if (initialOperator != address(0)) {
+            operator = initialOperator;
+        }
+        if (address(initialVault) != address(0)) {
+            vault = initialVault;
+        }
     }
 
     /// @notice Updates the operator address.
@@ -249,6 +256,7 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
     ///      - User must have TBTC token allowance approved to this guard
     ///
     ///      This guarantees accounting consistency for redemptions.
+    // slither-disable-next-line arbitrary-send-erc20
     function unmintAndBurnFrom(address from, uint256 amount)
         external
         onlyOperator
@@ -267,27 +275,27 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
 
         uint256 tbtcBaseUnits = _toTbtcBaseUnits(amount);
 
-        // Step 1: Transfer TBTC from user to this guard
+        // Step 1: Reduce global exposure
+        uint256 newTotal = _decreaseTotalMintedInternal(amount);
+
+        emit UnmintAndBurnExecuted(operator, from, amount, newTotal);
+
+        // Step 2: Transfer TBTC from user to this guard
         // User must have approved TBTC to this guard
         address tbtcToken = vault.tbtcToken();
-        IERC20(tbtcToken).transferFrom(from, address(this), tbtcBaseUnits);
+        IERC20(tbtcToken).safeTransferFrom(from, address(this), tbtcBaseUnits);
 
-        // Step 2: Approve vault to spend guard's TBTC
-        IERC20(tbtcToken).approve(address(vault), tbtcBaseUnits);
+        // Step 3: Approve vault to spend guard's TBTC
+        IERC20(tbtcToken).safeApprove(address(vault), tbtcBaseUnits);
 
-        // Step 3: Unmint via Vault (guard is now the unminter)
+        // Step 4: Unmint via Vault (guard is now the unminter)
         // This burns guard's TBTC and gives guard Bank balance
         vault.unmint(tbtcBaseUnits);
 
         address bank = vault.bank();
 
-        // Step 4: Burn the guard's Bank balance
+        // Step 5: Burn the guard's Bank balance
         IBank(bank).decreaseBalance(tbtcBaseUnits);
-
-        // Step 5: Reduce global exposure
-        uint256 newTotal = _decreaseTotalMintedInternal(amount);
-
-        emit UnmintAndBurnExecuted(operator, from, amount, newTotal);
     }
 
     /// @notice Burns Bank balance from a user and reduces global exposure.
@@ -322,17 +330,17 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
 
         address bank = vault.bank();
 
-        // Step 1: Transfer Bank balance from user to this guard
-        // User must have approved Bank balance to this guard
-        IBank(bank).transferBalanceFrom(from, address(this), amount);
-
-        // Step 2: Burn the guard's Bank balance
-        IBank(bank).decreaseBalance(tbtcBaseUnits);
-
-        // Step 3: Reduce global exposure
+        // Step 1: Reduce global exposure
         uint256 newTotal = _decreaseTotalMintedInternal(amount);
 
         emit BurnExecuted(operator, from, amount, newTotal);
+
+        // Step 2: Transfer Bank balance from user to this guard
+        // User must have approved Bank balance to this guard
+        IBank(bank).transferBalanceFrom(from, address(this), amount);
+
+        // Step 3: Burn the guard's Bank balance
+        IBank(bank).decreaseBalance(tbtcBaseUnits);
     }
 
     /// @notice Converts a TBTC amount expressed in satoshis (1e8) to base units
