@@ -9,6 +9,7 @@ import type {
   MockBurnBank,
   MockBurnVault,
   MockTBTC,
+  MockAccountControl,
 } from "../typechain"
 
 describe("MintBurnGuard", () => {
@@ -17,16 +18,19 @@ describe("MintBurnGuard", () => {
   let owner: SignerWithAddress
   let operator: SignerWithAddress
   let thirdParty: SignerWithAddress
+  let reserve: SignerWithAddress
+  let user: SignerWithAddress
 
   let guard: MintBurnGuard
   let bridge: MockBridgeController
   let bank: MockBurnBank
   let vault: MockBurnVault
   let tbtcToken: MockTBTC
+  let accountControl: MockAccountControl
 
   before(async () => {
     const signers = await ethers.getSigners()
-    ;[owner, operator, thirdParty] = signers
+    ;[owner, operator, thirdParty, reserve, user] = signers
 
     const MockBridgeFactory = await ethers.getContractFactory(
       "MockBridgeController"
@@ -595,6 +599,332 @@ describe("MintBurnGuard", () => {
     it("reverts on zero addresses", async () => {
       await expect(guard.connect(owner).setVault(ethers.constants.AddressZero))
         .to.be.reverted
+    })
+  })
+
+  describe("integration with AccountControl operator", () => {
+    before(async () => {
+      const MockAccountControlFactory = await ethers.getContractFactory(
+        "MockAccountControl"
+      )
+      accountControl = (await MockAccountControlFactory.deploy(
+        guard.address,
+        vault.address
+      )) as MockAccountControl
+      await accountControl.deployed()
+
+      // Set AccountControl as the operator
+      await guard.connect(owner).setOperator(accountControl.address)
+      await guard.connect(owner).setMintingPaused(false)
+      await guard.connect(owner).setGlobalMintCap(0)
+      await guard.connect(owner).setMintRateLimit(0, 0)
+      await guard.connect(owner).setTotalMinted(0)
+    })
+
+    describe("mintTBTC flow", () => {
+      beforeEach(async () => {
+        await guard.connect(owner).setTotalMinted(0)
+      })
+
+      it("should allow AccountControl to mint TBTC via mintToBank", async () => {
+        const mintAmount = 1000
+
+        await expect(
+          accountControl.mintTBTC(reserve.address, user.address, mintAmount)
+        )
+          .to.emit(guard, "BankMintExecuted")
+          .withArgs(
+            accountControl.address,
+            user.address,
+            mintAmount,
+            mintAmount
+          )
+          .and.to.emit(guard, "TotalMintedIncreased")
+          .withArgs(mintAmount, mintAmount)
+          .and.to.emit(accountControl, "MintExecuted")
+          .withArgs(reserve.address, user.address, mintAmount)
+
+        expect(await guard.totalMinted()).to.equal(mintAmount)
+      })
+
+      it("should enforce global mint cap through AccountControl", async () => {
+        await guard.connect(owner).setGlobalMintCap(500)
+
+        await accountControl.mintTBTC(reserve.address, user.address, 300)
+        expect(await guard.totalMinted()).to.equal(300)
+
+        await expect(
+          accountControl.mintTBTC(reserve.address, user.address, 300)
+        ).to.be.reverted
+
+        expect(await guard.totalMinted()).to.equal(300)
+      })
+
+      it("should enforce minting pause through AccountControl", async () => {
+        await guard.connect(owner).setMintingPaused(true)
+
+        await expect(
+          accountControl.mintTBTC(reserve.address, user.address, 100)
+        ).to.be.reverted
+
+        await guard.connect(owner).setMintingPaused(false)
+
+        await expect(
+          accountControl.mintTBTC(reserve.address, user.address, 100)
+        ).to.not.be.reverted
+      })
+    })
+
+    describe("returnTBTC flow", () => {
+      beforeEach(async () => {
+        await guard.connect(owner).setGlobalMintCap(0)
+        await guard.connect(owner).setTotalMinted(1000)
+      })
+
+      it("should allow reserve to return TBTC via AccountControl", async () => {
+        const returnAmount = BigNumber.from(500)
+        const tbtcAmount = returnAmount.mul(SATOSHI_MULTIPLIER)
+
+        // Mint TBTC tokens to reserve
+        await tbtcToken.mint(reserve.address, tbtcAmount)
+
+        // Reserve approves guard to spend TBTC
+        await tbtcToken.connect(reserve).approve(guard.address, tbtcAmount)
+
+        const totalBefore = await guard.totalMinted()
+
+        await expect(accountControl.returnTBTC(reserve.address, returnAmount))
+          .to.emit(guard, "UnmintAndBurnExecuted")
+          .withArgs(
+            accountControl.address,
+            reserve.address,
+            returnAmount,
+            totalBefore.sub(returnAmount)
+          )
+          .and.to.emit(guard, "TotalMintedDecreased")
+          .withArgs(returnAmount, totalBefore.sub(returnAmount))
+          .and.to.emit(accountControl, "ReturnExecuted")
+          .withArgs(reserve.address, returnAmount)
+
+        expect(await guard.totalMinted()).to.equal(
+          totalBefore.sub(returnAmount)
+        )
+        expect(await vault.lastUnmintAmount()).to.equal(tbtcAmount)
+        expect(await bank.lastBurnAmount()).to.equal(tbtcAmount)
+      })
+
+      it("should fail if reserve has not approved TBTC to guard", async () => {
+        const returnAmount = BigNumber.from(200)
+        const tbtcAmount = returnAmount.mul(SATOSHI_MULTIPLIER)
+
+        await tbtcToken.mint(reserve.address, tbtcAmount)
+
+        await expect(
+          accountControl.returnTBTC(reserve.address, returnAmount)
+        ).to.be.revertedWith("ERC20: insufficient allowance")
+      })
+
+      it("should prevent exposure underflow on return", async () => {
+        await guard.connect(owner).setTotalMinted(100)
+
+        const returnAmount = BigNumber.from(200)
+        const tbtcAmount = returnAmount.mul(SATOSHI_MULTIPLIER)
+
+        await tbtcToken.mint(reserve.address, tbtcAmount)
+        await tbtcToken.connect(reserve).approve(guard.address, tbtcAmount)
+
+        await expect(accountControl.returnTBTC(reserve.address, returnAmount))
+          .to.be.reverted
+
+        expect(await guard.totalMinted()).to.equal(100)
+      })
+    })
+
+    describe("notifyRedemption flow", () => {
+      beforeEach(async () => {
+        await guard.connect(owner).setGlobalMintCap(0)
+        await guard.connect(owner).setTotalMinted(2000)
+      })
+
+      it("should allow burning user's bank balance via AccountControl", async () => {
+        const burnAmount = BigNumber.from(300)
+        const tbtcAmount = burnAmount.mul(SATOSHI_MULTIPLIER)
+
+        // Set up bank balance for user
+        await bank.setBalance(user.address, tbtcAmount)
+
+        // User approves guard to transfer bank balance
+        await bank.connect(user).approve(guard.address, burnAmount)
+
+        const totalBefore = await guard.totalMinted()
+
+        await expect(
+          accountControl.notifyRedemption(
+            reserve.address,
+            user.address,
+            burnAmount
+          )
+        )
+          .to.emit(guard, "BurnExecuted")
+          .withArgs(
+            accountControl.address,
+            user.address,
+            burnAmount,
+            totalBefore.sub(burnAmount)
+          )
+          .and.to.emit(guard, "TotalMintedDecreased")
+          .withArgs(burnAmount, totalBefore.sub(burnAmount))
+          .and.to.emit(accountControl, "RedemptionExecuted")
+          .withArgs(reserve.address, user.address, burnAmount)
+
+        expect(await guard.totalMinted()).to.equal(totalBefore.sub(burnAmount))
+        expect(await bank.lastBurnAmount()).to.equal(tbtcAmount)
+        expect(await bank.lastTransferFrom()).to.equal(user.address)
+        expect(await bank.lastTransferTo()).to.equal(guard.address)
+      })
+
+      it("should fail if user has not approved bank balance to guard", async () => {
+        const burnAmount = BigNumber.from(200)
+        const tbtcAmount = burnAmount.mul(SATOSHI_MULTIPLIER)
+
+        await bank.setBalance(user.address, tbtcAmount)
+
+        await expect(
+          accountControl.notifyRedemption(
+            reserve.address,
+            user.address,
+            burnAmount
+          )
+        ).to.be.revertedWith("MockBurnBank: insufficient allowance")
+      })
+
+      it("should prevent exposure underflow on redemption", async () => {
+        await guard.connect(owner).setTotalMinted(100)
+
+        const burnAmount = BigNumber.from(200)
+        const tbtcAmount = burnAmount.mul(SATOSHI_MULTIPLIER)
+
+        await bank.setBalance(user.address, tbtcAmount)
+        await bank.connect(user).approve(guard.address, burnAmount)
+
+        await expect(
+          accountControl.notifyRedemption(
+            reserve.address,
+            user.address,
+            burnAmount
+          )
+        ).to.be.reverted
+
+        expect(await guard.totalMinted()).to.equal(100)
+      })
+    })
+
+    describe("complete reserve lifecycle", () => {
+      it("should handle full mint -> return cycle", async () => {
+        await guard.connect(owner).setGlobalMintCap(0)
+        await guard.connect(owner).setTotalMinted(0)
+
+        // 1. Mint via AccountControl
+        const mintAmount = 1000
+        await accountControl.mintTBTC(reserve.address, user.address, mintAmount)
+        expect(await guard.totalMinted()).to.equal(mintAmount)
+
+        // 2. Reserve returns TBTC
+        const returnAmount = BigNumber.from(1000)
+        const tbtcAmount = returnAmount.mul(SATOSHI_MULTIPLIER)
+        await tbtcToken.mint(reserve.address, tbtcAmount)
+        await tbtcToken.connect(reserve).approve(guard.address, tbtcAmount)
+
+        await accountControl.returnTBTC(reserve.address, returnAmount)
+        expect(await guard.totalMinted()).to.equal(0)
+      })
+
+      it("should handle full mint -> redemption cycle", async () => {
+        await guard.connect(owner).setGlobalMintCap(0)
+        await guard.connect(owner).setTotalMinted(0)
+
+        // 1. Mint via AccountControl
+        const mintAmount = 1000
+        await accountControl.mintTBTC(reserve.address, user.address, mintAmount)
+        expect(await guard.totalMinted()).to.equal(mintAmount)
+
+        // 2. User redeems
+        const redeemAmount = BigNumber.from(1000)
+        const tbtcAmount = redeemAmount.mul(SATOSHI_MULTIPLIER)
+        await bank.setBalance(user.address, tbtcAmount)
+        await bank.connect(user).approve(guard.address, redeemAmount)
+
+        await accountControl.notifyRedemption(
+          reserve.address,
+          user.address,
+          redeemAmount
+        )
+        expect(await guard.totalMinted()).to.equal(0)
+      })
+
+      it("should handle multiple reserves through same AccountControl", async () => {
+        await guard.connect(owner).setGlobalMintCap(0)
+        await guard.connect(owner).setTotalMinted(0)
+
+        const allSigners = await ethers.getSigners()
+        const reserve1 = allSigners[6]
+        const reserve2 = allSigners[7]
+        const user1 = allSigners[8]
+        const user2 = allSigners[9]
+
+        // Reserve 1 mints
+        await accountControl.mintTBTC(reserve1.address, user1.address, 500)
+        expect(await guard.totalMinted()).to.equal(500)
+
+        // Reserve 2 mints
+        await accountControl.mintTBTC(reserve2.address, user2.address, 300)
+        expect(await guard.totalMinted()).to.equal(800)
+
+        // Reserve 1 partial redemption
+        const redeem1 = BigNumber.from(200)
+        const tbtcAmount1 = redeem1.mul(SATOSHI_MULTIPLIER)
+        await bank.setBalance(user1.address, tbtcAmount1)
+        await bank.connect(user1).approve(guard.address, redeem1)
+        await accountControl.notifyRedemption(
+          reserve1.address,
+          user1.address,
+          redeem1
+        )
+        expect(await guard.totalMinted()).to.equal(600)
+
+        // Reserve 2 returns all
+        const return2 = BigNumber.from(300)
+        const tbtcAmount2 = return2.mul(SATOSHI_MULTIPLIER)
+        await tbtcToken.mint(reserve2.address, tbtcAmount2)
+        await tbtcToken.connect(reserve2).approve(guard.address, tbtcAmount2)
+        await accountControl.returnTBTC(reserve2.address, return2)
+        expect(await guard.totalMinted()).to.equal(300)
+      })
+
+      it("should enforce rate limits across all reserves", async () => {
+        await guard.connect(owner).setGlobalMintCap(0)
+        await guard.connect(owner).setTotalMinted(0)
+        await guard.connect(owner).setMintRateLimit(1000, 3600)
+
+        const allSigners = await ethers.getSigners()
+        const reserve1 = allSigners[6]
+        const reserve2 = allSigners[7]
+
+        // Reserve 1 mints 600
+        await accountControl.mintTBTC(reserve1.address, user.address, 600)
+        expect(await guard.totalMinted()).to.equal(600)
+
+        // Reserve 2 can only mint 400 more (rate limit = 1000)
+        await accountControl.mintTBTC(reserve2.address, user.address, 400)
+        expect(await guard.totalMinted()).to.equal(1000)
+
+        // Both reserves hit the rate limit
+        await expect(accountControl.mintTBTC(reserve1.address, user.address, 1))
+          .to.be.reverted
+
+        await expect(accountControl.mintTBTC(reserve2.address, user.address, 1))
+          .to.be.reverted
+      })
     })
   })
 })
