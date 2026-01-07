@@ -239,7 +239,7 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
         emit BankMintExecuted(operator, recipient, amount, newTotal);
 
         IBridgeController bridge = IBridgeController(vault.bridge());
-        bridge.controllerIncreaseBalance(recipient, _toTbtcBaseUnits(amount));
+        bridge.controllerIncreaseBalance(recipient, amount);
     }
 
     /// @notice Unmints TBTC from a user by first unminting via Vault, then
@@ -302,7 +302,7 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
         vault.unmint(tbtcBaseUnits);
 
         // Step 5: Burn the guard's Bank balance
-        IBank(bank).decreaseBalance(tbtcBaseUnits);
+        IBank(bank).decreaseBalance(amount);
     }
 
     /// @notice Burns Bank balance from a user and reduces global exposure.
@@ -343,8 +343,7 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
         IBank(bank).transferBalanceFrom(from, address(this), amount);
 
         // Step 3: Burn the guard's Bank balance
-        uint256 tbtcBaseUnits = _toTbtcBaseUnits(amount);
-        IBank(bank).decreaseBalance(tbtcBaseUnits);
+        IBank(bank).decreaseBalance(amount);
     }
 
     /// @notice Converts a TBTC amount expressed in satoshis (1e8) to base units

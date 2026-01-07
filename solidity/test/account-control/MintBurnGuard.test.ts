@@ -231,7 +231,7 @@ describe("MintBurnGuard", () => {
 
       expect(await guard.totalMinted()).to.equal(current.sub(burnAmount))
       expect(await vault.lastUnmintAmount()).to.equal(tbtcAmount)
-      expect(await bank.lastBurnAmount()).to.equal(tbtcAmount)
+      expect(await bank.lastBurnAmount()).to.equal(burnAmount)
     })
 
     it("burns from bank balance and updates exposure", async () => {
@@ -261,7 +261,7 @@ describe("MintBurnGuard", () => {
         .withArgs(burnAmount, current.sub(burnAmount))
 
       expect(await guard.totalMinted()).to.equal(current.sub(burnAmount))
-      expect(await bank.lastBurnAmount()).to.equal(tbtcAmount)
+      expect(await bank.lastBurnAmount()).to.equal(burnAmount)
       expect(await bank.lastTransferFrom()).to.equal(operator.address)
       expect(await bank.lastTransferTo()).to.equal(guard.address)
     })
@@ -710,7 +710,7 @@ describe("MintBurnGuard", () => {
           totalBefore.sub(returnAmount)
         )
         expect(await vault.lastUnmintAmount()).to.equal(tbtcAmount)
-        expect(await bank.lastBurnAmount()).to.equal(tbtcAmount)
+        expect(await bank.lastBurnAmount()).to.equal(returnAmount)
       })
 
       it("should fail if reserve has not approved TBTC to guard", async () => {
@@ -751,7 +751,7 @@ describe("MintBurnGuard", () => {
         const tbtcAmount = burnAmount.mul(SATOSHI_MULTIPLIER)
 
         // Set up bank balance for user
-        await bank.setBalance(user.address, tbtcAmount)
+        await bank.setBalance(user.address, burnAmount)
 
         // User approves guard to transfer bank balance
         await bank.connect(user).approve(guard.address, burnAmount)
@@ -778,7 +778,7 @@ describe("MintBurnGuard", () => {
           .withArgs(reserve.address, user.address, burnAmount)
 
         expect(await guard.totalMinted()).to.equal(totalBefore.sub(burnAmount))
-        expect(await bank.lastBurnAmount()).to.equal(tbtcAmount)
+        expect(await bank.lastBurnAmount()).to.equal(burnAmount)
         expect(await bank.lastTransferFrom()).to.equal(user.address)
         expect(await bank.lastTransferTo()).to.equal(guard.address)
       })
