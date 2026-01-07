@@ -295,7 +295,7 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
         IERC20(tbtcToken).safeTransferFrom(from, address(this), tbtcBaseUnits);
 
         // Step 3: Approve vault to spend guard's TBTC
-        IERC20(tbtcToken).safeApprove(address(vault), tbtcBaseUnits);
+        IERC20(tbtcToken).safeIncreaseAllowance(address(vault), tbtcBaseUnits);
 
         // Step 4: Unmint via Vault (guard is now the unminter)
         // This burns guard's TBTC and gives guard Bank balance
