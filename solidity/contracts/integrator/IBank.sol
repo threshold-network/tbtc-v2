@@ -50,10 +50,9 @@ interface IBank {
     /// @param sender Address of the sender.
     /// @param recipient Address of the recipient.
     /// @param amount Amount of tokens to transfer.
-    /// @return A boolean value indicating whether the operation succeeded.
     function transferBalanceFrom(
         address sender,
         address recipient,
         uint256 amount
-    ) external returns (bool);
+    ) external;
 }

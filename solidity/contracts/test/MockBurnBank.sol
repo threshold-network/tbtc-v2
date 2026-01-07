@@ -24,7 +24,7 @@ contract MockBurnBank {
         address sender,
         address recipient,
         uint256 amount
-    ) external returns (bool) {
+    ) external {
         require(
             allowances[sender][msg.sender] >= amount,
             "MockBurnBank: insufficient allowance"
@@ -41,7 +41,6 @@ contract MockBurnBank {
         }
 
         allowances[sender][msg.sender] -= amount;
-        return true;
     }
 
     function approve(address spender, uint256 amount) external {

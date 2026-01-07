@@ -55,6 +55,12 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
     /// @notice Vault contract used for unminting TBTC held in the vault.
     ITBTCVault public vault;
 
+    /// @notice Bank contract cached from vault
+    address public bank;
+
+    /// @notice TBTC token contract cached from vault
+    address public tbtcToken;
+
     /// @notice Maximum amount (in satoshis) that may be minted within a single
     ///         rate window.
     /// @dev A value of zero disables rate limiting entirely.
@@ -118,7 +124,6 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
     error CapBelowRateLimit(uint256 cap, uint256 rateLimit);
     error Underflow();
     error AmountConversionOverflow(uint256 amountSats);
-    error BanktransferFailed();
 
     modifier onlyOperator() {
         if (msg.sender != operator) {
@@ -127,11 +132,12 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
         _;
     }
 
-    /// @notice Sets the initial owner and, optionally, the operator.
+    /// @notice Sets the initial owner and, optionally, the operator and vault.
     /// @param initialOwner Address that will become the contract owner.
     /// @param initialOperator Optional operator address; can be zero and
     ///        set later via `setOperator`.
-    /// @param initialVault Initial Vault contract used for unminting TBTC.
+    /// @param initialVault Initial Optional vault contract; can be zero and
+    ///        set later via `setVault`.
     constructor(
         address initialOwner,
         address initialOperator,
@@ -147,6 +153,8 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
         }
         if (address(initialVault) != address(0)) {
             vault = initialVault;
+            bank = initialVault.bank();
+            tbtcToken = initialVault.tbtcToken();
         }
     }
 
@@ -171,6 +179,8 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
         }
         address previous = address(vault);
         vault = newVault;
+        bank = newVault.bank();
+        tbtcToken = newVault.tbtcToken();
         emit VaultUpdated(previous, address(newVault));
     }
 
@@ -274,8 +284,6 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
             revert ZeroAddress("vault");
         }
 
-        uint256 tbtcBaseUnits = _toTbtcBaseUnits(amount);
-
         // Step 1: Reduce global exposure
         uint256 newTotal = _decreaseTotalMintedInternal(amount);
 
@@ -283,7 +291,7 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
 
         // Step 2: Transfer TBTC from user to this guard
         // User must have approved TBTC to this guard
-        address tbtcToken = vault.tbtcToken();
+        uint256 tbtcBaseUnits = _toTbtcBaseUnits(amount);
         IERC20(tbtcToken).safeTransferFrom(from, address(this), tbtcBaseUnits);
 
         // Step 3: Approve vault to spend guard's TBTC
@@ -292,8 +300,6 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
         // Step 4: Unmint via Vault (guard is now the unminter)
         // This burns guard's TBTC and gives guard Bank balance
         vault.unmint(tbtcBaseUnits);
-
-        address bank = vault.bank();
 
         // Step 5: Burn the guard's Bank balance
         IBank(bank).decreaseBalance(tbtcBaseUnits);
@@ -327,10 +333,6 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
             revert ZeroAddress("from");
         }
 
-        uint256 tbtcBaseUnits = _toTbtcBaseUnits(amount);
-
-        address bank = vault.bank();
-
         // Step 1: Reduce global exposure
         uint256 newTotal = _decreaseTotalMintedInternal(amount);
 
@@ -338,16 +340,10 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
 
         // Step 2: Transfer Bank balance from user to this guard
         // User must have approved Bank balance to this guard
-        bool success = IBank(bank).transferBalanceFrom(
-            from,
-            address(this),
-            amount
-        );
-        if (!success) {
-            revert BanktransferFailed();
-        }
+        IBank(bank).transferBalanceFrom(from, address(this), amount);
 
         // Step 3: Burn the guard's Bank balance
+        uint256 tbtcBaseUnits = _toTbtcBaseUnits(amount);
         IBank(bank).decreaseBalance(tbtcBaseUnits);
     }
 
