@@ -5,6 +5,7 @@ pragma solidity 0.8.17;
 import "../bridge/BitcoinTx.sol";
 import "../bridge/Bridge.sol";
 import "../bridge/MovingFunds.sol";
+import "../bridge/RebateStaking.sol";
 import "../bridge/Wallets.sol";
 
 contract BridgeStub is Bridge {
@@ -170,5 +171,18 @@ contract BridgeStub is Bridge {
         external
     {
         self.depositRevealAheadPeriod = _depositRevealAheadPeriod;
+    }
+
+    uint64 public lastTreasuryFee;
+
+    function applyForRebate(address user, uint64 treasuryFee) external {
+        lastTreasuryFee = RebateStaking(self.rebateStaking).applyForRebate(
+            user,
+            treasuryFee
+        );
+    }
+
+    function cancelRebate(address user, uint256 requestedAt) external {
+        RebateStaking(self.rebateStaking).cancelRebate(user, requestedAt);
     }
 }
