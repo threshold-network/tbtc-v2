@@ -55,6 +55,9 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
     /// @notice Vault contract used for unminting TBTC held in the vault.
     ITBTCVault public vault;
 
+    /// @notice TBTC Bridge contract cached from vault
+    address public bridge;
+
     /// @notice Bank contract cached from vault
     address public bank;
 
@@ -153,6 +156,7 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
         }
         if (address(initialVault) != address(0)) {
             vault = initialVault;
+            bridge = initialVault.bridge();
             bank = initialVault.bank();
             tbtcToken = initialVault.tbtcToken();
         }
@@ -179,6 +183,7 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
         }
         address previous = address(vault);
         vault = newVault;
+        bridge = newVault.bridge();
         bank = newVault.bank();
         tbtcToken = newVault.tbtcToken();
         emit VaultUpdated(previous, address(newVault));
@@ -238,8 +243,7 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
 
         emit BankMintExecuted(operator, recipient, amount, newTotal);
 
-        IBridgeController bridge = IBridgeController(vault.bridge());
-        bridge.controllerIncreaseBalance(recipient, amount);
+        IBridgeController(bridge).controllerIncreaseBalance(recipient, amount);
     }
 
     /// @notice Unmints TBTC from a user by first unminting via Vault, then
