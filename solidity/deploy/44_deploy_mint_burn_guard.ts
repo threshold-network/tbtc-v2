@@ -4,12 +4,10 @@ import { DeployFunction } from "hardhat-deploy/types"
 const func: DeployFunction = async function deployMintBurnGuard(
   hre: HardhatRuntimeEnvironment
 ) {
-  const { deployments, getNamedAccounts } = hre
-  const { deploy, get, log } = deployments
-
+  const { ethers, helpers, deployments, getNamedAccounts } = hre
   const { deployer } = await getNamedAccounts()
 
-  const TBTCVault = await get("TBTCVault")
+  const TBTCVault = await deployments.get("TBTCVault")
 
   // Allow overriding the MintBurnGuard owner and operator via env vars.
   // Defaults:
@@ -27,14 +25,38 @@ const func: DeployFunction = async function deployMintBurnGuard(
       ? process.env.MINT_BURN_GUARD_OPERATOR
       : "0x0000000000000000000000000000000000000000"
 
-  const deployment = await deploy("MintBurnGuard", {
-    from: deployer,
-    args: [owner, operator, TBTCVault.address],
-    log: true,
-    waitConfirmations: 1,
-  })
+  const [mintBurnGuard, proxyDeployment] = await helpers.upgrades.deployProxy(
+    "MintBurnGuard",
+    {
+      contractName: "MintBurnGuard",
+      initializerArgs: [owner, operator, TBTCVault.address],
+      factoryOpts: {
+        signer: await ethers.getSigner(deployer),
+      },
+      proxyOpts: {
+        kind: "transparent",
+      },
+    }
+  )
 
-  log(`MintBurnGuard deployed at ${deployment.address}`)
+  if (hre.network.tags.etherscan) {
+    // We use `verify` instead of `verify:verify` as the `verify` task is defined
+    // in "@openzeppelin/hardhat-upgrades" to perform Etherscan verification
+    // of Proxy and Implementation contracts.
+    await hre.run("verify", {
+      address: proxyDeployment.address,
+      constructorArgsParams: proxyDeployment.args,
+    })
+  }
+
+  if (hre.network.tags.tenderly) {
+    await hre.tenderly.verify({
+      name: "MintBurnGuard",
+      address: mintBurnGuard.address,
+    })
+  }
+
+  deployments.log(`MintBurnGuard deployed at ${mintBurnGuard.address}`)
 }
 
 export default func

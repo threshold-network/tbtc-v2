@@ -15,9 +15,11 @@
 
 pragma solidity 0.8.17;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
+import "./MintBurnGuardState.sol";
 import "./interfaces/IBridgeController.sol";
 import "./interfaces/IMintBurnGuard.sol";
 import "../integrator/IBank.sol";
@@ -29,55 +31,15 @@ import "../integrator/ITBTCVault.sol";
 /// @dev This contract is intentionally minimal and oblivious to reserve-level
 ///      details. It is expected that a single operator contract (e.g.
 ///      AccountControl) reports all mint and burn operations via this guard.
-contract MintBurnGuard is Ownable, IMintBurnGuard {
-    using SafeERC20 for IERC20;
+///      This contract uses the upgradeable proxy pattern with storage
+///      separation via MintBurnGuardState library.
+contract MintBurnGuard is Initializable, OwnableUpgradeable, IMintBurnGuard {
+    using SafeERC20Upgradeable for IERC20Upgradeable;
+    using MintBurnGuardState for MintBurnGuardState.Storage;
 
     uint256 private constant TBTC_BASE_UNITS_PER_SAT = 1e10;
 
-    /// @notice Address of the operator allowed to adjust the total minted
-    ///         exposure tracked by this guard and call execution helpers.
-    address public operator;
-
-    /// @notice Global net-minted amount reported by the operator.
-    /// @dev Expressed in TBTC satoshis (1e8).
-    uint256 public totalMinted;
-
-    /// @notice Global mint cap enforced across all operator-managed lines.
-    /// @dev Expressed in TBTC satoshis (1e8). A value of zero disables the
-    ///      global cap check.
-    uint256 public globalMintCap;
-
-    /// @notice Global pause flag for operator-driven minting.
-    /// @dev When true, `mintToBank` reverts for any amount > 0; burn/unmint
-    ///      helpers remain available to reduce exposure.
-    bool public mintingPaused;
-
-    /// @notice Vault contract used for unminting TBTC held in the vault.
-    ITBTCVault public vault;
-
-    /// @notice TBTC Bridge contract cached from vault
-    address public bridge;
-
-    /// @notice Bank contract cached from vault
-    address public bank;
-
-    /// @notice TBTC token contract cached from vault
-    address public tbtcToken;
-
-    /// @notice Maximum amount (in satoshis) that may be minted within a single
-    ///         rate window.
-    /// @dev A value of zero disables rate limiting entirely.
-    uint256 public mintRateLimit;
-
-    /// @notice Duration, in seconds, of the rate window governed by `mintRateLimit`.
-    /// @dev This value must be non-zero when `mintRateLimit` is enabled.
-    uint256 public mintRateLimitWindow;
-
-    /// @notice Timestamp that marks the beginning of the current rate window.
-    uint256 public mintRateWindowStart;
-
-    /// @notice Amount minted so far during the current rate window (satoshis).
-    uint256 public mintRateWindowAmount;
+    MintBurnGuardState.Storage internal self;
 
     event OperatorUpdated(
         address indexed previousOperator,
@@ -120,106 +82,46 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
 
     error NotOperator(address caller);
     error MintingPausedError();
-    error ZeroAddress(string field);
-    error WindowMustNotBeZero();
-    error GlobalMintCapExceeded(uint256 newTotal, uint256 cap);
     error MintRateLimitExceeded(uint256 windowTotal, uint256 limit);
-    error CapBelowRateLimit(uint256 cap, uint256 rateLimit);
     error Underflow();
     error AmountConversionOverflow(uint256 amountSats);
 
     modifier onlyOperator() {
-        if (msg.sender != operator) {
+        if (msg.sender != self.operator) {
             revert NotOperator(msg.sender);
         }
         _;
     }
 
-    /// @notice Sets the initial owner and, optionally, the operator and vault.
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    /// @notice Initializes the contract with the initial owner, operator, and vault.
     /// @param initialOwner Address that will become the contract owner.
     /// @param initialOperator Optional operator address; can be zero and
     ///        set later via `setOperator`.
-    /// @param initialVault Initial Optional vault contract; can be zero and
+    /// @param initialVault Optional vault contract; can be zero and
     ///        set later via `setVault`.
-    constructor(
+    function initialize(
         address initialOwner,
         address initialOperator,
         ITBTCVault initialVault
-    ) {
+    ) external initializer {
+        __Ownable_init();
+
         if (initialOwner == address(0)) {
-            revert ZeroAddress("owner");
+            revert MintBurnGuardState.ZeroAddress("owner");
         }
         _transferOwnership(initialOwner);
 
         if (initialOperator != address(0)) {
-            operator = initialOperator;
+            self.setOperator(initialOperator);
         }
         if (address(initialVault) != address(0)) {
-            vault = initialVault;
-            bridge = initialVault.bridge();
-            bank = initialVault.bank();
-            tbtcToken = initialVault.tbtcToken();
+            self.setVault(initialVault);
         }
-    }
-
-    /// @notice Updates the operator address.
-    /// @param newOperator Address of the new operator contract.
-    /// @dev Can only be called by the owner.
-    function setOperator(address newOperator) external onlyOwner {
-        if (newOperator == address(0)) {
-            revert ZeroAddress("operator");
-        }
-        address previous = operator;
-        operator = newOperator;
-        emit OperatorUpdated(previous, newOperator);
-    }
-
-    /// @notice Updates the Vault contract used for unmint helpers.
-    /// @param newVault Vault contract used for unminting TBTC.
-    /// @dev Can only be called by the owner.
-    function setVault(ITBTCVault newVault) external onlyOwner {
-        if (address(newVault) == address(0)) {
-            revert ZeroAddress("vault");
-        }
-        address previous = address(vault);
-        vault = newVault;
-        bridge = newVault.bridge();
-        bank = newVault.bank();
-        tbtcToken = newVault.tbtcToken();
-        emit VaultUpdated(previous, address(newVault));
-    }
-
-    /// @notice Owner-only helper to set global net-minted exposure for
-    ///         migrations or accounting corrections.
-    /// @param newTotal New total minted amount in TBTC satoshis (1e8).
-    /// @return The updated total minted amount in TBTC satoshis (1e8).
-    function setTotalMinted(uint256 newTotal)
-        external
-        onlyOwner
-        returns (uint256)
-    {
-        uint256 cap = globalMintCap;
-        if (cap != 0 && newTotal > cap) {
-            revert GlobalMintCapExceeded(newTotal, cap);
-        }
-
-        uint256 current = totalMinted;
-        if (newTotal == current) {
-            return current;
-        }
-
-        totalMinted = newTotal;
-        // Reset rate window to avoid stale in-flight counters after manual override.
-        mintRateWindowStart = 0;
-        mintRateWindowAmount = 0;
-
-        if (newTotal > current) {
-            emit TotalMintedIncreased(newTotal - current, newTotal);
-        } else {
-            emit TotalMintedDecreased(current - newTotal, newTotal);
-        }
-
-        return newTotal;
     }
 
     /// @notice Mints TBTC to the Bank via the Bridge and updates global exposure.
@@ -235,15 +137,18 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
             return;
         }
 
-        if (address(vault) == address(0)) {
-            revert ZeroAddress("vault");
+        if (address(self.vault) == address(0)) {
+            revert MintBurnGuardState.ZeroAddress("vault");
         }
 
         uint256 newTotal = _increaseTotalMintedInternal(amount);
 
-        emit BankMintExecuted(operator, recipient, amount, newTotal);
+        emit BankMintExecuted(self.operator, recipient, amount, newTotal);
 
-        IBridgeController(bridge).controllerIncreaseBalance(recipient, amount);
+        IBridgeController(self.bridge).controllerIncreaseBalance(
+            recipient,
+            amount
+        );
     }
 
     /// @notice Unmints TBTC from a user by first unminting via Vault, then
@@ -281,32 +186,39 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
         }
 
         if (from == address(0)) {
-            revert ZeroAddress("from");
+            revert MintBurnGuardState.ZeroAddress("from");
         }
 
-        if (address(vault) == address(0)) {
-            revert ZeroAddress("vault");
+        if (address(self.vault) == address(0)) {
+            revert MintBurnGuardState.ZeroAddress("vault");
         }
 
         // Step 1: Reduce global exposure
         uint256 newTotal = _decreaseTotalMintedInternal(amount);
 
-        emit UnmintAndBurnExecuted(operator, from, amount, newTotal);
+        emit UnmintAndBurnExecuted(self.operator, from, amount, newTotal);
 
         // Step 2: Transfer TBTC from user to this guard
         // User must have approved TBTC to this guard
         uint256 tbtcBaseUnits = _toTbtcBaseUnits(amount);
-        IERC20(tbtcToken).safeTransferFrom(from, address(this), tbtcBaseUnits);
+        IERC20Upgradeable(self.tbtcToken).safeTransferFrom(
+            from,
+            address(this),
+            tbtcBaseUnits
+        );
 
         // Step 3: Approve vault to spend guard's TBTC
-        IERC20(tbtcToken).safeIncreaseAllowance(address(vault), tbtcBaseUnits);
+        IERC20Upgradeable(self.tbtcToken).safeIncreaseAllowance(
+            address(self.vault),
+            tbtcBaseUnits
+        );
 
         // Step 4: Unmint via Vault (guard is now the unminter)
         // This burns guard's TBTC and gives guard Bank balance
-        vault.unmint(tbtcBaseUnits);
+        self.vault.unmint(tbtcBaseUnits);
 
         // Step 5: Burn the guard's Bank balance
-        IBank(bank).decreaseBalance(amount);
+        IBank(self.bank).decreaseBalance(amount);
     }
 
     /// @notice Burns Bank balance from a user and reduces global exposure.
@@ -334,20 +246,20 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
         }
 
         if (from == address(0)) {
-            revert ZeroAddress("from");
+            revert MintBurnGuardState.ZeroAddress("from");
         }
 
         // Step 1: Reduce global exposure
         uint256 newTotal = _decreaseTotalMintedInternal(amount);
 
-        emit BurnExecuted(operator, from, amount, newTotal);
+        emit BurnExecuted(self.operator, from, amount, newTotal);
 
         // Step 2: Transfer Bank balance from user to this guard
         // User must have approved Bank balance to this guard
-        IBank(bank).transferBalanceFrom(from, address(this), amount);
+        IBank(self.bank).transferBalanceFrom(from, address(this), amount);
 
         // Step 3: Burn the guard's Bank balance
-        IBank(bank).decreaseBalance(amount);
+        IBank(self.bank).decreaseBalance(amount);
     }
 
     /// @notice Converts a TBTC amount expressed in satoshis (1e8) to base units
@@ -369,21 +281,21 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
         private
         returns (uint256 newTotal)
     {
-        if (mintingPaused) {
+        if (self.mintingPaused) {
             revert MintingPausedError();
         }
 
         _enforceMintRateLimit(amount);
 
-        newTotal = totalMinted + amount;
+        newTotal = self.totalMinted + amount;
 
-        uint256 cap = globalMintCap;
+        uint256 cap = self.globalMintCap;
         if (cap != 0 && newTotal > cap) {
-            revert GlobalMintCapExceeded(newTotal, cap);
+            revert MintBurnGuardState.GlobalMintCapExceeded(newTotal, cap);
         }
 
-        totalMinted = newTotal;
-        emit TotalMintedIncreased(amount, newTotal);
+        self.totalMinted = newTotal;
+        emit MintBurnGuardState.TotalMintedIncreased(amount, newTotal);
     }
 
     /// @notice Internal helper decreasing `totalMinted` with underflow protection.
@@ -391,7 +303,7 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
         private
         returns (uint256 newTotal)
     {
-        uint256 current = totalMinted;
+        uint256 current = self.totalMinted;
         if (amount > current) {
             revert Underflow();
         }
@@ -400,39 +312,63 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
             newTotal = current - amount;
         }
 
-        totalMinted = newTotal;
-        emit TotalMintedDecreased(amount, newTotal);
+        self.totalMinted = newTotal;
+        emit MintBurnGuardState.TotalMintedDecreased(amount, newTotal);
     }
 
     /* solhint-disable not-rely-on-time */
     function _enforceMintRateLimit(uint256 amount) private {
-        uint256 limit = mintRateLimit;
-        uint256 window = mintRateLimitWindow;
+        uint256 limit = self.mintRateLimit;
+        uint256 window = self.mintRateLimitWindow;
         if (limit == 0 || window == 0) {
             return;
         }
 
         uint256 currentTimestamp = block.timestamp;
-        uint256 windowStart = mintRateWindowStart;
+        uint256 windowStart = self.mintRateWindowStart;
 
         if (currentTimestamp >= windowStart + window) {
             if (amount > limit) {
                 revert MintRateLimitExceeded(amount, limit);
             }
-            mintRateWindowStart = currentTimestamp;
-            mintRateWindowAmount = amount;
+            self.mintRateWindowStart = currentTimestamp;
+            self.mintRateWindowAmount = amount;
             return;
         }
 
-        uint256 nextWindowAmount = mintRateWindowAmount + amount;
+        uint256 nextWindowAmount = self.mintRateWindowAmount + amount;
         if (nextWindowAmount > limit) {
             revert MintRateLimitExceeded(nextWindowAmount, limit);
         }
 
-        mintRateWindowAmount = nextWindowAmount;
+        self.mintRateWindowAmount = nextWindowAmount;
     }
 
-    /* solhint-enable not-rely-on-time */
+    /// @notice Updates the operator address.
+    /// @param newOperator Address of the new operator contract.
+    /// @dev Can only be called by the owner.
+    function setOperator(address newOperator) external onlyOwner {
+        self.setOperator(newOperator);
+    }
+
+    /// @notice Updates the Vault contract used for unmint helpers.
+    /// @param newVault Vault contract used for unminting TBTC.
+    /// @dev Can only be called by the owner.
+    function setVault(ITBTCVault newVault) external onlyOwner {
+        self.setVault(newVault);
+    }
+
+    /// @notice Owner-only helper to set global net-minted exposure for
+    ///         migrations or accounting corrections.
+    /// @param newTotal New total minted amount in TBTC satoshis (1e8).
+    /// @return The updated total minted amount in TBTC satoshis (1e8).
+    function setTotalMinted(uint256 newTotal)
+        external
+        onlyOwner
+        returns (uint256)
+    {
+        return self.setTotalMinted(newTotal);
+    }
 
     /// @notice Updates the global mint cap.
     /// @param newCap New global mint cap in TBTC satoshis (1e8); zero disables.
@@ -440,23 +376,14 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
     ///      above current `totalMinted` and any active `mintRateLimit` to avoid
     ///      unintended mint reverts. Tightening after pausing is safest.
     function setGlobalMintCap(uint256 newCap) external onlyOwner {
-        if (mintRateLimit != 0 && newCap != 0 && newCap < mintRateLimit) {
-            revert CapBelowRateLimit(newCap, mintRateLimit);
-        }
-        uint256 previousCap = globalMintCap;
-        globalMintCap = newCap;
-        emit GlobalMintCapUpdated(previousCap, newCap);
+        self.setGlobalMintCap(newCap);
     }
 
     /// @notice Updates the global minting pause flag.
     /// @param paused New pause state.
     /// @dev Can only be called by the owner.
     function setMintingPaused(bool paused) external onlyOwner {
-        if (mintingPaused == paused) {
-            return;
-        }
-        mintingPaused = paused;
-        emit MintingPaused(paused);
+        self.setMintingPaused(paused);
     }
 
     /// @notice Configures the mint rate limit parameters.
@@ -470,31 +397,55 @@ contract MintBurnGuard is Ownable, IMintBurnGuard {
         external
         onlyOwner
     {
-        uint256 previousLimit = mintRateLimit;
-        uint256 previousWindow = mintRateLimitWindow;
+        self.setMintRateLimit(limit, windowSeconds);
+    }
 
-        if (limit == 0) {
-            mintRateLimit = 0;
-            mintRateLimitWindow = 0;
-        } else {
-            if (windowSeconds == 0) {
-                revert WindowMustNotBeZero();
-            }
-            if (globalMintCap != 0 && globalMintCap < limit) {
-                revert CapBelowRateLimit(globalMintCap, limit);
-            }
-            mintRateLimit = limit;
-            mintRateLimitWindow = windowSeconds;
-        }
+    // Public view functions to expose storage for backward compatibility
+    function operator() public view returns (address) {
+        return self.operator;
+    }
 
-        mintRateWindowStart = 0;
-        mintRateWindowAmount = 0;
+    function totalMinted() public view returns (uint256) {
+        return self.totalMinted;
+    }
 
-        emit MintRateLimitUpdated(
-            previousLimit,
-            previousWindow,
-            mintRateLimit,
-            mintRateLimitWindow
-        );
+    function globalMintCap() public view returns (uint256) {
+        return self.globalMintCap;
+    }
+
+    function mintingPaused() public view returns (bool) {
+        return self.mintingPaused;
+    }
+
+    function vault() public view returns (ITBTCVault) {
+        return self.vault;
+    }
+
+    function bridge() public view returns (address) {
+        return self.bridge;
+    }
+
+    function bank() public view returns (address) {
+        return self.bank;
+    }
+
+    function tbtcToken() public view returns (address) {
+        return self.tbtcToken;
+    }
+
+    function mintRateLimit() public view returns (uint256) {
+        return self.mintRateLimit;
+    }
+
+    function mintRateLimitWindow() public view returns (uint256) {
+        return self.mintRateLimitWindow;
+    }
+
+    function mintRateWindowStart() public view returns (uint256) {
+        return self.mintRateWindowStart;
+    }
+
+    function mintRateWindowAmount() public view returns (uint256) {
+        return self.mintRateWindowAmount;
     }
 }

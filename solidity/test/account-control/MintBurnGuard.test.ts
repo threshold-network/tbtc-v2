@@ -57,12 +57,19 @@ describe("MintBurnGuard", () => {
     const MintBurnGuardFactory = await ethers.getContractFactory(
       "MintBurnGuard"
     )
-    guard = (await MintBurnGuardFactory.deploy(
-      owner.address,
-      operator.address,
-      vault.address
-    )) as MintBurnGuard
-    await guard.deployed()
+    const guardImpl = await MintBurnGuardFactory.deploy()
+    await guardImpl.deployed()
+
+    // Deploy proxy
+    const ERC1967ProxyFactory = await ethers.getContractFactory("ERC1967Proxy")
+    const initData = MintBurnGuardFactory.interface.encodeFunctionData(
+      "initialize",
+      [owner.address, operator.address, vault.address]
+    )
+    const proxy = await ERC1967ProxyFactory.deploy(guardImpl.address, initData)
+    await proxy.deployed()
+
+    guard = MintBurnGuardFactory.attach(proxy.address) as MintBurnGuard
 
     await bridge.connect(owner).setMintingController(guard.address)
   })
