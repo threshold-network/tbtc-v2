@@ -419,7 +419,7 @@ jobs:
 
       - name: Install Slither
         env:
-          SLITHER_VERSION: 0.9.0
+          SLITHER_VERSION: 0.10.1
         run: pip3 install slither-analyzer==$SLITHER_VERSION
 
       # We need this step because the `@keep-network/tbtc` which we update in
