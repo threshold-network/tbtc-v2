@@ -2,2764 +2,2790 @@
   "address": "0x5e4861a80B55f035D899f66772117F00FA0E8e7B",
   "abi": [
     {
+      "type": "constructor",
       "inputs": [],
-      "stateMutability": "nonpayable",
-      "type": "constructor"
+      "stateMutability": "nonpayable"
     },
     {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": false,
-          "internalType": "uint64",
-          "name": "depositDustThreshold",
-          "type": "uint64"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint64",
-          "name": "depositTreasuryFeeDivisor",
-          "type": "uint64"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint64",
-          "name": "depositTxMaxFee",
-          "type": "uint64"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint32",
-          "name": "depositRevealAheadPeriod",
-          "type": "uint32"
-        }
-      ],
-      "name": "DepositParametersUpdated",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": false,
-          "internalType": "bytes32",
-          "name": "fundingTxHash",
-          "type": "bytes32"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint32",
-          "name": "fundingOutputIndex",
-          "type": "uint32"
-        },
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "depositor",
-          "type": "address"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint64",
-          "name": "amount",
-          "type": "uint64"
-        },
-        {
-          "indexed": false,
-          "internalType": "bytes8",
-          "name": "blindingFactor",
-          "type": "bytes8"
-        },
-        {
-          "indexed": true,
-          "internalType": "bytes20",
-          "name": "walletPubKeyHash",
-          "type": "bytes20"
-        },
-        {
-          "indexed": false,
-          "internalType": "bytes20",
-          "name": "refundPubKeyHash",
-          "type": "bytes20"
-        },
-        {
-          "indexed": false,
-          "internalType": "bytes4",
-          "name": "refundLocktime",
-          "type": "bytes4"
-        },
-        {
-          "indexed": false,
-          "internalType": "address",
-          "name": "vault",
-          "type": "address"
-        }
-      ],
-      "name": "DepositRevealed",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": false,
-          "internalType": "bytes20",
-          "name": "walletPubKeyHash",
-          "type": "bytes20"
-        },
-        {
-          "indexed": false,
-          "internalType": "bytes32",
-          "name": "sweepTxHash",
-          "type": "bytes32"
-        }
-      ],
-      "name": "DepositsSwept",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "bytes20",
-          "name": "walletPubKeyHash",
-          "type": "bytes20"
-        },
-        {
-          "indexed": false,
-          "internalType": "bytes32",
-          "name": "sighash",
-          "type": "bytes32"
-        }
-      ],
-      "name": "FraudChallengeDefeatTimedOut",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "bytes20",
-          "name": "walletPubKeyHash",
-          "type": "bytes20"
-        },
-        {
-          "indexed": false,
-          "internalType": "bytes32",
-          "name": "sighash",
-          "type": "bytes32"
-        }
-      ],
-      "name": "FraudChallengeDefeated",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "bytes20",
-          "name": "walletPubKeyHash",
-          "type": "bytes20"
-        },
-        {
-          "indexed": false,
-          "internalType": "bytes32",
-          "name": "sighash",
-          "type": "bytes32"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint8",
-          "name": "v",
-          "type": "uint8"
-        },
-        {
-          "indexed": false,
-          "internalType": "bytes32",
-          "name": "r",
-          "type": "bytes32"
-        },
-        {
-          "indexed": false,
-          "internalType": "bytes32",
-          "name": "s",
-          "type": "bytes32"
-        }
-      ],
-      "name": "FraudChallengeSubmitted",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": false,
-          "internalType": "uint96",
-          "name": "fraudChallengeDepositAmount",
-          "type": "uint96"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint32",
-          "name": "fraudChallengeDefeatTimeout",
-          "type": "uint32"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint96",
-          "name": "fraudSlashingAmount",
-          "type": "uint96"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint32",
-          "name": "fraudNotifierRewardMultiplier",
-          "type": "uint32"
-        }
-      ],
-      "name": "FraudParametersUpdated",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": false,
-          "internalType": "address",
-          "name": "oldGovernance",
-          "type": "address"
-        },
-        {
-          "indexed": false,
-          "internalType": "address",
-          "name": "newGovernance",
-          "type": "address"
-        }
-      ],
-      "name": "GovernanceTransferred",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": false,
-          "internalType": "uint8",
-          "name": "version",
-          "type": "uint8"
-        }
-      ],
-      "name": "Initialized",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "bytes20",
-          "name": "walletPubKeyHash",
-          "type": "bytes20"
-        },
-        {
-          "indexed": false,
-          "internalType": "bytes32",
-          "name": "movingFundsTxHash",
-          "type": "bytes32"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint32",
-          "name": "movingFundsTxOutputIndex",
-          "type": "uint32"
-        }
-      ],
-      "name": "MovedFundsSweepTimedOut",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "bytes20",
-          "name": "walletPubKeyHash",
-          "type": "bytes20"
-        },
-        {
-          "indexed": false,
-          "internalType": "bytes32",
-          "name": "sweepTxHash",
-          "type": "bytes32"
-        }
-      ],
-      "name": "MovedFundsSwept",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "bytes20",
-          "name": "walletPubKeyHash",
-          "type": "bytes20"
-        }
-      ],
-      "name": "MovingFundsBelowDustReported",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "bytes20",
-          "name": "walletPubKeyHash",
-          "type": "bytes20"
-        },
-        {
-          "indexed": false,
-          "internalType": "bytes20[]",
-          "name": "targetWallets",
-          "type": "bytes20[]"
-        },
-        {
-          "indexed": false,
-          "internalType": "address",
-          "name": "submitter",
-          "type": "address"
-        }
-      ],
-      "name": "MovingFundsCommitmentSubmitted",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "bytes20",
-          "name": "walletPubKeyHash",
-          "type": "bytes20"
-        },
-        {
-          "indexed": false,
-          "internalType": "bytes32",
-          "name": "movingFundsTxHash",
-          "type": "bytes32"
-        }
-      ],
-      "name": "MovingFundsCompleted",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": false,
-          "internalType": "uint64",
-          "name": "movingFundsTxMaxTotalFee",
-          "type": "uint64"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint64",
-          "name": "movingFundsDustThreshold",
-          "type": "uint64"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint32",
-          "name": "movingFundsTimeoutResetDelay",
-          "type": "uint32"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint32",
-          "name": "movingFundsTimeout",
-          "type": "uint32"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint96",
-          "name": "movingFundsTimeoutSlashingAmount",
-          "type": "uint96"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint32",
-          "name": "movingFundsTimeoutNotifierRewardMultiplier",
-          "type": "uint32"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint16",
-          "name": "movingFundsCommitmentGasOffset",
-          "type": "uint16"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint64",
-          "name": "movedFundsSweepTxMaxTotalFee",
-          "type": "uint64"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint32",
-          "name": "movedFundsSweepTimeout",
-          "type": "uint32"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint96",
-          "name": "movedFundsSweepTimeoutSlashingAmount",
-          "type": "uint96"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint32",
-          "name": "movedFundsSweepTimeoutNotifierRewardMultiplier",
-          "type": "uint32"
-        }
-      ],
-      "name": "MovingFundsParametersUpdated",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "bytes20",
-          "name": "walletPubKeyHash",
-          "type": "bytes20"
-        }
-      ],
-      "name": "MovingFundsTimedOut",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "bytes20",
-          "name": "walletPubKeyHash",
-          "type": "bytes20"
-        }
-      ],
-      "name": "MovingFundsTimeoutReset",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "bytes32",
-          "name": "ecdsaWalletID",
-          "type": "bytes32"
-        },
-        {
-          "indexed": true,
-          "internalType": "bytes20",
-          "name": "walletPubKeyHash",
-          "type": "bytes20"
-        }
-      ],
-      "name": "NewWalletRegistered",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [],
-      "name": "NewWalletRequested",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": false,
-          "internalType": "uint64",
-          "name": "redemptionDustThreshold",
-          "type": "uint64"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint64",
-          "name": "redemptionTreasuryFeeDivisor",
-          "type": "uint64"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint64",
-          "name": "redemptionTxMaxFee",
-          "type": "uint64"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint64",
-          "name": "redemptionTxMaxTotalFee",
-          "type": "uint64"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint32",
-          "name": "redemptionTimeout",
-          "type": "uint32"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint96",
-          "name": "redemptionTimeoutSlashingAmount",
-          "type": "uint96"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint32",
-          "name": "redemptionTimeoutNotifierRewardMultiplier",
-          "type": "uint32"
-        }
-      ],
-      "name": "RedemptionParametersUpdated",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "bytes20",
-          "name": "walletPubKeyHash",
-          "type": "bytes20"
-        },
-        {
-          "indexed": false,
-          "internalType": "bytes",
-          "name": "redeemerOutputScript",
-          "type": "bytes"
-        },
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "redeemer",
-          "type": "address"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint64",
-          "name": "requestedAmount",
-          "type": "uint64"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint64",
-          "name": "treasuryFee",
-          "type": "uint64"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint64",
-          "name": "txMaxFee",
-          "type": "uint64"
-        }
-      ],
-      "name": "RedemptionRequested",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "bytes20",
-          "name": "walletPubKeyHash",
-          "type": "bytes20"
-        },
-        {
-          "indexed": false,
-          "internalType": "bytes",
-          "name": "redeemerOutputScript",
-          "type": "bytes"
-        }
-      ],
-      "name": "RedemptionTimedOut",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": false,
-          "internalType": "address",
-          "name": "redemptionWatchtower",
-          "type": "address"
-        }
-      ],
-      "name": "RedemptionWatchtowerSet",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "bytes20",
-          "name": "walletPubKeyHash",
-          "type": "bytes20"
-        },
-        {
-          "indexed": false,
-          "internalType": "bytes32",
-          "name": "redemptionTxHash",
-          "type": "bytes32"
-        }
-      ],
-      "name": "RedemptionsCompleted",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "spvMaintainer",
-          "type": "address"
-        },
-        {
-          "indexed": false,
-          "internalType": "bool",
-          "name": "isTrusted",
-          "type": "bool"
-        }
-      ],
-      "name": "SpvMaintainerStatusUpdated",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": false,
-          "internalType": "address",
-          "name": "treasury",
-          "type": "address"
-        }
-      ],
-      "name": "TreasuryUpdated",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "vault",
-          "type": "address"
-        },
-        {
-          "indexed": false,
-          "internalType": "bool",
-          "name": "isTrusted",
-          "type": "bool"
-        }
-      ],
-      "name": "VaultStatusUpdated",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "bytes32",
-          "name": "ecdsaWalletID",
-          "type": "bytes32"
-        },
-        {
-          "indexed": true,
-          "internalType": "bytes20",
-          "name": "walletPubKeyHash",
-          "type": "bytes20"
-        }
-      ],
-      "name": "WalletClosed",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "bytes32",
-          "name": "ecdsaWalletID",
-          "type": "bytes32"
-        },
-        {
-          "indexed": true,
-          "internalType": "bytes20",
-          "name": "walletPubKeyHash",
-          "type": "bytes20"
-        }
-      ],
-      "name": "WalletClosing",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "bytes32",
-          "name": "ecdsaWalletID",
-          "type": "bytes32"
-        },
-        {
-          "indexed": true,
-          "internalType": "bytes20",
-          "name": "walletPubKeyHash",
-          "type": "bytes20"
-        }
-      ],
-      "name": "WalletMovingFunds",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": false,
-          "internalType": "uint32",
-          "name": "walletCreationPeriod",
-          "type": "uint32"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint64",
-          "name": "walletCreationMinBtcBalance",
-          "type": "uint64"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint64",
-          "name": "walletCreationMaxBtcBalance",
-          "type": "uint64"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint64",
-          "name": "walletClosureMinBtcBalance",
-          "type": "uint64"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint32",
-          "name": "walletMaxAge",
-          "type": "uint32"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint64",
-          "name": "walletMaxBtcTransfer",
-          "type": "uint64"
-        },
-        {
-          "indexed": false,
-          "internalType": "uint32",
-          "name": "walletClosingPeriod",
-          "type": "uint32"
-        }
-      ],
-      "name": "WalletParametersUpdated",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "bytes32",
-          "name": "ecdsaWalletID",
-          "type": "bytes32"
-        },
-        {
-          "indexed": true,
-          "internalType": "bytes20",
-          "name": "walletPubKeyHash",
-          "type": "bytes20"
-        }
-      ],
-      "name": "WalletTerminated",
-      "type": "event"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes32",
-          "name": "ecdsaWalletID",
-          "type": "bytes32"
-        },
-        {
-          "internalType": "bytes32",
-          "name": "publicKeyX",
-          "type": "bytes32"
-        },
-        {
-          "internalType": "bytes32",
-          "name": "publicKeyY",
-          "type": "bytes32"
-        }
-      ],
+      "type": "function",
       "name": "__ecdsaWalletCreatedCallback",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
       "inputs": [
         {
-          "internalType": "bytes32",
-          "name": "",
-          "type": "bytes32"
+          "name": "ecdsaWalletID",
+          "type": "bytes32",
+          "internalType": "bytes32"
         },
         {
-          "internalType": "bytes32",
           "name": "publicKeyX",
-          "type": "bytes32"
+          "type": "bytes32",
+          "internalType": "bytes32"
         },
         {
-          "internalType": "bytes32",
           "name": "publicKeyY",
-          "type": "bytes32"
+          "type": "bytes32",
+          "internalType": "bytes32"
         }
       ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
       "name": "__ecdsaWalletHeartbeatFailedCallback",
+      "inputs": [
+        {
+          "name": "",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        },
+        {
+          "name": "publicKeyX",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        },
+        {
+          "name": "publicKeyY",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ],
       "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
+      "stateMutability": "nonpayable"
     },
     {
-      "inputs": [],
+      "type": "function",
       "name": "activeWalletPubKeyHash",
+      "inputs": [],
       "outputs": [
         {
-          "internalType": "bytes20",
           "name": "",
-          "type": "bytes20"
+          "type": "bytes20",
+          "internalType": "bytes20"
         }
       ],
-      "stateMutability": "view",
-      "type": "function"
+      "stateMutability": "view"
     },
     {
-      "inputs": [],
+      "type": "function",
       "name": "contractReferences",
+      "inputs": [],
       "outputs": [
         {
-          "internalType": "contract Bank",
           "name": "bank",
-          "type": "address"
+          "type": "address",
+          "internalType": "contract Bank"
         },
         {
-          "internalType": "contract IRelay",
           "name": "relay",
-          "type": "address"
+          "type": "address",
+          "internalType": "contract IRelay"
         },
         {
-          "internalType": "contract IWalletRegistry",
           "name": "ecdsaWalletRegistry",
-          "type": "address"
+          "type": "address",
+          "internalType": "contract IWalletRegistry"
         },
         {
-          "internalType": "contract ReimbursementPool",
           "name": "reimbursementPool",
-          "type": "address"
+          "type": "address",
+          "internalType": "contract ReimbursementPool"
         }
       ],
-      "stateMutability": "view",
-      "type": "function"
+      "stateMutability": "view"
     },
     {
-      "inputs": [
-        {
-          "internalType": "bytes",
-          "name": "walletPublicKey",
-          "type": "bytes"
-        },
-        {
-          "internalType": "bytes",
-          "name": "preimage",
-          "type": "bytes"
-        },
-        {
-          "internalType": "bool",
-          "name": "witness",
-          "type": "bool"
-        }
-      ],
+      "type": "function",
       "name": "defeatFraudChallenge",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
       "inputs": [
         {
-          "internalType": "bytes",
           "name": "walletPublicKey",
-          "type": "bytes"
+          "type": "bytes",
+          "internalType": "bytes"
         },
         {
-          "internalType": "bytes",
-          "name": "heartbeatMessage",
-          "type": "bytes"
+          "name": "preimage",
+          "type": "bytes",
+          "internalType": "bytes"
+        },
+        {
+          "name": "witness",
+          "type": "bool",
+          "internalType": "bool"
         }
       ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
       "name": "defeatFraudChallengeWithHeartbeat",
+      "inputs": [
+        {
+          "name": "walletPublicKey",
+          "type": "bytes",
+          "internalType": "bytes"
+        },
+        {
+          "name": "heartbeatMessage",
+          "type": "bytes",
+          "internalType": "bytes"
+        }
+      ],
       "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
+      "stateMutability": "nonpayable"
     },
     {
-      "inputs": [],
+      "type": "function",
       "name": "depositParameters",
+      "inputs": [],
       "outputs": [
         {
-          "internalType": "uint64",
           "name": "depositDustThreshold",
-          "type": "uint64"
+          "type": "uint64",
+          "internalType": "uint64"
         },
         {
-          "internalType": "uint64",
           "name": "depositTreasuryFeeDivisor",
-          "type": "uint64"
+          "type": "uint64",
+          "internalType": "uint64"
         },
         {
-          "internalType": "uint64",
           "name": "depositTxMaxFee",
-          "type": "uint64"
+          "type": "uint64",
+          "internalType": "uint64"
         },
         {
-          "internalType": "uint32",
           "name": "depositRevealAheadPeriod",
-          "type": "uint32"
+          "type": "uint32",
+          "internalType": "uint32"
         }
       ],
-      "stateMutability": "view",
-      "type": "function"
+      "stateMutability": "view"
     },
     {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "depositKey",
-          "type": "uint256"
-        }
-      ],
+      "type": "function",
       "name": "deposits",
+      "inputs": [
+        {
+          "name": "depositKey",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
       "outputs": [
         {
-          "components": [
-            {
-              "internalType": "address",
-              "name": "depositor",
-              "type": "address"
-            },
-            {
-              "internalType": "uint64",
-              "name": "amount",
-              "type": "uint64"
-            },
-            {
-              "internalType": "uint32",
-              "name": "revealedAt",
-              "type": "uint32"
-            },
-            {
-              "internalType": "address",
-              "name": "vault",
-              "type": "address"
-            },
-            {
-              "internalType": "uint64",
-              "name": "treasuryFee",
-              "type": "uint64"
-            },
-            {
-              "internalType": "uint32",
-              "name": "sweptAt",
-              "type": "uint32"
-            },
-            {
-              "internalType": "bytes32",
-              "name": "extraData",
-              "type": "bytes32"
-            }
-          ],
+          "name": "",
+          "type": "tuple",
           "internalType": "struct Deposit.DepositRequest",
-          "name": "",
-          "type": "tuple"
+          "components": [
+            {
+              "name": "depositor",
+              "type": "address",
+              "internalType": "address"
+            },
+            {
+              "name": "amount",
+              "type": "uint64",
+              "internalType": "uint64"
+            },
+            {
+              "name": "revealedAt",
+              "type": "uint32",
+              "internalType": "uint32"
+            },
+            {
+              "name": "vault",
+              "type": "address",
+              "internalType": "address"
+            },
+            {
+              "name": "treasuryFee",
+              "type": "uint64",
+              "internalType": "uint64"
+            },
+            {
+              "name": "sweptAt",
+              "type": "uint32",
+              "internalType": "uint32"
+            },
+            {
+              "name": "extraData",
+              "type": "bytes32",
+              "internalType": "bytes32"
+            }
+          ]
         }
       ],
-      "stateMutability": "view",
-      "type": "function"
+      "stateMutability": "view"
     },
     {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "challengeKey",
-          "type": "uint256"
-        }
-      ],
+      "type": "function",
       "name": "fraudChallenges",
+      "inputs": [
+        {
+          "name": "challengeKey",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
       "outputs": [
         {
-          "components": [
-            {
-              "internalType": "address",
-              "name": "challenger",
-              "type": "address"
-            },
-            {
-              "internalType": "uint256",
-              "name": "depositAmount",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint32",
-              "name": "reportedAt",
-              "type": "uint32"
-            },
-            {
-              "internalType": "bool",
-              "name": "resolved",
-              "type": "bool"
-            }
-          ],
+          "name": "",
+          "type": "tuple",
           "internalType": "struct Fraud.FraudChallenge",
-          "name": "",
-          "type": "tuple"
+          "components": [
+            {
+              "name": "challenger",
+              "type": "address",
+              "internalType": "address"
+            },
+            {
+              "name": "depositAmount",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "reportedAt",
+              "type": "uint32",
+              "internalType": "uint32"
+            },
+            {
+              "name": "resolved",
+              "type": "bool",
+              "internalType": "bool"
+            }
+          ]
         }
       ],
-      "stateMutability": "view",
-      "type": "function"
+      "stateMutability": "view"
     },
     {
-      "inputs": [],
+      "type": "function",
       "name": "fraudParameters",
+      "inputs": [],
       "outputs": [
         {
-          "internalType": "uint96",
           "name": "fraudChallengeDepositAmount",
-          "type": "uint96"
+          "type": "uint96",
+          "internalType": "uint96"
         },
         {
-          "internalType": "uint32",
           "name": "fraudChallengeDefeatTimeout",
-          "type": "uint32"
+          "type": "uint32",
+          "internalType": "uint32"
         },
         {
-          "internalType": "uint96",
           "name": "fraudSlashingAmount",
-          "type": "uint96"
+          "type": "uint96",
+          "internalType": "uint96"
         },
         {
-          "internalType": "uint32",
           "name": "fraudNotifierRewardMultiplier",
-          "type": "uint32"
+          "type": "uint32",
+          "internalType": "uint32"
         }
       ],
-      "stateMutability": "view",
-      "type": "function"
+      "stateMutability": "view"
     },
     {
-      "inputs": [],
+      "type": "function",
       "name": "getRedemptionWatchtower",
+      "inputs": [],
       "outputs": [
         {
-          "internalType": "address",
           "name": "",
-          "type": "address"
+          "type": "address",
+          "internalType": "address"
         }
       ],
-      "stateMutability": "view",
-      "type": "function"
+      "stateMutability": "view"
     },
     {
-      "inputs": [],
+      "type": "function",
       "name": "governance",
+      "inputs": [],
       "outputs": [
         {
-          "internalType": "address",
           "name": "",
-          "type": "address"
+          "type": "address",
+          "internalType": "address"
         }
       ],
-      "stateMutability": "view",
-      "type": "function"
+      "stateMutability": "view"
     },
     {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "_bank",
-          "type": "address"
-        },
-        {
-          "internalType": "address",
-          "name": "_relay",
-          "type": "address"
-        },
-        {
-          "internalType": "address",
-          "name": "_treasury",
-          "type": "address"
-        },
-        {
-          "internalType": "address",
-          "name": "_ecdsaWalletRegistry",
-          "type": "address"
-        },
-        {
-          "internalType": "address payable",
-          "name": "_reimbursementPool",
-          "type": "address"
-        },
-        {
-          "internalType": "uint96",
-          "name": "_txProofDifficultyFactor",
-          "type": "uint96"
-        }
-      ],
+      "type": "function",
       "name": "initialize",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
       "inputs": [
         {
-          "internalType": "address",
-          "name": "vault",
-          "type": "address"
+          "name": "_bank",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "_relay",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "_treasury",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "_ecdsaWalletRegistry",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "_reimbursementPool",
+          "type": "address",
+          "internalType": "address payable"
+        },
+        {
+          "name": "_txProofDifficultyFactor",
+          "type": "uint96",
+          "internalType": "uint96"
         }
       ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "initializeV2_FixVaultZeroDeposit",
+      "inputs": [],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
       "name": "isVaultTrusted",
-      "outputs": [
+      "inputs": [
         {
-          "internalType": "bool",
-          "name": "",
-          "type": "bool"
+          "name": "vault",
+          "type": "address",
+          "internalType": "address"
         }
       ],
-      "stateMutability": "view",
-      "type": "function"
+      "outputs": [
+        {
+          "name": "",
+          "type": "bool",
+          "internalType": "bool"
+        }
+      ],
+      "stateMutability": "view"
     },
     {
-      "inputs": [],
+      "type": "function",
       "name": "liveWalletsCount",
+      "inputs": [],
       "outputs": [
         {
-          "internalType": "uint32",
           "name": "",
-          "type": "uint32"
+          "type": "uint32",
+          "internalType": "uint32"
         }
       ],
-      "stateMutability": "view",
-      "type": "function"
+      "stateMutability": "view"
     },
     {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "requestKey",
-          "type": "uint256"
-        }
-      ],
+      "type": "function",
       "name": "movedFundsSweepRequests",
+      "inputs": [
+        {
+          "name": "requestKey",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
       "outputs": [
         {
-          "components": [
-            {
-              "internalType": "bytes20",
-              "name": "walletPubKeyHash",
-              "type": "bytes20"
-            },
-            {
-              "internalType": "uint64",
-              "name": "value",
-              "type": "uint64"
-            },
-            {
-              "internalType": "uint32",
-              "name": "createdAt",
-              "type": "uint32"
-            },
-            {
-              "internalType": "enum MovingFunds.MovedFundsSweepRequestState",
-              "name": "state",
-              "type": "uint8"
-            }
-          ],
+          "name": "",
+          "type": "tuple",
           "internalType": "struct MovingFunds.MovedFundsSweepRequest",
-          "name": "",
-          "type": "tuple"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "movingFundsParameters",
-      "outputs": [
-        {
-          "internalType": "uint64",
-          "name": "movingFundsTxMaxTotalFee",
-          "type": "uint64"
-        },
-        {
-          "internalType": "uint64",
-          "name": "movingFundsDustThreshold",
-          "type": "uint64"
-        },
-        {
-          "internalType": "uint32",
-          "name": "movingFundsTimeoutResetDelay",
-          "type": "uint32"
-        },
-        {
-          "internalType": "uint32",
-          "name": "movingFundsTimeout",
-          "type": "uint32"
-        },
-        {
-          "internalType": "uint96",
-          "name": "movingFundsTimeoutSlashingAmount",
-          "type": "uint96"
-        },
-        {
-          "internalType": "uint32",
-          "name": "movingFundsTimeoutNotifierRewardMultiplier",
-          "type": "uint32"
-        },
-        {
-          "internalType": "uint16",
-          "name": "movingFundsCommitmentGasOffset",
-          "type": "uint16"
-        },
-        {
-          "internalType": "uint64",
-          "name": "movedFundsSweepTxMaxTotalFee",
-          "type": "uint64"
-        },
-        {
-          "internalType": "uint32",
-          "name": "movedFundsSweepTimeout",
-          "type": "uint32"
-        },
-        {
-          "internalType": "uint96",
-          "name": "movedFundsSweepTimeoutSlashingAmount",
-          "type": "uint96"
-        },
-        {
-          "internalType": "uint32",
-          "name": "movedFundsSweepTimeoutNotifierRewardMultiplier",
-          "type": "uint32"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes",
-          "name": "walletPublicKey",
-          "type": "bytes"
-        },
-        {
-          "internalType": "uint32[]",
-          "name": "walletMembersIDs",
-          "type": "uint32[]"
-        },
-        {
-          "internalType": "bytes",
-          "name": "preimageSha256",
-          "type": "bytes"
-        }
-      ],
-      "name": "notifyFraudChallengeDefeatTimeout",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes32",
-          "name": "movingFundsTxHash",
-          "type": "bytes32"
-        },
-        {
-          "internalType": "uint32",
-          "name": "movingFundsTxOutputIndex",
-          "type": "uint32"
-        },
-        {
-          "internalType": "uint32[]",
-          "name": "walletMembersIDs",
-          "type": "uint32[]"
-        }
-      ],
-      "name": "notifyMovedFundsSweepTimeout",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes20",
-          "name": "walletPubKeyHash",
-          "type": "bytes20"
-        },
-        {
           "components": [
             {
-              "internalType": "bytes32",
-              "name": "txHash",
-              "type": "bytes32"
-            },
-            {
-              "internalType": "uint32",
-              "name": "txOutputIndex",
-              "type": "uint32"
-            },
-            {
-              "internalType": "uint64",
-              "name": "txOutputValue",
-              "type": "uint64"
-            }
-          ],
-          "internalType": "struct BitcoinTx.UTXO",
-          "name": "mainUtxo",
-          "type": "tuple"
-        }
-      ],
-      "name": "notifyMovingFundsBelowDust",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes20",
-          "name": "walletPubKeyHash",
-          "type": "bytes20"
-        },
-        {
-          "internalType": "uint32[]",
-          "name": "walletMembersIDs",
-          "type": "uint32[]"
-        }
-      ],
-      "name": "notifyMovingFundsTimeout",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes20",
-          "name": "walletPubKeyHash",
-          "type": "bytes20"
-        },
-        {
-          "internalType": "uint32[]",
-          "name": "walletMembersIDs",
-          "type": "uint32[]"
-        },
-        {
-          "internalType": "bytes",
-          "name": "redeemerOutputScript",
-          "type": "bytes"
-        }
-      ],
-      "name": "notifyRedemptionTimeout",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes20",
-          "name": "walletPubKeyHash",
-          "type": "bytes20"
-        },
-        {
-          "internalType": "bytes",
-          "name": "redeemerOutputScript",
-          "type": "bytes"
-        }
-      ],
-      "name": "notifyRedemptionVeto",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes20",
-          "name": "walletPubKeyHash",
-          "type": "bytes20"
-        },
-        {
-          "components": [
-            {
-              "internalType": "bytes32",
-              "name": "txHash",
-              "type": "bytes32"
-            },
-            {
-              "internalType": "uint32",
-              "name": "txOutputIndex",
-              "type": "uint32"
-            },
-            {
-              "internalType": "uint64",
-              "name": "txOutputValue",
-              "type": "uint64"
-            }
-          ],
-          "internalType": "struct BitcoinTx.UTXO",
-          "name": "walletMainUtxo",
-          "type": "tuple"
-        }
-      ],
-      "name": "notifyWalletCloseable",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes20",
-          "name": "walletPubKeyHash",
-          "type": "bytes20"
-        }
-      ],
-      "name": "notifyWalletClosingPeriodElapsed",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "redemptionKey",
-          "type": "uint256"
-        }
-      ],
-      "name": "pendingRedemptions",
-      "outputs": [
-        {
-          "components": [
-            {
-              "internalType": "address",
-              "name": "redeemer",
-              "type": "address"
-            },
-            {
-              "internalType": "uint64",
-              "name": "requestedAmount",
-              "type": "uint64"
-            },
-            {
-              "internalType": "uint64",
-              "name": "treasuryFee",
-              "type": "uint64"
-            },
-            {
-              "internalType": "uint64",
-              "name": "txMaxFee",
-              "type": "uint64"
-            },
-            {
-              "internalType": "uint32",
-              "name": "requestedAt",
-              "type": "uint32"
-            }
-          ],
-          "internalType": "struct Redemption.RedemptionRequest",
-          "name": "",
-          "type": "tuple"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "balanceOwner",
-          "type": "address"
-        },
-        {
-          "internalType": "uint256",
-          "name": "amount",
-          "type": "uint256"
-        },
-        {
-          "internalType": "bytes",
-          "name": "redemptionData",
-          "type": "bytes"
-        }
-      ],
-      "name": "receiveBalanceApproval",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "redemptionParameters",
-      "outputs": [
-        {
-          "internalType": "uint64",
-          "name": "redemptionDustThreshold",
-          "type": "uint64"
-        },
-        {
-          "internalType": "uint64",
-          "name": "redemptionTreasuryFeeDivisor",
-          "type": "uint64"
-        },
-        {
-          "internalType": "uint64",
-          "name": "redemptionTxMaxFee",
-          "type": "uint64"
-        },
-        {
-          "internalType": "uint64",
-          "name": "redemptionTxMaxTotalFee",
-          "type": "uint64"
-        },
-        {
-          "internalType": "uint32",
-          "name": "redemptionTimeout",
-          "type": "uint32"
-        },
-        {
-          "internalType": "uint96",
-          "name": "redemptionTimeoutSlashingAmount",
-          "type": "uint96"
-        },
-        {
-          "internalType": "uint32",
-          "name": "redemptionTimeoutNotifierRewardMultiplier",
-          "type": "uint32"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "components": [
-            {
-              "internalType": "bytes32",
-              "name": "txHash",
-              "type": "bytes32"
-            },
-            {
-              "internalType": "uint32",
-              "name": "txOutputIndex",
-              "type": "uint32"
-            },
-            {
-              "internalType": "uint64",
-              "name": "txOutputValue",
-              "type": "uint64"
-            }
-          ],
-          "internalType": "struct BitcoinTx.UTXO",
-          "name": "activeWalletMainUtxo",
-          "type": "tuple"
-        }
-      ],
-      "name": "requestNewWallet",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes20",
-          "name": "walletPubKeyHash",
-          "type": "bytes20"
-        },
-        {
-          "components": [
-            {
-              "internalType": "bytes32",
-              "name": "txHash",
-              "type": "bytes32"
-            },
-            {
-              "internalType": "uint32",
-              "name": "txOutputIndex",
-              "type": "uint32"
-            },
-            {
-              "internalType": "uint64",
-              "name": "txOutputValue",
-              "type": "uint64"
-            }
-          ],
-          "internalType": "struct BitcoinTx.UTXO",
-          "name": "mainUtxo",
-          "type": "tuple"
-        },
-        {
-          "internalType": "bytes",
-          "name": "redeemerOutputScript",
-          "type": "bytes"
-        },
-        {
-          "internalType": "uint64",
-          "name": "amount",
-          "type": "uint64"
-        }
-      ],
-      "name": "requestRedemption",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes20",
-          "name": "walletPubKeyHash",
-          "type": "bytes20"
-        }
-      ],
-      "name": "resetMovingFundsTimeout",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "components": [
-            {
-              "internalType": "bytes4",
-              "name": "version",
-              "type": "bytes4"
-            },
-            {
-              "internalType": "bytes",
-              "name": "inputVector",
-              "type": "bytes"
-            },
-            {
-              "internalType": "bytes",
-              "name": "outputVector",
-              "type": "bytes"
-            },
-            {
-              "internalType": "bytes4",
-              "name": "locktime",
-              "type": "bytes4"
-            }
-          ],
-          "internalType": "struct BitcoinTx.Info",
-          "name": "fundingTx",
-          "type": "tuple"
-        },
-        {
-          "components": [
-            {
-              "internalType": "uint32",
-              "name": "fundingOutputIndex",
-              "type": "uint32"
-            },
-            {
-              "internalType": "bytes8",
-              "name": "blindingFactor",
-              "type": "bytes8"
-            },
-            {
-              "internalType": "bytes20",
               "name": "walletPubKeyHash",
-              "type": "bytes20"
+              "type": "bytes20",
+              "internalType": "bytes20"
             },
             {
-              "internalType": "bytes20",
-              "name": "refundPubKeyHash",
-              "type": "bytes20"
+              "name": "value",
+              "type": "uint64",
+              "internalType": "uint64"
             },
             {
-              "internalType": "bytes4",
-              "name": "refundLocktime",
-              "type": "bytes4"
-            },
-            {
-              "internalType": "address",
-              "name": "vault",
-              "type": "address"
-            }
-          ],
-          "internalType": "struct Deposit.DepositRevealInfo",
-          "name": "reveal",
-          "type": "tuple"
-        }
-      ],
-      "name": "revealDeposit",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "components": [
-            {
-              "internalType": "bytes4",
-              "name": "version",
-              "type": "bytes4"
-            },
-            {
-              "internalType": "bytes",
-              "name": "inputVector",
-              "type": "bytes"
-            },
-            {
-              "internalType": "bytes",
-              "name": "outputVector",
-              "type": "bytes"
-            },
-            {
-              "internalType": "bytes4",
-              "name": "locktime",
-              "type": "bytes4"
-            }
-          ],
-          "internalType": "struct BitcoinTx.Info",
-          "name": "fundingTx",
-          "type": "tuple"
-        },
-        {
-          "components": [
-            {
-              "internalType": "uint32",
-              "name": "fundingOutputIndex",
-              "type": "uint32"
-            },
-            {
-              "internalType": "bytes8",
-              "name": "blindingFactor",
-              "type": "bytes8"
-            },
-            {
-              "internalType": "bytes20",
-              "name": "walletPubKeyHash",
-              "type": "bytes20"
-            },
-            {
-              "internalType": "bytes20",
-              "name": "refundPubKeyHash",
-              "type": "bytes20"
-            },
-            {
-              "internalType": "bytes4",
-              "name": "refundLocktime",
-              "type": "bytes4"
-            },
-            {
-              "internalType": "address",
-              "name": "vault",
-              "type": "address"
-            }
-          ],
-          "internalType": "struct Deposit.DepositRevealInfo",
-          "name": "reveal",
-          "type": "tuple"
-        },
-        {
-          "internalType": "bytes32",
-          "name": "extraData",
-          "type": "bytes32"
-        }
-      ],
-      "name": "revealDepositWithExtraData",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "redemptionWatchtower",
-          "type": "address"
-        }
-      ],
-      "name": "setRedemptionWatchtower",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "spvMaintainer",
-          "type": "address"
-        },
-        {
-          "internalType": "bool",
-          "name": "isTrusted",
-          "type": "bool"
-        }
-      ],
-      "name": "setSpvMaintainerStatus",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "vault",
-          "type": "address"
-        },
-        {
-          "internalType": "bool",
-          "name": "isTrusted",
-          "type": "bool"
-        }
-      ],
-      "name": "setVaultStatus",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "utxoKey",
-          "type": "uint256"
-        }
-      ],
-      "name": "spentMainUTXOs",
-      "outputs": [
-        {
-          "internalType": "bool",
-          "name": "",
-          "type": "bool"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "components": [
-            {
-              "internalType": "bytes4",
-              "name": "version",
-              "type": "bytes4"
-            },
-            {
-              "internalType": "bytes",
-              "name": "inputVector",
-              "type": "bytes"
-            },
-            {
-              "internalType": "bytes",
-              "name": "outputVector",
-              "type": "bytes"
-            },
-            {
-              "internalType": "bytes4",
-              "name": "locktime",
-              "type": "bytes4"
-            }
-          ],
-          "internalType": "struct BitcoinTx.Info",
-          "name": "sweepTx",
-          "type": "tuple"
-        },
-        {
-          "components": [
-            {
-              "internalType": "bytes",
-              "name": "merkleProof",
-              "type": "bytes"
-            },
-            {
-              "internalType": "uint256",
-              "name": "txIndexInBlock",
-              "type": "uint256"
-            },
-            {
-              "internalType": "bytes",
-              "name": "bitcoinHeaders",
-              "type": "bytes"
-            },
-            {
-              "internalType": "bytes32",
-              "name": "coinbasePreimage",
-              "type": "bytes32"
-            },
-            {
-              "internalType": "bytes",
-              "name": "coinbaseProof",
-              "type": "bytes"
-            }
-          ],
-          "internalType": "struct BitcoinTx.Proof",
-          "name": "sweepProof",
-          "type": "tuple"
-        },
-        {
-          "components": [
-            {
-              "internalType": "bytes32",
-              "name": "txHash",
-              "type": "bytes32"
-            },
-            {
-              "internalType": "uint32",
-              "name": "txOutputIndex",
-              "type": "uint32"
-            },
-            {
-              "internalType": "uint64",
-              "name": "txOutputValue",
-              "type": "uint64"
-            }
-          ],
-          "internalType": "struct BitcoinTx.UTXO",
-          "name": "mainUtxo",
-          "type": "tuple"
-        },
-        {
-          "internalType": "address",
-          "name": "vault",
-          "type": "address"
-        }
-      ],
-      "name": "submitDepositSweepProof",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes",
-          "name": "walletPublicKey",
-          "type": "bytes"
-        },
-        {
-          "internalType": "bytes",
-          "name": "preimageSha256",
-          "type": "bytes"
-        },
-        {
-          "components": [
-            {
-              "internalType": "bytes32",
-              "name": "r",
-              "type": "bytes32"
-            },
-            {
-              "internalType": "bytes32",
-              "name": "s",
-              "type": "bytes32"
-            },
-            {
-              "internalType": "uint8",
-              "name": "v",
-              "type": "uint8"
-            }
-          ],
-          "internalType": "struct BitcoinTx.RSVSignature",
-          "name": "signature",
-          "type": "tuple"
-        }
-      ],
-      "name": "submitFraudChallenge",
-      "outputs": [],
-      "stateMutability": "payable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "components": [
-            {
-              "internalType": "bytes4",
-              "name": "version",
-              "type": "bytes4"
-            },
-            {
-              "internalType": "bytes",
-              "name": "inputVector",
-              "type": "bytes"
-            },
-            {
-              "internalType": "bytes",
-              "name": "outputVector",
-              "type": "bytes"
-            },
-            {
-              "internalType": "bytes4",
-              "name": "locktime",
-              "type": "bytes4"
-            }
-          ],
-          "internalType": "struct BitcoinTx.Info",
-          "name": "sweepTx",
-          "type": "tuple"
-        },
-        {
-          "components": [
-            {
-              "internalType": "bytes",
-              "name": "merkleProof",
-              "type": "bytes"
-            },
-            {
-              "internalType": "uint256",
-              "name": "txIndexInBlock",
-              "type": "uint256"
-            },
-            {
-              "internalType": "bytes",
-              "name": "bitcoinHeaders",
-              "type": "bytes"
-            },
-            {
-              "internalType": "bytes32",
-              "name": "coinbasePreimage",
-              "type": "bytes32"
-            },
-            {
-              "internalType": "bytes",
-              "name": "coinbaseProof",
-              "type": "bytes"
-            }
-          ],
-          "internalType": "struct BitcoinTx.Proof",
-          "name": "sweepProof",
-          "type": "tuple"
-        },
-        {
-          "components": [
-            {
-              "internalType": "bytes32",
-              "name": "txHash",
-              "type": "bytes32"
-            },
-            {
-              "internalType": "uint32",
-              "name": "txOutputIndex",
-              "type": "uint32"
-            },
-            {
-              "internalType": "uint64",
-              "name": "txOutputValue",
-              "type": "uint64"
-            }
-          ],
-          "internalType": "struct BitcoinTx.UTXO",
-          "name": "mainUtxo",
-          "type": "tuple"
-        }
-      ],
-      "name": "submitMovedFundsSweepProof",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes20",
-          "name": "walletPubKeyHash",
-          "type": "bytes20"
-        },
-        {
-          "components": [
-            {
-              "internalType": "bytes32",
-              "name": "txHash",
-              "type": "bytes32"
-            },
-            {
-              "internalType": "uint32",
-              "name": "txOutputIndex",
-              "type": "uint32"
-            },
-            {
-              "internalType": "uint64",
-              "name": "txOutputValue",
-              "type": "uint64"
-            }
-          ],
-          "internalType": "struct BitcoinTx.UTXO",
-          "name": "walletMainUtxo",
-          "type": "tuple"
-        },
-        {
-          "internalType": "uint32[]",
-          "name": "walletMembersIDs",
-          "type": "uint32[]"
-        },
-        {
-          "internalType": "uint256",
-          "name": "walletMemberIndex",
-          "type": "uint256"
-        },
-        {
-          "internalType": "bytes20[]",
-          "name": "targetWallets",
-          "type": "bytes20[]"
-        }
-      ],
-      "name": "submitMovingFundsCommitment",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "components": [
-            {
-              "internalType": "bytes4",
-              "name": "version",
-              "type": "bytes4"
-            },
-            {
-              "internalType": "bytes",
-              "name": "inputVector",
-              "type": "bytes"
-            },
-            {
-              "internalType": "bytes",
-              "name": "outputVector",
-              "type": "bytes"
-            },
-            {
-              "internalType": "bytes4",
-              "name": "locktime",
-              "type": "bytes4"
-            }
-          ],
-          "internalType": "struct BitcoinTx.Info",
-          "name": "movingFundsTx",
-          "type": "tuple"
-        },
-        {
-          "components": [
-            {
-              "internalType": "bytes",
-              "name": "merkleProof",
-              "type": "bytes"
-            },
-            {
-              "internalType": "uint256",
-              "name": "txIndexInBlock",
-              "type": "uint256"
-            },
-            {
-              "internalType": "bytes",
-              "name": "bitcoinHeaders",
-              "type": "bytes"
-            },
-            {
-              "internalType": "bytes32",
-              "name": "coinbasePreimage",
-              "type": "bytes32"
-            },
-            {
-              "internalType": "bytes",
-              "name": "coinbaseProof",
-              "type": "bytes"
-            }
-          ],
-          "internalType": "struct BitcoinTx.Proof",
-          "name": "movingFundsProof",
-          "type": "tuple"
-        },
-        {
-          "components": [
-            {
-              "internalType": "bytes32",
-              "name": "txHash",
-              "type": "bytes32"
-            },
-            {
-              "internalType": "uint32",
-              "name": "txOutputIndex",
-              "type": "uint32"
-            },
-            {
-              "internalType": "uint64",
-              "name": "txOutputValue",
-              "type": "uint64"
-            }
-          ],
-          "internalType": "struct BitcoinTx.UTXO",
-          "name": "mainUtxo",
-          "type": "tuple"
-        },
-        {
-          "internalType": "bytes20",
-          "name": "walletPubKeyHash",
-          "type": "bytes20"
-        }
-      ],
-      "name": "submitMovingFundsProof",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "components": [
-            {
-              "internalType": "bytes4",
-              "name": "version",
-              "type": "bytes4"
-            },
-            {
-              "internalType": "bytes",
-              "name": "inputVector",
-              "type": "bytes"
-            },
-            {
-              "internalType": "bytes",
-              "name": "outputVector",
-              "type": "bytes"
-            },
-            {
-              "internalType": "bytes4",
-              "name": "locktime",
-              "type": "bytes4"
-            }
-          ],
-          "internalType": "struct BitcoinTx.Info",
-          "name": "redemptionTx",
-          "type": "tuple"
-        },
-        {
-          "components": [
-            {
-              "internalType": "bytes",
-              "name": "merkleProof",
-              "type": "bytes"
-            },
-            {
-              "internalType": "uint256",
-              "name": "txIndexInBlock",
-              "type": "uint256"
-            },
-            {
-              "internalType": "bytes",
-              "name": "bitcoinHeaders",
-              "type": "bytes"
-            },
-            {
-              "internalType": "bytes32",
-              "name": "coinbasePreimage",
-              "type": "bytes32"
-            },
-            {
-              "internalType": "bytes",
-              "name": "coinbaseProof",
-              "type": "bytes"
-            }
-          ],
-          "internalType": "struct BitcoinTx.Proof",
-          "name": "redemptionProof",
-          "type": "tuple"
-        },
-        {
-          "components": [
-            {
-              "internalType": "bytes32",
-              "name": "txHash",
-              "type": "bytes32"
-            },
-            {
-              "internalType": "uint32",
-              "name": "txOutputIndex",
-              "type": "uint32"
-            },
-            {
-              "internalType": "uint64",
-              "name": "txOutputValue",
-              "type": "uint64"
-            }
-          ],
-          "internalType": "struct BitcoinTx.UTXO",
-          "name": "mainUtxo",
-          "type": "tuple"
-        },
-        {
-          "internalType": "bytes20",
-          "name": "walletPubKeyHash",
-          "type": "bytes20"
-        }
-      ],
-      "name": "submitRedemptionProof",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "redemptionKey",
-          "type": "uint256"
-        }
-      ],
-      "name": "timedOutRedemptions",
-      "outputs": [
-        {
-          "components": [
-            {
-              "internalType": "address",
-              "name": "redeemer",
-              "type": "address"
-            },
-            {
-              "internalType": "uint64",
-              "name": "requestedAmount",
-              "type": "uint64"
-            },
-            {
-              "internalType": "uint64",
-              "name": "treasuryFee",
-              "type": "uint64"
-            },
-            {
-              "internalType": "uint64",
-              "name": "txMaxFee",
-              "type": "uint64"
-            },
-            {
-              "internalType": "uint32",
-              "name": "requestedAt",
-              "type": "uint32"
-            }
-          ],
-          "internalType": "struct Redemption.RedemptionRequest",
-          "name": "",
-          "type": "tuple"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "newGovernance",
-          "type": "address"
-        }
-      ],
-      "name": "transferGovernance",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "treasury",
-      "outputs": [
-        {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "txProofDifficultyFactor",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint64",
-          "name": "depositDustThreshold",
-          "type": "uint64"
-        },
-        {
-          "internalType": "uint64",
-          "name": "depositTreasuryFeeDivisor",
-          "type": "uint64"
-        },
-        {
-          "internalType": "uint64",
-          "name": "depositTxMaxFee",
-          "type": "uint64"
-        },
-        {
-          "internalType": "uint32",
-          "name": "depositRevealAheadPeriod",
-          "type": "uint32"
-        }
-      ],
-      "name": "updateDepositParameters",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint96",
-          "name": "fraudChallengeDepositAmount",
-          "type": "uint96"
-        },
-        {
-          "internalType": "uint32",
-          "name": "fraudChallengeDefeatTimeout",
-          "type": "uint32"
-        },
-        {
-          "internalType": "uint96",
-          "name": "fraudSlashingAmount",
-          "type": "uint96"
-        },
-        {
-          "internalType": "uint32",
-          "name": "fraudNotifierRewardMultiplier",
-          "type": "uint32"
-        }
-      ],
-      "name": "updateFraudParameters",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint64",
-          "name": "movingFundsTxMaxTotalFee",
-          "type": "uint64"
-        },
-        {
-          "internalType": "uint64",
-          "name": "movingFundsDustThreshold",
-          "type": "uint64"
-        },
-        {
-          "internalType": "uint32",
-          "name": "movingFundsTimeoutResetDelay",
-          "type": "uint32"
-        },
-        {
-          "internalType": "uint32",
-          "name": "movingFundsTimeout",
-          "type": "uint32"
-        },
-        {
-          "internalType": "uint96",
-          "name": "movingFundsTimeoutSlashingAmount",
-          "type": "uint96"
-        },
-        {
-          "internalType": "uint32",
-          "name": "movingFundsTimeoutNotifierRewardMultiplier",
-          "type": "uint32"
-        },
-        {
-          "internalType": "uint16",
-          "name": "movingFundsCommitmentGasOffset",
-          "type": "uint16"
-        },
-        {
-          "internalType": "uint64",
-          "name": "movedFundsSweepTxMaxTotalFee",
-          "type": "uint64"
-        },
-        {
-          "internalType": "uint32",
-          "name": "movedFundsSweepTimeout",
-          "type": "uint32"
-        },
-        {
-          "internalType": "uint96",
-          "name": "movedFundsSweepTimeoutSlashingAmount",
-          "type": "uint96"
-        },
-        {
-          "internalType": "uint32",
-          "name": "movedFundsSweepTimeoutNotifierRewardMultiplier",
-          "type": "uint32"
-        }
-      ],
-      "name": "updateMovingFundsParameters",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint64",
-          "name": "redemptionDustThreshold",
-          "type": "uint64"
-        },
-        {
-          "internalType": "uint64",
-          "name": "redemptionTreasuryFeeDivisor",
-          "type": "uint64"
-        },
-        {
-          "internalType": "uint64",
-          "name": "redemptionTxMaxFee",
-          "type": "uint64"
-        },
-        {
-          "internalType": "uint64",
-          "name": "redemptionTxMaxTotalFee",
-          "type": "uint64"
-        },
-        {
-          "internalType": "uint32",
-          "name": "redemptionTimeout",
-          "type": "uint32"
-        },
-        {
-          "internalType": "uint96",
-          "name": "redemptionTimeoutSlashingAmount",
-          "type": "uint96"
-        },
-        {
-          "internalType": "uint32",
-          "name": "redemptionTimeoutNotifierRewardMultiplier",
-          "type": "uint32"
-        }
-      ],
-      "name": "updateRedemptionParameters",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "treasury",
-          "type": "address"
-        }
-      ],
-      "name": "updateTreasury",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint32",
-          "name": "walletCreationPeriod",
-          "type": "uint32"
-        },
-        {
-          "internalType": "uint64",
-          "name": "walletCreationMinBtcBalance",
-          "type": "uint64"
-        },
-        {
-          "internalType": "uint64",
-          "name": "walletCreationMaxBtcBalance",
-          "type": "uint64"
-        },
-        {
-          "internalType": "uint64",
-          "name": "walletClosureMinBtcBalance",
-          "type": "uint64"
-        },
-        {
-          "internalType": "uint32",
-          "name": "walletMaxAge",
-          "type": "uint32"
-        },
-        {
-          "internalType": "uint64",
-          "name": "walletMaxBtcTransfer",
-          "type": "uint64"
-        },
-        {
-          "internalType": "uint32",
-          "name": "walletClosingPeriod",
-          "type": "uint32"
-        }
-      ],
-      "name": "updateWalletParameters",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "walletParameters",
-      "outputs": [
-        {
-          "internalType": "uint32",
-          "name": "walletCreationPeriod",
-          "type": "uint32"
-        },
-        {
-          "internalType": "uint64",
-          "name": "walletCreationMinBtcBalance",
-          "type": "uint64"
-        },
-        {
-          "internalType": "uint64",
-          "name": "walletCreationMaxBtcBalance",
-          "type": "uint64"
-        },
-        {
-          "internalType": "uint64",
-          "name": "walletClosureMinBtcBalance",
-          "type": "uint64"
-        },
-        {
-          "internalType": "uint32",
-          "name": "walletMaxAge",
-          "type": "uint32"
-        },
-        {
-          "internalType": "uint64",
-          "name": "walletMaxBtcTransfer",
-          "type": "uint64"
-        },
-        {
-          "internalType": "uint32",
-          "name": "walletClosingPeriod",
-          "type": "uint32"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes20",
-          "name": "walletPubKeyHash",
-          "type": "bytes20"
-        }
-      ],
-      "name": "wallets",
-      "outputs": [
-        {
-          "components": [
-            {
-              "internalType": "bytes32",
-              "name": "ecdsaWalletID",
-              "type": "bytes32"
-            },
-            {
-              "internalType": "bytes32",
-              "name": "mainUtxoHash",
-              "type": "bytes32"
-            },
-            {
-              "internalType": "uint64",
-              "name": "pendingRedemptionsValue",
-              "type": "uint64"
-            },
-            {
-              "internalType": "uint32",
               "name": "createdAt",
-              "type": "uint32"
+              "type": "uint32",
+              "internalType": "uint32"
             },
             {
-              "internalType": "uint32",
-              "name": "movingFundsRequestedAt",
-              "type": "uint32"
-            },
-            {
-              "internalType": "uint32",
-              "name": "closingStartedAt",
-              "type": "uint32"
-            },
-            {
-              "internalType": "uint32",
-              "name": "pendingMovedFundsSweepRequestsCount",
-              "type": "uint32"
-            },
-            {
-              "internalType": "enum Wallets.WalletState",
               "name": "state",
-              "type": "uint8"
-            },
-            {
-              "internalType": "bytes32",
-              "name": "movingFundsTargetWalletsCommitmentHash",
-              "type": "bytes32"
+              "type": "uint8",
+              "internalType": "enum MovingFunds.MovedFundsSweepRequestState"
             }
-          ],
-          "internalType": "struct Wallets.Wallet",
-          "name": "",
-          "type": "tuple"
+          ]
         }
       ],
-      "stateMutability": "view",
-      "type": "function"
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "movingFundsParameters",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "movingFundsTxMaxTotalFee",
+          "type": "uint64",
+          "internalType": "uint64"
+        },
+        {
+          "name": "movingFundsDustThreshold",
+          "type": "uint64",
+          "internalType": "uint64"
+        },
+        {
+          "name": "movingFundsTimeoutResetDelay",
+          "type": "uint32",
+          "internalType": "uint32"
+        },
+        {
+          "name": "movingFundsTimeout",
+          "type": "uint32",
+          "internalType": "uint32"
+        },
+        {
+          "name": "movingFundsTimeoutSlashingAmount",
+          "type": "uint96",
+          "internalType": "uint96"
+        },
+        {
+          "name": "movingFundsTimeoutNotifierRewardMultiplier",
+          "type": "uint32",
+          "internalType": "uint32"
+        },
+        {
+          "name": "movingFundsCommitmentGasOffset",
+          "type": "uint16",
+          "internalType": "uint16"
+        },
+        {
+          "name": "movedFundsSweepTxMaxTotalFee",
+          "type": "uint64",
+          "internalType": "uint64"
+        },
+        {
+          "name": "movedFundsSweepTimeout",
+          "type": "uint32",
+          "internalType": "uint32"
+        },
+        {
+          "name": "movedFundsSweepTimeoutSlashingAmount",
+          "type": "uint96",
+          "internalType": "uint96"
+        },
+        {
+          "name": "movedFundsSweepTimeoutNotifierRewardMultiplier",
+          "type": "uint32",
+          "internalType": "uint32"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "notifyFraudChallengeDefeatTimeout",
+      "inputs": [
+        {
+          "name": "walletPublicKey",
+          "type": "bytes",
+          "internalType": "bytes"
+        },
+        {
+          "name": "walletMembersIDs",
+          "type": "uint32[]",
+          "internalType": "uint32[]"
+        },
+        {
+          "name": "preimageSha256",
+          "type": "bytes",
+          "internalType": "bytes"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "notifyMovedFundsSweepTimeout",
+      "inputs": [
+        {
+          "name": "movingFundsTxHash",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        },
+        {
+          "name": "movingFundsTxOutputIndex",
+          "type": "uint32",
+          "internalType": "uint32"
+        },
+        {
+          "name": "walletMembersIDs",
+          "type": "uint32[]",
+          "internalType": "uint32[]"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "notifyMovingFundsBelowDust",
+      "inputs": [
+        {
+          "name": "walletPubKeyHash",
+          "type": "bytes20",
+          "internalType": "bytes20"
+        },
+        {
+          "name": "mainUtxo",
+          "type": "tuple",
+          "internalType": "struct BitcoinTx.UTXO",
+          "components": [
+            {
+              "name": "txHash",
+              "type": "bytes32",
+              "internalType": "bytes32"
+            },
+            {
+              "name": "txOutputIndex",
+              "type": "uint32",
+              "internalType": "uint32"
+            },
+            {
+              "name": "txOutputValue",
+              "type": "uint64",
+              "internalType": "uint64"
+            }
+          ]
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "notifyMovingFundsTimeout",
+      "inputs": [
+        {
+          "name": "walletPubKeyHash",
+          "type": "bytes20",
+          "internalType": "bytes20"
+        },
+        {
+          "name": "walletMembersIDs",
+          "type": "uint32[]",
+          "internalType": "uint32[]"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "notifyRedemptionTimeout",
+      "inputs": [
+        {
+          "name": "walletPubKeyHash",
+          "type": "bytes20",
+          "internalType": "bytes20"
+        },
+        {
+          "name": "walletMembersIDs",
+          "type": "uint32[]",
+          "internalType": "uint32[]"
+        },
+        {
+          "name": "redeemerOutputScript",
+          "type": "bytes",
+          "internalType": "bytes"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "notifyRedemptionVeto",
+      "inputs": [
+        {
+          "name": "walletPubKeyHash",
+          "type": "bytes20",
+          "internalType": "bytes20"
+        },
+        {
+          "name": "redeemerOutputScript",
+          "type": "bytes",
+          "internalType": "bytes"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "notifyWalletCloseable",
+      "inputs": [
+        {
+          "name": "walletPubKeyHash",
+          "type": "bytes20",
+          "internalType": "bytes20"
+        },
+        {
+          "name": "walletMainUtxo",
+          "type": "tuple",
+          "internalType": "struct BitcoinTx.UTXO",
+          "components": [
+            {
+              "name": "txHash",
+              "type": "bytes32",
+              "internalType": "bytes32"
+            },
+            {
+              "name": "txOutputIndex",
+              "type": "uint32",
+              "internalType": "uint32"
+            },
+            {
+              "name": "txOutputValue",
+              "type": "uint64",
+              "internalType": "uint64"
+            }
+          ]
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "notifyWalletClosingPeriodElapsed",
+      "inputs": [
+        {
+          "name": "walletPubKeyHash",
+          "type": "bytes20",
+          "internalType": "bytes20"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "pendingRedemptions",
+      "inputs": [
+        {
+          "name": "redemptionKey",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "tuple",
+          "internalType": "struct Redemption.RedemptionRequest",
+          "components": [
+            {
+              "name": "redeemer",
+              "type": "address",
+              "internalType": "address"
+            },
+            {
+              "name": "requestedAmount",
+              "type": "uint64",
+              "internalType": "uint64"
+            },
+            {
+              "name": "treasuryFee",
+              "type": "uint64",
+              "internalType": "uint64"
+            },
+            {
+              "name": "txMaxFee",
+              "type": "uint64",
+              "internalType": "uint64"
+            },
+            {
+              "name": "requestedAt",
+              "type": "uint32",
+              "internalType": "uint32"
+            }
+          ]
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "receiveBalanceApproval",
+      "inputs": [
+        {
+          "name": "balanceOwner",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "redemptionData",
+          "type": "bytes",
+          "internalType": "bytes"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "redemptionParameters",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "redemptionDustThreshold",
+          "type": "uint64",
+          "internalType": "uint64"
+        },
+        {
+          "name": "redemptionTreasuryFeeDivisor",
+          "type": "uint64",
+          "internalType": "uint64"
+        },
+        {
+          "name": "redemptionTxMaxFee",
+          "type": "uint64",
+          "internalType": "uint64"
+        },
+        {
+          "name": "redemptionTxMaxTotalFee",
+          "type": "uint64",
+          "internalType": "uint64"
+        },
+        {
+          "name": "redemptionTimeout",
+          "type": "uint32",
+          "internalType": "uint32"
+        },
+        {
+          "name": "redemptionTimeoutSlashingAmount",
+          "type": "uint96",
+          "internalType": "uint96"
+        },
+        {
+          "name": "redemptionTimeoutNotifierRewardMultiplier",
+          "type": "uint32",
+          "internalType": "uint32"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "requestNewWallet",
+      "inputs": [
+        {
+          "name": "activeWalletMainUtxo",
+          "type": "tuple",
+          "internalType": "struct BitcoinTx.UTXO",
+          "components": [
+            {
+              "name": "txHash",
+              "type": "bytes32",
+              "internalType": "bytes32"
+            },
+            {
+              "name": "txOutputIndex",
+              "type": "uint32",
+              "internalType": "uint32"
+            },
+            {
+              "name": "txOutputValue",
+              "type": "uint64",
+              "internalType": "uint64"
+            }
+          ]
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "requestRedemption",
+      "inputs": [
+        {
+          "name": "walletPubKeyHash",
+          "type": "bytes20",
+          "internalType": "bytes20"
+        },
+        {
+          "name": "mainUtxo",
+          "type": "tuple",
+          "internalType": "struct BitcoinTx.UTXO",
+          "components": [
+            {
+              "name": "txHash",
+              "type": "bytes32",
+              "internalType": "bytes32"
+            },
+            {
+              "name": "txOutputIndex",
+              "type": "uint32",
+              "internalType": "uint32"
+            },
+            {
+              "name": "txOutputValue",
+              "type": "uint64",
+              "internalType": "uint64"
+            }
+          ]
+        },
+        {
+          "name": "redeemerOutputScript",
+          "type": "bytes",
+          "internalType": "bytes"
+        },
+        {
+          "name": "amount",
+          "type": "uint64",
+          "internalType": "uint64"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "resetMovingFundsTimeout",
+      "inputs": [
+        {
+          "name": "walletPubKeyHash",
+          "type": "bytes20",
+          "internalType": "bytes20"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "revealDeposit",
+      "inputs": [
+        {
+          "name": "fundingTx",
+          "type": "tuple",
+          "internalType": "struct BitcoinTx.Info",
+          "components": [
+            {
+              "name": "version",
+              "type": "bytes4",
+              "internalType": "bytes4"
+            },
+            {
+              "name": "inputVector",
+              "type": "bytes",
+              "internalType": "bytes"
+            },
+            {
+              "name": "outputVector",
+              "type": "bytes",
+              "internalType": "bytes"
+            },
+            {
+              "name": "locktime",
+              "type": "bytes4",
+              "internalType": "bytes4"
+            }
+          ]
+        },
+        {
+          "name": "reveal",
+          "type": "tuple",
+          "internalType": "struct Deposit.DepositRevealInfo",
+          "components": [
+            {
+              "name": "fundingOutputIndex",
+              "type": "uint32",
+              "internalType": "uint32"
+            },
+            {
+              "name": "blindingFactor",
+              "type": "bytes8",
+              "internalType": "bytes8"
+            },
+            {
+              "name": "walletPubKeyHash",
+              "type": "bytes20",
+              "internalType": "bytes20"
+            },
+            {
+              "name": "refundPubKeyHash",
+              "type": "bytes20",
+              "internalType": "bytes20"
+            },
+            {
+              "name": "refundLocktime",
+              "type": "bytes4",
+              "internalType": "bytes4"
+            },
+            {
+              "name": "vault",
+              "type": "address",
+              "internalType": "address"
+            }
+          ]
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "revealDepositWithExtraData",
+      "inputs": [
+        {
+          "name": "fundingTx",
+          "type": "tuple",
+          "internalType": "struct BitcoinTx.Info",
+          "components": [
+            {
+              "name": "version",
+              "type": "bytes4",
+              "internalType": "bytes4"
+            },
+            {
+              "name": "inputVector",
+              "type": "bytes",
+              "internalType": "bytes"
+            },
+            {
+              "name": "outputVector",
+              "type": "bytes",
+              "internalType": "bytes"
+            },
+            {
+              "name": "locktime",
+              "type": "bytes4",
+              "internalType": "bytes4"
+            }
+          ]
+        },
+        {
+          "name": "reveal",
+          "type": "tuple",
+          "internalType": "struct Deposit.DepositRevealInfo",
+          "components": [
+            {
+              "name": "fundingOutputIndex",
+              "type": "uint32",
+              "internalType": "uint32"
+            },
+            {
+              "name": "blindingFactor",
+              "type": "bytes8",
+              "internalType": "bytes8"
+            },
+            {
+              "name": "walletPubKeyHash",
+              "type": "bytes20",
+              "internalType": "bytes20"
+            },
+            {
+              "name": "refundPubKeyHash",
+              "type": "bytes20",
+              "internalType": "bytes20"
+            },
+            {
+              "name": "refundLocktime",
+              "type": "bytes4",
+              "internalType": "bytes4"
+            },
+            {
+              "name": "vault",
+              "type": "address",
+              "internalType": "address"
+            }
+          ]
+        },
+        {
+          "name": "extraData",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "setRedemptionWatchtower",
+      "inputs": [
+        {
+          "name": "redemptionWatchtower",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "setSpvMaintainerStatus",
+      "inputs": [
+        {
+          "name": "spvMaintainer",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "isTrusted",
+          "type": "bool",
+          "internalType": "bool"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "setVaultStatus",
+      "inputs": [
+        {
+          "name": "vault",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "isTrusted",
+          "type": "bool",
+          "internalType": "bool"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "spentMainUTXOs",
+      "inputs": [
+        {
+          "name": "utxoKey",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "bool",
+          "internalType": "bool"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "submitDepositSweepProof",
+      "inputs": [
+        {
+          "name": "sweepTx",
+          "type": "tuple",
+          "internalType": "struct BitcoinTx.Info",
+          "components": [
+            {
+              "name": "version",
+              "type": "bytes4",
+              "internalType": "bytes4"
+            },
+            {
+              "name": "inputVector",
+              "type": "bytes",
+              "internalType": "bytes"
+            },
+            {
+              "name": "outputVector",
+              "type": "bytes",
+              "internalType": "bytes"
+            },
+            {
+              "name": "locktime",
+              "type": "bytes4",
+              "internalType": "bytes4"
+            }
+          ]
+        },
+        {
+          "name": "sweepProof",
+          "type": "tuple",
+          "internalType": "struct BitcoinTx.Proof",
+          "components": [
+            {
+              "name": "merkleProof",
+              "type": "bytes",
+              "internalType": "bytes"
+            },
+            {
+              "name": "txIndexInBlock",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "bitcoinHeaders",
+              "type": "bytes",
+              "internalType": "bytes"
+            },
+            {
+              "name": "coinbasePreimage",
+              "type": "bytes32",
+              "internalType": "bytes32"
+            },
+            {
+              "name": "coinbaseProof",
+              "type": "bytes",
+              "internalType": "bytes"
+            }
+          ]
+        },
+        {
+          "name": "mainUtxo",
+          "type": "tuple",
+          "internalType": "struct BitcoinTx.UTXO",
+          "components": [
+            {
+              "name": "txHash",
+              "type": "bytes32",
+              "internalType": "bytes32"
+            },
+            {
+              "name": "txOutputIndex",
+              "type": "uint32",
+              "internalType": "uint32"
+            },
+            {
+              "name": "txOutputValue",
+              "type": "uint64",
+              "internalType": "uint64"
+            }
+          ]
+        },
+        {
+          "name": "vault",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "submitFraudChallenge",
+      "inputs": [
+        {
+          "name": "walletPublicKey",
+          "type": "bytes",
+          "internalType": "bytes"
+        },
+        {
+          "name": "preimageSha256",
+          "type": "bytes",
+          "internalType": "bytes"
+        },
+        {
+          "name": "signature",
+          "type": "tuple",
+          "internalType": "struct BitcoinTx.RSVSignature",
+          "components": [
+            {
+              "name": "r",
+              "type": "bytes32",
+              "internalType": "bytes32"
+            },
+            {
+              "name": "s",
+              "type": "bytes32",
+              "internalType": "bytes32"
+            },
+            {
+              "name": "v",
+              "type": "uint8",
+              "internalType": "uint8"
+            }
+          ]
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "payable"
+    },
+    {
+      "type": "function",
+      "name": "submitMovedFundsSweepProof",
+      "inputs": [
+        {
+          "name": "sweepTx",
+          "type": "tuple",
+          "internalType": "struct BitcoinTx.Info",
+          "components": [
+            {
+              "name": "version",
+              "type": "bytes4",
+              "internalType": "bytes4"
+            },
+            {
+              "name": "inputVector",
+              "type": "bytes",
+              "internalType": "bytes"
+            },
+            {
+              "name": "outputVector",
+              "type": "bytes",
+              "internalType": "bytes"
+            },
+            {
+              "name": "locktime",
+              "type": "bytes4",
+              "internalType": "bytes4"
+            }
+          ]
+        },
+        {
+          "name": "sweepProof",
+          "type": "tuple",
+          "internalType": "struct BitcoinTx.Proof",
+          "components": [
+            {
+              "name": "merkleProof",
+              "type": "bytes",
+              "internalType": "bytes"
+            },
+            {
+              "name": "txIndexInBlock",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "bitcoinHeaders",
+              "type": "bytes",
+              "internalType": "bytes"
+            },
+            {
+              "name": "coinbasePreimage",
+              "type": "bytes32",
+              "internalType": "bytes32"
+            },
+            {
+              "name": "coinbaseProof",
+              "type": "bytes",
+              "internalType": "bytes"
+            }
+          ]
+        },
+        {
+          "name": "mainUtxo",
+          "type": "tuple",
+          "internalType": "struct BitcoinTx.UTXO",
+          "components": [
+            {
+              "name": "txHash",
+              "type": "bytes32",
+              "internalType": "bytes32"
+            },
+            {
+              "name": "txOutputIndex",
+              "type": "uint32",
+              "internalType": "uint32"
+            },
+            {
+              "name": "txOutputValue",
+              "type": "uint64",
+              "internalType": "uint64"
+            }
+          ]
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "submitMovingFundsCommitment",
+      "inputs": [
+        {
+          "name": "walletPubKeyHash",
+          "type": "bytes20",
+          "internalType": "bytes20"
+        },
+        {
+          "name": "walletMainUtxo",
+          "type": "tuple",
+          "internalType": "struct BitcoinTx.UTXO",
+          "components": [
+            {
+              "name": "txHash",
+              "type": "bytes32",
+              "internalType": "bytes32"
+            },
+            {
+              "name": "txOutputIndex",
+              "type": "uint32",
+              "internalType": "uint32"
+            },
+            {
+              "name": "txOutputValue",
+              "type": "uint64",
+              "internalType": "uint64"
+            }
+          ]
+        },
+        {
+          "name": "walletMembersIDs",
+          "type": "uint32[]",
+          "internalType": "uint32[]"
+        },
+        {
+          "name": "walletMemberIndex",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "targetWallets",
+          "type": "bytes20[]",
+          "internalType": "bytes20[]"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "submitMovingFundsProof",
+      "inputs": [
+        {
+          "name": "movingFundsTx",
+          "type": "tuple",
+          "internalType": "struct BitcoinTx.Info",
+          "components": [
+            {
+              "name": "version",
+              "type": "bytes4",
+              "internalType": "bytes4"
+            },
+            {
+              "name": "inputVector",
+              "type": "bytes",
+              "internalType": "bytes"
+            },
+            {
+              "name": "outputVector",
+              "type": "bytes",
+              "internalType": "bytes"
+            },
+            {
+              "name": "locktime",
+              "type": "bytes4",
+              "internalType": "bytes4"
+            }
+          ]
+        },
+        {
+          "name": "movingFundsProof",
+          "type": "tuple",
+          "internalType": "struct BitcoinTx.Proof",
+          "components": [
+            {
+              "name": "merkleProof",
+              "type": "bytes",
+              "internalType": "bytes"
+            },
+            {
+              "name": "txIndexInBlock",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "bitcoinHeaders",
+              "type": "bytes",
+              "internalType": "bytes"
+            },
+            {
+              "name": "coinbasePreimage",
+              "type": "bytes32",
+              "internalType": "bytes32"
+            },
+            {
+              "name": "coinbaseProof",
+              "type": "bytes",
+              "internalType": "bytes"
+            }
+          ]
+        },
+        {
+          "name": "mainUtxo",
+          "type": "tuple",
+          "internalType": "struct BitcoinTx.UTXO",
+          "components": [
+            {
+              "name": "txHash",
+              "type": "bytes32",
+              "internalType": "bytes32"
+            },
+            {
+              "name": "txOutputIndex",
+              "type": "uint32",
+              "internalType": "uint32"
+            },
+            {
+              "name": "txOutputValue",
+              "type": "uint64",
+              "internalType": "uint64"
+            }
+          ]
+        },
+        {
+          "name": "walletPubKeyHash",
+          "type": "bytes20",
+          "internalType": "bytes20"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "submitRedemptionProof",
+      "inputs": [
+        {
+          "name": "redemptionTx",
+          "type": "tuple",
+          "internalType": "struct BitcoinTx.Info",
+          "components": [
+            {
+              "name": "version",
+              "type": "bytes4",
+              "internalType": "bytes4"
+            },
+            {
+              "name": "inputVector",
+              "type": "bytes",
+              "internalType": "bytes"
+            },
+            {
+              "name": "outputVector",
+              "type": "bytes",
+              "internalType": "bytes"
+            },
+            {
+              "name": "locktime",
+              "type": "bytes4",
+              "internalType": "bytes4"
+            }
+          ]
+        },
+        {
+          "name": "redemptionProof",
+          "type": "tuple",
+          "internalType": "struct BitcoinTx.Proof",
+          "components": [
+            {
+              "name": "merkleProof",
+              "type": "bytes",
+              "internalType": "bytes"
+            },
+            {
+              "name": "txIndexInBlock",
+              "type": "uint256",
+              "internalType": "uint256"
+            },
+            {
+              "name": "bitcoinHeaders",
+              "type": "bytes",
+              "internalType": "bytes"
+            },
+            {
+              "name": "coinbasePreimage",
+              "type": "bytes32",
+              "internalType": "bytes32"
+            },
+            {
+              "name": "coinbaseProof",
+              "type": "bytes",
+              "internalType": "bytes"
+            }
+          ]
+        },
+        {
+          "name": "mainUtxo",
+          "type": "tuple",
+          "internalType": "struct BitcoinTx.UTXO",
+          "components": [
+            {
+              "name": "txHash",
+              "type": "bytes32",
+              "internalType": "bytes32"
+            },
+            {
+              "name": "txOutputIndex",
+              "type": "uint32",
+              "internalType": "uint32"
+            },
+            {
+              "name": "txOutputValue",
+              "type": "uint64",
+              "internalType": "uint64"
+            }
+          ]
+        },
+        {
+          "name": "walletPubKeyHash",
+          "type": "bytes20",
+          "internalType": "bytes20"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "timedOutRedemptions",
+      "inputs": [
+        {
+          "name": "redemptionKey",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "tuple",
+          "internalType": "struct Redemption.RedemptionRequest",
+          "components": [
+            {
+              "name": "redeemer",
+              "type": "address",
+              "internalType": "address"
+            },
+            {
+              "name": "requestedAmount",
+              "type": "uint64",
+              "internalType": "uint64"
+            },
+            {
+              "name": "treasuryFee",
+              "type": "uint64",
+              "internalType": "uint64"
+            },
+            {
+              "name": "txMaxFee",
+              "type": "uint64",
+              "internalType": "uint64"
+            },
+            {
+              "name": "requestedAt",
+              "type": "uint32",
+              "internalType": "uint32"
+            }
+          ]
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "transferGovernance",
+      "inputs": [
+        {
+          "name": "newGovernance",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "treasury",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "txProofDifficultyFactor",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "updateDepositParameters",
+      "inputs": [
+        {
+          "name": "depositDustThreshold",
+          "type": "uint64",
+          "internalType": "uint64"
+        },
+        {
+          "name": "depositTreasuryFeeDivisor",
+          "type": "uint64",
+          "internalType": "uint64"
+        },
+        {
+          "name": "depositTxMaxFee",
+          "type": "uint64",
+          "internalType": "uint64"
+        },
+        {
+          "name": "depositRevealAheadPeriod",
+          "type": "uint32",
+          "internalType": "uint32"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "updateFraudParameters",
+      "inputs": [
+        {
+          "name": "fraudChallengeDepositAmount",
+          "type": "uint96",
+          "internalType": "uint96"
+        },
+        {
+          "name": "fraudChallengeDefeatTimeout",
+          "type": "uint32",
+          "internalType": "uint32"
+        },
+        {
+          "name": "fraudSlashingAmount",
+          "type": "uint96",
+          "internalType": "uint96"
+        },
+        {
+          "name": "fraudNotifierRewardMultiplier",
+          "type": "uint32",
+          "internalType": "uint32"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "updateMovingFundsParameters",
+      "inputs": [
+        {
+          "name": "movingFundsTxMaxTotalFee",
+          "type": "uint64",
+          "internalType": "uint64"
+        },
+        {
+          "name": "movingFundsDustThreshold",
+          "type": "uint64",
+          "internalType": "uint64"
+        },
+        {
+          "name": "movingFundsTimeoutResetDelay",
+          "type": "uint32",
+          "internalType": "uint32"
+        },
+        {
+          "name": "movingFundsTimeout",
+          "type": "uint32",
+          "internalType": "uint32"
+        },
+        {
+          "name": "movingFundsTimeoutSlashingAmount",
+          "type": "uint96",
+          "internalType": "uint96"
+        },
+        {
+          "name": "movingFundsTimeoutNotifierRewardMultiplier",
+          "type": "uint32",
+          "internalType": "uint32"
+        },
+        {
+          "name": "movingFundsCommitmentGasOffset",
+          "type": "uint16",
+          "internalType": "uint16"
+        },
+        {
+          "name": "movedFundsSweepTxMaxTotalFee",
+          "type": "uint64",
+          "internalType": "uint64"
+        },
+        {
+          "name": "movedFundsSweepTimeout",
+          "type": "uint32",
+          "internalType": "uint32"
+        },
+        {
+          "name": "movedFundsSweepTimeoutSlashingAmount",
+          "type": "uint96",
+          "internalType": "uint96"
+        },
+        {
+          "name": "movedFundsSweepTimeoutNotifierRewardMultiplier",
+          "type": "uint32",
+          "internalType": "uint32"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "updateRedemptionParameters",
+      "inputs": [
+        {
+          "name": "redemptionDustThreshold",
+          "type": "uint64",
+          "internalType": "uint64"
+        },
+        {
+          "name": "redemptionTreasuryFeeDivisor",
+          "type": "uint64",
+          "internalType": "uint64"
+        },
+        {
+          "name": "redemptionTxMaxFee",
+          "type": "uint64",
+          "internalType": "uint64"
+        },
+        {
+          "name": "redemptionTxMaxTotalFee",
+          "type": "uint64",
+          "internalType": "uint64"
+        },
+        {
+          "name": "redemptionTimeout",
+          "type": "uint32",
+          "internalType": "uint32"
+        },
+        {
+          "name": "redemptionTimeoutSlashingAmount",
+          "type": "uint96",
+          "internalType": "uint96"
+        },
+        {
+          "name": "redemptionTimeoutNotifierRewardMultiplier",
+          "type": "uint32",
+          "internalType": "uint32"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "updateTreasury",
+      "inputs": [
+        {
+          "name": "treasury",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "updateWalletParameters",
+      "inputs": [
+        {
+          "name": "walletCreationPeriod",
+          "type": "uint32",
+          "internalType": "uint32"
+        },
+        {
+          "name": "walletCreationMinBtcBalance",
+          "type": "uint64",
+          "internalType": "uint64"
+        },
+        {
+          "name": "walletCreationMaxBtcBalance",
+          "type": "uint64",
+          "internalType": "uint64"
+        },
+        {
+          "name": "walletClosureMinBtcBalance",
+          "type": "uint64",
+          "internalType": "uint64"
+        },
+        {
+          "name": "walletMaxAge",
+          "type": "uint32",
+          "internalType": "uint32"
+        },
+        {
+          "name": "walletMaxBtcTransfer",
+          "type": "uint64",
+          "internalType": "uint64"
+        },
+        {
+          "name": "walletClosingPeriod",
+          "type": "uint32",
+          "internalType": "uint32"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "walletParameters",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "walletCreationPeriod",
+          "type": "uint32",
+          "internalType": "uint32"
+        },
+        {
+          "name": "walletCreationMinBtcBalance",
+          "type": "uint64",
+          "internalType": "uint64"
+        },
+        {
+          "name": "walletCreationMaxBtcBalance",
+          "type": "uint64",
+          "internalType": "uint64"
+        },
+        {
+          "name": "walletClosureMinBtcBalance",
+          "type": "uint64",
+          "internalType": "uint64"
+        },
+        {
+          "name": "walletMaxAge",
+          "type": "uint32",
+          "internalType": "uint32"
+        },
+        {
+          "name": "walletMaxBtcTransfer",
+          "type": "uint64",
+          "internalType": "uint64"
+        },
+        {
+          "name": "walletClosingPeriod",
+          "type": "uint32",
+          "internalType": "uint32"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "wallets",
+      "inputs": [
+        {
+          "name": "walletPubKeyHash",
+          "type": "bytes20",
+          "internalType": "bytes20"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "tuple",
+          "internalType": "struct Wallets.Wallet",
+          "components": [
+            {
+              "name": "ecdsaWalletID",
+              "type": "bytes32",
+              "internalType": "bytes32"
+            },
+            {
+              "name": "mainUtxoHash",
+              "type": "bytes32",
+              "internalType": "bytes32"
+            },
+            {
+              "name": "pendingRedemptionsValue",
+              "type": "uint64",
+              "internalType": "uint64"
+            },
+            {
+              "name": "createdAt",
+              "type": "uint32",
+              "internalType": "uint32"
+            },
+            {
+              "name": "movingFundsRequestedAt",
+              "type": "uint32",
+              "internalType": "uint32"
+            },
+            {
+              "name": "closingStartedAt",
+              "type": "uint32",
+              "internalType": "uint32"
+            },
+            {
+              "name": "pendingMovedFundsSweepRequestsCount",
+              "type": "uint32",
+              "internalType": "uint32"
+            },
+            {
+              "name": "state",
+              "type": "uint8",
+              "internalType": "enum Wallets.WalletState"
+            },
+            {
+              "name": "movingFundsTargetWalletsCommitmentHash",
+              "type": "bytes32",
+              "internalType": "bytes32"
+            }
+          ]
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "event",
+      "name": "DepositParametersUpdated",
+      "inputs": [
+        {
+          "name": "depositDustThreshold",
+          "type": "uint64",
+          "indexed": false,
+          "internalType": "uint64"
+        },
+        {
+          "name": "depositTreasuryFeeDivisor",
+          "type": "uint64",
+          "indexed": false,
+          "internalType": "uint64"
+        },
+        {
+          "name": "depositTxMaxFee",
+          "type": "uint64",
+          "indexed": false,
+          "internalType": "uint64"
+        },
+        {
+          "name": "depositRevealAheadPeriod",
+          "type": "uint32",
+          "indexed": false,
+          "internalType": "uint32"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "DepositRevealed",
+      "inputs": [
+        {
+          "name": "fundingTxHash",
+          "type": "bytes32",
+          "indexed": false,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "fundingOutputIndex",
+          "type": "uint32",
+          "indexed": false,
+          "internalType": "uint32"
+        },
+        {
+          "name": "depositor",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "amount",
+          "type": "uint64",
+          "indexed": false,
+          "internalType": "uint64"
+        },
+        {
+          "name": "blindingFactor",
+          "type": "bytes8",
+          "indexed": false,
+          "internalType": "bytes8"
+        },
+        {
+          "name": "walletPubKeyHash",
+          "type": "bytes20",
+          "indexed": true,
+          "internalType": "bytes20"
+        },
+        {
+          "name": "refundPubKeyHash",
+          "type": "bytes20",
+          "indexed": false,
+          "internalType": "bytes20"
+        },
+        {
+          "name": "refundLocktime",
+          "type": "bytes4",
+          "indexed": false,
+          "internalType": "bytes4"
+        },
+        {
+          "name": "vault",
+          "type": "address",
+          "indexed": false,
+          "internalType": "address"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "DepositVaultFixed",
+      "inputs": [
+        {
+          "name": "depositKey",
+          "type": "uint256",
+          "indexed": true,
+          "internalType": "uint256"
+        },
+        {
+          "name": "newVault",
+          "type": "address",
+          "indexed": false,
+          "internalType": "address"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "DepositsSwept",
+      "inputs": [
+        {
+          "name": "walletPubKeyHash",
+          "type": "bytes20",
+          "indexed": false,
+          "internalType": "bytes20"
+        },
+        {
+          "name": "sweepTxHash",
+          "type": "bytes32",
+          "indexed": false,
+          "internalType": "bytes32"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "FraudChallengeDefeatTimedOut",
+      "inputs": [
+        {
+          "name": "walletPubKeyHash",
+          "type": "bytes20",
+          "indexed": true,
+          "internalType": "bytes20"
+        },
+        {
+          "name": "sighash",
+          "type": "bytes32",
+          "indexed": false,
+          "internalType": "bytes32"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "FraudChallengeDefeated",
+      "inputs": [
+        {
+          "name": "walletPubKeyHash",
+          "type": "bytes20",
+          "indexed": true,
+          "internalType": "bytes20"
+        },
+        {
+          "name": "sighash",
+          "type": "bytes32",
+          "indexed": false,
+          "internalType": "bytes32"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "FraudChallengeSubmitted",
+      "inputs": [
+        {
+          "name": "walletPubKeyHash",
+          "type": "bytes20",
+          "indexed": true,
+          "internalType": "bytes20"
+        },
+        {
+          "name": "sighash",
+          "type": "bytes32",
+          "indexed": false,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "v",
+          "type": "uint8",
+          "indexed": false,
+          "internalType": "uint8"
+        },
+        {
+          "name": "r",
+          "type": "bytes32",
+          "indexed": false,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "s",
+          "type": "bytes32",
+          "indexed": false,
+          "internalType": "bytes32"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "FraudParametersUpdated",
+      "inputs": [
+        {
+          "name": "fraudChallengeDepositAmount",
+          "type": "uint96",
+          "indexed": false,
+          "internalType": "uint96"
+        },
+        {
+          "name": "fraudChallengeDefeatTimeout",
+          "type": "uint32",
+          "indexed": false,
+          "internalType": "uint32"
+        },
+        {
+          "name": "fraudSlashingAmount",
+          "type": "uint96",
+          "indexed": false,
+          "internalType": "uint96"
+        },
+        {
+          "name": "fraudNotifierRewardMultiplier",
+          "type": "uint32",
+          "indexed": false,
+          "internalType": "uint32"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "GovernanceTransferred",
+      "inputs": [
+        {
+          "name": "oldGovernance",
+          "type": "address",
+          "indexed": false,
+          "internalType": "address"
+        },
+        {
+          "name": "newGovernance",
+          "type": "address",
+          "indexed": false,
+          "internalType": "address"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "Initialized",
+      "inputs": [
+        {
+          "name": "version",
+          "type": "uint8",
+          "indexed": false,
+          "internalType": "uint8"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "MovedFundsSweepTimedOut",
+      "inputs": [
+        {
+          "name": "walletPubKeyHash",
+          "type": "bytes20",
+          "indexed": true,
+          "internalType": "bytes20"
+        },
+        {
+          "name": "movingFundsTxHash",
+          "type": "bytes32",
+          "indexed": false,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "movingFundsTxOutputIndex",
+          "type": "uint32",
+          "indexed": false,
+          "internalType": "uint32"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "MovedFundsSwept",
+      "inputs": [
+        {
+          "name": "walletPubKeyHash",
+          "type": "bytes20",
+          "indexed": true,
+          "internalType": "bytes20"
+        },
+        {
+          "name": "sweepTxHash",
+          "type": "bytes32",
+          "indexed": false,
+          "internalType": "bytes32"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "MovingFundsBelowDustReported",
+      "inputs": [
+        {
+          "name": "walletPubKeyHash",
+          "type": "bytes20",
+          "indexed": true,
+          "internalType": "bytes20"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "MovingFundsCommitmentSubmitted",
+      "inputs": [
+        {
+          "name": "walletPubKeyHash",
+          "type": "bytes20",
+          "indexed": true,
+          "internalType": "bytes20"
+        },
+        {
+          "name": "targetWallets",
+          "type": "bytes20[]",
+          "indexed": false,
+          "internalType": "bytes20[]"
+        },
+        {
+          "name": "submitter",
+          "type": "address",
+          "indexed": false,
+          "internalType": "address"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "MovingFundsCompleted",
+      "inputs": [
+        {
+          "name": "walletPubKeyHash",
+          "type": "bytes20",
+          "indexed": true,
+          "internalType": "bytes20"
+        },
+        {
+          "name": "movingFundsTxHash",
+          "type": "bytes32",
+          "indexed": false,
+          "internalType": "bytes32"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "MovingFundsParametersUpdated",
+      "inputs": [
+        {
+          "name": "movingFundsTxMaxTotalFee",
+          "type": "uint64",
+          "indexed": false,
+          "internalType": "uint64"
+        },
+        {
+          "name": "movingFundsDustThreshold",
+          "type": "uint64",
+          "indexed": false,
+          "internalType": "uint64"
+        },
+        {
+          "name": "movingFundsTimeoutResetDelay",
+          "type": "uint32",
+          "indexed": false,
+          "internalType": "uint32"
+        },
+        {
+          "name": "movingFundsTimeout",
+          "type": "uint32",
+          "indexed": false,
+          "internalType": "uint32"
+        },
+        {
+          "name": "movingFundsTimeoutSlashingAmount",
+          "type": "uint96",
+          "indexed": false,
+          "internalType": "uint96"
+        },
+        {
+          "name": "movingFundsTimeoutNotifierRewardMultiplier",
+          "type": "uint32",
+          "indexed": false,
+          "internalType": "uint32"
+        },
+        {
+          "name": "movingFundsCommitmentGasOffset",
+          "type": "uint16",
+          "indexed": false,
+          "internalType": "uint16"
+        },
+        {
+          "name": "movedFundsSweepTxMaxTotalFee",
+          "type": "uint64",
+          "indexed": false,
+          "internalType": "uint64"
+        },
+        {
+          "name": "movedFundsSweepTimeout",
+          "type": "uint32",
+          "indexed": false,
+          "internalType": "uint32"
+        },
+        {
+          "name": "movedFundsSweepTimeoutSlashingAmount",
+          "type": "uint96",
+          "indexed": false,
+          "internalType": "uint96"
+        },
+        {
+          "name": "movedFundsSweepTimeoutNotifierRewardMultiplier",
+          "type": "uint32",
+          "indexed": false,
+          "internalType": "uint32"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "MovingFundsTimedOut",
+      "inputs": [
+        {
+          "name": "walletPubKeyHash",
+          "type": "bytes20",
+          "indexed": true,
+          "internalType": "bytes20"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "MovingFundsTimeoutReset",
+      "inputs": [
+        {
+          "name": "walletPubKeyHash",
+          "type": "bytes20",
+          "indexed": true,
+          "internalType": "bytes20"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "NewWalletRegistered",
+      "inputs": [
+        {
+          "name": "ecdsaWalletID",
+          "type": "bytes32",
+          "indexed": true,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "walletPubKeyHash",
+          "type": "bytes20",
+          "indexed": true,
+          "internalType": "bytes20"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "NewWalletRequested",
+      "inputs": [],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "RedemptionParametersUpdated",
+      "inputs": [
+        {
+          "name": "redemptionDustThreshold",
+          "type": "uint64",
+          "indexed": false,
+          "internalType": "uint64"
+        },
+        {
+          "name": "redemptionTreasuryFeeDivisor",
+          "type": "uint64",
+          "indexed": false,
+          "internalType": "uint64"
+        },
+        {
+          "name": "redemptionTxMaxFee",
+          "type": "uint64",
+          "indexed": false,
+          "internalType": "uint64"
+        },
+        {
+          "name": "redemptionTxMaxTotalFee",
+          "type": "uint64",
+          "indexed": false,
+          "internalType": "uint64"
+        },
+        {
+          "name": "redemptionTimeout",
+          "type": "uint32",
+          "indexed": false,
+          "internalType": "uint32"
+        },
+        {
+          "name": "redemptionTimeoutSlashingAmount",
+          "type": "uint96",
+          "indexed": false,
+          "internalType": "uint96"
+        },
+        {
+          "name": "redemptionTimeoutNotifierRewardMultiplier",
+          "type": "uint32",
+          "indexed": false,
+          "internalType": "uint32"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "RedemptionRequested",
+      "inputs": [
+        {
+          "name": "walletPubKeyHash",
+          "type": "bytes20",
+          "indexed": true,
+          "internalType": "bytes20"
+        },
+        {
+          "name": "redeemerOutputScript",
+          "type": "bytes",
+          "indexed": false,
+          "internalType": "bytes"
+        },
+        {
+          "name": "redeemer",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "requestedAmount",
+          "type": "uint64",
+          "indexed": false,
+          "internalType": "uint64"
+        },
+        {
+          "name": "treasuryFee",
+          "type": "uint64",
+          "indexed": false,
+          "internalType": "uint64"
+        },
+        {
+          "name": "txMaxFee",
+          "type": "uint64",
+          "indexed": false,
+          "internalType": "uint64"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "RedemptionTimedOut",
+      "inputs": [
+        {
+          "name": "walletPubKeyHash",
+          "type": "bytes20",
+          "indexed": true,
+          "internalType": "bytes20"
+        },
+        {
+          "name": "redeemerOutputScript",
+          "type": "bytes",
+          "indexed": false,
+          "internalType": "bytes"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "RedemptionWatchtowerSet",
+      "inputs": [
+        {
+          "name": "redemptionWatchtower",
+          "type": "address",
+          "indexed": false,
+          "internalType": "address"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "RedemptionsCompleted",
+      "inputs": [
+        {
+          "name": "walletPubKeyHash",
+          "type": "bytes20",
+          "indexed": true,
+          "internalType": "bytes20"
+        },
+        {
+          "name": "redemptionTxHash",
+          "type": "bytes32",
+          "indexed": false,
+          "internalType": "bytes32"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "SpvMaintainerStatusUpdated",
+      "inputs": [
+        {
+          "name": "spvMaintainer",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "isTrusted",
+          "type": "bool",
+          "indexed": false,
+          "internalType": "bool"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "TreasuryUpdated",
+      "inputs": [
+        {
+          "name": "treasury",
+          "type": "address",
+          "indexed": false,
+          "internalType": "address"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "VaultStatusUpdated",
+      "inputs": [
+        {
+          "name": "vault",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "isTrusted",
+          "type": "bool",
+          "indexed": false,
+          "internalType": "bool"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "WalletClosed",
+      "inputs": [
+        {
+          "name": "ecdsaWalletID",
+          "type": "bytes32",
+          "indexed": true,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "walletPubKeyHash",
+          "type": "bytes20",
+          "indexed": true,
+          "internalType": "bytes20"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "WalletClosing",
+      "inputs": [
+        {
+          "name": "ecdsaWalletID",
+          "type": "bytes32",
+          "indexed": true,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "walletPubKeyHash",
+          "type": "bytes20",
+          "indexed": true,
+          "internalType": "bytes20"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "WalletMovingFunds",
+      "inputs": [
+        {
+          "name": "ecdsaWalletID",
+          "type": "bytes32",
+          "indexed": true,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "walletPubKeyHash",
+          "type": "bytes20",
+          "indexed": true,
+          "internalType": "bytes20"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "WalletParametersUpdated",
+      "inputs": [
+        {
+          "name": "walletCreationPeriod",
+          "type": "uint32",
+          "indexed": false,
+          "internalType": "uint32"
+        },
+        {
+          "name": "walletCreationMinBtcBalance",
+          "type": "uint64",
+          "indexed": false,
+          "internalType": "uint64"
+        },
+        {
+          "name": "walletCreationMaxBtcBalance",
+          "type": "uint64",
+          "indexed": false,
+          "internalType": "uint64"
+        },
+        {
+          "name": "walletClosureMinBtcBalance",
+          "type": "uint64",
+          "indexed": false,
+          "internalType": "uint64"
+        },
+        {
+          "name": "walletMaxAge",
+          "type": "uint32",
+          "indexed": false,
+          "internalType": "uint32"
+        },
+        {
+          "name": "walletMaxBtcTransfer",
+          "type": "uint64",
+          "indexed": false,
+          "internalType": "uint64"
+        },
+        {
+          "name": "walletClosingPeriod",
+          "type": "uint32",
+          "indexed": false,
+          "internalType": "uint32"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "WalletTerminated",
+      "inputs": [
+        {
+          "name": "ecdsaWalletID",
+          "type": "bytes32",
+          "indexed": true,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "walletPubKeyHash",
+          "type": "bytes20",
+          "indexed": true,
+          "internalType": "bytes20"
+        }
+      ],
+      "anonymous": false
     }
   ],
-  "transactionHash": "0xa2980d644ed3713ca5ebd545dbd4daee76745ebaff4aca2e4222b859a8400ced",
+  "transactionHash": "0xefcb843ef60bc82cba3f6a2db68d7545ac467ffba605ef84319c3828686589f9",
   "receipt": {
     "to": "0x16A76d3cd3C1e3CE843C6680d6B37E9116b5C706",
     "from": "0x123694886DBf5Ac94DDA07135349534536D14cAf",
@@ -2789,15 +2815,15 @@
     "status": 1,
     "byzantium": true
   },
-  "numDeployments": 4,
+  "numDeployments": 5,
   "libraries": {
     "Deposit": "0xCD2EbDA2beA80484C55675e1965149054dCcD137",
     "DepositSweep": "0x392635646Bc22FC13C86859d1f02B27974aC9b95",
-    "Redemption": "0x8EF1BEDA734E696CC055269b46BB5a0EC7Ac9f5E",
+    "Redemption": "0xa7fed184fe79c2ea037e65558473c04ce42f5d0d",
     "Wallets": "0xc989d3E486AAe6355F65281B4d0bde08c8e32fBC",
     "Fraud": "0x51bBeF1c7cC3a1D3bC5E64CE6C3BA6E66fbA3559",
     "MovingFunds": "0x3E0407765FaC663d391aE738f3Aa0c98EAb67a90"
   },
-  "implementation": "0xA4996De73682BDF9CF514fbf238ee387C1a21A26",
+  "implementation": "0x84E08e1380b400A554765C2466df3BE8f2C638e6",
   "devdoc": "Contract deployed as upgradable proxy"
 }
