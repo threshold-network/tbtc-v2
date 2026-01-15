@@ -17,6 +17,14 @@ contract MockBank is IBank {
         return _balances[account];
     }
 
+    function decreaseBalance(uint256 amount) external override {
+        require(
+            _balances[msg.sender] >= amount,
+            "MockBank: insufficient balance"
+        );
+        _balances[msg.sender] -= amount;
+    }
+
     function increaseBalanceAllowance(address spender, uint256 amount)
         external
         override
@@ -33,7 +41,7 @@ contract MockBank is IBank {
         address sender,
         address recipient,
         uint256 amount
-    ) external override returns (bool) {
+    ) external override {
         uint256 currentAllowance = _allowances[sender][msg.sender];
         require(currentAllowance >= amount, "MockBank: insufficient allowance");
         require(_balances[sender] >= amount, "MockBank: insufficient balance");
@@ -43,7 +51,6 @@ contract MockBank is IBank {
         _allowances[sender][msg.sender] = currentAllowance - amount;
 
         emit TransferBalance(sender, recipient, amount);
-        return true;
     }
 
     // Mock-specific functions for testing setup

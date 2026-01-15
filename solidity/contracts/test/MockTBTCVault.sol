@@ -12,6 +12,8 @@ contract MockTBTCVault is ITBTCVault {
     }
 
     address public override tbtcToken;
+    address public override bank;
+    address public override bridge;
     uint32 public override optimisticMintingFeeDivisor = 1000; // 0.1% fee
     mapping(uint256 => DepositInfo) private deposits;
 
@@ -20,11 +22,19 @@ contract MockTBTCVault is ITBTCVault {
     event Unminted(uint256 amount);
 
     constructor() {
-        // Will be set via setTbtcToken
+        // Will be set via setTbtcToken, setBank, and setBridge
     }
 
     function setTbtcToken(address _tbtcToken) external {
         tbtcToken = _tbtcToken;
+    }
+
+    function setBank(address _bank) external {
+        bank = _bank;
+    }
+
+    function setBridge(address _bridge) external {
+        bridge = _bridge;
     }
 
     function setOptimisticMintingFeeDivisor(uint32 _divisor) external {

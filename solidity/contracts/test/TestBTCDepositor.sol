@@ -311,4 +311,12 @@ contract MockTBTCVault is ITBTCVault {
     function tbtcToken() external view returns (address) {
         revert("Not implemented");
     }
+
+    function bank() external view returns (address) {
+        revert("Not implemented");
+    }
+
+    function bridge() external view returns (address) {
+        revert("Not implemented");
+    }
 }
