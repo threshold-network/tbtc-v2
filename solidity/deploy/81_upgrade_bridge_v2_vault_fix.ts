@@ -103,14 +103,14 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     }
   )
 
-  log(`\nUpgrade completed!`)
-  log(`  New implementation deployed`)
+  log("\nUpgrade completed!")
+  log("  New implementation deployed")
   log(`  Bridge proxy: ${proxyDeployment.address}`)
   log(`  Bridge instance: ${bridge.address}`)
 
   // Verify on Etherscan if on mainnet
   if (hre.network.tags.etherscan) {
-    log(`\nVerifying on Etherscan...`)
+    log("\nVerifying on Etherscan...")
     await hre.run("verify", {
       address: proxyDeployment.address,
       constructorArgsParams: proxyDeployment.args,
@@ -119,14 +119,14 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   // Verify on Tenderly if configured
   if (hre.network.tags.tenderly) {
-    log(`\nVerifying on Tenderly...`)
+    log("\nVerifying on Tenderly...")
     await hre.tenderly.verify({
       name: "Bridge",
       address: bridge.address,
     })
   }
 
-  log("\n" + "=".repeat(80))
+  log(`\n${"=".repeat(80)}`)
   log("Upgrade complete. Verify the deposit vault was fixed:")
   log("=".repeat(80))
   log(`
