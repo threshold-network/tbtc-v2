@@ -238,6 +238,11 @@ contract Bridge is
 
     event RedemptionWatchtowerSet(address redemptionWatchtower);
 
+    /// @notice Emitted when a deposit's vault field is corrected via governance.
+    /// @dev This event is used for transparency when fixing deposits that were
+    ///      revealed with incorrect vault targets.
+    event DepositVaultFixed(uint256 indexed depositKey, address newVault);
+
     modifier onlySpvMaintainer() {
         require(
             self.isSpvMaintainer[msg.sender],
@@ -335,6 +340,35 @@ contract Bridge is
         self.walletClosingPeriod = 40 days;
 
         _transferGovernance(msg.sender);
+    }
+
+    /// @notice Fixes the vault=0x0 deposit that is blocking sweeps for wallet
+    ///         71bfad9a. This deposit was revealed on 2026-01-08 by depositor
+    ///         0xe7c9a5298A2d2e48B5df3F9D361BA1469B0f436B with an incorrect
+    ///         vault target. This function runs once during the upgrade to v2,
+    ///         directly modifying the deposit's vault field in storage.
+    /// @dev The deposit key is computed as:
+    ///      keccak256(fundingTxHash || fundingOutputIndex) where:
+    ///      - fundingTxHash (little-endian): 0x7ee3fcd03309745af5f35f07572b68affb3f551d8de70b194773644a47c9bb9c
+    ///      - fundingOutputIndex: 1
+    function initializeV2_FixVaultZeroDeposit() external reinitializer(2) {
+        // Deposit key: keccak256(fundingTxHash || fundingOutputIndex)
+        uint256 depositKey = 0xf3bc9cd6f46f4c206bc8711e40bb5692e8fe5f0ac4d4da0a709dc71bb751c98a;
+
+        // Target vault: TBTCVault on mainnet
+        address tbtcVault = 0x9C070027cdC9dc8F82416B2e5314E11DFb4FE3CD;
+
+        // Safety checks
+        Deposit.DepositRequest storage deposit = self.deposits[depositKey];
+        require(deposit.revealedAt != 0, "Deposit not revealed");
+        require(deposit.vault == address(0), "Vault already set");
+        require(deposit.sweptAt == 0, "Deposit already swept");
+
+        // Fix the vault
+        deposit.vault = tbtcVault;
+
+        // Emit event for transparency
+        emit DepositVaultFixed(depositKey, tbtcVault);
     }
 
     /// @notice Used by the depositor to reveal information about their P2(W)SH
