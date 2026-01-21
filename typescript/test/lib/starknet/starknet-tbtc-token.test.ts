@@ -1,5 +1,5 @@
 import { expect } from "chai"
-import { BigNumber } from "ethers"
+import { BigNumber } from "@ethersproject/bignumber"
 import { StarkNetTBTCToken } from "../../../src/lib/starknet/starknet-tbtc-token"
 import { StarkNetAddress } from "../../../src/lib/starknet/address"
 import { EthereumAddress } from "../../../src/lib/ethereum"

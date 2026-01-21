@@ -6,7 +6,7 @@ import {
   BitcoinTxMerkleBranch,
   Hex,
 } from "../../src"
-import { BigNumber } from "ethers"
+import { BigNumber } from "@ethersproject/bignumber"
 
 /**
  * Represents a set of data used for given proof scenario.

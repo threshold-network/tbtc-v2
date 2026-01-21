@@ -1,4 +1,5 @@
-import { BigNumber, BytesLike } from "ethers"
+import { BigNumber } from "@ethersproject/bignumber"
+import { BytesLike } from "@ethersproject/bytes"
 import {
   BitcoinAddressConverter,
   BitcoinNetwork,

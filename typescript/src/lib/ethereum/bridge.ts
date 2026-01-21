@@ -20,7 +20,10 @@ import {
   Chains,
 } from "../contracts"
 import { Event as EthersEvent } from "@ethersproject/contracts"
-import { BigNumber, constants, ContractTransaction, utils } from "ethers"
+import { BigNumber } from "@ethersproject/bignumber"
+import { AddressZero } from "@ethersproject/constants"
+import { ContractTransaction } from "@ethersproject/contracts"
+import { keccak256 as solidityKeccak256 } from "@ethersproject/solidity"
 import { backoffRetrier, Hex } from "../utils"
 import {
   BitcoinPublicKeyUtils,
@@ -118,7 +121,7 @@ export class EthereumBridge
         refundPublicKeyHash: Hex.from(event.args!.refundPubKeyHash),
         refundLocktime: Hex.from(event.args!.refundLocktime),
         vault:
-          event.args!.vault === constants.AddressZero
+          event.args!.vault === AddressZero
             ? undefined
             : EthereumAddress.from(event.args!.vault),
       }
@@ -208,10 +211,10 @@ export class EthereumBridge
     ]).toString("hex")}`
     // Build the redemption key by using the 0x-prefixed wallet PKH and
     // prefixed output script.
-    return utils.solidityKeccak256(
+    return solidityKeccak256(
       ["bytes32", "bytes20"],
       [
-        utils.solidityKeccak256(["bytes"], [prefixedRawRedeemerOutputScript]),
+        solidityKeccak256(["bytes"], [prefixedRawRedeemerOutputScript]),
         `0x${walletPublicKeyHash.toString()}`,
       ]
     )
@@ -311,7 +314,7 @@ export class EthereumBridge
 
     const vaultParam = vault
       ? `0x${vault.identifierHex}`
-      : constants.AddressZero
+      : AddressZero
 
     const tx = await EthersTransactionUtils.sendWithRetry<ContractTransaction>(
       async () => {
@@ -475,7 +478,7 @@ export class EthereumBridge
       .reverse()
       .toPrefixedString()
 
-    return utils.solidityKeccak256(
+    return solidityKeccak256(
       ["bytes32", "uint32"],
       [prefixedReversedDepositTxHash, depositOutputIndex]
     )
@@ -493,7 +496,7 @@ export class EthereumBridge
       depositor: EthereumAddress.from(deposit.depositor),
       amount: BigNumber.from(deposit.amount),
       vault:
-        deposit.vault === constants.AddressZero
+        deposit.vault === AddressZero
           ? undefined
           : EthereumAddress.from(deposit.vault),
       revealedAt: BigNumber.from(deposit.revealedAt).toNumber(),
@@ -643,7 +646,7 @@ export class EthereumBridge
    */
   buildUtxoHash(utxo: BitcoinUtxo): Hex {
     return Hex.from(
-      utils.solidityKeccak256(
+      solidityKeccak256(
         ["bytes32", "uint32", "uint64"],
         [
           utxo.transactionHash.reverse().toPrefixedString(),
@@ -730,7 +733,7 @@ export function packRevealDepositParameters(
     walletPubKeyHash: deposit.walletPublicKeyHash.toPrefixedString(),
     refundPubKeyHash: deposit.refundPublicKeyHash.toPrefixedString(),
     refundLocktime: deposit.refundLocktime.toPrefixedString(),
-    vault: vault ? `0x${vault.identifierHex}` : constants.AddressZero,
+    vault: vault ? `0x${vault.identifierHex}` : AddressZero,
   }
 
   const extraData: string | undefined = deposit.extraData?.toPrefixedString()

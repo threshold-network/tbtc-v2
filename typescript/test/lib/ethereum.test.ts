@@ -19,7 +19,11 @@ import {
   MockContract,
 } from "@ethereum-waffle/mock-contract"
 import chai, { expect } from "chai"
-import { BigNumber, Wallet, constants, getDefaultProvider, utils } from "ethers"
+import { BigNumber } from "@ethersproject/bignumber"
+import { Wallet } from "@ethersproject/wallet"
+import { AddressZero, HashZero } from "@ethersproject/constants"
+import { getDefaultProvider } from "@ethersproject/providers"
+import { defaultAbiCoder } from "@ethersproject/abi"
 import { MockProvider } from "@ethereum-waffle/provider"
 import { waffleChai } from "@ethereum-waffle/chai"
 import { assertContractCalledWith } from "../utils/helpers"
@@ -53,10 +57,10 @@ describe("Ethereum", () => {
       )
 
       await bridgeContract.mock.contractReferences.returns(
-        constants.AddressZero,
-        constants.AddressZero,
+        AddressZero,
+        AddressZero,
         walletRegistry.address,
-        constants.AddressZero
+        AddressZero
       )
 
       bridgeHandle = new EthereumBridge({
@@ -485,7 +489,7 @@ describe("Ethereum", () => {
             .returns({
               depositor: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
               amount: BigNumber.from(10000),
-              vault: constants.AddressZero,
+              vault: AddressZero,
               revealedAt: 1654774330,
               sweptAt: 1655033516,
               treasuryFee: BigNumber.from(200),
@@ -528,14 +532,14 @@ describe("Ethereum", () => {
             .returns({
               ecdsaWalletID:
                 "0x9ff37567d973e4d884bc42d2d1a6cb1ff22676ab64f82c62b58e2b0ffd3fff71",
-              mainUtxoHash: constants.HashZero,
+              mainUtxoHash: HashZero,
               pendingRedemptionsValue: BigNumber.from(0),
               createdAt: 1654846075,
               movingFundsRequestedAt: 0,
               closingStartedAt: 0,
               pendingMovedFundsSweepRequestsCount: 0,
               state: 1,
-              movingFundsTargetWalletsCommitmentHash: constants.HashZero,
+              movingFundsTargetWalletsCommitmentHash: HashZero,
             } as any)
 
           await walletRegistry.mock.getWalletPublicKey
@@ -635,7 +639,7 @@ describe("Ethereum", () => {
           vault,
           amount,
         } = data
-        const expectedExtraData = utils.defaultAbiCoder.encode(
+        const expectedExtraData = defaultAbiCoder.encode(
           ["address", "bytes20", "bytes32", "uint32", "uint64", "bytes"],
           [
             redeemer.identifierHex,

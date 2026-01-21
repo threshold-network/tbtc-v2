@@ -10,7 +10,7 @@ import {
 } from "../contracts"
 import { backoffRetrier, Hex } from "../utils"
 import { Event as EthersEvent } from "@ethersproject/contracts"
-import { BigNumber } from "ethers"
+import { BigNumber } from "@ethersproject/bignumber"
 import {
   EthersContractConfig,
   EthersContractDeployment,

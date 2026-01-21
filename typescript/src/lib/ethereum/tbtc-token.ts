@@ -1,6 +1,8 @@
 import { TBTC as TBTCTypechain } from "../../../typechain/TBTC"
 import { ChainIdentifier, Chains, TBTCToken } from "../contracts"
-import { BigNumber, ContractTransaction, utils } from "ethers"
+import { BigNumber } from "@ethersproject/bignumber"
+import { ContractTransaction } from "@ethersproject/contracts"
+import { defaultAbiCoder } from "@ethersproject/abi"
 import { BitcoinHashUtils, BitcoinUtxo } from "../bitcoin"
 import { Hex } from "../utils"
 import {
@@ -122,7 +124,7 @@ export class EthereumTBTCToken
     )
 
     return Hex.from(
-      utils.defaultAbiCoder.encode(
+      defaultAbiCoder.encode(
         ["address", "bytes20", "bytes32", "uint32", "uint64", "bytes"],
         [
           redeemer.identifierHex,

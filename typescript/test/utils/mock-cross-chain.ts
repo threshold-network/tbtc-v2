@@ -12,7 +12,8 @@ import {
   BitcoinUtxo,
   L2BitcoinRedeemer,
 } from "../../src"
-import { BigNumber, BytesLike } from "ethers"
+import { BigNumber } from "@ethersproject/bignumber"
+import { BytesLike } from "@ethersproject/bytes"
 
 export class MockDestinationChainTBTCToken
   implements DestinationChainTBTCToken

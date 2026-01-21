@@ -1,6 +1,6 @@
 import { ChainIdentifier, TBTCToken } from "../../src/lib/contracts"
 import { Hex } from "../../src/lib/utils"
-import { BigNumber } from "ethers"
+import { BigNumber } from "@ethersproject/bignumber"
 import { BitcoinUtxo } from "../../src/lib/bitcoin"
 import { EthereumAddress } from "../../src"
 

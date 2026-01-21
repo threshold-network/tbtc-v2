@@ -2,7 +2,7 @@ import { BitcoinTxHash } from "../bitcoin"
 import { Hex } from "../utils"
 import { ChainIdentifier } from "./chain-identifier"
 import { ChainEvent, GetChainEvents } from "./chain-event"
-import { BigNumber } from "ethers"
+import { BigNumber } from "@ethersproject/bignumber"
 
 /**
  * Interface for communication with the TBTCVault on-chain contract.

@@ -61,7 +61,7 @@ describe("ThresholdContext Provider Compatibility - T-009", () => {
 
     it("should maintain backward compatibility with EthereumSigner", async () => {
       // Import ethers dynamically to avoid dependency issues
-      const { Wallet } = await import("ethers")
+      const { Wallet } = await import("@ethersproject/wallet")
       const ethereumSigner: EthereumSigner = Wallet.createRandom()
 
       // This should still work for backward compatibility
@@ -161,7 +161,7 @@ describe("ThresholdContext Provider Compatibility - T-009", () => {
     })
 
     it("should extract address from Ethereum signer for backward compatibility", async () => {
-      const { Wallet } = await import("ethers")
+      const { Wallet } = await import("@ethersproject/wallet")
       const ethereumSigner = Wallet.createRandom()
 
       await expect(tbtc.initializeCrossChain("StarkNet", ethereumSigner)).not.to

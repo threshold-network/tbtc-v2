@@ -18,7 +18,9 @@ import {
   BitcoinHashUtils,
   BitcoinTxHash,
 } from "../../src/lib/bitcoin"
-import { BigNumberish, BigNumber, utils, constants } from "ethers"
+import { BigNumber, BigNumberish } from "@ethersproject/bignumber"
+import { AddressZero } from "@ethersproject/constants"
+import { keccak256 as solidityKeccak256 } from "@ethersproject/solidity"
 import { depositSweepWithNoMainUtxoAndWitnessOutput } from "../data/deposit-sweep"
 import { EthereumAddress } from "../../src/lib/ethereum"
 import { Hex } from "../../src/lib/utils"
@@ -148,7 +150,7 @@ export class MockBridge implements Bridge {
           walletPublicKeyHash: deposit.data.walletPublicKeyHash,
           refundPublicKeyHash: deposit.data.refundPublicKeyHash,
           refundLocktime: deposit.data.refundLocktime,
-          vault: EthereumAddress.from(constants.AddressZero),
+          vault: EthereumAddress.from(AddressZero),
         },
       ])
     })
@@ -200,9 +202,9 @@ export class MockBridge implements Bridge {
         this._deposits.has(depositKey)
           ? (this._deposits.get(depositKey) as DepositRequest)
           : {
-              depositor: EthereumAddress.from(constants.AddressZero),
+              depositor: EthereumAddress.from(AddressZero),
               amount: BigNumber.from(0),
-              vault: EthereumAddress.from(constants.AddressZero),
+              vault: EthereumAddress.from(AddressZero),
               revealedAt: 0,
               sweptAt: 0,
               treasuryFee: BigNumber.from(0),
@@ -219,7 +221,7 @@ export class MockBridge implements Bridge {
       .reverse()
       .toPrefixedString()
 
-    return utils.solidityKeccak256(
+    return solidityKeccak256(
       ["bytes32", "uint32"],
       [prefixedReversedDepositTxHash, depositOutputIndex]
     )
@@ -330,7 +332,7 @@ export class MockBridge implements Bridge {
     return redemptionsMap.has(redemptionKey)
       ? (redemptionsMap.get(redemptionKey) as RedemptionRequest)
       : {
-          redeemer: EthereumAddress.from(constants.AddressZero),
+          redeemer: EthereumAddress.from(AddressZero),
           redeemerOutputScript: Hex.from(""),
           requestedAmount: BigNumber.from(0),
           treasuryFee: BigNumber.from(0),
@@ -352,10 +354,10 @@ export class MockBridge implements Bridge {
       rawOutputScript,
     ]).toString("hex")}`
 
-    return utils.solidityKeccak256(
+    return solidityKeccak256(
       ["bytes32", "bytes20"],
       [
-        utils.solidityKeccak256(["bytes"], [prefixedOutputScript]),
+        solidityKeccak256(["bytes"], [prefixedOutputScript]),
         prefixedWalletPublicKeyHash,
       ]
     )
@@ -387,7 +389,7 @@ export class MockBridge implements Bridge {
 
   buildUtxoHash(utxo: BitcoinUtxo): Hex {
     return Hex.from(
-      utils.solidityKeccak256(
+      solidityKeccak256(
         ["bytes32", "uint32", "uint64"],
         [
           utxo.transactionHash.reverse().toPrefixedString(),

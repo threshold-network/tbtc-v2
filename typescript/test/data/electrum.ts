@@ -6,7 +6,7 @@ import {
   BitcoinTxHash,
   Hex,
 } from "../../src"
-import { BigNumber } from "ethers"
+import { BigNumber } from "@ethersproject/bignumber"
 
 /**
  * Bitcoin testnet address used for Electrum client tests.

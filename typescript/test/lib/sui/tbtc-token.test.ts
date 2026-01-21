@@ -6,7 +6,7 @@ import sinon from "sinon"
 chai.use(chaiAsPromised)
 import { SuiTBTCToken, SuiAddress, SuiError } from "../../../src/lib/sui"
 import { Chains } from "../../../src/lib/contracts"
-import { BigNumber } from "ethers"
+import { BigNumber } from "@ethersproject/bignumber"
 
 describe("SUI tBTC Token", () => {
   let token: SuiTBTCToken
