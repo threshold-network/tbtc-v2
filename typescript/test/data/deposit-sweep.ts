@@ -11,7 +11,7 @@ import {
   EthereumAddress,
   Hex,
 } from "../../src"
-import { BigNumber } from "ethers"
+import { BigNumber } from "@ethersproject/bignumber"
 
 export const NO_MAIN_UTXO = {
   transactionHash: BitcoinTxHash.from(""),

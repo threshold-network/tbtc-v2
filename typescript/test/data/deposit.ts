@@ -1,5 +1,5 @@
 import { BitcoinRawTx, BitcoinTxHash, BitcoinUtxo } from "../../src"
-import { BigNumber } from "ethers"
+import { BigNumber } from "@ethersproject/bignumber"
 
 /**
  * An example address taken from the BTC testnet and having a non-zero balance.

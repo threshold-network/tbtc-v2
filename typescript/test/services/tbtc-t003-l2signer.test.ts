@@ -1,6 +1,6 @@
 import { expect } from "chai"
 import { RpcProvider, Account } from "starknet"
-import { Wallet } from "ethers"
+import { Wallet } from "@ethersproject/wallet"
 import { TBTC } from "../../src/services/tbtc"
 import { MockTBTCContracts } from "../utils/mock-tbtc-contracts"
 import { MockBitcoinClient } from "../utils/mock-bitcoin-client"

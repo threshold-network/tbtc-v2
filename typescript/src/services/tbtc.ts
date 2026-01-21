@@ -18,7 +18,7 @@ import {
   loadEthereumCoreContracts,
 } from "../lib/ethereum"
 import { ElectrumClient } from "../lib/electrum"
-import { providers } from "ethers"
+import type { Provider } from "@ethersproject/providers"
 import { AnchorProvider } from "@coral-xyz/anchor"
 import { loadSolanaCrossChainInterfaces } from "../lib/solana"
 import { loadBaseCrossChainInterfaces } from "../lib/base"
@@ -101,7 +101,7 @@ export class TBTC {
    *         Ethereum mainnet.
    */
   static async initializeMainnet(
-    ethereumSignerOrProvider: EthereumSigner | providers.Provider,
+    ethereumSignerOrProvider: EthereumSigner | Provider,
     crossChainSupport: boolean = false
   ): Promise<TBTC> {
     return TBTC.initializeEthereum(
@@ -123,7 +123,7 @@ export class TBTC {
    *         Ethereum mainnet.
    */
   static async initializeSepolia(
-    ethereumSignerOrProvider: EthereumSigner | providers.Provider,
+    ethereumSignerOrProvider: EthereumSigner | Provider,
     crossChainSupport: boolean = false
   ): Promise<TBTC> {
     return TBTC.initializeEthereum(
@@ -147,7 +147,7 @@ export class TBTC {
    *         other than the given Ethereum network.
    */
   private static async initializeEthereum(
-    ethereumSignerOrProvider: EthereumSigner | providers.Provider,
+    ethereumSignerOrProvider: EthereumSigner | Provider,
     ethereumChainId: Chains.Ethereum,
     bitcoinNetwork: BitcoinNetwork,
     crossChainSupport = false

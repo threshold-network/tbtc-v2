@@ -15,7 +15,7 @@ import {
 import { MockProvider } from "@ethereum-waffle/provider"
 import { assertContractCalledWith } from "../utils/helpers"
 import { expect } from "chai"
-import { BigNumber } from "ethers"
+import { BigNumber } from "@ethersproject/bignumber"
 
 // ABI imports.
 import { abi as BaseBitcoinDepositorABI } from "../../src/lib/base/artifacts/baseSepolia/BaseL2BitcoinDepositor.json"

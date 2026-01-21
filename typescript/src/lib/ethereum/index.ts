@@ -5,7 +5,8 @@ import {
   DestinationChainName,
   TBTCContracts,
 } from "../contracts"
-import { providers, Signer } from "ethers"
+import type { Provider } from "@ethersproject/providers"
+import { Signer } from "@ethersproject/abstract-signer"
 import { EthereumBridge } from "./bridge"
 import { EthereumWalletRegistry } from "./wallet-registry"
 import { EthereumTBTCToken } from "./tbtc-token"
@@ -32,7 +33,7 @@ export { EthersContractConfig as EthereumContractConfig } from "./adapter"
  * types and can be either a Signer that can make write transactions
  * or a Provider that works only in the read-only mode.
  */
-export type EthereumSigner = Signer | providers.Provider
+export type EthereumSigner = Signer | Provider
 
 /**
  * Resolves the chain ID from the given signer.
@@ -40,7 +41,7 @@ export type EthereumSigner = Signer | providers.Provider
  * @returns Chain ID as a string.
  */
 export async function chainIdFromSigner(
-  signer: EthereumSigner | providers.Provider
+  signer: EthereumSigner | Provider
 ): Promise<string> {
   let chainId: number
   if (Signer.isSigner(signer)) {

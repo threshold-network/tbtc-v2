@@ -28,7 +28,7 @@ import { MockBridge } from "../utils/mock-bridge"
 import * as chai from "chai"
 import { expect } from "chai"
 import chaiAsPromised from "chai-as-promised"
-import { BigNumber, BigNumberish } from "ethers"
+import { BigNumber, BigNumberish } from "@ethersproject/bignumber"
 import { MockTBTCContracts } from "../utils/mock-tbtc-contracts"
 import { MockRedeemerProxy } from "../utils/mock-redeemer-proxy"
 

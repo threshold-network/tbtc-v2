@@ -21,7 +21,7 @@ import {
   BitcoinRawTx,
   BitcoinTxMerkleBranch,
 } from "../../src"
-import { BigNumber } from "ethers"
+import { BigNumber } from "@ethersproject/bignumber"
 import { btcAddresses, btcAddressFromPublicKey } from "../data/bitcoin"
 import { depositSweepWithNoMainUtxoAndWitnessOutput } from "../data/deposit-sweep"
 import { networks } from "bitcoinjs-lib"

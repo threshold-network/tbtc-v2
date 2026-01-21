@@ -1,14 +1,12 @@
 import {
-  ContractTransaction as EthersContractTransaction,
-  providers,
-  Signer,
-  utils,
-} from "ethers"
-import {
   Contract as EthersContract,
+  ContractTransaction as EthersContractTransaction,
   Event as EthersEvent,
   EventFilter as EthersEventFilter,
 } from "@ethersproject/contracts"
+import { Signer } from "@ethersproject/abstract-signer"
+import type { Provider } from "@ethersproject/providers"
+import { getAddress } from "@ethersproject/address"
 import { GetChainEvents } from "../contracts"
 import {
   backoffRetrier,
@@ -55,7 +53,7 @@ export interface EthersContractConfig {
    * Signer - will return a Contract which will act on behalf of that signer. The signer will sign all contract transactions.
    * Provider - will return a downgraded Contract which only has read-only access (i.e. constant calls)
    */
-  signerOrProvider: Signer | providers.Provider
+  signerOrProvider: Signer | Provider
   /**
    * Number of a block in which the contract was deployed.
    * Optional parameter, if not provided the value will be resolved from the
@@ -94,7 +92,7 @@ export class EthersContractHandle<T extends EthersContract> {
     totalRetryAttempts = 3
   ) {
     this._instance = new EthersContract(
-      config.address ?? utils.getAddress(deployment.address),
+      config.address ?? getAddress(deployment.address),
       `${JSON.stringify(deployment.abi)}`,
       config.signerOrProvider
     ) as T

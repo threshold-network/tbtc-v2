@@ -9,7 +9,7 @@ import {
 import { MockBitcoinClient } from "../../utils/mock-bitcoin-client"
 import { MockTBTCContracts } from "../../utils/mock-tbtc-contracts"
 import { MockCrossChainContractsLoader } from "../../utils/mock-cross-chain-contracts-loader"
-import { BigNumber } from "ethers"
+import { BigNumber } from "@ethersproject/bignumber"
 
 describe("StarkNet Provider Integration", () => {
   let tbtc: TBTC

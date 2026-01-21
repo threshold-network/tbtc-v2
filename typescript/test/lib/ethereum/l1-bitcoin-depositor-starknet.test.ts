@@ -5,7 +5,7 @@ import { StarkNetAddress } from "../../../src/lib/starknet"
 import { StarkNetExtraDataEncoder } from "../../../src/lib/starknet"
 import { Hex } from "../../../src/lib/utils"
 import { MockProvider } from "@ethereum-waffle/provider"
-import { Wallet } from "ethers"
+import { Wallet } from "@ethersproject/wallet"
 
 describe("EthereumL1BitcoinDepositor - StarkNet Support", () => {
   let provider: MockProvider

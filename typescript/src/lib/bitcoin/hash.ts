@@ -1,4 +1,5 @@
-import { BigNumber, utils } from "ethers"
+import { BigNumber } from "@ethersproject/bignumber"
+import { sha256, ripemd160 } from "@ethersproject/sha2"
 import { Hex } from "../utils"
 
 /**
@@ -7,8 +8,8 @@ import { Hex } from "../utils"
  * @returns 20-byte-long hash.
  */
 function computeHash160(text: Hex): Hex {
-  const sha256Hash = utils.sha256(text.toPrefixedString())
-  const hash160 = utils.ripemd160(sha256Hash)
+  const sha256Hash = sha256(text.toPrefixedString())
+  const hash160 = ripemd160(sha256Hash)
 
   return Hex.from(hash160)
 }
@@ -20,8 +21,8 @@ function computeHash160(text: Hex): Hex {
  * @dev Do not confuse it with computeSha256 which computes single SHA256.
  */
 function computeHash256(text: Hex): Hex {
-  const firstHash = utils.sha256(text.toPrefixedString())
-  const secondHash = utils.sha256(firstHash)
+  const firstHash = sha256(text.toPrefixedString())
+  const secondHash = sha256(firstHash)
 
   return Hex.from(secondHash)
 }
@@ -42,7 +43,7 @@ function hashLEToBigNumber(hash: Hex): BigNumber {
  * @dev Do not confuse it with computeHash256 which computes double SHA256.
  */
 function computeSha256(text: Hex): Hex {
-  const hash = utils.sha256(text.toPrefixedString())
+  const hash = sha256(text.toPrefixedString())
   return Hex.from(hash)
 }
 

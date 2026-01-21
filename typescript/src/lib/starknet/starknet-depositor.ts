@@ -11,7 +11,9 @@ import { StarkNetProvider } from "./types"
 import { Hex } from "../utils"
 import { packRevealDepositParameters } from "../ethereum"
 import axios from "axios"
-import { ethers } from "ethers"
+import { BigNumber } from "@ethersproject/bignumber"
+import { keccak256 } from "@ethersproject/keccak256"
+import { keccak256 as solidityKeccak256 } from "@ethersproject/solidity"
 import { TransactionReceipt } from "@ethersproject/providers"
 
 /**
@@ -298,16 +300,16 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
             depositTx.locktime.toString()
 
           // Apply double SHA-256 (Bitcoin standard)
-          const fundingTxHash = ethers.utils.keccak256(
-            ethers.utils.keccak256("0x" + fundingTxComponents)
+          const fundingTxHash = keccak256(
+            keccak256("0x" + fundingTxComponents)
           )
 
           // Calculate deposit ID
-          const depositIdHash = ethers.utils.solidityKeccak256(
+          const depositIdHash = solidityKeccak256(
             ["bytes32", "uint256"],
             [fundingTxHash, depositOutputIndex]
           )
-          depositId = ethers.BigNumber.from(depositIdHash).toString()
+          depositId = BigNumber.from(depositIdHash).toString()
         } catch (e) {
           console.warn("Failed to calculate deposit ID:", e)
         }

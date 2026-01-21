@@ -1,4 +1,4 @@
-import { BigNumber } from "ethers"
+import { BigNumber } from "@ethersproject/bignumber"
 import { Hex } from "../../src/lib/utils"
 import {
   BitcoinRawTx,

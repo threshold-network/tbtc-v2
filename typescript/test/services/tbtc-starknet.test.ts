@@ -56,7 +56,7 @@ describe("TBTC - StarkNet Provider Support", () => {
 
     it("should maintain backward compatibility with Ethereum signer", async () => {
       // Arrange - create a mock Ethereum signer
-      const { Wallet } = await import("ethers")
+      const { Wallet } = await import("@ethersproject/wallet")
       const mockEthereumSigner = Wallet.createRandom()
 
       // Act & Assert - should not throw and extract address

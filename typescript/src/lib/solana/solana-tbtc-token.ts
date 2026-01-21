@@ -1,6 +1,6 @@
 import { Program, AnchorProvider, Idl } from "@coral-xyz/anchor"
 import { PublicKey, Transaction } from "@solana/web3.js"
-import { BigNumber } from "ethers"
+import { BigNumber } from "@ethersproject/bignumber"
 import {
   getMint,
   getAssociatedTokenAddressSync,

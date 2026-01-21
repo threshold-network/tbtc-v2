@@ -1,4 +1,4 @@
-import { BigNumber, BigNumberish } from "ethers"
+import { BigNumber, BigNumberish } from "@ethersproject/bignumber"
 import { MockTBTCContracts } from "../utils/mock-tbtc-contracts"
 import { MockBitcoinClient } from "../utils/mock-bitcoin-client"
 import {

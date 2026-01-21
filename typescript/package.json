@@ -27,6 +27,16 @@
   "dependencies": {
     "@bitcoinerlab/secp256k1": "^1.0.5",
     "@coral-xyz/anchor": "0.28.0",
+    "@ethersproject/abi": "^5.5.2",
+    "@ethersproject/abstract-signer": "^5.5.2",
+    "@ethersproject/bignumber": "^5.5.2",
+    "@ethersproject/bytes": "^5.5.2",
+    "@ethersproject/constants": "^5.5.2",
+    "@ethersproject/contracts": "^5.5.2",
+    "@ethersproject/keccak256": "^5.5.2",
+    "@ethersproject/providers": "^5.5.2",
+    "@ethersproject/solidity": "^5.5.2",
+    "@ethersproject/wallet": "^5.5.2",
     "@keep-network/ecdsa": "development",
     "@keep-network/tbtc-v2": "development",
     "@solana/spl-token": "0.3.9",
@@ -38,14 +48,13 @@
     "bufio": "^1.0.6",
     "ecpair": "^2.1.0",
     "electrum-client-js": "git+https://github.com/keep-network/electrum-client-js.git#v0.1.1",
-    "ethers": "^5.5.2",
     "p-timeout": "^4.1.0",
     "starknet": "^6.24.1",
     "url-parse": "^1.5.10",
     "wif": "2.0.6"
   },
   "devDependencies": {
-    "@ethersproject/providers": "^5.7.2",
+    "ethers": "^5.5.2",
     "@keep-network/prettier-config-keep": "github:keep-network/prettier-config-keep",
     "@typechain/ethers-v5": "^10.2.0",
     "@types/chai": "^4.2.21",
@@ -70,6 +79,9 @@
     "typedoc": "^0.25.3",
     "typedoc-plugin-markdown": "^3.17.0",
     "typescript": "^5.0.0"
+  },
+  "resolutions": {
+    "@umpirsky/country-list": "https://github.com/umpirsky/country-list.git#05fda51cd97b3294e8175ffed06104c44b3c71d7"
   },
   "engines": {
     "node": ">=16"

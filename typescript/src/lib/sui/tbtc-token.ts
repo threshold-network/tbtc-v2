@@ -3,7 +3,7 @@ import {
   ChainIdentifier,
   Chains,
 } from "../contracts"
-import { BigNumber } from "ethers"
+import { BigNumber } from "@ethersproject/bignumber"
 import { SuiAddress } from "./chain-identifier"
 import { SuiClient, SuiCoinBalance, SuiError } from "./types"
 

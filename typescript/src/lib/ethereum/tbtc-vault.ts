@@ -9,7 +9,8 @@ import {
   ChainIdentifier,
   Chains,
 } from "../contracts"
-import { BigNumber, ContractTransaction } from "ethers"
+import { BigNumber } from "@ethersproject/bignumber"
+import { ContractTransaction } from "@ethersproject/contracts"
 import { BitcoinTxHash } from "../bitcoin"
 import { backoffRetrier, Hex } from "../utils"
 import {
