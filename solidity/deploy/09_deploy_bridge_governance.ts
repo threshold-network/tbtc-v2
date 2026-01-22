@@ -1,5 +1,8 @@
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
+import fs from "fs"
+import path from "path"
+import os from "os"
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { deployments, getNamedAccounts, helpers } = hre
@@ -37,10 +40,21 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   }
 
   if (hre.network.tags.tenderly) {
-    await hre.tenderly.verify({
-      name: "BridgeGovernance",
-      address: bridgeGovernance.address,
-    })
+    const tenderlyConfigPath = path.join(
+      os.homedir(),
+      ".tenderly",
+      "config.yaml"
+    )
+    if (fs.existsSync(tenderlyConfigPath)) {
+      await hre.tenderly.verify({
+        name: "BridgeGovernance",
+        address: bridgeGovernance.address,
+      })
+    } else {
+      deployments.log(
+        "Skipping Tenderly verification; /.tenderly/config.yaml not found."
+      )
+    }
   }
 }
 

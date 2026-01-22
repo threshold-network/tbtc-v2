@@ -9,3 +9,5 @@ typechain/
 docgen-templates/
 export.json
 contracts/cross-chain/wormhole/L1BTCDepositorNttWithExecutor.sol
+.env
+.env.*

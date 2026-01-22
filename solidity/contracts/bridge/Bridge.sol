@@ -186,6 +186,23 @@ contract Bridge is
         bool isTrusted
     );
 
+    event ControllerBalanceIncreaserUpdated(
+        address indexed previousController,
+        address indexed newController
+    );
+
+    event ControllerBalanceIncreased(
+        address indexed controller,
+        address indexed recipient,
+        uint256 amount
+    );
+
+    event ControllerBalancesIncreased(
+        address indexed controller,
+        address[] recipients,
+        uint256[] amounts
+    );
+
     event DepositParametersUpdated(
         uint64 depositDustThreshold,
         uint64 depositTreasuryFeeDivisor,
@@ -1237,6 +1254,19 @@ contract Bridge is
         );
     }
 
+    /// @notice Allows Governance to designate a single controller that can
+    ///         request Bank balance increases through the Bridge.
+    /// @param controller Address of the controller contract (MintBurnGuard).
+    /// @dev Setting to the zero address effectively removes the controller.
+    function setControllerBalanceIncreaser(address controller)
+        external
+        onlyGovernance
+    {
+        address previous = self.controllerBalanceIncreaser;
+        self.controllerBalanceIncreaser = controller;
+        emit ControllerBalanceIncreaserUpdated(previous, controller);
+    }
+
     /// @notice Allows the Governance to mark the given vault address as trusted
     ///         or no longer trusted. Vaults are not trusted by default.
     ///         Trusted vault must meet the following criteria:
@@ -1575,6 +1605,61 @@ contract Bridge is
     // slither-disable-next-line shadowing-local
     function updateTreasury(address treasury) external onlyGovernance {
         self.updateTreasury(treasury);
+    }
+
+    /// @notice Allows the configured controller to increase Bank balances via
+    ///         the Bridge.
+    /// @param recipient Address receiving the balance increase.
+    /// @param amount Amount by which the balance is increased.
+    // slither-disable-next-line reentrancy-vulnerabilities-3 reentrancy-vulnerabilities-2
+    function controllerIncreaseBalance(address recipient, uint256 amount)
+        external
+    {
+        require(
+            msg.sender == self.controllerBalanceIncreaser,
+            "Caller is not the authorized controller"
+        );
+        emit ControllerBalanceIncreased(msg.sender, recipient, amount);
+
+        self.bank.increaseBalance(recipient, amount);
+    }
+
+    /// @notice Allows the configured controller to increase multiple Bank
+    ///         balances via the Bridge.
+    /// @param recipients Addresses receiving the balance increases.
+    /// @param amounts Amounts by which balances are increased.
+    // slither-disable-next-line reentrancy-vulnerabilities-3 reentrancy-vulnerabilities-2
+    function controllerIncreaseBalances(
+        address[] calldata recipients,
+        uint256[] calldata amounts
+    ) external {
+        require(
+            msg.sender == self.controllerBalanceIncreaser,
+            "Caller is not the authorized controller"
+        );
+
+        emit ControllerBalancesIncreased(msg.sender, recipients, amounts);
+
+        self.bank.increaseBalances(recipients, amounts);
+    }
+
+    /// @notice Returns the currently configured controller address.
+    function controllerBalanceIncreaser() external view returns (address) {
+        return self.controllerBalanceIncreaser;
+    }
+
+    /// @notice Sets the redemption watchtower address.
+    /// @param redemptionWatchtower Address of the redemption watchtower.
+    /// @dev Requirements:
+    ///      - The caller must be the governance,
+    ///      - Redemption watchtower address must not be already set,
+    ///      - Redemption watchtower address must not be 0x0.
+    function setRedemptionWatchtower(address redemptionWatchtower)
+        external
+        onlyGovernance
+    {
+        // The internal function is defined in the `BridgeState` library.
+        self.setRedemptionWatchtower(redemptionWatchtower);
     }
 
     /// @notice Collection of all revealed deposits indexed by
@@ -2001,20 +2086,6 @@ contract Bridge is
     /// @return Address of the rebate staking contract.
     function getRebateStaking() external view returns (address) {
         return self.rebateStaking;
-    }
-
-    /// @notice Sets the redemption watchtower address.
-    /// @param redemptionWatchtower Address of the redemption watchtower.
-    /// @dev Requirements:
-    ///      - The caller must be the governance,
-    ///      - Redemption watchtower address must not be already set,
-    ///      - Redemption watchtower address must not be 0x0.
-    function setRedemptionWatchtower(address redemptionWatchtower)
-        external
-        onlyGovernance
-    {
-        // The internal function is defined in the `BridgeState` library.
-        self.setRedemptionWatchtower(redemptionWatchtower);
     }
 
     /// @return Address of the redemption watchtower.
