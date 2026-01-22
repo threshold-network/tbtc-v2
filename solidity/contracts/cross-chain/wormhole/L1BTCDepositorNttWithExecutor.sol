@@ -18,7 +18,7 @@ pragma solidity 0.8.17;
 import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 
-import "../AbstractL1BTCDepositor.sol";
+import "../AbstractL1BTCDepositorV2.sol";
 import "./TransceiverStructs.sol";
 
 /// @notice Executor arguments for NttManagerWithExecutor transfers
@@ -37,7 +37,8 @@ struct ExecutorArgs {
 /// @notice Fee arguments for NttManagerWithExecutor transfers
 /// @dev Used to specify fees taken by the executor service
 struct FeeArgs {
-    /// @notice Fee in basis points (e.g., 100 = 1%)
+    /// @notice Fee in basis points (e.g., 100 = 0.1%)
+    /// @dev NttManagerWithExecutor divisor is 100000, so dbps/100000 = percentage
     uint16 dbps;
     /// @notice Address to receive the fee payment
     address payee;
@@ -118,7 +119,7 @@ interface INttManagerWithExecutor {
 /// - Handles fee payments to executor service
 /// - Provides refund mechanisms for unused gas
 // slither-disable-next-line reentrancy-vulnerabilities-3
-contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
+contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositorV2 {
     using SafeERC20Upgradeable for IERC20Upgradeable;
 
     /// @notice Executor parameter set with metadata for nonce-based storage
@@ -128,6 +129,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         address user;
         uint256 timestamp;
         bool exists;
+        uint256 expiryTimestamp; // Absolute expiration time locked at creation
     }
 
     /// @notice NTT Manager With Executor contract for enhanced cross-chain transfers
@@ -155,8 +157,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @dev Address to receive TBTC platform fees
     address public defaultPlatformFeeRecipient;
 
-    /// @notice Maximum basis points value (100%)
-    /// @dev NttManagerWithExecutor uses 100000 as divisor, so 100% = 10000 dbps
+    /// @notice Maximum basis points value (10%)
+    /// @dev NttManagerWithExecutor uses 100000 as divisor, so MAX_BPS = 10000 represents 10%
+    ///      Formula: fee = (amount * dbps) / 100000, where dbps <= 10000
     uint16 public constant MAX_BPS = 10000;
 
     /// @notice Default destination gas limit for execution (500k gas)
@@ -199,6 +202,14 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         bytes32 indexed nonce,
         uint256 signedQuoteLength,
         uint256 executorValue
+    );
+
+    /// @notice Emitted when executor parameters are cleared by a user
+    /// @param sender Address of the user clearing parameters
+    /// @param nonce Unique nonce hash of the cleared parameters
+    event ExecutorParametersCleared(
+        address indexed sender,
+        bytes32 indexed nonce
     );
 
     /// @notice Emitted when tokens are transferred via NTT Manager With Executor
@@ -299,6 +310,8 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         defaultDestinationGasLimit = DEFAULT_DESTINATION_GAS_LIMIT;
         defaultExecutorFeeBps = 0; // 0% executor fee by default
         defaultExecutorFeeRecipient = address(0); // No fee recipient by default
+        defaultPlatformFeeBps = 0; // 0% platform fee by default
+        defaultPlatformFeeRecipient = 0x9F6e831c8F8939DC0C830C6e492e7cEf4f9C2F5f; // Threshold Committee wallet
         parameterExpirationTime = 3600; // 1 hour default expiration time
     }
 
@@ -339,10 +352,11 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         uint16 _platformFeeBps,
         address _platformFeeRecipient
     ) external onlyOwner {
-        require(_feeBps <= MAX_BPS, "Fee cannot exceed 100% (10000 bps)");
+        require(_gasLimit > 0, "Gas limit must be greater than zero");
+        require(_feeBps <= MAX_BPS, "Fee cannot exceed 10% (10000 bps)");
         require(
             _platformFeeBps <= MAX_BPS,
-            "Platform fee cannot exceed 100% (10000 bps)"
+            "Platform fee cannot exceed 10% (10000 bps)"
         );
         require(
             _feeRecipient != address(0) || _feeBps == 0,
@@ -375,7 +389,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @notice Sets the default TBTC platform fee in basis points
     /// @param _newFeeBps New default platform fee in basis points (100 = 0.1%)
     function setDefaultPlatformFeeBps(uint16 _newFeeBps) external onlyOwner {
-        require(_newFeeBps <= MAX_BPS, "Fee cannot exceed 100% (10000 bps)");
+        require(_newFeeBps <= MAX_BPS, "Fee cannot exceed 10% (10000 bps)");
         uint16 oldFeeBps = defaultPlatformFeeBps;
         defaultPlatformFeeBps = _newFeeBps;
         emit DefaultPlatformFeeBpsUpdated(oldFeeBps, _newFeeBps);
@@ -462,18 +476,31 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         FeeArgs memory feeArgs
     ) external returns (bytes32 nonce) {
         // CRITICAL: Validate that we have a real signed quote
-        require(
-            executorArgs.signedQuote.length > 0,
-            "Real signed quote from Wormhole Executor API is required"
-        );
         _validateSignedQuoteFormat(executorArgs.signedQuote);
 
         // Validate fee basis points
-        require(feeArgs.dbps <= MAX_BPS, "Fee cannot exceed 100% (10000 bps)");
+        require(feeArgs.dbps <= MAX_BPS, "Fee cannot exceed 10% (10000 bps)");
         require(
             feeArgs.dbps >= defaultPlatformFeeBps,
             "Fee must be at least the default platform fee"
         );
+
+        // FEE THEFT VULNERABILITY FIX: Validate fee payee to prevent deposit theft
+        // Fee payee must match the protocol-controlled platform fee recipient
+        // Exception: If platform fee is zero, payee can be zero address
+        if (defaultPlatformFeeBps > 0) {
+            require(
+                feeArgs.payee == defaultPlatformFeeRecipient,
+                "Fee payee must match default platform fee recipient"
+            );
+        } else {
+            // When platform fee is zero, allow zero address
+            require(
+                feeArgs.payee == defaultPlatformFeeRecipient ||
+                    feeArgs.payee == address(0),
+                "Fee payee must match default platform fee recipient or be zero"
+            );
+        }
 
         // SAFETY CHECK: Handle existing parameters - allow refresh or prevent new workflow
         if (userNonceCounter[msg.sender] > 0) {
@@ -486,17 +513,17 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
             ];
 
             if (existingParams.exists) {
-                // Check if parameters have expired
+                // Check if parameters have expired using locked expiration timestamp
                 // solhint-disable-next-line not-rely-on-time
-                bool expired = block.timestamp >
-                    existingParams.timestamp + parameterExpirationTime;
+                bool expired = block.timestamp > existingParams.expiryTimestamp;
 
                 if (!expired) {
                     // Allow refreshing existing parameters (same user, same nonce)
                     existingParams.executorArgs = executorArgs;
                     existingParams.feeArgs = feeArgs;
-                    // solhint-disable-next-line not-rely-on-time
-                    existingParams.timestamp = block.timestamp;
+                    // PARAMETER VALIDATION FIX: Do NOT refresh timestamp to prevent artificially
+                    // extending quote validity beyond Wormhole Executor's intended expiration
+                    // Keep original timestamp for accurate expiration tracking
 
                     emit ExecutorParametersRefreshed(
                         msg.sender,
@@ -518,12 +545,15 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         userNonceCounter[msg.sender] = currentSequence + 1;
 
         // Store parameters with metadata
+        // solhint-disable-next-line not-rely-on-time
+        uint256 currentTime = block.timestamp;
         parametersByNonce[nonce] = ExecutorParameterSet({
             executorArgs: executorArgs,
             feeArgs: feeArgs,
             user: msg.sender,
-            timestamp: block.timestamp, // solhint-disable-line not-rely-on-time
-            exists: true
+            timestamp: currentTime,
+            exists: true,
+            expiryTimestamp: currentTime + parameterExpirationTime // Lock expiration
         });
 
         emit ExecutorParametersSet(
@@ -552,6 +582,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         ExecutorParameterSet storage params = parametersByNonce[latestNonce];
         if (params.exists) {
             delete parametersByNonce[latestNonce];
+            emit ExecutorParametersCleared(msg.sender, latestNonce);
         }
         // If parameters don't exist, that's fine - already cleared
     }
@@ -587,14 +618,15 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         uint16 defaultChain = _getDefaultSupportedChain();
         require(defaultChain != 0, "No supported chains configured");
 
-        return
-            nttManagerWithExecutor.quoteDeliveryPrice(
-                underlyingNttManager,
-                defaultChain,
-                "",
-                params.executorArgs,
-                params.feeArgs
-            );
+        // INCOMPATIBILITY FIX (MB-M2): Query underlying NTT manager directly
+        // The deployed NttManagerWithExecutor doesn't expose quoteDeliveryPrice()
+        INttManager nttManager = INttManager(underlyingNttManager);
+        (, uint256 nttDeliveryPrice) = nttManager.quoteDeliveryPrice(
+            defaultChain,
+            "" // Empty transceiver instructions for basic transfer
+        );
+
+        return nttDeliveryPrice + params.executorArgs.value;
     }
 
     /// @notice Quotes cost for specific destination chain using latest parameters
@@ -620,14 +652,15 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         ExecutorParameterSet storage params = parametersByNonce[latestNonce];
         require(params.exists, "Executor parameters not set");
 
-        return
-            nttManagerWithExecutor.quoteDeliveryPrice(
-                underlyingNttManager,
-                destinationChain,
-                "",
-                params.executorArgs,
-                params.feeArgs
-            );
+        // INCOMPATIBILITY FIX (MB-M2): Query underlying NTT manager directly
+        // The deployed NttManagerWithExecutor doesn't expose quoteDeliveryPrice()
+        INttManager nttManager = INttManager(underlyingNttManager);
+        (, uint256 nttDeliveryPrice) = nttManager.quoteDeliveryPrice(
+            destinationChain,
+            "" // Empty transceiver instructions for basic transfer
+        );
+
+        return nttDeliveryPrice + params.executorArgs.value;
     }
 
     /// @notice Quotes the underlying NTT delivery price and total cost including executor fees
@@ -736,10 +769,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
             return (false, bytes32(0), 0);
         }
 
-        // Check if parameters have expired
+        // Check if parameters have expired using locked expiration timestamp
         // solhint-disable-next-line not-rely-on-time
-        bool expired = block.timestamp >
-            params.timestamp + parameterExpirationTime;
+        bool expired = block.timestamp > params.expiryTimestamp;
 
         return (!expired, nonce, params.timestamp);
     }
@@ -761,10 +793,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
             return true;
         }
 
-        // Check if parameters have expired
+        // Check if parameters have expired using locked expiration timestamp
         // solhint-disable-next-line not-rely-on-time
-        bool expired = block.timestamp >
-            params.timestamp + parameterExpirationTime;
+        bool expired = block.timestamp > params.expiryTimestamp;
 
         return expired;
     }
@@ -799,9 +830,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         }
 
         timestamp = params.timestamp;
-        uint256 expirationTime = timestamp + parameterExpirationTime;
+        uint256 expirationTime = params.expiryTimestamp;
 
-        // Check if parameters have expired
+        // Check if parameters have expired using locked expiration timestamp
         // solhint-disable-next-line not-rely-on-time
         bool expired = block.timestamp > expirationTime;
 
@@ -836,9 +867,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         ExecutorParameterSet storage params = parametersByNonce[latestNonce];
         require(params.exists, "Executor parameters not set");
 
-        // Optional: Add expiration check
+        // Optional: Add expiration check using locked expiration timestamp
         require(
-            block.timestamp <= params.timestamp + parameterExpirationTime, // solhint-disable-line not-rely-on-time
+            block.timestamp <= params.expiryTimestamp, // solhint-disable-line not-rely-on-time
             "Executor parameters expired"
         );
 
@@ -887,17 +918,20 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         );
 
         // CRITICAL: Validate that we have a real signed quote
-        require(
-            executorArgs.signedQuote.length > 0,
-            "Real signed quote from Wormhole Executor API is required"
-        );
         _validateSignedQuoteFormat(executorArgs.signedQuote);
+        
+        // PARAMETER VALIDATION FIX: Validate embedded expiry time
+        _validateAndExtractQuoteExpiry(executorArgs.signedQuote);
 
-        // CRITICAL: Validate payment amount before calling NTT manager
-        require(
-            msg.value >= executorArgs.value,
-            "Insufficient payment for executor service"
-        );
+        // PARAMETER VALIDATION FIX: Validate total payment includes executor cost + NTT delivery price
+        {
+            (, uint256 nttDeliveryPrice) = INttManager(underlyingNttManager)
+                .quoteDeliveryPrice(destinationChain, "");
+            require(
+                msg.value >= executorArgs.value + nttDeliveryPrice,
+                "Insufficient payment for executor service and NTT delivery"
+            );
+        }
 
         // Approve the NttManagerWithExecutor to spend tBTC
         tbtcToken.safeIncreaseAllowance( // slither-disable-line reentrancy-vulnerabilities-3
@@ -972,13 +1006,34 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
             );
     }
 
+    /// @notice Extracts and validates the embedded expiry time from a signed quote
+    /// @param signedQuote The signed quote bytes from Wormhole Executor API
+    /// @dev The expiry timestamp is embedded at byte offset 60 in the signed quote
+    function _validateAndExtractQuoteExpiry(
+        bytes memory signedQuote
+    ) internal view returns (uint64 quoteExpiry) {
+        require(signedQuote.length >= 92, "Signed quote too short for expiry extraction");
+        
+        // Extract expiry timestamp from signed quote (at byte offset 60)
+        // solhint-disable-next-line no-inline-assembly
+        assembly {
+            // signedQuote in memory: [length (32 bytes)][data...]
+            // Byte offset 60 in data = 60 + 32 (length prefix) = 92
+            quoteExpiry := mload(add(signedQuote, 92))
+            // Shift right to get the actual uint64 value (8 bytes)
+            quoteExpiry := shr(192, quoteExpiry)
+        }
+        
+        // solhint-disable-next-line not-rely-on-time
+        require(quoteExpiry > block.timestamp, "Signed quote expired - embedded expiry time has passed");
+    }
+
     /// @notice Validates the format of a signed quote from Wormhole Executor API
     /// @param signedQuote The signed quote bytes to validate
     /// @dev Keep validation minimal - NttManagerWithExecutor handles detailed validation
     function _validateSignedQuoteFormat(
         bytes memory signedQuote
     ) internal pure {
-        require(signedQuote.length > 0, "Signed quote cannot be empty");
         require(signedQuote.length >= 32, "Signed quote too short");
     }
 

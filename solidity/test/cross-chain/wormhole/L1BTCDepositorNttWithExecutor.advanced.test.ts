@@ -79,6 +79,15 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
     await depositor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
     await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
 
+    // Set default parameters to allow owner.address as fee payee
+    await depositor.setDefaultParameters(
+      500000, // gas limit
+      0, // executor fee
+      ethers.constants.AddressZero, // executor fee recipient
+      100, // 0.1% platform fee
+      owner.address // platform fee recipient (allows tests to use owner.address)
+    )
+
     // Set supported chains for the mock NTT manager
     await nttManagerWithExecutor.setSupportedChain(WORMHOLE_CHAIN_SEI, true)
     await nttManagerWithExecutor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
