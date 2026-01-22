@@ -2,6 +2,12 @@ import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import type { DeployFunction } from "hardhat-deploy/types"
 
 const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
+  // Skip deployment for hardhat network (testing)
+  if (hre.network.name === "hardhat") {
+    console.log("Skipping L1 attachment on hardhat network")
+    return
+  }
+  
   const { deployments, getNamedAccounts } = hre
   const { deployer } = await getNamedAccounts()
   const { execute } = deployments

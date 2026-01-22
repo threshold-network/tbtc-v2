@@ -33,7 +33,7 @@ describe("BaseWormholeGatewayUpgraded - Upgrade", async () => {
 
       const [upgradedContract] = await helpers.upgrades.upgradeProxy(
         "BaseWormholeGateway",
-        "BaseWormholeGatewayUpgraded",
+        "contracts/test/BaseWormholeGatewayUpgraded.sol:BaseWormholeGatewayUpgraded",
         {
           proxyOpts: {
             call: {

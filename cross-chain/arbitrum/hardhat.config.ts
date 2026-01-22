@@ -149,7 +149,7 @@ const config: HardhatUserConfig = {
       arbitrumGoerli: 0,
       arbitrumSepolia: 0,
       mainnet: "0x123694886DBf5Ac94DDA07135349534536D14cAf",
-      arbitrumOne: "0x123694886DBf5Ac94DDA07135349534536D14cAf",
+      arbitrumOne: "0x15424dC94D4da488DB0d0e0B7aAdB86835813a63",
     },
     governance: {
       default: 2,

@@ -31,18 +31,13 @@ const config: HardhatUserConfig = {
   networks: {
     hardhat: {
       deploy: [
-        // "deploy_l1",
+        "deploy_l1",
         "deploy_l2",
       ],
-    },
-    goerli: {
-      url: process.env.L1_CHAIN_API_URL || "",
-      chainId: 5,
-      deploy: ["deploy_l1"],
-      accounts: process.env.L1_ACCOUNTS_PRIVATE_KEYS
-        ? process.env.L1_ACCOUNTS_PRIVATE_KEYS.split(",")
-        : undefined,
-      tags: ["etherscan"],
+      companionNetworks: {
+        l1: "hardhat",
+        l2: "hardhat",
+      },
     },
     sepolia: {
       url: process.env.L1_CHAIN_API_URL || "",
@@ -103,17 +98,15 @@ const config: HardhatUserConfig = {
         ? process.env.L2_ACCOUNTS_PRIVATE_KEYS.split(",")
         : undefined,
       tags: ["basescan"],
-      // In case of deployment failing with underpriced transaction error set
-      // the `gasPrice` parameter.
-      // gasPrice: 1000000000,
-      // companionNetworks: {
-      //   l1: "mainnet",
-      // },
+      companionNetworks: {
+        l1: "mainnet",
+      },
     },
   },
 
   external: {
     deployments: {
+      hardhat: ["./external/hardhat"],
       goerli: ["./external/goerli"],
       sepolia: ["./external/sepolia"],
       mainnet: ["./external/mainnet"],
@@ -138,6 +131,7 @@ const config: HardhatUserConfig = {
       sepolia: process.env.ETHERSCAN_API_KEY,
       mainnet: process.env.ETHERSCAN_API_KEY,
       "base-goerli": process.env.BASESCAN_API_KEY,
+      "base-sepolia": process.env.BASESCAN_API_KEY,
       "base-sepolia": process.env.BASESCAN_API_KEY,
       "base-mainnet": process.env.BASESCAN_API_KEY,
     },
@@ -177,7 +171,7 @@ const config: HardhatUserConfig = {
       baseGoerli: 0,
       baseSepolia: 0,
       mainnet: "0x123694886DBf5Ac94DDA07135349534536D14cAf",
-      base: "0x123694886DBf5Ac94DDA07135349534536D14cAf",
+      base: "0x15424dC94D4da488DB0d0e0B7aAdB86835813a63",
     },
     governance: {
       default: 2,
@@ -186,7 +180,7 @@ const config: HardhatUserConfig = {
       baseGoerli: 0,
       baseSepolia: 0,
       mainnet: "0x9f6e831c8f8939dc0c830c6e492e7cef4f9c2f5f", // Threshold Council
-      base: "0x518385dd31289F1000fE6382b0C65df4d1Cd3bfC", // Threshold Council
+      base: "0x15424dC94D4da488DB0d0e0B7aAdB86835813a63", // Threshold Council
     },
   },
   mocha: {
