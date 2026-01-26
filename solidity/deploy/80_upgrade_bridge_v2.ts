@@ -119,7 +119,14 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   const bridgeContract = await ethers.getContractAt("Bridge", bridgeAddress)
   const previousGovernance = await bridgeContract.governance()
-  const previousController = await bridgeContract.controllerBalanceIncreaser()
+  let previousController = ethers.constants.AddressZero
+  try {
+    previousController = await bridgeContract.controllerBalanceIncreaser()
+  } catch {
+    deployments.log(
+      "   ℹ️  Old Bridge lacks controllerBalanceIncreaser; will initialize to zero."
+    )
+  }
 
   const bridgeProxyAdminAddress = await upgrades.erc1967.getAdminAddress(
     bridgeAddress
@@ -192,6 +199,29 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   // Verify on-chain library bytecodes match compiled artifacts.
   await verifyLibraryBytecodes(hre, libraryAddresses)
+
+  // Force-import the proxy if not already registered in the OZ manifest.
+  // This is required when upgrading a proxy that was deployed outside this
+  // local development environment (e.g., on testnets/mainnet by another party).
+  try {
+    const BridgeFactory = await ethers.getContractFactory("Bridge", {
+      signer,
+      libraries: libraryAddresses,
+    })
+    await upgrades.forceImport(bridgeAddress, BridgeFactory, {
+      kind: "transparent",
+    })
+    deployments.log(
+      `   ✅ Bridge proxy at ${bridgeAddress} registered in OZ manifest.`
+    )
+  } catch (importError: any) {
+    // If already registered, forceImport throws; we can safely ignore that.
+    if (!importError.message?.includes("already registered")) {
+      deployments.log(
+        `   ℹ️  forceImport skipped or failed: ${importError.message}`
+      )
+    }
+  }
 
   const [bridge, proxyDeployment] = await helpers.upgrades.upgradeProxy(
     "Bridge",
