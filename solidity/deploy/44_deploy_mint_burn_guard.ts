@@ -1,5 +1,6 @@
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
+import { verifyMintBurnGuardAlignment } from "../scripts/lib/verification"
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { deployments, getNamedAccounts, ethers } = hre
@@ -86,6 +87,18 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   if (!deployedGlobalMintCapTbtc.eq(initialGlobalMintCapTbtc)) {
     throw new Error(
       "MintBurnGuard globalMintCapTbtc mismatch after deployment. Manual intervention required."
+    )
+  }
+
+  // Verify bidirectional references to dependent contracts
+  if (process.env.SKIP_DEPLOYMENT_VERIFICATION !== "true") {
+    await verifyMintBurnGuardAlignment({
+      mintBurnGuardAddress: deployment.address,
+      hre,
+    })
+  } else {
+    log(
+      "⚠️  Deployment verification skipped (SKIP_DEPLOYMENT_VERIFICATION=true)"
     )
   }
 }

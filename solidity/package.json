@@ -33,6 +33,7 @@
     "mintburn:deploy": "hardhat deploy --tags MintBurnGuard",
     "mintburn:configure": "hardhat deploy --tags MintBurnGuardSecurity",
     "mintburn:set-controller": "hardhat run scripts/mintburnguard-set-controller.ts",
+    "mintburn:verify-alignment": "hardhat run scripts/mintburnguard-verify-alignment.ts",
     "prepack": "tsc -p tsconfig.export.json && hardhat export-artifacts export/artifacts",
     "prepublishOnly": "./scripts/prepare-artifacts.sh --network $npm_config_network"
   },
