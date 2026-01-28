@@ -84,3 +84,78 @@ A single reference for upgrading the Sepolia Bridge proxy, transferring governan
 - MintBurnGuard redeploy (2026-01-26): deployed `0x2EB3B80d7CF4f56c5255db891a646B0bFed4d58a` via owner `0xF4767Aecf1dFB3a63791538E065c0C9F7f8920C3`. Constructor seeded `totalMintedTbtc=0` and `globalMintCapTbtc=5000e18`, `mintRateLimitTbtc=500e18`, `mintRateLimitWindowSeconds=86400`. Controller set to AccountControl `0x9A7884a22cAee1373314B8F62B0A53b683429BA2`. Execution targets: `bridge=0x9b1a7fE5a16A15F2f9475C5B231750598b113403`, `bank=0x4918fD33a22e7E2948B7444CbDd68efAa9E6a087`, `vault=0xB5679dE944A79732A75CE556191DF11F489448d5`.
 - Bridge upgrade (2026-01-26): Upgraded Bridge proxy `0x9b1a7fE5a16A15F2f9475C5B231750598b113403` to new implementation `0xee6c75a9C1590dBDa96be6fD299882423D11f791` with `controllerBalanceIncreaser` function. ProxyAdmin upgrade tx: `0x3385b48a5b57ebdc266a3804ba7088583d76d59dbfa5529108903289b8b3bda1`, block `10128045`.
 - Bridge controller authorization (2026-01-26): `BridgeGovernance.setControllerBalanceIncreaser(0x2EB3B80d7CF4f56c5255db891a646B0bFed4d58a)` executed via tx `0xb3938307eb25443a8aac815ff3235a44fc8a92e6ae23384a303698d90a1a750f`, block `10128048`. MintBurnGuard is now the authorized controller for Bridge balance increases.
+
+## 7. Lessons Learned & Testing Patterns
+
+### 7.1 Configuration Drift Problem
+
+**Issue**: When MintBurnGuard is redeployed, the deployment scripts don't verify that the Bridge's `controllerBalanceIncreaser` is updated to point to the new MintBurnGuard. This creates asymmetric configuration:
+- New MintBurnGuard → Bridge (via `setBridge()`)
+- Bridge → Old MintBurnGuard (via `controllerBalanceIncreaser`)
+
+**Solution**: Added automatic verification in `deploy/44_deploy_mint_burn_guard.ts` that checks 5 bidirectional references after deployment:
+1. MintBurnGuard.bridge() == Bridge.address
+2. MintBurnGuard.controller() == Controller.address
+3. **Bridge.controllerBalanceIncreaser() == MintBurnGuard.address** (CRITICAL)
+4. MintBurnGuard.bank() == Bank.address
+5. MintBurnGuard.vault() == TBTCVault.address
+
+**Result**: Deployment now fails loudly with remediation steps if Bridge is misconfigured, preventing configuration drift from reaching production.
+
+### 7.2 Testing Deployment Scripts with Hardhat
+
+**Problem**: Initial test implementation used `deployments.fixture()` which attempts to deploy the full contract dependency chain, including external contracts like WalletRegistry from @keep-network/ecdsa.
+
+**Attempts and failures**:
+1. **With FORKING_URL set**: Hardhat attempts to fork from the RPC endpoint, which can time out or return invalid responses
+2. **Without FORKING_URL**: Deployment scripts fail because they require external contracts that don't exist locally
+
+**Solution**: Follow the existing pattern from `test/account-control/MintBurnGuard.test.ts`:
+- Deploy mock contracts directly (`MockBridgeMintingAuthorization`, `MockBurnBank`, `MockBurnVault`)
+- Avoid using `deployments.fixture()` for integration tests
+- Use `beforeEach()` to set up fresh contract instances for each test
+- Set environment variables explicitly to control verification behavior
+
+**Code pattern**:
+```typescript
+beforeEach(async () => {
+  const [owner, controller] = await ethers.getSigners()
+
+  // Deploy mock contracts
+  const MockBridgeFactory = await ethers.getContractFactory("MockBridgeMintingAuthorization")
+  mockBridge = await MockBridgeFactory.deploy(owner.address)
+
+  const MintBurnGuardFactory = await ethers.getContractFactory("MintBurnGuard")
+  mintBurnGuard = await MintBurnGuardFactory.deploy(...)
+
+  // Wire up contracts
+  await mintBurnGuard.connect(owner).setBridge(mockBridge.address)
+  await mockBridge.connect(owner).setControllerBalanceIncreaser(mintBurnGuard.address)
+})
+```
+
+**Benefits**:
+- Tests run quickly without network dependencies
+- No external deployment state required
+- Isolated test environment
+- Follows existing project patterns
+
+### 7.3 Verification System Architecture
+
+**Design decisions**:
+1. **Reusable library** (`scripts/lib/verification.ts`): Centralizes verification logic to avoid duplication
+2. **Standalone script** (`scripts/mintburnguard-verify-alignment.ts`): Allows manual verification without re-running deployment
+3. **Skip flag** (`SKIP_DEPLOYMENT_VERIFICATION`): Provides emergency bypass while still logging a warning
+4. **Clear error messages**: Each failure includes specific remediation steps
+
+**Environment variable fallback strategy**:
+- Use explicit environment variables if provided
+- Fall back to deployment cache for missing addresses
+- Fail fast if required addresses cannot be found
+
+### 7.4 Common Pitfalls
+
+1. **FORKING_URL in development environment**: Ensure FORKING_URL is unset when running local tests to avoid unnecessary network calls
+2. **Mock contract selection**: Use the same mock contracts as existing tests to maintain consistency
+3. **Type safety**: Import proper types from `@nomiclabs/hardhat-ethers/signers` and `typechain` instead of using `any`
+4. **Array destructuring**: Use `const [owner, controller] = await ethers.getSigners()` instead of accessing indices
