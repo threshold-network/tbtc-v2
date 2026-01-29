@@ -28,7 +28,7 @@ import { MockBridge } from "../utils/mock-bridge"
 import * as chai from "chai"
 import { expect } from "chai"
 import chaiAsPromised from "chai-as-promised"
-import { BigNumber, BigNumberish } from "ethers"
+import { BigNumber, BigNumberish, BytesLike } from "ethers"
 import { MockTBTCContracts } from "../utils/mock-tbtc-contracts"
 import { MockRedeemerProxy } from "../utils/mock-redeemer-proxy"
 
@@ -520,6 +520,443 @@ describe("Redemptions", () => {
             })
           }
         )
+      })
+    })
+
+    describe("relayRedemptionRequestToL1", () => {
+      // Tests for cross-chain redemption relay with explicit redeemer output script
+      // Verifies the 4-parameter function signature and proper parameter passing
+
+      class TestRelayRedemptionsService extends RedemptionsService {
+        // Expose the method for testing
+        public async relayRedemptionRequestToL1(
+          amount: BigNumber,
+          encodedVm: BytesLike,
+          l2ChainName: L2Chain,
+          redeemerOutputScript: string
+        ): Promise<{ targetChainTxHash: Hex }> {
+          return super.relayRedemptionRequestToL1(
+            amount,
+            encodedVm,
+            l2ChainName,
+            redeemerOutputScript
+          )
+        }
+
+        // Expose fetchWalletsForRedemption for mocking
+        protected async fetchWalletsForRedemption(): Promise<
+          Array<{
+            index: number
+            walletPublicKey: string
+            mainUtxo: {
+              transactionHash: string
+              outputIndex: number
+              value: string
+            }
+            walletBTCBalance: string
+          }>
+        > {
+          // Return test wallet data in serializable format
+          const wallet = findWalletForRedemptionData.liveWallet.data
+          return [
+            {
+              index: 0,
+              walletPublicKey: wallet.walletPublicKey.toString(),
+              mainUtxo: {
+                transactionHash: wallet.mainUtxo.transactionHash.toString(),
+                outputIndex: wallet.mainUtxo.outputIndex,
+                value: wallet.mainUtxo.value.toString(),
+              },
+              walletBTCBalance: wallet.mainUtxo.value.toString(),
+            },
+          ]
+        }
+      }
+
+      // Test data
+      const testAmount = BigNumber.from("100000000000000000") // 0.1 TBTC (1e17)
+      const testEncodedVm = "0x1234567890abcdef" // Mock Wormhole VAA
+      const testL2ChainName: L2Chain = "Base"
+      // P2PKH output script from test data
+      const testRedeemerOutputScript =
+        "76a9144130879211c54df460e484ddf9aac009cb38ee7488ac"
+
+      context(
+        "when relayRedemptionRequestToL1 is called with 4 parameters",
+        () => {
+          it("should accept redeemerOutputScript as required 4th parameter", async () => {
+            // This test will fail because the current function signature only has 3 parameters
+            // After implementation, it should pass 4 parameters correctly
+
+            const tbtcContracts = new MockTBTCContracts()
+            const bitcoinClient = new MockBitcoinClient()
+            bitcoinClient.network = BitcoinNetwork.Mainnet
+
+            // Setup mock wallet data
+            const wallet = findWalletForRedemptionData.liveWallet
+            tbtcContracts.bridge.setWallet(
+              wallet.event.walletPublicKeyHash.toPrefixedString(),
+              {
+                state: WalletState.Live,
+                walletPublicKey: wallet.data.walletPublicKey,
+                pendingRedemptionsValue: BigNumber.from(0),
+                mainUtxoHash: tbtcContracts.bridge.buildUtxoHash(
+                  wallet.data.mainUtxo
+                ),
+              } as Wallet
+            )
+
+            // Setup transaction data for main UTXO lookup
+            const transactions = new Map<string, BitcoinTx>()
+            wallet.data.transactions.forEach((tx) => {
+              transactions.set(tx.transactionHash.toString(), tx)
+            })
+            bitcoinClient.transactions = transactions
+
+            const transactionHashes = new Map<string, BitcoinTxHash[]>()
+            transactionHashes.set(
+              wallet.event.walletPublicKeyHash.toString(),
+              wallet.data.transactions.map((tx) => tx.transactionHash)
+            )
+            bitcoinClient.transactionHashes = transactionHashes
+
+            // Mock cross-chain contracts with L1BitcoinRedeemer
+            const mockL1BitcoinRedeemer = {
+              getChainIdentifier: () =>
+                EthereumAddress.from(
+                  "0x1234567890123456789012345678901234567890"
+                ),
+              requestRedemption: async (
+                walletPublicKey: Hex,
+                mainUtxo: BitcoinUtxo,
+                encodedVm: BytesLike
+              ) => {
+                return Hex.from(
+                  "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+                )
+              },
+            }
+
+            const crossChainContractsResolver = (chain: L2Chain) => {
+              if (chain === "Base") {
+                return {
+                  l1BitcoinDepositor: undefined as any,
+                  l1BitcoinRedeemer: mockL1BitcoinRedeemer,
+                  destinationChainTbtcToken: undefined as any,
+                  destinationChainBitcoinDepositor: undefined as any,
+                }
+              }
+              return undefined
+            }
+
+            const redemptionsService = new TestRelayRedemptionsService(
+              tbtcContracts,
+              bitcoinClient,
+              crossChainContractsResolver
+            )
+
+            // Call with 4 parameters - this will fail if function doesn't accept 4 params
+            const result = await redemptionsService.relayRedemptionRequestToL1(
+              testAmount,
+              testEncodedVm,
+              testL2ChainName,
+              testRedeemerOutputScript // 4th parameter
+            )
+
+            // Verify result
+            expect(result).to.have.property("targetChainTxHash")
+            expect(result.targetChainTxHash).to.be.instanceOf(Hex)
+          })
+        }
+      )
+
+      context(
+        "when wallet has pending redemption to same output script",
+        () => {
+          it("should skip wallet with collision and use next available wallet", async () => {
+            // This test verifies that redeemerOutputScript is passed to
+            // determineValidRedemptionWallet and triggers pending redemption check
+
+            const tbtcContracts = new MockTBTCContracts()
+            const bitcoinClient = new MockBitcoinClient()
+            bitcoinClient.network = BitcoinNetwork.Mainnet
+
+            // Setup two wallets - first has pending redemption, second is clean
+            const walletWithPending =
+              findWalletForRedemptionData.walletWithPendingRedemption
+            const cleanWallet = findWalletForRedemptionData.liveWallet
+
+            // Set up pending redemption for first wallet
+            const pendingRedemptions = new Map<
+              BigNumberish,
+              RedemptionRequest
+            >()
+            const pendingScript =
+              findWalletForRedemptionData.pendingRedemption.redeemerOutputScript
+
+            const redemptionKey = MockBridge.buildRedemptionKey(
+              walletWithPending.event.walletPublicKeyHash,
+              pendingScript
+            )
+            pendingRedemptions.set(
+              redemptionKey,
+              findWalletForRedemptionData.pendingRedemption
+            )
+            tbtcContracts.bridge.setPendingRedemptions(pendingRedemptions)
+
+            // Setup both wallets
+            ;[walletWithPending, cleanWallet].forEach((wallet) => {
+              tbtcContracts.bridge.setWallet(
+                wallet.event.walletPublicKeyHash.toPrefixedString(),
+                {
+                  state: WalletState.Live,
+                  walletPublicKey: wallet.data.walletPublicKey,
+                  pendingRedemptionsValue: wallet.data.pendingRedemptionsValue,
+                  mainUtxoHash: tbtcContracts.bridge.buildUtxoHash(
+                    wallet.data.mainUtxo
+                  ),
+                } as Wallet
+              )
+            })
+
+            // Create custom service that returns both wallets (pending first, clean second)
+            class MultiWalletTestService extends RedemptionsService {
+              public async relayRedemptionRequestToL1(
+                amount: BigNumber,
+                encodedVm: BytesLike,
+                l2ChainName: L2Chain,
+                redeemerOutputScript: string
+              ): Promise<{ targetChainTxHash: Hex }> {
+                return super.relayRedemptionRequestToL1(
+                  amount,
+                  encodedVm,
+                  l2ChainName,
+                  redeemerOutputScript
+                )
+              }
+
+              protected async fetchWalletsForRedemption(): Promise<any[]> {
+                // Return wallet with pending first, then clean wallet
+                return [walletWithPending, cleanWallet].map((w, idx) => ({
+                  index: idx,
+                  walletPublicKey: w.data.walletPublicKey.toString(),
+                  mainUtxo: {
+                    transactionHash: w.data.mainUtxo.transactionHash.toString(),
+                    outputIndex: w.data.mainUtxo.outputIndex,
+                    value: w.data.mainUtxo.value.toString(),
+                  },
+                  walletBTCBalance: w.data.mainUtxo.value
+                    .sub(w.data.pendingRedemptionsValue)
+                    .toString(),
+                }))
+              }
+            }
+
+            let capturedWalletPublicKey: Hex | undefined
+
+            const mockL1BitcoinRedeemer = {
+              getChainIdentifier: () =>
+                EthereumAddress.from(
+                  "0x1234567890123456789012345678901234567890"
+                ),
+              requestRedemption: async (
+                walletPublicKey: Hex,
+                mainUtxo: BitcoinUtxo,
+                encodedVm: BytesLike
+              ) => {
+                capturedWalletPublicKey = walletPublicKey
+                return Hex.from(
+                  "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+                )
+              },
+            }
+
+            const crossChainContractsResolver = (chain: L2Chain) => {
+              if (chain === "Base") {
+                return {
+                  l1BitcoinDepositor: undefined as any,
+                  l1BitcoinRedeemer: mockL1BitcoinRedeemer,
+                  destinationChainTbtcToken: undefined as any,
+                  destinationChainBitcoinDepositor: undefined as any,
+                }
+              }
+              return undefined
+            }
+
+            const redemptionsService = new MultiWalletTestService(
+              tbtcContracts,
+              bitcoinClient,
+              crossChainContractsResolver
+            )
+
+            // Use the same output script that has a pending redemption for wallet 1
+            await redemptionsService.relayRedemptionRequestToL1(
+              testAmount,
+              testEncodedVm,
+              testL2ChainName,
+              pendingScript.toString() // Same script as pending redemption
+            )
+
+            // Should have used the SECOND wallet (clean) not the first (with pending)
+            expect(capturedWalletPublicKey?.toString()).to.equal(
+              cleanWallet.data.walletPublicKey.toString()
+            )
+          })
+        }
+      )
+
+      context("when cross-chain contracts are not initialized", () => {
+        it("should throw descriptive error", async () => {
+          const tbtcContracts = new MockTBTCContracts()
+          const bitcoinClient = new MockBitcoinClient()
+
+          // Cross-chain resolver returns undefined for all chains
+          const crossChainContractsResolver = (_: L2Chain) => undefined
+
+          const redemptionsService = new TestRelayRedemptionsService(
+            tbtcContracts,
+            bitcoinClient,
+            crossChainContractsResolver
+          )
+
+          await expect(
+            redemptionsService.relayRedemptionRequestToL1(
+              testAmount,
+              testEncodedVm,
+              testL2ChainName,
+              testRedeemerOutputScript
+            )
+          ).to.be.rejectedWith(
+            `Cross-chain contracts for ${testL2ChainName} not initialized`
+          )
+        })
+      })
+
+      context("when output script has 0x prefix", () => {
+        it("should handle 0x-prefixed hex format correctly", async () => {
+          const tbtcContracts = new MockTBTCContracts()
+          const bitcoinClient = new MockBitcoinClient()
+          bitcoinClient.network = BitcoinNetwork.Mainnet
+
+          const wallet = findWalletForRedemptionData.liveWallet
+          tbtcContracts.bridge.setWallet(
+            wallet.event.walletPublicKeyHash.toPrefixedString(),
+            {
+              state: WalletState.Live,
+              walletPublicKey: wallet.data.walletPublicKey,
+              pendingRedemptionsValue: BigNumber.from(0),
+              mainUtxoHash: tbtcContracts.bridge.buildUtxoHash(
+                wallet.data.mainUtxo
+              ),
+            } as Wallet
+          )
+
+          const mockL1BitcoinRedeemer = {
+            getChainIdentifier: () =>
+              EthereumAddress.from(
+                "0x1234567890123456789012345678901234567890"
+              ),
+            requestRedemption: async () => {
+              return Hex.from(
+                "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+              )
+            },
+          }
+
+          const crossChainContractsResolver = (chain: L2Chain) => {
+            if (chain === "Base") {
+              return {
+                l1BitcoinDepositor: undefined as any,
+                l1BitcoinRedeemer: mockL1BitcoinRedeemer,
+                destinationChainTbtcToken: undefined as any,
+                destinationChainBitcoinDepositor: undefined as any,
+              }
+            }
+            return undefined
+          }
+
+          const redemptionsService = new TestRelayRedemptionsService(
+            tbtcContracts,
+            bitcoinClient,
+            crossChainContractsResolver
+          )
+
+          // Use 0x-prefixed script
+          const prefixedScript = "0x" + testRedeemerOutputScript
+
+          const result = await redemptionsService.relayRedemptionRequestToL1(
+            testAmount,
+            testEncodedVm,
+            testL2ChainName,
+            prefixedScript
+          )
+
+          expect(result).to.have.property("targetChainTxHash")
+        })
+      })
+
+      context("when no wallet can handle the redemption", () => {
+        it("should throw error when no wallet has enough funds", async () => {
+          const tbtcContracts = new MockTBTCContracts()
+          const bitcoinClient = new MockBitcoinClient()
+          bitcoinClient.network = BitcoinNetwork.Mainnet
+
+          // Create service with empty wallet list
+          class EmptyWalletTestService extends RedemptionsService {
+            public async relayRedemptionRequestToL1(
+              amount: BigNumber,
+              encodedVm: BytesLike,
+              l2ChainName: L2Chain,
+              redeemerOutputScript: string
+            ): Promise<{ targetChainTxHash: Hex }> {
+              return super.relayRedemptionRequestToL1(
+                amount,
+                encodedVm,
+                l2ChainName,
+                redeemerOutputScript
+              )
+            }
+
+            protected async fetchWalletsForRedemption(): Promise<any[]> {
+              return [] // No wallets available
+            }
+          }
+
+          const mockL1BitcoinRedeemer = {
+            getChainIdentifier: () =>
+              EthereumAddress.from(
+                "0x1234567890123456789012345678901234567890"
+              ),
+            requestRedemption: async () => Hex.from("0x00"),
+          }
+
+          const crossChainContractsResolver = (chain: L2Chain) => {
+            if (chain === "Base") {
+              return {
+                l1BitcoinDepositor: undefined as any,
+                l1BitcoinRedeemer: mockL1BitcoinRedeemer,
+                destinationChainTbtcToken: undefined as any,
+                destinationChainBitcoinDepositor: undefined as any,
+              }
+            }
+            return undefined
+          }
+
+          const redemptionsService = new EmptyWalletTestService(
+            tbtcContracts,
+            bitcoinClient,
+            crossChainContractsResolver
+          )
+
+          await expect(
+            redemptionsService.relayRedemptionRequestToL1(
+              testAmount,
+              testEncodedVm,
+              testL2ChainName,
+              testRedeemerOutputScript
+            )
+          ).to.be.rejectedWith("Could not find a wallet with enough funds")
+        })
       })
     })
 
