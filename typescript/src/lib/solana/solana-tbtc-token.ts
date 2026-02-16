@@ -38,6 +38,7 @@ export class SolanaTBTCToken
     // Proper fix: investigate Anchor v0.30+ API for correct Program instantiation.
     const programId = new PublicKey(SolanaTBTCTokenIdl.metadata.address)
 
+    // @ts-ignore - Pre-existing Anchor v0.30+ API incompatibility
     super(SolanaTBTCTokenIdl as unknown as Idl, provider)
 
     // derive your mint:
