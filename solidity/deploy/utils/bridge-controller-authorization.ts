@@ -15,13 +15,11 @@ export interface BridgeControllerAuthorizationSyncOptions {
 
 const BRIDGE_ABI = [
   "function governance() view returns (address)",
-  "function controllerBalanceIncreaser() view returns (address)",
-  "event ControllerBalanceIncreaserUpdated(address indexed previousController, address indexed newController)",
+  "function mintingController() view returns (address)",
+  "event MintingControllerSet(address controller)",
 ]
 
-const BRIDGE_GOVERNANCE_ABI = [
-  "function setControllerBalanceIncreaser(address)",
-]
+const BRIDGE_GOVERNANCE_ABI = ["function setMintingController(address)"]
 
 async function resolveBridgeContracts(
   hre: HardhatRuntimeEnvironment,
@@ -136,9 +134,9 @@ async function applyControllerConfiguration(
   controller: string,
   dryRun: boolean
 ) {
-  const current = await bridge.controllerBalanceIncreaser()
+  const current = await bridge.mintingController()
 
-  console.log("\n📋 Bridge controller configuration plan:")
+  console.log("\n📋 Bridge minting controller configuration plan:")
   console.log(`   Desired controller: ${controller}`)
   console.log(`   Current controller: ${current}`)
 
@@ -155,14 +153,12 @@ async function applyControllerConfiguration(
     return
   }
 
-  const tx = await bridgeGovernanceWithSigner.setControllerBalanceIncreaser(
-    controller
-  )
+  const tx = await bridgeGovernanceWithSigner.setMintingController(controller)
   console.log(
-    `   ⛓️  Submitted controller update (${controller}). Tx hash: ${tx.hash}`
+    `   ⛓️  Submitted minting controller update (${controller}). Tx hash: ${tx.hash}`
   )
   await tx.wait()
-  console.log("   ✅ Controller configuration complete.")
+  console.log("   ✅ Minting controller configuration complete.")
 }
 
 export async function syncBridgeControllerAuthorizations(

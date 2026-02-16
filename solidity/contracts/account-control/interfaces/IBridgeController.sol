@@ -15,10 +15,14 @@
 
 pragma solidity 0.8.17;
 
-/// @notice Minimal Bridge surface consumed by AccountControl for minting.
-/// @dev Security model:
+/// @notice Bridge surface for authorized controller-based minting.
+/// @dev Minimal interface consumed by MintBurnGuard and other controllers
+///      to execute mints via the Bridge's controller authorization system.
+///
+///      Security model:
 ///      - The Bridge exposes controller-based minting entrypoints that are
-///        restricted to a single governance-authorized controller address.
+///        restricted to a single governance-authorized controller address
+///        (set via Bridge.mintingController).
 ///      - The Bridge **does not** enforce per-controller caps or rate limits;
 ///        it only enforces _who_ can mint. Global caps, pauses, and any
 ///        per-protocol policy must be implemented in MintBurnGuard
@@ -29,7 +33,7 @@ pragma solidity 0.8.17;
 ///        their configured allowance.
 ///      - Only fully reviewed and audited contracts, under governance
 ///        control, should ever be authorized as controllers.
-interface IBridgeMintingAuthorization {
+interface IBridgeController {
     function controllerIncreaseBalance(address recipient, uint256 amount)
         external;
 
@@ -38,5 +42,6 @@ interface IBridgeMintingAuthorization {
         uint256[] calldata amounts
     ) external;
 
-    function controllerBalanceIncreaser() external view returns (address);
+    /// @notice Returns the address of the authorized minting controller.
+    function mintingController() external view returns (address);
 }

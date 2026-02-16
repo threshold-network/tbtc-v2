@@ -325,17 +325,16 @@ library BridgeState {
         // governance wiring; changing it afterwards requires a dedicated
         // upgrade path of the Bridge implementation.
         address rebateStaking;
-        // Governance-managed controller responsible for requesting Bank balance
-        // increases through the Bridge. This contract is set via a dedicated
-        // governance function and is the single authority for controller-driven
-        // minting flows.
-        address controllerBalanceIncreaser;
+        // Governance-managed controller responsible for minting TBTC through
+        // the Bridge. This contract is set via a dedicated governance function
+        // and is the single authority for controller-driven minting flows.
+        address mintingController;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
         // planned upgrades of the Bridge contract. If more entires are added to
         // the struct in the upcoming versions we need to reduce the array size.
-        // One slot is consumed by `controllerBalanceIncreaser`, so the gap
+        // One slot is consumed by `mintingController`, so the gap
         // size is reduced accordingly.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
@@ -399,6 +398,11 @@ library BridgeState {
     // used by the Bridge contract following the same pattern as other
     // parameter events.
     event RebateStakingSet(address rebateStaking);
+
+    // Event emitted when the minting controller address is updated.
+    // Note: The actual event declaration is in Bridge.sol to maintain
+    // consistency with other governance events that include previous values.
+    event MintingControllerSet(address controller);
 
     /// @notice Updates parameters of deposits.
     /// @param _depositDustThreshold New value of the deposit dust threshold in
@@ -898,5 +902,20 @@ library BridgeState {
 
         self.rebateStaking = _rebateStaking;
         emit RebateStakingSet(_rebateStaking);
+    }
+
+    /// @notice Sets the controller contract that can mint TBTC via the Bridge.
+    /// @param _controller Address of the minting controller contract.
+    /// @dev Setting to the zero address effectively removes the controller.
+    ///
+    /// @dev This function allows governance to set the controller contract
+    ///      responsible for minting TBTC through the Bridge. The designated
+    ///      controller will have the authority to initiate minting operations,
+    ///      enabling controlled minting flows within the system.
+    function setMintingController(Storage storage self, address _controller)
+        internal
+    {
+        self.mintingController = _controller;
+        emit MintingControllerSet(_controller);
     }
 }

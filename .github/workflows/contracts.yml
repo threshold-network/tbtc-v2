@@ -419,7 +419,7 @@ jobs:
 
       - name: Install Slither
         env:
-          SLITHER_VERSION: 0.9.0
+          SLITHER_VERSION: 0.11.0
         run: pip3 install slither-analyzer==$SLITHER_VERSION
 
       # We need this step because the `@keep-network/tbtc` which we update in
@@ -434,4 +434,4 @@ jobs:
         run: yarn install
 
       - name: Run Slither
-        run: slither --hardhat-artifacts-directory build .
+        run: slither --hardhat-artifacts-directory build . --fail-high

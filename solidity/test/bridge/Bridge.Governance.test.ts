@@ -133,7 +133,7 @@ describe("Bridge - Governance", () => {
     )
   })
 
-  describe("setControllerBalanceIncreaser", () => {
+  describe("setMintingController", () => {
     const controller = () => thirdParty.address
 
     context("when caller is not the owner", () => {
@@ -141,7 +141,7 @@ describe("Bridge - Governance", () => {
         await expect(
           bridgeGovernance
             .connect(thirdParty)
-            .setControllerBalanceIncreaser(controller())
+            .setMintingController(controller())
         ).to.be.revertedWith("Ownable: caller is not the owner")
       })
     })
@@ -153,7 +153,7 @@ describe("Bridge - Governance", () => {
         await createSnapshot()
         tx = await bridgeGovernance
           .connect(governance)
-          .setControllerBalanceIncreaser(controller())
+          .setMintingController(controller())
       })
 
       after(async () => {
@@ -161,13 +161,13 @@ describe("Bridge - Governance", () => {
       })
 
       it("should update the controller reference", async () => {
-        expect(await bridge.controllerBalanceIncreaser()).to.equal(controller())
+        expect(await bridge.mintingController()).to.equal(controller())
       })
 
-      it("should emit ControllerBalanceIncreaserUpdated event", async () => {
+      it("should emit MintingControllerSet event", async () => {
         await expect(tx)
-          .to.emit(bridge, "ControllerBalanceIncreaserUpdated")
-          .withArgs(ethers.constants.AddressZero, controller())
+          .to.emit(bridge, "MintingControllerSet")
+          .withArgs(controller())
       })
     })
 
@@ -178,10 +178,10 @@ describe("Bridge - Governance", () => {
         await createSnapshot()
         await bridgeGovernance
           .connect(governance)
-          .setControllerBalanceIncreaser(controller())
+          .setMintingController(controller())
         tx = await bridgeGovernance
           .connect(governance)
-          .setControllerBalanceIncreaser(ethers.constants.AddressZero)
+          .setMintingController(ethers.constants.AddressZero)
       })
 
       after(async () => {
@@ -189,15 +189,15 @@ describe("Bridge - Governance", () => {
       })
 
       it("should remove the controller reference", async () => {
-        expect(await bridge.controllerBalanceIncreaser()).to.equal(
+        expect(await bridge.mintingController()).to.equal(
           ethers.constants.AddressZero
         )
       })
 
-      it("should emit ControllerBalanceIncreaserUpdated with previous address", async () => {
+      it("should emit MintingControllerSet event", async () => {
         await expect(tx)
-          .to.emit(bridge, "ControllerBalanceIncreaserUpdated")
-          .withArgs(controller(), ethers.constants.AddressZero)
+          .to.emit(bridge, "MintingControllerSet")
+          .withArgs(ethers.constants.AddressZero)
       })
     })
   })
@@ -223,7 +223,7 @@ describe("Bridge - Governance", () => {
         await createSnapshot()
         await bridgeGovernance
           .connect(governance)
-          .setControllerBalanceIncreaser(thirdParty.address)
+          .setMintingController(thirdParty.address)
         tx = await bridge
           .connect(thirdParty)
           .controllerIncreaseBalance(recipient(), amount)
@@ -272,7 +272,7 @@ describe("Bridge - Governance", () => {
         await createSnapshot()
         await bridgeGovernance
           .connect(governance)
-          .setControllerBalanceIncreaser(thirdParty.address)
+          .setMintingController(thirdParty.address)
         tx = await bridge
           .connect(thirdParty)
           .controllerIncreaseBalances(recipients(), amounts)
