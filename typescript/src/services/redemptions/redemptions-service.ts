@@ -242,16 +242,36 @@ export class RedemptionsService {
       )
     }
 
-    // The findWalletForRedemption operates on satoshi amount precision (1e8)
-    // while the amount parameter is TBTC token precision (1e18). We need to
-    // convert the amount to get proper results.
-    const candidateWallets = await this.fetchWalletsForRedemption()
-    const { walletPublicKey, mainUtxo } =
-      await this.determineValidRedemptionWallet(
-        amountToSatoshi(amount),
+    const resolvedScript = await this.resolveRedeemerOutputScript(
+      redeemerOutputScript
+    )
+    const amountInSatoshi = amountToSatoshi(amount)
+
+    let walletPublicKey: Hex
+    let mainUtxo: BitcoinUtxo
+
+    try {
+      const candidateWallets = await this.fetchWalletsForRedemption()
+      const validWallet = await this.determineValidRedemptionWallet(
+        amountInSatoshi,
         candidateWallets,
         redeemerOutputScript
       )
+      walletPublicKey = validWallet.walletPublicKey
+      mainUtxo = validWallet.mainUtxo
+    } catch (error) {
+      console.warn(
+        "Error fetching wallets for cross-chain redemption relay. " +
+          "Falling back to on-chain wallet selection:",
+        error
+      )
+      const fallbackResult = await this.findWalletForRedemption(
+        amountInSatoshi,
+        resolvedScript
+      )
+      walletPublicKey = fallbackResult.walletPublicKey
+      mainUtxo = fallbackResult.mainUtxo
+    }
 
     const txHash =
       await crossChainContracts.l1BitcoinRedeemer.requestRedemption(
@@ -398,11 +418,14 @@ export class RedemptionsService {
    * @param amount The amount to be redeemed in satoshis.
    * @param redeemerOutputScript The redeemer output script the redeemed funds are
    *        supposed to be locked on. Must not be prepended with length.
+   * @param concurrencyLimit Maximum number of wallets to process concurrently.
+   *        Defaults to 50.
    * @returns Promise with the wallet details needed to request a redemption.
    */
   protected async findWalletForRedemption(
     amount: BigNumber,
-    redeemerOutputScript?: Hex
+    redeemerOutputScript?: Hex,
+    concurrencyLimit: number = 50
   ): Promise<{
     walletPublicKey: Hex
     mainUtxo: BitcoinUtxo
@@ -421,8 +444,6 @@ export class RedemptionsService {
       walletPublicKey: Hex
       mainUtxo: BitcoinUtxo
     }> = []
-
-    const concurrencyLimit = 50
 
     const chunkedWallets = this.chunkArray(allWalletEvents, concurrencyLimit)
 
@@ -446,19 +467,6 @@ export class RedemptionsService {
         }
         liveWalletsCounter++
 
-        const mainUtxo = await this.determineWalletMainUtxo(
-          walletPublicKeyHash,
-          bitcoinNetwork
-        )
-        if (!mainUtxo) {
-          console.debug(
-            `Could not find matching UTXO on chains ` +
-              `for wallet public key hash (${walletPublicKeyHash.toString()}). ` +
-              `Continue the loop execution to the next wallet...`
-          )
-          return
-        }
-
         if (redeemerOutputScript) {
           const pendingRedemption =
             await this.tbtcContracts.bridge.pendingRedemptions(
@@ -477,6 +485,19 @@ export class RedemptionsService {
             )
             return
           }
+        }
+
+        const mainUtxo = await this.determineWalletMainUtxo(
+          walletPublicKeyHash,
+          bitcoinNetwork
+        )
+        if (!mainUtxo) {
+          console.debug(
+            `Could not find matching UTXO on chains ` +
+              `for wallet public key hash (${walletPublicKeyHash.toString()}). ` +
+              `Continue the loop execution to the next wallet...`
+          )
+          return
         }
 
         const walletBTCBalance = mainUtxo.value.sub(pendingRedemptionsValue)
