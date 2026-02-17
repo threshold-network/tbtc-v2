@@ -287,7 +287,7 @@ ___
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:813](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L813)
+[services/redemptions/redemptions-service.ts:826](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L826)
 
 ___
 
