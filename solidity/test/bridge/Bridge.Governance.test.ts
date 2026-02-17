@@ -3,12 +3,14 @@ import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { expect } from "chai"
 import { ContractTransaction } from "ethers"
 import type {
+  Bank,
   BridgeGovernance,
   Bridge,
   MockBridgeWithRebateStaking,
 } from "../../typechain"
 import { constants } from "../fixtures"
 import bridgeFixture from "../fixtures/bridge"
+import { to1e18 } from "../helpers/contract-test-helpers"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
@@ -17,10 +19,12 @@ describe("Bridge - Governance", () => {
   let thirdParty: SignerWithAddress
   let bridgeGovernance: BridgeGovernance
   let bridge: Bridge
+  let guardians: SignerWithAddress[]
+  let bank: Bank
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ governance, thirdParty, bridgeGovernance, bridge } =
+    ;({ governance, thirdParty, bridgeGovernance, bridge, guardians, bank } =
       await waffle.loadFixture(bridgeFixture))
   })
 
@@ -127,6 +131,182 @@ describe("Bridge - Governance", () => {
         })
       }
     )
+  })
+
+  describe("setControllerBalanceIncreaser", () => {
+    const controller = () => thirdParty.address
+
+    context("when caller is not the owner", () => {
+      it("should revert", async () => {
+        await expect(
+          bridgeGovernance
+            .connect(thirdParty)
+            .setControllerBalanceIncreaser(controller())
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+    })
+
+    context("when called by the governance with a valid address", () => {
+      let tx: ContractTransaction
+
+      before(async () => {
+        await createSnapshot()
+        tx = await bridgeGovernance
+          .connect(governance)
+          .setControllerBalanceIncreaser(controller())
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should update the controller reference", async () => {
+        expect(await bridge.controllerBalanceIncreaser()).to.equal(controller())
+      })
+
+      it("should emit ControllerBalanceIncreaserUpdated event", async () => {
+        await expect(tx)
+          .to.emit(bridge, "ControllerBalanceIncreaserUpdated")
+          .withArgs(ethers.constants.AddressZero, controller())
+      })
+    })
+
+    context("when clearing the controller", () => {
+      let tx: ContractTransaction
+
+      before(async () => {
+        await createSnapshot()
+        await bridgeGovernance
+          .connect(governance)
+          .setControllerBalanceIncreaser(controller())
+        tx = await bridgeGovernance
+          .connect(governance)
+          .setControllerBalanceIncreaser(ethers.constants.AddressZero)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should remove the controller reference", async () => {
+        expect(await bridge.controllerBalanceIncreaser()).to.equal(
+          ethers.constants.AddressZero
+        )
+      })
+
+      it("should emit ControllerBalanceIncreaserUpdated with previous address", async () => {
+        await expect(tx)
+          .to.emit(bridge, "ControllerBalanceIncreaserUpdated")
+          .withArgs(controller(), ethers.constants.AddressZero)
+      })
+    })
+  })
+
+  describe("controllerIncreaseBalance", () => {
+    const recipient = () => guardians[0].address
+    const amount = to1e18(1)
+
+    context("when caller is not authorized", () => {
+      it("should revert", async () => {
+        await expect(
+          bridge
+            .connect(thirdParty)
+            .controllerIncreaseBalance(recipient(), amount)
+        ).to.be.revertedWith("Caller is not the authorized controller")
+      })
+    })
+
+    context("when caller is authorized", () => {
+      let tx: ContractTransaction
+
+      before(async () => {
+        await createSnapshot()
+        await bridgeGovernance
+          .connect(governance)
+          .setControllerBalanceIncreaser(thirdParty.address)
+        tx = await bridge
+          .connect(thirdParty)
+          .controllerIncreaseBalance(recipient(), amount)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should increase recipient balance in the bank", async () => {
+        expect(await bank.balanceOf(recipient())).to.equal(amount)
+      })
+
+      it("should emit BalanceIncreased event", async () => {
+        await expect(tx)
+          .to.emit(bank, "BalanceIncreased")
+          .withArgs(recipient(), amount)
+      })
+
+      it("should emit ControllerBalanceIncreased event", async () => {
+        await expect(tx)
+          .to.emit(bridge, "ControllerBalanceIncreased")
+          .withArgs(thirdParty.address, recipient(), amount)
+      })
+    })
+  })
+
+  describe("controllerIncreaseBalances", () => {
+    const recipients = () => guardians.map((guardian) => guardian.address)
+    const amounts = [to1e18(1), to1e18(2), to1e18(3)]
+
+    context("when caller is not authorized", () => {
+      it("should revert", async () => {
+        await expect(
+          bridge
+            .connect(thirdParty)
+            .controllerIncreaseBalances(recipients(), amounts)
+        ).to.be.revertedWith("Caller is not the authorized controller")
+      })
+    })
+
+    context("when caller is authorized", () => {
+      let tx: ContractTransaction
+
+      before(async () => {
+        await createSnapshot()
+        await bridgeGovernance
+          .connect(governance)
+          .setControllerBalanceIncreaser(thirdParty.address)
+        tx = await bridge
+          .connect(thirdParty)
+          .controllerIncreaseBalances(recipients(), amounts)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should increase all recipients balances in the bank", async () => {
+        const balances = await Promise.all(
+          recipients().map((addr) => bank.balanceOf(addr))
+        )
+        balances.forEach((balance, index) =>
+          expect(balance).to.equal(amounts[index])
+        )
+      })
+
+      it("should emit BalanceIncreased events", async () => {
+        await Promise.all(
+          recipients().map((addr, index) =>
+            expect(tx)
+              .to.emit(bank, "BalanceIncreased")
+              .withArgs(addr, amounts[index])
+          )
+        )
+      })
+
+      it("should emit ControllerBalancesIncreased event", async () => {
+        await expect(tx)
+          .to.emit(bridge, "ControllerBalancesIncreased")
+          .withArgs(thirdParty.address, recipients(), amounts)
+      })
+    })
   })
 
   describe("beginBridgeGovernanceTransfer", () => {

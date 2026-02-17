@@ -1,6 +1,7 @@
 import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 import { BigNumber, ContractTransaction } from "ethers"
+import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import type {
   MockTBTCBridge,
   MockTBTCToken,
@@ -34,7 +35,7 @@ describe("AbstractBTCRedeemer", () => {
   let tbtcVault: MockTBTCVault
   let redeemer: TestBTCRedeemer
   let fixture: ReturnType<typeof loadFixture>
-  let deployer: any
+  let deployer: SignerWithAddress
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
@@ -447,7 +448,7 @@ describe("AbstractBTCRedeemer", () => {
 
   describe("rescueTbtc", () => {
     const amountToRescue = to1ePrecision(1, 18) // 1 TBTC
-    let randomAccount: any
+    let randomAccount: SignerWithAddress
 
     before(async () => {
       // eslint-disable-next-line @typescript-eslint/no-extra-semi

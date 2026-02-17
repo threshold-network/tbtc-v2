@@ -42,7 +42,9 @@ export default async function bridgeFixture(): Promise<{
   maintainerProxy: MaintainerProxy
   bridgeGovernance: BridgeGovernance
   redemptionWatchtower: RedemptionWatchtower
-  deployBridge: (txProofDifficultyFactor: number) => Promise<any>
+  deployBridge: (
+    txProofDifficultyFactor: number
+  ) => Awaited<ReturnType<typeof helpers.upgrades.deployProxy>>
 }> {
   await deployments.fixture()
 
@@ -112,7 +114,9 @@ export default async function bridgeFixture(): Promise<{
   // specify txProofDifficultyFactor. The new instance is deployed with
   // a random name to do not conflict with the main deployed instance.
   // Same parameters as in `05_deploy_bridge.ts` deployment script are used.
-  const deployBridge = async (txProofDifficultyFactor: number) =>
+  const deployBridge = async (
+    txProofDifficultyFactor: number
+  ): Promise<Awaited<ReturnType<typeof helpers.upgrades.deployProxy>>> =>
     helpers.upgrades.deployProxy(`Bridge_${randomBytes(8).toString("hex")}`, {
       contractName: "BridgeStub",
       initializerArgs: [

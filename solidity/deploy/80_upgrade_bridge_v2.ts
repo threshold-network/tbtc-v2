@@ -1,15 +1,67 @@
+import fs from "fs"
+import path from "path"
+import os from "os"
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
 
+import {
+  resolveLibrary,
+  verifyLibraryBytecodes,
+} from "./utils/library-resolution"
+
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { ethers, helpers, deployments, getNamedAccounts } = hre
-  const { get } = deployments
-  const { deployer, treasury } = await getNamedAccounts()
+  const { deployer, treasury: namedTreasury } = await getNamedAccounts()
 
-  const Bank = await deployments.get("Bank")
-  const LightRelay = await deployments.get("LightRelay")
-  const WalletRegistry = await deployments.get("WalletRegistry")
-  const ReimbursementPool = await deployments.get("ReimbursementPool")
+  // Prefer cached deployment; fall back to env if cache missing.
+  const cachedBridge = await deployments.getOrNull("Bridge")
+  const bridgeAddress = cachedBridge?.address ?? process.env.BRIDGE_ADDRESS
+  if (!bridgeAddress) {
+    throw new Error(
+      "Bridge address not found. Provide BRIDGE_ADDRESS or ensure deployments cache exists."
+    )
+  }
+
+  // Use only the ProxyAdmin key for proxy operations; do not mix with
+  // governance key to avoid role confusion.
+  const proxyAdminPrivateKey = process.env.PROXY_ADMIN_PK
+
+  let signer = await ethers.getSigner(deployer)
+  let signerAddress = await signer.getAddress()
+  if (proxyAdminPrivateKey) {
+    signer = new ethers.Wallet(proxyAdminPrivateKey, ethers.provider)
+    signerAddress = await signer.getAddress()
+  } else {
+    deployments.log(
+      "⚠️  PROXY_ADMIN_PK not set; using deployer signer for proxy upgrade. Ensure deployer controls ProxyAdmin."
+    )
+  }
+
+  const bankAddress = await resolveCoreAddress(
+    deployments,
+    "Bank",
+    "BANK_ADDRESS"
+  )
+  const lightRelayAddress = await resolveCoreAddress(
+    deployments,
+    "LightRelay",
+    "LIGHT_RELAY_ADDRESS"
+  )
+  const walletRegistryAddress = await resolveCoreAddress(
+    deployments,
+    "WalletRegistry",
+    "WALLET_REGISTRY_ADDRESS"
+  )
+  const reimbursementPoolAddress = await resolveCoreAddress(
+    deployments,
+    "ReimbursementPool",
+    "REIMBURSEMENT_POOL_ADDRESS"
+  )
+
+  const treasuryAddress =
+    process.env.BRIDGE_TREASURY_ADDRESS ??
+    namedTreasury ??
+    ethers.constants.AddressZero
 
   const txProofDifficultyFactor = 6
 
@@ -17,12 +69,38 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // `get` function to load the ones that were already published before.
   // If there are any changes in the external libraries make sure to deploy fresh
   // versions of the libraries and link them to the implementation.
-  const Deposit = await get("Deposit")
-  const DepositSweep = await get("DepositSweep")
-  const Redemption = await get("Redemption")
-  const Wallets = await get("Wallets")
-  const Fraud = await get("Fraud")
-  const MovingFunds = await get("MovingFunds")
+  const depositLib = await resolveLibrary(deployments, signerAddress, "Deposit")
+  const depositSweepLib = await resolveLibrary(
+    deployments,
+    signerAddress,
+    "DepositSweep"
+  )
+  const redemptionLib = await resolveLibrary(
+    deployments,
+    signerAddress,
+    "Redemption"
+  )
+  const walletsLib = await resolveLibrary(deployments, signerAddress, "Wallets")
+  const fraudLib = await resolveLibrary(deployments, signerAddress, "Fraud")
+  const movingFundsLib = await resolveLibrary(
+    deployments,
+    signerAddress,
+    "MovingFunds"
+  )
+
+  await ensureDeploymentRecord(deployments, "Bridge", bridgeAddress, "Bridge")
+
+  const libraryAddresses = {
+    Deposit: depositLib,
+    DepositSweep: depositSweepLib,
+    Redemption: redemptionLib,
+    Wallets: walletsLib,
+    Fraud: fraudLib,
+    MovingFunds: movingFundsLib,
+  }
+
+  // Verify on-chain library bytecodes match compiled artifacts.
+  await verifyLibraryBytecodes(hre, libraryAddresses)
 
   const [bridge, proxyDeployment] = await helpers.upgrades.upgradeProxy(
     "Bridge",
@@ -30,23 +108,16 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     {
       contractName: "Bridge",
       initializerArgs: [
-        Bank.address,
-        LightRelay.address,
-        treasury,
-        WalletRegistry.address,
-        ReimbursementPool.address,
+        bankAddress,
+        lightRelayAddress,
+        treasuryAddress,
+        walletRegistryAddress,
+        reimbursementPoolAddress,
         txProofDifficultyFactor,
       ],
       factoryOpts: {
-        signer: await ethers.getSigner(deployer),
-        libraries: {
-          Deposit: Deposit.address,
-          DepositSweep: DepositSweep.address,
-          Redemption: Redemption.address,
-          Wallets: Wallets.address,
-          Fraud: Fraud.address,
-          MovingFunds: MovingFunds.address,
-        },
+        signer,
+        libraries: libraryAddresses,
       },
       proxyOpts: {
         kind: "transparent",
@@ -70,11 +141,39 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   }
 
   if (hre.network.tags.tenderly) {
-    await hre.tenderly.verify({
-      name: "Bridge",
-      address: bridge.address,
-    })
+    const tenderlyConfigPath = path.join(
+      os.homedir(),
+      ".tenderly",
+      "config.yaml"
+    )
+    if (fs.existsSync(tenderlyConfigPath)) {
+      await hre.tenderly.verify({
+        name: "Bridge",
+        address: bridge.address,
+      })
+    } else {
+      deployments.log(
+        "Skipping Tenderly verification; /.tenderly/config.yaml not found."
+      )
+    }
   }
+}
+
+async function ensureDeploymentRecord(
+  deployments: HardhatRuntimeEnvironment["deployments"],
+  name: string,
+  address: string,
+  artifactName: string
+): Promise<void> {
+  const existing = await deployments.getOrNull(name)
+  if (existing?.address) {
+    return
+  }
+  const artifact = await deployments.getArtifact(artifactName)
+  await deployments.save(name, {
+    address,
+    abi: artifact.abi,
+  })
 }
 
 export default func
@@ -83,3 +182,21 @@ func.tags = ["UpgradeBridge"]
 // When running an upgrade uncomment the skip below and run the command:
 // yarn deploy --tags UpgradeBridge --network <NETWORK>
 func.skip = async () => true
+
+async function resolveCoreAddress(
+  deployments: HardhatRuntimeEnvironment["deployments"],
+  name: string,
+  envVar: string
+): Promise<string> {
+  const deployment = await deployments.getOrNull(name)
+  if (deployment?.address) {
+    return deployment.address
+  }
+  const envAddress = process.env[envVar]
+  if (!envAddress || envAddress.length === 0) {
+    throw new Error(
+      `Address for ${name} not found in deployments cache. Provide ${envVar}.`
+    )
+  }
+  return envAddress
+}

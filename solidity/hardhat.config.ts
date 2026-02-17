@@ -1,10 +1,11 @@
+import "dotenv/config"
 import { HardhatUserConfig } from "hardhat/config"
 import "./tasks"
 
 import "@keep-network/hardhat-helpers"
 import "@keep-network/hardhat-local-networks-config"
 import "@nomiclabs/hardhat-waffle"
-import "@nomiclabs/hardhat-etherscan"
+import "@nomicfoundation/hardhat-verify"
 import "hardhat-gas-reporter"
 import "hardhat-contract-sizer"
 import "hardhat-deploy"
@@ -12,6 +13,7 @@ import "@tenderly/hardhat-tenderly"
 import "@typechain/hardhat"
 import "hardhat-dependency-compiler"
 import "solidity-docgen"
+import "@openzeppelin/hardhat-upgrades"
 
 const ecdsaSolidityCompilerConfig = {
   version: "0.8.17",
@@ -23,14 +25,27 @@ const ecdsaSolidityCompilerConfig = {
   },
 }
 
-// Reduce the number of optimizer runs to 100 to keep the contract size sane.
-// BridgeGovernance contract does not need to be super gas-efficient.
+// NOTE: For Etherscan/Tenderly verification we must match the exact optimizer
+// runs used at deployment time per-contract. Deployment metadata shows:
+// - BridgeGovernanceParameters: runs=1000
+// - BridgeGovernance: runs=100 (current Sepolia deployment)
+// Others default to 200.
 const bridgeGovernanceCompilerConfig = {
   version: "0.8.17",
   settings: {
     optimizer: {
       enabled: true,
-      runs: 200,
+      runs: 100,
+    },
+  },
+}
+
+const bridgeGovernanceParametersCompilerConfig = {
+  version: "0.8.17",
+  settings: {
+    optimizer: {
+      enabled: true,
+      runs: 1000,
     },
   },
 }
@@ -58,7 +73,7 @@ const config: HardhatUserConfig = {
         settings: {
           optimizer: {
             enabled: true,
-            runs: 200, // Reduced from 1000 to prioritize bytecode size over gas efficiency
+            runs: 200,
           },
         },
       },
@@ -67,6 +82,8 @@ const config: HardhatUserConfig = {
       "@keep-network/ecdsa/contracts/WalletRegistry.sol":
         ecdsaSolidityCompilerConfig,
       "contracts/bridge/BridgeGovernance.sol": bridgeGovernanceCompilerConfig,
+      "contracts/bridge/BridgeGovernanceParameters.sol":
+        bridgeGovernanceParametersCompilerConfig,
       "contracts/cross-chain/wormhole/L1BTCDepositorNttWithExecutor.sol": {
         version: "0.8.17",
         settings: {
@@ -77,6 +94,14 @@ const config: HardhatUserConfig = {
         },
       },
     },
+  },
+
+  // Etherscan (V2) configuration
+  // Use a single Etherscan.io API key for all supported networks
+  // to avoid the deprecated per-network (V1) API key format.
+  etherscan: {
+    apiKey: process.env.ETHERSCAN_API_KEY || "",
+    // customChains: [] can be added here for non-Etherscan explorers
   },
 
   paths: {
@@ -119,9 +144,14 @@ const config: HardhatUserConfig = {
       tags: ["allowStubs"],
     },
     sepolia: {
-      url: process.env.CHAIN_API_URL || "",
+      // For Sepolia we prefer network-specific RPC and key env vars when
+      // present, falling back to the generic ones for backwards compatibility.
+      url: process.env.SEPOLIA_CHAIN_API_URL || process.env.CHAIN_API_URL || "",
       chainId: 11155111,
-      accounts: process.env.ACCOUNTS_PRIVATE_KEYS
+      // eslint-disable-next-line no-nested-ternary
+      accounts: process.env.SEPOLIA_PRIVATE_KEYS
+        ? process.env.SEPOLIA_PRIVATE_KEYS.split(",")
+        : process.env.ACCOUNTS_PRIVATE_KEYS
         ? process.env.ACCOUNTS_PRIVATE_KEYS.split(",")
         : undefined,
       tags: ["tenderly"],
@@ -139,8 +169,9 @@ const config: HardhatUserConfig = {
   },
 
   tenderly: {
-    username: "thesis",
-    project: "",
+    // Allow overriding via env; fall back to empty string so we don't publish
+    username: process.env.TENDERLY_USERNAME || "",
+    project: process.env.TENDERLY_PROJECT || "",
   },
 
   // Define local networks configuration file path to load networks from file.
@@ -253,21 +284,6 @@ const config: HardhatUserConfig = {
     ],
     keep: true,
   },
-  etherscan: {
-    apiKey: {
-      mainnet: process.env.ETHERSCAN_API_KEY,
-    },
-    customChains: [
-      {
-        network: "mainnet",
-        chainId: 1,
-        urls: {
-          apiURL: "https://api.etherscan.io/v2/api?chainid=1",
-          browserURL: "https://etherscan.io",
-        },
-      },
-    ],
-  },
   contractSizer: {
     alphaSort: true,
     disambiguatePaths: false,
@@ -277,6 +293,7 @@ const config: HardhatUserConfig = {
   },
   mocha: {
     timeout: 60_000,
+    require: ["./test/helpers/smock-compat.ts"],
   },
   typechain: {
     outDir: "typechain",

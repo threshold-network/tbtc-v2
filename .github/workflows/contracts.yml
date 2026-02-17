@@ -69,7 +69,7 @@ jobs:
 
       - uses: actions/setup-node@v3
         with:
-          node-version: "14.x"
+          node-version: "18.x"
           cache: "yarn"
           cache-dependency-path: solidity/yarn.lock
 
@@ -111,7 +111,7 @@ jobs:
 
       - uses: actions/setup-node@v3
         with:
-          node-version: "14.x"
+          node-version: "18.x"
           cache: "yarn"
           cache-dependency-path: solidity/yarn.lock
 
@@ -144,7 +144,7 @@ jobs:
 
       - uses: actions/setup-node@v3
         with:
-          node-version: "14.x"
+          node-version: "18.x"
           cache: "yarn"
           cache-dependency-path: solidity/yarn.lock
           registry-url: "https://registry.npmjs.org"
@@ -160,7 +160,7 @@ jobs:
         run: git config --global url."https://".insteadOf git://
 
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: yarn install --frozen-lockfile --ignore-engines
 
       - name: Get upstream packages versions
         uses: keep-network/ci/actions/upstream-builds-query@v2
@@ -241,7 +241,7 @@ jobs:
 
       - uses: actions/setup-node@v3
         with:
-          node-version: "14.x"
+          node-version: "18.x"
           cache: "yarn"
           cache-dependency-path: solidity/yarn.lock
 
@@ -290,7 +290,7 @@ jobs:
 
       - uses: actions/setup-node@v3
         with:
-          node-version: "14.x"
+          node-version: "18.x"
           cache: "yarn"
           cache-dependency-path: solidity/yarn.lock
           registry-url: "https://registry.npmjs.org"
@@ -306,7 +306,7 @@ jobs:
         run: git config --global url."https://".insteadOf git://
 
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: yarn install --frozen-lockfile --ignore-engines
 
       - name: Get upstream packages versions
         uses: keep-network/ci/actions/upstream-builds-query@v2
@@ -358,7 +358,7 @@ jobs:
 
       - uses: actions/setup-node@v3
         with:
-          node-version: "14.x"
+          node-version: "18.x"
           cache: "yarn"
           cache-dependency-path: solidity/yarn.lock
 
@@ -401,7 +401,7 @@ jobs:
 
       - uses: actions/setup-node@v3
         with:
-          node-version: "14.x"
+          node-version: "18.x"
           cache: "yarn"
           cache-dependency-path: solidity/yarn.lock
 

@@ -52,8 +52,8 @@ contract WormholeBridgeStub is IWormholeTokenBridge {
         // Wormhole code to this contract and then encoding parmaters in unit
         // tests, we allow to set the receiver address on the stub contract and
         // we return it here. The rest of the parameters does not matter.
-        IWormholeTokenBridge.TransferWithPayload memory transfer = IWormholeTokenBridge
-            .TransferWithPayload(
+        IWormholeTokenBridge.TransferWithPayload
+            memory transfer = IWormholeTokenBridge.TransferWithPayload(
                 1, // payloadID
                 2, // amount
                 0x3000000000000000000000000000000000000000000000000000000000000000, // tokenAddress
