@@ -261,7 +261,7 @@ export class RedemptionsService {
       mainUtxo = validWallet.mainUtxo
     } catch (error) {
       console.warn(
-        "Error fetching wallets for cross-chain redemption relay. " +
+        "API-based wallet selection failed for cross-chain relay. " +
           "Falling back to on-chain wallet selection:",
         error
       )
