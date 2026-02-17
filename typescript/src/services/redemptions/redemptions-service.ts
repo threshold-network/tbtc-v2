@@ -255,7 +255,7 @@ export class RedemptionsService {
       const validWallet = await this.determineValidRedemptionWallet(
         amountInSatoshi,
         candidateWallets,
-        redeemerOutputScript
+        resolvedScript.toString()
       )
       walletPublicKey = validWallet.walletPublicKey
       mainUtxo = validWallet.mainUtxo
