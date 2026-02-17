@@ -794,19 +794,32 @@ export class RedemptionsService {
   protected async resolveRedeemerOutputScript(
     redeemerAddressOrScript: string
   ): Promise<Hex> {
-    // Check if the input is already a raw hex output script or a Bitcoin address.
-    // Hex output scripts match /^(0x)?[0-9a-fA-F]+$/ pattern.
-    // Bitcoin addresses contain alphanumeric characters that are not valid hex
-    // (e.g., 'G', 'I', 'O', 'l' which are not used in base58/bech32 but would
-    // fail hex validation anyway due to other characters like 'q', 'p', etc.).
+    if (!redeemerAddressOrScript || redeemerAddressOrScript.trim() === "") {
+      throw new Error("Redeemer output script cannot be empty")
+    }
+
     const isHexScript = /^(0x)?[0-9a-fA-F]+$/.test(redeemerAddressOrScript)
 
     if (isHexScript) {
-      // Input is already a raw hex output script, use directly
+      const withoutPrefix = redeemerAddressOrScript.startsWith("0x")
+        ? redeemerAddressOrScript.slice(2)
+        : redeemerAddressOrScript
+
+      if (withoutPrefix.length % 2 !== 0) {
+        throw new Error(
+          "Invalid hex script: odd-length hex string is not a valid byte sequence"
+        )
+      }
+
+      if (withoutPrefix.length < 4) {
+        throw new Error(
+          "Invalid hex script: output script must be at least 2 bytes"
+        )
+      }
+
       return Hex.from(redeemerAddressOrScript)
     }
 
-    // Input is a Bitcoin address, convert to output script
     return this.getRedeemerOutputScript(redeemerAddressOrScript)
   }
 

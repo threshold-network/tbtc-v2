@@ -1334,6 +1334,92 @@ describe("Redemptions", () => {
           )
         })
       })
+
+      context("when redeemerOutputScript is invalid", () => {
+        it("should throw error for empty string", async () => {
+          const tbtcContracts = new MockTBTCContracts()
+          const bitcoinClient = new MockBitcoinClient()
+
+          const redemptionsService = new TestRelayRedemptionsService(
+            tbtcContracts,
+            bitcoinClient,
+            createCrossChainResolver(createMockL1BitcoinRedeemer())
+          )
+
+          await expect(
+            redemptionsService.relayRedemptionRequestToL1(
+              testAmount,
+              testEncodedVm,
+              testL2ChainName,
+              ""
+            )
+          ).to.be.rejectedWith("Redeemer output script cannot be empty")
+        })
+
+        it("should throw error for odd-length hex string", async () => {
+          const tbtcContracts = new MockTBTCContracts()
+          const bitcoinClient = new MockBitcoinClient()
+
+          const redemptionsService = new TestRelayRedemptionsService(
+            tbtcContracts,
+            bitcoinClient,
+            createCrossChainResolver(createMockL1BitcoinRedeemer())
+          )
+
+          await expect(
+            redemptionsService.relayRedemptionRequestToL1(
+              testAmount,
+              testEncodedVm,
+              testL2ChainName,
+              "0xabc"
+            )
+          ).to.be.rejectedWith(
+            "Invalid hex script: odd-length hex string is not a valid byte sequence"
+          )
+        })
+
+        it("should throw error for too-short hex script", async () => {
+          const tbtcContracts = new MockTBTCContracts()
+          const bitcoinClient = new MockBitcoinClient()
+
+          const redemptionsService = new TestRelayRedemptionsService(
+            tbtcContracts,
+            bitcoinClient,
+            createCrossChainResolver(createMockL1BitcoinRedeemer())
+          )
+
+          await expect(
+            redemptionsService.relayRedemptionRequestToL1(
+              testAmount,
+              testEncodedVm,
+              testL2ChainName,
+              "0xab"
+            )
+          ).to.be.rejectedWith(
+            "Invalid hex script: output script must be at least 2 bytes"
+          )
+        })
+
+        it("should throw error for whitespace-only input", async () => {
+          const tbtcContracts = new MockTBTCContracts()
+          const bitcoinClient = new MockBitcoinClient()
+
+          const redemptionsService = new TestRelayRedemptionsService(
+            tbtcContracts,
+            bitcoinClient,
+            createCrossChainResolver(createMockL1BitcoinRedeemer())
+          )
+
+          await expect(
+            redemptionsService.relayRedemptionRequestToL1(
+              testAmount,
+              testEncodedVm,
+              testL2ChainName,
+              "   "
+            )
+          ).to.be.rejectedWith("Redeemer output script cannot be empty")
+        })
+      })
     })
 
     describe("determineWalletMainUtxo", () => {
