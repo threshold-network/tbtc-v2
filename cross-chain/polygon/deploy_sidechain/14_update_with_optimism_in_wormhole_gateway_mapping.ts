@@ -12,6 +12,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   // See https://book.wormhole.com/reference/contracts.html
   // This ID is valid for both Optimism Goerli and Mainnet
+  // TODO: check if id is correct for Optimism Sepolia as well (once Wormhole
+  // supports that testnet)
   const optimismWormholeChainID = 24
 
   const optimismWormholeGateway = await deployments.getOrNull(

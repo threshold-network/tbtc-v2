@@ -57,7 +57,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // Contracts can be verified on L2 Polygonscan in a similar way as we do it on
   // L1 Etherscan
   if (hre.network.tags.polygonscan) {
-    if (hre.network.name === "mumbai") {
+    if (hre.network.name === "mumbai" || hre.network.name === "amoy") {
       // Polygonscan might not include the recently added proxy transaction right
       // after deployment. We need to wait some time so that transaction is
       // visible on Polygonscan.
