@@ -128,7 +128,7 @@ jobs:
         run: yarn install --frozen-lockfile
 
       - name: Deploy contracts
-        run: yarn deploy:test
+        run: yarn deploy:local
 
   contracts-deployment-testnet:
     needs: [contracts-build-and-test]

@@ -15,7 +15,7 @@
     "clean": "hardhat clean && rm -rf cache/ export/ external/npm export.json",
     "build": "hardhat compile",
     "deploy": "hardhat deploy --export export.json",
-    "deploy:test": "USE_EXTERNAL_DEPLOY=true TEST_USE_STUBS_TBTC=true hardhat deploy",
+    "deploy:local": "USE_EXTERNAL_DEPLOY=true hardhat deploy",
     "format": "npm run lint && prettier --check .",
     "format:fix": "npm run lint:fix && prettier --write .",
     "lint": "npm run lint:eslint && npm run lint:sol",
