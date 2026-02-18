@@ -43,10 +43,10 @@ jobs:
     outputs:
       path-filter: ${{ steps.filter.outputs.path-filter }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         if: github.event_name == 'pull_request'
 
-      - uses: dorny/paths-filter@v2
+      - uses: dorny/paths-filter@v3
         if: github.event_name == 'pull_request'
         id: filter
         with:
@@ -65,9 +65,9 @@ jobs:
       run:
         working-directory: ./solidity
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v4
         with:
           node-version: "14.x"
           cache: "yarn"
@@ -107,9 +107,9 @@ jobs:
       run:
         working-directory: ./solidity
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v4
         with:
           node-version: "14.x"
           cache: "yarn"
@@ -140,9 +140,9 @@ jobs:
       run:
         working-directory: ./solidity
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v4
         with:
           node-version: "14.x"
           cache: "yarn"
@@ -216,7 +216,7 @@ jobs:
           version: ${{ steps.npm-version-bump.outputs.version }}
 
       - name: Upload files needed for etherscan verification
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: Artifacts for etherscan verification
           path: |
@@ -231,15 +231,15 @@ jobs:
       run:
         working-directory: ./solidity
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Download files needed for etherscan verification
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: Artifacts for etherscan verification
           path: ./solidity
 
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v4
         with:
           node-version: "14.x"
           cache: "yarn"
@@ -286,9 +286,9 @@ jobs:
       run:
         working-directory: ./solidity
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v4
         with:
           node-version: "14.x"
           cache: "yarn"
@@ -354,9 +354,9 @@ jobs:
       run:
         working-directory: ./solidity
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v4
         with:
           node-version: "14.x"
           cache: "yarn"
@@ -397,15 +397,15 @@ jobs:
       run:
         working-directory: ./solidity
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v4
         with:
           node-version: "14.x"
           cache: "yarn"
           cache-dependency-path: solidity/yarn.lock
 
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: 3.10.8
 
