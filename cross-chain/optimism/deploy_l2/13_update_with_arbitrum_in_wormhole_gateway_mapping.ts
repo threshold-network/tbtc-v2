@@ -12,8 +12,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   // See https://docs.wormhole.com/wormhole/blockchain-environments/evm#arbitrum
   // and https://docs.wormhole.com/wormhole/blockchain-environments/evm#arbitrum-sepolia
-  // The value `23` is valid for both Arbitrum Goerli and Arbitrum Mainnet. The
-  // value for Arbitrum Sepolia is `10003`.
+  // The value `23` is valid for Arbitrum Mainnet. The value for Arbitrum
+  // Sepolia is `10003`.
   const arbitrumWormholeChainID =
     hre.network.name === "optimismSepolia" ? 10003 : 23
 

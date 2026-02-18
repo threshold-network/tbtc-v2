@@ -42,7 +42,6 @@ yarn deploy --network <network>
 
 Supported networks:
 - `hardhat` - for local development
-- `baseGoerli` - L2 testing network (will become deprecated with end of 2023)
 - `baseSepolia` - L2 testing network
 - `base` - L2 mainnet
 

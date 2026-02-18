@@ -8,8 +8,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   // See https://docs.wormhole.com/wormhole/blockchain-environments/evm#base and
   // https://docs.wormhole.com/wormhole/blockchain-environments/evm#base-sepolia
-  // The value `30` is valid for both Base Goerli and Base Mainnet. The value
-  // for Base Sepolia is `10004`.
+  // The value `30` is valid for Base Mainnet. The value for Base Sepolia is
+  // `10004`.
   const wormholeChainID = hre.network.name === "baseSepolia" ? 10004 : 30
 
   const baseWormholeGateway = await deployments.get("BaseWormholeGateway")

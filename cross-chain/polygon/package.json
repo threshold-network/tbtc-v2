@@ -30,7 +30,6 @@
     "lint:config": "prettier --check '**/*.@(json|yaml)'",
     "lint:config:fix": "prettier --write '**/*.@(json|yaml)'",
     "prepack": "tsc -p tsconfig.export.json && hardhat export-artifacts export/artifacts",
-    "export-artifacts:goerli": "yarn hardhat export-deployment-artifacts --network mumbai",
     "export-artifacts:mainnet": "yarn hardhat export-deployment-artifacts --network polygon",
     "prepublishOnly": "npm run export-artifacts:$npm_config_network",
     "test": "hardhat test"

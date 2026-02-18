@@ -246,7 +246,7 @@ deployed if we do not separate NPM packages.
 Each project should have its own CI process that may incorporate jobs specific
 to that chain if needed. 
 
-The CI processes of `cross-chain` projects should include Goerli deployment
+The CI processes of `cross-chain` projects should include Sepolia deployment
 jobs. Note that the separation of the code does not mean the deployment is fully
 separated between chains. Both L1 and L2 contracts need to be deployed from the
 given `cross-chain` module. L1 contracts may require addresses of contracts from

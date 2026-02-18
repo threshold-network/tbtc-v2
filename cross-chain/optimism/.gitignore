@@ -9,7 +9,6 @@
 /deployments/*
 !/deployments/mainnet/
 !/deployments/optimism/
-!/deployments/optimismGoerli/
 !/deployments/optimismSepolia/
 
 # OZ
