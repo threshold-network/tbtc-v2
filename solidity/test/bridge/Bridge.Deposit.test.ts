@@ -824,6 +824,76 @@ describe("Bridge - Deposit", () => {
           })
         })
 
+        context(
+          "when funding transaction is P2PKH but contains a valid P2SH deposit script injected as public key hash",
+          () => {
+            const walletPubKeyHash =
+              "0x7abdee3c88cba8a890537e8d1417df87a7271f9d"
+            const vault = "0x9C070027cdC9dc8F82416B2e5314E11DFb4FE3CD"
+            let depositorLocal
+
+            before(async () => {
+              await createSnapshot()
+
+              await bridgeGovernance
+                .connect(governance)
+                .setVaultStatus(vault, true)
+
+              // Simulate the wallet is a Live one and is known in the system.
+              await bridge.setWallet(walletPubKeyHash, {
+                ecdsaWalletID: ethers.constants.HashZero,
+                mainUtxoHash: ethers.constants.HashZero,
+                pendingRedemptionsValue: 0,
+                createdAt: await lastBlockTime(),
+                movingFundsRequestedAt: 0,
+                closingStartedAt: 0,
+                pendingMovedFundsSweepRequestsCount: 0,
+                state: walletState.Live,
+                movingFundsTargetWalletsCommitmentHash:
+                  ethers.constants.HashZero,
+              })
+
+              depositorLocal = await impersonateAccount(
+                "0x9dF0C6b0066D5317aA5b38B36850548DaCCa6B4e",
+                {
+                  from: governance,
+                  value: 10,
+                }
+              )
+            })
+
+            after(async () => {
+              await restoreSnapshot()
+            })
+
+            it("should revert", async () => {
+              // A transaction where a valid P2SH deposit script is wrapped in P2PKH output
+              // (i.e. it is injected at the place of the public key hash).
+              const tx = {
+                version: "0x02000000",
+                inputVector:
+                  "0x017c5a47a1ea7a13fde409f8a62f5143dfcde3ca3c47717b1e73b45c2a3621a8200100000000fdffffff",
+                outputVector:
+                  "0x01c09ee605000000001976a9141a9957d085b0cb7ad53dde3fa090f6e88131de8a88ac",
+                locktime: "0xb0020e00",
+              }
+
+              const revealLocal = {
+                fundingOutputIndex: 0,
+                blindingFactor: "0x42fac6f696fad1fd",
+                walletPubKeyHash,
+                refundPubKeyHash: "0xf398bf26d270acab5c237402707e1b3f108ca84b",
+                refundLocktime: "0x525f4a6a",
+                vault,
+              }
+
+              await expect(
+                bridge.connect(depositorLocal).revealDeposit(tx, revealLocal)
+              ).to.be.revertedWith("Output must be P2SH")
+            })
+          }
+        )
+
         context("when funding transaction is neither P2SH nor P2WSH", () => {
           it("should revert", async () => {
             // Corrupt transaction output data by making a 21-byte script hash.
