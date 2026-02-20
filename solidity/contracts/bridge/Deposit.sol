@@ -348,7 +348,7 @@ library Deposit {
                 .applyForRebate(
                     deposit.depositor,
                     deposit.treasuryFee,
-                    uint8(RebateStaking.TreasuryFeeType.Deposit)
+                    RebateStaking.TreasuryFeeType.Deposit
                 );
         }
 

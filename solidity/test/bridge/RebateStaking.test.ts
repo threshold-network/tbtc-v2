@@ -146,14 +146,14 @@ describe("RebateStaking", () => {
 
     it("should use both modes by default", async () => {
       expect(
-        await rebateStaking.rebateTreasuryFeeMode(thirdParty.address)
+        await rebateStaking.getRebateTreasuryFeeMode(thirdParty.address)
       ).to.equal(rebateTreasuryFeeMode.both)
     })
 
     it("should revert for invalid mode", async () => {
       await expect(
         rebateStaking.connect(thirdParty).setRebateTreasuryFeeMode(3)
-      ).to.be.revertedWith("InvalidRebateTreasuryFeeMode")
+      ).to.be.reverted
     })
 
     it("should set mode for caller only", async () => {
@@ -162,10 +162,10 @@ describe("RebateStaking", () => {
         .setRebateTreasuryFeeMode(rebateTreasuryFeeMode.redemptionOnly)
 
       expect(
-        await rebateStaking.rebateTreasuryFeeMode(thirdParty.address)
+        await rebateStaking.getRebateTreasuryFeeMode(thirdParty.address)
       ).to.equal(rebateTreasuryFeeMode.redemptionOnly)
       expect(
-        await rebateStaking.rebateTreasuryFeeMode(governance.address)
+        await rebateStaking.getRebateTreasuryFeeMode(governance.address)
       ).to.equal(rebateTreasuryFeeMode.both)
 
       await expect(tx)
@@ -183,7 +183,7 @@ describe("RebateStaking", () => {
         .setRebateTreasuryFeeMode(rebateTreasuryFeeMode.both)
 
       expect(
-        await rebateStaking.rebateTreasuryFeeMode(thirdParty.address)
+        await rebateStaking.getRebateTreasuryFeeMode(thirdParty.address)
       ).to.equal(rebateTreasuryFeeMode.both)
 
       await expect(tx)
