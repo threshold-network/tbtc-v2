@@ -18,6 +18,7 @@ import {
   EXECUTOR_ARGS_ALT_QUOTE,
   FEE_ARGS_ZERO,
   FEE_ARGS_STANDARD,
+  PLATFORM_FEE_RECIPIENT,
 } from "./realSignedQuote"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
@@ -117,6 +118,15 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
     await depositor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
     await depositor.setSupportedChain(WORMHOLE_CHAIN_ARBITRUM, true)
     await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
+
+    // Set default platform fee to 0 (fee theft fix compatibility - tests will configure as needed)
+    await depositor.setDefaultParameters(
+      500000, // gas limit
+      0, // executor fee
+      ethers.constants.AddressZero, // executor fee recipient
+      0, // 0% platform fee (allows zero address as payee)
+      ethers.constants.AddressZero // platform fee recipient
+    )
   })
 
   beforeEach(async () => {
@@ -176,7 +186,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
     it("should reject platform fee exceeding 100%", async () => {
       await expect(
         depositor.setDefaultPlatformFeeBps(10001)
-      ).to.be.revertedWith("Fee cannot exceed 100% (10000 bps)")
+      ).to.be.revertedWith("Fee cannot exceed 10% (10000 bps)")
     })
 
     it("should reject zero recipient when fee is set", async () => {
@@ -230,12 +240,14 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
       await expect(
         depositor.setExecutorParameters(executorArgs, FEE_ARGS_ZERO)
-      ).to.be.revertedWith(
-        "Real signed quote from Wormhole Executor API is required"
-      )
+      ).to.be.revertedWith("Signed quote too short")
     })
 
     it("should accept valid signed quote", async () => {
+      // Configure platform fee to allow owner.address as payee
+      await depositor.setDefaultPlatformFeeBps(100) // 0.1% (100/100000)
+      await depositor.setDefaultPlatformFeeRecipient(owner.address)
+
       const executorArgs = {
         value: ethers.utils.parseEther("0.01"),
         refundAddress: owner.address,
@@ -350,7 +362,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
       await expect(
         depositor.setExecutorParameters(executorArgs, invalidFeeArgs)
-      ).to.be.revertedWith("Fee cannot exceed 100% (10000 bps)")
+      ).to.be.revertedWith("Fee cannot exceed 10% (10000 bps)")
     })
 
     it("should accept maximum valid fee basis points (10000) in setExecutorParameters", async () => {
@@ -364,7 +376,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       // We're testing that the BPS validation passes
       await expect(
         depositor.setExecutorParameters(executorArgs, validFeeArgs)
-      ).to.not.be.revertedWith("Fee cannot exceed 100% (10000 bps)")
+      ).to.not.be.revertedWith("Fee cannot exceed 10% (10000 bps)")
     })
 
     it("should reject fee basis points exceeding 10000 in setDefaultParameters", async () => {
@@ -378,7 +390,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
           0, // platformFeeBps 0%
           ethers.constants.AddressZero // platformFeeRecipient
         )
-      ).to.be.revertedWith("Fee cannot exceed 100% (10000 bps)")
+      ).to.be.revertedWith("Fee cannot exceed 10% (10000 bps)")
     })
 
     it("should accept maximum valid fee basis points (10000) in setDefaultParameters", async () => {
@@ -425,13 +437,15 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
     })
 
     it("should accept fee equal to default platform fee", async () => {
-      // Set a default platform fee
+      // Set a default platform fee with recipient
+      const feeRecipient = ethers.Wallet.createRandom().address
       await depositor.setDefaultPlatformFeeBps(100) // 0.1% (100/100000)
+      await depositor.setDefaultPlatformFeeRecipient(feeRecipient)
 
       const executorArgs = createExecutorArgs()
       const validFeeArgs = {
         dbps: 100, // 0.1% (100/100000) - equal to default
-        payee: ethers.Wallet.createRandom().address,
+        payee: feeRecipient, // Must match defaultPlatformFeeRecipient
       }
 
       await expect(depositor.setExecutorParameters(executorArgs, validFeeArgs))
@@ -439,13 +453,15 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
     })
 
     it("should accept fee above default platform fee", async () => {
-      // Set a default platform fee
+      // Set a default platform fee with recipient
+      const feeRecipient = ethers.Wallet.createRandom().address
       await depositor.setDefaultPlatformFeeBps(100) // 0.1% (100/100000)
+      await depositor.setDefaultPlatformFeeRecipient(feeRecipient)
 
       const executorArgs = createExecutorArgs()
       const validFeeArgs = {
         dbps: 200, // 0.2% (200/100000) - above default
-        payee: ethers.Wallet.createRandom().address,
+        payee: feeRecipient, // Must match defaultPlatformFeeRecipient
       }
 
       await expect(depositor.setExecutorParameters(executorArgs, validFeeArgs))
@@ -780,6 +796,10 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
     it("should return detailed cost breakdown for supported chain", async () => {
       const [, , user] = await ethers.getSigners()
 
+      // Configure platform fee to allow user.address as payee
+      await depositor.setDefaultPlatformFeeBps(100) // 0.1% (100/100000)
+      await depositor.setDefaultPlatformFeeRecipient(user.address)
+
       // Set up executor parameters first
       const executorArgs = {
         value: ethers.utils.parseEther("0.01"), // 0.01 ETH executor cost
@@ -816,6 +836,10 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
     it("should return different costs for different chains", async () => {
       const [, , user] = await ethers.getSigners()
+
+      // Configure platform fee to allow user.address as payee
+      await depositor.setDefaultPlatformFeeBps(50) // 0.05% (50/100000)
+      await depositor.setDefaultPlatformFeeRecipient(user.address)
 
       const executorArgs = {
         value: ethers.utils.parseEther("0.005"), // 0.005 ETH executor cost
@@ -930,6 +954,10 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
     it("should handle high executor cost", async () => {
       const [, , user] = await ethers.getSigners()
 
+      // Configure platform fee to allow user.address as payee
+      await depositor.setDefaultPlatformFeeBps(1000) // 1% (1000/100000)
+      await depositor.setDefaultPlatformFeeRecipient(user.address)
+
       const highExecutorCost = ethers.utils.parseEther("0.1") // 0.1 ETH executor cost
 
       const executorArgs = {
@@ -966,6 +994,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
     it("should work with different users independently", async () => {
       const [, , user1, user2] = await ethers.getSigners()
 
+      // Use zero fee to avoid platform fee recipient configuration
       // User 1 sets parameters
       const executorArgs1 = {
         value: ethers.utils.parseEther("0.02"),
@@ -975,8 +1004,8 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       }
 
       const feeArgs1 = {
-        dbps: 200, // 0.2% (200/100000)
-        payee: user1.address,
+        dbps: 0, // 0% (no fee)
+        payee: ethers.constants.AddressZero,
       }
 
       await depositor
@@ -992,8 +1021,8 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       }
 
       const feeArgs2 = {
-        dbps: 300, // 0.3% (300/100000)
-        payee: user2.address,
+        dbps: 0, // 0% (no fee)
+        payee: ethers.constants.AddressZero,
       }
 
       await depositor
@@ -1039,6 +1068,10 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
     it("should simulate frontend validation logic", async () => {
       const [, , user] = await ethers.getSigners()
+
+      // Configure platform fee to allow user.address as payee
+      await depositor.setDefaultPlatformFeeBps(500) // 0.5% (500/100000)
+      await depositor.setDefaultPlatformFeeRecipient(user.address)
 
       const executorArgs = {
         value: ethers.utils.parseEther("0.05"), // 0.05 ETH executor cost
@@ -1089,6 +1122,10 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
     it("should simulate frontend validation failure", async () => {
       const [, , user] = await ethers.getSigners()
+
+      // Configure platform fee to allow user.address as payee
+      await depositor.setDefaultPlatformFeeBps(1000) // 1% (1000/100000)
+      await depositor.setDefaultPlatformFeeRecipient(user.address)
 
       const executorArgs = {
         value: ethers.utils.parseEther("0.2"), // High executor cost

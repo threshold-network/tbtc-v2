@@ -1,7 +1,7 @@
 import { HardhatUserConfig } from "hardhat/config"
 import "@keep-network/hardhat-helpers"
 import "@nomiclabs/hardhat-ethers"
-import "@nomiclabs/hardhat-etherscan"
+import "@nomicfoundation/hardhat-verify"
 import "@nomiclabs/hardhat-waffle"
 import "@openzeppelin/hardhat-upgrades"
 import "@typechain/hardhat"
@@ -149,25 +149,25 @@ const config: HardhatUserConfig = {
 
   etherscan: {
     apiKey: {
-      seiTestnet: "dummy",
-      seiMainnet: "dummy",
-      mainnet: process.env.ETHERSCAN_API_KEY,
+      seiTestnet: process.env.ETHERSCAN_API_KEY || "",
+      seiMainnet: process.env.ETHERSCAN_API_KEY || "",
+      mainnet: process.env.ETHERSCAN_API_KEY || "",
     },
     customChains: [
       {
         network: "seiTestnet",
         chainId: 1328,
         urls: {
-          apiURL: "https://seitrace.com/atlantic-2/api",
-          browserURL: "https://seitrace.com/atlantic-2",
+          apiURL: "https://api.etherscan.io/v2/api?chainid=1328",
+          browserURL: "https://testnet.seiscan.io",
         },
       },
       {
         network: "seiMainnet",
         chainId: 1329,
         urls: {
-          apiURL: "https://seitrace.com/pacific-1/api",
-          browserURL: "https://seitrace.com/pacific-1",
+          apiURL: "https://api.etherscan.io/v2/api?chainid=1329",
+          browserURL: "https://seitrace.com",
         },
       },
       {

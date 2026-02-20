@@ -87,20 +87,30 @@ class SecureKeyManagerImpl implements SecureKeyManager {
 
   /**
    * Decrypt and return the private key on-demand
+   * Supports MASTER_PASSWORD environment variable for non-interactive use
    */
   async getDecryptedKey(): Promise<string> {
     if (!this.hasEncryptedKey()) {
       throw new Error("No encrypted key found. Run encryption setup first.")
     }
 
-    const { masterPassword } = await inquirer.prompt([
-      {
-        type: "password",
-        name: "masterPassword",
-        message: "Enter master password to decrypt private key:",
-        mask: "*",
-      },
-    ])
+    let masterPassword: string
+
+    // Check for environment variable first (for CI/CD or non-interactive use)
+    if (process.env.MASTER_PASSWORD) {
+      console.log("🔐 Using MASTER_PASSWORD from environment variable")
+      masterPassword = process.env.MASTER_PASSWORD
+    } else {
+      const response = await inquirer.prompt([
+        {
+          type: "password",
+          name: "masterPassword",
+          message: "Enter master password to decrypt private key:",
+          mask: "*",
+        },
+      ])
+      masterPassword = response.masterPassword
+    }
 
     try {
       const encryptedData = fs.readFileSync(ENCRYPTED_KEY_FILE, "utf8")
