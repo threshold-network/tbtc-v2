@@ -34,6 +34,19 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     error NoUnstakingProcess();
     error UnstakingNotFinished();
     error ZeroAddress();
+    error InvalidRebateTreasuryFeeMode();
+    error InvalidTreasuryFeeType();
+
+    enum RebateTreasuryFeeMode {
+        Both,
+        DepositOnly,
+        RedemptionOnly
+    }
+
+    enum TreasuryFeeType {
+        Deposit,
+        Redemption
+    }
 
     struct Rebate {
         uint32 timestamp;
@@ -64,6 +77,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     uint256 public rebatePerToken;
 
     mapping(address => Stake) public stakes;
+    mapping(address => uint8) public rebateTreasuryFeeMode;
 
     // Reserved storage space in case we need to add more variables.
     // The convention from OpenZeppelin suggests the storage space should
@@ -72,13 +86,17 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     // the struct in the upcoming versions we need to reduce the array size.
     // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
     // slither-disable-next-line unused-state
-    uint256[50] private __gap;
+    uint256[49] private __gap;
 
     event RollingWindowUpdated(uint256 rollingWindow);
     event UnstakingPeriodUpdated(uint256 unstakingPeriod);
     event RebatePerTokenUpdated(uint256 rebatePerToken);
     event RebateReceived(address staker, uint64 rebate);
     event RebateCanceled(address staker, uint256 requestedAt);
+    event RebateTreasuryFeeModeUpdated(
+        address indexed staker,
+        uint8 rebateTreasuryFeeMode
+    );
     event Staked(address staker, uint256 amount);
     event UnstakeStarted(address staker, uint256 amount);
     event UnstakeFinished(address staker, uint256 amount);
@@ -148,6 +166,20 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     {
         rebatePerToken = _newRebatePerToken;
         emit RebatePerTokenUpdated(rebatePerToken);
+    }
+
+    /// @notice Sets the rebate treasury fee mode for caller.
+    /// @param _rebateTreasuryFeeMode New rebate treasury fee mode:
+    ///        - 0: rebates for both deposits and redemptions,
+    ///        - 1: rebates for deposits only,
+    ///        - 2: rebates for redemptions only.
+    function setRebateTreasuryFeeMode(uint8 _rebateTreasuryFeeMode) external {
+        if (
+            _rebateTreasuryFeeMode > uint8(RebateTreasuryFeeMode.RedemptionOnly)
+        ) revert InvalidRebateTreasuryFeeMode();
+
+        rebateTreasuryFeeMode[msg.sender] = _rebateTreasuryFeeMode;
+        emit RebateTreasuryFeeModeUpdated(msg.sender, _rebateTreasuryFeeMode);
     }
 
     /// @notice Calculates cap for rebate for the specified user.
@@ -240,14 +272,21 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     /// @notice Checks if user is eligible for rebate
     /// @param user Address of depositor or redeemer
     /// @param treasuryFee Original fees
+    /// @param treasuryFeeType Type of treasury fee:
+    ///        - 0: deposit treasury fee,
+    ///        - 1: redemption treasury fee.
     /// @return Updated fees considering rebate if applicable
     /// @dev Requirements:
     ///      - The caller must be the bridge contract
-    function applyForRebate(address user, uint64 treasuryFee)
-        external
-        onlyBridge
-        returns (uint64)
-    {
+    function applyForRebate(
+        address user,
+        uint64 treasuryFee,
+        uint8 treasuryFeeType
+    ) external onlyBridge returns (uint64) {
+        if (!isRebateEnabled(user, treasuryFeeType)) {
+            return treasuryFee;
+        }
+
         Stake storage stakeInfo = stakes[user];
 
         uint64 rebateCap = getRebateCap(stakeInfo);
@@ -270,6 +309,26 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         value.feeRebate = rebate;
         emit RebateReceived(user, rebate);
         return treasuryFee - rebate;
+    }
+
+    /// @notice Returns true if rebate is enabled for given user and fee type.
+    function isRebateEnabled(address user, uint8 treasuryFeeType)
+        internal
+        view
+        returns (bool)
+    {
+        if (treasuryFeeType > uint8(TreasuryFeeType.Redemption)) {
+            revert InvalidTreasuryFeeType();
+        }
+
+        uint8 mode = rebateTreasuryFeeMode[user];
+
+        return
+            mode == uint8(RebateTreasuryFeeMode.Both) ||
+            (mode == uint8(RebateTreasuryFeeMode.DepositOnly) &&
+                treasuryFeeType == uint8(TreasuryFeeType.Deposit)) ||
+            (mode == uint8(RebateTreasuryFeeMode.RedemptionOnly) &&
+                treasuryFeeType == uint8(TreasuryFeeType.Redemption));
     }
 
     /// @notice Cancels rebate in case of reedem request was timed out
