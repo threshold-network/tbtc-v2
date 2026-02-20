@@ -171,7 +171,9 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     ///        - 0: rebates for both deposits and redemptions,
     ///        - 1: rebates for deposits only,
     ///        - 2: rebates for redemptions only.
-    function setRebateTreasuryFeeMode(RebateTreasuryFeeMode _rebateTreasuryFeeMode) external {
+    function setRebateTreasuryFeeMode(
+        RebateTreasuryFeeMode _rebateTreasuryFeeMode
+    ) external {
         stakes[msg.sender].rebateTreasuryFeeMode = _rebateTreasuryFeeMode;
         emit RebateTreasuryFeeModeUpdated(msg.sender, _rebateTreasuryFeeMode);
     }
@@ -313,6 +315,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     {
         RebateTreasuryFeeMode mode = stakes[user].rebateTreasuryFeeMode;
 
+        // slither-disable-next-line incorrect-equality
         return
             mode == RebateTreasuryFeeMode.Both ||
             (mode == RebateTreasuryFeeMode.DepositOnly &&
