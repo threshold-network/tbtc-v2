@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "allowImportingTsExtensions": true,
+    "emitDeclarationOnly": true,
+    "target": "es2018",
+    "declaration": true,
+    "outDir": "./dist",
+    "resolveJsonModule": true,
+    "esModuleInterop": true
+  },
+  "include": [
+    "src",
+    "test"
+  ]
+}
