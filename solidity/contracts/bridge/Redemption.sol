@@ -537,7 +537,7 @@ library Redemption {
             treasuryFee = RebateStaking(self.rebateStaking).applyForRebate(
                 redeemer,
                 treasuryFee,
-                uint8(RebateStaking.TreasuryFeeType.Redemption)
+                RebateStaking.TreasuryFeeType.Redemption
             );
         }
         uint64 txMaxFee = self.redemptionTxMaxFee;

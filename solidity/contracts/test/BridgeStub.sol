@@ -179,7 +179,7 @@ contract BridgeStub is Bridge {
         lastTreasuryFee = RebateStaking(self.rebateStaking).applyForRebate(
             user,
             treasuryFee,
-            uint8(RebateStaking.TreasuryFeeType.Deposit)
+            RebateStaking.TreasuryFeeType.Deposit
         );
     }
 
@@ -189,7 +189,7 @@ contract BridgeStub is Bridge {
         lastTreasuryFee = RebateStaking(self.rebateStaking).applyForRebate(
             user,
             treasuryFee,
-            uint8(RebateStaking.TreasuryFeeType.Redemption)
+            RebateStaking.TreasuryFeeType.Redemption
         );
     }
 
