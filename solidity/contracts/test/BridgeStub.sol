@@ -178,7 +178,18 @@ contract BridgeStub is Bridge {
     function applyForRebate(address user, uint64 treasuryFee) external {
         lastTreasuryFee = RebateStaking(self.rebateStaking).applyForRebate(
             user,
-            treasuryFee
+            treasuryFee,
+            uint8(RebateStaking.TreasuryFeeType.Deposit)
+        );
+    }
+
+    function applyForRedemptionRebate(address user, uint64 treasuryFee)
+        external
+    {
+        lastTreasuryFee = RebateStaking(self.rebateStaking).applyForRebate(
+            user,
+            treasuryFee,
+            uint8(RebateStaking.TreasuryFeeType.Redemption)
         );
     }
 
