@@ -3,6 +3,12 @@ import type { DeployFunction } from "hardhat-deploy/types"
 import { getWormholeChains } from "../deploy_helpers/wormhole_chains"
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
+  // Skip deployment for hardhat network (testing)
+  if (hre.network.name === "hardhat") {
+    console.log("Skipping L1 deployment on hardhat network")
+    return
+  }
+  
   const { ethers, getNamedAccounts, helpers, deployments } = hre
   const { deployer } = await getNamedAccounts()
   const l2Deployments = hre.companionNetworks.l2.deployments
