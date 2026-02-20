@@ -55,6 +55,8 @@ contract L1BTCRedeemerWormhole is
     error CallerNotOwner();
     error SourceAddressNotAuthorized();
     error WormholeTokenBridgeAlreadySet();
+    error RecoveryAddressNotSet();
+    error RecipientNotRecoveryAddress();
 
     /// @notice Reference to the Wormhole Token Bridge contract.
     IWormholeTokenBridge public wormholeTokenBridge;
@@ -69,6 +71,10 @@ contract L1BTCRedeemerWormhole is
     ///         from authorized senders will be accepted. The addresses are stored
     ///         in Wormhole format (bytes32).
     mapping(bytes32 => bool) public allowedSenders;
+
+    /// @notice Address that receives rescued Bank balances (e.g. a recovery/ops address)
+    ///         used to return funds for failed cross-chain redemptions.
+    address public recoveryAddress;
 
     event RedemptionRequested(
         uint256 indexed redemptionKey,
@@ -86,6 +92,10 @@ contract L1BTCRedeemerWormhole is
     );
 
     event AllowedSenderUpdated(bytes32 indexed sender, bool allowed);
+
+    event RecoveryAddressUpdated(address indexed recoveryAddress);
+
+    event BankBalanceRescued(address indexed recipient, uint256 amount);
 
     /// @dev This modifier comes from the `Reimbursable` base contract and
     ///      must be overridden to protect the `updateReimbursementPool` call.
@@ -163,6 +173,33 @@ contract L1BTCRedeemerWormhole is
     {
         allowedSenders[_sender] = _allowed;
         emit AllowedSenderUpdated(_sender, _allowed);
+    }
+
+    /// @notice Updates the recovery address used by `rescueBankBalance`.
+    /// @dev Can be called only by the contract owner.
+    /// @param _recoveryAddress New recovery address.
+    function setRecoveryAddress(address _recoveryAddress) external onlyOwner {
+        if (_recoveryAddress == address(0)) revert ZeroAddress();
+
+        recoveryAddress = _recoveryAddress;
+        emit RecoveryAddressUpdated(_recoveryAddress);
+    }
+
+    /// @notice Transfers this contract's Bank balance to the configured recovery address.
+    /// @dev Can be called only by the contract owner.
+    ///      This is intended to recover funds returned to this contract as part of
+    ///      failed cross-chain redemption flows.
+    /// @param recipient Must match the configured `recoveryAddress`.
+    /// @param amount Amount of Bank balance to transfer.
+    function rescueBankBalance(address recipient, uint256 amount)
+        external
+        onlyOwner
+    {
+        if (recoveryAddress == address(0)) revert RecoveryAddressNotSet();
+        if (recipient != recoveryAddress) revert RecipientNotRecoveryAddress();
+
+        bank.transferBalance(recipient, amount);
+        emit BankBalanceRescued(recipient, amount);
     }
 
     /// @notice Initiates a redemption on L1 using tBTC received from another chain (e.g., L2)
