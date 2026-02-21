@@ -13,6 +13,11 @@ import { to1e18 } from "../helpers/contract-test-helpers"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime, increaseTime } = helpers.time
+const rebateTreasuryFeeMode = {
+  both: 0,
+  depositOnly: 1,
+  redemptionOnly: 2,
+}
 
 describe("RebateStaking", () => {
   let governance: SignerWithAddress
@@ -130,6 +135,63 @@ describe("RebateStaking", () => {
     })
   })
 
+  describe("setRebateTreasuryFeeMode", () => {
+    before(async () => {
+      await createSnapshot()
+    })
+
+    after(async () => {
+      await restoreSnapshot()
+    })
+
+    it("should use both modes by default", async () => {
+      expect(
+        await rebateStaking.getRebateTreasuryFeeMode(thirdParty.address)
+      ).to.equal(rebateTreasuryFeeMode.both)
+    })
+
+    it("should revert for invalid mode", async () => {
+      await expect(
+        rebateStaking.connect(thirdParty).setRebateTreasuryFeeMode(3)
+      ).to.be.reverted
+    })
+
+    it("should set mode for caller only", async () => {
+      const tx = await rebateStaking
+        .connect(thirdParty)
+        .setRebateTreasuryFeeMode(rebateTreasuryFeeMode.redemptionOnly)
+
+      expect(
+        await rebateStaking.getRebateTreasuryFeeMode(thirdParty.address)
+      ).to.equal(rebateTreasuryFeeMode.redemptionOnly)
+      expect(
+        await rebateStaking.getRebateTreasuryFeeMode(governance.address)
+      ).to.equal(rebateTreasuryFeeMode.both)
+
+      await expect(tx)
+        .to.emit(rebateStaking, "RebateTreasuryFeeModeUpdated")
+        .withArgs(thirdParty.address, rebateTreasuryFeeMode.redemptionOnly)
+    })
+
+    it("should allow switching back to both mode", async () => {
+      await rebateStaking
+        .connect(thirdParty)
+        .setRebateTreasuryFeeMode(rebateTreasuryFeeMode.depositOnly)
+
+      const tx = await rebateStaking
+        .connect(thirdParty)
+        .setRebateTreasuryFeeMode(rebateTreasuryFeeMode.both)
+
+      expect(
+        await rebateStaking.getRebateTreasuryFeeMode(thirdParty.address)
+      ).to.equal(rebateTreasuryFeeMode.both)
+
+      await expect(tx)
+        .to.emit(rebateStaking, "RebateTreasuryFeeModeUpdated")
+        .withArgs(thirdParty.address, rebateTreasuryFeeMode.both)
+    })
+  })
+
   describe("applyForRebate", () => {
     const treasuryFee = ethers.BigNumber.from(950)
 
@@ -146,7 +208,7 @@ describe("RebateStaking", () => {
         await expect(
           rebateStaking
             .connect(governance)
-            .applyForRebate(thirdParty.address, treasuryFee)
+            .applyForRebate(thirdParty.address, treasuryFee, 0)
         ).to.be.revertedWith("CallerNotBridge")
       })
     })
@@ -198,6 +260,78 @@ describe("RebateStaking", () => {
         after(async () => {
           await restoreSnapshot()
         })
+
+        context("when user opts in to redemption-only rebates", () => {
+          before(async () => {
+            await createSnapshot()
+
+            await rebateStaking
+              .connect(thirdParty)
+              .setRebateTreasuryFeeMode(rebateTreasuryFeeMode.redemptionOnly)
+
+            tx = await bridge.applyForRebate(thirdParty.address, treasuryFee)
+          })
+
+          after(async () => {
+            await restoreSnapshot()
+          })
+
+          it("should return fee without change", async () => {
+            expect(await bridge.lastTreasuryFee()).to.be.equal(treasuryFee)
+          })
+
+          it("should not consume rebate", async () => {
+            expect(
+              await rebateStaking.getAvailableRebate(thirdParty.address)
+            ).to.be.equal(rebateCap)
+            expect(
+              await rebateStaking.getRebateLength(thirdParty.address)
+            ).to.be.equal(0)
+          })
+
+          it("should not emit rebate event", async () => {
+            await expect(tx).to.not.emit(rebateStaking, "RebateReceived")
+          })
+        })
+
+        context(
+          "when user opts in to deposit-only rebates for redemption fee type",
+          () => {
+            before(async () => {
+              await createSnapshot()
+
+              await rebateStaking
+                .connect(thirdParty)
+                .setRebateTreasuryFeeMode(rebateTreasuryFeeMode.depositOnly)
+
+              tx = await bridge.applyForRedemptionRebate(
+                thirdParty.address,
+                treasuryFee
+              )
+            })
+
+            after(async () => {
+              await restoreSnapshot()
+            })
+
+            it("should return fee without change", async () => {
+              expect(await bridge.lastTreasuryFee()).to.be.equal(treasuryFee)
+            })
+
+            it("should not consume rebate", async () => {
+              expect(
+                await rebateStaking.getAvailableRebate(thirdParty.address)
+              ).to.be.equal(rebateCap)
+              expect(
+                await rebateStaking.getRebateLength(thirdParty.address)
+              ).to.be.equal(0)
+            })
+
+            it("should not emit rebate event", async () => {
+              await expect(tx).to.not.emit(rebateStaking, "RebateReceived")
+            })
+          }
+        )
 
         context("when user has sufficient stake to cover fees", () => {
           before(async () => {

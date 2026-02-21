@@ -536,7 +536,8 @@ library Redemption {
         if (treasuryFee > 0 && self.rebateStaking != address(0)) {
             treasuryFee = RebateStaking(self.rebateStaking).applyForRebate(
                 redeemer,
-                treasuryFee
+                treasuryFee,
+                RebateStaking.TreasuryFeeType.Redemption
             );
         }
         uint64 txMaxFee = self.redemptionTxMaxFee;
