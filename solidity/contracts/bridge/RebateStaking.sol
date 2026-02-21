@@ -452,12 +452,12 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         unstakingTimestamp = stakeInfo.unstakingTimestamp;
     }
 
-    /// @notice Returns information about unstaking
-    /// @param user Address of depositor or redeemer
-    /// @param rebateTreasuryFeeMode New rebate treasury fee mode:
-    ///        - 0: rebates for both deposits and redemptions,
-    ///        - 1: rebates for deposits only,
-    ///        - 2: rebates for redemptions only.
+    /// @notice Returns the rebate treasury fee mode for a user.
+    /// @param user Address of the staker
+    /// @return rebateTreasuryFeeMode Current mode:
+    ///         - 0: rebates for both deposits and redemptions,
+    ///         - 1: rebates for deposits only,
+    ///         - 2: rebates for redemptions only.
     function getRebateTreasuryFeeMode(address user)
         external
         view
