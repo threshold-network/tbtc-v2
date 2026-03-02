@@ -345,7 +345,11 @@ library Deposit {
 
         if (deposit.treasuryFee > 0 && self.rebateStaking != address(0)) {
             deposit.treasuryFee = RebateStaking(self.rebateStaking)
-                .applyForRebate(deposit.depositor, deposit.treasuryFee);
+                .applyForRebate(
+                    deposit.depositor,
+                    deposit.treasuryFee,
+                    RebateStaking.TreasuryFeeType.Deposit
+                );
         }
 
         _emitDepositRevealedEvent(fundingTxHash, fundingOutputAmount, reveal);
