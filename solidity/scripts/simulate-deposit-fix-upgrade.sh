@@ -29,8 +29,8 @@ OLD_DEPOSIT="0xCD2EbDA2beA80484C55675e1965149054dCcD137"
 
 cleanup() {
   if [ -n "${ANVIL_PID:-}" ]; then
-    kill "$ANVIL_PID" 2>/dev/null || true
-    wait "$ANVIL_PID" 2>/dev/null || true
+    kill "$ANVIL_PID" 2> /dev/null || true
+    wait "$ANVIL_PID" 2> /dev/null || true
   fi
 }
 trap cleanup EXIT
@@ -94,7 +94,8 @@ echo ""
 # --- Step 3: Link and deploy Bridge implementation ---
 echo "[3/6] Linking Bridge bytecode and deploying implementation..."
 
-BRIDGE_BYTECODE=$(python3 << PYEOF
+BRIDGE_BYTECODE=$(
+  python3 << PYEOF
 import json
 
 b = json.load(open('${BUILD_DIR}/contracts/bridge/Bridge.sol/Bridge.json'))
