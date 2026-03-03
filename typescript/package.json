@@ -1,9 +1,43 @@
 {
   "name": "@keep-network/tbtc-v2.ts",
-  "version": "3.1.0-dev",
+  "version": "3.2.0-dev",
   "license": "MIT",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./core": {
+      "types": "./dist/src/core.d.ts",
+      "default": "./dist/src/core.js"
+    },
+    "./solana": {
+      "types": "./dist/src/lib/solana/index.d.ts",
+      "default": "./dist/src/lib/solana/index.js"
+    },
+    "./starknet": {
+      "types": "./dist/src/lib/starknet/index.d.ts",
+      "default": "./dist/src/lib/starknet/index.js"
+    },
+    "./arbitrum": {
+      "types": "./dist/src/lib/arbitrum/index.d.ts",
+      "default": "./dist/src/lib/arbitrum/index.js"
+    },
+    "./base": {
+      "types": "./dist/src/lib/base/index.d.ts",
+      "default": "./dist/src/lib/base/index.js"
+    },
+    "./sui": {
+      "types": "./dist/src/lib/sui/index.d.ts",
+      "default": "./dist/src/lib/sui/index.js"
+    },
+    "./sei": {
+      "types": "./dist/src/lib/sei/index.d.ts",
+      "default": "./dist/src/lib/sei/index.js"
+    }
+  },
   "scripts": {
     "refund": "ts-node --files ./scripts/refund.ts",
     "format": "yarn run lint && prettier --check .",
