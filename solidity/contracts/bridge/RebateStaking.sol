@@ -360,6 +360,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     /// @notice Returns address of delegate or user itself if there is no delegate.
     function getStaker(address user) internal view returns (address) {
         address delegate = delegates[user];
+        // slither-disable-next-line incorrect-equality
         if (stakes[user].stakedAmount == 0 && delegate != address(0)) {
             return delegate;
         }
