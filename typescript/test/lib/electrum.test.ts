@@ -80,6 +80,54 @@ const testnetCredentials: ElectrumCredentials[] = [
 ]
 
 describe("Electrum", () => {
+  describe("fromUrl", () => {
+    it("should parse a URL with explicit port", () => {
+      const client = ElectrumClient.fromUrl("wss://electrum.example.com:8443")
+      const credentials = (client as any).credentials[0]
+      expect(credentials.host).to.equal("electrum.example.com")
+      expect(credentials.port).to.equal(8443)
+      expect(credentials.protocol).to.equal("wss")
+      expect(credentials.path).to.be.undefined
+    })
+
+    it("should parse a URL with path", () => {
+      const client = ElectrumClient.fromUrl(
+        "wss://electrum.example.com:8443/api-key-123"
+      )
+      const credentials = (client as any).credentials[0]
+      expect(credentials.host).to.equal("electrum.example.com")
+      expect(credentials.port).to.equal(8443)
+      expect(credentials.protocol).to.equal("wss")
+      expect(credentials.path).to.equal("/api-key-123")
+    })
+
+    it("should throw for a URL without explicit port", () => {
+      expect(() =>
+        ElectrumClient.fromUrl("wss://electrum.example.com")
+      ).to.throw("missing or invalid port")
+    })
+
+    it("should parse an array of URLs", () => {
+      const client = ElectrumClient.fromUrl([
+        "ssl://electrum.example.com:50002",
+        "wss://electrum.example.com:8443/api-key",
+      ])
+      const credentials = (client as any).credentials
+      expect(credentials).to.have.length(2)
+      expect(credentials[0].protocol).to.equal("ssl")
+      expect(credentials[0].port).to.equal(50002)
+      expect(credentials[0].path).to.be.undefined
+      expect(credentials[1].protocol).to.equal("wss")
+      expect(credentials[1].path).to.equal("/api-key")
+    })
+
+    it("should not set path for a URL with bare slash", () => {
+      const client = ElectrumClient.fromUrl("wss://electrum.example.com:8443/")
+      const credentials = (client as any).credentials[0]
+      expect(credentials.path).to.be.undefined
+    })
+  })
+
   /**
    * This test suite is meant to check the behavior of the Electrum-based
    * Bitcoin client implementation. This suite requires an integration with a

@@ -7,6 +7,7 @@ Represents a set of credentials required to establish an Electrum connection.
 ### Properties
 
 - [host](ElectrumCredentials.md#host)
+- [path](ElectrumCredentials.md#path)
 - [port](ElectrumCredentials.md#port)
 - [protocol](ElectrumCredentials.md#protocol)
 
@@ -21,6 +22,18 @@ Host pointing to the Electrum server.
 #### Defined in
 
 [lib/electrum/client.ts:35](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L35)
+
+___
+
+### path
+
+• `Optional` **path**: `string`
+
+Optional URL path (e.g. for authenticated WebSocket endpoints).
+
+#### Defined in
+
+[lib/electrum/client.ts:47](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L47)
 
 ___
 
