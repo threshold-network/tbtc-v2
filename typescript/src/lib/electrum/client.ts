@@ -41,6 +41,10 @@ export interface ElectrumCredentials {
    * Protocol used by the Electrum server.
    */
   protocol: "tcp" | "tls" | "ssl" | "ws" | "wss"
+  /**
+   * Optional URL path (e.g. for authenticated WebSocket endpoints).
+   */
+  path?: string
 }
 
 /**
@@ -148,15 +152,24 @@ export class ElectrumClient implements BitcoinClient {
   private static parseElectrumCredentials(url: string): ElectrumCredentials {
     const urlObj = new URL(url)
 
+    const port = Number.parseInt(urlObj.port, 10)
+    if (Number.isNaN(port)) {
+      throw new Error(`missing or invalid port in Electrum URL: ${url}`)
+    }
+
     return {
       host: urlObj.hostname,
-      port: Number.parseInt(urlObj.port, 10),
+      port,
       protocol: urlObj.protocol.replace(":", "") as
         | "tcp"
         | "tls"
         | "ssl"
         | "ws"
         | "wss",
+      path:
+        urlObj.pathname && urlObj.pathname !== "/"
+          ? urlObj.pathname
+          : undefined,
     }
   }
 
@@ -174,7 +187,8 @@ export class ElectrumClient implements BitcoinClient {
         credentials.host,
         credentials.port,
         credentials.protocol,
-        this.options
+        this.options,
+        credentials.path
       )
 
       await this.withBackoffRetrier()(async () => {
@@ -206,7 +220,9 @@ export class ElectrumClient implements BitcoinClient {
         break
       } catch (err) {
         console.warn(
-          `failed to connect to electrum server: [${credentials.protocol}://${credentials.host}:${credentials.port}]: ${err}`
+          `failed to connect to electrum server: [${credentials.protocol}://${
+            credentials.host
+          }:${credentials.port}${credentials.path ?? ""}]: ${err}`
         )
       }
     }

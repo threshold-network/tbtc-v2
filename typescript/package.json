@@ -37,7 +37,7 @@
     "bitcoinjs-lib": "^6.1.5",
     "bufio": "^1.0.6",
     "ecpair": "^2.1.0",
-    "electrum-client-js": "git+https://github.com/keep-network/electrum-client-js.git#v0.1.1",
+    "electrum-client-js": "git+https://github.com/keep-network/electrum-client-js.git#d07d089e15278b7cb6d97e6cd35f1b9caa9a8ae9",
     "ethers": "^5.5.2",
     "p-timeout": "^4.1.0",
     "starknet": "^6.24.1",

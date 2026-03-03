@@ -3927,9 +3927,9 @@ ee-first@1.1.1:
   resolved "https://registry.yarnpkg.com/ee-first/-/ee-first-1.1.1.tgz#590c61156b0ae2f4f0255732a158b266bc56b21d"
   integrity sha512-WMwm9LhRUo+WUaRN+vRuETqG89IgZphVSNkdFgeb6sS/E4OrDIN7t48CAewSHXc6C8lefD8KKfr5vY61brQlow==
 
-"electrum-client-js@git+https://github.com/keep-network/electrum-client-js.git#v0.1.1":
+"electrum-client-js@git+https://github.com/keep-network/electrum-client-js.git#d07d089e15278b7cb6d97e6cd35f1b9caa9a8ae9":
   version "0.1.1"
-  resolved "git+https://github.com/keep-network/electrum-client-js.git#8eccf443ca69ab5d81315016057ae9b1ae5818bf"
+  resolved "git+https://github.com/keep-network/electrum-client-js.git#d07d089e15278b7cb6d97e6cd35f1b9caa9a8ae9"
   dependencies:
     websocket "^1.0.29"
 
