@@ -203,10 +203,10 @@ describe("ThresholdContext Provider Compatibility - T-009", () => {
   describe("Error Handling", () => {
     it("should throw error if cross-chain loader is not available", async () => {
       // Create TBTC instance without cross-chain support
-      const tbtcNoCrossChain = await TBTC.initializeCustom(
+      const tbtcNoCrossChain = (await TBTC.initializeCustom(
         mockTBTCContracts,
         mockBitcoinClient
-      )
+      )) as TBTC
 
       const provider = new RpcProvider({
         nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",

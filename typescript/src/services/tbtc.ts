@@ -1,93 +1,49 @@
-import { DepositsService } from "./deposits"
-import { MaintenanceService } from "./maintenance"
-import { RedemptionsService } from "./redemptions"
 import {
   Chains,
-  CrossChainInterfaces,
   CrossChainContractsLoader,
+  CrossChainInterfaces,
   L1CrossChainContracts,
   DestinationChainName,
-  TBTCContracts,
   DestinationChainInterfaces,
+  TBTCContracts,
 } from "../lib/contracts"
 import { BitcoinClient, BitcoinNetwork } from "../lib/bitcoin"
-import {
-  ethereumAddressFromSigner,
-  EthereumSigner,
-  ethereumCrossChainContractsLoader,
-  loadEthereumCoreContracts,
-} from "../lib/ethereum"
-import { ElectrumClient } from "../lib/electrum"
+import { EthereumSigner } from "../lib/ethereum"
+import type { AnchorProvider } from "@coral-xyz/anchor"
+import type { StarkNetProvider } from "../lib/starknet"
+import type { SuiSignerWithAddress } from "../lib/sui"
+import { TBTC as TBTCCore } from "./tbtc-core"
 import { providers } from "ethers"
-import { AnchorProvider } from "@coral-xyz/anchor"
-import { loadSolanaCrossChainInterfaces } from "../lib/solana"
-import { loadBaseCrossChainInterfaces } from "../lib/base"
-import { loadArbitrumCrossChainInterfaces } from "../lib/arbitrum"
-import {
-  loadStarkNetCrossChainInterfaces,
-  StarkNetProvider,
-} from "../lib/starknet"
-import { loadSuiCrossChainInterfaces, SuiSignerWithAddress } from "../lib/sui"
+
+// Re-export everything from the base module so that consumers importing
+// from the root entry point get the same symbols as from /core.
+export { TBTC as TBTCCore } from "./tbtc-core"
 
 /**
- * Entrypoint component of the tBTC v2 SDK.
+ * Full tBTC v2 SDK entrypoint with cross-chain (L2) support.
+ *
+ * Extends the base TBTC class with `initializeCrossChain` for L2 bridging.
+ * Chain-specific modules (Solana, StarkNet, Sui, Base, Arbitrum) are loaded
+ * on demand when `initializeCrossChain` is called.
+ *
+ * For consumers not interested in the cross-chain (L2) support, use the `/core`
+ * subpath which exports the base TBTC class.
  */
-export class TBTC {
-  /**
-   * Service supporting the tBTC v2 deposit flow.
-   */
-  public readonly deposits: DepositsService
-  /**
-   * Service supporting authorized operations of tBTC v2 system maintainers
-   * and operators.
-   */
-  public readonly maintenance: MaintenanceService
-  /**
-   * Service supporting the tBTC v2 redemption flow.
-   */
-  public readonly redemptions: RedemptionsService
-  /**
-   * Handle to tBTC contracts for low-level access.
-   */
-  public readonly tbtcContracts: TBTCContracts
-  /**
-   * Bitcoin client handle for low-level access.
-   */
-  public readonly bitcoinClient: BitcoinClient
-  /**
-   * Reference to the cross-chain contracts loader.
-   */
-  readonly #crossChainContractsLoader?: CrossChainContractsLoader
-  /**
-   * Mapping of cross-chain contracts for different supported L2 chains.
-   * Each set of cross-chain contracts must be first initialized using
-   * the `initializeCrossChain` method.
-   */
-  readonly #crossChainContracts: Map<DestinationChainName, CrossChainInterfaces>
+export class TBTC extends TBTCCore {
+  private _crossChainContractsLoader?: CrossChainContractsLoader
 
-  private constructor(
+  private readonly _crossChainContracts = new Map<
+    DestinationChainName,
+    CrossChainInterfaces
+  >()
+
+  protected constructor(
     tbtcContracts: TBTCContracts,
     bitcoinClient: BitcoinClient,
     crossChainContractsLoader?: CrossChainContractsLoader
   ) {
-    this.deposits = new DepositsService(
-      tbtcContracts,
-      bitcoinClient,
-      (destinationChainName) => this.crossChainContracts(destinationChainName)
-    )
-    this.maintenance = new MaintenanceService(tbtcContracts, bitcoinClient)
-    this.redemptions = new RedemptionsService(
-      tbtcContracts,
-      bitcoinClient,
-      (l2ChainName) => this.crossChainContracts(l2ChainName)
-    )
-    this.tbtcContracts = tbtcContracts
-    this.bitcoinClient = bitcoinClient
-    this.#crossChainContractsLoader = crossChainContractsLoader
-    this.#crossChainContracts = new Map<
-      DestinationChainName,
-      CrossChainInterfaces
-    >()
+    super(tbtcContracts, bitcoinClient)
+    this._crossChainContractsLoader = crossChainContractsLoader
   }
 
   /**
@@ -104,7 +60,7 @@ export class TBTC {
     ethereumSignerOrProvider: EthereumSigner | providers.Provider,
     crossChainSupport: boolean = false
   ): Promise<TBTC> {
-    return TBTC.initializeEthereum(
+    return this.initializeEthereum(
       ethereumSignerOrProvider,
       Chains.Ethereum.Mainnet,
       BitcoinNetwork.Mainnet,
@@ -126,7 +82,7 @@ export class TBTC {
     ethereumSignerOrProvider: EthereumSigner | providers.Provider,
     crossChainSupport: boolean = false
   ): Promise<TBTC> {
-    return TBTC.initializeEthereum(
+    return this.initializeEthereum(
       ethereumSignerOrProvider,
       Chains.Ethereum.Sepolia,
       BitcoinNetwork.Testnet,
@@ -146,60 +102,37 @@ export class TBTC {
    * @throws Throws an error if the underlying signer's Ethereum network is
    *         other than the given Ethereum network.
    */
-  private static async initializeEthereum(
+  protected static async initializeEthereum(
     ethereumSignerOrProvider: EthereumSigner | providers.Provider,
     ethereumChainId: Chains.Ethereum,
     bitcoinNetwork: BitcoinNetwork,
     crossChainSupport = false
   ): Promise<TBTC> {
-    const signerAddress = await ethereumAddressFromSigner(
-      ethereumSignerOrProvider
-    )
-    const tbtcContracts = await loadEthereumCoreContracts(
+    const tbtc = (await super.initializeEthereum(
       ethereumSignerOrProvider,
-      ethereumChainId
-    )
+      ethereumChainId,
+      bitcoinNetwork
+    )) as TBTC
 
-    let crossChainContractsLoader: CrossChainContractsLoader | undefined =
-      undefined
     if (crossChainSupport) {
-      crossChainContractsLoader = await ethereumCrossChainContractsLoader(
+      const { ethereumCrossChainContractsLoader } = await import(
+        "../lib/ethereum/cross-chain"
+      )
+      tbtc._crossChainContractsLoader = await ethereumCrossChainContractsLoader(
         ethereumSignerOrProvider,
         ethereumChainId
       )
-    }
 
-    const bitcoinClient = ElectrumClient.fromDefaultConfig(bitcoinNetwork)
-
-    const tbtc = new TBTC(
-      tbtcContracts,
-      bitcoinClient,
-      crossChainContractsLoader
-    )
-
-    // If signer address can be resolved, set it as default depositor.
-    if (signerAddress !== undefined) {
-      tbtc.deposits.setDefaultDepositor(signerAddress)
+      // Wire up cross-chain contract resolution for deposits and redemptions.
+      tbtc.deposits.setCrossChainContractsResolver((name) =>
+        tbtc.crossChainContracts(name)
+      )
+      tbtc.redemptions.setCrossChainContractsResolver((name) =>
+        tbtc.crossChainContracts(name)
+      )
     }
 
     return tbtc
-  }
-
-  /**
-   * Initializes the tBTC v2 SDK entrypoint with custom tBTC contracts and
-   * Bitcoin client.
-   * @param tbtcContracts Custom tBTC contracts handle.
-   * @param bitcoinClient Custom Bitcoin client implementation.
-   * @returns Initialized tBTC v2 SDK entrypoint.
-   * @dev This function is especially useful for local development as it gives
-   *      flexibility to combine different implementations of tBTC v2 contracts
-   *      with different Bitcoin networks.
-   */
-  static async initializeCustom(
-    tbtcContracts: TBTCContracts,
-    bitcoinClient: BitcoinClient
-  ): Promise<TBTC> {
-    return new TBTC(tbtcContracts, bitcoinClient)
   }
 
   /**
@@ -289,22 +222,11 @@ export class TBTC {
    *                               For SUI: SUI signer/wallet.
    *                               For Solana: Solana provider.
    *                               For other L2s: Ethereum signer.
-   * @param l2Provider Deprecated parameter - will throw error if provided
    * @returns Void promise
    * @throws Throws an error if:
    *         - Cross-chain contracts loader not available
    *         - Invalid provider type for StarkNet or SUI
    *         - No connected account in StarkNet provider
-   *         - Two-parameter mode is used for StarkNet or SUI (no longer supported)
-   *
-   * @example
-   * // StarkNet with single parameter
-   * const starknetAccount = await starknet.connect();
-   * await tbtc.initializeCrossChain("StarkNet", starknetAccount);
-   *
-   * // SUI with single parameter
-   * const suiWallet = await wallet.connect();
-   * await tbtc.initializeCrossChain("Sui", suiWallet);
    */
   async initializeCrossChain(
     l2ChainName: DestinationChainName,
@@ -314,19 +236,19 @@ export class TBTC {
       | SuiSignerWithAddress
       | AnchorProvider
   ): Promise<void> {
-    if (!this.#crossChainContractsLoader) {
+    if (!this._crossChainContractsLoader) {
       throw new Error(
         "L1 Cross-chain contracts loader not available for this instance"
       )
     }
 
-    const chainMapping = this.#crossChainContractsLoader.loadChainMapping()
+    const chainMapping = this._crossChainContractsLoader.loadChainMapping()
     if (!chainMapping) {
       throw new Error("Chain mapping between L1 and L2 chains not defined")
     }
 
     const l1CrossChainContracts: L1CrossChainContracts =
-      await this.#crossChainContractsLoader.loadL1Contracts(l2ChainName)
+      await this._crossChainContractsLoader.loadL1Contracts(l2ChainName)
     let l2CrossChainContracts: DestinationChainInterfaces
 
     switch (l2ChainName) {
@@ -336,6 +258,7 @@ export class TBTC {
           throw new Error("Base chain ID not available in chain mapping")
         }
         this._l2Signer = signerOrEthereumSigner
+        const { loadBaseCrossChainInterfaces } = await import("../lib/base")
         l2CrossChainContracts = await loadBaseCrossChainInterfaces(
           signerOrEthereumSigner as EthereumSigner,
           baseChainId
@@ -347,6 +270,9 @@ export class TBTC {
           throw new Error("Arbitrum chain ID not available in chain mapping")
         }
         this._l2Signer = signerOrEthereumSigner
+        const { loadArbitrumCrossChainInterfaces } = await import(
+          "../lib/arbitrum"
+        )
         l2CrossChainContracts = await loadArbitrumCrossChainInterfaces(
           signerOrEthereumSigner as EthereumSigner,
           arbitrumChainId
@@ -385,6 +311,9 @@ export class TBTC {
           }
         }
 
+        const { loadStarkNetCrossChainInterfaces } = await import(
+          "../lib/starknet"
+        )
         l2CrossChainContracts = await loadStarkNetCrossChainInterfaces(
           walletAddressHex,
           starknetProvider,
@@ -397,6 +326,7 @@ export class TBTC {
           throw new Error("SUI chain ID not available in chain mapping")
         }
         this._l2Signer = signerOrEthereumSigner as SuiSignerWithAddress
+        const { loadSuiCrossChainInterfaces } = await import("../lib/sui")
         l2CrossChainContracts = await loadSuiCrossChainInterfaces(
           signerOrEthereumSigner as SuiSignerWithAddress,
           suiChainId
@@ -407,6 +337,7 @@ export class TBTC {
           throw new Error("Solana provider is required")
         }
         this._l2Signer = signerOrEthereumSigner as AnchorProvider
+        const { loadSolanaCrossChainInterfaces } = await import("../lib/solana")
         l2CrossChainContracts = await loadSolanaCrossChainInterfaces(
           signerOrEthereumSigner as AnchorProvider
         )
@@ -415,7 +346,7 @@ export class TBTC {
         throw new Error("Unsupported destination chain")
     }
 
-    this.#crossChainContracts.set(l2ChainName, {
+    this._crossChainContracts.set(l2ChainName, {
       ...l1CrossChainContracts,
       ...l2CrossChainContracts,
     })
@@ -438,6 +369,6 @@ export class TBTC {
   crossChainContracts(
     l2ChainName: DestinationChainName
   ): CrossChainInterfaces | undefined {
-    return this.#crossChainContracts.get(l2ChainName)
+    return this._crossChainContracts.get(l2ChainName)
   }
 }
