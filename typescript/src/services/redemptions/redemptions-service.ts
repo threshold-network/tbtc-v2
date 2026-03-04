@@ -60,6 +60,7 @@ export class RedemptionsService {
    * once the loader is ready.
    * @param resolver Function that returns cross-chain contracts for a
    *                 given L2 chain, or undefined if not initialized.
+   * @returns {void}
    */
   setCrossChainContractsResolver(
     resolver: (_: L2Chain) => CrossChainContracts | undefined

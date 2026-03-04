@@ -22,13 +22,14 @@ Service exposing features related to tBTC v2 deposits.
 - [initiateCrossChainDeposit](DepositsService.md#initiatecrosschaindeposit)
 - [initiateDeposit](DepositsService.md#initiatedeposit)
 - [initiateDepositWithProxy](DepositsService.md#initiatedepositwithproxy)
+- [setCrossChainContractsResolver](DepositsService.md#setcrosschaincontractsresolver)
 - [setDefaultDepositor](DepositsService.md#setdefaultdepositor)
 
 ## Constructors
 
 ### constructor
 
-• **new DepositsService**(`tbtcContracts`, `bitcoinClient`, `crossChainContracts`): [`DepositsService`](DepositsService.md)
+• **new DepositsService**(`tbtcContracts`, `bitcoinClient`, `crossChainContracts?`): [`DepositsService`](DepositsService.md)
 
 #### Parameters
 
@@ -36,7 +37,7 @@ Service exposing features related to tBTC v2 deposits.
 | :------ | :------ |
 | `tbtcContracts` | [`TBTCContracts`](../README.md#tbtccontracts) |
 | `bitcoinClient` | [`BitcoinClient`](../interfaces/BitcoinClient.md) |
-| `crossChainContracts` | (`_`: [`DestinationChainName`](../README.md#destinationchainname)) => `undefined` \| [`CrossChainInterfaces`](../README.md#crosschaininterfaces) |
+| `crossChainContracts?` | (`_`: [`DestinationChainName`](../README.md#destinationchainname)) => `undefined` \| [`CrossChainInterfaces`](../README.md#crosschaininterfaces) |
 
 #### Returns
 
@@ -50,7 +51,7 @@ Service exposing features related to tBTC v2 deposits.
 
 ### #crossChainContracts
 
-• `Private` `Readonly` **#crossChainContracts**: (`_`: [`DestinationChainName`](../README.md#destinationchainname)) => `undefined` \| [`CrossChainInterfaces`](../README.md#crosschaininterfaces)
+• `Private` **#crossChainContracts**: (`_`: [`DestinationChainName`](../README.md#destinationchainname)) => `undefined` \| [`CrossChainInterfaces`](../README.md#crosschaininterfaces)
 
 Gets cross-chain contracts for the given supported L2 chain.
 
@@ -142,7 +143,7 @@ Handle to tBTC contracts.
 
 #### Defined in
 
-[services/deposits/deposits-service.ts:187](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L187)
+[services/deposits/deposits-service.ts:202](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L202)
 
 ___
 
@@ -196,7 +197,7 @@ This is actually a call to initiateDepositWithProxy with a built-in
 
 #### Defined in
 
-[services/deposits/deposits-service.ts:167](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L167)
+[services/deposits/deposits-service.ts:182](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L182)
 
 ___
 
@@ -230,7 +231,7 @@ Throws an error if one of the following occurs:
 
 #### Defined in
 
-[services/deposits/deposits-service.ts:80](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L80)
+[services/deposits/deposits-service.ts:95](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L95)
 
 ___
 
@@ -272,7 +273,31 @@ Throws an error if one of the following occurs:
 
 #### Defined in
 
-[services/deposits/deposits-service.ts:119](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L119)
+[services/deposits/deposits-service.ts:134](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L134)
+
+___
+
+### setCrossChainContractsResolver
+
+▸ **setCrossChainContractsResolver**(`resolver`): `void`
+
+Sets the cross-chain contracts resolver after construction. This is
+used by the TBTC class to wire up cross-chain contract resolution
+once the loader is ready.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `resolver` | (`_`: [`DestinationChainName`](../README.md#destinationchainname)) => `undefined` \| [`CrossChainInterfaces`](../README.md#crosschaininterfaces) | Function that returns cross-chain contracts for a given destination chain name, or undefined if not initialized. |
+
+#### Returns
+
+`void`
+
+#### Defined in
+
+[services/deposits/deposits-service.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L74)
 
 ___
 
@@ -301,4 +326,4 @@ Typically, there is no need to use this method when DepositsService
 
 #### Defined in
 
-[services/deposits/deposits-service.ts:265](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L265)
+[services/deposits/deposits-service.ts:280](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L280)

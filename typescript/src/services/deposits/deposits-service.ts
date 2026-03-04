@@ -69,6 +69,7 @@ export class DepositsService {
    * @param resolver Function that returns cross-chain contracts for a
    *                 given destination chain name, or undefined if not
    *                 initialized.
+   * @returns {void}
    */
   setCrossChainContractsResolver(
     resolver: (_: DestinationChainName) => CrossChainInterfaces | undefined
