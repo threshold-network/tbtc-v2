@@ -42,16 +42,29 @@ export class RedemptionsService {
    * @returns Cross-chain contracts for the given L2 chain or
    *          undefined if not initialized.
    */
-  readonly #crossChainContracts: (_: L2Chain) => CrossChainContracts | undefined
+  #crossChainContracts: (_: L2Chain) => CrossChainContracts | undefined
 
   constructor(
     tbtcContracts: TBTCContracts,
     bitcoinClient: BitcoinClient,
-    crossChainContracts: (_: L2Chain) => CrossChainContracts | undefined
+    crossChainContracts?: (_: L2Chain) => CrossChainContracts | undefined
   ) {
     this.tbtcContracts = tbtcContracts
     this.bitcoinClient = bitcoinClient
-    this.#crossChainContracts = crossChainContracts
+    this.#crossChainContracts = crossChainContracts ?? (() => undefined)
+  }
+
+  /**
+   * Sets the cross-chain contracts resolver after construction. This is
+   * used by the TBTC class to wire up cross-chain contract resolution
+   * once the loader is ready.
+   * @param resolver Function that returns cross-chain contracts for a
+   *                 given L2 chain, or undefined if not initialized.
+   */
+  setCrossChainContractsResolver(
+    resolver: (_: L2Chain) => CrossChainContracts | undefined
+  ) {
+    this.#crossChainContracts = resolver
   }
 
   /**

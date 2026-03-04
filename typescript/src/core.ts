@@ -11,4 +11,4 @@ export * from "./services/maintenance"
 export * from "./services/redemptions"
 
 // Entrypoint module
-export * from "./services/tbtc"
+export * from "./services/tbtc-core"
