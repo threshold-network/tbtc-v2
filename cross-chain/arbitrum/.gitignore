@@ -9,7 +9,6 @@
 /deployments/*
 !/deployments/mainnet/
 !/deployments/arbitrumOne/
-!/deployments/arbitrumGoerli/
 !/deployments/arbitrumSepolia/
 
 # OZ
