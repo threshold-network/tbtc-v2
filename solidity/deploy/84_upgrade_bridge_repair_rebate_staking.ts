@@ -70,9 +70,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   log(`Current rebateStaking: ${currentRebateStaking}`)
   log(`Target rebateStaking:  ${repairTarget}`)
   log("Using libraries:")
-  for (const [name, address] of Object.entries(bridgeLibraries)) {
+  Object.entries(bridgeLibraries).forEach(([name, address]) => {
     log(`  ${name}: ${address}`)
-  }
+  })
 
   const deployerSigner = await ethers.getSigner(deployer)
   const bridgeFactory = await ethers.getContractFactory("Bridge", {
