@@ -4,7 +4,7 @@ import fs from "fs"
 import path from "path"
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
-  const { ethers, deployments, getNamedAccounts } = hre
+  const { ethers, deployments, getNamedAccounts, upgrades } = hre
   const { get, log } = deployments
   const { deployer } = await getNamedAccounts()
 
@@ -91,20 +91,16 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     }
   )
 
-  const adminSlot =
-    "0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103"
-  const adminData = await ethers.provider.getStorageAt(bridgeAddress, adminSlot)
-  const proxyAdminAddress = ethers.utils.getAddress(`0x${adminData.slice(26)}`)
-
-  const proxyAdmin = await ethers.getContractAt(
+  const proxyAdmin = await upgrades.admin.getInstance()
+  const proxyAdminWithUpgrade = await ethers.getContractAt(
     [
       "function owner() view returns (address)",
       "function upgradeAndCall(address proxy, address implementation, bytes data)",
     ],
-    proxyAdminAddress,
+    proxyAdmin.address,
     deployerSigner
   )
-  const proxyAdminOwner = await proxyAdmin.owner()
+  const proxyAdminOwner = await proxyAdminWithUpgrade.owner()
   const deployerAddress = await deployerSigner.getAddress()
 
   if (proxyAdminOwner.toLowerCase() !== deployerAddress.toLowerCase()) {
@@ -118,10 +114,10 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     [repairTarget]
   )
 
-  log(`ProxyAdmin: ${proxyAdminAddress}`)
+  log(`ProxyAdmin: ${proxyAdmin.address}`)
   log(`New implementation: ${implementationDeployment.address}`)
 
-  const upgradeTx = await proxyAdmin.upgradeAndCall(
+  const upgradeTx = await proxyAdminWithUpgrade.upgradeAndCall(
     bridgeAddress,
     implementationDeployment.address,
     initializationData
