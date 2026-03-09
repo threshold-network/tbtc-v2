@@ -380,6 +380,10 @@ contract Bridge is
     /// @notice Repairs the rebate staking address during a proxy upgrade.
     /// @param newRebateStaking The new rebate staking address. Set to 0x0 to
     ///        disable the rebate hook entirely.
+    /// @dev Uses reinitializer(5) to allow a one-time repair of the rebate
+    ///      staking address. Versions 3-4 were reserved for other potential
+    ///      upgrades but ultimately unused. This function can only be called
+    ///      once per proxy deployment.
     function initializeV5_RepairRebateStaking(address newRebateStaking)
         external
         reinitializer(5)
