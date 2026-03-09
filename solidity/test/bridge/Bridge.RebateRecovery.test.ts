@@ -22,11 +22,9 @@ describe("Bridge - Rebate staking recovery upgrade", () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ deployer, governance, esdm } = await helpers.signers.getNamedSigners())
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({
-      bridge,
-      bridgeGovernance,
-      rebateStaking,
-    } = await waffle.loadFixture(bridgeFixture))
+    ;({ bridge, bridgeGovernance, rebateStaking } = await waffle.loadFixture(
+      bridgeFixture
+    ))
   })
 
   it("repairs rebate staking during an upgrade", async () => {
