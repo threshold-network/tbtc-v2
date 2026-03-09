@@ -58,7 +58,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
-        uint256[49] __gap;
+        uint256[50] __gap;
     }
 
     struct Stake {
@@ -88,7 +88,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     // the struct in the upcoming versions we need to reduce the array size.
     // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
     // slither-disable-next-line unused-state
-    uint256[50] private __gap;
+    uint256[49] private __gap;
 
     event RollingWindowUpdated(uint256 rollingWindow);
     event UnstakingPeriodUpdated(uint256 unstakingPeriod);
@@ -357,12 +357,12 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
                 treasuryFeeType == TreasuryFeeType.Redemption);
     }
 
-    /// @notice Returns address of delegate or user itself if there is no delegate.
+    /// @notice Returns address of delegating staker or user itself if there is no delegating staker.
     function getStaker(address user) internal view returns (address) {
-        address delegate = delegates[user];
+        address staker = delegates[user];
         // slither-disable-next-line incorrect-equality
-        if (stakes[user].stakedAmount == 0 && delegate != address(0)) {
-            return delegate;
+        if (stakes[user].stakedAmount == 0 && staker != address(0)) {
+            return staker;
         }
         return user;
     }
@@ -408,9 +408,15 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     function stake(uint96 amount) external {
         if (amount == 0) revert AmountCannotBeZero();
 
+        address otherStaker = delegates[msg.sender];
+        if (otherStaker != address(0)) {
+            stakes[otherStaker].delegatee = address(0);
+            delegates[msg.sender] = address(0);
+            emit DelegateeSet(otherStaker, otherStaker);
+        }
+
         Stake storage stakeInfo = stakes[msg.sender];
         stakeInfo.stakedAmount += amount;
-
         emit Staked(msg.sender, amount);
         token.safeTransferFrom(msg.sender, address(this), amount);
     }
@@ -444,7 +450,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         uint96 amount = stakeInfo.unstakingAmount;
         stakeInfo.unstakingTimestamp = 0;
         stakeInfo.unstakingAmount = 0;
-        if (stakeInfo.delegatee != address(0)) {
+        if (stakeInfo.stakedAmount == 0 && stakeInfo.delegatee != address(0)) {
             delegates[stakeInfo.delegatee] = address(0);
             stakeInfo.delegatee = address(0);
         }

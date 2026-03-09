@@ -1073,6 +1073,8 @@ describe("RebateStaking", () => {
         await t.connect(deployer).mint(thirdParty.address, stakeAmount)
         await t.connect(thirdParty).approve(rebateStaking.address, stakeAmount)
         await rebateStaking.connect(thirdParty).stake(stakeAmount1)
+        await rebateStaking.connect(thirdParty).setDelegatee(deployer.address)
+
         tx = await rebateStaking.connect(thirdParty).stake(stakeAmount2)
       })
 
@@ -1093,6 +1095,15 @@ describe("RebateStaking", () => {
         )
       })
 
+      it("should not update delegatee", async () => {
+        expect(await rebateStaking.delegates(deployer.address)).to.be.equal(
+          thirdParty.address
+        )
+        expect(
+          await rebateStaking.getDelegatee(thirdParty.address)
+        ).to.be.equal(deployer.address)
+      })
+
       it("should update rebate cap", async () => {
         expect(
           await rebateStaking.getRebateCap(thirdParty.address)
@@ -1103,6 +1114,53 @@ describe("RebateStaking", () => {
         await expect(tx)
           .to.emit(rebateStaking, "Staked")
           .withArgs(thirdParty.address, stakeAmount2)
+      })
+    })
+
+    context("when someone's delegatee create new stake", () => {
+      const stakeAmount = defaultStakeAmount
+      const rebateCap = to1e18(1)
+      let tx: ContractTransaction
+
+      before(async () => {
+        await createSnapshot()
+
+        await t.connect(deployer).mint(deployer.address, stakeAmount)
+        await t.connect(deployer).approve(rebateStaking.address, stakeAmount)
+        await t.connect(deployer).mint(thirdParty.address, stakeAmount)
+        await t.connect(thirdParty).approve(rebateStaking.address, stakeAmount)
+        await rebateStaking.connect(deployer).stake(stakeAmount)
+        await rebateStaking.connect(deployer).setDelegatee(thirdParty.address)
+
+        tx = await rebateStaking.connect(thirdParty).stake(stakeAmount)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should reset delegatee for the first staker", async () => {
+        expect(await rebateStaking.delegates(deployer.address)).to.be.equal(
+          ZERO_ADDRESS
+        )
+        expect(await rebateStaking.getDelegatee(deployer.address)).to.be.equal(
+          ZERO_ADDRESS
+        )
+        expect(await rebateStaking.delegates(thirdParty.address)).to.be.equal(
+          ZERO_ADDRESS
+        )
+        expect(
+          await rebateStaking.getDelegatee(thirdParty.address)
+        ).to.be.equal(ZERO_ADDRESS)
+      })
+
+      it("should emit events", async () => {
+        await expect(tx)
+          .to.emit(rebateStaking, "Staked")
+          .withArgs(thirdParty.address, stakeAmount)
+        await expect(tx)
+          .to.emit(rebateStaking, "DelegateeSet")
+          .withArgs(deployer.address, deployer.address)
       })
     })
   })
@@ -1276,7 +1334,7 @@ describe("RebateStaking", () => {
       })
     })
 
-    context("when user finishes unstaking process", () => {
+    context("when user finishes partial unstaking process", () => {
       const stakeAmount = defaultStakeAmount.mul(10)
       const unstakeAmount = to1e18(300000000)
       const expectedStake = stakeAmount.sub(unstakeAmount)
@@ -1323,11 +1381,11 @@ describe("RebateStaking", () => {
 
       it("should reset delegatee", async () => {
         expect(await rebateStaking.delegates(deployer.address)).to.be.equal(
-          ZERO_ADDRESS
+          thirdParty.address
         )
         expect(
           await rebateStaking.getDelegatee(thirdParty.address)
-        ).to.be.equal(ZERO_ADDRESS)
+        ).to.be.equal(deployer.address)
       })
 
       it("should decrease rebate cap", async () => {
@@ -1340,6 +1398,66 @@ describe("RebateStaking", () => {
         await expect(tx)
           .to.emit(rebateStaking, "UnstakeFinished")
           .withArgs(thirdParty.address, unstakeAmount)
+      })
+    })
+
+    context("when user finishes full unstaking process", () => {
+      const stakeAmount = defaultStakeAmount.mul(10)
+      let tx: ContractTransaction
+
+      before(async () => {
+        await createSnapshot()
+
+        await t.connect(deployer).mint(thirdParty.address, stakeAmount)
+        await t.connect(thirdParty).approve(rebateStaking.address, stakeAmount)
+        await rebateStaking.connect(thirdParty).stake(stakeAmount)
+        await rebateStaking.connect(thirdParty).startUnstaking(stakeAmount)
+        await rebateStaking.connect(thirdParty).setDelegatee(deployer.address)
+
+        const unstakingPeriod = await rebateStaking.unstakingPeriod()
+        await increaseTime(unstakingPeriod)
+        tx = await rebateStaking
+          .connect(thirdParty)
+          .finalizeUnstaking(governance.address)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should transfer tokens to the user", async () => {
+        expect(await t.balanceOf(thirdParty.address)).to.be.equal(0)
+        expect(await t.balanceOf(governance.address)).to.be.equal(stakeAmount)
+        expect(await t.balanceOf(rebateStaking.address)).to.be.equal(0)
+      })
+
+      it("should reset unstaking amount", async () => {
+        expect(await rebateStaking.getStake(thirdParty.address)).to.be.equal(0)
+        const [unstakingAmount, unstakingTimestamp] =
+          await rebateStaking.getUnstakingAmount(thirdParty.address)
+        expect(unstakingAmount).to.be.equal(0)
+        expect(unstakingTimestamp).to.be.equal(0)
+      })
+
+      it("should reset delegatee", async () => {
+        expect(await rebateStaking.delegates(deployer.address)).to.be.equal(
+          ZERO_ADDRESS
+        )
+        expect(
+          await rebateStaking.getDelegatee(thirdParty.address)
+        ).to.be.equal(ZERO_ADDRESS)
+      })
+
+      it("should decrease rebate cap", async () => {
+        expect(
+          await rebateStaking.getRebateCap(thirdParty.address)
+        ).to.be.equal(0)
+      })
+
+      it("should emit event", async () => {
+        await expect(tx)
+          .to.emit(rebateStaking, "UnstakeFinished")
+          .withArgs(thirdParty.address, stakeAmount)
       })
     })
   })
