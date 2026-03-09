@@ -19,10 +19,14 @@ describe("Bridge - Rebate staking recovery upgrade", () => {
   let rebateStaking: RebateStaking
 
   before(async () => {
+    // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ deployer, governance, esdm } = await helpers.signers.getNamedSigners())
-    ;({ bridge, bridgeGovernance, rebateStaking } = await waffle.loadFixture(
-      bridgeFixture
-    ))
+    // eslint-disable-next-line @typescript-eslint/no-extra-semi
+    ;({
+      bridge,
+      bridgeGovernance,
+      rebateStaking,
+    } = await waffle.loadFixture(bridgeFixture))
   })
 
   it("repairs rebate staking during an upgrade", async () => {
@@ -52,7 +56,9 @@ describe("Bridge - Rebate staking recovery upgrade", () => {
 
     const proxyAdmin = await upgrades.admin.getInstance()
     const proxyAdminWithUpgrade = await ethers.getContractAt(
-      ["function upgradeAndCall(address proxy, address implementation, bytes data)"],
+      [
+        "function upgradeAndCall(address proxy, address implementation, bytes data)",
+      ],
       proxyAdmin.address,
       esdm
     )
