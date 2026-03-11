@@ -151,7 +151,7 @@ be required in further steps.
 Once done, the state of the tBTC v2 contracts should be as expected.
 The test scenario can be started using:
 ```
-ELECTRUM_URL=wss://electrumx-server.test.tbtc.network:8443 \
+ELECTRUM_URL=wss://electrum.testnet.boar.network:443/QxbJgaSLUHqrgAa9BW7bDpnGPxrlhnCa \
  CONTRACTS_DEPLOYMENT_EXPORT_FILE_PATH=../solidity/export.json \
  WALLET_BITCOIN_WIF=<wallet-bitcoin-wif> \
  DEPOSITOR_BITCOIN_WIF=<depositor-bitcoin-wif> \

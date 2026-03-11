@@ -1,3 +1,5 @@
 {
-  "urls": ["wss://electrumx-server.test.tbtc.network:8443"]
+  "urls": [
+    "wss://electrum.testnet.boar.network:443/QxbJgaSLUHqrgAa9BW7bDpnGPxrlhnCa"
+  ]
 }

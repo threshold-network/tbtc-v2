@@ -16,6 +16,8 @@ import {
   testnetTxHashes,
   testnetUTXO,
 } from "../data/electrum"
+import MainnetElectrumUrls from "../../src/lib/electrum/urls/mainnet.json"
+import TestnetElectrumUrls from "../../src/lib/electrum/urls/testnet.json"
 import chai, { expect } from "chai"
 import chaiAsPromised from "chai-as-promised"
 import https from "https"
@@ -25,31 +27,12 @@ chai.use(chaiAsPromised)
 const BLOCKSTREAM_TESTNET_API_URL = "https://blockstream.info/testnet/api"
 
 const testnetCredentials: ElectrumCredentials[] = [
-  // FIXME: Enable all protocols test for test.tbtc.network servers once they are
-  // publicly exposed.
-  // // electrumx tcp
-  // {
-  //   host: "electrumx-server.test.tbtc.network",
-  //   port: 80,
-  //   protocol: "tcp",
-  // },
-  // electrumx ssl
-  // {
-  //   host: "electrumx-server.test.tbtc.network",
-  //   port: 443,
-  //   protocol: "ssl",
-  // },
-  // electrumx ws
-  // {
-  //   host: "electrumx-server.test.tbtc.network",
-  //   port: 8080,
-  //   protocol: "ws",
-  // },
-  // electrumx wss
+  // BOAR testnet electrumx wss
   {
-    host: "electrumx-server.test.tbtc.network",
-    port: 8443,
+    host: "electrum.testnet.boar.network",
+    port: 443,
     protocol: "wss",
+    path: "/QxbJgaSLUHqrgAa9BW7bDpnGPxrlhnCa",
   },
   // electrs-esplora tcp
   {
@@ -172,6 +155,31 @@ describe("Electrum", () => {
       const client = ElectrumClient.fromUrl("wss://electrum.example.com:8443/")
       const credentials = (client as any).credentials[0]
       expect(credentials.path).to.be.undefined
+    })
+  })
+
+  describe("config files", () => {
+    it("should have exactly one mainnet URL pointing to BOAR", () => {
+      expect(MainnetElectrumUrls.urls).to.have.length(1)
+      expect(MainnetElectrumUrls.urls[0]).to.equal(
+        "wss://electrum.boar.network:2083"
+      )
+    })
+
+    it("should have exactly one testnet URL pointing to BOAR testnet", () => {
+      expect(TestnetElectrumUrls.urls).to.have.length(1)
+      expect(TestnetElectrumUrls.urls[0]).to.equal(
+        "wss://electrum.testnet.boar.network:443/QxbJgaSLUHqrgAa9BW7bDpnGPxrlhnCa"
+      )
+    })
+
+    it("should parse the BOAR testnet URL with correct credentials", () => {
+      const client = ElectrumClient.fromUrl(TestnetElectrumUrls.urls)
+      const credentials = (client as any).credentials[0]
+      expect(credentials.host).to.equal("electrum.testnet.boar.network")
+      expect(credentials.port).to.equal(443)
+      expect(credentials.protocol).to.equal("wss")
+      expect(credentials.path).to.equal("/QxbJgaSLUHqrgAa9BW7bDpnGPxrlhnCa")
     })
   })
 
