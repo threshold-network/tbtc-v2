@@ -1,5 +1,3 @@
 {
-  "urls": [
-    "wss://electrum.boar.network:2083"
-  ]
+  "urls": ["wss://electrum.boar.network:2083"]
 }
