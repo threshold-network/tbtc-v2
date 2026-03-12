@@ -19,6 +19,8 @@ const rebateTreasuryFeeMode = {
   redemptionOnly: 2,
 }
 
+const ZERO_ADDRESS = ethers.constants.AddressZero
+
 describe("RebateStaking", () => {
   let governance: SignerWithAddress
   let bridge: Bridge & BridgeStub
@@ -189,6 +191,160 @@ describe("RebateStaking", () => {
       await expect(tx)
         .to.emit(rebateStaking, "RebateTreasuryFeeModeUpdated")
         .withArgs(thirdParty.address, rebateTreasuryFeeMode.both)
+    })
+  })
+
+  describe("setDelegatee", () => {
+    const stakeAmount = defaultStakeAmount
+    let tx: ContractTransaction
+
+    before(async () => {
+      await createSnapshot()
+
+      await t.connect(deployer).mint(thirdParty.address, stakeAmount)
+      await t.connect(thirdParty).approve(rebateStaking.address, stakeAmount)
+      await rebateStaking.connect(thirdParty).stake(stakeAmount)
+    })
+
+    after(async () => {
+      await restoreSnapshot()
+    })
+
+    it("should revert when called not by a staker", async () => {
+      await expect(
+        rebateStaking.connect(governance).setDelegatee(thirdParty.address)
+      ).to.be.revertedWith("NotAStaker")
+    })
+
+    context("when trying to delegate to another staker", () => {
+      before(async () => {
+        await createSnapshot()
+
+        await t.connect(deployer).mint(governance.address, defaultStakeAmount)
+        await t
+          .connect(governance)
+          .approve(rebateStaking.address, defaultStakeAmount)
+        await rebateStaking.connect(governance).stake(defaultStakeAmount)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should revert", async () => {
+        await expect(
+          rebateStaking.connect(governance).setDelegatee(thirdParty.address)
+        ).to.be.revertedWith("WrongDelegatee")
+      })
+    })
+
+    context("when trying to delegate to already used delegatee", () => {
+      before(async () => {
+        await createSnapshot()
+        await t.connect(deployer).mint(governance.address, defaultStakeAmount)
+        await t
+          .connect(governance)
+          .approve(rebateStaking.address, defaultStakeAmount)
+        await rebateStaking.connect(governance).stake(defaultStakeAmount)
+        await rebateStaking.connect(governance).setDelegatee(deployer.address)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should revert", async () => {
+        await expect(
+          rebateStaking.connect(thirdParty).setDelegatee(deployer.address)
+        ).to.be.revertedWith("WrongDelegatee")
+      })
+    })
+
+    context("when user sets first time delegatee", () => {
+      before(async () => {
+        await createSnapshot()
+
+        tx = await rebateStaking
+          .connect(thirdParty)
+          .setDelegatee(deployer.address)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should set delegatee <-> delegate relationship", async () => {
+        expect(await rebateStaking.delegates(deployer.address)).to.be.equal(
+          thirdParty.address
+        )
+        expect(
+          await rebateStaking.getDelegatee(thirdParty.address)
+        ).to.be.equal(deployer.address)
+      })
+
+      it("should emit event", async () => {
+        await expect(tx)
+          .to.emit(rebateStaking, "DelegateeSet")
+          .withArgs(thirdParty.address, deployer.address)
+      })
+    })
+
+    context("when user changes delegatee", () => {
+      before(async () => {
+        await createSnapshot()
+
+        await rebateStaking.connect(thirdParty).setDelegatee(governance.address)
+        tx = await rebateStaking
+          .connect(thirdParty)
+          .setDelegatee(deployer.address)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should set delegatee <-> delegate relationship", async () => {
+        expect(await rebateStaking.delegates(deployer.address)).to.be.equal(
+          thirdParty.address
+        )
+        expect(
+          await rebateStaking.getDelegatee(thirdParty.address)
+        ).to.be.equal(deployer.address)
+      })
+
+      it("should emit event", async () => {
+        await expect(tx)
+          .to.emit(rebateStaking, "DelegateeSet")
+          .withArgs(thirdParty.address, deployer.address)
+      })
+    })
+
+    context("when user resets delegatee", () => {
+      before(async () => {
+        await createSnapshot()
+
+        await rebateStaking.connect(thirdParty).setDelegatee(deployer.address)
+        tx = await rebateStaking.connect(thirdParty).setDelegatee(ZERO_ADDRESS)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should set delegatee <-> delegate relationship", async () => {
+        expect(await rebateStaking.delegates(deployer.address)).to.be.equal(
+          ZERO_ADDRESS
+        )
+        expect(
+          await rebateStaking.getDelegatee(thirdParty.address)
+        ).to.be.equal(ZERO_ADDRESS)
+      })
+
+      it("should emit event", async () => {
+        await expect(tx)
+          .to.emit(rebateStaking, "DelegateeSet")
+          .withArgs(thirdParty.address, thirdParty.address)
+      })
     })
   })
 
@@ -490,6 +646,103 @@ describe("RebateStaking", () => {
               .withArgs(thirdParty.address, treasuryFee)
           })
         })
+
+        context("when user delegates rebate", () => {
+          before(async () => {
+            await createSnapshot()
+            await rebateStaking
+              .connect(thirdParty)
+              .setDelegatee(deployer.address)
+            tx = await bridge.applyForRebate(deployer.address, treasuryFee)
+          })
+
+          after(async () => {
+            await restoreSnapshot()
+          })
+
+          it("should return zero fees", async () => {
+            expect(await bridge.lastTreasuryFee()).to.be.equal(0)
+          })
+
+          it("should update available rebate for user", async () => {
+            expect(
+              await rebateStaking.getAvailableRebate(thirdParty.address)
+            ).to.be.equal(rebateCap.sub(treasuryFee))
+          })
+
+          it("should add rebate to the array", async () => {
+            expect(
+              await rebateStaking.getRebateLength(thirdParty.address)
+            ).to.be.equal(1)
+            const [timestamp, rebateAmount] = await rebateStaking.getRebate(
+              thirdParty.address,
+              0
+            )
+            expect(timestamp).to.be.equal(await lastBlockTime())
+            expect(rebateAmount).to.be.equal(treasuryFee)
+            expect(
+              await rebateStaking.getRebateLength(deployer.address)
+            ).to.be.equal(0)
+          })
+
+          it("should emit event", async () => {
+            await expect(tx)
+              .to.emit(rebateStaking, "RebateReceived")
+              .withArgs(thirdParty.address, treasuryFee)
+          })
+        })
+
+        context("when user delegates rebate to existing user", () => {
+          before(async () => {
+            await createSnapshot()
+
+            await rebateStaking
+              .connect(thirdParty)
+              .setDelegatee(deployer.address)
+            await t.connect(deployer).mint(deployer.address, stakeAmount)
+            await t
+              .connect(deployer)
+              .approve(rebateStaking.address, stakeAmount)
+            await rebateStaking.connect(deployer).stake(stakeAmount)
+
+            tx = await bridge.applyForRebate(deployer.address, treasuryFee)
+          })
+
+          after(async () => {
+            await restoreSnapshot()
+          })
+
+          it("should return zero fees", async () => {
+            expect(await bridge.lastTreasuryFee()).to.be.equal(0)
+          })
+
+          it("should update available rebate for user", async () => {
+            expect(
+              await rebateStaking.getAvailableRebate(deployer.address)
+            ).to.be.equal(rebateCap.sub(treasuryFee))
+          })
+
+          it("should add rebate to the array", async () => {
+            expect(
+              await rebateStaking.getRebateLength(deployer.address)
+            ).to.be.equal(1)
+            const [timestamp, rebateAmount] = await rebateStaking.getRebate(
+              deployer.address,
+              0
+            )
+            expect(timestamp).to.be.equal(await lastBlockTime())
+            expect(rebateAmount).to.be.equal(treasuryFee)
+            expect(
+              await rebateStaking.getRebateLength(thirdParty.address)
+            ).to.be.equal(0)
+          })
+
+          it("should emit event", async () => {
+            await expect(tx)
+              .to.emit(rebateStaking, "RebateReceived")
+              .withArgs(deployer.address, treasuryFee)
+          })
+        })
       })
     })
   })
@@ -649,6 +902,7 @@ describe("RebateStaking", () => {
               })
             }
           )
+
           context("when cancels rebate", () => {
             let timestamp: number
             before(async () => {
@@ -660,6 +914,54 @@ describe("RebateStaking", () => {
 
               timestamp = await lastBlockTime()
               tx = await bridge.cancelRebate(thirdParty.address, timestamp)
+            })
+
+            after(async () => {
+              await restoreSnapshot()
+            })
+
+            it("should update available rebate for user", async () => {
+              expect(
+                await rebateStaking.getRebateCap(thirdParty.address)
+              ).to.be.equal(rebateCap)
+              expect(
+                await rebateStaking.getAvailableRebate(thirdParty.address)
+              ).to.be.equal(rebateCap.sub(treasuryFee.mul(2)))
+            })
+
+            it("should delete rebate from the array", async () => {
+              expect(
+                await rebateStaking.getRebateLength(thirdParty.address)
+              ).to.be.equal(3)
+              const [time, rebateAmount] = await rebateStaking.getRebate(
+                thirdParty.address,
+                2
+              )
+              expect(rebateAmount).to.be.equal(0)
+              expect(time).to.be.equal(timestamp)
+            })
+
+            it("should emit event", async () => {
+              await expect(tx)
+                .to.emit(rebateStaking, "RebateCanceled")
+                .withArgs(thirdParty.address, timestamp)
+            })
+          })
+
+          context("when cancels delegate's rebate", () => {
+            let timestamp: number
+            before(async () => {
+              await createSnapshot()
+              await rebateStaking
+                .connect(thirdParty)
+                .setDelegatee(deployer.address)
+
+              await bridge.applyForRebate(thirdParty.address, treasuryFee)
+              await bridge.applyForRebate(thirdParty.address, treasuryFee)
+              await bridge.applyForRebate(thirdParty.address, treasuryFee)
+
+              timestamp = await lastBlockTime()
+              tx = await bridge.cancelRebate(deployer.address, timestamp)
             })
 
             after(async () => {
@@ -771,6 +1073,8 @@ describe("RebateStaking", () => {
         await t.connect(deployer).mint(thirdParty.address, stakeAmount)
         await t.connect(thirdParty).approve(rebateStaking.address, stakeAmount)
         await rebateStaking.connect(thirdParty).stake(stakeAmount1)
+        await rebateStaking.connect(thirdParty).setDelegatee(deployer.address)
+
         tx = await rebateStaking.connect(thirdParty).stake(stakeAmount2)
       })
 
@@ -791,6 +1095,15 @@ describe("RebateStaking", () => {
         )
       })
 
+      it("should not update delegatee", async () => {
+        expect(await rebateStaking.delegates(deployer.address)).to.be.equal(
+          thirdParty.address
+        )
+        expect(
+          await rebateStaking.getDelegatee(thirdParty.address)
+        ).to.be.equal(deployer.address)
+      })
+
       it("should update rebate cap", async () => {
         expect(
           await rebateStaking.getRebateCap(thirdParty.address)
@@ -801,6 +1114,53 @@ describe("RebateStaking", () => {
         await expect(tx)
           .to.emit(rebateStaking, "Staked")
           .withArgs(thirdParty.address, stakeAmount2)
+      })
+    })
+
+    context("when someone's delegatee create new stake", () => {
+      const stakeAmount = defaultStakeAmount
+      const rebateCap = to1e18(1)
+      let tx: ContractTransaction
+
+      before(async () => {
+        await createSnapshot()
+
+        await t.connect(deployer).mint(deployer.address, stakeAmount)
+        await t.connect(deployer).approve(rebateStaking.address, stakeAmount)
+        await t.connect(deployer).mint(thirdParty.address, stakeAmount)
+        await t.connect(thirdParty).approve(rebateStaking.address, stakeAmount)
+        await rebateStaking.connect(deployer).stake(stakeAmount)
+        await rebateStaking.connect(deployer).setDelegatee(thirdParty.address)
+
+        tx = await rebateStaking.connect(thirdParty).stake(stakeAmount)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should reset delegatee for the first staker", async () => {
+        expect(await rebateStaking.delegates(deployer.address)).to.be.equal(
+          ZERO_ADDRESS
+        )
+        expect(await rebateStaking.getDelegatee(deployer.address)).to.be.equal(
+          ZERO_ADDRESS
+        )
+        expect(await rebateStaking.delegates(thirdParty.address)).to.be.equal(
+          ZERO_ADDRESS
+        )
+        expect(
+          await rebateStaking.getDelegatee(thirdParty.address)
+        ).to.be.equal(ZERO_ADDRESS)
+      })
+
+      it("should emit events", async () => {
+        await expect(tx)
+          .to.emit(rebateStaking, "Staked")
+          .withArgs(thirdParty.address, stakeAmount)
+        await expect(tx)
+          .to.emit(rebateStaking, "DelegateeSet")
+          .withArgs(deployer.address, deployer.address)
       })
     })
   })
@@ -974,7 +1334,7 @@ describe("RebateStaking", () => {
       })
     })
 
-    context("when user finishes unstaking process", () => {
+    context("when user finishes partial unstaking process", () => {
       const stakeAmount = defaultStakeAmount.mul(10)
       const unstakeAmount = to1e18(300000000)
       const expectedStake = stakeAmount.sub(unstakeAmount)
@@ -988,6 +1348,7 @@ describe("RebateStaking", () => {
         await t.connect(thirdParty).approve(rebateStaking.address, stakeAmount)
         await rebateStaking.connect(thirdParty).stake(stakeAmount)
         await rebateStaking.connect(thirdParty).startUnstaking(unstakeAmount)
+        await rebateStaking.connect(thirdParty).setDelegatee(deployer.address)
 
         const unstakingPeriod = await rebateStaking.unstakingPeriod()
         await increaseTime(unstakingPeriod)
@@ -1018,6 +1379,15 @@ describe("RebateStaking", () => {
         expect(unstakingTimestamp).to.be.equal(0)
       })
 
+      it("should reset delegatee", async () => {
+        expect(await rebateStaking.delegates(deployer.address)).to.be.equal(
+          thirdParty.address
+        )
+        expect(
+          await rebateStaking.getDelegatee(thirdParty.address)
+        ).to.be.equal(deployer.address)
+      })
+
       it("should decrease rebate cap", async () => {
         expect(
           await rebateStaking.getRebateCap(thirdParty.address)
@@ -1028,6 +1398,66 @@ describe("RebateStaking", () => {
         await expect(tx)
           .to.emit(rebateStaking, "UnstakeFinished")
           .withArgs(thirdParty.address, unstakeAmount)
+      })
+    })
+
+    context("when user finishes full unstaking process", () => {
+      const stakeAmount = defaultStakeAmount.mul(10)
+      let tx: ContractTransaction
+
+      before(async () => {
+        await createSnapshot()
+
+        await t.connect(deployer).mint(thirdParty.address, stakeAmount)
+        await t.connect(thirdParty).approve(rebateStaking.address, stakeAmount)
+        await rebateStaking.connect(thirdParty).stake(stakeAmount)
+        await rebateStaking.connect(thirdParty).startUnstaking(stakeAmount)
+        await rebateStaking.connect(thirdParty).setDelegatee(deployer.address)
+
+        const unstakingPeriod = await rebateStaking.unstakingPeriod()
+        await increaseTime(unstakingPeriod)
+        tx = await rebateStaking
+          .connect(thirdParty)
+          .finalizeUnstaking(governance.address)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should transfer tokens to the user", async () => {
+        expect(await t.balanceOf(thirdParty.address)).to.be.equal(0)
+        expect(await t.balanceOf(governance.address)).to.be.equal(stakeAmount)
+        expect(await t.balanceOf(rebateStaking.address)).to.be.equal(0)
+      })
+
+      it("should reset unstaking amount", async () => {
+        expect(await rebateStaking.getStake(thirdParty.address)).to.be.equal(0)
+        const [unstakingAmount, unstakingTimestamp] =
+          await rebateStaking.getUnstakingAmount(thirdParty.address)
+        expect(unstakingAmount).to.be.equal(0)
+        expect(unstakingTimestamp).to.be.equal(0)
+      })
+
+      it("should reset delegatee", async () => {
+        expect(await rebateStaking.delegates(deployer.address)).to.be.equal(
+          ZERO_ADDRESS
+        )
+        expect(
+          await rebateStaking.getDelegatee(thirdParty.address)
+        ).to.be.equal(ZERO_ADDRESS)
+      })
+
+      it("should decrease rebate cap", async () => {
+        expect(
+          await rebateStaking.getRebateCap(thirdParty.address)
+        ).to.be.equal(0)
+      })
+
+      it("should emit event", async () => {
+        await expect(tx)
+          .to.emit(rebateStaking, "UnstakeFinished")
+          .withArgs(thirdParty.address, stakeAmount)
       })
     })
   })
