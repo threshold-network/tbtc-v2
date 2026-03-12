@@ -239,6 +239,10 @@ contract Bridge is
     event RedemptionWatchtowerSet(address redemptionWatchtower);
 
     event RebateStakingSet(address rebateStaking);
+    event RebateStakingRepaired(
+        address oldRebateStaking,
+        address newRebateStaking
+    );
 
     /// @notice Emitted when a deposit's vault field is corrected via governance.
     /// @dev This event is used for transparency when fixing deposits that were
@@ -371,6 +375,36 @@ contract Bridge is
 
         // Emit event for transparency
         emit DepositVaultFixed(depositKey, tbtcVault);
+    }
+
+    /// @notice Repairs the rebate staking address during a proxy upgrade.
+    /// @param newRebateStaking The new rebate staking address. Set to 0x0 to
+    ///        disable the rebate hook entirely.
+    /// @dev Uses reinitializer(5) to allow a one-time repair of the rebate
+    ///      staking address. Versions 3-4 were reserved for other potential
+    ///      upgrades but ultimately unused. This function can only be called
+    ///      once per proxy deployment.
+    function initializeV5_RepairRebateStaking(address newRebateStaking)
+        external
+        reinitializer(5)
+    {
+        address oldRebateStaking = self.rebateStaking;
+
+        require(
+            oldRebateStaking != newRebateStaking,
+            "Rebate staking unchanged"
+        );
+
+        if (newRebateStaking != address(0)) {
+            require(
+                newRebateStaking.code.length > 0,
+                "Rebate staking must be a contract"
+            );
+        }
+
+        self.rebateStaking = newRebateStaking;
+
+        emit RebateStakingRepaired(oldRebateStaking, newRebateStaking);
     }
 
     /// @notice Used by the depositor to reveal information about their P2(W)SH
