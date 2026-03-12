@@ -152,8 +152,20 @@ export class ElectrumClient implements BitcoinClient {
   private static parseElectrumCredentials(url: string): ElectrumCredentials {
     const urlObj = new URL(url)
 
-    const port = Number.parseInt(urlObj.port, 10)
-    if (Number.isNaN(port)) {
+    // URL.port is empty when the port matches the protocol default
+    // (e.g. 443 for wss://, 80 for ws://). Fall back to the default
+    // port for the given protocol.
+    const defaultPorts: Record<string, number> = {
+      "wss:": 443,
+      "ws:": 80,
+      "ssl:": 443,
+      "tls:": 443,
+      "tcp:": 50001,
+    }
+    const port = urlObj.port
+      ? Number.parseInt(urlObj.port, 10)
+      : defaultPorts[urlObj.protocol]
+    if (!port || Number.isNaN(port)) {
       throw new Error(`missing or invalid port in Electrum URL: ${url}`)
     }
 

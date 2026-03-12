@@ -37,6 +37,7 @@
 - [EthereumDepositorProxy](classes/EthereumDepositorProxy.md)
 - [EthereumExtraDataEncoder](classes/EthereumExtraDataEncoder.md)
 - [EthereumL1BitcoinDepositor](classes/EthereumL1BitcoinDepositor.md)
+- [EthereumL1BitcoinRedeemer](classes/EthereumL1BitcoinRedeemer.md)
 - [EthereumTBTCToken](classes/EthereumTBTCToken.md)
 - [EthereumTBTCVault](classes/EthereumTBTCVault.md)
 - [EthereumWalletRegistry](classes/EthereumWalletRegistry.md)
@@ -56,6 +57,7 @@
 - [StarkNetExtraDataEncoder](classes/StarkNetExtraDataEncoder.md)
 - [StarkNetTBTCToken](classes/StarkNetTBTCToken.md)
 - [TBTC](classes/TBTC.md)
+- [TBTCCore](classes/TBTCCore.md)
 - [WalletTx](classes/WalletTx.md)
 
 ### Interfaces
@@ -428,7 +430,7 @@ or a Provider that works only in the read-only mode.
 
 #### Defined in
 
-[lib/ethereum/index.ts:35](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L35)
+[lib/ethereum/index.ts:26](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L26)
 
 ___
 
@@ -786,7 +788,7 @@ Use BaseBitcoinDepositor instead
 
 #### Defined in
 
-[lib/base/l2-bitcoin-depositor.ts:127](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L127)
+[lib/base/l2-bitcoin-depositor.ts:124](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L124)
 
 ___
 
@@ -1231,7 +1233,7 @@ Chain ID as a string.
 
 #### Defined in
 
-[lib/ethereum/index.ts:42](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L42)
+[lib/ethereum/index.ts:33](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L33)
 
 ___
 
@@ -1256,7 +1258,7 @@ Electrum script hash as a hex string.
 
 #### Defined in
 
-[lib/electrum/client.ts:684](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L684)
+[lib/electrum/client.ts:696](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L696)
 
 ___
 
@@ -1354,7 +1356,7 @@ Throws an error if the address of the signer is not a proper
 
 #### Defined in
 
-[lib/ethereum/index.ts:64](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L64)
+[lib/ethereum/index.ts:55](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L55)
 
 ___
 
@@ -1387,7 +1389,7 @@ Throws an error if the signer's Ethereum chain ID is other than
 
 #### Defined in
 
-[lib/ethereum/index.ts:119](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L119)
+[lib/ethereum/cross-chain.ts:29](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/cross-chain.ts#L29)
 
 ___
 
@@ -1627,7 +1629,7 @@ Throws an error if the signer's Ethereum chain ID is other than
 
 #### Defined in
 
-[lib/ethereum/index.ts:83](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L83)
+[lib/ethereum/index.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L74)
 
 ___
 
