@@ -7,7 +7,7 @@ import {
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // Only deploy on Sei Testnet
-  if (hre.network.name !== "sei_atlantic_2") {
+  if (hre.network.name !== "seiTestnet") {
     console.log(`⏭️  Skipping Sei Testnet deployment on ${hre.network.name}`)
     return
   }
