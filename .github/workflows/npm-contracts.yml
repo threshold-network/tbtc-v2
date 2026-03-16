@@ -45,9 +45,9 @@ jobs:
             @keep-network/tbtc
 
       # Deploy contracts to a local network to generate deployment artifacts that
-      # are required by dashboard compilation.
+      # are required by client compilation.
       - name: Deploy contracts
-        run: yarn deploy:test --network hardhat --write true
+        run: yarn deploy:local --network hardhat --write true
 
       - name: Bump up package version
         id: npm-version-bump
