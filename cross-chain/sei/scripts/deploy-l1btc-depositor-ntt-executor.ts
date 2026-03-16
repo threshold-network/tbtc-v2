@@ -7,9 +7,12 @@ import { ethers } from "hardhat"
 import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import { secureKeyManager } from "./secure-key-manager"
 
+// Default RPC URL for Ethereum mainnet
+const DEFAULT_MAINNET_RPC_URL = "https://ethereum-rpc.publicnode.com"
+
 // Set the RPC URL for mainnet if not already set
 if (!process.env.CHAIN_API_URL) {
-  process.env.CHAIN_API_URL = "https://ethereum.publicnode.com"
+  process.env.CHAIN_API_URL = DEFAULT_MAINNET_RPC_URL
 }
 
 // 🎲 DEPLOYMENT SALT - Fixed salt for consistent CREATE2 deployments
@@ -211,7 +214,7 @@ export const NETWORK_CONFIGS: Record<string, L1BTCDepositorNetworkConfig> = {
   mainnet: {
     networkName: "Ethereum Mainnet",
     explorer: "https://etherscan.io",
-    rpcUrl: "https://ethereum.publicnode.com", // Updated to working RPC provider
+    rpcUrl: DEFAULT_MAINNET_RPC_URL,
     // Mainnet contract addresses (checksummed)
     tbtcBridge: "0x5e4861a80B55F035D899F66772b54192C156e5c7", // Mainnet Bridge
     tbtcVault: "0x9C070027cdC9dc8F82416B2e5314E11DFb4FE3CD", // Mainnet Vault
