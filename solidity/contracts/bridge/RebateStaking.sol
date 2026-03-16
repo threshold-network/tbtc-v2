@@ -34,6 +34,8 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     error NoUnstakingProcess();
     error UnstakingNotFinished();
     error ZeroAddress();
+    error NotAStaker();
+    error WrongDelegatee();
 
     enum RebateTreasuryFeeMode {
         Both,
@@ -66,6 +68,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         uint256 rollingWindowStartIndex;
         Rebate[] rebates;
         RebateTreasuryFeeMode rebateTreasuryFeeMode;
+        address delegatee;
     }
 
     IERC20Upgradeable public token;
@@ -76,6 +79,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     uint256 public rebatePerToken;
 
     mapping(address => Stake) public stakes;
+    mapping(address => address) public delegates;
 
     // Reserved storage space in case we need to add more variables.
     // The convention from OpenZeppelin suggests the storage space should
@@ -84,7 +88,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     // the struct in the upcoming versions we need to reduce the array size.
     // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
     // slither-disable-next-line unused-state
-    uint256[50] private __gap;
+    uint256[49] private __gap;
 
     event RollingWindowUpdated(uint256 rollingWindow);
     event UnstakingPeriodUpdated(uint256 unstakingPeriod);
@@ -98,6 +102,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     event Staked(address staker, uint256 amount);
     event UnstakeStarted(address staker, uint256 amount);
     event UnstakeFinished(address staker, uint256 amount);
+    event DelegateeSet(address staker, address delegatee);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -176,6 +181,33 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     ) external {
         stakes[msg.sender].rebateTreasuryFeeMode = _rebateTreasuryFeeMode;
         emit RebateTreasuryFeeModeUpdated(msg.sender, _rebateTreasuryFeeMode);
+    }
+
+    /// @notice Sets a delegatee for a rebate.
+    /// @param _delegatee Delegatee address.
+    function setDelegatee(address _delegatee) external {
+        Stake storage stakeInfo = stakes[msg.sender];
+        if (stakeInfo.stakedAmount == 0) {
+            revert NotAStaker();
+        }
+        if (stakeInfo.delegatee != address(0)) {
+            delegates[stakeInfo.delegatee] = address(0);
+        }
+        if (_delegatee == address(0) || _delegatee == msg.sender) {
+            stakeInfo.delegatee = address(0);
+            emit DelegateeSet(msg.sender, msg.sender);
+            return;
+        }
+
+        if (
+            delegates[_delegatee] != address(0) ||
+            stakes[_delegatee].stakedAmount != 0
+        ) {
+            revert WrongDelegatee();
+        }
+        stakeInfo.delegatee = _delegatee;
+        delegates[_delegatee] = msg.sender;
+        emit DelegateeSet(msg.sender, _delegatee);
     }
 
     /// @notice Calculates cap for rebate for the specified user.
@@ -279,11 +311,12 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         uint64 treasuryFee,
         TreasuryFeeType treasuryFeeType
     ) external onlyBridge returns (uint64) {
+        user = getStaker(user);
+        Stake storage stakeInfo = stakes[user];
+
         if (!isRebateEnabled(user, treasuryFeeType)) {
             return treasuryFee;
         }
-
-        Stake storage stakeInfo = stakes[user];
 
         uint64 rebateCap = getRebateCap(stakeInfo);
         if (rebateCap == 0) {
@@ -324,6 +357,16 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
                 treasuryFeeType == TreasuryFeeType.Redemption);
     }
 
+    /// @notice Returns address of delegating staker or user itself if there is no delegating staker.
+    function getStaker(address user) internal view returns (address) {
+        address staker = delegates[user];
+        // slither-disable-next-line incorrect-equality
+        if (stakes[user].stakedAmount == 0 && staker != address(0)) {
+            return staker;
+        }
+        return user;
+    }
+
     /// @notice Cancels rebate in case of reedem request was timed out
     /// @param user Address of depositor or redeemer
     /// @param requestedAt Timestamp when redeem was requested
@@ -333,6 +376,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         external
         onlyBridge
     {
+        user = getStaker(user);
         Stake storage stakeInfo = stakes[user];
         if (stakeInfo.stakedAmount == 0) {
             return;
@@ -364,9 +408,15 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     function stake(uint96 amount) external {
         if (amount == 0) revert AmountCannotBeZero();
 
+        address otherStaker = delegates[msg.sender];
+        if (otherStaker != address(0)) {
+            stakes[otherStaker].delegatee = address(0);
+            delegates[msg.sender] = address(0);
+            emit DelegateeSet(otherStaker, otherStaker);
+        }
+
         Stake storage stakeInfo = stakes[msg.sender];
         stakeInfo.stakedAmount += amount;
-
         emit Staked(msg.sender, amount);
         token.safeTransferFrom(msg.sender, address(this), amount);
     }
@@ -400,6 +450,10 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         uint96 amount = stakeInfo.unstakingAmount;
         stakeInfo.unstakingTimestamp = 0;
         stakeInfo.unstakingAmount = 0;
+        if (stakeInfo.stakedAmount == 0 && stakeInfo.delegatee != address(0)) {
+            delegates[stakeInfo.delegatee] = address(0);
+            stakeInfo.delegatee = address(0);
+        }
 
         emit UnstakeFinished(msg.sender, amount);
         token.safeTransfer(receiver, amount);
@@ -465,5 +519,17 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     {
         Stake storage stakeInfo = stakes[user];
         rebateTreasuryFeeMode = stakeInfo.rebateTreasuryFeeMode;
+    }
+
+    /// @notice Returns information about stake
+    /// @param user Address of depositor or redeemer
+    /// @return delegatee Delegatee address.
+    function getDelegatee(address user)
+        external
+        view
+        returns (address delegatee)
+    {
+        Stake storage stakeInfo = stakes[user];
+        delegatee = stakeInfo.delegatee;
     }
 }
