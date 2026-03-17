@@ -305,15 +305,6 @@ contract BridgeGovernance is Ownable {
         bridge.setVaultStatus(vault, isTrusted);
     }
 
-    /// @notice Sets the controller contract that can request Bank balance
-    ///         increases via the Bridge.
-    function setControllerBalanceIncreaser(address controller)
-        external
-        onlyOwner
-    {
-        bridge.setControllerBalanceIncreaser(controller);
-    }
-
     /// @notice Allows the Governance to mark the given address as trusted
     ///         or no longer trusted SPV maintainer. Addresses are not trusted
     ///         as SPV maintainers by default.
@@ -1807,5 +1798,20 @@ contract BridgeGovernance is Ownable {
     ///         rebate staking configuration, this call will revert.
     function setRebateStaking(address rebateStaking) external onlyOwner {
         bridge.setRebateStaking(rebateStaking);
+    }
+
+    /// @notice Sets the controller contract that can request Bank balance
+    ///         increases via the Bridge
+    /// @param controller Address of the minting controller contract.
+    /// @dev Requirements:
+    ///      - The caller must be the owner,
+    ///      - The Bridge implementation is expected to enforce that the
+    ///        controller address is not 0x0.
+    ///
+    /// @notice This function forwards the call to the underlying Bridge
+    ///         implementation. If the Bridge implementation does not support
+    ///         controller configuration, this call will revert.
+    function setMintingController(address controller) external onlyOwner {
+        bridge.setMintingController(controller);
     }
 }
