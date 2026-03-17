@@ -10,7 +10,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const fakeBaseWormholeGateway = "0x2af5DC16568EFF2d480a43A77E6C409e497FcFb9"
 
   // See https://docs.wormhole.com/wormhole/blockchain-environments/evm#base
-  // This ID is valid for both Base Goerli and Mainnet
+  // This ID is valid for both Base Mainnet.
   const baseWormholeChainID = 30
 
   const baseWormholeGateway = await deployments.getOrNull("BaseWormholeGateway")
