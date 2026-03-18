@@ -228,6 +228,6 @@ async function ensureDeploymentRecord(
 export default func
 
 func.tags = ["UpgradeBridgeMintBurnController"]
-// When running an upgrade uncomment the skip below and run the command:
+// When running an upgrade comment out the skip below and run the command:
 // yarn deploy --tags UpgradeBridgeMintBurnController --network <NETWORK>
-// func.skip = async () => true
+func.skip = async () => true
