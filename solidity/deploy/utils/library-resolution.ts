@@ -1,8 +1,7 @@
 /* eslint-disable no-console */
 
 import type { HardhatRuntimeEnvironment } from "hardhat/types"
-import type { DeployFunction } from "hardhat-deploy/types"
-import type { DeployOptions } from "hardhat-deploy/types"
+import type { DeployFunction, DeployOptions } from "hardhat-deploy/types"
 
 export async function resolveLibrary(
   deployments: HardhatRuntimeEnvironment["deployments"],

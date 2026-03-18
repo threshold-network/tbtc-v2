@@ -41,111 +41,112 @@ const forkingEnabled = !!process.env.FORKING_URL
 // eslint-disable-next-line func-style
 const describeOrSkip = forkingEnabled ? describe : describe.skip
 
-describeOrSkip("Bridge - MintBurnController upgrade (Sepolia fork)", function () {
-  this.timeout(300000)
+describeOrSkip(
+  "Bridge - MintBurnController upgrade (Sepolia fork)",
+  function () {
+    this.timeout(300000)
 
-  let proxyAdmin: ProxyAdmin
-  let proxyAdminOwner: SignerWithAddress
-  let bridge: Bridge
-  let controllerBeforeUpgrade: string | undefined
-  let newImplAddress: string
+    let proxyAdmin: ProxyAdmin
+    let proxyAdminOwner: SignerWithAddress
+    let bridge: Bridge
+    let controllerBeforeUpgrade: string | undefined
+    let newImplAddress: string
 
-  before(async () => {
-    // Read ProxyAdmin address from the proxy's EIP-1967 admin slot.
-    const adminSlotValue = await ethers.provider.getStorageAt(
-      BRIDGE_PROXY,
-      PROXY_ADMIN_SLOT
-    )
-    const proxyAdminAddress = ethers.utils.getAddress(
-      "0x" + adminSlotValue.slice(26)
-    )
+    before(async () => {
+      // Read ProxyAdmin address from the proxy's EIP-1967 admin slot.
+      const adminSlotValue = await ethers.provider.getStorageAt(
+        BRIDGE_PROXY,
+        PROXY_ADMIN_SLOT
+      )
+      const proxyAdminAddress = ethers.utils.getAddress(
+        `0x${adminSlotValue.slice(26)}`
+      )
 
-    proxyAdmin = await ethers.getContractAt("ProxyAdmin", proxyAdminAddress)
+      proxyAdmin = await ethers.getContractAt("ProxyAdmin", proxyAdminAddress)
 
-    controllerBeforeUpgrade = await tryGetMintingController(BRIDGE_PROXY)
+      controllerBeforeUpgrade = await tryGetMintingController(BRIDGE_PROXY)
 
-    // Impersonate the ProxyAdmin owner.
-    const ownerAddress = await proxyAdmin.owner()
-    ;[proxyAdminOwner] = await ethers.getSigners()
-    proxyAdminOwner = await impersonateAccount(ownerAddress, {
-      from: proxyAdminOwner,
-      value: 10,
-    })
-
-    // Inject the existing Sepolia library addresses so resolveLibrary reuses
-    // them instead of deploying fresh contracts. Env var names are derived by
-    // library-resolution.ts as `${libName.toUpperCase()}_LIB_ADDRESS`.
-    process.env.BRIDGE_ADDRESS = BRIDGE_PROXY
-    process.env.DEPOSIT_LIB_ADDRESS = LIBRARY_ADDRESSES.Deposit
-    process.env.DEPOSITSWEEP_LIB_ADDRESS = LIBRARY_ADDRESSES.DepositSweep
-    process.env.REDEMPTION_LIB_ADDRESS = LIBRARY_ADDRESSES.Redemption
-    process.env.WALLETS_LIB_ADDRESS = LIBRARY_ADDRESSES.Wallets
-    process.env.FRAUD_LIB_ADDRESS = LIBRARY_ADDRESSES.Fraud
-    process.env.MOVINGFUNDS_LIB_ADDRESS = LIBRARY_ADDRESSES.MovingFunds
-
-    const bridgeFactory = await ethers.getContractFactory("Bridge", {
-      libraries: LIBRARY_ADDRESSES,
-    })
-    try {
-      await hre.upgrades.forceImport(BRIDGE_PROXY, bridgeFactory, {
-        kind: "transparent",
+      // Impersonate the ProxyAdmin owner.
+      const ownerAddress = await proxyAdmin.owner()
+      ;[proxyAdminOwner] = await ethers.getSigners()
+      proxyAdminOwner = await impersonateAccount(ownerAddress, {
+        from: proxyAdminOwner,
+        value: 10,
       })
-    } catch (error) {
-      const errorMessage = String(error)
-      if (!errorMessage.includes("deployment clashes with an existing one")) {
-        throw error
+
+      // Inject the existing Sepolia library addresses so resolveLibrary reuses
+      // them instead of deploying fresh contracts. Env var names are derived by
+      // library-resolution.ts as `${libName.toUpperCase()}_LIB_ADDRESS`.
+      process.env.BRIDGE_ADDRESS = BRIDGE_PROXY
+      process.env.DEPOSIT_LIB_ADDRESS = LIBRARY_ADDRESSES.Deposit
+      process.env.DEPOSITSWEEP_LIB_ADDRESS = LIBRARY_ADDRESSES.DepositSweep
+      process.env.REDEMPTION_LIB_ADDRESS = LIBRARY_ADDRESSES.Redemption
+      process.env.WALLETS_LIB_ADDRESS = LIBRARY_ADDRESSES.Wallets
+      process.env.FRAUD_LIB_ADDRESS = LIBRARY_ADDRESSES.Fraud
+      process.env.MOVINGFUNDS_LIB_ADDRESS = LIBRARY_ADDRESSES.MovingFunds
+
+      const bridgeFactory = await ethers.getContractFactory("Bridge", {
+        libraries: LIBRARY_ADDRESSES,
+      })
+      try {
+        await hre.upgrades.forceImport(BRIDGE_PROXY, bridgeFactory, {
+          kind: "transparent",
+        })
+      } catch (error) {
+        const errorMessage = String(error)
+        if (!errorMessage.includes("deployment clashes with an existing one")) {
+          throw error
+        }
       }
-    }
-    const namedAccounts = await hre.getNamedAccounts()
-    const testHre = {
-      ...hre,
-      getNamedAccounts: async () => ({
-        ...namedAccounts,
-        deployer: ownerAddress,
-      }),
-    }
-    await upgradeBridgeMintBurnController(testHre)
-    newImplAddress = await proxyAdmin.getProxyImplementation(BRIDGE_PROXY)
-    bridge = await ethers.getContractAt("Bridge", BRIDGE_PROXY)
-  })
+      const namedAccounts = await hre.getNamedAccounts()
+      const testHre = {
+        ...hre,
+        getNamedAccounts: async () => ({
+          ...namedAccounts,
+          deployer: ownerAddress,
+        }),
+      }
+      await upgradeBridgeMintBurnController(testHre)
+      newImplAddress = await proxyAdmin.getProxyImplementation(BRIDGE_PROXY)
+      bridge = await ethers.getContractAt("Bridge", BRIDGE_PROXY)
+    })
 
-  it("sets the Bridge implementation to the deployed target", async () => {
-    const impl = await proxyAdmin.getProxyImplementation(BRIDGE_PROXY)
-    expect(impl).to.equal(newImplAddress)
-    expect(impl).to.not.equal(ethers.constants.AddressZero)
-  })
+    it("sets the Bridge implementation to the deployed target", async () => {
+      const impl = await proxyAdmin.getProxyImplementation(BRIDGE_PROXY)
+      expect(impl).to.equal(newImplAddress)
+      expect(impl).to.not.equal(ethers.constants.AddressZero)
+    })
 
-  it("preserves pre-upgrade minting controller address", async () => {
-    const controllerAfterUpgrade = await bridge.getMintingController()
-    if (controllerBeforeUpgrade) {
-      expect(controllerAfterUpgrade).to.equal(controllerBeforeUpgrade)
-    } else {
-      expect(controllerAfterUpgrade).to.properAddress
-    }
-  })
+    it("preserves pre-upgrade minting controller address", async () => {
+      const controllerAfterUpgrade = await bridge.getMintingController()
+      if (controllerBeforeUpgrade) {
+        expect(controllerAfterUpgrade).to.equal(controllerBeforeUpgrade)
+      } else {
+        expect(controllerAfterUpgrade).to.properAddress
+      }
+    })
 
-  it("controllerIncreaseBalance reverts with 'Caller is not the authorized controller'", async () => {
-    const callerAddress = ethers.Wallet.createRandom().address
-    await setBalance(callerAddress, "0x8ac7230489e80000")
-    const caller = await impersonateAccount(callerAddress)
-    await expect(
-      bridge
-        .connect(caller)
-        .controllerIncreaseBalance(caller.address, 1000)
-    ).to.be.revertedWith("Caller is not the authorized controller")
-  })
+    it("controllerIncreaseBalance reverts with 'Caller is not the authorized controller'", async () => {
+      const callerAddress = ethers.Wallet.createRandom().address
+      await setBalance(callerAddress, "0x8ac7230489e80000")
+      const caller = await impersonateAccount(callerAddress)
+      await expect(
+        bridge.connect(caller).controllerIncreaseBalance(caller.address, 1000)
+      ).to.be.revertedWith("Caller is not the authorized controller")
+    })
 
-  it("setMintingController is callable by Bridge governance", async () => {
-    const governanceAddress = await bridge.governance()
-    await setBalance(governanceAddress, "0x8ac7230489e80000")
-    const governance = await impersonateAccount(governanceAddress)
-    const newController = ethers.Wallet.createRandom().address
-    await expect(
-      bridge.connect(governance).setMintingController(newController)
-    ).to.not.be.reverted
-    expect(await bridge.getMintingController()).to.equal(newController)
-  })
-})
+    it("setMintingController is callable by Bridge governance", async () => {
+      const governanceAddress = await bridge.governance()
+      await setBalance(governanceAddress, "0x8ac7230489e80000")
+      const governance = await impersonateAccount(governanceAddress)
+      const newController = ethers.Wallet.createRandom().address
+      await expect(
+        bridge.connect(governance).setMintingController(newController)
+      ).to.not.be.reverted
+      expect(await bridge.getMintingController()).to.equal(newController)
+    })
+  }
+)
 
 async function setBalance(address: string, weiHex: string): Promise<void> {
   try {
@@ -158,14 +159,14 @@ async function setBalance(address: string, weiHex: string): Promise<void> {
 async function tryGetMintingController(
   bridgeAddress: string
 ): Promise<string | undefined> {
-  const selector = "0x" + ethers.utils.id("getMintingController()").slice(2, 10)
+  const selector = `0x${ethers.utils.id("getMintingController()").slice(2, 10)}`
   try {
     const raw = await ethers.provider.call({
       to: bridgeAddress,
       data: selector,
     })
     if (raw.length >= 66) {
-      return ethers.utils.getAddress("0x" + raw.slice(26))
+      return ethers.utils.getAddress(`0x${raw.slice(26)}`)
     }
     return undefined
   } catch (error) {
