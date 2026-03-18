@@ -45,7 +45,7 @@ The snapshot script reads all relevant on-chain values, validates all abort cond
 
 ```bash
 cd solidity
-source .env   # must export RPC and PROXY_ADMIN_PK
+source .env # must export RPC and PROXY_ADMIN_PK
 bash scripts/snapshot.sh
 ```
 
@@ -59,9 +59,9 @@ etc.) — you will need them in Phase 7.
 
 ```bash
 cd solidity
-npm run build       # must complete with 0 errors
-npm run lint        # TypeScript linting — must pass
-npm run lint:sol    # Solidity linting — must pass
+npm run build    # must complete with 0 errors
+npm run lint     # TypeScript linting — must pass
+npm run lint:sol # Solidity linting — must pass
 ```
 
 ---
@@ -118,8 +118,8 @@ Expected: **4 passing** tests:
 ```bash
 STRICT_LIB_CHECK=true \
   yarn hardhat test \
-    ./test/bridge/Bridge.MintBurnControllerUpgrade.test.ts \
-    --network system_tests
+  ./test/bridge/Bridge.MintBurnControllerUpgrade.test.ts \
+  --network system_tests
 ```
 
 Bytecode mismatch warnings are expected (Sepolia libraries were deployed with older compiler
@@ -158,17 +158,19 @@ In `solidity/deploy/84_upgrade_bridge_mint_burn_controller.ts`, comment out the 
 cd solidity
 
 BRIDGE_ADDRESS=0x9b1a7fE5a16A15F2f9475C5B231750598b113403 \
-DEPOSIT_LIB_ADDRESS=0xad39ED2D3aF448C14b960746F1F63451D366000c \
-DEPOSITSWEEP_LIB_ADDRESS=0x762B5E9dE8b3cF81d71Cc6f5ea1a9a7B7Eb7b8cB \
-REDEMPTION_LIB_ADDRESS=0x88BEEF1F01cD6c74063E398da1114eb4B8C985a6 \
-WALLETS_LIB_ADDRESS=0x21eB46af48705A52f122931ddb8E9df036D8F2c1 \
-FRAUD_LIB_ADDRESS=0xe60FFb5037aC31603B1AeDEf440fFad088dF0a17 \
-MOVINGFUNDS_LIB_ADDRESS=0xbF138155D789007c43dda3cc39B75fB70991e7E3 \
-PROXY_ADMIN_PK=<real-private-key> \
-  yarn deploy --tags UpgradeBridgeMintBurnController --network system_tests
+  DEPOSIT_LIB_ADDRESS=0xad39ED2D3aF448C14b960746F1F63451D366000c \
+  DEPOSITSWEEP_LIB_ADDRESS=0x762B5E9dE8b3cF81d71Cc6f5ea1a9a7B7Eb7b8cB \
+  REDEMPTION_LIB_ADDRESS=0x88BEEF1F01cD6c74063E398da1114eb4B8C985a6 \
+  WALLETS_LIB_ADDRESS=0x21eB46af48705A52f122931ddb8E9df036D8F2c1 \
+  FRAUD_LIB_ADDRESS=0xe60FFb5037aC31603B1AeDEf440fFad088dF0a17 \
+  MOVINGFUNDS_LIB_ADDRESS=0xbF138155D789007c43dda3cc39B75fB70991e7E3 \
+  PROXY_ADMIN_PK= \
+  deploy < real-private-key > \
+yarn --tags UpgradeBridgeMintBurnController --network system_tests
 ```
 
 Watch for:
+
 - All 6 libraries resolved from env vars — **no fresh deployments**
 - `verifyLibraryBytecodes` may log bytecode mismatch warnings — this is expected for Sepolia
   libraries deployed with older compiler settings and is not a blocker at this phase
@@ -207,6 +209,7 @@ yarn deploy --tags UpgradeBridgeMintBurnController --network sepolia
 ```
 
 You must see in the output:
+
 - All 6 libraries resolved — no fresh deployments
 - `verifyLibraryBytecodes` — no warnings
 - New Bridge implementation deployed — **record the tx hash**
@@ -228,6 +231,7 @@ bash scripts/verify-upgrade.sh
 ```
 
 The script checks:
+
 1. Implementation slot changed from `IMPL_BEFORE`
 2. `getMintingController()` exists and returns `address(0)`
 3. `controllerIncreaseBalance()` reverts with `"Caller is not the authorized controller"`
@@ -253,7 +257,7 @@ Commit both files:
 
 ```bash
 git add solidity/deploy/84_upgrade_bridge_mint_burn_controller.ts \
-        solidity/test/bridge/Bridge.MintBurnControllerUpgrade.test.ts
+  solidity/test/bridge/Bridge.MintBurnControllerUpgrade.test.ts
 git commit -m "fix(bridge): upgrade Bridge proxy to MintBurnGuard-aware implementation"
 ```
 
@@ -263,15 +267,15 @@ git commit -m "fix(bridge): upgrade Bridge proxy to MintBurnGuard-aware implemen
 
 Stop immediately and do not advance to the next phase if any of the following are true:
 
-| Phase | Condition | Action |
-|-------|-----------|--------|
-| 1 | `snapshot.sh` exits non-zero for any reason | Fix the flagged condition before proceeding |
-| 3 | Any test failure in the standard suite | Fix failing tests first |
-| 4 | Anvil is not running or `system_tests` network unreachable | Start Anvil (`anvil --fork-url $RPC`) before running |
-| 4 | Any of the 4 fork tests fail | Do not proceed to Phase 5 |
-| 4 | `STRICT_LIB_CHECK=true` raises a **missing code** error (not a mismatch warning) | Wrong library address or contract not deployed — investigate |
-| 5 | Anvil is not running or `system_tests` network unreachable | Start Anvil (`anvil --fork-url $RPC`) before running |
-| 5 | Script reverts due to ownership or signing error | Verify key controls ProxyAdmin |
-| 7 | `verify-upgrade.sh` exits non-zero for any reason | Record tx hashes and escalate before taking further action |
-| 7 | Implementation slot unchanged after upgrade | Upgrade did not execute; investigate |
-| 7 | `getRebateStaking()` returns non-zero | Storage corruption; escalate immediately |
+| Phase | Condition                                                                        | Action                                                       |
+| ----- | -------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| 1     | `snapshot.sh` exits non-zero for any reason                                      | Fix the flagged condition before proceeding                  |
+| 3     | Any test failure in the standard suite                                           | Fix failing tests first                                      |
+| 4     | Anvil is not running or `system_tests` network unreachable                       | Start Anvil (`anvil --fork-url $RPC`) before running         |
+| 4     | Any of the 4 fork tests fail                                                     | Do not proceed to Phase 5                                    |
+| 4     | `STRICT_LIB_CHECK=true` raises a **missing code** error (not a mismatch warning) | Wrong library address or contract not deployed — investigate |
+| 5     | Anvil is not running or `system_tests` network unreachable                       | Start Anvil (`anvil --fork-url $RPC`) before running         |
+| 5     | Script reverts due to ownership or signing error                                 | Verify key controls ProxyAdmin                               |
+| 7     | `verify-upgrade.sh` exits non-zero for any reason                                | Record tx hashes and escalate before taking further action   |
+| 7     | Implementation slot unchanged after upgrade                                      | Upgrade did not execute; investigate                         |
+| 7     | `getRebateStaking()` returns non-zero                                            | Storage corruption; escalate immediately                     |
