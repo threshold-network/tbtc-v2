@@ -7,7 +7,7 @@
  * Requires a Sepolia archive node. Run with:
  *
  *   FORKING_URL=<sepolia-rpc-url> \
- *     yarn test ./test/bridge/Bridge.MintBurnControllerUpgrade.test.ts
+ *     yarn hardhat test ./test/bridge/Bridge.MintBurnControllerUpgrade.test.ts
  *
  * The test is skipped automatically when FORKING_URL is not set.
  */
