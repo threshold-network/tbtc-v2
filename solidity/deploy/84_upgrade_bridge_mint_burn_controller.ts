@@ -72,8 +72,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // governance key to avoid role confusion.
   const proxyAdminPrivateKey = process.env.PROXY_ADMIN_PK
 
-  let signer: Signer = await ethers.getSigner(deployer)
-  let signerAddress = await signer.getAddress()
+  let signer: Signer
+  let signerAddress: string
   if (proxyAdminPrivateKey) {
     signer = new ethers.Wallet(proxyAdminPrivateKey, ethers.provider)
     signerAddress = await signer.getAddress()
@@ -82,8 +82,24 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       "PROXY_ADMIN_PK is required on live networks for proxy upgrades."
     )
   } else {
+    // On non-live networks (hardhat, system_tests) look up the actual
+    // ProxyAdmin owner so deployment dry-runs work regardless of which
+    // account originally deployed the proxy.
+    const tempAdminSlot = await ethers.provider.getStorageAt(
+      bridgeAddress,
+      PROXY_ADMIN_SLOT
+    )
+    const tempProxyAdminAddr = ethers.utils.getAddress(
+      `0x${tempAdminSlot.slice(26)}`
+    )
+    const tempProxyAdmin = await ethers.getContractAt(
+      "ProxyAdmin",
+      tempProxyAdminAddr
+    )
+    signerAddress = await tempProxyAdmin.owner()
+    signer = await ethers.getSigner(signerAddress)
     deployments.log(
-      "⚠️  PROXY_ADMIN_PK not set; using deployer signer for proxy upgrade. Ensure deployer controls ProxyAdmin."
+      `⚠️  PROXY_ADMIN_PK not set; using ProxyAdmin owner (${signerAddress}) as signer.`
     )
   }
 
