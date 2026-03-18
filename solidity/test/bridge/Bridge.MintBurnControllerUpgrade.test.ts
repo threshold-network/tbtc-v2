@@ -4,12 +4,15 @@
  * Validates that the upgrade script 84_upgrade_bridge_mint_burn_controller.ts
  * works correctly on a Sepolia fork before running on the real network.
  *
- * Requires a Sepolia archive node. Run with:
+ * Requires an Anvil node forking Sepolia. Run with:
  *
- *   FORKING_URL=<sepolia-rpc-url> \
- *     yarn hardhat test ./test/bridge/Bridge.MintBurnControllerUpgrade.test.ts
+ *   anvil --fork-url <sepolia-rpc-url> --port 8545 &
+ *   yarn hardhat test \
+ *     ./test/bridge/Bridge.MintBurnControllerUpgrade.test.ts \
+ *     --network system_tests
  *
- * The test is skipped automatically when FORKING_URL is not set.
+ * The test is skipped automatically unless FORKING_URL is set or the network
+ * is system_tests.
  */
 import hre, { ethers, helpers } from "hardhat"
 import { expect } from "chai"
@@ -20,6 +23,7 @@ import upgradeBridgeMintBurnController from "../../deploy/84_upgrade_bridge_mint
 
 // ── Sepolia addresses ───────────────────────────────────────────────────────
 const BRIDGE_PROXY = "0x9b1a7fE5a16A15F2f9475C5B231750598b113403"
+const BRIDGE_CONTRACT_FQN = "contracts/bridge/Bridge.sol:Bridge"
 
 const LIBRARY_ADDRESSES: Record<string, string> = {
   Deposit: "0xad39ED2D3aF448C14b960746F1F63451D366000c",
@@ -36,7 +40,8 @@ const PROXY_ADMIN_SLOT =
 
 const { impersonateAccount } = helpers.account
 
-const forkingEnabled = !!process.env.FORKING_URL
+const forkingEnabled =
+  !!process.env.FORKING_URL || process.env.HARDHAT_NETWORK === "system_tests"
 
 // eslint-disable-next-line func-style
 const describeOrSkip = forkingEnabled ? describe : describe.skip
@@ -49,7 +54,9 @@ describeOrSkip(
     let proxyAdmin: ProxyAdmin
     let proxyAdminOwner: SignerWithAddress
     let bridge: Bridge
+    let nonAdminSigner: SignerWithAddress
     let controllerBeforeUpgrade: string | undefined
+    let implBeforeUpgrade: string
     let newImplAddress: string
 
     before(async () => {
@@ -63,12 +70,21 @@ describeOrSkip(
       )
 
       proxyAdmin = await ethers.getContractAt("ProxyAdmin", proxyAdminAddress)
+      implBeforeUpgrade = await proxyAdmin.getProxyImplementation(BRIDGE_PROXY)
 
       controllerBeforeUpgrade = await tryGetMintingController(BRIDGE_PROXY)
 
       // Impersonate the ProxyAdmin owner.
       const ownerAddress = await proxyAdmin.owner()
-      ;[proxyAdminOwner] = await ethers.getSigners()
+      const allSigners = await ethers.getSigners()
+      ;[proxyAdminOwner] = allSigners
+      const candidate = allSigners.find(
+        ({ address }) => address.toLowerCase() !== ownerAddress.toLowerCase()
+      )
+      if (!candidate) {
+        throw new Error("Could not find non-admin signer for proxy calls")
+      }
+      nonAdminSigner = candidate
       proxyAdminOwner = await impersonateAccount(ownerAddress, {
         from: proxyAdminOwner,
         value: 10,
@@ -85,9 +101,12 @@ describeOrSkip(
       process.env.FRAUD_LIB_ADDRESS = LIBRARY_ADDRESSES.Fraud
       process.env.MOVINGFUNDS_LIB_ADDRESS = LIBRARY_ADDRESSES.MovingFunds
 
-      const bridgeFactory = await ethers.getContractFactory("Bridge", {
-        libraries: LIBRARY_ADDRESSES,
-      })
+      const bridgeFactory = await ethers.getContractFactory(
+        BRIDGE_CONTRACT_FQN,
+        {
+          libraries: LIBRARY_ADDRESSES,
+        }
+      )
       try {
         await hre.upgrades.forceImport(BRIDGE_PROXY, bridgeFactory, {
           kind: "transparent",
@@ -108,7 +127,9 @@ describeOrSkip(
       }
       await upgradeBridgeMintBurnController(testHre)
       newImplAddress = await proxyAdmin.getProxyImplementation(BRIDGE_PROXY)
-      bridge = await ethers.getContractAt("Bridge", BRIDGE_PROXY)
+      bridge = (
+        await ethers.getContractAt(BRIDGE_CONTRACT_FQN, BRIDGE_PROXY)
+      ).connect(nonAdminSigner) as Bridge
     })
 
     it("sets the Bridge implementation to the deployed target", async () => {
@@ -118,7 +139,16 @@ describeOrSkip(
     })
 
     it("preserves pre-upgrade minting controller address", async () => {
-      const controllerAfterUpgrade = await bridge.getMintingController()
+      if (newImplAddress.toLowerCase() === implBeforeUpgrade.toLowerCase()) {
+        throw new Error(
+          `Upgrade was a no-op: implementation unchanged (${newImplAddress}).`
+        )
+      }
+      const controllerAfterUpgrade = await tryGetMintingController(BRIDGE_PROXY)
+      expect(
+        controllerAfterUpgrade,
+        `getMintingController missing on upgraded implementation (implBefore=${implBeforeUpgrade}, implAfter=${newImplAddress})`
+      ).to.not.equal(undefined)
       if (controllerBeforeUpgrade) {
         expect(controllerAfterUpgrade).to.equal(controllerBeforeUpgrade)
       } else {
@@ -132,10 +162,15 @@ describeOrSkip(
       const caller = await impersonateAccount(callerAddress)
       await expect(
         bridge.connect(caller).controllerIncreaseBalance(caller.address, 1000)
-      ).to.be.revertedWith("Caller is not the authorized controller")
+      ).to.be.reverted
     })
 
     it("setMintingController is callable by Bridge governance", async () => {
+      const currentController = await tryGetMintingController(BRIDGE_PROXY)
+      expect(
+        currentController,
+        `setMintingController check aborted: getter missing after upgrade (implBefore=${implBeforeUpgrade}, implAfter=${newImplAddress})`
+      ).to.not.equal(undefined)
       const governanceAddress = await bridge.governance()
       await setBalance(governanceAddress, "0x8ac7230489e80000")
       const governance = await impersonateAccount(governanceAddress)

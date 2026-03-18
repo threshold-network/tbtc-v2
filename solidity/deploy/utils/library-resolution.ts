@@ -42,7 +42,9 @@ export async function verifyLibraryBytecodes(
   const { deployments, ethers } = hre
   for (const [name, address] of Object.entries(libs)) {
     try {
-      const artifact = await deployments.getArtifact(name)
+      const artifact = await deployments.getArtifact(
+        `contracts/bridge/${name}.sol:${name}`
+      )
       const expected = (
         artifact.deployedBytecode ||
         artifact.bytecode ||

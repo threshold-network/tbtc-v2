@@ -34,9 +34,14 @@ import {
 //   BRIDGE_ADDRESS  — Bridge proxy address
 //   STRICT_LIB_CHECK=true — fail on library bytecode mismatch
 
+// EIP-1967 ProxyAdmin storage slot.
+const PROXY_ADMIN_SLOT =
+  "0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103"
+
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
-  const { ethers, helpers, deployments, getNamedAccounts } = hre
+  const { ethers, deployments, getNamedAccounts } = hre
   const { deployer } = await getNamedAccounts()
+  const bridgeContractFqn = "contracts/bridge/Bridge.sol:Bridge"
   const isLiveNetwork = ![
     "hardhat",
     "localhost",
@@ -119,29 +124,44 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const strictLibraryCheck = process.env.STRICT_LIB_CHECK === "true"
   await verifyLibraryBytecodes(hre, libraryAddresses, strictLibraryCheck)
 
-  // Upgrade to the MintBurnGuard-aware Bridge implementation.
-  // No initializerArgs — there is no new reinitializer to call. The new
-  // `mintingController` slot starts at address(0) and is configured via
-  // governance post-upgrade.
-  const [bridge, proxyDeployment] = await helpers.upgrades.upgradeProxy(
-    "Bridge",
-    "Bridge",
-    {
-      contractName: "Bridge",
-      factoryOpts: {
-        signer,
-        libraries: libraryAddresses,
-      },
-      proxyOpts: {
-        kind: "transparent",
-        // Allow external libraries linking. We need to ensure manually that the
-        // external libraries we link are upgrade safe, as the OpenZeppelin plugin
-        // doesn't perform such a validation yet.
-        // See: https://docs.openzeppelin.com/upgrades-plugins/1.x/faq#why-cant-i-use-external-libraries
-        unsafeAllow: ["external-library-linking"],
-      },
-    }
+  // Read the ProxyAdmin address directly from the EIP-1967 admin slot.
+  // This avoids any dependency on the OZ upgrades network manifest, which
+  // may not exist when running against system_tests or a fresh fork.
+  const adminSlotValue = await ethers.provider.getStorageAt(
+    bridgeAddress,
+    PROXY_ADMIN_SLOT
   )
+  const proxyAdminAddress = ethers.utils.getAddress(
+    `0x${adminSlotValue.slice(26)}`
+  )
+  const proxyAdmin = (
+    await ethers.getContractAt("ProxyAdmin", proxyAdminAddress)
+  ).connect(signer)
+  const implBefore = await proxyAdmin.getProxyImplementation(bridgeAddress)
+
+  const bridgeFactory = await ethers.getContractFactory(bridgeContractFqn, {
+    signer,
+    libraries: libraryAddresses,
+  })
+  const bridgeImpl = await bridgeFactory.deploy()
+  await bridgeImpl.deployed()
+
+  const upgradeTx = await proxyAdmin.upgrade(bridgeAddress, bridgeImpl.address)
+  const upgradeReceipt = await upgradeTx.wait(1)
+  const bridge = bridgeFactory.attach(bridgeAddress)
+  const proxyDeployment = {
+    address: bridgeAddress,
+    args: [],
+    transactionHash: upgradeTx.hash,
+    receipt: upgradeReceipt,
+  }
+
+  const implAfter = await proxyAdmin.getProxyImplementation(bridgeAddress)
+  if (implAfter.toLowerCase() === implBefore.toLowerCase()) {
+    throw new Error(
+      `Bridge implementation did not change (implBefore=${implBefore}, implAfter=${implAfter}).`
+    )
+  }
 
   if (hre.network.tags.etherscan) {
     // We use `verify` instead of `verify:verify` as the `verify` task is defined
@@ -194,4 +214,4 @@ export default func
 func.tags = ["UpgradeBridgeMintBurnController"]
 // When running an upgrade uncomment the skip below and run the command:
 // yarn deploy --tags UpgradeBridgeMintBurnController --network <NETWORK>
-func.skip = async () => true
+// func.skip = async () => true
