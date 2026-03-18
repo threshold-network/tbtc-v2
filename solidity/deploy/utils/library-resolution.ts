@@ -2,6 +2,7 @@
 
 import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import type { DeployFunction } from "hardhat-deploy/types"
+import type { DeployOptions } from "hardhat-deploy/types"
 
 export async function resolveLibrary(
   deployments: HardhatRuntimeEnvironment["deployments"],
@@ -20,13 +21,14 @@ export async function resolveLibrary(
   }
 
   const fqn = `contracts/bridge/${libName}.sol:${libName}`
-  const deployment = await deployments.deploy(libName, {
+  const deployOptions = {
     from: signerAddress,
     log: true,
     skipIfAlreadyDeployed: true,
     contract: fqn,
     library: true,
-  })
+  } as DeployOptions
+  const deployment = await deployments.deploy(libName, deployOptions)
   if (!deployment.address) {
     throw new Error(`Failed to deploy library ${libName}`)
   }
@@ -35,7 +37,8 @@ export async function resolveLibrary(
 
 export async function verifyLibraryBytecodes(
   hre: HardhatRuntimeEnvironment,
-  libs: Record<string, string>
+  libs: Record<string, string>,
+  strict = false
 ): Promise<void> {
   const { deployments, ethers } = hre
   for (const [name, address] of Object.entries(libs)) {
@@ -49,20 +52,22 @@ export async function verifyLibraryBytecodes(
       const onchain = (await ethers.provider.getCode(address)).toLowerCase()
 
       if (!onchain || onchain === "0x") {
-        deployments.log(
-          `⚠️  Library ${name} at ${address} has no code on-chain. Check address.`
-        )
-        continue
-      }
-
-      // Some toolchains include metadata; direct equality is fine here since we
-      // compare runtime bytecode to on-chain code. Warn if mismatch.
-      if (expected && expected !== "0x" && onchain !== expected) {
-        deployments.log(
-          `⚠️  Bytecode mismatch for ${name} at ${address}. Using on-chain code; verify library compatibility.`
-        )
+        const message = `Library ${name} at ${address} has no code on-chain. Check address.`
+        if (strict) {
+          throw new Error(message)
+        }
+        deployments.log(`⚠️  ${message}`)
+      } else if (expected && expected !== "0x" && onchain !== expected) {
+        const message = `Bytecode mismatch for ${name} at ${address}. Verify library compatibility before upgrading.`
+        if (strict) {
+          throw new Error(message)
+        }
+        deployments.log(`⚠️  ${message}`)
       }
     } catch (error) {
+      if (strict) {
+        throw error
+      }
       deployments.log(
         `⚠️  Skipping bytecode check for ${name} at ${address}: ${String(
           error
