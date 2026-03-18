@@ -62,7 +62,7 @@ pass "ProxyAdmin owner       : $PROXY_ADMIN_OWNER"
 SIGNER_ADDRESS=$(cast wallet address --private-key "$PROXY_ADMIN_PK")
 pass "Signer address (key)   : $SIGNER_ADDRESS"
 
-if [[ "${SIGNER_ADDRESS,,}" != "${PROXY_ADMIN_OWNER,,}" ]]; then
+if [[ "$(echo "$SIGNER_ADDRESS" | tr '[:upper:]' '[:lower:]')" != "$(echo "$PROXY_ADMIN_OWNER" | tr '[:upper:]' '[:lower:]')" ]]; then
   fail "PROXY_ADMIN_PK does not control the ProxyAdmin (got $SIGNER_ADDRESS, expected $PROXY_ADMIN_OWNER)"
 fi
 pass "Key matches ProxyAdmin owner"
@@ -72,7 +72,7 @@ echo ""
 echo "[ Bridge state ]"
 
 REBATE=$(cast call "$BRIDGE" "getRebateStaking()(address)" --rpc-url "$RPC")
-if [[ "${REBATE,,}" != "0x0000000000000000000000000000000000000000" ]]; then
+if [[ "$(echo "$REBATE" | tr '[:upper:]' '[:lower:]')" != "0x0000000000000000000000000000000000000000" ]]; then
   fail "getRebateStaking() returned $REBATE — expected address(0). Do not upgrade."
 fi
 pass "getRebateStaking()     : $REBATE (zero — OK)"
