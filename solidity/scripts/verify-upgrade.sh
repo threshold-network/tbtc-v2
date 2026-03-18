@@ -27,7 +27,10 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 pass() { echo -e "  ${GREEN}✓${NC} $1"; }
-fail() { echo -e "  ${RED}✗ ABORT: $1${NC}"; exit 1; }
+fail() {
+  echo -e "  ${RED}✗ ABORT: $1${NC}"
+  exit 1
+}
 warn() { echo -e "  ${YELLOW}~${NC} $1"; }
 
 lower() { echo "$1" | tr '[:upper:]' '[:lower:]'; }
@@ -37,8 +40,8 @@ echo ""
 echo "=== Post-upgrade verification: Bridge MintBurnController ==="
 echo ""
 
-[[ -z "${RPC:-}"                ]] && fail "RPC is not set"
-[[ -z "${IMPL_BEFORE:-}"        ]] && fail "IMPL_BEFORE is not set (copy from Phase 1 snapshot)"
+[[ -z "${RPC:-}" ]] && fail "RPC is not set"
+[[ -z "${IMPL_BEFORE:-}" ]] && fail "IMPL_BEFORE is not set (copy from Phase 1 snapshot)"
 [[ -z "${GOVERNANCE_ADDRESS:-}" ]] && fail "GOVERNANCE_ADDRESS is not set (copy from Phase 1 snapshot)"
 [[ -z "${PROXY_ADMIN_ADDRESS:-}" ]] && fail "PROXY_ADMIN_ADDRESS is not set (copy from Phase 1 snapshot)"
 
@@ -57,7 +60,7 @@ pass "Implementation changed from $IMPL_BEFORE"
 echo ""
 echo "[ MintBurnController methods ]"
 
-CONTROLLER=$(cast call "$BRIDGE" "getMintingController()(address)" --rpc-url "$RPC" 2>/dev/null \
+CONTROLLER=$(cast call "$BRIDGE" "getMintingController()(address)" --rpc-url "$RPC" 2> /dev/null \
   || fail "getMintingController() reverted — new implementation was not applied")
 pass "getMintingController()        : $CONTROLLER"
 

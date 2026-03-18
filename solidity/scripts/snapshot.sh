@@ -33,7 +33,10 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 pass() { echo -e "  ${GREEN}✓${NC} $1"; }
-fail() { echo -e "  ${RED}✗ ABORT: $1${NC}"; exit 1; }
+fail() {
+  echo -e "  ${RED}✗ ABORT: $1${NC}"
+  exit 1
+}
 warn() { echo -e "  ${YELLOW}~${NC} $1"; }
 
 # ── Preflight ──────────────────────────────────────────────────────────────────
@@ -41,7 +44,7 @@ echo ""
 echo "=== Pre-upgrade snapshot: Bridge MintBurnController ==="
 echo ""
 
-[[ -z "${RPC:-}" ]]            && fail "RPC is not set"
+[[ -z "${RPC:-}" ]] && fail "RPC is not set"
 [[ -z "${PROXY_ADMIN_PK:-}" ]] && fail "PROXY_ADMIN_PK is not set"
 
 # ── Implementation slot ────────────────────────────────────────────────────────
@@ -77,7 +80,7 @@ if [[ "$(echo "$REBATE" | tr '[:upper:]' '[:lower:]')" != "0x0000000000000000000
 fi
 pass "getRebateStaking()     : $REBATE (zero — OK)"
 
-CONTROLLER_BEFORE=$(cast call "$BRIDGE" "getMintingController()(address)" --rpc-url "$RPC" 2>/dev/null || echo "reverted")
+CONTROLLER_BEFORE=$(cast call "$BRIDGE" "getMintingController()(address)" --rpc-url "$RPC" 2> /dev/null || echo "reverted")
 if [[ "$CONTROLLER_BEFORE" == "reverted" ]]; then
   warn "getMintingController() reverted — current impl is PR#933 (expected)"
 else
