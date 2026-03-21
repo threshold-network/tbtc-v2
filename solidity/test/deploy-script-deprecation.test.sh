@@ -71,7 +71,8 @@ assert_header_if_exists() {
   if [ -f "$file" ]; then
     assert_file_contains_in_header "$file" "$pattern" "$label" || true
   else
-    TOTAL=$((TOTAL + 1)); FAIL=$((FAIL + 1))
+    TOTAL=$((TOTAL + 1))
+    FAIL=$((FAIL + 1))
     echo "FAIL: $label -- file does not exist"
   fi
 }
