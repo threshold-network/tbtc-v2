@@ -1,3 +1,19 @@
+// ////////////////////////////////////////////////////////////////////////
+// DEPRECATED -- DO NOT USE FOR MAINNET GOVERNANCE UPGRADES
+//
+// This script encodes BridgeGovernance.beginGovernanceUpdate to call
+// setRebateStaking, but Bridge.setRebateStaking is a direct onlyOwner
+// function -- it is not routed through BridgeGovernance's timelock.
+// The governance call would fail because the function selector is not
+// registered in BridgeGovernance.
+//
+// Additionally, the Bridge proxy upgrade uses plain upgrade() instead
+// of upgradeAndCall(), missing the required atomic reinitializer call.
+//
+// Suitable for local/testnet development and as a reference for the
+// overall deployment flow structure.
+// ////////////////////////////////////////////////////////////////////////
+
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
 import fs from "fs"

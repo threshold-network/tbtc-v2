@@ -1,3 +1,20 @@
+// ////////////////////////////////////////////////////////////////////////
+// DEPRECATED -- DO NOT USE ON MAINNET
+//
+// This script requires the deployer EOA to be the ProxyAdmin owner.
+// On mainnet the ProxyAdmin is owned by a governance Timelock contract,
+// not any EOA, so this script will always throw:
+//   "Deployer <addr> is not ProxyAdmin owner <addr>"
+//
+// The script has no governance integration path -- it cannot submit
+// proposals, queue timelock actions, or generate governance calldata.
+// It does correctly use upgradeAndCall with initializeV5, but cannot
+// execute through governance.
+//
+// Suitable for local/testnet where the deployer has direct ProxyAdmin
+// ownership.
+// ////////////////////////////////////////////////////////////////////////
+
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
 import fs from "fs"
