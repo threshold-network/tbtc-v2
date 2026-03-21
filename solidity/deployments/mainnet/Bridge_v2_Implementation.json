@@ -2785,7 +2785,7 @@
       "anonymous": false
     }
   ],
-  "transactionHash": "0xefcb843ef60bc82cba3f6a2db68d7545ac467ffba605ef84319c3828686589f9",
+  "transactionHash": "0x358e9ec1ffaec5d810101f437156f78a7baaefa54c8e639c03fe01e539534aac",
   "receipt": {
     "to": null,
     "from": "0x716089154304f22a2F9c8d2f8C45815183BF3532",
@@ -2803,7 +2803,7 @@
   "solcInputHash": "bridge_v2_vault_fix",
   "metadata": "{\"compiler\":{\"version\":\"0.8.17\"},\"language\":\"Solidity\",\"settings\":{\"optimizer\":{\"enabled\":true,\"runs\":1000}}}",
   "libraries": {
-    "Deposit": "0xCD2EbDA2beA80484C55675e1965149054dCcD137",
+    "Deposit": "0x9C6aDa0beD100b0807779E2518E1638277768739",
     "DepositSweep": "0x392635646Bc22FC13C86859d1f02B27974aC9b95",
     "Redemption": "0xa7fed184fe79c2ea037e65558473c04ce42f5d0d",
     "Wallets": "0xc989d3E486AAe6355F65281B4d0bde08c8e32fBC",
