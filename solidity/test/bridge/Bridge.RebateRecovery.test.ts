@@ -2,8 +2,12 @@ import { ethers, helpers, upgrades, waffle } from "hardhat"
 import { expect } from "chai"
 
 import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import type { BridgeGovernance, RebateStaking } from "../../typechain"
-import type { Bridge, BridgeStub } from "../../typechain"
+import type {
+  BridgeGovernance,
+  RebateStaking,
+  Bridge,
+  BridgeStub,
+} from "../../typechain"
 
 import bridgeFixture from "../fixtures/bridge"
 
