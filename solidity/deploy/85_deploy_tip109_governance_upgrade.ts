@@ -445,15 +445,13 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         target: proxyAdminAddress,
         data: rebateUpgradeCalldata,
         value: 0,
-        description:
-          "RebateStaking proxy upgrade via ProxyAdmin.upgrade()",
+        description: "RebateStaking proxy upgrade via ProxyAdmin.upgrade()",
       },
       {
         target: proxyAdminAddress,
         data: bridgeUpgradeCalldata,
         value: 0,
-        description:
-          "Bridge proxy upgrade via ProxyAdmin.upgradeAndCall()",
+        description: "Bridge proxy upgrade via ProxyAdmin.upgradeAndCall()",
       },
     ],
     councilSafeActions: [
@@ -485,12 +483,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     }),
   }
 
-  const summaryDir = path.join(
-    __dirname,
-    "..",
-    "deployments",
-    hre.network.name
-  )
+  const summaryDir = path.join(__dirname, "..", "deployments", hre.network.name)
   fs.mkdirSync(summaryDir, { recursive: true })
   const summaryPath = path.join(
     summaryDir,

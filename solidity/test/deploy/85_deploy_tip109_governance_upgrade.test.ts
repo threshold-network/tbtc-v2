@@ -709,9 +709,10 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
       ]
 
       requiredKeys.forEach((key) => {
-        expect(summary, `Missing required top-level key: ${key}`).to.have.property(
-          key
-        )
+        expect(
+          summary,
+          `Missing required top-level key: ${key}`
+        ).to.have.property(key)
       })
     })
 
@@ -729,9 +730,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
       expect(summary.timelockActions).to.have.lengthOf(2)
 
       // Index 0 must be RebateStaking upgrade
-      expect(summary.timelockActions[0].description).to.include(
-        "RebateStaking"
-      )
+      expect(summary.timelockActions[0].description).to.include("RebateStaking")
       // Selector for upgrade(address,address) = 0x99a88ec4
       expect(summary.timelockActions[0].data.slice(0, 10)).to.equal(
         "0x99a88ec4"
@@ -752,16 +751,19 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
       summary.timelockActions.forEach(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (action: any, index: number) => {
-          expect(action, `timelockActions[${index}] missing target`).to.have.property(
-            "target"
-          )
-          expect(action, `timelockActions[${index}] missing data`).to.have.property(
-            "data"
-          )
+          expect(
+            action,
+            `timelockActions[${index}] missing target`
+          ).to.have.property("target")
+          expect(
+            action,
+            `timelockActions[${index}] missing data`
+          ).to.have.property("data")
           expect(action).to.have.property("value")
-          expect(action, `timelockActions[${index}] missing description`).to.have.property(
-            "description"
-          )
+          expect(
+            action,
+            `timelockActions[${index}] missing description`
+          ).to.have.property("description")
         }
       )
     })
@@ -944,9 +946,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         // rollingWindow and unstakingPeriod = 2592000
         expect(combined).to.include("2592000")
         // T token address
-        expect(combined.toLowerCase()).to.include(
-          KNOWN_T_TOKEN.toLowerCase()
-        )
+        expect(combined.toLowerCase()).to.include(KNOWN_T_TOKEN.toLowerCase())
       })
 
       it("should have a selector count check expecting 56", () => {
