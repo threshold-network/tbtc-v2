@@ -163,14 +163,14 @@ function buildVerificationChecks(addresses: {
   return [
     {
       command: `cast call ${addresses.bridgeProxy} "getRebateStaking()(address)"`,
-      expectedResult: `0x0000000000000000000000000000000000000000 (address(0))`,
+      expectedResult: "0x0000000000000000000000000000000000000000 (address(0))",
       description:
         "After Bridge upgrade with initializeV5 repair, rebate staking getter should return address(0)",
     },
     {
       command: `cast code ${addresses.bridgeImpl}`,
       expectedResult:
-        `Bytecode should contain embedded library address fragments: ` +
+        "Bytecode should contain embedded library address fragments: " +
         `${addresses.depositLib.slice(2).toLowerCase()} (Deposit) and ` +
         `${addresses.redemptionLib.slice(2).toLowerCase()} (Redemption)`,
       description:
@@ -215,10 +215,10 @@ function buildVerificationChecks(addresses: {
         `cast call ${addresses.rebateStakingProxy} "unstakingPeriod()(uint256)"`,
       expectedResult:
         `bridge() = ${addresses.bridgeProxy}, ` +
-        `rebatePerToken = 1000000000000000000 (1e18), ` +
+        "rebatePerToken = 1000000000000000000 (1e18), " +
         `token = ${KNOWN_T_TOKEN}, ` +
-        `rollingWindow = 2592000, ` +
-        `unstakingPeriod = 2592000`,
+        "rollingWindow = 2592000, " +
+        "unstakingPeriod = 2592000",
       description:
         "RebateStaking state should be preserved after proxy upgrade -- critical for staked T",
     },
@@ -507,25 +507,25 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log(`  Chain ID: ${chainId}`)
   console.log(`  Deployer: ${deployer}`)
   console.log(`  Summary:  ${summaryPath}`)
-  console.log(`\n  Timelock Actions (minDelay=86400s / 24h):`)
-  console.log(`    [0] RebateStaking upgrade`)
+  console.log("\n  Timelock Actions (minDelay=86400s / 24h):")
+  console.log("    [0] RebateStaking upgrade")
   console.log(`        Target: ProxyAdmin (${proxyAdminAddress})`)
   console.log(`        Selector: ${rebateUpgradeCalldata.slice(0, 10)}`)
   console.log(`        Proxy: ${RebateStaking.address}`)
   console.log(`        New impl: ${rebateImpl.address}`)
-  console.log(`    [1] Bridge upgradeAndCall`)
+  console.log("    [1] Bridge upgradeAndCall")
   console.log(`        Target: ProxyAdmin (${proxyAdminAddress})`)
   console.log(`        Selector: ${bridgeUpgradeCalldata.slice(0, 10)}`)
   console.log(`        Proxy: ${Bridge.address}`)
   console.log(`        New impl: ${bridgeImpl.address}`)
-  console.log(`\n  Council Safe Actions:`)
-  console.log(`    setRebateStaking on BridgeGovernance`)
+  console.log("\n  Council Safe Actions:")
+  console.log("    setRebateStaking on BridgeGovernance")
   console.log(`        To: ${BridgeGovernance.address}`)
   console.log(`        RebateStaking proxy: ${RebateStaking.address}`)
-  console.log(`\n  Governance Actions (governanceDelays(0)=172800s / 48h):`)
-  console.log(`    beginDepositTreasuryFeeDivisorUpdate`)
+  console.log("\n  Governance Actions (governanceDelays(0)=172800s / 48h):")
+  console.log("    beginDepositTreasuryFeeDivisorUpdate")
   console.log(`        To: ${BridgeGovernance.address}`)
-  console.log(`        New divisor: 500`)
+  console.log("        New divisor: 500")
   console.log("=".repeat(80))
 
   // --- Post-deployment verification commands ---
