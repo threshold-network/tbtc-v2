@@ -408,4 +408,5 @@ export default func
 func.tags = ["DeployRebateAndPrepareTxs"]
 // Dependencies removed to avoid redeploying existing mainnet contracts
 // func.dependencies = ["Bridge", "BridgeGovernance"]
-func.skip = async () => process.env.DEPLOY_REBATE !== "true"
+func.skip = async (hre: HardhatRuntimeEnvironment) =>
+  hre.network.name !== "hardhat" && process.env.DEPLOY_REBATE !== "true"
