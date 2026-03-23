@@ -4,6 +4,11 @@ import fs from "fs"
 import path from "path"
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
+  throw new Error(
+    "DEPRECATED: This script is replaced by 85_deploy_tip109_governance_upgrade.ts"
+  )
+
+  // eslint-disable-next-line no-unreachable
   const { ethers, deployments } = hre
 
   console.log("\n========== VERIFYING REBATE DEPLOYMENT ==========")
