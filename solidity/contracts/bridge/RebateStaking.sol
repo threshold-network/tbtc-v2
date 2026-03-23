@@ -36,6 +36,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     error ZeroAddress();
     error NotAStaker();
     error WrongDelegatee();
+    error AddressAlreadyTaken();
 
     enum RebateTreasuryFeeMode {
         Both,
@@ -103,6 +104,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     event UnstakeStarted(address staker, uint256 amount);
     event UnstakeFinished(address staker, uint256 amount);
     event DelegateeSet(address staker, address delegatee);
+    event TransferFinished(address oldStaker, address newStaker);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -531,5 +533,39 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     {
         Stake storage stakeInfo = stakes[user];
         delegatee = stakeInfo.delegatee;
+    }
+
+    /// @notice Transfers ownership of stake from one address to another
+    /// @param oldStaker Old staker address
+    /// @param newStaker New staker address
+    function forceStakeTransfer(address oldStaker, address newStaker)
+        external
+        onlyOwner
+    {
+        if (newStaker == address(0)) revert ZeroAddress();
+
+        Stake storage oldStake = stakes[oldStaker];
+        if (oldStake.stakedAmount == 0) {
+            revert NotAStaker();
+        }
+
+        Stake storage newStake = stakes[newStaker];
+        if (newStake.stakedAmount != 0) {
+            revert AddressAlreadyTaken();
+        }
+
+        newStake.stakedAmount = oldStake.stakedAmount;
+        newStake.rebateTreasuryFeeMode = oldStake.rebateTreasuryFeeMode;
+        if (oldStake.delegatee != address(0)) {
+            newStake.delegatee = oldStake.delegatee;
+            delegates[oldStake.delegatee] = newStaker;
+        }
+
+        oldStake.stakedAmount = 0;
+        oldStake.delegatee = address(0);
+        oldStake.unstakingTimestamp = 0;
+        oldStake.unstakingAmount = 0;
+
+        emit TransferFinished(oldStaker, newStaker);
     }
 }

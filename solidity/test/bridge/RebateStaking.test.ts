@@ -1461,4 +1461,165 @@ describe("RebateStaking", () => {
       })
     })
   })
+
+  describe("forceStakeTransfer", () => {
+    const stakeAmount = defaultStakeAmount
+    const rebateCap = to1e18(1)
+
+    before(async () => {
+      await createSnapshot()
+      await t.connect(deployer).mint(thirdParty.address, stakeAmount)
+      await t.connect(thirdParty).approve(rebateStaking.address, stakeAmount)
+      await rebateStaking.connect(thirdParty).stake(stakeAmount)
+    })
+
+    after(async () => {
+      await restoreSnapshot()
+    })
+
+    context("when called not by the owner", () => {
+      it("should revert", async () => {
+        await expect(
+          rebateStaking
+            .connect(governance)
+            .forceStakeTransfer(
+              ethers.constants.AddressZero,
+              ethers.constants.AddressZero
+            )
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+    })
+
+    context("when new staker is zero address", () => {
+      it("should revert", async () => {
+        await expect(
+          rebateStaking
+            .connect(deployer)
+            .forceStakeTransfer(
+              thirdParty.address,
+              ethers.constants.AddressZero
+            )
+        ).to.be.revertedWith("ZeroAddress")
+      })
+    })
+
+    context("when there is no stake", () => {
+      it("should revert", async () => {
+        await expect(
+          rebateStaking
+            .connect(deployer)
+            .forceStakeTransfer(governance.address, thirdParty.address)
+        ).to.be.revertedWith("NotAStaker")
+      })
+    })
+
+    context("when new address already taken", () => {
+      it("should revert", async () => {
+        await expect(
+          rebateStaking
+            .connect(deployer)
+            .forceStakeTransfer(thirdParty.address, thirdParty.address)
+        ).to.be.revertedWith("AddressAlreadyTaken")
+      })
+    })
+
+    context("when there is no delegatee", () => {
+      let tx: ContractTransaction
+
+      before(async () => {
+        await createSnapshot()
+
+        tx = await rebateStaking
+          .connect(deployer)
+          .forceStakeTransfer(thirdParty.address, governance.address)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should transfer stake", async () => {
+        expect(await rebateStaking.getStake(thirdParty.address)).to.be.equal(
+          ZERO_ADDRESS
+        )
+        expect(await rebateStaking.getStake(governance.address)).to.be.equal(
+          stakeAmount
+        )
+      })
+
+      it("should update rebate cap", async () => {
+        expect(
+          await rebateStaking.getRebateCap(thirdParty.address)
+        ).to.be.equal(ZERO_ADDRESS)
+        expect(
+          await rebateStaking.getRebateCap(governance.address)
+        ).to.be.equal(rebateCap)
+      })
+
+      it("should emit event", async () => {
+        await expect(tx)
+          .to.emit(rebateStaking, "TransferFinished")
+          .withArgs(thirdParty.address, governance.address)
+      })
+    })
+
+    context("when there is delegatee", () => {
+      let tx: ContractTransaction
+
+      before(async () => {
+        await createSnapshot()
+
+        await rebateStaking.connect(thirdParty).setDelegatee(deployer.address)
+        await rebateStaking.connect(thirdParty).startUnstaking(stakeAmount)
+
+        tx = await rebateStaking
+          .connect(deployer)
+          .forceStakeTransfer(thirdParty.address, governance.address)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should transfer stake", async () => {
+        expect(await rebateStaking.getStake(thirdParty.address)).to.be.equal(
+          ZERO_ADDRESS
+        )
+        expect(await rebateStaking.getStake(governance.address)).to.be.equal(
+          stakeAmount
+        )
+        const [unstakingAmount, unstakingTimestamp] =
+          await rebateStaking.getUnstakingAmount(governance.address)
+        expect(unstakingAmount).to.be.equal(ZERO_ADDRESS)
+        expect(unstakingTimestamp).to.be.equal(0)
+      })
+
+      it("should update rebate cap", async () => {
+        expect(
+          await rebateStaking.getRebateCap(thirdParty.address)
+        ).to.be.equal(ZERO_ADDRESS)
+        expect(
+          await rebateStaking.getRebateCap(governance.address)
+        ).to.be.equal(rebateCap)
+      })
+
+      it("should set delegatee <-> delegate relationship", async () => {
+        expect(
+          await rebateStaking.getDelegatee(thirdParty.address)
+        ).to.be.equal(ZERO_ADDRESS)
+        expect(await rebateStaking.delegates(deployer.address)).to.be.equal(
+          governance.address
+        )
+        expect(
+          await rebateStaking.getDelegatee(governance.address)
+        ).to.be.equal(deployer.address)
+      })
+
+      it("should emit event", async () => {
+        await expect(tx)
+          .to.emit(rebateStaking, "TransferFinished")
+          .withArgs(thirdParty.address, governance.address)
+      })
+    })
+  })
 })
