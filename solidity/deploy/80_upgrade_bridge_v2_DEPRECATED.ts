@@ -1,3 +1,17 @@
+// ////////////////////////////////////////////////////////////////////////
+// DEPRECATED -- DO NOT USE FOR MAINNET GOVERNANCE UPGRADES
+//
+// This script uses ProxyAdmin.upgrade() instead of upgradeAndCall().
+// On mainnet, upgradeAndCall is required to atomically invoke the
+// initializeV5_RepairRebateStaking reinitializer during the proxy
+// upgrade. Without atomic initialization the stale RebateStaking
+// pointer remains active and the public reinitializer is exposed
+// to front-running.
+//
+// Suitable for local/testnet use where the deployer controls the
+// ProxyAdmin directly.
+// ////////////////////////////////////////////////////////////////////////
+
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
 import fs from "fs"
