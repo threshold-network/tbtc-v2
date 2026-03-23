@@ -20,11 +20,12 @@ import fs from "fs"
 import path from "path"
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
-  throw new Error(
-    "DEPRECATED: This script is replaced by 85_deploy_tip109_governance_upgrade.ts"
-  )
+  if (hre.network.name !== "hardhat") {
+    throw new Error(
+      "DEPRECATED: This script is replaced by 85_deploy_tip109_governance_upgrade.ts"
+    )
+  }
 
-  // eslint-disable-next-line no-unreachable
   const { ethers, helpers, deployments, getNamedAccounts } = hre
   const { get } = deployments
   const { deployer } = await getNamedAccounts()
