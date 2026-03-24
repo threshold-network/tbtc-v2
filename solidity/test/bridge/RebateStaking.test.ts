@@ -1667,7 +1667,9 @@ describe("RebateStaking", () => {
 
       it("should allow new staker to finalize unstaking", async () => {
         await expect(
-          rebateStaking.connect(thirdParty).finalizeUnstaking(thirdParty.address)
+          rebateStaking
+            .connect(thirdParty)
+            .finalizeUnstaking(thirdParty.address)
         ).to.be.revertedWith("NoUnstakingProcess")
 
         const unstakingPeriod = await rebateStaking.unstakingPeriod()
