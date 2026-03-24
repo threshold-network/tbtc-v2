@@ -1583,6 +1583,25 @@ describe("RebateStaking", () => {
       })
     })
 
+    context("when unstaking is in progress", () => {
+      before(async () => {
+        await createSnapshot()
+        await rebateStaking.connect(thirdParty).startUnstaking(stakeAmount)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should revert", async () => {
+        await expect(
+          rebateStaking
+            .connect(deployer)
+            .forceStakeTransfer(thirdParty.address, governance.address)
+        ).to.be.revertedWith("UnstakingInProgress")
+      })
+    })
+
     context("when there is delegatee", () => {
       let tx: ContractTransaction
 
@@ -1590,7 +1609,6 @@ describe("RebateStaking", () => {
         await createSnapshot()
 
         await rebateStaking.connect(thirdParty).setDelegatee(deployer.address)
-        await rebateStaking.connect(thirdParty).startUnstaking(stakeAmount)
 
         tx = await rebateStaking
           .connect(deployer)
@@ -1603,21 +1621,17 @@ describe("RebateStaking", () => {
 
       it("should transfer stake", async () => {
         expect(await rebateStaking.getStake(thirdParty.address)).to.be.equal(
-          ZERO_ADDRESS
+          0
         )
         expect(await rebateStaking.getStake(governance.address)).to.be.equal(
           stakeAmount
         )
-        const [unstakingAmount, unstakingTimestamp] =
-          await rebateStaking.getUnstakingAmount(governance.address)
-        expect(unstakingAmount).to.be.equal(ZERO_ADDRESS)
-        expect(unstakingTimestamp).to.be.equal(0)
       })
 
       it("should update rebate cap", async () => {
         expect(
           await rebateStaking.getRebateCap(thirdParty.address)
-        ).to.be.equal(ZERO_ADDRESS)
+        ).to.be.equal(0)
         expect(
           await rebateStaking.getRebateCap(governance.address)
         ).to.be.equal(rebateCap)
