@@ -1523,6 +1523,26 @@ describe("RebateStaking", () => {
       })
     })
 
+    context("when new staker is an existing delegatee", () => {
+      before(async () => {
+        await createSnapshot()
+        // Set deployer as delegatee for thirdParty
+        await rebateStaking.connect(thirdParty).setDelegatee(deployer.address)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should revert", async () => {
+        await expect(
+          rebateStaking
+            .connect(deployer)
+            .forceStakeTransfer(thirdParty.address, deployer.address)
+        ).to.be.revertedWith("WrongDelegatee")
+      })
+    })
+
     context("when there is no delegatee", () => {
       let tx: ContractTransaction
 
