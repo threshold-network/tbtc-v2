@@ -543,6 +543,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         external
         onlyOwner
     {
+        if (oldStaker == address(0)) revert ZeroAddress();
         if (newStaker == address(0)) revert ZeroAddress();
 
         Stake storage oldStake = stakes[oldStaker];
