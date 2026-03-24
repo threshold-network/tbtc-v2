@@ -553,6 +553,9 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         if (newStake.stakedAmount != 0) {
             revert AddressAlreadyTaken();
         }
+        if (delegates[newStaker] != address(0)) {
+            revert WrongDelegatee();
+        }
 
         newStake.stakedAmount = oldStake.stakedAmount;
         newStake.rebateTreasuryFeeMode = oldStake.rebateTreasuryFeeMode;
