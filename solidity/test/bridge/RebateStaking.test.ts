@@ -1574,10 +1574,52 @@ describe("RebateStaking", () => {
         ).to.be.equal(rebateCap)
       })
 
+      it("should transfer rebateTreasuryFeeMode", async () => {
+        // Default mode is Both (0)
+        expect(
+          await rebateStaking.getRebateTreasuryFeeMode(governance.address)
+        ).to.be.equal(0)
+        // Old staker should be reset to Both (0)
+        expect(
+          await rebateStaking.getRebateTreasuryFeeMode(thirdParty.address)
+        ).to.be.equal(0)
+      })
+
       it("should emit event", async () => {
         await expect(tx)
           .to.emit(rebateStaking, "TransferFinished")
           .withArgs(thirdParty.address, governance.address)
+      })
+    })
+
+    context("when rebateTreasuryFeeMode is non-default", () => {
+      let tx: ContractTransaction
+
+      before(async () => {
+        await createSnapshot()
+
+        // Set DepositOnly (1) on old staker
+        await rebateStaking.connect(thirdParty).setRebateTreasuryFeeMode(1)
+
+        tx = await rebateStaking
+          .connect(deployer)
+          .forceStakeTransfer(thirdParty.address, governance.address)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should transfer non-default rebateTreasuryFeeMode", async () => {
+        expect(
+          await rebateStaking.getRebateTreasuryFeeMode(governance.address)
+        ).to.be.equal(1) // DepositOnly
+      })
+
+      it("should reset old staker rebateTreasuryFeeMode to default", async () => {
+        expect(
+          await rebateStaking.getRebateTreasuryFeeMode(thirdParty.address)
+        ).to.be.equal(0) // Both (default)
       })
     })
 
