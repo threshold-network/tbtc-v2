@@ -37,7 +37,6 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     error NotAStaker();
     error WrongDelegatee();
     error AddressAlreadyTaken();
-    error UnstakingInProgress();
 
     enum RebateTreasuryFeeMode {
         Both,
@@ -550,9 +549,6 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         if (oldStake.stakedAmount == 0) {
             revert NotAStaker();
         }
-        if (oldStake.unstakingTimestamp != 0) {
-            revert UnstakingInProgress();
-        }
 
         Stake storage newStake = stakes[newStaker];
         if (newStake.stakedAmount != 0) {
@@ -563,6 +559,8 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         }
 
         newStake.stakedAmount = oldStake.stakedAmount;
+        newStake.unstakingAmount = oldStake.unstakingAmount;
+        newStake.unstakingTimestamp = oldStake.unstakingTimestamp;
         newStake.rebateTreasuryFeeMode = oldStake.rebateTreasuryFeeMode;
         newStake.rollingWindowStartIndex = oldStake.rollingWindowStartIndex;
         for (uint256 i = 0; i < oldStake.rebates.length; i++) {
@@ -577,6 +575,8 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         }
 
         oldStake.stakedAmount = 0;
+        oldStake.unstakingAmount = 0;
+        oldStake.unstakingTimestamp = 0;
         oldStake.rebateTreasuryFeeMode = RebateTreasuryFeeMode.Both;
         oldStake.rollingWindowStartIndex = 0;
 
