@@ -1559,9 +1559,7 @@ describe("RebateStaking", () => {
       })
 
       it("should transfer stake", async () => {
-        expect(await rebateStaking.getStake(thirdParty.address)).to.be.equal(
-          ZERO_ADDRESS
-        )
+        expect(await rebateStaking.getStake(thirdParty.address)).to.be.equal(0)
         expect(await rebateStaking.getStake(governance.address)).to.be.equal(
           stakeAmount
         )
@@ -1570,7 +1568,7 @@ describe("RebateStaking", () => {
       it("should update rebate cap", async () => {
         expect(
           await rebateStaking.getRebateCap(thirdParty.address)
-        ).to.be.equal(ZERO_ADDRESS)
+        ).to.be.equal(0)
         expect(
           await rebateStaking.getRebateCap(governance.address)
         ).to.be.equal(rebateCap)
