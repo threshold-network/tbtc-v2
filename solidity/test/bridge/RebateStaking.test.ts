@@ -1490,6 +1490,19 @@ describe("RebateStaking", () => {
       })
     })
 
+    context("when old staker is zero address", () => {
+      it("should revert", async () => {
+        await expect(
+          rebateStaking
+            .connect(deployer)
+            .forceStakeTransfer(
+              ethers.constants.AddressZero,
+              governance.address
+            )
+        ).to.be.revertedWith("ZeroAddress")
+      })
+    })
+
     context("when new staker is zero address", () => {
       it("should revert", async () => {
         await expect(
