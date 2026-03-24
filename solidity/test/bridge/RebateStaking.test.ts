@@ -1673,9 +1673,7 @@ describe("RebateStaking", () => {
       })
 
       it("should transfer stake", async () => {
-        expect(await rebateStaking.getStake(thirdParty.address)).to.be.equal(
-          0
-        )
+        expect(await rebateStaking.getStake(thirdParty.address)).to.be.equal(0)
         expect(await rebateStaking.getStake(governance.address)).to.be.equal(
           stakeAmount
         )
