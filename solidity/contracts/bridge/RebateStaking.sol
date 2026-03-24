@@ -568,16 +568,16 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
             newStake.rebates.push(oldStake.rebates[i]);
         }
         if (oldStake.delegatee != address(0)) {
-            newStake.delegatee = oldStake.delegatee;
-            delegates[oldStake.delegatee] = newStaker;
+            address delegatee = oldStake.delegatee;
+            newStake.delegatee = delegatee;
+            delegates[delegatee] = newStaker;
+            oldStake.delegatee = address(0);
+            emit DelegateeSet(newStaker, delegatee);
         }
 
         oldStake.stakedAmount = 0;
         oldStake.rebateTreasuryFeeMode = RebateTreasuryFeeMode.Both;
         oldStake.rollingWindowStartIndex = 0;
-        if (oldStake.delegatee != address(0)) {
-            oldStake.delegatee = address(0);
-        }
 
         emit TransferFinished(oldStaker, newStaker);
     }

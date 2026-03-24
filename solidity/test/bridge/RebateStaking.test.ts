@@ -1689,7 +1689,13 @@ describe("RebateStaking", () => {
         ).to.be.equal(deployer.address)
       })
 
-      it("should emit event", async () => {
+      it("should emit DelegateeSet event", async () => {
+        await expect(tx)
+          .to.emit(rebateStaking, "DelegateeSet")
+          .withArgs(governance.address, deployer.address)
+      })
+
+      it("should emit TransferFinished event", async () => {
         await expect(tx)
           .to.emit(rebateStaking, "TransferFinished")
           .withArgs(thirdParty.address, governance.address)
