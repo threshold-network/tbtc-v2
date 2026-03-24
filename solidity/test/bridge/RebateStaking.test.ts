@@ -1637,21 +1637,57 @@ describe("RebateStaking", () => {
     })
 
     context("when unstaking is in progress", () => {
+      let unstakingTimestamp: number
+      let tx: ContractTransaction
+
       before(async () => {
         await createSnapshot()
         await rebateStaking.connect(thirdParty).startUnstaking(stakeAmount)
+        unstakingTimestamp = await lastBlockTime()
+        tx = await rebateStaking
+          .connect(deployer)
+          .forceStakeTransfer(thirdParty.address, governance.address)
       })
 
       after(async () => {
         await restoreSnapshot()
       })
 
-      it("should revert", async () => {
+      it("should transfer unstaking state", async () => {
+        const [oldUnstakingAmount, oldUnstakingTimestamp] =
+          await rebateStaking.getUnstakingAmount(thirdParty.address)
+        expect(oldUnstakingAmount).to.be.equal(0)
+        expect(oldUnstakingTimestamp).to.be.equal(0)
+
+        const [newUnstakingAmount, newUnstakingTimestamp] =
+          await rebateStaking.getUnstakingAmount(governance.address)
+        expect(newUnstakingAmount).to.be.equal(stakeAmount)
+        expect(newUnstakingTimestamp).to.be.equal(unstakingTimestamp)
+      })
+
+      it("should allow new staker to finalize unstaking", async () => {
         await expect(
-          rebateStaking
-            .connect(deployer)
-            .forceStakeTransfer(thirdParty.address, governance.address)
-        ).to.be.revertedWith("UnstakingInProgress")
+          rebateStaking.connect(thirdParty).finalizeUnstaking(thirdParty.address)
+        ).to.be.revertedWith("NoUnstakingProcess")
+
+        const unstakingPeriod = await rebateStaking.unstakingPeriod()
+        await increaseTime(unstakingPeriod)
+        await rebateStaking
+          .connect(governance)
+          .finalizeUnstaking(governance.address)
+
+        expect(await rebateStaking.getStake(governance.address)).to.be.equal(0)
+        const [unstakingAmount, unstakingTimestampAfterFinalization] =
+          await rebateStaking.getUnstakingAmount(governance.address)
+        expect(unstakingAmount).to.be.equal(0)
+        expect(unstakingTimestampAfterFinalization).to.be.equal(0)
+        expect(await t.balanceOf(governance.address)).to.be.equal(stakeAmount)
+      })
+
+      it("should emit transfer event", async () => {
+        await expect(tx)
+          .to.emit(rebateStaking, "TransferFinished")
+          .withArgs(thirdParty.address, governance.address)
       })
     })
 
