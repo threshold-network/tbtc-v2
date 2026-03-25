@@ -442,8 +442,7 @@ describe("L1BTCDepositorWormholeV2", () => {
         // The V2 event emits `address` (not `bytes32`). Extract the
         // 20-byte address from the 32-byte Wormhole-padded value.
         const l2ReceiverAddress = ethers.utils.getAddress(
-          "0x" +
-            initializeDepositFixture.destinationChainDepositOwner.slice(26)
+          `0x${initializeDepositFixture.destinationChainDepositOwner.slice(26)}`
         )
         await expect(tx)
           .to.emit(l1BtcDepositor, "TokensTransferredWithPayload")
