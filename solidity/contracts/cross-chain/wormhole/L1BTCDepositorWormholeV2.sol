@@ -69,12 +69,12 @@ contract L1BTCDepositorWormholeV2 is AbstractL1BTCDepositor {
     ///         on the destination L2 chain.
     /// @param amount The normalized tBTC amount transferred (1e18 precision,
     ///        Wormhole-normalized to 1e8 granularity).
-    /// @param l2Receiver The destination chain deposit owner address (bytes32).
+    /// @param l2Receiver The destination chain deposit owner address.
     /// @param transferSequence The Wormhole sequence number returned by
     ///        `transferTokensWithPayload`, used to locate the transfer VAA.
     event TokensTransferredWithPayload(
         uint256 amount,
-        bytes32 l2Receiver,
+        address l2Receiver,
         uint64 transferSequence
     );
 
@@ -220,6 +220,10 @@ contract L1BTCDepositorWormholeV2 is AbstractL1BTCDepositor {
         );
 
         // slither-disable-next-line reentrancy-events
-        emit TokensTransferredWithPayload(amount, l2Receiver, transferSequence);
+        emit TokensTransferredWithPayload(
+            amount,
+            address(uint160(uint256(l2Receiver))),
+            transferSequence
+        );
     }
 }
