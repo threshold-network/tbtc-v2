@@ -1,8 +1,5 @@
 import { expect } from "chai"
-import type { DeployFunction } from "hardhat-deploy/types"
 
-// Import the deploy script module to validate its exports.
-// The script must export a default DeployFunction with tags and skip.
 import func from "../deploy_l1/01_upgrade_arbitrum_l1_bitcoin_depositor_to_v2"
 
 describe("UpgradeArbitrumL1BitcoinDepositorToV2 - Deploy Script Structure", () => {
