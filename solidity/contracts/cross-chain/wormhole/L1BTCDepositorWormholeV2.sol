@@ -197,7 +197,7 @@ contract L1BTCDepositorWormholeV2 is AbstractL1BTCDepositor {
         uint256 wormholeMessageFee = wormhole.messageFee();
         require(
             msg.value == wormholeMessageFee,
-            "Payment for Wormhole Relayer is too low"
+            "msg.value must equal wormhole.messageFee()"
         );
 
         // The Wormhole Token Bridge will pull the tBTC amount
