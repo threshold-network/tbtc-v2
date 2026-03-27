@@ -28,16 +28,17 @@ describe("UpgradeBaseL1BitcoinDepositorToV2 - Artifact Resolution", () => {
     const artifact = artifacts.readArtifactSync("L1BTCDepositorWormholeV2")
 
     expect(artifact.contractName).to.equal("L1BTCDepositorWormholeV2")
-    expect(artifact.abi).to.be.an("array").that.is.not.empty
+    expect(artifact.abi).to.be.an("array")
+    expect(artifact.abi.length).to.be.greaterThan(0)
   })
 
   it("should resolve V2 via ethers.getContractFactory without HH700", async () => {
-    const factory = await ethers.getContractFactory(
-      "L1BTCDepositorWormholeV2"
+    const factory = await ethers.getContractFactory("L1BTCDepositorWormholeV2")
+    expect(factory).to.not.equal(undefined)
+    expect(factory.interface).to.not.equal(undefined)
+    expect(factory.interface.functions).to.have.property(
+      "initialize(address,address,address,address,address,address,uint16)"
     )
-    expect(factory).to.not.be.undefined
-    expect(factory.interface).to.not.be.undefined
-    expect(factory.interface.functions).to.have.property("initialize(address,address,address,address,address,address,uint16)")
   })
 
   const requiredAbiFunctions = [
