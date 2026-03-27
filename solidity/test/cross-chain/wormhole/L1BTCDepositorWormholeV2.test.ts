@@ -303,7 +303,7 @@ describe("L1BTCDepositorWormholeV2", () => {
             .finalizeDeposit(initializeDepositFixture.depositKey, {
               value: messageFee - 1,
             })
-        ).to.be.revertedWith("Payment for Wormhole Relayer is too low")
+        ).to.be.revertedWith("msg.value must equal wormhole.messageFee()")
       })
 
       it("should revert when msg.value is greater than messageFee", async () => {
@@ -313,7 +313,7 @@ describe("L1BTCDepositorWormholeV2", () => {
             .finalizeDeposit(initializeDepositFixture.depositKey, {
               value: messageFee + 1,
             })
-        ).to.be.revertedWith("Payment for Wormhole Relayer is too low")
+        ).to.be.revertedWith("msg.value must equal wormhole.messageFee()")
       })
     })
 
