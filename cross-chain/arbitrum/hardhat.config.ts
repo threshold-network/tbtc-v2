@@ -35,12 +35,12 @@ task(TASK_COMPILE).setAction(async (args, hre, runSuper) => {
   if (fs.existsSync(sourceArtifactDir)) {
     fs.mkdirSync(targetArtifactDir, { recursive: true })
 
-    for (const file of fs.readdirSync(sourceArtifactDir)) {
+    fs.readdirSync(sourceArtifactDir).forEach((file) => {
       fs.copyFileSync(
         path.join(sourceArtifactDir, file),
         path.join(targetArtifactDir, file)
       )
-    }
+    })
   }
 })
 
