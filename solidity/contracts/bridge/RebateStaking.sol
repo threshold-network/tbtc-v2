@@ -36,6 +36,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     error ZeroAddress();
     error NotAStaker();
     error WrongDelegatee();
+    error AddressAlreadyTaken();
 
     enum RebateTreasuryFeeMode {
         Both,
@@ -103,6 +104,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     event UnstakeStarted(address staker, uint256 amount);
     event UnstakeFinished(address staker, uint256 amount);
     event DelegateeSet(address staker, address delegatee);
+    event TransferFinished(address oldStaker, address newStaker);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -531,5 +533,53 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     {
         Stake storage stakeInfo = stakes[user];
         delegatee = stakeInfo.delegatee;
+    }
+
+    /// @notice Transfers ownership of stake from one address to another
+    /// @param oldStaker Old staker address
+    /// @param newStaker New staker address
+    function forceStakeTransfer(address oldStaker, address newStaker)
+        external
+        onlyOwner
+    {
+        if (oldStaker == address(0)) revert ZeroAddress();
+        if (newStaker == address(0)) revert ZeroAddress();
+
+        Stake storage oldStake = stakes[oldStaker];
+        if (oldStake.stakedAmount == 0) {
+            revert NotAStaker();
+        }
+
+        Stake storage newStake = stakes[newStaker];
+        if (newStake.stakedAmount != 0) {
+            revert AddressAlreadyTaken();
+        }
+        if (delegates[newStaker] != address(0)) {
+            revert WrongDelegatee();
+        }
+
+        newStake.stakedAmount = oldStake.stakedAmount;
+        newStake.unstakingAmount = oldStake.unstakingAmount;
+        newStake.unstakingTimestamp = oldStake.unstakingTimestamp;
+        newStake.rebateTreasuryFeeMode = oldStake.rebateTreasuryFeeMode;
+        newStake.rollingWindowStartIndex = oldStake.rollingWindowStartIndex;
+        for (uint256 i = 0; i < oldStake.rebates.length; i++) {
+            newStake.rebates.push(oldStake.rebates[i]);
+        }
+        if (oldStake.delegatee != address(0)) {
+            address delegatee = oldStake.delegatee;
+            newStake.delegatee = delegatee;
+            delegates[delegatee] = newStaker;
+            oldStake.delegatee = address(0);
+            emit DelegateeSet(newStaker, delegatee);
+        }
+
+        oldStake.stakedAmount = 0;
+        oldStake.unstakingAmount = 0;
+        oldStake.unstakingTimestamp = 0;
+        oldStake.rebateTreasuryFeeMode = RebateTreasuryFeeMode.Both;
+        oldStake.rollingWindowStartIndex = 0;
+
+        emit TransferFinished(oldStaker, newStaker);
     }
 }
