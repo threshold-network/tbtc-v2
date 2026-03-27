@@ -444,6 +444,11 @@ library Redemption {
         bytes memory redeemerOutputScript,
         uint64 amount
     ) internal {
+        require(
+            redeemer != address(0),
+            "Redeemer must not be the zero address"
+        );
+
         if (self.redemptionWatchtower != address(0)) {
             require(
                 IRedemptionWatchtower(self.redemptionWatchtower)
