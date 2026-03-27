@@ -1,4 +1,8 @@
 import type { HardhatUserConfig } from "hardhat/config"
+import { task } from "hardhat/config"
+import { TASK_COMPILE } from "hardhat/builtin-tasks/task-names"
+import * as fs from "fs"
+import * as path from "path"
 
 import "@nomiclabs/hardhat-etherscan"
 import "@keep-network/hardhat-helpers"
@@ -8,6 +12,37 @@ import "hardhat-contract-sizer"
 import "hardhat-deploy"
 import "@typechain/hardhat"
 import "hardhat-dependency-compiler"
+
+// After compilation, copy the L1BTCDepositorWormholeV2 artifact from the
+// solidity package build into this package's build directory. The V2 contract
+// source lives outside this Hardhat project's scope, so it cannot be compiled
+// locally. The solidity package compiles it and produces the artifact; this
+// task makes it discoverable by deploy scripts via readArtifactSync and
+// getContractFactory.
+task(TASK_COMPILE).setAction(async (args, hre, runSuper) => {
+  await runSuper(args)
+
+  const contractName = "L1BTCDepositorWormholeV2"
+  const sourceArtifactDir = path.resolve(
+    __dirname,
+    `../../solidity/build/contracts/cross-chain/wormhole/${contractName}.sol`
+  )
+  const targetArtifactDir = path.resolve(
+    hre.config.paths.artifacts,
+    `contracts/${contractName}.sol`
+  )
+
+  if (fs.existsSync(sourceArtifactDir)) {
+    fs.mkdirSync(targetArtifactDir, { recursive: true })
+
+    for (const file of fs.readdirSync(sourceArtifactDir)) {
+      fs.copyFileSync(
+        path.join(sourceArtifactDir, file),
+        path.join(targetArtifactDir, file)
+      )
+    }
+  }
+})
 
 const config: HardhatUserConfig = {
   solidity: {
