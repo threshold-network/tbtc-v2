@@ -1,4 +1,4 @@
-name: Cross-chain Arbitrum
+name: Cross-chain Base
 
 on:
   schedule:
@@ -7,8 +7,8 @@ on:
     branches:
       - main
     paths:
-      - "cross-chain/arbitrum/**"
-      - ".github/workflows/cross-chain-arbitrum.yml"
+      - "cross-chain/base/**"
+      - ".github/workflows/cross-chain-base.yml"
   pull_request:
 
 jobs:
@@ -26,8 +26,8 @@ jobs:
         with:
           filters: |
             path-filter:
-              - './cross-chain/arbitrum/**'
-              - './.github/workflows/cross-chain-arbitrum.yml'
+              - './cross-chain/base/**'
+              - './.github/workflows/cross-chain-base.yml'
 
   contracts-build-and-test:
     needs: contracts-detect-changes
@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: ./cross-chain/arbitrum
+        working-directory: ./cross-chain/base
     steps:
       - uses: actions/checkout@v4
 
@@ -45,7 +45,7 @@ jobs:
         with:
           node-version: "18"
           cache: "yarn"
-          cache-dependency-path: cross-chain/arbitrum/yarn.lock
+          cache-dependency-path: cross-chain/base/yarn.lock
 
       # A workaround for transitive dependencies that use the obsolete git://
       # prefix instead of the recommended https://
@@ -75,7 +75,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: ./cross-chain/arbitrum
+        working-directory: ./cross-chain/base
     steps:
       - uses: actions/checkout@v4
 
@@ -83,7 +83,7 @@ jobs:
         with:
           node-version: "18"
           cache: "yarn"
-          cache-dependency-path: cross-chain/arbitrum/yarn.lock
+          cache-dependency-path: cross-chain/base/yarn.lock
 
       # A workaround for transitive dependencies that use the obsolete git://
       # prefix instead of the recommended https://
@@ -104,7 +104,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: ./cross-chain/arbitrum
+        working-directory: ./cross-chain/base
     steps:
       - uses: actions/checkout@v4
 
@@ -112,7 +112,7 @@ jobs:
         with:
           node-version: "18"
           cache: "yarn"
-          cache-dependency-path: cross-chain/arbitrum/yarn.lock
+          cache-dependency-path: cross-chain/base/yarn.lock
 
       # A workaround for transitive dependencies that use the obsolete git://
       # prefix instead of the recommended https://
@@ -136,7 +136,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: ./cross-chain/arbitrum
+        working-directory: ./cross-chain/base
     steps:
       - uses: actions/checkout@v4
 
@@ -144,7 +144,7 @@ jobs:
         with:
           node-version: "18"
           cache: "yarn"
-          cache-dependency-path: cross-chain/arbitrum/yarn.lock
+          cache-dependency-path: cross-chain/base/yarn.lock
 
       - uses: actions/setup-python@v4
         with:
