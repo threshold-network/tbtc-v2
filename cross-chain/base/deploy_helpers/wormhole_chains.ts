@@ -20,7 +20,6 @@ export function getWormholeChains(network: string): WormholeChains {
       break
     case "sepolia":
     case "baseSepolia":
-    case "hardhat":
       l1ChainId = 10002 // L1 Ethereum Sepolia testnet
       l2ChainId = 10004 // L2 Base Sepolia testnet
       break
