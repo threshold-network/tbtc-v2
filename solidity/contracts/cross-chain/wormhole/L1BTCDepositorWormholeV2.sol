@@ -30,20 +30,10 @@ import "./Wormhole.sol";
 import "../utils/Crosschain.sol";
 
 /// @title L1BTCDepositorWormholeV2
-/// @notice V2 implementation of the L1 tBTC depositor using Wormhole protocol
-///         for cross-chain token transfers. This contract replaces the Standard
-///         Relaying pattern (`sendVaasToEvm`) used in V1 with a direct
-///         `transferTokensWithPayload` call and an explicit event emission for
-///         off-chain relayer discovery.
-///
-///         This is a monolithic contract that flattens all logic previously
-///         split across `AbstractL1BTCDepositor` and the Wormhole-specific V2.
-///         The storage layout exactly matches the deployed `L1BitcoinDepositor`
-///         family on Arbitrum mainnet (proxy 0x75A6...9A, slots 0-211).
-///
-///         Inheritance order matters for C3 linearization: `Initializable` must
-///         come first so `_initialized` occupies slot 0:0 and `bridge` packs
-///         at slot 0:2.
+/// @notice L1 tBTC depositor that bridges minted tBTC to an L2 chain via
+///         Wormhole `transferTokensWithPayload`. An off-chain relayer monitors
+///         the `TokensTransferredWithPayload` event to fetch the signed VAA
+///         and complete delivery on the destination L2.
 contract L1BTCDepositorWormholeV2 is
     Initializable,
     AbstractBTCDepositor,
@@ -78,73 +68,65 @@ contract L1BTCDepositorWormholeV2 is
     }
 
     // -------------------------------------------------------------------
-    // Storage variables -- MUST match deployed OZ manifest (slots 199-211).
-    // Slots 0-198 are occupied by the base classes:
-    //   Initializable (slot 0:0-1), AbstractBTCDepositor (slot 0:2 - 48),
-    //   ContextUpgradeable (slots 49-98), OwnableUpgradeable (slots 99-148),
-    //   Reimbursable (slots 149-198).
-    //
+    // Storage variables -- MUST match the deployed proxy's storage layout.
     // Do NOT reorder, insert, or remove any variable.
     // -------------------------------------------------------------------
 
     /// @notice Holds the deposit state, keyed by the deposit key calculated for
     ///         the individual deposit during the call to `initializeDeposit`
     ///         function.
-    mapping(uint256 => DepositState) public deposits; // slot 199
+    mapping(uint256 => DepositState) public deposits;
 
     /// @notice ERC20 L1 tBTC token contract.
-    IERC20Upgradeable public tbtcToken; // slot 200
+    IERC20Upgradeable public tbtcToken;
 
     /// @notice `Wormhole` core contract on L1.
-    IWormhole public wormhole; // slot 201
+    IWormhole public wormhole;
 
     /// @notice `WormholeRelayer` contract on L1. Preserved for storage layout
-    ///         compatibility with V1. No longer used in V2 because Standard
-    ///         Relaying has been replaced by direct `transferTokensWithPayload`
-    ///         calls.
-    IWormholeRelayer public wormholeRelayer; // slot 202
+    ///         compatibility; not used by this implementation.
+    IWormholeRelayer public wormholeRelayer;
 
     /// @notice Wormhole `TokenBridge` contract on L1.
-    IWormholeTokenBridge public wormholeTokenBridge; // slot 203
+    IWormholeTokenBridge public wormholeTokenBridge;
 
     /// @notice tBTC `L2WormholeGateway` contract on the corresponding L2 chain.
-    address public l2WormholeGateway; // slot 204, offset 0
+    address public l2WormholeGateway;
 
     /// @notice Wormhole chain ID of the corresponding L2 chain.
-    uint16 public l2ChainId; // slot 204, offset 20 (packed)
+    uint16 public l2ChainId;
 
     /// @notice tBTC depositor contract on the corresponding L2 chain.
-    address public l2BitcoinDepositor; // slot 205
+    address public l2BitcoinDepositor;
 
-    /// @notice Gas limit field preserved for storage layout compatibility
-    ///         with V1. No longer used in V2 because Standard Relaying
-    ///         delivery pricing has been removed.
-    uint256 public l2FinalizeDepositGasLimit; // slot 206
+    /// @notice Gas limit field preserved for storage layout compatibility;
+    ///         not used by this implementation.
+    uint256 public l2FinalizeDepositGasLimit;
 
     /// @notice Holds deferred gas reimbursements for deposit initialization
     ///         (indexed by deposit key). Reimbursement for deposit
     ///         initialization is paid out upon deposit finalization.
-    mapping(uint256 => GasReimbursement) public gasReimbursements; // slot 207
+    mapping(uint256 => GasReimbursement) public gasReimbursements;
 
     /// @notice Gas that is meant to balance the overall cost of deposit
     ///         initialization. Can be updated by the owner based on the
     ///         current market conditions.
-    uint256 public initializeDepositGasOffset; // slot 208
+    uint256 public initializeDepositGasOffset;
 
     /// @notice Gas that is meant to balance the overall cost of deposit
     ///         finalization. Can be updated by the owner based on the
     ///         current market conditions.
-    uint256 public finalizeDepositGasOffset; // slot 209
+    uint256 public finalizeDepositGasOffset;
 
     /// @notice Set of addresses that are authorized to receive gas
     ///         reimbursements for deposit initialization and finalization.
-    mapping(address => bool) public reimbursementAuthorizations; // slot 210
+    mapping(address => bool) public reimbursementAuthorizations;
 
     /// @notice Feature flag controlling whether the deposit transaction max fee
     ///         is reimbursed (added to the user's tBTC) or deducted.
     ///         - `true`  => Add `txMaxFee` to the minted tBTC amount
     ///         - `false` => Subtract `txMaxFee` from the minted tBTC amount
-    bool public reimburseTxMaxFee; // slot 211
+    bool public reimburseTxMaxFee;
 
     // -------------------------------------------------------------------
     // Events
@@ -177,7 +159,7 @@ contract L1BTCDepositorWormholeV2 is
     event ReimburseTxMaxFeeUpdated(bool reimburseTxMaxFee);
 
     /// @notice Emitted when the gas limit field is updated by the owner.
-    ///         Preserved for backward compatibility with V1.
+    ///         Preserved for backward compatibility.
     event L2FinalizeDepositGasLimitUpdated(uint256 l2FinalizeDepositGasLimit);
 
     /// @notice Emitted when tBTC tokens are transferred via Wormhole
@@ -213,10 +195,9 @@ contract L1BTCDepositorWormholeV2 is
     // Initializer
     // -------------------------------------------------------------------
 
-    /// @dev This initializer mirrors V1 for fresh proxy deployments (e.g. in
-    ///      tests). On mainnet, the proxy is already initialized so this
-    ///      function cannot be called again (the `initializer` modifier
-    ///      prevents re-initialization).
+    /// @dev Intended for fresh proxy deployments (e.g. tests). Existing
+    ///      proxies are already initialized; the `initializer` modifier
+    ///      prevents re-initialization.
     function initialize(
         address _tbtcBridge,
         address _tbtcVault,
@@ -326,8 +307,7 @@ contract L1BTCDepositorWormholeV2 is
     }
 
     /// @notice Updates the gas limit field. Preserved for backward
-    ///         compatibility with V1. The gas limit is no longer used in V2
-    ///         for relay delivery pricing.
+    ///         compatibility; not used by this implementation.
     /// @param _l2FinalizeDepositGasLimit New gas limit.
     /// @dev Requirements:
     ///      - Can be called only by the contract owner.
@@ -491,8 +471,7 @@ contract L1BTCDepositorWormholeV2 is
     // -------------------------------------------------------------------
 
     /// @notice Quotes the payment that must be attached to the `finalizeDeposit`
-    ///         function call. In V2, only the Wormhole core message fee is
-    ///         required (no Standard Relaying delivery cost).
+    ///         function call. Only the Wormhole core message fee is required.
     /// @return cost The cost of the `finalizeDeposit` function call in WEI.
     function quoteFinalizeDeposit() external view returns (uint256 cost) {
         cost = wormhole.messageFee();
