@@ -115,6 +115,13 @@ contract LightRelay is Ownable, ILightRelay {
 
     mapping(address => bool) public isAuthorized;
 
+    /// @dev Same value as `BTCUtils.DIFF1_TARGET` (compact bits `0x1d00ffff`).
+    /// Bitcoin testnet4 may emit blocks at minimum difficulty between retargets
+    /// while other blocks in the same retarget proof window use the new epoch
+    /// difficulty. Mainnet does not produce such blocks at meaningful heights.
+    uint256 private constant MIN_DIFFICULTY_TARGET =
+        0xffff0000000000000000000000000000000000000000000000000000;
+
     modifier relayActive() {
         require(ready, "Relay is not ready for use");
         _;
@@ -316,8 +323,12 @@ contract LightRelay is Ownable, ILightRelay {
                 );
             } else {
                 // The new target has been set, so remaining targets should match.
+                // Exception: testnet networks may insert a minimum-difficulty block
+                // (e.g. testnet4 when block spacing is high) while the rest of the
+                // post-retarget window uses the retargeted difficulty.
                 require(
-                    _currentHeaderTarget == minedTarget,
+                    _currentHeaderTarget == minedTarget ||
+                        _currentHeaderTarget == MIN_DIFFICULTY_TARGET,
                     "Unexpected target change after retarget"
                 );
             }
