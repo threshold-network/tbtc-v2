@@ -3,7 +3,7 @@
 1. [x] Harden Base/Arbitrum artifact copy flow and CI dry-run wiring
 verify: hardhat configs fail fast on missing V2 artifact and Arbitrum dry-run builds `solidity` first
 
-2. [ ] Regenerate and commit Base/Arbitrum exported deployment artifacts for V2 ABI
+2. [x] Regenerate and commit Base/Arbitrum exported deployment artifacts for V2 ABI
 verify: exported artifacts include `TokensTransferredWithPayload`
 
 3. [ ] Add upgrade-prep integration coverage for Base/Arbitrum upgrade scripts
