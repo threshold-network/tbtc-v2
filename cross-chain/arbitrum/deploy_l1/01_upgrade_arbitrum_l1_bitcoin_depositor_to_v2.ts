@@ -6,7 +6,7 @@ const CONTRACT_NAME = "L1BTCDepositorWormholeV2"
 const DEPLOYMENT_NAME = "ArbitrumOneL1BitcoinDepositor"
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
-  const { ethers, helpers, deployments } = hre
+  const { ethers, helpers, deployments, upgrades, artifacts, run } = hre
 
   const { deployer } = await helpers.signers.getNamedSigners()
 
@@ -18,7 +18,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     })
 
   // Deploy new implementation contract
-  const newImplementationAddress: string = (await hre.upgrades.prepareUpgrade(
+  const newImplementationAddress: string = (await upgrades.prepareUpgrade(
     proxyDeployment,
     implementationContractFactory,
     {
@@ -31,7 +31,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   )
 
   // Assemble proxy upgrade transaction.
-  const proxyAdmin = await hre.upgrades.admin.getInstance()
+  const proxyAdmin = await upgrades.admin.getInstance()
   const proxyAdminOwner = await proxyAdmin.owner()
 
   const upgradeTxData = await proxyAdmin.interface.encodeFunctionData(
@@ -47,8 +47,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   )
 
   // Update Deployment Artifact
-  const contractArtifact: Artifact =
-    hre.artifacts.readArtifactSync(CONTRACT_NAME)
+  const contractArtifact: Artifact = artifacts.readArtifactSync(CONTRACT_NAME)
 
   await deployments.save(DEPLOYMENT_NAME, {
     ...proxyDeployment,
@@ -56,9 +55,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     implementation: newImplementationAddress,
   })
 
-  await hre.run("verify", {
+  await run("verify", {
     address: newImplementationAddress,
-    constructorArgsParams: proxyDeployment.args,
+    constructorArgsParams: [],
   })
 }
 
