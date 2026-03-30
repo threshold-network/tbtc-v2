@@ -6,7 +6,7 @@ verify: hardhat configs fail fast on missing V2 artifact and Arbitrum dry-run bu
 2. [x] Regenerate and commit Base/Arbitrum exported deployment artifacts for V2 ABI
 verify: exported artifacts include `TokensTransferredWithPayload`
 
-3. [ ] Add upgrade-prep integration coverage for Base/Arbitrum upgrade scripts
+3. [x] Add upgrade-prep integration coverage for Base/Arbitrum upgrade scripts
 verify: tests exercise `prepareUpgrade` against checked-in manifests/deployments
 
 4. [ ] Resolve fresh deployment inconsistency for Base L1 depositor

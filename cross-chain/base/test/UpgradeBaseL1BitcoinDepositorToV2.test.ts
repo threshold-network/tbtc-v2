@@ -1,4 +1,4 @@
-import { ethers, artifacts } from "hardhat"
+import { ethers, artifacts, upgrades } from "hardhat"
 import { expect } from "chai"
 
 import func from "../deploy_l1/02_upgrade_base_l1_bitcoin_depositor_to_v2"
@@ -57,5 +57,45 @@ describe("UpgradeBaseL1BitcoinDepositorToV2 - Artifact Resolution", () => {
 
       expect(functionNames).to.include(fnName)
     })
+  })
+
+  it("should pass OpenZeppelin prepareUpgrade for a legacy proxy", async () => {
+    const [deployer, bridge, vault, wormhole, wormholeRelayer, tokenBridge, l2Gateway] =
+      await ethers.getSigners()
+
+    const legacyFactory = await ethers.getContractFactory(
+      "@keep-network/tbtc-v2/contracts/l2/L1BitcoinDepositor.sol:L1BitcoinDepositor",
+      deployer
+    )
+
+    const legacyProxy = await upgrades.deployProxy(
+      legacyFactory,
+      [
+        bridge.address,
+        vault.address,
+        wormhole.address,
+        wormholeRelayer.address,
+        tokenBridge.address,
+        l2Gateway.address,
+        30,
+      ],
+      { kind: "transparent" }
+    )
+
+    await legacyProxy.deployed()
+
+    const v2Factory = await ethers.getContractFactory(
+      "L1BTCDepositorWormholeV2",
+      deployer
+    )
+
+    const implementationAddress = await upgrades.prepareUpgrade(
+      legacyProxy.address,
+      v2Factory,
+      { kind: "transparent" }
+    )
+
+    expect(implementationAddress).to.match(/^0x[a-fA-F0-9]{40}$/)
+    expect(implementationAddress).to.not.equal(legacyProxy.address)
   })
 })
