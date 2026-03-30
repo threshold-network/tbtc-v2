@@ -285,9 +285,7 @@ describe("L1BTCDepositorWormholeV2", () => {
     })
 
     it("should keep the deployed-family field naming for l2BitcoinDepositor", () => {
-      const entry = compiledLayout.find(
-        (e) => e.label === "l2BitcoinDepositor"
-      )
+      const entry = compiledLayout.find((e) => e.label === "l2BitcoinDepositor")
       if (!entry) {
         throw new Error(
           "l2BitcoinDepositor not found -- " +
@@ -766,8 +764,8 @@ describe("L1BTCDepositorWormholeV2", () => {
       })
 
       it("should encode the payload in the format expected by L2WormholeGateway", async () => {
-        const payload = wormholeTokenBridge.transferTokensWithPayload.getCall(0)
-          .args[5]
+        const payload =
+          wormholeTokenBridge.transferTokensWithPayload.getCall(0).args[5]
         const [l2Receiver] = ethers.utils.defaultAbiCoder.decode(
           ["bytes32"],
           payload
