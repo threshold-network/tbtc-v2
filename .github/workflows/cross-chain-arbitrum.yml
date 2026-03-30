@@ -93,6 +93,10 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
+      - name: Build solidity package
+        working-directory: ./solidity
+        run: yarn install && yarn build
+
       - name: Deploy contracts
         run: yarn deploy
 
