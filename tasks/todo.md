@@ -12,7 +12,7 @@ verify: tests exercise `prepareUpgrade` against checked-in manifests/deployments
 4. [x] Resolve fresh deployment inconsistency for Base L1 depositor
 verify: deploy script scope is explicit and consistent with V2 rollout
 
-5. [ ] Update RFC-11 for the event-driven relayer flow
+5. [x] Update RFC-11 for the event-driven relayer flow
 verify: docs describe direct Token Bridge transfer plus off-chain relay completion
 
 6. [ ] Reduce brittleness in V2 storage-layout tests
