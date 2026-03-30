@@ -97,7 +97,10 @@ describe("UpgradeArbitrumL1BitcoinDepositorToV2 - Artifact Resolution", () => {
     const copiedArtifact = await readArtifactJson(copiedArtifactPath)
 
     assert.equal(copiedArtifact.bytecode, sourceArtifact.bytecode)
-    assert.equal(copiedArtifact.deployedBytecode, sourceArtifact.deployedBytecode)
+    assert.equal(
+      copiedArtifact.deployedBytecode,
+      sourceArtifact.deployedBytecode
+    )
   })
 
   it("should resolve the L1BTCDepositorWormholeV2 artifact", () => {

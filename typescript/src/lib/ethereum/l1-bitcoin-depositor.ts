@@ -37,26 +37,31 @@ import { StarkNetExtraDataEncoder } from "../starknet"
 import { SolanaExtraDataEncoder } from "../solana"
 import { SeiExtraDataEncoder } from "../sei"
 
-const mainnetArtifacts: Record<DestinationChainName, EthersContractDeployment> = {
-  Base: MainnetBaseL1BitcoinDepositorDeployment,
-  Arbitrum: MainnetArbitrumL1BitcoinDepositorDeployment,
-  Solana: MainnetSolanaL1BitcoinDepositorDeployment,
-  StarkNet: MainnetStarkNetL1BitcoinDepositorDeployment,
-  Sui: MainnetSuiBTCDepositorWormholeDeployment,
-  Sei: MainnetSeiL1BitcoinDepositorDeployment,
-}
+const mainnetArtifacts: Record<DestinationChainName, EthersContractDeployment> =
+  {
+    Base: MainnetBaseL1BitcoinDepositorDeployment,
+    Arbitrum: MainnetArbitrumL1BitcoinDepositorDeployment,
+    Solana: MainnetSolanaL1BitcoinDepositorDeployment,
+    StarkNet: MainnetStarkNetL1BitcoinDepositorDeployment,
+    Sui: MainnetSuiBTCDepositorWormholeDeployment,
+    Sei: MainnetSeiL1BitcoinDepositorDeployment,
+  }
 
-const sepoliaArtifacts: Record<DestinationChainName, EthersContractDeployment> = {
-  Base: SepoliaBaseL1BitcoinDepositorDeployment,
-  Arbitrum: SepoliaArbitrumL1BitcoinDepositorDeployment,
-  Solana: SepoliaSolanaL1BitcoinDepositorDeployment,
-  StarkNet: SepoliaStarkNetL1BitcoinDepositorDeployment,
-  Sui: SepoliaSuiBTCDepositorWormholeDeployment,
-  Sei: SepoliaSeiL1BitcoinDepositorDeployment,
-}
+const sepoliaArtifacts: Record<DestinationChainName, EthersContractDeployment> =
+  {
+    Base: SepoliaBaseL1BitcoinDepositorDeployment,
+    Arbitrum: SepoliaArbitrumL1BitcoinDepositorDeployment,
+    Solana: SepoliaSolanaL1BitcoinDepositorDeployment,
+    StarkNet: SepoliaStarkNetL1BitcoinDepositorDeployment,
+    Sui: SepoliaSuiBTCDepositorWormholeDeployment,
+    Sei: SepoliaSeiL1BitcoinDepositorDeployment,
+  }
 
 const artifactLoaders: Partial<
-  Record<Chains.Ethereum, Record<DestinationChainName, EthersContractDeployment>>
+  Record<
+    Chains.Ethereum,
+    Record<DestinationChainName, EthersContractDeployment>
+  >
 > = {
   [Chains.Ethereum.Mainnet]: mainnetArtifacts,
   [Chains.Ethereum.Sepolia]: sepoliaArtifacts,
@@ -93,6 +98,9 @@ export class EthereumL1BitcoinDepositor
       throw new Error("Unsupported deployment type")
     }
     const deployment = deploymentArtifacts[destinationChainName]
+    if (!deployment) {
+      throw new Error("Unsupported destination chain")
+    }
 
     super(config, deployment)
 
