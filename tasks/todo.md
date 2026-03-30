@@ -9,7 +9,7 @@ verify: exported artifacts include `TokensTransferredWithPayload`
 3. [x] Add upgrade-prep integration coverage for Base/Arbitrum upgrade scripts
 verify: tests exercise `prepareUpgrade` against checked-in manifests/deployments
 
-4. [ ] Resolve fresh deployment inconsistency for Base L1 depositor
+4. [x] Resolve fresh deployment inconsistency for Base L1 depositor
 verify: deploy script scope is explicit and consistent with V2 rollout
 
 5. [ ] Update RFC-11 for the event-driven relayer flow
