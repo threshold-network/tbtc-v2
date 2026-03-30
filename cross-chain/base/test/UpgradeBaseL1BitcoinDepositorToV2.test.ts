@@ -1,7 +1,30 @@
 import { ethers, artifacts, upgrades } from "hardhat"
 import { expect } from "chai"
+import fs from "fs"
+import path from "path"
 
 import func from "../deploy_l1/02_upgrade_base_l1_bitcoin_depositor_to_v2"
+
+async function readArtifactJson(artifactPath: string): Promise<any> {
+  const artifactContents = await fs.promises.readFile(artifactPath, "utf8")
+
+  try {
+    return JSON.parse(artifactContents)
+  } catch (error) {
+    throw new Error(
+      `Failed to parse artifact JSON at ${artifactPath}: ${String(error)}`
+    )
+  }
+}
+
+async function artifactExists(artifactPath: string): Promise<boolean> {
+  try {
+    await fs.promises.access(artifactPath)
+    return true
+  } catch {
+    return false
+  }
+}
 
 describe("UpgradeBaseL1BitcoinDepositorToV2 - Deploy Script Structure", () => {
   it("should export a default deploy function", () => {
@@ -24,6 +47,34 @@ describe("UpgradeBaseL1BitcoinDepositorToV2 - Deploy Script Structure", () => {
 })
 
 describe("UpgradeBaseL1BitcoinDepositorToV2 - Artifact Resolution", () => {
+  const artifactRelativePath = path.join(
+    "L1BTCDepositorWormholeV2.sol",
+    "L1BTCDepositorWormholeV2.json"
+  )
+  const sourceArtifactPath = path.resolve(
+    __dirname,
+    "../../../solidity/build/contracts/cross-chain/wormhole",
+    artifactRelativePath
+  )
+  const copiedArtifactPath = path.resolve(
+    __dirname,
+    "../build/contracts",
+    artifactRelativePath
+  )
+
+  it("should copy the latest V2 artifact from the solidity package", async () => {
+    expect(await artifactExists(sourceArtifactPath)).to.equal(true)
+    expect(await artifactExists(copiedArtifactPath)).to.equal(true)
+
+    const sourceArtifact = await readArtifactJson(sourceArtifactPath)
+    const copiedArtifact = await readArtifactJson(copiedArtifactPath)
+
+    expect(copiedArtifact.bytecode).to.equal(sourceArtifact.bytecode)
+    expect(copiedArtifact.deployedBytecode).to.equal(
+      sourceArtifact.deployedBytecode
+    )
+  })
+
   it("should resolve the L1BTCDepositorWormholeV2 artifact", () => {
     const artifact = artifacts.readArtifactSync("L1BTCDepositorWormholeV2")
 
