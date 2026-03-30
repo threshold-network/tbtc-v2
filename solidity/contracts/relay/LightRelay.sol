@@ -251,8 +251,13 @@ contract LightRelay is Ownable, ILightRelay {
                 uint256 currentHeaderTarget
             ) = validateHeader(headers, i * 80, previousHeaderDigest);
 
+            // Exception: testnet networks (notably testnet4) may emit minimum-
+            // difficulty blocks inside an epoch, including in the last blocks
+            // before a retarget. Mainnet does not produce such blocks at
+            // meaningful heights. Post-retarget loop applies the same rule.
             require(
-                currentHeaderTarget == oldTarget,
+                currentHeaderTarget == oldTarget ||
+                    currentHeaderTarget == MIN_DIFFICULTY_TARGET,
                 "Invalid target in pre-retarget headers"
             );
 
