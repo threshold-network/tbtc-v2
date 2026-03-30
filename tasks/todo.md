@@ -15,5 +15,5 @@ verify: deploy script scope is explicit and consistent with V2 rollout
 5. [x] Update RFC-11 for the event-driven relayer flow
 verify: docs describe direct Token Bridge transfer plus off-chain relay completion
 
-6. [ ] Reduce brittleness in V2 storage-layout tests
+6. [x] Reduce brittleness in V2 storage-layout tests
 verify: tests keep upgrade-safety coverage with lower maintenance cost
