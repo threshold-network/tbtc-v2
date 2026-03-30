@@ -55,9 +55,8 @@ const sepoliaArtifacts: Record<DestinationChainName, EthersContractDeployment> =
   Sei: SepoliaSeiL1BitcoinDepositorDeployment,
 }
 
-const artifactLoaders: Record<
-  Chains.Ethereum,
-  Record<DestinationChainName, EthersContractDeployment>
+const artifactLoaders: Partial<
+  Record<Chains.Ethereum, Record<DestinationChainName, EthersContractDeployment>>
 > = {
   [Chains.Ethereum.Mainnet]: mainnetArtifacts,
   [Chains.Ethereum.Sepolia]: sepoliaArtifacts,
