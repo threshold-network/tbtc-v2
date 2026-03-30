@@ -126,6 +126,10 @@ jobs:
       - name: Install dependencies
         run: yarn install
 
+      - name: Build solidity package
+        working-directory: ./solidity
+        run: yarn install && yarn build
+
       - name: Build
         run: yarn build
 
