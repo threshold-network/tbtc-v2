@@ -765,6 +765,26 @@ describe("L1BTCDepositorWormholeV2", () => {
         )
       })
 
+      it("should encode the payload in the format expected by L2WormholeGateway", async () => {
+        const payload = wormholeTokenBridge.transferTokensWithPayload.getCall(0)
+          .args[5]
+        const [l2Receiver] = ethers.utils.defaultAbiCoder.decode(
+          ["bytes32"],
+          payload
+        )
+
+        expect(l2Receiver.toLowerCase()).to.equal(
+          initializeDepositFixture.destinationChainDepositOwner.toLowerCase()
+        )
+        expect(ethers.utils.getAddress(`0x${l2Receiver.slice(26)}`)).to.equal(
+          ethers.utils.getAddress(
+            `0x${initializeDepositFixture.destinationChainDepositOwner.slice(
+              26
+            )}`
+          )
+        )
+      })
+
       it("should NOT call sendVaasToEvm", async () => {
         // eslint-disable-next-line @typescript-eslint/no-unused-expressions
         expect(wormholeRelayer.sendVaasToEvm).to.not.have.been.called
