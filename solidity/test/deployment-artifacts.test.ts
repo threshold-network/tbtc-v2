@@ -16,7 +16,7 @@ const {
 describe("Deployment Artifacts Consistency", () => {
   const deploymentsDir = path.resolve(__dirname, "../deployments/mainnet")
 
-  const FIXED_DEPOSIT_LIBRARY = "0x9C6aDa0beD100b0807779E2518E1638277768739"
+  const FIXED_DEPOSIT_LIBRARY = "0xE83bcc22A723f693eF0fEB7044F61aeC8c79fe02"
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function loadArtifact(filename: string): any {

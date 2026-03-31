@@ -620,6 +620,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       let solcInput: string | null = null
       let compilerVersion = ""
 
+      // eslint-disable-next-line no-restricted-syntax
       for (const biFile of buildInfoFiles) {
         const bi = JSON.parse(
           fs.readFileSync(path.join(buildInfoDir, biFile), "utf-8")
@@ -636,7 +637,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
           "  Could not find build-info with Deposit compilation. Skipping verification."
         )
       } else {
-        const chainId = parseInt(await hre.getChainId(), 10)
+        const networkChainId = parseInt(await hre.getChainId(), 10)
         const contractsToVerify = [
           {
             address: Deposit.address,
@@ -660,12 +661,14 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
           },
         ]
 
+        // eslint-disable-next-line no-restricted-syntax, no-await-in-loop
         for (const contract of contractsToVerify) {
           console.log(`Verifying ${contract.label} at ${contract.address}...`)
           try {
+            // eslint-disable-next-line no-await-in-loop
             const guid = await etherscanVerifyV2(
               etherscanApiKey,
-              chainId,
+              networkChainId,
               contract.address,
               contract.name,
               compilerVersion,
