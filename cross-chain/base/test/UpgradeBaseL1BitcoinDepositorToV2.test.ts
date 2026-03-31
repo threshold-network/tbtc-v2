@@ -1,7 +1,30 @@
-import { ethers, artifacts } from "hardhat"
+import { ethers, artifacts, upgrades } from "hardhat"
 import { expect } from "chai"
+import fs from "fs"
+import path from "path"
 
 import func from "../deploy_l1/02_upgrade_base_l1_bitcoin_depositor_to_v2"
+
+async function readArtifactJson(artifactPath: string): Promise<any> {
+  const artifactContents = await fs.promises.readFile(artifactPath, "utf8")
+
+  try {
+    return JSON.parse(artifactContents)
+  } catch (error) {
+    throw new Error(
+      `Failed to parse artifact JSON at ${artifactPath}: ${String(error)}`
+    )
+  }
+}
+
+async function artifactExists(artifactPath: string): Promise<boolean> {
+  try {
+    await fs.promises.access(artifactPath)
+    return true
+  } catch {
+    return false
+  }
+}
 
 describe("UpgradeBaseL1BitcoinDepositorToV2 - Deploy Script Structure", () => {
   it("should export a default deploy function", () => {
@@ -24,6 +47,34 @@ describe("UpgradeBaseL1BitcoinDepositorToV2 - Deploy Script Structure", () => {
 })
 
 describe("UpgradeBaseL1BitcoinDepositorToV2 - Artifact Resolution", () => {
+  const artifactRelativePath = path.join(
+    "L1BTCDepositorWormholeV2.sol",
+    "L1BTCDepositorWormholeV2.json"
+  )
+  const sourceArtifactPath = path.resolve(
+    __dirname,
+    "../../../solidity/build/contracts/cross-chain/wormhole",
+    artifactRelativePath
+  )
+  const copiedArtifactPath = path.resolve(
+    __dirname,
+    "../build/contracts",
+    artifactRelativePath
+  )
+
+  it("should copy the latest V2 artifact from the solidity package", async () => {
+    expect(await artifactExists(sourceArtifactPath)).to.equal(true)
+    expect(await artifactExists(copiedArtifactPath)).to.equal(true)
+
+    const sourceArtifact = await readArtifactJson(sourceArtifactPath)
+    const copiedArtifact = await readArtifactJson(copiedArtifactPath)
+
+    expect(copiedArtifact.bytecode).to.equal(sourceArtifact.bytecode)
+    expect(copiedArtifact.deployedBytecode).to.equal(
+      sourceArtifact.deployedBytecode
+    )
+  })
+
   it("should resolve the L1BTCDepositorWormholeV2 artifact", () => {
     const artifact = artifacts.readArtifactSync("L1BTCDepositorWormholeV2")
 
@@ -57,5 +108,45 @@ describe("UpgradeBaseL1BitcoinDepositorToV2 - Artifact Resolution", () => {
 
       expect(functionNames).to.include(fnName)
     })
+  })
+
+  it("should pass OpenZeppelin prepareUpgrade for a legacy proxy", async () => {
+    const [deployer, bridge, vault, wormhole, wormholeRelayer, tokenBridge, l2Gateway] =
+      await ethers.getSigners()
+
+    const legacyFactory = await ethers.getContractFactory(
+      "@keep-network/tbtc-v2/contracts/l2/L1BitcoinDepositor.sol:L1BitcoinDepositor",
+      deployer
+    )
+
+    const legacyProxy = await upgrades.deployProxy(
+      legacyFactory,
+      [
+        bridge.address,
+        vault.address,
+        wormhole.address,
+        wormholeRelayer.address,
+        tokenBridge.address,
+        l2Gateway.address,
+        30,
+      ],
+      { kind: "transparent" }
+    )
+
+    await legacyProxy.deployed()
+
+    const v2Factory = await ethers.getContractFactory(
+      "L1BTCDepositorWormholeV2",
+      deployer
+    )
+
+    const implementationAddress = await upgrades.prepareUpgrade(
+      legacyProxy.address,
+      v2Factory,
+      { kind: "transparent" }
+    )
+
+    expect(implementationAddress).to.match(/^0x[a-fA-F0-9]{40}$/)
+    expect(implementationAddress).to.not.equal(legacyProxy.address)
   })
 })

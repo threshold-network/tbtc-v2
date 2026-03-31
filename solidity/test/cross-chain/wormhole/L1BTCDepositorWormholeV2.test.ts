@@ -33,12 +33,7 @@ const l2ChainId = 20
 // Arbitrary TBTCVault address matching the V1 test.
 const tbtcVaultAddress = "0xB5679dE944A79732A75CE556191DF11F489448d5"
 
-// Deployed storage layout from the OZ manifest at
-// cross-chain/arbitrum/.openzeppelin/mainnet.json (current impl 0x3fFeE7D7).
-// Each entry: [label, slot, offset, typeCategory].
-// typeCategory uses the prefix of the OZ type string to allow matching across
-// different compiler runs (type IDs change but category stays the same).
-const DEPLOYED_MANIFEST_LAYOUT: Array<{
+const STORAGE_LAYOUT_INVARIANTS: Array<{
   label: string
   slot: string
   offset: number
@@ -52,68 +47,7 @@ const DEPLOYED_MANIFEST_LAYOUT: Array<{
     offset: 2,
     typeCategory: "t_contract(IBridge)",
   },
-  {
-    label: "tbtcVault",
-    slot: "1",
-    offset: 0,
-    typeCategory: "t_contract(ITBTCVault)",
-  },
-  {
-    label: "__gap",
-    slot: "2",
-    offset: 0,
-    typeCategory: "t_array(t_uint256)47_storage",
-  },
-  {
-    label: "__gap",
-    slot: "49",
-    offset: 0,
-    typeCategory: "t_array(t_uint256)50_storage",
-  },
-  { label: "_owner", slot: "99", offset: 0, typeCategory: "t_address" },
-  {
-    label: "__gap",
-    slot: "100",
-    offset: 0,
-    typeCategory: "t_array(t_uint256)49_storage",
-  },
-  {
-    label: "reimbursementPool",
-    slot: "149",
-    offset: 0,
-    typeCategory: "t_contract(ReimbursementPool)",
-  },
-  {
-    label: "__gap",
-    slot: "150",
-    offset: 0,
-    typeCategory: "t_array(t_uint256)49_storage",
-  },
   { label: "deposits", slot: "199", offset: 0, typeCategory: "t_mapping" },
-  {
-    label: "tbtcToken",
-    slot: "200",
-    offset: 0,
-    typeCategory: "t_contract(IERC20Upgradeable)",
-  },
-  {
-    label: "wormhole",
-    slot: "201",
-    offset: 0,
-    typeCategory: "t_contract(IWormhole)",
-  },
-  {
-    label: "wormholeRelayer",
-    slot: "202",
-    offset: 0,
-    typeCategory: "t_contract(IWormholeRelayer)",
-  },
-  {
-    label: "wormholeTokenBridge",
-    slot: "203",
-    offset: 0,
-    typeCategory: "t_contract(IWormholeTokenBridge)",
-  },
   {
     label: "l2WormholeGateway",
     slot: "204",
@@ -128,36 +62,6 @@ const DEPLOYED_MANIFEST_LAYOUT: Array<{
     typeCategory: "t_address",
   },
   {
-    label: "l2FinalizeDepositGasLimit",
-    slot: "206",
-    offset: 0,
-    typeCategory: "t_uint256",
-  },
-  {
-    label: "gasReimbursements",
-    slot: "207",
-    offset: 0,
-    typeCategory: "t_mapping",
-  },
-  {
-    label: "initializeDepositGasOffset",
-    slot: "208",
-    offset: 0,
-    typeCategory: "t_uint256",
-  },
-  {
-    label: "finalizeDepositGasOffset",
-    slot: "209",
-    offset: 0,
-    typeCategory: "t_uint256",
-  },
-  {
-    label: "reimbursementAuthorizations",
-    slot: "210",
-    offset: 0,
-    typeCategory: "t_mapping",
-  },
-  {
     label: "reimburseTxMaxFee",
     slot: "211",
     offset: 0,
@@ -165,53 +69,52 @@ const DEPLOYED_MANIFEST_LAYOUT: Array<{
   },
 ]
 
-// Extracts the V2 storage layout from the Hardhat build-info artifacts.
-// Returns the storageLayout.storage array from the compiled output.
-function getV2StorageLayout(): Array<{
-  label: string
-  slot: string
-  offset: number
-  type: string
-}> {
-  const buildInfoDir = path.resolve(__dirname, "../../../build/build-info")
-  const files = fs.readdirSync(buildInfoDir).filter((f) => f.endsWith(".json"))
-
-  // Search each build-info file for the V2 contract storage layout.
-  const result = files.reduce<Array<{
+async function getV2StorageLayout(): Promise<
+  Array<{
     label: string
     slot: string
     offset: number
     type: string
-  }> | null>((found, file) => {
-    if (found) return found
-    const data = JSON.parse(
-      fs.readFileSync(path.join(buildInfoDir, file), "utf-8")
-    )
-    const contracts = data?.output?.contracts || {}
-    const sources = Object.values(contracts) as Array<Record<string, any>>
-    const match = sources.find(
-      (sourceContracts) => sourceContracts.L1BTCDepositorWormholeV2
-    )
-    if (match) {
-      const layout = match.L1BTCDepositorWormholeV2.storageLayout
-      if (!layout || !layout.storage) {
-        throw new Error(
-          "storageLayout not found in V2 build-info. " +
-            "Ensure Hardhat outputs storage layout."
-        )
-      }
-      return layout.storage
+  }>
+> {
+  const parseJson = <T>(serialized: string, filePath: string): T => {
+    try {
+      return JSON.parse(serialized) as T
+    } catch {
+      throw new Error(`Failed to parse JSON artifact: ${filePath}`)
     }
-    return null
-  }, null)
+  }
 
-  if (!result) {
+  const debugArtifactPath = path.resolve(
+    __dirname,
+    "../../../build/contracts/cross-chain/wormhole/" +
+      "L1BTCDepositorWormholeV2.sol/L1BTCDepositorWormholeV2.dbg.json"
+  )
+  const debugArtifact = parseJson<{ buildInfo: string }>(
+    await fs.promises.readFile(debugArtifactPath, "utf8"),
+    debugArtifactPath
+  )
+  const buildInfoPath = path.resolve(
+    path.dirname(debugArtifactPath),
+    debugArtifact.buildInfo
+  )
+  const buildInfo = parseJson<Record<string, any>>(
+    await fs.promises.readFile(buildInfoPath, "utf8"),
+    buildInfoPath
+  )
+  const layout =
+    buildInfo?.output?.contracts?.[
+      "contracts/cross-chain/wormhole/L1BTCDepositorWormholeV2.sol"
+    ]?.L1BTCDepositorWormholeV2?.storageLayout
+
+  if (!layout?.storage) {
     throw new Error(
-      "L1BTCDepositorWormholeV2 not found in any build-info file. " +
+      "storageLayout not found for L1BTCDepositorWormholeV2. " +
         "Run `yarn build` first."
     )
   }
-  return result
+
+  return layout.storage
 }
 
 describe("L1BTCDepositorWormholeV2", () => {
@@ -318,7 +221,7 @@ describe("L1BTCDepositorWormholeV2", () => {
     } = await waffle.loadFixture(contractsFixture))
   })
 
-  describe("deployed manifest storage layout compliance", () => {
+  describe("storage layout invariants", () => {
     let compiledLayout: Array<{
       label: string
       slot: string
@@ -326,20 +229,22 @@ describe("L1BTCDepositorWormholeV2", () => {
       type: string
     }>
 
-    before(() => {
-      compiledLayout = getV2StorageLayout()
+    before(async () => {
+      compiledLayout = await getV2StorageLayout()
     })
 
-    it("should have the same number of storage entries as the deployed manifest", () => {
-      expect(compiledLayout.length).to.equal(DEPLOYED_MANIFEST_LAYOUT.length)
+    it("should load the compiled storage layout from the debug artifact", () => {
+      if (compiledLayout.length === 0) {
+        throw new Error("Compiled storage layout should not be empty")
+      }
+
+      if (compiledLayout[0]?.label !== "_initialized") {
+        throw new Error("First compiled storage entry should be _initialized")
+      }
     })
 
-    // Verify each individual slot matches the deployed manifest entry.
-    // Generate one test per manifest entry for clear failure messages.
-    DEPLOYED_MANIFEST_LAYOUT.forEach((expected) => {
+    STORAGE_LAYOUT_INVARIANTS.forEach((expected) => {
       it(`should have '${expected.label}' at slot ${expected.slot} offset ${expected.offset}`, () => {
-        // Find the compiled entry with matching label, slot, and offset.
-        // For __gap entries, match by slot since label is not unique.
         const compiled = compiledLayout.find(
           (entry) =>
             entry.label === expected.label &&
@@ -347,147 +252,61 @@ describe("L1BTCDepositorWormholeV2", () => {
             entry.offset === expected.offset
         )
 
-        expect(
-          compiled,
-          `Expected '${expected.label}' at slot ${expected.slot}:${expected.offset} ` +
-            "but it was not found in the compiled layout"
-        ).to.not.be.undefined
+        if (!compiled) {
+          throw new Error(
+            `Expected '${expected.label}' at slot ${expected.slot}:${expected.offset} ` +
+              "but it was not found in the compiled layout"
+          )
+        }
 
-        // Verify the type category matches (use startsWith for types with
-        // varying IDs across compiler runs, e.g. t_contract(IBridge)4625
-        // vs t_contract(IBridge)7540).
-        if (compiled) {
-          if (expected.typeCategory.startsWith("t_mapping")) {
-            expect(
-              compiled.type.startsWith("t_mapping"),
+        if (expected.typeCategory.startsWith("t_mapping")) {
+          if (!compiled.type.startsWith("t_mapping")) {
+            throw new Error(
               `Type mismatch for '${expected.label}': ` +
                 `expected mapping type but got '${compiled.type}'`
-            ).to.be.true
-          } else if (expected.typeCategory.startsWith("t_contract")) {
-            // Contract types have varying ast IDs, match by contract name.
-            const expectedPrefix = expected.typeCategory
-            expect(
-              compiled.type.startsWith(expectedPrefix),
+            )
+          }
+        } else if (expected.typeCategory.startsWith("t_contract")) {
+          const expectedPrefix = expected.typeCategory
+          if (!compiled.type.startsWith(expectedPrefix)) {
+            throw new Error(
               `Type mismatch for '${expected.label}': ` +
                 `expected type starting with '${expectedPrefix}' ` +
                 `but got '${compiled.type}'`
-            ).to.be.true
-          } else {
-            expect(
-              compiled.type,
-              `Type mismatch for '${expected.label}'`
-            ).to.equal(expected.typeCategory)
+            )
           }
+        } else if (compiled.type !== expected.typeCategory) {
+          throw new Error(
+            `Type mismatch for '${expected.label}': ` +
+              `expected '${expected.typeCategory}' but got '${compiled.type}'`
+          )
         }
       })
     })
 
-    it("should have _initialized at slot 0 offset 0 (Initializable first in C3)", () => {
-      const entry = compiledLayout.find((e) => e.label === "_initialized")
-      expect(entry, "_initialized not found").to.not.be.undefined
-      expect(entry!.slot).to.equal("0")
-      expect(entry!.offset).to.equal(0)
-    })
-
-    it("should have _initializing at slot 0 offset 1", () => {
-      const entry = compiledLayout.find((e) => e.label === "_initializing")
-      expect(entry, "_initializing not found").to.not.be.undefined
-      expect(entry!.slot).to.equal("0")
-      expect(entry!.offset).to.equal(1)
-    })
-
-    it("should have bridge packed at slot 0 offset 2", () => {
-      const entry = compiledLayout.find((e) => e.label === "bridge")
-      expect(entry, "bridge not found").to.not.be.undefined
-      expect(entry!.slot).to.equal("0")
-      expect(entry!.offset).to.equal(2)
-    })
-
-    it("should have deposits at slot 199", () => {
-      const entry = compiledLayout.find((e) => e.label === "deposits")
-      expect(entry, "deposits not found").to.not.be.undefined
-      expect(entry!.slot).to.equal("199")
-    })
-
-    it("should have l2BitcoinDepositor at slot 205 (deployed family naming)", () => {
+    it("should keep the deployed-family field naming for l2BitcoinDepositor", () => {
       const entry = compiledLayout.find((e) => e.label === "l2BitcoinDepositor")
-      expect(
-        entry,
-        "l2BitcoinDepositor not found -- " +
-          "variable may still use 'l2BtcDepositor' naming"
-      ).to.not.be.undefined
-      expect(entry!.slot).to.equal("205")
+      if (!entry) {
+        throw new Error(
+          "l2BitcoinDepositor not found -- " +
+            "variable may still use 'l2BtcDepositor' naming"
+        )
+      }
+
+      if (entry.slot !== "205") {
+        throw new Error(
+          `l2BitcoinDepositor should remain at slot 205, got ${entry.slot}`
+        )
+      }
     })
 
     it("should NOT have l2BtcDepositor (local family naming)", () => {
       const entry = compiledLayout.find((e) => e.label === "l2BtcDepositor")
-      expect(
-        entry,
-        "l2BtcDepositor should not exist -- " +
-          "must be renamed to l2BitcoinDepositor"
-      ).to.be.undefined
-    })
-
-    it("should have reimburseTxMaxFee at slot 211", () => {
-      const entry = compiledLayout.find((e) => e.label === "reimburseTxMaxFee")
-      expect(entry, "reimburseTxMaxFee not found").to.not.be.undefined
-      expect(entry!.slot).to.equal("211")
-    })
-
-    it("should have l2WormholeGateway and l2ChainId packed in slot 204", () => {
-      const gateway = compiledLayout.find(
-        (e) => e.label === "l2WormholeGateway"
-      )
-      const chainId = compiledLayout.find((e) => e.label === "l2ChainId")
-      expect(gateway, "l2WormholeGateway not found").to.not.be.undefined
-      expect(chainId, "l2ChainId not found").to.not.be.undefined
-      expect(gateway!.slot).to.equal("204")
-      expect(gateway!.offset).to.equal(0)
-      expect(chainId!.slot).to.equal("204")
-      expect(chainId!.offset).to.equal(20)
-    })
-  })
-
-  describe("build-info programmatic discovery", () => {
-    let layout: ReturnType<typeof getV2StorageLayout>
-
-    before(() => {
-      layout = getV2StorageLayout()
-    })
-
-    it("should find V2 storage layout without hardcoded file names", () => {
-      expect(layout).to.not.be.undefined
-      expect(layout).to.not.be.null
-    })
-
-    it("should return exactly the same entry count as the deployed manifest", () => {
-      expect(layout.length).to.equal(DEPLOYED_MANIFEST_LAYOUT.length)
-    })
-
-    it("should have _initialized as the first storage entry", () => {
-      expect(layout[0].label).to.equal("_initialized")
-    })
-
-    it("should have reimburseTxMaxFee as the last storage entry", () => {
-      expect(layout[layout.length - 1].label).to.equal("reimburseTxMaxFee")
-    })
-  })
-
-  describe("contract architecture", () => {
-    it("should NOT inherit from AbstractL1BTCDepositor", () => {
-      // Verify the compiled storage layout does not contain variables that
-      // would only appear if AbstractL1BTCDepositor was in the inheritance
-      // chain. When V2 is monolithic, variables like deposits, tbtcToken,
-      // gasReimbursements are declared directly in V2, so their contract
-      // field should reference V2 (not AbstractL1BTCDepositor).
-      const compiledLayout = getV2StorageLayout()
-      const depositsEntry = compiledLayout.find(
-        (e) => e.label === "deposits"
-      ) as any
-      if (depositsEntry) {
-        // The contract field should reference V2, not AbstractL1BTCDepositor.
-        expect(depositsEntry.contract).to.include("L1BTCDepositorWormholeV2")
-        expect(depositsEntry.contract).to.not.include("AbstractL1BTCDepositor")
+      if (entry) {
+        throw new Error(
+          "l2BtcDepositor should not exist -- " +
+            "must be renamed to l2BitcoinDepositor"
+        )
       }
     })
   })
@@ -944,6 +763,26 @@ describe("L1BTCDepositorWormholeV2", () => {
         )
       })
 
+      it("should encode the payload in the format expected by L2WormholeGateway", async () => {
+        const payload =
+          wormholeTokenBridge.transferTokensWithPayload.getCall(0).args[5]
+        const [l2Receiver] = ethers.utils.defaultAbiCoder.decode(
+          ["bytes32"],
+          payload
+        )
+
+        expect(l2Receiver.toLowerCase()).to.equal(
+          initializeDepositFixture.destinationChainDepositOwner.toLowerCase()
+        )
+        expect(ethers.utils.getAddress(`0x${l2Receiver.slice(26)}`)).to.equal(
+          ethers.utils.getAddress(
+            `0x${initializeDepositFixture.destinationChainDepositOwner.slice(
+              26
+            )}`
+          )
+        )
+      })
+
       it("should NOT call sendVaasToEvm", async () => {
         // eslint-disable-next-line @typescript-eslint/no-unused-expressions
         expect(wormholeRelayer.sendVaasToEvm).to.not.have.been.called
@@ -963,6 +802,60 @@ describe("L1BTCDepositorWormholeV2", () => {
   })
 
   describe("proxy upgrade mechanics", () => {
+    it("should pass OpenZeppelin prepareUpgrade validation for a fresh V2 proxy", async () => {
+      await createSnapshot()
+
+      try {
+        const { deployer } = await helpers.signers.getNamedSigners()
+
+        const proxyName = `L1BTCDepositorWormholeV2_prepare_${randomBytes(
+          8
+        ).toString("hex")}`
+        const v2Deployment = await helpers.upgrades.deployProxy(proxyName, {
+          contractName: "L1BTCDepositorWormholeV2",
+          initializerArgs: [
+            bridge.address,
+            tbtcVault.address,
+            wormhole.address,
+            wormholeRelayer.address,
+            wormholeTokenBridge.address,
+            l2WormholeGateway.address,
+            l2ChainId,
+          ],
+          factoryOpts: { signer: deployer },
+          proxyOpts: {
+            kind: "transparent",
+          },
+        })
+
+        const proxy = v2Deployment[0] as L1BTCDepositorWormholeV2
+        const v2Factory = await ethers.getContractFactory(
+          "L1BTCDepositorWormholeV2",
+          deployer
+        )
+
+        const implementationAddress = await upgrades.prepareUpgrade(
+          proxy.address,
+          v2Factory,
+          {
+            kind: "transparent",
+          }
+        )
+
+        if (!ethers.utils.isAddress(implementationAddress)) {
+          throw new Error(
+            `prepareUpgrade returned invalid address ${implementationAddress}`
+          )
+        }
+
+        if (implementationAddress === proxy.address) {
+          throw new Error("prepareUpgrade should deploy a new implementation")
+        }
+      } finally {
+        await restoreSnapshot()
+      }
+    })
+
     // V2 is a monolithic contract designed to match the storage layout of the
     // deployed L1BitcoinDepositor family on Arbitrum mainnet (proxy
     // 0x75A6...9A). The local V1 (L1BTCDepositorWormhole) uses a different
@@ -970,10 +863,10 @@ describe("L1BTCDepositorWormholeV2", () => {
     // storage layout. As a result, V1-to-V2 is intentionally NOT a
     // storage-compatible upgrade.
     //
-    // Storage layout compliance with the deployed manifest is verified in the
-    // "deployed manifest storage layout compliance" describe block above.
-    // This block verifies that V2 can be deployed behind a fresh proxy and
-    // that the proxy upgrade mechanism itself works correctly.
+    // The focused storage layout invariants above keep the key deployed slots
+    // stable without mirroring the entire manifest in this test file. This
+    // block verifies that V2 can be deployed behind a fresh proxy and that the
+    // proxy upgrade mechanism itself works correctly.
 
     it("should deploy V2 behind a fresh proxy and upgrade to a new V2 impl", async () => {
       await createSnapshot()
