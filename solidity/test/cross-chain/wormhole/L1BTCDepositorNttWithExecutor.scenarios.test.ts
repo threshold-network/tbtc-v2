@@ -73,6 +73,15 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
     await depositor.setSupportedChain(WORMHOLE_CHAIN_SEI, true)
     await depositor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
     await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
+
+    // Set default platform fee to allow zero fee with zero address (fee theft fix compatibility)
+    await depositor.setDefaultParameters(
+      500000, // gas limit
+      0, // executor fee
+      ethers.constants.AddressZero, // executor fee recipient
+      0, // 0% platform fee (allows zero address as payee)
+      ethers.constants.AddressZero // platform fee recipient
+    )
   })
 
   beforeEach(async () => {
@@ -145,7 +154,10 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
       const [isSet1] = await depositor.connect(user).areExecutorParametersSet()
       expect(isSet1).to.be.true
 
-      // Test high fee
+      // Test high fee - configure platform fee recipient first
+      await depositor.setDefaultPlatformFeeBps(1000) // 1% (1000/100000)
+      await depositor.setDefaultPlatformFeeRecipient(user.address)
+
       const highFeeArgs = {
         dbps: 1000, // 1% (1000/100000)
         payee: user.address,
@@ -157,7 +169,9 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
       const [isSet2] = await depositor.connect(user).areExecutorParametersSet()
       expect(isSet2).to.be.true
 
-      // Test maximum fee
+      // Test maximum fee - update platform fee
+      await depositor.setDefaultPlatformFeeBps(10000) // 10% (10000/100000)
+
       const maxFeeArgs = {
         dbps: 10000, // 10% (10000/100000)
         payee: user.address,
@@ -180,7 +194,10 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
         instructions: `0x${"2".repeat(64)}`,
       }
 
-      // Test with different fee recipients
+      // Test with first fee recipient - configure platform fee
+      await depositor.setDefaultPlatformFeeBps(100) // 0.1% (100/100000)
+      await depositor.setDefaultPlatformFeeRecipient(user.address)
+
       const feeArgs1 = {
         dbps: 100, // 0.1% (100/100000)
         payee: user.address,
@@ -189,6 +206,9 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
       await depositor
         .connect(user)
         .setExecutorParameters(executorArgs, feeArgs1)
+
+      // Change platform fee recipient
+      await depositor.setDefaultPlatformFeeRecipient(feeRecipient.address)
 
       const feeArgs2 = {
         dbps: 100, // 0.1% (100/100000)
@@ -207,6 +227,7 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
     it("should handle rapid parameter updates", async () => {
       const [, , user] = await ethers.getSigners()
 
+      // Use zero fee to avoid platform fee recipient configuration
       // Perform multiple rapid updates
       // eslint-disable-next-line no-plusplus
       for (let i = 0; i < 5; i++) {
@@ -218,8 +239,8 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
         }
 
         const feeArgs = {
-          dbps: 100 + i * 10,
-          payee: user.address,
+          dbps: 0, // Use zero fee
+          payee: ethers.constants.AddressZero,
         }
 
         // eslint-disable-next-line no-await-in-loop
@@ -240,7 +261,7 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
     it("should handle parameter clearing and resetting", async () => {
       const [, , user] = await ethers.getSigners()
 
-      // Set parameters
+      // Set parameters with zero fee
       const executorArgs = {
         value: ethers.utils.parseEther("0.01"),
         refundAddress: user.address,
@@ -249,8 +270,8 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
       }
 
       const feeArgs = {
-        dbps: 100, // 0.1% (100/100000)
-        payee: user.address,
+        dbps: 0, // Use zero fee
+        payee: ethers.constants.AddressZero,
       }
 
       await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
