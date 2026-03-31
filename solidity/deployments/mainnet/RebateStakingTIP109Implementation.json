@@ -1,0 +1,1298 @@
+{
+  "address": "0x6e25EFFc3CC6d84f5Df65d87b1cacFaE423ccbEe",
+  "abi": [
+    {
+      "inputs": [],
+      "stateMutability": "nonpayable",
+      "type": "constructor"
+    },
+    {
+      "inputs": [],
+      "name": "AmountCannotBeZero",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "AmountTooBig",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "CallerNotBridge",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "NoUnstakingProcess",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "NotAStaker",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "ParametersCannotBeZero",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "RollingWindowCannotBeZero",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "UnstakingAlreadyStarted",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "UnstakingNotFinished",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "WrongDelegatee",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "ZeroAddress",
+      "type": "error"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "staker",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "delegatee",
+          "type": "address"
+        }
+      ],
+      "name": "DelegateeSet",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "uint8",
+          "name": "version",
+          "type": "uint8"
+        }
+      ],
+      "name": "Initialized",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "previousOwner",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "newOwner",
+          "type": "address"
+        }
+      ],
+      "name": "OwnershipTransferred",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "staker",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "requestedAt",
+          "type": "uint256"
+        }
+      ],
+      "name": "RebateCanceled",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "rebatePerToken",
+          "type": "uint256"
+        }
+      ],
+      "name": "RebatePerTokenUpdated",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "staker",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint64",
+          "name": "rebate",
+          "type": "uint64"
+        }
+      ],
+      "name": "RebateReceived",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "staker",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "enum RebateStaking.RebateTreasuryFeeMode",
+          "name": "rebateTreasuryFeeMode",
+          "type": "uint8"
+        }
+      ],
+      "name": "RebateTreasuryFeeModeUpdated",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "rollingWindow",
+          "type": "uint256"
+        }
+      ],
+      "name": "RollingWindowUpdated",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "staker",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "Staked",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "staker",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "UnstakeFinished",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "staker",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "UnstakeStarted",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "unstakingPeriod",
+          "type": "uint256"
+        }
+      ],
+      "name": "UnstakingPeriodUpdated",
+      "type": "event"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        },
+        {
+          "internalType": "uint64",
+          "name": "treasuryFee",
+          "type": "uint64"
+        },
+        {
+          "internalType": "enum RebateStaking.TreasuryFeeType",
+          "name": "treasuryFeeType",
+          "type": "uint8"
+        }
+      ],
+      "name": "applyForRebate",
+      "outputs": [
+        {
+          "internalType": "uint64",
+          "name": "",
+          "type": "uint64"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "bridge",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "requestedAt",
+          "type": "uint256"
+        }
+      ],
+      "name": "cancelRebate",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "delegates",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "receiver",
+          "type": "address"
+        }
+      ],
+      "name": "finalizeUnstaking",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        }
+      ],
+      "name": "getAvailableRebate",
+      "outputs": [
+        {
+          "internalType": "uint64",
+          "name": "rebateInWindow",
+          "type": "uint64"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        }
+      ],
+      "name": "getDelegatee",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "delegatee",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "index",
+          "type": "uint256"
+        }
+      ],
+      "name": "getRebate",
+      "outputs": [
+        {
+          "internalType": "uint32",
+          "name": "timestamp",
+          "type": "uint32"
+        },
+        {
+          "internalType": "uint64",
+          "name": "feeRebate",
+          "type": "uint64"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        }
+      ],
+      "name": "getRebateCap",
+      "outputs": [
+        {
+          "internalType": "uint64",
+          "name": "",
+          "type": "uint64"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        }
+      ],
+      "name": "getRebateLength",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        }
+      ],
+      "name": "getRebateTreasuryFeeMode",
+      "outputs": [
+        {
+          "internalType": "enum RebateStaking.RebateTreasuryFeeMode",
+          "name": "rebateTreasuryFeeMode",
+          "type": "uint8"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        }
+      ],
+      "name": "getStake",
+      "outputs": [
+        {
+          "internalType": "uint96",
+          "name": "stakedAmount",
+          "type": "uint96"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        }
+      ],
+      "name": "getUnstakingAmount",
+      "outputs": [
+        {
+          "internalType": "uint96",
+          "name": "unstakingAmount",
+          "type": "uint96"
+        },
+        {
+          "internalType": "uint32",
+          "name": "unstakingTimestamp",
+          "type": "uint32"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_bridge",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_token",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "_rollingWindow",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "_unstakingPeriod",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "_rebatePerToken",
+          "type": "uint256"
+        }
+      ],
+      "name": "initialize",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "owner",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "rebatePerToken",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "renounceOwnership",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "rollingWindow",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_delegatee",
+          "type": "address"
+        }
+      ],
+      "name": "setDelegatee",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "enum RebateStaking.RebateTreasuryFeeMode",
+          "name": "_rebateTreasuryFeeMode",
+          "type": "uint8"
+        }
+      ],
+      "name": "setRebateTreasuryFeeMode",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint96",
+          "name": "amount",
+          "type": "uint96"
+        }
+      ],
+      "name": "stake",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "stakes",
+      "outputs": [
+        {
+          "internalType": "uint96",
+          "name": "stakedAmount",
+          "type": "uint96"
+        },
+        {
+          "internalType": "uint96",
+          "name": "unstakingAmount",
+          "type": "uint96"
+        },
+        {
+          "internalType": "uint32",
+          "name": "unstakingTimestamp",
+          "type": "uint32"
+        },
+        {
+          "internalType": "uint256",
+          "name": "rollingWindowStartIndex",
+          "type": "uint256"
+        },
+        {
+          "internalType": "enum RebateStaking.RebateTreasuryFeeMode",
+          "name": "rebateTreasuryFeeMode",
+          "type": "uint8"
+        },
+        {
+          "internalType": "address",
+          "name": "delegatee",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint96",
+          "name": "amount",
+          "type": "uint96"
+        }
+      ],
+      "name": "startUnstaking",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "token",
+      "outputs": [
+        {
+          "internalType": "contract IERC20Upgradeable",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "newOwner",
+          "type": "address"
+        }
+      ],
+      "name": "transferOwnership",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "unstakingPeriod",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "_newRebatePerToken",
+          "type": "uint256"
+        }
+      ],
+      "name": "updateRebatePerToken",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "_newRollingWindow",
+          "type": "uint256"
+        }
+      ],
+      "name": "updateRollingWindow",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "_newUnstakingPeriod",
+          "type": "uint256"
+        }
+      ],
+      "name": "updateUnstakingPeriod",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    }
+  ],
+  "transactionHash": "0x39ecd84a7cd01193086a01e85e560b22563668f68e9049c323c2f7905fd4f4d5",
+  "receipt": {
+    "to": null,
+    "from": "0x716089154304f22a2F9c8d2f8C45815183BF3532",
+    "contractAddress": "0x6e25EFFc3CC6d84f5Df65d87b1cacFaE423ccbEe",
+    "transactionIndex": 425,
+    "gasUsed": "1881383",
+    "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000400000000000000000000000000000000000000040000000000000000000000040000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "blockHash": "0xfa67c0c00c98cf140fdc7270450a65d16dfe8ef32c9e614339c113943981523b",
+    "transactionHash": "0x39ecd84a7cd01193086a01e85e560b22563668f68e9049c323c2f7905fd4f4d5",
+    "logs": [
+      {
+        "transactionIndex": 425,
+        "blockNumber": 24773630,
+        "transactionHash": "0x39ecd84a7cd01193086a01e85e560b22563668f68e9049c323c2f7905fd4f4d5",
+        "address": "0x6e25EFFc3CC6d84f5Df65d87b1cacFaE423ccbEe",
+        "topics": [
+          "0x7f26b83ff96e1f2b6a682f133852f6798a09c465da95921460cefb3847402498"
+        ],
+        "data": "0x00000000000000000000000000000000000000000000000000000000000000ff",
+        "logIndex": 449,
+        "blockHash": "0xfa67c0c00c98cf140fdc7270450a65d16dfe8ef32c9e614339c113943981523b"
+      }
+    ],
+    "blockNumber": 24773630,
+    "cumulativeGasUsed": "26181650",
+    "status": 1,
+    "byzantium": true
+  },
+  "args": [],
+  "numDeployments": 1,
+  "solcInputHash": "e43e53a6510f3c745259d38e7d32d366",
+  "metadata": "{\"compiler\":{\"version\":\"0.8.17+commit.8df45f5f\"},\"language\":\"Solidity\",\"output\":{\"abi\":[{\"inputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"constructor\"},{\"inputs\":[],\"name\":\"AmountCannotBeZero\",\"type\":\"error\"},{\"inputs\":[],\"name\":\"AmountTooBig\",\"type\":\"error\"},{\"inputs\":[],\"name\":\"CallerNotBridge\",\"type\":\"error\"},{\"inputs\":[],\"name\":\"NoUnstakingProcess\",\"type\":\"error\"},{\"inputs\":[],\"name\":\"NotAStaker\",\"type\":\"error\"},{\"inputs\":[],\"name\":\"ParametersCannotBeZero\",\"type\":\"error\"},{\"inputs\":[],\"name\":\"RollingWindowCannotBeZero\",\"type\":\"error\"},{\"inputs\":[],\"name\":\"UnstakingAlreadyStarted\",\"type\":\"error\"},{\"inputs\":[],\"name\":\"UnstakingNotFinished\",\"type\":\"error\"},{\"inputs\":[],\"name\":\"WrongDelegatee\",\"type\":\"error\"},{\"inputs\":[],\"name\":\"ZeroAddress\",\"type\":\"error\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"address\",\"name\":\"staker\",\"type\":\"address\"},{\"indexed\":false,\"internalType\":\"address\",\"name\":\"delegatee\",\"type\":\"address\"}],\"name\":\"DelegateeSet\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"uint8\",\"name\":\"version\",\"type\":\"uint8\"}],\"name\":\"Initialized\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"address\",\"name\":\"previousOwner\",\"type\":\"address\"},{\"indexed\":true,\"internalType\":\"address\",\"name\":\"newOwner\",\"type\":\"address\"}],\"name\":\"OwnershipTransferred\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"address\",\"name\":\"staker\",\"type\":\"address\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"requestedAt\",\"type\":\"uint256\"}],\"name\":\"RebateCanceled\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"rebatePerToken\",\"type\":\"uint256\"}],\"name\":\"RebatePerTokenUpdated\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"address\",\"name\":\"staker\",\"type\":\"address\"},{\"indexed\":false,\"internalType\":\"uint64\",\"name\":\"rebate\",\"type\":\"uint64\"}],\"name\":\"RebateReceived\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"address\",\"name\":\"staker\",\"type\":\"address\"},{\"indexed\":false,\"internalType\":\"enum RebateStaking.RebateTreasuryFeeMode\",\"name\":\"rebateTreasuryFeeMode\",\"type\":\"uint8\"}],\"name\":\"RebateTreasuryFeeModeUpdated\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"rollingWindow\",\"type\":\"uint256\"}],\"name\":\"RollingWindowUpdated\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"address\",\"name\":\"staker\",\"type\":\"address\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"amount\",\"type\":\"uint256\"}],\"name\":\"Staked\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"address\",\"name\":\"staker\",\"type\":\"address\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"amount\",\"type\":\"uint256\"}],\"name\":\"UnstakeFinished\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"address\",\"name\":\"staker\",\"type\":\"address\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"amount\",\"type\":\"uint256\"}],\"name\":\"UnstakeStarted\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"unstakingPeriod\",\"type\":\"uint256\"}],\"name\":\"UnstakingPeriodUpdated\",\"type\":\"event\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"user\",\"type\":\"address\"},{\"internalType\":\"uint64\",\"name\":\"treasuryFee\",\"type\":\"uint64\"},{\"internalType\":\"enum RebateStaking.TreasuryFeeType\",\"name\":\"treasuryFeeType\",\"type\":\"uint8\"}],\"name\":\"applyForRebate\",\"outputs\":[{\"internalType\":\"uint64\",\"name\":\"\",\"type\":\"uint64\"}],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"bridge\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"user\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"requestedAt\",\"type\":\"uint256\"}],\"name\":\"cancelRebate\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"name\":\"delegates\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"receiver\",\"type\":\"address\"}],\"name\":\"finalizeUnstaking\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"user\",\"type\":\"address\"}],\"name\":\"getAvailableRebate\",\"outputs\":[{\"internalType\":\"uint64\",\"name\":\"rebateInWindow\",\"type\":\"uint64\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"user\",\"type\":\"address\"}],\"name\":\"getDelegatee\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"delegatee\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"user\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"index\",\"type\":\"uint256\"}],\"name\":\"getRebate\",\"outputs\":[{\"internalType\":\"uint32\",\"name\":\"timestamp\",\"type\":\"uint32\"},{\"internalType\":\"uint64\",\"name\":\"feeRebate\",\"type\":\"uint64\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"user\",\"type\":\"address\"}],\"name\":\"getRebateCap\",\"outputs\":[{\"internalType\":\"uint64\",\"name\":\"\",\"type\":\"uint64\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"user\",\"type\":\"address\"}],\"name\":\"getRebateLength\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"user\",\"type\":\"address\"}],\"name\":\"getRebateTreasuryFeeMode\",\"outputs\":[{\"internalType\":\"enum RebateStaking.RebateTreasuryFeeMode\",\"name\":\"rebateTreasuryFeeMode\",\"type\":\"uint8\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"user\",\"type\":\"address\"}],\"name\":\"getStake\",\"outputs\":[{\"internalType\":\"uint96\",\"name\":\"stakedAmount\",\"type\":\"uint96\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"user\",\"type\":\"address\"}],\"name\":\"getUnstakingAmount\",\"outputs\":[{\"internalType\":\"uint96\",\"name\":\"unstakingAmount\",\"type\":\"uint96\"},{\"internalType\":\"uint32\",\"name\":\"unstakingTimestamp\",\"type\":\"uint32\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_bridge\",\"type\":\"address\"},{\"internalType\":\"address\",\"name\":\"_token\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"_rollingWindow\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"_unstakingPeriod\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"_rebatePerToken\",\"type\":\"uint256\"}],\"name\":\"initialize\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"owner\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"rebatePerToken\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"renounceOwnership\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"rollingWindow\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"_delegatee\",\"type\":\"address\"}],\"name\":\"setDelegatee\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"enum RebateStaking.RebateTreasuryFeeMode\",\"name\":\"_rebateTreasuryFeeMode\",\"type\":\"uint8\"}],\"name\":\"setRebateTreasuryFeeMode\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint96\",\"name\":\"amount\",\"type\":\"uint96\"}],\"name\":\"stake\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"name\":\"stakes\",\"outputs\":[{\"internalType\":\"uint96\",\"name\":\"stakedAmount\",\"type\":\"uint96\"},{\"internalType\":\"uint96\",\"name\":\"unstakingAmount\",\"type\":\"uint96\"},{\"internalType\":\"uint32\",\"name\":\"unstakingTimestamp\",\"type\":\"uint32\"},{\"internalType\":\"uint256\",\"name\":\"rollingWindowStartIndex\",\"type\":\"uint256\"},{\"internalType\":\"enum RebateStaking.RebateTreasuryFeeMode\",\"name\":\"rebateTreasuryFeeMode\",\"type\":\"uint8\"},{\"internalType\":\"address\",\"name\":\"delegatee\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint96\",\"name\":\"amount\",\"type\":\"uint96\"}],\"name\":\"startUnstaking\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"token\",\"outputs\":[{\"internalType\":\"contract IERC20Upgradeable\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"newOwner\",\"type\":\"address\"}],\"name\":\"transferOwnership\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"unstakingPeriod\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"_newRebatePerToken\",\"type\":\"uint256\"}],\"name\":\"updateRebatePerToken\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"_newRollingWindow\",\"type\":\"uint256\"}],\"name\":\"updateRollingWindow\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"_newUnstakingPeriod\",\"type\":\"uint256\"}],\"name\":\"updateUnstakingPeriod\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"}],\"devdoc\":{\"kind\":\"dev\",\"methods\":{\"applyForRebate(address,uint64,uint8)\":{\"details\":\"Requirements:      - The caller must be the bridge contract\",\"params\":{\"treasuryFee\":\"Original fees\",\"treasuryFeeType\":\"Type of treasury fee:        - 0: deposit treasury fee,        - 1: redemption treasury fee.\",\"user\":\"Address of depositor or redeemer\"},\"returns\":{\"_0\":\"Updated fees considering rebate if applicable\"}},\"cancelRebate(address,uint256)\":{\"details\":\"Requirements:      - The caller must be the bridge contract\",\"params\":{\"requestedAt\":\"Timestamp when redeem was requested\",\"user\":\"Address of depositor or redeemer\"}},\"constructor\":{\"custom:oz-upgrades-unsafe-allow\":\"constructor\"},\"finalizeUnstaking(address)\":{\"params\":{\"receiver\":\"Address of stake receiver\"}},\"getAvailableRebate(address)\":{\"params\":{\"user\":\"Address of depositor or redeemer\"}},\"getDelegatee(address)\":{\"params\":{\"user\":\"Address of depositor or redeemer\"},\"returns\":{\"delegatee\":\"Delegatee address.\"}},\"getRebate(address,uint256)\":{\"params\":{\"index\":\"Index of the element in the array\",\"user\":\"Address of depositor or redeemer\"},\"returns\":{\"feeRebate\":\"Amount of rebate\",\"timestamp\":\"Timestamp of rebate\"}},\"getRebateCap(address)\":{\"params\":{\"user\":\"Address of depositor or redeemer\"}},\"getRebateLength(address)\":{\"params\":{\"user\":\"Address of depositor or redeemer\"}},\"getRebateTreasuryFeeMode(address)\":{\"params\":{\"user\":\"Address of the staker\"},\"returns\":{\"rebateTreasuryFeeMode\":\"Current mode:         - 0: rebates for both deposits and redemptions,         - 1: rebates for deposits only,         - 2: rebates for redemptions only.\"}},\"getStake(address)\":{\"params\":{\"user\":\"Address of depositor or redeemer\"},\"returns\":{\"stakedAmount\":\"Amount of stake\"}},\"getUnstakingAmount(address)\":{\"params\":{\"user\":\"Address of depositor or redeemer\"},\"returns\":{\"unstakingAmount\":\"Amount that is currently unstaking\",\"unstakingTimestamp\":\"Amount of rebate\"}},\"initialize(address,address,uint256,uint256,uint256)\":{\"details\":\"Initializes upgradable contract on deployment.\"},\"owner()\":{\"details\":\"Returns the address of the current owner.\"},\"renounceOwnership()\":{\"details\":\"Leaves the contract without owner. It will not be possible to call `onlyOwner` functions anymore. Can only be called by the current owner. NOTE: Renouncing ownership will leave the contract without an owner, thereby removing any functionality that is only available to the owner.\"},\"setDelegatee(address)\":{\"params\":{\"_delegatee\":\"Delegatee address.\"}},\"setRebateTreasuryFeeMode(uint8)\":{\"params\":{\"_rebateTreasuryFeeMode\":\"New rebate treasury fee mode:        - 0: rebates for both deposits and redemptions,        - 1: rebates for deposits only,        - 2: rebates for redemptions only.\"}},\"stake(uint96)\":{\"params\":{\"amount\":\"Amount of tokens to stake\"}},\"startUnstaking(uint96)\":{\"params\":{\"amount\":\"Amount of tokens to unstake\"}},\"transferOwnership(address)\":{\"details\":\"Transfers ownership of the contract to a new account (`newOwner`). Can only be called by the current owner.\"},\"updateRebatePerToken(uint256)\":{\"details\":\"Requirements:      - The caller must be the contract owner\",\"params\":{\"_newRebatePerToken\":\"Rebate coefficient.\"}},\"updateRollingWindow(uint256)\":{\"details\":\"Requirements:      - The caller must be the contract owner,      - The new rolling window cannot be zero\",\"params\":{\"_newRollingWindow\":\"Duration of the rolling window.\"}},\"updateUnstakingPeriod(uint256)\":{\"details\":\"Requirements:      - The caller must be the contract owner\",\"params\":{\"_newUnstakingPeriod\":\"Duration of the unstaking period.\"}}},\"title\":\"Contract for staking T token to get rebate on minting/redemption fees\",\"version\":1},\"userdoc\":{\"kind\":\"user\",\"methods\":{\"applyForRebate(address,uint64,uint8)\":{\"notice\":\"Checks if user is eligible for rebate\"},\"cancelRebate(address,uint256)\":{\"notice\":\"Cancels rebate in case of reedem request was timed out\"},\"finalizeUnstaking(address)\":{\"notice\":\"Finalize unstaking and withdraw tokens\"},\"getAvailableRebate(address)\":{\"notice\":\"Calculates available rebate for the specified user.\"},\"getDelegatee(address)\":{\"notice\":\"Returns information about stake\"},\"getRebate(address,uint256)\":{\"notice\":\"Returns timestamp and amount of rebate\"},\"getRebateCap(address)\":{\"notice\":\"Calculates cap for rebate for the specified user.\"},\"getRebateLength(address)\":{\"notice\":\"Returns size of rebate array\"},\"getRebateTreasuryFeeMode(address)\":{\"notice\":\"Returns the rebate treasury fee mode for a user.\"},\"getStake(address)\":{\"notice\":\"Returns information about stake\"},\"getUnstakingAmount(address)\":{\"notice\":\"Returns information about unstaking\"},\"setDelegatee(address)\":{\"notice\":\"Sets a delegatee for a rebate.\"},\"setRebateTreasuryFeeMode(uint8)\":{\"notice\":\"Sets the rebate treasury fee mode for caller.\"},\"stake(uint96)\":{\"notice\":\"Stake T token to be eligible for rebate\"},\"startUnstaking(uint96)\":{\"notice\":\"Start unstaking process\"},\"updateRebatePerToken(uint256)\":{\"notice\":\"Updates the rebate per token.\"},\"updateRollingWindow(uint256)\":{\"notice\":\"Updates the rolling window.\"},\"updateUnstakingPeriod(uint256)\":{\"notice\":\"Updates the unstaking period.\"}},\"version\":1}},\"settings\":{\"compilationTarget\":{\"contracts/bridge/RebateStaking.sol\":\"RebateStaking\"},\"evmVersion\":\"london\",\"libraries\":{},\"metadata\":{\"bytecodeHash\":\"ipfs\",\"useLiteralContent\":true},\"optimizer\":{\"enabled\":true,\"runs\":1000},\"remappings\":[]},\"sources\":{\"@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol\":{\"content\":\"// SPDX-License-Identifier: MIT\\n// OpenZeppelin Contracts (last updated v4.7.0) (access/Ownable.sol)\\n\\npragma solidity ^0.8.0;\\n\\nimport \\\"../utils/ContextUpgradeable.sol\\\";\\nimport \\\"../proxy/utils/Initializable.sol\\\";\\n\\n/**\\n * @dev Contract module which provides a basic access control mechanism, where\\n * there is an account (an owner) that can be granted exclusive access to\\n * specific functions.\\n *\\n * By default, the owner account will be the one that deploys the contract. This\\n * can later be changed with {transferOwnership}.\\n *\\n * This module is used through inheritance. It will make available the modifier\\n * `onlyOwner`, which can be applied to your functions to restrict their use to\\n * the owner.\\n */\\nabstract contract OwnableUpgradeable is Initializable, ContextUpgradeable {\\n    address private _owner;\\n\\n    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);\\n\\n    /**\\n     * @dev Initializes the contract setting the deployer as the initial owner.\\n     */\\n    function __Ownable_init() internal onlyInitializing {\\n        __Ownable_init_unchained();\\n    }\\n\\n    function __Ownable_init_unchained() internal onlyInitializing {\\n        _transferOwnership(_msgSender());\\n    }\\n\\n    /**\\n     * @dev Throws if called by any account other than the owner.\\n     */\\n    modifier onlyOwner() {\\n        _checkOwner();\\n        _;\\n    }\\n\\n    /**\\n     * @dev Returns the address of the current owner.\\n     */\\n    function owner() public view virtual returns (address) {\\n        return _owner;\\n    }\\n\\n    /**\\n     * @dev Throws if the sender is not the owner.\\n     */\\n    function _checkOwner() internal view virtual {\\n        require(owner() == _msgSender(), \\\"Ownable: caller is not the owner\\\");\\n    }\\n\\n    /**\\n     * @dev Leaves the contract without owner. It will not be possible to call\\n     * `onlyOwner` functions anymore. Can only be called by the current owner.\\n     *\\n     * NOTE: Renouncing ownership will leave the contract without an owner,\\n     * thereby removing any functionality that is only available to the owner.\\n     */\\n    function renounceOwnership() public virtual onlyOwner {\\n        _transferOwnership(address(0));\\n    }\\n\\n    /**\\n     * @dev Transfers ownership of the contract to a new account (`newOwner`).\\n     * Can only be called by the current owner.\\n     */\\n    function transferOwnership(address newOwner) public virtual onlyOwner {\\n        require(newOwner != address(0), \\\"Ownable: new owner is the zero address\\\");\\n        _transferOwnership(newOwner);\\n    }\\n\\n    /**\\n     * @dev Transfers ownership of the contract to a new account (`newOwner`).\\n     * Internal function without access restriction.\\n     */\\n    function _transferOwnership(address newOwner) internal virtual {\\n        address oldOwner = _owner;\\n        _owner = newOwner;\\n        emit OwnershipTransferred(oldOwner, newOwner);\\n    }\\n\\n    /**\\n     * @dev This empty reserved space is put in place to allow future versions to add new\\n     * variables without shifting down storage in the inheritance chain.\\n     * See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps\\n     */\\n    uint256[49] private __gap;\\n}\\n\",\"keccak256\":\"0x247c62047745915c0af6b955470a72d1696ebad4352d7d3011aef1a2463cd888\",\"license\":\"MIT\"},\"@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol\":{\"content\":\"// SPDX-License-Identifier: MIT\\n// OpenZeppelin Contracts (last updated v4.8.1) (proxy/utils/Initializable.sol)\\n\\npragma solidity ^0.8.2;\\n\\nimport \\\"../../utils/AddressUpgradeable.sol\\\";\\n\\n/**\\n * @dev This is a base contract to aid in writing upgradeable contracts, or any kind of contract that will be deployed\\n * behind a proxy. Since proxied contracts do not make use of a constructor, it's common to move constructor logic to an\\n * external initializer function, usually called `initialize`. It then becomes necessary to protect this initializer\\n * function so it can only be called once. The {initializer} modifier provided by this contract will have this effect.\\n *\\n * The initialization functions use a version number. Once a version number is used, it is consumed and cannot be\\n * reused. This mechanism prevents re-execution of each \\\"step\\\" but allows the creation of new initialization steps in\\n * case an upgrade adds a module that needs to be initialized.\\n *\\n * For example:\\n *\\n * [.hljs-theme-light.nopadding]\\n * ```\\n * contract MyToken is ERC20Upgradeable {\\n *     function initialize() initializer public {\\n *         __ERC20_init(\\\"MyToken\\\", \\\"MTK\\\");\\n *     }\\n * }\\n * contract MyTokenV2 is MyToken, ERC20PermitUpgradeable {\\n *     function initializeV2() reinitializer(2) public {\\n *         __ERC20Permit_init(\\\"MyToken\\\");\\n *     }\\n * }\\n * ```\\n *\\n * TIP: To avoid leaving the proxy in an uninitialized state, the initializer function should be called as early as\\n * possible by providing the encoded function call as the `_data` argument to {ERC1967Proxy-constructor}.\\n *\\n * CAUTION: When used with inheritance, manual care must be taken to not invoke a parent initializer twice, or to ensure\\n * that all initializers are idempotent. This is not verified automatically as constructors are by Solidity.\\n *\\n * [CAUTION]\\n * ====\\n * Avoid leaving a contract uninitialized.\\n *\\n * An uninitialized contract can be taken over by an attacker. This applies to both a proxy and its implementation\\n * contract, which may impact the proxy. To prevent the implementation contract from being used, you should invoke\\n * the {_disableInitializers} function in the constructor to automatically lock it when it is deployed:\\n *\\n * [.hljs-theme-light.nopadding]\\n * ```\\n * /// @custom:oz-upgrades-unsafe-allow constructor\\n * constructor() {\\n *     _disableInitializers();\\n * }\\n * ```\\n * ====\\n */\\nabstract contract Initializable {\\n    /**\\n     * @dev Indicates that the contract has been initialized.\\n     * @custom:oz-retyped-from bool\\n     */\\n    uint8 private _initialized;\\n\\n    /**\\n     * @dev Indicates that the contract is in the process of being initialized.\\n     */\\n    bool private _initializing;\\n\\n    /**\\n     * @dev Triggered when the contract has been initialized or reinitialized.\\n     */\\n    event Initialized(uint8 version);\\n\\n    /**\\n     * @dev A modifier that defines a protected initializer function that can be invoked at most once. In its scope,\\n     * `onlyInitializing` functions can be used to initialize parent contracts.\\n     *\\n     * Similar to `reinitializer(1)`, except that functions marked with `initializer` can be nested in the context of a\\n     * constructor.\\n     *\\n     * Emits an {Initialized} event.\\n     */\\n    modifier initializer() {\\n        bool isTopLevelCall = !_initializing;\\n        require(\\n            (isTopLevelCall && _initialized < 1) || (!AddressUpgradeable.isContract(address(this)) && _initialized == 1),\\n            \\\"Initializable: contract is already initialized\\\"\\n        );\\n        _initialized = 1;\\n        if (isTopLevelCall) {\\n            _initializing = true;\\n        }\\n        _;\\n        if (isTopLevelCall) {\\n            _initializing = false;\\n            emit Initialized(1);\\n        }\\n    }\\n\\n    /**\\n     * @dev A modifier that defines a protected reinitializer function that can be invoked at most once, and only if the\\n     * contract hasn't been initialized to a greater version before. In its scope, `onlyInitializing` functions can be\\n     * used to initialize parent contracts.\\n     *\\n     * A reinitializer may be used after the original initialization step. This is essential to configure modules that\\n     * are added through upgrades and that require initialization.\\n     *\\n     * When `version` is 1, this modifier is similar to `initializer`, except that functions marked with `reinitializer`\\n     * cannot be nested. If one is invoked in the context of another, execution will revert.\\n     *\\n     * Note that versions can jump in increments greater than 1; this implies that if multiple reinitializers coexist in\\n     * a contract, executing them in the right order is up to the developer or operator.\\n     *\\n     * WARNING: setting the version to 255 will prevent any future reinitialization.\\n     *\\n     * Emits an {Initialized} event.\\n     */\\n    modifier reinitializer(uint8 version) {\\n        require(!_initializing && _initialized < version, \\\"Initializable: contract is already initialized\\\");\\n        _initialized = version;\\n        _initializing = true;\\n        _;\\n        _initializing = false;\\n        emit Initialized(version);\\n    }\\n\\n    /**\\n     * @dev Modifier to protect an initialization function so that it can only be invoked by functions with the\\n     * {initializer} and {reinitializer} modifiers, directly or indirectly.\\n     */\\n    modifier onlyInitializing() {\\n        require(_initializing, \\\"Initializable: contract is not initializing\\\");\\n        _;\\n    }\\n\\n    /**\\n     * @dev Locks the contract, preventing any future reinitialization. This cannot be part of an initializer call.\\n     * Calling this in the constructor of a contract will prevent that contract from being initialized or reinitialized\\n     * to any version. It is recommended to use this to lock implementation contracts that are designed to be called\\n     * through proxies.\\n     *\\n     * Emits an {Initialized} event the first time it is successfully executed.\\n     */\\n    function _disableInitializers() internal virtual {\\n        require(!_initializing, \\\"Initializable: contract is initializing\\\");\\n        if (_initialized < type(uint8).max) {\\n            _initialized = type(uint8).max;\\n            emit Initialized(type(uint8).max);\\n        }\\n    }\\n\\n    /**\\n     * @dev Returns the highest version that has been initialized. See {reinitializer}.\\n     */\\n    function _getInitializedVersion() internal view returns (uint8) {\\n        return _initialized;\\n    }\\n\\n    /**\\n     * @dev Returns `true` if the contract is currently initializing. See {onlyInitializing}.\\n     */\\n    function _isInitializing() internal view returns (bool) {\\n        return _initializing;\\n    }\\n}\\n\",\"keccak256\":\"0x037c334add4b033ad3493038c25be1682d78c00992e1acb0e2795caff3925271\",\"license\":\"MIT\"},\"@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol\":{\"content\":\"// SPDX-License-Identifier: MIT\\n// OpenZeppelin Contracts (last updated v4.6.0) (token/ERC20/IERC20.sol)\\n\\npragma solidity ^0.8.0;\\n\\n/**\\n * @dev Interface of the ERC20 standard as defined in the EIP.\\n */\\ninterface IERC20Upgradeable {\\n    /**\\n     * @dev Emitted when `value` tokens are moved from one account (`from`) to\\n     * another (`to`).\\n     *\\n     * Note that `value` may be zero.\\n     */\\n    event Transfer(address indexed from, address indexed to, uint256 value);\\n\\n    /**\\n     * @dev Emitted when the allowance of a `spender` for an `owner` is set by\\n     * a call to {approve}. `value` is the new allowance.\\n     */\\n    event Approval(address indexed owner, address indexed spender, uint256 value);\\n\\n    /**\\n     * @dev Returns the amount of tokens in existence.\\n     */\\n    function totalSupply() external view returns (uint256);\\n\\n    /**\\n     * @dev Returns the amount of tokens owned by `account`.\\n     */\\n    function balanceOf(address account) external view returns (uint256);\\n\\n    /**\\n     * @dev Moves `amount` tokens from the caller's account to `to`.\\n     *\\n     * Returns a boolean value indicating whether the operation succeeded.\\n     *\\n     * Emits a {Transfer} event.\\n     */\\n    function transfer(address to, uint256 amount) external returns (bool);\\n\\n    /**\\n     * @dev Returns the remaining number of tokens that `spender` will be\\n     * allowed to spend on behalf of `owner` through {transferFrom}. This is\\n     * zero by default.\\n     *\\n     * This value changes when {approve} or {transferFrom} are called.\\n     */\\n    function allowance(address owner, address spender) external view returns (uint256);\\n\\n    /**\\n     * @dev Sets `amount` as the allowance of `spender` over the caller's tokens.\\n     *\\n     * Returns a boolean value indicating whether the operation succeeded.\\n     *\\n     * IMPORTANT: Beware that changing an allowance with this method brings the risk\\n     * that someone may use both the old and the new allowance by unfortunate\\n     * transaction ordering. One possible solution to mitigate this race\\n     * condition is to first reduce the spender's allowance to 0 and set the\\n     * desired value afterwards:\\n     * https://github.com/ethereum/EIPs/issues/20#issuecomment-263524729\\n     *\\n     * Emits an {Approval} event.\\n     */\\n    function approve(address spender, uint256 amount) external returns (bool);\\n\\n    /**\\n     * @dev Moves `amount` tokens from `from` to `to` using the\\n     * allowance mechanism. `amount` is then deducted from the caller's\\n     * allowance.\\n     *\\n     * Returns a boolean value indicating whether the operation succeeded.\\n     *\\n     * Emits a {Transfer} event.\\n     */\\n    function transferFrom(\\n        address from,\\n        address to,\\n        uint256 amount\\n    ) external returns (bool);\\n}\\n\",\"keccak256\":\"0x4e733d3164f73f461eaf9d8087a7ad1ea180bdc8ba0d3d61b0e1ae16d8e63dff\",\"license\":\"MIT\"},\"@openzeppelin/contracts-upgradeable/token/ERC20/extensions/draft-IERC20PermitUpgradeable.sol\":{\"content\":\"// SPDX-License-Identifier: MIT\\n// OpenZeppelin Contracts v4.4.1 (token/ERC20/extensions/draft-IERC20Permit.sol)\\n\\npragma solidity ^0.8.0;\\n\\n/**\\n * @dev Interface of the ERC20 Permit extension allowing approvals to be made via signatures, as defined in\\n * https://eips.ethereum.org/EIPS/eip-2612[EIP-2612].\\n *\\n * Adds the {permit} method, which can be used to change an account's ERC20 allowance (see {IERC20-allowance}) by\\n * presenting a message signed by the account. By not relying on {IERC20-approve}, the token holder account doesn't\\n * need to send a transaction, and thus is not required to hold Ether at all.\\n */\\ninterface IERC20PermitUpgradeable {\\n    /**\\n     * @dev Sets `value` as the allowance of `spender` over ``owner``'s tokens,\\n     * given ``owner``'s signed approval.\\n     *\\n     * IMPORTANT: The same issues {IERC20-approve} has related to transaction\\n     * ordering also apply here.\\n     *\\n     * Emits an {Approval} event.\\n     *\\n     * Requirements:\\n     *\\n     * - `spender` cannot be the zero address.\\n     * - `deadline` must be a timestamp in the future.\\n     * - `v`, `r` and `s` must be a valid `secp256k1` signature from `owner`\\n     * over the EIP712-formatted function arguments.\\n     * - the signature must use ``owner``'s current nonce (see {nonces}).\\n     *\\n     * For more information on the signature format, see the\\n     * https://eips.ethereum.org/EIPS/eip-2612#specification[relevant EIP\\n     * section].\\n     */\\n    function permit(\\n        address owner,\\n        address spender,\\n        uint256 value,\\n        uint256 deadline,\\n        uint8 v,\\n        bytes32 r,\\n        bytes32 s\\n    ) external;\\n\\n    /**\\n     * @dev Returns the current nonce for `owner`. This value must be\\n     * included whenever a signature is generated for {permit}.\\n     *\\n     * Every successful call to {permit} increases ``owner``'s nonce by one. This\\n     * prevents a signature from being used multiple times.\\n     */\\n    function nonces(address owner) external view returns (uint256);\\n\\n    /**\\n     * @dev Returns the domain separator used in the encoding of the signature for {permit}, as defined by {EIP712}.\\n     */\\n    // solhint-disable-next-line func-name-mixedcase\\n    function DOMAIN_SEPARATOR() external view returns (bytes32);\\n}\\n\",\"keccak256\":\"0xcc70d8e2281fb3ff69e8ab242500f10142cd0a7fa8dd9e45882be270d4d09024\",\"license\":\"MIT\"},\"@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol\":{\"content\":\"// SPDX-License-Identifier: MIT\\n// OpenZeppelin Contracts (last updated v4.8.0) (token/ERC20/utils/SafeERC20.sol)\\n\\npragma solidity ^0.8.0;\\n\\nimport \\\"../IERC20Upgradeable.sol\\\";\\nimport \\\"../extensions/draft-IERC20PermitUpgradeable.sol\\\";\\nimport \\\"../../../utils/AddressUpgradeable.sol\\\";\\n\\n/**\\n * @title SafeERC20\\n * @dev Wrappers around ERC20 operations that throw on failure (when the token\\n * contract returns false). Tokens that return no value (and instead revert or\\n * throw on failure) are also supported, non-reverting calls are assumed to be\\n * successful.\\n * To use this library you can add a `using SafeERC20 for IERC20;` statement to your contract,\\n * which allows you to call the safe operations as `token.safeTransfer(...)`, etc.\\n */\\nlibrary SafeERC20Upgradeable {\\n    using AddressUpgradeable for address;\\n\\n    function safeTransfer(\\n        IERC20Upgradeable token,\\n        address to,\\n        uint256 value\\n    ) internal {\\n        _callOptionalReturn(token, abi.encodeWithSelector(token.transfer.selector, to, value));\\n    }\\n\\n    function safeTransferFrom(\\n        IERC20Upgradeable token,\\n        address from,\\n        address to,\\n        uint256 value\\n    ) internal {\\n        _callOptionalReturn(token, abi.encodeWithSelector(token.transferFrom.selector, from, to, value));\\n    }\\n\\n    /**\\n     * @dev Deprecated. This function has issues similar to the ones found in\\n     * {IERC20-approve}, and its usage is discouraged.\\n     *\\n     * Whenever possible, use {safeIncreaseAllowance} and\\n     * {safeDecreaseAllowance} instead.\\n     */\\n    function safeApprove(\\n        IERC20Upgradeable token,\\n        address spender,\\n        uint256 value\\n    ) internal {\\n        // safeApprove should only be called when setting an initial allowance,\\n        // or when resetting it to zero. To increase and decrease it, use\\n        // 'safeIncreaseAllowance' and 'safeDecreaseAllowance'\\n        require(\\n            (value == 0) || (token.allowance(address(this), spender) == 0),\\n            \\\"SafeERC20: approve from non-zero to non-zero allowance\\\"\\n        );\\n        _callOptionalReturn(token, abi.encodeWithSelector(token.approve.selector, spender, value));\\n    }\\n\\n    function safeIncreaseAllowance(\\n        IERC20Upgradeable token,\\n        address spender,\\n        uint256 value\\n    ) internal {\\n        uint256 newAllowance = token.allowance(address(this), spender) + value;\\n        _callOptionalReturn(token, abi.encodeWithSelector(token.approve.selector, spender, newAllowance));\\n    }\\n\\n    function safeDecreaseAllowance(\\n        IERC20Upgradeable token,\\n        address spender,\\n        uint256 value\\n    ) internal {\\n        unchecked {\\n            uint256 oldAllowance = token.allowance(address(this), spender);\\n            require(oldAllowance >= value, \\\"SafeERC20: decreased allowance below zero\\\");\\n            uint256 newAllowance = oldAllowance - value;\\n            _callOptionalReturn(token, abi.encodeWithSelector(token.approve.selector, spender, newAllowance));\\n        }\\n    }\\n\\n    function safePermit(\\n        IERC20PermitUpgradeable token,\\n        address owner,\\n        address spender,\\n        uint256 value,\\n        uint256 deadline,\\n        uint8 v,\\n        bytes32 r,\\n        bytes32 s\\n    ) internal {\\n        uint256 nonceBefore = token.nonces(owner);\\n        token.permit(owner, spender, value, deadline, v, r, s);\\n        uint256 nonceAfter = token.nonces(owner);\\n        require(nonceAfter == nonceBefore + 1, \\\"SafeERC20: permit did not succeed\\\");\\n    }\\n\\n    /**\\n     * @dev Imitates a Solidity high-level call (i.e. a regular function call to a contract), relaxing the requirement\\n     * on the return value: the return value is optional (but if data is returned, it must not be false).\\n     * @param token The token targeted by the call.\\n     * @param data The call data (encoded using abi.encode or one of its variants).\\n     */\\n    function _callOptionalReturn(IERC20Upgradeable token, bytes memory data) private {\\n        // We need to perform a low level call here, to bypass Solidity's return data size checking mechanism, since\\n        // we're implementing it ourselves. We use {Address-functionCall} to perform this call, which verifies that\\n        // the target address contains contract code and also asserts for success in the low-level call.\\n\\n        bytes memory returndata = address(token).functionCall(data, \\\"SafeERC20: low-level call failed\\\");\\n        if (returndata.length > 0) {\\n            // Return data is optional\\n            require(abi.decode(returndata, (bool)), \\\"SafeERC20: ERC20 operation did not succeed\\\");\\n        }\\n    }\\n}\\n\",\"keccak256\":\"0x220c4a5af915e656be2aaa85ca57505d102418e476b1e2ef6c62e0c6ac143871\",\"license\":\"MIT\"},\"@openzeppelin/contracts-upgradeable/utils/AddressUpgradeable.sol\":{\"content\":\"// SPDX-License-Identifier: MIT\\n// OpenZeppelin Contracts (last updated v4.8.0) (utils/Address.sol)\\n\\npragma solidity ^0.8.1;\\n\\n/**\\n * @dev Collection of functions related to the address type\\n */\\nlibrary AddressUpgradeable {\\n    /**\\n     * @dev Returns true if `account` is a contract.\\n     *\\n     * [IMPORTANT]\\n     * ====\\n     * It is unsafe to assume that an address for which this function returns\\n     * false is an externally-owned account (EOA) and not a contract.\\n     *\\n     * Among others, `isContract` will return false for the following\\n     * types of addresses:\\n     *\\n     *  - an externally-owned account\\n     *  - a contract in construction\\n     *  - an address where a contract will be created\\n     *  - an address where a contract lived, but was destroyed\\n     * ====\\n     *\\n     * [IMPORTANT]\\n     * ====\\n     * You shouldn't rely on `isContract` to protect against flash loan attacks!\\n     *\\n     * Preventing calls from contracts is highly discouraged. It breaks composability, breaks support for smart wallets\\n     * like Gnosis Safe, and does not provide security since it can be circumvented by calling from a contract\\n     * constructor.\\n     * ====\\n     */\\n    function isContract(address account) internal view returns (bool) {\\n        // This method relies on extcodesize/address.code.length, which returns 0\\n        // for contracts in construction, since the code is only stored at the end\\n        // of the constructor execution.\\n\\n        return account.code.length > 0;\\n    }\\n\\n    /**\\n     * @dev Replacement for Solidity's `transfer`: sends `amount` wei to\\n     * `recipient`, forwarding all available gas and reverting on errors.\\n     *\\n     * https://eips.ethereum.org/EIPS/eip-1884[EIP1884] increases the gas cost\\n     * of certain opcodes, possibly making contracts go over the 2300 gas limit\\n     * imposed by `transfer`, making them unable to receive funds via\\n     * `transfer`. {sendValue} removes this limitation.\\n     *\\n     * https://diligence.consensys.net/posts/2019/09/stop-using-soliditys-transfer-now/[Learn more].\\n     *\\n     * IMPORTANT: because control is transferred to `recipient`, care must be\\n     * taken to not create reentrancy vulnerabilities. Consider using\\n     * {ReentrancyGuard} or the\\n     * https://solidity.readthedocs.io/en/v0.5.11/security-considerations.html#use-the-checks-effects-interactions-pattern[checks-effects-interactions pattern].\\n     */\\n    function sendValue(address payable recipient, uint256 amount) internal {\\n        require(address(this).balance >= amount, \\\"Address: insufficient balance\\\");\\n\\n        (bool success, ) = recipient.call{value: amount}(\\\"\\\");\\n        require(success, \\\"Address: unable to send value, recipient may have reverted\\\");\\n    }\\n\\n    /**\\n     * @dev Performs a Solidity function call using a low level `call`. A\\n     * plain `call` is an unsafe replacement for a function call: use this\\n     * function instead.\\n     *\\n     * If `target` reverts with a revert reason, it is bubbled up by this\\n     * function (like regular Solidity function calls).\\n     *\\n     * Returns the raw returned data. To convert to the expected return value,\\n     * use https://solidity.readthedocs.io/en/latest/units-and-global-variables.html?highlight=abi.decode#abi-encoding-and-decoding-functions[`abi.decode`].\\n     *\\n     * Requirements:\\n     *\\n     * - `target` must be a contract.\\n     * - calling `target` with `data` must not revert.\\n     *\\n     * _Available since v3.1._\\n     */\\n    function functionCall(address target, bytes memory data) internal returns (bytes memory) {\\n        return functionCallWithValue(target, data, 0, \\\"Address: low-level call failed\\\");\\n    }\\n\\n    /**\\n     * @dev Same as {xref-Address-functionCall-address-bytes-}[`functionCall`], but with\\n     * `errorMessage` as a fallback revert reason when `target` reverts.\\n     *\\n     * _Available since v3.1._\\n     */\\n    function functionCall(\\n        address target,\\n        bytes memory data,\\n        string memory errorMessage\\n    ) internal returns (bytes memory) {\\n        return functionCallWithValue(target, data, 0, errorMessage);\\n    }\\n\\n    /**\\n     * @dev Same as {xref-Address-functionCall-address-bytes-}[`functionCall`],\\n     * but also transferring `value` wei to `target`.\\n     *\\n     * Requirements:\\n     *\\n     * - the calling contract must have an ETH balance of at least `value`.\\n     * - the called Solidity function must be `payable`.\\n     *\\n     * _Available since v3.1._\\n     */\\n    function functionCallWithValue(\\n        address target,\\n        bytes memory data,\\n        uint256 value\\n    ) internal returns (bytes memory) {\\n        return functionCallWithValue(target, data, value, \\\"Address: low-level call with value failed\\\");\\n    }\\n\\n    /**\\n     * @dev Same as {xref-Address-functionCallWithValue-address-bytes-uint256-}[`functionCallWithValue`], but\\n     * with `errorMessage` as a fallback revert reason when `target` reverts.\\n     *\\n     * _Available since v3.1._\\n     */\\n    function functionCallWithValue(\\n        address target,\\n        bytes memory data,\\n        uint256 value,\\n        string memory errorMessage\\n    ) internal returns (bytes memory) {\\n        require(address(this).balance >= value, \\\"Address: insufficient balance for call\\\");\\n        (bool success, bytes memory returndata) = target.call{value: value}(data);\\n        return verifyCallResultFromTarget(target, success, returndata, errorMessage);\\n    }\\n\\n    /**\\n     * @dev Same as {xref-Address-functionCall-address-bytes-}[`functionCall`],\\n     * but performing a static call.\\n     *\\n     * _Available since v3.3._\\n     */\\n    function functionStaticCall(address target, bytes memory data) internal view returns (bytes memory) {\\n        return functionStaticCall(target, data, \\\"Address: low-level static call failed\\\");\\n    }\\n\\n    /**\\n     * @dev Same as {xref-Address-functionCall-address-bytes-string-}[`functionCall`],\\n     * but performing a static call.\\n     *\\n     * _Available since v3.3._\\n     */\\n    function functionStaticCall(\\n        address target,\\n        bytes memory data,\\n        string memory errorMessage\\n    ) internal view returns (bytes memory) {\\n        (bool success, bytes memory returndata) = target.staticcall(data);\\n        return verifyCallResultFromTarget(target, success, returndata, errorMessage);\\n    }\\n\\n    /**\\n     * @dev Tool to verify that a low level call to smart-contract was successful, and revert (either by bubbling\\n     * the revert reason or using the provided one) in case of unsuccessful call or if target was not a contract.\\n     *\\n     * _Available since v4.8._\\n     */\\n    function verifyCallResultFromTarget(\\n        address target,\\n        bool success,\\n        bytes memory returndata,\\n        string memory errorMessage\\n    ) internal view returns (bytes memory) {\\n        if (success) {\\n            if (returndata.length == 0) {\\n                // only check isContract if the call was successful and the return data is empty\\n                // otherwise we already know that it was a contract\\n                require(isContract(target), \\\"Address: call to non-contract\\\");\\n            }\\n            return returndata;\\n        } else {\\n            _revert(returndata, errorMessage);\\n        }\\n    }\\n\\n    /**\\n     * @dev Tool to verify that a low level call was successful, and revert if it wasn't, either by bubbling the\\n     * revert reason or using the provided one.\\n     *\\n     * _Available since v4.3._\\n     */\\n    function verifyCallResult(\\n        bool success,\\n        bytes memory returndata,\\n        string memory errorMessage\\n    ) internal pure returns (bytes memory) {\\n        if (success) {\\n            return returndata;\\n        } else {\\n            _revert(returndata, errorMessage);\\n        }\\n    }\\n\\n    function _revert(bytes memory returndata, string memory errorMessage) private pure {\\n        // Look for revert reason and bubble it up if present\\n        if (returndata.length > 0) {\\n            // The easiest way to bubble the revert reason is using memory via assembly\\n            /// @solidity memory-safe-assembly\\n            assembly {\\n                let returndata_size := mload(returndata)\\n                revert(add(32, returndata), returndata_size)\\n            }\\n        } else {\\n            revert(errorMessage);\\n        }\\n    }\\n}\\n\",\"keccak256\":\"0x2edcb41c121abc510932e8d83ff8b82cf9cdde35e7c297622f5c29ef0af25183\",\"license\":\"MIT\"},\"@openzeppelin/contracts-upgradeable/utils/ContextUpgradeable.sol\":{\"content\":\"// SPDX-License-Identifier: MIT\\n// OpenZeppelin Contracts v4.4.1 (utils/Context.sol)\\n\\npragma solidity ^0.8.0;\\nimport \\\"../proxy/utils/Initializable.sol\\\";\\n\\n/**\\n * @dev Provides information about the current execution context, including the\\n * sender of the transaction and its data. While these are generally available\\n * via msg.sender and msg.data, they should not be accessed in such a direct\\n * manner, since when dealing with meta-transactions the account sending and\\n * paying for execution may not be the actual sender (as far as an application\\n * is concerned).\\n *\\n * This contract is only required for intermediate, library-like contracts.\\n */\\nabstract contract ContextUpgradeable is Initializable {\\n    function __Context_init() internal onlyInitializing {\\n    }\\n\\n    function __Context_init_unchained() internal onlyInitializing {\\n    }\\n    function _msgSender() internal view virtual returns (address) {\\n        return msg.sender;\\n    }\\n\\n    function _msgData() internal view virtual returns (bytes calldata) {\\n        return msg.data;\\n    }\\n\\n    /**\\n     * @dev This empty reserved space is put in place to allow future versions to add new\\n     * variables without shifting down storage in the inheritance chain.\\n     * See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps\\n     */\\n    uint256[50] private __gap;\\n}\\n\",\"keccak256\":\"0x963ea7f0b48b032eef72fe3a7582edf78408d6f834115b9feadd673a4d5bd149\",\"license\":\"MIT\"},\"@openzeppelin/contracts-upgradeable/utils/math/SafeCastUpgradeable.sol\":{\"content\":\"// SPDX-License-Identifier: MIT\\n// OpenZeppelin Contracts (last updated v4.8.0) (utils/math/SafeCast.sol)\\n// This file was procedurally generated from scripts/generate/templates/SafeCast.js.\\n\\npragma solidity ^0.8.0;\\n\\n/**\\n * @dev Wrappers over Solidity's uintXX/intXX casting operators with added overflow\\n * checks.\\n *\\n * Downcasting from uint256/int256 in Solidity does not revert on overflow. This can\\n * easily result in undesired exploitation or bugs, since developers usually\\n * assume that overflows raise errors. `SafeCast` restores this intuition by\\n * reverting the transaction when such an operation overflows.\\n *\\n * Using this library instead of the unchecked operations eliminates an entire\\n * class of bugs, so it's recommended to use it always.\\n *\\n * Can be combined with {SafeMath} and {SignedSafeMath} to extend it to smaller types, by performing\\n * all math on `uint256` and `int256` and then downcasting.\\n */\\nlibrary SafeCastUpgradeable {\\n    /**\\n     * @dev Returns the downcasted uint248 from uint256, reverting on\\n     * overflow (when the input is greater than largest uint248).\\n     *\\n     * Counterpart to Solidity's `uint248` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 248 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toUint248(uint256 value) internal pure returns (uint248) {\\n        require(value <= type(uint248).max, \\\"SafeCast: value doesn't fit in 248 bits\\\");\\n        return uint248(value);\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted uint240 from uint256, reverting on\\n     * overflow (when the input is greater than largest uint240).\\n     *\\n     * Counterpart to Solidity's `uint240` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 240 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toUint240(uint256 value) internal pure returns (uint240) {\\n        require(value <= type(uint240).max, \\\"SafeCast: value doesn't fit in 240 bits\\\");\\n        return uint240(value);\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted uint232 from uint256, reverting on\\n     * overflow (when the input is greater than largest uint232).\\n     *\\n     * Counterpart to Solidity's `uint232` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 232 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toUint232(uint256 value) internal pure returns (uint232) {\\n        require(value <= type(uint232).max, \\\"SafeCast: value doesn't fit in 232 bits\\\");\\n        return uint232(value);\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted uint224 from uint256, reverting on\\n     * overflow (when the input is greater than largest uint224).\\n     *\\n     * Counterpart to Solidity's `uint224` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 224 bits\\n     *\\n     * _Available since v4.2._\\n     */\\n    function toUint224(uint256 value) internal pure returns (uint224) {\\n        require(value <= type(uint224).max, \\\"SafeCast: value doesn't fit in 224 bits\\\");\\n        return uint224(value);\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted uint216 from uint256, reverting on\\n     * overflow (when the input is greater than largest uint216).\\n     *\\n     * Counterpart to Solidity's `uint216` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 216 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toUint216(uint256 value) internal pure returns (uint216) {\\n        require(value <= type(uint216).max, \\\"SafeCast: value doesn't fit in 216 bits\\\");\\n        return uint216(value);\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted uint208 from uint256, reverting on\\n     * overflow (when the input is greater than largest uint208).\\n     *\\n     * Counterpart to Solidity's `uint208` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 208 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toUint208(uint256 value) internal pure returns (uint208) {\\n        require(value <= type(uint208).max, \\\"SafeCast: value doesn't fit in 208 bits\\\");\\n        return uint208(value);\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted uint200 from uint256, reverting on\\n     * overflow (when the input is greater than largest uint200).\\n     *\\n     * Counterpart to Solidity's `uint200` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 200 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toUint200(uint256 value) internal pure returns (uint200) {\\n        require(value <= type(uint200).max, \\\"SafeCast: value doesn't fit in 200 bits\\\");\\n        return uint200(value);\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted uint192 from uint256, reverting on\\n     * overflow (when the input is greater than largest uint192).\\n     *\\n     * Counterpart to Solidity's `uint192` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 192 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toUint192(uint256 value) internal pure returns (uint192) {\\n        require(value <= type(uint192).max, \\\"SafeCast: value doesn't fit in 192 bits\\\");\\n        return uint192(value);\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted uint184 from uint256, reverting on\\n     * overflow (when the input is greater than largest uint184).\\n     *\\n     * Counterpart to Solidity's `uint184` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 184 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toUint184(uint256 value) internal pure returns (uint184) {\\n        require(value <= type(uint184).max, \\\"SafeCast: value doesn't fit in 184 bits\\\");\\n        return uint184(value);\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted uint176 from uint256, reverting on\\n     * overflow (when the input is greater than largest uint176).\\n     *\\n     * Counterpart to Solidity's `uint176` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 176 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toUint176(uint256 value) internal pure returns (uint176) {\\n        require(value <= type(uint176).max, \\\"SafeCast: value doesn't fit in 176 bits\\\");\\n        return uint176(value);\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted uint168 from uint256, reverting on\\n     * overflow (when the input is greater than largest uint168).\\n     *\\n     * Counterpart to Solidity's `uint168` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 168 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toUint168(uint256 value) internal pure returns (uint168) {\\n        require(value <= type(uint168).max, \\\"SafeCast: value doesn't fit in 168 bits\\\");\\n        return uint168(value);\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted uint160 from uint256, reverting on\\n     * overflow (when the input is greater than largest uint160).\\n     *\\n     * Counterpart to Solidity's `uint160` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 160 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toUint160(uint256 value) internal pure returns (uint160) {\\n        require(value <= type(uint160).max, \\\"SafeCast: value doesn't fit in 160 bits\\\");\\n        return uint160(value);\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted uint152 from uint256, reverting on\\n     * overflow (when the input is greater than largest uint152).\\n     *\\n     * Counterpart to Solidity's `uint152` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 152 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toUint152(uint256 value) internal pure returns (uint152) {\\n        require(value <= type(uint152).max, \\\"SafeCast: value doesn't fit in 152 bits\\\");\\n        return uint152(value);\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted uint144 from uint256, reverting on\\n     * overflow (when the input is greater than largest uint144).\\n     *\\n     * Counterpart to Solidity's `uint144` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 144 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toUint144(uint256 value) internal pure returns (uint144) {\\n        require(value <= type(uint144).max, \\\"SafeCast: value doesn't fit in 144 bits\\\");\\n        return uint144(value);\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted uint136 from uint256, reverting on\\n     * overflow (when the input is greater than largest uint136).\\n     *\\n     * Counterpart to Solidity's `uint136` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 136 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toUint136(uint256 value) internal pure returns (uint136) {\\n        require(value <= type(uint136).max, \\\"SafeCast: value doesn't fit in 136 bits\\\");\\n        return uint136(value);\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted uint128 from uint256, reverting on\\n     * overflow (when the input is greater than largest uint128).\\n     *\\n     * Counterpart to Solidity's `uint128` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 128 bits\\n     *\\n     * _Available since v2.5._\\n     */\\n    function toUint128(uint256 value) internal pure returns (uint128) {\\n        require(value <= type(uint128).max, \\\"SafeCast: value doesn't fit in 128 bits\\\");\\n        return uint128(value);\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted uint120 from uint256, reverting on\\n     * overflow (when the input is greater than largest uint120).\\n     *\\n     * Counterpart to Solidity's `uint120` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 120 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toUint120(uint256 value) internal pure returns (uint120) {\\n        require(value <= type(uint120).max, \\\"SafeCast: value doesn't fit in 120 bits\\\");\\n        return uint120(value);\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted uint112 from uint256, reverting on\\n     * overflow (when the input is greater than largest uint112).\\n     *\\n     * Counterpart to Solidity's `uint112` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 112 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toUint112(uint256 value) internal pure returns (uint112) {\\n        require(value <= type(uint112).max, \\\"SafeCast: value doesn't fit in 112 bits\\\");\\n        return uint112(value);\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted uint104 from uint256, reverting on\\n     * overflow (when the input is greater than largest uint104).\\n     *\\n     * Counterpart to Solidity's `uint104` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 104 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toUint104(uint256 value) internal pure returns (uint104) {\\n        require(value <= type(uint104).max, \\\"SafeCast: value doesn't fit in 104 bits\\\");\\n        return uint104(value);\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted uint96 from uint256, reverting on\\n     * overflow (when the input is greater than largest uint96).\\n     *\\n     * Counterpart to Solidity's `uint96` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 96 bits\\n     *\\n     * _Available since v4.2._\\n     */\\n    function toUint96(uint256 value) internal pure returns (uint96) {\\n        require(value <= type(uint96).max, \\\"SafeCast: value doesn't fit in 96 bits\\\");\\n        return uint96(value);\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted uint88 from uint256, reverting on\\n     * overflow (when the input is greater than largest uint88).\\n     *\\n     * Counterpart to Solidity's `uint88` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 88 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toUint88(uint256 value) internal pure returns (uint88) {\\n        require(value <= type(uint88).max, \\\"SafeCast: value doesn't fit in 88 bits\\\");\\n        return uint88(value);\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted uint80 from uint256, reverting on\\n     * overflow (when the input is greater than largest uint80).\\n     *\\n     * Counterpart to Solidity's `uint80` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 80 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toUint80(uint256 value) internal pure returns (uint80) {\\n        require(value <= type(uint80).max, \\\"SafeCast: value doesn't fit in 80 bits\\\");\\n        return uint80(value);\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted uint72 from uint256, reverting on\\n     * overflow (when the input is greater than largest uint72).\\n     *\\n     * Counterpart to Solidity's `uint72` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 72 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toUint72(uint256 value) internal pure returns (uint72) {\\n        require(value <= type(uint72).max, \\\"SafeCast: value doesn't fit in 72 bits\\\");\\n        return uint72(value);\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted uint64 from uint256, reverting on\\n     * overflow (when the input is greater than largest uint64).\\n     *\\n     * Counterpart to Solidity's `uint64` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 64 bits\\n     *\\n     * _Available since v2.5._\\n     */\\n    function toUint64(uint256 value) internal pure returns (uint64) {\\n        require(value <= type(uint64).max, \\\"SafeCast: value doesn't fit in 64 bits\\\");\\n        return uint64(value);\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted uint56 from uint256, reverting on\\n     * overflow (when the input is greater than largest uint56).\\n     *\\n     * Counterpart to Solidity's `uint56` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 56 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toUint56(uint256 value) internal pure returns (uint56) {\\n        require(value <= type(uint56).max, \\\"SafeCast: value doesn't fit in 56 bits\\\");\\n        return uint56(value);\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted uint48 from uint256, reverting on\\n     * overflow (when the input is greater than largest uint48).\\n     *\\n     * Counterpart to Solidity's `uint48` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 48 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toUint48(uint256 value) internal pure returns (uint48) {\\n        require(value <= type(uint48).max, \\\"SafeCast: value doesn't fit in 48 bits\\\");\\n        return uint48(value);\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted uint40 from uint256, reverting on\\n     * overflow (when the input is greater than largest uint40).\\n     *\\n     * Counterpart to Solidity's `uint40` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 40 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toUint40(uint256 value) internal pure returns (uint40) {\\n        require(value <= type(uint40).max, \\\"SafeCast: value doesn't fit in 40 bits\\\");\\n        return uint40(value);\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted uint32 from uint256, reverting on\\n     * overflow (when the input is greater than largest uint32).\\n     *\\n     * Counterpart to Solidity's `uint32` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 32 bits\\n     *\\n     * _Available since v2.5._\\n     */\\n    function toUint32(uint256 value) internal pure returns (uint32) {\\n        require(value <= type(uint32).max, \\\"SafeCast: value doesn't fit in 32 bits\\\");\\n        return uint32(value);\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted uint24 from uint256, reverting on\\n     * overflow (when the input is greater than largest uint24).\\n     *\\n     * Counterpart to Solidity's `uint24` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 24 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toUint24(uint256 value) internal pure returns (uint24) {\\n        require(value <= type(uint24).max, \\\"SafeCast: value doesn't fit in 24 bits\\\");\\n        return uint24(value);\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted uint16 from uint256, reverting on\\n     * overflow (when the input is greater than largest uint16).\\n     *\\n     * Counterpart to Solidity's `uint16` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 16 bits\\n     *\\n     * _Available since v2.5._\\n     */\\n    function toUint16(uint256 value) internal pure returns (uint16) {\\n        require(value <= type(uint16).max, \\\"SafeCast: value doesn't fit in 16 bits\\\");\\n        return uint16(value);\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted uint8 from uint256, reverting on\\n     * overflow (when the input is greater than largest uint8).\\n     *\\n     * Counterpart to Solidity's `uint8` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 8 bits\\n     *\\n     * _Available since v2.5._\\n     */\\n    function toUint8(uint256 value) internal pure returns (uint8) {\\n        require(value <= type(uint8).max, \\\"SafeCast: value doesn't fit in 8 bits\\\");\\n        return uint8(value);\\n    }\\n\\n    /**\\n     * @dev Converts a signed int256 into an unsigned uint256.\\n     *\\n     * Requirements:\\n     *\\n     * - input must be greater than or equal to 0.\\n     *\\n     * _Available since v3.0._\\n     */\\n    function toUint256(int256 value) internal pure returns (uint256) {\\n        require(value >= 0, \\\"SafeCast: value must be positive\\\");\\n        return uint256(value);\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted int248 from int256, reverting on\\n     * overflow (when the input is less than smallest int248 or\\n     * greater than largest int248).\\n     *\\n     * Counterpart to Solidity's `int248` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 248 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toInt248(int256 value) internal pure returns (int248 downcasted) {\\n        downcasted = int248(value);\\n        require(downcasted == value, \\\"SafeCast: value doesn't fit in 248 bits\\\");\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted int240 from int256, reverting on\\n     * overflow (when the input is less than smallest int240 or\\n     * greater than largest int240).\\n     *\\n     * Counterpart to Solidity's `int240` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 240 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toInt240(int256 value) internal pure returns (int240 downcasted) {\\n        downcasted = int240(value);\\n        require(downcasted == value, \\\"SafeCast: value doesn't fit in 240 bits\\\");\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted int232 from int256, reverting on\\n     * overflow (when the input is less than smallest int232 or\\n     * greater than largest int232).\\n     *\\n     * Counterpart to Solidity's `int232` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 232 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toInt232(int256 value) internal pure returns (int232 downcasted) {\\n        downcasted = int232(value);\\n        require(downcasted == value, \\\"SafeCast: value doesn't fit in 232 bits\\\");\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted int224 from int256, reverting on\\n     * overflow (when the input is less than smallest int224 or\\n     * greater than largest int224).\\n     *\\n     * Counterpart to Solidity's `int224` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 224 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toInt224(int256 value) internal pure returns (int224 downcasted) {\\n        downcasted = int224(value);\\n        require(downcasted == value, \\\"SafeCast: value doesn't fit in 224 bits\\\");\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted int216 from int256, reverting on\\n     * overflow (when the input is less than smallest int216 or\\n     * greater than largest int216).\\n     *\\n     * Counterpart to Solidity's `int216` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 216 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toInt216(int256 value) internal pure returns (int216 downcasted) {\\n        downcasted = int216(value);\\n        require(downcasted == value, \\\"SafeCast: value doesn't fit in 216 bits\\\");\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted int208 from int256, reverting on\\n     * overflow (when the input is less than smallest int208 or\\n     * greater than largest int208).\\n     *\\n     * Counterpart to Solidity's `int208` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 208 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toInt208(int256 value) internal pure returns (int208 downcasted) {\\n        downcasted = int208(value);\\n        require(downcasted == value, \\\"SafeCast: value doesn't fit in 208 bits\\\");\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted int200 from int256, reverting on\\n     * overflow (when the input is less than smallest int200 or\\n     * greater than largest int200).\\n     *\\n     * Counterpart to Solidity's `int200` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 200 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toInt200(int256 value) internal pure returns (int200 downcasted) {\\n        downcasted = int200(value);\\n        require(downcasted == value, \\\"SafeCast: value doesn't fit in 200 bits\\\");\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted int192 from int256, reverting on\\n     * overflow (when the input is less than smallest int192 or\\n     * greater than largest int192).\\n     *\\n     * Counterpart to Solidity's `int192` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 192 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toInt192(int256 value) internal pure returns (int192 downcasted) {\\n        downcasted = int192(value);\\n        require(downcasted == value, \\\"SafeCast: value doesn't fit in 192 bits\\\");\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted int184 from int256, reverting on\\n     * overflow (when the input is less than smallest int184 or\\n     * greater than largest int184).\\n     *\\n     * Counterpart to Solidity's `int184` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 184 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toInt184(int256 value) internal pure returns (int184 downcasted) {\\n        downcasted = int184(value);\\n        require(downcasted == value, \\\"SafeCast: value doesn't fit in 184 bits\\\");\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted int176 from int256, reverting on\\n     * overflow (when the input is less than smallest int176 or\\n     * greater than largest int176).\\n     *\\n     * Counterpart to Solidity's `int176` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 176 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toInt176(int256 value) internal pure returns (int176 downcasted) {\\n        downcasted = int176(value);\\n        require(downcasted == value, \\\"SafeCast: value doesn't fit in 176 bits\\\");\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted int168 from int256, reverting on\\n     * overflow (when the input is less than smallest int168 or\\n     * greater than largest int168).\\n     *\\n     * Counterpart to Solidity's `int168` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 168 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toInt168(int256 value) internal pure returns (int168 downcasted) {\\n        downcasted = int168(value);\\n        require(downcasted == value, \\\"SafeCast: value doesn't fit in 168 bits\\\");\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted int160 from int256, reverting on\\n     * overflow (when the input is less than smallest int160 or\\n     * greater than largest int160).\\n     *\\n     * Counterpart to Solidity's `int160` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 160 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toInt160(int256 value) internal pure returns (int160 downcasted) {\\n        downcasted = int160(value);\\n        require(downcasted == value, \\\"SafeCast: value doesn't fit in 160 bits\\\");\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted int152 from int256, reverting on\\n     * overflow (when the input is less than smallest int152 or\\n     * greater than largest int152).\\n     *\\n     * Counterpart to Solidity's `int152` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 152 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toInt152(int256 value) internal pure returns (int152 downcasted) {\\n        downcasted = int152(value);\\n        require(downcasted == value, \\\"SafeCast: value doesn't fit in 152 bits\\\");\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted int144 from int256, reverting on\\n     * overflow (when the input is less than smallest int144 or\\n     * greater than largest int144).\\n     *\\n     * Counterpart to Solidity's `int144` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 144 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toInt144(int256 value) internal pure returns (int144 downcasted) {\\n        downcasted = int144(value);\\n        require(downcasted == value, \\\"SafeCast: value doesn't fit in 144 bits\\\");\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted int136 from int256, reverting on\\n     * overflow (when the input is less than smallest int136 or\\n     * greater than largest int136).\\n     *\\n     * Counterpart to Solidity's `int136` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 136 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toInt136(int256 value) internal pure returns (int136 downcasted) {\\n        downcasted = int136(value);\\n        require(downcasted == value, \\\"SafeCast: value doesn't fit in 136 bits\\\");\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted int128 from int256, reverting on\\n     * overflow (when the input is less than smallest int128 or\\n     * greater than largest int128).\\n     *\\n     * Counterpart to Solidity's `int128` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 128 bits\\n     *\\n     * _Available since v3.1._\\n     */\\n    function toInt128(int256 value) internal pure returns (int128 downcasted) {\\n        downcasted = int128(value);\\n        require(downcasted == value, \\\"SafeCast: value doesn't fit in 128 bits\\\");\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted int120 from int256, reverting on\\n     * overflow (when the input is less than smallest int120 or\\n     * greater than largest int120).\\n     *\\n     * Counterpart to Solidity's `int120` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 120 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toInt120(int256 value) internal pure returns (int120 downcasted) {\\n        downcasted = int120(value);\\n        require(downcasted == value, \\\"SafeCast: value doesn't fit in 120 bits\\\");\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted int112 from int256, reverting on\\n     * overflow (when the input is less than smallest int112 or\\n     * greater than largest int112).\\n     *\\n     * Counterpart to Solidity's `int112` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 112 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toInt112(int256 value) internal pure returns (int112 downcasted) {\\n        downcasted = int112(value);\\n        require(downcasted == value, \\\"SafeCast: value doesn't fit in 112 bits\\\");\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted int104 from int256, reverting on\\n     * overflow (when the input is less than smallest int104 or\\n     * greater than largest int104).\\n     *\\n     * Counterpart to Solidity's `int104` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 104 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toInt104(int256 value) internal pure returns (int104 downcasted) {\\n        downcasted = int104(value);\\n        require(downcasted == value, \\\"SafeCast: value doesn't fit in 104 bits\\\");\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted int96 from int256, reverting on\\n     * overflow (when the input is less than smallest int96 or\\n     * greater than largest int96).\\n     *\\n     * Counterpart to Solidity's `int96` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 96 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toInt96(int256 value) internal pure returns (int96 downcasted) {\\n        downcasted = int96(value);\\n        require(downcasted == value, \\\"SafeCast: value doesn't fit in 96 bits\\\");\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted int88 from int256, reverting on\\n     * overflow (when the input is less than smallest int88 or\\n     * greater than largest int88).\\n     *\\n     * Counterpart to Solidity's `int88` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 88 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toInt88(int256 value) internal pure returns (int88 downcasted) {\\n        downcasted = int88(value);\\n        require(downcasted == value, \\\"SafeCast: value doesn't fit in 88 bits\\\");\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted int80 from int256, reverting on\\n     * overflow (when the input is less than smallest int80 or\\n     * greater than largest int80).\\n     *\\n     * Counterpart to Solidity's `int80` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 80 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toInt80(int256 value) internal pure returns (int80 downcasted) {\\n        downcasted = int80(value);\\n        require(downcasted == value, \\\"SafeCast: value doesn't fit in 80 bits\\\");\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted int72 from int256, reverting on\\n     * overflow (when the input is less than smallest int72 or\\n     * greater than largest int72).\\n     *\\n     * Counterpart to Solidity's `int72` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 72 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toInt72(int256 value) internal pure returns (int72 downcasted) {\\n        downcasted = int72(value);\\n        require(downcasted == value, \\\"SafeCast: value doesn't fit in 72 bits\\\");\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted int64 from int256, reverting on\\n     * overflow (when the input is less than smallest int64 or\\n     * greater than largest int64).\\n     *\\n     * Counterpart to Solidity's `int64` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 64 bits\\n     *\\n     * _Available since v3.1._\\n     */\\n    function toInt64(int256 value) internal pure returns (int64 downcasted) {\\n        downcasted = int64(value);\\n        require(downcasted == value, \\\"SafeCast: value doesn't fit in 64 bits\\\");\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted int56 from int256, reverting on\\n     * overflow (when the input is less than smallest int56 or\\n     * greater than largest int56).\\n     *\\n     * Counterpart to Solidity's `int56` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 56 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toInt56(int256 value) internal pure returns (int56 downcasted) {\\n        downcasted = int56(value);\\n        require(downcasted == value, \\\"SafeCast: value doesn't fit in 56 bits\\\");\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted int48 from int256, reverting on\\n     * overflow (when the input is less than smallest int48 or\\n     * greater than largest int48).\\n     *\\n     * Counterpart to Solidity's `int48` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 48 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toInt48(int256 value) internal pure returns (int48 downcasted) {\\n        downcasted = int48(value);\\n        require(downcasted == value, \\\"SafeCast: value doesn't fit in 48 bits\\\");\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted int40 from int256, reverting on\\n     * overflow (when the input is less than smallest int40 or\\n     * greater than largest int40).\\n     *\\n     * Counterpart to Solidity's `int40` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 40 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toInt40(int256 value) internal pure returns (int40 downcasted) {\\n        downcasted = int40(value);\\n        require(downcasted == value, \\\"SafeCast: value doesn't fit in 40 bits\\\");\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted int32 from int256, reverting on\\n     * overflow (when the input is less than smallest int32 or\\n     * greater than largest int32).\\n     *\\n     * Counterpart to Solidity's `int32` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 32 bits\\n     *\\n     * _Available since v3.1._\\n     */\\n    function toInt32(int256 value) internal pure returns (int32 downcasted) {\\n        downcasted = int32(value);\\n        require(downcasted == value, \\\"SafeCast: value doesn't fit in 32 bits\\\");\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted int24 from int256, reverting on\\n     * overflow (when the input is less than smallest int24 or\\n     * greater than largest int24).\\n     *\\n     * Counterpart to Solidity's `int24` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 24 bits\\n     *\\n     * _Available since v4.7._\\n     */\\n    function toInt24(int256 value) internal pure returns (int24 downcasted) {\\n        downcasted = int24(value);\\n        require(downcasted == value, \\\"SafeCast: value doesn't fit in 24 bits\\\");\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted int16 from int256, reverting on\\n     * overflow (when the input is less than smallest int16 or\\n     * greater than largest int16).\\n     *\\n     * Counterpart to Solidity's `int16` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 16 bits\\n     *\\n     * _Available since v3.1._\\n     */\\n    function toInt16(int256 value) internal pure returns (int16 downcasted) {\\n        downcasted = int16(value);\\n        require(downcasted == value, \\\"SafeCast: value doesn't fit in 16 bits\\\");\\n    }\\n\\n    /**\\n     * @dev Returns the downcasted int8 from int256, reverting on\\n     * overflow (when the input is less than smallest int8 or\\n     * greater than largest int8).\\n     *\\n     * Counterpart to Solidity's `int8` operator.\\n     *\\n     * Requirements:\\n     *\\n     * - input must fit into 8 bits\\n     *\\n     * _Available since v3.1._\\n     */\\n    function toInt8(int256 value) internal pure returns (int8 downcasted) {\\n        downcasted = int8(value);\\n        require(downcasted == value, \\\"SafeCast: value doesn't fit in 8 bits\\\");\\n    }\\n\\n    /**\\n     * @dev Converts an unsigned uint256 into a signed int256.\\n     *\\n     * Requirements:\\n     *\\n     * - input must be less than or equal to maxInt256.\\n     *\\n     * _Available since v3.0._\\n     */\\n    function toInt256(uint256 value) internal pure returns (int256) {\\n        // Note: Unsafe cast below is okay because `type(int256).max` is guaranteed to be positive\\n        require(value <= uint256(type(int256).max), \\\"SafeCast: value doesn't fit in an int256\\\");\\n        return int256(value);\\n    }\\n}\\n\",\"keccak256\":\"0xcef50f95b43b038aa40aed25b62fc45906c681a5c1d504a4fdcf3bc6330a8d4b\",\"license\":\"MIT\"},\"contracts/bridge/RebateStaking.sol\":{\"content\":\"// SPDX-License-Identifier: GPL-3.0-only\\n\\n// \\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588     \\u2590\\u2588\\u2588\\u2588\\u2588\\u258c     \\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\n// \\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588     \\u2590\\u2588\\u2588\\u2588\\u2588\\u258c     \\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\n//               \\u2590\\u2588\\u2588\\u2588\\u2588\\u258c    \\u2590\\u2588\\u2588\\u2588\\u2588\\u258c\\n//               \\u2590\\u2588\\u2588\\u2588\\u2588\\u258c    \\u2590\\u2588\\u2588\\u2588\\u2588\\u258c\\n// \\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588     \\u2590\\u2588\\u2588\\u2588\\u2588\\u258c     \\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\n// \\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588     \\u2590\\u2588\\u2588\\u2588\\u2588\\u258c     \\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\u2588\\n//               \\u2590\\u2588\\u2588\\u2588\\u2588\\u258c    \\u2590\\u2588\\u2588\\u2588\\u2588\\u258c\\n//               \\u2590\\u2588\\u2588\\u2588\\u2588\\u258c    \\u2590\\u2588\\u2588\\u2588\\u2588\\u258c\\n//               \\u2590\\u2588\\u2588\\u2588\\u2588\\u258c    \\u2590\\u2588\\u2588\\u2588\\u2588\\u258c\\n//               \\u2590\\u2588\\u2588\\u2588\\u2588\\u258c    \\u2590\\u2588\\u2588\\u2588\\u2588\\u258c\\n//               \\u2590\\u2588\\u2588\\u2588\\u2588\\u258c    \\u2590\\u2588\\u2588\\u2588\\u2588\\u258c\\n//               \\u2590\\u2588\\u2588\\u2588\\u2588\\u258c    \\u2590\\u2588\\u2588\\u2588\\u2588\\u258c\\n\\npragma solidity 0.8.17;\\n\\nimport \\\"@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol\\\";\\nimport \\\"@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol\\\";\\nimport \\\"@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol\\\";\\nimport \\\"@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol\\\";\\nimport \\\"@openzeppelin/contracts-upgradeable/utils/math/SafeCastUpgradeable.sol\\\";\\n\\n/// @title Contract for staking T token to get rebate on minting/redemption fees\\ncontract RebateStaking is Initializable, OwnableUpgradeable {\\n    using SafeERC20Upgradeable for IERC20Upgradeable;\\n\\n    error CallerNotBridge();\\n    error ParametersCannotBeZero();\\n    error RollingWindowCannotBeZero();\\n    error AmountCannotBeZero();\\n    error UnstakingAlreadyStarted();\\n    error AmountTooBig();\\n    error NoUnstakingProcess();\\n    error UnstakingNotFinished();\\n    error ZeroAddress();\\n    error NotAStaker();\\n    error WrongDelegatee();\\n\\n    enum RebateTreasuryFeeMode {\\n        Both,\\n        DepositOnly,\\n        RedemptionOnly\\n    }\\n\\n    enum TreasuryFeeType {\\n        Deposit,\\n        Redemption\\n    }\\n\\n    struct Rebate {\\n        uint32 timestamp;\\n        uint64 feeRebate;\\n        // Reserved storage space in case we need to add more variables.\\n        // The convention from OpenZeppelin suggests the storage space should\\n        // add up to 50 slots. Here we want to have more slots as there are\\n        // planned upgrades of the Bridge contract. If more entires are added to\\n        // the struct in the upcoming versions we need to reduce the array size.\\n        // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps\\n        // slither-disable-next-line unused-state\\n        uint256[50] __gap;\\n    }\\n\\n    struct Stake {\\n        uint96 stakedAmount;\\n        uint96 unstakingAmount;\\n        uint32 unstakingTimestamp;\\n        uint256 rollingWindowStartIndex;\\n        Rebate[] rebates;\\n        RebateTreasuryFeeMode rebateTreasuryFeeMode;\\n        address delegatee;\\n    }\\n\\n    IERC20Upgradeable public token;\\n    address public bridge;\\n\\n    uint256 public rollingWindow;\\n    uint256 public unstakingPeriod;\\n    uint256 public rebatePerToken;\\n\\n    mapping(address => Stake) public stakes;\\n    mapping(address => address) public delegates;\\n\\n    // Reserved storage space in case we need to add more variables.\\n    // The convention from OpenZeppelin suggests the storage space should\\n    // add up to 50 slots. Here we want to have more slots as there are\\n    // planned upgrades of the Bridge contract. If more entires are added to\\n    // the struct in the upcoming versions we need to reduce the array size.\\n    // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps\\n    // slither-disable-next-line unused-state\\n    uint256[49] private __gap;\\n\\n    event RollingWindowUpdated(uint256 rollingWindow);\\n    event UnstakingPeriodUpdated(uint256 unstakingPeriod);\\n    event RebatePerTokenUpdated(uint256 rebatePerToken);\\n    event RebateReceived(address staker, uint64 rebate);\\n    event RebateCanceled(address staker, uint256 requestedAt);\\n    event RebateTreasuryFeeModeUpdated(\\n        address indexed staker,\\n        RebateTreasuryFeeMode rebateTreasuryFeeMode\\n    );\\n    event Staked(address staker, uint256 amount);\\n    event UnstakeStarted(address staker, uint256 amount);\\n    event UnstakeFinished(address staker, uint256 amount);\\n    event DelegateeSet(address staker, address delegatee);\\n\\n    /// @custom:oz-upgrades-unsafe-allow constructor\\n    constructor() {\\n        _disableInitializers();\\n    }\\n\\n    modifier onlyBridge() {\\n        if (msg.sender != address(bridge)) revert CallerNotBridge();\\n        _;\\n    }\\n\\n    /// @dev Initializes upgradable contract on deployment.\\n    function initialize(\\n        address _bridge,\\n        address _token,\\n        uint256 _rollingWindow,\\n        uint256 _unstakingPeriod,\\n        uint256 _rebatePerToken\\n    ) external initializer {\\n        if (\\n            _bridge == address(0) || _token == address(0) || _rollingWindow == 0\\n        ) {\\n            revert ParametersCannotBeZero();\\n        }\\n        bridge = _bridge;\\n        token = IERC20Upgradeable(_token);\\n        rollingWindow = _rollingWindow;\\n        unstakingPeriod = _unstakingPeriod;\\n        rebatePerToken = _rebatePerToken;\\n\\n        __Ownable_init();\\n    }\\n\\n    /// @notice Updates the rolling window.\\n    /// @param _newRollingWindow Duration of the rolling window.\\n    /// @dev Requirements:\\n    ///      - The caller must be the contract owner,\\n    ///      - The new rolling window cannot be zero\\n    function updateRollingWindow(uint256 _newRollingWindow) external onlyOwner {\\n        if (_newRollingWindow == 0) revert RollingWindowCannotBeZero();\\n        rollingWindow = _newRollingWindow;\\n        emit RollingWindowUpdated(rollingWindow);\\n    }\\n\\n    /// @notice Updates the unstaking period.\\n    /// @param _newUnstakingPeriod Duration of the unstaking period.\\n    /// @dev Requirements:\\n    ///      - The caller must be the contract owner\\n    function updateUnstakingPeriod(uint256 _newUnstakingPeriod)\\n        external\\n        onlyOwner\\n    {\\n        unstakingPeriod = _newUnstakingPeriod;\\n        emit UnstakingPeriodUpdated(unstakingPeriod);\\n    }\\n\\n    /// @notice Updates the rebate per token.\\n    /// @param _newRebatePerToken Rebate coefficient.\\n    /// @dev Requirements:\\n    ///      - The caller must be the contract owner\\n    function updateRebatePerToken(uint256 _newRebatePerToken)\\n        external\\n        onlyOwner\\n    {\\n        rebatePerToken = _newRebatePerToken;\\n        emit RebatePerTokenUpdated(rebatePerToken);\\n    }\\n\\n    /// @notice Sets the rebate treasury fee mode for caller.\\n    /// @param _rebateTreasuryFeeMode New rebate treasury fee mode:\\n    ///        - 0: rebates for both deposits and redemptions,\\n    ///        - 1: rebates for deposits only,\\n    ///        - 2: rebates for redemptions only.\\n    function setRebateTreasuryFeeMode(\\n        RebateTreasuryFeeMode _rebateTreasuryFeeMode\\n    ) external {\\n        stakes[msg.sender].rebateTreasuryFeeMode = _rebateTreasuryFeeMode;\\n        emit RebateTreasuryFeeModeUpdated(msg.sender, _rebateTreasuryFeeMode);\\n    }\\n\\n    /// @notice Sets a delegatee for a rebate.\\n    /// @param _delegatee Delegatee address.\\n    function setDelegatee(address _delegatee) external {\\n        Stake storage stakeInfo = stakes[msg.sender];\\n        if (stakeInfo.stakedAmount == 0) {\\n            revert NotAStaker();\\n        }\\n        if (stakeInfo.delegatee != address(0)) {\\n            delegates[stakeInfo.delegatee] = address(0);\\n        }\\n        if (_delegatee == address(0) || _delegatee == msg.sender) {\\n            stakeInfo.delegatee = address(0);\\n            emit DelegateeSet(msg.sender, msg.sender);\\n            return;\\n        }\\n\\n        if (\\n            delegates[_delegatee] != address(0) ||\\n            stakes[_delegatee].stakedAmount != 0\\n        ) {\\n            revert WrongDelegatee();\\n        }\\n        stakeInfo.delegatee = _delegatee;\\n        delegates[_delegatee] = msg.sender;\\n        emit DelegateeSet(msg.sender, _delegatee);\\n    }\\n\\n    /// @notice Calculates cap for rebate for the specified user.\\n    /// @param user Address of depositor or redeemer\\n    function getRebateCap(address user) external view returns (uint64) {\\n        Stake storage stakeInfo = stakes[user];\\n        return getRebateCap(stakeInfo);\\n    }\\n\\n    /// @notice Calculates cap for rebate for the specified user.\\n    /// @param stakeInfo Staker struct\\n    function getRebateCap(Stake storage stakeInfo)\\n        internal\\n        view\\n        returns (uint64)\\n    {\\n        if (rebatePerToken == 0) {\\n            return 0;\\n        }\\n        return\\n            SafeCastUpgradeable.toUint64(\\n                (stakeInfo.stakedAmount - stakeInfo.unstakingAmount) /\\n                    rebatePerToken\\n            );\\n    }\\n\\n    /// @notice Calculates available rebate for the specified user.\\n    /// @param user Address of depositor or redeemer\\n    function getAvailableRebate(address user)\\n        external\\n        view\\n        returns (uint64 rebateInWindow)\\n    {\\n        Stake storage stakeInfo = stakes[user];\\n        uint64 rebateCap = getRebateCap(stakeInfo);\\n        if (rebateCap == 0) {\\n            return 0;\\n        }\\n\\n        if (stakeInfo.rebates.length == 0) {\\n            return rebateCap;\\n        }\\n\\n        /* solhint-disable-next-line not-rely-on-time */\\n        uint256 windowStart = block.timestamp - rollingWindow;\\n        for (\\n            uint256 i = stakeInfo.rollingWindowStartIndex;\\n            i < stakeInfo.rebates.length;\\n            i++\\n        ) {\\n            Rebate storage rebate = stakeInfo.rebates[i];\\n            if (rebate.timestamp >= windowStart) {\\n                rebateInWindow += rebate.feeRebate;\\n            }\\n        }\\n\\n        return rebateCap - rebateInWindow;\\n    }\\n\\n    /// @notice Calculates used rebate in the rolling window.\\n    /// @param stakeInfo Staker struct\\n    /// @return rebateInWindow Used rebate in the rolling window\\n    function getRebateInRollingWindow(Stake storage stakeInfo)\\n        internal\\n        returns (uint64 rebateInWindow)\\n    {\\n        if (stakeInfo.rebates.length == 0) {\\n            return 0;\\n        }\\n\\n        /* solhint-disable-next-line not-rely-on-time */\\n        uint256 windowStart = block.timestamp - rollingWindow;\\n        uint256 rebatesLength = stakeInfo.rebates.length;\\n        for (\\n            uint256 i = stakeInfo.rollingWindowStartIndex;\\n            i < rebatesLength;\\n            i++\\n        ) {\\n            Rebate storage rebate = stakeInfo.rebates[i];\\n            if (rebate.timestamp < windowStart) {\\n                stakeInfo.rollingWindowStartIndex++;\\n            } else {\\n                rebateInWindow += rebate.feeRebate;\\n            }\\n        }\\n\\n        return rebateInWindow;\\n    }\\n\\n    /// @notice Checks if user is eligible for rebate\\n    /// @param user Address of depositor or redeemer\\n    /// @param treasuryFee Original fees\\n    /// @param treasuryFeeType Type of treasury fee:\\n    ///        - 0: deposit treasury fee,\\n    ///        - 1: redemption treasury fee.\\n    /// @return Updated fees considering rebate if applicable\\n    /// @dev Requirements:\\n    ///      - The caller must be the bridge contract\\n    function applyForRebate(\\n        address user,\\n        uint64 treasuryFee,\\n        TreasuryFeeType treasuryFeeType\\n    ) external onlyBridge returns (uint64) {\\n        user = getStaker(user);\\n        Stake storage stakeInfo = stakes[user];\\n\\n        if (!isRebateEnabled(user, treasuryFeeType)) {\\n            return treasuryFee;\\n        }\\n\\n        uint64 rebateCap = getRebateCap(stakeInfo);\\n        if (rebateCap == 0) {\\n            return treasuryFee;\\n        }\\n\\n        uint64 currentRebate = getRebateInRollingWindow(stakeInfo);\\n        if (rebateCap <= currentRebate) {\\n            return treasuryFee;\\n        }\\n        uint64 rebate = rebateCap - currentRebate;\\n        if (rebate > treasuryFee) {\\n            rebate = treasuryFee;\\n        }\\n\\n        Rebate storage value = stakeInfo.rebates.push();\\n        /* solhint-disable-next-line not-rely-on-time */\\n        value.timestamp = uint32(block.timestamp);\\n        value.feeRebate = rebate;\\n        emit RebateReceived(user, rebate);\\n        return treasuryFee - rebate;\\n    }\\n\\n    /// @notice Returns true if rebate is enabled for given user and fee type.\\n    function isRebateEnabled(address user, TreasuryFeeType treasuryFeeType)\\n        internal\\n        view\\n        returns (bool)\\n    {\\n        RebateTreasuryFeeMode mode = stakes[user].rebateTreasuryFeeMode;\\n\\n        // slither-disable-next-line incorrect-equality\\n        return\\n            mode == RebateTreasuryFeeMode.Both ||\\n            (mode == RebateTreasuryFeeMode.DepositOnly &&\\n                treasuryFeeType == TreasuryFeeType.Deposit) ||\\n            (mode == RebateTreasuryFeeMode.RedemptionOnly &&\\n                treasuryFeeType == TreasuryFeeType.Redemption);\\n    }\\n\\n    /// @notice Returns address of delegating staker or user itself if there is no delegating staker.\\n    function getStaker(address user) internal view returns (address) {\\n        address staker = delegates[user];\\n        // slither-disable-next-line incorrect-equality\\n        if (stakes[user].stakedAmount == 0 && staker != address(0)) {\\n            return staker;\\n        }\\n        return user;\\n    }\\n\\n    /// @notice Cancels rebate in case of reedem request was timed out\\n    /// @param user Address of depositor or redeemer\\n    /// @param requestedAt Timestamp when redeem was requested\\n    /// @dev Requirements:\\n    ///      - The caller must be the bridge contract\\n    function cancelRebate(address user, uint256 requestedAt)\\n        external\\n        onlyBridge\\n    {\\n        user = getStaker(user);\\n        Stake storage stakeInfo = stakes[user];\\n        if (stakeInfo.stakedAmount == 0) {\\n            return;\\n        }\\n\\n        /* solhint-disable-next-line not-rely-on-time */\\n        uint256 windowStart = block.timestamp - rollingWindow;\\n        uint256 rebatesLength = stakeInfo.rebates.length;\\n        for (\\n            uint256 i = stakeInfo.rollingWindowStartIndex;\\n            i < rebatesLength;\\n            i++\\n        ) {\\n            Rebate storage rebate = stakeInfo.rebates[i];\\n            if (rebate.timestamp > requestedAt) {\\n                break;\\n            } else if (rebate.timestamp < windowStart) {\\n                stakeInfo.rollingWindowStartIndex++;\\n            } else if (requestedAt == rebate.timestamp) {\\n                rebate.feeRebate = 0;\\n                emit RebateCanceled(user, requestedAt);\\n                break;\\n            }\\n        }\\n    }\\n\\n    /// @notice Stake T token to be eligible for rebate\\n    /// @param amount Amount of tokens to stake\\n    function stake(uint96 amount) external {\\n        if (amount == 0) revert AmountCannotBeZero();\\n\\n        address otherStaker = delegates[msg.sender];\\n        if (otherStaker != address(0)) {\\n            stakes[otherStaker].delegatee = address(0);\\n            delegates[msg.sender] = address(0);\\n            emit DelegateeSet(otherStaker, otherStaker);\\n        }\\n\\n        Stake storage stakeInfo = stakes[msg.sender];\\n        stakeInfo.stakedAmount += amount;\\n        emit Staked(msg.sender, amount);\\n        token.safeTransferFrom(msg.sender, address(this), amount);\\n    }\\n\\n    /// @notice Start unstaking process\\n    /// @param amount Amount of tokens to unstake\\n    function startUnstaking(uint96 amount) external {\\n        if (amount == 0) revert AmountCannotBeZero();\\n        Stake storage stakeInfo = stakes[msg.sender];\\n        if (stakeInfo.unstakingTimestamp != 0) revert UnstakingAlreadyStarted();\\n        if (amount > stakeInfo.stakedAmount) revert AmountTooBig();\\n        /* solhint-disable-next-line not-rely-on-time */\\n        stakeInfo.unstakingTimestamp = uint32(block.timestamp);\\n        stakeInfo.unstakingAmount = amount;\\n        emit UnstakeStarted(msg.sender, amount);\\n    }\\n\\n    /// @notice Finalize unstaking and withdraw tokens\\n    /// @param receiver Address of stake receiver\\n    function finalizeUnstaking(address receiver) external {\\n        if (receiver == address(0)) revert ZeroAddress();\\n\\n        Stake storage stakeInfo = stakes[msg.sender];\\n        if (stakeInfo.unstakingTimestamp == 0) revert NoUnstakingProcess();\\n        if (\\n            /* solhint-disable-next-line not-rely-on-time */\\n            stakeInfo.unstakingTimestamp + unstakingPeriod > block.timestamp\\n        ) revert UnstakingNotFinished();\\n\\n        stakeInfo.stakedAmount -= stakeInfo.unstakingAmount;\\n        uint96 amount = stakeInfo.unstakingAmount;\\n        stakeInfo.unstakingTimestamp = 0;\\n        stakeInfo.unstakingAmount = 0;\\n        if (stakeInfo.stakedAmount == 0 && stakeInfo.delegatee != address(0)) {\\n            delegates[stakeInfo.delegatee] = address(0);\\n            stakeInfo.delegatee = address(0);\\n        }\\n\\n        emit UnstakeFinished(msg.sender, amount);\\n        token.safeTransfer(receiver, amount);\\n    }\\n\\n    /// @notice Returns size of rebate array\\n    /// @param user Address of depositor or redeemer\\n    function getRebateLength(address user) external view returns (uint256) {\\n        return stakes[user].rebates.length;\\n    }\\n\\n    /// @notice Returns timestamp and amount of rebate\\n    /// @param user Address of depositor or redeemer\\n    /// @param index Index of the element in the array\\n    /// @return timestamp Timestamp of rebate\\n    /// @return feeRebate Amount of rebate\\n    function getRebate(address user, uint256 index)\\n        external\\n        view\\n        returns (uint32 timestamp, uint64 feeRebate)\\n    {\\n        Rebate storage rebateInfo = stakes[user].rebates[index];\\n        timestamp = rebateInfo.timestamp;\\n        feeRebate = rebateInfo.feeRebate;\\n    }\\n\\n    /// @notice Returns information about stake\\n    /// @param user Address of depositor or redeemer\\n    /// @return stakedAmount Amount of stake\\n    function getStake(address user)\\n        external\\n        view\\n        returns (uint96 stakedAmount)\\n    {\\n        Stake storage stakeInfo = stakes[user];\\n        stakedAmount = stakeInfo.stakedAmount;\\n    }\\n\\n    /// @notice Returns information about unstaking\\n    /// @param user Address of depositor or redeemer\\n    /// @return unstakingAmount Amount that is currently unstaking\\n    /// @return unstakingTimestamp Amount of rebate\\n    function getUnstakingAmount(address user)\\n        external\\n        view\\n        returns (uint96 unstakingAmount, uint32 unstakingTimestamp)\\n    {\\n        Stake storage stakeInfo = stakes[user];\\n        unstakingAmount = stakeInfo.unstakingAmount;\\n        unstakingTimestamp = stakeInfo.unstakingTimestamp;\\n    }\\n\\n    /// @notice Returns the rebate treasury fee mode for a user.\\n    /// @param user Address of the staker\\n    /// @return rebateTreasuryFeeMode Current mode:\\n    ///         - 0: rebates for both deposits and redemptions,\\n    ///         - 1: rebates for deposits only,\\n    ///         - 2: rebates for redemptions only.\\n    function getRebateTreasuryFeeMode(address user)\\n        external\\n        view\\n        returns (RebateTreasuryFeeMode rebateTreasuryFeeMode)\\n    {\\n        Stake storage stakeInfo = stakes[user];\\n        rebateTreasuryFeeMode = stakeInfo.rebateTreasuryFeeMode;\\n    }\\n\\n    /// @notice Returns information about stake\\n    /// @param user Address of depositor or redeemer\\n    /// @return delegatee Delegatee address.\\n    function getDelegatee(address user)\\n        external\\n        view\\n        returns (address delegatee)\\n    {\\n        Stake storage stakeInfo = stakes[user];\\n        delegatee = stakeInfo.delegatee;\\n    }\\n}\\n\",\"keccak256\":\"0xd61b2e3655129951707ab01b87ac5efc2a39d136014062539f49fa0f43c144e7\",\"license\":\"GPL-3.0-only\"}},\"version\":1}",
+  "bytecode": "0x608060405234801561001057600080fd5b5061001961001e565b6100de565b600054610100900460ff161561008a5760405162461bcd60e51b815260206004820152602760248201527f496e697469616c697a61626c653a20636f6e747261637420697320696e697469604482015266616c697a696e6760c81b606482015260840160405180910390fd5b60005460ff90811610156100dc576000805460ff191660ff9081179091556040519081527f7f26b83ff96e1f2b6a682f133852f6798a09c465da95921460cefb38474024989060200160405180910390a15b565b6120ad80620000ee6000396000f3fe608060405234801561001057600080fd5b50600436106101cf5760003560e01c80639b4e735f11610104578063ddb0f90c116100a2578063f21c783b11610071578063f21c783b14610510578063f2fde38b14610519578063fc0c546a1461052c578063fc1332db1461053f57600080fd5b8063ddb0f90c1461049f578063e700ed35146104b2578063e78cea92146104ea578063e842a64b146104fd57600080fd5b8063c7abd594116100de578063c7abd5941461045d578063cd2387f614610466578063d13f90b414610479578063d5874a021461048c57600080fd5b80639b4e735f14610403578063aabd792a14610437578063b3b27d7e1461044a57600080fd5b806376b64032116101715780637b3c9d1a1161014b5780637b3c9d1a146103905780638741d9b4146103a35780638da5cb5b146103b6578063942b020e146103c757600080fd5b806376b640321461030757806377a1ab33146103335780637a7664601461034657600080fd5b806351c1df8b116101ad57806351c1df8b1461027f578063587cde1e146102ab57806361f129ad146102ec578063715018a6146102ff57600080fd5b806316934fc4146101d457806320bb2e811461025357806326f8c95214610268575b600080fd5b6102386101e2366004611ce5565b606a602052600090815260409020805460018201546003909201546001600160601b0380831693600160601b840490911692600160c01b900463ffffffff169160ff81169061010090046001600160a01b031686565b60405161024a96959493929190611d38565b60405180910390f35b610266610261366004611d8a565b6105ab565b005b61027160675481565b60405190815260200161024a565b61029261028d366004611ce5565b610623565b60405167ffffffffffffffff909116815260200161024a565b6102d46102b9366004611ce5565b606b602052600090815260409020546001600160a01b031681565b6040516001600160a01b03909116815260200161024a565b6102666102fa366004611dab565b61071b565b61026661089c565b610271610315366004611ce5565b6001600160a01b03166000908152606a602052604090206002015490565b610292610341366004611ce5565b6108b0565b610378610354366004611ce5565b6001600160a01b03166000908152606a60205260409020546001600160601b031690565b6040516001600160601b03909116815260200161024a565b61026661039e366004611dd4565b6108d8565b6102666103b1366004611ded565b61091c565b6033546001600160a01b03166102d4565b6103f66103d5366004611ce5565b6001600160a01b03166000908152606a602052604090206003015460ff1690565b60405161024a9190611e17565b6102d4610411366004611ce5565b6001600160a01b039081166000908152606a602052604090206003015461010090041690565b610266610445366004611dab565b610a97565b610266610458366004611dd4565b610c09565b61027160695481565b610292610474366004611e25565b610c46565b610266610487366004611e7f565b610df3565b61026661049a366004611ce5565b610fb8565b6102666104ad366004611dd4565b6111ef565b6104c56104c0366004611ded565b611266565b6040805163ffffffff909316835267ffffffffffffffff90911660208301520161024a565b6066546102d4906001600160a01b031681565b61026661050b366004611ce5565b6112cc565b61027160685481565b610266610527366004611ce5565b6114f0565b6065546102d4906001600160a01b031681565b61058761054d366004611ce5565b6001600160a01b03166000908152606a6020526040902054600160601b81046001600160601b031691600160c01b90910463ffffffff1690565b604080516001600160601b03909316835263ffffffff90911660208301520161024a565b336000908152606a60205260409020600301805482919060ff191660018360028111156105da576105da611d00565b0217905550336001600160a01b03167f21a64160a2588667a740363ac0b5c3ef399e432550baf4f163e2519282e2baea826040516106189190611e17565b60405180910390a250565b6001600160a01b0381166000908152606a602052604081208161064582611580565b90508067ffffffffffffffff16600003610663575060009392505050565b6002820154600003610676579392505050565b6000606754426106869190611ee2565b60018401549091505b60028401548110156107075760008460020182815481106106b2576106b2611ef5565b60009182526020909120603390910201805490915063ffffffff1683116106f45780546106f190640100000000900467ffffffffffffffff1687611f0b565b95505b50806106ff81611f33565b91505061068f565b506107128483611f4c565b95945050505050565b806001600160601b03166000036107455760405163d11b25af60e01b815260040160405180910390fd5b336000908152606b60205260409020546001600160a01b031680156107ef576001600160a01b0381166000818152606a60209081526040808320600301805474ffffffffffffffffffffffffffffffffffffffff0019169055338352606b82529182902080546001600160a01b03191690558151838152908101929092527ff25bb056171d38943fa57831cb70cbbdd82c34313ff8cfca06d41596856e33cf910160405180910390a15b336000908152606a6020526040812080549091849183919061081b9084906001600160601b0316611f6d565b82546101009290920a6001600160601b038181021990931691831602179091556040805133815291861660208301527f9e71bc8eea02a63969f509818f2dafb9254532904319f9dbda79b67bd34a5f3d92500160405180910390a1606554610897906001600160a01b031633306001600160601b0387166115d8565b505050565b6108a461168f565b6108ae60006116e9565b565b6001600160a01b0381166000908152606a602052604081206108d181611580565b9392505050565b6108e061168f565b60688190556040518181527f25c99a0119c3fb36cd24461dd1b8cff937972aa2ce86b3f5e4efb47a9015b0f2906020015b60405180910390a150565b6066546001600160a01b031633146109475760405163356a0b3d60e21b815260040160405180910390fd5b6109508261173b565b6001600160a01b0381166000908152606a602052604081208054929450916001600160601b0316900361098257505050565b6000606754426109929190611ee2565b60028301546001840154919250905b81811015610a8f5760008460020182815481106109c0576109c0611ef5565b60009182526020909120603390910201805490915063ffffffff168610156109e85750610a8f565b805463ffffffff16841115610a1357600185018054906000610a0983611f33565b9190505550610a7c565b805463ffffffff168603610a7c5780546bffffffffffffffff0000000019168155604080516001600160a01b0389168152602081018890527fb4b5b5684e992a98557bd35baf25674e01c0315e306e008a137a1051f0db7b23910160405180910390a150610a8f565b5080610a8781611f33565b9150506109a1565b505050505050565b806001600160601b0316600003610ac15760405163d11b25af60e01b815260040160405180910390fd5b336000908152606a602052604090208054600160c01b900463ffffffff1615610b16576040517f8fa4513c00000000000000000000000000000000000000000000000000000000815260040160405180910390fd5b80546001600160601b039081169083161115610b5e576040517f6b2f218300000000000000000000000000000000000000000000000000000000815260040160405180910390fd5b80547fffffffff00000000000000000000000000000000ffffffffffffffffffffffff16600160c01b4263ffffffff16027fffffffffffffffff000000000000000000000000ffffffffffffffffffffffff1617600160601b6001600160601b0384169081029190911782556040805133815260208101929092527f8dc99017bbc3e43adb345ab51be913750c7a9122ad67841b0f97b12ef3241e7491015b60405180910390a15050565b610c1161168f565b60698190556040518181527f4d2199d69d6eeaaf6ff17312c20d0a408fc2c9df5698a87da4b1c9bdfeea8a7090602001610911565b6066546000906001600160a01b03163314610c745760405163356a0b3d60e21b815260040160405180910390fd5b610c7d8461173b565b6001600160a01b0381166000908152606a60205260409020909450610ca28584611794565b610caf57839150506108d1565b6000610cba82611580565b90508067ffffffffffffffff16600003610cd85784925050506108d1565b6000610ce38361183f565b90508067ffffffffffffffff168267ffffffffffffffff1611610d0b578593505050506108d1565b6000610d178284611f4c565b90508667ffffffffffffffff168167ffffffffffffffff161115610d385750855b60028401805460018101825560009182526020909120603390910201805467ffffffffffffffff8316640100000000026bffffffffffffffffffffffff1990911663ffffffff4216171781556040517f9c91e7e9f8f891850b80895e36d53ebba2d9558dc606eb310e6750ddb05445d590610dd4908b9085906001600160a01b0392909216825267ffffffffffffffff16602082015260400190565b60405180910390a1610de68289611f4c565b9998505050505050505050565b600054610100900460ff1615808015610e135750600054600160ff909116105b80610e2d5750303b158015610e2d575060005460ff166001145b610ea45760405162461bcd60e51b815260206004820152602e60248201527f496e697469616c697a61626c653a20636f6e747261637420697320616c72656160448201527f647920696e697469616c697a656400000000000000000000000000000000000060648201526084015b60405180910390fd5b6000805460ff191660011790558015610ec7576000805461ff0019166101001790555b6001600160a01b0386161580610ee457506001600160a01b038516155b80610eed575083155b15610f24576040517f5b7c9ace00000000000000000000000000000000000000000000000000000000815260040160405180910390fd5b606680546001600160a01b038089166001600160a01b0319928316179092556065805492881692909116919091179055606784905560688390556069829055610f6b61190d565b8015610a8f576000805461ff0019169055604051600181527f7f26b83ff96e1f2b6a682f133852f6798a09c465da95921460cefb38474024989060200160405180910390a1505050505050565b6001600160a01b038116610ff8576040517fd92e233d00000000000000000000000000000000000000000000000000000000815260040160405180910390fd5b336000908152606a6020526040812080549091600160c01b90910463ffffffff169003611051576040517f46f333f500000000000000000000000000000000000000000000000000000000815260040160405180910390fd5b6068548154429161106e91600160c01b900463ffffffff16611f8d565b11156110a6576040517f3c0d48b800000000000000000000000000000000000000000000000000000000815260040160405180910390fd5b80546001600160601b03600160601b820481169183916000916110cb91859116611fa0565b82546101009290920a6001600160601b0381810219909316918316021790915582547fffffffff00000000000000000000000000000000ffffffffffffffffffffffff81168455600160601b8104821692501615801561113c5750600382015461010090046001600160a01b031615155b1561118e5760038201805461010090046001600160a01b03166000908152606b6020526040902080546001600160a01b0319169055805474ffffffffffffffffffffffffffffffffffffffff00191690555b604080513381526001600160601b03831660208201527fce1a25e80f3ff7c01363501765d22d8c1e6a01dd7a29b161ab5991c7bce33933910160405180910390a1606554610897906001600160a01b0316846001600160601b038416611980565b6111f761168f565b80600003611231576040517fef3be9d600000000000000000000000000000000000000000000000000000000815260040160405180910390fd5b60678190556040518181527f5bf49171ec21a2225ebd540f888d4c4c23845e503a0af5c533a99ff874a7617a90602001610911565b6001600160a01b0382166000908152606a602052604081206002018054829182918590811061129757611297611ef5565b600091825260209091206033909102015463ffffffff81169664010000000090910467ffffffffffffffff1695509350505050565b336000908152606a60205260408120805490916001600160601b039091169003611322576040517f7bc743c500000000000000000000000000000000000000000000000000000000815260040160405180910390fd5b600381015461010090046001600160a01b03161561136a57600381015461010090046001600160a01b03166000908152606b6020526040902080546001600160a01b03191690555b6001600160a01b038216158061138857506001600160a01b03821633145b156113e25760038101805474ffffffffffffffffffffffffffffffffffffffff0019169055604080513380825260208201527ff25bb056171d38943fa57831cb70cbbdd82c34313ff8cfca06d41596856e33cf9101610bfd565b6001600160a01b038281166000908152606b60205260409020541615158061142a57506001600160a01b0382166000908152606a60205260409020546001600160601b031615155b15611461576040517fdb2c064300000000000000000000000000000000000000000000000000000000815260040160405180910390fd5b60038101805474ffffffffffffffffffffffffffffffffffffffff0019166101006001600160a01b038516908102919091179091556000818152606b60209081526040918290208054336001600160a01b031990911681179091558251908152908101929092527ff25bb056171d38943fa57831cb70cbbdd82c34313ff8cfca06d41596856e33cf9101610bfd565b6114f861168f565b6001600160a01b0381166115745760405162461bcd60e51b815260206004820152602660248201527f4f776e61626c653a206e6577206f776e657220697320746865207a65726f206160448201527f64647265737300000000000000000000000000000000000000000000000000006064820152608401610e9b565b61157d816116e9565b50565b600060695460000361159457506000919050565b60695482546115d291906115ba906001600160601b03600160601b820481169116611fa0565b6001600160601b03166115cd9190611fc0565b6119c9565b92915050565b6040516001600160a01b03808516602483015283166044820152606481018290526116899085907f23b872dd00000000000000000000000000000000000000000000000000000000906084015b60408051601f198184030181529190526020810180517bffffffffffffffffffffffffffffffffffffffffffffffffffffffff167fffffffff0000000000000000000000000000000000000000000000000000000090931692909217909152611a4d565b50505050565b6033546001600160a01b031633146108ae5760405162461bcd60e51b815260206004820181905260248201527f4f776e61626c653a2063616c6c6572206973206e6f7420746865206f776e65726044820152606401610e9b565b603380546001600160a01b038381166001600160a01b0319831681179093556040519116919082907f8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e090600090a35050565b6001600160a01b038082166000908152606b6020908152604080832054606a909252822054919216906001600160601b031615801561178257506001600160a01b03811615155b1561178d5792915050565b5090919050565b6001600160a01b0382166000908152606a602052604081206003015460ff16818160028111156117c6576117c6611d00565b14806117ff575060018160028111156117e1576117e1611d00565b1480156117ff575060008360018111156117fd576117fd611d00565b145b806118375750600281600281111561181957611819611d00565b1480156118375750600183600181111561183557611835611d00565b145b949350505050565b6002810154600090810361185557506000919050565b6000606754426118659190611ee2565b60028401546001850154919250905b8181101561190557600085600201828154811061189357611893611ef5565b60009182526020909120603390910201805490915063ffffffff168411156118d1576001860180549060006118c783611f33565b91905055506118f2565b80546118ef90640100000000900467ffffffffffffffff1686611f0b565b94505b50806118fd81611f33565b915050611874565b505050919050565b600054610100900460ff166119785760405162461bcd60e51b815260206004820152602b60248201527f496e697469616c697a61626c653a20636f6e7472616374206973206e6f74206960448201526a6e697469616c697a696e6760a81b6064820152608401610e9b565b6108ae611b32565b6040516001600160a01b0383166024820152604481018290526108979084907fa9059cbb0000000000000000000000000000000000000000000000000000000090606401611625565b600067ffffffffffffffff821115611a495760405162461bcd60e51b815260206004820152602660248201527f53616665436173743a2076616c756520646f65736e27742066697420696e203660448201527f34206269747300000000000000000000000000000000000000000000000000006064820152608401610e9b565b5090565b6000611aa2826040518060400160405280602081526020017f5361666545524332303a206c6f772d6c6576656c2063616c6c206661696c6564815250856001600160a01b0316611ba69092919063ffffffff16565b8051909150156108975780806020019051810190611ac09190611fe2565b6108975760405162461bcd60e51b815260206004820152602a60248201527f5361666545524332303a204552433230206f7065726174696f6e20646964206e60448201527f6f742073756363656564000000000000000000000000000000000000000000006064820152608401610e9b565b600054610100900460ff16611b9d5760405162461bcd60e51b815260206004820152602b60248201527f496e697469616c697a61626c653a20636f6e7472616374206973206e6f74206960448201526a6e697469616c697a696e6760a81b6064820152608401610e9b565b6108ae336116e9565b6060611837848460008585600080866001600160a01b03168587604051611bcd9190612028565b60006040518083038185875af1925050503d8060008114611c0a576040519150601f19603f3d011682016040523d82523d6000602084013e611c0f565b606091505b5091509150611c2087838387611c2b565b979650505050505050565b60608315611c9a578251600003611c93576001600160a01b0385163b611c935760405162461bcd60e51b815260206004820152601d60248201527f416464726573733a2063616c6c20746f206e6f6e2d636f6e74726163740000006044820152606401610e9b565b5081611837565b6118378383815115611caf5781518083602001fd5b8060405162461bcd60e51b8152600401610e9b9190612044565b80356001600160a01b0381168114611ce057600080fd5b919050565b600060208284031215611cf757600080fd5b6108d182611cc9565b634e487b7160e01b600052602160045260246000fd5b60038110611d3457634e487b7160e01b600052602160045260246000fd5b9052565b6001600160601b0387811682528616602082015263ffffffff851660408201526060810184905260c08101611d706080830185611d16565b6001600160a01b03831660a0830152979650505050505050565b600060208284031215611d9c57600080fd5b8135600381106108d157600080fd5b600060208284031215611dbd57600080fd5b81356001600160601b03811681146108d157600080fd5b600060208284031215611de657600080fd5b5035919050565b60008060408385031215611e0057600080fd5b611e0983611cc9565b946020939093013593505050565b602081016115d28284611d16565b600080600060608486031215611e3a57600080fd5b611e4384611cc9565b9250602084013567ffffffffffffffff81168114611e6057600080fd5b9150604084013560028110611e7457600080fd5b809150509250925092565b600080600080600060a08688031215611e9757600080fd5b611ea086611cc9565b9450611eae60208701611cc9565b94979496505050506040830135926060810135926080909101359150565b634e487b7160e01b600052601160045260246000fd5b818103818111156115d2576115d2611ecc565b634e487b7160e01b600052603260045260246000fd5b67ffffffffffffffff818116838216019080821115611f2c57611f2c611ecc565b5092915050565b600060018201611f4557611f45611ecc565b5060010190565b67ffffffffffffffff828116828216039080821115611f2c57611f2c611ecc565b6001600160601b03818116838216019080821115611f2c57611f2c611ecc565b808201808211156115d2576115d2611ecc565b6001600160601b03828116828216039080821115611f2c57611f2c611ecc565b600082611fdd57634e487b7160e01b600052601260045260246000fd5b500490565b600060208284031215611ff457600080fd5b815180151581146108d157600080fd5b60005b8381101561201f578181015183820152602001612007565b50506000910152565b6000825161203a818460208701612004565b9190910192915050565b6020815260008251806020840152612063816040850160208701612004565b601f01601f1916919091016040019291505056fea2646970667358221220b73bbd3203c76da9a917a5a9958459dfc2734cf498d5214ab26c3834a93ea34b64736f6c63430008110033",
+  "deployedBytecode": "0x608060405234801561001057600080fd5b50600436106101cf5760003560e01c80639b4e735f11610104578063ddb0f90c116100a2578063f21c783b11610071578063f21c783b14610510578063f2fde38b14610519578063fc0c546a1461052c578063fc1332db1461053f57600080fd5b8063ddb0f90c1461049f578063e700ed35146104b2578063e78cea92146104ea578063e842a64b146104fd57600080fd5b8063c7abd594116100de578063c7abd5941461045d578063cd2387f614610466578063d13f90b414610479578063d5874a021461048c57600080fd5b80639b4e735f14610403578063aabd792a14610437578063b3b27d7e1461044a57600080fd5b806376b64032116101715780637b3c9d1a1161014b5780637b3c9d1a146103905780638741d9b4146103a35780638da5cb5b146103b6578063942b020e146103c757600080fd5b806376b640321461030757806377a1ab33146103335780637a7664601461034657600080fd5b806351c1df8b116101ad57806351c1df8b1461027f578063587cde1e146102ab57806361f129ad146102ec578063715018a6146102ff57600080fd5b806316934fc4146101d457806320bb2e811461025357806326f8c95214610268575b600080fd5b6102386101e2366004611ce5565b606a602052600090815260409020805460018201546003909201546001600160601b0380831693600160601b840490911692600160c01b900463ffffffff169160ff81169061010090046001600160a01b031686565b60405161024a96959493929190611d38565b60405180910390f35b610266610261366004611d8a565b6105ab565b005b61027160675481565b60405190815260200161024a565b61029261028d366004611ce5565b610623565b60405167ffffffffffffffff909116815260200161024a565b6102d46102b9366004611ce5565b606b602052600090815260409020546001600160a01b031681565b6040516001600160a01b03909116815260200161024a565b6102666102fa366004611dab565b61071b565b61026661089c565b610271610315366004611ce5565b6001600160a01b03166000908152606a602052604090206002015490565b610292610341366004611ce5565b6108b0565b610378610354366004611ce5565b6001600160a01b03166000908152606a60205260409020546001600160601b031690565b6040516001600160601b03909116815260200161024a565b61026661039e366004611dd4565b6108d8565b6102666103b1366004611ded565b61091c565b6033546001600160a01b03166102d4565b6103f66103d5366004611ce5565b6001600160a01b03166000908152606a602052604090206003015460ff1690565b60405161024a9190611e17565b6102d4610411366004611ce5565b6001600160a01b039081166000908152606a602052604090206003015461010090041690565b610266610445366004611dab565b610a97565b610266610458366004611dd4565b610c09565b61027160695481565b610292610474366004611e25565b610c46565b610266610487366004611e7f565b610df3565b61026661049a366004611ce5565b610fb8565b6102666104ad366004611dd4565b6111ef565b6104c56104c0366004611ded565b611266565b6040805163ffffffff909316835267ffffffffffffffff90911660208301520161024a565b6066546102d4906001600160a01b031681565b61026661050b366004611ce5565b6112cc565b61027160685481565b610266610527366004611ce5565b6114f0565b6065546102d4906001600160a01b031681565b61058761054d366004611ce5565b6001600160a01b03166000908152606a6020526040902054600160601b81046001600160601b031691600160c01b90910463ffffffff1690565b604080516001600160601b03909316835263ffffffff90911660208301520161024a565b336000908152606a60205260409020600301805482919060ff191660018360028111156105da576105da611d00565b0217905550336001600160a01b03167f21a64160a2588667a740363ac0b5c3ef399e432550baf4f163e2519282e2baea826040516106189190611e17565b60405180910390a250565b6001600160a01b0381166000908152606a602052604081208161064582611580565b90508067ffffffffffffffff16600003610663575060009392505050565b6002820154600003610676579392505050565b6000606754426106869190611ee2565b60018401549091505b60028401548110156107075760008460020182815481106106b2576106b2611ef5565b60009182526020909120603390910201805490915063ffffffff1683116106f45780546106f190640100000000900467ffffffffffffffff1687611f0b565b95505b50806106ff81611f33565b91505061068f565b506107128483611f4c565b95945050505050565b806001600160601b03166000036107455760405163d11b25af60e01b815260040160405180910390fd5b336000908152606b60205260409020546001600160a01b031680156107ef576001600160a01b0381166000818152606a60209081526040808320600301805474ffffffffffffffffffffffffffffffffffffffff0019169055338352606b82529182902080546001600160a01b03191690558151838152908101929092527ff25bb056171d38943fa57831cb70cbbdd82c34313ff8cfca06d41596856e33cf910160405180910390a15b336000908152606a6020526040812080549091849183919061081b9084906001600160601b0316611f6d565b82546101009290920a6001600160601b038181021990931691831602179091556040805133815291861660208301527f9e71bc8eea02a63969f509818f2dafb9254532904319f9dbda79b67bd34a5f3d92500160405180910390a1606554610897906001600160a01b031633306001600160601b0387166115d8565b505050565b6108a461168f565b6108ae60006116e9565b565b6001600160a01b0381166000908152606a602052604081206108d181611580565b9392505050565b6108e061168f565b60688190556040518181527f25c99a0119c3fb36cd24461dd1b8cff937972aa2ce86b3f5e4efb47a9015b0f2906020015b60405180910390a150565b6066546001600160a01b031633146109475760405163356a0b3d60e21b815260040160405180910390fd5b6109508261173b565b6001600160a01b0381166000908152606a602052604081208054929450916001600160601b0316900361098257505050565b6000606754426109929190611ee2565b60028301546001840154919250905b81811015610a8f5760008460020182815481106109c0576109c0611ef5565b60009182526020909120603390910201805490915063ffffffff168610156109e85750610a8f565b805463ffffffff16841115610a1357600185018054906000610a0983611f33565b9190505550610a7c565b805463ffffffff168603610a7c5780546bffffffffffffffff0000000019168155604080516001600160a01b0389168152602081018890527fb4b5b5684e992a98557bd35baf25674e01c0315e306e008a137a1051f0db7b23910160405180910390a150610a8f565b5080610a8781611f33565b9150506109a1565b505050505050565b806001600160601b0316600003610ac15760405163d11b25af60e01b815260040160405180910390fd5b336000908152606a602052604090208054600160c01b900463ffffffff1615610b16576040517f8fa4513c00000000000000000000000000000000000000000000000000000000815260040160405180910390fd5b80546001600160601b039081169083161115610b5e576040517f6b2f218300000000000000000000000000000000000000000000000000000000815260040160405180910390fd5b80547fffffffff00000000000000000000000000000000ffffffffffffffffffffffff16600160c01b4263ffffffff16027fffffffffffffffff000000000000000000000000ffffffffffffffffffffffff1617600160601b6001600160601b0384169081029190911782556040805133815260208101929092527f8dc99017bbc3e43adb345ab51be913750c7a9122ad67841b0f97b12ef3241e7491015b60405180910390a15050565b610c1161168f565b60698190556040518181527f4d2199d69d6eeaaf6ff17312c20d0a408fc2c9df5698a87da4b1c9bdfeea8a7090602001610911565b6066546000906001600160a01b03163314610c745760405163356a0b3d60e21b815260040160405180910390fd5b610c7d8461173b565b6001600160a01b0381166000908152606a60205260409020909450610ca28584611794565b610caf57839150506108d1565b6000610cba82611580565b90508067ffffffffffffffff16600003610cd85784925050506108d1565b6000610ce38361183f565b90508067ffffffffffffffff168267ffffffffffffffff1611610d0b578593505050506108d1565b6000610d178284611f4c565b90508667ffffffffffffffff168167ffffffffffffffff161115610d385750855b60028401805460018101825560009182526020909120603390910201805467ffffffffffffffff8316640100000000026bffffffffffffffffffffffff1990911663ffffffff4216171781556040517f9c91e7e9f8f891850b80895e36d53ebba2d9558dc606eb310e6750ddb05445d590610dd4908b9085906001600160a01b0392909216825267ffffffffffffffff16602082015260400190565b60405180910390a1610de68289611f4c565b9998505050505050505050565b600054610100900460ff1615808015610e135750600054600160ff909116105b80610e2d5750303b158015610e2d575060005460ff166001145b610ea45760405162461bcd60e51b815260206004820152602e60248201527f496e697469616c697a61626c653a20636f6e747261637420697320616c72656160448201527f647920696e697469616c697a656400000000000000000000000000000000000060648201526084015b60405180910390fd5b6000805460ff191660011790558015610ec7576000805461ff0019166101001790555b6001600160a01b0386161580610ee457506001600160a01b038516155b80610eed575083155b15610f24576040517f5b7c9ace00000000000000000000000000000000000000000000000000000000815260040160405180910390fd5b606680546001600160a01b038089166001600160a01b0319928316179092556065805492881692909116919091179055606784905560688390556069829055610f6b61190d565b8015610a8f576000805461ff0019169055604051600181527f7f26b83ff96e1f2b6a682f133852f6798a09c465da95921460cefb38474024989060200160405180910390a1505050505050565b6001600160a01b038116610ff8576040517fd92e233d00000000000000000000000000000000000000000000000000000000815260040160405180910390fd5b336000908152606a6020526040812080549091600160c01b90910463ffffffff169003611051576040517f46f333f500000000000000000000000000000000000000000000000000000000815260040160405180910390fd5b6068548154429161106e91600160c01b900463ffffffff16611f8d565b11156110a6576040517f3c0d48b800000000000000000000000000000000000000000000000000000000815260040160405180910390fd5b80546001600160601b03600160601b820481169183916000916110cb91859116611fa0565b82546101009290920a6001600160601b0381810219909316918316021790915582547fffffffff00000000000000000000000000000000ffffffffffffffffffffffff81168455600160601b8104821692501615801561113c5750600382015461010090046001600160a01b031615155b1561118e5760038201805461010090046001600160a01b03166000908152606b6020526040902080546001600160a01b0319169055805474ffffffffffffffffffffffffffffffffffffffff00191690555b604080513381526001600160601b03831660208201527fce1a25e80f3ff7c01363501765d22d8c1e6a01dd7a29b161ab5991c7bce33933910160405180910390a1606554610897906001600160a01b0316846001600160601b038416611980565b6111f761168f565b80600003611231576040517fef3be9d600000000000000000000000000000000000000000000000000000000815260040160405180910390fd5b60678190556040518181527f5bf49171ec21a2225ebd540f888d4c4c23845e503a0af5c533a99ff874a7617a90602001610911565b6001600160a01b0382166000908152606a602052604081206002018054829182918590811061129757611297611ef5565b600091825260209091206033909102015463ffffffff81169664010000000090910467ffffffffffffffff1695509350505050565b336000908152606a60205260408120805490916001600160601b039091169003611322576040517f7bc743c500000000000000000000000000000000000000000000000000000000815260040160405180910390fd5b600381015461010090046001600160a01b03161561136a57600381015461010090046001600160a01b03166000908152606b6020526040902080546001600160a01b03191690555b6001600160a01b038216158061138857506001600160a01b03821633145b156113e25760038101805474ffffffffffffffffffffffffffffffffffffffff0019169055604080513380825260208201527ff25bb056171d38943fa57831cb70cbbdd82c34313ff8cfca06d41596856e33cf9101610bfd565b6001600160a01b038281166000908152606b60205260409020541615158061142a57506001600160a01b0382166000908152606a60205260409020546001600160601b031615155b15611461576040517fdb2c064300000000000000000000000000000000000000000000000000000000815260040160405180910390fd5b60038101805474ffffffffffffffffffffffffffffffffffffffff0019166101006001600160a01b038516908102919091179091556000818152606b60209081526040918290208054336001600160a01b031990911681179091558251908152908101929092527ff25bb056171d38943fa57831cb70cbbdd82c34313ff8cfca06d41596856e33cf9101610bfd565b6114f861168f565b6001600160a01b0381166115745760405162461bcd60e51b815260206004820152602660248201527f4f776e61626c653a206e6577206f776e657220697320746865207a65726f206160448201527f64647265737300000000000000000000000000000000000000000000000000006064820152608401610e9b565b61157d816116e9565b50565b600060695460000361159457506000919050565b60695482546115d291906115ba906001600160601b03600160601b820481169116611fa0565b6001600160601b03166115cd9190611fc0565b6119c9565b92915050565b6040516001600160a01b03808516602483015283166044820152606481018290526116899085907f23b872dd00000000000000000000000000000000000000000000000000000000906084015b60408051601f198184030181529190526020810180517bffffffffffffffffffffffffffffffffffffffffffffffffffffffff167fffffffff0000000000000000000000000000000000000000000000000000000090931692909217909152611a4d565b50505050565b6033546001600160a01b031633146108ae5760405162461bcd60e51b815260206004820181905260248201527f4f776e61626c653a2063616c6c6572206973206e6f7420746865206f776e65726044820152606401610e9b565b603380546001600160a01b038381166001600160a01b0319831681179093556040519116919082907f8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e090600090a35050565b6001600160a01b038082166000908152606b6020908152604080832054606a909252822054919216906001600160601b031615801561178257506001600160a01b03811615155b1561178d5792915050565b5090919050565b6001600160a01b0382166000908152606a602052604081206003015460ff16818160028111156117c6576117c6611d00565b14806117ff575060018160028111156117e1576117e1611d00565b1480156117ff575060008360018111156117fd576117fd611d00565b145b806118375750600281600281111561181957611819611d00565b1480156118375750600183600181111561183557611835611d00565b145b949350505050565b6002810154600090810361185557506000919050565b6000606754426118659190611ee2565b60028401546001850154919250905b8181101561190557600085600201828154811061189357611893611ef5565b60009182526020909120603390910201805490915063ffffffff168411156118d1576001860180549060006118c783611f33565b91905055506118f2565b80546118ef90640100000000900467ffffffffffffffff1686611f0b565b94505b50806118fd81611f33565b915050611874565b505050919050565b600054610100900460ff166119785760405162461bcd60e51b815260206004820152602b60248201527f496e697469616c697a61626c653a20636f6e7472616374206973206e6f74206960448201526a6e697469616c697a696e6760a81b6064820152608401610e9b565b6108ae611b32565b6040516001600160a01b0383166024820152604481018290526108979084907fa9059cbb0000000000000000000000000000000000000000000000000000000090606401611625565b600067ffffffffffffffff821115611a495760405162461bcd60e51b815260206004820152602660248201527f53616665436173743a2076616c756520646f65736e27742066697420696e203660448201527f34206269747300000000000000000000000000000000000000000000000000006064820152608401610e9b565b5090565b6000611aa2826040518060400160405280602081526020017f5361666545524332303a206c6f772d6c6576656c2063616c6c206661696c6564815250856001600160a01b0316611ba69092919063ffffffff16565b8051909150156108975780806020019051810190611ac09190611fe2565b6108975760405162461bcd60e51b815260206004820152602a60248201527f5361666545524332303a204552433230206f7065726174696f6e20646964206e60448201527f6f742073756363656564000000000000000000000000000000000000000000006064820152608401610e9b565b600054610100900460ff16611b9d5760405162461bcd60e51b815260206004820152602b60248201527f496e697469616c697a61626c653a20636f6e7472616374206973206e6f74206960448201526a6e697469616c697a696e6760a81b6064820152608401610e9b565b6108ae336116e9565b6060611837848460008585600080866001600160a01b03168587604051611bcd9190612028565b60006040518083038185875af1925050503d8060008114611c0a576040519150601f19603f3d011682016040523d82523d6000602084013e611c0f565b606091505b5091509150611c2087838387611c2b565b979650505050505050565b60608315611c9a578251600003611c93576001600160a01b0385163b611c935760405162461bcd60e51b815260206004820152601d60248201527f416464726573733a2063616c6c20746f206e6f6e2d636f6e74726163740000006044820152606401610e9b565b5081611837565b6118378383815115611caf5781518083602001fd5b8060405162461bcd60e51b8152600401610e9b9190612044565b80356001600160a01b0381168114611ce057600080fd5b919050565b600060208284031215611cf757600080fd5b6108d182611cc9565b634e487b7160e01b600052602160045260246000fd5b60038110611d3457634e487b7160e01b600052602160045260246000fd5b9052565b6001600160601b0387811682528616602082015263ffffffff851660408201526060810184905260c08101611d706080830185611d16565b6001600160a01b03831660a0830152979650505050505050565b600060208284031215611d9c57600080fd5b8135600381106108d157600080fd5b600060208284031215611dbd57600080fd5b81356001600160601b03811681146108d157600080fd5b600060208284031215611de657600080fd5b5035919050565b60008060408385031215611e0057600080fd5b611e0983611cc9565b946020939093013593505050565b602081016115d28284611d16565b600080600060608486031215611e3a57600080fd5b611e4384611cc9565b9250602084013567ffffffffffffffff81168114611e6057600080fd5b9150604084013560028110611e7457600080fd5b809150509250925092565b600080600080600060a08688031215611e9757600080fd5b611ea086611cc9565b9450611eae60208701611cc9565b94979496505050506040830135926060810135926080909101359150565b634e487b7160e01b600052601160045260246000fd5b818103818111156115d2576115d2611ecc565b634e487b7160e01b600052603260045260246000fd5b67ffffffffffffffff818116838216019080821115611f2c57611f2c611ecc565b5092915050565b600060018201611f4557611f45611ecc565b5060010190565b67ffffffffffffffff828116828216039080821115611f2c57611f2c611ecc565b6001600160601b03818116838216019080821115611f2c57611f2c611ecc565b808201808211156115d2576115d2611ecc565b6001600160601b03828116828216039080821115611f2c57611f2c611ecc565b600082611fdd57634e487b7160e01b600052601260045260246000fd5b500490565b600060208284031215611ff457600080fd5b815180151581146108d157600080fd5b60005b8381101561201f578181015183820152602001612007565b50506000910152565b6000825161203a818460208701612004565b9190910192915050565b6020815260008251806020840152612063816040850160208701612004565b601f01601f1916919091016040019291505056fea2646970667358221220b73bbd3203c76da9a917a5a9958459dfc2734cf498d5214ab26c3834a93ea34b64736f6c63430008110033",
+  "devdoc": {
+    "kind": "dev",
+    "methods": {
+      "applyForRebate(address,uint64,uint8)": {
+        "details": "Requirements:      - The caller must be the bridge contract",
+        "params": {
+          "treasuryFee": "Original fees",
+          "treasuryFeeType": "Type of treasury fee:        - 0: deposit treasury fee,        - 1: redemption treasury fee.",
+          "user": "Address of depositor or redeemer"
+        },
+        "returns": {
+          "_0": "Updated fees considering rebate if applicable"
+        }
+      },
+      "cancelRebate(address,uint256)": {
+        "details": "Requirements:      - The caller must be the bridge contract",
+        "params": {
+          "requestedAt": "Timestamp when redeem was requested",
+          "user": "Address of depositor or redeemer"
+        }
+      },
+      "constructor": {
+        "custom:oz-upgrades-unsafe-allow": "constructor"
+      },
+      "finalizeUnstaking(address)": {
+        "params": {
+          "receiver": "Address of stake receiver"
+        }
+      },
+      "getAvailableRebate(address)": {
+        "params": {
+          "user": "Address of depositor or redeemer"
+        }
+      },
+      "getDelegatee(address)": {
+        "params": {
+          "user": "Address of depositor or redeemer"
+        },
+        "returns": {
+          "delegatee": "Delegatee address."
+        }
+      },
+      "getRebate(address,uint256)": {
+        "params": {
+          "index": "Index of the element in the array",
+          "user": "Address of depositor or redeemer"
+        },
+        "returns": {
+          "feeRebate": "Amount of rebate",
+          "timestamp": "Timestamp of rebate"
+        }
+      },
+      "getRebateCap(address)": {
+        "params": {
+          "user": "Address of depositor or redeemer"
+        }
+      },
+      "getRebateLength(address)": {
+        "params": {
+          "user": "Address of depositor or redeemer"
+        }
+      },
+      "getRebateTreasuryFeeMode(address)": {
+        "params": {
+          "user": "Address of the staker"
+        },
+        "returns": {
+          "rebateTreasuryFeeMode": "Current mode:         - 0: rebates for both deposits and redemptions,         - 1: rebates for deposits only,         - 2: rebates for redemptions only."
+        }
+      },
+      "getStake(address)": {
+        "params": {
+          "user": "Address of depositor or redeemer"
+        },
+        "returns": {
+          "stakedAmount": "Amount of stake"
+        }
+      },
+      "getUnstakingAmount(address)": {
+        "params": {
+          "user": "Address of depositor or redeemer"
+        },
+        "returns": {
+          "unstakingAmount": "Amount that is currently unstaking",
+          "unstakingTimestamp": "Amount of rebate"
+        }
+      },
+      "initialize(address,address,uint256,uint256,uint256)": {
+        "details": "Initializes upgradable contract on deployment."
+      },
+      "owner()": {
+        "details": "Returns the address of the current owner."
+      },
+      "renounceOwnership()": {
+        "details": "Leaves the contract without owner. It will not be possible to call `onlyOwner` functions anymore. Can only be called by the current owner. NOTE: Renouncing ownership will leave the contract without an owner, thereby removing any functionality that is only available to the owner."
+      },
+      "setDelegatee(address)": {
+        "params": {
+          "_delegatee": "Delegatee address."
+        }
+      },
+      "setRebateTreasuryFeeMode(uint8)": {
+        "params": {
+          "_rebateTreasuryFeeMode": "New rebate treasury fee mode:        - 0: rebates for both deposits and redemptions,        - 1: rebates for deposits only,        - 2: rebates for redemptions only."
+        }
+      },
+      "stake(uint96)": {
+        "params": {
+          "amount": "Amount of tokens to stake"
+        }
+      },
+      "startUnstaking(uint96)": {
+        "params": {
+          "amount": "Amount of tokens to unstake"
+        }
+      },
+      "transferOwnership(address)": {
+        "details": "Transfers ownership of the contract to a new account (`newOwner`). Can only be called by the current owner."
+      },
+      "updateRebatePerToken(uint256)": {
+        "details": "Requirements:      - The caller must be the contract owner",
+        "params": {
+          "_newRebatePerToken": "Rebate coefficient."
+        }
+      },
+      "updateRollingWindow(uint256)": {
+        "details": "Requirements:      - The caller must be the contract owner,      - The new rolling window cannot be zero",
+        "params": {
+          "_newRollingWindow": "Duration of the rolling window."
+        }
+      },
+      "updateUnstakingPeriod(uint256)": {
+        "details": "Requirements:      - The caller must be the contract owner",
+        "params": {
+          "_newUnstakingPeriod": "Duration of the unstaking period."
+        }
+      }
+    },
+    "title": "Contract for staking T token to get rebate on minting/redemption fees",
+    "version": 1
+  },
+  "userdoc": {
+    "kind": "user",
+    "methods": {
+      "applyForRebate(address,uint64,uint8)": {
+        "notice": "Checks if user is eligible for rebate"
+      },
+      "cancelRebate(address,uint256)": {
+        "notice": "Cancels rebate in case of reedem request was timed out"
+      },
+      "finalizeUnstaking(address)": {
+        "notice": "Finalize unstaking and withdraw tokens"
+      },
+      "getAvailableRebate(address)": {
+        "notice": "Calculates available rebate for the specified user."
+      },
+      "getDelegatee(address)": {
+        "notice": "Returns information about stake"
+      },
+      "getRebate(address,uint256)": {
+        "notice": "Returns timestamp and amount of rebate"
+      },
+      "getRebateCap(address)": {
+        "notice": "Calculates cap for rebate for the specified user."
+      },
+      "getRebateLength(address)": {
+        "notice": "Returns size of rebate array"
+      },
+      "getRebateTreasuryFeeMode(address)": {
+        "notice": "Returns the rebate treasury fee mode for a user."
+      },
+      "getStake(address)": {
+        "notice": "Returns information about stake"
+      },
+      "getUnstakingAmount(address)": {
+        "notice": "Returns information about unstaking"
+      },
+      "setDelegatee(address)": {
+        "notice": "Sets a delegatee for a rebate."
+      },
+      "setRebateTreasuryFeeMode(uint8)": {
+        "notice": "Sets the rebate treasury fee mode for caller."
+      },
+      "stake(uint96)": {
+        "notice": "Stake T token to be eligible for rebate"
+      },
+      "startUnstaking(uint96)": {
+        "notice": "Start unstaking process"
+      },
+      "updateRebatePerToken(uint256)": {
+        "notice": "Updates the rebate per token."
+      },
+      "updateRollingWindow(uint256)": {
+        "notice": "Updates the rolling window."
+      },
+      "updateUnstakingPeriod(uint256)": {
+        "notice": "Updates the unstaking period."
+      }
+    },
+    "version": 1
+  },
+  "storageLayout": {
+    "storage": [
+      {
+        "astId": 11994,
+        "contract": "contracts/bridge/RebateStaking.sol:RebateStaking",
+        "label": "_initialized",
+        "offset": 0,
+        "slot": "0",
+        "type": "t_uint8"
+      },
+      {
+        "astId": 11997,
+        "contract": "contracts/bridge/RebateStaking.sol:RebateStaking",
+        "label": "_initializing",
+        "offset": 1,
+        "slot": "0",
+        "type": "t_bool"
+      },
+      {
+        "astId": 14084,
+        "contract": "contracts/bridge/RebateStaking.sol:RebateStaking",
+        "label": "__gap",
+        "offset": 0,
+        "slot": "1",
+        "type": "t_array(t_uint256)50_storage"
+      },
+      {
+        "astId": 11866,
+        "contract": "contracts/bridge/RebateStaking.sol:RebateStaking",
+        "label": "_owner",
+        "offset": 0,
+        "slot": "51",
+        "type": "t_address"
+      },
+      {
+        "astId": 11986,
+        "contract": "contracts/bridge/RebateStaking.sol:RebateStaking",
+        "label": "__gap",
+        "offset": 0,
+        "slot": "52",
+        "type": "t_array(t_uint256)49_storage"
+      },
+      {
+        "astId": 35000,
+        "contract": "contracts/bridge/RebateStaking.sol:RebateStaking",
+        "label": "token",
+        "offset": 0,
+        "slot": "101",
+        "type": "t_contract(IERC20Upgradeable)13046"
+      },
+      {
+        "astId": 35002,
+        "contract": "contracts/bridge/RebateStaking.sol:RebateStaking",
+        "label": "bridge",
+        "offset": 0,
+        "slot": "102",
+        "type": "t_address"
+      },
+      {
+        "astId": 35004,
+        "contract": "contracts/bridge/RebateStaking.sol:RebateStaking",
+        "label": "rollingWindow",
+        "offset": 0,
+        "slot": "103",
+        "type": "t_uint256"
+      },
+      {
+        "astId": 35006,
+        "contract": "contracts/bridge/RebateStaking.sol:RebateStaking",
+        "label": "unstakingPeriod",
+        "offset": 0,
+        "slot": "104",
+        "type": "t_uint256"
+      },
+      {
+        "astId": 35008,
+        "contract": "contracts/bridge/RebateStaking.sol:RebateStaking",
+        "label": "rebatePerToken",
+        "offset": 0,
+        "slot": "105",
+        "type": "t_uint256"
+      },
+      {
+        "astId": 35013,
+        "contract": "contracts/bridge/RebateStaking.sol:RebateStaking",
+        "label": "stakes",
+        "offset": 0,
+        "slot": "106",
+        "type": "t_mapping(t_address,t_struct(Stake)34997_storage)"
+      },
+      {
+        "astId": 35017,
+        "contract": "contracts/bridge/RebateStaking.sol:RebateStaking",
+        "label": "delegates",
+        "offset": 0,
+        "slot": "107",
+        "type": "t_mapping(t_address,t_address)"
+      },
+      {
+        "astId": 35021,
+        "contract": "contracts/bridge/RebateStaking.sol:RebateStaking",
+        "label": "__gap",
+        "offset": 0,
+        "slot": "108",
+        "type": "t_array(t_uint256)49_storage"
+      }
+    ],
+    "types": {
+      "t_address": {
+        "encoding": "inplace",
+        "label": "address",
+        "numberOfBytes": "20"
+      },
+      "t_array(t_struct(Rebate)34979_storage)dyn_storage": {
+        "base": "t_struct(Rebate)34979_storage",
+        "encoding": "dynamic_array",
+        "label": "struct RebateStaking.Rebate[]",
+        "numberOfBytes": "32"
+      },
+      "t_array(t_uint256)49_storage": {
+        "base": "t_uint256",
+        "encoding": "inplace",
+        "label": "uint256[49]",
+        "numberOfBytes": "1568"
+      },
+      "t_array(t_uint256)50_storage": {
+        "base": "t_uint256",
+        "encoding": "inplace",
+        "label": "uint256[50]",
+        "numberOfBytes": "1600"
+      },
+      "t_bool": {
+        "encoding": "inplace",
+        "label": "bool",
+        "numberOfBytes": "1"
+      },
+      "t_contract(IERC20Upgradeable)13046": {
+        "encoding": "inplace",
+        "label": "contract IERC20Upgradeable",
+        "numberOfBytes": "20"
+      },
+      "t_enum(RebateTreasuryFeeMode)34967": {
+        "encoding": "inplace",
+        "label": "enum RebateStaking.RebateTreasuryFeeMode",
+        "numberOfBytes": "1"
+      },
+      "t_mapping(t_address,t_address)": {
+        "encoding": "mapping",
+        "key": "t_address",
+        "label": "mapping(address => address)",
+        "numberOfBytes": "32",
+        "value": "t_address"
+      },
+      "t_mapping(t_address,t_struct(Stake)34997_storage)": {
+        "encoding": "mapping",
+        "key": "t_address",
+        "label": "mapping(address => struct RebateStaking.Stake)",
+        "numberOfBytes": "32",
+        "value": "t_struct(Stake)34997_storage"
+      },
+      "t_struct(Rebate)34979_storage": {
+        "encoding": "inplace",
+        "label": "struct RebateStaking.Rebate",
+        "members": [
+          {
+            "astId": 34972,
+            "contract": "contracts/bridge/RebateStaking.sol:RebateStaking",
+            "label": "timestamp",
+            "offset": 0,
+            "slot": "0",
+            "type": "t_uint32"
+          },
+          {
+            "astId": 34974,
+            "contract": "contracts/bridge/RebateStaking.sol:RebateStaking",
+            "label": "feeRebate",
+            "offset": 4,
+            "slot": "0",
+            "type": "t_uint64"
+          },
+          {
+            "astId": 34978,
+            "contract": "contracts/bridge/RebateStaking.sol:RebateStaking",
+            "label": "__gap",
+            "offset": 0,
+            "slot": "1",
+            "type": "t_array(t_uint256)50_storage"
+          }
+        ],
+        "numberOfBytes": "1632"
+      },
+      "t_struct(Stake)34997_storage": {
+        "encoding": "inplace",
+        "label": "struct RebateStaking.Stake",
+        "members": [
+          {
+            "astId": 34981,
+            "contract": "contracts/bridge/RebateStaking.sol:RebateStaking",
+            "label": "stakedAmount",
+            "offset": 0,
+            "slot": "0",
+            "type": "t_uint96"
+          },
+          {
+            "astId": 34983,
+            "contract": "contracts/bridge/RebateStaking.sol:RebateStaking",
+            "label": "unstakingAmount",
+            "offset": 12,
+            "slot": "0",
+            "type": "t_uint96"
+          },
+          {
+            "astId": 34985,
+            "contract": "contracts/bridge/RebateStaking.sol:RebateStaking",
+            "label": "unstakingTimestamp",
+            "offset": 24,
+            "slot": "0",
+            "type": "t_uint32"
+          },
+          {
+            "astId": 34987,
+            "contract": "contracts/bridge/RebateStaking.sol:RebateStaking",
+            "label": "rollingWindowStartIndex",
+            "offset": 0,
+            "slot": "1",
+            "type": "t_uint256"
+          },
+          {
+            "astId": 34991,
+            "contract": "contracts/bridge/RebateStaking.sol:RebateStaking",
+            "label": "rebates",
+            "offset": 0,
+            "slot": "2",
+            "type": "t_array(t_struct(Rebate)34979_storage)dyn_storage"
+          },
+          {
+            "astId": 34994,
+            "contract": "contracts/bridge/RebateStaking.sol:RebateStaking",
+            "label": "rebateTreasuryFeeMode",
+            "offset": 0,
+            "slot": "3",
+            "type": "t_enum(RebateTreasuryFeeMode)34967"
+          },
+          {
+            "astId": 34996,
+            "contract": "contracts/bridge/RebateStaking.sol:RebateStaking",
+            "label": "delegatee",
+            "offset": 1,
+            "slot": "3",
+            "type": "t_address"
+          }
+        ],
+        "numberOfBytes": "128"
+      },
+      "t_uint256": {
+        "encoding": "inplace",
+        "label": "uint256",
+        "numberOfBytes": "32"
+      },
+      "t_uint32": {
+        "encoding": "inplace",
+        "label": "uint32",
+        "numberOfBytes": "4"
+      },
+      "t_uint64": {
+        "encoding": "inplace",
+        "label": "uint64",
+        "numberOfBytes": "8"
+      },
+      "t_uint8": {
+        "encoding": "inplace",
+        "label": "uint8",
+        "numberOfBytes": "1"
+      },
+      "t_uint96": {
+        "encoding": "inplace",
+        "label": "uint96",
+        "numberOfBytes": "12"
+      }
+    }
+  }
+}

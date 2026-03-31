@@ -58,7 +58,7 @@ const config: HardhatUserConfig = {
         settings: {
           optimizer: {
             enabled: true,
-            runs: 200, // Reduced from 1000 to prioritize bytecode size over gas efficiency
+            runs: 1000,
           },
         },
       },
@@ -257,16 +257,6 @@ const config: HardhatUserConfig = {
     apiKey: {
       mainnet: process.env.ETHERSCAN_API_KEY,
     },
-    customChains: [
-      {
-        network: "mainnet",
-        chainId: 1,
-        urls: {
-          apiURL: "https://api.etherscan.io/v2/api?chainid=1",
-          browserURL: "https://etherscan.io",
-        },
-      },
-    ],
   },
   contractSizer: {
     alphaSort: true,
