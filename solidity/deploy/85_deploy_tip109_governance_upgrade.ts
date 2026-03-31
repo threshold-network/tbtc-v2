@@ -1,5 +1,6 @@
 import fs from "fs"
 import path from "path"
+import https from "https"
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction, DeployOptions } from "hardhat-deploy/types"
 import { utils, constants } from "ethers"
@@ -121,6 +122,70 @@ export function encodeBeginDepositTreasuryFeeDivisorUpdate(
     "beginDepositTreasuryFeeDivisorUpdate",
     [newDivisor]
   )
+}
+
+/**
+ * Submits a contract for source verification on Etherscan using the v2 API.
+ * Returns the verification GUID for status polling.
+ */
+async function etherscanVerifyV2(
+  apiKey: string,
+  chainId: number,
+  contractAddress: string,
+  contractName: string,
+  compilerVersion: string,
+  solcInputJson: string
+): Promise<string> {
+  const queryString = `chainid=${chainId}`
+  const postData = new URLSearchParams({
+    apikey: apiKey,
+    module: "contract",
+    action: "verifysourcecode",
+    contractaddress: contractAddress,
+    sourceCode: solcInputJson,
+    codeformat: "solidity-standard-json-input",
+    contractname: contractName,
+    compilerversion: compilerVersion,
+    optimizationUsed: "1",
+    runs: "1000",
+  }).toString()
+
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      {
+        hostname: "api.etherscan.io",
+        path: `/v2/api?${queryString}`,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Content-Length": Buffer.byteLength(postData),
+        },
+      },
+      (res) => {
+        let data = ""
+        res.on("data", (chunk) => {
+          data += chunk
+        })
+        res.on("end", () => {
+          try {
+            const parsed = JSON.parse(data)
+            if (parsed.status === "1" && parsed.result) {
+              resolve(parsed.result)
+            } else {
+              reject(
+                new Error(parsed.result || parsed.message || "Unknown error")
+              )
+            }
+          } catch {
+            reject(new Error(`Invalid response: ${data.substring(0, 200)}`))
+          }
+        })
+      }
+    )
+    req.on("error", reject)
+    req.write(postData)
+    req.end()
+  })
 }
 
 /** Structure for a post-deployment verification check entry. */
@@ -533,27 +598,90 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // executed correctly on-chain.
   logVerificationChecks(deploymentSummary.verificationChecks)
 
-  // --- Step 7: Verify contracts on Etherscan ---
+  // --- Step 7: Verify contracts on Etherscan (v2 API) ---
   if (hre.network.tags.etherscan) {
-    const { helpers } = hre
-
-    console.log("\n--- Verifying contracts on Etherscan ---")
-
-    await helpers.etherscan.verify(Deposit)
-    await helpers.etherscan.verify(Redemption)
-    await helpers.etherscan.verify(rebateImpl)
-
-    try {
-      await hre.run("verify:verify", {
-        address: bridgeImpl.address,
-        constructorArguments: [],
-        libraries: bridgeLibraries,
-      })
-    } catch (error) {
+    const etherscanApiKey = process.env.ETHERSCAN_API_KEY
+    if (!etherscanApiKey) {
       console.log(
-        "Bridge implementation verification may have failed:",
-        (error as Error).message
+        "\nSkipping Etherscan verification: ETHERSCAN_API_KEY not set"
       )
+    } else {
+      console.log("\n--- Verifying contracts on Etherscan (v2 API) ---")
+
+      // Load the solc standard JSON input from the build info that
+      // produced the deployed bytecode. hardhat-deploy stores the
+      // solcInputHash in each deployment artifact, and the matching
+      // build-info JSON contains the full compiler input.
+      const buildInfoDir = path.join(__dirname, "..", "build", "build-info")
+      const buildInfoFiles = fs
+        .readdirSync(buildInfoDir)
+        .filter((f) => f.endsWith(".json"))
+
+      let solcInput: string | null = null
+      let compilerVersion = ""
+
+      // eslint-disable-next-line no-restricted-syntax
+      for (const biFile of buildInfoFiles) {
+        const bi = JSON.parse(
+          fs.readFileSync(path.join(buildInfoDir, biFile), "utf-8")
+        )
+        if (bi.output?.contracts?.["contracts/bridge/Deposit.sol"]?.Deposit) {
+          solcInput = JSON.stringify(bi.input)
+          compilerVersion = `v${bi.solcVersion}`
+          break
+        }
+      }
+
+      if (!solcInput) {
+        console.log(
+          "  Could not find build-info with Deposit compilation. Skipping verification."
+        )
+      } else {
+        const networkChainId = parseInt(await hre.getChainId(), 10)
+        const contractsToVerify = [
+          {
+            address: Deposit.address,
+            name: "contracts/bridge/Deposit.sol:Deposit",
+            label: "Deposit",
+          },
+          {
+            address: Redemption.address,
+            name: "contracts/bridge/Redemption.sol:Redemption",
+            label: "Redemption",
+          },
+          {
+            address: bridgeImpl.address,
+            name: "contracts/bridge/Bridge.sol:Bridge",
+            label: "Bridge",
+          },
+          {
+            address: rebateImpl.address,
+            name: "contracts/bridge/RebateStaking.sol:RebateStaking",
+            label: "RebateStaking",
+          },
+        ]
+
+        // eslint-disable-next-line no-restricted-syntax, no-await-in-loop
+        for (const contract of contractsToVerify) {
+          console.log(`Verifying ${contract.label} at ${contract.address}...`)
+          try {
+            // eslint-disable-next-line no-await-in-loop
+            const guid = await etherscanVerifyV2(
+              etherscanApiKey,
+              networkChainId,
+              contract.address,
+              contract.name,
+              compilerVersion,
+              solcInput
+            )
+            console.log(`  Submitted: GUID=${guid}`)
+          } catch (err) {
+            console.log(
+              `  Verification submission failed: ${(err as Error).message}`
+            )
+          }
+        }
+      }
     }
   }
 }
