@@ -570,61 +570,27 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
       )
     })
 
-    it("should call verification for all 4 contracts when network.tags.etherscan is set", async () => {
+    it("should not use legacy helpers.etherscan.verify when network.tags.etherscan is set", async () => {
+      // Verification is now handled via direct Etherscan v2 API calls
+      // (etherscanVerifyV2 function) instead of helpers.etherscan.verify
+      // or hre.run("verify:verify"). The legacy helpers should not be
+      // called.
       const { mockHre, etherscanVerifyCalls, runCalls } = createMockHre({
         networkTags: { etherscan: true },
       })
 
       await func(mockHre)
 
-      // Deposit, Redemption, and RebateStaking should be verified via
-      // helpers.etherscan.verify
       expect(etherscanVerifyCalls).to.have.lengthOf(
-        3,
-        "helpers.etherscan.verify should be called 3 times (Deposit, Redemption, RebateStaking)"
+        0,
+        "helpers.etherscan.verify should not be called (replaced by v2 API)"
       )
-
-      // Verify that the correct deployment artifacts were passed
-      const verifiedAddresses = etherscanVerifyCalls.map(
-        (c) => c.artifact.address
+      expect(
+        runCalls.filter((c) => c.taskName === "verify:verify")
+      ).to.have.lengthOf(
+        0,
+        "hre.run('verify:verify') should not be called (replaced by v2 API)"
       )
-      expect(verifiedAddresses).to.include(DEPOSIT_ADDRESS)
-      expect(verifiedAddresses).to.include(REDEMPTION_ADDRESS)
-      expect(verifiedAddresses).to.include(REBATE_IMPL_ADDRESS)
-
-      // Bridge should be verified via hre.run("verify:verify") with libraries
-      const verifyRunCalls = runCalls.filter(
-        (c) => c.taskName === "verify:verify"
-      )
-      expect(verifyRunCalls).to.have.lengthOf(
-        1,
-        "hre.run('verify:verify') should be called once for Bridge"
-      )
-
-      const bridgeVerifyOptions = verifyRunCalls[0].options
-      expect(bridgeVerifyOptions.address).to.equal(BRIDGE_IMPL_ADDRESS)
-      expect(bridgeVerifyOptions.constructorArguments).to.deep.equal([])
-
-      // All 6 libraries must be included in the verification options
-      const libs = bridgeVerifyOptions.libraries
-      expect(Object.keys(libs)).to.have.lengthOf(6)
-      expect(libs.Deposit).to.equal(DEPOSIT_ADDRESS)
-      expect(libs.DepositSweep).to.equal(DEPOSIT_SWEEP_ADDRESS)
-      expect(libs.Redemption).to.equal(REDEMPTION_ADDRESS)
-      expect(libs.Wallets).to.equal(WALLETS_ADDRESS)
-      expect(libs.Fraud).to.equal(FRAUD_ADDRESS)
-      expect(libs.MovingFunds).to.equal(MOVING_FUNDS_ADDRESS)
-    })
-
-    it("should handle Bridge verification failure gracefully without crashing", async () => {
-      const { mockHre } = createMockHre({
-        networkTags: { etherscan: true },
-        runBehavior: "reject",
-      })
-
-      // The deploy function should complete without throwing even when
-      // hre.run("verify:verify") rejects
-      await func(mockHre)
     })
   })
 
