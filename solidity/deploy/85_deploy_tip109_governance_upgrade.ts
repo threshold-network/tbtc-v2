@@ -163,14 +163,18 @@ async function etherscanVerifyV2(
       },
       (res) => {
         let data = ""
-        res.on("data", (chunk) => { data += chunk })
+        res.on("data", (chunk) => {
+          data += chunk
+        })
         res.on("end", () => {
           try {
             const parsed = JSON.parse(data)
             if (parsed.status === "1" && parsed.result) {
               resolve(parsed.result)
             } else {
-              reject(new Error(parsed.result || parsed.message || "Unknown error"))
+              reject(
+                new Error(parsed.result || parsed.message || "Unknown error")
+              )
             }
           } catch {
             reject(new Error(`Invalid response: ${data.substring(0, 200)}`))
@@ -598,7 +602,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   if (hre.network.tags.etherscan) {
     const etherscanApiKey = process.env.ETHERSCAN_API_KEY
     if (!etherscanApiKey) {
-      console.log("\nSkipping Etherscan verification: ETHERSCAN_API_KEY not set")
+      console.log(
+        "\nSkipping Etherscan verification: ETHERSCAN_API_KEY not set"
+      )
     } else {
       console.log("\n--- Verifying contracts on Etherscan (v2 API) ---")
 
@@ -607,13 +613,17 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       // solcInputHash in each deployment artifact, and the matching
       // build-info JSON contains the full compiler input.
       const buildInfoDir = path.join(__dirname, "..", "build", "build-info")
-      const buildInfoFiles = fs.readdirSync(buildInfoDir).filter((f) => f.endsWith(".json"))
+      const buildInfoFiles = fs
+        .readdirSync(buildInfoDir)
+        .filter((f) => f.endsWith(".json"))
 
       let solcInput: string | null = null
       let compilerVersion = ""
 
       for (const biFile of buildInfoFiles) {
-        const bi = JSON.parse(fs.readFileSync(path.join(buildInfoDir, biFile), "utf-8"))
+        const bi = JSON.parse(
+          fs.readFileSync(path.join(buildInfoDir, biFile), "utf-8")
+        )
         if (bi.output?.contracts?.["contracts/bridge/Deposit.sol"]?.Deposit) {
           solcInput = JSON.stringify(bi.input)
           compilerVersion = `v${bi.solcVersion}`
@@ -622,14 +632,32 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       }
 
       if (!solcInput) {
-        console.log("  Could not find build-info with Deposit compilation. Skipping verification.")
+        console.log(
+          "  Could not find build-info with Deposit compilation. Skipping verification."
+        )
       } else {
         const chainId = parseInt(await hre.getChainId(), 10)
         const contractsToVerify = [
-          { address: Deposit.address, name: "contracts/bridge/Deposit.sol:Deposit", label: "Deposit" },
-          { address: Redemption.address, name: "contracts/bridge/Redemption.sol:Redemption", label: "Redemption" },
-          { address: bridgeImpl.address, name: "contracts/bridge/Bridge.sol:Bridge", label: "Bridge" },
-          { address: rebateImpl.address, name: "contracts/bridge/RebateStaking.sol:RebateStaking", label: "RebateStaking" },
+          {
+            address: Deposit.address,
+            name: "contracts/bridge/Deposit.sol:Deposit",
+            label: "Deposit",
+          },
+          {
+            address: Redemption.address,
+            name: "contracts/bridge/Redemption.sol:Redemption",
+            label: "Redemption",
+          },
+          {
+            address: bridgeImpl.address,
+            name: "contracts/bridge/Bridge.sol:Bridge",
+            label: "Bridge",
+          },
+          {
+            address: rebateImpl.address,
+            name: "contracts/bridge/RebateStaking.sol:RebateStaking",
+            label: "RebateStaking",
+          },
         ]
 
         for (const contract of contractsToVerify) {
@@ -645,7 +673,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
             )
             console.log(`  Submitted: GUID=${guid}`)
           } catch (err) {
-            console.log(`  Verification submission failed: ${(err as Error).message}`)
+            console.log(
+              `  Verification submission failed: ${(err as Error).message}`
+            )
           }
         }
       }
