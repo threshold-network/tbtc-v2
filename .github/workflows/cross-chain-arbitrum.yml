@@ -55,6 +55,12 @@ jobs:
       - name: Install dependencies
         run: yarn install
 
+      # Build the solidity package so the post-compile task can copy the
+      # L1BTCDepositorWormholeV2 artifact into this package's build directory.
+      - name: Build solidity package
+        working-directory: ./solidity
+        run: yarn install && yarn build
+
       - name: Build contracts
         run: yarn build
 
@@ -87,6 +93,10 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
+      - name: Build solidity package
+        working-directory: ./solidity
+        run: yarn install && yarn build
+
       - name: Deploy contracts
         run: yarn deploy
 
@@ -115,6 +125,10 @@ jobs:
 
       - name: Install dependencies
         run: yarn install
+
+      - name: Build solidity package
+        working-directory: ./solidity
+        run: yarn install && yarn build
 
       - name: Build
         run: yarn build

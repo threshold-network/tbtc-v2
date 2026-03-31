@@ -1,4 +1,6 @@
 import type { HardhatUserConfig } from "hardhat/config"
+import { task } from "hardhat/config"
+import { TASK_COMPILE } from "hardhat/builtin-tasks/task-names"
 
 import "@nomiclabs/hardhat-etherscan"
 import "@keep-network/hardhat-helpers"
@@ -8,6 +10,12 @@ import "hardhat-contract-sizer"
 import "hardhat-deploy"
 import "@typechain/hardhat"
 import "hardhat-dependency-compiler"
+import { copyWormholeV2Artifact } from "../common/copyWormholeV2Artifact"
+
+task(TASK_COMPILE).setAction(async (args, hre, runSuper) => {
+  await runSuper(args)
+  await copyWormholeV2Artifact(hre, __dirname)
+})
 
 const config: HardhatUserConfig = {
   solidity: {
