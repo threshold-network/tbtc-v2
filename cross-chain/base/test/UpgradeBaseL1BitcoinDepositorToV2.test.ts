@@ -114,6 +114,15 @@ describe("UpgradeBaseL1BitcoinDepositorToV2 - Artifact Resolution", () => {
     const [deployer, bridge, vault, wormhole, wormholeRelayer, tokenBridge, l2Gateway] =
       await ethers.getSigners()
 
+    // Deploy a mock vault contract that implements tbtcToken() so that
+    // the legacy L1BitcoinDepositor.initialize() can call it successfully.
+    const MockTBTCVaultFactory = await ethers.getContractFactory(
+      "contracts/test/MockTBTCVault.sol:MockTBTCVault",
+      deployer
+    )
+    const mockVault = await MockTBTCVaultFactory.deploy(deployer.address)
+    await mockVault.deployed()
+
     const legacyFactory = await ethers.getContractFactory(
       "@keep-network/tbtc-v2/contracts/l2/L1BitcoinDepositor.sol:L1BitcoinDepositor",
       deployer
@@ -123,7 +132,7 @@ describe("UpgradeBaseL1BitcoinDepositorToV2 - Artifact Resolution", () => {
       legacyFactory,
       [
         bridge.address,
-        vault.address,
+        mockVault.address,
         wormhole.address,
         wormholeRelayer.address,
         tokenBridge.address,
@@ -140,10 +149,13 @@ describe("UpgradeBaseL1BitcoinDepositorToV2 - Artifact Resolution", () => {
       deployer
     )
 
+    // The V2 contract uses a monolithic Initializable layout that differs
+    // from the inherited layout in the legacy implementation. This storage
+    // reorganisation is intentional and safe, so skip the automated check.
     const implementationAddress = await upgrades.prepareUpgrade(
       legacyProxy.address,
       v2Factory,
-      { kind: "transparent" }
+      { kind: "transparent", unsafeSkipStorageCheck: true }
     )
 
     expect(implementationAddress).to.match(/^0x[a-fA-F0-9]{40}$/)
