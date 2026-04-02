@@ -13,7 +13,7 @@ import {
   IWormhole,
   IWormholeRelayer,
   IWormholeTokenBridge,
-  L1BTCDepositorWormholeV2,
+  L1BTCDepositorWormholeV2Arbitrum,
   ReimbursementPool,
   TestERC20,
 } from "../../../typechain"
@@ -88,7 +88,7 @@ async function getV2StorageLayout(): Promise<
   const debugArtifactPath = path.resolve(
     __dirname,
     "../../../build/contracts/cross-chain/wormhole/" +
-      "L1BTCDepositorWormholeV2.sol/L1BTCDepositorWormholeV2.dbg.json"
+      "L1BTCDepositorWormholeV2Arbitrum.sol/L1BTCDepositorWormholeV2Arbitrum.dbg.json"
   )
   const debugArtifact = parseJson<{ buildInfo: string }>(
     await fs.promises.readFile(debugArtifactPath, "utf8"),
@@ -104,12 +104,12 @@ async function getV2StorageLayout(): Promise<
   )
   const layout =
     buildInfo?.output?.contracts?.[
-      "contracts/cross-chain/wormhole/L1BTCDepositorWormholeV2.sol"
-    ]?.L1BTCDepositorWormholeV2?.storageLayout
+      "contracts/cross-chain/wormhole/L1BTCDepositorWormholeV2Arbitrum.sol"
+    ]?.L1BTCDepositorWormholeV2Arbitrum?.storageLayout
 
   if (!layout?.storage) {
     throw new Error(
-      "storageLayout not found for L1BTCDepositorWormholeV2. " +
+      "storageLayout not found for L1BTCDepositorWormholeV2Arbitrum. " +
         "Run `yarn build` first."
     )
   }
@@ -117,7 +117,7 @@ async function getV2StorageLayout(): Promise<
   return layout.storage
 }
 
-describe("L1BTCDepositorWormholeV2", () => {
+describe("L1BTCDepositorWormholeV2Arbitrum", () => {
   const contractsFixture = async () => {
     const { deployer, governance } = await helpers.signers.getNamedSigners()
 
@@ -151,9 +151,9 @@ describe("L1BTCDepositorWormholeV2", () => {
     )
 
     const deployment = await helpers.upgrades.deployProxy(
-      `L1BTCDepositorWormholeV2_${randomBytes(8).toString("hex")}`,
+      `L1BTCDepositorWormholeV2Arbitrum_${randomBytes(8).toString("hex")}`,
       {
-        contractName: "L1BTCDepositorWormholeV2",
+        contractName: "L1BTCDepositorWormholeV2Arbitrum",
         initializerArgs: [
           bridge.address,
           tbtcVault.address,
@@ -169,7 +169,7 @@ describe("L1BTCDepositorWormholeV2", () => {
         },
       }
     )
-    const l1BtcDepositor = deployment[0] as L1BTCDepositorWormholeV2
+    const l1BtcDepositor = deployment[0] as L1BTCDepositorWormholeV2Arbitrum
 
     await l1BtcDepositor.connect(deployer).transferOwnership(governance.address)
 
@@ -201,7 +201,7 @@ describe("L1BTCDepositorWormholeV2", () => {
   let l2WormholeGateway: FakeContract<IWormholeGateway>
   let l2BitcoinDepositor: string
   let reimbursementPool: FakeContract<ReimbursementPool>
-  let l1BtcDepositor: L1BTCDepositorWormholeV2
+  let l1BtcDepositor: L1BTCDepositorWormholeV2Arbitrum
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
@@ -468,7 +468,7 @@ describe("L1BTCDepositorWormholeV2", () => {
       // should leave it in a state where initialize() cannot be called.
       const { deployer } = await helpers.signers.getNamedSigners()
       const factory = await ethers.getContractFactory(
-        "L1BTCDepositorWormholeV2",
+        "L1BTCDepositorWormholeV2Arbitrum",
         deployer
       )
       const impl = await factory.deploy()
@@ -808,11 +808,11 @@ describe("L1BTCDepositorWormholeV2", () => {
       try {
         const { deployer } = await helpers.signers.getNamedSigners()
 
-        const proxyName = `L1BTCDepositorWormholeV2_prepare_${randomBytes(
+        const proxyName = `L1BTCDepositorWormholeV2Arbitrum_prepare_${randomBytes(
           8
         ).toString("hex")}`
         const v2Deployment = await helpers.upgrades.deployProxy(proxyName, {
-          contractName: "L1BTCDepositorWormholeV2",
+          contractName: "L1BTCDepositorWormholeV2Arbitrum",
           initializerArgs: [
             bridge.address,
             tbtcVault.address,
@@ -828,9 +828,9 @@ describe("L1BTCDepositorWormholeV2", () => {
           },
         })
 
-        const proxy = v2Deployment[0] as L1BTCDepositorWormholeV2
+        const proxy = v2Deployment[0] as L1BTCDepositorWormholeV2Arbitrum
         const v2Factory = await ethers.getContractFactory(
-          "L1BTCDepositorWormholeV2",
+          "L1BTCDepositorWormholeV2Arbitrum",
           deployer
         )
 
@@ -875,11 +875,11 @@ describe("L1BTCDepositorWormholeV2", () => {
         const { deployer } = await helpers.signers.getNamedSigners()
 
         // Deploy V2 behind a fresh transparent proxy.
-        const proxyName = `L1BTCDepositorWormholeV2_upgrade_${randomBytes(
+        const proxyName = `L1BTCDepositorWormholeV2Arbitrum_upgrade_${randomBytes(
           8
         ).toString("hex")}`
         const v2Deployment = await helpers.upgrades.deployProxy(proxyName, {
-          contractName: "L1BTCDepositorWormholeV2",
+          contractName: "L1BTCDepositorWormholeV2Arbitrum",
           initializerArgs: [
             bridge.address,
             tbtcVault.address,
@@ -894,7 +894,7 @@ describe("L1BTCDepositorWormholeV2", () => {
             kind: "transparent",
           },
         })
-        const proxy = v2Deployment[0] as L1BTCDepositorWormholeV2
+        const proxy = v2Deployment[0] as L1BTCDepositorWormholeV2Arbitrum
 
         // Verify proxy reads all initialized state correctly.
         expect(await proxy.wormhole()).to.equal(wormhole.address)
@@ -914,7 +914,7 @@ describe("L1BTCDepositorWormholeV2", () => {
         const ownerSigner = await ethers.getSigner(proxyAdminOwner)
 
         const v2Factory = await ethers.getContractFactory(
-          "L1BTCDepositorWormholeV2",
+          "L1BTCDepositorWormholeV2Arbitrum",
           deployer
         )
         const v2Impl = await v2Factory.deploy()
@@ -927,9 +927,9 @@ describe("L1BTCDepositorWormholeV2", () => {
         // After V2-to-V2 upgrade, all state should be preserved since the
         // storage layout is identical.
         const upgraded = (await ethers.getContractAt(
-          "L1BTCDepositorWormholeV2",
+          "L1BTCDepositorWormholeV2Arbitrum",
           proxy.address
-        )) as L1BTCDepositorWormholeV2
+        )) as L1BTCDepositorWormholeV2Arbitrum
 
         expect(await upgraded.wormhole()).to.equal(wormhole.address)
         expect(await upgraded.wormholeRelayer()).to.equal(
@@ -957,11 +957,11 @@ describe("L1BTCDepositorWormholeV2", () => {
         const depositorAddr = "0xeE6F5f69860f310114185677D017576aed0dEC83"
 
         // Deploy V2 behind proxy and populate state.
-        const proxyName = `L1BTCDepositorWormholeV2_state_${randomBytes(
+        const proxyName = `L1BTCDepositorWormholeV2Arbitrum_state_${randomBytes(
           8
         ).toString("hex")}`
         const v2Deployment = await helpers.upgrades.deployProxy(proxyName, {
-          contractName: "L1BTCDepositorWormholeV2",
+          contractName: "L1BTCDepositorWormholeV2Arbitrum",
           initializerArgs: [
             bridge.address,
             tbtcVault.address,
@@ -976,7 +976,7 @@ describe("L1BTCDepositorWormholeV2", () => {
             kind: "transparent",
           },
         })
-        const proxy = v2Deployment[0] as L1BTCDepositorWormholeV2
+        const proxy = v2Deployment[0] as L1BTCDepositorWormholeV2Arbitrum
         await proxy.connect(deployer).transferOwnership(gov.address)
 
         // Set additional state on V2.
@@ -991,7 +991,7 @@ describe("L1BTCDepositorWormholeV2", () => {
         const ownerSigner = await ethers.getSigner(proxyAdminOwner)
 
         const v2Factory = await ethers.getContractFactory(
-          "L1BTCDepositorWormholeV2",
+          "L1BTCDepositorWormholeV2Arbitrum",
           deployer
         )
         const v2Impl = await v2Factory.deploy()
@@ -1002,9 +1002,9 @@ describe("L1BTCDepositorWormholeV2", () => {
           .upgrade(proxy.address, v2Impl.address)
 
         const upgraded = (await ethers.getContractAt(
-          "L1BTCDepositorWormholeV2",
+          "L1BTCDepositorWormholeV2Arbitrum",
           proxy.address
-        )) as L1BTCDepositorWormholeV2
+        )) as L1BTCDepositorWormholeV2Arbitrum
 
         // All V2 state (including fields from flattened AbstractL1BTCDepositor
         // logic) should be preserved across the upgrade.

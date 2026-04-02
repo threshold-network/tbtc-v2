@@ -29,12 +29,16 @@ import "../../integrator/ITBTCVault.sol";
 import "./Wormhole.sol";
 import "../utils/Crosschain.sol";
 
-/// @title L1BTCDepositorWormholeV2
-/// @notice L1 tBTC depositor that bridges minted tBTC to an L2 chain via
-///         Wormhole `transferTokensWithPayload`. An off-chain relayer monitors
-///         the `TokensTransferredWithPayload` event to fetch the signed VAA
-///         and complete delivery on the destination L2.
-contract L1BTCDepositorWormholeV2 is
+/// @title L1BTCDepositorWormholeV2Arbitrum
+/// @notice Arbitrum-specific variant of the L1 tBTC depositor that bridges
+///         minted tBTC to an L2 chain via Wormhole `transferTokensWithPayload`.
+///         An off-chain relayer monitors the `TokensTransferredWithPayload`
+///         event to fetch the signed VAA and complete delivery on the
+///         destination L2. This variant lists `Initializable` explicitly in
+///         the inheritance, matching the Arbitrum proxy's C3 linearization
+///         where `Initializable` storage is packed into slot 0 with `bridge`.
+///         See `L1BTCDepositorWormholeV2Base` for the Base variant.
+contract L1BTCDepositorWormholeV2Arbitrum is
     Initializable,
     AbstractBTCDepositor,
     OwnableUpgradeable,
