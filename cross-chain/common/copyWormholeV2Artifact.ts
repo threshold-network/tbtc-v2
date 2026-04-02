@@ -2,11 +2,11 @@ import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import * as fs from "fs"
 import * as path from "path"
 
-export async function copyWormholeV2Artifact(
+async function copySingleArtifact(
   hre: HardhatRuntimeEnvironment,
-  packageDir: string
+  packageDir: string,
+  contractName: string
 ): Promise<void> {
-  const contractName = "L1BTCDepositorWormholeV2"
   const sourceArtifactDir = path.resolve(
     packageDir,
     `../../solidity/build/contracts/cross-chain/wormhole/${contractName}.sol`
@@ -101,4 +101,14 @@ async function mergeV2ValidationData(
     targetCachePath,
     JSON.stringify(targetData, null, 2)
   )
+}
+
+export async function copyWormholeV2Artifact(
+  hre: HardhatRuntimeEnvironment,
+  packageDir: string
+): Promise<void> {
+  // Arbitrum variant (Initializable first in inheritance, tbtcToken at slot 200)
+  await copySingleArtifact(hre, packageDir, "L1BTCDepositorWormholeV2Arbitrum")
+  // Base variant (Initializable implicit via OwnableUpgradeable, tbtcToken at slot 201)
+  await copySingleArtifact(hre, packageDir, "L1BTCDepositorWormholeV2Base")
 }
