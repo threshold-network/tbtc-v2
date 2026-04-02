@@ -13,13 +13,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // `prepareUpgrade` fails with "invalid address" after the implementation is
   // already deployed on-chain.
   const originalFormat = providers.Formatter.prototype.transactionResponse
-  providers.Formatter.prototype.transactionResponse = function (
-    transaction: any
-  ): any {
-    if (transaction.to === "") {
-      transaction.to = null
-    }
-    return originalFormat.call(this, transaction)
+  providers.Formatter.prototype.transactionResponse = function (tx: any): any {
+    const patched = tx.to === "" ? { ...tx, to: null } : tx
+    return originalFormat.call(this, patched)
   }
 
   const { deployer } = await helpers.signers.getNamedSigners()

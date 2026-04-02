@@ -60,10 +60,10 @@ describe("UpgradeArbitrumL1BitcoinDepositorToV2 - Deploy Script Structure", () =
     assert.isFunction(func.skip)
   })
 
-  it("should have skip return false by default", async () => {
+  it("should have skip return true after deployment", async () => {
     const shouldSkip = await func.skip!({} as any)
 
-    assert.isFalse(shouldSkip)
+    assert.isTrue(shouldSkip)
   })
 })
 
@@ -104,7 +104,9 @@ describe("UpgradeArbitrumL1BitcoinDepositorToV2 - Artifact Resolution", () => {
   })
 
   it("should resolve the L1BTCDepositorWormholeV2Arbitrum artifact", () => {
-    const artifact = artifacts.readArtifactSync("L1BTCDepositorWormholeV2Arbitrum")
+    const artifact = artifacts.readArtifactSync(
+      "L1BTCDepositorWormholeV2Arbitrum"
+    )
 
     assert.equal(artifact.contractName, "L1BTCDepositorWormholeV2Arbitrum")
     assert.isArray(artifact.abi)
@@ -112,7 +114,9 @@ describe("UpgradeArbitrumL1BitcoinDepositorToV2 - Artifact Resolution", () => {
   })
 
   it("should resolve V2 via ethers.getContractFactory without HH700", async () => {
-    const factory = await ethers.getContractFactory("L1BTCDepositorWormholeV2Arbitrum")
+    const factory = await ethers.getContractFactory(
+      "L1BTCDepositorWormholeV2Arbitrum"
+    )
     const initializeFragment = factory.interface.getFunction("initialize")
 
     assert.exists(factory)
@@ -122,7 +126,9 @@ describe("UpgradeArbitrumL1BitcoinDepositorToV2 - Artifact Resolution", () => {
 
   requiredAbiFunctions.forEach((fnName) => {
     it(`should include ${fnName} in the resolved artifact ABI`, () => {
-      const artifact = artifacts.readArtifactSync("L1BTCDepositorWormholeV2Arbitrum")
+      const artifact = artifacts.readArtifactSync(
+        "L1BTCDepositorWormholeV2Arbitrum"
+      )
       const functionNames = getFunctionNames(artifact.abi as AbiEntry[])
 
       assert.include(functionNames, fnName)
@@ -130,7 +136,9 @@ describe("UpgradeArbitrumL1BitcoinDepositorToV2 - Artifact Resolution", () => {
   })
 
   it("should expose source metadata for the copied V2 artifact", () => {
-    const artifact = artifacts.readArtifactSync("L1BTCDepositorWormholeV2Arbitrum")
+    const artifact = artifacts.readArtifactSync(
+      "L1BTCDepositorWormholeV2Arbitrum"
+    )
 
     assert.equal(
       artifact.sourceName,
