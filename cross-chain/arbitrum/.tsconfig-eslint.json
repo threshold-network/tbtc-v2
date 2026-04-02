@@ -1,1 +1,10 @@
-node_modules/@thesis-co/eslint-config/.tsconfig-eslint.json
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "hardhat.config.ts",
+    "test/**/*.ts",
+    "deploy_l2/**/*.ts",
+    "scripts/**/*.ts",
+    ".eslintrc.js"
+  ]
+}
