@@ -19,7 +19,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const [, proxyDeployment] = await helpers.upgrades.deployProxy(
     "BaseL1BitcoinDepositor",
     {
-      contractName: "L1BTCDepositorWormholeV2",
+      contractName: "L1BTCDepositorWormholeV2Base",
       initializerArgs: [
         tbtcBridge.address,
         tbtcVault.address,
