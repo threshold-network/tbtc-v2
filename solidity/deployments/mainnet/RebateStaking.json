@@ -8,6 +8,11 @@
     },
     {
       "inputs": [],
+      "name": "AddressAlreadyTaken",
+      "type": "error"
+    },
+    {
+      "inputs": [],
       "name": "AmountCannotBeZero",
       "type": "error"
     },
@@ -24,6 +29,11 @@
     {
       "inputs": [],
       "name": "NoUnstakingProcess",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "NotAStaker",
       "type": "error"
     },
     {
@@ -48,8 +58,32 @@
     },
     {
       "inputs": [],
+      "name": "WrongDelegatee",
+      "type": "error"
+    },
+    {
+      "inputs": [],
       "name": "ZeroAddress",
       "type": "error"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "staker",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "delegatee",
+          "type": "address"
+        }
+      ],
+      "name": "DelegateeSet",
+      "type": "event"
     },
     {
       "anonymous": false,
@@ -138,6 +172,25 @@
       "anonymous": false,
       "inputs": [
         {
+          "indexed": true,
+          "internalType": "address",
+          "name": "staker",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "enum RebateStaking.RebateTreasuryFeeMode",
+          "name": "rebateTreasuryFeeMode",
+          "type": "uint8"
+        }
+      ],
+      "name": "RebateTreasuryFeeModeUpdated",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
           "indexed": false,
           "internalType": "uint256",
           "name": "rollingWindow",
@@ -164,6 +217,25 @@
         }
       ],
       "name": "Staked",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "oldStaker",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "newStaker",
+          "type": "address"
+        }
+      ],
+      "name": "TransferFinished",
       "type": "event"
     },
     {
@@ -228,6 +300,11 @@
           "internalType": "uint64",
           "name": "treasuryFee",
           "type": "uint64"
+        },
+        {
+          "internalType": "enum RebateStaking.TreasuryFeeType",
+          "name": "treasuryFeeType",
+          "type": "uint8"
         }
       ],
       "name": "applyForRebate",
@@ -276,11 +353,48 @@
       "inputs": [
         {
           "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "delegates",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
           "name": "receiver",
           "type": "address"
         }
       ],
       "name": "finalizeUnstaking",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "oldStaker",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "newStaker",
+          "type": "address"
+        }
+      ],
+      "name": "forceStakeTransfer",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -299,6 +413,25 @@
           "internalType": "uint64",
           "name": "rebateInWindow",
           "type": "uint64"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        }
+      ],
+      "name": "getDelegatee",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "delegatee",
+          "type": "address"
         }
       ],
       "stateMutability": "view",
@@ -366,6 +499,25 @@
           "internalType": "uint256",
           "name": "",
           "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        }
+      ],
+      "name": "getRebateTreasuryFeeMode",
+      "outputs": [
+        {
+          "internalType": "enum RebateStaking.RebateTreasuryFeeMode",
+          "name": "rebateTreasuryFeeMode",
+          "type": "uint8"
         }
       ],
       "stateMutability": "view",
@@ -496,6 +648,32 @@
     {
       "inputs": [
         {
+          "internalType": "address",
+          "name": "_delegatee",
+          "type": "address"
+        }
+      ],
+      "name": "setDelegatee",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "enum RebateStaking.RebateTreasuryFeeMode",
+          "name": "_rebateTreasuryFeeMode",
+          "type": "uint8"
+        }
+      ],
+      "name": "setRebateTreasuryFeeMode",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
           "internalType": "uint96",
           "name": "amount",
           "type": "uint96"
@@ -535,6 +713,16 @@
           "internalType": "uint256",
           "name": "rollingWindowStartIndex",
           "type": "uint256"
+        },
+        {
+          "internalType": "enum RebateStaking.RebateTreasuryFeeMode",
+          "name": "rebateTreasuryFeeMode",
+          "type": "uint8"
+        },
+        {
+          "internalType": "address",
+          "name": "delegatee",
+          "type": "address"
         }
       ],
       "stateMutability": "view",
@@ -700,7 +888,7 @@
     "status": 1,
     "byzantium": true
   },
-  "numDeployments": 1,
-  "implementation": "0xE490c802f8455EA1f0dF96a7B5043536a41E2535",
+  "numDeployments": 2,
+  "implementation": "0x25aAF04229f77A9AE80430b3C89E3455Ab2ec22F",
   "devdoc": "Contract deployed as upgradable proxy"
 }
