@@ -291,9 +291,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     fs.writeFileSync(summaryPath, JSON.stringify(deploymentSummary, null, 2))
     console.log(`\nDeployment summary saved to: ${summaryPath}`)
   } catch (error) {
-    console.log(
-      `WARNING: Failed to write summary: ${(error as Error).message}`
-    )
+    console.log(`WARNING: Failed to write summary: ${(error as Error).message}`)
   }
 
   console.log(`\n${"=".repeat(80)}`)
@@ -379,9 +377,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
             )
             console.log(`  Submitted: GUID=${guid}`)
           } catch (err) {
-            console.log(
-              `  Verification failed: ${(err as Error).message}`
-            )
+            console.log(`  Verification failed: ${(err as Error).message}`)
           }
         }
       }
