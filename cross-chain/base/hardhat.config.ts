@@ -184,8 +184,8 @@ const config: HardhatUserConfig = {
       sepolia: 0,
       baseGoerli: 0,
       baseSepolia: 0,
-      mainnet: "0x123694886DBf5Ac94DDA07135349534536D14cAf",
-      base: "0x123694886DBf5Ac94DDA07135349534536D14cAf",
+      mainnet: "0x716089154304f22a2F9c8d2f8C45815183BF3532",
+      base: "0x716089154304f22a2F9c8d2f8C45815183BF3532",
     },
     governance: {
       default: 2,

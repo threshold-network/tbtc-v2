@@ -1,12 +1,22 @@
 import type { Artifact, HardhatRuntimeEnvironment } from "hardhat/types"
 import type { DeployFunction, Deployment } from "hardhat-deploy/types"
-import { ContractFactory } from "ethers"
+import { ContractFactory, providers } from "ethers"
 
-const CONTRACT_NAME = "L1BTCDepositorWormholeV2"
+const CONTRACT_NAME = "L1BTCDepositorWormholeV2Arbitrum"
 const DEPLOYMENT_NAME = "ArbitrumOneL1BitcoinDepositor"
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { ethers, helpers, deployments, upgrades, artifacts, run } = hre
+
+  // Patch ethers.js v5 Formatter to handle empty-string `to` field returned by
+  // some RPC providers for contract-creation transactions. Without this patch,
+  // `prepareUpgrade` fails with "invalid address" after the implementation is
+  // already deployed on-chain.
+  const originalFormat = providers.Formatter.prototype.transactionResponse
+  providers.Formatter.prototype.transactionResponse = function (tx: any): any {
+    const patched = tx.to === "" ? { ...tx, to: null } : tx
+    return originalFormat.call(this, patched)
+  }
 
   const { deployer } = await helpers.signers.getNamedSigners()
 
@@ -65,6 +75,5 @@ export default func
 
 func.tags = ["UpgradeArbitrumL1BitcoinDepositorToV2"]
 
-// Comment this line when running an upgrade.
-// yarn deploy --tags UpgradeArbitrumL1BitcoinDepositorToV2 --network <network>
-func.skip = async () => false
+// Upgrade deployed on 2026-04-02. Implementation: 0x82FDDF79765Ed75325bCBdf65F67dF0879AAbe8C
+func.skip = async () => true

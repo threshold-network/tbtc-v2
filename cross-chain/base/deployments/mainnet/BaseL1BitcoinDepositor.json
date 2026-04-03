@@ -252,7 +252,7 @@
       "name": "deposits",
       "outputs": [
         {
-          "internalType": "enum L1BTCDepositorWormholeV2.DepositState",
+          "internalType": "enum L1BTCDepositorWormholeV2Base.DepositState",
           "name": "",
           "type": "uint8"
         }
@@ -795,7 +795,7 @@
     "status": 1,
     "byzantium": true
   },
-  "numDeployments": 1,
-  "implementation": "0x59FAE614867b66421b44D1Ed3461e6B6a4B50106",
+  "numDeployments": 2,
+  "implementation": "0x32aAfccfb865060F7F9fB3766c50134F9228B67E",
   "devdoc": "Contract deployed as upgradable proxy"
 }

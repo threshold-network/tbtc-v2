@@ -48,8 +48,8 @@ describe("UpgradeBaseL1BitcoinDepositorToV2 - Deploy Script Structure", () => {
 
 describe("UpgradeBaseL1BitcoinDepositorToV2 - Artifact Resolution", () => {
   const artifactRelativePath = path.join(
-    "L1BTCDepositorWormholeV2.sol",
-    "L1BTCDepositorWormholeV2.json"
+    "L1BTCDepositorWormholeV2Base.sol",
+    "L1BTCDepositorWormholeV2Base.json"
   )
   const sourceArtifactPath = path.resolve(
     __dirname,
@@ -75,16 +75,18 @@ describe("UpgradeBaseL1BitcoinDepositorToV2 - Artifact Resolution", () => {
     )
   })
 
-  it("should resolve the L1BTCDepositorWormholeV2 artifact", () => {
-    const artifact = artifacts.readArtifactSync("L1BTCDepositorWormholeV2")
+  it("should resolve the L1BTCDepositorWormholeV2Base artifact", () => {
+    const artifact = artifacts.readArtifactSync("L1BTCDepositorWormholeV2Base")
 
-    expect(artifact.contractName).to.equal("L1BTCDepositorWormholeV2")
+    expect(artifact.contractName).to.equal("L1BTCDepositorWormholeV2Base")
     expect(artifact.abi).to.be.an("array")
     expect(artifact.abi.length).to.be.greaterThan(0)
   })
 
   it("should resolve V2 via ethers.getContractFactory without HH700", async () => {
-    const factory = await ethers.getContractFactory("L1BTCDepositorWormholeV2")
+    const factory = await ethers.getContractFactory(
+      "L1BTCDepositorWormholeV2Base"
+    )
     expect(factory).to.not.equal(undefined)
     expect(factory.interface).to.not.equal(undefined)
     expect(factory.interface.functions).to.have.property(
@@ -101,7 +103,9 @@ describe("UpgradeBaseL1BitcoinDepositorToV2 - Artifact Resolution", () => {
 
   requiredAbiFunctions.forEach((fnName) => {
     it(`should include ${fnName} in the resolved artifact ABI`, () => {
-      const artifact = artifacts.readArtifactSync("L1BTCDepositorWormholeV2")
+      const artifact = artifacts.readArtifactSync(
+        "L1BTCDepositorWormholeV2Base"
+      )
       const functionNames = artifact.abi
         .filter((entry: any) => entry.type === "function")
         .map((entry: any) => entry.name)
@@ -111,8 +115,15 @@ describe("UpgradeBaseL1BitcoinDepositorToV2 - Artifact Resolution", () => {
   })
 
   it("should pass OpenZeppelin prepareUpgrade for a legacy proxy", async () => {
-    const [deployer, bridge, vault, wormhole, wormholeRelayer, tokenBridge, l2Gateway] =
-      await ethers.getSigners()
+    const [
+      deployer,
+      bridge,
+      vault,
+      wormhole,
+      wormholeRelayer,
+      tokenBridge,
+      l2Gateway,
+    ] = await ethers.getSigners()
 
     // Deploy a mock vault contract that implements tbtcToken() so that
     // the legacy L1BitcoinDepositor.initialize() can call it successfully.
@@ -145,7 +156,7 @@ describe("UpgradeBaseL1BitcoinDepositorToV2 - Artifact Resolution", () => {
     await legacyProxy.deployed()
 
     const v2Factory = await ethers.getContractFactory(
-      "L1BTCDepositorWormholeV2",
+      "L1BTCDepositorWormholeV2Base",
       deployer
     )
 
