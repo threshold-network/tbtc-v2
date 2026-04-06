@@ -31,6 +31,78 @@ const nextDifficulty = 5106422924659
 
 const proofLength = 4
 
+// Bitcoin difficulty 1 (compact bits `0x1d00ffff`).
+const MIN_DIFFICULTY_BITS = "0x1d00ffff"
+const MIN_DIFFICULTY_TARGET = BigInt(
+  "0xffff0000000000000000000000000000000000000000000000000000"
+)
+
+function hexToBuffer(hex: string): Buffer {
+  const normalized = hex.startsWith("0x") ? hex.slice(2) : hex
+  return Buffer.from(normalized, "hex")
+}
+
+function bufferToHex(buf: Buffer): string {
+  return `0x${buf.toString("hex")}`
+}
+
+function compactBitsToTarget(bitsCompactHexBE: string): bigint {
+  // Parse compact bits without bitwise operators (eslint-friendly).
+  // Format: [exponent:1 byte][mantissa:3 bytes] (big-endian).
+  const hex = bitsCompactHexBE.replace(/^0x/, "").toLowerCase()
+  if (hex.length !== 8) {
+    throw new Error(`Invalid compact bits hex: ${bitsCompactHexBE}`)
+  }
+
+  const exponent = parseInt(hex.slice(0, 2), 16)
+  const mantissa = BigInt(`0x${hex.slice(2, 8)}`)
+
+  // Matches BTCUtils.extractTargetAt in solidity:
+  //   target = mantissa * 256**(exponent - 3)
+  const shift = BigInt(exponent - 3)
+  return mantissa * BigInt(256) ** shift
+}
+
+function extractTargetFromHeaderHex(headerHex: string): bigint {
+  const headerBytes = hexToBuffer(headerHex)
+  // `nbits` is stored in header as little-endian bytes [72..75].
+  // We want the compact bits in big-endian form for `compactBitsToTarget`,
+  // so we reverse the 4 bytes at offsets 72..75.
+  const b0 = headerBytes[72]
+  const b1 = headerBytes[73]
+  const b2 = headerBytes[74]
+  const b3 = headerBytes[75]
+  const bitsBEHex = [b3, b2, b1, b0]
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("")
+
+  return compactBitsToTarget(`0x${bitsBEHex}`)
+}
+
+function setHeaderCompactBits(headerHex: string, bitsCompactHexBE: string) {
+  const headerBytes = hexToBuffer(headerHex)
+  if (headerBytes.length !== 80) {
+    throw new Error(
+      `Expected 80-byte header, got ${headerBytes.length} bytes: ${headerHex}`
+    )
+  }
+
+  // Set `nbits` bytes in header (little-endian on the wire).
+  const bitsBE = hexToBuffer(bitsCompactHexBE)
+  if (bitsBE.length !== 4) {
+    throw new Error(`Invalid compact bits: ${bitsCompactHexBE}`)
+  }
+
+  // Convert compact bits from big-endian to little-endian on the wire.
+  const [be0, be1, be2, be3] = bitsBE
+  headerBytes[72] = be3
+  headerBytes[73] = be2
+  headerBytes[74] = be1
+  headerBytes[75] = be0
+
+  return bufferToHex(headerBytes)
+}
+
 const fixture = async () => {
   const [deployer, governance, thirdParty] = await ethers.getSigners()
 
@@ -434,6 +506,85 @@ describe("LightRelay", () => {
           await expect(tx)
             .to.emit(relay, "Retarget")
             .withArgs(genesisDifficulty, nextDifficulty)
+        })
+      })
+
+      context("with MIN_DIFFICULTY_TARGET in post-retarget window", () => {
+        let retargetHeaders: string
+
+        before(async () => {
+          await createSnapshot()
+
+          const baseRetargetHeaders = headerHex.slice(5, 13) // 8 headers total
+          const originalLastHeader = baseRetargetHeaders[7]
+
+          // Use DIFF1 `nbits` but keep the nonce from the fixture header.
+          // This will almost certainly fail the PoW check, which proves that
+          // the MIN_DIFFICULTY_TARGET exception does not bypass PoW validation.
+          const diff1LastHeader = setHeaderCompactBits(
+            originalLastHeader,
+            MIN_DIFFICULTY_BITS
+          )
+
+          const modifiedHeaders = [
+            ...baseRetargetHeaders.slice(0, 7),
+            diff1LastHeader,
+          ]
+          retargetHeaders = concatenateHexStrings(modifiedHeaders)
+        })
+
+        after(async () => {
+          await restoreSnapshot()
+        })
+
+        it("should revert with Invalid work", async () => {
+          await expect(
+            relay.connect(thirdParty).retarget(retargetHeaders)
+          ).to.be.revertedWith("Invalid work")
+        })
+      })
+
+      context("with an unexpected post-retarget target", () => {
+        let retargetHeaders: string
+
+        before(async () => {
+          await createSnapshot()
+
+          const baseRetargetHeaders = headerHex.slice(5, 13) // 8 headers total
+          const originalLastHeader = baseRetargetHeaders[7]
+
+          const minedTarget = extractTargetFromHeaderHex(baseRetargetHeaders[4])
+
+          // Pick a very-easy compact bits value. We only mutate `nbits`
+          // (keep nonce/timestamp/merkle root), so PoW should pass, and
+          // the retarget logic should fail only at the post-retarget target
+          // comparison.
+          const altBits = "0x2100ffff"
+          const altTarget = compactBitsToTarget(altBits)
+
+          // Ensure the test meaning: it's neither the mined target nor DIFF1.
+          expect(altTarget).to.not.equal(minedTarget)
+          expect(altTarget).to.not.equal(MIN_DIFFICULTY_TARGET)
+
+          const altLastHeader = setHeaderCompactBits(
+            originalLastHeader,
+            altBits
+          )
+          const modifiedHeaders = [
+            ...baseRetargetHeaders.slice(0, 7),
+            altLastHeader,
+          ]
+          retargetHeaders = concatenateHexStrings(modifiedHeaders)
+        })
+
+        after(async () => {
+          await restoreSnapshot()
+        })
+
+        it("should revert with Unexpected target change after retarget", async () => {
+          await expect(
+            relay.connect(thirdParty).retarget(retargetHeaders)
+          ).to.be.revertedWith("Unexpected target change after retarget")
         })
       })
 
