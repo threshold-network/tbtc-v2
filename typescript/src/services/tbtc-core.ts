@@ -75,9 +75,9 @@ export class TBTC {
   }
 
   /**
-   * Initializes the tBTC v2 SDK entrypoint for Ethereum Sepolia and Bitcoin testnet.
+   * Initializes the tBTC v2 SDK entrypoint for Ethereum Sepolia and Bitcoin testnet4.
    * The initialized instance uses default Electrum servers to interact
-   * with Bitcoin testnet
+   * with Bitcoin testnet4
    * @param ethereumSignerOrProvider Ethereum signer or provider.
    * @returns Initialized tBTC v2 SDK entrypoint.
    * @throws Throws an error if the signer's Ethereum network is other than
@@ -89,7 +89,7 @@ export class TBTC {
     return this.initializeEthereum(
       ethereumSignerOrProvider,
       Chains.Ethereum.Sepolia,
-      BitcoinNetwork.Testnet
+      BitcoinNetwork.Testnet4
     )
   }
 

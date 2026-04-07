@@ -11,9 +11,13 @@ export enum BitcoinNetwork {
    */
   Unknown = "unknown",
   /**
-   * Bitcoin Testnet.
+   * Bitcoin Testnet (testnet3).
    */
   Testnet = "testnet",
+  /**
+   * Bitcoin Testnet4.
+   */
+  Testnet4 = "testnet4",
   /**
    * Bitcoin Mainnet.
    */
@@ -38,6 +42,9 @@ export namespace BitcoinNetwork {
       case "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943": {
         return BitcoinNetwork.Testnet
       }
+      case "00000000da84f2bafbbc53dee25a72ae507ff4914b867c565be350b0da8bf043": {
+        return BitcoinNetwork.Testnet4
+      }
       default: {
         return BitcoinNetwork.Unknown
       }
@@ -59,7 +66,8 @@ export function toBitcoinJsLibNetwork(
     case BitcoinNetwork.Mainnet: {
       return networks.bitcoin
     }
-    case BitcoinNetwork.Testnet: {
+    case BitcoinNetwork.Testnet:
+    case BitcoinNetwork.Testnet4: {
       return networks.testnet
     }
     default: {
