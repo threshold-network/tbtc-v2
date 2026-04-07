@@ -1,5 +1,6 @@
 export * from "./address"
 export * from "./client"
+export * from "./client-with-network-override"
 export * from "./csuint"
 export * from "./ecdsa-key"
 export * from "./hash"

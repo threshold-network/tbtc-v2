@@ -12,6 +12,7 @@
     "export.json"
   ],
   "scripts": {
+    "postinstall": "bash scripts/apply-solidity-contracts-export-deploy-patch.sh && bash scripts/patch-hardhat-undici-connect-timeout.sh",
     "clean": "hardhat clean && rm -rf cache/ export/ external/npm export.json",
     "build": "hardhat compile",
     "deploy": "hardhat deploy --export export.json",
@@ -57,6 +58,7 @@
     "chai": "^4.3.4",
     "chai-as-promised": "^7.1.1",
     "crypto-js": "^4.1.1",
+    "dotenv": "^16.4.5",
     "eslint": "^7.32.0",
     "ethereum-waffle": "^3.4.0",
     "ethers": "^5.5.3",

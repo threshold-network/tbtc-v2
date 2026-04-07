@@ -1,4 +1,10 @@
 import { HardhatUserConfig } from "hardhat/config"
+import path from "path"
+import { config as loadEnv } from "dotenv"
+
+// Load .env from tbtc-v2/ (parent of solidity/) so CHAIN_API_URL etc. are available
+loadEnv({ path: path.join(__dirname, "..", ".env") })
+
 import "./tasks"
 
 import "@keep-network/hardhat-helpers"
@@ -124,7 +130,18 @@ const config: HardhatUserConfig = {
       accounts: process.env.ACCOUNTS_PRIVATE_KEYS
         ? process.env.ACCOUNTS_PRIVATE_KEYS.split(",")
         : undefined,
-      tags: ["tenderly"],
+      tags: ["allowStubs", "tenderly"],
+      // Hardhat passes this to undici headersTimeout (default 20s). Slow public RPCs often exceed
+      // that during deploy → HeadersTimeoutError / UND_ERR_HEADERS_TIMEOUT.
+      // postinstall runs scripts/patch-hardhat-undici-connect-timeout.sh so undici Pool connectTimeout
+      // matches this value too (default Pool connect is 10s → ConnectTimeoutError on cold RPC).
+      timeout: process.env.CHAIN_HTTP_TIMEOUT_MS
+        ? parseInt(process.env.CHAIN_HTTP_TIMEOUT_MS, 10)
+        : 120_000,
+      // Avoid "replacement fee too low" when many txs are sent in quick succession
+      gasPrice: process.env.GAS_PRICE_GWEI
+        ? parseInt(process.env.GAS_PRICE_GWEI, 10) * 1e9
+        : 5e9, // 5 gwei default
     },
     mainnet: {
       url: process.env.CHAIN_API_URL || "",
@@ -178,11 +195,16 @@ const config: HardhatUserConfig = {
         "node_modules/@keep-network/random-beacon/deployments/development",
         "node_modules/@keep-network/ecdsa/deployments/development",
       ],
-      sepolia: [
-        "node_modules/@keep-network/tbtc/artifacts",
-        "node_modules/@keep-network/random-beacon/artifacts",
-        "node_modules/@keep-network/ecdsa/artifacts",
-      ],
+      // tbtc/artifacts contains build artifacts (no addresses), not deployment records.
+      // Loading it causes Deposit, VendingMachine, TBTCToken to have address: undefined.
+      // Exclude @keep-network/ecdsa/artifacts: it has WalletRegistry at 0x8613...
+      // (no code on Sepolia). Use only local deployments (0x5D05...).
+      //
+      // Do NOT add node_modules/@keep-network/random-beacon/artifacts here: hardhat-deploy
+      // merges external folders *after* ./deployments/sepolia and overwrites T.json,
+      // NuCypherToken.json, etc. with published npm snapshots. Those stale tx hashes then
+      // fail fetchIfDifferent ("cannot get the transaction for T's previous deployment").
+      sepolia: [],
       mainnet: ["./external/mainnet"],
     },
   },
