@@ -7,7 +7,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { deployer } = await getNamedAccounts()
 
   // See https://book.wormhole.com/reference/contracts.html
-  // This ID is valid for both Polygon Testnet (Mumbai) and Mainnet
+  // This ID is valid for both Polygon Mainnet.
   const wormholeChainID = 5
 
   const polygonWormholeGateway = await deployments.get("PolygonWormholeGateway")
