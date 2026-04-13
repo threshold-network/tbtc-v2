@@ -37,7 +37,7 @@ export async function resolveLibrary(
 export async function verifyLibraryBytecodes(
   hre: HardhatRuntimeEnvironment,
   libs: Record<string, string>,
-  strict = false
+  strict = true
 ): Promise<void> {
   const { deployments, ethers } = hre
   for (const [name, address] of Object.entries(libs)) {
