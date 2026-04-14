@@ -8,11 +8,12 @@
  *
  * Requires the exact EcdsaDkg.Result tuple from DkgResultSubmitted (or submit tx).
  *
- * Env (optional overrides for flags):
- *   CHAIN_API_URL, PRIVATE_KEY, WALLET_REGISTRY_ADDRESS
+ * Env vars:
+ *   PRIVATE_KEY  - required; funded account private key (never pass as a flag)
+ *   CHAIN_API_URL, WALLET_REGISTRY_ADDRESS - optional overrides for flags
  *
  * Example:
- *   yarn approve-dkg-result --rpc-url $CHAIN_API_URL --private-key $KEY \
+ *   PRIVATE_KEY=$KEY yarn approve-dkg-result --rpc-url $CHAIN_API_URL \
  *     --tx-hash 0x...   # or: --seed 0x...
  */
 
@@ -23,7 +24,7 @@ import * as path from "path"
 
 const CHALLENGE_STATE = 3
 
-function loadWalletRegistryAbi(): ethers.utils.Interface {
+async function loadWalletRegistryAbi(): Promise<ethers.utils.Interface> {
   const artifactPath = path.join(
     __dirname,
     "..",
@@ -34,10 +35,15 @@ function loadWalletRegistryAbi(): ethers.utils.Interface {
     "sepolia",
     "WalletRegistry.json"
   )
-  const { abi } = JSON.parse(fs.readFileSync(artifactPath, "utf8")) as {
-    abi: ethers.utils.Fragment[]
+  let parsed: { abi: ethers.utils.Fragment[] }
+  try {
+    parsed = JSON.parse(
+      await fs.promises.readFile(artifactPath, "utf8")
+    ) as typeof parsed
+  } catch (err) {
+    throw new Error(`Failed to parse WalletRegistry artifact at ${artifactPath}: ${err}`)
   }
-  return new ethers.utils.Interface(abi)
+  return new ethers.utils.Interface(parsed.abi)
 }
 
 program
@@ -49,11 +55,6 @@ program
     "-r, --rpc-url <url>",
     "JSON-RPC URL (or CHAIN_API_URL)",
     process.env.CHAIN_API_URL
-  )
-  .requiredOption(
-    "-k, --private-key <hex>",
-    "Funded account private key (or PRIVATE_KEY)",
-    process.env.PRIVATE_KEY
   )
   .option(
     "-w, --wallet-registry <address>",
@@ -87,7 +88,6 @@ program
 
 const opts = program.opts<{
   rpcUrl: string
-  privateKey: string
   walletRegistry?: string
   txHash?: string
   seed?: string
@@ -100,8 +100,8 @@ async function main(): Promise<void> {
   if (!opts.rpcUrl) {
     throw new Error("Missing --rpc-url or CHAIN_API_URL")
   }
-  if (!opts.privateKey) {
-    throw new Error("Missing --private-key or PRIVATE_KEY")
+  if (!process.env.PRIVATE_KEY) {
+    throw new Error("Missing PRIVATE_KEY env var")
   }
   if (!opts.walletRegistry) {
     throw new Error(
@@ -115,9 +115,9 @@ async function main(): Promise<void> {
     console.warn("Both --tx-hash and --seed set; using --tx-hash.")
   }
 
-  const iface = loadWalletRegistryAbi()
+  const iface = await loadWalletRegistryAbi()
   const provider = new ethers.providers.JsonRpcProvider(opts.rpcUrl)
-  const wallet = new ethers.Wallet(opts.privateKey, provider)
+  const wallet = new ethers.Wallet(process.env.PRIVATE_KEY!, provider)
   const registry = new ethers.Contract(opts.walletRegistry, iface, wallet)
 
   type DkgResultTuple = {

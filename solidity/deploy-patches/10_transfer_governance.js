@@ -1,5 +1,5 @@
 /**
- * Patched copy of @keep-network/ecdsa/export/deploy/10_transfer_governance.js
+ * Patched copy of @keep-network/ecdsa@2.1.0-dev.19/export/deploy/10_transfer_governance.js
  *
  * Same situation as random-beacon 08: Phase F (keep-core) may already have run this; Phase H replays
  * it with a new WalletRegistryGovernance deploy — transferGovernance must be called by current

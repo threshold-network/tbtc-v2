@@ -139,9 +139,10 @@ const config: HardhatUserConfig = {
         ? parseInt(process.env.CHAIN_HTTP_TIMEOUT_MS, 10)
         : 120_000,
       // Avoid "replacement fee too low" when many txs are sent in quick succession
-      gasPrice: process.env.GAS_PRICE_GWEI
-        ? parseInt(process.env.GAS_PRICE_GWEI, 10) * 1e9
-        : 5e9, // 5 gwei default
+      gasPrice: (() => {
+        const gwei = Number(process.env.GAS_PRICE_GWEI)
+        return Number.isFinite(gwei) && gwei > 0 ? gwei * 1e9 : 5e9 // 5 gwei default
+      })(),
     },
     mainnet: {
       url: process.env.CHAIN_API_URL || "",

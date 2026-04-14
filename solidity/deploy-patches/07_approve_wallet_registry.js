@@ -1,5 +1,5 @@
 /**
- * Patched copy of @keep-network/ecdsa/export/deploy/07_approve_wallet_registry.js
+ * Patched copy of @keep-network/ecdsa@2.1.0-dev.19/export/deploy/07_approve_wallet_registry.js
  *
  * keep-core Phase F already calls approveApplication(WalletRegistry). Phase H must not revert
  * when the application is already APPROVED.

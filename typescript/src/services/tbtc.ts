@@ -71,7 +71,15 @@ export class TBTC extends TBTCCore {
   /**
    * Initializes the tBTC v2 SDK entrypoint for Ethereum Sepolia and Bitcoin testnet4.
    * The initialized instance uses default Electrum servers to interact
-   * with Bitcoin testnet4
+   * with Bitcoin testnet4.
+   *
+   * BREAKING CHANGE (v2): This method previously connected to Bitcoin testnet3
+   * (BitcoinNetwork.Testnet). It now connects to Bitcoin testnet4
+   * (BitcoinNetwork.Testnet4, BIP-94). Both networks share the same address
+   * prefixes (tb1/m/2), so callers will not see a compile-time or runtime
+   * error -- they will silently connect to the wrong Bitcoin network if not
+   * updated. Update your integration to testnet4 Bitcoin tooling before
+   * upgrading this SDK.
    * @param ethereumSignerOrProvider Ethereum signer or provider.
    * @param crossChainSupport Whether to enable cross-chain support. False by default.
    * @returns Initialized tBTC v2 SDK entrypoint.
@@ -263,7 +271,7 @@ export class TBTC extends TBTCCore {
           signerOrEthereumSigner as EthereumSigner,
           baseChainId
         )
-        break
+        break;
       case "Arbitrum":
         const arbitrumChainId = chainMapping.arbitrum
         if (!arbitrumChainId) {
@@ -277,7 +285,7 @@ export class TBTC extends TBTCCore {
           signerOrEthereumSigner as EthereumSigner,
           arbitrumChainId
         )
-        break
+        break;
       case "StarkNet":
         const starknetChainId = chainMapping.starknet
         if (!starknetChainId) {
@@ -319,7 +327,7 @@ export class TBTC extends TBTCCore {
           starknetProvider,
           starknetChainId
         )
-        break
+        break;
       case "Sui":
         const suiChainId = chainMapping.sui
         if (!suiChainId) {
@@ -331,7 +339,7 @@ export class TBTC extends TBTCCore {
           signerOrEthereumSigner as SuiSignerWithAddress,
           suiChainId
         )
-        break
+        break;
       case "Solana":
         if (!signerOrEthereumSigner) {
           throw new Error("Solana provider is required")
@@ -341,7 +349,7 @@ export class TBTC extends TBTCCore {
         l2CrossChainContracts = await loadSolanaCrossChainInterfaces(
           signerOrEthereumSigner as AnchorProvider
         )
-        break
+        break;
       default:
         throw new Error("Unsupported destination chain")
     }

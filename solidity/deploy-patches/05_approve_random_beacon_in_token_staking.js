@@ -1,5 +1,5 @@
 /**
- * Patched copy of @keep-network/random-beacon/export/deploy/05_approve_random_beacon_in_token_staking.js
+ * Patched copy of @keep-network/random-beacon@2.1.0-dev.18/export/deploy/05_approve_random_beacon_in_token_staking.js
  *
  * keep-core Phase D already calls approveApplication(RandomBeacon). Phase H runs the same script again;
  * TokenStaking reverts with "Can't approve application" when status is already APPROVED.
