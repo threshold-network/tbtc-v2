@@ -34,6 +34,20 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     error NoUnstakingProcess();
     error UnstakingNotFinished();
     error ZeroAddress();
+    error NotAStaker();
+    error WrongDelegatee();
+    error AddressAlreadyTaken();
+
+    enum RebateTreasuryFeeMode {
+        Both,
+        DepositOnly,
+        RedemptionOnly
+    }
+
+    enum TreasuryFeeType {
+        Deposit,
+        Redemption
+    }
 
     struct Rebate {
         uint32 timestamp;
@@ -54,6 +68,8 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         uint32 unstakingTimestamp;
         uint256 rollingWindowStartIndex;
         Rebate[] rebates;
+        RebateTreasuryFeeMode rebateTreasuryFeeMode;
+        address delegatee;
     }
 
     IERC20Upgradeable public token;
@@ -64,6 +80,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     uint256 public rebatePerToken;
 
     mapping(address => Stake) public stakes;
+    mapping(address => address) public delegates;
 
     // Reserved storage space in case we need to add more variables.
     // The convention from OpenZeppelin suggests the storage space should
@@ -72,16 +89,22 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     // the struct in the upcoming versions we need to reduce the array size.
     // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
     // slither-disable-next-line unused-state
-    uint256[50] private __gap;
+    uint256[49] private __gap;
 
     event RollingWindowUpdated(uint256 rollingWindow);
     event UnstakingPeriodUpdated(uint256 unstakingPeriod);
     event RebatePerTokenUpdated(uint256 rebatePerToken);
     event RebateReceived(address staker, uint64 rebate);
     event RebateCanceled(address staker, uint256 requestedAt);
+    event RebateTreasuryFeeModeUpdated(
+        address indexed staker,
+        RebateTreasuryFeeMode rebateTreasuryFeeMode
+    );
     event Staked(address staker, uint256 amount);
     event UnstakeStarted(address staker, uint256 amount);
     event UnstakeFinished(address staker, uint256 amount);
+    event DelegateeSet(address staker, address delegatee);
+    event TransferFinished(address oldStaker, address newStaker);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -148,6 +171,45 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     {
         rebatePerToken = _newRebatePerToken;
         emit RebatePerTokenUpdated(rebatePerToken);
+    }
+
+    /// @notice Sets the rebate treasury fee mode for caller.
+    /// @param _rebateTreasuryFeeMode New rebate treasury fee mode:
+    ///        - 0: rebates for both deposits and redemptions,
+    ///        - 1: rebates for deposits only,
+    ///        - 2: rebates for redemptions only.
+    function setRebateTreasuryFeeMode(
+        RebateTreasuryFeeMode _rebateTreasuryFeeMode
+    ) external {
+        stakes[msg.sender].rebateTreasuryFeeMode = _rebateTreasuryFeeMode;
+        emit RebateTreasuryFeeModeUpdated(msg.sender, _rebateTreasuryFeeMode);
+    }
+
+    /// @notice Sets a delegatee for a rebate.
+    /// @param _delegatee Delegatee address.
+    function setDelegatee(address _delegatee) external {
+        Stake storage stakeInfo = stakes[msg.sender];
+        if (stakeInfo.stakedAmount == 0) {
+            revert NotAStaker();
+        }
+        if (stakeInfo.delegatee != address(0)) {
+            delegates[stakeInfo.delegatee] = address(0);
+        }
+        if (_delegatee == address(0) || _delegatee == msg.sender) {
+            stakeInfo.delegatee = address(0);
+            emit DelegateeSet(msg.sender, msg.sender);
+            return;
+        }
+
+        if (
+            delegates[_delegatee] != address(0) ||
+            stakes[_delegatee].stakedAmount != 0
+        ) {
+            revert WrongDelegatee();
+        }
+        stakeInfo.delegatee = _delegatee;
+        delegates[_delegatee] = msg.sender;
+        emit DelegateeSet(msg.sender, _delegatee);
     }
 
     /// @notice Calculates cap for rebate for the specified user.
@@ -240,15 +302,23 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     /// @notice Checks if user is eligible for rebate
     /// @param user Address of depositor or redeemer
     /// @param treasuryFee Original fees
+    /// @param treasuryFeeType Type of treasury fee:
+    ///        - 0: deposit treasury fee,
+    ///        - 1: redemption treasury fee.
     /// @return Updated fees considering rebate if applicable
     /// @dev Requirements:
     ///      - The caller must be the bridge contract
-    function applyForRebate(address user, uint64 treasuryFee)
-        external
-        onlyBridge
-        returns (uint64)
-    {
+    function applyForRebate(
+        address user,
+        uint64 treasuryFee,
+        TreasuryFeeType treasuryFeeType
+    ) external onlyBridge returns (uint64) {
+        user = getStaker(user);
         Stake storage stakeInfo = stakes[user];
+
+        if (!isRebateEnabled(user, treasuryFeeType)) {
+            return treasuryFee;
+        }
 
         uint64 rebateCap = getRebateCap(stakeInfo);
         if (rebateCap == 0) {
@@ -272,6 +342,33 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         return treasuryFee - rebate;
     }
 
+    /// @notice Returns true if rebate is enabled for given user and fee type.
+    function isRebateEnabled(address user, TreasuryFeeType treasuryFeeType)
+        internal
+        view
+        returns (bool)
+    {
+        RebateTreasuryFeeMode mode = stakes[user].rebateTreasuryFeeMode;
+
+        // slither-disable-next-line incorrect-equality
+        return
+            mode == RebateTreasuryFeeMode.Both ||
+            (mode == RebateTreasuryFeeMode.DepositOnly &&
+                treasuryFeeType == TreasuryFeeType.Deposit) ||
+            (mode == RebateTreasuryFeeMode.RedemptionOnly &&
+                treasuryFeeType == TreasuryFeeType.Redemption);
+    }
+
+    /// @notice Returns address of delegating staker or user itself if there is no delegating staker.
+    function getStaker(address user) internal view returns (address) {
+        address staker = delegates[user];
+        // slither-disable-next-line incorrect-equality
+        if (stakes[user].stakedAmount == 0 && staker != address(0)) {
+            return staker;
+        }
+        return user;
+    }
+
     /// @notice Cancels rebate in case of reedem request was timed out
     /// @param user Address of depositor or redeemer
     /// @param requestedAt Timestamp when redeem was requested
@@ -281,6 +378,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         external
         onlyBridge
     {
+        user = getStaker(user);
         Stake storage stakeInfo = stakes[user];
         if (stakeInfo.stakedAmount == 0) {
             return;
@@ -312,9 +410,15 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     function stake(uint96 amount) external {
         if (amount == 0) revert AmountCannotBeZero();
 
+        address otherStaker = delegates[msg.sender];
+        if (otherStaker != address(0)) {
+            stakes[otherStaker].delegatee = address(0);
+            delegates[msg.sender] = address(0);
+            emit DelegateeSet(otherStaker, otherStaker);
+        }
+
         Stake storage stakeInfo = stakes[msg.sender];
         stakeInfo.stakedAmount += amount;
-
         emit Staked(msg.sender, amount);
         token.safeTransferFrom(msg.sender, address(this), amount);
     }
@@ -348,6 +452,10 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         uint96 amount = stakeInfo.unstakingAmount;
         stakeInfo.unstakingTimestamp = 0;
         stakeInfo.unstakingAmount = 0;
+        if (stakeInfo.stakedAmount == 0 && stakeInfo.delegatee != address(0)) {
+            delegates[stakeInfo.delegatee] = address(0);
+            stakeInfo.delegatee = address(0);
+        }
 
         emit UnstakeFinished(msg.sender, amount);
         token.safeTransfer(receiver, amount);
@@ -398,5 +506,80 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         Stake storage stakeInfo = stakes[user];
         unstakingAmount = stakeInfo.unstakingAmount;
         unstakingTimestamp = stakeInfo.unstakingTimestamp;
+    }
+
+    /// @notice Returns the rebate treasury fee mode for a user.
+    /// @param user Address of the staker
+    /// @return rebateTreasuryFeeMode Current mode:
+    ///         - 0: rebates for both deposits and redemptions,
+    ///         - 1: rebates for deposits only,
+    ///         - 2: rebates for redemptions only.
+    function getRebateTreasuryFeeMode(address user)
+        external
+        view
+        returns (RebateTreasuryFeeMode rebateTreasuryFeeMode)
+    {
+        Stake storage stakeInfo = stakes[user];
+        rebateTreasuryFeeMode = stakeInfo.rebateTreasuryFeeMode;
+    }
+
+    /// @notice Returns information about stake
+    /// @param user Address of depositor or redeemer
+    /// @return delegatee Delegatee address.
+    function getDelegatee(address user)
+        external
+        view
+        returns (address delegatee)
+    {
+        Stake storage stakeInfo = stakes[user];
+        delegatee = stakeInfo.delegatee;
+    }
+
+    /// @notice Transfers ownership of stake from one address to another
+    /// @param oldStaker Old staker address
+    /// @param newStaker New staker address
+    function forceStakeTransfer(address oldStaker, address newStaker)
+        external
+        onlyOwner
+    {
+        if (oldStaker == address(0)) revert ZeroAddress();
+        if (newStaker == address(0)) revert ZeroAddress();
+
+        Stake storage oldStake = stakes[oldStaker];
+        if (oldStake.stakedAmount == 0) {
+            revert NotAStaker();
+        }
+
+        Stake storage newStake = stakes[newStaker];
+        if (newStake.stakedAmount != 0) {
+            revert AddressAlreadyTaken();
+        }
+        if (delegates[newStaker] != address(0)) {
+            revert WrongDelegatee();
+        }
+
+        newStake.stakedAmount = oldStake.stakedAmount;
+        newStake.unstakingAmount = oldStake.unstakingAmount;
+        newStake.unstakingTimestamp = oldStake.unstakingTimestamp;
+        newStake.rebateTreasuryFeeMode = oldStake.rebateTreasuryFeeMode;
+        newStake.rollingWindowStartIndex = oldStake.rollingWindowStartIndex;
+        for (uint256 i = 0; i < oldStake.rebates.length; i++) {
+            newStake.rebates.push(oldStake.rebates[i]);
+        }
+        if (oldStake.delegatee != address(0)) {
+            address delegatee = oldStake.delegatee;
+            newStake.delegatee = delegatee;
+            delegates[delegatee] = newStaker;
+            oldStake.delegatee = address(0);
+            emit DelegateeSet(newStaker, delegatee);
+        }
+
+        oldStake.stakedAmount = 0;
+        oldStake.unstakingAmount = 0;
+        oldStake.unstakingTimestamp = 0;
+        oldStake.rebateTreasuryFeeMode = RebateTreasuryFeeMode.Both;
+        oldStake.rollingWindowStartIndex = 0;
+
+        emit TransferFinished(oldStaker, newStaker);
     }
 }

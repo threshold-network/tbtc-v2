@@ -52,6 +52,7 @@ const { lastBlockTime, increaseTime } = helpers.time
 const { impersonateAccount } = helpers.account
 
 const ZERO_ADDRESS = ethers.constants.AddressZero
+const depositOnlyRebateTreasuryFeeMode = 1
 
 describe("Bridge - Redemption", () => {
   let governance: SignerWithAddress
@@ -671,6 +672,118 @@ describe("Bridge - Redemption", () => {
                                             )
                                           ).toNumber()
                                         ).to.be.lessThan(availableRebate)
+                                      })
+                                    }
+                                  )
+                                }
+                              )
+
+                              context(
+                                "when redeemer has stake in rebate staking contract and redemption rebates are disabled",
+                                () => {
+                                  const stakeAmount = to1e18(5)
+                                  let availableRebate: number
+
+                                  before(async () => {
+                                    await t
+                                      .connect(deployer)
+                                      .mint(redeemer.address, stakeAmount)
+                                    await t
+                                      .connect(redeemer)
+                                      .approve(
+                                        rebateStaking.address,
+                                        stakeAmount
+                                      )
+                                    await rebateStaking
+                                      .connect(redeemer)
+                                      .stake(stakeAmount)
+                                    availableRebate = (
+                                      await rebateStaking.getAvailableRebate(
+                                        redeemer.address
+                                      )
+                                    ).toNumber()
+                                  })
+
+                                  context(
+                                    "when redeemer output script is P2WPKH",
+                                    () => {
+                                      const redeemerOutputScript =
+                                        redeemerOutputScriptP2WPKH
+
+                                      let tx: ContractTransaction
+                                      let redemptionTxMaxFee: BigNumber
+
+                                      before(async () => {
+                                        await createSnapshot()
+
+                                        redemptionTxMaxFee = (
+                                          await bridge.redemptionParameters()
+                                        ).redemptionTxMaxFee
+
+                                        await rebateStaking
+                                          .connect(redeemer)
+                                          .setRebateTreasuryFeeMode(
+                                            depositOnlyRebateTreasuryFeeMode
+                                          )
+
+                                        tx = await bridge
+                                          .connect(redeemer)
+                                          .requestRedemption(
+                                            walletPubKeyHash,
+                                            mainUtxo,
+                                            redeemerOutputScript,
+                                            requestedAmount
+                                          )
+                                      })
+
+                                      after(async () => {
+                                        await restoreSnapshot()
+                                      })
+
+                                      it("should store non-zero treasury fee", async () => {
+                                        const redemptionKey =
+                                          buildRedemptionKey(
+                                            walletPubKeyHash,
+                                            redeemerOutputScript
+                                          )
+
+                                        const redemptionRequest =
+                                          await bridge.pendingRedemptions(
+                                            redemptionKey
+                                          )
+
+                                        expect(
+                                          redemptionRequest.treasuryFee
+                                        ).to.be.equal(treasuryFee)
+                                        expect(
+                                          redemptionRequest.txMaxFee
+                                        ).to.be.equal(redemptionTxMaxFee)
+                                      })
+
+                                      it("should emit RedemptionRequested with non-zero treasury fee", async () => {
+                                        await expect(tx)
+                                          .to.emit(
+                                            bridge,
+                                            "RedemptionRequested"
+                                          )
+                                          .withArgs(
+                                            walletPubKeyHash,
+                                            redeemerOutputScript,
+                                            redeemer.address,
+                                            requestedAmount,
+                                            treasuryFee,
+                                            redemptionTxMaxFee
+                                          )
+                                      })
+
+                                      it("should not decrease available rebate", async () => {
+                                        expect(
+                                          (
+                                            await rebateStaking.getAvailableRebate(
+                                              redeemer.address
+                                            )
+                                          ).toNumber()
+                                        ).to.be.equal(availableRebate)
                                       })
                                     }
                                   )

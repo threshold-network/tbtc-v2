@@ -1,0 +1,625 @@
+{
+  "manifestVersion": "3.2",
+  "admin": {
+    "address": "0x5a165919357Eb5854287a0Bad49D703f144B187f"
+  },
+  "proxies": [
+    {
+      "address": "0x186D048097c7406C64EfB0537886E3CaE100a1fe",
+      "kind": "transparent"
+    }
+  ],
+  "impls": {
+    "71ff43d7f55b99f0d9d9754b16a11551ce128bfda00d56de290d1e1347224353": {
+      "address": "0x59FAE614867b66421b44D1Ed3461e6B6a4B50106",
+      "layout": {
+        "solcVersion": "0.8.17",
+        "storage": [
+          {
+            "label": "_initialized",
+            "offset": 0,
+            "slot": "0",
+            "type": "t_uint8",
+            "contract": "Initializable",
+            "src": "@openzeppelin\\contracts-upgradeable\\proxy\\utils\\Initializable.sol:62",
+            "retypedFrom": "bool"
+          },
+          {
+            "label": "_initializing",
+            "offset": 1,
+            "slot": "0",
+            "type": "t_bool",
+            "contract": "Initializable",
+            "src": "@openzeppelin\\contracts-upgradeable\\proxy\\utils\\Initializable.sol:67"
+          },
+          {
+            "label": "bridge",
+            "offset": 2,
+            "slot": "0",
+            "type": "t_contract(IBridge)4625",
+            "contract": "AbstractTBTCDepositor",
+            "src": "contracts\\integrator\\AbstractTBTCDepositor.sol:95"
+          },
+          {
+            "label": "tbtcVault",
+            "offset": 0,
+            "slot": "1",
+            "type": "t_contract(ITBTCVault)4651",
+            "contract": "AbstractTBTCDepositor",
+            "src": "contracts\\integrator\\AbstractTBTCDepositor.sol:96"
+          },
+          {
+            "label": "__gap",
+            "offset": 0,
+            "slot": "2",
+            "type": "t_array(t_uint256)47_storage",
+            "contract": "AbstractTBTCDepositor",
+            "src": "contracts\\integrator\\AbstractTBTCDepositor.sol:111"
+          },
+          {
+            "label": "__gap",
+            "offset": 0,
+            "slot": "49",
+            "type": "t_array(t_uint256)50_storage",
+            "contract": "ContextUpgradeable",
+            "src": "@openzeppelin\\contracts-upgradeable\\utils\\ContextUpgradeable.sol:36"
+          },
+          {
+            "label": "_owner",
+            "offset": 0,
+            "slot": "99",
+            "type": "t_address",
+            "contract": "OwnableUpgradeable",
+            "src": "@openzeppelin\\contracts-upgradeable\\access\\OwnableUpgradeable.sol:22"
+          },
+          {
+            "label": "__gap",
+            "offset": 0,
+            "slot": "100",
+            "type": "t_array(t_uint256)49_storage",
+            "contract": "OwnableUpgradeable",
+            "src": "@openzeppelin\\contracts-upgradeable\\access\\OwnableUpgradeable.sol:94"
+          },
+          {
+            "label": "reimbursementPool",
+            "offset": 0,
+            "slot": "149",
+            "type": "t_contract(ReimbursementPool)2999",
+            "contract": "Reimbursable",
+            "src": "@keep-network\\random-beacon\\contracts\\Reimbursable.sol:51"
+          },
+          {
+            "label": "__gap",
+            "offset": 0,
+            "slot": "150",
+            "type": "t_array(t_uint256)49_storage",
+            "contract": "Reimbursable",
+            "src": "@keep-network\\random-beacon\\contracts\\Reimbursable.sol:51"
+          },
+          {
+            "label": "deposits",
+            "offset": 0,
+            "slot": "199",
+            "type": "t_mapping(t_uint256,t_enum(DepositState)4678)",
+            "contract": "L1BitcoinDepositor",
+            "src": "contracts\\l1\\L1BitcoinDepositor.sol:112"
+          },
+          {
+            "label": "tbtcToken",
+            "offset": 0,
+            "slot": "200",
+            "type": "t_contract(IERC20Upgradeable)3378",
+            "contract": "L1BitcoinDepositor",
+            "src": "contracts\\l1\\L1BitcoinDepositor.sol:114"
+          },
+          {
+            "label": "wormhole",
+            "offset": 0,
+            "slot": "201",
+            "type": "t_contract(IWormhole)5548",
+            "contract": "L1BitcoinDepositor",
+            "src": "contracts\\l1\\L1BitcoinDepositor.sol:116"
+          },
+          {
+            "label": "wormholeRelayer",
+            "offset": 0,
+            "slot": "202",
+            "type": "t_contract(IWormholeRelayer)5588",
+            "contract": "L1BitcoinDepositor",
+            "src": "contracts\\l1\\L1BitcoinDepositor.sol:117"
+          },
+          {
+            "label": "wormholeTokenBridge",
+            "offset": 0,
+            "slot": "203",
+            "type": "t_contract(IWormholeTokenBridge)5673",
+            "contract": "L1BitcoinDepositor",
+            "src": "contracts\\l1\\L1BitcoinDepositor.sol:118"
+          },
+          {
+            "label": "l2WormholeGateway",
+            "offset": 0,
+            "slot": "204",
+            "type": "t_address",
+            "contract": "L1BitcoinDepositor",
+            "src": "contracts\\l1\\L1BitcoinDepositor.sol:120"
+          },
+          {
+            "label": "l2ChainId",
+            "offset": 20,
+            "slot": "204",
+            "type": "t_uint16",
+            "contract": "L1BitcoinDepositor",
+            "src": "contracts\\l1\\L1BitcoinDepositor.sol:122"
+          },
+          {
+            "label": "l2BitcoinDepositor",
+            "offset": 0,
+            "slot": "205",
+            "type": "t_address",
+            "contract": "L1BitcoinDepositor",
+            "src": "contracts\\l1\\L1BitcoinDepositor.sol:124"
+          },
+          {
+            "label": "l2FinalizeDepositGasLimit",
+            "offset": 0,
+            "slot": "206",
+            "type": "t_uint256",
+            "contract": "L1BitcoinDepositor",
+            "src": "contracts\\l1\\L1BitcoinDepositor.sol:129"
+          },
+          {
+            "label": "gasReimbursements",
+            "offset": 0,
+            "slot": "207",
+            "type": "t_mapping(t_uint256,t_struct(GasReimbursement)4685_storage)",
+            "contract": "L1BitcoinDepositor",
+            "src": "contracts\\l1\\L1BitcoinDepositor.sol:138"
+          },
+          {
+            "label": "initializeDepositGasOffset",
+            "offset": 0,
+            "slot": "208",
+            "type": "t_uint256",
+            "contract": "L1BitcoinDepositor",
+            "src": "contracts\\l1\\L1BitcoinDepositor.sol:141"
+          },
+          {
+            "label": "finalizeDepositGasOffset",
+            "offset": 0,
+            "slot": "209",
+            "type": "t_uint256",
+            "contract": "L1BitcoinDepositor",
+            "src": "contracts\\l1\\L1BitcoinDepositor.sol:145"
+          },
+          {
+            "label": "reimbursementAuthorizations",
+            "offset": 0,
+            "slot": "210",
+            "type": "t_mapping(t_address,t_bool)",
+            "contract": "L1BitcoinDepositor",
+            "src": "contracts\\l1\\L1BitcoinDepositor.sol:151"
+          },
+          {
+            "label": "reimburseTxMaxFee",
+            "offset": 0,
+            "slot": "211",
+            "type": "t_bool",
+            "contract": "L1BitcoinDepositor",
+            "src": "contracts\\l1\\L1BitcoinDepositor.sol:164"
+          }
+        ],
+        "types": {
+          "t_address": {
+            "label": "address",
+            "numberOfBytes": "20"
+          },
+          "t_array(t_uint256)47_storage": {
+            "label": "uint256[47]",
+            "numberOfBytes": "1504"
+          },
+          "t_array(t_uint256)49_storage": {
+            "label": "uint256[49]",
+            "numberOfBytes": "1568"
+          },
+          "t_array(t_uint256)50_storage": {
+            "label": "uint256[50]",
+            "numberOfBytes": "1600"
+          },
+          "t_bool": {
+            "label": "bool",
+            "numberOfBytes": "1"
+          },
+          "t_contract(IBridge)4625": {
+            "label": "contract IBridge",
+            "numberOfBytes": "20"
+          },
+          "t_contract(IERC20Upgradeable)3378": {
+            "label": "contract IERC20Upgradeable",
+            "numberOfBytes": "20"
+          },
+          "t_contract(ITBTCVault)4651": {
+            "label": "contract ITBTCVault",
+            "numberOfBytes": "20"
+          },
+          "t_contract(IWormhole)5548": {
+            "label": "contract IWormhole",
+            "numberOfBytes": "20"
+          },
+          "t_contract(IWormholeRelayer)5588": {
+            "label": "contract IWormholeRelayer",
+            "numberOfBytes": "20"
+          },
+          "t_contract(IWormholeTokenBridge)5673": {
+            "label": "contract IWormholeTokenBridge",
+            "numberOfBytes": "20"
+          },
+          "t_contract(ReimbursementPool)2999": {
+            "label": "contract ReimbursementPool",
+            "numberOfBytes": "20"
+          },
+          "t_enum(DepositState)4678": {
+            "label": "enum L1BitcoinDepositor.DepositState",
+            "members": [
+              "Unknown",
+              "Initialized",
+              "Finalized"
+            ],
+            "numberOfBytes": "1"
+          },
+          "t_mapping(t_address,t_bool)": {
+            "label": "mapping(address => bool)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_uint256,t_enum(DepositState)4678)": {
+            "label": "mapping(uint256 => enum L1BitcoinDepositor.DepositState)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_uint256,t_struct(GasReimbursement)4685_storage)": {
+            "label": "mapping(uint256 => struct L1BitcoinDepositor.GasReimbursement)",
+            "numberOfBytes": "32"
+          },
+          "t_struct(GasReimbursement)4685_storage": {
+            "label": "struct L1BitcoinDepositor.GasReimbursement",
+            "members": [
+              {
+                "label": "receiver",
+                "type": "t_address",
+                "offset": 0,
+                "slot": "0"
+              },
+              {
+                "label": "gasSpent",
+                "type": "t_uint96",
+                "offset": 20,
+                "slot": "0"
+              }
+            ],
+            "numberOfBytes": "32"
+          },
+          "t_uint16": {
+            "label": "uint16",
+            "numberOfBytes": "2"
+          },
+          "t_uint256": {
+            "label": "uint256",
+            "numberOfBytes": "32"
+          },
+          "t_uint8": {
+            "label": "uint8",
+            "numberOfBytes": "1"
+          },
+          "t_uint96": {
+            "label": "uint96",
+            "numberOfBytes": "12"
+          }
+        }
+      }
+    },
+    "67eea0fa60cf5623e5477197cd91b709d85a0db5164565177efdf6666ee2bb98": {
+      "address": "0x32aAfccfb865060F7F9fB3766c50134F9228B67E",
+      "txHash": "0xf51c877672e90a362dec53e75483dcff4542855d0504063573e012b97b45dd9d",
+      "layout": {
+        "solcVersion": "0.8.17",
+        "storage": [
+          {
+            "label": "bridge",
+            "offset": 0,
+            "slot": "0",
+            "type": "t_contract(IBridge)6000",
+            "contract": "L1BTCDepositorWormholeV2Base",
+            "src": "contracts/cross-chain/wormhole/L1BTCDepositorWormholeV2Base.sol"
+          },
+          {
+            "label": "tbtcVault",
+            "offset": 0,
+            "slot": "1",
+            "type": "t_contract(ITBTCVault)6032",
+            "contract": "L1BTCDepositorWormholeV2Base",
+            "src": "contracts/cross-chain/wormhole/L1BTCDepositorWormholeV2Base.sol"
+          },
+          {
+            "label": "__gap",
+            "offset": 0,
+            "slot": "2",
+            "type": "t_array(t_uint256)47_storage",
+            "contract": "L1BTCDepositorWormholeV2Base",
+            "src": "contracts/cross-chain/wormhole/L1BTCDepositorWormholeV2Base.sol"
+          },
+          {
+            "label": "_initialized",
+            "offset": 0,
+            "slot": "49",
+            "type": "t_uint8",
+            "contract": "L1BTCDepositorWormholeV2Base",
+            "src": "contracts/cross-chain/wormhole/L1BTCDepositorWormholeV2Base.sol"
+          },
+          {
+            "label": "_initializing",
+            "offset": 1,
+            "slot": "49",
+            "type": "t_bool",
+            "contract": "L1BTCDepositorWormholeV2Base",
+            "src": "contracts/cross-chain/wormhole/L1BTCDepositorWormholeV2Base.sol"
+          },
+          {
+            "label": "__gap",
+            "offset": 0,
+            "slot": "50",
+            "type": "t_array(t_uint256)50_storage",
+            "contract": "L1BTCDepositorWormholeV2Base",
+            "src": "contracts/cross-chain/wormhole/L1BTCDepositorWormholeV2Base.sol"
+          },
+          {
+            "label": "_owner",
+            "offset": 0,
+            "slot": "100",
+            "type": "t_address",
+            "contract": "L1BTCDepositorWormholeV2Base",
+            "src": "contracts/cross-chain/wormhole/L1BTCDepositorWormholeV2Base.sol"
+          },
+          {
+            "label": "__gap",
+            "offset": 0,
+            "slot": "101",
+            "type": "t_array(t_uint256)49_storage",
+            "contract": "L1BTCDepositorWormholeV2Base",
+            "src": "contracts/cross-chain/wormhole/L1BTCDepositorWormholeV2Base.sol"
+          },
+          {
+            "label": "reimbursementPool",
+            "offset": 0,
+            "slot": "150",
+            "type": "t_contract(ReimbursementPool)3280",
+            "contract": "L1BTCDepositorWormholeV2Base",
+            "src": "contracts/cross-chain/wormhole/L1BTCDepositorWormholeV2Base.sol"
+          },
+          {
+            "label": "__gap",
+            "offset": 0,
+            "slot": "151",
+            "type": "t_array(t_uint256)49_storage",
+            "contract": "L1BTCDepositorWormholeV2Base",
+            "src": "contracts/cross-chain/wormhole/L1BTCDepositorWormholeV2Base.sol"
+          },
+          {
+            "label": "deposits",
+            "offset": 0,
+            "slot": "200",
+            "type": "t_mapping(t_uint256,t_enum(DepositState)4516)",
+            "contract": "L1BTCDepositorWormholeV2Base",
+            "src": "contracts/cross-chain/wormhole/L1BTCDepositorWormholeV2Base.sol"
+          },
+          {
+            "label": "tbtcToken",
+            "offset": 0,
+            "slot": "201",
+            "type": "t_contract(IERC20Upgradeable)3659",
+            "contract": "L1BTCDepositorWormholeV2Base",
+            "src": "contracts/cross-chain/wormhole/L1BTCDepositorWormholeV2Base.sol"
+          },
+          {
+            "label": "wormhole",
+            "offset": 0,
+            "slot": "202",
+            "type": "t_contract(IWormhole)5324",
+            "contract": "L1BTCDepositorWormholeV2Base",
+            "src": "contracts/cross-chain/wormhole/L1BTCDepositorWormholeV2Base.sol"
+          },
+          {
+            "label": "wormholeRelayer",
+            "offset": 0,
+            "slot": "203",
+            "type": "t_contract(IWormholeRelayer)5364",
+            "contract": "L1BTCDepositorWormholeV2Base",
+            "src": "contracts/cross-chain/wormhole/L1BTCDepositorWormholeV2Base.sol"
+          },
+          {
+            "label": "wormholeTokenBridge",
+            "offset": 0,
+            "slot": "204",
+            "type": "t_contract(IWormholeTokenBridge)5449",
+            "contract": "L1BTCDepositorWormholeV2Base",
+            "src": "contracts/cross-chain/wormhole/L1BTCDepositorWormholeV2Base.sol"
+          },
+          {
+            "label": "l2WormholeGateway",
+            "offset": 0,
+            "slot": "205",
+            "type": "t_address",
+            "contract": "L1BTCDepositorWormholeV2Base",
+            "src": "contracts/cross-chain/wormhole/L1BTCDepositorWormholeV2Base.sol"
+          },
+          {
+            "label": "l2ChainId",
+            "offset": 20,
+            "slot": "205",
+            "type": "t_uint16",
+            "contract": "L1BTCDepositorWormholeV2Base",
+            "src": "contracts/cross-chain/wormhole/L1BTCDepositorWormholeV2Base.sol"
+          },
+          {
+            "label": "l2BitcoinDepositor",
+            "offset": 0,
+            "slot": "206",
+            "type": "t_address",
+            "contract": "L1BTCDepositorWormholeV2Base",
+            "src": "contracts/cross-chain/wormhole/L1BTCDepositorWormholeV2Base.sol"
+          },
+          {
+            "label": "l2FinalizeDepositGasLimit",
+            "offset": 0,
+            "slot": "207",
+            "type": "t_uint256",
+            "contract": "L1BTCDepositorWormholeV2Base",
+            "src": "contracts/cross-chain/wormhole/L1BTCDepositorWormholeV2Base.sol"
+          },
+          {
+            "label": "gasReimbursements",
+            "offset": 0,
+            "slot": "208",
+            "type": "t_mapping(t_uint256,t_struct(GasReimbursement)4523_storage)",
+            "contract": "L1BTCDepositorWormholeV2Base",
+            "src": "contracts/cross-chain/wormhole/L1BTCDepositorWormholeV2Base.sol"
+          },
+          {
+            "label": "initializeDepositGasOffset",
+            "offset": 0,
+            "slot": "209",
+            "type": "t_uint256",
+            "contract": "L1BTCDepositorWormholeV2Base",
+            "src": "contracts/cross-chain/wormhole/L1BTCDepositorWormholeV2Base.sol"
+          },
+          {
+            "label": "finalizeDepositGasOffset",
+            "offset": 0,
+            "slot": "210",
+            "type": "t_uint256",
+            "contract": "L1BTCDepositorWormholeV2Base",
+            "src": "contracts/cross-chain/wormhole/L1BTCDepositorWormholeV2Base.sol"
+          },
+          {
+            "label": "reimbursementAuthorizations",
+            "offset": 0,
+            "slot": "211",
+            "type": "t_mapping(t_address,t_bool)",
+            "contract": "L1BTCDepositorWormholeV2Base",
+            "src": "contracts/cross-chain/wormhole/L1BTCDepositorWormholeV2Base.sol"
+          },
+          {
+            "label": "reimburseTxMaxFee",
+            "offset": 0,
+            "slot": "212",
+            "type": "t_bool",
+            "contract": "L1BTCDepositorWormholeV2Base",
+            "src": "contracts/cross-chain/wormhole/L1BTCDepositorWormholeV2Base.sol"
+          }
+        ],
+        "types": {
+          "t_address": {
+            "label": "address",
+            "numberOfBytes": "20"
+          },
+          "t_array(t_uint256)47_storage": {
+            "label": "uint256[47]",
+            "numberOfBytes": "1504"
+          },
+          "t_array(t_uint256)49_storage": {
+            "label": "uint256[49]",
+            "numberOfBytes": "1568"
+          },
+          "t_array(t_uint256)50_storage": {
+            "label": "uint256[50]",
+            "numberOfBytes": "1600"
+          },
+          "t_bool": {
+            "label": "bool",
+            "numberOfBytes": "1"
+          },
+          "t_contract(IBridge)6000": {
+            "label": "contract IBridge",
+            "numberOfBytes": "20"
+          },
+          "t_contract(IERC20Upgradeable)3659": {
+            "label": "contract IERC20Upgradeable",
+            "numberOfBytes": "20"
+          },
+          "t_contract(ITBTCVault)6032": {
+            "label": "contract ITBTCVault",
+            "numberOfBytes": "20"
+          },
+          "t_contract(IWormhole)5324": {
+            "label": "contract IWormhole",
+            "numberOfBytes": "20"
+          },
+          "t_contract(IWormholeRelayer)5364": {
+            "label": "contract IWormholeRelayer",
+            "numberOfBytes": "20"
+          },
+          "t_contract(IWormholeTokenBridge)5449": {
+            "label": "contract IWormholeTokenBridge",
+            "numberOfBytes": "20"
+          },
+          "t_contract(ReimbursementPool)3280": {
+            "label": "contract ReimbursementPool",
+            "numberOfBytes": "20"
+          },
+          "t_enum(DepositState)4516": {
+            "label": "enum L1BTCDepositorWormholeV2Base.DepositState",
+            "numberOfBytes": "1"
+          },
+          "t_mapping(t_address,t_bool)": {
+            "label": "mapping(address => bool)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_uint256,t_enum(DepositState)4516)": {
+            "label": "mapping(uint256 => enum L1BTCDepositorWormholeV2Base.DepositState)",
+            "numberOfBytes": "32"
+          },
+          "t_mapping(t_uint256,t_struct(GasReimbursement)4523_storage)": {
+            "label": "mapping(uint256 => struct L1BTCDepositorWormholeV2Base.GasReimbursement)",
+            "numberOfBytes": "32"
+          },
+          "t_struct(GasReimbursement)4523_storage": {
+            "label": "struct L1BTCDepositorWormholeV2Base.GasReimbursement",
+            "numberOfBytes": "32",
+            "members": [
+              {
+                "astId": 4519,
+                "contract": "contracts/cross-chain/wormhole/L1BTCDepositorWormholeV2Base.sol:L1BTCDepositorWormholeV2Base",
+                "label": "receiver",
+                "offset": 0,
+                "slot": "0",
+                "type": "t_address"
+              },
+              {
+                "astId": 4522,
+                "contract": "contracts/cross-chain/wormhole/L1BTCDepositorWormholeV2Base.sol:L1BTCDepositorWormholeV2Base",
+                "label": "gasSpent",
+                "offset": 20,
+                "slot": "0",
+                "type": "t_uint96"
+              }
+            ]
+          },
+          "t_uint16": {
+            "label": "uint16",
+            "numberOfBytes": "2"
+          },
+          "t_uint256": {
+            "label": "uint256",
+            "numberOfBytes": "32"
+          },
+          "t_uint8": {
+            "label": "uint8",
+            "numberOfBytes": "1"
+          },
+          "t_uint96": {
+            "label": "uint96",
+            "numberOfBytes": "12"
+          }
+        }
+      }
+    }
+  }
+}

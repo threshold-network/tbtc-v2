@@ -41,6 +41,10 @@ export interface ElectrumCredentials {
    * Protocol used by the Electrum server.
    */
   protocol: "tcp" | "tls" | "ssl" | "ws" | "wss"
+  /**
+   * Optional URL path (e.g. for authenticated WebSocket endpoints).
+   */
+  path?: string
 }
 
 /**
@@ -148,15 +152,36 @@ export class ElectrumClient implements BitcoinClient {
   private static parseElectrumCredentials(url: string): ElectrumCredentials {
     const urlObj = new URL(url)
 
+    // URL.port is empty when the port matches the protocol default
+    // (e.g. 443 for wss://, 80 for ws://). Fall back to the default
+    // port for the given protocol.
+    const defaultPorts: Record<string, number> = {
+      "wss:": 443,
+      "ws:": 80,
+      "ssl:": 443,
+      "tls:": 443,
+      "tcp:": 50001,
+    }
+    const port = urlObj.port
+      ? Number.parseInt(urlObj.port, 10)
+      : defaultPorts[urlObj.protocol]
+    if (!port || Number.isNaN(port)) {
+      throw new Error(`missing or invalid port in Electrum URL: ${url}`)
+    }
+
     return {
       host: urlObj.hostname,
-      port: Number.parseInt(urlObj.port, 10),
+      port,
       protocol: urlObj.protocol.replace(":", "") as
         | "tcp"
         | "tls"
         | "ssl"
         | "ws"
         | "wss",
+      path:
+        urlObj.pathname && urlObj.pathname !== "/"
+          ? urlObj.pathname
+          : undefined,
     }
   }
 
@@ -174,7 +199,8 @@ export class ElectrumClient implements BitcoinClient {
         credentials.host,
         credentials.port,
         credentials.protocol,
-        this.options
+        this.options,
+        credentials.path
       )
 
       await this.withBackoffRetrier()(async () => {
@@ -206,7 +232,9 @@ export class ElectrumClient implements BitcoinClient {
         break
       } catch (err) {
         console.warn(
-          `failed to connect to electrum server: [${credentials.protocol}://${credentials.host}:${credentials.port}]: ${err}`
+          `failed to connect to electrum server: [${credentials.protocol}://${
+            credentials.host
+          }:${credentials.port}${credentials.path ?? ""}]: ${err}`
         )
       }
     }

@@ -1,0 +1,96 @@
+{
+  "network": "mainnet",
+  "timestamp": "2026-03-30T23:14:04.600Z",
+  "deployer": "0x716089154304f22a2F9c8d2f8C45815183BF3532",
+  "chainId": "1",
+  "deployedContracts": {
+    "Deposit": "0xE83bcc22A723f693eF0fEB7044F61aeC8c79fe02",
+    "Redemption": "0x1D13858f4C21cF33c9916eC5E332ebe72656E9A4",
+    "BridgeTIP109Implementation": "0xE88F9547ca4AC988E125621917Ea312e8e6091Cf",
+    "RebateStakingTIP109Implementation": "0x6e25EFFc3CC6d84f5Df65d87b1cacFaE423ccbEe"
+  },
+  "existingContracts": {
+    "Bridge": "0x5e4861a80B55f035D899f66772117F00FA0E8e7B",
+    "ProxyAdmin": "0x16A76d3cd3C1e3CE843C6680d6B37E9116b5C706",
+    "Timelock": "0x92f2d8b72a7F6a551Be60b9aa4194248E9B4913D",
+    "CouncilSafe": "0x9F6e831c8f8939dc0c830c6e492e7cef4f9c2f5f",
+    "BridgeGovernance": "0xcBCFA3eb5E067173b262ACe62f9dD87f1D2Cc0Cf",
+    "RebateStaking": "0x0184739C32edc3471D3e4860c8E39a5f3Ff85A45",
+    "TToken": "0xCdF7028ceAB81fA0C6971208e83fa7872994beE5"
+  },
+  "timelockActions": [
+    {
+      "target": "0x16A76d3cd3C1e3CE843C6680d6B37E9116b5C706",
+      "data": "0x99a88ec40000000000000000000000000184739c32edc3471d3e4860c8e39a5f3ff85a450000000000000000000000006e25effc3cc6d84f5df65d87b1cacfae423ccbee",
+      "value": 0,
+      "description": "RebateStaking proxy upgrade via ProxyAdmin.upgrade()"
+    },
+    {
+      "target": "0x16A76d3cd3C1e3CE843C6680d6B37E9116b5C706",
+      "data": "0x9623609d0000000000000000000000005e4861a80b55f035d899f66772117f00fa0e8e7b000000000000000000000000e88f9547ca4ac988e125621917ea312e8e6091cf000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000241ebf670d000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "value": 0,
+      "description": "Bridge proxy upgrade via ProxyAdmin.upgradeAndCall()"
+    }
+  ],
+  "councilSafeActions": [
+    {
+      "to": "0xcBCFA3eb5E067173b262ACe62f9dD87f1D2Cc0Cf",
+      "data": "0xca73c4620000000000000000000000000184739c32edc3471d3e4860c8e39a5f3ff85a45",
+      "value": 0,
+      "description": "setRebateStaking on BridgeGovernance (direct onlyOwner call)"
+    }
+  ],
+  "governanceActions": [
+    {
+      "to": "0xcBCFA3eb5E067173b262ACe62f9dD87f1D2Cc0Cf",
+      "data": "0x4078dde000000000000000000000000000000000000000000000000000000000000001f4",
+      "value": 0,
+      "description": "beginDepositTreasuryFeeDivisorUpdate on BridgeGovernance (172800s governance delay)"
+    }
+  ],
+  "libraries": {
+    "Deposit": "0xE83bcc22A723f693eF0fEB7044F61aeC8c79fe02",
+    "DepositSweep": "0x392635646Bc22FC13C86859d1f02B27974aC9b95",
+    "Redemption": "0x1D13858f4C21cF33c9916eC5E332ebe72656E9A4",
+    "Wallets": "0xc989d3E486AAe6355F65281B4d0bde08c8e32fBC",
+    "Fraud": "0x51bBeF1c7cC3a1D3bC5E64CE6C3BA6E66fbA3559",
+    "MovingFunds": "0x3E0407765FaC663d391aE738f3Aa0c98EAb67a90"
+  },
+  "verificationChecks": [
+    {
+      "command": "cast call 0x5e4861a80B55f035D899f66772117F00FA0E8e7B \"getRebateStaking()(address)\"",
+      "expectedResult": "0x0000000000000000000000000000000000000000 (address(0))",
+      "description": "After Bridge upgrade with initializeV5 repair, rebate staking getter should return address(0)"
+    },
+    {
+      "command": "cast code 0xE88F9547ca4AC988E125621917Ea312e8e6091Cf",
+      "expectedResult": "Bytecode should contain embedded library address fragments: e83bcc22a723f693ef0feb7044f61aec8c79fe02 (Deposit) and 1d13858f4c21cf33c9916ec5e332ebe72656e9a4 (Redemption)",
+      "description": "Bridge implementation bytecode should contain embedded addresses of new Deposit and Redemption libraries"
+    },
+    {
+      "command": "cast call 0x5e4861a80B55f035D899f66772117F00FA0E8e7B \"deposits(uint256)(bytes32,uint32,uint64,uint32,address,uint32)\" <sample_deposit_key>",
+      "expectedResult": "Existing deposit data unchanged after upgrade",
+      "description": "Existing P2SH deposits should remain unaffected by the Bridge upgrade"
+    },
+    {
+      "command": "cast call 0xE88F9547ca4AC988E125621917Ea312e8e6091Cf \"...\" | grep -c \"^\" -- or inspect ABI for 56 public/external selectors",
+      "expectedResult": "56 selectors",
+      "description": "Bridge implementation should expose exactly 56 public/external function selectors"
+    },
+    {
+      "command": "cast storage 0x0184739C32edc3471D3e4860c8E39a5f3Ff85A45 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc",
+      "expectedResult": "Should contain 0x6e25EFFc3CC6d84f5Df65d87b1cacFaE423ccbEe (padded to 32 bytes)",
+      "description": "Proxy EIP-1967 implementation pointer should reference the newly deployed rebate impl"
+    },
+    {
+      "command": "cast storage 0x5e4861a80B55f035D899f66772117F00FA0E8e7B 79 && cast storage 0x5e4861a80B55f035D899f66772117F00FA0E8e7B 80 && cast storage 0x5e4861a80B55f035D899f66772117F00FA0E8e7B 81",
+      "expectedResult": "Slot 79 = redemptionWatchtower address, slot 80 = rebate staking address, slots 81-128 = zero (__gap[48], gap size unchanged)",
+      "description": "Bridge storage layout: slot 79=redemptionWatchtower, slot 80=rebate staking, slots 81-128=__gap[48] with gap size unchanged"
+    },
+    {
+      "command": "cast call 0x0184739C32edc3471D3e4860c8E39a5f3Ff85A45 \"bridge()(address)\" && cast call 0x0184739C32edc3471D3e4860c8E39a5f3Ff85A45 \"rebatePerToken()(uint256)\" && cast call 0x0184739C32edc3471D3e4860c8E39a5f3Ff85A45 \"token()(address)\" && cast call 0x0184739C32edc3471D3e4860c8E39a5f3Ff85A45 \"rollingWindow()(uint256)\" && cast call 0x0184739C32edc3471D3e4860c8E39a5f3Ff85A45 \"unstakingPeriod()(uint256)\"",
+      "expectedResult": "bridge() = 0x5e4861a80B55f035D899f66772117F00FA0E8e7B, rebatePerToken = 1000000000000000000 (1e18), token = 0xCdF7028ceAB81fA0C6971208e83fa7872994beE5, rollingWindow = 2592000, unstakingPeriod = 2592000",
+      "description": "RebateStaking state should be preserved after proxy upgrade -- critical for staked T"
+    }
+  ]
+}

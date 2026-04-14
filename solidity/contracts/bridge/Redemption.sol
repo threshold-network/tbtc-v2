@@ -444,6 +444,11 @@ library Redemption {
         bytes memory redeemerOutputScript,
         uint64 amount
     ) internal {
+        require(
+            redeemer != address(0),
+            "Redeemer must not be the zero address"
+        );
+
         if (self.redemptionWatchtower != address(0)) {
             require(
                 IRedemptionWatchtower(self.redemptionWatchtower)
@@ -536,7 +541,8 @@ library Redemption {
         if (treasuryFee > 0 && self.rebateStaking != address(0)) {
             treasuryFee = RebateStaking(self.rebateStaking).applyForRebate(
                 redeemer,
-                treasuryFee
+                treasuryFee,
+                RebateStaking.TreasuryFeeType.Redemption
             );
         }
         uint64 txMaxFee = self.redemptionTxMaxFee;

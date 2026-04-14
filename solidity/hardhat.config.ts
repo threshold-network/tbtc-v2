@@ -82,8 +82,6 @@ const config: HardhatUserConfig = {
       "@keep-network/ecdsa/contracts/WalletRegistry.sol":
         ecdsaSolidityCompilerConfig,
       "contracts/bridge/BridgeGovernance.sol": bridgeGovernanceCompilerConfig,
-      "contracts/bridge/BridgeGovernanceParameters.sol":
-        bridgeGovernanceParametersCompilerConfig,
       "contracts/cross-chain/wormhole/L1BTCDepositorNttWithExecutor.sol": {
         version: "0.8.17",
         settings: {
@@ -93,6 +91,8 @@ const config: HardhatUserConfig = {
           },
         },
       },
+      "contracts/bridge/BridgeGovernanceParameters.sol":
+        bridgeGovernanceParametersCompilerConfig,
     },
   },
 
@@ -283,6 +283,11 @@ const config: HardhatUserConfig = {
       "@keep-network/ecdsa/contracts/WalletRegistry.sol",
     ],
     keep: true,
+  },
+  etherscan: {
+    apiKey: {
+      mainnet: process.env.ETHERSCAN_API_KEY,
+    },
   },
   contractSizer: {
     alphaSort: true,

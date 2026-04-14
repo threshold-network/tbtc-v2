@@ -102,6 +102,25 @@
       "anonymous": false,
       "inputs": [
         {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "depositKey",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "newVault",
+          "type": "address"
+        }
+      ],
+      "name": "DepositVaultFixed",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
           "indexed": false,
           "internalType": "bytes20",
           "name": "walletPubKeyHash",
@@ -478,6 +497,38 @@
       "anonymous": false,
       "inputs": [],
       "name": "NewWalletRequested",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "oldRebateStaking",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "newRebateStaking",
+          "type": "address"
+        }
+      ],
+      "name": "RebateStakingRepaired",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "rebateStaking",
+          "type": "address"
+        }
+      ],
+      "name": "RebateStakingSet",
       "type": "event"
     },
     {
@@ -1082,6 +1133,19 @@
     },
     {
       "inputs": [],
+      "name": "getRebateStaking",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
       "name": "getRedemptionWatchtower",
       "outputs": [
         {
@@ -1140,6 +1204,26 @@
         }
       ],
       "name": "initialize",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "initializeV2_FixVaultZeroDeposit",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "newRebateStaking",
+          "type": "address"
+        }
+      ],
+      "name": "initializeV5_RepairRebateStaking",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -1813,6 +1897,19 @@
         }
       ],
       "name": "revealDepositWithExtraData",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "rebateStaking",
+          "type": "address"
+        }
+      ],
+      "name": "setRebateStaking",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -2789,15 +2886,15 @@
     "status": 1,
     "byzantium": true
   },
-  "numDeployments": 4,
+  "numDeployments": 6,
   "libraries": {
-    "Deposit": "0xCD2EbDA2beA80484C55675e1965149054dCcD137",
+    "Deposit": "0xE83bcc22A723f693eF0fEB7044F61aeC8c79fe02",
     "DepositSweep": "0x392635646Bc22FC13C86859d1f02B27974aC9b95",
-    "Redemption": "0x8EF1BEDA734E696CC055269b46BB5a0EC7Ac9f5E",
+    "Redemption": "0x1D13858f4C21cF33c9916eC5E332ebe72656E9A4",
     "Wallets": "0xc989d3E486AAe6355F65281B4d0bde08c8e32fBC",
     "Fraud": "0x51bBeF1c7cC3a1D3bC5E64CE6C3BA6E66fbA3559",
     "MovingFunds": "0x3E0407765FaC663d391aE738f3Aa0c98EAb67a90"
   },
-  "implementation": "0xA4996De73682BDF9CF514fbf238ee387C1a21A26",
+  "implementation": "0x7D43c9259bAe6e594EC5C2fc1121ad67eD601677",
   "devdoc": "Contract deployed as upgradable proxy"
 }
