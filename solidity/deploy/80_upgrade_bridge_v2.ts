@@ -100,7 +100,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   }
 
   // Verify on-chain library bytecodes match compiled artifacts.
-  await verifyLibraryBytecodes(hre, libraryAddresses)
+  // strict=true: abort the upgrade if any library has a bytecode mismatch
+  // or missing on-chain code (TOB-TBTCAC-45).
+  await verifyLibraryBytecodes(hre, libraryAddresses, /* strict */ true)
 
   const [bridge, proxyDeployment] = await helpers.upgrades.upgradeProxy(
     "Bridge",
