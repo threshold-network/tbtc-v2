@@ -271,6 +271,7 @@ export class TBTC extends TBTCCore {
           signerOrEthereumSigner as EthereumSigner,
           baseChainId
         )
+        // prettier-ignore
         break;
       case "Arbitrum":
         const arbitrumChainId = chainMapping.arbitrum
@@ -285,6 +286,7 @@ export class TBTC extends TBTCCore {
           signerOrEthereumSigner as EthereumSigner,
           arbitrumChainId
         )
+        // prettier-ignore
         break;
       case "StarkNet":
         const starknetChainId = chainMapping.starknet
@@ -327,6 +329,7 @@ export class TBTC extends TBTCCore {
           starknetProvider,
           starknetChainId
         )
+        // prettier-ignore
         break;
       case "Sui":
         const suiChainId = chainMapping.sui
@@ -339,6 +342,7 @@ export class TBTC extends TBTCCore {
           signerOrEthereumSigner as SuiSignerWithAddress,
           suiChainId
         )
+        // prettier-ignore
         break;
       case "Solana":
         if (!signerOrEthereumSigner) {
@@ -349,6 +353,7 @@ export class TBTC extends TBTCCore {
         l2CrossChainContracts = await loadSolanaCrossChainInterfaces(
           signerOrEthereumSigner as AnchorProvider
         )
+        // prettier-ignore
         break;
       default:
         throw new Error("Unsupported destination chain")

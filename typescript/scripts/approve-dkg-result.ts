@@ -41,7 +41,9 @@ async function loadWalletRegistryAbi(): Promise<ethers.utils.Interface> {
       await fs.promises.readFile(artifactPath, "utf8")
     ) as typeof parsed
   } catch (err) {
-    throw new Error(`Failed to parse WalletRegistry artifact at ${artifactPath}: ${err}`)
+    throw new Error(
+      `Failed to parse WalletRegistry artifact at ${artifactPath}: ${err}`
+    )
   }
   return new ethers.utils.Interface(parsed.abi)
 }

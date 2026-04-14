@@ -135,12 +135,15 @@ export class ElectrumClient implements BitcoinClient {
     switch (network) {
       case BitcoinNetwork.Mainnet:
         file = MainnetElectrumUrls
+        // prettier-ignore
         break;
       case BitcoinNetwork.Testnet:
         file = TestnetElectrumUrls
+        // prettier-ignore
         break;
       case BitcoinNetwork.Testnet4:
         file = Testnet4ElectrumUrls
+        // prettier-ignore
         break;
       default:
         throw new Error("No default Electrum for given network")
@@ -427,7 +430,9 @@ export class ElectrumClient implements BitcoinClient {
       try {
         return await Promise.all(transactions)
       } catch (err) {
-        throw new Error(`Failed to fetch transaction history for ${address}: ${err}`)
+        throw new Error(
+          `Failed to fetch transaction history for ${address}: ${err}`
+        )
       }
     })
   }
