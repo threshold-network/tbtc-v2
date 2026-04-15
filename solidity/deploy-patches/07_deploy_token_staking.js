@@ -1,5 +1,5 @@
 /**
- * Patched copy of @threshold-network/solidity-contracts/export/deploy/07_deploy_token_staking.js
+ * Patched copy of @threshold-network/solidity-contracts@1.3.0-dev.12/export/deploy/07_deploy_token_staking.js
  *
  * Upstream always calls initialize() after deployments.deploy(), which fails when reusing an
  * already-initialized TokenStaking proxy from Phase A (solidity-contracts) with
@@ -45,19 +45,20 @@ const func = async function (hre) {
       hardhat.ethers.utils.FormatTypes.json
     )
 
+    let parsedAbi
+    try {
+      parsedAbi = JSON.parse(jsonAbi)
+    } catch (err) {
+      throw new Error(`Failed to parse TokenStaking ABI: ${err}`)
+    }
     const tokenStakingDeployment = {
       address: tokenStakingAddress,
-      abi: JSON.parse(jsonAbi),
+      abi: parsedAbi,
     }
-    fs.writeFileSync(
+    await fs.promises.writeFile(
       "TokenStaking.json",
       JSON.stringify(tokenStakingDeployment, null, 2),
-      "utf8",
-      (err) => {
-        if (err) {
-          console.log(err)
-        }
-      }
+      "utf8"
     )
     log("Saved TokenStaking address and ABI in TokenStaking.json")
   } else {

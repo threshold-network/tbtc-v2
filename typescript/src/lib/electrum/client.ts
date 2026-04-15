@@ -135,13 +135,16 @@ export class ElectrumClient implements BitcoinClient {
     switch (network) {
       case BitcoinNetwork.Mainnet:
         file = MainnetElectrumUrls
-        break
+        // prettier-ignore
+        break;
       case BitcoinNetwork.Testnet:
         file = TestnetElectrumUrls
-        break
+        // prettier-ignore
+        break;
       case BitcoinNetwork.Testnet4:
         file = Testnet4ElectrumUrls
-        break
+        // prettier-ignore
+        break;
       default:
         throw new Error("No default Electrum for given network")
     }
@@ -294,9 +297,16 @@ export class ElectrumClient implements BitcoinClient {
       const features = await electrum.server_features()
       genesisHash = features?.genesis_hash
     } catch (err) {
-      // Electrs (e.g. mempool.space) does not implement server.features
+      // Electrs (e.g. mempool.space) does not implement server.features.
+      // We only swallow JSON-RPC "method not found" errors for this specific
+      // method. Any other error (connection failure, protocol error, etc.)
+      // propagates so callers see genuine failures.
       const msg = err instanceof Error ? err.message : String(err)
-      if (!msg.includes("server.features") && !msg.includes("not found")) {
+      const isMethodNotFound =
+        msg.includes("server.features") ||
+        msg.toLowerCase().includes("method not found") ||
+        msg.includes("-32601")
+      if (!isMethodNotFound) {
         throw err
       }
     }
@@ -417,7 +427,13 @@ export class ElectrumClient implements BitcoinClient {
         this.getTransaction(BitcoinTxHash.from(item.tx_hash))
       )
 
-      return Promise.all(transactions)
+      try {
+        return await Promise.all(transactions)
+      } catch (err) {
+        throw new Error(
+          `Failed to fetch transaction history for ${address}: ${err}`
+        )
+      }
     })
   }
 

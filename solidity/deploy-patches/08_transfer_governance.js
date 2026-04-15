@@ -1,5 +1,5 @@
 /**
- * Patched copy of @keep-network/random-beacon/export/deploy/08_transfer_governance.js
+ * Patched copy of @keep-network/random-beacon@2.1.0-dev.18/export/deploy/08_transfer_governance.js
  *
  * keep-core Phase D runs this script first: RandomBeacon.governance becomes RandomBeaconGovernance.
  * Phase H deploys a *new* RandomBeaconGovernance and replays 08; transferGovernance must be called

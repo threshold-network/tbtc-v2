@@ -1,5 +1,5 @@
 /**
- * Patched copy of @keep-network/ecdsa/export/deploy/13_authorize_in_random_beacon.js
+ * Patched copy of @keep-network/ecdsa@2.1.0-dev.19/export/deploy/13_authorize_in_random_beacon.js
  *
  * RandomBeacon.setRequesterAuthorization is onlyGovernance: msg.sender must equal RandomBeacon.governance().
  * RandomBeaconGovernance calls through to RandomBeacon, so msg.sender on RandomBeacon is the RBG contract

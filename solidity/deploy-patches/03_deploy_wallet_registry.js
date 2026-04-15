@@ -1,5 +1,5 @@
 /**
- * Patched copy of @keep-network/ecdsa/export/deploy/03_deploy_wallet_registry.js
+ * Patched copy of @keep-network/ecdsa@2.1.0-dev.19/export/deploy/03_deploy_wallet_registry.js
  *
  * helpers.upgrades.deployProxy throws if WalletRegistry is already in deployments/ (keep-core Phase F).
  * Phase G copies WalletRegistry.json into tbtc-v2 — Phase H must skip redeploying the proxy.

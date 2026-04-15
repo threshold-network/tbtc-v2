@@ -1,5 +1,5 @@
 /**
- * Patched copy of @keep-network/random-beacon/export/deploy/04_deploy_random_beacon.js
+ * Patched copy of @keep-network/random-beacon@2.1.0-dev.18/export/deploy/04_deploy_random_beacon.js
  *
  * Upstream always calls helpers.ownable.transferOwnership from deployer. If BeaconSortitionPool was
  * already transferred to a *previous* RandomBeacon (e.g. rerun Phase H without a fresh pool from
