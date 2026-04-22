@@ -226,19 +226,19 @@ L2-originating action.
 
 ```solidity
 enum RebateFlowType {
-    Deposit,
-    Redemption
+  Deposit,
+  Redemption
 }
 
 struct BeneficiaryRebateAuthorization {
-    address beneficiary;       // L1 staker whose rebate capacity may be used.
-    uint256 sourceChainId;     // EVM chain ID for the L2 origin.
-    address l2User;            // User address on the L2 origin chain.
-    RebateFlowType flowType;   // Deposit or Redemption.
-    bytes32 actionId;          // Non-zero deposit key or redemption ID.
-    uint64 maxRebateSat;       // Maximum rebate allowed by this authorization.
-    uint256 nonce;             // Arbitrary nonce consumed through a bitmap.
-    uint256 deadline;          // Expiration timestamp.
+  address beneficiary; // L1 staker whose rebate capacity may be used.
+  uint256 sourceChainId; // EVM chain ID for the L2 origin.
+  address l2User; // User address on the L2 origin chain.
+  RebateFlowType flowType; // Deposit or Redemption.
+  bytes32 actionId; // Non-zero deposit key or redemption ID.
+  uint64 maxRebateSat; // Maximum rebate allowed by this authorization.
+  uint256 nonce; // Arbitrary nonce consumed through a bitmap.
+  uint256 deadline; // Expiration timestamp.
 }
 ```
 
@@ -266,15 +266,15 @@ Add beneficiary-aware rebate application without changing the existing
 
 ```solidity
 function applyForRebateFor(
-    address beneficiary,
-    uint64 treasuryFee,
-    TreasuryFeeType treasuryFeeType,
-    BeneficiaryRebateContext calldata context
+  address beneficiary,
+  uint64 treasuryFee,
+  TreasuryFeeType treasuryFeeType,
+  BeneficiaryRebateContext calldata context
 ) external onlyBridge returns (uint64 reducedTreasuryFee);
 
 function cancelCrossChainRebate(
-    address beneficiary,
-    bytes32 actionId
+  address beneficiary,
+  bytes32 actionId
 ) external onlyBridge;
 ```
 
@@ -282,12 +282,12 @@ function cancelCrossChainRebate(
 
 ```solidity
 struct BeneficiaryRebateContext {
-    uint256 sourceChainId;       // EVM source chain ID.
-    address l2User;              // L2 user address.
-    RebateFlowType flowType;     // Deposit or Redemption.
-    bytes32 actionId;            // Non-zero deposit key or redemption ID.
-    uint64 maxRebateSat;         // Caller/user-specified cap.
-    bytes authorization;         // Empty only for implicit same-address mode.
+  uint256 sourceChainId; // EVM source chain ID.
+  address l2User; // L2 user address.
+  RebateFlowType flowType; // Deposit or Redemption.
+  bytes32 actionId; // Non-zero deposit key or redemption ID.
+  uint64 maxRebateSat; // Caller/user-specified cap.
+  bytes authorization; // Empty only for implicit same-address mode.
 }
 ```
 
@@ -329,27 +329,27 @@ Recommended events:
 
 ```solidity
 event CrossChainRebateApplied(
-    address indexed beneficiary,
-    address indexed l2User,
-    bytes32 indexed actionId,
-    uint256 sourceChainId,
-    RebateStaking.TreasuryFeeType feeType,
-    uint64 rebate,
-    uint64 treasuryFeeBefore,
-    uint64 treasuryFeeAfter
+  address indexed beneficiary,
+  address indexed l2User,
+  bytes32 indexed actionId,
+  uint256 sourceChainId,
+  RebateStaking.TreasuryFeeType feeType,
+  uint64 rebate,
+  uint64 treasuryFeeBefore,
+  uint64 treasuryFeeAfter
 );
 
 event CrossChainRebateAuthorizationUsed(
-    address indexed beneficiary,
-    uint256 indexed sourceChainId,
-    uint256 nonce,
-    bytes32 indexed actionId
+  address indexed beneficiary,
+  uint256 indexed sourceChainId,
+  uint256 nonce,
+  bytes32 indexed actionId
 );
 
 event CrossChainRebateCanceled(
-    address indexed beneficiary,
-    bytes32 indexed actionId,
-    uint64 rebate
+  address indexed beneficiary,
+  bytes32 indexed actionId,
+  uint64 rebate
 );
 ```
 
@@ -362,22 +362,22 @@ Recommended shape:
 
 ```solidity
 function revealDepositWithExtraDataAndRebate(
-    IBridgeTypes.BitcoinTxInfo calldata fundingTx,
-    IBridgeTypes.DepositRevealInfo calldata reveal,
-    bytes32 extraData,
-    address rebateBeneficiary,
-    BeneficiaryRebateContext calldata rebateContext
+  IBridgeTypes.BitcoinTxInfo calldata fundingTx,
+  IBridgeTypes.DepositRevealInfo calldata reveal,
+  bytes32 extraData,
+  address rebateBeneficiary,
+  BeneficiaryRebateContext calldata rebateContext
 ) external;
 
 function requestRedemptionWithRebate(
-    bytes20 walletPubKeyHash,
-    BitcoinTx.UTXO calldata mainUtxo,
-    address balanceOwner,
-    address refundRecipient,
-    bytes calldata redeemerOutputScript,
-    uint64 amount,
-    address rebateBeneficiary,
-    BeneficiaryRebateContext calldata rebateContext
+  bytes20 walletPubKeyHash,
+  BitcoinTx.UTXO calldata mainUtxo,
+  address balanceOwner,
+  address refundRecipient,
+  bytes calldata redeemerOutputScript,
+  uint64 amount,
+  address rebateBeneficiary,
+  BeneficiaryRebateContext calldata rebateContext
 ) external;
 ```
 
@@ -408,11 +408,11 @@ revealing a deposit:
 
 ```solidity
 function initializeDeposit(
-    IBridgeTypes.BitcoinTxInfo calldata fundingTx,
-    IBridgeTypes.DepositRevealInfo calldata reveal,
-    bytes32 destinationChainDepositOwner,
-    address rebateBeneficiary,
-    BeneficiaryRebateContext calldata rebateContext
+  IBridgeTypes.BitcoinTxInfo calldata fundingTx,
+  IBridgeTypes.DepositRevealInfo calldata reveal,
+  bytes32 destinationChainDepositOwner,
+  address rebateBeneficiary,
+  BeneficiaryRebateContext calldata rebateContext
 ) external;
 ```
 
@@ -432,10 +432,10 @@ Recommended event:
 
 ```solidity
 event DepositInitializedWithRebate(
-    uint256 indexed depositKey,
-    bytes32 indexed destinationChainDepositOwner,
-    address indexed rebateBeneficiary,
-    uint64 maxRebateSat
+  uint256 indexed depositKey,
+  bytes32 indexed destinationChainDepositOwner,
+  address indexed rebateBeneficiary,
+  uint64 maxRebateSat
 );
 ```
 
@@ -447,9 +447,9 @@ payloads inside one function.
 
 ```solidity
 function requestRedemptionWithRebate(
-    bytes20 walletPubKeyHash,
-    BitcoinTx.UTXO calldata mainUtxo,
-    bytes calldata encodedVm
+  bytes20 walletPubKeyHash,
+  BitcoinTx.UTXO calldata mainUtxo,
+  bytes calldata encodedVm
 ) external;
 ```
 
@@ -457,12 +457,12 @@ V2 payload:
 
 ```solidity
 struct L2RedemptionPayloadV2 {
-    bytes redeemerOutputScript;
-    address l2User;
-    address rebateBeneficiary;
-    uint64 maxRebateSat;
-    bytes rebateAuthorization;
-    bytes32 redemptionId;
+  bytes redeemerOutputScript;
+  address l2User;
+  address rebateBeneficiary;
+  uint64 maxRebateSat;
+  bytes rebateAuthorization;
+  bytes32 redemptionId;
 }
 ```
 
@@ -492,17 +492,17 @@ Recommended event:
 
 ```solidity
 event RedemptionRequestedWithRebate(
-    uint256 indexed redemptionKey,
-    bytes32 indexed redemptionId,
-    address indexed rebateBeneficiary,
-    address l2User,
-    uint64 maxRebateSat
+  uint256 indexed redemptionKey,
+  bytes32 indexed redemptionId,
+  address indexed rebateBeneficiary,
+  address l2User,
+  uint64 maxRebateSat
 );
 
 event TimedOutRedemptionRefundSentToL2(
-    uint256 indexed redemptionKey,
-    address indexed l2User,
-    uint256 amount
+  uint256 indexed redemptionKey,
+  address indexed l2User,
+  uint256 amount
 );
 ```
 
@@ -515,23 +515,23 @@ rebate context for relayers:
 
 ```solidity
 function initializeDepositWithRebate(
-    IBridgeTypes.BitcoinTxInfo calldata fundingTx,
-    IBridgeTypes.DepositRevealInfo calldata reveal,
-    address l2DepositOwner,
-    address rebateBeneficiary,
-    uint64 maxRebateSat,
-    bytes calldata rebateAuthorization
+  IBridgeTypes.BitcoinTxInfo calldata fundingTx,
+  IBridgeTypes.DepositRevealInfo calldata reveal,
+  address l2DepositOwner,
+  address rebateBeneficiary,
+  uint64 maxRebateSat,
+  bytes calldata rebateAuthorization
 ) external;
 
 event DepositInitializedWithRebate(
-    IBridgeTypes.BitcoinTxInfo fundingTx,
-    IBridgeTypes.DepositRevealInfo reveal,
-    address indexed l2DepositOwner,
-    address indexed l2Sender,
-    bytes32 indexed actionId,
-    address rebateBeneficiary,
-    uint64 maxRebateSat,
-    bytes rebateAuthorization
+  IBridgeTypes.BitcoinTxInfo fundingTx,
+  IBridgeTypes.DepositRevealInfo reveal,
+  address indexed l2DepositOwner,
+  address indexed l2Sender,
+  bytes32 indexed actionId,
+  address rebateBeneficiary,
+  uint64 maxRebateSat,
+  bytes rebateAuthorization
 );
 ```
 
@@ -552,13 +552,13 @@ Add a versioned redemption call:
 
 ```solidity
 function requestRedemptionWithRebate(
-    uint256 amount,
-    uint16 recipientChain,
-    bytes calldata redeemerOutputScript,
-    address rebateBeneficiary,
-    uint64 maxRebateSat,
-    bytes calldata rebateAuthorization,
-    uint32 nonce
+  uint256 amount,
+  uint16 recipientChain,
+  bytes calldata redeemerOutputScript,
+  address rebateBeneficiary,
+  uint64 maxRebateSat,
+  bytes calldata rebateAuthorization,
+  uint32 nonce
 ) external payable returns (uint64 sequence);
 ```
 
