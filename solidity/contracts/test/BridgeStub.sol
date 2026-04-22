@@ -193,7 +193,30 @@ contract BridgeStub is Bridge {
         );
     }
 
+    function applyForCrossChainRebate(
+        address beneficiary,
+        uint64 treasuryFee,
+        RebateStaking.TreasuryFeeType treasuryFeeType,
+        RebateStaking.BeneficiaryRebateContext calldata context
+    ) external {
+        lastTreasuryFee = RebateStaking(self.rebateStaking).applyForRebateFor(
+            beneficiary,
+            treasuryFee,
+            treasuryFeeType,
+            context
+        );
+    }
+
     function cancelRebate(address user, uint256 requestedAt) external {
         RebateStaking(self.rebateStaking).cancelRebate(user, requestedAt);
+    }
+
+    function cancelCrossChainRebate(address beneficiary, bytes32 actionId)
+        external
+    {
+        RebateStaking(self.rebateStaking).cancelCrossChainRebate(
+            beneficiary,
+            actionId
+        );
     }
 }

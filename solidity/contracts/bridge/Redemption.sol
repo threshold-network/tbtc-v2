@@ -233,6 +233,12 @@ library Redemption {
         // stored, it is used as a function's memory argument.
     }
 
+    struct CrossChainRebateRequest {
+        bool enabled;
+        address beneficiary;
+        RebateStaking.BeneficiaryRebateContext context;
+    }
+
     event RedemptionRequested(
         bytes20 indexed walletPubKeyHash,
         bytes redeemerOutputScript,
@@ -444,6 +450,69 @@ library Redemption {
         bytes memory redeemerOutputScript,
         uint64 amount
     ) internal {
+        CrossChainRebateRequest memory emptyRebateRequest;
+        _requestRedemption(
+            self,
+            walletPubKeyHash,
+            mainUtxo,
+            balanceOwner,
+            redeemer,
+            redeemerOutputScript,
+            amount,
+            emptyRebateRequest
+        );
+    }
+
+    /// @notice Requests redemption with separate refund recipient and rebate
+    ///         beneficiary for authorized cross-chain integrators.
+    function requestRedemptionWithRebate(
+        BridgeState.Storage storage self,
+        bytes20 walletPubKeyHash,
+        BitcoinTx.UTXO calldata mainUtxo,
+        address balanceOwner,
+        address refundRecipient,
+        bytes calldata redeemerOutputScript,
+        uint64 amount,
+        address rebateBeneficiary,
+        RebateStaking.BeneficiaryRebateContext calldata rebateContext
+    ) external {
+        BridgeState.CrossChainIntegrator storage integrator = self
+            .crossChainIntegrators[msg.sender];
+        require(integrator.authorized, "Caller is not cross-chain integrator");
+        require(
+            rebateContext.sourceChainId == integrator.evmSourceChainId,
+            "Wrong rebate source chain"
+        );
+
+        CrossChainRebateRequest
+            memory crossChainRebate = CrossChainRebateRequest({
+                enabled: true,
+                beneficiary: rebateBeneficiary,
+                context: rebateContext
+            });
+
+        _requestRedemption(
+            self,
+            walletPubKeyHash,
+            mainUtxo,
+            balanceOwner,
+            refundRecipient,
+            redeemerOutputScript,
+            amount,
+            crossChainRebate
+        );
+    }
+
+    function _requestRedemption(
+        BridgeState.Storage storage self,
+        bytes20 walletPubKeyHash,
+        BitcoinTx.UTXO memory mainUtxo,
+        address balanceOwner,
+        address redeemer,
+        bytes memory redeemerOutputScript,
+        uint64 amount,
+        CrossChainRebateRequest memory crossChainRebate
+    ) internal {
         require(
             redeemer != address(0),
             "Redeemer must not be the zero address"
@@ -539,11 +608,21 @@ library Redemption {
             ? amount / self.redemptionTreasuryFeeDivisor
             : 0;
         if (treasuryFee > 0 && self.rebateStaking != address(0)) {
-            treasuryFee = RebateStaking(self.rebateStaking).applyForRebate(
-                redeemer,
-                treasuryFee,
-                RebateStaking.TreasuryFeeType.Redemption
-            );
+            if (crossChainRebate.enabled) {
+                treasuryFee = RebateStaking(self.rebateStaking)
+                    .applyForRebateFor(
+                        crossChainRebate.beneficiary,
+                        treasuryFee,
+                        RebateStaking.TreasuryFeeType.Redemption,
+                        crossChainRebate.context
+                    );
+            } else {
+                treasuryFee = RebateStaking(self.rebateStaking).applyForRebate(
+                    redeemer,
+                    treasuryFee,
+                    RebateStaking.TreasuryFeeType.Redemption
+                );
+            }
         }
         uint64 txMaxFee = self.redemptionTxMaxFee;
 
@@ -566,6 +645,18 @@ library Redemption {
             /* solhint-disable-next-line not-rely-on-time */
             uint32(block.timestamp)
         );
+
+        if (crossChainRebate.enabled) {
+            require(
+                crossChainRebate.context.actionId != bytes32(0),
+                "Rebate action ID must not be empty"
+            );
+            self.crossChainRedemptionRebates[redemptionKey] = BridgeState
+                .CrossChainRedemptionRebate(
+                    crossChainRebate.beneficiary,
+                    crossChainRebate.context.actionId
+                );
+        }
 
         // slither-disable-next-line reentrancy-events
         emit RedemptionRequested(
@@ -988,6 +1079,7 @@ library Redemption {
             // key from the mapping to make it reusable for further
             // requests.
             delete self.pendingRedemptions[redemptionKey];
+            delete self.crossChainRedemptionRebates[redemptionKey];
         } else {
             // If we entered here, the output is not a redemption
             // request but there is still a chance the given output is
@@ -1098,10 +1190,22 @@ library Redemption {
         delete self.pendingRedemptions[redemptionKey];
 
         if (self.rebateStaking != address(0)) {
-            RebateStaking(self.rebateStaking).cancelRebate(
-                request.redeemer,
-                request.requestedAt
-            );
+            BridgeState.CrossChainRedemptionRebate
+                memory crossChainRebate = self.crossChainRedemptionRebates[
+                    redemptionKey
+                ];
+            if (crossChainRebate.rebateBeneficiary != address(0)) {
+                RebateStaking(self.rebateStaking).cancelCrossChainRebate(
+                    crossChainRebate.rebateBeneficiary,
+                    crossChainRebate.actionId
+                );
+                delete self.crossChainRedemptionRebates[redemptionKey];
+            } else {
+                RebateStaking(self.rebateStaking).cancelRebate(
+                    request.redeemer,
+                    request.requestedAt
+                );
+            }
         }
 
         // slither-disable-next-line reentrancy-events
@@ -1208,6 +1312,17 @@ library Redemption {
         // Delete the redemption request from the pending redemptions
         // mapping. This is important to avoid this redemption request
         // to be processed by the wallet or reported as timed out.
+        BridgeState.CrossChainRedemptionRebate memory crossChainRebate = self
+            .crossChainRedemptionRebates[redemptionKey];
+        if (crossChainRebate.rebateBeneficiary != address(0)) {
+            if (self.rebateStaking != address(0)) {
+                RebateStaking(self.rebateStaking).cancelCrossChainRebate(
+                    crossChainRebate.rebateBeneficiary,
+                    crossChainRebate.actionId
+                );
+            }
+            delete self.crossChainRedemptionRebates[redemptionKey];
+        }
         delete self.pendingRedemptions[redemptionKey];
 
         self.bank.transferBalance(self.redemptionWatchtower, detainedAmount);

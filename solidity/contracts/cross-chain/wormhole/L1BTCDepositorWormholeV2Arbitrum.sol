@@ -142,6 +142,13 @@ contract L1BTCDepositorWormholeV2Arbitrum is
         address indexed l1Sender
     );
 
+    event DepositInitializedWithRebate(
+        uint256 indexed depositKey,
+        bytes32 indexed destinationChainDepositOwner,
+        address indexed rebateBeneficiary,
+        uint64 maxRebateSat
+    );
+
     event DepositFinalized(
         uint256 indexed depositKey,
         bytes32 indexed destinationChainDepositOwner,
@@ -358,43 +365,75 @@ contract L1BTCDepositorWormholeV2Arbitrum is
             destinationChainDepositOwner
         );
 
+        _afterDepositInitialized(
+            gasStart,
+            depositKey,
+            destinationChainDepositOwner
+        );
+    }
+
+    /// @notice Initializes the deposit process on L1 with rebate context for
+    ///         Arbitrum-originating deposits.
+    function initializeDepositWithRebate(
+        IBridgeTypes.BitcoinTxInfo calldata fundingTx,
+        IBridgeTypes.DepositRevealInfo calldata reveal,
+        bytes32 destinationChainDepositOwner,
+        address rebateBeneficiary,
+        IBridgeTypes.BeneficiaryRebateContext calldata rebateContext
+    ) external {
+        uint256 gasStart = gasleft();
+
         require(
-            deposits[depositKey] == DepositState.Unknown,
-            "Wrong deposit state"
+            destinationChainDepositOwner != bytes32(0),
+            "L2 deposit owner must not be 0x0"
         );
 
-        // slither-disable-next-line reentrancy-benign
-        deposits[depositKey] = DepositState.Initialized;
+        address l2User = address(
+            uint160(uint256(destinationChainDepositOwner))
+        );
+        require(
+            bytes32(uint256(uint160(l2User))) == destinationChainDepositOwner,
+            "L2 deposit owner must be EVM address"
+        );
+        require(
+            rebateContext.sourceChainId == _evmSourceChainId(),
+            "Wrong rebate source chain"
+        );
+        require(rebateContext.l2User == l2User, "Wrong rebate L2 user");
+        require(
+            rebateContext.flowType == IBridgeTypes.RebateFlowType.Deposit,
+            "Wrong rebate flow type"
+        );
 
-        // slither-disable-next-line reentrancy-events
-        emit DepositInitialized(
+        uint256 expectedDepositKey = _calculateDepositKey(
+            _calculateBitcoinTxHash(fundingTx),
+            reveal.fundingOutputIndex
+        );
+        require(
+            rebateContext.actionId == bytes32(expectedDepositKey),
+            "Wrong rebate action ID"
+        );
+
+        (uint256 depositKey, ) = _initializeDepositWithRebate(
+            fundingTx,
+            reveal,
+            destinationChainDepositOwner,
+            rebateBeneficiary,
+            rebateContext
+        );
+
+        _afterDepositInitialized(
+            gasStart,
+            depositKey,
+            destinationChainDepositOwner
+        );
+
+        emit DepositInitializedWithRebate(
             depositKey,
             destinationChainDepositOwner,
-            msg.sender
+            rebateBeneficiary,
+            rebateContext.maxRebateSat
         );
-
-        // Record a deferred gas reimbursement if the reimbursement pool is
-        // attached and the caller is authorized to receive reimbursements.
-        if (
-            address(reimbursementPool) != address(0) &&
-            reimbursementAuthorizations[msg.sender]
-        ) {
-            uint256 gasSpent = (gasStart - gasleft()) +
-                initializeDepositGasOffset;
-
-            // Should not happen as long as initializeDepositGasOffset is
-            // set to a reasonable value. If it happens, it's better to
-            // omit the reimbursement than to revert the transaction.
-            if (gasSpent > type(uint96).max) {
-                return;
-            }
-
-            // slither-disable-next-line reentrancy-benign
-            gasReimbursements[depositKey] = GasReimbursement({
-                receiver: msg.sender,
-                gasSpent: uint96(gasSpent)
-            });
-        }
     }
 
     /// @notice Finalizes the deposit process by transferring ERC20 L1 tBTC
@@ -484,6 +523,55 @@ contract L1BTCDepositorWormholeV2Arbitrum is
     // -------------------------------------------------------------------
     // Internal functions
     // -------------------------------------------------------------------
+
+    function _afterDepositInitialized(
+        uint256 gasStart,
+        uint256 depositKey,
+        bytes32 destinationChainDepositOwner
+    ) internal {
+        require(
+            deposits[depositKey] == DepositState.Unknown,
+            "Wrong deposit state"
+        );
+
+        // slither-disable-next-line reentrancy-benign
+        deposits[depositKey] = DepositState.Initialized;
+
+        // slither-disable-next-line reentrancy-events
+        emit DepositInitialized(
+            depositKey,
+            destinationChainDepositOwner,
+            msg.sender
+        );
+
+        if (
+            address(reimbursementPool) != address(0) &&
+            reimbursementAuthorizations[msg.sender]
+        ) {
+            uint256 gasSpent = (gasStart - gasleft()) +
+                initializeDepositGasOffset;
+
+            if (gasSpent > type(uint96).max) {
+                return;
+            }
+
+            // slither-disable-next-line reentrancy-benign
+            gasReimbursements[depositKey] = GasReimbursement({
+                receiver: msg.sender,
+                gasSpent: uint96(gasSpent)
+            });
+        }
+    }
+
+    function _evmSourceChainId() internal view returns (uint256) {
+        if (l2ChainId == 23) {
+            return 42161;
+        }
+        if (l2ChainId == 10003) {
+            return 421614;
+        }
+        revert("Unsupported L2 chain");
+    }
 
     /// @notice The `ReimbursementPool` contract issues refunds based on
     ///         gas spent. If there is a need to get a specific refund based

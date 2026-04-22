@@ -26,6 +26,7 @@ import "./IRelay.sol";
 import "./BridgeState.sol";
 import "./Deposit.sol";
 import "./DepositSweep.sol";
+import "./RebateStaking.sol";
 import "./Redemption.sol";
 import "./BitcoinTx.sol";
 import "./EcdsaLib.sol";
@@ -242,6 +243,12 @@ contract Bridge is
     event RebateStakingRepaired(
         address oldRebateStaking,
         address newRebateStaking
+    );
+    event CrossChainIntegratorUpdated(
+        address indexed integrator,
+        bool authorized,
+        uint256 evmSourceChainId,
+        uint16 wormholeChainId
     );
 
     /// @notice Emitted when a deposit's vault field is corrected via governance.
@@ -477,6 +484,24 @@ contract Bridge is
         self.revealDepositWithExtraData(fundingTx, reveal, extraData);
     }
 
+    /// @notice Reveals a P2(W)SH Bitcoin deposit with extra data and applies
+    ///         treasury fee rebate to a separate L1 beneficiary.
+    function revealDepositWithExtraDataAndRebate(
+        BitcoinTx.Info calldata fundingTx,
+        Deposit.DepositRevealInfo calldata reveal,
+        bytes32 extraData,
+        address rebateBeneficiary,
+        RebateStaking.BeneficiaryRebateContext calldata rebateContext
+    ) external {
+        self.revealDepositWithExtraDataAndRebate(
+            fundingTx,
+            reveal,
+            extraData,
+            rebateBeneficiary,
+            rebateContext
+        );
+    }
+
     /// @notice Used by the wallet to prove the BTC deposit sweep transaction
     ///         and to update Bank balances accordingly. Sweep is only accepted
     ///         if it satisfies SPV proof.
@@ -577,6 +602,31 @@ contract Bridge is
             msg.sender,
             redeemerOutputScript,
             amount
+        );
+    }
+
+    /// @notice Requests redemption with a separate refund recipient and rebate
+    ///         beneficiary. Only governance-authorized cross-chain integrators
+    ///         may use this entry point.
+    function requestRedemptionWithRebate(
+        bytes20 walletPubKeyHash,
+        BitcoinTx.UTXO calldata mainUtxo,
+        address balanceOwner,
+        address refundRecipient,
+        bytes calldata redeemerOutputScript,
+        uint64 amount,
+        address rebateBeneficiary,
+        RebateStaking.BeneficiaryRebateContext calldata rebateContext
+    ) external {
+        self.requestRedemptionWithRebate(
+            walletPubKeyHash,
+            mainUtxo,
+            balanceOwner,
+            refundRecipient,
+            redeemerOutputScript,
+            amount,
+            rebateBeneficiary,
+            rebateContext
         );
     }
 
@@ -2035,6 +2085,40 @@ contract Bridge is
     /// @return Address of the rebate staking contract.
     function getRebateStaking() external view returns (address) {
         return self.rebateStaking;
+    }
+
+    /// @notice Updates authorization for an L1 cross-chain integrator.
+    function setCrossChainIntegrator(
+        address integrator,
+        bool authorized,
+        uint256 evmSourceChainId,
+        uint16 wormholeChainId
+    ) external onlyGovernance {
+        self.setCrossChainIntegrator(
+            integrator,
+            authorized,
+            evmSourceChainId,
+            wormholeChainId
+        );
+    }
+
+    /// @notice Returns cross-chain integrator configuration.
+    function crossChainIntegrator(address integrator)
+        external
+        view
+        returns (
+            bool authorized,
+            uint256 evmSourceChainId,
+            uint16 wormholeChainId
+        )
+    {
+        BridgeState.CrossChainIntegrator storage entry = self
+            .crossChainIntegrators[integrator];
+        return (
+            entry.authorized,
+            entry.evmSourceChainId,
+            entry.wormholeChainId
+        );
     }
 
     /// @notice Sets the redemption watchtower address.

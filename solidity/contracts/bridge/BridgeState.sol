@@ -28,6 +28,17 @@ import "./MovingFunds.sol";
 import "../bank/Bank.sol";
 
 library BridgeState {
+    struct CrossChainIntegrator {
+        bool authorized;
+        uint256 evmSourceChainId;
+        uint16 wormholeChainId;
+    }
+
+    struct CrossChainRedemptionRebate {
+        address rebateBeneficiary;
+        bytes32 actionId;
+    }
+
     struct Storage {
         // Address of the Bank the Bridge belongs to.
         Bank bank;
@@ -325,6 +336,12 @@ library BridgeState {
         // governance wiring; changing it afterwards requires a dedicated
         // upgrade path of the Bridge implementation.
         address rebateStaking;
+        // L1 contracts authorized to pass cross-chain rebate context into the
+        // Bridge. Each entry binds the integrator to an EVM source chain ID.
+        mapping(address => CrossChainIntegrator) crossChainIntegrators;
+        // Cross-chain redemption rebate metadata keyed by redemption key. Used
+        // to cancel rebate capacity by action ID if the redemption times out.
+        mapping(uint256 => CrossChainRedemptionRebate) crossChainRedemptionRebates;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
@@ -332,7 +349,7 @@ library BridgeState {
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
-        uint256[48] __gap;
+        uint256[46] __gap;
     }
 
     event DepositParametersUpdated(
@@ -392,6 +409,13 @@ library BridgeState {
     // used by the Bridge contract following the same pattern as other
     // parameter events.
     event RebateStakingSet(address rebateStaking);
+
+    event CrossChainIntegratorUpdated(
+        address indexed integrator,
+        bool authorized,
+        uint256 evmSourceChainId,
+        uint16 wormholeChainId
+    );
 
     /// @notice Updates parameters of deposits.
     /// @param _depositDustThreshold New value of the deposit dust threshold in
@@ -891,5 +915,37 @@ library BridgeState {
 
         self.rebateStaking = _rebateStaking;
         emit RebateStakingSet(_rebateStaking);
+    }
+
+    /// @notice Updates authorization for an L1 cross-chain integrator.
+    /// @param integrator L1 depositor or redeemer contract.
+    /// @param authorized Whether the integrator may use beneficiary-aware paths.
+    /// @param evmSourceChainId EVM chain ID of the L2 origin chain.
+    /// @param wormholeChainId Optional Wormhole chain ID for the origin chain.
+    function setCrossChainIntegrator(
+        Storage storage self,
+        address integrator,
+        bool authorized,
+        uint256 evmSourceChainId,
+        uint16 wormholeChainId
+    ) internal {
+        require(integrator != address(0), "Integrator must not be 0x0");
+        require(
+            !authorized || evmSourceChainId != 0,
+            "Source chain ID must not be 0"
+        );
+
+        self.crossChainIntegrators[integrator] = CrossChainIntegrator(
+            authorized,
+            evmSourceChainId,
+            wormholeChainId
+        );
+
+        emit CrossChainIntegratorUpdated(
+            integrator,
+            authorized,
+            evmSourceChainId,
+            wormholeChainId
+        );
     }
 }

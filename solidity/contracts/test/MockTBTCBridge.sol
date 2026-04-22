@@ -7,6 +7,8 @@ contract MockTBTCBridge is IBridge {
     // Added for redemption mocks
     mapping(uint256 => IBridgeTypes.RedemptionRequest)
         internal _pendingRedemptions;
+    mapping(uint256 => IBridgeTypes.RedemptionRequest)
+        internal _timedOutRedemptions;
 
     uint64 internal _redemptionDustThreshold = 50000;
     uint64 internal _redemptionTreasuryFeeDivisor = 200;
@@ -50,6 +52,16 @@ contract MockTBTCBridge is IBridge {
         });
 
         emit DepositRevealed(depositKey);
+    }
+
+    function revealDepositWithExtraDataAndRebate(
+        IBridgeTypes.BitcoinTxInfo calldata,
+        IBridgeTypes.DepositRevealInfo calldata,
+        bytes32,
+        address,
+        IBridgeTypes.BeneficiaryRebateContext calldata
+    ) external pure override {
+        revert("Not implemented");
     }
 
     function deposits(uint256)
@@ -142,10 +154,32 @@ contract MockTBTCBridge is IBridge {
         );
     }
 
+    function requestRedemptionWithRebate(
+        bytes20,
+        BitcoinTx.UTXO calldata,
+        address,
+        address,
+        bytes calldata,
+        uint64,
+        address,
+        IBridgeTypes.BeneficiaryRebateContext calldata
+    ) external pure override {
+        revert("Not implemented");
+    }
+
     function pendingRedemptions(
         uint256 redemptionKey // Added override
     ) external view override returns (IBridgeTypes.RedemptionRequest memory) {
         return _pendingRedemptions[redemptionKey];
+    }
+
+    function timedOutRedemptions(uint256 redemptionKey)
+        external
+        view
+        override
+        returns (IBridgeTypes.RedemptionRequest memory)
+    {
+        return _timedOutRedemptions[redemptionKey];
     }
 
     function redemptionParameters()

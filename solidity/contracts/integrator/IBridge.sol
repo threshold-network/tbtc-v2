@@ -60,6 +60,21 @@ library IBridgeTypes {
         uint64 txMaxFee;
         uint32 requestedAt;
     }
+
+    enum RebateFlowType {
+        Deposit,
+        Redemption
+    }
+
+    /// @dev See bridge/RebateStaking.sol#BeneficiaryRebateContext
+    struct BeneficiaryRebateContext {
+        uint256 sourceChainId;
+        address l2User;
+        RebateFlowType flowType;
+        bytes32 actionId;
+        uint64 maxRebateSat;
+        bytes authorization;
+    }
 }
 
 /// @notice Interface of the Bridge contract.
@@ -70,6 +85,15 @@ interface IBridge {
         IBridgeTypes.BitcoinTxInfo calldata fundingTx,
         IBridgeTypes.DepositRevealInfo calldata reveal,
         bytes32 extraData
+    ) external;
+
+    /// @dev See {Bridge#revealDepositWithExtraDataAndRebate}
+    function revealDepositWithExtraDataAndRebate(
+        IBridgeTypes.BitcoinTxInfo calldata fundingTx,
+        IBridgeTypes.DepositRevealInfo calldata reveal,
+        bytes32 extraData,
+        address rebateBeneficiary,
+        IBridgeTypes.BeneficiaryRebateContext calldata rebateContext
     ) external;
 
     /// @dev See {Bridge#deposits}
@@ -97,8 +121,26 @@ interface IBridge {
         uint64 amount
     ) external;
 
+    /// @dev See {Bridge#requestRedemptionWithRebate}
+    function requestRedemptionWithRebate(
+        bytes20 walletPubKeyHash,
+        BitcoinTx.UTXO calldata mainUtxo,
+        address balanceOwner,
+        address refundRecipient,
+        bytes calldata redeemerOutputScript,
+        uint64 amount,
+        address rebateBeneficiary,
+        IBridgeTypes.BeneficiaryRebateContext calldata rebateContext
+    ) external;
+
     /// @dev See {Bridge#pendingRedemptions}
     function pendingRedemptions(uint256 redemptionKey)
+        external
+        view
+        returns (IBridgeTypes.RedemptionRequest memory);
+
+    /// @dev See {Bridge#timedOutRedemptions}
+    function timedOutRedemptions(uint256 redemptionKey)
         external
         view
         returns (IBridgeTypes.RedemptionRequest memory);

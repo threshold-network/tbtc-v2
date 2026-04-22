@@ -1807,4 +1807,23 @@ contract BridgeGovernance is Ownable {
     function setRebateStaking(address rebateStaking) external onlyOwner {
         bridge.setRebateStaking(rebateStaking);
     }
+
+    /// @notice Updates authorization for an L1 cross-chain integrator.
+    /// @param integrator L1 depositor or redeemer contract.
+    /// @param authorized Whether beneficiary-aware Bridge entry points are allowed.
+    /// @param evmSourceChainId EVM chain ID of the L2 origin chain.
+    /// @param wormholeChainId Optional Wormhole chain ID of the L2 origin chain.
+    function setCrossChainIntegrator(
+        address integrator,
+        bool authorized,
+        uint256 evmSourceChainId,
+        uint16 wormholeChainId
+    ) external onlyOwner {
+        bridge.setCrossChainIntegrator(
+            integrator,
+            authorized,
+            evmSourceChainId,
+            wormholeChainId
+        );
+    }
 }

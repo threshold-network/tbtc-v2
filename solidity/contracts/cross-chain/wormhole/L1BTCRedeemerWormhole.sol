@@ -18,6 +18,8 @@ pragma solidity 0.8.17;
 import "@keep-network/random-beacon/contracts/Reimbursable.sol";
 import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 
 import "./Wormhole.sol";
 import "../../integrator/AbstractBTCRedeemer.sol";
@@ -51,10 +53,39 @@ contract L1BTCRedeemerWormhole is
     Reimbursable,
     ReentrancyGuardUpgradeable
 {
+    using SafeERC20Upgradeable for IERC20Upgradeable;
+
     // Custom errors
     error CallerNotOwner();
     error SourceAddressNotAuthorized();
     error WormholeTokenBridgeAlreadySet();
+
+    struct L2RedemptionPayloadV2 {
+        bytes redeemerOutputScript;
+        address l2User;
+        address rebateBeneficiary;
+        uint64 maxRebateSat;
+        bytes rebateAuthorization;
+        bytes32 redemptionId;
+    }
+
+    struct TimedOutRedemptionRefund {
+        address l2User;
+        uint256 sourceChainId;
+        uint64 amountSat;
+        bool timeoutConfirmed;
+    }
+
+    struct TimeoutRefundRoute {
+        uint16 wormholeChainId;
+        address l2WormholeGateway;
+    }
+
+    struct CompletedRedemptionTransfer {
+        uint256 amount;
+        uint256 sourceChainId;
+        bytes payload;
+    }
 
     /// @notice Reference to the Wormhole Token Bridge contract.
     IWormholeTokenBridge public wormholeTokenBridge;
@@ -69,6 +100,13 @@ contract L1BTCRedeemerWormhole is
     ///         from authorized senders will be accepted. The addresses are stored
     ///         in Wormhole format (bytes32).
     mapping(bytes32 => bool) public allowedSenders;
+    /// @notice EVM source chain ID for each allowed Wormhole sender.
+    mapping(bytes32 => uint256) public allowedSenderSourceChainIds;
+    /// @notice Pending timeout refund context keyed by Bridge redemption key.
+    mapping(uint256 => TimedOutRedemptionRefund)
+        public timedOutRedemptionRefunds;
+    /// @notice L1-to-L2 routes used to return tBTC after redemption timeouts.
+    mapping(uint256 => TimeoutRefundRoute) public timeoutRefundRoutes;
 
     event RedemptionRequested(
         uint256 indexed redemptionKey,
@@ -86,6 +124,32 @@ contract L1BTCRedeemerWormhole is
     );
 
     event AllowedSenderUpdated(bytes32 indexed sender, bool allowed);
+
+    event AllowedSenderSourceChainUpdated(
+        bytes32 indexed sender,
+        bool allowed,
+        uint256 sourceChainId
+    );
+
+    event TimeoutRefundRouteUpdated(
+        uint256 indexed sourceChainId,
+        uint16 wormholeChainId,
+        address l2WormholeGateway
+    );
+
+    event RedemptionRequestedWithRebate(
+        uint256 indexed redemptionKey,
+        bytes32 indexed redemptionId,
+        address indexed rebateBeneficiary,
+        address l2User,
+        uint64 maxRebateSat
+    );
+
+    event TimedOutRedemptionRefundSentToL2(
+        uint256 indexed redemptionKey,
+        address indexed l2User,
+        uint256 amount
+    );
 
     /// @dev This modifier comes from the `Reimbursable` base contract and
     ///      must be overridden to protect the `updateReimbursementPool` call.
@@ -163,6 +227,46 @@ contract L1BTCRedeemerWormhole is
     {
         allowedSenders[_sender] = _allowed;
         emit AllowedSenderUpdated(_sender, _allowed);
+    }
+
+    /// @notice Updates an allowed sender and binds it to an EVM source chain ID.
+    function updateAllowedSenderWithSourceChain(
+        bytes32 _sender,
+        bool _allowed,
+        uint256 _sourceChainId
+    ) external onlyOwner {
+        require(!_allowed || _sourceChainId != 0, "Source chain ID is zero");
+        allowedSenders[_sender] = _allowed;
+        allowedSenderSourceChainIds[_sender] = _allowed ? _sourceChainId : 0;
+        emit AllowedSenderUpdated(_sender, _allowed);
+        emit AllowedSenderSourceChainUpdated(
+            _sender,
+            _allowed,
+            allowedSenderSourceChainIds[_sender]
+        );
+    }
+
+    /// @notice Updates the L2 route used for timeout refunds.
+    function updateTimeoutRefundRoute(
+        uint256 _sourceChainId,
+        uint16 _wormholeChainId,
+        address _l2WormholeGateway
+    ) external onlyOwner {
+        require(_sourceChainId != 0, "Source chain ID is zero");
+        if (_l2WormholeGateway == address(0)) {
+            revert ZeroAddress();
+        }
+
+        timeoutRefundRoutes[_sourceChainId] = TimeoutRefundRoute(
+            _wormholeChainId,
+            _l2WormholeGateway
+        );
+
+        emit TimeoutRefundRouteUpdated(
+            _sourceChainId,
+            _wormholeChainId,
+            _l2WormholeGateway
+        );
     }
 
     /// @notice Initiates a redemption on L1 using tBTC received from another chain (e.g., L2)
@@ -263,5 +367,181 @@ contract L1BTCRedeemerWormhole is
                 msg.sender
             );
         }
+    }
+
+    /// @notice Initiates a rebate-aware redemption on L1 using a V2 L2 payload.
+    function requestRedemptionWithRebate(
+        bytes20 walletPubKeyHash,
+        BitcoinTx.UTXO calldata mainUtxo,
+        bytes calldata encodedVm
+    ) external nonReentrant {
+        uint256 gasStart = gasleft();
+
+        CompletedRedemptionTransfer
+            memory completedTransfer = _completeTransfer(encodedVm);
+
+        _requestRedemptionWithRebatePayload(
+            walletPubKeyHash,
+            mainUtxo,
+            completedTransfer
+        );
+
+        if (
+            address(reimbursementPool) != address(0) &&
+            reimbursementAuthorizations[msg.sender]
+        ) {
+            reimbursementPool.refund(
+                (gasStart - gasleft()) + requestRedemptionGasOffset,
+                msg.sender
+            );
+        }
+    }
+
+    function _completeTransfer(bytes calldata encodedVm)
+        internal
+        returns (CompletedRedemptionTransfer memory completedTransfer)
+    {
+        uint256 balanceBefore = tbtcToken.balanceOf(address(this));
+        bytes memory encoded = wormholeTokenBridge.completeTransferWithPayload(
+            encodedVm
+        );
+        uint256 balanceAfter = tbtcToken.balanceOf(address(this));
+
+        IWormholeTokenBridge.TransferWithPayload
+            memory transfer = wormholeTokenBridge.parseTransferWithPayload(
+                encoded
+            );
+
+        bytes32 sender = transfer.fromAddress;
+        if (!allowedSenders[sender]) revert SourceAddressNotAuthorized();
+
+        uint256 sourceChainId = allowedSenderSourceChainIds[sender];
+        require(sourceChainId != 0, "Source chain ID is not set");
+
+        completedTransfer = CompletedRedemptionTransfer({
+            amount: balanceAfter - balanceBefore,
+            sourceChainId: sourceChainId,
+            payload: transfer.payload
+        });
+    }
+
+    function _requestRedemptionWithRebatePayload(
+        bytes20 walletPubKeyHash,
+        BitcoinTx.UTXO calldata mainUtxo,
+        CompletedRedemptionTransfer memory completedTransfer
+    ) internal {
+        L2RedemptionPayloadV2 memory payload = abi.decode(
+            completedTransfer.payload,
+            (L2RedemptionPayloadV2)
+        );
+
+        IBridgeTypes.BeneficiaryRebateContext
+            memory rebateContext = IBridgeTypes.BeneficiaryRebateContext({
+                sourceChainId: completedTransfer.sourceChainId,
+                l2User: payload.l2User,
+                flowType: IBridgeTypes.RebateFlowType.Redemption,
+                actionId: payload.redemptionId,
+                maxRebateSat: payload.maxRebateSat,
+                authorization: payload.rebateAuthorization
+            });
+
+        (uint256 redemptionKey, ) = _requestRedemptionWithRebate(
+            walletPubKeyHash,
+            mainUtxo,
+            payload.redeemerOutputScript,
+            completedTransfer.amount,
+            payload.rebateBeneficiary,
+            rebateContext
+        );
+
+        uint256 amountSat = completedTransfer.amount / SATOSHI_MULTIPLIER;
+        require(amountSat <= type(uint64).max, "Amount too large");
+        timedOutRedemptionRefunds[redemptionKey] = TimedOutRedemptionRefund({
+            l2User: payload.l2User,
+            sourceChainId: completedTransfer.sourceChainId,
+            amountSat: uint64(amountSat),
+            timeoutConfirmed: false
+        });
+
+        emit RedemptionRequested(
+            redemptionKey,
+            walletPubKeyHash,
+            mainUtxo,
+            payload.redeemerOutputScript,
+            completedTransfer.amount
+        );
+
+        emit RedemptionRequestedWithRebate(
+            redemptionKey,
+            payload.redemptionId,
+            payload.rebateBeneficiary,
+            payload.l2User,
+            payload.maxRebateSat
+        );
+    }
+
+    /// @notice Sends a Bridge timeout refund held by this contract back to the
+    ///         original L2 user through the configured Wormhole route.
+    function refundTimedOutRedemptionToL2(uint256 redemptionKey)
+        external
+        payable
+        nonReentrant
+        returns (uint64 transferSequence)
+    {
+        TimedOutRedemptionRefund memory refund = timedOutRedemptionRefunds[
+            redemptionKey
+        ];
+        require(refund.amountSat != 0, "Timeout refund not found");
+
+        if (!refund.timeoutConfirmed) {
+            IBridgeTypes.RedemptionRequest
+                memory timedOutRedemption = thresholdBridge.timedOutRedemptions(
+                    redemptionKey
+                );
+            require(
+                timedOutRedemption.redeemer == address(this),
+                "Redemption not timed out"
+            );
+            require(
+                timedOutRedemption.requestedAmount == refund.amountSat,
+                "Wrong timeout refund amount"
+            );
+            timedOutRedemptionRefunds[redemptionKey].timeoutConfirmed = true;
+        }
+
+        TimeoutRefundRoute memory route = timeoutRefundRoutes[
+            refund.sourceChainId
+        ];
+        require(route.l2WormholeGateway != address(0), "Refund route not set");
+        require(
+            bank.balanceAvailable(address(this)) >= refund.amountSat,
+            "Refund balance not available"
+        );
+
+        delete timedOutRedemptionRefunds[redemptionKey];
+
+        uint256 amount = uint256(refund.amountSat) * SATOSHI_MULTIPLIER;
+        bank.increaseBalanceAllowance(address(tbtcVault), refund.amountSat);
+        tbtcVault.mint(amount);
+
+        amount = WormholeUtils.normalize(amount);
+        tbtcToken.safeIncreaseAllowance(address(wormholeTokenBridge), amount);
+
+        transferSequence = wormholeTokenBridge.transferTokensWithPayload{
+            value: msg.value
+        }(
+            address(tbtcToken),
+            amount,
+            route.wormholeChainId,
+            WormholeUtils.toWormholeAddress(route.l2WormholeGateway),
+            0,
+            abi.encode(WormholeUtils.toWormholeAddress(refund.l2User))
+        );
+
+        emit TimedOutRedemptionRefundSentToL2(
+            redemptionKey,
+            refund.l2User,
+            amount
+        );
     }
 }

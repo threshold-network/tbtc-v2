@@ -10,6 +10,8 @@ contract MockBridgeForStarkNet is IBridge {
     // Added for redemption mocks
     mapping(uint256 => IBridgeTypes.RedemptionRequest)
         internal _pendingRedemptions;
+    mapping(uint256 => IBridgeTypes.RedemptionRequest)
+        internal _timedOutRedemptions;
 
     uint64 internal _redemptionDustThreshold = 50000; // 0.0005 BTC
     uint64 internal _redemptionTreasuryFeeDivisor = 200; // 0.5%
@@ -80,6 +82,16 @@ contract MockBridgeForStarkNet is IBridge {
         emit DepositRevealed(bytes32(depositKey));
     }
 
+    function revealDepositWithExtraDataAndRebate(
+        IBridgeTypes.BitcoinTxInfo calldata,
+        IBridgeTypes.DepositRevealInfo calldata,
+        bytes32,
+        address,
+        IBridgeTypes.BeneficiaryRebateContext calldata
+    ) external pure override {
+        revert("Not implemented");
+    }
+
     function resetMock() external {
         initializeDepositCalled = false;
         lastDepositKey = 0;
@@ -124,6 +136,19 @@ contract MockBridgeForStarkNet is IBridge {
         );
     }
 
+    function requestRedemptionWithRebate(
+        bytes20,
+        BitcoinTx.UTXO calldata,
+        address,
+        address,
+        bytes calldata,
+        uint64,
+        address,
+        IBridgeTypes.BeneficiaryRebateContext calldata
+    ) external pure override {
+        revert("Not implemented");
+    }
+
     function sweepDeposit(uint256 depositKey) external {
         require(depositExists[depositKey], "Deposit does not exist");
         _deposits[depositKey].sweptAt = uint32(block.timestamp); // solhint-disable-line not-rely-on-time
@@ -154,6 +179,15 @@ contract MockBridgeForStarkNet is IBridge {
         returns (IBridgeTypes.RedemptionRequest memory)
     {
         return _pendingRedemptions[redemptionKey];
+    }
+
+    function timedOutRedemptions(uint256 redemptionKey)
+        external
+        view
+        override
+        returns (IBridgeTypes.RedemptionRequest memory)
+    {
+        return _timedOutRedemptions[redemptionKey];
     }
 
     function redemptionParameters()

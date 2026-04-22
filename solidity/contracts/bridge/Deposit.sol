@@ -174,7 +174,16 @@ library Deposit {
         BitcoinTx.Info calldata fundingTx,
         DepositRevealInfo calldata reveal
     ) external {
-        _revealDeposit(self, fundingTx, reveal, bytes32(0));
+        RebateStaking.BeneficiaryRebateContext memory emptyContext;
+        _revealDeposit(
+            self,
+            fundingTx,
+            reveal,
+            bytes32(0),
+            address(0),
+            emptyContext,
+            false
+        );
     }
 
     /// @notice Internal function encapsulating the core logic of the deposit
@@ -194,7 +203,10 @@ library Deposit {
         BridgeState.Storage storage self,
         BitcoinTx.Info calldata fundingTx,
         DepositRevealInfo calldata reveal,
-        bytes32 extraData
+        bytes32 extraData,
+        address rebateBeneficiary,
+        RebateStaking.BeneficiaryRebateContext memory rebateContext,
+        bool useCrossChainRebate
     ) internal {
         require(
             self.registeredWallets[reveal.walletPubKeyHash].state ==
@@ -317,14 +329,20 @@ library Deposit {
             )
             .hash256View();
 
-        DepositRequest storage deposit = self.deposits[
-            uint256(
-                keccak256(
-                    abi.encodePacked(fundingTxHash, reveal.fundingOutputIndex)
-                )
+        uint256 depositKey = uint256(
+            keccak256(
+                abi.encodePacked(fundingTxHash, reveal.fundingOutputIndex)
             )
-        ];
+        );
+        DepositRequest storage deposit = self.deposits[depositKey];
         require(deposit.revealedAt == 0, "Deposit already revealed");
+
+        if (useCrossChainRebate) {
+            require(
+                rebateContext.actionId == bytes32(depositKey),
+                "Wrong deposit rebate action ID"
+            );
+        }
 
         uint64 fundingOutputAmount = fundingOutput.extractValue();
 
@@ -344,12 +362,22 @@ library Deposit {
         deposit.extraData = extraData;
 
         if (deposit.treasuryFee > 0 && self.rebateStaking != address(0)) {
-            deposit.treasuryFee = RebateStaking(self.rebateStaking)
-                .applyForRebate(
-                    deposit.depositor,
-                    deposit.treasuryFee,
-                    RebateStaking.TreasuryFeeType.Deposit
-                );
+            if (useCrossChainRebate) {
+                deposit.treasuryFee = RebateStaking(self.rebateStaking)
+                    .applyForRebateFor(
+                        rebateBeneficiary,
+                        deposit.treasuryFee,
+                        RebateStaking.TreasuryFeeType.Deposit,
+                        rebateContext
+                    );
+            } else {
+                deposit.treasuryFee = RebateStaking(self.rebateStaking)
+                    .applyForRebate(
+                        deposit.depositor,
+                        deposit.treasuryFee,
+                        RebateStaking.TreasuryFeeType.Deposit
+                    );
+            }
         }
 
         _emitDepositRevealedEvent(fundingTxHash, fundingOutputAmount, reveal);
@@ -410,7 +438,47 @@ library Deposit {
         // reveal flow and reduce potential attack surface.
         require(extraData != bytes32(0), "Extra data must not be empty");
 
-        _revealDeposit(self, fundingTx, reveal, extraData);
+        RebateStaking.BeneficiaryRebateContext memory emptyContext;
+        _revealDeposit(
+            self,
+            fundingTx,
+            reveal,
+            extraData,
+            address(0),
+            emptyContext,
+            false
+        );
+    }
+
+    /// @notice Reveals a P2(W)SH Bitcoin deposit with extra data and applies
+    ///         deposit treasury fee rebate to a separate L1 beneficiary.
+    function revealDepositWithExtraDataAndRebate(
+        BridgeState.Storage storage self,
+        BitcoinTx.Info calldata fundingTx,
+        DepositRevealInfo calldata reveal,
+        bytes32 extraData,
+        address rebateBeneficiary,
+        RebateStaking.BeneficiaryRebateContext calldata rebateContext
+    ) external {
+        require(extraData != bytes32(0), "Extra data must not be empty");
+
+        BridgeState.CrossChainIntegrator storage integrator = self
+            .crossChainIntegrators[msg.sender];
+        require(integrator.authorized, "Caller is not cross-chain integrator");
+        require(
+            rebateContext.sourceChainId == integrator.evmSourceChainId,
+            "Wrong rebate source chain"
+        );
+
+        _revealDeposit(
+            self,
+            fundingTx,
+            reveal,
+            extraData,
+            rebateBeneficiary,
+            rebateContext,
+            true
+        );
     }
 
     /// @notice Validates the deposit refund locktime. The validation passes

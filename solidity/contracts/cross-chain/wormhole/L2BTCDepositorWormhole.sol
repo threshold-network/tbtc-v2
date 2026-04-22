@@ -17,6 +17,8 @@ pragma solidity 0.8.17;
 
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
+import {BTCUtils} from "@keep-network/bitcoin-spv-sol/contracts/BTCUtils.sol";
+
 import "../../integrator/IBridge.sol";
 import "./Wormhole.sol";
 
@@ -34,6 +36,8 @@ import "./Wormhole.sol";
 ///         outline of the direct bridging mechanism
 // slither-disable-next-line locked-ether
 contract L2BTCDepositorWormhole is IWormholeReceiver, OwnableUpgradeable {
+    using BTCUtils for bytes;
+
     /// @notice `WormholeRelayer` contract on L2.
     IWormholeRelayer public wormholeRelayer;
     /// @notice tBTC `L2WormholeGateway` contract on L2.
@@ -48,6 +52,17 @@ contract L2BTCDepositorWormhole is IWormholeReceiver, OwnableUpgradeable {
         IBridgeTypes.DepositRevealInfo reveal,
         address indexed l2DepositOwner,
         address indexed l2Sender
+    );
+
+    event DepositInitializedWithRebate(
+        IBridgeTypes.BitcoinTxInfo fundingTx,
+        IBridgeTypes.DepositRevealInfo reveal,
+        address indexed l2DepositOwner,
+        address indexed l2Sender,
+        bytes32 indexed actionId,
+        address rebateBeneficiary,
+        uint64 maxRebateSat,
+        bytes rebateAuthorization
     );
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -123,6 +138,48 @@ contract L2BTCDepositorWormhole is IWormholeReceiver, OwnableUpgradeable {
         address l2DepositOwner
     ) external {
         emit DepositInitialized(fundingTx, reveal, l2DepositOwner, msg.sender);
+    }
+
+    /// @notice Initializes the deposit process on L2 with rebate context for
+    ///         the off-chain relayer that submits the reveal on L1.
+    function initializeDepositWithRebate(
+        IBridgeTypes.BitcoinTxInfo calldata fundingTx,
+        IBridgeTypes.DepositRevealInfo calldata reveal,
+        address l2DepositOwner,
+        address rebateBeneficiary,
+        uint64 maxRebateSat,
+        bytes calldata rebateAuthorization
+    ) external {
+        if (rebateAuthorization.length == 0) {
+            require(msg.sender.code.length == 0, "Signed auth required");
+            require(
+                rebateBeneficiary == l2DepositOwner,
+                "Beneficiary must match L2 owner"
+            );
+        }
+
+        bytes32 fundingTxHash = abi
+            .encodePacked(
+                fundingTx.version,
+                fundingTx.inputVector,
+                fundingTx.outputVector,
+                fundingTx.locktime
+            )
+            .hash256View();
+        bytes32 actionId = keccak256(
+            abi.encodePacked(fundingTxHash, reveal.fundingOutputIndex)
+        );
+
+        emit DepositInitializedWithRebate(
+            fundingTx,
+            reveal,
+            l2DepositOwner,
+            msg.sender,
+            actionId,
+            rebateBeneficiary,
+            maxRebateSat,
+            rebateAuthorization
+        );
     }
 
     /// @notice Receives Wormhole messages originating from the corresponding

@@ -71,4 +71,8 @@ contract MockTBTCVault is ITBTCVault {
         totalUnminted += amount;
         emit Unminted(amount);
     }
+
+    function mint(uint256) external override {
+        revert("Not implemented");
+    }
 }

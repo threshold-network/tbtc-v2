@@ -71,6 +71,22 @@ contract L2BTCRedeemerWormhole is
     error AmountTooLowToRedeem();
     error MinimumRedemptionAmountZero();
 
+    struct L2RedemptionPayloadV2 {
+        bytes redeemerOutputScript;
+        address l2User;
+        address rebateBeneficiary;
+        uint64 maxRebateSat;
+        bytes rebateAuthorization;
+        bytes32 redemptionId;
+    }
+
+    struct RebateRedemptionParams {
+        address rebateBeneficiary;
+        uint64 maxRebateSat;
+        bytes rebateAuthorization;
+        uint32 nonce;
+    }
+
     using SafeERC20Upgradeable for IERC20Upgradeable;
     using BTCUtils for bytes;
 
@@ -94,6 +110,16 @@ contract L2BTCRedeemerWormhole is
         uint256 amount,
         bytes redeemerOutputScript,
         uint32 nonce
+    );
+
+    event RedemptionRequestedOnL2WithRebate(
+        uint256 amount,
+        bytes redeemerOutputScript,
+        uint32 nonce,
+        bytes32 indexed redemptionId,
+        address indexed l2User,
+        address indexed rebateBeneficiary,
+        uint64 maxRebateSat
     );
 
     event MinimumRedemptionAmountUpdated(uint256 newMinimumAmount);
@@ -179,6 +205,105 @@ contract L2BTCRedeemerWormhole is
                 l1BtcRedeemerWormholeAddress,
                 nonce,
                 redeemerOutputScript
+            );
+    }
+
+    /// @notice Requests L2-to-L1 redemption carrying rebate context for L1.
+    function requestRedemptionWithRebate(
+        uint256 amount,
+        uint16 recipientChain,
+        bytes calldata redeemerOutputScript,
+        address rebateBeneficiary,
+        uint64 maxRebateSat,
+        bytes calldata rebateAuthorization,
+        uint32 nonce
+    ) external payable nonReentrant returns (uint64) {
+        RebateRedemptionParams memory params = RebateRedemptionParams({
+            rebateBeneficiary: rebateBeneficiary,
+            maxRebateSat: maxRebateSat,
+            rebateAuthorization: rebateAuthorization,
+            nonce: nonce
+        });
+
+        return
+            _requestRedemptionWithRebate(
+                amount,
+                recipientChain,
+                redeemerOutputScript,
+                params
+            );
+    }
+
+    function _requestRedemptionWithRebate(
+        uint256 amount,
+        uint16 recipientChain,
+        bytes calldata redeemerOutputScript,
+        RebateRedemptionParams memory params
+    ) internal returns (uint64) {
+        bytes memory redeemerOutputScriptMem = redeemerOutputScript;
+        if (
+            redeemerOutputScriptMem
+                .extractHashAt(0, redeemerOutputScriptMem.length)
+                .length == 0
+        ) {
+            revert InvalidRedeemerOutputScript();
+        }
+
+        amount = WormholeUtils.normalize(amount);
+        if (amount < minimumRedemptionAmount) revert AmountTooLowToRedeem();
+
+        if (params.rebateAuthorization.length == 0) {
+            require(msg.sender.code.length == 0, "Signed auth required");
+            require(
+                params.rebateBeneficiary == msg.sender,
+                "Beneficiary must match sender"
+            );
+        }
+
+        bytes32 redemptionId = keccak256(
+            abi.encode(
+                block.chainid,
+                address(this),
+                msg.sender,
+                amount,
+                keccak256(redeemerOutputScript),
+                params.nonce
+            )
+        );
+
+        redeemedAmount += amount;
+
+        tbtc.safeTransferFrom(msg.sender, address(this), amount);
+        tbtc.safeIncreaseAllowance(address(gateway), amount);
+
+        bytes memory payload = abi.encode(
+            L2RedemptionPayloadV2({
+                redeemerOutputScript: redeemerOutputScript,
+                l2User: msg.sender,
+                rebateBeneficiary: params.rebateBeneficiary,
+                maxRebateSat: params.maxRebateSat,
+                rebateAuthorization: params.rebateAuthorization,
+                redemptionId: redemptionId
+            })
+        );
+
+        emit RedemptionRequestedOnL2WithRebate(
+            amount,
+            redeemerOutputScript,
+            params.nonce,
+            redemptionId,
+            msg.sender,
+            params.rebateBeneficiary,
+            params.maxRebateSat
+        );
+
+        return
+            gateway.sendTbtcWithPayloadToNativeChain{value: msg.value}(
+                amount,
+                recipientChain,
+                l1BtcRedeemerWormholeAddress,
+                params.nonce,
+                payload
             );
     }
 

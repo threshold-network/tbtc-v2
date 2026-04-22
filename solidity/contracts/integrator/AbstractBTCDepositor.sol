@@ -155,6 +155,35 @@ abstract contract AbstractBTCDepositor {
             SATOSHI_MULTIPLIER;
     }
 
+    /// @notice Initializes a deposit by revealing it to the Bridge and applying
+    ///         rebate capacity to the provided L1 beneficiary.
+    function _initializeDepositWithRebate(
+        IBridgeTypes.BitcoinTxInfo memory fundingTx,
+        IBridgeTypes.DepositRevealInfo memory reveal,
+        bytes32 extraData,
+        address rebateBeneficiary,
+        IBridgeTypes.BeneficiaryRebateContext memory rebateContext
+    ) internal returns (uint256 depositKey, uint256 initialDepositAmount) {
+        require(reveal.vault == address(tbtcVault), "Vault address mismatch");
+
+        depositKey = _calculateDepositKey(
+            _calculateBitcoinTxHash(fundingTx),
+            reveal.fundingOutputIndex
+        );
+
+        bridge.revealDepositWithExtraDataAndRebate(
+            fundingTx,
+            reveal,
+            extraData,
+            rebateBeneficiary,
+            rebateContext
+        );
+
+        initialDepositAmount =
+            bridge.deposits(depositKey).amount *
+            SATOSHI_MULTIPLIER;
+    }
+
     /// @notice Finalizes a deposit by calculating the amount of TBTC minted
     ///         for the deposit.
     /// @param depositKey Deposit key identifying the deposit.

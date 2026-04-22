@@ -66,6 +66,15 @@ const config: HardhatUserConfig = {
     overrides: {
       "@keep-network/ecdsa/contracts/WalletRegistry.sol":
         ecdsaSolidityCompilerConfig,
+      "contracts/bridge/Bridge.sol": {
+        version: "0.8.17",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 1,
+          },
+        },
+      },
       "contracts/bridge/BridgeGovernance.sol": bridgeGovernanceCompilerConfig,
       "contracts/cross-chain/wormhole/L1BTCDepositorNttWithExecutor.sol": {
         version: "0.8.17",

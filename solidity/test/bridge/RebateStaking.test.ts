@@ -747,6 +747,203 @@ describe("RebateStaking", () => {
     })
   })
 
+  describe("applyForRebateFor", () => {
+    const sourceChainId = 8453
+    const treasuryFee = ethers.BigNumber.from(950)
+    const depositFlowType = 0
+
+    async function enableCrossChainRebates() {
+      await rebateStaking.connect(deployer).setCrossChainRebatesEnabled(true)
+      await rebateStaking
+        .connect(deployer)
+        .setSupportedSourceChain(sourceChainId, true)
+      await rebateStaking
+        .connect(deployer)
+        .setCrossChainRebateCap(sourceChainId, 0, 1000, 0)
+    }
+
+    async function stakeBeneficiary() {
+      await t.connect(deployer).mint(thirdParty.address, defaultStakeAmount)
+      await t
+        .connect(thirdParty)
+        .approve(rebateStaking.address, defaultStakeAmount)
+      await rebateStaking.connect(thirdParty).stake(defaultStakeAmount)
+    }
+
+    async function signAuthorization(
+      actionId: string,
+      nonce: number,
+      deadline: number,
+      maxRebateSat = treasuryFee
+    ) {
+      const { chainId } = await ethers.provider.getNetwork()
+      const signature = await thirdParty._signTypedData(
+        {
+          name: "RebateStaking",
+          version: "1",
+          chainId,
+          verifyingContract: rebateStaking.address,
+        },
+        {
+          BeneficiaryRebateAuthorization: [
+            { name: "beneficiary", type: "address" },
+            { name: "sourceChainId", type: "uint256" },
+            { name: "l2User", type: "address" },
+            { name: "flowType", type: "uint8" },
+            { name: "actionId", type: "bytes32" },
+            { name: "maxRebateSat", type: "uint64" },
+            { name: "nonce", type: "uint256" },
+            { name: "deadline", type: "uint256" },
+          ],
+        },
+        {
+          beneficiary: thirdParty.address,
+          sourceChainId,
+          l2User: deployer.address,
+          flowType: depositFlowType,
+          actionId,
+          maxRebateSat,
+          nonce,
+          deadline,
+        }
+      )
+
+      return ethers.utils.defaultAbiCoder.encode(
+        ["uint256", "uint256", "bytes"],
+        [nonce, deadline, signature]
+      )
+    }
+
+    beforeEach(async () => {
+      await createSnapshot()
+      await enableCrossChainRebates()
+      await stakeBeneficiary()
+    })
+
+    afterEach(async () => {
+      await restoreSnapshot()
+    })
+
+    it("should apply a signed cross-chain rebate to the beneficiary", async () => {
+      const actionId = ethers.utils.keccak256(
+        ethers.utils.toUtf8Bytes("deposit-action")
+      )
+      const nonce = 42
+      const deadline = (await lastBlockTime()) + 3600
+      const authorization = await signAuthorization(actionId, nonce, deadline)
+
+      const tx = await bridge.applyForCrossChainRebate(
+        thirdParty.address,
+        treasuryFee,
+        0,
+        {
+          sourceChainId,
+          l2User: deployer.address,
+          flowType: depositFlowType,
+          actionId,
+          maxRebateSat: treasuryFee,
+          authorization,
+        }
+      )
+
+      expect(await bridge.lastTreasuryFee()).to.equal(0)
+      expect(await rebateStaking.getRebateLength(thirdParty.address)).to.equal(
+        1
+      )
+      expect(
+        await rebateStaking.getRebateActionId(thirdParty.address, 0)
+      ).to.equal(actionId)
+      expect(
+        await rebateStaking.usedAuthorizationNonceBitmap(thirdParty.address, 0)
+      ).to.equal(ethers.BigNumber.from(2).pow(nonce))
+
+      await expect(tx)
+        .to.emit(rebateStaking, "CrossChainRebateApplied")
+        .withArgs(
+          thirdParty.address,
+          deployer.address,
+          actionId,
+          sourceChainId,
+          0,
+          treasuryFee,
+          treasuryFee,
+          0
+        )
+    })
+
+    it("should reject reused signed authorization nonce", async () => {
+      const actionId = ethers.utils.keccak256(
+        ethers.utils.toUtf8Bytes("deposit-action")
+      )
+      const nonce = 7
+      const deadline = (await lastBlockTime()) + 3600
+      const authorization = await signAuthorization(actionId, nonce, deadline)
+      const context = {
+        sourceChainId,
+        l2User: deployer.address,
+        flowType: depositFlowType,
+        actionId,
+        maxRebateSat: treasuryFee,
+        authorization,
+      }
+
+      await bridge.applyForCrossChainRebate(
+        thirdParty.address,
+        treasuryFee,
+        0,
+        context
+      )
+
+      await expect(
+        bridge.applyForCrossChainRebate(thirdParty.address, treasuryFee, 0, {
+          ...context,
+          actionId: ethers.utils.keccak256(
+            ethers.utils.toUtf8Bytes("deposit-action-2")
+          ),
+        })
+      ).to.be.revertedWith("RebateAuthorizationAlreadyUsed")
+    })
+
+    it("should cancel cross-chain rebates by action ID", async () => {
+      await rebateStaking
+        .connect(deployer)
+        .setImplicitSameAddressAuthorization(sourceChainId, true)
+
+      const actionId1 = ethers.utils.keccak256(
+        ethers.utils.toUtf8Bytes("redeem-action-1")
+      )
+      const actionId2 = ethers.utils.keccak256(
+        ethers.utils.toUtf8Bytes("redeem-action-2")
+      )
+
+      await bridge.applyForCrossChainRebate(thirdParty.address, 100, 0, {
+        sourceChainId,
+        l2User: thirdParty.address,
+        flowType: depositFlowType,
+        actionId: actionId1,
+        maxRebateSat: 100,
+        authorization: "0x",
+      })
+      await bridge.applyForCrossChainRebate(thirdParty.address, 200, 0, {
+        sourceChainId,
+        l2User: thirdParty.address,
+        flowType: depositFlowType,
+        actionId: actionId2,
+        maxRebateSat: 200,
+        authorization: "0x",
+      })
+
+      await bridge.cancelCrossChainRebate(thirdParty.address, actionId1)
+
+      expect(
+        (await rebateStaking.getRebate(thirdParty.address, 0)).feeRebate
+      ).to.equal(0)
+      expect(
+        (await rebateStaking.getRebate(thirdParty.address, 1)).feeRebate
+      ).to.equal(200)
+    })
+  })
+
   describe("cancelRebate", () => {
     const treasuryFee = ethers.BigNumber.from(950)
 

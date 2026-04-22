@@ -70,6 +70,8 @@ contract MockBridge is IBridge {
     mapping(uint256 => IBridgeTypes.DepositRequest) internal _deposits;
     mapping(uint256 => IBridgeTypes.RedemptionRequest)
         internal _pendingRedemptions;
+    mapping(uint256 => IBridgeTypes.RedemptionRequest)
+        internal _timedOutRedemptions;
 
     uint64 internal _depositDustThreshold = 1000000; // 1000000 satoshi = 0.01 BTC
     uint64 internal _depositTreasuryFeeDivisor = 50; // 1/50 == 100 bps == 2% == 0.02
@@ -137,6 +139,16 @@ contract MockBridge is IBridge {
         _deposits[depositKey] = request;
 
         emit DepositRevealed(depositKey);
+    }
+
+    function revealDepositWithExtraDataAndRebate(
+        IBridgeTypes.BitcoinTxInfo calldata,
+        IBridgeTypes.DepositRevealInfo calldata,
+        bytes32,
+        address,
+        IBridgeTypes.BeneficiaryRebateContext calldata
+    ) external pure override {
+        revert("Not implemented");
     }
 
     function sweepDeposit(uint256 depositKey) public {
@@ -218,12 +230,33 @@ contract MockBridge is IBridge {
         );
     }
 
+    function requestRedemptionWithRebate(
+        bytes20,
+        BitcoinTx.UTXO calldata,
+        address,
+        address,
+        bytes calldata,
+        uint64,
+        address,
+        IBridgeTypes.BeneficiaryRebateContext calldata
+    ) external pure override {
+        revert("Not implemented");
+    }
+
     function pendingRedemptions(uint256 redemptionKey)
         external
         view
         returns (IBridgeTypes.RedemptionRequest memory)
     {
         return _pendingRedemptions[redemptionKey];
+    }
+
+    function timedOutRedemptions(uint256 redemptionKey)
+        external
+        view
+        returns (IBridgeTypes.RedemptionRequest memory)
+    {
+        return _timedOutRedemptions[redemptionKey];
     }
 
     function redemptionParameters()
@@ -306,6 +339,10 @@ contract MockTBTCVault is ITBTCVault {
     function unmint(uint256 amount) external override {
         totalUnminted += amount;
         emit Unminted(amount);
+    }
+
+    function mint(uint256) external override {
+        revert("Not implemented");
     }
 
     function tbtcToken() external view returns (address) {

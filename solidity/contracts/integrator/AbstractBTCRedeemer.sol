@@ -196,6 +196,52 @@ abstract contract AbstractBTCRedeemer is OwnableUpgradeable {
         );
     }
 
+    /// @notice Requests a redemption from the Bridge using a separate L1 rebate
+    ///         beneficiary and this contract as timeout refund recipient.
+    function _requestRedemptionWithRebate(
+        bytes20 walletPubKeyHash,
+        BitcoinTx.UTXO memory mainUtxo,
+        bytes memory redemptionOutputScript,
+        uint256 amount,
+        address rebateBeneficiary,
+        IBridgeTypes.BeneficiaryRebateContext memory rebateContext
+    ) internal returns (uint256 redemptionKey, uint256 tbtcAmount) {
+        tbtcToken.safeApprove(address(tbtcVault), 0);
+        tbtcToken.safeApprove(address(tbtcVault), amount);
+        tbtcVault.unmint(amount);
+
+        uint64 amountInSatoshis = uint64(amount / SATOSHI_MULTIPLIER);
+
+        bank.increaseBalanceAllowance(
+            address(thresholdBridge),
+            amountInSatoshis
+        );
+
+        thresholdBridge.requestRedemptionWithRebate(
+            walletPubKeyHash,
+            mainUtxo,
+            address(this),
+            address(this),
+            redemptionOutputScript,
+            amountInSatoshis,
+            rebateBeneficiary,
+            rebateContext
+        );
+
+        redemptionKey = _getRedemptionKey(
+            walletPubKeyHash,
+            redemptionOutputScript
+        );
+
+        IBridgeTypes.RedemptionRequest memory redemption = thresholdBridge
+            .pendingRedemptions(redemptionKey);
+
+        tbtcAmount = _calculateTbtcAmount(
+            redemption.requestedAmount,
+            redemption.treasuryFee
+        );
+    }
+
     /// @notice Calculates the net amount of Bitcoin the redeemer will receive.
     /// @param redemptionAmountSat Requested redemption amount in satoshi (1e8 precision).
     ///        This is the gross amount of tBTC the user wants to convert to BTC.
