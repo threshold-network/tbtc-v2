@@ -194,6 +194,54 @@ describe("RebateStaking", () => {
     })
   })
 
+  describe("setCrossChainRebateCap", () => {
+    const sourceChainId = 8453
+    const depositTreasuryFeeType = 0
+
+    beforeEach(async () => {
+      await createSnapshot()
+    })
+
+    afterEach(async () => {
+      await restoreSnapshot()
+    })
+
+    it("should reject a minimum rebate greater than the maximum rebate", async () => {
+      await expect(
+        rebateStaking
+          .connect(deployer)
+          .setCrossChainRebateCap(
+            sourceChainId,
+            depositTreasuryFeeType,
+            100,
+            101
+          )
+      ).to.be.revertedWith("CrossChainRebateMinExceedsMax")
+    })
+
+    it("should update cross-chain rebate caps", async () => {
+      const tx = await rebateStaking
+        .connect(deployer)
+        .setCrossChainRebateCap(sourceChainId, depositTreasuryFeeType, 100, 10)
+
+      expect(
+        await rebateStaking.maxCrossChainRebateSat(
+          sourceChainId,
+          depositTreasuryFeeType
+        )
+      ).to.equal(100)
+      expect(
+        await rebateStaking.minCrossChainRebateSat(
+          sourceChainId,
+          depositTreasuryFeeType
+        )
+      ).to.equal(10)
+      await expect(tx)
+        .to.emit(rebateStaking, "CrossChainRebateCapUpdated")
+        .withArgs(sourceChainId, depositTreasuryFeeType, 100, 10)
+    })
+  })
+
   describe("setDelegatee", () => {
     const stakeAmount = defaultStakeAmount
     let tx: ContractTransaction

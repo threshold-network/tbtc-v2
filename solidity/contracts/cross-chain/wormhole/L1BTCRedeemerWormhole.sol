@@ -73,7 +73,6 @@ contract L1BTCRedeemerWormhole is
         address l2User;
         uint256 sourceChainId;
         uint64 amountSat;
-        bool timeoutConfirmed;
     }
 
     struct TimeoutRefundRoute {
@@ -459,8 +458,7 @@ contract L1BTCRedeemerWormhole is
         timedOutRedemptionRefunds[redemptionKey] = TimedOutRedemptionRefund({
             l2User: payload.l2User,
             sourceChainId: completedTransfer.sourceChainId,
-            amountSat: uint64(amountSat),
-            timeoutConfirmed: false
+            amountSat: uint64(amountSat)
         });
 
         emit RedemptionRequested(
@@ -493,21 +491,18 @@ contract L1BTCRedeemerWormhole is
         ];
         require(refund.amountSat != 0, "Timeout refund not found");
 
-        if (!refund.timeoutConfirmed) {
-            IBridgeTypes.RedemptionRequest
-                memory timedOutRedemption = thresholdBridge.timedOutRedemptions(
-                    redemptionKey
-                );
-            require(
-                timedOutRedemption.redeemer == address(this),
-                "Redemption not timed out"
+        IBridgeTypes.RedemptionRequest
+            memory timedOutRedemption = thresholdBridge.timedOutRedemptions(
+                redemptionKey
             );
-            require(
-                timedOutRedemption.requestedAmount == refund.amountSat,
-                "Wrong timeout refund amount"
-            );
-            timedOutRedemptionRefunds[redemptionKey].timeoutConfirmed = true;
-        }
+        require(
+            timedOutRedemption.redeemer == address(this),
+            "Redemption not timed out"
+        );
+        require(
+            timedOutRedemption.requestedAmount == refund.amountSat,
+            "Wrong timeout refund amount"
+        );
 
         TimeoutRefundRoute memory route = timeoutRefundRoutes[
             refund.sourceChainId

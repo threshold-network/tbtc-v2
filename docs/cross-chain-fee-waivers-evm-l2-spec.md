@@ -216,6 +216,11 @@ valid only when all of the following are true:
 - The L2 caller is not a contract, enforced by the L2 depositor/redeemer when no
   signed authorization is supplied: `msg.sender.code.length == 0`.
 
+The L1 beneficiary contract-code check is the authoritative implicit-mode
+security check. The L2 `msg.sender.code.length` check is only an early rejection
+to avoid unnecessary cross-chain fees; it must not be relied on as a standalone
+security boundary because constructor calls can observe zero code length.
+
 Implicit mode must ship disabled on mainnet and be enabled per chain only after
 security review.
 
@@ -640,6 +645,8 @@ Replay protection is handled on L1.
 - All cross-chain rebate uses require `actionId != bytes32(0)`.
 - For implicit same-address use, RebateStaking records
   `keccak256(sourceChainId, l2User, flowType, actionId)` and rejects duplicates.
+- Implicit-mode action IDs are single-use even if the rebate is later canceled.
+  A retry must use a new action ID.
 - Wormhole token transfer VAAs are single-use at the Token Bridge level, but
   rebate accounting must not rely only on Wormhole replay protection because
   deposits may be event/relayer based.
@@ -692,6 +699,10 @@ cross-chain redemption rebate capacity and timeout funds return to the L2 user.
   reduce uneconomical use and rebate-capacity griefing.
 - Authorization deadlines must account for Wormhole VAA generation, L2 finality,
   relayer latency, and congestion.
+- Cross-chain redemptions are presented to the redemption watchtower as requests
+  from the L1 redeemer contract. If L2-user-level allowlists or denylists are
+  needed, they must be enforced before the L1 redeemer forwards the request or by
+  a future watchtower interface extension.
 
 ## Configuration
 
@@ -710,6 +721,30 @@ Recommended governance-controlled parameters:
 
 No lock expiry duration is needed because this design does not reserve rebate
 capacity before L1 fee application.
+
+## Governance Enablement Runbook
+
+Roll out each source chain while `crossChainRebatesEnabled` is false. In that
+state, rebate-aware L2 flows continue with the original treasury fee and do not
+consume rebate capacity.
+
+For each Arbitrum/Base environment:
+
+1. Deploy or upgrade the L1 and L2 depositor/redeemer contracts.
+2. Configure L1 redeemer timeout refund routes for the source chain.
+3. Set `supportedSourceChain[sourceChainId] = true`.
+4. Set deposit and redemption `maxCrossChainRebateSat` and
+   `minCrossChainRebateSat`, with `min <= max`.
+5. Authorize the L1 depositor and L1 redeemer with
+   `setCrossChainIntegrator(integrator, true, evmSourceChainId, wormholeChainId)`.
+6. Keep `implicitSameAddressEnabled[sourceChainId] = false` unless governance has
+   explicitly approved implicit mode for that chain.
+7. Enable `crossChainRebatesEnabled`.
+
+If a rollback is needed, disable `crossChainRebatesEnabled` first. Do not enable
+global cross-chain rebates before a source chain is marked supported and capped;
+when global rebates are enabled, an unsupported source chain causes the
+rebate-aware path to revert instead of silently proceeding without a rebate.
 
 ## Cost Model
 

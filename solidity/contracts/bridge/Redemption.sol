@@ -1201,23 +1201,23 @@ library Redemption {
         self.timedOutRedemptions[redemptionKey] = request;
         delete self.pendingRedemptions[redemptionKey];
 
+        BridgeState.CrossChainRedemptionRebate memory crossChainRebate = self
+            .crossChainRedemptionRebates[redemptionKey];
         if (self.rebateStaking != address(0)) {
-            BridgeState.CrossChainRedemptionRebate
-                memory crossChainRebate = self.crossChainRedemptionRebates[
-                    redemptionKey
-                ];
             if (crossChainRebate.rebateBeneficiary != address(0)) {
                 RebateStaking(self.rebateStaking).cancelCrossChainRebate(
                     crossChainRebate.rebateBeneficiary,
                     crossChainRebate.actionId
                 );
-                delete self.crossChainRedemptionRebates[redemptionKey];
             } else {
                 RebateStaking(self.rebateStaking).cancelRebate(
                     request.redeemer,
                     request.requestedAt
                 );
             }
+        }
+        if (crossChainRebate.rebateBeneficiary != address(0)) {
+            delete self.crossChainRedemptionRebates[redemptionKey];
         }
 
         // slither-disable-next-line reentrancy-events
@@ -1334,6 +1334,11 @@ library Redemption {
                 );
             }
             delete self.crossChainRedemptionRebates[redemptionKey];
+        } else if (self.rebateStaking != address(0)) {
+            RebateStaking(self.rebateStaking).cancelRebate(
+                redemption.redeemer,
+                redemption.requestedAt
+            );
         }
         delete self.pendingRedemptions[redemptionKey];
 

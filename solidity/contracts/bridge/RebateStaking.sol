@@ -44,6 +44,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     error RebateAuthorizationExpired();
     error RebateAuthorizationAlreadyUsed();
     error CrossChainRebateAlreadyUsed();
+    error CrossChainRebateMinExceedsMax();
 
     enum RebateTreasuryFeeMode {
         Both,
@@ -288,6 +289,9 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         uint64 minRebateSat
     ) external onlyOwner {
         if (sourceChainId == 0) revert ParametersCannotBeZero();
+        if (minRebateSat > maxRebateSat) {
+            revert CrossChainRebateMinExceedsMax();
+        }
         maxCrossChainRebateSat[sourceChainId][treasuryFeeType] = maxRebateSat;
         minCrossChainRebateSat[sourceChainId][treasuryFeeType] = minRebateSat;
         emit CrossChainRebateCapUpdated(
@@ -472,7 +476,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         BeneficiaryRebateContext calldata context
     ) external onlyBridge returns (uint64 reducedTreasuryFee) {
         if (treasuryFee == 0) {
-            return 0;
+            return treasuryFee;
         }
 
         if (!crossChainRebatesEnabled) {

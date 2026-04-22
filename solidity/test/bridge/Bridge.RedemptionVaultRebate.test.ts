@@ -13,6 +13,7 @@ import type {
   Bridge,
   BridgeStub,
   BridgeGovernance,
+  IRedemptionWatchtower,
   IWalletRegistry,
   RebateStaking,
 } from "../../typechain"
@@ -359,6 +360,78 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
       })
     })
 
+    context("when vault-path redemption is vetoed", () => {
+      let tx: ContractTransaction
+      let availableRebateBeforeVeto: BigNumber
+      let watchtower: FakeContract<IRedemptionWatchtower>
+      let watchtowerSigner: SignerWithAddress
+
+      before(async () => {
+        await createSnapshot()
+
+        watchtower = await smock.fake<IRedemptionWatchtower>(
+          "IRedemptionWatchtower"
+        )
+        watchtower.isSafeRedemption.returns(true)
+
+        watchtowerSigner = await impersonateAccount(watchtower.address, {
+          from: deployer,
+          value: 10,
+        })
+
+        await bridgeGovernance
+          .connect(governance)
+          .setRedemptionWatchtower(watchtower.address)
+
+        const data = encodeRedemptionData(
+          redeemerAddress,
+          walletPubKeyHash,
+          mainUtxo,
+          redeemerOutputScript
+        )
+
+        await bank
+          .connect(balanceOwner)
+          .approveBalanceAndCall(bridge.address, requestedAmount, data)
+
+        availableRebateBeforeVeto = await rebateStaking.getAvailableRebate(
+          redeemerAddress
+        )
+
+        tx = await bridge
+          .connect(watchtowerSigner)
+          .notifyRedemptionVeto(walletPubKeyHash, redeemerOutputScript)
+      })
+
+      after(async () => {
+        watchtower.isSafeRedemption.reset()
+
+        await restoreSnapshot()
+      })
+
+      it("should emit RebateCanceled for the redeemer", async () => {
+        await expect(tx).to.emit(rebateStaking, "RebateCanceled")
+      })
+
+      it("should restore available rebate for the redeemer", async () => {
+        const availableRebateAfterVeto = await rebateStaking.getAvailableRebate(
+          redeemerAddress
+        )
+
+        expect(availableRebateAfterVeto.gt(availableRebateBeforeVeto)).to.be
+          .true
+      })
+
+      it("should remove the redemption from pending requests", async () => {
+        const redemptionKey = buildRedemptionKey(
+          walletPubKeyHash,
+          redeemerOutputScript
+        )
+        const request = await bridge.pendingRedemptions(redemptionKey)
+        expect(request.requestedAt).to.be.equal(0)
+      })
+    })
+
     context("when redeemer has no stake", () => {
       let tx: ContractTransaction
 
@@ -584,6 +657,206 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
         // The staker's available rebate should be less than the full cap
         // after the rebate was applied through delegation.
         expect(availableRebate.lt(rebateCap)).to.be.true
+      })
+    })
+
+    context("when cross-chain redemption uses a rebate", () => {
+      const sourceChainId = 8453
+      const wormholeChainId = 30
+      const redemptionFlowType = 1
+      const redemptionTreasuryFeeType = 1
+      const crossChainWalletPubKeyHash =
+        "0x4df713a31ae6bc5f3f729acaa40e4af4f748a313"
+      const crossChainMainUtxo = {
+        txHash:
+          "0x9ba22a93e1d841cb3cc02a58c5464d9f37d4370da38b1675473b155a11b57d47",
+        txOutputIndex: 0,
+        txOutputValue: 10000000,
+      }
+      const requestOutputScript =
+        "0x1600140d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f70"
+      const timeoutOutputScript =
+        "0x1600141d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f71"
+      const vetoOutputScript =
+        "0x1600142d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f72"
+      const requestActionId = ethers.utils.keccak256(
+        ethers.utils.toUtf8Bytes("cross-chain-redemption-request")
+      )
+      const timeoutActionId = ethers.utils.keccak256(
+        ethers.utils.toUtf8Bytes("cross-chain-redemption-timeout")
+      )
+      const vetoActionId = ethers.utils.keccak256(
+        ethers.utils.toUtf8Bytes("cross-chain-redemption-veto")
+      )
+      const walletMembersIDs = [1, 2, 3, 4, 5]
+
+      function rebateContext(actionId: string) {
+        return {
+          sourceChainId,
+          l2User: redeemerAddress,
+          flowType: redemptionFlowType,
+          actionId,
+          maxRebateSat: treasuryFee,
+          authorization: "0x",
+        }
+      }
+
+      async function setupCrossChainRedemption(
+        outputScript: string,
+        actionId: string
+      ) {
+        await setupWallet(
+          bridge,
+          crossChainWalletPubKeyHash,
+          crossChainMainUtxo,
+          ethers.utils.keccak256("0x02")
+        )
+        await bridge.setActiveWallet(crossChainWalletPubKeyHash)
+
+        await bank.setBalance(thirdParty.address, requestedAmount)
+        await bank
+          .connect(thirdParty)
+          .approveBalance(bridge.address, requestedAmount)
+
+        return bridge
+          .connect(thirdParty)
+          .requestRedemptionWithRebate(
+            crossChainWalletPubKeyHash,
+            crossChainMainUtxo,
+            thirdParty.address,
+            thirdParty.address,
+            outputScript,
+            requestedAmount,
+            redeemerAddress,
+            rebateContext(actionId)
+          )
+      }
+
+      beforeEach(async () => {
+        await createSnapshot()
+
+        await rebateStaking.connect(deployer).setCrossChainRebatesEnabled(true)
+        await rebateStaking
+          .connect(deployer)
+          .setSupportedSourceChain(sourceChainId, true)
+        await rebateStaking
+          .connect(deployer)
+          .setImplicitSameAddressAuthorization(sourceChainId, true)
+        await rebateStaking
+          .connect(deployer)
+          .setCrossChainRebateCap(
+            sourceChainId,
+            redemptionTreasuryFeeType,
+            treasuryFee,
+            0
+          )
+
+        await bridgeGovernance
+          .connect(governance)
+          .setCrossChainIntegrator(
+            thirdParty.address,
+            true,
+            sourceChainId,
+            wormholeChainId
+          )
+      })
+
+      afterEach(async () => {
+        walletRegistry.seize.reset()
+
+        await restoreSnapshot()
+      })
+
+      it("should apply rebate to the beneficiary and store reduced treasury fee", async () => {
+        const tx = await setupCrossChainRedemption(
+          requestOutputScript,
+          requestActionId
+        )
+        const redemptionKey = buildRedemptionKey(
+          crossChainWalletPubKeyHash,
+          requestOutputScript
+        )
+        const redemptionRequest = await bridge.pendingRedemptions(redemptionKey)
+
+        expect(redemptionRequest.redeemer).to.equal(thirdParty.address)
+        expect(redemptionRequest.treasuryFee).to.equal(0)
+        await expect(tx)
+          .to.emit(rebateStaking, "CrossChainRebateApplied")
+          .withArgs(
+            redeemerAddress,
+            redeemerAddress,
+            requestActionId,
+            sourceChainId,
+            redemptionTreasuryFeeType,
+            treasuryFee,
+            treasuryFee,
+            0
+          )
+      })
+
+      it("should restore beneficiary rebate capacity when cross-chain redemption times out", async () => {
+        await setupCrossChainRedemption(timeoutOutputScript, timeoutActionId)
+
+        const availableRebateBeforeTimeout =
+          await rebateStaking.getAvailableRebate(redeemerAddress)
+
+        await increaseTime(redemptionTimeout)
+
+        const tx = await bridge
+          .connect(thirdParty)
+          .notifyRedemptionTimeout(
+            crossChainWalletPubKeyHash,
+            walletMembersIDs,
+            timeoutOutputScript
+          )
+
+        const availableRebateAfterTimeout =
+          await rebateStaking.getAvailableRebate(redeemerAddress)
+
+        expect(availableRebateAfterTimeout.gt(availableRebateBeforeTimeout)).to
+          .be.true
+        await expect(tx)
+          .to.emit(rebateStaking, "CrossChainRebateCanceled")
+          .withArgs(redeemerAddress, timeoutActionId, treasuryFee)
+        await expect(tx).to.not.emit(rebateStaking, "RebateCanceled")
+      })
+
+      it("should restore beneficiary rebate capacity when cross-chain redemption is vetoed", async () => {
+        const watchtower = await smock.fake<IRedemptionWatchtower>(
+          "IRedemptionWatchtower"
+        )
+        watchtower.isSafeRedemption.returns(true)
+
+        const watchtowerSigner = await impersonateAccount(watchtower.address, {
+          from: deployer,
+          value: 10,
+        })
+
+        await bridgeGovernance
+          .connect(governance)
+          .setRedemptionWatchtower(watchtower.address)
+
+        await setupCrossChainRedemption(vetoOutputScript, vetoActionId)
+
+        const availableRebateBeforeVeto =
+          await rebateStaking.getAvailableRebate(redeemerAddress)
+
+        const tx = await bridge
+          .connect(watchtowerSigner)
+          .notifyRedemptionVeto(crossChainWalletPubKeyHash, vetoOutputScript)
+
+        const availableRebateAfterVeto = await rebateStaking.getAvailableRebate(
+          redeemerAddress
+        )
+
+        expect(availableRebateAfterVeto.gt(availableRebateBeforeVeto)).to.be
+          .true
+        await expect(tx)
+          .to.emit(rebateStaking, "CrossChainRebateCanceled")
+          .withArgs(redeemerAddress, vetoActionId, treasuryFee)
+        await expect(tx).to.not.emit(rebateStaking, "RebateCanceled")
+
+        watchtower.isSafeRedemption.reset()
       })
     })
   })
