@@ -174,7 +174,15 @@ library Deposit {
         BitcoinTx.Info calldata fundingTx,
         DepositRevealInfo calldata reveal
     ) external {
-        RebateStaking.BeneficiaryRebateContext memory emptyContext;
+        RebateStaking.BeneficiaryRebateContext
+            memory emptyContext = RebateStaking.BeneficiaryRebateContext({
+                sourceChainId: 0,
+                l2User: address(0),
+                flowType: RebateStaking.RebateFlowType.Deposit,
+                actionId: bytes32(0),
+                maxRebateSat: 0,
+                authorization: new bytes(0)
+            });
         _revealDeposit(
             self,
             fundingTx,
@@ -438,7 +446,15 @@ library Deposit {
         // reveal flow and reduce potential attack surface.
         require(extraData != bytes32(0), "Extra data must not be empty");
 
-        RebateStaking.BeneficiaryRebateContext memory emptyContext;
+        RebateStaking.BeneficiaryRebateContext
+            memory emptyContext = RebateStaking.BeneficiaryRebateContext({
+                sourceChainId: 0,
+                l2User: address(0),
+                flowType: RebateStaking.RebateFlowType.Deposit,
+                actionId: bytes32(0),
+                maxRebateSat: 0,
+                authorization: new bytes(0)
+            });
         _revealDeposit(
             self,
             fundingTx,

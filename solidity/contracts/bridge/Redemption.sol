@@ -450,7 +450,19 @@ library Redemption {
         bytes memory redeemerOutputScript,
         uint64 amount
     ) internal {
-        CrossChainRebateRequest memory emptyRebateRequest;
+        CrossChainRebateRequest
+            memory emptyRebateRequest = CrossChainRebateRequest({
+                enabled: false,
+                beneficiary: address(0),
+                context: RebateStaking.BeneficiaryRebateContext({
+                    sourceChainId: 0,
+                    l2User: address(0),
+                    flowType: RebateStaking.RebateFlowType.Redemption,
+                    actionId: bytes32(0),
+                    maxRebateSat: 0,
+                    authorization: new bytes(0)
+                })
+            });
         _requestRedemption(
             self,
             walletPubKeyHash,

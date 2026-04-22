@@ -273,6 +273,16 @@ contract L2BTCRedeemerWormhole is
 
         redeemedAmount += amount;
 
+        emit RedemptionRequestedOnL2WithRebate(
+            amount,
+            redeemerOutputScript,
+            params.nonce,
+            redemptionId,
+            msg.sender,
+            params.rebateBeneficiary,
+            params.maxRebateSat
+        );
+
         tbtc.safeTransferFrom(msg.sender, address(this), amount);
         tbtc.safeIncreaseAllowance(address(gateway), amount);
 
@@ -285,16 +295,6 @@ contract L2BTCRedeemerWormhole is
                 rebateAuthorization: params.rebateAuthorization,
                 redemptionId: redemptionId
             })
-        );
-
-        emit RedemptionRequestedOnL2WithRebate(
-            amount,
-            redeemerOutputScript,
-            params.nonce,
-            redemptionId,
-            msg.sender,
-            params.rebateBeneficiary,
-            params.maxRebateSat
         );
 
         return

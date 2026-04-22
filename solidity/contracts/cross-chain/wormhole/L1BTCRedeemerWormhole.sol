@@ -521,6 +521,13 @@ contract L1BTCRedeemerWormhole is
         delete timedOutRedemptionRefunds[redemptionKey];
 
         uint256 amount = uint256(refund.amountSat) * SATOSHI_MULTIPLIER;
+
+        emit TimedOutRedemptionRefundSentToL2(
+            redemptionKey,
+            refund.l2User,
+            WormholeUtils.normalize(amount)
+        );
+
         bank.increaseBalanceAllowance(address(tbtcVault), refund.amountSat);
         tbtcVault.mint(amount);
 
@@ -536,12 +543,6 @@ contract L1BTCRedeemerWormhole is
             WormholeUtils.toWormholeAddress(route.l2WormholeGateway),
             0,
             abi.encode(WormholeUtils.toWormholeAddress(refund.l2User))
-        );
-
-        emit TimedOutRedemptionRefundSentToL2(
-            redemptionKey,
-            refund.l2User,
-            amount
         );
     }
 }
