@@ -418,8 +418,9 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
           redeemerAddress
         )
 
-        expect(availableRebateAfterVeto.gt(availableRebateBeforeVeto)).to.be
-          .true
+        expect(availableRebateAfterVeto).to.equal(
+          availableRebateBeforeVeto.add(treasuryFee)
+        )
       })
 
       it("should remove the redemption from pending requests", async () => {
@@ -813,8 +814,9 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
         const availableRebateAfterTimeout =
           await rebateStaking.getAvailableRebate(redeemerAddress)
 
-        expect(availableRebateAfterTimeout.gt(availableRebateBeforeTimeout)).to
-          .be.true
+        expect(availableRebateAfterTimeout).to.equal(
+          availableRebateBeforeTimeout.add(treasuryFee)
+        )
         await expect(tx)
           .to.emit(rebateStaking, "CrossChainRebateCanceled")
           .withArgs(redeemerAddress, timeoutActionId, treasuryFee)
@@ -849,8 +851,9 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
           redeemerAddress
         )
 
-        expect(availableRebateAfterVeto.gt(availableRebateBeforeVeto)).to.be
-          .true
+        expect(availableRebateAfterVeto).to.equal(
+          availableRebateBeforeVeto.add(treasuryFee)
+        )
         await expect(tx)
           .to.emit(rebateStaking, "CrossChainRebateCanceled")
           .withArgs(redeemerAddress, vetoActionId, treasuryFee)
