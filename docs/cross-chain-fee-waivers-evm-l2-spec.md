@@ -240,6 +240,7 @@ struct BeneficiaryRebateAuthorization {
   uint256 nonce; // Arbitrary nonce consumed through a bitmap.
   uint256 deadline; // Expiration timestamp.
 }
+
 ```
 
 Nonce consumption must use bitmap semantics, not a strictly increasing counter:
@@ -272,10 +273,10 @@ function applyForRebateFor(
   BeneficiaryRebateContext calldata context
 ) external onlyBridge returns (uint64 reducedTreasuryFee);
 
-function cancelCrossChainRebate(
-  address beneficiary,
-  bytes32 actionId
-) external onlyBridge;
+function cancelCrossChainRebate(address beneficiary, bytes32 actionId)
+  external
+  onlyBridge;
+
 ```
 
 `BeneficiaryRebateContext` contains:
@@ -289,6 +290,7 @@ struct BeneficiaryRebateContext {
   uint64 maxRebateSat; // Caller/user-specified cap.
   bytes authorization; // Empty only for implicit same-address mode.
 }
+
 ```
 
 Validation and behavior:
@@ -379,6 +381,7 @@ function requestRedemptionWithRebate(
   address rebateBeneficiary,
   BeneficiaryRebateContext calldata rebateContext
 ) external;
+
 ```
 
 Access control:
@@ -414,6 +417,7 @@ function initializeDeposit(
   address rebateBeneficiary,
   BeneficiaryRebateContext calldata rebateContext
 ) external;
+
 ```
 
 Rules:
@@ -451,6 +455,7 @@ function requestRedemptionWithRebate(
   BitcoinTx.UTXO calldata mainUtxo,
   bytes calldata encodedVm
 ) external;
+
 ```
 
 V2 payload:
@@ -464,6 +469,7 @@ struct L2RedemptionPayloadV2 {
   bytes rebateAuthorization;
   bytes32 redemptionId;
 }
+
 ```
 
 The L1 redeemer:
@@ -560,6 +566,7 @@ function requestRedemptionWithRebate(
   bytes calldata rebateAuthorization,
   uint32 nonce
 ) external payable returns (uint64 sequence);
+
 ```
 
 This function should:
