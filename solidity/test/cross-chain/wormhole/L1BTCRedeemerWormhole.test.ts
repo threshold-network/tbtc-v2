@@ -1882,6 +1882,34 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
     })
   })
 
+  // Regression: re-enabling a revoked sender must NOT resurrect the old
+  // wormhole chain ID binding. Otherwise an admin who revokes and
+  // re-registers at a different chain would silently reuse the stale
+  // mapping from before the revocation.
+  describe("updateAllowedSender revocation round-trip", () => {
+    const sender = ethers.utils.hexZeroPad("0xeeee", 32)
+
+    before(async () => {
+      await createSnapshot()
+      await l1BtcRedeemer.connect(governance).updateAllowedSender(sender, true)
+      await l1BtcRedeemer
+        .connect(governance)
+        .updateAllowedSenderWormholeChain(sender, 30)
+      await l1BtcRedeemer.connect(governance).updateAllowedSender(sender, false)
+      await l1BtcRedeemer.connect(governance).updateAllowedSender(sender, true)
+    })
+
+    after(async () => {
+      await restoreSnapshot()
+    })
+
+    it("should leave the wormhole chain ID cleared after disable/re-enable", async () => {
+      expect(
+        await l1BtcRedeemer.allowedSenderWormholeChainIds(sender)
+      ).to.equal(0)
+    })
+  })
+
   describe("updateAllowedSenderWormholeChain", () => {
     const sender = ethers.utils.hexZeroPad("0xaaaa", 32)
 
@@ -2055,6 +2083,77 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
               encodedVm
             )
         ).to.be.revertedWith("WormholeChainMismatch")
+      })
+
+      it("should accept immediately after setWormhole with atomic binding", async () => {
+        // End-to-end regression for the atomic-binding signature: a
+        // single setWormhole call must be enough to activate the guard
+        // AND configure the sender -> chain mapping. The fixture's
+        // setWormhole is called with empty arrays above, but this test
+        // overrides by reverting the snapshot inside the context and
+        // running the atomic form.
+        //
+        // Re-deploy a fresh pair of fakes so the `setWormhole` one-shot
+        // guard isn't tripped by the outer beforeEach.
+        await restoreSnapshot()
+        await createSnapshot()
+
+        wormhole = await smock.fake<IWormhole>("IWormhole")
+        wormholeTokenBridge.completeTransferWithPayload.reset()
+        wormholeTokenBridge.parseTransferWithPayload.reset()
+
+        const encodedTransfer = encodeTransfer(exampleRedeemerOutputScript)
+        wormholeTokenBridge.completeTransferWithPayload.returns(encodedTransfer)
+        wormholeTokenBridge.parseTransferWithPayload
+          .whenCalledWith(encodedTransfer)
+          .returns({
+            payloadID: 1,
+            amount: 2,
+            tokenAddress: ethers.utils.hexZeroPad("0x3000", 32),
+            tokenChain: 4,
+            to: ethers.utils.hexZeroPad("0x5000", 32),
+            toChain: 6,
+            fromAddress: defaultSender,
+            payload: exampleRedeemerOutputScript,
+          })
+
+        await l1BtcRedeemer
+          .connect(governance)
+          .updateAllowedSender(defaultSender, true)
+        await tbtcToken.mint(l1BtcRedeemer.address, exampleAmount)
+
+        // Atomic: core + binding in the same call.
+        await l1BtcRedeemer
+          .connect(governance)
+          .setWormhole(
+            wormhole.address,
+            [defaultSender],
+            [expectedWormholeChainId]
+          )
+
+        wormhole.parseVM.whenCalledWith(encodedVm).returns({
+          version: 1,
+          timestamp: 0,
+          nonce: 0,
+          emitterChainId: expectedWormholeChainId,
+          emitterAddress: ethers.utils.hexZeroPad("0x0", 32),
+          sequence: 0,
+          consistencyLevel: 0,
+          payload: "0x",
+          guardianSetIndex: 0,
+          signatures: [],
+          hash: ethers.utils.hexZeroPad("0x0", 32),
+        })
+
+        await expect(
+          l1BtcRedeemer
+            .connect(relayer)
+            .requestRedemption(
+              exampleWalletPubKeyHash,
+              exampleMainUtxo,
+              encodedVm
+            )
+        ).to.emit(l1BtcRedeemer, "RedemptionRequested")
       })
 
       it("should accept when the VAA emitter chain matches", async () => {
