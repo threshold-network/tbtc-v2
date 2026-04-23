@@ -176,7 +176,13 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
         );
 
         if (_token == address(0)) {
-            payable(_to).transfer(_amount);
+            // `transfer` forwards only 2300 gas, which is insufficient for
+            // smart-contract recipients (multisigs, AA wallets, etc.). Use a
+            // low-level call so the native-token recovery path works for any
+            // legitimate owner-controlled receiver.
+            // slither-disable-next-line arbitrary-send-eth,low-level-calls
+            (bool success, ) = payable(_to).call{value: _amount}("");
+            require(success, "Native transfer failed");
         } else {
             IERC20Upgradeable(_token).safeTransfer(_to, _amount);
         }
