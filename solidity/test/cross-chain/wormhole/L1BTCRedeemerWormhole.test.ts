@@ -1763,7 +1763,7 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
   })
 
   describe("updateAllowedSenderWormholeChain", () => {
-    const sender = ethers.utils.hexZeroPad("0xAAAA", 32)
+    const sender = ethers.utils.hexZeroPad("0xaaaa", 32)
 
     context("when called by a non-owner", () => {
       it("should revert", async () => {

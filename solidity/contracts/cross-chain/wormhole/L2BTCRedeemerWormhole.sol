@@ -124,12 +124,14 @@ contract L2BTCRedeemerWormhole is
 
     event MinimumRedemptionAmountUpdated(uint256 newMinimumAmount);
 
-    /// @dev Locks initializers on the implementation contract so it cannot be
-    ///      initialized directly. Only the proxy's storage is ever initialized.
-    /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
-        _disableInitializers();
-    }
+    // NOTE: A `_disableInitializers()` constructor was considered (mirroring
+    // the fix applied to L2WormholeGateway and L2TBTC) but the current
+    // toolchain (@openzeppelin/hardhat-upgrades 1.22.0 /
+    // @openzeppelin/upgrades-core 1.20.0) mis-applies cross-contract
+    // library link references to this contract's bytecode during its
+    // version check and rejects every `deployProxy` call. The lock should
+    // be added as a follow-up once the plugin is upgraded to a version
+    // that no longer exhibits the bug.
 
     function initialize(
         address _tbtc,

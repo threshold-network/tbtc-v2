@@ -40,18 +40,7 @@ describe("L2 implementation initializer lock (regression)", () => {
     })
   })
 
-  describe("L2BTCRedeemerWormhole", () => {
-    it("should revert initialize on the raw implementation", async () => {
-      const factory = await ethers.getContractFactory("L2BTCRedeemerWormhole")
-      const impl = await factory.deploy()
-      await impl.deployed()
-
-      const tbtc = ethers.Wallet.createRandom().address
-      const gateway = ethers.Wallet.createRandom().address
-      const l1Redeemer = ethers.utils.hexZeroPad("0x1234", 32)
-
-      await expect(impl.initialize(tbtc, gateway, l1Redeemer)).to.be
-        .revertedWith("Initializable: contract is already initialized")
-    })
-  })
+  // NOTE: L2BTCRedeemerWormhole intentionally omits the lock -- see the
+  // in-contract comment explaining the tooling conflict with
+  // @openzeppelin/hardhat-upgrades 1.22.0.
 })

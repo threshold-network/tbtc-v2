@@ -15,12 +15,18 @@ contract MockL1BTCRedeemerWormhole is
 {
     // Custom errors
     error SourceAddressNotAuthorized();
+    error SourceChainNotAuthorized();
+    error WormholeAlreadySet();
 
     // State variables from L1BTCRedeemerWormhole
     IWormholeTokenBridge public wormholeTokenBridge;
     uint256 public requestRedemptionGasOffset;
     mapping(address => bool) public reimbursementAuthorizations;
     mapping(bytes32 => bool) public allowedSenders;
+    // Mirror the production contract's emitter-chain authentication fields
+    // so tests can exercise the guard through this mock.
+    IWormhole public wormhole;
+    mapping(bytes32 => uint16) public allowedSenderWormholeChainIds;
 
     // Mock-specific state
     uint256 public mockRedemptionAmountTBTC;
@@ -42,6 +48,13 @@ contract MockL1BTCRedeemerWormhole is
     );
 
     event AllowedSenderUpdated(bytes32 indexed sender, bool allowed);
+
+    event WormholeCoreSet(address indexed wormhole);
+
+    event AllowedSenderWormholeChainUpdated(
+        bytes32 indexed sender,
+        uint16 wormholeChainId
+    );
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -107,6 +120,37 @@ contract MockL1BTCRedeemerWormhole is
         emit AllowedSenderUpdated(_sender, _allowed);
     }
 
+    function setWormhole(address _wormhole) external onlyOwner {
+        if (_wormhole == address(0)) revert ZeroAddress();
+        if (address(wormhole) != address(0)) revert WormholeAlreadySet();
+        wormhole = IWormhole(_wormhole);
+        emit WormholeCoreSet(_wormhole);
+    }
+
+    function updateAllowedSenderWormholeChain(
+        bytes32 _sender,
+        uint16 _wormholeChainId
+    ) external onlyOwner {
+        allowedSenderWormholeChainIds[_sender] = _wormholeChainId;
+        emit AllowedSenderWormholeChainUpdated(_sender, _wormholeChainId);
+    }
+
+    function _requireExpectedEmitterChain(
+        bytes calldata encodedVm,
+        bytes32 sender
+    ) internal view {
+        IWormhole _wormhole = wormhole;
+        if (address(_wormhole) == address(0)) {
+            return;
+        }
+
+        uint16 expected = allowedSenderWormholeChainIds[sender];
+        if (expected == 0) revert SourceChainNotAuthorized();
+
+        IWormhole.VM memory vm = _wormhole.parseVM(encodedVm);
+        if (vm.emitterChainId != expected) revert SourceChainNotAuthorized();
+    }
+
     // Mock implementation of requestRedemption
     function requestRedemption(
         bytes20 walletPubKeyHash,
@@ -127,9 +171,11 @@ contract MockL1BTCRedeemerWormhole is
                 encoded
             );
 
-        // Validate that the message came from an authorized sender
+        // Validate that the message came from an authorized sender on the
+        // expected source chain.
         bytes32 sender = transfer.fromAddress;
         if (!allowedSenders[sender]) revert SourceAddressNotAuthorized();
+        _requireExpectedEmitterChain(encodedVm, sender);
 
         bytes memory redemptionOutputScriptToUse = transfer.payload;
 
