@@ -132,6 +132,7 @@ contract L2BTCRedeemerWormhole is
     // version check and rejects every `deployProxy` call. The lock should
     // be added as a follow-up once the plugin is upgraded to a version
     // that no longer exhibits the bug.
+    // Tracking issue: https://github.com/threshold-network/tbtc-v2/issues/954
 
     function initialize(
         address _tbtc,

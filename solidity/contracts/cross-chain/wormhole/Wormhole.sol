@@ -39,6 +39,7 @@ interface IWormholeGateway {
 interface IWormhole {
     /// @dev Signature on a Wormhole VAA. Included here only so `VM` can be
     ///      declared; callers that only need VAA header fields can ignore it.
+    /// @dev See: https://github.com/wormhole-foundation/wormhole-solidity-sdk/blob/2b7db51f99b49eda99b44f4a044e751cb0b2e8ea/src/interfaces/IWormhole.sol
     struct Signature {
         bytes32 r;
         bytes32 s;
@@ -50,6 +51,7 @@ interface IWormhole {
     ///      are consumed in this codebase; the remaining fields are declared
     ///      to match the upstream Wormhole Core struct layout returned by
     ///      `parseVM`.
+    /// @dev See: https://github.com/wormhole-foundation/wormhole-solidity-sdk/blob/2b7db51f99b49eda99b44f4a044e751cb0b2e8ea/src/interfaces/IWormhole.sol
     struct VM {
         uint8 version;
         uint32 timestamp;
@@ -75,6 +77,7 @@ interface IWormhole {
     ///         `emitterChainId` that are not exposed by `TransferWithPayload`.
     ///         Signature verification is still performed by the token bridge
     ///         when it calls `completeTransferWithPayload`.
+    /// @dev See: https://github.com/wormhole-foundation/wormhole-solidity-sdk/blob/2b7db51f99b49eda99b44f4a044e751cb0b2e8ea/src/interfaces/IWormhole.sol
     function parseVM(bytes memory encodedVM)
         external
         pure

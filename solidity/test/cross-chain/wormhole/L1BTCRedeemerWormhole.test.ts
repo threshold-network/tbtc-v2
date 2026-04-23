@@ -1718,10 +1718,12 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
   // same address on a foreign chain with a registered Wormhole Token
   // Bridge could pass the `allowedSenders` check.
   describe("setWormhole", () => {
+    const binding = ethers.utils.hexZeroPad("0xbbbb", 32)
+
     context("when called by a non-owner", () => {
       it("should revert", async () => {
         await expect(
-          l1BtcRedeemer.connect(relayer).setWormhole(thirdParty.address)
+          l1BtcRedeemer.connect(relayer).setWormhole(thirdParty.address, [], [])
         ).to.be.revertedWith("Ownable: caller is not the owner")
       })
     })
@@ -1739,14 +1741,25 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
         await expect(
           l1BtcRedeemer
             .connect(governance)
-            .setWormhole(ethers.constants.AddressZero)
+            .setWormhole(ethers.constants.AddressZero, [], [])
         ).to.be.revertedWith("ZeroAddress")
       })
 
-      it("should set the core reference and emit WormholeCoreSet", async () => {
+      it("should reject mismatched array lengths", async () => {
         const wormhole = await smock.fake<IWormhole>("IWormhole")
         await expect(
-          l1BtcRedeemer.connect(governance).setWormhole(wormhole.address)
+          l1BtcRedeemer
+            .connect(governance)
+            .setWormhole(wormhole.address, [binding], [])
+        ).to.be.revertedWith("InvalidArrayLength")
+      })
+
+      it("should accept an empty binding list", async () => {
+        const wormhole = await smock.fake<IWormhole>("IWormhole")
+        await expect(
+          l1BtcRedeemer
+            .connect(governance)
+            .setWormhole(wormhole.address, [], [])
         )
           .to.emit(l1BtcRedeemer, "WormholeCoreSet")
           .withArgs(wormhole.address)
@@ -1756,9 +1769,116 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
       it("should revert on a second set", async () => {
         const wormhole = await smock.fake<IWormhole>("IWormhole")
         await expect(
-          l1BtcRedeemer.connect(governance).setWormhole(wormhole.address)
+          l1BtcRedeemer
+            .connect(governance)
+            .setWormhole(wormhole.address, [], [])
         ).to.be.revertedWith("WormholeAlreadySet")
       })
+    })
+
+    context("when bindings are provided atomically", () => {
+      let wormhole: FakeContract<IWormhole>
+      let tx: ContractTransaction
+
+      before(async () => {
+        await createSnapshot()
+        wormhole = await smock.fake<IWormhole>("IWormhole")
+        const senderA = ethers.utils.hexZeroPad("0xc0de", 32)
+        const senderB = ethers.utils.hexZeroPad("0xd0de", 32)
+        tx = await l1BtcRedeemer
+          .connect(governance)
+          .setWormhole(wormhole.address, [senderA, senderB], [30, 23])
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should populate allowedSenderWormholeChainIds for each binding", async () => {
+        expect(
+          await l1BtcRedeemer.allowedSenderWormholeChainIds(
+            ethers.utils.hexZeroPad("0xc0de", 32)
+          )
+        ).to.equal(30)
+        expect(
+          await l1BtcRedeemer.allowedSenderWormholeChainIds(
+            ethers.utils.hexZeroPad("0xd0de", 32)
+          )
+        ).to.equal(23)
+      })
+
+      it("should emit AllowedSenderWormholeChainUpdated for each binding", async () => {
+        await expect(tx)
+          .to.emit(l1BtcRedeemer, "AllowedSenderWormholeChainUpdated")
+          .withArgs(ethers.utils.hexZeroPad("0xc0de", 32), 30)
+        await expect(tx)
+          .to.emit(l1BtcRedeemer, "AllowedSenderWormholeChainUpdated")
+          .withArgs(ethers.utils.hexZeroPad("0xd0de", 32), 23)
+      })
+    })
+  })
+
+  describe("updateAllowedSender revocation clears wormhole chain ID", () => {
+    const sender = ethers.utils.hexZeroPad("0xcccc", 32)
+
+    before(async () => {
+      await createSnapshot()
+      await l1BtcRedeemer.connect(governance).updateAllowedSender(sender, true)
+      await l1BtcRedeemer
+        .connect(governance)
+        .updateAllowedSenderWormholeChain(sender, 30)
+    })
+
+    after(async () => {
+      await restoreSnapshot()
+    })
+
+    it("should clear the wormhole chain ID on revocation", async () => {
+      expect(
+        await l1BtcRedeemer.allowedSenderWormholeChainIds(sender)
+      ).to.equal(30)
+
+      await expect(
+        l1BtcRedeemer.connect(governance).updateAllowedSender(sender, false)
+      )
+        .to.emit(l1BtcRedeemer, "AllowedSenderWormholeChainUpdated")
+        .withArgs(sender, 0)
+
+      expect(
+        await l1BtcRedeemer.allowedSenderWormholeChainIds(sender)
+      ).to.equal(0)
+    })
+  })
+
+  describe("updateAllowedSenderWithSourceChain revocation clears wormhole chain ID", () => {
+    const sender = ethers.utils.hexZeroPad("0xdddd", 32)
+
+    before(async () => {
+      await createSnapshot()
+      await l1BtcRedeemer
+        .connect(governance)
+        .updateAllowedSenderWithSourceChain(sender, true, 8453)
+      await l1BtcRedeemer
+        .connect(governance)
+        .updateAllowedSenderWormholeChain(sender, 30)
+    })
+
+    after(async () => {
+      await restoreSnapshot()
+    })
+
+    it("should clear the wormhole chain ID on revocation", async () => {
+      await expect(
+        l1BtcRedeemer
+          .connect(governance)
+          .updateAllowedSenderWithSourceChain(sender, false, 0)
+      )
+        .to.emit(l1BtcRedeemer, "AllowedSenderWormholeChainUpdated")
+        .withArgs(sender, 0)
+
+      expect(
+        await l1BtcRedeemer.allowedSenderWormholeChainIds(sender)
+      ).to.equal(0)
     })
   })
 
@@ -1885,7 +2005,9 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
 
     context("when the Wormhole Core reference is set", () => {
       beforeEach(async () => {
-        await l1BtcRedeemer.connect(governance).setWormhole(wormhole.address)
+        await l1BtcRedeemer
+          .connect(governance)
+          .setWormhole(wormhole.address, [], [])
       })
 
       it("should revert when the sender has no wormhole chain configured", async () => {
@@ -1932,7 +2054,7 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
               exampleMainUtxo,
               encodedVm
             )
-        ).to.be.revertedWith("SourceChainNotAuthorized")
+        ).to.be.revertedWith("WormholeChainMismatch")
       })
 
       it("should accept when the VAA emitter chain matches", async () => {

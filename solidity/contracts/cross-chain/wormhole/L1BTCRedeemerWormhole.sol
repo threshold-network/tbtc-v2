@@ -58,9 +58,16 @@ contract L1BTCRedeemerWormhole is
     // Custom errors
     error CallerNotOwner();
     error SourceAddressNotAuthorized();
+    /// @dev The allowed sender has no Wormhole chain ID configured.
     error SourceChainNotAuthorized();
+    /// @dev The VAA emitter chain does not match the chain bound to the
+    ///      allowed sender. Distinct from `SourceChainNotAuthorized` so
+    ///      operators can tell "sender not configured" from "sender
+    ///      configured but VAA arrived from the wrong chain."
+    error WormholeChainMismatch();
     error WormholeTokenBridgeAlreadySet();
     error WormholeAlreadySet();
+    error InvalidArrayLength();
 
     struct L2RedemptionPayloadV2 {
         bytes redeemerOutputScript;
@@ -240,15 +247,24 @@ contract L1BTCRedeemerWormhole is
     /// @param _allowed New allowed status.
     /// @dev Requirements:
     ///      - Can be called only by the contract owner.
+    ///
+    ///      Clears any bound Wormhole chain ID on revocation so the mapping
+    ///      cannot drift out of sync with `allowedSenders`.
     function updateAllowedSender(bytes32 _sender, bool _allowed)
         external
         onlyOwner
     {
         allowedSenders[_sender] = _allowed;
         emit AllowedSenderUpdated(_sender, _allowed);
+        if (!_allowed && allowedSenderWormholeChainIds[_sender] != 0) {
+            delete allowedSenderWormholeChainIds[_sender];
+            emit AllowedSenderWormholeChainUpdated(_sender, 0);
+        }
     }
 
     /// @notice Updates an allowed sender and binds it to an EVM source chain ID.
+    /// @dev Clears any bound Wormhole chain ID on revocation so the mapping
+    ///      cannot drift out of sync with `allowedSenders`.
     function updateAllowedSenderWithSourceChain(
         bytes32 _sender,
         bool _allowed,
@@ -263,23 +279,59 @@ contract L1BTCRedeemerWormhole is
             _allowed,
             allowedSenderSourceChainIds[_sender]
         );
+        if (!_allowed && allowedSenderWormholeChainIds[_sender] != 0) {
+            delete allowedSenderWormholeChainIds[_sender];
+            emit AllowedSenderWormholeChainUpdated(_sender, 0);
+        }
     }
 
     /// @notice Sets the Wormhole Core contract reference used for VAA
-    ///         emitter-chain authentication. Can only be set once; subsequent
-    ///         calls revert. Callers should set this prior to configuring
-    ///         allowed-sender wormhole chain IDs.
-    function setWormhole(address _wormhole) external onlyOwner {
+    ///         emitter-chain authentication and atomically binds every
+    ///         currently-allowed sender to the Wormhole chain ID its VAAs
+    ///         must originate from.
+    /// @dev Can only be called once.
+    ///
+    ///      Supplying the bindings in the same call prevents the window
+    ///      where the core reference is active but one or more existing
+    ///      `allowedSenders` entries have no matching Wormhole chain ID --
+    ///      in that window every `requestRedemption` reverts with
+    ///      `SourceChainNotAuthorized`. Admins must pass every currently
+    ///      allowed sender; the contract does not enumerate the allowlist.
+    ///
+    ///      `_senders` and `_wormholeChainIds` may be empty (pristine
+    ///      deployment with no senders yet).
+    /// @param _wormhole Wormhole Core contract address.
+    /// @param _senders Wormhole sender addresses (bytes32) to bind.
+    /// @param _wormholeChainIds Wormhole chain IDs (uint16) to bind,
+    ///        matched pairwise with `_senders`.
+    function setWormhole(
+        address _wormhole,
+        bytes32[] calldata _senders,
+        uint16[] calldata _wormholeChainIds
+    ) external onlyOwner {
         if (_wormhole == address(0)) revert ZeroAddress();
         if (address(wormhole) != address(0)) revert WormholeAlreadySet();
+        if (_senders.length != _wormholeChainIds.length) {
+            revert InvalidArrayLength();
+        }
+
         wormhole = IWormhole(_wormhole);
         emit WormholeCoreSet(_wormhole);
+
+        for (uint256 i = 0; i < _senders.length; i++) {
+            allowedSenderWormholeChainIds[_senders[i]] = _wormholeChainIds[i];
+            emit AllowedSenderWormholeChainUpdated(
+                _senders[i],
+                _wormholeChainIds[i]
+            );
+        }
     }
 
     /// @notice Binds an allowed Wormhole sender to the Wormhole chain ID that
-    ///         its VAAs must originate from. Once the core is configured,
-    ///         messages from senders without an entry here revert, so admins
-    ///         must populate this mapping for every entry in `allowedSenders`.
+    ///         its VAAs must originate from. Used to amend the mapping after
+    ///         `setWormhole`; prefer the atomic `setWormhole` constructor for
+    ///         the initial bindings.
+    /// @dev Passing `_wormholeChainId == 0` clears the binding.
     function updateAllowedSenderWormholeChain(
         bytes32 _sender,
         uint16 _wormholeChainId
@@ -450,6 +502,11 @@ contract L1BTCRedeemerWormhole is
     ///      deployments that have not yet migrated. Once the core is set,
     ///      senders without a configured wormhole chain ID are rejected so
     ///      admins cannot silently skip the check by forgetting to configure.
+    ///
+    ///      Wormhole chain ID 0 is unallocated by convention in the Wormhole
+    ///      chain registry, so treating 0 as the "not configured" sentinel
+    ///      is safe today; if Wormhole ever allocates chain 0, the code
+    ///      would have to carry a separate configured-flag.
     function _requireExpectedEmitterChain(
         bytes calldata encodedVm,
         bytes32 sender
@@ -463,7 +520,7 @@ contract L1BTCRedeemerWormhole is
         if (expected == 0) revert SourceChainNotAuthorized();
 
         IWormhole.VM memory vm = _wormhole.parseVM(encodedVm);
-        if (vm.emitterChainId != expected) revert SourceChainNotAuthorized();
+        if (vm.emitterChainId != expected) revert WormholeChainMismatch();
     }
 
     function _completeTransfer(bytes calldata encodedVm)
