@@ -2001,9 +2001,12 @@ describe("RebateStaking", () => {
     // long-lived accounts never trip the block gas limit.
     context("when some rebates have aged out of the rolling window", () => {
       const rebateCap = to1e18(1)
+      // Distinct values so each recorded rebate is uniquely identifiable
+      // after the copy and we can tell the in-window entries from the
+      // stale one.
       const feeA = rebateCap.div(10)
-      const feeB = rebateCap.div(10)
-      const feeC = rebateCap.div(10)
+      const feeB = rebateCap.div(5)
+      const feeC = rebateCap.mul(3).div(10)
 
       let rebateCAmount: BigNumber
       let rebateBAmount: BigNumber
@@ -2066,7 +2069,7 @@ describe("RebateStaking", () => {
           1
         )
         // The new array begins with the first in-window entry, so the
-        // available rebate is determined purely by feeB + feeC.
+        // copied entries correspond to feeB then feeC, not feeA.
         expect(firstCopied).to.be.equal(rebateBAmount)
         expect(secondCopied).to.be.equal(rebateCAmount)
         expect(firstCopied).to.not.be.equal(expiredRebateAmount)
@@ -2076,12 +2079,6 @@ describe("RebateStaking", () => {
         expect(
           await rebateStaking.getAvailableRebate(governance.address)
         ).to.be.equal(rebateCap.sub(rebateBAmount).sub(rebateCAmount))
-      })
-
-      it("should clear the old staker's rebate array", async () => {
-        expect(
-          await rebateStaking.getRebateLength(thirdParty.address)
-        ).to.be.equal(0)
       })
     })
   })

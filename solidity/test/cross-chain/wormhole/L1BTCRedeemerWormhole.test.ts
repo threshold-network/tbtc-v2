@@ -1885,9 +1885,7 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
 
     context("when the Wormhole Core reference is set", () => {
       beforeEach(async () => {
-        await l1BtcRedeemer
-          .connect(governance)
-          .setWormhole(wormhole.address)
+        await l1BtcRedeemer.connect(governance).setWormhole(wormhole.address)
       })
 
       it("should revert when the sender has no wormhole chain configured", async () => {

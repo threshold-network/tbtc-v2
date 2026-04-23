@@ -23,8 +23,9 @@ describe("L2 implementation initializer lock (regression)", () => {
       const bridgeToken = ethers.Wallet.createRandom().address
       const tbtc = ethers.Wallet.createRandom().address
 
-      await expect(impl.initialize(bridge, bridgeToken, tbtc)).to.be
-        .revertedWith("Initializable: contract is already initialized")
+      await expect(
+        impl.initialize(bridge, bridgeToken, tbtc)
+      ).to.be.revertedWith("Initializable: contract is already initialized")
     })
   })
 

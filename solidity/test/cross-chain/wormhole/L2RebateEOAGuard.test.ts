@@ -154,14 +154,13 @@ describe("L2 rebate EOA guard (regression)", () => {
         ]
       )
 
-      const factory = await ethers.getContractFactory(
-        "ConstructorRebateCaller"
-      )
+      const factory = await ethers.getContractFactory("ConstructorRebateCaller")
       // The helper performs the target call inside its constructor. Its own
       // code length is zero at call time, but tx.origin is the deployer's
       // EOA while msg.sender is the helper, so the guard must revert.
-      await expect(factory.deploy(l2BtcDepositor.address, callData)).to.be
-        .revertedWith("Signed auth required")
+      await expect(
+        factory.deploy(l2BtcDepositor.address, callData)
+      ).to.be.revertedWith("Signed auth required")
     })
   })
 
@@ -185,11 +184,10 @@ describe("L2 rebate EOA guard (regression)", () => {
         ]
       )
 
-      const factory = await ethers.getContractFactory(
-        "ConstructorRebateCaller"
-      )
-      await expect(factory.deploy(l2BtcRedeemer.address, callData)).to.be
-        .revertedWith("Signed auth required")
+      const factory = await ethers.getContractFactory("ConstructorRebateCaller")
+      await expect(
+        factory.deploy(l2BtcRedeemer.address, callData)
+      ).to.be.revertedWith("Signed auth required")
     })
   })
 })
