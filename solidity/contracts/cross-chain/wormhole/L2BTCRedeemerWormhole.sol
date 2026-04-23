@@ -124,6 +124,13 @@ contract L2BTCRedeemerWormhole is
 
     event MinimumRedemptionAmountUpdated(uint256 newMinimumAmount);
 
+    /// @dev Locks initializers on the implementation contract so it cannot be
+    ///      initialized directly. Only the proxy's storage is ever initialized.
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
     function initialize(
         address _tbtc,
         address _gateway,

@@ -86,6 +86,13 @@ contract L2TBTC is
         _;
     }
 
+    /// @dev Locks initializers on the implementation contract so it cannot be
+    ///      initialized directly. Only the proxy's storage is ever initialized.
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
     /// @notice Initializes the token contract.
     /// @param _name The name of the token.
     /// @param _symbol The symbol of the token, usually a shorter version of the

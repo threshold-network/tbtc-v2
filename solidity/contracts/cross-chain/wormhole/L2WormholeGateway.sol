@@ -109,6 +109,13 @@ contract L2WormholeGateway is
 
     event MintingLimitUpdated(uint256 mintingLimit);
 
+    /// @dev Locks initializers on the implementation contract so it cannot be
+    ///      initialized directly. Only the proxy's storage is ever initialized.
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
     function initialize(
         IWormholeTokenBridge _bridge,
         IERC20Upgradeable _bridgeToken,
