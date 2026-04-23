@@ -1,7 +1,7 @@
 import { helpers, waffle, ethers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { expect } from "chai"
-import { Contract, ContractTransaction } from "ethers"
+import { BigNumber, Contract, ContractTransaction } from "ethers"
 import type {
   Bridge,
   BridgeGovernance,
@@ -1993,6 +1993,95 @@ describe("RebateStaking", () => {
         await expect(tx)
           .to.emit(rebateStaking, "TransferFinished")
           .withArgs(thirdParty.address, governance.address)
+      })
+    })
+
+    // Regression coverage for the audit fix: transferring a stake with
+    // historical rebates must only copy the active rolling window so that
+    // long-lived accounts never trip the block gas limit.
+    context("when some rebates have aged out of the rolling window", () => {
+      const rebateCap = to1e18(1)
+      const feeA = rebateCap.div(10)
+      const feeB = rebateCap.div(10)
+      const feeC = rebateCap.div(10)
+
+      let rebateCAmount: BigNumber
+      let rebateBAmount: BigNumber
+      let expiredRebateAmount: BigNumber
+
+      before(async () => {
+        await createSnapshot()
+
+        const rollingWindow = (await rebateStaking.rollingWindow()).toNumber()
+
+        // Stage 1: earliest rebate; will fall out of the window after the
+        // next increaseTime call.
+        await bridge.applyForRebate(thirdParty.address, feeA)
+        ;[, expiredRebateAmount] = await rebateStaking.getRebate(
+          thirdParty.address,
+          0
+        )
+
+        // Age the first rebate out of the window and record a new one; this
+        // call also bumps `rollingWindowStartIndex` past index 0.
+        await increaseTime(rollingWindow + 1)
+        await bridge.applyForRebate(thirdParty.address, feeB)
+        ;[, rebateBAmount] = await rebateStaking.getRebate(
+          thirdParty.address,
+          1
+        )
+
+        // And one more still inside the window.
+        await bridge.applyForRebate(thirdParty.address, feeC)
+        ;[, rebateCAmount] = await rebateStaking.getRebate(
+          thirdParty.address,
+          2
+        )
+
+        await rebateStaking
+          .connect(deployer)
+          .forceStakeTransfer(thirdParty.address, governance.address)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should drop rebates that aged out of the window", async () => {
+        // Three rebates existed before the transfer; only the two still in
+        // the rolling window survive, and the stale entry must not leak
+        // into the new staker's history.
+        expect(
+          await rebateStaking.getRebateLength(governance.address)
+        ).to.be.equal(2)
+      })
+
+      it("should rebase the copied window to start at index 0", async () => {
+        const [, firstCopied] = await rebateStaking.getRebate(
+          governance.address,
+          0
+        )
+        const [, secondCopied] = await rebateStaking.getRebate(
+          governance.address,
+          1
+        )
+        // The new array begins with the first in-window entry, so the
+        // available rebate is determined purely by feeB + feeC.
+        expect(firstCopied).to.be.equal(rebateBAmount)
+        expect(secondCopied).to.be.equal(rebateCAmount)
+        expect(firstCopied).to.not.be.equal(expiredRebateAmount)
+      })
+
+      it("should preserve the correct available rebate for the new staker", async () => {
+        expect(
+          await rebateStaking.getAvailableRebate(governance.address)
+        ).to.be.equal(rebateCap.sub(rebateBAmount).sub(rebateCAmount))
+      })
+
+      it("should clear the old staker's rebate array", async () => {
+        expect(
+          await rebateStaking.getRebateLength(thirdParty.address)
+        ).to.be.equal(0)
       })
     })
   })
