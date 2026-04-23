@@ -58,7 +58,9 @@ contract L1BTCRedeemerWormhole is
     // Custom errors
     error CallerNotOwner();
     error SourceAddressNotAuthorized();
+    error SourceChainNotAuthorized();
     error WormholeTokenBridgeAlreadySet();
+    error WormholeAlreadySet();
 
     struct L2RedemptionPayloadV2 {
         bytes redeemerOutputScript;
@@ -106,6 +108,17 @@ contract L1BTCRedeemerWormhole is
         public timedOutRedemptionRefunds;
     /// @notice L1-to-L2 routes used to return tBTC after redemption timeouts.
     mapping(uint256 => TimeoutRefundRoute) public timeoutRefundRoutes;
+    /// @notice Reference to the Wormhole Core contract. Used to parse the VAA
+    ///         header and authenticate the `emitterChainId` of the sender.
+    ///         Optional: when address(0) the emitter chain check is skipped to
+    ///         preserve backward compatibility for deployments that have not
+    ///         yet been configured with a core reference.
+    IWormhole public wormhole;
+    /// @notice Wormhole chain ID expected for each allowed Wormhole sender.
+    ///         Authenticates the origin chain of a VAA independently of
+    ///         `transfer.fromAddress`, preventing same-address-spoof attacks
+    ///         from foreign chains with a registered Token Bridge.
+    mapping(bytes32 => uint16) public allowedSenderWormholeChainIds;
 
     event RedemptionRequested(
         uint256 indexed redemptionKey,
@@ -134,6 +147,13 @@ contract L1BTCRedeemerWormhole is
         uint256 indexed sourceChainId,
         uint16 wormholeChainId,
         address l2WormholeGateway
+    );
+
+    event WormholeCoreSet(address indexed wormhole);
+
+    event AllowedSenderWormholeChainUpdated(
+        bytes32 indexed sender,
+        uint16 wormholeChainId
     );
 
     event RedemptionRequestedWithRebate(
@@ -245,6 +265,29 @@ contract L1BTCRedeemerWormhole is
         );
     }
 
+    /// @notice Sets the Wormhole Core contract reference used for VAA
+    ///         emitter-chain authentication. Can only be set once; subsequent
+    ///         calls revert. Callers should set this prior to configuring
+    ///         allowed-sender wormhole chain IDs.
+    function setWormhole(address _wormhole) external onlyOwner {
+        if (_wormhole == address(0)) revert ZeroAddress();
+        if (address(wormhole) != address(0)) revert WormholeAlreadySet();
+        wormhole = IWormhole(_wormhole);
+        emit WormholeCoreSet(_wormhole);
+    }
+
+    /// @notice Binds an allowed Wormhole sender to the Wormhole chain ID that
+    ///         its VAAs must originate from. Once the core is configured,
+    ///         messages from senders without an entry here revert, so admins
+    ///         must populate this mapping for every entry in `allowedSenders`.
+    function updateAllowedSenderWormholeChain(
+        bytes32 _sender,
+        uint16 _wormholeChainId
+    ) external onlyOwner {
+        allowedSenderWormholeChainIds[_sender] = _wormholeChainId;
+        emit AllowedSenderWormholeChainUpdated(_sender, _wormholeChainId);
+    }
+
     /// @notice Updates the L2 route used for timeout refunds.
     function updateTimeoutRefundRoute(
         uint256 _sourceChainId,
@@ -325,9 +368,14 @@ contract L1BTCRedeemerWormhole is
                 encoded
             );
 
-        // Validate that the message came from an authorized sender
+        // Validate that the message came from an authorized sender on the
+        // expected source chain. `fromAddress` alone is insufficient because
+        // the same contract address can exist on any chain that has a
+        // registered Wormhole Token Bridge; without an `emitterChainId` check
+        // such foreign contracts could impersonate the authorized sender.
         bytes32 sender = transfer.fromAddress;
         if (!allowedSenders[sender]) revert SourceAddressNotAuthorized();
+        _requireExpectedEmitterChain(encodedVm, sender);
 
         bytes memory redemptionOutputScript = transfer.payload;
 
@@ -396,6 +444,28 @@ contract L1BTCRedeemerWormhole is
         }
     }
 
+    /// @dev Parses the Wormhole VAA header and verifies its `emitterChainId`
+    ///      matches the chain configured for `sender`. No-op when the Wormhole
+    ///      Core reference has not been set, preserving behaviour for
+    ///      deployments that have not yet migrated. Once the core is set,
+    ///      senders without a configured wormhole chain ID are rejected so
+    ///      admins cannot silently skip the check by forgetting to configure.
+    function _requireExpectedEmitterChain(
+        bytes calldata encodedVm,
+        bytes32 sender
+    ) internal view {
+        IWormhole _wormhole = wormhole;
+        if (address(_wormhole) == address(0)) {
+            return;
+        }
+
+        uint16 expected = allowedSenderWormholeChainIds[sender];
+        if (expected == 0) revert SourceChainNotAuthorized();
+
+        IWormhole.VM memory vm = _wormhole.parseVM(encodedVm);
+        if (vm.emitterChainId != expected) revert SourceChainNotAuthorized();
+    }
+
     function _completeTransfer(bytes calldata encodedVm)
         internal
         returns (CompletedRedemptionTransfer memory completedTransfer)
@@ -413,6 +483,7 @@ contract L1BTCRedeemerWormhole is
 
         bytes32 sender = transfer.fromAddress;
         if (!allowedSenders[sender]) revert SourceAddressNotAuthorized();
+        _requireExpectedEmitterChain(encodedVm, sender);
 
         uint256 sourceChainId = allowedSenderSourceChainIds[sender];
         require(sourceChainId != 0, "Source chain ID is not set");

@@ -37,11 +37,48 @@ interface IWormholeGateway {
 /// @notice Wormhole interface.
 /// @dev See: https://github.com/wormhole-foundation/wormhole-solidity-sdk/blob/2b7db51f99b49eda99b44f4a044e751cb0b2e8ea/src/interfaces/IWormhole.sol#L6
 interface IWormhole {
+    /// @dev Signature on a Wormhole VAA. Included here only so `VM` can be
+    ///      declared; callers that only need VAA header fields can ignore it.
+    struct Signature {
+        bytes32 r;
+        bytes32 s;
+        uint8 v;
+        uint8 guardianIndex;
+    }
+
+    /// @dev Decoded Wormhole VAA. Only `emitterChainId` and `emitterAddress`
+    ///      are consumed in this codebase; the remaining fields are declared
+    ///      to match the upstream Wormhole Core struct layout returned by
+    ///      `parseVM`.
+    struct VM {
+        uint8 version;
+        uint32 timestamp;
+        uint32 nonce;
+        uint16 emitterChainId;
+        bytes32 emitterAddress;
+        uint64 sequence;
+        uint8 consistencyLevel;
+        bytes payload;
+        uint32 guardianSetIndex;
+        Signature[] signatures;
+        bytes32 hash;
+    }
+
     /// @dev See: https://github.com/wormhole-foundation/wormhole-solidity-sdk/blob/2b7db51f99b49eda99b44f4a044e751cb0b2e8ea/src/interfaces/IWormhole.sol#L109
     function chainId() external view returns (uint16);
 
     /// @dev See: https://github.com/wormhole-foundation/wormhole-solidity-sdk/blob/2b7db51f99b49eda99b44f4a044e751cb0b2e8ea/src/interfaces/IWormhole.sol#L117
     function messageFee() external view returns (uint256);
+
+    /// @notice Parses a Wormhole VAA without verifying signatures. Used by
+    ///         token-bridge integrators to read VAA header fields such as
+    ///         `emitterChainId` that are not exposed by `TransferWithPayload`.
+    ///         Signature verification is still performed by the token bridge
+    ///         when it calls `completeTransferWithPayload`.
+    function parseVM(bytes memory encodedVM)
+        external
+        pure
+        returns (VM memory vm);
 }
 
 /// @title IWormholeRelayer
