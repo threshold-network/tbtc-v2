@@ -267,6 +267,7 @@ contract L2BTCRedeemerWormhole is
             // address they control. Require the transaction to originate
             // directly from `msg.sender` to block constructor-based spoofing.
             // slither-disable-next-line tx-origin
+            // solhint-disable-next-line avoid-tx-origin
             require(tx.origin == msg.sender, "Signed auth required");
             require(
                 params.rebateBeneficiary == msg.sender,

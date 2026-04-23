@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 pragma solidity 0.8.17;
 
+/* solhint-disable avoid-low-level-calls, no-inline-assembly */
+
 /// @notice Test helper that drives the audit regression for the
 ///         `code.length == 0` EOA check on L2 rebate entry points. While a
 ///         contract is still executing its constructor its own code length is

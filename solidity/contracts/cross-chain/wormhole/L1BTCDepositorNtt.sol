@@ -181,6 +181,7 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
             // low-level call so the native-token recovery path works for any
             // legitimate owner-controlled receiver.
             // slither-disable-next-line arbitrary-send-eth,low-level-calls
+            // solhint-disable-next-line avoid-low-level-calls
             (bool success, ) = payable(_to).call{value: _amount}("");
             require(success, "Native transfer failed");
         } else {
