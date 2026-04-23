@@ -124,6 +124,16 @@ contract L2BTCRedeemerWormhole is
 
     event MinimumRedemptionAmountUpdated(uint256 newMinimumAmount);
 
+    // NOTE: A `_disableInitializers()` constructor was considered (mirroring
+    // the fix applied to L2WormholeGateway and L2TBTC) but the current
+    // toolchain (@openzeppelin/hardhat-upgrades 1.22.0 /
+    // @openzeppelin/upgrades-core 1.20.0) mis-applies cross-contract
+    // library link references to this contract's bytecode during its
+    // version check and rejects every `deployProxy` call. The lock should
+    // be added as a follow-up once the plugin is upgraded to a version
+    // that no longer exhibits the bug.
+    // Tracking issue: https://github.com/threshold-network/tbtc-v2/issues/954
+
     function initialize(
         address _tbtc,
         address _gateway,
@@ -253,7 +263,13 @@ contract L2BTCRedeemerWormhole is
         if (amount < minimumRedemptionAmount) revert AmountTooLowToRedeem();
 
         if (params.rebateAuthorization.length == 0) {
-            require(msg.sender.code.length == 0, "Signed auth required");
+            // `code.length == 0` is bypassable from a contract's constructor,
+            // letting intermediate contracts mint rebates on behalf of an EOA
+            // address they control. Require the transaction to originate
+            // directly from `msg.sender` to block constructor-based spoofing.
+            // slither-disable-next-line tx-origin
+            // solhint-disable-next-line avoid-tx-origin
+            require(tx.origin == msg.sender, "Signed auth required");
             require(
                 params.rebateBeneficiary == msg.sender,
                 "Beneficiary must match sender"

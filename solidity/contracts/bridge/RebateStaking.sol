@@ -975,8 +975,17 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         newStake.unstakingAmount = oldStake.unstakingAmount;
         newStake.unstakingTimestamp = oldStake.unstakingTimestamp;
         newStake.rebateTreasuryFeeMode = oldStake.rebateTreasuryFeeMode;
-        newStake.rollingWindowStartIndex = oldStake.rollingWindowStartIndex;
-        for (uint256 i = 0; i < oldStake.rebates.length; i++) {
+        // Only migrate the active rebate window. Anything before
+        // `rollingWindowStartIndex` has aged out and is never read again, so
+        // copying it would grow gas cost without bound for long-lived
+        // stakers. The copied window starts at index 0 in the new array.
+        newStake.rollingWindowStartIndex = 0;
+        uint256 rebatesLength = oldStake.rebates.length;
+        for (
+            uint256 i = oldStake.rollingWindowStartIndex;
+            i < rebatesLength;
+            i++
+        ) {
             newStake.rebates.push(oldStake.rebates[i]);
         }
         if (oldStake.delegatee != address(0)) {

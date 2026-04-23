@@ -451,6 +451,65 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
           const finalBalance = await tbtcToken.balanceOf(user.address)
           expect(finalBalance.sub(initialBalance)).to.equal(transferAmount)
         })
+
+        // Regression for the audit fix that replaced `.transfer()` with a
+        // low-level `.call{value:}` in the native-token branch. A
+        // contract receiver that writes to storage in its `receive()`
+        // consumes well over the 2300 gas stipend; without the fix this
+        // call would out-of-gas.
+        it("should forward native tokens to a smart-wallet receiver that needs > 2300 gas", async () => {
+          const receiverFactory = await ethers.getContractFactory(
+            "GreedyReceiver"
+          )
+          const receiver = await receiverFactory.deploy()
+          await receiver.deployed()
+
+          const transferAmount = ethers.utils.parseEther("0.5")
+          // Fund the depositor directly (it has no receive()); setBalance
+          // is the canonical hardhat-network pattern.
+          await ethers.provider.send("hardhat_setBalance", [
+            l1BtcDepositorNtt.address,
+            transferAmount.toHexString().replace(/^0x0+/, "0x"),
+          ])
+
+          const before = await ethers.provider.getBalance(receiver.address)
+          await l1BtcDepositorNtt
+            .connect(governance)
+            .retrieveTokens(
+              ethers.constants.AddressZero,
+              receiver.address,
+              transferAmount
+            )
+          const after = await ethers.provider.getBalance(receiver.address)
+
+          expect(after.sub(before)).to.equal(transferAmount)
+          expect(await receiver.received()).to.equal(1)
+          expect(await receiver.lastAmount()).to.equal(transferAmount)
+        })
+
+        it("should revert when the native receiver rejects the transfer", async () => {
+          const rejecterFactory = await ethers.getContractFactory(
+            "RevertingReceiver"
+          )
+          const rejecter = await rejecterFactory.deploy()
+          await rejecter.deployed()
+
+          const transferAmount = ethers.utils.parseEther("0.5")
+          await ethers.provider.send("hardhat_setBalance", [
+            l1BtcDepositorNtt.address,
+            transferAmount.toHexString().replace(/^0x0+/, "0x"),
+          ])
+
+          await expect(
+            l1BtcDepositorNtt
+              .connect(governance)
+              .retrieveTokens(
+                ethers.constants.AddressZero,
+                rejecter.address,
+                transferAmount
+              )
+          ).to.be.revertedWith("Native transfer failed")
+        })
       })
     })
 

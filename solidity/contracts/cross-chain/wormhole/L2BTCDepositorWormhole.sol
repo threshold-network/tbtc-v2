@@ -151,7 +151,13 @@ contract L2BTCDepositorWormhole is IWormholeReceiver, OwnableUpgradeable {
         bytes calldata rebateAuthorization
     ) external {
         if (rebateAuthorization.length == 0) {
-            require(msg.sender.code.length == 0, "Signed auth required");
+            // `code.length == 0` is bypassable from a contract's constructor,
+            // letting intermediate contracts mint rebates on behalf of an EOA
+            // address they control. Require the transaction to originate
+            // directly from `msg.sender` to block constructor-based spoofing.
+            // slither-disable-next-line tx-origin
+            // solhint-disable-next-line avoid-tx-origin
+            require(tx.origin == msg.sender, "Signed auth required");
             require(
                 rebateBeneficiary == l2DepositOwner,
                 "Beneficiary must match L2 owner"
