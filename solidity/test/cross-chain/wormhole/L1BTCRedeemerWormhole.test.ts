@@ -5,6 +5,7 @@ import { FakeContract, smock } from "@defi-wonderland/smock"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { BigNumber, ContractTransaction } from "ethers"
 import {
+  IWormhole,
   IWormholeTokenBridge,
   MockL1BTCRedeemerWormhole,
   MockBank,
@@ -1709,6 +1710,265 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
 
       expect(estimatedGas).to.be.gt(0)
       expect(estimatedGas).to.be.lt(500000) // Reasonable upper bound
+    })
+  })
+
+  // Regression tests for the audit fix that adds VAA emitter-chain
+  // authentication. Without these checks, any contract deployed at the
+  // same address on a foreign chain with a registered Wormhole Token
+  // Bridge could pass the `allowedSenders` check.
+  describe("setWormhole", () => {
+    context("when called by a non-owner", () => {
+      it("should revert", async () => {
+        await expect(
+          l1BtcRedeemer.connect(relayer).setWormhole(thirdParty.address)
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+    })
+
+    context("when called by the owner", () => {
+      before(async () => {
+        await createSnapshot()
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should reject the zero address", async () => {
+        await expect(
+          l1BtcRedeemer
+            .connect(governance)
+            .setWormhole(ethers.constants.AddressZero)
+        ).to.be.revertedWith("ZeroAddress")
+      })
+
+      it("should set the core reference and emit WormholeCoreSet", async () => {
+        const wormhole = await smock.fake<IWormhole>("IWormhole")
+        await expect(
+          l1BtcRedeemer.connect(governance).setWormhole(wormhole.address)
+        )
+          .to.emit(l1BtcRedeemer, "WormholeCoreSet")
+          .withArgs(wormhole.address)
+        expect(await l1BtcRedeemer.wormhole()).to.equal(wormhole.address)
+      })
+
+      it("should revert on a second set", async () => {
+        const wormhole = await smock.fake<IWormhole>("IWormhole")
+        await expect(
+          l1BtcRedeemer.connect(governance).setWormhole(wormhole.address)
+        ).to.be.revertedWith("WormholeAlreadySet")
+      })
+    })
+  })
+
+  describe("updateAllowedSenderWormholeChain", () => {
+    const sender = ethers.utils.hexZeroPad("0xAAAA", 32)
+
+    context("when called by a non-owner", () => {
+      it("should revert", async () => {
+        await expect(
+          l1BtcRedeemer
+            .connect(relayer)
+            .updateAllowedSenderWormholeChain(sender, 2)
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+    })
+
+    context("when called by the owner", () => {
+      before(async () => {
+        await createSnapshot()
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should update the mapping and emit the event", async () => {
+        await expect(
+          l1BtcRedeemer
+            .connect(governance)
+            .updateAllowedSenderWormholeChain(sender, 30)
+        )
+          .to.emit(l1BtcRedeemer, "AllowedSenderWormholeChainUpdated")
+          .withArgs(sender, 30)
+        expect(
+          await l1BtcRedeemer.allowedSenderWormholeChainIds(sender)
+        ).to.equal(30)
+      })
+
+      it("should overwrite an existing entry", async () => {
+        await l1BtcRedeemer
+          .connect(governance)
+          .updateAllowedSenderWormholeChain(sender, 23)
+        expect(
+          await l1BtcRedeemer.allowedSenderWormholeChainIds(sender)
+        ).to.equal(23)
+      })
+    })
+  })
+
+  describe("requestRedemption emitter-chain guard", () => {
+    const encodedVm = "0x1234567890"
+    const defaultSender = ethers.utils.hexZeroPad("0xABCD", 32)
+    const expectedWormholeChainId = 30
+
+    let wormhole: FakeContract<IWormhole>
+
+    // Mirrors the helper used in the main requestRedemption describe block.
+    function encodeTransfer(payload: string, fromAddress = defaultSender) {
+      const transfer = {
+        payloadID: 1,
+        amount: 2,
+        tokenAddress: ethers.utils.hexZeroPad("0x3000", 32),
+        tokenChain: 4,
+        to: ethers.utils.hexZeroPad("0x5000", 32),
+        toChain: 6,
+        fromAddress,
+        payload,
+      }
+      return ethers.utils.defaultAbiCoder.encode(
+        [
+          "tuple(uint8 payloadID, uint256 amount, bytes32 tokenAddress, uint16 tokenChain, bytes32 to, uint16 toChain, bytes32 fromAddress, bytes payload)",
+        ],
+        [transfer]
+      )
+    }
+
+    beforeEach(async () => {
+      await createSnapshot()
+
+      wormhole = await smock.fake<IWormhole>("IWormhole")
+
+      wormholeTokenBridge.completeTransferWithPayload.reset()
+      wormholeTokenBridge.parseTransferWithPayload.reset()
+
+      const encodedTransfer = encodeTransfer(exampleRedeemerOutputScript)
+      wormholeTokenBridge.completeTransferWithPayload.returns(encodedTransfer)
+      wormholeTokenBridge.parseTransferWithPayload
+        .whenCalledWith(encodedTransfer)
+        .returns({
+          payloadID: 1,
+          amount: 2,
+          tokenAddress: ethers.utils.hexZeroPad("0x3000", 32),
+          tokenChain: 4,
+          to: ethers.utils.hexZeroPad("0x5000", 32),
+          toChain: 6,
+          fromAddress: defaultSender,
+          payload: exampleRedeemerOutputScript,
+        })
+
+      await l1BtcRedeemer
+        .connect(governance)
+        .updateAllowedSender(defaultSender, true)
+      await tbtcToken.mint(l1BtcRedeemer.address, exampleAmount)
+    })
+
+    afterEach(async () => {
+      await restoreSnapshot()
+    })
+
+    context("when the Wormhole Core reference is not set", () => {
+      it("should not call parseVM (backwards-compatible path)", async () => {
+        await l1BtcRedeemer
+          .connect(relayer)
+          .requestRedemption(
+            exampleWalletPubKeyHash,
+            exampleMainUtxo,
+            encodedVm
+          )
+        // The fake had no calls wired up; asserting it was never invoked
+        // ensures we preserved the migration path for existing deployments.
+        expect(wormhole.parseVM).to.not.have.been.called
+      })
+    })
+
+    context("when the Wormhole Core reference is set", () => {
+      beforeEach(async () => {
+        await l1BtcRedeemer
+          .connect(governance)
+          .setWormhole(wormhole.address)
+      })
+
+      it("should revert when the sender has no wormhole chain configured", async () => {
+        await expect(
+          l1BtcRedeemer
+            .connect(relayer)
+            .requestRedemption(
+              exampleWalletPubKeyHash,
+              exampleMainUtxo,
+              encodedVm
+            )
+        ).to.be.revertedWith("SourceChainNotAuthorized")
+      })
+
+      it("should revert when the VAA emitter chain does not match", async () => {
+        await l1BtcRedeemer
+          .connect(governance)
+          .updateAllowedSenderWormholeChain(
+            defaultSender,
+            expectedWormholeChainId
+          )
+
+        wormhole.parseVM.whenCalledWith(encodedVm).returns({
+          version: 1,
+          timestamp: 0,
+          nonce: 0,
+          // Attacker-controlled chain id that does not match the one we
+          // bound `defaultSender` to above.
+          emitterChainId: 7,
+          emitterAddress: ethers.utils.hexZeroPad("0x0", 32),
+          sequence: 0,
+          consistencyLevel: 0,
+          payload: "0x",
+          guardianSetIndex: 0,
+          signatures: [],
+          hash: ethers.utils.hexZeroPad("0x0", 32),
+        })
+
+        await expect(
+          l1BtcRedeemer
+            .connect(relayer)
+            .requestRedemption(
+              exampleWalletPubKeyHash,
+              exampleMainUtxo,
+              encodedVm
+            )
+        ).to.be.revertedWith("SourceChainNotAuthorized")
+      })
+
+      it("should accept when the VAA emitter chain matches", async () => {
+        await l1BtcRedeemer
+          .connect(governance)
+          .updateAllowedSenderWormholeChain(
+            defaultSender,
+            expectedWormholeChainId
+          )
+
+        wormhole.parseVM.whenCalledWith(encodedVm).returns({
+          version: 1,
+          timestamp: 0,
+          nonce: 0,
+          emitterChainId: expectedWormholeChainId,
+          emitterAddress: ethers.utils.hexZeroPad("0x0", 32),
+          sequence: 0,
+          consistencyLevel: 0,
+          payload: "0x",
+          guardianSetIndex: 0,
+          signatures: [],
+          hash: ethers.utils.hexZeroPad("0x0", 32),
+        })
+
+        await expect(
+          l1BtcRedeemer
+            .connect(relayer)
+            .requestRedemption(
+              exampleWalletPubKeyHash,
+              exampleMainUtxo,
+              encodedVm
+            )
+        ).to.emit(l1BtcRedeemer, "RedemptionRequested")
+      })
     })
   })
 })
