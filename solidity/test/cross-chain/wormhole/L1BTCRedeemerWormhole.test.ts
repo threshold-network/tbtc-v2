@@ -14,6 +14,8 @@ import {
   ReimbursementPool,
   WormholeBridgeStub,
   MockTBTCVault,
+  TestL1BTCRedeemerWormhole,
+  TestERC20,
 } from "../../../typechain"
 
 chai.use(smock.matchers)
@@ -1713,6 +1715,101 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
     })
   })
 
+  describe("refundTimedOutRedemptionToL2 request identity", () => {
+    const sourceChainId = 8453
+    const redemptionKey = BigNumber.from(1234)
+    const recordedRequestedAt = 1000
+    const timedOutRequestedAt = 1001
+
+    let productionRedeemer: TestL1BTCRedeemerWormhole
+    let productionBridge: MockTBTCBridge
+
+    before(async () => {
+      await createSnapshot()
+
+      const MockBankFactory = await ethers.getContractFactory("MockBank")
+      const productionBank = (await MockBankFactory.deploy()) as MockBank
+      await productionBank.deployed()
+
+      const MockTBTCVaultFactory = await ethers.getContractFactory(
+        "contracts/test/MockTBTCVault.sol:MockTBTCVault"
+      )
+      const productionVault =
+        (await MockTBTCVaultFactory.deploy()) as MockTBTCVault
+      await productionVault.deployed()
+
+      const TestERC20Factory = await ethers.getContractFactory("TestERC20")
+      const wormholeTbtc = (await TestERC20Factory.deploy()) as TestERC20
+      await wormholeTbtc.deployed()
+      await productionVault.setTbtcToken(wormholeTbtc.address)
+
+      const MockTBTCBridgeFactory = await ethers.getContractFactory(
+        "MockTBTCBridge"
+      )
+      productionBridge =
+        (await MockTBTCBridgeFactory.deploy()) as MockTBTCBridge
+      await productionBridge.deployed()
+
+      const TestL1BTCRedeemerWormholeFactory = await ethers.getContractFactory(
+        "TestL1BTCRedeemerWormhole"
+      )
+      const implementation = await TestL1BTCRedeemerWormholeFactory.deploy()
+      await implementation.deployed()
+      const initializerData =
+        TestL1BTCRedeemerWormholeFactory.interface.encodeFunctionData(
+          "initialize",
+          [
+            productionBridge.address,
+            thirdParty.address,
+            wormholeTbtc.address,
+            productionBank.address,
+            productionVault.address,
+          ]
+        )
+      const ERC1967ProxyFactory = await ethers.getContractFactory(
+        "ERC1967Proxy"
+      )
+      const proxy = await ERC1967ProxyFactory.deploy(
+        implementation.address,
+        initializerData
+      )
+      await proxy.deployed()
+      productionRedeemer = TestL1BTCRedeemerWormholeFactory.attach(
+        proxy.address
+      ) as TestL1BTCRedeemerWormhole
+
+      await productionRedeemer.seedTimedOutRedemptionRefund(
+        redemptionKey,
+        thirdParty.address,
+        sourceChainId,
+        exampleAmountInSatoshis,
+        recordedRequestedAt
+      )
+      await productionBridge.setTimedOutRedemption(
+        redemptionKey,
+        productionRedeemer.address,
+        exampleAmountInSatoshis,
+        timedOutRequestedAt
+      )
+    })
+
+    after(async () => {
+      await restoreSnapshot()
+    })
+
+    it("should reject a timeout refund from a different redemption request", async () => {
+      const refundRecord = await productionRedeemer.timedOutRedemptionRefunds(
+        redemptionKey
+      )
+
+      expect(refundRecord.requestedAt).to.equal(recordedRequestedAt)
+
+      await expect(
+        productionRedeemer.refundTimedOutRedemptionToL2(redemptionKey)
+      ).to.be.revertedWith("Wrong timeout refund request")
+    })
+  })
+
   // Regression tests for the audit fix that adds VAA emitter-chain
   // authentication. Without these checks, any contract deployed at the
   // same address on a foreign chain with a registered Wormhole Token
@@ -1907,6 +2004,38 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
       expect(
         await l1BtcRedeemer.allowedSenderWormholeChainIds(sender)
       ).to.equal(0)
+    })
+  })
+
+  describe("updateAllowedSender revocation clears source chain ID", () => {
+    const sender = ethers.utils.hexZeroPad("0xbeef", 32)
+
+    before(async () => {
+      await createSnapshot()
+      await l1BtcRedeemer
+        .connect(governance)
+        .updateAllowedSenderWithSourceChain(sender, true, 8453)
+    })
+
+    after(async () => {
+      await restoreSnapshot()
+    })
+
+    it("should clear the EVM source chain ID on revocation", async () => {
+      expect(await l1BtcRedeemer.allowedSenderSourceChainIds(sender)).to.equal(
+        8453
+      )
+
+      await l1BtcRedeemer.connect(governance).updateAllowedSender(sender, false)
+
+      expect(await l1BtcRedeemer.allowedSenderSourceChainIds(sender)).to.equal(0)
+    })
+
+    it("should leave the source chain ID cleared after legacy re-enable", async () => {
+      await l1BtcRedeemer.connect(governance).updateAllowedSender(sender, false)
+      await l1BtcRedeemer.connect(governance).updateAllowedSender(sender, true)
+
+      expect(await l1BtcRedeemer.allowedSenderSourceChainIds(sender)).to.equal(0)
     })
   })
 

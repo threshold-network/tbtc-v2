@@ -82,6 +82,7 @@ contract L1BTCRedeemerWormhole is
         address l2User;
         uint256 sourceChainId;
         uint64 amountSat;
+        uint32 requestedAt;
     }
 
     struct TimeoutRefundRoute {
@@ -256,6 +257,10 @@ contract L1BTCRedeemerWormhole is
     {
         allowedSenders[_sender] = _allowed;
         emit AllowedSenderUpdated(_sender, _allowed);
+        if (!_allowed && allowedSenderSourceChainIds[_sender] != 0) {
+            delete allowedSenderSourceChainIds[_sender];
+            emit AllowedSenderSourceChainUpdated(_sender, false, 0);
+        }
         if (!_allowed && allowedSenderWormholeChainIds[_sender] != 0) {
             delete allowedSenderWormholeChainIds[_sender];
             emit AllowedSenderWormholeChainUpdated(_sender, 0);
@@ -581,12 +586,16 @@ contract L1BTCRedeemerWormhole is
             rebateContext
         );
 
+        IBridgeTypes.RedemptionRequest memory redemption = thresholdBridge
+            .pendingRedemptions(redemptionKey);
+
         uint256 amountSat = completedTransfer.amount / SATOSHI_MULTIPLIER;
         require(amountSat <= type(uint64).max, "Amount too large");
         timedOutRedemptionRefunds[redemptionKey] = TimedOutRedemptionRefund({
             l2User: payload.l2User,
             sourceChainId: completedTransfer.sourceChainId,
-            amountSat: uint64(amountSat)
+            amountSat: uint64(amountSat),
+            requestedAt: redemption.requestedAt
         });
 
         emit RedemptionRequested(
@@ -630,6 +639,10 @@ contract L1BTCRedeemerWormhole is
         require(
             timedOutRedemption.requestedAmount == refund.amountSat,
             "Wrong timeout refund amount"
+        );
+        require(
+            timedOutRedemption.requestedAt == refund.requestedAt,
+            "Wrong timeout refund request"
         );
 
         TimeoutRefundRoute memory route = timeoutRefundRoutes[

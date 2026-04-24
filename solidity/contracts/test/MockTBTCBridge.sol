@@ -182,6 +182,23 @@ contract MockTBTCBridge is IBridge {
         return _timedOutRedemptions[redemptionKey];
     }
 
+    function setTimedOutRedemption(
+        uint256 redemptionKey,
+        address redeemer,
+        uint64 requestedAmount,
+        uint32 requestedAt
+    ) external {
+        _timedOutRedemptions[redemptionKey] = IBridgeTypes.RedemptionRequest({
+            redeemer: redeemer,
+            requestedAmount: requestedAmount,
+            treasuryFee: _redemptionTreasuryFeeDivisor > 0
+                ? requestedAmount / _redemptionTreasuryFeeDivisor
+                : 0,
+            txMaxFee: _redemptionTxMaxFee,
+            requestedAt: requestedAt
+        });
+    }
+
     function redemptionParameters()
         external
         view

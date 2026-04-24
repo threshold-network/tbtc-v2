@@ -127,6 +127,9 @@ contract MockL1BTCRedeemerWormhole is
     {
         allowedSenders[_sender] = _allowed;
         emit AllowedSenderUpdated(_sender, _allowed);
+        if (!_allowed) {
+            delete allowedSenderSourceChainIds[_sender];
+        }
         if (!_allowed && allowedSenderWormholeChainIds[_sender] != 0) {
             delete allowedSenderWormholeChainIds[_sender];
             emit AllowedSenderWormholeChainUpdated(_sender, 0);

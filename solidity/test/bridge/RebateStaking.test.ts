@@ -2081,5 +2081,34 @@ describe("RebateStaking", () => {
         ).to.be.equal(rebateCap.sub(rebateBAmount).sub(rebateCAmount))
       })
     })
+
+    context("when the start index was not advanced before transfer", () => {
+      before(async () => {
+        await createSnapshot()
+
+        await bridge.applyForRebate(thirdParty.address, rebateCap.div(4))
+        await increaseTime((await rebateStaking.rollingWindow()).toNumber() + 1)
+
+        await rebateStaking
+          .connect(deployer)
+          .forceStakeTransfer(thirdParty.address, governance.address)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should not copy stale rebates from a lazy rolling window index", async () => {
+        expect(
+          await rebateStaking.getRebateLength(governance.address)
+        ).to.be.equal(0)
+      })
+
+      it("should restore the full available rebate for the new staker", async () => {
+        expect(
+          await rebateStaking.getAvailableRebate(governance.address)
+        ).to.be.equal(rebateCap)
+      })
+    })
   })
 })

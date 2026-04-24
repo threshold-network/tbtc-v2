@@ -975,17 +975,26 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         newStake.unstakingAmount = oldStake.unstakingAmount;
         newStake.unstakingTimestamp = oldStake.unstakingTimestamp;
         newStake.rebateTreasuryFeeMode = oldStake.rebateTreasuryFeeMode;
-        // Only migrate the active rebate window. Anything before
-        // `rollingWindowStartIndex` has aged out and is never read again, so
-        // copying it would grow gas cost without bound for long-lived
-        // stakers. The copied window starts at index 0 in the new array.
+        // Only migrate the active rebate window. The start index is updated
+        // lazily during rebate operations, so use timestamps to find the first
+        // active entry even for stakers that have been inactive for a long time.
         newStake.rollingWindowStartIndex = 0;
         uint256 rebatesLength = oldStake.rebates.length;
-        for (
-            uint256 i = oldStake.rollingWindowStartIndex;
-            i < rebatesLength;
-            i++
-        ) {
+
+        /* solhint-disable-next-line not-rely-on-time */
+        uint256 windowStart = block.timestamp - rollingWindow;
+        uint256 low = oldStake.rollingWindowStartIndex;
+        uint256 high = rebatesLength;
+        while (low < high) {
+            uint256 mid = (low + high) / 2;
+            if (oldStake.rebates[mid].timestamp < windowStart) {
+                low = mid + 1;
+            } else {
+                high = mid;
+            }
+        }
+
+        for (uint256 i = low; i < rebatesLength; i++) {
             newStake.rebates.push(oldStake.rebates[i]);
         }
         if (oldStake.delegatee != address(0)) {
