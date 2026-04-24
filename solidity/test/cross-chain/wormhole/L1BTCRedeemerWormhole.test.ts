@@ -2028,14 +2028,18 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
 
       await l1BtcRedeemer.connect(governance).updateAllowedSender(sender, false)
 
-      expect(await l1BtcRedeemer.allowedSenderSourceChainIds(sender)).to.equal(0)
+      expect(await l1BtcRedeemer.allowedSenderSourceChainIds(sender)).to.equal(
+        0
+      )
     })
 
     it("should leave the source chain ID cleared after legacy re-enable", async () => {
       await l1BtcRedeemer.connect(governance).updateAllowedSender(sender, false)
       await l1BtcRedeemer.connect(governance).updateAllowedSender(sender, true)
 
-      expect(await l1BtcRedeemer.allowedSenderSourceChainIds(sender)).to.equal(0)
+      expect(await l1BtcRedeemer.allowedSenderSourceChainIds(sender)).to.equal(
+        0
+      )
     })
   })
 
