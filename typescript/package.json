@@ -39,6 +39,7 @@
     }
   },
   "scripts": {
+    "postinstall": "patch-package",
     "refund": "ts-node --files ./scripts/refund.ts",
     "format": "yarn run lint && prettier --check .",
     "format:fix": "yarn run lint:fix && prettier --write .",
@@ -97,6 +98,7 @@
     "eslint-config-keep": "github:keep-network/eslint-config-keep",
     "ethereum-waffle": "4.0.0-alpha.25",
     "mocha": "^9.0.2",
+    "patch-package": "8.0.0",
     "prettier": "^2.3.2",
     "sinon": "^20.0.0",
     "ts-node": "^10.8.0",
