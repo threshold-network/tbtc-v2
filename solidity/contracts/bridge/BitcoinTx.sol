@@ -234,12 +234,19 @@ library BitcoinTx {
     /// @notice Picks the relay epoch difficulty used as the baseline for SPV
     ///         accumulated-work checks. Walks past leading minimum-difficulty
     ///         headers (Bitcoin testnet4) until a header matches the relay's
-    ///         current or previous epoch difficulty.
+    ///         current or previous epoch difficulty. If every header in the
+    ///         chain is minimum-difficulty (possible on testnet4 for the whole
+    ///         confirmation window), returns difficulty 1 as the baseline: each
+    ///         header's work is still enforced by validateHeaderChain.
     function determineRequestedDifficulty(
         bytes memory bitcoinHeaders,
         uint256 currentEpochDifficulty,
         uint256 previousEpochDifficulty
     ) internal pure returns (uint256 requestedDiff) {
+        if (bitcoinHeaders.length == 0) {
+            revert("Not at current or previous difficulty");
+        }
+
         for (uint256 at = 0; at < bitcoinHeaders.length; at += 80) {
             uint256 target = bitcoinHeaders.extractTargetAt(at);
             if (target == MIN_DIFFICULTY_TARGET) {
@@ -257,7 +264,7 @@ library BitcoinTx {
             revert("Not at current or previous difficulty");
         }
 
-        revert("Not at current or previous difficulty");
+        return 1;
     }
 
     /// @notice Evaluates the given Bitcoin proof difficulty against the actual
