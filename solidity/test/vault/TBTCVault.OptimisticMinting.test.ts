@@ -561,15 +561,19 @@ describe("TBTCVault - OptimisticMinting", () => {
           })
         })
 
-        context("when the optimistic minting fee is zero", () => {
+        context("when the optimistic minting fee rounds to zero", () => {
           let tx: ContractTransaction
 
           before(async () => {
             await createSnapshot()
 
+            // Use type(uint32).max (4294967295) as the fee divisor so that
+            // integer division truncates the fee to zero for typical deposit
+            // amounts. This preserves the intent of testing zero-fee minting
+            // behavior while respecting the minimum fee divisor bound.
             await tbtcVault
               .connect(governance)
-              .beginOptimisticMintingFeeUpdate(0)
+              .beginOptimisticMintingFeeUpdate(4294967295)
             await increaseTime(86400) // 24h
             await tbtcVault
               .connect(governance)
@@ -594,17 +598,19 @@ describe("TBTCVault - OptimisticMinting", () => {
 
           // Output value is 20000 sat (0.0002 BTC).
           // Bridge deposit treasury fee is 0.05% (1/2000).
-          // Optimistic minting fee is 0.
+          // Optimistic minting fee divisor is 4294967295 (type(uint32).max).
           //
           // Bridge deposit treasury fee: 20000 / 2000 = 10 [sat]
           // Amount to mint: (20000 - 10) * 1e10 = 199900000000000 [1e18]
+          // Optimistic minting fee: 199900000000000 / 4294967295 = 0 [1e18]
+          //   (integer division truncates to zero)
           //
           // Bridge deposit treasury fee is allocated during the sweep.
           //
           // This all gives:
           //   0.0002 BTC deposited
           //   0.0000001 BTC as bridge deposit treasury fee
-          //   0 as TBTC optimistic minting fee
+          //   0 as TBTC optimistic minting fee (truncated)
           //   0.0001999 TBTC minted to the depositor
           //
           //   0.0000001 + 0.0001999 = 0.0002
@@ -738,79 +744,87 @@ describe("TBTCVault - OptimisticMinting", () => {
           })
         })
 
-        context("when both fees are zero", () => {
-          let tx: ContractTransaction
+        context(
+          "when bridge treasury fee is zero and optimistic minting fee rounds to zero",
+          () => {
+            let tx: ContractTransaction
 
-          before(async () => {
-            await createSnapshot()
+            before(async () => {
+              await createSnapshot()
 
-            await bridgeGovernance
-              .connect(governance)
-              .beginDepositTreasuryFeeDivisorUpdate(0)
-            await tbtcVault
-              .connect(governance)
-              .beginOptimisticMintingFeeUpdate(0)
-            await increaseTime(constants.governanceDelay)
-            await tbtcVault
-              .connect(governance)
-              .finalizeOptimisticMintingFeeUpdate()
-            await bridgeGovernance
-              .connect(governance)
-              .finalizeDepositTreasuryFeeDivisorUpdate()
+              await bridgeGovernance
+                .connect(governance)
+                .beginDepositTreasuryFeeDivisorUpdate(0)
+              // Use type(uint32).max so that integer division truncates the
+              // optimistic minting fee to zero while respecting the minimum
+              // fee divisor bound.
+              await tbtcVault
+                .connect(governance)
+                .beginOptimisticMintingFeeUpdate(4294967295)
+              await increaseTime(constants.governanceDelay)
+              await tbtcVault
+                .connect(governance)
+                .finalizeOptimisticMintingFeeUpdate()
+              await bridgeGovernance
+                .connect(governance)
+                .finalizeDepositTreasuryFeeDivisorUpdate()
 
-            await bridge
-              .connect(depositor)
-              .revealDeposit(fundingTx, depositRevealInfo)
+              await bridge
+                .connect(depositor)
+                .revealDeposit(fundingTx, depositRevealInfo)
 
-            await tbtcVault
-              .connect(minter)
-              .requestOptimisticMint(fundingTxHash, fundingOutputIndex)
-            await increaseTime(await tbtcVault.optimisticMintingDelay())
-            tx = await tbtcVault
-              .connect(minter)
-              .finalizeOptimisticMint(fundingTxHash, fundingOutputIndex)
-          })
+              await tbtcVault
+                .connect(minter)
+                .requestOptimisticMint(fundingTxHash, fundingOutputIndex)
+              await increaseTime(await tbtcVault.optimisticMintingDelay())
+              tx = await tbtcVault
+                .connect(minter)
+                .finalizeOptimisticMint(fundingTxHash, fundingOutputIndex)
+            })
 
-          after(async () => {
-            await restoreSnapshot()
-          })
+            after(async () => {
+              await restoreSnapshot()
+            })
 
-          // Output value is 20000.
-          // Bridge deposit treasury fee is 0.
-          // Optimistic minting fee is 0.
+            // Output value is 20000.
+            // Bridge deposit treasury fee is 0.
+            // Optimistic minting fee divisor is 4294967295 (type(uint32).max).
+            // Optimistic minting fee: 200000000000000 / 4294967295 = 0
+            //   (integer division truncates to zero)
 
-          it("should mint TBTC to depositor", async () => {
-            // 20000 * 1e10 = 200000000000000 [1e18]
-            expect(await tbtc.balanceOf(depositor.address)).to.be.equal(
-              200000000000000
-            )
-          })
-
-          it("should incur optimistic mint debt", async () => {
-            expect(
-              await tbtcVault.optimisticMintingDebt(depositor.address)
-            ).to.be.equal(200000000000000)
-          })
-
-          it("should mark the request as finalized", async () => {
-            const request = await tbtcVault.optimisticMintingRequests(
-              depositKey
-            )
-            expect(request.requestedAt).to.not.be.equal(0)
-            expect(request.finalizedAt).to.be.equal(await lastBlockTime())
-          })
-
-          it("should emit an event", async () => {
-            await expect(tx)
-              .to.emit(tbtcVault, "OptimisticMintingFinalized")
-              .withArgs(
-                minter.address,
-                depositKey,
-                depositor.address,
+            it("should mint TBTC to depositor", async () => {
+              // 20000 * 1e10 = 200000000000000 [1e18]
+              expect(await tbtc.balanceOf(depositor.address)).to.be.equal(
                 200000000000000
               )
-          })
-        })
+            })
+
+            it("should incur optimistic mint debt", async () => {
+              expect(
+                await tbtcVault.optimisticMintingDebt(depositor.address)
+              ).to.be.equal(200000000000000)
+            })
+
+            it("should mark the request as finalized", async () => {
+              const request = await tbtcVault.optimisticMintingRequests(
+                depositKey
+              )
+              expect(request.requestedAt).to.not.be.equal(0)
+              expect(request.finalizedAt).to.be.equal(await lastBlockTime())
+            })
+
+            it("should emit an event", async () => {
+              await expect(tx)
+                .to.emit(tbtcVault, "OptimisticMintingFinalized")
+                .withArgs(
+                  minter.address,
+                  depositKey,
+                  depositor.address,
+                  200000000000000
+                )
+            })
+          }
+        )
       })
     })
   })
@@ -1379,6 +1393,22 @@ describe("TBTCVault - OptimisticMinting", () => {
       })
     })
 
+    context("when the new fee divisor is zero", () => {
+      it("should revert", async () => {
+        await expect(
+          tbtcVault.connect(governance).beginOptimisticMintingFeeUpdate(0)
+        ).to.be.revertedWith("New fee divisor must be >= minimum")
+      })
+    })
+
+    context("when the new fee divisor is below the minimum bound", () => {
+      it("should revert", async () => {
+        await expect(
+          tbtcVault.connect(governance).beginOptimisticMintingFeeUpdate(1)
+        ).to.be.revertedWith("New fee divisor must be >= minimum")
+      })
+    })
+
     context("when called by the governance", () => {
       let tx: ContractTransaction
 
@@ -1495,6 +1525,14 @@ describe("TBTCVault - OptimisticMinting", () => {
         await expect(
           tbtcVault.connect(thirdParty).beginOptimisticMintingDelayUpdate(60)
         ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+    })
+
+    context("when the new delay is zero", () => {
+      it("should revert", async () => {
+        await expect(
+          tbtcVault.connect(governance).beginOptimisticMintingDelayUpdate(0)
+        ).to.be.revertedWith("Optimistic minting delay must be > 0")
       })
     })
 

@@ -22,6 +22,7 @@ import "./BridgeState.sol";
 import "./Wallets.sol";
 
 import "../bank/Bank.sol";
+import "../vault/ITBTCVaultMigrationSweepHook.sol";
 
 /// @title Bridge deposit sweep
 /// @notice The library handles the logic for sweeping transactions revealed to
@@ -93,6 +94,15 @@ library DepositSweep {
     }
 
     event DepositsSwept(bytes20 walletPubKeyHash, bytes32 sweepTxHash);
+    event MigrationSweepCallbackFailed(
+        address indexed vault,
+        bytes32 indexed sweepTxHash
+    );
+    event MigrationSweepCallbackRetryFailed(
+        address indexed vault,
+        bytes32 indexed sweepTxHash,
+        address indexed revealer
+    );
 
     /// @notice Used by the wallet to prove the BTC deposit sweep transaction
     ///         and to update Bank balances accordingly. Sweep is only accepted
@@ -243,6 +253,13 @@ library DepositSweep {
                 inputsInfo.depositors,
                 inputsInfo.depositedAmounts
             );
+
+            notifyMigrationSweepCallback(
+                self,
+                vault,
+                sweepTxHash,
+                inputsInfo.depositors
+            );
         } else {
             // If the `vault` address is zero or belongs to a non-trusted
             // vault, increase balances in the Bank individually for each
@@ -256,6 +273,58 @@ library DepositSweep {
         // Pass the treasury fee to the treasury address.
         if (totalTreasuryFee > 0) {
             self.bank.increaseBalance(self.treasury, totalTreasuryFee);
+        }
+    }
+
+    function notifyMigrationSweepCallback(
+        BridgeState.Storage storage self,
+        address vault,
+        bytes32 sweepTxHash,
+        address[] memory revealers
+    ) internal {
+        if (vault != self.migrationDebtVault) {
+            return;
+        }
+
+        // Fail open to avoid blocking proven sweeps if the optional migration
+        // completion hook is not wired yet or is temporarily misconfigured.
+        // solhint-disable-next-line avoid-low-level-calls
+        (bool batchSuccess, ) = vault.call(
+            abi.encodeWithSelector(
+                ITBTCVaultMigrationSweepHook.notifyPendingMigrationSweep
+                    .selector,
+                sweepTxHash,
+                revealers
+            )
+        );
+
+        if (batchSuccess) {
+            return;
+        }
+
+        emit MigrationSweepCallbackFailed(vault, sweepTxHash);
+
+        // Best-effort fallback: retry each revealer in isolation so one bad
+        // entry cannot strand the whole completion batch.
+        for (uint256 i = 0; i < revealers.length; i++) {
+            // solhint-disable-next-line avoid-low-level-calls
+            (bool singleSuccess, ) = vault.call(
+                abi.encodeWithSelector(
+                    ITBTCVaultMigrationSweepHook
+                        .notifyPendingMigrationSweepForRevealer
+                        .selector,
+                    sweepTxHash,
+                    revealers[i]
+                )
+            );
+
+            if (!singleSuccess) {
+                emit MigrationSweepCallbackRetryFailed(
+                    vault,
+                    sweepTxHash,
+                    revealers[i]
+                );
+            }
         }
     }
 

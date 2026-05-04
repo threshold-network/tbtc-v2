@@ -12,6 +12,22 @@ const func: DeployFunction = async function resolveWalletRegistry(
   if (WalletRegistry && helpers.address.isValid(WalletRegistry.address)) {
     log(`using existing WalletRegistry at ${WalletRegistry.address}`)
   } else {
+    if (hre.network.tags.allowStubs) {
+      const { deployer } = await hre.getNamedAccounts()
+
+      const walletRegistryStub = await deployments.deploy("WalletRegistry", {
+        contract: "WalletRegistryStubForBridge",
+        from: deployer,
+        log: true,
+        waitConfirmations: 1,
+      })
+
+      log(
+        `deployed WalletRegistry stub for test network at ${walletRegistryStub.address}`
+      )
+      return
+    }
+
     throw new Error("deployed WalletRegistry contract not found")
   }
 }

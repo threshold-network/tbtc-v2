@@ -48,6 +48,11 @@ contract BridgeGovernance is Ownable {
     // governanceDelays[2] -> governanceDelayChangeInitiated
     uint256[3] public governanceDelays;
 
+    /// @notice The minimum allowed value for the governance delay. Prevents
+    ///         setting the delay to zero or near-zero values that would
+    ///         effectively disable timelocked governance parameter updates.
+    uint256 public constant MIN_GOVERNANCE_DELAY = 3600; // 1 hour
+
     uint256 public bridgeGovernanceTransferChangeInitiated;
     address internal newBridgeGovernance;
 
@@ -289,6 +294,10 @@ contract BridgeGovernance is Ownable {
     event TreasuryUpdated(address treasury);
 
     constructor(Bridge _bridge, uint256 _governanceDelay) {
+        require(
+            _governanceDelay >= MIN_GOVERNANCE_DELAY,
+            "Initial governance delay must be >= minimum"
+        );
         bridge = _bridge;
         governanceDelays[0] = _governanceDelay;
     }
@@ -305,6 +314,26 @@ contract BridgeGovernance is Ownable {
         bridge.setVaultStatus(vault, isTrusted);
     }
 
+    /// @notice Sets canonical migration debt vault used by Bridge reveal guard.
+    /// @param vault Address of trusted migration debt vault. Can be zero to
+    ///        disable canonical reveal guard checks.
+    function setMigrationDebtVault(address vault) external onlyOwner {
+        bridge.setMigrationDebtVault(vault);
+    }
+
+    /// @notice Atomically rotates canonical migration debt vault and untrusts
+    ///         the previous canonical vault.
+    /// @param newVault Address of new trusted migration debt vault. Can be
+    ///        zero to disable canonical reveal guard checks.
+    /// @param previousVault Canonical migration debt vault expected before
+    ///        rotation.
+    function rotateMigrationDebtVault(address newVault, address previousVault)
+        external
+        onlyOwner
+    {
+        bridge.rotateMigrationDebtVault(newVault, previousVault);
+    }
+
     /// @notice Allows the Governance to mark the given address as trusted
     ///         or no longer trusted SPV maintainer. Addresses are not trusted
     ///         as SPV maintainers by default.
@@ -318,15 +347,20 @@ contract BridgeGovernance is Ownable {
     }
 
     /// @notice Begins the governance delay update process.
-    /// @dev Can be called only by the contract owner. The event that informs about
-    ///      the start of the governance delay was skipped on purpose to trim
-    ///      the contract size. All the params inside of the `governanceDelays`
-    ///      array are public and can be easily fetched.
+    /// @dev Can be called only by the contract owner. The new governance delay
+    ///      must be at least `MIN_GOVERNANCE_DELAY`. The event that informs
+    ///      about the start of the governance delay was skipped on purpose to
+    ///      trim the contract size. All the params inside of the
+    ///      `governanceDelays` array are public and can be easily fetched.
     /// @param _newGovernanceDelay New governance delay
     function beginGovernanceDelayUpdate(uint256 _newGovernanceDelay)
         external
         onlyOwner
     {
+        require(
+            _newGovernanceDelay >= MIN_GOVERNANCE_DELAY,
+            "New governance delay must be >= minimum"
+        );
         governanceDelays[1] = _newGovernanceDelay;
         /* solhint-disable not-rely-on-time */
         governanceDelays[2] = block.timestamp;

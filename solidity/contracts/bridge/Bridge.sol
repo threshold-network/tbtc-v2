@@ -35,6 +35,7 @@ import "./MovingFunds.sol";
 
 import "../bank/IReceiveBalanceApproval.sol";
 import "../bank/Bank.sol";
+import "../vault/ITBTCVaultMigrationDebt.sol";
 
 /// @title Bitcoin Bridge
 /// @notice Bridge manages BTC deposit and redemption flow and is increasing and
@@ -63,6 +64,13 @@ contract Bridge is
     Initializable,
     IReceiveBalanceApproval
 {
+    error PreviousMigrationDebtVaultIsZero();
+    error PreviousMigrationDebtVaultMismatch(
+        address expected,
+        address actual
+    );
+    error MigrationDebtVaultUnchanged(address vault);
+
     using BridgeState for BridgeState.Storage;
     using Deposit for BridgeState.Storage;
     using DepositSweep for BridgeState.Storage;
@@ -180,6 +188,7 @@ contract Bridge is
     );
 
     event VaultStatusUpdated(address indexed vault, bool isTrusted);
+    event MigrationDebtVaultUpdated(address indexed migrationDebtVault);
 
     event SpvMaintainerStatusUpdated(
         address indexed spvMaintainer,
@@ -1281,6 +1290,17 @@ contract Bridge is
     ///      vaults not meeting the criteria would be able to nuke sweep proof
     ///      transactions executed by ECDSA wallet with  deposits routed to
     ///      them.
+    ///
+    ///      When untrusting a vault (`isTrusted == false`), two guards apply:
+    ///      1. The current canonical migration debt vault cannot be untrusted
+    ///         directly (must rotate or clear the canonical pointer first).
+    ///      2. Any vault implementing `ITBTCVaultMigrationDebt` that still
+    ///         reports outstanding debt via `hasOutstandingMigrationDebt()`
+    ///         cannot be untrusted. This prevents a two-step bypass where
+    ///         governance changes the canonical pointer away from a vault
+    ///         and then untrusts it while migration debt remains in-flight.
+    ///         The second guard uses a fail-open staticcall: vaults that do
+    ///         not implement the interface are unaffected.
     /// @param vault The address of the vault.
     /// @param isTrusted flag indicating whether the vault is trusted or not.
     /// @dev Can only be called by the Governance.
@@ -1288,8 +1308,106 @@ contract Bridge is
         external
         onlyGovernance
     {
+        require(
+            isTrusted || self.migrationDebtVault != vault,
+            "Vault is canonical migration debt vault"
+        );
+
+        if (!isTrusted) {
+            require(
+                !_hasOutstandingMigrationDebt(vault),
+                "Vault has outstanding migration debt"
+            );
+        }
+
         self.isVaultTrusted[vault] = isTrusted;
         emit VaultStatusUpdated(vault, isTrusted);
+    }
+
+    /// @notice Sets canonical migration debt vault used by reveal guard.
+    /// @param vault Address of trusted migration debt vault. Can be zero to
+    ///        disable canonical reveal guard checks.
+    /// @dev Can only be called by the Governance.
+    function setMigrationDebtVault(address vault) external onlyGovernance {
+        require(
+            vault == address(0) || self.isVaultTrusted[vault],
+            "Vault is not trusted"
+        );
+
+        self.migrationDebtVault = vault;
+        emit MigrationDebtVaultUpdated(vault);
+    }
+
+    /// @notice Atomically rotates canonical migration debt vault and untrusts
+    ///         the previous canonical vault.
+    /// @param newVault Address of new trusted migration debt vault. Can be
+    ///        zero to disable canonical reveal guard checks.
+    /// @param previousVault Canonical migration debt vault expected before
+    ///        rotation.
+    /// @dev Can only be called by the Governance. The previous vault must
+    ///      have no outstanding migration debt; otherwise the rotation
+    ///      reverts. This prevents orphaning in-flight migration state when
+    ///      the canonical vault pointer moves to a new vault. The debt
+    ///      check uses a fail-open staticcall: if the previous vault does
+    ///      not implement `ITBTCVaultMigrationDebt`, the guard is skipped.
+    function rotateMigrationDebtVault(address newVault, address previousVault)
+        external
+        onlyGovernance
+    {
+        if (previousVault == address(0)) {
+            revert PreviousMigrationDebtVaultIsZero();
+        }
+        if (previousVault != self.migrationDebtVault) {
+            revert PreviousMigrationDebtVaultMismatch(
+                self.migrationDebtVault,
+                previousVault
+            );
+        }
+        if (newVault == previousVault) {
+            revert MigrationDebtVaultUnchanged(newVault);
+        }
+        require(
+            newVault == address(0) || self.isVaultTrusted[newVault],
+            "Vault is not trusted"
+        );
+
+        require(
+            !_hasOutstandingMigrationDebt(previousVault),
+            "Previous vault has outstanding migration debt"
+        );
+
+        self.migrationDebtVault = newVault;
+        emit MigrationDebtVaultUpdated(newVault);
+
+        self.isVaultTrusted[previousVault] = false;
+        emit VaultStatusUpdated(previousVault, false);
+    }
+
+    /// @notice Queries whether a vault has outstanding migration debt using
+    ///         a fail-open staticcall to `ITBTCVaultMigrationDebt`.
+    /// @param vault The address to query.
+    /// @return True if the vault implements the migration debt interface and
+    ///         reports outstanding debt. Returns false when the staticcall
+    ///         fails (vault does not implement the interface) or when the
+    ///         vault reports no outstanding debt. This fail-open behaviour
+    ///         ensures backwards compatibility with vaults that predate the
+    ///         migration debt interface.
+    function _hasOutstandingMigrationDebt(address vault)
+        private
+        view
+        returns (bool)
+    {
+        (bool success, bytes memory data) = vault.staticcall(
+            abi.encodeWithSelector(
+                ITBTCVaultMigrationDebt
+                    .hasOutstandingMigrationDebt
+                    .selector
+            )
+        );
+        if (success && data.length >= 32) {
+            return abi.decode(data, (bool));
+        }
+        return false;
     }
 
     /// @notice Allows the Governance to mark the given address as trusted
@@ -1742,6 +1860,11 @@ contract Bridge is
     ///         address.
     function isVaultTrusted(address vault) external view returns (bool) {
         return self.isVaultTrusted[vault];
+    }
+
+    /// @notice Returns canonical migration debt vault used by reveal guard.
+    function migrationDebtVault() external view returns (address) {
+        return self.migrationDebtVault;
     }
 
     /// @notice Returns the current values of Bridge deposit parameters.

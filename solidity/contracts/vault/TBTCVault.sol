@@ -128,12 +128,15 @@ contract TBTCVault is IVault, Ownable, TBTCOptimisticMinting {
         for (uint256 i = 0; i < depositors.length; i++) {
             address depositor = depositors[i];
             uint256 satoshis = depositedSatoshiAmounts[i];
+            // Sweep proceeds repay optimistic debt first, then migration debt.
+            // Any remainder is minted as TBTC for the depositor.
+            uint256 amountAfterOptimisticDebt = repayOptimisticMintingDebt(
+                depositor,
+                satoshis * SATOSHI_MULTIPLIER
+            );
             _mint(
                 depositor,
-                repayOptimisticMintingDebt(
-                    depositor,
-                    satoshis * SATOSHI_MULTIPLIER
-                )
+                repayMigrationDebt(depositor, amountAfterOptimisticDebt)
             );
         }
     }

@@ -6,6 +6,7 @@ import type {
   BridgeGovernance,
   Bridge,
   MockBridgeWithRebateStaking,
+  MockMigrationDebtVault,
 } from "../../typechain"
 import { constants } from "../fixtures"
 import bridgeFixture from "../fixtures/bridge"
@@ -22,6 +23,23 @@ describe("Bridge - Governance", () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ governance, thirdParty, bridgeGovernance, bridge } =
       await waffle.loadFixture(bridgeFixture))
+  })
+
+  describe("constructor", () => {
+    it("rejects initial governance delay values below the minimum", async () => {
+      const paramsLib = await helpers.contracts.getContract(
+        "BridgeGovernanceParameters"
+      )
+      const govFactory = await ethers.getContractFactory("BridgeGovernance", {
+        libraries: {
+          BridgeGovernanceParameters: paramsLib.address,
+        },
+      })
+
+      await expect(
+        govFactory.connect(governance).deploy(bridge.address, 0)
+      ).to.be.revertedWith("Initial governance delay must be >= minimum")
+    })
   })
 
   describe("beginGovernanceDelayUpdate", () => {
@@ -41,7 +59,7 @@ describe("Bridge - Governance", () => {
 
         tx = await bridgeGovernance
           .connect(governance)
-          .beginGovernanceDelayUpdate(1337)
+          .beginGovernanceDelayUpdate(7200)
       })
 
       after(async () => {
@@ -51,6 +69,46 @@ describe("Bridge - Governance", () => {
       it("should not update the governance delay", async () => {
         expect(await bridgeGovernance.governanceDelays(0)).to.be.equal(
           constants.governanceDelay
+        )
+      })
+    })
+
+    // Minimum governance delay enforcement: the contract defines a
+    // MIN_GOVERNANCE_DELAY constant and rejects values below it.
+    const MIN_GOVERNANCE_DELAY = 3600
+
+    context("when the new governance delay is below the minimum", () => {
+      it("should revert when delay is zero", async () => {
+        await expect(
+          bridgeGovernance.connect(governance).beginGovernanceDelayUpdate(0)
+        ).to.be.revertedWith("New governance delay must be >= minimum")
+      })
+
+      it("should revert when delay is just below the minimum", async () => {
+        await expect(
+          bridgeGovernance
+            .connect(governance)
+            .beginGovernanceDelayUpdate(MIN_GOVERNANCE_DELAY - 1)
+        ).to.be.revertedWith("New governance delay must be >= minimum")
+      })
+    })
+
+    context("when the new governance delay meets the minimum", () => {
+      before(async () => {
+        await createSnapshot()
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should accept delay equal to the minimum", async () => {
+        await bridgeGovernance
+          .connect(governance)
+          .beginGovernanceDelayUpdate(MIN_GOVERNANCE_DELAY)
+
+        expect(await bridgeGovernance.governanceDelays(1)).to.be.equal(
+          MIN_GOVERNANCE_DELAY
         )
       })
     })
@@ -4426,6 +4484,72 @@ describe("Bridge - Governance", () => {
         await expect(tx)
           .to.emit(bridge, "VaultStatusUpdated")
           .withArgs(thirdParty.address, true)
+      })
+    })
+  })
+
+  describe("rotateMigrationDebtVault", () => {
+    let previousVault: MockMigrationDebtVault
+    let newVault: MockMigrationDebtVault
+
+    beforeEach(async () => {
+      const MockVaultFactory = await ethers.getContractFactory(
+        "MockMigrationDebtVault"
+      )
+      previousVault =
+        (await MockVaultFactory.deploy()) as MockMigrationDebtVault
+      newVault = (await MockVaultFactory.deploy()) as MockMigrationDebtVault
+    })
+
+    context("when the caller is not the owner", () => {
+      it("should revert", async () => {
+        await expect(
+          bridgeGovernance
+            .connect(thirdParty)
+            .rotateMigrationDebtVault(newVault.address, previousVault.address)
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+    })
+
+    context("when the caller is the owner", () => {
+      let tx: ContractTransaction
+
+      beforeEach(async () => {
+        await createSnapshot()
+
+        await bridgeGovernance
+          .connect(governance)
+          .setVaultStatus(previousVault.address, true)
+        await bridgeGovernance
+          .connect(governance)
+          .setVaultStatus(newVault.address, true)
+        await bridgeGovernance
+          .connect(governance)
+          .setMigrationDebtVault(previousVault.address)
+
+        tx = await bridgeGovernance
+          .connect(governance)
+          .rotateMigrationDebtVault(newVault.address, previousVault.address)
+      })
+
+      afterEach(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should update the canonical migration debt vault", async () => {
+        expect(await bridge.migrationDebtVault()).to.equal(newVault.address)
+      })
+
+      it("should untrust the previous vault", async () => {
+        expect(await bridge.isVaultTrusted(previousVault.address)).to.be.false
+      })
+
+      it("should emit Bridge rotation events", async () => {
+        await expect(tx)
+          .to.emit(bridge, "MigrationDebtVaultUpdated")
+          .withArgs(newVault.address)
+          .and.to.emit(bridge, "VaultStatusUpdated")
+          .withArgs(previousVault.address, false)
       })
     })
   })

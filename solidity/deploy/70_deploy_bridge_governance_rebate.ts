@@ -26,7 +26,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     }
   )
 
-  const GOVERNANCE_DELAY = hre.network.name === "sepolia" ? 60 : 172800
+  const GOVERNANCE_DELAY = hre.network.name === "sepolia" ? 3600 : 172800
 
   const bridgeGovernance = await deploy("BridgeGovernance", {
     contract: "BridgeGovernance",

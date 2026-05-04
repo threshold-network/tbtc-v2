@@ -20,8 +20,10 @@ import {BytesLib} from "@keep-network/bitcoin-spv-sol/contracts/BytesLib.sol";
 
 import "./BitcoinTx.sol";
 import "./BridgeState.sol";
+import "./MigrationExtraData.sol";
 import "./RebateStaking.sol";
 import "./Wallets.sol";
+import "../vault/ITBTCVaultMigrationDebt.sol";
 
 /// @title Bridge deposit
 /// @notice The library handles the logic for revealing Bitcoin deposits to
@@ -67,6 +69,21 @@ import "./Wallets.sol";
 library Deposit {
     using BTCUtils for bytes;
     using BytesLib for bytes;
+
+    bytes32 private constant MIGRATION_DEBT_MISSING_REASON =
+        bytes32("MIGRATION_DEBT_MISSING");
+    bytes32 private constant MIGRATION_TAG_REQUIRED_REASON =
+        bytes32("MIGRATION_TAG_REQUIRED");
+    bytes32 private constant MIGRATION_REVEALER_NOT_ALLOWED_REASON =
+        bytes32("MIGRATION_REVEALER_NOT_ALLOWED");
+    bytes32 private constant MIGRATION_REVEALER_MISMATCH_REASON =
+        bytes32("MIGRATION_REVEALER_MISMATCH");
+    bytes32 private constant MIGRATION_VAULT_CALL_FAILED_REASON =
+        bytes32("MIGRATION_VAULT_CALL_FAILED");
+    bytes32 private constant MIGRATION_VAULT_BAD_RESPONSE_REASON =
+        bytes32("MIGRATION_VAULT_BAD_RESPONSE");
+
+    error MigrationRevealRejected(bytes32 reasonCode);
 
     /// @notice Represents data which must be revealed by the depositor during
     ///         deposit reveal.
@@ -206,6 +223,51 @@ library Deposit {
             reveal.vault == address(0) || self.isVaultTrusted[reveal.vault],
             "Vault is not trusted"
         );
+
+        if (isMigrationReveal(extraData)) {
+            require(
+                reveal.vault != address(0) && self.isVaultTrusted[reveal.vault],
+                "Migration vault is not trusted"
+            );
+
+            if (msg.sender != decodeMigrationRevealer(extraData)) {
+                revert MigrationRevealRejected(
+                    MIGRATION_REVEALER_MISMATCH_REASON
+                );
+            }
+
+            (
+                bool isMigrationDebtEnabled,
+                bool isRegisteredMigrationRevealerInVault,
+                bytes32 isMigrationDebtLookupFailureReason
+            ) = getIsMigrationRevealer(reveal.vault, msg.sender);
+            if (!isMigrationDebtEnabled) {
+                revert MigrationRevealRejected(
+                    isMigrationDebtLookupFailureReason
+                );
+            }
+            if (!isRegisteredMigrationRevealerInVault) {
+                revert MigrationRevealRejected(
+                    MIGRATION_REVEALER_NOT_ALLOWED_REASON
+                );
+            }
+
+            (
+                bool canRevealMethodAvailable,
+                bool canReveal,
+                bytes32 canRevealLookupFailureReason
+            ) = getCanRevealMigration(reveal.vault, msg.sender);
+            if (!canRevealMethodAvailable) {
+                revert MigrationRevealRejected(canRevealLookupFailureReason);
+            }
+            if (!canReveal) {
+                revert MigrationRevealRejected(MIGRATION_DEBT_MISSING_REASON);
+            }
+        } else {
+            if (isRegisteredMigrationRevealer(self, reveal.vault, msg.sender)) {
+                revert MigrationRevealRejected(MIGRATION_TAG_REQUIRED_REASON);
+            }
+        }
 
         if (self.depositRevealAheadPeriod > 0) {
             validateDepositRefundLocktime(self, reveal.refundLocktime);
@@ -411,6 +473,163 @@ library Deposit {
         require(extraData != bytes32(0), "Extra data must not be empty");
 
         _revealDeposit(self, fundingTx, reveal, extraData);
+    }
+
+    function isMigrationReveal(bytes32 extraData)
+        internal
+        pure
+        returns (bool)
+    {
+        return bytes12(extraData) == MigrationExtraData.TAG;
+    }
+
+    function decodeMigrationRevealer(bytes32 extraData)
+        internal
+        pure
+        returns (address)
+    {
+        // Migration extraData packs a 12-byte tag in the high bits and the
+        // revealer address in the low 20 bytes.
+        return address(uint160(uint256(extraData)));
+    }
+
+    /// @notice Returns true when `revealer` is registered for migration debt in
+    ///         either the canonical migration debt vault or the per-deposit
+    ///         reveal vault.
+    /// @param self Bridge state providing the canonical migration debt vault.
+    /// @param revealVault Per-deposit vault specified in the reveal. Checked
+    ///        as a fallback when different from the canonical vault.
+    /// @param revealer Address whose migration-revealer registration is
+    ///        being queried.
+    /// @return True if `revealer` is registered in at least one checked vault.
+    /// @dev The canonical vault check has precedence and reflects the active
+    ///      Bridge-wide migration configuration. That lookup is fail-closed:
+    ///      if the staticcall fails the function reverts, because a failed
+    ///      response makes migration-tag enforcement indeterminate for the
+    ///      configured debt authority. The reveal-vault fallback is fail-open
+    ///      for backwards compatibility with trusted plain `IVault`
+    ///      implementations that do not expose migration-debt helpers.
+    function isRegisteredMigrationRevealer(
+        BridgeState.Storage storage self,
+        address revealVault,
+        address revealer
+    ) internal view returns (bool) {
+        address configuredMigrationDebtVault = self.migrationDebtVault;
+
+        if (configuredMigrationDebtVault != address(0)) {
+            (
+                bool staticcallSucceeded,
+                bool isRevealerRegisteredInConfiguredVault,
+                bytes32 configuredVaultLookupReason
+            ) = getIsMigrationRevealer(configuredMigrationDebtVault, revealer);
+
+            // Fail-closed: the canonical vault is the authoritative
+            // migration-debt source. A failed call makes enforcement
+            // indeterminate, so revert rather than treating the outcome
+            // as "not registered". The specific reason code returned by
+            // getIsMigrationRevealer is preserved so callers can
+            // distinguish CALL_FAILED from BAD_RESPONSE during incident
+            // triage.
+            if (!staticcallSucceeded) {
+                revert MigrationRevealRejected(configuredVaultLookupReason);
+            }
+            if (isRevealerRegisteredInConfiguredVault) {
+                return true;
+            }
+        }
+
+        if (
+            revealVault != address(0) &&
+            revealVault != configuredMigrationDebtVault
+        ) {
+            bool staticcallSucceeded;
+            bool isRevealerRegisteredInRevealVault;
+            (
+                staticcallSucceeded,
+                isRevealerRegisteredInRevealVault,
+
+            ) = getIsMigrationRevealer(revealVault, revealer);
+
+            if (staticcallSucceeded && isRevealerRegisteredInRevealVault) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// @notice Queries a vault for whether `revealer` can reveal a migration
+    ///         deposit via `ITBTCVaultMigrationDebt.canRevealMigration`.
+    /// @param vault Address of the vault contract to query.
+    /// @param revealer Address whose migration-reveal eligibility is checked.
+    /// @return staticcallSucceeded True when the staticcall completed and
+    ///         returned decodable data; false when the call reverted or
+    ///         returned malformed data.
+    /// @return canReveal The decoded boolean result from the vault when
+    ///         `staticcallSucceeded` is true; meaningless otherwise.
+    /// @return failureReason A descriptive reason code when
+    ///         `staticcallSucceeded` is false; `bytes32(0)` on success.
+    /// @dev Uses a low-level staticcall so that a missing or reverting
+    ///      implementation does not bubble up and can be handled by the
+    ///      caller.
+    function getCanRevealMigration(address vault, address revealer)
+        internal
+        view
+        returns (bool, bool, bytes32)
+    {
+        (bool success, bytes memory data) = vault.staticcall(
+            abi.encodeWithSelector(
+                ITBTCVaultMigrationDebt.canRevealMigration.selector,
+                revealer
+            )
+        );
+
+        if (!success) {
+            return (false, false, MIGRATION_VAULT_CALL_FAILED_REASON);
+        }
+        if (data.length < 32) {
+            return (false, false, MIGRATION_VAULT_BAD_RESPONSE_REASON);
+        }
+
+        return (true, abi.decode(data, (bool)), bytes32(0));
+    }
+
+    /// @notice Queries a vault for whether `revealer` is a registered
+    ///         migration revealer via
+    ///         `ITBTCVaultMigrationDebt.isMigrationRevealer`.
+    /// @param vault Address of the vault contract to query.
+    /// @param revealer Address whose migration-revealer registration is
+    ///        checked.
+    /// @return staticcallSucceeded True when the staticcall completed and
+    ///         returned decodable data; false when the call reverted or
+    ///         returned malformed data.
+    /// @return isRevealer The decoded boolean result from the vault when
+    ///         `staticcallSucceeded` is true; meaningless otherwise.
+    /// @return failureReason A descriptive reason code when
+    ///         `staticcallSucceeded` is false; `bytes32(0)` on success.
+    /// @dev Uses a low-level staticcall so that a missing or reverting
+    ///      implementation does not bubble up and can be handled by the
+    ///      caller.
+    function getIsMigrationRevealer(address vault, address revealer)
+        internal
+        view
+        returns (bool, bool, bytes32)
+    {
+        (bool success, bytes memory data) = vault.staticcall(
+            abi.encodeWithSelector(
+                ITBTCVaultMigrationDebt.isMigrationRevealer.selector,
+                revealer
+            )
+        );
+
+        if (!success) {
+            return (false, false, MIGRATION_VAULT_CALL_FAILED_REASON);
+        }
+        if (data.length < 32) {
+            return (false, false, MIGRATION_VAULT_BAD_RESPONSE_REASON);
+        }
+
+        return (true, abi.decode(data, (bool)), bytes32(0));
     }
 
     /// @notice Validates the deposit refund locktime. The validation passes

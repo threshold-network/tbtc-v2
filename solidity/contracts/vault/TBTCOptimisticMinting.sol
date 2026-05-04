@@ -17,7 +17,11 @@ pragma solidity 0.8.17;
 
 import "../bridge/Bridge.sol";
 import "../bridge/Deposit.sol";
+import "../bridge/MigrationExtraData.sol";
 import "../GovernanceUtils.sol";
+import "./ITBTCVaultMigrationDebt.sol";
+import "./TBTCMigrationDebtOperations.sol";
+import "./ITBTCVaultMigrationSweepNotifier.sol";
 
 /// @title TBTC Optimistic Minting
 /// @notice The Optimistic Minting mechanism allows to mint TBTC before
@@ -31,7 +35,9 @@ import "../GovernanceUtils.sol";
 /// @dev This functionality is a part of `TBTCVault`. It is implemented in
 ///      a separate abstract contract to achieve better separation of concerns
 ///      and easier-to-follow code.
-abstract contract TBTCOptimisticMinting is Ownable {
+abstract contract TBTCOptimisticMinting is Ownable, ITBTCVaultMigrationDebt {
+    uint256 public constant MAX_MIGRATION_SWEEP_BATCH_SIZE = 100;
+
     // Represents optimistic minting request for the given deposit revealed
     // to the Bridge.
     struct OptimisticMintingRequest {
@@ -48,6 +54,12 @@ abstract contract TBTCOptimisticMinting is Ownable {
 
     /// @notice Multiplier to convert satoshi to TBTC token units.
     uint256 public constant SATOSHI_MULTIPLIER = 10**10;
+
+    /// @notice The minimum allowed value for the optimistic minting fee
+    ///         divisor. Prevents setting the divisor to zero or near-zero
+    ///         values that would result in excessively high fee rates.
+    ///         A divisor of 10 means the maximum allowed fee rate is 10%.
+    uint32 public constant MIN_OPTIMISTIC_MINTING_FEE_DIVISOR = 10;
 
     Bridge public immutable bridge;
 
@@ -119,6 +131,49 @@ abstract contract TBTCOptimisticMinting is Ownable {
     ///         delay started. Zero if update is not in progress.
     uint256 public optimisticMintingDelayUpdateInitiatedTimestamp;
 
+    /// @notice Migration debt value per migration revealer address.
+    /// @dev This storage is append-only to preserve upgrade safety.
+    mapping(address => uint256) public override migrationDebt;
+
+    /// @notice Indicates whether the address is allowed to reveal migration
+    ///         deposits.
+    /// @dev This storage is append-only to preserve upgrade safety.
+    mapping(address => bool) public override isMigrationRevealer;
+
+    /// @notice Address notified when a migration sweep finishes repaying the
+    ///         migration debt for a revealer.
+    /// @dev This storage is append-only to preserve upgrade safety.
+    address public migrationSweepNotifier;
+
+    /// @notice Reserve routed to the migration sweep notifier for the given
+    ///         revealer once its migration debt reaches zero.
+    /// @dev This storage is append-only to preserve upgrade safety.
+    mapping(address => address) public migrationSweepReserve;
+
+    /// @notice Indicates a revealer whose migration debt reached zero and is
+    ///         awaiting a sweep-derived completion callback.
+    /// @dev This storage is append-only to preserve upgrade safety.
+    mapping(address => bool) private pendingMigrationSweepCompletion;
+
+    /// @notice Tracks the number of revealers with nonzero outstanding
+    ///         migration debt. Incremented on registerMigrationDebt,
+    ///         decremented when a revealer's debt reaches zero via repayment
+    ///         or owner-authorized residual debt clear-out.
+    /// @dev This storage is append-only to preserve upgrade safety.
+    ///
+    ///      MIGRATION SAFETY: TBTCVault is deployed as a direct
+    ///      (non-proxy) contract, so replacing the vault requires
+    ///      deploying a new TBTCVault instance. A freshly-deployed
+    ///      TBTCVault starts with this counter at zero, which means
+    ///      `hasOutstandingMigrationDebt()` returns false on the new
+    ///      contract even when the prior contract still had in-flight
+    ///      revealer debt. Rotating TBTCVault MUST NOT occur while any
+    ///      revealer has nonzero `migrationDebt` on the current
+    ///      deployment; migration runbooks must snapshot outstanding
+    ///      debt on the current vault and replay it on the successor
+    ///      before the Bridge is repointed.
+    uint256 private _outstandingMigrationDebtCount;
+
     event OptimisticMintingRequested(
         address indexed minter,
         uint256 indexed depositKey,
@@ -155,6 +210,20 @@ abstract contract TBTCOptimisticMinting is Ownable {
 
     event OptimisticMintingDelayUpdateStarted(uint32 newOptimisticMintingDelay);
     event OptimisticMintingDelayUpdated(uint32 newOptimisticMintingDelay);
+    event MigrationSweepNotifierUpdated(
+        address indexed previousNotifier,
+        address indexed newNotifier
+    );
+    event MigrationSweepReserveUpdated(
+        address indexed revealer,
+        address indexed reserve
+    );
+    event MigrationSweepNotified(
+        address indexed revealer,
+        address indexed reserve,
+        bytes32 indexed sweepTxHash
+    );
+    event MigrationSweepCompletionPendingCleared(address indexed revealer);
 
     modifier onlyMinter() {
         require(isMinter[msg.sender], "Caller is not a minter");
@@ -163,6 +232,14 @@ abstract contract TBTCOptimisticMinting is Ownable {
 
     modifier onlyGuardian() {
         require(isGuardian[msg.sender], "Caller is not a guardian");
+        _;
+    }
+
+    modifier onlyOwnerOrBridge() {
+        require(
+            owner() == msg.sender || address(bridge) == msg.sender,
+            "Caller is not the owner or Bridge"
+        );
         _;
     }
 
@@ -256,6 +333,10 @@ abstract contract TBTCOptimisticMinting is Ownable {
         require(deposit.revealedAt != 0, "The deposit has not been revealed");
         require(deposit.sweptAt == 0, "The deposit is already swept");
         require(deposit.vault == address(this), "Unexpected vault address");
+        require(
+            !isMigrationReveal(deposit.extraData),
+            "Migration deposits can not use optimistic minting"
+        );
 
         /* solhint-disable-next-line not-rely-on-time */
         request.requestedAt = uint64(block.timestamp);
@@ -314,6 +395,10 @@ abstract contract TBTCOptimisticMinting is Ownable {
 
         Deposit.DepositRequest memory deposit = bridge.deposits(depositKey);
         require(deposit.sweptAt == 0, "The deposit is already swept");
+        require(
+            !isMigrationReveal(deposit.extraData),
+            "Migration deposits can not use optimistic minting"
+        );
 
         // Bridge, when sweeping, cuts a deposit treasury fee and splits
         // Bitcoin miner fee for the sweep transaction evenly between the
@@ -472,10 +557,17 @@ abstract contract TBTCOptimisticMinting is Ownable {
     ///         For example, if the fee needs to be 2% of each deposit,
     ///         the `optimisticMintingFeeDivisor` should be set to `50` because
     ///         `1/50 = 0.02 = 2%`.
-    /// @dev See the documentation for optimisticMintingFeeDivisor.
+    /// @dev The divisor is validated at both begin and finalize time. The
+    ///      begin-time check provides early feedback so governance does not
+    ///      wait the full delay only to have finalization revert. The
+    ///      finalize-time check is retained as defense-in-depth.
     function beginOptimisticMintingFeeUpdate(
         uint32 _newOptimisticMintingFeeDivisor
     ) external onlyOwner {
+        require(
+            _newOptimisticMintingFeeDivisor >= MIN_OPTIMISTIC_MINTING_FEE_DIVISOR,
+            "New fee divisor must be >= minimum"
+        );
         /* solhint-disable-next-line not-rely-on-time */
         optimisticMintingFeeUpdateInitiatedTimestamp = block.timestamp;
         newOptimisticMintingFeeDivisor = _newOptimisticMintingFeeDivisor;
@@ -483,11 +575,20 @@ abstract contract TBTCOptimisticMinting is Ownable {
     }
 
     /// @notice Finalizes the update process of the optimistic minting fee.
+    ///         The new fee divisor must be at or above
+    ///         `MIN_OPTIMISTIC_MINTING_FEE_DIVISOR` to prevent excessively
+    ///         high fee rates.
+    /// @dev Defense-in-depth: validated at both begin and finalize time.
     function finalizeOptimisticMintingFeeUpdate()
         external
         onlyOwner
         onlyAfterGovernanceDelay(optimisticMintingFeeUpdateInitiatedTimestamp)
     {
+        require(
+            newOptimisticMintingFeeDivisor >= MIN_OPTIMISTIC_MINTING_FEE_DIVISOR,
+            "New fee divisor must be >= minimum"
+        );
+
         optimisticMintingFeeDivisor = newOptimisticMintingFeeDivisor;
         emit OptimisticMintingFeeUpdated(newOptimisticMintingFeeDivisor);
 
@@ -496,9 +597,17 @@ abstract contract TBTCOptimisticMinting is Ownable {
     }
 
     /// @notice Begins the process of updating optimistic minting delay.
+    /// @dev The delay is validated at both begin and finalize time. The
+    ///      begin-time check provides early feedback so governance does not
+    ///      wait the full delay only to have finalization revert. The
+    ///      finalize-time check is retained as defense-in-depth.
     function beginOptimisticMintingDelayUpdate(
         uint32 _newOptimisticMintingDelay
     ) external onlyOwner {
+        require(
+            _newOptimisticMintingDelay > 0,
+            "Optimistic minting delay must be > 0"
+        );
         /* solhint-disable-next-line not-rely-on-time */
         optimisticMintingDelayUpdateInitiatedTimestamp = block.timestamp;
         newOptimisticMintingDelay = _newOptimisticMintingDelay;
@@ -506,16 +615,201 @@ abstract contract TBTCOptimisticMinting is Ownable {
     }
 
     /// @notice Finalizes the update process of the optimistic minting delay.
+    ///         The new delay must be greater than zero to preserve the
+    ///         guardian review window for optimistic minting requests.
+    /// @dev Defense-in-depth: validated at both begin and finalize time.
     function finalizeOptimisticMintingDelayUpdate()
         external
         onlyOwner
         onlyAfterGovernanceDelay(optimisticMintingDelayUpdateInitiatedTimestamp)
     {
+        require(
+            newOptimisticMintingDelay > 0,
+            "Optimistic minting delay must be > 0"
+        );
+
         optimisticMintingDelay = newOptimisticMintingDelay;
         emit OptimisticMintingDelayUpdated(newOptimisticMintingDelay);
 
         newOptimisticMintingDelay = 0;
         optimisticMintingDelayUpdateInitiatedTimestamp = 0;
+    }
+
+    /// @inheritdoc ITBTCVaultMigrationDebt
+    /// @dev Only callable by the contract owner. Verifies this vault is
+    ///      the Bridge's canonical migration debt vault via
+    ///      `requireCanonicalMigrationDebtVault()`.
+    ///
+    ///      Over-registration scenario: when `amount` exceeds the actual
+    ///      post-fee sweep proceeds for this revealer, a residual positive
+    ///      debt remains after all migration deposits are swept. The vault
+    ///      still holds positive `migrationDebt[revealer]` and
+    ///      `canRevealMigration()` continues to return true (since
+    ///      `migrationDebt > 0`), but no further deposits should be
+    ///      revealed. The reserve transitions to MIGRATED state through
+    ///      an owner-initiated `notifyMigrationSweep` call on the
+    ///      strategy contract, which does not require zero vault debt.
+    ///      The owner can later call `clearMigrationDebt` to close out the
+    ///      residual debt once migration completion is confirmed.
+    ///
+    ///      Under-registration scenario: when `amount` is less than the
+    ///      actual post-fee sweep proceeds, the excess
+    ///      (`proceeds - debt`) is minted as tBTC. This results in more
+    ///      tBTC in circulation than intended for the migration.
+    function registerMigrationDebt(address revealer, uint256 amount)
+        external
+        override
+        onlyOwner
+    {
+        requireCanonicalMigrationDebtVault();
+        // Guard the counter invariant locally: the counter assumes each
+        // successful registration adds exactly one new revealer. This
+        // duplicates the check in TBTCMigrationDebtOperations.registerDebt
+        // as defense-in-depth against future library refactoring. The
+        // error string is intentionally distinct from the library guard's
+        // string so post-incident triage can identify which layer fired.
+        require(
+            migrationDebt[revealer] == 0,
+            "Migration debt already registered (counter invariant)"
+        );
+        TBTCMigrationDebtOperations.registerDebt(
+            migrationDebt,
+            revealer,
+            amount
+        );
+        _outstandingMigrationDebtCount++;
+        emit MigrationDebtRegistered(revealer, amount);
+    }
+
+    /// @inheritdoc ITBTCVaultMigrationDebt
+    function clearMigrationDebt(address revealer) external override onlyOwner {
+        uint256 debt = migrationDebt[revealer];
+        require(debt > 0, "Migration debt not registered");
+
+        migrationDebt[revealer] = 0;
+        _outstandingMigrationDebtCount--;
+
+        if (pendingMigrationSweepCompletion[revealer]) {
+            pendingMigrationSweepCompletion[revealer] = false;
+            emit MigrationSweepCompletionPendingCleared(revealer);
+        }
+
+        if (isMigrationRevealer[revealer]) {
+            isMigrationRevealer[revealer] = false;
+            emit MigrationRevealerSet(revealer, false);
+        }
+
+        emit MigrationDebtCleared(revealer, debt);
+    }
+
+    /// @inheritdoc ITBTCVaultMigrationDebt
+    function setMigrationRevealer(address revealer, bool allowed)
+        external
+        override
+        onlyOwner
+    {
+        if (allowed) {
+            requireCanonicalMigrationDebtVault();
+        } else {
+            // Prevent de-registering a revealer while they still hold
+            // outstanding migration debt. Doing so would silently block
+            // migration sweep completion for that revealer.
+            require(
+                migrationDebt[revealer] == 0,
+                "Revealer has outstanding migration debt"
+            );
+        }
+        TBTCMigrationDebtOperations.setRevealer(
+            isMigrationRevealer,
+            revealer,
+            allowed
+        );
+
+        emit MigrationRevealerSet(revealer, allowed);
+    }
+
+    function setMigrationSweepNotifier(address notifier) external onlyOwner {
+        address previousNotifier = migrationSweepNotifier;
+        migrationSweepNotifier = notifier;
+
+        emit MigrationSweepNotifierUpdated(previousNotifier, notifier);
+    }
+
+    function setMigrationSweepReserve(address revealer, address reserve)
+        external
+        onlyOwner
+    {
+        if (
+            TBTCMigrationDebtOperations.setSweepReserve(
+                migrationSweepReserve,
+                pendingMigrationSweepCompletion,
+                revealer,
+                reserve
+            )
+        ) {
+            emit MigrationSweepCompletionPendingCleared(revealer);
+        }
+
+        emit MigrationSweepReserveUpdated(revealer, reserve);
+    }
+
+    function notifyPendingMigrationSweep(
+        bytes32 sweepTxHash,
+        address[] calldata revealers
+    ) external onlyOwnerOrBridge {
+        require(sweepTxHash != bytes32(0), "Sweep tx hash must not be zero");
+        require(
+            revealers.length <= MAX_MIGRATION_SWEEP_BATCH_SIZE,
+            "Too many revealers in batch"
+        );
+
+        address notifier = migrationSweepNotifier;
+        if (notifier == address(0)) {
+            return;
+        }
+
+        for (uint256 i = 0; i < revealers.length; i++) {
+            _notifyPendingMigrationSweep(notifier, sweepTxHash, revealers[i]);
+        }
+    }
+
+    function notifyPendingMigrationSweepForRevealer(
+        bytes32 sweepTxHash,
+        address revealer
+    ) external onlyOwnerOrBridge {
+        require(sweepTxHash != bytes32(0), "Sweep tx hash must not be zero");
+
+        address notifier = migrationSweepNotifier;
+        if (notifier == address(0)) {
+            return;
+        }
+
+        _notifyPendingMigrationSweep(notifier, sweepTxHash, revealer);
+    }
+
+    /// @inheritdoc ITBTCVaultMigrationDebt
+    function canRevealMigration(address revealer)
+        external
+        view
+        override
+        returns (bool)
+    {
+        return isMigrationRevealer[revealer] && migrationDebt[revealer] > 0;
+    }
+
+    /// @inheritdoc ITBTCVaultMigrationDebt
+    /// @dev Called by Bridge.sol via staticcall during vault rotation and
+    ///      untrust operations. Slither flags it as dead code because no
+    ///      Solidity contract calls it directly; the call originates from
+    ///      a low-level staticcall in Bridge._hasOutstandingMigrationDebt.
+    // slither-disable-next-line dead-code
+    function hasOutstandingMigrationDebt()
+        external
+        view
+        override
+        returns (bool)
+    {
+        return _outstandingMigrationDebtCount > 0;
     }
 
     /// @notice Calculates deposit key the same way as the Bridge contract.
@@ -561,5 +855,74 @@ abstract contract TBTCOptimisticMinting is Ownable {
             emit OptimisticMintingDebtRepaid(depositor, debt - amount);
             return 0;
         }
+    }
+
+    /// @notice Used by `TBTCVault.receiveBalanceIncrease` to repay migration
+    ///         debt before TBTC is minted.
+    /// @dev The `amount` has already been reduced by Bridge fee deductions
+    ///      (per-deposit treasury fee and Bitcoin miner fee share) before
+    ///      reaching this function through the `receiveBalanceIncrease`
+    ///      callback. See `DepositSweep.submitDepositSweepProof` for the
+    ///      fee deduction logic. Emits
+    ///      `MigrationDebtRepaid(revealer, remainingDebt)`.
+    /// @param revealer Address used to reveal migration deposit.
+    /// @param amount The balance increase amount for the revealer,
+    ///        post-fee in 1e18 precision.
+    /// @return The TBTC amount that should be minted after paying off the
+    ///         migration debt.
+    function repayMigrationDebt(address revealer, uint256 amount)
+        internal
+        returns (uint256)
+    {
+        bool hadDebt = migrationDebt[revealer] > 0;
+
+        (uint256 mintableAmount, uint256 remainingDebt) = TBTCMigrationDebtOperations
+            .repayDebt(
+                migrationDebt,
+                pendingMigrationSweepCompletion,
+                revealer,
+                amount
+            );
+
+        // Decrement the outstanding counter when debt transitions to zero.
+        if (hadDebt && remainingDebt == 0) {
+            _outstandingMigrationDebtCount--;
+        }
+
+        emit MigrationDebtRepaid(revealer, remainingDebt);
+        return mintableAmount;
+    }
+
+    function _notifyPendingMigrationSweep(
+        address notifier,
+        bytes32 sweepTxHash,
+        address revealer
+    ) internal {
+        address reserve = TBTCMigrationDebtOperations.pullPendingSweepReserve(
+            migrationSweepReserve,
+            pendingMigrationSweepCompletion,
+            revealer
+        );
+        if (reserve == address(0)) {
+            return;
+        }
+
+        ITBTCVaultMigrationSweepNotifier(notifier).notifyMigrationSweep(
+            reserve,
+            sweepTxHash
+        );
+
+        emit MigrationSweepNotified(revealer, reserve, sweepTxHash);
+    }
+
+    function requireCanonicalMigrationDebtVault() internal view {
+        require(
+            bridge.migrationDebtVault() == address(this),
+            "Bridge migration debt vault mismatch"
+        );
+    }
+
+    function isMigrationReveal(bytes32 extraData) internal pure returns (bool) {
+        return bytes12(extraData) == MigrationExtraData.TAG;
     }
 }
