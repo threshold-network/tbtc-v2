@@ -90,6 +90,7 @@ describe("L2BTCRedeemerWormhole", () => {
           _tbtc.address,
           _gateway.address,
           toWormholeFormat(l1BtcRedeemerWormholeAddress),
+          l1ChainId,
         ],
         factoryOpts: { signer: _deployer },
         proxyOpts: { kind: "transparent" },
@@ -150,6 +151,12 @@ describe("L2BTCRedeemerWormhole", () => {
     it("should set the L1 BTC Redeemer Wormhole address", async () => {
       expect(await l2BtcRedeemer.l1BtcRedeemerWormholeAddress()).to.equal(
         toWormholeFormat(l1BtcRedeemerWormholeAddress)
+      )
+    })
+
+    it("should set the L1 BTC Redeemer Wormhole chain", async () => {
+      expect(await l2BtcRedeemer.l1BtcRedeemerWormholeChain()).to.equal(
+        l1ChainId
       )
     })
 
@@ -535,6 +542,21 @@ describe("L2BTCRedeemerWormhole", () => {
               exampleNonce
             )
         ).to.be.revertedWith("InvalidRedeemerOutputScript")
+      })
+    })
+
+    context("when recipient chain is not the configured L1 chain", () => {
+      it("should revert", async () => {
+        await expect(
+          l2BtcRedeemer
+            .connect(user)
+            .requestRedemption(
+              exampleAmount,
+              l1ChainId + 1,
+              exampleRedeemerOutputScript,
+              exampleNonce
+            )
+        ).to.be.revertedWith("InvalidRecipientChain")
       })
     })
 

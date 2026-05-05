@@ -70,6 +70,7 @@ contract L2BTCRedeemerWormhole is
     error InvalidRedeemerOutputScript();
     error AmountTooLowToRedeem();
     error MinimumRedemptionAmountZero();
+    error InvalidRecipientChain();
 
     using SafeERC20Upgradeable for IERC20Upgradeable;
     using BTCUtils for bytes;
@@ -90,6 +91,9 @@ contract L2BTCRedeemerWormhole is
     /// @notice The amount of tBTC that has been redeemed by this contract.
     uint256 public redeemedAmount;
 
+    /// @notice The Wormhole chain ID of the L1 Bitcoin redeemer.
+    uint16 public l1BtcRedeemerWormholeChain;
+
     event RedemptionRequestedOnL2(
         uint256 amount,
         bytes redeemerOutputScript,
@@ -101,7 +105,8 @@ contract L2BTCRedeemerWormhole is
     function initialize(
         address _tbtc,
         address _gateway,
-        bytes32 _l1BtcRedeemerWormholeAddress
+        bytes32 _l1BtcRedeemerWormholeAddress,
+        uint16 _l1BtcRedeemerWormholeChain
     ) external initializer {
         __Ownable_init();
         __ReentrancyGuard_init();
@@ -109,10 +114,12 @@ contract L2BTCRedeemerWormhole is
         if (address(_tbtc) == address(0)) revert ZeroAddress();
         if (address(_gateway) == address(0)) revert ZeroAddress();
         if (_l1BtcRedeemerWormholeAddress == bytes32(0)) revert ZeroAddress();
+        if (_l1BtcRedeemerWormholeChain == 0) revert InvalidRecipientChain();
 
         tbtc = IERC20Upgradeable(_tbtc);
         gateway = IL2WormholeGateway(_gateway);
         l1BtcRedeemerWormholeAddress = _l1BtcRedeemerWormholeAddress;
+        l1BtcRedeemerWormholeChain = _l1BtcRedeemerWormholeChain;
         minimumRedemptionAmount = 1e16; // 0.01 tBTC
     }
 
@@ -151,6 +158,10 @@ contract L2BTCRedeemerWormhole is
 
         if (redeemerOutputScriptPayload.length == 0) {
             revert InvalidRedeemerOutputScript();
+        }
+
+        if (recipientChain != l1BtcRedeemerWormholeChain) {
+            revert InvalidRecipientChain();
         }
 
         // Normalize the amount to bridge. The dust can not be bridged due to

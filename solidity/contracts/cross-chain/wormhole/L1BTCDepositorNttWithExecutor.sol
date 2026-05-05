@@ -892,11 +892,20 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
             "Real signed quote from Wormhole Executor API is required"
         );
         _validateSignedQuoteFormat(executorArgs.signedQuote);
+        _validateExecutorParameters(executorArgs, feeArgs);
 
-        // CRITICAL: Validate payment amount before calling NTT manager
+        // CRITICAL: Validate payment amount before calling NTT manager.
+        uint256 requiredPayment = nttManagerWithExecutor.quoteDeliveryPrice(
+            underlyingNttManager,
+            destinationChain,
+            "",
+            executorArgs,
+            feeArgs
+        );
+
         require(
-            msg.value >= executorArgs.value,
-            "Insufficient payment for executor service"
+            msg.value == requiredPayment,
+            "Incorrect payment for executor service"
         );
 
         // Approve the NttManagerWithExecutor to spend tBTC
@@ -980,6 +989,36 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     ) internal pure {
         require(signedQuote.length > 0, "Signed quote cannot be empty");
         require(signedQuote.length >= 32, "Signed quote too short");
+    }
+
+    /// @notice Validates user-provided executor parameters against owner defaults.
+    /// @param executorArgs Executor arguments supplied by the caller
+    /// @param feeArgs Fee arguments supplied by the caller
+    function _validateExecutorParameters(
+        ExecutorArgs memory executorArgs,
+        FeeArgs memory feeArgs
+    ) internal view {
+        require(
+            executorArgs.refundAddress == msg.sender,
+            "Executor refund address must be caller"
+        );
+        require(feeArgs.dbps <= MAX_BPS, "Fee cannot exceed 100% (10000 bps)");
+        require(
+            feeArgs.dbps == defaultExecutorFeeBps,
+            "Fee must match default executor fee"
+        );
+
+        if (feeArgs.dbps == 0) {
+            require(
+                feeArgs.payee == address(0),
+                "Fee payee must be zero when fee is zero"
+            );
+        } else {
+            require(
+                feeArgs.payee == defaultExecutorFeeRecipient,
+                "Fee payee must match default executor fee recipient"
+            );
+        }
     }
 
     /// @notice Generates a unique nonce for a user's parameter set
