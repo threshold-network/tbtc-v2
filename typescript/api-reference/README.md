@@ -1257,7 +1257,7 @@ Electrum script hash as a hex string.
 
 #### Defined in
 
-[src/lib/electrum/client.ts:780](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L780)
+[src/lib/electrum/client.ts:784](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L784)
 
 ___
 

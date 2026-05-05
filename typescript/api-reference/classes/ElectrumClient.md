@@ -139,7 +139,7 @@ ___
 
 #### Defined in
 
-[src/lib/electrum/client.ts:725](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L725)
+[src/lib/electrum/client.ts:728](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L728)
 
 ___
 
@@ -191,7 +191,7 @@ ___
 
 #### Defined in
 
-[src/lib/electrum/client.ts:739](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L739)
+[src/lib/electrum/client.ts:742](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L742)
 
 ___
 
@@ -218,7 +218,7 @@ ___
 
 #### Defined in
 
-[src/lib/electrum/client.ts:669](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L669)
+[src/lib/electrum/client.ts:672](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L672)
 
 ___
 
@@ -289,7 +289,7 @@ ___
 
 #### Defined in
 
-[src/lib/electrum/client.ts:480](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L480)
+[src/lib/electrum/client.ts:481](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L481)
 
 ___
 
@@ -341,7 +341,7 @@ ___
 
 #### Defined in
 
-[src/lib/electrum/client.ts:503](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L503)
+[src/lib/electrum/client.ts:505](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L505)
 
 ___
 
@@ -395,7 +395,7 @@ ___
 
 #### Defined in
 
-[src/lib/electrum/client.ts:688](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L688)
+[src/lib/electrum/client.ts:691](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L691)
 
 ___
 
@@ -421,7 +421,7 @@ ___
 
 #### Defined in
 
-[src/lib/electrum/client.ts:595](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L595)
+[src/lib/electrum/client.ts:598](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L598)
 
 ___
 
@@ -441,7 +441,7 @@ ___
 
 #### Defined in
 
-[src/lib/electrum/client.ts:653](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L653)
+[src/lib/electrum/client.ts:656](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L656)
 
 ___
 
