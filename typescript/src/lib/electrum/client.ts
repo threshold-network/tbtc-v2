@@ -447,7 +447,8 @@ export class ElectrumClient implements BitcoinClient {
       )
 
       // Decode the raw transaction.
-      const transaction = decodeTransaction(rawTransaction, transactionHash)
+      const transaction = decodeTransaction(rawTransaction)
+      verifyTransactionHash(transaction, transactionHash)
 
       const inputs = transaction.ins.map(
         (input: TxInput): BitcoinTxInput => ({
@@ -488,7 +489,8 @@ export class ElectrumClient implements BitcoinClient {
         }
       )
 
-      decodeTransaction(transaction, transactionHash)
+      const decodedTransaction = decodeTransaction(transaction)
+      verifyTransactionHash(decodedTransaction, transactionHash)
 
       return {
         transactionHex: transaction,
@@ -517,7 +519,8 @@ export class ElectrumClient implements BitcoinClient {
       )
 
       // Decode the raw transaction.
-      const transaction = decodeTransaction(rawTransaction, transactionHash)
+      const transaction = decodeTransaction(rawTransaction)
+      verifyTransactionHash(transaction, transactionHash)
 
       // As a workaround for the problem described in https://github.com/Blockstream/electrs/pull/36
       // we need to calculate the number of confirmations based on the latest
@@ -751,15 +754,18 @@ export class ElectrumClient implements BitcoinClient {
   }
 }
 
-function decodeTransaction(
-  rawTransaction: string,
-  expectedTransactionHash: BitcoinTxHash
-): Tx {
+function decodeTransaction(rawTransaction: string): Tx {
   if (!rawTransaction) {
     throw new Error(`Transaction not found`)
   }
 
-  const transaction = Tx.fromHex(rawTransaction)
+  return Tx.fromHex(rawTransaction)
+}
+
+function verifyTransactionHash(
+  transaction: Tx,
+  expectedTransactionHash: BitcoinTxHash
+): void {
   const actualTransactionHash = BitcoinTxHash.from(transaction.getId())
 
   if (actualTransactionHash.toString() !== expectedTransactionHash.toString()) {
@@ -767,8 +773,6 @@ function decodeTransaction(
       `Transaction hash mismatch: expected ${expectedTransactionHash.toString()}, got ${actualTransactionHash.toString()}`
     )
   }
-
-  return transaction
 }
 
 /**
