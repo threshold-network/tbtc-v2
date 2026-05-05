@@ -52,20 +52,23 @@ contract SepoliaLightRelay is LightRelay {
     }
 
     /// @inheritdoc LightRelay
-    function isValidPreRetargetTarget(
-        uint256 headerTarget,
-        uint256 oldTarget
-    ) internal override view returns (bool) {
-        return headerTarget == oldTarget ||
-            headerTarget == MIN_DIFFICULTY_TARGET;
+    function isValidPreRetargetTarget(uint256 headerTarget, uint256 oldTarget)
+        internal
+        view
+        override
+        returns (bool)
+    {
+        return
+            headerTarget == oldTarget || headerTarget == MIN_DIFFICULTY_TARGET;
     }
 
     /// @inheritdoc LightRelay
     function isValidPostRetargetTarget(
         uint256 headerTarget,
         uint256 minedTarget
-    ) internal override view returns (bool) {
-        return headerTarget == minedTarget ||
+    ) internal view override returns (bool) {
+        return
+            headerTarget == minedTarget ||
             headerTarget == MIN_DIFFICULTY_TARGET;
     }
 }

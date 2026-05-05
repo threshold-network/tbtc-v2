@@ -232,12 +232,13 @@ library BitcoinTx {
     }
 
     /// @notice Picks the relay epoch difficulty used as the baseline for SPV
-    ///         accumulated-work checks. Walks past leading minimum-difficulty
-    ///         headers (Bitcoin testnet4) until a header matches the relay's
-    ///         current or previous epoch difficulty. Reverts if no non-minimum-
-    ///         difficulty header is found whose difficulty matches the relay:
-    ///         callers must ensure the relay epoch reflects the proof headers
-    ///         (e.g. via SepoliaLightRelay.setDifficultyFromHeaders on testnet).
+    ///         accumulated-work checks. When the relay epoch is above minimum
+    ///         difficulty, walks past leading DIFF1 headers (Bitcoin testnet4
+    ///         BIP94) until a header matches the relay's current or previous
+    ///         epoch difficulty. Reverts if every header is skipped or the
+    ///         first non-DIFF1 header does not match the relay epoch. When the
+    ///         relay epoch is minimum difficulty (1), DIFF1 headers are not
+    ///         skipped and must match the epoch directly.
     function determineRequestedDifficulty(
         bytes memory bitcoinHeaders,
         uint256 currentEpochDifficulty,
@@ -249,7 +250,15 @@ library BitcoinTx {
 
         for (uint256 at = 0; at < bitcoinHeaders.length; at += 80) {
             uint256 target = bitcoinHeaders.extractTargetAt(at);
-            if (target == MIN_DIFFICULTY_TARGET) {
+            // Skip minimum-difficulty headers only when the relay epoch is
+            // above minimum difficulty. This allows testnet4 BIP94 DIFF1
+            // headers to be skipped in real epochs, while still accepting
+            // proofs in test/dev setups where the relay epoch is 1.
+            if (
+                target == MIN_DIFFICULTY_TARGET &&
+                currentEpochDifficulty > 1 &&
+                previousEpochDifficulty > 1
+            ) {
                 continue;
             }
 
