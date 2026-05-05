@@ -96,6 +96,13 @@ library BitcoinTx {
     using ValidateSPV for bytes;
     using ValidateSPV for bytes32;
 
+    /// @dev Bitcoin minimum-difficulty target (compact bits `0x1d00ffff`).
+    /// Bitcoin testnet4 may emit minimum-difficulty headers inside an epoch; the
+    /// first header(s) in an SPV chain can encode this target while later headers
+    /// use the relay's current or previous epoch difficulty.
+    uint256 private constant MIN_DIFFICULTY_TARGET =
+        0xffff0000000000000000000000000000000000000000000000000000;
+
     /// @notice Represents Bitcoin transaction data.
     struct Info {
         /// @notice Bitcoin transaction version.
@@ -224,6 +231,42 @@ library BitcoinTx {
         return txHash;
     }
 
+    /// @notice Picks the relay epoch difficulty used as the baseline for SPV
+    ///         accumulated-work checks. Walks past leading minimum-difficulty
+    ///         headers (Bitcoin testnet4) until a header matches the relay's
+    ///         current or previous epoch difficulty. Reverts if no non-minimum-
+    ///         difficulty header is found whose difficulty matches the relay:
+    ///         callers must ensure the relay epoch reflects the proof headers
+    ///         (e.g. via SepoliaLightRelay.setDifficultyFromHeaders on testnet).
+    function determineRequestedDifficulty(
+        bytes memory bitcoinHeaders,
+        uint256 currentEpochDifficulty,
+        uint256 previousEpochDifficulty
+    ) internal pure returns (uint256 requestedDiff) {
+        if (bitcoinHeaders.length == 0) {
+            revert("Not at current or previous difficulty");
+        }
+
+        for (uint256 at = 0; at < bitcoinHeaders.length; at += 80) {
+            uint256 target = bitcoinHeaders.extractTargetAt(at);
+            if (target == MIN_DIFFICULTY_TARGET) {
+                continue;
+            }
+
+            uint256 headerDiff = target.calculateDifficulty();
+            if (headerDiff == currentEpochDifficulty) {
+                return currentEpochDifficulty;
+            }
+            if (headerDiff == previousEpochDifficulty) {
+                return previousEpochDifficulty;
+            }
+
+            revert("Not at current or previous difficulty");
+        }
+
+        revert("Not at current or previous difficulty");
+    }
+
     /// @notice Evaluates the given Bitcoin proof difficulty against the actual
     ///         Bitcoin chain difficulty provided by the relay oracle.
     ///         Reverts in case the evaluation fails.
@@ -237,18 +280,11 @@ library BitcoinTx {
         uint256 currentEpochDifficulty = relay.getCurrentEpochDifficulty();
         uint256 previousEpochDifficulty = relay.getPrevEpochDifficulty();
 
-        uint256 requestedDiff = 0;
-        uint256 firstHeaderDiff = bitcoinHeaders
-            .extractTarget()
-            .calculateDifficulty();
-
-        if (firstHeaderDiff == currentEpochDifficulty) {
-            requestedDiff = currentEpochDifficulty;
-        } else if (firstHeaderDiff == previousEpochDifficulty) {
-            requestedDiff = previousEpochDifficulty;
-        } else {
-            revert("Not at current or previous difficulty");
-        }
+        uint256 requestedDiff = determineRequestedDifficulty(
+            bitcoinHeaders,
+            currentEpochDifficulty,
+            previousEpochDifficulty
+        );
 
         uint256 observedDiff = bitcoinHeaders.validateHeaderChain();
 
