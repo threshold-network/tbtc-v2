@@ -19,3 +19,4 @@
 # OpenZeppelin
 /.openzeppelin/unknown-*.json
 solcInputs/
+gasReporterOutput.json
