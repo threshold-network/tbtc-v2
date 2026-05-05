@@ -32,6 +32,11 @@ contract SepoliaLightRelay is LightRelay {
     using BTCUtils for bytes;
     using BTCUtils for uint256;
 
+    /// @dev Bitcoin minimum-difficulty target (compact bits `0x1d00ffff`).
+    /// Testnet4 emits blocks at this target when block spacing exceeds 20 min.
+    uint256 private constant MIN_DIFFICULTY_TARGET =
+        0xffff0000000000000000000000000000000000000000000000000000;
+
     /// @notice Sets the current and previous difficulty based on the difficulty
     ///         inferred from the provided Bitcoin headers.
     function setDifficultyFromHeaders(bytes memory bitcoinHeaders)
@@ -44,5 +49,23 @@ contract SepoliaLightRelay is LightRelay {
 
         currentEpochDifficulty = firstHeaderDiff;
         prevEpochDifficulty = firstHeaderDiff;
+    }
+
+    /// @inheritdoc LightRelay
+    function isValidPreRetargetTarget(
+        uint256 headerTarget,
+        uint256 oldTarget
+    ) internal override view returns (bool) {
+        return headerTarget == oldTarget ||
+            headerTarget == MIN_DIFFICULTY_TARGET;
+    }
+
+    /// @inheritdoc LightRelay
+    function isValidPostRetargetTarget(
+        uint256 headerTarget,
+        uint256 minedTarget
+    ) internal override view returns (bool) {
+        return headerTarget == minedTarget ||
+            headerTarget == MIN_DIFFICULTY_TARGET;
     }
 }

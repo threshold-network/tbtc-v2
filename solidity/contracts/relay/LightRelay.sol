@@ -196,6 +196,26 @@ contract LightRelay is Ownable, ILightRelay {
         emit SubmitterDeauthorized(submitter);
     }
 
+    /// @notice Returns whether a header target is valid in the pre-retarget
+    ///         portion of a retarget proof window.
+    /// @dev Override in testnet deployments to allow minimum-difficulty headers.
+    function isValidPreRetargetTarget(
+        uint256 headerTarget,
+        uint256 oldTarget
+    ) internal virtual view returns (bool) {
+        return headerTarget == oldTarget;
+    }
+
+    /// @notice Returns whether a header target is valid in the post-retarget
+    ///         portion of a retarget proof window.
+    /// @dev Override in testnet deployments to allow minimum-difficulty headers.
+    function isValidPostRetargetTarget(
+        uint256 headerTarget,
+        uint256 minedTarget
+    ) internal virtual view returns (bool) {
+        return headerTarget == minedTarget;
+    }
+
     /// @notice Add a new epoch to the relay by providing a proof
     /// of the difficulty before and after the retarget.
     /// @param headers A chain of headers including the last X blocks before
@@ -245,7 +265,7 @@ contract LightRelay is Ownable, ILightRelay {
             ) = validateHeader(headers, i * 80, previousHeaderDigest);
 
             require(
-                currentHeaderTarget == oldTarget,
+                isValidPreRetargetTarget(currentHeaderTarget, oldTarget),
                 "Invalid target in pre-retarget headers"
             );
 
@@ -317,7 +337,7 @@ contract LightRelay is Ownable, ILightRelay {
             } else {
                 // The new target has been set, so remaining targets should match.
                 require(
-                    _currentHeaderTarget == minedTarget,
+                    isValidPostRetargetTarget(_currentHeaderTarget, minedTarget),
                     "Unexpected target change after retarget"
                 );
             }
