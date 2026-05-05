@@ -40,9 +40,13 @@ contract Testnet4LightRelay is LightRelay {
     uint256 private constant DIFF1 = BTCUtils.DIFF1_TARGET;
 
     /// @inheritdoc LightRelay
-    function _isTolerableTarget(
-        uint256 target
-    ) internal view virtual override returns (bool) {
+    function _isTolerableTarget(uint256 target)
+        internal
+        view
+        virtual
+        override
+        returns (bool)
+    {
         return target == DIFF1;
     }
 }
