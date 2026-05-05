@@ -204,7 +204,7 @@ export class ElectrumClient implements BitcoinClient {
 
       try {
         await this.withBackoffRetrier()(async () => {
-          // FIXME: Connection timeout should be a property of the Electrum client.
+          // Connection timeout should be a property of the Electrum client.
           // Since it's not configurable in `electrum-client-js` we add timeout
           // as a workaround here.
           return pTimeout(
@@ -415,12 +415,10 @@ export class ElectrumClient implements BitcoinClient {
         this.getTransaction(BitcoinTxHash.from(item.tx_hash))
       )
 
-      const collectTxs = (results: PromiseSettledResult<BitcoinTx>[]) => {
-        const rejected = results.find((r) => r.status === "rejected")
-        if (rejected) throw (rejected as PromiseRejectedResult).reason
-        return results.map((r) => (r as PromiseFulfilledResult<BitcoinTx>).value)
-      }
-      return Promise.allSettled(transactions).then(collectTxs).catch((e: unknown) => { throw e })
+      const results = await Promise.allSettled(transactions)
+      const rejected = results.find((r) => r.status === "rejected")
+      if (rejected) throw (rejected as PromiseRejectedResult).reason
+      return results.map((r) => (r as PromiseFulfilledResult<BitcoinTx>).value)
     })
   }
 
