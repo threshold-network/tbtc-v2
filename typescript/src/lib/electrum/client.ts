@@ -1,4 +1,3 @@
-import * as crypto from "crypto"
 import { Transaction as Tx, TxInput, TxOutput } from "bitcoinjs-lib"
 import pTimeout from "p-timeout"
 import {
@@ -131,22 +130,14 @@ export class ElectrumClient implements BitcoinClient {
    * @returns Electrum client instance.
    */
   static fromDefaultConfig(network: BitcoinNetwork): ElectrumClient {
-    let file
-    switch (network) {
-      case BitcoinNetwork.Mainnet:
-        file = MainnetElectrumUrls
-        // prettier-ignore
-        break;
-      case BitcoinNetwork.Testnet:
-        file = TestnetElectrumUrls
-        // prettier-ignore
-        break;
-      case BitcoinNetwork.Testnet4:
-        file = Testnet4ElectrumUrls
-        // prettier-ignore
-        break;
-      default:
-        throw new Error("No default Electrum for given network")
+    const configs: Partial<Record<BitcoinNetwork, { urls: string[] }>> = {
+      [BitcoinNetwork.Mainnet]: MainnetElectrumUrls,
+      [BitcoinNetwork.Testnet]: TestnetElectrumUrls,
+      [BitcoinNetwork.Testnet4]: Testnet4ElectrumUrls,
+    }
+    const file = configs[network]
+    if (!file) {
+      throw new Error("No default Electrum for given network")
     }
 
     return ElectrumClient.fromUrl(file.urls)
@@ -326,11 +317,8 @@ export class ElectrumClient implements BitcoinClient {
         )
       }
       const headerBuf = Buffer.from(rawHeader, "hex")
-      const hash = crypto
-        .createHash("sha256")
-        .update(crypto.createHash("sha256").update(headerBuf).digest())
-        .digest()
-      genesisHash = Buffer.from(hash).reverse().toString("hex")
+      const hash = BitcoinHashUtils.computeHash256(Hex.from(headerBuf))
+      genesisHash = hash.toString().replace(/^0x/, "")
     }
 
     return BitcoinNetwork.fromGenesisHash(Hex.from(genesisHash))
@@ -427,13 +415,12 @@ export class ElectrumClient implements BitcoinClient {
         this.getTransaction(BitcoinTxHash.from(item.tx_hash))
       )
 
-      try {
-        return await Promise.all(transactions)
-      } catch (err) {
-        throw new Error(
-          `Failed to fetch transaction history for ${address}: ${err}`
-        )
+      const collectTxs = (results: PromiseSettledResult<BitcoinTx>[]) => {
+        const rejected = results.find((r) => r.status === "rejected")
+        if (rejected) throw (rejected as PromiseRejectedResult).reason
+        return results.map((r) => (r as PromiseFulfilledResult<BitcoinTx>).value)
       }
+      return Promise.allSettled(transactions).then(collectTxs).catch((e: unknown) => { throw e })
     })
   }
 
