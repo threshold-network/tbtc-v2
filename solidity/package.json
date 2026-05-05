@@ -79,7 +79,8 @@
   },
   "resolutions": {
     "ethereumjs-abi": "0.6.8",
-    "eth-sig-util/ethereumjs-abi": "0.6.8"
+    "eth-sig-util/ethereumjs-abi": "0.6.8",
+    "@openzeppelin/upgrades-core": "1.20.0"
   },
   "engines": {
     "node": ">=18.0.0"
