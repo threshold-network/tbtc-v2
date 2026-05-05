@@ -49,8 +49,7 @@ jobs:
       # command substitutes `///` + newline + `//` + newline with just `///` +
       # newline and does this in a loop.
       preProcessingCommand: >-
-        corepack enable &&
-        corepack prepare yarn@4.12.0 --activate &&
+        npm install --global yarn@4.12.0 &&
         sed -i ':a;N;$!ba;s_///\n//\n_///\n_g' ./contracts/bridge/BitcoinTx.sol
       publish: false
       addTOC: false
@@ -77,8 +76,7 @@ jobs:
       # command substitutes `///` + newline + `//` + newline with just `///` +
       # newline and does this in a loop.
       preProcessingCommand: >-
-        corepack enable &&
-        corepack prepare yarn@4.12.0 --activate &&
+        npm install --global yarn@4.12.0 &&
         sed -i ':a;N;$!ba;s_///\n//\n_///\n_g' ./contracts/bridge/BitcoinTx.sol
       publish: true
       addTOC: false
