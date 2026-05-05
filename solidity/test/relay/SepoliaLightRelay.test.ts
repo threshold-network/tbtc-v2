@@ -36,9 +36,9 @@ describe("SepoliaLightRelay", () => {
   let relay: any
 
   before(async () => {
-    const signers = await ethers.getSigners()
-    governance = signers[0]
-    other = signers[1]
+    const [g, o] = await ethers.getSigners()
+    governance = g
+    other = o
     const Factory = await ethers.getContractFactory("TestSepoliaLightRelay")
     relay = await Factory.deploy()
     await relay.deployed()
