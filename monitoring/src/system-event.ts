@@ -23,7 +23,7 @@ export type ReceiverId = string
 export interface SystemEventAck {
   receiverId: ReceiverId
   systemEvent: SystemEvent
-  status: "handled" | "ignored"
+  status: "handled" | "ignored" | "duplicate"
 }
 
 export interface Receiver {
@@ -96,7 +96,7 @@ class Deduplicator implements Receiver {
       return {
         receiverId: this.id(),
         systemEvent,
-        status: "ignored",
+        status: "duplicate",
       }
     }
 
@@ -125,6 +125,10 @@ export interface ManagerReport {
 
 // Our expectation on how deep can chain reorganization be.
 const reorgDepthBlocks = 12
+
+// Limit a single catch-up pass to keep stale checkpoints from producing
+// unbounded node queries and alert fanout.
+const maxBlockRange = 10000
 
 export class Manager {
   private monitors: Monitor[]
@@ -158,7 +162,7 @@ export class Manager {
       fromBlock =
         fromBlock - reorgDepthBlocks > 0 ? fromBlock - reorgDepthBlocks : 0
 
-      const toBlock = latestBlock
+      const toBlock = Math.min(latestBlock, fromBlock + maxBlockRange)
 
       const { systemEventsAcks, errors } = await this.check(fromBlock, toBlock)
 
@@ -189,7 +193,7 @@ export class Manager {
 
       if (errors.length === 0) {
         try {
-          await this.persistence.updateCheckpointBlock(latestBlock)
+          await this.persistence.updateCheckpointBlock(toBlock)
         } catch (error) {
           errors.push(`cannot update checkpoint block: ${error}`)
         }
@@ -256,6 +260,22 @@ export class Manager {
           errors.push(`cannot dispatch system event: ${result.reason}`)
           break
         }
+      }
+    })
+
+    const dispatchedSystemEventKeys = new Set(
+      systemEventsAcks
+        .filter((ack) => ack.status === "handled" || ack.status === "duplicate")
+        .map((ack) => Deduplicator.systemEventKey(ack.systemEvent))
+    )
+
+    systemEvents.forEach((systemEvent) => {
+      if (
+        !dispatchedSystemEventKeys.has(Deduplicator.systemEventKey(systemEvent))
+      ) {
+        errors.push(
+          `system event was not handled by any receiver: ${systemEvent.title}`
+        )
       }
     })
 

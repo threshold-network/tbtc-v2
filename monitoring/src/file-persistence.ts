@@ -9,6 +9,8 @@ import type {
   SystemEvent,
 } from "./system-event"
 
+const maxHandledSystemEventsPerReceiver = 5000
+
 export class SystemEventFilePersistence implements SystemEventPersistence {
   private readonly checkpointBlockPath = "/checkpointBlock"
 
@@ -46,7 +48,6 @@ export class SystemEventFilePersistence implements SystemEventPersistence {
     )
   }
 
-  // TODO: Consider deleting old events to optimize database file size.
   async storeHandledSystemEvents(
     systemEvents: Record<SystemEventReceiverId, SystemEvent[]>
   ): Promise<void> {
@@ -55,6 +56,9 @@ export class SystemEventFilePersistence implements SystemEventPersistence {
     Object.keys(systemEvents).forEach((receiverId) => {
       handledSystemEvents[receiverId] = handledSystemEvents[receiverId] ?? []
       handledSystemEvents[receiverId].push(...systemEvents[receiverId])
+      handledSystemEvents[receiverId] = handledSystemEvents[receiverId].slice(
+        -maxHandledSystemEventsPerReceiver
+      )
     })
 
     await this.db.push(this.handledSystemEventsPath, handledSystemEvents)
