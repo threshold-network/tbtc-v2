@@ -17,7 +17,7 @@ const SOME_TARGET = BigNumber.from(12345)
 
 // 80-byte synthetic header whose nBits (LE bytes 72-75) = ff ff 00 1d,
 // producing MIN_DIFFICULTY_TARGET and difficulty = 1.
-const DIFF1_HEADER = "0x" + "00".repeat(72) + "ffff001d" + "00000000"
+const DIFF1_HEADER = `0x${"00".repeat(72)}ffff001d00000000`
 
 // First 80 bytes of the mainnet headers from BitcoinTx.test.ts.
 // nBits LE = a1 19 28 17 -> difficulty 7019199231177.
@@ -36,7 +36,9 @@ describe("SepoliaLightRelay", () => {
   let relay: any
 
   before(async () => {
-    ;[governance, other] = await ethers.getSigners()
+    const signers = await ethers.getSigners()
+    governance = signers[0]
+    other = signers[1]
     const Factory = await ethers.getContractFactory("TestSepoliaLightRelay")
     relay = await Factory.deploy()
     await relay.deployed()
@@ -66,9 +68,7 @@ describe("SepoliaLightRelay", () => {
     context("when called by the owner with a normal-difficulty header", () => {
       before(async () => {
         await createSnapshot()
-        await relay
-          .connect(governance)
-          .setDifficultyFromHeaders(NORMAL_HEADER)
+        await relay.connect(governance).setDifficultyFromHeaders(NORMAL_HEADER)
       })
 
       after(async () => {

@@ -117,11 +117,7 @@ describe("BitcoinTx", () => {
   describe("determineRequestedDifficulty", () => {
     // 80-byte header with nBits = 0x1d00ffff (DIFF1 / minimum difficulty).
     // Bytes 72-75 in LE = ff ff 00 1d.  calculateDifficulty() returns 1.
-    const DIFF1_HEADER =
-      "0x" +
-      "00".repeat(72) + // version + prevHash + merkleRoot + time
-      "ffff001d" + // nBits (LE): 0x1d00ffff
-      "00000000" // nonce
+    const DIFF1_HEADER = `0x${"00".repeat(72)}ffff001d00000000`
 
     // First 80 bytes of the mainnet headers used in the validateProof test
     // above.  nBits LE = a1 19 28 17 -> difficulty 7019199231177.
@@ -170,21 +166,18 @@ describe("BitcoinTx", () => {
       })
     })
 
-    context(
-      "when a DIFF1 header is first and epoch difficulty is 1",
-      () => {
-        // When the relay epoch is minimum difficulty (1), DIFF1 headers are
-        // not skipped and must be accepted directly by matching epoch = 1.
-        it("returns 1 without skipping the DIFF1 header", async () => {
-          const result = await callDetermineRequestedDifficulty(
-            DIFF1_HEADER,
-            1, // epoch difficulty = 1 (minimum)
-            1
-          )
-          expect(result).to.equal(1)
-        })
-      }
-    )
+    context("when a DIFF1 header is first and epoch difficulty is 1", () => {
+      // When the relay epoch is minimum difficulty (1), DIFF1 headers are
+      // not skipped and must be accepted directly by matching epoch = 1.
+      it("returns 1 without skipping the DIFF1 header", async () => {
+        const result = await callDetermineRequestedDifficulty(
+          DIFF1_HEADER,
+          1,
+          1
+        )
+        expect(result).to.equal(1)
+      })
+    })
 
     context(
       "when a DIFF1 header precedes a normal header and epoch difficulty is above 1",
@@ -194,7 +187,7 @@ describe("BitcoinTx", () => {
         it("skips the DIFF1 header and returns the epoch difficulty", async () => {
           const twoHeaders = DIFF1_HEADER.slice(2) + NORMAL_HEADER.slice(2)
           const result = await callDetermineRequestedDifficulty(
-            "0x" + twoHeaders,
+            `0x${twoHeaders}`,
             NORMAL_DIFFICULTY,
             NORMAL_DIFFICULTY
           )
@@ -212,7 +205,7 @@ describe("BitcoinTx", () => {
           const twoHeaders = DIFF1_HEADER.slice(2) + DIFF1_HEADER.slice(2)
           await expect(
             callDetermineRequestedDifficulty(
-              "0x" + twoHeaders,
+              `0x${twoHeaders}`,
               NORMAL_DIFFICULTY,
               NORMAL_DIFFICULTY
             )
@@ -232,7 +225,11 @@ describe("BitcoinTx", () => {
     context("when the headers input is empty", () => {
       it("reverts", async () => {
         await expect(
-          callDetermineRequestedDifficulty("0x", NORMAL_DIFFICULTY, NORMAL_DIFFICULTY)
+          callDetermineRequestedDifficulty(
+            "0x",
+            NORMAL_DIFFICULTY,
+            NORMAL_DIFFICULTY
+          )
         ).to.be.revertedWith("Not at current or previous difficulty")
       })
     })
