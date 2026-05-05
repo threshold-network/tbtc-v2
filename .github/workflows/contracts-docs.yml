@@ -48,7 +48,10 @@ jobs:
       # `sed -i ':a;N;$!ba;s_///\n//\n_///\n_g'` on the problematic file. The
       # command substitutes `///` + newline + `//` + newline with just `///` +
       # newline and does this in a loop.
-      preProcessingCommand: sed -i ':a;N;$!ba;s_///\n//\n_///\n_g' ./contracts/bridge/BitcoinTx.sol
+      preProcessingCommand: >-
+        corepack enable &&
+        corepack prepare yarn@4.12.0 --activate &&
+        sed -i ':a;N;$!ba;s_///\n//\n_///\n_g' ./contracts/bridge/BitcoinTx.sol
       publish: false
       addTOC: false
       commentPR: false
@@ -73,7 +76,10 @@ jobs:
       # `sed -i ':a;N;$!ba;s_///\n//\n_///\n_g'` on the problematic file. The
       # command substitutes `///` + newline + `//` + newline with just `///` +
       # newline and does this in a loop.
-      preProcessingCommand: sed -i ':a;N;$!ba;s_///\n//\n_///\n_g' ./contracts/bridge/BitcoinTx.sol
+      preProcessingCommand: >-
+        corepack enable &&
+        corepack prepare yarn@4.12.0 --activate &&
+        sed -i ':a;N;$!ba;s_///\n//\n_///\n_g' ./contracts/bridge/BitcoinTx.sol
       publish: true
       addTOC: false
       verifyCommits: true
