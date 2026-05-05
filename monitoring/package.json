@@ -9,7 +9,8 @@
     "format": "yarn run lint && prettier --check .",
     "format:fix": "yarn run lint:fix && prettier --write .",
     "lint": "eslint . --ext .js,.ts",
-    "lint:fix": "eslint . --ext .js,.ts --fix"
+    "lint:fix": "eslint . --ext .js,.ts --fix",
+    "test": "tsc --project tsconfig.test.json && node dist-test/test/run.js"
   },
   "dependencies": {
     "@keep-network/tbtc-v2.ts": "v2.5.0-dev.5",
