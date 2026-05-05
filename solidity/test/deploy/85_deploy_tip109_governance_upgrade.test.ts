@@ -156,29 +156,26 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
       }
     })
 
-    it("should skip when DEPLOY_TIP109 is not set", async () => {
+    it("should always skip when DEPLOY_TIP109 is not set", async () => {
       const result = await func.skip!({} as any)
       expect(result).to.be.true
     })
 
-    it("should skip when DEPLOY_TIP109 is set to something other than true", async () => {
-      process.env.DEPLOY_TIP109 = "false"
-      const result = await func.skip!({} as any)
-      expect(result).to.be.true
-
-      process.env.DEPLOY_TIP109 = "yes"
-      const result2 = await func.skip!({} as any)
-      expect(result2).to.be.true
-
-      process.env.DEPLOY_TIP109 = "1"
-      const result3 = await func.skip!({} as any)
-      expect(result3).to.be.true
-    })
-
-    it("should not skip when DEPLOY_TIP109 is set to true", async () => {
+    it("should always skip when DEPLOY_TIP109 is set to true", async () => {
       process.env.DEPLOY_TIP109 = "true"
       const result = await func.skip!({} as any)
-      expect(result).to.be.false
+      expect(result).to.be.true
+    })
+
+    it("should always skip regardless of DEPLOY_TIP109 value", async () => {
+      process.env.DEPLOY_TIP109 = "false"
+      expect(await func.skip!({} as any)).to.be.true
+
+      process.env.DEPLOY_TIP109 = "yes"
+      expect(await func.skip!({} as any)).to.be.true
+
+      process.env.DEPLOY_TIP109 = "1"
+      expect(await func.skip!({} as any)).to.be.true
     })
   })
 

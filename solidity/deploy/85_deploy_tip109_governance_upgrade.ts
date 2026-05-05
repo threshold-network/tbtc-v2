@@ -1,3 +1,28 @@
+// ////////////////////////////////////////////////////////////////////////
+// DEPRECATED -- HISTORICAL UPGRADE
+//
+// The TIP-109 upgrade orchestrated by this script executed on mainnet.
+// Evidence:
+//   - Bridge proxy 0x5e4861a80B55f035D899f66772117F00FA0E8e7B
+//   - Initialized(5) emitted at block 24800704 in tx
+//     0x0d39bfdc49dd9d956b95f5040c32ac271abbae102dc917c164695896d67db08a
+//   - Slot 50 (_initialized) reads 0x05 on both mainnet and Sepolia, so
+//     reinitializer(5) is permanently consumed on both networks
+//     (OpenZeppelin Initializable does not decrement).
+//
+// The Bridge.initializeV5_RepairRebateStaking selector this script targets
+// is not declared in the Bridge source in this tree. Invoking this script
+// would deploy a fresh Bridge implementation and emit governance calldata
+// that reverts at execution because the targeted selector is absent.
+//
+// The exported encoder helpers (encodeRebateStakingUpgrade,
+// encodeBridgeUpgradeAndCall, encodeSetRebateStaking,
+// encodeBeginDepositTreasuryFeeDivisorUpdate) and their unit tests remain
+// valid as historical calldata-format regression coverage.
+//
+// Kept hard-disabled by func.skip for historical reference only.
+// ////////////////////////////////////////////////////////////////////////
+
 import fs from "fs"
 import path from "path"
 import https from "https"
@@ -689,6 +714,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 export default func
 
 func.tags = ["DeployTIP109GovernanceUpgrade"]
-// Set DEPLOY_TIP109=true when running the deployment.
-// yarn deploy --tags DeployTIP109GovernanceUpgrade --network <NETWORK>
-func.skip = async () => process.env.DEPLOY_TIP109 !== "true"
+// Hard-disabled: the targeted Bridge.initializeV5_RepairRebateStaking
+// selector is not declared in the Bridge source in this tree. Invoking
+// this script would deploy a fresh Bridge implementation and emit
+// governance calldata that reverts at execution. The exported encoder
+// helpers (encodeRebateStakingUpgrade, encodeBridgeUpgradeAndCall,
+// encodeSetRebateStaking, encodeBeginDepositTreasuryFeeDivisorUpdate)
+// remain importable as historical calldata-format regression coverage.
+func.skip = async () => true

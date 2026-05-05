@@ -1,15 +1,13 @@
 // ////////////////////////////////////////////////////////////////////////
 // DEPRECATED -- DO NOT USE FOR MAINNET GOVERNANCE UPGRADES
 //
-// This script uses ProxyAdmin.upgrade() instead of upgradeAndCall().
-// On mainnet, upgradeAndCall is required to atomically invoke the
-// initializeV5_RepairRebateStaking reinitializer during the proxy
-// upgrade. Without atomic initialization the stale RebateStaking
-// pointer remains active and the public reinitializer is exposed
-// to front-running.
+// This script uses ProxyAdmin.upgrade() and assumes the deployer EOA
+// controls the ProxyAdmin. On mainnet the ProxyAdmin is owned by a
+// governance Timelock, not any EOA, so this script cannot execute
+// upgrades through the production governance path.
 //
 // Suitable for local/testnet use where the deployer controls the
-// ProxyAdmin directly.
+// ProxyAdmin directly. Historical reference only.
 // ////////////////////////////////////////////////////////////////////////
 
 import { HardhatRuntimeEnvironment } from "hardhat/types"

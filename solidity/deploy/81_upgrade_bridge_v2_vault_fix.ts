@@ -1,42 +1,29 @@
+// ////////////////////////////////////////////////////////////////////////
+// DEPRECATED -- HISTORICAL UPGRADE
+//
+// The vault=0x0 deposit repair this script encodes executed on mainnet:
+//   - Bridge proxy 0x5e4861a80B55f035D899f66772117F00FA0E8e7B
+//   - DepositVaultFixed emitted at block 24282346 in tx
+//     0xa460f4b08ef9c73690cc52b75f852aea9ae8e319c2124b430cb3a07a8a8d3ca5
+//   - Initialized(2) emitted in the same tx; slot 50 (_initialized) reads
+//     0x05, so reinitializer(2) is permanently consumed on the live proxy
+//     (OpenZeppelin Initializable does not decrement).
+//
+// The Bridge.initializeV2_FixVaultZeroDeposit selector this script targets
+// is not declared in the Bridge source in this tree. Kept func.skip-gated
+// for historical reference only.
+// ////////////////////////////////////////////////////////////////////////
+
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
 
 /**
- * @notice This deployment script upgrades the Bridge contract to v2 with the
- *         vault=0x0 deposit fix. The fix is implemented as a reinitializer
- *         function that runs once during the upgrade.
- *
- * @dev IMPORTANT DEPLOYMENT NOTES:
- *
- * MAINNET:
- * - The upgrade MUST go through the Timelock contract (24h delay)
- * - Council multisig (6-of-9) schedules and executes via Timelock
- * - Timeline: ~36-40 hours total (schedule + 24h delay + execute)
- * - See consensus document for detailed rollout plan
- *
- * SEPOLIA (for upgrade mechanism testing):
- * - No Timelock required, direct EOA upgrade
- * - The reinitializer has MAINNET-SPECIFIC hardcoded values:
- *   - Deposit key: specific to the mainnet vault=0x0 deposit
- *   - TBTCVault: mainnet address (0x9C070027cdC9dc8F82416B2e5314E11DFb4FE3CD)
- * - On Sepolia, the reinitializer will FAIL if:
- *   - The deposit doesn't exist (revealedAt == 0)
- *   - The vault is already set (vault != 0x0)
- * - For testing on Sepolia, either:
- *   - Create a mock deposit with vault=0x0 first, OR
- *   - Use a mainnet fork (recommended for accurate testing)
- *
- * Context:
- * - Wallet 71bfad9a has a deposit with vault=0x0 that is blocking all sweeps
- * - This deposit was revealed on 2026-01-08 by depositor 0xe7c9a5298A2d2e48B5df3F9D361BA1469B0f436B
- * - The reinitializer fixes the deposit's vault to point to TBTCVault
- *
- * Usage:
- *   # For Sepolia (testing upgrade mechanism - will fail on reinitializer):
- *   yarn deploy --tags UpgradeBridgeVaultFix --network sepolia
- *
- *   # For Mainnet (production - requires Timelock):
- *   # See consensus document for Timelock-based deployment
+ * @notice Historical record of the Bridge v2 upgrade that repaired the
+ *         vault=0x0 deposit blocking sweeps for wallet 71bfad9a. The
+ *         repair executed on mainnet via the Timelock route; see the
+ *         DEPRECATED block at the top of this file for on-chain evidence.
+ *         This script body is kept in tree for provenance only and is
+ *         hard-disabled by func.skip.
  */
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { ethers, helpers, deployments, getNamedAccounts } = hre
@@ -154,7 +141,8 @@ export default func
 func.tags = ["UpgradeBridgeVaultFix"]
 func.dependencies = ["Bridge"]
 
-// IMPORTANT: Set to false when ready to deploy
-// When running the upgrade, set this to false and run:
-// yarn deploy --tags UpgradeBridgeVaultFix --network <NETWORK>
+// Hard-disabled: the targeted Bridge.initializeV2_FixVaultZeroDeposit
+// selector is not declared in the Bridge source in this tree, and the
+// on-chain repair has executed (see DEPRECATED header for evidence).
+// Kept for historical reference only.
 func.skip = async () => true
