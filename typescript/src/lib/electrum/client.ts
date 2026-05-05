@@ -446,12 +446,8 @@ export class ElectrumClient implements BitcoinClient {
         }
       )
 
-      if (!rawTransaction) {
-        throw new Error(`Transaction not found`)
-      }
-
       // Decode the raw transaction.
-      const transaction = Tx.fromHex(rawTransaction)
+      const transaction = decodeTransaction(rawTransaction, transactionHash)
 
       const inputs = transaction.ins.map(
         (input: TxInput): BitcoinTxInput => ({
@@ -492,6 +488,8 @@ export class ElectrumClient implements BitcoinClient {
         }
       )
 
+      decodeTransaction(transaction, transactionHash)
+
       return {
         transactionHex: transaction,
       }
@@ -519,7 +517,7 @@ export class ElectrumClient implements BitcoinClient {
       )
 
       // Decode the raw transaction.
-      const transaction = Tx.fromHex(rawTransaction)
+      const transaction = decodeTransaction(rawTransaction, transactionHash)
 
       // As a workaround for the problem described in https://github.com/Blockstream/electrs/pull/36
       // we need to calculate the number of confirmations based on the latest
@@ -705,6 +703,12 @@ export class ElectrumClient implements BitcoinClient {
           )
         })
 
+        if (merkle.block_height !== blockHeight) {
+          throw new Error(
+            `Merkle proof block height mismatch: expected ${blockHeight}, got ${merkle.block_height}`
+          )
+        }
+
         return {
           blockHeight: merkle.block_height,
           merkle: merkle.merkle.map((m) => Hex.from(m)),
@@ -745,6 +749,26 @@ export class ElectrumClient implements BitcoinClient {
       return BitcoinTxHash.from(txHash)
     })
   }
+}
+
+function decodeTransaction(
+  rawTransaction: string,
+  expectedTransactionHash: BitcoinTxHash
+): Tx {
+  if (!rawTransaction) {
+    throw new Error(`Transaction not found`)
+  }
+
+  const transaction = Tx.fromHex(rawTransaction)
+  const actualTransactionHash = BitcoinTxHash.from(transaction.getId())
+
+  if (actualTransactionHash.toString() !== expectedTransactionHash.toString()) {
+    throw new Error(
+      `Transaction hash mismatch: expected ${expectedTransactionHash.toString()}, got ${actualTransactionHash.toString()}`
+    )
+  }
+
+  return transaction
 }
 
 /**

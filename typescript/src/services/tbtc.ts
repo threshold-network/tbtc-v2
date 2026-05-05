@@ -365,13 +365,18 @@ export class TBTC extends TBTCCore {
         // prettier-ignore
         break;
       case "Solana":
+        const solanaChainId = chainMapping.solana
+        if (!solanaChainId) {
+          throw new Error("Solana chain ID not available in chain mapping")
+        }
         if (!signerOrEthereumSigner) {
           throw new Error("Solana provider is required")
         }
         this._l2Signer = signerOrEthereumSigner as AnchorProvider
         const { loadSolanaCrossChainInterfaces } = await import("../lib/solana")
         l2CrossChainContracts = await loadSolanaCrossChainInterfaces(
-          signerOrEthereumSigner as AnchorProvider
+          signerOrEthereumSigner as AnchorProvider,
+          solanaChainId
         )
         // prettier-ignore
         break;

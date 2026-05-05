@@ -1257,7 +1257,7 @@ Electrum script hash as a hex string.
 
 #### Defined in
 
-[src/lib/electrum/client.ts:756](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L756)
+[src/lib/electrum/client.ts:780](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L780)
 
 ___
 
@@ -1634,7 +1634,7 @@ ___
 
 ### loadSolanaCrossChainInterfaces
 
-▸ **loadSolanaCrossChainInterfaces**(`solanaProvider`): `Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
+▸ **loadSolanaCrossChainInterfaces**(`solanaProvider`, `genesisHash`): `Promise`\<[`DestinationChainInterfaces`](README.md#destinationchaininterfaces)\>
 
 Loads Solana implementation of tBTC cross-chain interfaces using
 an AnchorProvider (which includes the connection and the wallet).
@@ -1644,6 +1644,7 @@ an AnchorProvider (which includes the connection and the wallet).
 | Name | Type | Description |
 | :------ | :------ | :------ |
 | `solanaProvider` | `AnchorProvider` | Anchor provider for Solana. Must include both `connection` and `wallet`. |
+| `genesisHash` | [`Solana`](enums/Chains.Solana.md) | The expected Solana genesis hash (from `Chains.Solana.*`). |
 
 #### Returns
 

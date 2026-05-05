@@ -215,7 +215,7 @@ Cross-chain contracts for the given L2 chain or
 
 #### Defined in
 
-[src/services/tbtc.ts:402](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L402)
+[src/services/tbtc.ts:407](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L407)
 
 ___
 

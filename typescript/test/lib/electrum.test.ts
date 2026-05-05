@@ -207,6 +207,26 @@ describe("Electrum", () => {
     })
   })
 
+  describe("response validation", () => {
+    it("should reject a raw transaction that does not match the requested hash", async () => {
+      const client = new ElectrumClient([])
+      const wrongTransactionHash = BitcoinTxHash.from(
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      )
+
+      const clientWithMockedElectrum = client as any
+      clientWithMockedElectrum.withElectrum = async (action: any) =>
+        action({
+          blockchain_transaction_get: async () =>
+            testnetRawTransaction.transactionHex,
+        })
+
+      await expect(
+        client.getRawTransaction(wrongTransactionHash)
+      ).to.be.rejectedWith("Transaction hash mismatch")
+    })
+  })
+
   /**
    * This test suite is meant to check the behavior of the Electrum-based
    * Bitcoin client implementation. This suite requires an integration with a

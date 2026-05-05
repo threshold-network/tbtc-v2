@@ -45,7 +45,7 @@ export class SolanaDepositorInterface implements BitcoinDepositor {
   /**
    * @see {BitcoinDepositor#initializeDeposit}
    *
-   * This method calls the external service at `https://api.tbtcscan.org/reveal`
+   * This method calls the external service at `https://relayer.tbtcscan.com/api/reveal`
    * to trigger the deposit transaction via a relayer off-chain process.
    * It returns the resulting transaction hash as a Hex.
    */
@@ -66,19 +66,23 @@ export class SolanaDepositorInterface implements BitcoinDepositor {
       throw new Error("Extra data is required.")
     }
 
+    if (!this.#depositOwner) {
+      throw new Error("Deposit owner is required.")
+    }
+
     try {
       const response = await axios.post(
-        "http://relayer.tbtcscan.com/api/reveal",
+        "https://relayer.tbtcscan.com/api/reveal",
         {
           fundingTx,
           reveal,
           l2DepositOwner: extraData,
-          l2Sender: `0x${this.#depositOwner?.identifierHex}`,
+          l2Sender: `0x${this.#depositOwner.identifierHex}`,
         }
       )
 
       const { data } = response
-      if (!data.receipt) {
+      if (!isTransactionReceipt(data.receipt)) {
         throw new Error(
           `Unexpected response from /api/reveal: ${JSON.stringify(data)}`
         )
@@ -91,4 +95,13 @@ export class SolanaDepositorInterface implements BitcoinDepositor {
       throw error
     }
   }
+}
+
+function isTransactionReceipt(receipt: unknown): receipt is TransactionReceipt {
+  return (
+    typeof receipt === "object" &&
+    receipt !== null &&
+    typeof (receipt as TransactionReceipt).transactionHash === "string" &&
+    /^0x[0-9a-fA-F]{64}$/.test((receipt as TransactionReceipt).transactionHash)
+  )
 }
