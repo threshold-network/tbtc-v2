@@ -10,9 +10,10 @@ export function test(name: string, run: TestCase["run"]): void {
 }
 
 export async function runTests(): Promise<void> {
-  for (const testCase of tests) {
+  await tests.reduce(async (previousTest, testCase) => {
+    await previousTest
+
     try {
-      // eslint-disable-next-line no-await-in-loop
       await testCase.run()
       // eslint-disable-next-line no-console
       console.log(`ok - ${testCase.name}`)
@@ -21,5 +22,5 @@ export async function runTests(): Promise<void> {
       console.error(`not ok - ${testCase.name}`)
       throw error
     }
-  }
+  }, Promise.resolve())
 }

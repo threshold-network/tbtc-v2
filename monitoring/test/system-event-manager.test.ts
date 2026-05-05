@@ -1,15 +1,15 @@
 import assert from "assert"
 
-import {
-  Manager,
+import { Manager, SystemEventType } from "../src/system-event"
+
+import { test } from "./test-runner"
+
+import type {
   Monitor,
   Persistence,
   Receiver,
   SystemEvent,
-  SystemEventType,
 } from "../src/system-event"
-
-import { test } from "./test-runner"
 
 const systemEvent: SystemEvent = {
   title: "wallet is moving funds",

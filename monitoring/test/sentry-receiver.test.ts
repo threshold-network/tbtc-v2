@@ -3,9 +3,11 @@ import assert from "assert"
 import * as Sentry from "@sentry/node"
 
 import { SentryReceiver } from "../src/sentry-receiver"
-import { SystemEvent, SystemEventType } from "../src/system-event"
+import { SystemEventType } from "../src/system-event"
 
 import { test } from "./test-runner"
+
+import type { SystemEvent } from "../src/system-event"
 
 type ScopeStub = {
   setExtras: (extras: Record<string, string>) => void
