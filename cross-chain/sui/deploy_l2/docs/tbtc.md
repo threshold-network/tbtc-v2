@@ -34,7 +34,7 @@ The contract is initialized with:
 
 ## Administrative Methods
 
-### `add_minter`
+### `add_minter_with_cap`
 **Purpose:** Add a new address with minting permissions
 
 **Parameters:**
@@ -46,7 +46,7 @@ The contract is initialized with:
 **Behavior:**
 - Ensures the address is not already a minter
 - Adds the address to the minters list
-- Creates and transfers a `MinterCap` to the new minter
+- Creates and returns a `MinterCap` for the caller to store or pass onward
 - Emits a `MinterAdded` event
 
 ### `remove_minter`
@@ -61,6 +61,9 @@ The contract is initialized with:
 **Behavior:**
 - Verifies the address is currently a minter
 - Removes the address from the minters list
+- Does not destroy previously issued `MinterCap` objects; live minting also
+  requires the `TreasuryCap`, and gateway minting can be stopped by pausing the
+  gateway/token path
 - Emits a `MinterRemoved` event
 
 ### `add_guardian`
