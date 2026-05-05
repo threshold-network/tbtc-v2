@@ -375,18 +375,20 @@ jobs:
         with:
           node-version: "18.15.0"
 
-      - name: Enable Corepack (Yarn from lockfile)
-        run: |
-          corepack enable
-          corepack prepare yarn@4.12.0 --activate
-
       # Below step is a workaround. Eslint executed in `solidity` directory
       # finds `.prettierrc.js` config in the root directory and fails if
       # referenced `@keep-network/prettier-config-keep` module is missing.
+      # Must run before corepack activates Yarn Berry so the root Classic
+      # lockfile is handled by Yarn v1.
       - name: Install dependencies in the root directory
         run: |
           cd ..
           yarn install --immutable
+
+      - name: Enable Corepack (Yarn from lockfile)
+        run: |
+          corepack enable
+          corepack prepare yarn@4.12.0 --activate
 
       # We need this step because the `@keep-network/tbtc` which we update in
       # next steps has a dependency to `@summa-tx/relay-sol@2.0.2` package, which
