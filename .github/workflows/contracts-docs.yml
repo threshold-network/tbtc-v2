@@ -48,8 +48,12 @@ jobs:
       # `sed -i ':a;N;$!ba;s_///\n//\n_///\n_g'` on the problematic file. The
       # command substitutes `///` + newline + `//` + newline with just `///` +
       # newline and does this in a loop.
-      preProcessingCommand: >-
-        npm install --global yarn@4.12.0 &&
+      preProcessingCommand: |
+        COREPACK_HOME=/tmp/berry-home corepack prepare yarn@4.12.0
+        BERRY=$(find /tmp/berry-home -path "*/bin/yarn*" -type f 2>/dev/null | head -1)
+        printf '#!/bin/sh\nexec node "%s" "$@"\n' "$BERRY" > /tmp/yarn
+        chmod +x /tmp/yarn
+        echo /tmp >> $GITHUB_PATH
         sed -i ':a;N;$!ba;s_///\n//\n_///\n_g' ./contracts/bridge/BitcoinTx.sol
       publish: false
       addTOC: false
@@ -75,8 +79,12 @@ jobs:
       # `sed -i ':a;N;$!ba;s_///\n//\n_///\n_g'` on the problematic file. The
       # command substitutes `///` + newline + `//` + newline with just `///` +
       # newline and does this in a loop.
-      preProcessingCommand: >-
-        npm install --global yarn@4.12.0 &&
+      preProcessingCommand: |
+        COREPACK_HOME=/tmp/berry-home corepack prepare yarn@4.12.0
+        BERRY=$(find /tmp/berry-home -path "*/bin/yarn*" -type f 2>/dev/null | head -1)
+        printf '#!/bin/sh\nexec node "%s" "$@"\n' "$BERRY" > /tmp/yarn
+        chmod +x /tmp/yarn
+        echo /tmp >> $GITHUB_PATH
         sed -i ':a;N;$!ba;s_///\n//\n_///\n_g' ./contracts/bridge/BitcoinTx.sol
       publish: true
       addTOC: false
