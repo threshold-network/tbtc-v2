@@ -115,13 +115,6 @@ contract LightRelay is Ownable, ILightRelay {
 
     mapping(address => bool) public isAuthorized;
 
-    /// @dev Same value as `BTCUtils.DIFF1_TARGET` (compact bits `0x1d00ffff`).
-    /// Bitcoin testnet4 may emit blocks at minimum difficulty between retargets
-    /// while other blocks in the same retarget proof window use the new epoch
-    /// difficulty. Mainnet does not produce such blocks at meaningful heights.
-    uint256 private constant MIN_DIFFICULTY_TARGET =
-        0xffff0000000000000000000000000000000000000000000000000000;
-
     modifier relayActive() {
         require(ready, "Relay is not ready for use");
         _;
@@ -251,13 +244,9 @@ contract LightRelay is Ownable, ILightRelay {
                 uint256 currentHeaderTarget
             ) = validateHeader(headers, i * 80, previousHeaderDigest);
 
-            // Exception: testnet networks (notably testnet4) may emit minimum-
-            // difficulty blocks inside an epoch, including in the last blocks
-            // before a retarget. Mainnet does not produce such blocks at
-            // meaningful heights. Post-retarget loop applies the same rule.
             require(
                 currentHeaderTarget == oldTarget ||
-                    currentHeaderTarget == MIN_DIFFICULTY_TARGET,
+                    _isTolerableTarget(currentHeaderTarget),
                 "Invalid target in pre-retarget headers"
             );
 
@@ -327,13 +316,9 @@ contract LightRelay is Ownable, ILightRelay {
                     "Invalid target in new epoch"
                 );
             } else {
-                // The new target has been set, so remaining targets should match.
-                // Exception: testnet networks may insert a minimum-difficulty block
-                // (e.g. testnet4 when block spacing is high) while the rest of the
-                // post-retarget window uses the retargeted difficulty.
                 require(
                     _currentHeaderTarget == minedTarget ||
-                        _currentHeaderTarget == MIN_DIFFICULTY_TARGET,
+                        _isTolerableTarget(_currentHeaderTarget),
                     "Unexpected target change after retarget"
                 );
             }
@@ -446,7 +431,10 @@ contract LightRelay is Ownable, ILightRelay {
         // The targets don't match. This could be because the block is invalid,
         // or it could be because of timestamp inaccuracy.
         // To cover the latter case, check adjacent epochs.
-        if (currentHeaderTarget != startingEpoch.target) {
+        if (
+            currentHeaderTarget != startingEpoch.target &&
+            !_isTolerableTarget(currentHeaderTarget)
+        ) {
             // The target matches the next epoch.
             // This means we are right at the beginning of the next epoch,
             // and retargets during the chain should not be possible.
@@ -495,7 +483,10 @@ contract LightRelay is Ownable, ILightRelay {
             //
             // In this case the target must match the next epoch's target,
             // and the header's timestamp must match the epoch's start.
-            if (currentHeaderTarget != startingEpoch.target) {
+            if (
+                currentHeaderTarget != startingEpoch.target &&
+                !_isTolerableTarget(currentHeaderTarget)
+            ) {
                 uint256 currentHeaderTimestamp = headers.extractTimestampAt(
                     i * 80
                 );
@@ -592,6 +583,18 @@ contract LightRelay is Ownable, ILightRelay {
             "Epoch is not proven to the relay yet"
         );
         return BTCUtils.calculateDifficulty(epochs[epochNumber].target);
+    }
+
+    /// @notice Returns true if the given target is tolerable despite not
+    /// matching the expected epoch target. Always false on mainnet; overridden
+    /// by testnet subcontracts (e.g. Testnet4LightRelay) to accept the
+    /// minimum-difficulty target (DIFF1) that testnet4 may insert mid-epoch.
+    /// @param target The PoW target extracted from a block header.
+    // solhint-disable-next-line no-unused-vars
+    function _isTolerableTarget(
+        uint256 target // solhint-disable-line no-unused-vars
+    ) internal view virtual returns (bool) {
+        return false;
     }
 
     /// @notice Check that the specified header forms a correct chain with the
