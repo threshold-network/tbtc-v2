@@ -102,6 +102,8 @@ contract L2BTCRedeemerWormhole is
 
     event MinimumRedemptionAmountUpdated(uint256 newMinimumAmount);
 
+    event L1BtcRedeemerWormholeChainUpdated(uint16 newChain);
+
     function initialize(
         address _tbtc,
         address _gateway,
@@ -186,7 +188,7 @@ contract L2BTCRedeemerWormhole is
         return
             gateway.sendTbtcWithPayloadToNativeChain{value: msg.value}(
                 amount,
-                recipientChain,
+                l1BtcRedeemerWormholeChain,
                 l1BtcRedeemerWormholeAddress,
                 nonce,
                 redeemerOutputScript
@@ -205,4 +207,18 @@ contract L2BTCRedeemerWormhole is
         minimumRedemptionAmount = _newMinimumRedemptionAmount;
         emit MinimumRedemptionAmountUpdated(_newMinimumRedemptionAmount);
     }
+
+    /// @notice Lets the governance update the L1 BTC redeemer Wormhole chain ID.
+    /// @param _l1BtcRedeemerWormholeChain The new Wormhole chain ID.
+    function setL1BtcRedeemerWormholeChain(uint16 _l1BtcRedeemerWormholeChain)
+        external
+        onlyOwner
+    {
+        if (_l1BtcRedeemerWormholeChain == 0) revert InvalidRecipientChain();
+        l1BtcRedeemerWormholeChain = _l1BtcRedeemerWormholeChain;
+        emit L1BtcRedeemerWormholeChainUpdated(_l1BtcRedeemerWormholeChain);
+    }
+
+    // slither-disable-next-line unused-state
+    uint256[49] private __gap;
 }

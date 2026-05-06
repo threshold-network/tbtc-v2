@@ -877,11 +877,6 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         uint16 destinationChain = _getDestinationChainFromReceiver(
             destinationChainReceiver
         );
-        require(
-            supportedChains[destinationChain],
-            "Destination chain not supported"
-        );
-
         bytes32 actualRecipient = _getRecipientAddressFromReceiver(
             destinationChainReceiver
         );
@@ -904,9 +899,17 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         );
 
         require(
-            msg.value == requiredPayment,
+            msg.value >= requiredPayment,
             "Incorrect payment for executor service"
         );
+
+        if (msg.value > requiredPayment) {
+            // slither-disable-next-line arbitrary-send-eth
+            (bool ok, ) = payable(msg.sender).call{
+                value: msg.value - requiredPayment
+            }("");
+            require(ok, "ETH refund failed");
+        }
 
         // Approve the NttManagerWithExecutor to spend tBTC
         tbtcToken.safeIncreaseAllowance( // slither-disable-line reentrancy-vulnerabilities-3
@@ -915,7 +918,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         );
 
         // Execute the transfer with executor support
-        uint64 sequence = nttManagerWithExecutor.transfer{value: msg.value}( // slither-disable-line reentrancy-vulnerabilities-3
+        uint64 sequence = nttManagerWithExecutor.transfer{value: requiredPayment}( // slither-disable-line reentrancy-vulnerabilities-3
             underlyingNttManager,
             amount,
             destinationChain,
@@ -987,7 +990,6 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     function _validateSignedQuoteFormat(
         bytes memory signedQuote
     ) internal pure {
-        require(signedQuote.length > 0, "Signed quote cannot be empty");
         require(signedQuote.length >= 32, "Signed quote too short");
     }
 
@@ -1002,7 +1004,6 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
             executorArgs.refundAddress == msg.sender,
             "Executor refund address must be caller"
         );
-        require(feeArgs.dbps <= MAX_BPS, "Fee cannot exceed 100% (10000 bps)");
         require(
             feeArgs.dbps == defaultExecutorFeeBps,
             "Fee must match default executor fee"
