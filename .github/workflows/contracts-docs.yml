@@ -50,7 +50,8 @@ jobs:
       # newline and does this in a loop.
       preProcessingCommand: |
         COREPACK_HOME=/tmp/berry-home corepack prepare yarn@4.12.0
-        BERRY=$(find /tmp/berry-home -path "*/bin/yarn*" -type f 2>/dev/null | head -1)
+        BERRY=/tmp/berry-home/v1/yarn/4.12.0/yarn.js
+        test -f "$BERRY" || { echo "ERROR: $BERRY not found"; exit 1; }
         printf '#!/bin/sh\nexec node "%s" "$@"\n' "$BERRY" > /tmp/yarn
         chmod +x /tmp/yarn
         echo /tmp >> $GITHUB_PATH
@@ -81,7 +82,8 @@ jobs:
       # newline and does this in a loop.
       preProcessingCommand: |
         COREPACK_HOME=/tmp/berry-home corepack prepare yarn@4.12.0
-        BERRY=$(find /tmp/berry-home -path "*/bin/yarn*" -type f 2>/dev/null | head -1)
+        BERRY=/tmp/berry-home/v1/yarn/4.12.0/yarn.js
+        test -f "$BERRY" || { echo "ERROR: $BERRY not found"; exit 1; }
         printf '#!/bin/sh\nexec node "%s" "$@"\n' "$BERRY" > /tmp/yarn
         chmod +x /tmp/yarn
         echo /tmp >> $GITHUB_PATH
