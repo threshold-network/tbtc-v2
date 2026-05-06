@@ -96,7 +96,7 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
     payee: ethers.constants.AddressZero,
   }
 
-  it("should require exact executor payment", async () => {
+  it("should require minimum executor payment", async () => {
     const [, user] = await ethers.getSigners()
     const args = executorArgs(user.address)
     const receiver = encodeDestinationChainReceiver(
@@ -111,6 +111,7 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
       zeroFeeArgs
     )
 
+    // Underpayment must revert
     await expect(
       depositor
         .connect(user)
@@ -120,10 +121,11 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
           args,
           zeroFeeArgs,
           DEFAULT_NONCE,
-          { value: requiredPayment.add(1) }
+          { value: requiredPayment.sub(1) }
         )
     ).to.be.revertedWith("Incorrect payment for executor service")
 
+    // Exact payment succeeds
     await expect(
       depositor
         .connect(user)
@@ -134,6 +136,36 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
           zeroFeeArgs,
           DEFAULT_NONCE,
           { value: requiredPayment }
+        )
+    ).to.emit(depositor, "TokensTransferredNttWithExecutor")
+  })
+
+  it("should refund excess executor payment", async () => {
+    const [, user] = await ethers.getSigners()
+    const args = executorArgs(user.address)
+    const receiver = encodeDestinationChainReceiver(
+      WORMHOLE_CHAIN_SEI,
+      user.address
+    )
+    const requiredPayment = await nttManagerWithExecutor.quoteDeliveryPrice(
+      underlyingNttManager.address,
+      WORMHOLE_CHAIN_SEI,
+      "0x",
+      args,
+      zeroFeeArgs
+    )
+
+    // Overpayment must succeed and emit the event
+    await expect(
+      depositor
+        .connect(user)
+        .transferTbtcWithExecutor(
+          ethers.utils.parseEther("1"),
+          receiver,
+          args,
+          zeroFeeArgs,
+          DEFAULT_NONCE,
+          { value: requiredPayment.add(ethers.utils.parseEther("0.1")) }
         )
     ).to.emit(depositor, "TokensTransferredNttWithExecutor")
   })

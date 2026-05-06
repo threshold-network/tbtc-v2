@@ -905,6 +905,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
 
         if (msg.value > requiredPayment) {
             // slither-disable-next-line arbitrary-send-eth
+            // solhint-disable-next-line avoid-low-level-calls
             (bool ok, ) = payable(msg.sender).call{
                 value: msg.value - requiredPayment
             }("");
