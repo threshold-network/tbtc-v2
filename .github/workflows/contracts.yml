@@ -383,7 +383,7 @@ jobs:
       - name: Install dependencies in the root directory
         run: |
           cd ..
-          yarn install --immutable
+          yarn install --frozen-lockfile
 
       - name: Enable Corepack (Yarn from lockfile)
         run: |
