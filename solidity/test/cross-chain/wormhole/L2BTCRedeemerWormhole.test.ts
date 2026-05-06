@@ -256,6 +256,53 @@ describe("L2BTCRedeemerWormhole", () => {
     })
   })
 
+  describe("setL1BtcRedeemerWormholeChain", () => {
+    const newChainId = 5
+
+    context("when the caller is not the owner", () => {
+      it("should revert", async () => {
+        await expect(
+          l2BtcRedeemer.connect(user).setL1BtcRedeemerWormholeChain(newChainId)
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+    })
+
+    context("when the new chain ID is zero", () => {
+      it("should revert", async () => {
+        await expect(
+          l2BtcRedeemer.connect(governance).setL1BtcRedeemerWormholeChain(0)
+        ).to.be.revertedWith("InvalidRecipientChain")
+      })
+    })
+
+    context("when the caller is the owner and chain ID is valid", () => {
+      let tx: ContractTransaction
+
+      before(async () => {
+        await createSnapshot()
+        tx = await l2BtcRedeemer
+          .connect(governance)
+          .setL1BtcRedeemerWormholeChain(newChainId)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should update l1BtcRedeemerWormholeChain", async () => {
+        expect(await l2BtcRedeemer.l1BtcRedeemerWormholeChain()).to.equal(
+          newChainId
+        )
+      })
+
+      it("should emit L1BtcRedeemerWormholeChainUpdated event", async () => {
+        await expect(tx)
+          .to.emit(l2BtcRedeemer, "L1BtcRedeemerWormholeChainUpdated")
+          .withArgs(newChainId)
+      })
+    })
+  })
+
   describe("requestRedemption", () => {
     const SATOSHI_MULTIPLIER_PRECISION = 10
     const normalizedExampleAmount = exampleAmount.div(

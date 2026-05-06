@@ -154,20 +154,26 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
       args,
       zeroFeeArgs
     )
+    const extra = ethers.utils.parseEther("0.1")
 
-    // Overpayment must succeed and emit the event
-    await expect(
-      depositor
-        .connect(user)
-        .transferTbtcWithExecutor(
-          ethers.utils.parseEther("1"),
-          receiver,
-          args,
-          zeroFeeArgs,
-          DEFAULT_NONCE,
-          { value: requiredPayment.add(ethers.utils.parseEther("0.1")) }
-        )
-    ).to.emit(depositor, "TokensTransferredNttWithExecutor")
+    const tx = await depositor
+      .connect(user)
+      .transferTbtcWithExecutor(
+        ethers.utils.parseEther("1"),
+        receiver,
+        args,
+        zeroFeeArgs,
+        DEFAULT_NONCE,
+        { value: requiredPayment.add(extra) }
+      )
+
+    // NTT manager receives exactly requiredPayment, not the full overpayment
+    await expect(tx)
+      .to.emit(nttManagerWithExecutor, "MockTransferExecuted")
+      .withArgs(1, WORMHOLE_CHAIN_SEI, requiredPayment)
+
+    // Depositor contract retains no ETH after the refund
+    expect(await ethers.provider.getBalance(depositor.address)).to.equal(0)
   })
 
   it("should reject executor refunds to a different address", async () => {
