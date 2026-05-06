@@ -375,11 +375,15 @@ jobs:
         with:
           node-version: "18.15.0"
 
-      # Below step is a workaround. Eslint executed in `solidity` directory
-      # finds `.prettierrc.js` config in the root directory and fails if
-      # referenced `@keep-network/prettier-config-keep` module is missing.
-      # Must run before corepack activates Yarn Berry so the root Classic
-      # lockfile is handled by Yarn v1.
+      # IMPORTANT: Keep this root `yarn install` **before** `corepack prepare
+      # yarn@4`. The repo root uses Yarn Classic (Frozen v1 lockfile); `solidity/`
+      # uses Yarn Berry—activating Berry first makes Classic flags/lockfile parsing
+      # wrong here. Same ordering applies elsewhere: root Classic first, then
+      # Berry for `solidity/`.
+      #
+      # Workaround rationale: ESLint run from `solidity/` resolves `.prettierrc.js`
+      # from the repo root and fails unless `@keep-network/prettier-config-keep`
+      # is installed at the root.
       - name: Install dependencies in the root directory
         run: |
           cd ..

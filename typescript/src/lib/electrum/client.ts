@@ -95,16 +95,17 @@ export class ElectrumClient implements BitcoinClient {
    * @param options - Additional options used by the Electrum server.
    * @param totalRetryAttempts - Number of retries for requests sent to Electrum
    *        server.
-   * @param retryBackoffStep - Initial backoff step in milliseconds that will
-   *        be increased exponentially for subsequent retry attempts.
-   * @param connectionTimeout - Timeout for a single try of connection establishment.
+   * @param retryBackoffStep - Initial backoff duration in milliseconds; increases
+   *        exponentially for subsequent retry attempts (default 1000). The
+   *        instance constructor defaults this to 10000 ms when not using {@link fromUrl}.
+   * @param connectionTimeout - Timeout in milliseconds for connection establishment per try.
    * @returns Electrum client instance.
    */
   static fromUrl(
     url: string | string[],
     options?: ElectrumClientOptions,
     totalRetryAttempts = 3,
-    retryBackoffStep = 1000, // 10 seconds
+    retryBackoffStep = 1000,
     connectionTimeout = 20000 // 20 seconds
   ): ElectrumClient {
     let credentials: ElectrumCredentials[]
