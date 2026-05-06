@@ -228,15 +228,10 @@ export class Manager {
     )
 
     checks.forEach((result) => {
-      switch (result.status) {
-        case "fulfilled": {
-          systemEvents.push(...result.value)
-          break
-        }
-        case "rejected": {
-          errors.push(`cannot check system events monitor: ${result.reason}`)
-          break
-        }
+      if (result.status === "fulfilled") {
+        systemEvents.push(...result.value)
+      } else {
+        errors.push(`cannot check system events monitor: ${result.reason}`)
       }
     })
 
@@ -251,15 +246,10 @@ export class Manager {
     const systemEventsAcks: SystemEventAck[] = []
 
     dispatches.forEach((result) => {
-      switch (result.status) {
-        case "fulfilled": {
-          systemEventsAcks.push(result.value)
-          break
-        }
-        case "rejected": {
-          errors.push(`cannot dispatch system event: ${result.reason}`)
-          break
-        }
+      if (result.status === "fulfilled") {
+        systemEventsAcks.push(result.value)
+      } else {
+        errors.push(`cannot dispatch system event: ${result.reason}`)
       }
     })
 
@@ -269,14 +259,31 @@ export class Manager {
         .map((ack) => Deduplicator.systemEventKey(ack.systemEvent))
     )
 
+    // Index ack statuses by event key to detect partial-deployment cases.
+    const ackStatusesByKey = new Map<string, Set<SystemEventAck["status"]>>()
+    systemEventsAcks.forEach((ack) => {
+      const key = Deduplicator.systemEventKey(ack.systemEvent)
+      const statuses =
+        ackStatusesByKey.get(key) ?? new Set<SystemEventAck["status"]>()
+      statuses.add(ack.status)
+      ackStatusesByKey.set(key, statuses)
+    })
+
     systemEvents.forEach((systemEvent) => {
+      const key = Deduplicator.systemEventKey(systemEvent)
+      if (dispatchedSystemEventKeys.has(key)) return
+      const statuses = ackStatusesByKey.get(key) ?? new Set()
+      // Skip if every receiver ignored this event (no receiver is configured
+      // for this event type -- valid in partial-receiver deployments) or if all
+      // dispatches were rejected and already recorded as errors above.
       if (
-        !dispatchedSystemEventKeys.has(Deduplicator.systemEventKey(systemEvent))
-      ) {
-        errors.push(
-          `system event was not handled by any receiver: ${systemEvent.title}`
-        )
-      }
+        statuses.size === 0 ||
+        (statuses.size === 1 && statuses.has("ignored"))
+      )
+        return
+      errors.push(
+        `system event was not handled by any receiver: ${systemEvent.title}`
+      )
     })
 
     return {
