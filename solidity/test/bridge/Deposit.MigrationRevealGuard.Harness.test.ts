@@ -24,6 +24,9 @@ const MIGRATION_REVEALER_MISMATCH_REASON = ethers.utils.formatBytes32String(
 const MIGRATION_VAULT_CALL_FAILED_REASON = ethers.utils.formatBytes32String(
   "MIGRATION_VAULT_CALL_FAILED"
 )
+const MIGRATION_VAULT_NOT_CANONICAL_REASON = ethers.utils.formatBytes32String(
+  "MIGRATION_VAULT_NOT_CANONICAL"
+)
 const SATOSHI_MULTIPLIER = ethers.BigNumber.from(10).pow(10)
 const migrationRevealRejectedInterface = new ethers.utils.Interface([
   "error MigrationRevealRejected(bytes32 reasonCode)",
@@ -316,7 +319,10 @@ describe("Deposit - Migration Reveal Guard Harness", () => {
     )
   })
 
-  it("reverts migration-tagged reveal for trusted vault without migration interface", async () => {
+  it("reverts migration-tagged reveal for trusted non-canonical vault", async () => {
+    // regularVault is trusted but is not the canonical migrationDebtVault.
+    // The canonical guard fires before any vault staticcall, regardless of
+    // whether the reveal vault implements ITBTCVaultMigrationDebt.
     const extraData = encodeMigrationExtraData(migrationRevealer.address)
     const reveal = { ...migrationReveal, vault: regularVault.address }
     const tx = buildFundingTx(
@@ -330,7 +336,75 @@ describe("Deposit - Migration Reveal Guard Harness", () => {
       harness
         .connect(migrationRevealer)
         .revealDepositWithExtraData(tx, reveal, extraData),
-      MIGRATION_VAULT_CALL_FAILED_REASON
+      MIGRATION_VAULT_NOT_CANONICAL_REASON
+    )
+  })
+
+  it("reverts migration-tagged reveal when reveal.vault is a non-canonical migration-debt vault", async () => {
+    // Stand up a second migration-debt vault: trusted, implements the
+    // migration interface, has the revealer registered with debt — but is
+    // not the canonical migrationDebtVault. The migration grant path must
+    // refuse to authorize against any non-canonical authority.
+    const NonCanonicalMigrationVaultFactory = await ethers.getContractFactory(
+      "MockMigrationDebtVault"
+    )
+    const nonCanonicalMigrationVault =
+      await NonCanonicalMigrationVaultFactory.deploy()
+    await harness.setVaultStatus(nonCanonicalMigrationVault.address, true)
+    await nonCanonicalMigrationVault.setMigrationRevealer(
+      migrationRevealer.address,
+      true
+    )
+    await nonCanonicalMigrationVault.registerMigrationDebt(
+      migrationRevealer.address,
+      SATOSHI_MULTIPLIER.mul(20000)
+    )
+
+    const extraData = encodeMigrationExtraData(migrationRevealer.address)
+    const reveal = {
+      ...migrationReveal,
+      vault: nonCanonicalMigrationVault.address,
+    }
+    const tx = buildFundingTx(
+      migrationRevealer.address,
+      reveal,
+      20000,
+      extraData
+    )
+
+    await expectMigrationRevealRejected(
+      harness
+        .connect(migrationRevealer)
+        .revealDepositWithExtraData(tx, reveal, extraData),
+      MIGRATION_VAULT_NOT_CANONICAL_REASON
+    )
+  })
+
+  it("reverts migration-tagged reveal when migrationDebtVault is unset", async () => {
+    // Disable canonical migration debt vault while migrationVault remains a
+    // trusted migration-capable vault. Migration reveals must be rejected
+    // because there is no canonical authority to bind them to.
+    await migrationVault.setMigrationRevealer(migrationRevealer.address, true)
+    await migrationVault.registerMigrationDebt(
+      migrationRevealer.address,
+      SATOSHI_MULTIPLIER.mul(20000)
+    )
+    await harness.setMigrationDebtVault(ethers.constants.AddressZero)
+
+    const extraData = encodeMigrationExtraData(migrationRevealer.address)
+    const reveal = { ...migrationReveal, vault: migrationVault.address }
+    const tx = buildFundingTx(
+      migrationRevealer.address,
+      reveal,
+      20000,
+      extraData
+    )
+
+    await expectMigrationRevealRejected(
+      harness
+        .connect(migrationRevealer)
+        .revealDepositWithExtraData(tx, reveal, extraData),
+      MIGRATION_VAULT_NOT_CANONICAL_REASON
     )
   })
 

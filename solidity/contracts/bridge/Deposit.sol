@@ -82,6 +82,8 @@ library Deposit {
         bytes32("MIGRATION_VAULT_CALL_FAILED");
     bytes32 private constant MIGRATION_VAULT_BAD_RESPONSE_REASON =
         bytes32("MIGRATION_VAULT_BAD_RESPONSE");
+    bytes32 private constant MIGRATION_VAULT_NOT_CANONICAL_REASON =
+        bytes32("MIGRATION_VAULT_NOT_CANONICAL");
 
     error MigrationRevealRejected(bytes32 reasonCode);
 
@@ -229,6 +231,21 @@ library Deposit {
                 reveal.vault != address(0) && self.isVaultTrusted[reveal.vault],
                 "Migration vault is not trusted"
             );
+
+            // Migration authority is bound to the canonical migration debt
+            // vault. Pinning reveal.vault to self.migrationDebtVault keeps the
+            // post-sweep callback (DepositSweep) and the migration grant path
+            // (this branch) gated by a single source of truth, so any other
+            // trusted vault that happens to implement
+            // ITBTCVaultMigrationDebt cannot authorize a migration-tagged
+            // reveal. Also reverts when the canonical vault is unset
+            // (address(0)), preventing migration reveals while migration is
+            // disabled at the Bridge level.
+            if (reveal.vault != self.migrationDebtVault) {
+                revert MigrationRevealRejected(
+                    MIGRATION_VAULT_NOT_CANONICAL_REASON
+                );
+            }
 
             if (msg.sender != decodeMigrationRevealer(extraData)) {
                 revert MigrationRevealRejected(
