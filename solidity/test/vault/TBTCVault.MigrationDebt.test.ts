@@ -455,6 +455,95 @@ describe("TBTCVault - MigrationDebt", () => {
     ).to.be.revertedWith("Sweep tx hash must not be zero")
   })
 
+  it("reverts setting migration sweep notifier to an EOA", async () => {
+    await expect(
+      vault.setMigrationSweepNotifier(outsider.address)
+    ).to.be.revertedWith("Notifier must be contract or zero address")
+  })
+
+  it("allows clearing migration sweep notifier with the zero address", async () => {
+    await vault.setMigrationSweepNotifier(notifier.address)
+
+    await expect(vault.setMigrationSweepNotifier(ethers.constants.AddressZero))
+      .to.not.be.reverted
+
+    expect(await vault.migrationSweepNotifier()).to.equal(
+      ethers.constants.AddressZero
+    )
+  })
+
+  it("blocks migration debt re-registration while pending sweep completion is unresolved", async () => {
+    const sweepSats = 5
+
+    await vault.setMigrationRevealer(revealer.address, true)
+    await vault.registerMigrationDebt(
+      revealer.address,
+      SATOSHI_MULTIPLIER.mul(sweepSats)
+    )
+
+    await bank.increaseBalanceAndCall(
+      vault.address,
+      [revealer.address],
+      [sweepSats]
+    )
+
+    // Full repayment leaves migration debt at zero with a pending sweep
+    // completion outstanding.
+    expect(await vault.migrationDebt(revealer.address)).to.equal(0)
+
+    await expect(
+      vault.registerMigrationDebt(revealer.address, SATOSHI_MULTIPLIER.mul(2))
+    ).to.be.revertedWith(
+      "Pending migration sweep completion must be consumed first"
+    )
+
+    // Consuming the pending callback through the configured notifier
+    // unblocks subsequent re-registrations.
+    await vault.setMigrationSweepNotifier(notifier.address)
+    await vault.setMigrationSweepReserve(revealer.address, reserve.address)
+    await vault.notifyPendingMigrationSweepForRevealer(
+      ethers.utils.keccak256(
+        ethers.utils.toUtf8Bytes("migration-sweep-consume")
+      ),
+      revealer.address
+    )
+
+    await vault.registerMigrationDebt(
+      revealer.address,
+      SATOSHI_MULTIPLIER.mul(2)
+    )
+    expect(await vault.migrationDebt(revealer.address)).to.equal(
+      SATOSHI_MULTIPLIER.mul(2)
+    )
+  })
+
+  it("allows migration debt re-registration after the pending completion is cleared via zeroing the reserve", async () => {
+    const sweepSats = 4
+
+    await vault.setMigrationRevealer(revealer.address, true)
+    await vault.setMigrationSweepReserve(revealer.address, reserve.address)
+    await vault.registerMigrationDebt(
+      revealer.address,
+      SATOSHI_MULTIPLIER.mul(sweepSats)
+    )
+
+    await bank.increaseBalanceAndCall(
+      vault.address,
+      [revealer.address],
+      [sweepSats]
+    )
+
+    await vault.setMigrationSweepReserve(
+      revealer.address,
+      ethers.constants.AddressZero
+    )
+
+    await vault.registerMigrationDebt(revealer.address, SATOSHI_MULTIPLIER)
+    expect(await vault.migrationDebt(revealer.address)).to.equal(
+      SATOSHI_MULTIPLIER
+    )
+  })
+
   it("clears residual migration debt and disables the revealer", async () => {
     await vault.setMigrationRevealer(revealer.address, true)
     await vault.registerMigrationDebt(

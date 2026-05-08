@@ -40,6 +40,16 @@ library DepositSweep {
 
     using BTCUtils for bytes;
 
+    /// @notice Maximum number of revealers passed to the vault batch hook
+    ///         in a single migration sweep notification call. Mirrors
+    ///         `TBTCOptimisticMinting.MAX_MIGRATION_SWEEP_BATCH_SIZE`. The
+    ///         constant is duplicated rather than imported because Bridge
+    ///         and TBTCVault are deployed independently and the Bridge
+    ///         library should not depend on a specific vault contract.
+    ///         If the vault constant is changed, this value must be
+    ///         updated to match.
+    uint256 internal constant MAX_MIGRATION_SWEEP_BATCH_SIZE = 100;
+
     /// @notice Represents temporary information needed during the processing
     ///         of the deposit sweep Bitcoin transaction inputs. This structure
     ///         is an internal one and should not be exported outside of the
@@ -276,6 +286,24 @@ library DepositSweep {
         }
     }
 
+    /// @notice Notifies the canonical migration debt vault that a sweep
+    ///         routed through the trusted-vault path included migration
+    ///         deposits, and asks the vault to consume per-revealer pending
+    ///         completions for the supplied addresses.
+    /// @dev The vault batch hook
+    ///      (`ITBTCVaultMigrationSweepHook.notifyPendingMigrationSweep`)
+    ///      caps each call at `MAX_MIGRATION_SWEEP_BATCH_SIZE` revealers and
+    ///      reverts on oversized arrays, so this function chunks `revealers`
+    ///      into sub-arrays of at most that size and invokes the batch hook
+    ///      once per chunk. Without chunking, an oversized sweep would
+    ///      always fail the batch call and force the per-revealer fallback
+    ///      to handle every entry, multiplying gas costs in the same sweep
+    ///      proof transaction.
+    ///
+    ///      Each chunk that fails (e.g. the vault hook reverts for an
+    ///      operational reason) emits `MigrationSweepCallbackFailed` and
+    ///      falls back to the per-revealer hook for that chunk only;
+    ///      successful chunks are unaffected.
     function notifyMigrationSweepCallback(
         BridgeState.Storage storage self,
         address vault,
@@ -286,45 +314,68 @@ library DepositSweep {
             return;
         }
 
-        // Fail open to avoid blocking proven sweeps if the optional migration
-        // completion hook is not wired yet or is temporarily misconfigured.
-        // solhint-disable-next-line avoid-low-level-calls
-        (bool batchSuccess, ) = vault.call(
-            abi.encodeWithSelector(
-                ITBTCVaultMigrationSweepHook.notifyPendingMigrationSweep
-                    .selector,
-                sweepTxHash,
-                revealers
-            )
-        );
+        uint256 length = revealers.length;
+        uint256 offset = 0;
+        while (offset < length) {
+            uint256 chunkSize = length - offset;
+            if (chunkSize > MAX_MIGRATION_SWEEP_BATCH_SIZE) {
+                chunkSize = MAX_MIGRATION_SWEEP_BATCH_SIZE;
+            }
 
-        if (batchSuccess) {
-            return;
-        }
+            address[] memory chunk;
+            if (offset == 0 && chunkSize == length) {
+                // Common case: whole array fits in a single chunk; reuse
+                // the input array to avoid an extra allocation and copy.
+                chunk = revealers;
+            } else {
+                chunk = new address[](chunkSize);
+                for (uint256 j = 0; j < chunkSize; j++) {
+                    chunk[j] = revealers[offset + j];
+                }
+            }
 
-        emit MigrationSweepCallbackFailed(vault, sweepTxHash);
-
-        // Best-effort fallback: retry each revealer in isolation so one bad
-        // entry cannot strand the whole completion batch.
-        for (uint256 i = 0; i < revealers.length; i++) {
+            // Fail open to avoid blocking proven sweeps if the optional
+            // migration completion hook is not wired yet or is temporarily
+            // misconfigured.
             // solhint-disable-next-line avoid-low-level-calls
-            (bool singleSuccess, ) = vault.call(
+            (bool batchSuccess, ) = vault.call(
                 abi.encodeWithSelector(
-                    ITBTCVaultMigrationSweepHook
-                        .notifyPendingMigrationSweepForRevealer
+                    ITBTCVaultMigrationSweepHook.notifyPendingMigrationSweep
                         .selector,
                     sweepTxHash,
-                    revealers[i]
+                    chunk
                 )
             );
 
-            if (!singleSuccess) {
-                emit MigrationSweepCallbackRetryFailed(
-                    vault,
-                    sweepTxHash,
-                    revealers[i]
-                );
+            if (!batchSuccess) {
+                emit MigrationSweepCallbackFailed(vault, sweepTxHash);
+
+                // Best-effort fallback: retry each revealer in this chunk
+                // in isolation so one bad entry cannot strand the rest.
+                for (uint256 j = 0; j < chunkSize; j++) {
+                    address revealer = chunk[j];
+                    // solhint-disable-next-line avoid-low-level-calls
+                    (bool singleSuccess, ) = vault.call(
+                        abi.encodeWithSelector(
+                            ITBTCVaultMigrationSweepHook
+                                .notifyPendingMigrationSweepForRevealer
+                                .selector,
+                            sweepTxHash,
+                            revealer
+                        )
+                    );
+
+                    if (!singleSuccess) {
+                        emit MigrationSweepCallbackRetryFailed(
+                            vault,
+                            sweepTxHash,
+                            revealer
+                        );
+                    }
+                }
             }
+
+            offset += chunkSize;
         }
     }
 

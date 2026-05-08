@@ -5,6 +5,7 @@ pragma solidity 0.8.17;
 import "../bridge/BitcoinTx.sol";
 import "../bridge/BridgeState.sol";
 import "../bridge/Deposit.sol";
+import "../bridge/MigrationExtraData.sol";
 import "../bridge/Wallets.sol";
 
 contract DepositRevealGuardHarness {
@@ -69,7 +70,7 @@ contract DepositRevealGuardHarness {
         pure
         returns (bool)
     {
-        return Deposit.isMigrationReveal(extraData);
+        return MigrationExtraData.isMigrationReveal(extraData);
     }
 
     function decodeMigrationRevealer(bytes32 extraData)

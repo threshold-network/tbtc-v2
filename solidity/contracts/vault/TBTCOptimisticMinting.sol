@@ -334,7 +334,7 @@ abstract contract TBTCOptimisticMinting is Ownable, ITBTCVaultMigrationDebt {
         require(deposit.sweptAt == 0, "The deposit is already swept");
         require(deposit.vault == address(this), "Unexpected vault address");
         require(
-            !isMigrationReveal(deposit.extraData),
+            !MigrationExtraData.isMigrationReveal(deposit.extraData),
             "Migration deposits can not use optimistic minting"
         );
 
@@ -396,7 +396,7 @@ abstract contract TBTCOptimisticMinting is Ownable, ITBTCVaultMigrationDebt {
         Deposit.DepositRequest memory deposit = bridge.deposits(depositKey);
         require(deposit.sweptAt == 0, "The deposit is already swept");
         require(
-            !isMigrationReveal(deposit.extraData),
+            !MigrationExtraData.isMigrationReveal(deposit.extraData),
             "Migration deposits can not use optimistic minting"
         );
 
@@ -656,12 +656,31 @@ abstract contract TBTCOptimisticMinting is Ownable, ITBTCVaultMigrationDebt {
     ///      actual post-fee sweep proceeds, the excess
     ///      (`proceeds - debt`) is minted as tBTC. This results in more
     ///      tBTC in circulation than intended for the migration.
+    ///
+    ///      Pending-completion guard: re-registration is blocked while
+    ///      `pendingMigrationSweepCompletion[revealer]` is true. After a
+    ///      revealer's debt reaches zero through repayment the flag stays
+    ///      true until either the migration sweep notifier callback
+    ///      consumes it (`notifyPendingMigrationSweep*`) or the reserve
+    ///      mapping is explicitly cleared
+    ///      (`setMigrationSweepReserve(revealer, address(0))`). Allowing
+    ///      registration before the flag is consumed would let a stale
+    ///      callback pull and clear the reserve associated with the new
+    ///      registration, breaking the per-revealer completion lifecycle.
     function registerMigrationDebt(address revealer, uint256 amount)
         external
         override
         onlyOwner
     {
         requireCanonicalMigrationDebtVault();
+        // Reject re-registration until any pending sweep completion from
+        // the previous registration has been consumed by the notifier
+        // path or explicitly cleared by zeroing the reserve. See the
+        // pending-completion guard note in the function NatSpec.
+        require(
+            !pendingMigrationSweepCompletion[revealer],
+            "Pending migration sweep completion must be consumed first"
+        );
         // Guard the counter invariant locally: the counter assumes each
         // successful registration adds exactly one new revealer. This
         // duplicates the check in TBTCMigrationDebtOperations.registerDebt
@@ -728,13 +747,55 @@ abstract contract TBTCOptimisticMinting is Ownable, ITBTCVaultMigrationDebt {
         emit MigrationRevealerSet(revealer, allowed);
     }
 
+    /// @notice Updates the migration sweep notifier to the supplied address.
+    /// @param notifier Address of the contract implementing
+    ///        `ITBTCVaultMigrationSweepNotifier`, or `address(0)` to disable
+    ///        downstream notifications.
+    /// @dev Reverts if `notifier` is a non-zero address with no deployed
+    ///      bytecode at the time of this call. The check rejects EOAs and
+    ///      future-but-undeployed addresses at set-time so misconfiguration
+    ///      surfaces here instead of at sweep-callback time, where vault
+    ///      reverts are swallowed by the Bridge low-level call. The
+    ///      `address(0)` value remains a valid disable state because the
+    ///      callback path checks for nonzero before invoking the notifier
+    ///      interface.
+    ///
+    ///      Note: this guard does not protect against subsequent
+    ///      self-destruct of the notifier contract; the callback retry
+    ///      path remains the recovery mechanism for that case.
     function setMigrationSweepNotifier(address notifier) external onlyOwner {
+        require(
+            notifier == address(0) || notifier.code.length > 0,
+            "Notifier must be contract or zero address"
+        );
+
         address previousNotifier = migrationSweepNotifier;
         migrationSweepNotifier = notifier;
 
         emit MigrationSweepNotifierUpdated(previousNotifier, notifier);
     }
 
+    /// @notice Sets or clears the migration sweep reserve associated with a
+    ///         revealer. The reserve is the address routed to the migration
+    ///         sweep notifier when the revealer's debt completes.
+    /// @param revealer Address whose reserve mapping is being updated. Must
+    ///        not be the zero address.
+    /// @param reserve Address that should receive the migration sweep
+    ///        completion callback for `revealer`. Pass `address(0)` to clear
+    ///        the mapping.
+    /// @dev Passing `reserve == address(0)` while the revealer has a
+    ///      pending migration sweep completion (debt previously reached
+    ///      zero but the downstream notifier callback has not yet
+    ///      consumed it) clears `pendingMigrationSweepCompletion[revealer]`
+    ///      and emits `MigrationSweepCompletionPendingCleared(revealer)`.
+    ///      This intentionally drops the queued completion so that
+    ///      restoring the reserve to a non-zero address afterwards does
+    ///      not replay an already-acknowledged sweep. Callers that wish to
+    ///      preserve the pending callback must update the reserve directly
+    ///      to the new non-zero address rather than zero-then-set.
+    ///
+    ///      In all cases this emits `MigrationSweepReserveUpdated(revealer,
+    ///      reserve)` reflecting the post-update mapping value.
     function setMigrationSweepReserve(address revealer, address reserve)
         external
         onlyOwner
@@ -922,7 +983,4 @@ abstract contract TBTCOptimisticMinting is Ownable, ITBTCVaultMigrationDebt {
         );
     }
 
-    function isMigrationReveal(bytes32 extraData) internal pure returns (bool) {
-        return bytes12(extraData) == MigrationExtraData.TAG;
-    }
 }

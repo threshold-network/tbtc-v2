@@ -224,7 +224,7 @@ library Deposit {
             "Vault is not trusted"
         );
 
-        if (isMigrationReveal(extraData)) {
+        if (MigrationExtraData.isMigrationReveal(extraData)) {
             require(
                 reveal.vault != address(0) && self.isVaultTrusted[reveal.vault],
                 "Migration vault is not trusted"
@@ -473,14 +473,6 @@ library Deposit {
         require(extraData != bytes32(0), "Extra data must not be empty");
 
         _revealDeposit(self, fundingTx, reveal, extraData);
-    }
-
-    function isMigrationReveal(bytes32 extraData)
-        internal
-        pure
-        returns (bool)
-    {
-        return bytes12(extraData) == MigrationExtraData.TAG;
     }
 
     function decodeMigrationRevealer(bytes32 extraData)

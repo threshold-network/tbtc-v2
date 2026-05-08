@@ -32,9 +32,10 @@ library TBTCMigrationDebtOperations {
             "Migration debt already registered"
         );
 
-        uint256 nextDebt = migrationDebt[revealer] + amount;
-        migrationDebt[revealer] = nextDebt;
-        return nextDebt;
+        // Registration starts from zero (enforced above), so the new debt
+        // balance equals `amount`.
+        migrationDebt[revealer] = amount;
+        return amount;
     }
 
     function setRevealer(
