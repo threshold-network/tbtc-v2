@@ -2231,9 +2231,11 @@ contract Bridge is
 
         emit EthRescued(recipient, amount);
 
+        // reason: rescue path for ETH custodied on the Bridge by failed
+        // fraud-challenge refunds; the call is checked and forwards all
+        // gas so contract recipients can use their full receive logic.
         // slither-disable-next-line low-level-calls
-        // solhint-disable-next-line avoid-low-level-calls
-        (bool success, ) = recipient.call{value: amount}("");
+        (bool success, ) = recipient.call{value: amount}(""); // solhint-disable-line avoid-low-level-calls
         if (!success) {
             revert EthRescueTransferFailed(recipient, amount);
         }
