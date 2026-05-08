@@ -55,10 +55,13 @@ abstract contract TBTCOptimisticMinting is Ownable, ITBTCVaultMigrationDebt {
     /// @notice Multiplier to convert satoshi to TBTC token units.
     uint256 public constant SATOSHI_MULTIPLIER = 10**10;
 
-    /// @notice The minimum allowed value for the optimistic minting fee
-    ///         divisor. Prevents setting the divisor to zero or near-zero
-    ///         values that would result in excessively high fee rates.
-    ///         A divisor of 10 means the maximum allowed fee rate is 10%.
+    /// @notice The minimum allowed value for a non-zero optimistic minting fee
+    ///         divisor. A divisor of 0 is a valid out-of-band sentinel meaning
+    ///         "no fee" — handled by the `divisor > 0 ? ... : 0` branch in the
+    ///         fee formula. Any non-zero divisor must be at or above this
+    ///         minimum to prevent excessively high fee rates; divisors in the
+    ///         range [1, 9] are blocked because they correspond to fee rates of
+    ///         11%-100%. A divisor of 10 caps the fee rate at 10%.
     uint32 public constant MIN_OPTIMISTIC_MINTING_FEE_DIVISOR = 10;
 
     Bridge public immutable bridge;
@@ -565,8 +568,10 @@ abstract contract TBTCOptimisticMinting is Ownable, ITBTCVaultMigrationDebt {
         uint32 _newOptimisticMintingFeeDivisor
     ) external onlyOwner {
         require(
-            _newOptimisticMintingFeeDivisor >= MIN_OPTIMISTIC_MINTING_FEE_DIVISOR,
-            "New fee divisor must be >= minimum"
+            _newOptimisticMintingFeeDivisor == 0 ||
+                _newOptimisticMintingFeeDivisor >=
+                MIN_OPTIMISTIC_MINTING_FEE_DIVISOR,
+            "New fee divisor must be 0 or >= minimum"
         );
         /* solhint-disable-next-line not-rely-on-time */
         optimisticMintingFeeUpdateInitiatedTimestamp = block.timestamp;
@@ -575,9 +580,9 @@ abstract contract TBTCOptimisticMinting is Ownable, ITBTCVaultMigrationDebt {
     }
 
     /// @notice Finalizes the update process of the optimistic minting fee.
-    ///         The new fee divisor must be at or above
-    ///         `MIN_OPTIMISTIC_MINTING_FEE_DIVISOR` to prevent excessively
-    ///         high fee rates.
+    ///         The new fee divisor must be either 0 (disables the fee) or at
+    ///         or above `MIN_OPTIMISTIC_MINTING_FEE_DIVISOR` to prevent
+    ///         excessively high fee rates.
     /// @dev Defense-in-depth: validated at both begin and finalize time.
     function finalizeOptimisticMintingFeeUpdate()
         external
@@ -585,8 +590,10 @@ abstract contract TBTCOptimisticMinting is Ownable, ITBTCVaultMigrationDebt {
         onlyAfterGovernanceDelay(optimisticMintingFeeUpdateInitiatedTimestamp)
     {
         require(
-            newOptimisticMintingFeeDivisor >= MIN_OPTIMISTIC_MINTING_FEE_DIVISOR,
-            "New fee divisor must be >= minimum"
+            newOptimisticMintingFeeDivisor == 0 ||
+                newOptimisticMintingFeeDivisor >=
+                MIN_OPTIMISTIC_MINTING_FEE_DIVISOR,
+            "New fee divisor must be 0 or >= minimum"
         );
 
         optimisticMintingFeeDivisor = newOptimisticMintingFeeDivisor;
