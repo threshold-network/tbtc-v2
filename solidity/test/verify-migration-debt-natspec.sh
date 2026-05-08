@@ -17,7 +17,7 @@ check_pattern() {
   local pattern="$2"
   local description="$3"
 
-  if ! grep -qE "$pattern" "$file" 2>/dev/null; then
+  if ! grep -qE "$pattern" "$file" 2> /dev/null; then
     echo "FAIL: $description"
     echo "  File: $file"
     echo "  Missing pattern: $pattern"

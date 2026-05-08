@@ -337,10 +337,12 @@ library DepositSweep {
             // Fail open to avoid blocking proven sweeps if the optional
             // migration completion hook is not wired yet or is temporarily
             // misconfigured.
-            // solhint-disable-next-line avoid-low-level-calls
-            (bool batchSuccess, ) = vault.call(
+            // reason: intentional low-level call with fail-open semantics; the sweep proof is finalized regardless of vault callback success. MigrationSweepCallbackFailed event signals retry to off-chain monitoring.
+            // slither-disable-next-line low-level-calls
+            (bool batchSuccess, ) = vault.call( // solhint-disable-line avoid-low-level-calls
                 abi.encodeWithSelector(
-                    ITBTCVaultMigrationSweepHook.notifyPendingMigrationSweep
+                    ITBTCVaultMigrationSweepHook
+                        .notifyPendingMigrationSweep
                         .selector,
                     sweepTxHash,
                     chunk
@@ -348,14 +350,17 @@ library DepositSweep {
             );
 
             if (!batchSuccess) {
+                // reason: event emitted after fail-open vault.call; the sweep proof is already finalized and this is an informational retry signal
+                // slither-disable-next-line reentrancy-events
                 emit MigrationSweepCallbackFailed(vault, sweepTxHash);
 
                 // Best-effort fallback: retry each revealer in this chunk
                 // in isolation so one bad entry cannot strand the rest.
                 for (uint256 j = 0; j < chunkSize; j++) {
                     address revealer = chunk[j];
-                    // solhint-disable-next-line avoid-low-level-calls
-                    (bool singleSuccess, ) = vault.call(
+                    // reason: intentional low-level call with fail-open semantics in the per-revealer fallback; the sweep proof is finalized regardless. MigrationSweepCallbackRetryFailed signals per-revealer retry.
+                    // slither-disable-next-line low-level-calls
+                    (bool singleSuccess, ) = vault.call( // solhint-disable-line avoid-low-level-calls
                         abi.encodeWithSelector(
                             ITBTCVaultMigrationSweepHook
                                 .notifyPendingMigrationSweepForRevealer
@@ -366,6 +371,8 @@ library DepositSweep {
                     );
 
                     if (!singleSuccess) {
+                        // reason: event emitted after fail-open per-revealer vault.call; best-effort retry signal, sweep is finalized
+                        // slither-disable-next-line reentrancy-events
                         emit MigrationSweepCallbackRetryFailed(
                             vault,
                             sweepTxHash,

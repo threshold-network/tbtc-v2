@@ -13,7 +13,8 @@ contract DepositRevealGuardHarness {
 
     BridgeState.Storage private self;
 
-    constructor(uint64 depositDustThreshold_, uint32 depositRevealAheadPeriod_) {
+    constructor(uint64 depositDustThreshold_, uint32 depositRevealAheadPeriod_)
+    {
         self.depositDustThreshold = depositDustThreshold_;
         self.depositRevealAheadPeriod = depositRevealAheadPeriod_;
     }
@@ -65,11 +66,7 @@ contract DepositRevealGuardHarness {
         return self.deposits[depositKey];
     }
 
-    function isMigrationReveal(bytes32 extraData)
-        external
-        pure
-        returns (bool)
-    {
+    function isMigrationReveal(bytes32 extraData) external pure returns (bool) {
         return MigrationExtraData.isMigrationReveal(extraData);
     }
 

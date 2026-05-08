@@ -66,10 +66,7 @@ interface ITBTCVaultMigrationDebt {
 
     function setMigrationRevealer(address revealer, bool allowed) external;
 
-    function isMigrationRevealer(address revealer)
-        external
-        view
-        returns (bool);
+    function isMigrationRevealer(address revealer) external view returns (bool);
 
     /// @notice Returns whether the given revealer is allowed to reveal
     ///         migration-tagged deposits.

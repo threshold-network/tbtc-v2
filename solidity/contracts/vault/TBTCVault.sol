@@ -101,6 +101,8 @@ contract TBTCVault is IVault, Ownable, TBTCOptimisticMinting {
     /// @dev Can only be called by the Bank via `approveBalanceAndCall`.
     /// @param owner The owner who approved their Bank balance.
     /// @param satoshis Amount of satoshis used to mint TBTC.
+    // reason: parameter name `owner` follows ERC-20 approval convention; it intentionally shadows Ownable.owner() with no re-entrance risk
+    // slither-disable-next-line shadowing-local
     function receiveBalanceApproval(
         address owner,
         uint256 satoshis,

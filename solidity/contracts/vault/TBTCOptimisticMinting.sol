@@ -698,6 +698,8 @@ abstract contract TBTCOptimisticMinting is Ownable, ITBTCVaultMigrationDebt {
             migrationDebt[revealer] == 0,
             "Migration debt already registered (counter invariant)"
         );
+        // reason: registerDebt returns the registered amount, which equals the `amount` argument already in scope; the return value is redundant for the caller
+        // slither-disable-next-line unused-return
         TBTCMigrationDebtOperations.registerDebt(
             migrationDebt,
             revealer,
@@ -944,8 +946,10 @@ abstract contract TBTCOptimisticMinting is Ownable, ITBTCVaultMigrationDebt {
     {
         bool hadDebt = migrationDebt[revealer] > 0;
 
-        (uint256 mintableAmount, uint256 remainingDebt) = TBTCMigrationDebtOperations
-            .repayDebt(
+        (
+            uint256 mintableAmount,
+            uint256 remainingDebt
+        ) = TBTCMigrationDebtOperations.repayDebt(
                 migrationDebt,
                 pendingMigrationSweepCompletion,
                 revealer,
@@ -954,6 +958,8 @@ abstract contract TBTCOptimisticMinting is Ownable, ITBTCVaultMigrationDebt {
 
         // Decrement the outstanding counter when debt transitions to zero.
         if (hadDebt && remainingDebt == 0) {
+            // reason: per-revealer counter decrement; reached from the per-depositor receiveBalanceIncrease loop at TBTCVault.sol:130 via repayMigrationDebt. Depositors originate from Bitcoin sweep tx outputs validated by Bridge.submitDepositSweepProof; counter atomicity is a contract invariant.
+            // slither-disable-next-line costly-loop
             _outstandingMigrationDebtCount--;
         }
 
@@ -975,11 +981,15 @@ abstract contract TBTCOptimisticMinting is Ownable, ITBTCVaultMigrationDebt {
             return;
         }
 
+        // reason: single typed external call to the governance-set migrationSweepNotifier address; calls-loop is flagged because notifyPendingMigrationSweep at :826 dispatches per-revealer in a for loop at :842. The notifier is a trusted governance-controlled contract; failures revert this hook and are surfaced via the outer Bridge fail-open wrapper at DepositSweep.notifyMigrationSweepCallback.
+        // slither-disable-next-line calls-loop
         ITBTCVaultMigrationSweepNotifier(notifier).notifyMigrationSweep(
             reserve,
             sweepTxHash
         );
 
+        // reason: event emitted after a typed external notifier call that reverts on failure; if execution reaches this emit, the notifier succeeded. The reentrancy-events detector flags this because the external call precedes the emit; the call target is the trusted governance-set notifier.
+        // slither-disable-next-line reentrancy-events
         emit MigrationSweepNotified(revealer, reserve, sweepTxHash);
     }
 
@@ -989,5 +999,4 @@ abstract contract TBTCOptimisticMinting is Ownable, ITBTCVaultMigrationDebt {
             "Bridge migration debt vault mismatch"
         );
     }
-
 }

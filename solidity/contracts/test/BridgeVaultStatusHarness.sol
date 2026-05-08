@@ -92,9 +92,7 @@ contract BridgeVaultStatusHarness {
     {
         (bool success, bytes memory data) = vault.staticcall(
             abi.encodeWithSelector(
-                ITBTCVaultMigrationDebt
-                    .hasOutstandingMigrationDebt
-                    .selector
+                ITBTCVaultMigrationDebt.hasOutstandingMigrationDebt.selector
             )
         );
         if (success && data.length >= 32) {

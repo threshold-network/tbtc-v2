@@ -1339,6 +1339,8 @@ contract Bridge is
         view
         returns (bool)
     {
+        // reason: staticcall to the canonical migration debt vault interface; staticcall is intentional to read state without side effects. The vault is a trusted governance-set contract.
+        // slither-disable-next-line low-level-calls
         (bool success, bytes memory data) = vault.staticcall(
             abi.encodeWithSelector(
                 ITBTCVaultMigrationDebt.hasOutstandingMigrationDebt.selector

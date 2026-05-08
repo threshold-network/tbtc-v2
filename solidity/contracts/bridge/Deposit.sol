@@ -567,8 +567,14 @@ library Deposit {
     function getCanRevealMigration(address vault, address revealer)
         internal
         view
-        returns (bool, bool, bytes32)
+        returns (
+            bool,
+            bool,
+            bytes32
+        )
     {
+        // reason: staticcall to canonical migration debt vault for revealer eligibility; intentional fail-closed semantics for migration grant path are documented in the surrounding NatSpec.
+        // slither-disable-next-line low-level-calls
         (bool success, bytes memory data) = vault.staticcall(
             abi.encodeWithSelector(
                 ITBTCVaultMigrationDebt.canRevealMigration.selector,
@@ -605,8 +611,14 @@ library Deposit {
     function getIsMigrationRevealer(address vault, address revealer)
         internal
         view
-        returns (bool, bool, bytes32)
+        returns (
+            bool,
+            bool,
+            bytes32
+        )
     {
+        // reason: staticcall to canonical migration debt vault for revealer registration check; intentional fail-closed semantics for migration grant path are documented in the surrounding NatSpec.
+        // slither-disable-next-line low-level-calls
         (bool success, bytes memory data) = vault.staticcall(
             abi.encodeWithSelector(
                 ITBTCVaultMigrationDebt.isMigrationRevealer.selector,

@@ -22,11 +22,15 @@ contract MockMigrationSweepVault is IVault, ITBTCVaultMigrationSweepHook {
         shouldRevertMigrationSweepSingleHook = shouldRevert;
     }
 
-    function setShouldRevertMigrationSweepBatchHook(bool shouldRevert) external {
+    function setShouldRevertMigrationSweepBatchHook(bool shouldRevert)
+        external
+    {
         shouldRevertMigrationSweepBatchHook = shouldRevert;
     }
 
-    function setShouldRevertMigrationSweepSingleHook(bool shouldRevert) external {
+    function setShouldRevertMigrationSweepSingleHook(bool shouldRevert)
+        external
+    {
         shouldRevertMigrationSweepSingleHook = shouldRevert;
     }
 

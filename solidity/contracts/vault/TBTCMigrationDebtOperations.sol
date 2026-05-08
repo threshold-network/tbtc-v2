@@ -62,7 +62,9 @@ library TBTCMigrationDebtOperations {
         );
 
         migrationSweepReserve[revealer] = reserve;
-        if (reserve == address(0) && pendingMigrationSweepCompletion[revealer]) {
+        if (
+            reserve == address(0) && pendingMigrationSweepCompletion[revealer]
+        ) {
             pendingMigrationSweepCompletion[revealer] = false;
             return true;
         }
