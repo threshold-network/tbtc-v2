@@ -1269,7 +1269,11 @@ contract Bridge is
     /// @notice Sets canonical migration debt vault used by reveal guard.
     /// @param vault Address of trusted migration debt vault. Can be zero to
     ///        disable canonical reveal guard checks.
-    /// @dev Can only be called by the Governance.
+    /// @dev Can only be called by the Governance. This function does not check
+    ///      for outstanding migration debt on the current canonical vault; it
+    ///      is intended for initial setup or emergency disable (vault == 0).
+    ///      For live rotation away from a vault that may have in-flight debt,
+    ///      use `rotateMigrationDebtVault` instead.
     function setMigrationDebtVault(address vault) external onlyGovernance {
         require(
             vault == address(0) || self.isVaultTrusted[vault],

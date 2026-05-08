@@ -38,6 +38,12 @@ library TBTCMigrationDebtOperations {
         return amount;
     }
 
+    /// @notice Sets or clears the migration revealer status for an address.
+    /// @param isMigrationRevealer Storage mapping of revealer addresses to
+    ///        their allowed status.
+    /// @param revealer Address whose revealer status is being updated. Must
+    ///        not be the zero address.
+    /// @param allowed True to grant migration revealer status, false to revoke.
     function setRevealer(
         mapping(address => bool) storage isMigrationRevealer,
         address revealer,
@@ -50,6 +56,18 @@ library TBTCMigrationDebtOperations {
         isMigrationRevealer[revealer] = allowed;
     }
 
+    /// @notice Sets or clears the migration sweep reserve for a revealer.
+    /// @param migrationSweepReserve Storage mapping of revealer addresses to
+    ///        their designated sweep reserve address.
+    /// @param pendingMigrationSweepCompletion Storage mapping tracking whether
+    ///        a revealer's debt reached zero but the downstream notifier
+    ///        callback has not yet been consumed.
+    /// @param revealer Address whose reserve mapping is being updated. Must
+    ///        not be the zero address.
+    /// @param reserve Reserve address for the migration sweep completion
+    ///        callback. Passing address(0) clears the mapping and also drops
+    ///        any queued pending completion for the revealer.
+    /// @return True if a pending sweep completion was cleared, false otherwise.
     function setSweepReserve(
         mapping(address => address) storage migrationSweepReserve,
         mapping(address => bool) storage pendingMigrationSweepCompletion,
