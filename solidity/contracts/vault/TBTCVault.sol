@@ -231,11 +231,30 @@ contract TBTCVault is IVault, Ownable, TBTCOptimisticMinting {
     ///         Once the upgrade is finalized, the new vault becomes the owner
     ///         of the TBTC token and receives the whole Bank balance of this
     ///         vault.
+    /// @dev Reverts when this vault is the canonical migration debt vault and
+    ///      still has outstanding migration debt. The new vault is a fresh
+    ///      contract that starts with empty `migrationDebt`,
+    ///      `pendingMigrationSweepCompletion`, `migrationSweepReserve`,
+    ///      `isMigrationRevealer`, and `_outstandingMigrationDebtCount`
+    ///      state. Transferring TBTC ownership and the Bank balance while
+    ///      this state is non-empty would orphan the in-flight migration
+    ///      accounting on the old vault — revealers' debt would be lost,
+    ///      pending sweep callbacks would never land, and the Bridge's
+    ///      canonical-vault assumptions would break. Governance must drain
+    ///      migration debt (via the normal repayment / `clearMigrationDebt`
+    ///      flow) and rotate the canonical pointer
+    ///      (`Bridge.rotateMigrationDebtVault`) before finalizing the
+    ///      upgrade.
     function finalizeUpgrade()
         external
         onlyOwner
         onlyAfterGovernanceDelay(upgradeInitiatedTimestamp)
     {
+        require(
+            !hasOutstandingMigrationDebt(),
+            "Cannot finalize upgrade with outstanding migration debt"
+        );
+
         emit UpgradeFinalized(newVault);
         // slither-disable-next-line reentrancy-no-eth
         tbtcToken.transferOwnership(newVault);

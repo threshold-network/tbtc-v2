@@ -67,6 +67,12 @@ contract Bridge is
     error PreviousMigrationDebtVaultIsZero();
     error PreviousMigrationDebtVaultMismatch(address expected, address actual);
     error MigrationDebtVaultUnchanged(address vault);
+    error MigrationDebtVaultInterfaceMissing(address vault);
+    error PreviousMigrationDebtVaultHasDebt(address vault);
+    error EthRescueRecipientZero();
+    error EthRescueAmountZero();
+    error EthRescueInsufficientBalance(uint256 requested, uint256 available);
+    error EthRescueTransferFailed(address recipient, uint256 amount);
 
     using BridgeState for BridgeState.Storage;
     using Deposit for BridgeState.Storage;
@@ -186,6 +192,8 @@ contract Bridge is
 
     event VaultStatusUpdated(address indexed vault, bool isTrusted);
     event MigrationDebtVaultUpdated(address indexed migrationDebtVault);
+
+    event EthRescued(address indexed recipient, uint256 amount);
 
     event SpvMaintainerStatusUpdated(
         address indexed spvMaintainer,
@@ -1269,16 +1277,53 @@ contract Bridge is
     /// @notice Sets canonical migration debt vault used by reveal guard.
     /// @param vault Address of trusted migration debt vault. Can be zero to
     ///        disable canonical reveal guard checks.
-    /// @dev Can only be called by the Governance. This function does not check
-    ///      for outstanding migration debt on the current canonical vault; it
-    ///      is intended for initial setup or emergency disable (vault == 0).
-    ///      For live rotation away from a vault that may have in-flight debt,
-    ///      use `rotateMigrationDebtVault` instead.
+    /// @dev Can only be called by the Governance. Intended for initial setup
+    ///      and emergency disable (vault == 0). For live rotation between
+    ///      conforming vaults, prefer `rotateMigrationDebtVault`, which
+    ///      atomically untrusts the previous canonical vault.
+    ///
+    ///      A non-zero `vault` must implement `ITBTCVaultMigrationDebt`. The
+    ///      probe is fail-closed at set-time because the deposit-reveal guard
+    ///      in `Deposit.isRegisteredMigrationRevealer` reverts when the
+    ///      canonical vault's `isMigrationRevealer` staticcall fails — a
+    ///      non-conforming canonical pointer would brick every regular
+    ///      reveal until governance corrected the pointer.
+    ///
+    ///      When the current canonical vault has outstanding migration debt,
+    ///      this setter rejects the change and forces governance to use
+    ///      `rotateMigrationDebtVault` (which atomically untrusts the
+    ///      previous vault and bars further untrust until debt clears). The
+    ///      check uses the same fail-open staticcall as the rotate guard, so
+    ///      a vault that no longer answers (selfdestructed, broken upgrade)
+    ///      can still be cleared via this function.
     function setMigrationDebtVault(address vault) external onlyGovernance {
         require(
             vault == address(0) || self.isVaultTrusted[vault],
             "Vault is not trusted"
         );
+
+        if (vault != address(0)) {
+            // reason: fail-closed interface conformance probe; the reveal
+            // guard fail-closes on the canonical vault, so a non-conforming
+            // pointer here is a deposit-pipeline brick.
+            // slither-disable-next-line low-level-calls
+            (bool ok, bytes memory data) = vault.staticcall(
+                abi.encodeWithSelector(
+                    ITBTCVaultMigrationDebt.hasOutstandingMigrationDebt.selector
+                )
+            );
+            if (!ok || data.length < 32) {
+                revert MigrationDebtVaultInterfaceMissing(vault);
+            }
+        }
+
+        address previousVault = self.migrationDebtVault;
+        if (
+            previousVault != address(0) &&
+            _hasOutstandingMigrationDebt(previousVault)
+        ) {
+            revert PreviousMigrationDebtVaultHasDebt(previousVault);
+        }
 
         self.migrationDebtVault = vault;
         emit MigrationDebtVaultUpdated(vault);
@@ -2148,5 +2193,49 @@ contract Bridge is
     ) external {
         // The caller is checked in the internal function.
         self.notifyRedemptionVeto(walletPubKeyHash, redeemerOutputScript);
+    }
+
+    /// @notice Allows the Governance to rescue ETH from the contract balance.
+    /// @param recipient Address that receives the rescued ETH. Must be
+    ///        non-zero and able to accept ETH via a default `receive`/`fallback`
+    ///        path. The call forwards all gas, so contract recipients with
+    ///        large `receive` logic are supported.
+    /// @param amount Amount of ETH (in wei) to transfer to `recipient`.
+    /// @dev The Bridge accepts ETH only through `submitFraudChallenge` (a
+    ///      challenger's deposit). The `Fraud` library refunds those deposits
+    ///      to the treasury or the challenger via a bounded-gas low-level
+    ///      call whose return value is not checked, marking the challenge
+    ///      `resolved` regardless of payout success. If a recipient cannot
+    ///      accept the call (insufficient gas in `receive`, contract revert,
+    ///      contract not yet deployed at the address), the corresponding
+    ///      `challenge.depositAmount` remains custodied in this contract with
+    ///      no other path out. This function is the recovery handle; without
+    ///      it, orphaned ETH is permanently stuck behind the upgradeable proxy.
+    ///      Emits `EthRescued` so off-chain monitors can correlate rescue
+    ///      events with stuck-payout incidents.
+    /// @dev Can only be called by the Governance.
+    function recoverETH(address payable recipient, uint256 amount)
+        external
+        onlyGovernance
+    {
+        if (recipient == address(0)) {
+            revert EthRescueRecipientZero();
+        }
+        if (amount == 0) {
+            revert EthRescueAmountZero();
+        }
+        uint256 available = address(this).balance;
+        if (available < amount) {
+            revert EthRescueInsufficientBalance(amount, available);
+        }
+
+        emit EthRescued(recipient, amount);
+
+        // slither-disable-next-line low-level-calls
+        // solhint-disable-next-line avoid-low-level-calls
+        (bool success, ) = recipient.call{value: amount}("");
+        if (!success) {
+            revert EthRescueTransferFailed(recipient, amount);
+        }
     }
 }

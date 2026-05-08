@@ -35,12 +35,33 @@ contract BridgeVaultStatusHarness {
         emit VaultStatusUpdated(vault, isTrusted);
     }
 
-    /// @notice Mirrors Bridge.setMigrationDebtVault canonical pointer update.
+    /// @notice Mirrors Bridge.setMigrationDebtVault canonical pointer update,
+    ///         including the fail-closed interface probe and the
+    ///         outstanding-debt guard for the previous canonical vault.
     function setMigrationDebtVault(address vault) external {
         require(
             vault == address(0) || self.isVaultTrusted[vault],
             "Vault is not trusted"
         );
+
+        if (vault != address(0)) {
+            (bool ok, bytes memory data) = vault.staticcall(
+                abi.encodeWithSelector(
+                    ITBTCVaultMigrationDebt.hasOutstandingMigrationDebt.selector
+                )
+            );
+            require(
+                ok && data.length >= 32,
+                "Vault does not implement migration debt interface"
+            );
+        }
+
+        if (self.migrationDebtVault != address(0)) {
+            require(
+                !_hasOutstandingMigrationDebt(self.migrationDebtVault),
+                "Use rotateMigrationDebtVault when outstanding debt exists"
+            );
+        }
 
         self.migrationDebtVault = vault;
         emit MigrationDebtVaultUpdated(vault);

@@ -1242,6 +1242,49 @@ describe("TBTCVault", () => {
             expect(await vault.newVault()).to.equal(ZERO_ADDRESS)
           })
         })
+
+        context(
+          "when this vault has outstanding migration debt at finalization time",
+          () => {
+            before(async () => {
+              await createSnapshot()
+              await increaseTime(86400) // 24h
+
+              // Make this vault the canonical migration debt vault on the
+              // mocked Bridge so registerMigrationDebt's canonical-vault
+              // guard passes.
+              bridge.migrationDebtVault.returns(vault.address)
+
+              // Register migration debt on this vault so
+              // hasOutstandingMigrationDebt() returns true. The new vault
+              // would not inherit this state, so finalizeUpgrade must revert.
+              await vault
+                .connect(governance)
+                .registerMigrationDebt(account1.address, to1e18(1))
+            })
+
+            after(async () => {
+              await restoreSnapshot()
+            })
+
+            it("should revert", async () => {
+              await expect(
+                vault.connect(governance).finalizeUpgrade()
+              ).to.be.revertedWith(
+                "Cannot finalize upgrade with outstanding migration debt"
+              )
+            })
+
+            it("should succeed once the debt is cleared", async () => {
+              await vault
+                .connect(governance)
+                .clearMigrationDebt(account1.address)
+
+              await expect(vault.connect(governance).finalizeUpgrade()).to.not
+                .be.reverted
+            })
+          }
+        )
       })
     })
   })

@@ -376,7 +376,7 @@ describe("Bridge - Governance", () => {
 
         await bridgeGovernance
           .connect(governance)
-          .beginDepositDustThresholdUpdate(constants.depositTxMaxFee + 1)
+          .beginDepositDustThresholdUpdate(constants.depositTxMaxFee * 2)
 
         await helpers.time.increaseTime(constants.governanceDelay - 60) // -1min
       })
@@ -404,7 +404,7 @@ describe("Bridge - Governance", () => {
 
           await bridgeGovernance
             .connect(governance)
-            .beginDepositDustThresholdUpdate(constants.depositTxMaxFee + 1)
+            .beginDepositDustThresholdUpdate(constants.depositTxMaxFee * 2)
 
           await helpers.time.increaseTime(constants.governanceDelay)
 
@@ -420,14 +420,14 @@ describe("Bridge - Governance", () => {
         it("should update the deposit dust threshold", async () => {
           const { depositDustThreshold } = await bridge.depositParameters()
           expect(depositDustThreshold).to.be.equal(
-            constants.depositTxMaxFee + 1
+            constants.depositTxMaxFee * 2
           )
         })
 
         it("should emit DepositDustThresholdUpdated event", async () => {
           await expect(tx)
             .to.emit(bridgeGovernance, "DepositDustThresholdUpdated")
-            .withArgs(constants.depositTxMaxFee + 1)
+            .withArgs(constants.depositTxMaxFee * 2)
         })
       }
     )
@@ -4702,6 +4702,118 @@ describe("Bridge - Governance", () => {
       expect(await bridge.getRebateStaking()).to.equal(
         constants.testRebateStakingAddress
       )
+    })
+  })
+
+  describe("recoverETH", () => {
+    let recipient: SignerWithAddress
+
+    // Waffle 3.4 `revertedWith` matches reason strings only; for custom
+    // errors we assert the error name appears in the surfaced message.
+    const expectCustomError = async (
+      txPromise: Promise<unknown>,
+      errorName: string
+    ): Promise<void> => {
+      try {
+        await txPromise
+        expect.fail(`expected revert with custom error ${errorName}`)
+      } catch (error) {
+        const { message } = error as Error
+        expect(message).to.match(new RegExp(errorName))
+      }
+    }
+
+    before(async () => {
+      // eslint-disable-next-line @typescript-eslint/no-extra-semi
+      ;[, , , recipient] = await ethers.getSigners()
+    })
+
+    context("when the caller is not the owner", () => {
+      it("should revert", async () => {
+        await expect(
+          bridgeGovernance.connect(thirdParty).recoverETH(recipient.address, 1)
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+    })
+
+    context("when called by the governance", () => {
+      context("when recipient is the zero address", () => {
+        it("should revert", async () => {
+          await expectCustomError(
+            bridgeGovernance
+              .connect(governance)
+              .recoverETH(ethers.constants.AddressZero, 1),
+            "EthRescueRecipientZero"
+          )
+        })
+      })
+
+      context("when amount is zero", () => {
+        it("should revert", async () => {
+          await expectCustomError(
+            bridgeGovernance
+              .connect(governance)
+              .recoverETH(recipient.address, 0),
+            "EthRescueAmountZero"
+          )
+        })
+      })
+
+      context("when the contract has insufficient balance", () => {
+        it("should revert", async () => {
+          const balance = await ethers.provider.getBalance(bridge.address)
+          await expectCustomError(
+            bridgeGovernance
+              .connect(governance)
+              .recoverETH(recipient.address, balance.add(1)),
+            "EthRescueInsufficientBalance"
+          )
+        })
+      })
+
+      context("when funds are available", () => {
+        const stuckAmount = ethers.utils.parseEther("3")
+
+        before(async () => {
+          await createSnapshot()
+
+          // Simulate an orphaned fraud-challenge deposit refund stuck on the
+          // Bridge proxy. The Bridge has no `receive()` function so a direct
+          // EOA transfer would revert; we set the proxy balance via the
+          // hardhat cheat to model the post-stuck state without re-running
+          // the full fraud-challenge lifecycle.
+          await ethers.provider.send("hardhat_setBalance", [
+            bridge.address,
+            stuckAmount.toHexString().replace(/^0x0+/, "0x"),
+          ])
+        })
+
+        after(async () => {
+          await restoreSnapshot()
+        })
+
+        it("should transfer ETH to the recipient and emit EthRescued", async () => {
+          const recipientBefore = await ethers.provider.getBalance(
+            recipient.address
+          )
+          const bridgeBefore = await ethers.provider.getBalance(bridge.address)
+
+          const tx = await bridgeGovernance
+            .connect(governance)
+            .recoverETH(recipient.address, stuckAmount)
+
+          await expect(tx)
+            .to.emit(bridge, "EthRescued")
+            .withArgs(recipient.address, stuckAmount)
+
+          expect(await ethers.provider.getBalance(recipient.address)).to.equal(
+            recipientBefore.add(stuckAmount)
+          )
+          expect(await ethers.provider.getBalance(bridge.address)).to.equal(
+            bridgeBefore.sub(stuckAmount)
+          )
+        })
+      })
     })
   })
 })

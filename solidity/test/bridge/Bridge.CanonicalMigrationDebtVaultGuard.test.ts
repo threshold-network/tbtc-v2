@@ -12,53 +12,103 @@ const SATOSHI_MULTIPLIER = ethers.BigNumber.from(10).pow(10)
 
 describe("Bridge - Canonical migration debt vault guard", () => {
   let harness: BridgeVaultStatusHarness
-
-  const vault = "0x2553E09f832c9f5C656808bb7A24793818877732"
-  const rotatedVault = "0x8f485c7cc57f17f853f6dd2d807cc96d2aeb2729"
+  let vault: MockMigrationDebtVault
+  let rotatedVault: MockMigrationDebtVault
 
   beforeEach(async () => {
     const HarnessFactory = await ethers.getContractFactory(
       "BridgeVaultStatusHarness"
     )
     harness = await HarnessFactory.deploy()
+
+    const MockVaultFactory = await ethers.getContractFactory(
+      "MockMigrationDebtVault"
+    )
+    vault = (await MockVaultFactory.deploy()) as MockMigrationDebtVault
+    rotatedVault = (await MockVaultFactory.deploy()) as MockMigrationDebtVault
   })
 
   it("reverts when untrusting the canonical migration debt vault", async () => {
-    await harness.setVaultStatus(vault, true)
-    await harness.setMigrationDebtVault(vault)
+    await harness.setVaultStatus(vault.address, true)
+    await harness.setMigrationDebtVault(vault.address)
 
-    await expect(harness.setVaultStatus(vault, false)).to.be.revertedWith(
-      "Vault is canonical migration debt vault"
-    )
+    await expect(
+      harness.setVaultStatus(vault.address, false)
+    ).to.be.revertedWith("Vault is canonical migration debt vault")
   })
 
   it("allows untrusting a vault after clearing the canonical migration debt vault", async () => {
-    await harness.setVaultStatus(vault, true)
-    await harness.setMigrationDebtVault(vault)
+    await harness.setVaultStatus(vault.address, true)
+    await harness.setMigrationDebtVault(vault.address)
     await harness.setMigrationDebtVault(ethers.constants.AddressZero)
 
-    await expect(harness.setVaultStatus(vault, false))
+    await expect(harness.setVaultStatus(vault.address, false))
       .to.emit(harness, "VaultStatusUpdated")
-      .withArgs(vault, false)
-    expect(await harness.isVaultTrusted(vault)).to.equal(false)
+      .withArgs(vault.address, false)
+    expect(await harness.isVaultTrusted(vault.address)).to.equal(false)
   })
 
   it("rotates canonical migration debt vault and untrusts previous vault atomically", async () => {
-    await harness.setVaultStatus(vault, true)
-    await harness.setVaultStatus(rotatedVault, true)
-    await harness.setMigrationDebtVault(vault)
+    await harness.setVaultStatus(vault.address, true)
+    await harness.setVaultStatus(rotatedVault.address, true)
+    await harness.setMigrationDebtVault(vault.address)
 
-    await expect(harness.rotateMigrationDebtVault(rotatedVault, vault))
+    await expect(
+      harness.rotateMigrationDebtVault(rotatedVault.address, vault.address)
+    )
       .to.emit(harness, "MigrationDebtVaultUpdated")
-      .withArgs(rotatedVault)
+      .withArgs(rotatedVault.address)
       .and.to.emit(harness, "VaultStatusUpdated")
-      .withArgs(vault, false)
+      .withArgs(vault.address, false)
+
+    expect(await harness.migrationDebtVault()).to.equal(rotatedVault.address)
+    expect(await harness.isVaultTrusted(vault.address)).to.equal(false)
+    expect(await harness.isVaultTrusted(rotatedVault.address)).to.equal(true)
+  })
+
+  it("reverts when set target does not implement the migration debt interface", async () => {
+    // EOA-shaped address has no code -> staticcall fails -> probe rejects.
+    const eoaLike = "0x2553E09f832c9f5C656808bb7A24793818877732"
+    await harness.setVaultStatus(eoaLike, true)
+
+    await expect(harness.setMigrationDebtVault(eoaLike)).to.be.revertedWith(
+      "Vault does not implement migration debt interface"
+    )
+  })
+
+  it("reverts when overwriting a canonical vault with outstanding debt", async () => {
+    const [, revealer] = await ethers.getSigners()
+
+    await harness.setVaultStatus(vault.address, true)
+    await harness.setVaultStatus(rotatedVault.address, true)
+    await harness.setMigrationDebtVault(vault.address)
+
+    // Register debt on the current canonical vault.
+    await vault.registerMigrationDebt(revealer.address, 1)
+
+    await expect(
+      harness.setMigrationDebtVault(rotatedVault.address)
+    ).to.be.revertedWith(
+      "Use rotateMigrationDebtVault when outstanding debt exists"
+    )
+  })
+
+  it("allows emergency disable when current canonical vault is bricked", async () => {
+    // Stand up a vault, set it as canonical, then make it stop answering by
+    // pointing the trust list at a non-conforming address — but since the
+    // canonical pointer still points at the working vault, the fail-open
+    // staticcall in the previous-vault debt guard returns false (no debt),
+    // so emergency disable to address(0) succeeds.
+    await harness.setVaultStatus(vault.address, true)
+    await harness.setMigrationDebtVault(vault.address)
+
+    await expect(harness.setMigrationDebtVault(ethers.constants.AddressZero))
+      .to.emit(harness, "MigrationDebtVaultUpdated")
+      .withArgs(ethers.constants.AddressZero)
 
     expect(await harness.migrationDebtVault()).to.equal(
-      ethers.utils.getAddress(rotatedVault)
+      ethers.constants.AddressZero
     )
-    expect(await harness.isVaultTrusted(vault)).to.equal(false)
-    expect(await harness.isVaultTrusted(rotatedVault)).to.equal(true)
   })
 })
 
@@ -145,20 +195,27 @@ describe("Bridge - Migration debt drain guard", () => {
     it("reverts when untrusting a vault with outstanding migration debt", async () => {
       const [, revealer] = await ethers.getSigners()
 
-      // Register debt on the previous vault
+      // Register debt on the previous vault, then set it as canonical.
       await previousVault.registerMigrationDebt(
         revealer.address,
         SATOSHI_MULTIPLIER.mul(50)
       )
-
-      // Set previous vault as canonical, then change canonical to new vault
       await harness.setMigrationDebtVault(previousVault.address)
-      await harness.setMigrationDebtVault(newVault.address)
 
-      // Attempt to untrust old vault -- should revert because it has debt
+      // The two-step bypass (setMigrationDebtVault away, then setVaultStatus
+      // false) is now blocked at step 1: setMigrationDebtVault refuses to
+      // overwrite a canonical vault with outstanding debt.
+      await expect(
+        harness.setMigrationDebtVault(newVault.address)
+      ).to.be.revertedWith(
+        "Use rotateMigrationDebtVault when outstanding debt exists"
+      )
+
+      // The setVaultStatus drain guard still rejects untrust of the canonical
+      // vault directly (the existing pre-PR canonical-vault guard).
       await expect(
         harness.setVaultStatus(previousVault.address, false)
-      ).to.be.revertedWith("Vault has outstanding migration debt")
+      ).to.be.revertedWith("Vault is canonical migration debt vault")
     })
 
     it("allows trust and untrust for non-migration-debt vaults", async () => {
@@ -178,46 +235,50 @@ describe("Bridge - Migration debt drain guard", () => {
       expect(await harness.isVaultTrusted(plainVault)).to.equal(false)
     })
 
-    it("blocks two-step bypass: setMigrationDebtVault + setVaultStatus", async () => {
+    it("blocks setMigrationDebtVault rewrite while the current canonical has debt", async () => {
       const [, revealer] = await ethers.getSigners()
 
-      // Register debt on the previous vault
+      // Register debt on the previous vault and set it as canonical.
       await previousVault.registerMigrationDebt(
         revealer.address,
         SATOSHI_MULTIPLIER.mul(200)
       )
-
-      // Step 1 of the attack: set vault as canonical
       await harness.setMigrationDebtVault(previousVault.address)
 
-      // Step 2 of the attack: change canonical pointer away
-      await harness.setMigrationDebtVault(newVault.address)
-
-      // Step 3 of the attack: untrust the old vault with outstanding debt
-      // This should be blocked by the migration debt drain guard
+      // Attempting to bypass via setMigrationDebtVault(newVault) is rejected
+      // because the previous canonical vault still owes debt -- governance
+      // must use rotateMigrationDebtVault (which itself enforces the debt
+      // drain guard before atomically untrusting the previous vault).
       await expect(
-        harness.setVaultStatus(previousVault.address, false)
-      ).to.be.revertedWith("Vault has outstanding migration debt")
+        harness.setMigrationDebtVault(newVault.address)
+      ).to.be.revertedWith(
+        "Use rotateMigrationDebtVault when outstanding debt exists"
+      )
 
-      // Vault must remain trusted since untrust was blocked
+      // The previous vault remains canonical and trusted.
+      expect(await harness.migrationDebtVault()).to.equal(previousVault.address)
       expect(await harness.isVaultTrusted(previousVault.address)).to.equal(true)
     })
 
-    it("allows untrusting after vault debt is fully cleared", async () => {
+    it("allows rotation after vault debt is fully cleared", async () => {
       const [, revealer] = await ethers.getSigners()
 
-      // Register debt, set as canonical, then move canonical away
       await previousVault.registerMigrationDebt(
         revealer.address,
         SATOSHI_MULTIPLIER.mul(75)
       )
       await harness.setMigrationDebtVault(previousVault.address)
-      await harness.setMigrationDebtVault(newVault.address)
 
-      // Fully repay the debt
+      // Fully repay the debt before attempting to rotate canonical away.
       await previousVault.repayMigrationDebt(revealer.address)
 
-      // Now untrusting should succeed because debt is cleared
+      // Now setMigrationDebtVault(new) succeeds because previous has no debt.
+      await expect(harness.setMigrationDebtVault(newVault.address))
+        .to.emit(harness, "MigrationDebtVaultUpdated")
+        .withArgs(newVault.address)
+
+      // And the previous vault can be untrusted because it has no debt and
+      // is no longer canonical.
       await expect(harness.setVaultStatus(previousVault.address, false))
         .to.emit(harness, "VaultStatusUpdated")
         .withArgs(previousVault.address, false)
@@ -226,7 +287,7 @@ describe("Bridge - Migration debt drain guard", () => {
       )
     })
 
-    it("allows untrusting after residual debt is administratively cleared", async () => {
+    it("allows rotation after residual debt is administratively cleared", async () => {
       const [, revealer] = await ethers.getSigners()
 
       await previousVault.registerMigrationDebt(
@@ -234,11 +295,14 @@ describe("Bridge - Migration debt drain guard", () => {
         SATOSHI_MULTIPLIER.mul(75)
       )
       await previousVault.setMigrationRevealer(revealer.address, true)
-
       await harness.setMigrationDebtVault(previousVault.address)
-      await harness.setMigrationDebtVault(newVault.address)
 
+      // Administratively clear the debt before rotation.
       await previousVault.clearMigrationDebt(revealer.address)
+
+      await expect(harness.setMigrationDebtVault(newVault.address))
+        .to.emit(harness, "MigrationDebtVaultUpdated")
+        .withArgs(newVault.address)
 
       await expect(harness.setVaultStatus(previousVault.address, false))
         .to.emit(harness, "VaultStatusUpdated")

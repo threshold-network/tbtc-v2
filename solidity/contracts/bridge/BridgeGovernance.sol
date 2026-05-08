@@ -346,6 +346,18 @@ contract BridgeGovernance is Ownable {
         bridge.setSpvMaintainerStatus(spvMaintainer, isTrusted);
     }
 
+    /// @notice Forwards ETH rescue to the Bridge. Required when fraud-challenge
+    ///         deposit refunds (bounded-gas low-level call, unchecked return)
+    ///         leave ETH custodied in the Bridge with no other path out.
+    /// @param recipient Address that receives the rescued ETH.
+    /// @param amount Amount of ETH (in wei) to transfer.
+    function recoverETH(address payable recipient, uint256 amount)
+        external
+        onlyOwner
+    {
+        bridge.recoverETH(recipient, amount);
+    }
+
     /// @notice Begins the governance delay update process.
     /// @dev Can be called only by the contract owner. The new governance delay
     ///      must be at least `MIN_GOVERNANCE_DELAY`. The event that informs

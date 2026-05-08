@@ -449,6 +449,27 @@ library BridgeState {
             "Deposit transaction max fee must be greater than zero"
         );
 
+        // Sweep solvency invariant: a deposit at the dust-threshold floor
+        // pays the treasury fee plus the per-deposit sweep tx fee out of
+        // its own value. `DepositSweep.submitDepositSweepProof` performs
+        // `amount - treasuryFee - depositTxFee` and relies on the dust
+        // threshold to prevent that subtraction from underflowing.
+        // `treasuryFee = amount / depositTreasuryFeeDivisor` when the
+        // divisor is non-zero (see `Deposit.sol:420`), so the worst case
+        // at `amount == depositDustThreshold` is
+        // `depositDustThreshold / depositTreasuryFeeDivisor`. Enforce
+        // that the dust threshold strictly exceeds the worst-case
+        // treasury+tx fee at parameter-set time so a misconfigured
+        // divisor cannot strand revealed deposits at sweep time.
+        if (_depositTreasuryFeeDivisor > 0) {
+            require(
+                _depositDustThreshold >
+                    (_depositDustThreshold / _depositTreasuryFeeDivisor) +
+                        _depositTxMaxFee,
+                "Deposit dust threshold must cover treasury and TX max fee"
+            );
+        }
+
         self.depositDustThreshold = _depositDustThreshold;
         self.depositTreasuryFeeDivisor = _depositTreasuryFeeDivisor;
         self.depositTxMaxFee = _depositTxMaxFee;

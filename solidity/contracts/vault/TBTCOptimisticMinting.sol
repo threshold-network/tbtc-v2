@@ -869,16 +869,11 @@ abstract contract TBTCOptimisticMinting is Ownable, ITBTCVaultMigrationDebt {
 
     /// @inheritdoc ITBTCVaultMigrationDebt
     /// @dev Called by Bridge.sol via staticcall during vault rotation and
-    ///      untrust operations. Slither flags it as dead code because no
-    ///      Solidity contract calls it directly; the call originates from
-    ///      a low-level staticcall in Bridge._hasOutstandingMigrationDebt.
-    // slither-disable-next-line dead-code
-    function hasOutstandingMigrationDebt()
-        external
-        view
-        override
-        returns (bool)
-    {
+    ///      untrust operations, and by `TBTCVault.finalizeUpgrade` to block
+    ///      the upgrade while migration state is in flight. Visibility is
+    ///      `public` so subclasses can read it without paying for an
+    ///      external self-call.
+    function hasOutstandingMigrationDebt() public view override returns (bool) {
         return _outstandingMigrationDebtCount > 0;
     }
 
