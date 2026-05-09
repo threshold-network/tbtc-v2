@@ -52,8 +52,7 @@ contract BridgeVaultStatusHarness {
         }
 
         if (vault != address(0)) {
-            (bool ok, ) = _getOutstandingMigrationDebt(vault);
-            if (!ok) {
+            if (!_isMigrationDebtVaultConforming(vault)) {
                 revert MigrationDebtVaultInterfaceMissing(vault);
             }
         }
@@ -98,8 +97,7 @@ contract BridgeVaultStatusHarness {
         }
 
         if (newVault != address(0)) {
-            (bool ok, ) = _getOutstandingMigrationDebt(newVault);
-            if (!ok) {
+            if (!_isMigrationDebtVaultConforming(newVault)) {
                 revert MigrationDebtVaultInterfaceMissing(newVault);
             }
         }
@@ -123,6 +121,36 @@ contract BridgeVaultStatusHarness {
         return self.migrationDebtVault;
     }
 
+    function _isMigrationDebtVaultConforming(address vault)
+        private
+        view
+        returns (bool)
+    {
+        (bool ok, ) = _getOutstandingMigrationDebt(vault);
+        if (!ok) {
+            return false;
+        }
+
+        (ok, ) = _migrationDebtVaultStaticcall(
+            vault,
+            ITBTCVaultMigrationDebt.isMigrationRevealer.selector,
+            address(0),
+            36
+        );
+        if (!ok) {
+            return false;
+        }
+
+        (ok, ) = _migrationDebtVaultStaticcall(
+            vault,
+            ITBTCVaultMigrationDebt.canRevealMigration.selector,
+            address(0),
+            36
+        );
+
+        return ok;
+    }
+
     /// @notice Fail-open staticcall to check whether a vault has outstanding
     ///         migration debt. Returns false when the vault does not implement
     ///         the ITBTCVaultMigrationDebt interface.
@@ -131,15 +159,35 @@ contract BridgeVaultStatusHarness {
         view
         returns (bool ok, bool hasDebt)
     {
-        (bool success, bytes memory data) = vault.staticcall(
-            abi.encodeWithSelector(
-                ITBTCVaultMigrationDebt.hasOutstandingMigrationDebt.selector
+        return
+            _migrationDebtVaultStaticcall(
+                vault,
+                ITBTCVaultMigrationDebt.hasOutstandingMigrationDebt.selector,
+                address(0),
+                4
+            );
+    }
+
+    function _migrationDebtVaultStaticcall(
+        address vault,
+        bytes4 selector,
+        address revealer,
+        uint256 inputSize
+    ) private view returns (bool ok, bool value) {
+        // solhint-disable-next-line no-inline-assembly
+        assembly {
+            let ptr := mload(0x40)
+            mstore(ptr, selector)
+            mstore(add(ptr, 0x04), revealer)
+
+            let success := staticcall(gas(), vault, ptr, inputSize, ptr, 0x20)
+            let word := mload(ptr)
+            ok := and(
+                and(success, gt(returndatasize(), 0x1f)),
+                or(iszero(word), eq(word, 1))
             )
-        );
-        if (success && data.length >= 32) {
-            return (true, abi.decode(data, (bool)));
+            value := and(ok, eq(word, 1))
         }
-        return (false, false);
     }
 
     function _hasOutstandingMigrationDebt(address vault)

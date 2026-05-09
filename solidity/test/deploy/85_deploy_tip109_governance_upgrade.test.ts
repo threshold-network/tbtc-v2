@@ -888,6 +888,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         expect(combined).to.include("80")
         expect(combined).to.include("81")
         expect(combined).to.include("129")
+        expect(combined).to.include("130")
         expect(combined).to.match(/81|__gap|gap/)
       })
 
@@ -914,7 +915,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         expect(combined.toLowerCase()).to.include(KNOWN_T_TOKEN.toLowerCase())
       })
 
-      it("should have a selector count check expecting 56", () => {
+      it("should have a selector count check expecting 57", () => {
         expect(summary).to.not.be.null
 
         const selectorCheck = summary.verificationChecks.find(
@@ -927,7 +928,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         ).to.not.be.undefined
 
         const combined = `${selectorCheck.command} ${selectorCheck.expectedResult}`
-        expect(combined).to.include("56")
+        expect(combined).to.include("57")
       })
 
       it("should have a bytecode linkage check referencing Deposit and Redemption addresses", () => {

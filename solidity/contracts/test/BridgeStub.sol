@@ -97,6 +97,20 @@ contract BridgeStub is Bridge {
         return self.openFraudChallengeEscrow;
     }
 
+    function setOpenFraudChallengeEscrow(uint256 amount) external {
+        self.openFraudChallengeEscrow = amount;
+    }
+
+    function setFraudChallengeEscrowSeeded(bool seeded) external {
+        self.fraudChallengeEscrowSeeded = seeded;
+    }
+
+    function setFraudChallengeEscrowCounted(uint256 challengeKey, bool counted)
+        external
+    {
+        self.fraudChallenges[challengeKey].escrowCounted = counted;
+    }
+
     function setPendingMovedFundsSweepRequest(
         bytes20 walletPubKeyHash,
         BitcoinTx.UTXO calldata utxo

@@ -343,6 +343,9 @@ library BridgeState {
         ///         challenges, used to keep `recoverETH` scoped to
         ///         non-escrowed ETH.
         uint256 openFraudChallengeEscrow;
+        /// @notice True once governance has accounted for pre-upgrade open
+        ///         fraud challenges in `openFraudChallengeEscrow`.
+        bool fraudChallengeEscrowSeeded;
     }
 
     event DepositParametersUpdated(

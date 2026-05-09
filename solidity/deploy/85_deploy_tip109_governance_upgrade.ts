@@ -273,10 +273,10 @@ function buildVerificationChecks(addresses: {
         "Existing P2SH deposits should remain unaffected by the Bridge upgrade",
     },
     {
-      command: `cast call ${addresses.bridgeImpl} "..." | grep -c "^" -- or inspect ABI for 56 public/external selectors`,
-      expectedResult: "56 selectors",
+      command: `cast call ${addresses.bridgeImpl} "..." | grep -c "^" -- or inspect ABI for 57 public/external selectors`,
+      expectedResult: "57 selectors",
       description:
-        "Bridge implementation should expose exactly 56 public/external function selectors",
+        "Bridge implementation should expose exactly 57 public/external function selectors",
     },
     {
       command: `cast storage ${addresses.rebateStakingProxy} ${EIP_1967_IMPLEMENTATION_SLOT}`,
@@ -289,15 +289,17 @@ function buildVerificationChecks(addresses: {
         `cast storage ${addresses.bridgeProxy} 79 && ` +
         `cast storage ${addresses.bridgeProxy} 80 && ` +
         `cast storage ${addresses.bridgeProxy} 81 && ` +
-        `cast storage ${addresses.bridgeProxy} 129`,
+        `cast storage ${addresses.bridgeProxy} 129 && ` +
+        `cast storage ${addresses.bridgeProxy} 130`,
       expectedResult:
         "Slot 79 = redemptionWatchtower address, " +
         "slot 80 = rebate staking address, " +
         "slot 81 = migration debt vault address, " +
         "slots 82-128 = zero (__gap[47]), " +
-        "slot 129 = openFraudChallengeEscrow",
+        "slot 129 = openFraudChallengeEscrow, " +
+        "slot 130 = fraudChallengeEscrowSeeded",
       description:
-        "Bridge storage layout: slot 79=redemptionWatchtower, slot 80=rebate staking, slot 81=migrationDebtVault, slots 82-128=__gap[47], slot 129=openFraudChallengeEscrow",
+        "Bridge storage layout: slot 79=redemptionWatchtower, slot 80=rebate staking, slot 81=migrationDebtVault, slots 82-128=__gap[47], slot 129=openFraudChallengeEscrow, slot 130=fraudChallengeEscrowSeeded",
     },
     {
       command:

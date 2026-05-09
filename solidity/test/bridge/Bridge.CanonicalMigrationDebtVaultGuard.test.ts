@@ -7,6 +7,7 @@ import type {
   BridgeGovernance,
   BridgeVaultStatusHarness,
   MockMigrationDebtVault,
+  MockPartialMigrationDebtVault,
   MockRevertingMigrationDebtVault,
   MockTrustedNonConformingVault,
 } from "../../typechain"
@@ -87,6 +88,7 @@ describe("Bridge - Canonical migration debt vault guard", () => {
   let harness: BridgeVaultStatusHarness
   let vault: MockMigrationDebtVault
   let rotatedVault: MockMigrationDebtVault
+  let partialVault: MockPartialMigrationDebtVault
 
   beforeEach(async () => {
     const HarnessFactory = await ethers.getContractFactory(
@@ -99,6 +101,12 @@ describe("Bridge - Canonical migration debt vault guard", () => {
     )
     vault = (await MockVaultFactory.deploy()) as MockMigrationDebtVault
     rotatedVault = (await MockVaultFactory.deploy()) as MockMigrationDebtVault
+
+    const MockPartialVaultFactory = await ethers.getContractFactory(
+      "MockPartialMigrationDebtVault"
+    )
+    partialVault =
+      (await MockPartialVaultFactory.deploy()) as MockPartialMigrationDebtVault
   })
 
   it("reverts when untrusting the canonical migration debt vault", async () => {
@@ -153,6 +161,16 @@ describe("Bridge - Canonical migration debt vault guard", () => {
     )
   })
 
+  it("reverts when set target implements only the outstanding-debt selector", async () => {
+    await harness.setVaultStatus(partialVault.address, true)
+
+    await expectBridgeVaultGuardError(
+      harness.setMigrationDebtVault(partialVault.address),
+      "MigrationDebtVaultInterfaceMissing",
+      partialVault.address
+    )
+  })
+
   it("reverts when overwriting a canonical vault with outstanding debt", async () => {
     const [, revealer] = await ethers.getSigners()
 
@@ -196,6 +214,7 @@ describe("rotateMigrationDebtVault interface probe", () => {
   let bridgeGovernance: BridgeGovernance
   let previousVault: MockMigrationDebtVault
   let conformingVault: MockMigrationDebtVault
+  let partialVault: MockPartialMigrationDebtVault
   let nonConformingVault: MockTrustedNonConformingVault
 
   beforeEach(async () => {
@@ -209,6 +228,12 @@ describe("rotateMigrationDebtVault interface probe", () => {
     previousVault = (await MockVaultFactory.deploy()) as MockMigrationDebtVault
     conformingVault =
       (await MockVaultFactory.deploy()) as MockMigrationDebtVault
+
+    const MockPartialVaultFactory = await ethers.getContractFactory(
+      "MockPartialMigrationDebtVault"
+    )
+    partialVault =
+      (await MockPartialVaultFactory.deploy()) as MockPartialMigrationDebtVault
 
     const NonConformingVaultFactory = await ethers.getContractFactory(
       "MockTrustedNonConformingVault"
@@ -238,6 +263,20 @@ describe("rotateMigrationDebtVault interface probe", () => {
         ),
       "MigrationDebtVaultInterfaceMissing",
       nonConformingVault.address
+    )
+  })
+
+  it("reverts with MigrationDebtVaultInterfaceMissing when new vault implements only the outstanding-debt selector", async () => {
+    await bridgeGovernance
+      .connect(governance)
+      .setVaultStatus(partialVault.address, true)
+
+    await expectBridgeVaultGuardError(
+      bridgeGovernance
+        .connect(governance)
+        .rotateMigrationDebtVault(partialVault.address, previousVault.address),
+      "MigrationDebtVaultInterfaceMissing",
+      partialVault.address
     )
   })
 

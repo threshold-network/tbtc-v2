@@ -358,6 +358,17 @@ contract BridgeGovernance is Ownable {
         bridge.recoverETH(recipient, amount);
     }
 
+    /// @notice Seeds missing Bridge fraud-challenge escrow introduced by the
+    ///         upgrade that added the aggregate escrow counter.
+    /// @param preUpgradeOpenEscrow Sum of unresolved pre-upgrade fraud-challenge
+    ///        deposits at the time this call is executed.
+    function seedFraudChallengeEscrow(uint256 preUpgradeOpenEscrow)
+        external
+        onlyOwner
+    {
+        bridge.seedFraudChallengeEscrow(preUpgradeOpenEscrow);
+    }
+
     /// @notice Begins the governance delay update process.
     /// @dev Can be called only by the contract owner. The new governance delay
     ///      must be at least `MIN_GOVERNANCE_DELAY`. The event that informs

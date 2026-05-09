@@ -4758,6 +4758,14 @@ describe("Bridge - Governance", () => {
     }
 
     const fraudData = nonWitnessSignSingleInputTx
+    const fraudChallengeKey = BigNumber.from(
+      ethers.utils.keccak256(
+        ethers.utils.solidityPack(
+          ["bytes", "bytes32"],
+          [fraudWallet.publicKey, fraudData.sighash]
+        )
+      )
+    )
     let fraudChallengeDepositAmount: BigNumber
     let fraudChallengeDefeatTimeout: number
 
@@ -4776,6 +4784,12 @@ describe("Bridge - Governance", () => {
     const increaseBridgeBalance = async (amount: BigNumber): Promise<void> => {
       const balance = await ethers.provider.getBalance(bridge.address)
       await setBridgeBalance(balance.add(amount))
+    }
+
+    const setOpenFraudChallengeEscrow = async (
+      amount: BigNumber
+    ): Promise<void> => {
+      await bridge.setOpenFraudChallengeEscrow(amount)
     }
 
     const setLiveFraudWallet = async (): Promise<void> => {
@@ -4803,6 +4817,15 @@ describe("Bridge - Governance", () => {
           fraudData.signature,
           { value: fraudChallengeDepositAmount }
         )
+    }
+
+    const submitPreUpgradeOpenFraudChallenge = async (): Promise<void> => {
+      await submitOpenFraudChallenge()
+      await setOpenFraudChallengeEscrow(BigNumber.from(0))
+      await bridge.setFraudChallengeEscrowSeeded(false)
+      await bridge.setFraudChallengeEscrowCounted(fraudChallengeKey, false)
+
+      expect(await bridge.getOpenFraudChallengeEscrow()).to.equal(0)
     }
 
     before(async () => {
@@ -4913,6 +4936,56 @@ describe("Bridge - Governance", () => {
           )
         })
 
+        it("seeds pre-upgrade challenge escrow before rescue checks", async () => {
+          await submitPreUpgradeOpenFraudChallenge()
+
+          await bridgeGovernance
+            .connect(governance)
+            .seedFraudChallengeEscrow(fraudChallengeDepositAmount)
+
+          const balance = await ethers.provider.getBalance(bridge.address)
+          const rescuable = balance.sub(fraudChallengeDepositAmount)
+
+          await expectCustomError(
+            bridgeGovernance
+              .connect(governance)
+              .callStatic.recoverETH(recipient.address, balance),
+            "EthRescueExceedsRescuable",
+            [balance, rescuable]
+          )
+        })
+
+        it("blocks ETH rescue before the pre-upgrade escrow seed", async () => {
+          await submitPreUpgradeOpenFraudChallenge()
+
+          const balance = await ethers.provider.getBalance(bridge.address)
+
+          await expectCustomError(
+            bridgeGovernance
+              .connect(governance)
+              .recoverETH(recipient.address, balance),
+            "FraudChallengeEscrowNotSeeded"
+          )
+        })
+
+        it("blocks new fraud challenges before the pre-upgrade escrow seed", async () => {
+          await bridge.setFraudChallengeEscrowSeeded(false)
+
+          await expectCustomError(
+            bridge
+              .connect(thirdParty)
+              .submitFraudChallenge(
+                fraudWallet.publicKey,
+                fraudData.preimageSha256,
+                fraudData.signature,
+                {
+                  value: fraudChallengeDepositAmount,
+                }
+              ),
+            "FraudChallengeEscrowNotSeeded"
+          )
+        })
+
         it("decrements the escrow counter on defeat", async () => {
           await submitOpenFraudChallenge()
 
@@ -4943,6 +5016,30 @@ describe("Bridge - Governance", () => {
             .withArgs(recipient.address, fraudChallengeDepositAmount)
         })
 
+        it("resolves a seeded pre-upgrade challenge without underflow", async () => {
+          await submitPreUpgradeOpenFraudChallenge()
+
+          await bridgeGovernance
+            .connect(governance)
+            .seedFraudChallengeEscrow(fraudChallengeDepositAmount)
+
+          await bridge.setSweptDeposits(fraudData.deposits)
+          await bridge.setSpentMainUtxos(fraudData.spentMainUtxos)
+          await bridge.setProcessedMovedFundsSweepRequests(
+            fraudData.movedFundsSweepRequests
+          )
+
+          await bridge
+            .connect(thirdParty)
+            .defeatFraudChallenge(
+              fraudWallet.publicKey,
+              fraudData.preimage,
+              fraudData.witness
+            )
+
+          expect(await bridge.getOpenFraudChallengeEscrow()).to.equal(0)
+        })
+
         it("decrements the escrow counter on defeat-timeout", async () => {
           await submitOpenFraudChallenge()
 
@@ -4967,6 +5064,29 @@ describe("Bridge - Governance", () => {
           )
             .to.emit(bridge, "EthRescued")
             .withArgs(recipient.address, fraudChallengeDepositAmount)
+        })
+
+        it("tracks post-upgrade challenges submitted after the seed", async () => {
+          await bridge.setFraudChallengeEscrowSeeded(false)
+          await bridgeGovernance.connect(governance).seedFraudChallengeEscrow(0)
+
+          await submitOpenFraudChallenge()
+
+          expect(await bridge.getOpenFraudChallengeEscrow()).to.equal(
+            fraudChallengeDepositAmount
+          )
+
+          await increaseTime(fraudChallengeDefeatTimeout)
+
+          await bridge
+            .connect(thirdParty)
+            .notifyFraudChallengeDefeatTimeout(
+              fraudWallet.publicKey,
+              [1, 2, 3, 4, 5],
+              fraudData.preimageSha256
+            )
+
+          expect(await bridge.getOpenFraudChallengeEscrow()).to.equal(0)
         })
       })
 
