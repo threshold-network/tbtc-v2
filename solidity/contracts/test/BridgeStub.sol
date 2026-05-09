@@ -93,6 +93,10 @@ contract BridgeStub is Bridge {
         self.redemptionTreasuryFeeDivisor = _redemptionTreasuryFeeDivisor;
     }
 
+    function getOpenFraudChallengeEscrow() external view returns (uint256) {
+        return self.openFraudChallengeEscrow;
+    }
+
     function setPendingMovedFundsSweepRequest(
         bytes20 walletPubKeyHash,
         BitcoinTx.UTXO calldata utxo

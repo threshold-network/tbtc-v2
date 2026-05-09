@@ -339,6 +339,10 @@ library BridgeState {
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
         uint256[47] __gap;
+        /// @notice Sum of `depositAmount` across currently-open fraud
+        ///         challenges, used to keep `recoverETH` scoped to
+        ///         non-escrowed ETH.
+        uint256 openFraudChallengeEscrow;
     }
 
     event DepositParametersUpdated(

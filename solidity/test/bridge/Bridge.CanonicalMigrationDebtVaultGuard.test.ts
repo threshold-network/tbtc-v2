@@ -1,14 +1,87 @@
 import { expect } from "chai"
 import hre from "hardhat"
+import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 
 import type {
+  Bridge,
+  BridgeGovernance,
   BridgeVaultStatusHarness,
   MockMigrationDebtVault,
+  MockRevertingMigrationDebtVault,
+  MockTrustedNonConformingVault,
 } from "../../typechain"
+import bridgeFixture from "../fixtures/bridge"
 
-const { ethers } = hre
+const { ethers, waffle } = hre
 
 const SATOSHI_MULTIPLIER = ethers.BigNumber.from(10).pow(10)
+
+const bridgeVaultGuardErrorsInterface = new ethers.utils.Interface([
+  "error MigrationDebtVaultInterfaceMissing(address vault)",
+  "error MigrationDebtVaultUnreachable(address vault)",
+  "error PreviousMigrationDebtVaultHasDebt(address vault)",
+  "error VaultHasOutstandingMigrationDebt(address vault)",
+  "error VaultIsCanonicalMigrationDebtVault(address vault)",
+])
+
+type BridgeVaultGuardError =
+  | "MigrationDebtVaultInterfaceMissing"
+  | "MigrationDebtVaultUnreachable"
+  | "PreviousMigrationDebtVaultHasDebt"
+  | "VaultHasOutstandingMigrationDebt"
+  | "VaultIsCanonicalMigrationDebtVault"
+
+function getRevertData(error: unknown): string[] {
+  const data: string[] = []
+  const candidates: unknown[] = [error]
+
+  while (candidates.length > 0) {
+    const candidate = candidates.shift()
+
+    if (candidate && typeof candidate === "object") {
+      const record = candidate as Record<string, unknown>
+      if (typeof record.data === "string") {
+        data.push(record.data)
+      }
+      if (record.data && typeof record.data === "object") {
+        candidates.push(record.data)
+      }
+      if (record.error && typeof record.error === "object") {
+        candidates.push(record.error)
+      }
+    }
+  }
+
+  return data
+}
+
+async function expectBridgeVaultGuardError(
+  txPromise: Promise<unknown>,
+  errorName: BridgeVaultGuardError,
+  vaultAddress: string
+): Promise<void> {
+  try {
+    await txPromise
+    expect.fail(`expected revert with custom error ${errorName}`)
+  } catch (error) {
+    const revertData = getRevertData(error).find((data) => {
+      try {
+        bridgeVaultGuardErrorsInterface.decodeErrorResult(errorName, data)
+        return true
+      } catch (_) {
+        return false
+      }
+    })
+
+    expect(revertData, "revert data").to.not.equal(undefined)
+
+    const [decodedVault] = bridgeVaultGuardErrorsInterface.decodeErrorResult(
+      errorName,
+      revertData as string
+    )
+    expect(decodedVault).to.equal(vaultAddress)
+  }
+}
 
 describe("Bridge - Canonical migration debt vault guard", () => {
   let harness: BridgeVaultStatusHarness
@@ -32,9 +105,11 @@ describe("Bridge - Canonical migration debt vault guard", () => {
     await harness.setVaultStatus(vault.address, true)
     await harness.setMigrationDebtVault(vault.address)
 
-    await expect(
-      harness.setVaultStatus(vault.address, false)
-    ).to.be.revertedWith("Vault is canonical migration debt vault")
+    await expectBridgeVaultGuardError(
+      harness.setVaultStatus(vault.address, false),
+      "VaultIsCanonicalMigrationDebtVault",
+      vault.address
+    )
   })
 
   it("allows untrusting a vault after clearing the canonical migration debt vault", async () => {
@@ -71,8 +146,10 @@ describe("Bridge - Canonical migration debt vault guard", () => {
     const eoaLike = "0x2553E09f832c9f5C656808bb7A24793818877732"
     await harness.setVaultStatus(eoaLike, true)
 
-    await expect(harness.setMigrationDebtVault(eoaLike)).to.be.revertedWith(
-      "Vault does not implement migration debt interface"
+    await expectBridgeVaultGuardError(
+      harness.setMigrationDebtVault(eoaLike),
+      "MigrationDebtVaultInterfaceMissing",
+      eoaLike
     )
   })
 
@@ -86,10 +163,10 @@ describe("Bridge - Canonical migration debt vault guard", () => {
     // Register debt on the current canonical vault.
     await vault.registerMigrationDebt(revealer.address, 1)
 
-    await expect(
-      harness.setMigrationDebtVault(rotatedVault.address)
-    ).to.be.revertedWith(
-      "Use rotateMigrationDebtVault when outstanding debt exists"
+    await expectBridgeVaultGuardError(
+      harness.setMigrationDebtVault(rotatedVault.address),
+      "PreviousMigrationDebtVaultHasDebt",
+      vault.address
     )
   })
 
@@ -101,6 +178,199 @@ describe("Bridge - Canonical migration debt vault guard", () => {
     // so emergency disable to address(0) succeeds.
     await harness.setVaultStatus(vault.address, true)
     await harness.setMigrationDebtVault(vault.address)
+
+    await expect(harness.setMigrationDebtVault(ethers.constants.AddressZero))
+      .to.emit(harness, "MigrationDebtVaultUpdated")
+      .withArgs(ethers.constants.AddressZero)
+
+    expect(await harness.migrationDebtVault()).to.equal(
+      ethers.constants.AddressZero
+    )
+  })
+})
+
+describe("rotateMigrationDebtVault interface probe", () => {
+  let governance: SignerWithAddress
+  let thirdParty: SignerWithAddress
+  let bridge: Bridge
+  let bridgeGovernance: BridgeGovernance
+  let previousVault: MockMigrationDebtVault
+  let conformingVault: MockMigrationDebtVault
+  let nonConformingVault: MockTrustedNonConformingVault
+
+  beforeEach(async () => {
+    // eslint-disable-next-line @typescript-eslint/no-extra-semi
+    ;({ governance, thirdParty, bridge, bridgeGovernance } =
+      await waffle.loadFixture(bridgeFixture))
+
+    const MockVaultFactory = await ethers.getContractFactory(
+      "MockMigrationDebtVault"
+    )
+    previousVault = (await MockVaultFactory.deploy()) as MockMigrationDebtVault
+    conformingVault =
+      (await MockVaultFactory.deploy()) as MockMigrationDebtVault
+
+    const NonConformingVaultFactory = await ethers.getContractFactory(
+      "MockTrustedNonConformingVault"
+    )
+    nonConformingVault =
+      (await NonConformingVaultFactory.deploy()) as MockTrustedNonConformingVault
+
+    await bridgeGovernance
+      .connect(governance)
+      .setVaultStatus(previousVault.address, true)
+    await bridgeGovernance
+      .connect(governance)
+      .setMigrationDebtVault(previousVault.address)
+  })
+
+  it("reverts with MigrationDebtVaultInterfaceMissing when new vault is trusted but lacks the interface", async () => {
+    await bridgeGovernance
+      .connect(governance)
+      .setVaultStatus(nonConformingVault.address, true)
+
+    await expectBridgeVaultGuardError(
+      bridgeGovernance
+        .connect(governance)
+        .rotateMigrationDebtVault(
+          nonConformingVault.address,
+          previousVault.address
+        ),
+      "MigrationDebtVaultInterfaceMissing",
+      nonConformingVault.address
+    )
+  })
+
+  it("reverts with MigrationDebtVaultInterfaceMissing when new vault is an EOA", async () => {
+    await bridgeGovernance
+      .connect(governance)
+      .setVaultStatus(thirdParty.address, true)
+
+    await expectBridgeVaultGuardError(
+      bridgeGovernance
+        .connect(governance)
+        .rotateMigrationDebtVault(thirdParty.address, previousVault.address),
+      "MigrationDebtVaultInterfaceMissing",
+      thirdParty.address
+    )
+  })
+
+  it("succeeds when new vault is address(0)", async () => {
+    await expect(
+      bridgeGovernance
+        .connect(governance)
+        .rotateMigrationDebtVault(
+          ethers.constants.AddressZero,
+          previousVault.address
+        )
+    )
+      .to.emit(bridge, "MigrationDebtVaultUpdated")
+      .withArgs(ethers.constants.AddressZero)
+      .and.to.emit(bridge, "VaultStatusUpdated")
+      .withArgs(previousVault.address, false)
+
+    expect(await bridge.migrationDebtVault()).to.equal(
+      ethers.constants.AddressZero
+    )
+    expect(await bridge.isVaultTrusted(previousVault.address)).to.equal(false)
+  })
+
+  it("succeeds when new vault implements the full interface", async () => {
+    await bridgeGovernance
+      .connect(governance)
+      .setVaultStatus(conformingVault.address, true)
+
+    await expect(
+      bridgeGovernance
+        .connect(governance)
+        .rotateMigrationDebtVault(
+          conformingVault.address,
+          previousVault.address
+        )
+    )
+      .to.emit(bridge, "MigrationDebtVaultUpdated")
+      .withArgs(conformingVault.address)
+      .and.to.emit(bridge, "VaultStatusUpdated")
+      .withArgs(previousVault.address, false)
+
+    expect(await bridge.migrationDebtVault()).to.equal(conformingVault.address)
+    expect(await bridge.isVaultTrusted(previousVault.address)).to.equal(false)
+    expect(await bridge.isVaultTrusted(conformingVault.address)).to.equal(true)
+  })
+})
+
+describe("setMigrationDebtVault outgoing-debt guard - fail-closed", () => {
+  let harness: BridgeVaultStatusHarness
+  let previousVault: MockMigrationDebtVault
+  let newVault: MockMigrationDebtVault
+  let revertingVault: MockRevertingMigrationDebtVault
+
+  beforeEach(async () => {
+    const HarnessFactory = await ethers.getContractFactory(
+      "BridgeVaultStatusHarness"
+    )
+    harness = await HarnessFactory.deploy()
+
+    const MockVaultFactory = await ethers.getContractFactory(
+      "MockMigrationDebtVault"
+    )
+    previousVault = await MockVaultFactory.deploy()
+    newVault = await MockVaultFactory.deploy()
+
+    const MockRevertingVaultFactory = await ethers.getContractFactory(
+      "MockRevertingMigrationDebtVault"
+    )
+    revertingVault = await MockRevertingVaultFactory.deploy()
+
+    await harness.setVaultStatus(previousVault.address, true)
+    await harness.setVaultStatus(newVault.address, true)
+    await harness.setVaultStatus(revertingVault.address, true)
+  })
+
+  it("reverts with MigrationDebtVaultUnreachable when previous canonical vault staticcall fails", async () => {
+    await harness.setMigrationDebtVault(revertingVault.address)
+    await revertingVault.setReverting(true)
+
+    await expectBridgeVaultGuardError(
+      harness.setMigrationDebtVault(newVault.address),
+      "MigrationDebtVaultUnreachable",
+      revertingVault.address
+    )
+
+    expect(await harness.migrationDebtVault()).to.equal(revertingVault.address)
+  })
+
+  it("reverts with PreviousMigrationDebtVaultHasDebt when previous answers true", async () => {
+    const [, revealer] = await ethers.getSigners()
+
+    await previousVault.registerMigrationDebt(
+      revealer.address,
+      SATOSHI_MULTIPLIER.mul(1)
+    )
+    await harness.setMigrationDebtVault(previousVault.address)
+
+    await expectBridgeVaultGuardError(
+      harness.setMigrationDebtVault(newVault.address),
+      "PreviousMigrationDebtVaultHasDebt",
+      previousVault.address
+    )
+
+    expect(await harness.migrationDebtVault()).to.equal(previousVault.address)
+  })
+
+  it("succeeds when previous answers false", async () => {
+    await harness.setMigrationDebtVault(previousVault.address)
+
+    await expect(harness.setMigrationDebtVault(newVault.address))
+      .to.emit(harness, "MigrationDebtVaultUpdated")
+      .withArgs(newVault.address)
+
+    expect(await harness.migrationDebtVault()).to.equal(newVault.address)
+  })
+
+  it("succeeds for the emergency-disable lane", async () => {
+    await harness.setMigrationDebtVault(revertingVault.address)
+    await revertingVault.setReverting(true)
 
     await expect(harness.setMigrationDebtVault(ethers.constants.AddressZero))
       .to.emit(harness, "MigrationDebtVaultUpdated")
@@ -150,12 +420,14 @@ describe("Bridge - Migration debt drain guard", () => {
       await harness.setMigrationDebtVault(previousVault.address)
 
       // Rotation should revert because previous vault has outstanding debt
-      await expect(
+      await expectBridgeVaultGuardError(
         harness.rotateMigrationDebtVault(
           newVault.address,
           previousVault.address
-        )
-      ).to.be.revertedWith("Previous vault has outstanding migration debt")
+        ),
+        "PreviousMigrationDebtVaultHasDebt",
+        previousVault.address
+      )
     })
 
     it("succeeds when previous vault is fully drained", async () => {
@@ -205,17 +477,19 @@ describe("Bridge - Migration debt drain guard", () => {
       // The two-step bypass (setMigrationDebtVault away, then setVaultStatus
       // false) is now blocked at step 1: setMigrationDebtVault refuses to
       // overwrite a canonical vault with outstanding debt.
-      await expect(
-        harness.setMigrationDebtVault(newVault.address)
-      ).to.be.revertedWith(
-        "Use rotateMigrationDebtVault when outstanding debt exists"
+      await expectBridgeVaultGuardError(
+        harness.setMigrationDebtVault(newVault.address),
+        "PreviousMigrationDebtVaultHasDebt",
+        previousVault.address
       )
 
       // The setVaultStatus drain guard still rejects untrust of the canonical
       // vault directly (the existing pre-PR canonical-vault guard).
-      await expect(
-        harness.setVaultStatus(previousVault.address, false)
-      ).to.be.revertedWith("Vault is canonical migration debt vault")
+      await expectBridgeVaultGuardError(
+        harness.setVaultStatus(previousVault.address, false),
+        "VaultIsCanonicalMigrationDebtVault",
+        previousVault.address
+      )
     })
 
     it("allows trust and untrust for non-migration-debt vaults", async () => {
@@ -249,10 +523,10 @@ describe("Bridge - Migration debt drain guard", () => {
       // because the previous canonical vault still owes debt -- governance
       // must use rotateMigrationDebtVault (which itself enforces the debt
       // drain guard before atomically untrusting the previous vault).
-      await expect(
-        harness.setMigrationDebtVault(newVault.address)
-      ).to.be.revertedWith(
-        "Use rotateMigrationDebtVault when outstanding debt exists"
+      await expectBridgeVaultGuardError(
+        harness.setMigrationDebtVault(newVault.address),
+        "PreviousMigrationDebtVaultHasDebt",
+        previousVault.address
       )
 
       // The previous vault remains canonical and trusted.

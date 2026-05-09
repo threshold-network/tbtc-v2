@@ -16,19 +16,27 @@ contract BridgeVaultStatusHarness {
     event VaultStatusUpdated(address indexed vault, bool isTrusted);
     event MigrationDebtVaultUpdated(address indexed migrationDebtVault);
 
+    error PreviousMigrationDebtVaultIsZero();
+    error PreviousMigrationDebtVaultMismatch(address expected, address actual);
+    error MigrationDebtVaultUnchanged(address vault);
+    error MigrationDebtVaultInterfaceMissing(address vault);
+    error MigrationDebtVaultUnreachable(address vault);
+    error PreviousMigrationDebtVaultHasDebt(address vault);
+    error VaultIsCanonicalMigrationDebtVault(address vault);
+    error VaultHasOutstandingMigrationDebt(address vault);
+    error VaultNotTrusted(address vault);
+
     /// @notice Mirrors Bridge.setVaultStatus vault trust management with
     ///         canonical vault protection and migration debt drain guard.
     function setVaultStatus(address vault, bool isTrusted) external {
-        require(
-            isTrusted || self.migrationDebtVault != vault,
-            "Vault is canonical migration debt vault"
-        );
+        if (!isTrusted && self.migrationDebtVault == vault) {
+            revert VaultIsCanonicalMigrationDebtVault(vault);
+        }
 
         if (!isTrusted) {
-            require(
-                !_hasOutstandingMigrationDebt(vault),
-                "Vault has outstanding migration debt"
-            );
+            if (_hasOutstandingMigrationDebt(vault)) {
+                revert VaultHasOutstandingMigrationDebt(vault);
+            }
         }
 
         self.isVaultTrusted[vault] = isTrusted;
@@ -39,28 +47,29 @@ contract BridgeVaultStatusHarness {
     ///         including the fail-closed interface probe and the
     ///         outstanding-debt guard for the previous canonical vault.
     function setMigrationDebtVault(address vault) external {
-        require(
-            vault == address(0) || self.isVaultTrusted[vault],
-            "Vault is not trusted"
-        );
-
-        if (vault != address(0)) {
-            (bool ok, bytes memory data) = vault.staticcall(
-                abi.encodeWithSelector(
-                    ITBTCVaultMigrationDebt.hasOutstandingMigrationDebt.selector
-                )
-            );
-            require(
-                ok && data.length >= 32,
-                "Vault does not implement migration debt interface"
-            );
+        if (vault != address(0) && !self.isVaultTrusted[vault]) {
+            revert VaultNotTrusted(vault);
         }
 
-        if (self.migrationDebtVault != address(0)) {
-            require(
-                !_hasOutstandingMigrationDebt(self.migrationDebtVault),
-                "Use rotateMigrationDebtVault when outstanding debt exists"
+        if (vault != address(0)) {
+            (bool ok, ) = _getOutstandingMigrationDebt(vault);
+            if (!ok) {
+                revert MigrationDebtVaultInterfaceMissing(vault);
+            }
+        }
+
+        if (vault != address(0) && self.migrationDebtVault != address(0)) {
+            (bool ok, bool hasDebt) = _getOutstandingMigrationDebt(
+                self.migrationDebtVault
             );
+            if (!ok) {
+                revert MigrationDebtVaultUnreachable(self.migrationDebtVault);
+            }
+            if (hasDebt) {
+                revert PreviousMigrationDebtVaultHasDebt(
+                    self.migrationDebtVault
+                );
+            }
         }
 
         self.migrationDebtVault = vault;
@@ -72,21 +81,32 @@ contract BridgeVaultStatusHarness {
     function rotateMigrationDebtVault(address newVault, address previousVault)
         external
     {
-        require(previousVault != address(0), "Previous vault is zero");
-        require(
-            previousVault == self.migrationDebtVault,
-            "Previous vault is not canonical"
-        );
-        require(newVault != previousVault, "Vault unchanged");
-        require(
-            newVault == address(0) || self.isVaultTrusted[newVault],
-            "Vault is not trusted"
-        );
+        if (previousVault == address(0)) {
+            revert PreviousMigrationDebtVaultIsZero();
+        }
+        if (previousVault != self.migrationDebtVault) {
+            revert PreviousMigrationDebtVaultMismatch(
+                self.migrationDebtVault,
+                previousVault
+            );
+        }
+        if (newVault == previousVault) {
+            revert MigrationDebtVaultUnchanged(newVault);
+        }
+        if (newVault != address(0) && !self.isVaultTrusted[newVault]) {
+            revert VaultNotTrusted(newVault);
+        }
 
-        require(
-            !_hasOutstandingMigrationDebt(previousVault),
-            "Previous vault has outstanding migration debt"
-        );
+        if (newVault != address(0)) {
+            (bool ok, ) = _getOutstandingMigrationDebt(newVault);
+            if (!ok) {
+                revert MigrationDebtVaultInterfaceMissing(newVault);
+            }
+        }
+
+        if (_hasOutstandingMigrationDebt(previousVault)) {
+            revert PreviousMigrationDebtVaultHasDebt(previousVault);
+        }
 
         self.migrationDebtVault = newVault;
         emit MigrationDebtVaultUpdated(newVault);
@@ -106,10 +126,10 @@ contract BridgeVaultStatusHarness {
     /// @notice Fail-open staticcall to check whether a vault has outstanding
     ///         migration debt. Returns false when the vault does not implement
     ///         the ITBTCVaultMigrationDebt interface.
-    function _hasOutstandingMigrationDebt(address vault)
+    function _getOutstandingMigrationDebt(address vault)
         private
         view
-        returns (bool)
+        returns (bool ok, bool hasDebt)
     {
         (bool success, bytes memory data) = vault.staticcall(
             abi.encodeWithSelector(
@@ -117,8 +137,17 @@ contract BridgeVaultStatusHarness {
             )
         );
         if (success && data.length >= 32) {
-            return abi.decode(data, (bool));
+            return (true, abi.decode(data, (bool)));
         }
-        return false;
+        return (false, false);
+    }
+
+    function _hasOutstandingMigrationDebt(address vault)
+        private
+        view
+        returns (bool)
+    {
+        (, bool hasDebt) = _getOutstandingMigrationDebt(vault);
+        return hasDebt;
     }
 }

@@ -185,6 +185,7 @@ library Fraud {
 
         challenge.challenger = msg.sender;
         challenge.depositAmount = msg.value;
+        self.openFraudChallengeEscrow += msg.value;
         /* solhint-disable-next-line not-rely-on-time */
         challenge.reportedAt = uint32(block.timestamp);
         challenge.resolved = false;
@@ -328,6 +329,7 @@ library Fraud {
     ) internal {
         // Mark the challenge as resolved as it was successfully defeated
         challenge.resolved = true;
+        self.openFraudChallengeEscrow -= challenge.depositAmount;
 
         // Send the ether deposited by the challenger to the treasury
         /* solhint-disable avoid-low-level-calls */
@@ -410,6 +412,7 @@ library Fraud {
         );
 
         challenge.resolved = true;
+        self.openFraudChallengeEscrow -= challenge.depositAmount;
         // Return the ether deposited by the challenger
         /* solhint-disable avoid-low-level-calls */
         // slither-disable-next-line low-level-calls,unchecked-lowlevel

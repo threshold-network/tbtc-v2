@@ -64,14 +64,26 @@ contract Bridge is
     Initializable,
     IReceiveBalanceApproval
 {
+    error CallerNotSpvMaintainer();
+    error BankAddressZero();
+    error RelayAddressZero();
+    error WalletRegistryAddressZero();
+    error ReimbursementPoolAddressZero();
+    error TreasuryAddressZero();
+    error CallerNotBank();
+    error VaultIsCanonicalMigrationDebtVault(address vault);
+    error VaultHasOutstandingMigrationDebt(address vault);
+    error VaultNotTrusted(address vault);
     error PreviousMigrationDebtVaultIsZero();
     error PreviousMigrationDebtVaultMismatch(address expected, address actual);
     error MigrationDebtVaultUnchanged(address vault);
     error MigrationDebtVaultInterfaceMissing(address vault);
+    error MigrationDebtVaultUnreachable(address vault);
     error PreviousMigrationDebtVaultHasDebt(address vault);
     error EthRescueRecipientZero();
     error EthRescueAmountZero();
     error EthRescueInsufficientBalance(uint256 requested, uint256 available);
+    error EthRescueExceedsRescuable(uint256 requested, uint256 rescuable);
     error EthRescueTransferFailed(address recipient, uint256 amount);
 
     using BridgeState for BridgeState.Storage;
@@ -268,10 +280,9 @@ contract Bridge is
     event DepositVaultFixed(uint256 indexed depositKey, address newVault);
 
     modifier onlySpvMaintainer() {
-        require(
-            self.isSpvMaintainer[msg.sender],
-            "Caller is not SPV maintainer"
-        );
+        if (!self.isSpvMaintainer[msg.sender]) {
+            revert CallerNotSpvMaintainer();
+        }
         _;
     }
 
@@ -298,25 +309,29 @@ contract Bridge is
         address payable _reimbursementPool,
         uint96 _txProofDifficultyFactor
     ) external initializer {
-        require(_bank != address(0), "Bank address cannot be zero");
+        if (_bank == address(0)) {
+            revert BankAddressZero();
+        }
         self.bank = Bank(_bank);
 
-        require(_relay != address(0), "Relay address cannot be zero");
+        if (_relay == address(0)) {
+            revert RelayAddressZero();
+        }
         self.relay = IRelay(_relay);
 
-        require(
-            _ecdsaWalletRegistry != address(0),
-            "ECDSA Wallet Registry address cannot be zero"
-        );
+        if (_ecdsaWalletRegistry == address(0)) {
+            revert WalletRegistryAddressZero();
+        }
         self.ecdsaWalletRegistry = EcdsaWalletRegistry(_ecdsaWalletRegistry);
 
-        require(
-            _reimbursementPool != address(0),
-            "Reimbursement Pool address cannot be zero"
-        );
+        if (_reimbursementPool == address(0)) {
+            revert ReimbursementPoolAddressZero();
+        }
         self.reimbursementPool = ReimbursementPool(_reimbursementPool);
 
-        require(_treasury != address(0), "Treasury address cannot be zero");
+        if (_treasury == address(0)) {
+            revert TreasuryAddressZero();
+        }
         self.treasury = _treasury;
 
         self.txProofDifficultyFactor = _txProofDifficultyFactor;
@@ -611,7 +626,9 @@ contract Bridge is
         uint256 amount,
         bytes calldata redemptionData
     ) external override {
-        require(msg.sender == address(self.bank), "Caller is not the bank");
+        if (msg.sender != address(self.bank)) {
+            revert CallerNotBank();
+        }
 
         self.requestRedemption(
             balanceOwner,
@@ -1258,16 +1275,14 @@ contract Bridge is
         external
         onlyGovernance
     {
-        require(
-            isTrusted || self.migrationDebtVault != vault,
-            "Vault is canonical migration debt vault"
-        );
+        if (!isTrusted && self.migrationDebtVault == vault) {
+            revert VaultIsCanonicalMigrationDebtVault(vault);
+        }
 
         if (!isTrusted) {
-            require(
-                !_hasOutstandingMigrationDebt(vault),
-                "Vault has outstanding migration debt"
-            );
+            if (_hasOutstandingMigrationDebt(vault)) {
+                revert VaultHasOutstandingMigrationDebt(vault);
+            }
         }
 
         self.isVaultTrusted[vault] = isTrusted;
@@ -1289,40 +1304,37 @@ contract Bridge is
     ///      non-conforming canonical pointer would brick every regular
     ///      reveal until governance corrected the pointer.
     ///
-    ///      When the current canonical vault has outstanding migration debt,
-    ///      this setter rejects the change and forces governance to use
-    ///      `rotateMigrationDebtVault` (which atomically untrusts the
-    ///      previous vault and bars further untrust until debt clears). The
-    ///      check uses the same fail-open staticcall as the rotate guard, so
-    ///      a vault that no longer answers (selfdestructed, broken upgrade)
-    ///      can still be cleared via this function.
+    ///      When setting a non-zero canonical vault and the current canonical
+    ///      vault has outstanding migration debt, this setter rejects the
+    ///      change and forces governance to use `rotateMigrationDebtVault`
+    ///      (which atomically untrusts the previous vault and bars further
+    ///      untrust until debt clears). The outgoing-vault debt check is
+    ///      fail-closed: if the previous canonical vault no longer answers,
+    ///      governance must first use the emergency-disable lane (`vault == 0`),
+    ///      which intentionally skips this outgoing strict check.
     function setMigrationDebtVault(address vault) external onlyGovernance {
-        require(
-            vault == address(0) || self.isVaultTrusted[vault],
-            "Vault is not trusted"
-        );
+        if (vault != address(0) && !self.isVaultTrusted[vault]) {
+            revert VaultNotTrusted(vault);
+        }
 
         if (vault != address(0)) {
-            // reason: fail-closed interface conformance probe; the reveal
-            // guard fail-closes on the canonical vault, so a non-conforming
-            // pointer here is a deposit-pipeline brick.
-            // slither-disable-next-line low-level-calls
-            (bool ok, bytes memory data) = vault.staticcall(
-                abi.encodeWithSelector(
-                    ITBTCVaultMigrationDebt.hasOutstandingMigrationDebt.selector
-                )
-            );
-            if (!ok || data.length < 32) {
+            (bool ok, ) = _getOutstandingMigrationDebt(vault);
+            if (!ok) {
                 revert MigrationDebtVaultInterfaceMissing(vault);
             }
         }
 
         address previousVault = self.migrationDebtVault;
-        if (
-            previousVault != address(0) &&
-            _hasOutstandingMigrationDebt(previousVault)
-        ) {
-            revert PreviousMigrationDebtVaultHasDebt(previousVault);
+        if (vault != address(0) && previousVault != address(0)) {
+            (bool ok, bool hasDebt) = _getOutstandingMigrationDebt(
+                previousVault
+            );
+            if (!ok) {
+                revert MigrationDebtVaultUnreachable(previousVault);
+            }
+            if (hasDebt) {
+                revert PreviousMigrationDebtVaultHasDebt(previousVault);
+            }
         }
 
         self.migrationDebtVault = vault;
@@ -1357,21 +1369,49 @@ contract Bridge is
         if (newVault == previousVault) {
             revert MigrationDebtVaultUnchanged(newVault);
         }
-        require(
-            newVault == address(0) || self.isVaultTrusted[newVault],
-            "Vault is not trusted"
-        );
+        if (newVault != address(0) && !self.isVaultTrusted[newVault]) {
+            revert VaultNotTrusted(newVault);
+        }
 
-        require(
-            !_hasOutstandingMigrationDebt(previousVault),
-            "Previous vault has outstanding migration debt"
-        );
+        if (newVault != address(0)) {
+            (bool ok, ) = _getOutstandingMigrationDebt(newVault);
+            if (!ok) {
+                revert MigrationDebtVaultInterfaceMissing(newVault);
+            }
+        }
+
+        if (_hasOutstandingMigrationDebt(previousVault)) {
+            revert PreviousMigrationDebtVaultHasDebt(previousVault);
+        }
 
         self.migrationDebtVault = newVault;
         emit MigrationDebtVaultUpdated(newVault);
 
         self.isVaultTrusted[previousVault] = false;
         emit VaultStatusUpdated(previousVault, false);
+    }
+
+    /// @notice Queries whether a vault answers the migration debt interface
+    ///         and whether it reports outstanding debt.
+    /// @param vault The address to query.
+    /// @return ok True if the staticcall succeeds with a decodable bool.
+    /// @return hasDebt True if the vault reports outstanding debt.
+    function _getOutstandingMigrationDebt(address vault)
+        private
+        view
+        returns (bool ok, bool hasDebt)
+    {
+        // reason: staticcall to the canonical migration debt vault interface; staticcall is intentional to read state without side effects. The vault is a trusted governance-set contract.
+        // slither-disable-next-line low-level-calls
+        (bool success, bytes memory data) = vault.staticcall(
+            abi.encodeWithSelector(
+                ITBTCVaultMigrationDebt.hasOutstandingMigrationDebt.selector
+            )
+        );
+        if (success && data.length >= 32) {
+            return (true, abi.decode(data, (bool)));
+        }
+        return (false, false);
     }
 
     /// @notice Queries whether a vault has outstanding migration debt using
@@ -1388,17 +1428,8 @@ contract Bridge is
         view
         returns (bool)
     {
-        // reason: staticcall to the canonical migration debt vault interface; staticcall is intentional to read state without side effects. The vault is a trusted governance-set contract.
-        // slither-disable-next-line low-level-calls
-        (bool success, bytes memory data) = vault.staticcall(
-            abi.encodeWithSelector(
-                ITBTCVaultMigrationDebt.hasOutstandingMigrationDebt.selector
-            )
-        );
-        if (success && data.length >= 32) {
-            return abi.decode(data, (bool));
-        }
-        return false;
+        (, bool hasDebt) = _getOutstandingMigrationDebt(vault);
+        return hasDebt;
     }
 
     /// @notice Allows the Governance to mark the given address as trusted
@@ -2227,6 +2258,11 @@ contract Bridge is
         uint256 available = address(this).balance;
         if (available < amount) {
             revert EthRescueInsufficientBalance(amount, available);
+        }
+        uint256 escrow = self.openFraudChallengeEscrow;
+        uint256 rescuable = available > escrow ? available - escrow : 0;
+        if (amount > rescuable) {
+            revert EthRescueExceedsRescuable(amount, rescuable);
         }
 
         emit EthRescued(recipient, amount);

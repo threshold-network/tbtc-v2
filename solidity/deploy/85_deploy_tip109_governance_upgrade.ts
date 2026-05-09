@@ -288,13 +288,16 @@ function buildVerificationChecks(addresses: {
       command:
         `cast storage ${addresses.bridgeProxy} 79 && ` +
         `cast storage ${addresses.bridgeProxy} 80 && ` +
-        `cast storage ${addresses.bridgeProxy} 81`,
+        `cast storage ${addresses.bridgeProxy} 81 && ` +
+        `cast storage ${addresses.bridgeProxy} 129`,
       expectedResult:
         "Slot 79 = redemptionWatchtower address, " +
         "slot 80 = rebate staking address, " +
-        "slots 81-128 = zero (__gap[48], gap size unchanged)",
+        "slot 81 = migration debt vault address, " +
+        "slots 82-128 = zero (__gap[47]), " +
+        "slot 129 = openFraudChallengeEscrow",
       description:
-        "Bridge storage layout: slot 79=redemptionWatchtower, slot 80=rebate staking, slots 81-128=__gap[48] with gap size unchanged",
+        "Bridge storage layout: slot 79=redemptionWatchtower, slot 80=rebate staking, slot 81=migrationDebtVault, slots 82-128=__gap[47], slot 129=openFraudChallengeEscrow",
     },
     {
       command:

@@ -1448,7 +1448,7 @@ describe("Bridge - Redemption", () => {
           bridge
             .connect(thirdParty)
             .receiveBalanceApproval(thirdParty.address, 1, [])
-        ).to.be.revertedWith("Caller is not the bank")
+        ).to.be.revertedWith("CallerNotBank")
       })
     })
   })

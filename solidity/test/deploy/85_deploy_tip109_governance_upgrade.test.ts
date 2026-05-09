@@ -868,7 +868,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         expect(check.expectedResult).to.match(/address\(0\)|0x0{40}/i)
       })
 
-      it("should have a storage layout check referencing slots 79, 80, and gap 81-128", () => {
+      it("should have a storage layout check referencing slots 79, 80, 81, 129, and gap", () => {
         expect(summary).to.not.be.null
 
         const storageCheck = summary.verificationChecks.find(
@@ -886,6 +886,8 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         const combined = `${storageCheck.command} ${storageCheck.expectedResult} ${storageCheck.description}`
         expect(combined).to.include("79")
         expect(combined).to.include("80")
+        expect(combined).to.include("81")
+        expect(combined).to.include("129")
         expect(combined).to.match(/81|__gap|gap/)
       })
 
