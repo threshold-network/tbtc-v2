@@ -245,11 +245,21 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log(`Network: ${hre.network.name}`)
   console.log(`Deployer: ${deployer}`)
 
-  // --- Step 1: Reuse existing Deposit library ---
-  // PRs #939/#940 do not touch Deposit.sol. Reuse to save gas.
-  console.log("\n--- Reusing existing Deposit library ---")
-  const Deposit = await get("Deposit")
-  console.log(`  Deposit (existing): ${Deposit.address}`)
+  // --- Step 1: Deploy updated deposit libraries ---
+  // The Bridge implementation must link to the versions compiled from this
+  // tree. Reusing old mainnet deployments would bypass migration-debt logic.
+  console.log("\n--- Deploying updated deposit libraries ---")
+  const Deposit = await deploy("DepositTIP109Hotfix", {
+    ...deployOptions,
+    contract: "Deposit",
+    skipIfAlreadyDeployed: false,
+  })
+
+  const DepositSweep = await deploy("DepositSweepTIP109Hotfix", {
+    ...deployOptions,
+    contract: "DepositSweep",
+    skipIfAlreadyDeployed: false,
+  })
 
   // --- Step 2: Deploy new Redemption library (PR #940) ---
   console.log("\n--- Deploying new Redemption library ---")
@@ -259,15 +269,21 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     skipIfAlreadyDeployed: false,
   })
 
-  // --- Step 3: Resolve unchanged existing libraries ---
+  // --- Step 3: Deploy new Fraud library ---
+  console.log("\n--- Deploying new Fraud library ---")
+  const Fraud = await deploy("FraudTIP109Hotfix", {
+    ...deployOptions,
+    contract: "Fraud",
+    skipIfAlreadyDeployed: false,
+  })
+
+  // --- Step 4: Resolve unchanged existing libraries ---
   console.log("\n--- Resolving existing libraries ---")
-  const DepositSweep = await get("DepositSweep")
   const Wallets = await get("Wallets")
-  const Fraud = await get("Fraud")
   const MovingFunds = await get("MovingFunds")
 
-  // --- Step 4: Deploy new Bridge implementation ---
-  // Linked to existing Deposit + new Redemption + unchanged libs.
+  // --- Step 5: Deploy new Bridge implementation ---
+  // Linked to fresh deployments for every modified linked library.
   console.log("\n--- Deploying Bridge implementation ---")
   const bridgeLibraries = {
     Deposit: Deposit.address,
@@ -285,7 +301,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     libraries: bridgeLibraries,
   })
 
-  // --- Step 5: Deploy new RebateStaking implementation (PR #939) ---
+  // --- Step 6: Deploy new RebateStaking implementation (PR #939) ---
   console.log("\n--- Deploying RebateStaking implementation ---")
   const rebateImpl = await deploy("RebateStakingTIP109HotfixImplementation", {
     ...deployOptions,
@@ -296,13 +312,15 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // --- Deployment Summary ---
   console.log(`\n${"-".repeat(80)}`)
   console.log("Deployed contract addresses:")
-  console.log(`  Deposit library (existing):    ${Deposit.address}`)
+  console.log(`  Deposit library (NEW):         ${Deposit.address}`)
+  console.log(`  DepositSweep library (NEW):    ${DepositSweep.address}`)
   console.log(`  Redemption library (NEW):      ${Redemption.address}`)
+  console.log(`  Fraud library (NEW):           ${Fraud.address}`)
   console.log(`  Bridge implementation (NEW):   ${bridgeImpl.address}`)
   console.log(`  RebateStaking impl (NEW):      ${rebateImpl.address}`)
   console.log("-".repeat(80))
 
-  // --- Step 6: Update proxy deployment artifacts ---
+  // --- Step 7: Update proxy deployment artifacts ---
   // Following the pattern from Wormhole V2 upgrade scripts: update the
   // proxy artifact with the new implementation address and ABI so that
   // hardhat-deploy and downstream tooling reflect the upgraded state.
@@ -330,7 +348,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     `  RebateStaking proxy artifact updated (impl → ${rebateImpl.address})`
   )
 
-  // --- Step 7: Discover ProxyAdmin and generate calldata ---
+  // --- Step 8: Discover ProxyAdmin and generate calldata ---
   console.log("\n--- Discovering ProxyAdmin ---")
   const adminData = await ethers.provider.getStorageAt(
     Bridge.address,
@@ -401,7 +419,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log(`    Current seed: ${preUpgradeOpenEscrow.toString()} wei`)
   console.log(`    Event scan: blocks ${fraudScanFromBlock}..${latestBlock}`)
 
-  // --- Step 8: Save deployment summary JSON ---
+  // --- Step 9: Save deployment summary JSON ---
   const chainId = await hre.getChainId()
 
   const deploymentSummary = {
@@ -411,14 +429,19 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     chainId,
     purpose:
       "TIP-109 hotfix: add forceStakeTransfer (PR #939) and " +
-      "zero-address redeemer guard (PR #940)",
+      "zero-address redeemer guard (PR #940), with fresh Bridge " +
+      "libraries for migration-debt and fraud-escrow changes",
     deployedContracts: {
+      DepositTIP109Hotfix: Deposit.address,
+      DepositSweepTIP109Hotfix: DepositSweep.address,
       RedemptionTIP109Hotfix: Redemption.address,
+      FraudTIP109Hotfix: Fraud.address,
       BridgeTIP109HotfixImplementation: bridgeImpl.address,
       RebateStakingTIP109HotfixImplementation: rebateImpl.address,
     },
     reusedContracts: {
-      Deposit: Deposit.address,
+      Wallets: Wallets.address,
+      MovingFunds: MovingFunds.address,
     },
     existingContracts: {
       Bridge: Bridge.address,
@@ -493,7 +516,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log(`        Current seed: ${preUpgradeOpenEscrow.toString()} wei`)
   console.log("=".repeat(80))
 
-  // --- Step 9: Verify contracts on Etherscan (v2 API) ---
+  // --- Step 10: Verify contracts on Etherscan (v2 API) ---
   if (hre.network.tags.etherscan) {
     const etherscanApiKey = process.env.ETHERSCAN_API_KEY
     if (!etherscanApiKey) {
@@ -529,9 +552,24 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         const networkChainId = parseInt(await hre.getChainId(), 10)
         const contractsToVerify = [
           {
+            address: Deposit.address,
+            name: "contracts/bridge/Deposit.sol:Deposit",
+            label: "Deposit",
+          },
+          {
+            address: DepositSweep.address,
+            name: "contracts/bridge/DepositSweep.sol:DepositSweep",
+            label: "DepositSweep",
+          },
+          {
             address: Redemption.address,
             name: "contracts/bridge/Redemption.sol:Redemption",
             label: "Redemption",
+          },
+          {
+            address: Fraud.address,
+            name: "contracts/bridge/Fraud.sol:Fraud",
+            label: "Fraud",
           },
           {
             address: bridgeImpl.address,
