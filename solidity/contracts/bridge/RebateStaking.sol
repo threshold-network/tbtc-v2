@@ -241,7 +241,8 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     function setRebateAuthorization(address balanceOwner, bool authorized)
         external
     {
-        if (stakes[msg.sender].stakedAmount == 0) {
+        Stake storage stakeInfo = stakes[msg.sender];
+        if (stakeInfo.stakedAmount == 0) {
             revert NotAStaker();
         }
         require(
