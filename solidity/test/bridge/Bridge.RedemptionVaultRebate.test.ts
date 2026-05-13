@@ -770,6 +770,321 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
         expect(request.treasuryFee).to.be.equal(treasuryFee)
       })
     })
+
+    it("does not apply rebate through stale authorization after full unstake and later delegation", async () => {
+      await createSnapshot()
+      try {
+        const accounts = await getUnnamedAccounts()
+        const formerStaker = await impersonateAccount(accounts[17], {
+          from: deployer,
+          value: 10,
+        })
+        const victim = await impersonateAccount(accounts[18], {
+          from: deployer,
+          value: 10,
+        })
+        const attacker = thirdParty
+
+        await stakeTokens(t, rebateStaking, deployer, formerStaker)
+        await rebateStaking
+          .connect(formerStaker)
+          .setRebateAuthorization(attacker.address, true)
+
+        await rebateStaking.connect(formerStaker).startUnstaking(stakeAmount)
+        await increaseTime(await rebateStaking.unstakingPeriod())
+        await rebateStaking
+          .connect(formerStaker)
+          .finalizeUnstaking(formerStaker.address)
+        expect(await rebateStaking.getStake(formerStaker.address)).to.equal(0)
+
+        await stakeTokens(t, rebateStaking, deployer, victim)
+        await rebateStaking.connect(victim).setDelegatee(formerStaker.address)
+
+        const victimAvailableBefore = await rebateStaking.getAvailableRebate(
+          victim.address
+        )
+        const victimRebatesBefore = await rebateStaking.getRebateLength(
+          victim.address
+        )
+
+        const pubKeyHash = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        const outputScript = "0x1600141111111111111111111111111111111111111111"
+        const utxo = {
+          txHash:
+            "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          txOutputIndex: 0,
+          txOutputValue: 10000000,
+        }
+
+        await setupWallet(bridge, pubKeyHash, utxo)
+        await bank.setBalance(attacker.address, requestedAmount)
+
+        const tx = await bank
+          .connect(attacker)
+          .approveBalanceAndCall(
+            bridge.address,
+            requestedAmount,
+            encodeRedemptionData(
+              formerStaker.address,
+              pubKeyHash,
+              utxo,
+              outputScript
+            )
+          )
+
+        await expect(tx).to.not.emit(rebateStaking, "RebateReceived")
+        expect(await rebateStaking.getAvailableRebate(victim.address)).to.equal(
+          victimAvailableBefore
+        )
+        expect(await rebateStaking.getRebateLength(victim.address)).to.equal(
+          victimRebatesBefore
+        )
+
+        const request = await bridge.pendingRedemptions(
+          buildRedemptionKey(pubKeyHash, outputScript)
+        )
+        expect(request.treasuryFee).to.equal(treasuryFee)
+        expect((await tx.wait()).status).to.equal(1)
+      } finally {
+        await restoreSnapshot()
+      }
+    })
+
+    it("makes force-transferred stale authorizations inert even if the new staker delegates to the old address", async () => {
+      await createSnapshot()
+      try {
+        const accounts = await getUnnamedAccounts()
+        const oldStaker = await impersonateAccount(accounts[19], {
+          from: deployer,
+          value: 10,
+        })
+        const newStaker = await impersonateAccount(accounts[20], {
+          from: deployer,
+          value: 10,
+        })
+        const attacker = thirdParty
+
+        await stakeTokens(t, rebateStaking, deployer, oldStaker)
+        await rebateStaking
+          .connect(oldStaker)
+          .setRebateAuthorization(attacker.address, true)
+
+        await rebateStaking
+          .connect(deployer)
+          .forceStakeTransfer(oldStaker.address, newStaker.address)
+
+        expect(
+          await rebateStaking.isRebateAuthorized(
+            oldStaker.address,
+            attacker.address
+          )
+        ).to.be.false
+        expect(
+          await rebateStaking.isRebateAuthorized(
+            newStaker.address,
+            attacker.address
+          )
+        ).to.be.false
+
+        await rebateStaking
+          .connect(newStaker)
+          .setRebateAuthorization(attacker.address, true)
+        expect(
+          await rebateStaking.isRebateAuthorized(
+            newStaker.address,
+            attacker.address
+          )
+        ).to.be.true
+
+        await rebateStaking.connect(newStaker).setDelegatee(oldStaker.address)
+
+        const availableBefore = await rebateStaking.getAvailableRebate(
+          newStaker.address
+        )
+        const rebatesBefore = await rebateStaking.getRebateLength(
+          newStaker.address
+        )
+
+        const pubKeyHash = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        const outputScript = "0x1600142222222222222222222222222222222222222222"
+        const utxo = {
+          txHash:
+            "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          txOutputIndex: 0,
+          txOutputValue: 10000000,
+        }
+
+        await setupWallet(bridge, pubKeyHash, utxo)
+        await bank.setBalance(attacker.address, requestedAmount)
+
+        const tx = await bank
+          .connect(attacker)
+          .approveBalanceAndCall(
+            bridge.address,
+            requestedAmount,
+            encodeRedemptionData(
+              oldStaker.address,
+              pubKeyHash,
+              utxo,
+              outputScript
+            )
+          )
+
+        await expect(tx).to.not.emit(rebateStaking, "RebateReceived")
+        expect(
+          await rebateStaking.getAvailableRebate(newStaker.address)
+        ).to.equal(availableBefore)
+        expect(await rebateStaking.getRebateLength(newStaker.address)).to.equal(
+          rebatesBefore
+        )
+
+        const request = await bridge.pendingRedemptions(
+          buildRedemptionKey(pubKeyHash, outputScript)
+        )
+        expect(request.treasuryFee).to.equal(treasuryFee)
+      } finally {
+        await restoreSnapshot()
+      }
+    })
+
+    it("covers the victim-delegates-to-former-staker attack chain without consuming victim rebate cap", async () => {
+      await createSnapshot()
+      try {
+        const accounts = await getUnnamedAccounts()
+        const formerStaker = await impersonateAccount(accounts[21], {
+          from: deployer,
+          value: 10,
+        })
+        const victim = await impersonateAccount(accounts[22], {
+          from: deployer,
+          value: 10,
+        })
+        const attacker = thirdParty
+
+        await stakeTokens(t, rebateStaking, deployer, formerStaker)
+        await rebateStaking
+          .connect(formerStaker)
+          .setRebateAuthorization(attacker.address, true)
+        await rebateStaking.connect(formerStaker).startUnstaking(stakeAmount)
+        await increaseTime(await rebateStaking.unstakingPeriod())
+        await rebateStaking
+          .connect(formerStaker)
+          .finalizeUnstaking(formerStaker.address)
+
+        await stakeTokens(t, rebateStaking, deployer, victim)
+        await rebateStaking.connect(victim).setDelegatee(formerStaker.address)
+
+        const capBefore = await rebateStaking.getRebateCap(victim.address)
+        const availableBefore = await rebateStaking.getAvailableRebate(
+          victim.address
+        )
+        const rebatesBefore = await rebateStaking.getRebateLength(
+          victim.address
+        )
+
+        const pubKeyHash = "0xcccccccccccccccccccccccccccccccccccccccc"
+        const outputScript = "0x1600143333333333333333333333333333333333333333"
+        const utxo = {
+          txHash:
+            "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          txOutputIndex: 0,
+          txOutputValue: 10000000,
+        }
+
+        await setupWallet(bridge, pubKeyHash, utxo)
+        await bank.setBalance(attacker.address, requestedAmount)
+
+        const tx = await bank
+          .connect(attacker)
+          .approveBalanceAndCall(
+            bridge.address,
+            requestedAmount,
+            encodeRedemptionData(
+              formerStaker.address,
+              pubKeyHash,
+              utxo,
+              outputScript
+            )
+          )
+
+        await expect(tx).to.not.emit(rebateStaking, "RebateReceived")
+        expect(await rebateStaking.getRebateLength(victim.address)).to.equal(
+          rebatesBefore
+        )
+        expect(await rebateStaking.getRebateCap(victim.address)).to.equal(
+          capBefore
+        )
+        expect(await rebateStaking.getAvailableRebate(victim.address)).to.equal(
+          availableBefore
+        )
+      } finally {
+        await restoreSnapshot()
+      }
+    })
+
+    it("preserves direct-path delegation rebate accounting for a non-staker delegatee", async () => {
+      await createSnapshot()
+      try {
+        const accounts = await getUnnamedAccounts()
+        const staker = await impersonateAccount(accounts[23], {
+          from: deployer,
+          value: 10,
+        })
+        const delegatee = await impersonateAccount(accounts[24], {
+          from: deployer,
+          value: 10,
+        })
+
+        await stakeTokens(t, rebateStaking, deployer, staker)
+        await rebateStaking.connect(staker).setDelegatee(delegatee.address)
+
+        const stakerAvailableBefore = await rebateStaking.getAvailableRebate(
+          staker.address
+        )
+        const stakerRebatesBefore = await rebateStaking.getRebateLength(
+          staker.address
+        )
+
+        const pubKeyHash = "0xdddddddddddddddddddddddddddddddddddddddd"
+        const outputScript = "0x1600144444444444444444444444444444444444444444"
+        const utxo = {
+          txHash:
+            "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          txOutputIndex: 0,
+          txOutputValue: 10000000,
+        }
+
+        await setupWallet(bridge, pubKeyHash, utxo)
+        await bank.setBalance(delegatee.address, requestedAmount)
+        await bank
+          .connect(delegatee)
+          .approveBalance(bridge.address, requestedAmount)
+
+        const tx = await bridge
+          .connect(delegatee)
+          .requestRedemption(pubKeyHash, utxo, outputScript, requestedAmount)
+
+        await expect(tx)
+          .to.emit(rebateStaking, "RebateReceived")
+          .withArgs(staker.address, treasuryFee)
+
+        expect(await rebateStaking.getRebateLength(staker.address)).to.equal(
+          stakerRebatesBefore.add(1)
+        )
+        expect(
+          (await rebateStaking.getAvailableRebate(staker.address)).lt(
+            stakerAvailableBefore
+          )
+        ).to.be.true
+
+        const request = await bridge.pendingRedemptions(
+          buildRedemptionKey(pubKeyHash, outputScript)
+        )
+        expect(request.treasuryFee).to.equal(0)
+      } finally {
+        await restoreSnapshot()
+      }
+    })
   })
 })
 
