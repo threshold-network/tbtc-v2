@@ -173,6 +173,19 @@ describe("TBTCVault - Redemption", () => {
       const redeemerOutputScriptP2WPKH =
         "0x160014f4eedc8f40d4b8e30771f792b065ebec0abaddef"
 
+      const buildMismatchData = () =>
+        defaultAbiCoder.encode(
+          ["address", "bytes20", "bytes32", "uint32", "uint64", "bytes"],
+          [
+            account2.address,
+            walletPubKeyHash,
+            mainUtxo.txHash,
+            mainUtxo.txOutputIndex,
+            mainUtxo.txOutputValue,
+            redeemerOutputScriptP2WPKH,
+          ]
+        )
+
       before(async () => {
         await createSnapshot()
 
@@ -189,22 +202,96 @@ describe("TBTCVault - Redemption", () => {
         // decoded redeemer. v2 caller binding must reject this so an
         // attacker cannot impersonate an opted-in staker through the
         // public vault entry point.
-        const data = defaultAbiCoder.encode(
-          ["address", "bytes20", "bytes32", "uint32", "uint64", "bytes"],
-          [
-            account2.address,
-            walletPubKeyHash,
-            mainUtxo.txHash,
-            mainUtxo.txOutputIndex,
-            mainUtxo.txOutputValue,
-            redeemerOutputScriptP2WPKH,
-          ]
-        )
         await expect(
-          tbtcVault.connect(account1).unmintAndRedeem(redeemedAmount, data)
+          tbtcVault
+            .connect(account1)
+            .unmintAndRedeem(redeemedAmount, buildMismatchData())
         ).to.be.revertedWith("Decoded redeemer must equal TBTC burner")
       })
+
+      it("should not burn TBTC, transfer Bank balance, or create a pending redemption", async () => {
+        // Snapshot relevant state before the failed call so we can confirm
+        // the mismatch revert occurred before any side effects.
+        const tbtcBalanceBefore = await tbtc.balanceOf(account1.address)
+        const vaultBankBalanceBefore = await bank.balanceOf(tbtcVault.address)
+        const bridgeBankBalanceBefore = await bank.balanceOf(bridge.address)
+
+        const redemptionKey = ethers.utils.solidityKeccak256(
+          ["bytes32", "bytes20"],
+          [
+            ethers.utils.solidityKeccak256(
+              ["bytes"],
+              [redeemerOutputScriptP2WPKH]
+            ),
+            walletPubKeyHash,
+          ]
+        )
+        const pendingBefore = await bridge.pendingRedemptions(redemptionKey)
+        expect(pendingBefore.requestedAt).to.be.equal(0)
+
+        await expect(
+          tbtcVault
+            .connect(account1)
+            .unmintAndRedeem(redeemedAmount, buildMismatchData())
+        ).to.be.revertedWith("Decoded redeemer must equal TBTC burner")
+
+        expect(await tbtc.balanceOf(account1.address)).to.be.equal(
+          tbtcBalanceBefore
+        )
+        expect(await bank.balanceOf(tbtcVault.address)).to.be.equal(
+          vaultBankBalanceBefore
+        )
+        expect(await bank.balanceOf(bridge.address)).to.be.equal(
+          bridgeBankBalanceBefore
+        )
+
+        const pendingAfter = await bridge.pendingRedemptions(redemptionKey)
+        expect(pendingAfter.requestedAt).to.be.equal(0)
+      })
     })
+
+    context(
+      "when receiveApproval is called with mismatched decoded redeemer",
+      () => {
+        const mintedAmount = to1e18(10)
+        const redeemedAmount = to1e18(1)
+        const redeemerOutputScriptP2WPKH =
+          "0x160014f4eedc8f40d4b8e30771f792b065ebec0abaddef"
+
+        before(async () => {
+          await createSnapshot()
+          await tbtcVault.connect(account1).mint(mintedAmount)
+        })
+
+        after(async () => {
+          await restoreSnapshot()
+        })
+
+        it("should revert via TBTC.approveAndCall when decoded redeemer differs from from", async () => {
+          // account1 routes through TBTC.approveAndCall, which authenticates
+          // `from = msg.sender = account1`. The redemption data names
+          // account2 as the decoded redeemer. v2 caller binding must
+          // reject this at the vault layer before any burn or Bank
+          // approval.
+          const data = defaultAbiCoder.encode(
+            ["address", "bytes20", "bytes32", "uint32", "uint64", "bytes"],
+            [
+              account2.address,
+              walletPubKeyHash,
+              mainUtxo.txHash,
+              mainUtxo.txOutputIndex,
+              mainUtxo.txOutputValue,
+              redeemerOutputScriptP2WPKH,
+            ]
+          )
+          await expect(
+            tbtc
+              .connect(account1)
+              .approveAndCall(tbtcVault.address, redeemedAmount, data)
+          ).to.be.revertedWith("Decoded redeemer must equal TBTC burner")
+        })
+      }
+    )
 
     context("when there is a single redeemer", () => {
       const redeemerOutputScriptP2WPKH =
