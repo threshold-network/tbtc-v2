@@ -1239,7 +1239,7 @@ library Redemption {
             walletPubKeyHash,
             redeemerOutputScript
         );
-        Redemption.RedemptionRequest storage redemption = self
+        Redemption.RedemptionRequest memory redemption = self
             .pendingRedemptions[redemptionKey];
 
         // Should never happen, but just in case.
@@ -1267,6 +1267,18 @@ library Redemption {
         // mapping. This is important to avoid this redemption request
         // to be processed by the wallet or reported as timed out.
         delete self.pendingRedemptions[redemptionKey];
+
+        // Mirror the apply/cancel symmetry maintained by
+        // `notifyRedemptionTimeout`: if a rebate was applied at request time,
+        // release the corresponding rolling-window cap entry. When no rebate
+        // was applied (unauthorized callback, or rebate staking unset), the
+        // call is a safe no-op.
+        if (self.rebateStaking != address(0)) {
+            RebateStaking(self.rebateStaking).cancelRebate(
+                redemption.redeemer,
+                redemption.requestedAt
+            );
+        }
 
         self.bank.transferBalance(self.redemptionWatchtower, detainedAmount);
     }
