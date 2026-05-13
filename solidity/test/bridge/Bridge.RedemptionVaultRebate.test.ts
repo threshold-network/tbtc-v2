@@ -13,6 +13,7 @@ import type {
   Bridge,
   BridgeStub,
   BridgeGovernance,
+  IRedemptionWatchtower,
   IWalletRegistry,
   RebateStaking,
 } from "../../typechain"
@@ -1085,6 +1086,198 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
         await restoreSnapshot()
       }
     })
+  })
+
+  describe("notifyRedemptionVeto with rebate staking", () => {
+    const vetoWalletPubKeyHash = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    const vetoRequestedAmount = BigNumber.from(1901000)
+
+    const vetoMainUtxo = {
+      txHash:
+        "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      txOutputIndex: 0,
+      txOutputValue: 10000000,
+    }
+
+    // P2WPKH output scripts (length-prefixed), distinct to avoid key collision.
+    const vetoAuthorizedOutputScript =
+      "0x160014eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee01"
+    const vetoUnauthorizedOutputScript =
+      "0x160014eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee02"
+
+    let vetoRedeemerAddress: string
+    let vetoRedeemerSigner: SignerWithAddress
+    let watchtower: FakeContract<IRedemptionWatchtower>
+    let watchtowerSigner: SignerWithAddress
+
+    before(async () => {
+      await createSnapshot()
+
+      const unnamedAccounts = await getUnnamedAccounts()
+      // eslint-disable-next-line prefer-destructuring
+      vetoRedeemerAddress = unnamedAccounts[25]
+
+      vetoRedeemerSigner = await impersonateAccount(vetoRedeemerAddress, {
+        from: deployer,
+        value: 10,
+      })
+
+      // Set up the wallet as Live with a non-zero ecdsaWalletID.
+      await setupWallet(
+        bridge,
+        vetoWalletPubKeyHash,
+        vetoMainUtxo,
+        ethers.utils.keccak256("0x03")
+      )
+      await bridge.setActiveWallet(vetoWalletPubKeyHash)
+
+      // Fund the balance owner for vault-path redemptions.
+      await bank.setBalance(thirdParty.address, vetoRequestedAmount.mul(3))
+
+      // Stake T tokens for the redeemer so rebate accounting is active.
+      await stakeTokens(t, rebateStaking, deployer, vetoRedeemerSigner)
+
+      // Deploy a fake watchtower and impersonate it as the caller.
+      watchtower = await smock.fake<IRedemptionWatchtower>(
+        "IRedemptionWatchtower"
+      )
+      watchtower.isSafeRedemption.returns(true)
+
+      watchtowerSigner = await impersonateAccount(watchtower.address, {
+        from: governance,
+        value: 10,
+      })
+
+      await bridgeGovernance
+        .connect(governance)
+        .setRedemptionWatchtower(watchtower.address)
+    })
+
+    after(async () => {
+      watchtower.isSafeRedemption.reset()
+      await restoreSnapshot()
+    })
+
+    context(
+      "when watchtower vetoes a rebate-eligible authorized vault redemption",
+      () => {
+        let tx: ContractTransaction
+        let requestedAt: BigNumber
+
+        before(async () => {
+          await createSnapshot()
+
+          // Redeemer authorizes thirdParty (balanceOwner) for rebate.
+          await rebateStaking
+            .connect(vetoRedeemerSigner)
+            .setRebateAuthorization(thirdParty.address, true)
+
+          const data = encodeRedemptionData(
+            vetoRedeemerAddress,
+            vetoWalletPubKeyHash,
+            vetoMainUtxo,
+            vetoAuthorizedOutputScript
+          )
+
+          await bank
+            .connect(thirdParty)
+            .approveBalanceAndCall(bridge.address, vetoRequestedAmount, data)
+
+          const redemptionKey = buildRedemptionKey(
+            vetoWalletPubKeyHash,
+            vetoAuthorizedOutputScript
+          )
+          const pending = await bridge.pendingRedemptions(redemptionKey)
+          requestedAt = BigNumber.from(pending.requestedAt)
+
+          tx = await bridge
+            .connect(watchtowerSigner)
+            .notifyRedemptionVeto(
+              vetoWalletPubKeyHash,
+              vetoAuthorizedOutputScript
+            )
+        })
+
+        after(async () => {
+          await restoreSnapshot()
+        })
+
+        it("should emit RebateCanceled for the redeemer", async () => {
+          await expect(tx)
+            .to.emit(rebateStaking, "RebateCanceled")
+            .withArgs(vetoRedeemerAddress, requestedAt)
+        })
+
+        it("should clear the pending redemption", async () => {
+          const redemptionKey = buildRedemptionKey(
+            vetoWalletPubKeyHash,
+            vetoAuthorizedOutputScript
+          )
+          const request = await bridge.pendingRedemptions(redemptionKey)
+          expect(request.requestedAt).to.equal(0)
+        })
+
+        it("should transfer the full requested amount to the watchtower", async () => {
+          await expect(tx)
+            .to.emit(bank, "BalanceTransferred")
+            .withArgs(bridge.address, watchtower.address, vetoRequestedAmount)
+        })
+      }
+    )
+
+    context(
+      "when watchtower vetoes a vault redemption with no rebate applied",
+      () => {
+        let tx: ContractTransaction
+
+        before(async () => {
+          await createSnapshot()
+
+          // No authorization — rebate is skipped at apply time, so no
+          // matching entry exists in the rolling window when cancel runs.
+          const data = encodeRedemptionData(
+            vetoRedeemerAddress,
+            vetoWalletPubKeyHash,
+            vetoMainUtxo,
+            vetoUnauthorizedOutputScript
+          )
+
+          await bank
+            .connect(thirdParty)
+            .approveBalanceAndCall(bridge.address, vetoRequestedAmount, data)
+
+          tx = await bridge
+            .connect(watchtowerSigner)
+            .notifyRedemptionVeto(
+              vetoWalletPubKeyHash,
+              vetoUnauthorizedOutputScript
+            )
+        })
+
+        after(async () => {
+          await restoreSnapshot()
+        })
+
+        it("should not emit RebateCanceled", async () => {
+          await expect(tx).to.not.emit(rebateStaking, "RebateCanceled")
+        })
+
+        it("should still clear the pending redemption", async () => {
+          const redemptionKey = buildRedemptionKey(
+            vetoWalletPubKeyHash,
+            vetoUnauthorizedOutputScript
+          )
+          const request = await bridge.pendingRedemptions(redemptionKey)
+          expect(request.requestedAt).to.equal(0)
+        })
+
+        it("should transfer the full requested amount to the watchtower", async () => {
+          await expect(tx)
+            .to.emit(bank, "BalanceTransferred")
+            .withArgs(bridge.address, watchtower.address, vetoRequestedAmount)
+        })
+      }
+    )
   })
 })
 
