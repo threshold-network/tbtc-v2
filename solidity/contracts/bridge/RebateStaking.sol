@@ -253,17 +253,25 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         emit RebateAuthorizationSet(msg.sender, balanceOwner, authorized);
     }
 
-    /// @notice Returns true if `redeemer` has authorized `balanceOwner` to
-    ///         trigger callback-path rebate application crediting the
-    ///         `redeemer`'s stake.
-    /// @param redeemer The staker address that would be credited with the
-    ///        rebate.
+    /// @notice Returns true if `redeemer` currently has stake and has
+    ///         authorized `balanceOwner` to trigger callback-path rebate
+    ///         application crediting the `redeemer`'s stake.
+    /// @dev Stale authorizations left by fully unstaked or force-transferred
+    ///      addresses are inert. Callback-path delegation is a no-op by
+    ///      construction: a zero-stake delegatee fails the `getStake > 0`
+    ///      check before `applyForRebate` ever runs.
+    /// @param redeemer The current staker address that would be credited with
+    ///        the rebate.
     /// @param balanceOwner The Bank balance owner being checked.
     function isRebateAuthorized(address redeemer, address balanceOwner)
         external
         view
         returns (bool)
     {
+        if (getStake(redeemer) == 0) {
+            return false;
+        }
+
         return rebateAuthorizations[redeemer][balanceOwner];
     }
 
@@ -540,11 +548,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     /// @notice Returns information about stake
     /// @param user Address of depositor or redeemer
     /// @return stakedAmount Amount of stake
-    function getStake(address user)
-        external
-        view
-        returns (uint96 stakedAmount)
-    {
+    function getStake(address user) public view returns (uint96 stakedAmount) {
         Stake storage stakeInfo = stakes[user];
         stakedAmount = stakeInfo.stakedAmount;
     }
