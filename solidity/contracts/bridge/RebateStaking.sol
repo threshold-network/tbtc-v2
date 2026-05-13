@@ -82,14 +82,26 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     mapping(address => Stake) public stakes;
     mapping(address => address) public delegates;
 
+    /// @notice Per-redeemer authorization for callback-path rebate
+    ///         application. A staker authorizes a specific Bank balance owner
+    ///         to trigger a rebate application crediting that staker's stake
+    ///         on callback redemptions where `balanceOwner != redeemer`.
+    ///         Many-to-one: many stakers may authorize the same balance owner
+    ///         independently. Independent of `delegates` (which redirects
+    ///         rebate accounting to a different staker rather than authorizing
+    ///         a Bank balance owner).
+    mapping(address => mapping(address => bool)) public rebateAuthorizations;
+
     // Reserved storage space in case we need to add more variables.
     // The convention from OpenZeppelin suggests the storage space should
     // add up to 50 slots. Here we want to have more slots as there are
     // planned upgrades of the Bridge contract. If more entires are added to
     // the struct in the upcoming versions we need to reduce the array size.
     // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
+    // Upgrade note: `rebateAuthorizations` consumed one reserved slot,
+    // reducing `__gap` from 49 to 48 for storage-layout compatibility.
     // slither-disable-next-line unused-state
-    uint256[49] private __gap;
+    uint256[48] private __gap;
 
     event RollingWindowUpdated(uint256 rollingWindow);
     event UnstakingPeriodUpdated(uint256 unstakingPeriod);
@@ -105,6 +117,11 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     event UnstakeFinished(address staker, uint256 amount);
     event DelegateeSet(address staker, address delegatee);
     event TransferFinished(address oldStaker, address newStaker);
+    event RebateAuthorizationSet(
+        address indexed redeemer,
+        address indexed balanceOwner,
+        bool authorized
+    );
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -210,6 +227,43 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         stakeInfo.delegatee = _delegatee;
         delegates[_delegatee] = msg.sender;
         emit DelegateeSet(msg.sender, _delegatee);
+    }
+
+    /// @notice Authorizes or revokes a Bank balance owner to trigger rebate
+    ///         application against the caller's stake on callback-path
+    ///         redemptions. The caller must be a staker. Authorization is a
+    ///         per-pair boolean; many stakers may authorize the same balance
+    ///         owner concurrently. Independent of `setDelegatee`.
+    /// @param balanceOwner The Bank balance owner authorized to be the
+    ///        balance owner on a callback-path redemption that credits the
+    ///        caller's stake. Must not be the zero address.
+    /// @param authorized True to authorize, false to revoke.
+    function setRebateAuthorization(address balanceOwner, bool authorized)
+        external
+    {
+        if (stakes[msg.sender].stakedAmount == 0) {
+            revert NotAStaker();
+        }
+        require(
+            balanceOwner != address(0),
+            "Balance owner must not be the zero address"
+        );
+        rebateAuthorizations[msg.sender][balanceOwner] = authorized;
+        emit RebateAuthorizationSet(msg.sender, balanceOwner, authorized);
+    }
+
+    /// @notice Returns true if `redeemer` has authorized `balanceOwner` to
+    ///         trigger callback-path rebate application crediting the
+    ///         `redeemer`'s stake.
+    /// @param redeemer The staker address that would be credited with the
+    ///        rebate.
+    /// @param balanceOwner The Bank balance owner being checked.
+    function isRebateAuthorized(address redeemer, address balanceOwner)
+        external
+        view
+        returns (bool)
+    {
+        return rebateAuthorizations[redeemer][balanceOwner];
     }
 
     /// @notice Calculates cap for rebate for the specified user.

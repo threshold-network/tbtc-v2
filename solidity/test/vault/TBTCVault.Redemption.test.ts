@@ -99,6 +99,23 @@ describe("TBTCVault - Redemption", () => {
       return tbtcVault.connect(redeemer).unmintAndRedeem(amount, data)
     }
 
+    // Minimal valid redemption data with account1 as the decoded redeemer.
+    // Used in tests that expect a downstream revert (e.g., insufficient TBTC
+    // balance) so the TBTCVault caller-binding check passes and the test
+    // reaches the intended failure path.
+    const validEmptyScriptRedemptionData = (redeemerAddress: string) =>
+      defaultAbiCoder.encode(
+        ["address", "bytes20", "bytes32", "uint32", "uint64", "bytes"],
+        [
+          redeemerAddress,
+          "0x0000000000000000000000000000000000000000",
+          ethers.constants.HashZero,
+          0,
+          0,
+          "0x",
+        ]
+      )
+
     context("when the redeemer has no TBTC", () => {
       const amount = to1e18(1)
       before(async () => {
@@ -113,7 +130,12 @@ describe("TBTCVault - Redemption", () => {
 
       it("should revert", async () => {
         await expect(
-          tbtcVault.connect(account1).unmintAndRedeem(to1e18(1), [])
+          tbtcVault
+            .connect(account1)
+            .unmintAndRedeem(
+              to1e18(1),
+              validEmptyScriptRedemptionData(account1.address)
+            )
         ).to.be.revertedWith("Burn amount exceeds balance")
       })
     })
@@ -135,8 +157,52 @@ describe("TBTCVault - Redemption", () => {
 
       it("should revert", async () => {
         await expect(
-          tbtcVault.connect(account1).unmintAndRedeem(redeemedAmount, [])
+          tbtcVault
+            .connect(account1)
+            .unmintAndRedeem(
+              redeemedAmount,
+              validEmptyScriptRedemptionData(account1.address)
+            )
         ).to.be.revertedWith("Burn amount exceeds balance")
+      })
+    })
+
+    context("when decoded redeemer does not match the TBTC burner", () => {
+      const mintedAmount = to1e18(10)
+      const redeemedAmount = to1e18(1)
+      const redeemerOutputScriptP2WPKH =
+        "0x160014f4eedc8f40d4b8e30771f792b065ebec0abaddef"
+
+      before(async () => {
+        await createSnapshot()
+
+        await tbtcVault.connect(account1).mint(mintedAmount)
+        await tbtc.connect(account1).approve(tbtcVault.address, redeemedAmount)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should revert on caller binding check", async () => {
+        // account1 calls unmintAndRedeem but names account2 as the
+        // decoded redeemer. v2 caller binding must reject this so an
+        // attacker cannot impersonate an opted-in staker through the
+        // public vault entry point.
+        const data = defaultAbiCoder.encode(
+          ["address", "bytes20", "bytes32", "uint32", "uint64", "bytes"],
+          [
+            account2.address,
+            walletPubKeyHash,
+            mainUtxo.txHash,
+            mainUtxo.txOutputIndex,
+            mainUtxo.txOutputValue,
+            redeemerOutputScriptP2WPKH,
+          ]
+        )
+        await expect(
+          tbtcVault.connect(account1).unmintAndRedeem(redeemedAmount, data)
+        ).to.be.revertedWith("Decoded redeemer must equal TBTC burner")
       })
     })
 

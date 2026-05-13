@@ -335,11 +335,27 @@ contract TBTCVault is IVault, Ownable, TBTCOptimisticMinting {
     }
 
     /// @dev `amount` MUST be divisible by SATOSHI_MULTIPLIER with no change.
+    ///      Binds the decoded redeemer in `redemptionData` to the actual TBTC
+    ///      burner. This prevents an attacker from impersonating an
+    ///      opted-in staker through the public vault entry points by naming
+    ///      that staker as the decoded redeemer while burning their own
+    ///      TBTC. Without this check, the Bridge-side rebate authorization
+    ///      gate could be defeated for any staker who has authorized
+    ///      `TBTCVault` via `RebateStaking.setRebateAuthorization`.
     function _unmintAndRedeem(
         address redeemer,
         uint256 amount,
         bytes calldata redemptionData
     ) internal {
+        (address decodedRedeemer, , , , , ) = abi.decode(
+            redemptionData,
+            (address, bytes20, bytes32, uint32, uint64, bytes)
+        );
+        require(
+            decodedRedeemer == redeemer,
+            "Decoded redeemer must equal TBTC burner"
+        );
+
         emit Unminted(redeemer, amount);
         tbtcToken.burnFrom(redeemer, amount);
         bank.approveBalanceAndCall(
