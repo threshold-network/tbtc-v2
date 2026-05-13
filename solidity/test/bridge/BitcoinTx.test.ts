@@ -166,6 +166,30 @@ describe("BitcoinTx", () => {
       })
     })
 
+    context(
+      "when current and previous epoch difficulties differ and DIFF1 skip is asymmetric",
+      () => {
+        it("does not skip a leading DIFF1 when previous difficulty is 1 (binds to previous)", async () => {
+          const twoHeaders = DIFF1_HEADER.slice(2) + NORMAL_HEADER.slice(2)
+          const result = await callDetermineRequestedDifficulty(
+            `0x${twoHeaders}`,
+            NORMAL_DIFFICULTY,
+            1
+          )
+          expect(result).to.equal(1)
+        })
+
+        it("does not skip a leading DIFF1 when current difficulty is 1 (binds to current)", async () => {
+          const result = await callDetermineRequestedDifficulty(
+            DIFF1_HEADER,
+            1,
+            NORMAL_DIFFICULTY
+          )
+          expect(result).to.equal(1)
+        })
+      }
+    )
+
     context("when a DIFF1 header is first and epoch difficulty is 1", () => {
       // When the relay epoch is minimum difficulty (1), DIFF1 headers are
       // not skipped and must be accepted directly by matching epoch = 1.

@@ -232,13 +232,15 @@ library BitcoinTx {
     }
 
     /// @notice Picks the relay epoch difficulty used as the baseline for SPV
-    ///         accumulated-work checks. When the relay epoch is above minimum
-    ///         difficulty, walks past leading DIFF1 headers (Bitcoin testnet4
-    ///         BIP94) until a header matches the relay's current or previous
-    ///         epoch difficulty. Reverts if every header is skipped or the
-    ///         first non-DIFF1 header does not match the relay epoch. When the
-    ///         relay epoch is minimum difficulty (1), DIFF1 headers are not
-    ///         skipped and must match the epoch directly.
+    ///         accumulated-work checks. When both relay difficulties are above
+    ///         minimum difficulty, walks past leading DIFF1 headers (Bitcoin
+    ///         testnet4 BIP94) until a header matches the relay's current or
+    ///         previous epoch difficulty. Reverts if every header is skipped or
+    ///         the first decisive header does not match either oracle value.
+    ///         When either difficulty is minimum (1), leading DIFF1 headers
+    ///         are never skipped—they are matched like any other header first
+    ///         (typically binding to whichever oracle side equals 1). Production
+    ///         mainnet relays are not expected to report an epoch difficulty of 1.
     function determineRequestedDifficulty(
         bytes memory bitcoinHeaders,
         uint256 currentEpochDifficulty,
