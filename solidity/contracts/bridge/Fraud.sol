@@ -445,6 +445,9 @@ library Fraud {
         BridgeState.Storage storage self,
         FraudChallenge storage challenge
     ) private {
+        // seeded=true: pre-upgrade challenges were bulk-included in the seed
+        // amount via seedFraudChallengeEscrow; decrement on resolution to
+        // release their share of the tracked escrow.
         if (challenge.escrowCounted || self.fraudChallengeEscrowSeeded) {
             self.openFraudChallengeEscrow -= challenge.depositAmount;
         }
