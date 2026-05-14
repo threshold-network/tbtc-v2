@@ -18,6 +18,10 @@ contract DepositSweepCallbackHarness {
         address indexed revealer
     );
 
+    function maxMigrationSweepBatchSize() external pure returns (uint256) {
+        return DepositSweep.MAX_MIGRATION_SWEEP_BATCH_SIZE;
+    }
+
     function setMigrationDebtVault(address vault) external {
         self.migrationDebtVault = vault;
     }

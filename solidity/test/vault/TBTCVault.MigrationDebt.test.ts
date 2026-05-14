@@ -5,6 +5,7 @@ import { expect } from "chai"
 import type {
   Bank,
   BridgeForVaultHarness,
+  DepositSweepCallbackHarness,
   MockMigrationSweepNotifier,
   TBTC,
   TBTCVaultHarness,
@@ -59,6 +60,17 @@ describe("TBTCVault - MigrationDebt", () => {
 
     // For test purposes we route Bank bridge callbacks through the deployer.
     await bank.updateBridge(deployer.address)
+  })
+
+  it("MAX_MIGRATION_SWEEP_BATCH_SIZE matches between DepositSweep and TBTCVault", async () => {
+    const HarnessFactory = await ethers.getContractFactory(
+      "DepositSweepCallbackHarness"
+    )
+    const harness = (await HarnessFactory.deploy()) as DepositSweepCallbackHarness
+
+    expect(await harness.maxMigrationSweepBatchSize()).to.equal(
+      await vault.MAX_MIGRATION_SWEEP_BATCH_SIZE()
+    )
   })
 
   it("implements canRevealMigration = isMigrationRevealer && migrationDebt > 0", async () => {
