@@ -1,0 +1,4 @@
+# Hardhat deploy scripts are one-off operational tools that intentionally
+# use console.log for deployment status output and process.env for config.
+# They are never bundled to a client and should not be scanned as production code.
+solidity/deploy/**

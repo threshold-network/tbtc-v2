@@ -226,7 +226,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // patch, hardhat-deploy fails with "invalid address" on deploy receipts.
   // Same pattern used in cross-chain Wormhole V2 upgrade scripts.
   const originalFormat = providers.Formatter.prototype.transactionResponse
-  providers.Formatter.prototype.transactionResponse = function (tx: any): any {
+  providers.Formatter.prototype.transactionResponse = function (
+    tx: Record<string, unknown>
+  ): providers.TransactionResponse {
     const patched = tx.to === "" ? { ...tx, to: null } : tx
     return originalFormat.call(this, patched)
   }
@@ -472,6 +474,10 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         value: 0,
         description:
           "Seed Bridge fraud challenge escrow after recomputing the current open pre-upgrade escrow",
+        warning:
+          "Execute as the first Council Safe action after the timelock batch finalizes. " +
+          "submitFraudChallenge is disabled until this call succeeds. " +
+          "Recompute the open escrow amount immediately before submitting — use the block number of the Bridge upgrade tx as the upper bound.",
         eventScan: {
           fromBlock: fraudScanFromBlock,
           toBlock: latestBlock,
@@ -483,14 +489,17 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   }
 
   const summaryDir = path.join(__dirname, "..", "deployments", hre.network.name)
-  fs.mkdirSync(summaryDir, { recursive: true })
+  await fs.promises.mkdir(summaryDir, { recursive: true })
   const summaryPath = path.join(
     summaryDir,
     `tip109-hotfix-deployment-${Date.now()}.json`
   )
 
   try {
-    fs.writeFileSync(summaryPath, JSON.stringify(deploymentSummary, null, 2))
+    await fs.promises.writeFile(
+      summaryPath,
+      JSON.stringify(deploymentSummary, null, 2)
+    )
     console.log(`\nDeployment summary saved to: ${summaryPath}`)
   } catch (error) {
     console.log(`WARNING: Failed to write summary: ${(error as Error).message}`)
@@ -536,9 +545,19 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
       // eslint-disable-next-line no-restricted-syntax
       for (const biFile of buildInfoFiles) {
-        const bi = JSON.parse(
-          fs.readFileSync(path.join(buildInfoDir, biFile), "utf-8")
+        // eslint-disable-next-line no-await-in-loop
+        const raw = await fs.promises.readFile(
+          path.join(buildInfoDir, biFile),
+          "utf-8"
         )
+        let bi: Record<string, unknown>
+        try {
+          bi = JSON.parse(raw) as Record<string, unknown>
+        } catch {
+          console.log(`  Skipping malformed build-info file: ${biFile}`)
+          // eslint-disable-next-line no-continue
+          continue
+        }
         if (bi.output?.contracts?.["contracts/bridge/Deposit.sol"]?.Deposit) {
           solcInput = JSON.stringify(bi.input)
           compilerVersion = `v${bi.solcVersion}`

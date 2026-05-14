@@ -1,0 +1,4 @@
+# Deploy scripts are one-off Hardhat scripts that intentionally use
+# console.log for deployment status output and are never bundled to a client.
+# Excluding from UBS to avoid false positives on console.log and process.env usage.
+*
