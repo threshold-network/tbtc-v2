@@ -234,6 +234,11 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     ///         redemptions. The caller must be a staker. Authorization is a
     ///         per-pair boolean; many stakers may authorize the same balance
     ///         owner concurrently. Independent of `setDelegatee`.
+    /// @dev Authorizations persist in storage when stake drops to zero and
+    ///      silently reactivate if the caller re-stakes later. Stakers who
+    ///      have fully unstaked and want to reset their grants must call this
+    ///      function with `authorized = false` for each prior entry before or
+    ///      after re-staking.
     /// @param balanceOwner The Bank balance owner authorized to be the
     ///        balance owner on a callback-path redemption that credits the
     ///        caller's stake. Must not be the zero address.
