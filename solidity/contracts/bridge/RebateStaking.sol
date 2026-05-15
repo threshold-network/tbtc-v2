@@ -433,7 +433,19 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     /// @param user Address of depositor or redeemer
     /// @param requestedAt Timestamp when redeem was requested
     /// @dev Requirements:
-    ///      - The caller must be the bridge contract
+    ///      - The caller must be the bridge contract.
+    ///
+    ///      Known limitation (pre-existing, not introduced by the rebate
+    ///      authorization gate): the loop matches at most one rebate per
+    ///      `requestedAt`. If a single staker has two or more rebates pushed
+    ///      in the same block (e.g., as the resolved staker via `getStaker`
+    ///      for two callback redemptions to different `redeemerOutputScript`s
+    ///      in one transaction), only the first matching entry is zeroed.
+    ///      Subsequent cancels for the same `requestedAt` re-zero the already
+    ///      zeroed entry and break, leaving the other same-timestamp entries
+    ///      in the rolling window until they age out. Effect is temporary
+    ///      rolling-window cap denial, not permanent loss. Tracked as a
+    ///      follow-up.
     function cancelRebate(address user, uint256 requestedAt)
         external
         onlyBridge
