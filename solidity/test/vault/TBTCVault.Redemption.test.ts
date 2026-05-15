@@ -344,7 +344,9 @@ describe("TBTCVault - Redemption", () => {
         // TBTC burn or Bank approval. Anchors the "fail closed" property
         // of the vault decode site.
         await expect(
-          tbtcVault.connect(account1).unmintAndRedeem(redeemedAmount, "0xdeadbeef")
+          tbtcVault
+            .connect(account1)
+            .unmintAndRedeem(redeemedAmount, "0xdeadbeef")
         ).to.be.reverted
       })
     })
