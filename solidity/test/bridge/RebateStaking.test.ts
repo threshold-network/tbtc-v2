@@ -377,7 +377,7 @@ describe("RebateStaking", () => {
         rebateStaking
           .connect(thirdParty)
           .setRebateAuthorization(ZERO_ADDRESS, true)
-      ).to.be.revertedWith("Balance owner must not be the zero address")
+      ).to.be.revertedWith("ZeroAddress")
     })
 
     context("when staker authorizes a balance owner", () => {

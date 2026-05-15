@@ -245,10 +245,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         if (stakeInfo.stakedAmount == 0) {
             revert NotAStaker();
         }
-        require(
-            balanceOwner != address(0),
-            "Balance owner must not be the zero address"
-        );
+        if (balanceOwner == address(0)) revert ZeroAddress();
         rebateAuthorizations[msg.sender][balanceOwner] = authorized;
         emit RebateAuthorizationSet(msg.sender, balanceOwner, authorized);
     }
