@@ -347,6 +347,12 @@ contract TBTCVault is IVault, Ownable, TBTCOptimisticMinting {
         uint256 amount,
         bytes calldata redemptionData
     ) internal {
+        // Tuple shape must match the decode in
+        // `Redemption.requestRedemption(BridgeState.Storage, address, uint64, bytes)`
+        // (see `contracts/bridge/Redemption.sol`). The vault only reads field 0
+        // (`redeemer`) to enforce the caller binding, but the full `redemptionData`
+        // is forwarded to the Bridge via `bank.approveBalanceAndCall`. Any change
+        // to the canonical tuple on either side must be made in lock-step.
         (address decodedRedeemer, , , , , ) = abi.decode(
             redemptionData,
             (address, bytes20, bytes32, uint32, uint64, bytes)
