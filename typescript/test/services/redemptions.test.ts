@@ -794,18 +794,18 @@ describe("Redemptions", () => {
       // Creates a basic L1 Bitcoin redeemer mock that returns a fixed tx hash.
       // Optionally captures the wallet public key passed to requestRedemption.
       function createMockL1BitcoinRedeemer(
-        onRequestRedemption?: (walletPubKey: Hex) => void
+        onRequestRedemption?: (walletPubKey: Hex, mainUtxo: BitcoinUtxo) => void
       ) {
         return {
           getChainIdentifier: () =>
             EthereumAddress.from("0x1234567890123456789012345678901234567890"),
           requestRedemption: async (
             walletPubKey: Hex,
-            _mainUtxo: BitcoinUtxo,
+            mainUtxo: BitcoinUtxo,
             _encodedVm: BytesLike
           ) => {
             if (onRequestRedemption) {
-              onRequestRedemption(walletPubKey)
+              onRequestRedemption(walletPubKey, mainUtxo)
             }
             return mockTxHash
           },
@@ -1140,6 +1140,19 @@ describe("Redemptions", () => {
             const tbtcContracts = new MockTBTCContracts()
             const bitcoinClient = new MockBitcoinClient()
             bitcoinClient.network = BitcoinNetwork.Mainnet
+            const wallet = findWalletForRedemptionData.liveWallet
+
+            tbtcContracts.bridge.setWallet(
+              wallet.event.walletPublicKeyHash.toPrefixedString(),
+              {
+                state: WalletState.Live,
+                walletPublicKey: wallet.data.walletPublicKey,
+                pendingRedemptionsValue: BigNumber.from(0),
+                mainUtxoHash: tbtcContracts.bridge.buildUtxoHash(
+                  wallet.data.mainUtxo
+                ),
+              } as Wallet
+            )
 
             const redemptionsService = new ApiSuccessGuardService(
               tbtcContracts,
@@ -1155,6 +1168,84 @@ describe("Redemptions", () => {
             )
 
             expect(result).to.have.property("targetChainTxHash")
+          })
+
+          it("should re-resolve stale API main UTXO before requesting redemption", async () => {
+            const tbtcContracts = new MockTBTCContracts()
+            const bitcoinClient = new MockBitcoinClient()
+            bitcoinClient.network = BitcoinNetwork.Mainnet
+            const wallet = findWalletForRedemptionData.liveWallet
+            const staleMainUtxo: BitcoinUtxo = {
+              transactionHash: Hex.from(
+                "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              ),
+              outputIndex: 0,
+              value: wallet.data.mainUtxo.value,
+            }
+
+            tbtcContracts.bridge.setWallet(
+              wallet.event.walletPublicKeyHash.toPrefixedString(),
+              {
+                state: WalletState.Live,
+                walletPublicKey: wallet.data.walletPublicKey,
+                pendingRedemptionsValue: BigNumber.from(0),
+                mainUtxoHash: tbtcContracts.bridge.buildUtxoHash(
+                  wallet.data.mainUtxo
+                ),
+              } as Wallet
+            )
+
+            const walletTransactions = new Map<string, BitcoinTx>()
+            wallet.data.transactions.forEach((tx) => {
+              walletTransactions.set(tx.transactionHash.toString(), tx)
+            })
+            bitcoinClient.transactions = walletTransactions
+
+            const walletTransactionHashes = new Map<string, BitcoinTxHash[]>()
+            walletTransactionHashes.set(
+              wallet.event.walletPublicKeyHash.toString(),
+              wallet.data.transactions.map((tx) => tx.transactionHash)
+            )
+            bitcoinClient.transactionHashes = walletTransactionHashes
+
+            class StaleApiSuccessGuardService extends ApiSuccessGuardService {
+              protected async fetchWalletsForRedemption(): Promise<any[]> {
+                return [
+                  {
+                    index: 0,
+                    walletPublicKey: wallet.data.walletPublicKey.toString(),
+                    mainUtxo: {
+                      transactionHash: staleMainUtxo.transactionHash.toString(),
+                      outputIndex: staleMainUtxo.outputIndex,
+                      value: staleMainUtxo.value.toString(),
+                    },
+                    walletBTCBalance: staleMainUtxo.value.toString(),
+                  },
+                ]
+              }
+            }
+
+            let capturedMainUtxo: BitcoinUtxo | undefined
+
+            const redemptionsService = new StaleApiSuccessGuardService(
+              tbtcContracts,
+              bitcoinClient,
+              createCrossChainResolver(
+                createMockL1BitcoinRedeemer((_, mainUtxo) => {
+                  capturedMainUtxo = mainUtxo
+                })
+              )
+            )
+
+            const result = await redemptionsService.relayRedemptionRequestToL1(
+              testAmount,
+              testEncodedVm,
+              testL2ChainName,
+              testRedeemerOutputScript
+            )
+
+            expect(result).to.have.property("targetChainTxHash")
+            expect(capturedMainUtxo).to.deep.equal(wallet.data.mainUtxo)
           })
         }
       )
