@@ -1136,6 +1136,37 @@ describe("Redemptions", () => {
             }
           }
 
+          class WalletValidationGuardService extends RedemptionsService {
+            public async determineValidRedemptionWallet(
+              amount: BigNumber,
+              potentialCandidateWallets: Array<any>,
+              redeemerAddressOrScript?: string
+            ): Promise<any> {
+              return super.determineValidRedemptionWallet(
+                amount,
+                potentialCandidateWallets,
+                redeemerAddressOrScript
+              )
+            }
+          }
+
+          const serializeRedemptionWalletCandidate = (
+            walletPublicKey: Hex,
+            mainUtxo: BitcoinUtxo,
+            walletBTCBalance = mainUtxo.value
+          ) => {
+            return {
+              index: 0,
+              walletPublicKey: walletPublicKey.toString(),
+              mainUtxo: {
+                transactionHash: mainUtxo.transactionHash.toString(),
+                outputIndex: mainUtxo.outputIndex,
+                value: mainUtxo.value.toString(),
+              },
+              walletBTCBalance: walletBTCBalance.toString(),
+            }
+          }
+
           it("should complete without triggering on-chain fallback", async () => {
             const tbtcContracts = new MockTBTCContracts()
             const bitcoinClient = new MockBitcoinClient()
@@ -1308,6 +1339,134 @@ describe("Redemptions", () => {
                 testRedeemerOutputScript
               )
             ).to.be.rejectedWith("Could not find a wallet with enough funds.")
+          })
+
+          it("should skip API candidates that are not Live on-chain", async () => {
+            const tbtcContracts = new MockTBTCContracts()
+            const bitcoinClient = new MockBitcoinClient()
+            bitcoinClient.network = BitcoinNetwork.Mainnet
+            const nonLiveWallet = findWalletForRedemptionData.nonLiveWallet
+            const liveWallet = findWalletForRedemptionData.liveWallet
+            const amountInSatoshi = testAmount.div(
+              BigNumber.from("10000000000")
+            )
+            const nonLiveWalletPublicKeyHash = BitcoinHashUtils.computeHash160(
+              nonLiveWallet.data.walletPublicKey
+            )
+
+            tbtcContracts.bridge.setWallet(
+              nonLiveWalletPublicKeyHash.toPrefixedString(),
+              {
+                state: WalletState.Unknown,
+                walletPublicKey: nonLiveWallet.data.walletPublicKey,
+                pendingRedemptionsValue: BigNumber.from(0),
+                mainUtxoHash: tbtcContracts.bridge.buildUtxoHash(
+                  liveWallet.data.mainUtxo
+                ),
+              } as Wallet
+            )
+            tbtcContracts.bridge.setWallet(
+              liveWallet.event.walletPublicKeyHash.toPrefixedString(),
+              {
+                state: WalletState.Live,
+                walletPublicKey: liveWallet.data.walletPublicKey,
+                pendingRedemptionsValue: BigNumber.from(0),
+                mainUtxoHash: tbtcContracts.bridge.buildUtxoHash(
+                  liveWallet.data.mainUtxo
+                ),
+              } as Wallet
+            )
+
+            const redemptionsService = new WalletValidationGuardService(
+              tbtcContracts,
+              bitcoinClient,
+              createCrossChainResolver(createMockL1BitcoinRedeemer())
+            )
+
+            const result =
+              await redemptionsService.determineValidRedemptionWallet(
+                amountInSatoshi,
+                [
+                  serializeRedemptionWalletCandidate(
+                    nonLiveWallet.data.walletPublicKey,
+                    liveWallet.data.mainUtxo
+                  ),
+                  serializeRedemptionWalletCandidate(
+                    liveWallet.data.walletPublicKey,
+                    liveWallet.data.mainUtxo
+                  ),
+                ],
+                testRedeemerOutputScript
+              )
+
+            expect(result.walletPublicKey.toString()).to.equal(
+              liveWallet.data.walletPublicKey.toString()
+            )
+          })
+
+          it("should skip API candidates with an on-chain public key mismatch", async () => {
+            const tbtcContracts = new MockTBTCContracts()
+            const bitcoinClient = new MockBitcoinClient()
+            bitcoinClient.network = BitcoinNetwork.Mainnet
+            const mismatchedWallet =
+              findWalletForRedemptionData.walletWithPendingRedemption
+            const liveWallet = findWalletForRedemptionData.liveWallet
+            const amountInSatoshi = testAmount.div(
+              BigNumber.from("10000000000")
+            )
+            const mismatchedWalletPublicKeyHash =
+              BitcoinHashUtils.computeHash160(
+                mismatchedWallet.data.walletPublicKey
+              )
+
+            tbtcContracts.bridge.setWallet(
+              mismatchedWalletPublicKeyHash.toPrefixedString(),
+              {
+                state: WalletState.Live,
+                walletPublicKey: liveWallet.data.walletPublicKey,
+                pendingRedemptionsValue: BigNumber.from(0),
+                mainUtxoHash: tbtcContracts.bridge.buildUtxoHash(
+                  liveWallet.data.mainUtxo
+                ),
+              } as Wallet
+            )
+            tbtcContracts.bridge.setWallet(
+              liveWallet.event.walletPublicKeyHash.toPrefixedString(),
+              {
+                state: WalletState.Live,
+                walletPublicKey: liveWallet.data.walletPublicKey,
+                pendingRedemptionsValue: BigNumber.from(0),
+                mainUtxoHash: tbtcContracts.bridge.buildUtxoHash(
+                  liveWallet.data.mainUtxo
+                ),
+              } as Wallet
+            )
+
+            const redemptionsService = new WalletValidationGuardService(
+              tbtcContracts,
+              bitcoinClient,
+              createCrossChainResolver(createMockL1BitcoinRedeemer())
+            )
+
+            const result =
+              await redemptionsService.determineValidRedemptionWallet(
+                amountInSatoshi,
+                [
+                  serializeRedemptionWalletCandidate(
+                    mismatchedWallet.data.walletPublicKey,
+                    liveWallet.data.mainUtxo
+                  ),
+                  serializeRedemptionWalletCandidate(
+                    liveWallet.data.walletPublicKey,
+                    liveWallet.data.mainUtxo
+                  ),
+                ],
+                testRedeemerOutputScript
+              )
+
+            expect(result.walletPublicKey.toString()).to.equal(
+              liveWallet.data.walletPublicKey.toString()
+            )
           })
         }
       )

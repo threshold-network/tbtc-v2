@@ -133,7 +133,7 @@ An array of subarrays, where each subarray has a maximum length of `chunkSize`.
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:651](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L651)
+[services/redemptions/redemptions-service.ts:660](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L660)
 
 ___
 
@@ -169,13 +169,20 @@ ___
 ▸ **determineValidRedemptionWallet**(`amount`, `potentialCandidateWallets`, `redeemerAddressOrScript?`): `Promise`\<[`RedemptionWallet`](../interfaces/RedemptionWallet.md)\>
 
 Determines a valid wallet that can handle a redemption request.
+Cross-checks API-provided wallet candidates against the current Bridge
+state before accepting them. A candidate is accepted only if the on-chain
+wallet is Live, its on-chain public key does not disagree with the API
+public key, and its main UTXO matches the Bridge's main UTXO hash or can be
+re-resolved from Bitcoin history. The spendable balance is capped to the
+lower of the API balance and the on-chain main UTXO value minus pending
+Bridge redemptions.
 
 #### Parameters
 
 | Name | Type | Description |
 | :------ | :------ | :------ |
 | `amount` | `BigNumber` | The amount to be redeemed in satoshi precision (1e8). |
-| `potentialCandidateWallets` | [`SerializableWallet`](../interfaces/SerializableWallet.md)[] | Array of wallets that can handle the redemption request. The wallets must be in the Live state. |
+| `potentialCandidateWallets` | [`SerializableWallet`](../interfaces/SerializableWallet.md)[] | Array of wallets that can handle the redemption request. |
 | `redeemerAddressOrScript?` | `string` | Optional. Either a Bitcoin address (P2PKH, P2WPKH, P2SH, P2WSH) or a raw hex output script (with or without 0x prefix). When provided, the function checks for pending redemptions to avoid wallet collisions. - If the input matches /^(0x)?[0-9a-fA-F]+$/, it's treated as a raw hex output script and used directly. - Otherwise, it's treated as a Bitcoin address and converted to an output script. |
 
 #### Returns
@@ -195,7 +202,7 @@ Throws an error if no valid redemption wallet exists for the given
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:360](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L360)
+[services/redemptions/redemptions-service.ts:367](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L367)
 
 ___
 
@@ -222,7 +229,7 @@ Promise holding the wallet main UTXO or undefined value.
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:670](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L670)
+[services/redemptions/redemptions-service.ts:679](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L679)
 
 ___
 
@@ -241,7 +248,7 @@ Array of wallet events.
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:824](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L824)
+[services/redemptions/redemptions-service.ts:833](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L833)
 
 ___
 
@@ -268,7 +275,7 @@ Promise with the wallet details needed to request a redemption.
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:510](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L510)
+[services/redemptions/redemptions-service.ts:519](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L519)
 
 ___
 
@@ -288,7 +295,7 @@ ___
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:911](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L911)
+[services/redemptions/redemptions-service.ts:920](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L920)
 
 ___
 
@@ -312,7 +319,7 @@ The output script of the given Bitcoin address.
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:849](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L849)
+[services/redemptions/redemptions-service.ts:858](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L858)
 
 ___
 
@@ -343,7 +350,7 @@ Throws an error if no redemption request exists for the given
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:782](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L782)
+[services/redemptions/redemptions-service.ts:791](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L791)
 
 ___
 
@@ -496,7 +503,7 @@ The resolved output script as a Hex object.
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:879](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L879)
+[services/redemptions/redemptions-service.ts:888](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L888)
 
 ___
 

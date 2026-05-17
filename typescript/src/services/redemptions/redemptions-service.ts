@@ -338,9 +338,16 @@ export class RedemptionsService {
 
   /**
    * Determines a valid wallet that can handle a redemption request.
+   * Cross-checks API-provided wallet candidates against the current Bridge
+   * state before accepting them. A candidate is accepted only if the on-chain
+   * wallet is Live, its on-chain public key does not disagree with the API
+   * public key, and its main UTXO matches the Bridge's main UTXO hash or can be
+   * re-resolved from Bitcoin history. The spendable balance is capped to the
+   * lower of the API balance and the on-chain main UTXO value minus pending
+   * Bridge redemptions.
    * @param amount The amount to be redeemed in satoshi precision (1e8).
    * @param potentialCandidateWallets Array of wallets that can handle the
-   *        redemption request. The wallets must be in the Live state.
+   *        redemption request.
    * @param redeemerAddressOrScript Optional. Either a Bitcoin address (P2PKH,
    *        P2WPKH, P2SH, P2WSH) or a raw hex output script (with or without
    *        0x prefix). When provided, the function checks for pending
@@ -397,6 +404,8 @@ export class RedemptionsService {
         continue
       }
 
+      // Missing on-chain public key is tolerated to avoid turning a registry
+      // data issue into a candidate rejection. A disagreement is unsafe.
       if (
         currentWallet.walletPublicKey &&
         !currentWallet.walletPublicKey.equals(candidatePublicKey)
@@ -471,7 +480,7 @@ export class RedemptionsService {
 
       if (candidateBTCBalance.lt(amount)) {
         console.debug(
-          `The wallet (${candidatePublicKey.toString()})` +
+          `The wallet (${candidatePublicKey.toString()}) ` +
             `cannot handle the redemption request. ` +
             `Continue the loop execution to the next wallet...`
         )
@@ -482,7 +491,7 @@ export class RedemptionsService {
       mainUtxo = currentMainUtxo
 
       console.debug(
-        `The wallet (${walletPublicKey.toString()})` +
+        `The wallet (${walletPublicKey.toString()}) ` +
           `can handle the redemption request. ` +
           `Stop the loop execution and proceed with the redemption...`
       )
@@ -599,7 +608,7 @@ export class RedemptionsService {
           })
         } else {
           console.debug(
-            `The wallet (${walletPublicKeyHash.toString()})` +
+            `The wallet (${walletPublicKeyHash.toString()}) ` +
               `cannot handle the redemption request. ` +
               `Continue the loop execution to the next wallet...`
           )
