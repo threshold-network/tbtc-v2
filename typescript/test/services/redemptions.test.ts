@@ -1247,6 +1247,68 @@ describe("Redemptions", () => {
             expect(result).to.have.property("targetChainTxHash")
             expect(capturedMainUtxo).to.deep.equal(wallet.data.mainUtxo)
           })
+
+          it("should preserve API-reserved balance when validating against Bridge state", async () => {
+            const tbtcContracts = new MockTBTCContracts()
+            const bitcoinClient = new MockBitcoinClient()
+            bitcoinClient.network = BitcoinNetwork.Mainnet
+            const wallet = findWalletForRedemptionData.liveWallet
+            const amountInSatoshi = testAmount.div(
+              BigNumber.from("10000000000")
+            )
+
+            tbtcContracts.bridge.setWallet(
+              wallet.event.walletPublicKeyHash.toPrefixedString(),
+              {
+                state: WalletState.Live,
+                walletPublicKey: wallet.data.walletPublicKey,
+                pendingRedemptionsValue: BigNumber.from(0),
+                mainUtxoHash: tbtcContracts.bridge.buildUtxoHash(
+                  wallet.data.mainUtxo
+                ),
+              } as Wallet
+            )
+
+            class ApiBalanceGuardService extends RedemptionsService {
+              public async determineValidRedemptionWallet(
+                amount: BigNumber,
+                potentialCandidateWallets: Array<any>,
+                redeemerAddressOrScript?: string
+              ): Promise<any> {
+                return super.determineValidRedemptionWallet(
+                  amount,
+                  potentialCandidateWallets,
+                  redeemerAddressOrScript
+                )
+              }
+            }
+
+            const redemptionsService = new ApiBalanceGuardService(
+              tbtcContracts,
+              bitcoinClient,
+              createCrossChainResolver(createMockL1BitcoinRedeemer())
+            )
+
+            await expect(
+              redemptionsService.determineValidRedemptionWallet(
+                amountInSatoshi,
+                [
+                  {
+                    index: 0,
+                    walletPublicKey: wallet.data.walletPublicKey.toString(),
+                    mainUtxo: {
+                      transactionHash:
+                        wallet.data.mainUtxo.transactionHash.toString(),
+                      outputIndex: wallet.data.mainUtxo.outputIndex,
+                      value: wallet.data.mainUtxo.value.toString(),
+                    },
+                    walletBTCBalance: amountInSatoshi.sub(1).toString(),
+                  },
+                ],
+                testRedeemerOutputScript
+              )
+            ).to.be.rejectedWith("Could not find a wallet with enough funds.")
+          })
         }
       )
 

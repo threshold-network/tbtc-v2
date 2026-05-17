@@ -377,6 +377,7 @@ export class RedemptionsService {
     for (let index = 0; index < potentialCandidateWallets.length; index++) {
       const serializableWallet = potentialCandidateWallets[index]
       const {
+        walletBTCBalance: apiCandidateBTCBalance,
         walletPublicKey: candidatePublicKey,
         mainUtxo: candidateMainUtxo,
       } = this.fromSerializableWallet(serializableWallet)
@@ -457,11 +458,16 @@ export class RedemptionsService {
         currentMainUtxo = resolvedMainUtxo
       }
 
-      const candidateBTCBalance = currentMainUtxo.value.gt(
+      const onChainCandidateBTCBalance = currentMainUtxo.value.gt(
         currentWallet.pendingRedemptionsValue
       )
         ? currentMainUtxo.value.sub(currentWallet.pendingRedemptionsValue)
         : BigNumber.from(0)
+      const candidateBTCBalance = onChainCandidateBTCBalance.lt(
+        apiCandidateBTCBalance
+      )
+        ? onChainCandidateBTCBalance
+        : apiCandidateBTCBalance
 
       if (candidateBTCBalance.lt(amount)) {
         console.debug(
