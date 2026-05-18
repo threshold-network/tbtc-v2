@@ -840,7 +840,7 @@ export class RedemptionsService {
     }
 
     const response = await fetch(
-      `${ApiUrl.TBTC_EXPLORER}${endpointUrl.TBTC_REDEMPTION_WALLET}`
+      `${ApiUrl.THRESHOLD_API}${endpointUrl.TBTC_REDEMPTION_WALLET}`
     )
     if (!response.ok) {
       throw new Error("Failed to fetch redemption wallet from server")
