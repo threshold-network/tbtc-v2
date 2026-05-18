@@ -42,21 +42,21 @@ describe("Deploy Script 86: TIP-109 Hotfix", () => {
     data: any
   }
 
-  let originalMkdirSync: typeof fs.mkdirSync
-  let originalWriteFileSync: typeof fs.writeFileSync
+  let originalMkdir: typeof fs.promises.mkdir
+  let originalWriteFile: typeof fs.promises.writeFile
   let originalConsoleLog: typeof console.log
   let originalFraudScanFromBlock: string | undefined
   let capturedSummary: any
 
   beforeEach(() => {
-    originalMkdirSync = fs.mkdirSync
-    originalWriteFileSync = fs.writeFileSync
+    originalMkdir = fs.promises.mkdir
+    originalWriteFile = fs.promises.writeFile
     originalConsoleLog = console.log
     originalFraudScanFromBlock = process.env.BRIDGE_FRAUD_EVENT_FROM_BLOCK
     capturedSummary = undefined
-    const mutableFs = fs as any
-    mutableFs.mkdirSync = () => undefined
-    mutableFs.writeFileSync = (_file: string, content: string) => {
+    const mutablePromises = fs.promises as any
+    mutablePromises.mkdir = async () => undefined
+    mutablePromises.writeFile = async (_file: string, content: string) => {
       capturedSummary = JSON.parse(content)
     }
     console.log = () => undefined
@@ -64,9 +64,9 @@ describe("Deploy Script 86: TIP-109 Hotfix", () => {
   })
 
   afterEach(() => {
-    const mutableFs = fs as any
-    mutableFs.mkdirSync = originalMkdirSync
-    mutableFs.writeFileSync = originalWriteFileSync
+    const mutablePromises = fs.promises as any
+    mutablePromises.mkdir = originalMkdir
+    mutablePromises.writeFile = originalWriteFile
     console.log = originalConsoleLog
 
     if (originalFraudScanFromBlock === undefined) {

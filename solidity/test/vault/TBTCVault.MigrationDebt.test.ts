@@ -66,7 +66,8 @@ describe("TBTCVault - MigrationDebt", () => {
     const HarnessFactory = await ethers.getContractFactory(
       "DepositSweepCallbackHarness"
     )
-    const harness = (await HarnessFactory.deploy()) as DepositSweepCallbackHarness
+    const harness =
+      (await HarnessFactory.deploy()) as DepositSweepCallbackHarness
 
     expect(await harness.maxMigrationSweepBatchSize()).to.equal(
       await vault.MAX_MIGRATION_SWEEP_BATCH_SIZE()
