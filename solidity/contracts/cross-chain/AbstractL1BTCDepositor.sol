@@ -142,6 +142,14 @@ abstract contract AbstractL1BTCDepositor is
     ///         transaction max fee.
     event ReimburseTxMaxFeeUpdated(bool reimburseTxMaxFee);
 
+    /// @notice Emitted when the deposit transaction max fee reimbursement is
+    ///         skipped because the depositor contract balance cannot cover it.
+    event DepositTxMaxFeeReimbursementSkipped(
+        uint256 indexed depositKey,
+        uint256 txMaxFee,
+        uint256 availableBalance
+    );
+
     /// @dev This modifier comes from the `Reimbursable` base contract and
     ///      must be overridden to protect the `updateReimbursementPool` call.
     modifier onlyReimbursableAdmin() override {
@@ -387,8 +395,23 @@ abstract contract AbstractL1BTCDepositor is
             // Retrieve deposit tx max fee in 1e8 sat precision -> scale it to 1e18.
             (, , uint64 depositTxMaxFee, ) = bridge.depositParameters();
             uint256 txMaxFee = depositTxMaxFee * SATOSHI_MULTIPLIER;
-            // The DAO is "refunding" it by adding it to the tBTC minted.
-            tbtcAmount += txMaxFee;
+            uint256 reimbursedAmount = tbtcAmount + txMaxFee;
+
+            // The DAO is "refunding" the deposit tx max fee by adding it to
+            // the tBTC minted. This is best-effort: if earlier finalizations
+            // have consumed the shared contract balance, skip the reimbursement
+            // instead of blocking this deposit until later deposits top up the
+            // contract.
+            uint256 availableBalance = tbtcToken.balanceOf(address(this));
+            if (availableBalance >= reimbursedAmount) {
+                tbtcAmount = reimbursedAmount;
+            } else {
+                emit DepositTxMaxFeeReimbursementSkipped(
+                    depositKey,
+                    txMaxFee,
+                    availableBalance
+                );
+            }
         }
 
         // slither-disable-next-line reentrancy-events

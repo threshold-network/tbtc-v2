@@ -1316,16 +1316,23 @@ describe("NativeBTCDepositor", () => {
     //
     // The standard _calculateTbtcAmount would do: 99500e10 -4975e10 -1000e10=93525e10
     // Because we reimburse depositTxMaxFee, we add 1000e10 back => 94525e10
+    const expectedTbtcAmountBase = to1ePrecision(93525, 10)
     const expectedTbtcAmountReimbursed = to1ePrecision(94525, 10)
 
-    before(async () => {
+    beforeEach(async () => {
       await createSnapshot()
 
       // Turn the feature flag on
       await nativeBtcDepositor.connect(governance).setReimburseTxMaxFee(true)
     })
 
-    after(async () => {
+    afterEach(async () => {
+      bridge.depositParameters.reset()
+      tbtcVault.optimisticMintingFeeDivisor.reset()
+      bridge.revealDepositWithExtraData.reset()
+      bridge.deposits.reset()
+      tbtcVault.optimisticMintingRequests.reset()
+
       await restoreSnapshot()
     })
 
@@ -1390,6 +1397,85 @@ describe("NativeBTCDepositor", () => {
           depositAmount.mul(satoshiMultiplier),
           expectedTbtcAmountReimbursed
         )
+    })
+
+    it("should skip depositTxMaxFee reimbursement when contract balance cannot cover it", async () => {
+      // 1) Initialize deposit
+      await nativeBtcDepositor
+        .connect(relayer)
+        .initializeDeposit(
+          initializeDepositFixture.fundingTx,
+          initializeDepositFixture.reveal,
+          initializeDepositFixture.ethereumReceiverBytes32
+        )
+
+      // 2) Setup Bridge deposit parameters
+      bridge.depositParameters.returns({
+        depositDustThreshold: 0,
+        depositTreasuryFeeDivisor: 0,
+        depositTxMaxFee,
+        depositRevealAheadPeriod: 0,
+      })
+      // 3) Setup vault fees
+      tbtcVault.optimisticMintingFeeDivisor.returns(optimisticMintingFeeDivisor)
+
+      // 4) Prepare deposit finalization
+      const revealedAt = (await lastBlockTime()) - 7200
+      const finalizedAt = await lastBlockTime()
+      bridge.deposits
+        .whenCalledWith(initializeDepositFixture.depositKey)
+        .returns({
+          depositor: nativeBtcDepositor.address,
+          amount: depositAmount,
+          revealedAt,
+          vault: initializeDepositFixture.reveal.vault,
+          treasuryFee,
+          sweptAt: finalizedAt,
+          extraData: initializeDepositFixture.ethereumReceiverBytes32,
+        })
+      tbtcVault.optimisticMintingRequests
+        .whenCalledWith(initializeDepositFixture.depositKey)
+        .returns([revealedAt, finalizedAt])
+
+      // 5) Mint only the base tBTC amount, simulating a contract balance that
+      // cannot cover the extra depositTxMaxFee reimbursement.
+      await tbtcToken.mint(
+        nativeBtcDepositor.address,
+        expectedTbtcAmountBase
+      )
+
+      // 6) Now finalize
+      const tx = await nativeBtcDepositor
+        .connect(relayer)
+        .finalizeDeposit(initializeDepositFixture.depositKey, {
+          value: 0,
+        })
+
+      const txMaxFee = depositTxMaxFee.mul(satoshiMultiplier)
+      await expect(tx)
+        .to.emit(nativeBtcDepositor, "DepositTxMaxFeeReimbursementSkipped")
+        .withArgs(
+          initializeDepositFixture.depositKey,
+          txMaxFee,
+          expectedTbtcAmountBase
+        )
+
+      await expect(tx)
+        .to.emit(nativeBtcDepositor, "DepositFinalized")
+        .withArgs(
+          initializeDepositFixture.depositKey,
+          initializeDepositFixture.ethereumReceiverBytes32.toLowerCase(),
+          relayer.address,
+          depositAmount.mul(satoshiMultiplier),
+          expectedTbtcAmountBase
+        )
+
+      const receiverAddress = ethers.utils.getAddress(
+        `0x${initializeDepositFixture.ethereumReceiverBytes32.slice(-40)}`
+      )
+      expect(await tbtcToken.balanceOf(receiverAddress)).to.equal(
+        expectedTbtcAmountBase
+      )
     })
   })
 })
