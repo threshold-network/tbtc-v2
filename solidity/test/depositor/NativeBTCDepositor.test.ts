@@ -1439,10 +1439,7 @@ describe("NativeBTCDepositor", () => {
 
       // 5) Mint only the base tBTC amount, simulating a contract balance that
       // cannot cover the extra depositTxMaxFee reimbursement.
-      await tbtcToken.mint(
-        nativeBtcDepositor.address,
-        expectedTbtcAmountBase
-      )
+      await tbtcToken.mint(nativeBtcDepositor.address, expectedTbtcAmountBase)
 
       // 6) Now finalize
       const tx = await nativeBtcDepositor

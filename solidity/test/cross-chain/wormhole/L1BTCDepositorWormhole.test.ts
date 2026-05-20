@@ -1874,14 +1874,17 @@ describe("L1BTCDepositorWormhole", () => {
       wormholeTokenBridge.transferTokensWithPayload.returns(555)
       wormholeRelayer.sendVaasToEvm.returns(999)
 
-      // 7) Now finalize with enough payment
+      // 7) Mint enough tBTC to cover the reimbursed amount.
+      await tbtcToken.mint(l1BtcDepositor.address, expectedTbtcAmountReimbursed)
+
+      // 8) Now finalize with enough payment
       const tx = await l1BtcDepositor
         .connect(relayer)
         .finalizeDeposit(initializeDepositFixture.depositKey, {
           value: messageFee + deliveryCost,
         })
 
-      // 8) The final minted TBTC should be 94525e10
+      // 9) The final minted TBTC should be 94525e10
       await expect(tx)
         .to.emit(l1BtcDepositor, "DepositFinalized")
         .withArgs(
