@@ -203,8 +203,9 @@ abstract contract AbstractL1BTCDepositor is
 
     /// @notice Toggles whether the deposit transaction max fee is reimbursed
     ///         or deducted. Only callable by the contract owner.
-    /// @param _reimburseTxMaxFee `true` => reimburse (add) the deposit tx max fee,
-    ///                        `false` => deduct the deposit tx max fee.
+    /// @param _reimburseTxMaxFee `true` => reimburse the deposit tx max fee
+    ///        on a best-effort basis when the contract balance covers it,
+    ///        `false` => deduct the deposit tx max fee.
     function setReimburseTxMaxFee(bool _reimburseTxMaxFee) external onlyOwner {
         reimburseTxMaxFee = _reimburseTxMaxFee;
         emit ReimburseTxMaxFeeUpdated(_reimburseTxMaxFee);
@@ -370,6 +371,11 @@ abstract contract AbstractL1BTCDepositor is
     ///        is responsible for executing the deposit finalization on the
     ///        corresponding destination chain. The payment must be greater than or
     ///        equal to the value returned by the `quoteFinalizeDeposit` function.
+    /// @dev When `reimburseTxMaxFee` is true, the deposit transaction max fee
+    ///      reimbursement is applied only if this contract's tBTC balance can
+    ///      cover the base deposit amount plus the reimbursement. Otherwise,
+    ///      only the base deposit amount is transferred and a
+    ///      `DepositTxMaxFeeReimbursementSkipped` event is emitted.
     function finalizeDeposit(uint256 depositKey) external payable {
         uint256 gasStart = gasleft();
 
