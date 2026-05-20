@@ -1,5 +1,5 @@
 /**
- * Patched copy of @threshold-network/solidity-contracts/export/deploy/32_configure_tokenholder_timelock.js
+ * Patched copy of @threshold-network/solidity-contracts@1.3.0-dev.12/export/deploy/32_configure_tokenholder_timelock.js
  *
  * After the first successful run, deployer renounces TIMELOCK_ADMIN_ROLE and can no longer grantRole.
  * Re-running Phase H replays this script and reverts with AccessControl missing admin role.

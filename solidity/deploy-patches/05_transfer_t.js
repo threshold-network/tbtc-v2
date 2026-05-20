@@ -1,5 +1,5 @@
 /**
- * Patched copy of @threshold-network/solidity-contracts/export/deploy/05_transfer_t.js
+ * Patched copy of @threshold-network/solidity-contracts@1.3.0-dev.12/export/deploy/05_transfer_t.js
  *
  * Upstream always transfers 4.5B T to the vending machine. On a second deploy run the deployer
  * already sent those tokens → "Transfer amount exceeds balance".

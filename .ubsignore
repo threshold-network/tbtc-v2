@@ -1,0 +1,6 @@
+# deploy-patches/ files are patched copies of upstream npm package deploy
+# scripts (see header comment in each file for source package + version).
+# They are not authored by this repo; suppress vendor coding-style warnings.
+solidity/deploy-patches/
+**/deploy-patches/**
+deploy-patches/

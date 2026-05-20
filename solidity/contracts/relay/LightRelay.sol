@@ -115,13 +115,6 @@ contract LightRelay is Ownable, ILightRelay {
 
     mapping(address => bool) public isAuthorized;
 
-    /// @dev Same value as `BTCUtils.DIFF1_TARGET` (compact bits `0x1d00ffff`).
-    /// Bitcoin testnet4 may emit blocks at minimum difficulty between retargets
-    /// while other blocks in the same retarget proof window use the new epoch
-    /// difficulty. Mainnet does not produce such blocks at meaningful heights.
-    uint256 private constant MIN_DIFFICULTY_TARGET =
-        0xffff0000000000000000000000000000000000000000000000000000;
-
     modifier relayActive() {
         require(ready, "Relay is not ready for use");
         _;
@@ -203,6 +196,28 @@ contract LightRelay is Ownable, ILightRelay {
         emit SubmitterDeauthorized(submitter);
     }
 
+    /// @notice Returns whether a header target is valid in the pre-retarget
+    ///         portion of a retarget proof window.
+    /// @dev Override in testnet deployments to allow minimum-difficulty headers.
+    function isValidPreRetargetTarget(uint256 headerTarget, uint256 oldTarget)
+        internal
+        view
+        virtual
+        returns (bool)
+    {
+        return headerTarget == oldTarget;
+    }
+
+    /// @notice Returns whether a header target is valid in the post-retarget
+    ///         portion of a retarget proof window.
+    /// @dev Override in testnet deployments to allow minimum-difficulty headers.
+    function isValidPostRetargetTarget(
+        uint256 headerTarget,
+        uint256 minedTarget
+    ) internal view virtual returns (bool) {
+        return headerTarget == minedTarget;
+    }
+
     /// @notice Add a new epoch to the relay by providing a proof
     /// of the difficulty before and after the retarget.
     /// @param headers A chain of headers including the last X blocks before
@@ -251,13 +266,8 @@ contract LightRelay is Ownable, ILightRelay {
                 uint256 currentHeaderTarget
             ) = validateHeader(headers, i * 80, previousHeaderDigest);
 
-            // Exception: testnet networks (notably testnet4) may emit minimum-
-            // difficulty blocks inside an epoch, including in the last blocks
-            // before a retarget. Mainnet does not produce such blocks at
-            // meaningful heights. Post-retarget loop applies the same rule.
             require(
-                currentHeaderTarget == oldTarget ||
-                    currentHeaderTarget == MIN_DIFFICULTY_TARGET,
+                isValidPreRetargetTarget(currentHeaderTarget, oldTarget),
                 "Invalid target in pre-retarget headers"
             );
 
@@ -328,12 +338,11 @@ contract LightRelay is Ownable, ILightRelay {
                 );
             } else {
                 // The new target has been set, so remaining targets should match.
-                // Exception: testnet networks may insert a minimum-difficulty block
-                // (e.g. testnet4 when block spacing is high) while the rest of the
-                // post-retarget window uses the retargeted difficulty.
                 require(
-                    _currentHeaderTarget == minedTarget ||
-                        _currentHeaderTarget == MIN_DIFFICULTY_TARGET,
+                    isValidPostRetargetTarget(
+                        _currentHeaderTarget,
+                        minedTarget
+                    ),
                     "Unexpected target change after retarget"
                 );
             }

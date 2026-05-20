@@ -113,4 +113,149 @@ describe("BitcoinTx", () => {
       })
     })
   })
+
+  describe("determineRequestedDifficulty", () => {
+    // 80-byte header with nBits = 0x1d00ffff (DIFF1 / minimum difficulty).
+    // Bytes 72-75 in LE = ff ff 00 1d.  calculateDifficulty() returns 1.
+    const DIFF1_HEADER = `0x${"00".repeat(72)}ffff001d00000000`
+
+    // First 80 bytes of the mainnet headers used in the validateProof test
+    // above.  nBits LE = a1 19 28 17 -> difficulty 7019199231177.
+    const NORMAL_HEADER =
+      "0x" +
+      "0000002073bd2184edd9c4fc76642ea6754ee401" +
+      "36970efc10c4190000000000000000000296ef12" +
+      "3ea96da5cf695f22bf7d94be87d49db1ad7ac371" +
+      "ac43c4da4161c8c216349c5ba11928170d38782b"
+
+    const NORMAL_DIFFICULTY = 7019199231177
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const callDetermineRequestedDifficulty = (
+      headers: string,
+      currentDiff: number | bigint,
+      prevDiff: number | bigint
+    ) =>
+      // callStatic because the function is pure
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (bitcoinTx as any).callStatic.exposeDetermineRequestedDifficulty(
+        headers,
+        currentDiff,
+        prevDiff
+      )
+
+    context("when a header matches the current epoch difficulty", () => {
+      it("returns the current epoch difficulty", async () => {
+        const result = await callDetermineRequestedDifficulty(
+          NORMAL_HEADER,
+          NORMAL_DIFFICULTY,
+          NORMAL_DIFFICULTY
+        )
+        expect(result).to.equal(NORMAL_DIFFICULTY)
+      })
+    })
+
+    context("when a header matches the previous epoch difficulty", () => {
+      it("returns the previous epoch difficulty", async () => {
+        const result = await callDetermineRequestedDifficulty(
+          NORMAL_HEADER,
+          999999, // current does not match
+          NORMAL_DIFFICULTY // prev matches
+        )
+        expect(result).to.equal(NORMAL_DIFFICULTY)
+      })
+    })
+
+    context(
+      "when current and previous epoch difficulties differ and DIFF1 skip is asymmetric",
+      () => {
+        it("does not skip a leading DIFF1 when previous difficulty is 1 (binds to previous)", async () => {
+          const twoHeaders = DIFF1_HEADER.slice(2) + NORMAL_HEADER.slice(2)
+          const result = await callDetermineRequestedDifficulty(
+            `0x${twoHeaders}`,
+            NORMAL_DIFFICULTY,
+            1
+          )
+          expect(result).to.equal(1)
+        })
+
+        it("does not skip a leading DIFF1 when current difficulty is 1 (binds to current)", async () => {
+          const result = await callDetermineRequestedDifficulty(
+            DIFF1_HEADER,
+            1,
+            NORMAL_DIFFICULTY
+          )
+          expect(result).to.equal(1)
+        })
+      }
+    )
+
+    context("when a DIFF1 header is first and epoch difficulty is 1", () => {
+      // When the relay epoch is minimum difficulty (1), DIFF1 headers are
+      // not skipped and must be accepted directly by matching epoch = 1.
+      it("returns 1 without skipping the DIFF1 header", async () => {
+        const result = await callDetermineRequestedDifficulty(
+          DIFF1_HEADER,
+          1,
+          1
+        )
+        expect(result).to.equal(1)
+      })
+    })
+
+    context(
+      "when a DIFF1 header precedes a normal header and epoch difficulty is above 1",
+      () => {
+        // The DIFF1 header must be skipped; the subsequent normal header
+        // provides the SPV difficulty baseline.
+        it("skips the DIFF1 header and returns the epoch difficulty", async () => {
+          const twoHeaders = DIFF1_HEADER.slice(2) + NORMAL_HEADER.slice(2)
+          const result = await callDetermineRequestedDifficulty(
+            `0x${twoHeaders}`,
+            NORMAL_DIFFICULTY,
+            NORMAL_DIFFICULTY
+          )
+          expect(result).to.equal(NORMAL_DIFFICULTY)
+        })
+      }
+    )
+
+    context(
+      "when all headers are DIFF1 and epoch difficulty is above 1",
+      () => {
+        // All headers are skipped; the function must revert because no header
+        // can be used as the SPV difficulty baseline.
+        it("reverts", async () => {
+          const twoHeaders = DIFF1_HEADER.slice(2) + DIFF1_HEADER.slice(2)
+          await expect(
+            callDetermineRequestedDifficulty(
+              `0x${twoHeaders}`,
+              NORMAL_DIFFICULTY,
+              NORMAL_DIFFICULTY
+            )
+          ).to.be.revertedWith("Not at current or previous difficulty")
+        })
+      }
+    )
+
+    context("when no header matches any epoch difficulty", () => {
+      it("reverts", async () => {
+        await expect(
+          callDetermineRequestedDifficulty(NORMAL_HEADER, 9999, 8888)
+        ).to.be.revertedWith("Not at current or previous difficulty")
+      })
+    })
+
+    context("when the headers input is empty", () => {
+      it("reverts", async () => {
+        await expect(
+          callDetermineRequestedDifficulty(
+            "0x",
+            NORMAL_DIFFICULTY,
+            NORMAL_DIFFICULTY
+          )
+        ).to.be.revertedWith("Not at current or previous difficulty")
+      })
+    })
+  })
 })

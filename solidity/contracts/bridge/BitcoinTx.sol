@@ -96,7 +96,7 @@ library BitcoinTx {
     using ValidateSPV for bytes;
     using ValidateSPV for bytes32;
 
-    /// @dev Same value as `BTCUtils.DIFF1_TARGET` / LightRelay `MIN_DIFFICULTY_TARGET`.
+    /// @dev Bitcoin minimum-difficulty target (compact bits `0x1d00ffff`).
     /// Bitcoin testnet4 may emit minimum-difficulty headers inside an epoch; the
     /// first header(s) in an SPV chain can encode this target while later headers
     /// use the relay's current or previous epoch difficulty.
@@ -232,12 +232,15 @@ library BitcoinTx {
     }
 
     /// @notice Picks the relay epoch difficulty used as the baseline for SPV
-    ///         accumulated-work checks. Walks past leading minimum-difficulty
-    ///         headers (Bitcoin testnet4) until a header matches the relay's
-    ///         current or previous epoch difficulty. If every header in the
-    ///         chain is minimum-difficulty (possible on testnet4 for the whole
-    ///         confirmation window), returns difficulty 1 as the baseline: each
-    ///         header's work is still enforced by validateHeaderChain.
+    ///         accumulated-work checks. When both relay difficulties are above
+    ///         minimum difficulty, walks past leading DIFF1 headers (Bitcoin
+    ///         testnet4 BIP94) until a header matches the relay's current or
+    ///         previous epoch difficulty. Reverts if every header is skipped or
+    ///         the first decisive header does not match either oracle value.
+    ///         When either difficulty is minimum (1), leading DIFF1 headers
+    ///         are never skipped—they are matched like any other header first
+    ///         (typically binding to whichever oracle side equals 1). Production
+    ///         mainnet relays are not expected to report an epoch difficulty of 1.
     function determineRequestedDifficulty(
         bytes memory bitcoinHeaders,
         uint256 currentEpochDifficulty,
@@ -249,7 +252,15 @@ library BitcoinTx {
 
         for (uint256 at = 0; at < bitcoinHeaders.length; at += 80) {
             uint256 target = bitcoinHeaders.extractTargetAt(at);
-            if (target == MIN_DIFFICULTY_TARGET) {
+            // Skip minimum-difficulty headers only when the relay epoch is
+            // above minimum difficulty. This allows testnet4 BIP94 DIFF1
+            // headers to be skipped in real epochs, while still accepting
+            // proofs in test/dev setups where the relay epoch is 1.
+            if (
+                target == MIN_DIFFICULTY_TARGET &&
+                currentEpochDifficulty > 1 &&
+                previousEpochDifficulty > 1
+            ) {
                 continue;
             }
 
@@ -264,7 +275,7 @@ library BitcoinTx {
             revert("Not at current or previous difficulty");
         }
 
-        return 1;
+        revert("Not at current or previous difficulty");
     }
 
     /// @notice Evaluates the given Bitcoin proof difficulty against the actual

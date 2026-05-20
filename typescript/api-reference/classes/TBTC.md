@@ -102,7 +102,7 @@ Will be removed in next major version.
 
 #### Defined in
 
-[services/tbtc.ts:191](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L191)
+[services/tbtc.ts:199](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L199)
 
 ___
 
@@ -215,7 +215,7 @@ Cross-chain contracts for the given L2 chain or
 
 #### Defined in
 
-[services/tbtc.ts:369](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L369)
+[services/tbtc.ts:382](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L382)
 
 ___
 
@@ -267,7 +267,7 @@ Throws an error if:
 
 #### Defined in
 
-[services/tbtc.ts:231](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L231)
+[services/tbtc.ts:239](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L239)
 
 ___
 
@@ -295,7 +295,7 @@ Throws an error if the provider is invalid or address cannot be extracted.
 
 #### Defined in
 
-[services/tbtc.ts:145](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L145)
+[services/tbtc.ts:153](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L153)
 
 ___
 
@@ -331,7 +331,7 @@ This function is especially useful for local development as it gives
 
 #### Defined in
 
-[services/tbtc-core.ts:142](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L142)
+[services/tbtc-core.ts:150](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L150)
 
 ___
 
@@ -369,7 +369,7 @@ Throws an error if the underlying signer's Ethereum network is
 
 #### Defined in
 
-[services/tbtc.ts:105](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L105)
+[services/tbtc.ts:113](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L113)
 
 ___
 
@@ -415,7 +415,15 @@ ___
 
 Initializes the tBTC v2 SDK entrypoint for Ethereum Sepolia and Bitcoin testnet4.
 The initialized instance uses default Electrum servers to interact
-with Bitcoin testnet4
+with Bitcoin testnet4.
+
+BREAKING CHANGE (v2): This method previously connected to Bitcoin testnet3
+(BitcoinNetwork.Testnet). It now connects to Bitcoin testnet4
+(BitcoinNetwork.Testnet4, BIP-94). Both networks share the same address
+prefixes (tb1/m/2), so callers will not see a compile-time or runtime
+error -- they will silently connect to the wrong Bitcoin network if not
+updated. Update your integration to testnet4 Bitcoin tooling before
+upgrading this SDK.
 
 #### Parameters
 
@@ -441,4 +449,4 @@ Throws an error if the signer's Ethereum network is other than
 
 #### Defined in
 
-[services/tbtc.ts:81](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L81)
+[services/tbtc.ts:89](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L89)
