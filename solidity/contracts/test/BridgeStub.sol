@@ -219,4 +219,15 @@ contract BridgeStub is Bridge {
             actionId
         );
     }
+
+    function getCrossChainRedemptionRebate(uint256 redemptionKey)
+        external
+        view
+        returns (address rebateBeneficiary, bytes32 actionId)
+    {
+        BridgeState.CrossChainRedemptionRebate
+            storage rebate = self.crossChainRedemptionRebates[redemptionKey];
+
+        return (rebate.rebateBeneficiary, rebate.actionId);
+    }
 }

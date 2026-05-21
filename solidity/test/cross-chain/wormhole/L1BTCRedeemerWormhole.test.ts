@@ -1810,6 +1810,151 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
     })
   })
 
+  describe("requestRedemptionWithRebate authorization", () => {
+    const sourceChainId = 8453
+    const encodedVm = "0x1234567890"
+    const defaultSender = ethers.utils.hexZeroPad("0xABCD", 32)
+    const redemptionId = ethers.utils.keccak256(
+      ethers.utils.toUtf8Bytes("redemption-id")
+    )
+
+    let productionRedeemer: TestL1BTCRedeemerWormhole
+    let productionTokenBridge: FakeContract<IWormholeTokenBridge>
+
+    function encodeTransfer(payload: string) {
+      const transfer = {
+        payloadID: 1,
+        amount: 2,
+        tokenAddress: ethers.utils.hexZeroPad("0x3000", 32),
+        tokenChain: 4,
+        to: ethers.utils.hexZeroPad("0x5000", 32),
+        toChain: 6,
+        fromAddress: defaultSender,
+        payload,
+      }
+      return ethers.utils.defaultAbiCoder.encode(
+        [
+          "tuple(uint8 payloadID, uint256 amount, bytes32 tokenAddress, uint16 tokenChain, bytes32 to, uint16 toChain, bytes32 fromAddress, bytes payload)",
+        ],
+        [transfer]
+      )
+    }
+
+    function encodeV2Payload(rebateAuthorization: string) {
+      return ethers.utils.defaultAbiCoder.encode(
+        [
+          "tuple(bytes redeemerOutputScript, address l2User, address rebateBeneficiary, uint64 maxRebateSat, bytes rebateAuthorization, bytes32 redemptionId)",
+        ],
+        [
+          [
+            exampleRedeemerOutputScript,
+            thirdParty.address,
+            thirdParty.address,
+            exampleAmountInSatoshis,
+            rebateAuthorization,
+            redemptionId,
+          ],
+        ]
+      )
+    }
+
+    before(async () => {
+      await createSnapshot()
+
+      const MockBankFactory = await ethers.getContractFactory("MockBank")
+      const productionBank = (await MockBankFactory.deploy()) as MockBank
+      await productionBank.deployed()
+
+      const MockTBTCVaultFactory = await ethers.getContractFactory(
+        "contracts/test/MockTBTCVault.sol:MockTBTCVault"
+      )
+      const productionVault =
+        (await MockTBTCVaultFactory.deploy()) as MockTBTCVault
+      await productionVault.deployed()
+
+      const TestERC20Factory = await ethers.getContractFactory("TestERC20")
+      const wormholeTbtc = (await TestERC20Factory.deploy()) as TestERC20
+      await wormholeTbtc.deployed()
+      await productionVault.setTbtcToken(wormholeTbtc.address)
+
+      const MockTBTCBridgeFactory = await ethers.getContractFactory(
+        "MockTBTCBridge"
+      )
+      const productionBridge =
+        (await MockTBTCBridgeFactory.deploy()) as MockTBTCBridge
+      await productionBridge.deployed()
+
+      productionTokenBridge = await smock.fake<IWormholeTokenBridge>(
+        "IWormholeTokenBridge"
+      )
+
+      const TestL1BTCRedeemerWormholeFactory = await ethers.getContractFactory(
+        "TestL1BTCRedeemerWormhole"
+      )
+      const implementation = await TestL1BTCRedeemerWormholeFactory.deploy()
+      await implementation.deployed()
+      const initializerData =
+        TestL1BTCRedeemerWormholeFactory.interface.encodeFunctionData(
+          "initialize",
+          [
+            productionBridge.address,
+            productionTokenBridge.address,
+            wormholeTbtc.address,
+            productionBank.address,
+            productionVault.address,
+          ]
+        )
+      const ERC1967ProxyFactory = await ethers.getContractFactory(
+        "ERC1967Proxy"
+      )
+      const proxy = await ERC1967ProxyFactory.deploy(
+        implementation.address,
+        initializerData
+      )
+      await proxy.deployed()
+      productionRedeemer = TestL1BTCRedeemerWormholeFactory.attach(
+        proxy.address
+      ) as TestL1BTCRedeemerWormhole
+
+      await productionRedeemer.updateAllowedSenderWithSourceChain(
+        defaultSender,
+        true,
+        sourceChainId
+      )
+    })
+
+    after(async () => {
+      await restoreSnapshot()
+    })
+
+    it("should reject unsigned gateway-originated redemption rebate payloads", async () => {
+      const payload = encodeV2Payload("0x")
+      const encodedTransfer = encodeTransfer(payload)
+
+      productionTokenBridge.completeTransferWithPayload.returns(encodedTransfer)
+      productionTokenBridge.parseTransferWithPayload
+        .whenCalledWith(encodedTransfer)
+        .returns({
+          payloadID: 1,
+          amount: 2,
+          tokenAddress: ethers.utils.hexZeroPad("0x3000", 32),
+          tokenChain: 4,
+          to: ethers.utils.hexZeroPad("0x5000", 32),
+          toChain: 6,
+          fromAddress: defaultSender,
+          payload,
+        })
+
+      await expect(
+        productionRedeemer.requestRedemptionWithRebate(
+          exampleWalletPubKeyHash,
+          exampleMainUtxo,
+          encodedVm
+        )
+      ).to.be.revertedWith("Signed auth required")
+    })
+  })
+
   // Regression tests for the audit fix that adds VAA emitter-chain
   // authentication. Without these checks, any contract deployed at the
   // same address on a foreign chain with a registered Wormhole Token

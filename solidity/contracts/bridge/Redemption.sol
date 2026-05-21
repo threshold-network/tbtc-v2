@@ -619,8 +619,10 @@ library Redemption {
         uint64 treasuryFee = self.redemptionTreasuryFeeDivisor > 0
             ? amount / self.redemptionTreasuryFeeDivisor
             : 0;
+        bool crossChainRebateApplied = false;
         if (treasuryFee > 0 && self.rebateStaking != address(0)) {
             if (crossChainRebate.enabled) {
+                uint64 initialTreasuryFee = treasuryFee;
                 treasuryFee = RebateStaking(self.rebateStaking)
                     .applyForRebateFor(
                         crossChainRebate.beneficiary,
@@ -628,6 +630,7 @@ library Redemption {
                         RebateStaking.TreasuryFeeType.Redemption,
                         crossChainRebate.context
                     );
+                crossChainRebateApplied = treasuryFee < initialTreasuryFee;
             } else {
                 treasuryFee = RebateStaking(self.rebateStaking).applyForRebate(
                     redeemer,
@@ -663,6 +666,9 @@ library Redemption {
                 crossChainRebate.context.actionId != bytes32(0),
                 "Rebate action ID must not be empty"
             );
+        }
+
+        if (crossChainRebateApplied) {
             self.crossChainRedemptionRebates[redemptionKey] = BridgeState
                 .CrossChainRedemptionRebate(
                     crossChainRebate.beneficiary,

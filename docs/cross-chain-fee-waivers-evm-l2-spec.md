@@ -194,6 +194,9 @@ Signed authorization is the default Phase 1 mode. It is required when:
 
 - The L2 user differs from the L1 beneficiary.
 - The beneficiary is a contract wallet.
+- The flow is an L2-to-L1 redemption. The L1 redemption VAA authenticates the
+  public L2 gateway as the sender, not the original L2 caller, so L1 cannot
+  safely infer beneficiary consent from the payload's `l2User` field.
 - Governance has disabled implicit same-address authorization for the source
   chain.
 
@@ -202,24 +205,26 @@ checked at rebate consumption time on L1.
 
 ### Implicit Same-Address Authorization
 
-Implicit authorization may be enabled per EVM source chain after audit. It is
-valid only when all of the following are true:
+Implicit authorization may be enabled per EVM source chain for deposits after
+audit. It is valid only when all of the following are true:
 
 - `beneficiary == l2User`.
 - The source chain has implicit authorization enabled.
-- The flow authenticates `l2User` on L1:
-  - Deposits: `destinationChainDepositOwner` is committed in the Bitcoin
-    deposit script extra data and enforced during reveal.
-  - Redemptions: the Wormhole VAA authenticates the L2 payload and the L1
-    redeemer validates the L2 sender against its allowlist.
+- The deposit flow authenticates `l2User` on L1:
+  `destinationChainDepositOwner` is committed in the Bitcoin deposit script
+  extra data and enforced during reveal.
 - The beneficiary is not a contract on L1: `beneficiary.code.length == 0`.
-- The L2 caller is not a contract, enforced by the L2 depositor/redeemer when no
-  signed authorization is supplied: `msg.sender.code.length == 0`.
+- The L2 caller is not a contract, enforced by the L2 depositor when no signed
+  authorization is supplied: `tx.origin == msg.sender`.
 
 The L1 beneficiary contract-code check is the authoritative implicit-mode
-security check. The L2 `msg.sender.code.length` check is only an early rejection
-to avoid unnecessary cross-chain fees; it must not be relied on as a standalone
-security boundary because constructor calls can observe zero code length.
+security check. The L2 `tx.origin == msg.sender` check is only an early
+rejection to avoid unnecessary cross-chain fees.
+
+Redemption rebates must always carry signed authorization unless the L2 gateway
+protocol is extended to authenticate the original L2 caller on L1. The current
+Wormhole token transfer authenticates the gateway contract and leaves the V2
+payload user fields unauthenticated.
 
 Implicit mode must ship disabled on mainnet and be enabled per chain only after
 security review.
@@ -293,7 +298,7 @@ struct BeneficiaryRebateContext {
   RebateFlowType flowType; // Deposit or Redemption.
   bytes32 actionId; // Non-zero deposit key or redemption ID.
   uint64 maxRebateSat; // Caller/user-specified cap.
-  bytes authorization; // Empty only for implicit same-address mode.
+  bytes authorization; // Empty only for implicit same-address deposit mode.
 }
 
 ```
@@ -307,7 +312,8 @@ Validation and behavior:
 - `context.actionId != bytes32(0)`.
 - `context.sourceChainId` is supported.
 - `context.flowType` matches `treasuryFeeType`.
-- If `authorization` is empty, implicit authorization rules must pass.
+- If `authorization` is empty, implicit authorization rules must pass. L2
+  redemption integrations must reject empty authorization.
 - If `authorization` is non-empty, verify EIP-712 or EIP-1271 for
   `beneficiary`.
 - Reject expired authorizations.
@@ -738,8 +744,14 @@ For each Arbitrum/Base environment:
 5. Authorize the L1 depositor and L1 redeemer with
    `setCrossChainIntegrator(integrator, true, evmSourceChainId, wormholeChainId)`.
 6. Keep `implicitSameAddressEnabled[sourceChainId] = false` unless governance has
-   explicitly approved implicit mode for that chain.
+   explicitly approved implicit deposit mode for that chain. L2 redemption
+   rebates still require signed authorization.
 7. Enable `crossChainRebatesEnabled`.
+
+The initial Arbitrum and Base L1 depositor implementations map Wormhole chain
+IDs to EVM source chain IDs in code. Adding another EVM L2 therefore requires a
+new depositor implementation or an upgrade that introduces governance-managed
+chain ID mapping before deployment.
 
 If a rollback is needed, disable `crossChainRebatesEnabled` first. Do not enable
 global cross-chain rebates before a source chain is marked supported and capped;
@@ -772,6 +784,7 @@ The frontend should:
   estimates until L1 execution.
 - Ask for an L1 beneficiary signature when the L2 account is not the beneficiary
   or when implicit same-address mode is disabled.
+- Always ask for an L1 beneficiary signature for L2 redemption rebates.
 - Default `maxRebateSat` to the estimated treasury fee plus a small
   governance-defined tolerance.
 - Use authorization deadlines long enough to account for L2 finality, Wormhole
@@ -790,8 +803,8 @@ The frontend should:
 3. Add L1 redeemer timeout-refund-to-L2 support.
 4. Upgrade L1 EVM depositor/redeemer implementations for Arbitrum and Base.
 5. Upgrade L2 EVM depositor/redeemer implementations for Arbitrum and Base.
-6. Enable signed-authorization mode first; keep implicit same-address mode
-   disabled until audit.
+6. Enable signed-authorization mode first; keep implicit same-address deposit
+   mode disabled until audit.
 7. Run end-to-end testnet flows for:
    - L2 mint with rebate.
    - L2 redeem with rebate.
@@ -811,7 +824,10 @@ Contract tests must cover:
 - L2 redeem applies redemption rebate to the intended L1 beneficiary, not the L1
   redeemer contract.
 - Deposit `actionId` must equal `keccak256(fundingTxHash, fundingOutputIndex)`.
-- Same-address implicit authorization works only when enabled.
+- Same-address implicit authorization works only for deposits and only when
+  enabled.
+- L2 redemption rejects empty rebate authorization at both the L2 helper and L1
+  redeemer receiver.
 - Implicit authorization is rejected for L1 contract beneficiaries and L2
   contract callers.
 - EIP-712 EOA authorization works.

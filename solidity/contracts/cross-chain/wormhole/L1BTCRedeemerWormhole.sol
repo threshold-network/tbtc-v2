@@ -567,6 +567,11 @@ contract L1BTCRedeemerWormhole is
             (L2RedemptionPayloadV2)
         );
 
+        require(
+            payload.rebateAuthorization.length != 0,
+            "Signed auth required"
+        );
+
         IBridgeTypes.BeneficiaryRebateContext
             memory rebateContext = IBridgeTypes.BeneficiaryRebateContext({
                 sourceChainId: completedTransfer.sourceChainId,

@@ -689,6 +689,11 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
       const vetoActionId = ethers.utils.keccak256(
         ethers.utils.toUtf8Bytes("cross-chain-redemption-veto")
       )
+      const noRebateActionId = ethers.utils.keccak256(
+        ethers.utils.toUtf8Bytes("cross-chain-redemption-no-rebate")
+      )
+      const noRebateOutputScript =
+        "0x1600143d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f73"
       const walletMembersIDs = [1, 2, 3, 4, 5]
 
       function rebateContext(actionId: string) {
@@ -793,6 +798,55 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
             treasuryFee,
             0
           )
+      })
+
+      it("should not store rebate cancellation metadata when no rebate is applied", async () => {
+        await setupWallet(
+          bridge,
+          crossChainWalletPubKeyHash,
+          crossChainMainUtxo,
+          ethers.utils.keccak256("0x03")
+        )
+        await bridge.setActiveWallet(crossChainWalletPubKeyHash)
+
+        await bank.setBalance(thirdParty.address, requestedAmount)
+        await bank
+          .connect(thirdParty)
+          .approveBalance(bridge.address, requestedAmount)
+
+        const noRebateContext = {
+          ...rebateContext(noRebateActionId),
+          maxRebateSat: 0,
+        }
+
+        const tx = await bridge
+          .connect(thirdParty)
+          .requestRedemptionWithRebate(
+            crossChainWalletPubKeyHash,
+            crossChainMainUtxo,
+            thirdParty.address,
+            thirdParty.address,
+            noRebateOutputScript,
+            requestedAmount,
+            redeemerAddress,
+            noRebateContext
+          )
+
+        const redemptionKey = buildRedemptionKey(
+          crossChainWalletPubKeyHash,
+          noRebateOutputScript
+        )
+        const redemptionRequest = await bridge.pendingRedemptions(redemptionKey)
+        const rebateRecord = await bridge.getCrossChainRedemptionRebate(
+          redemptionKey
+        )
+
+        expect(redemptionRequest.treasuryFee).to.equal(treasuryFee)
+        expect(rebateRecord.rebateBeneficiary).to.equal(
+          ethers.constants.AddressZero
+        )
+        expect(rebateRecord.actionId).to.equal(ethers.constants.HashZero)
+        await expect(tx).to.not.emit(rebateStaking, "CrossChainRebateApplied")
       })
 
       it("should restore beneficiary rebate capacity when cross-chain redemption times out", async () => {

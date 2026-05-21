@@ -469,6 +469,9 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     ///      - The source chain and context must be valid when a rebate can be
     ///        applied. If cross-chain rebates are paused or capacity is zero,
     ///        this function returns the original fee.
+    ///      - If the calculated rebate is below the source chain's minimum
+    ///        rebate, this function returns the original fee and does not
+    ///        consume the authorization.
     function applyForRebateFor(
         address beneficiary,
         uint64 treasuryFee,

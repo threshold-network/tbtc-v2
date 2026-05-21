@@ -624,4 +624,134 @@ describe("L2BTCRedeemerWormhole", () => {
       })
     })
   })
+
+  describe("requestRedemptionWithRebate", () => {
+    const maxRebateSat = 123
+    const rebateAuthorization = "0x1234"
+    const expectedGatewaySequence = BigNumber.from(793)
+
+    beforeEach(async () => {
+      await createSnapshot()
+      gateway.sendTbtcWithPayloadToNativeChain.reset()
+      await tbtc
+        .connect(user)
+        .approve(l2BtcRedeemer.address, ethers.constants.MaxUint256)
+
+      const currentUserBalance = await tbtc.balanceOf(user.address)
+      if (currentUserBalance.gt(0)) {
+        await tbtc.connect(user).burn(currentUserBalance)
+      }
+      await tbtc.connect(deployer).mint(user.address, exampleAmount.mul(2))
+
+      await l2BtcRedeemer
+        .connect(governance)
+        .updateMinimumRedemptionAmount(ethers.utils.parseUnits("0.001", 18))
+    })
+
+    afterEach(async () => {
+      await restoreSnapshot()
+    })
+
+    function encodePayload(redemptionId: string): string {
+      return ethers.utils.defaultAbiCoder.encode(
+        [
+          "tuple(bytes redeemerOutputScript, address l2User, address rebateBeneficiary, uint64 maxRebateSat, bytes rebateAuthorization, bytes32 redemptionId)",
+        ],
+        [
+          [
+            exampleRedeemerOutputScript,
+            user.address,
+            user.address,
+            maxRebateSat,
+            rebateAuthorization,
+            redemptionId,
+          ],
+        ]
+      )
+    }
+
+    async function expectedRedemptionId(): Promise<string> {
+      const { chainId } = await ethers.provider.getNetwork()
+      return ethers.utils.keccak256(
+        ethers.utils.defaultAbiCoder.encode(
+          ["uint256", "address", "address", "uint256", "bytes32", "uint32"],
+          [
+            chainId,
+            l2BtcRedeemer.address,
+            user.address,
+            exampleAmount,
+            ethers.utils.keccak256(exampleRedeemerOutputScript),
+            exampleNonce,
+          ]
+        )
+      )
+    }
+
+    it("should reject unsigned rebate redemptions before burning user funds", async () => {
+      await expect(
+        l2BtcRedeemer
+          .connect(user)
+          .requestRedemptionWithRebate(
+            exampleAmount,
+            l1ChainId,
+            exampleRedeemerOutputScript,
+            user.address,
+            maxRebateSat,
+            "0x",
+            exampleNonce
+          )
+      ).to.be.revertedWith("Signed auth required")
+
+      expect(await tbtc.balanceOf(user.address)).to.equal(exampleAmount.mul(2))
+      expect(await tbtc.balanceOf(l2BtcRedeemer.address)).to.equal(0)
+    })
+
+    it("should emit and bridge signed rebate redemption payloads", async () => {
+      const redemptionId = await expectedRedemptionId()
+      const payload = encodePayload(redemptionId)
+
+      gateway.sendTbtcWithPayloadToNativeChain
+        .whenCalledWith(
+          exampleAmount,
+          l1ChainId,
+          toWormholeFormat(l1BtcRedeemerWormholeAddress),
+          exampleNonce,
+          payload
+        )
+        .returns(expectedGatewaySequence)
+
+      const tx = await l2BtcRedeemer
+        .connect(user)
+        .requestRedemptionWithRebate(
+          exampleAmount,
+          l1ChainId,
+          exampleRedeemerOutputScript,
+          user.address,
+          maxRebateSat,
+          rebateAuthorization,
+          exampleNonce
+        )
+
+      expect(gateway.sendTbtcWithPayloadToNativeChain).to.have.been
+        .calledOnceWith(
+          exampleAmount,
+          l1ChainId,
+          toWormholeFormat(l1BtcRedeemerWormholeAddress),
+          exampleNonce,
+          payload
+        )
+
+      await expect(tx)
+        .to.emit(l2BtcRedeemer, "RedemptionRequestedOnL2WithRebate")
+        .withArgs(
+          exampleAmount,
+          exampleRedeemerOutputScript,
+          exampleNonce,
+          redemptionId,
+          user.address,
+          user.address,
+          maxRebateSat
+        )
+    })
+  })
 })

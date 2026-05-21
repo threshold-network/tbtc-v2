@@ -35,13 +35,11 @@ const revealFixture = {
 
 chai.use(smock.matchers)
 
-// Regression coverage for the audit fix that replaces
-// `msg.sender.code.length == 0` with `tx.origin == msg.sender` in the
-// unsigned-rebate entry points. The pre-fix guard returned true while a
-// contract was still executing its constructor, so a throwaway contract
-// deployed in the same transaction could mint a rebate on behalf of an
-// address it controls. The `tx.origin` check rejects any nested call
-// frame -- constructor or otherwise.
+// Regression coverage for unsigned-rebate entry points. The deposit path uses
+// `tx.origin == msg.sender` because `msg.sender.code.length == 0` is true while
+// a contract is executing its constructor. The redemption path rejects unsigned
+// rebate authorization entirely, since L1 cannot authenticate the original L2
+// caller from the gateway VAA.
 // Helper to deploy an upgradeable contract behind a minimal
 // TransparentUpgradeableProxy without going through the OpenZeppelin
 // hardhat-upgrades plugin. The plugin's upgrade-safety validation
