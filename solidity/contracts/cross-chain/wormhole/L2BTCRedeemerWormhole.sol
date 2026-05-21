@@ -262,10 +262,7 @@ contract L2BTCRedeemerWormhole is
         amount = WormholeUtils.normalize(amount);
         if (amount < minimumRedemptionAmount) revert AmountTooLowToRedeem();
 
-        require(
-            params.rebateAuthorization.length != 0,
-            "Signed auth required"
-        );
+        require(params.rebateAuthorization.length != 0, "Signed auth required");
 
         bytes32 redemptionId = keccak256(
             abi.encode(

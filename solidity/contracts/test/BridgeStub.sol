@@ -225,8 +225,8 @@ contract BridgeStub is Bridge {
         view
         returns (address rebateBeneficiary, bytes32 actionId)
     {
-        BridgeState.CrossChainRedemptionRebate
-            storage rebate = self.crossChainRedemptionRebates[redemptionKey];
+        BridgeState.CrossChainRedemptionRebate storage rebate = self
+            .crossChainRedemptionRebates[redemptionKey];
 
         return (rebate.rebateBeneficiary, rebate.actionId);
     }
