@@ -216,7 +216,7 @@ abstract contract AbstractL1BTCDepositor is
     ///         data (funding transaction and components of the P2(W)SH deposit
     ///         address) to the tBTC Bridge. Once tBTC minting is completed,
     ///         this call should be followed by a call to `finalizeDeposit`.
-    ///         Callers of `initializeDeposit` are eligible for a gas dgasd
+    ///         Callers of `initializeDeposit` are eligible for a gas refund
     ///         that is paid out upon deposit finalization (only if the
     ///         reimbursement pool is attached and the given caller is
     ///         authorized for refunds).
@@ -240,7 +240,7 @@ abstract contract AbstractL1BTCDepositor is
     ///         Where:
     ///
     ///         <depositor-address> 20-byte L1 address of the
-    ///         `` contract.
+    ///         `AbstractL1BTCDepositor` contract.
     ///
     ///         <depositor-extra-data> destination chain deposit owner address in
     ///         the Bytes32 format.
