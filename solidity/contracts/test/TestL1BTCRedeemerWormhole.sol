@@ -18,4 +18,11 @@ contract TestL1BTCRedeemerWormhole is L1BTCRedeemerWormhole {
             requestedAt: requestedAt
         });
     }
+
+    function requireNoPendingTimedOutRedemptionRefund(uint256 redemptionKey)
+        external
+        view
+    {
+        _requireNoPendingTimedOutRedemptionRefund(redemptionKey);
+    }
 }

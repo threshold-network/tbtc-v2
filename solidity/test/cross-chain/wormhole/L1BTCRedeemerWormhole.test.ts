@@ -1724,7 +1724,7 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
     let productionRedeemer: TestL1BTCRedeemerWormhole
     let productionBridge: MockTBTCBridge
 
-    before(async () => {
+    beforeEach(async () => {
       await createSnapshot()
 
       const MockBankFactory = await ethers.getContractFactory("MockBank")
@@ -1793,7 +1793,7 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
       )
     })
 
-    after(async () => {
+    afterEach(async () => {
       await restoreSnapshot()
     })
 
@@ -1808,6 +1808,27 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
         productionRedeemer.refundTimedOutRedemptionToL2(redemptionKey)
       ).to.be.revertedWith("Wrong timeout refund request")
     })
+
+    it("should allow replacing a stale route that is not the timed-out request", async () => {
+      await productionRedeemer.requireNoPendingTimedOutRedemptionRefund(
+        redemptionKey
+      )
+    })
+
+    it("should reject replacing an unresolved timeout refund route", async () => {
+      await productionBridge.setTimedOutRedemption(
+        redemptionKey,
+        productionRedeemer.address,
+        exampleAmountInSatoshis,
+        recordedRequestedAt
+      )
+
+      await expect(
+        productionRedeemer.requireNoPendingTimedOutRedemptionRefund(
+          redemptionKey
+        )
+      ).to.be.revertedWith("Timeout refund pending")
+    })
   })
 
   describe("requestRedemptionWithRebate authorization", () => {
@@ -1819,6 +1840,7 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
     )
 
     let productionRedeemer: TestL1BTCRedeemerWormhole
+    let productionBridge: MockTBTCBridge
     let productionTokenBridge: FakeContract<IWormholeTokenBridge>
 
     function encodeTransfer(payload: string) {
@@ -1858,6 +1880,37 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
       )
     }
 
+    function getRedemptionKey() {
+      return ethers.utils.solidityKeccak256(
+        ["bytes32", "bytes20"],
+        [
+          ethers.utils.solidityKeccak256(
+            ["bytes"],
+            [exampleRedeemerOutputScript]
+          ),
+          exampleWalletPubKeyHash,
+        ]
+      )
+    }
+
+    function mockCompletedTransfer(payload: string) {
+      const encodedTransfer = encodeTransfer(payload)
+
+      productionTokenBridge.completeTransferWithPayload.returns(encodedTransfer)
+      productionTokenBridge.parseTransferWithPayload
+        .whenCalledWith(encodedTransfer)
+        .returns({
+          payloadID: 1,
+          amount: 2,
+          tokenAddress: ethers.utils.hexZeroPad("0x3000", 32),
+          tokenChain: 4,
+          to: ethers.utils.hexZeroPad("0x5000", 32),
+          toChain: 6,
+          fromAddress: defaultSender,
+          payload,
+        })
+    }
+
     before(async () => {
       await createSnapshot()
 
@@ -1880,7 +1933,7 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
       const MockTBTCBridgeFactory = await ethers.getContractFactory(
         "MockTBTCBridge"
       )
-      const productionBridge =
+      productionBridge =
         (await MockTBTCBridgeFactory.deploy()) as MockTBTCBridge
       await productionBridge.deployed()
 
@@ -1929,21 +1982,7 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
 
     it("should reject unsigned gateway-originated redemption rebate payloads", async () => {
       const payload = encodeV2Payload("0x")
-      const encodedTransfer = encodeTransfer(payload)
-
-      productionTokenBridge.completeTransferWithPayload.returns(encodedTransfer)
-      productionTokenBridge.parseTransferWithPayload
-        .whenCalledWith(encodedTransfer)
-        .returns({
-          payloadID: 1,
-          amount: 2,
-          tokenAddress: ethers.utils.hexZeroPad("0x3000", 32),
-          tokenChain: 4,
-          to: ethers.utils.hexZeroPad("0x5000", 32),
-          toChain: 6,
-          fromAddress: defaultSender,
-          payload,
-        })
+      mockCompletedTransfer(payload)
 
       await expect(
         productionRedeemer.requestRedemptionWithRebate(
@@ -1952,6 +1991,35 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
           encodedVm
         )
       ).to.be.revertedWith("Signed auth required")
+    })
+
+    it("should reject same-key rebate redemptions while a timeout refund is pending", async () => {
+      const requestedAt = 1000
+      const redemptionKey = getRedemptionKey()
+      await productionRedeemer.seedTimedOutRedemptionRefund(
+        redemptionKey,
+        thirdParty.address,
+        sourceChainId,
+        exampleAmountInSatoshis,
+        requestedAt
+      )
+      await productionBridge.setTimedOutRedemption(
+        redemptionKey,
+        productionRedeemer.address,
+        exampleAmountInSatoshis,
+        requestedAt
+      )
+
+      const payload = encodeV2Payload("0x1234")
+      mockCompletedTransfer(payload)
+
+      await expect(
+        productionRedeemer.requestRedemptionWithRebate(
+          exampleWalletPubKeyHash,
+          exampleMainUtxo,
+          encodedVm
+        )
+      ).to.be.revertedWith("Timeout refund pending")
     })
   })
 

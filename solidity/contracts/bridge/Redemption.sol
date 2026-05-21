@@ -630,6 +630,8 @@ library Redemption {
                         RebateStaking.TreasuryFeeType.Redemption,
                         crossChainRebate.context
                     );
+                // RebateStaking returns the original fee when no rebate is
+                // consumed, so a lower fee is the storage-write signal.
                 crossChainRebateApplied = treasuryFee < initialTreasuryFee;
             } else {
                 treasuryFee = RebateStaking(self.rebateStaking).applyForRebate(

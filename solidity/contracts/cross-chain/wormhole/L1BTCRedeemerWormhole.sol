@@ -582,7 +582,13 @@ contract L1BTCRedeemerWormhole is
                 authorization: payload.rebateAuthorization
             });
 
-        (uint256 redemptionKey, ) = _requestRedemptionWithRebate(
+        uint256 redemptionKey = _getRedemptionKey(
+            walletPubKeyHash,
+            payload.redeemerOutputScript
+        );
+        _requireNoPendingTimedOutRedemptionRefund(redemptionKey);
+
+        (redemptionKey, ) = _requestRedemptionWithRebate(
             walletPubKeyHash,
             mainUtxo,
             payload.redeemerOutputScript,
@@ -617,6 +623,28 @@ contract L1BTCRedeemerWormhole is
             payload.rebateBeneficiary,
             payload.l2User,
             payload.maxRebateSat
+        );
+    }
+
+    function _requireNoPendingTimedOutRedemptionRefund(uint256 redemptionKey)
+        internal
+        view
+    {
+        TimedOutRedemptionRefund memory refund = timedOutRedemptionRefunds[
+            redemptionKey
+        ];
+        if (refund.amountSat == 0) {
+            return;
+        }
+
+        IBridgeTypes.RedemptionRequest
+            memory timedOutRedemption = thresholdBridge.timedOutRedemptions(
+                redemptionKey
+            );
+        require(
+            timedOutRedemption.redeemer != address(this) ||
+                timedOutRedemption.requestedAt != refund.requestedAt,
+            "Timeout refund pending"
         );
     }
 
