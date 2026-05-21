@@ -108,9 +108,10 @@ abstract contract AbstractL1BTCDepositor is
     ///         granted by the contract owner.
     mapping(address => bool) public reimbursementAuthorizations;
 
-    /// @notice **Feature Flag** controlling whether the deposit transaction max fee
-    ///         is **reimbursed** (added to the user’s tBTC) or **deducted**.
-    ///         - `true`  => Add `txMaxFee` to the minted tBTC amount
+    /// @notice Feature flag controlling whether the deposit transaction max fee
+    ///         is reimbursed (added to the user's tBTC) or deducted.
+    ///         - `true`  => Add `txMaxFee` on a best-effort basis when the
+    ///                      contract balance covers it
     ///         - `false` => Subtract `txMaxFee` from the minted tBTC amount
     bool public reimburseTxMaxFee;
 
