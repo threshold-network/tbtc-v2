@@ -1911,6 +1911,23 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
         })
     }
 
+    async function seedPendingTimeoutRefund(redemptionKey: string) {
+      const requestedAt = 1000
+      await productionRedeemer.seedTimedOutRedemptionRefund(
+        redemptionKey,
+        thirdParty.address,
+        sourceChainId,
+        exampleAmountInSatoshis,
+        requestedAt
+      )
+      await productionBridge.setTimedOutRedemption(
+        redemptionKey,
+        productionRedeemer.address,
+        exampleAmountInSatoshis,
+        requestedAt
+      )
+    }
+
     before(async () => {
       await createSnapshot()
 
@@ -1994,27 +2011,28 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
     })
 
     it("should reject same-key rebate redemptions while a timeout refund is pending", async () => {
-      const requestedAt = 1000
       const redemptionKey = getRedemptionKey()
-      await productionRedeemer.seedTimedOutRedemptionRefund(
-        redemptionKey,
-        thirdParty.address,
-        sourceChainId,
-        exampleAmountInSatoshis,
-        requestedAt
-      )
-      await productionBridge.setTimedOutRedemption(
-        redemptionKey,
-        productionRedeemer.address,
-        exampleAmountInSatoshis,
-        requestedAt
-      )
+      await seedPendingTimeoutRefund(redemptionKey)
 
       const payload = encodeV2Payload("0x1234")
       mockCompletedTransfer(payload)
 
       await expect(
         productionRedeemer.requestRedemptionWithRebate(
+          exampleWalletPubKeyHash,
+          exampleMainUtxo,
+          encodedVm
+        )
+      ).to.be.revertedWith("Timeout refund pending")
+    })
+
+    it("should reject same-key legacy redemptions while a timeout refund is pending", async () => {
+      const redemptionKey = getRedemptionKey()
+      await seedPendingTimeoutRefund(redemptionKey)
+      mockCompletedTransfer(exampleRedeemerOutputScript)
+
+      await expect(
+        productionRedeemer.requestRedemption(
           exampleWalletPubKeyHash,
           exampleMainUtxo,
           encodedVm

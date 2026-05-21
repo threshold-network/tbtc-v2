@@ -50,9 +50,7 @@ describe("Bridge - Cross-chain redemption rebate metadata", () => {
       await ethers.getContractFactory("Redemption")
     ).deploy()
     const Wallets = await (
-      await ethers.getContractFactory(
-        "contracts/bridge/Wallets.sol:Wallets"
-      )
+      await ethers.getContractFactory("contracts/bridge/Wallets.sol:Wallets")
     ).deploy()
     const Fraud = await (await ethers.getContractFactory("Fraud")).deploy()
     const MovingFunds = await (
@@ -94,34 +92,32 @@ describe("Bridge - Cross-chain redemption rebate metadata", () => {
   }
 
   async function requestCrossChainRedemptionWithNoAppliedRebate() {
-    const tx = await bridge.connect(integrator).requestRedemptionWithRebate(
-      walletPubKeyHash,
-      mainUtxo,
-      integrator.address,
-      integrator.address,
-      redeemerOutputScript,
-      requestedAmount,
-      rebateBeneficiary.address,
-      {
-        sourceChainId,
-        l2User: rebateBeneficiary.address,
-        flowType: 1,
-        actionId: rebateActionId,
-        maxRebateSat: 0,
-        authorization: "0x",
-      }
-    )
+    const tx = await bridge
+      .connect(integrator)
+      .requestRedemptionWithRebate(
+        walletPubKeyHash,
+        mainUtxo,
+        integrator.address,
+        integrator.address,
+        redeemerOutputScript,
+        requestedAmount,
+        rebateBeneficiary.address,
+        {
+          sourceChainId,
+          l2User: rebateBeneficiary.address,
+          flowType: 1,
+          actionId: rebateActionId,
+          maxRebateSat: 0,
+          authorization: "0x",
+        }
+      )
 
     return tx.wait()
   }
 
   beforeEach(async () => {
     await createSnapshot()
-
-    const signers = await ethers.getSigners()
-    deployer = signers[0]
-    integrator = signers[1]
-    rebateBeneficiary = signers[2]
+    ;[deployer, integrator, rebateBeneficiary] = await ethers.getSigners()
 
     const BankStubFactory = await ethers.getContractFactory("BankStub")
     bank = (await BankStubFactory.deploy()) as BankStub

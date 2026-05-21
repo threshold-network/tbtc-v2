@@ -732,14 +732,15 @@ describe("L2BTCRedeemerWormhole", () => {
           exampleNonce
         )
 
-      expect(gateway.sendTbtcWithPayloadToNativeChain).to.have.been
-        .calledOnceWith(
-          exampleAmount,
-          l1ChainId,
-          toWormholeFormat(l1BtcRedeemerWormholeAddress),
-          exampleNonce,
-          payload
-        )
+      expect(
+        gateway.sendTbtcWithPayloadToNativeChain
+      ).to.have.been.calledOnceWith(
+        exampleAmount,
+        l1ChainId,
+        toWormholeFormat(l1BtcRedeemerWormholeAddress),
+        exampleNonce,
+        payload
+      )
 
       await expect(tx)
         .to.emit(l2BtcRedeemer, "RedemptionRequestedOnL2WithRebate")

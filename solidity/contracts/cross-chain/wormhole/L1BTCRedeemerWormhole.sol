@@ -435,11 +435,16 @@ contract L1BTCRedeemerWormhole is
         _requireExpectedEmitterChain(encodedVm, sender);
 
         bytes memory redemptionOutputScript = transfer.payload;
+        uint256 redemptionKey = _getRedemptionKey(
+            walletPubKeyHash,
+            redemptionOutputScript
+        );
+        _requireNoPendingTimedOutRedemptionRefund(redemptionKey);
 
         // Input parameters do not have to be validated in any way.
         // The tBTC Bridge is responsible for validating whether the provided
         // redemption data is correct.
-        (uint256 redemptionKey, ) = _requestRedemption(
+        (redemptionKey, ) = _requestRedemption(
             walletPubKeyHash,
             mainUtxo,
             redemptionOutputScript,
