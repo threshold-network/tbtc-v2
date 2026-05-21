@@ -160,6 +160,8 @@ describe("L1BTCDepositorWormholeV2Base", () => {
     // baseTbtcAmount    = amountSubTreasury - omFee - txMaxFeeScaled
     //                   = (99500 - 4975 - 1000) * 1e10 = 93525 * 1e10
     // reimbursedAmount  = baseTbtcAmount + txMaxFeeScaled = 94525 * 1e10
+    // initialAmountWei  = depositAmount * satoshiMultiplier
+    //                   = 100000 * 1e10 = 1e15
     const messageFee = 1000
     const transferSequence = 555
     const depositAmount = BigNumber.from(100000)
@@ -169,6 +171,7 @@ describe("L1BTCDepositorWormholeV2Base", () => {
     const baseTbtcAmount = to1ePrecision(93525, 10)
     const txMaxFeeScaled = to1ePrecision(1000, 10)
     const reimbursedAmount = baseTbtcAmount.add(txMaxFeeScaled)
+    const initialAmountWei = to1ePrecision(100000, 10)
 
     const stageDeposit = async () => {
       await l1BtcDepositor
@@ -299,6 +302,18 @@ describe("L1BTCDepositorWormholeV2Base", () => {
             "DepositTxMaxFeeReimbursementSkipped"
           )
         })
+
+        it("should emit DepositFinalized carrying the reimbursed tbtcAmount", async () => {
+          await expect(tx)
+            .to.emit(l1BtcDepositor, "DepositFinalized")
+            .withArgs(
+              initializeDepositFixture.depositKey,
+              initializeDepositFixture.destinationChainDepositOwner.toLowerCase(),
+              relayer.address,
+              initialAmountWei,
+              reimbursedAmount
+            )
+        })
       }
     )
 
@@ -358,64 +373,99 @@ describe("L1BTCDepositorWormholeV2Base", () => {
               availableBalance
             )
         })
+
+        it("should emit DepositFinalized carrying only the base tbtcAmount", async () => {
+          await expect(tx)
+            .to.emit(l1BtcDepositor, "DepositFinalized")
+            .withArgs(
+              initializeDepositFixture.depositKey,
+              initializeDepositFixture.destinationChainDepositOwner.toLowerCase(),
+              relayer.address,
+              initialAmountWei,
+              baseTbtcAmount
+            )
+        })
       }
     )
 
-    context("when reimburseTxMaxFee is true and proxy holds zero tBTC", () => {
-      let tx: ContractTransaction
+    // This is the production-relevant skip-path scenario: the Bridge sweep
+    // delivers (depositAmount - treasuryFee - actualBTCfee) * 1e10 to the
+    // proxy. Whenever actualBTCfee > 0, the proxy ends up holding the
+    // base amount but cannot cover the full `base + txMaxFee` reimbursement.
+    // We model that here by pre-funding with exactly baseTbtcAmount.
+    context(
+      "when reimburseTxMaxFee is true and balance equals baseTbtcAmount",
+      () => {
+        let tx: ContractTransaction
 
-      before(async () => {
-        await createSnapshot()
+        before(async () => {
+          await createSnapshot()
 
-        await l1BtcDepositor.connect(governance).setReimburseTxMaxFee(true)
+          await l1BtcDepositor.connect(governance).setReimburseTxMaxFee(true)
 
-        await stageDeposit()
+          await stageDeposit()
 
-        // No pre-funding. availableBalance == 0 < reimbursedAmount.
+          await tbtcToken
+            .connect(tokenOwner)
+            .mint(l1BtcDepositor.address, baseTbtcAmount)
 
-        tx = await l1BtcDepositor
-          .connect(relayer)
-          .finalizeDeposit(initializeDepositFixture.depositKey, {
-            value: messageFee,
-          })
-      })
+          tx = await l1BtcDepositor
+            .connect(relayer)
+            .finalizeDeposit(initializeDepositFixture.depositKey, {
+              value: messageFee,
+            })
+        })
 
-      after(async () => {
-        resetMocks()
-        await restoreSnapshot()
-      })
+        after(async () => {
+          resetMocks()
+          await restoreSnapshot()
+        })
 
-      it("should transfer only the base tbtcAmount", async () => {
-        expect(
-          await tbtcToken.allowance(
-            l1BtcDepositor.address,
-            wormholeTokenBridge.address
+        it("should transfer only the base tbtcAmount", async () => {
+          expect(
+            await tbtcToken.allowance(
+              l1BtcDepositor.address,
+              wormholeTokenBridge.address
+            )
+          ).to.equal(baseTbtcAmount)
+        })
+
+        it("should emit DepositTxMaxFeeReimbursementSkipped with availableBalance equal to baseTbtcAmount", async () => {
+          await expect(tx)
+            .to.emit(l1BtcDepositor, "DepositTxMaxFeeReimbursementSkipped")
+            .withArgs(
+              initializeDepositFixture.depositKey,
+              txMaxFeeScaled,
+              baseTbtcAmount
+            )
+        })
+
+        it("should emit DepositFinalized carrying only the base tbtcAmount", async () => {
+          await expect(tx)
+            .to.emit(l1BtcDepositor, "DepositFinalized")
+            .withArgs(
+              initializeDepositFixture.depositKey,
+              initializeDepositFixture.destinationChainDepositOwner.toLowerCase(),
+              relayer.address,
+              initialAmountWei,
+              baseTbtcAmount
+            )
+        })
+
+        it("should preserve the L2 receiver payload through the skip branch", async () => {
+          const call = wormholeTokenBridge.transferTokensWithPayload.getCall(0)
+          const [l2Receiver] = ethers.utils.defaultAbiCoder.decode(
+            ["bytes32"],
+            call.args[5]
           )
-        ).to.equal(baseTbtcAmount)
-      })
-
-      it("should emit DepositTxMaxFeeReimbursementSkipped with zero available balance", async () => {
-        await expect(tx)
-          .to.emit(l1BtcDepositor, "DepositTxMaxFeeReimbursementSkipped")
-          .withArgs(initializeDepositFixture.depositKey, txMaxFeeScaled, 0)
-      })
-
-      it("should encode the L2 receiver in the payload", async () => {
-        // Sanity check that the skip path does not corrupt the L2 routing.
-        const call = wormholeTokenBridge.transferTokensWithPayload.getCall(0)
-        const [l2Receiver] = ethers.utils.defaultAbiCoder.decode(
-          ["bytes32"],
-          call.args[5]
-        )
-        expect(l2Receiver.toLowerCase()).to.equal(
-          initializeDepositFixture.destinationChainDepositOwner.toLowerCase()
-        )
-        // The Wormhole gateway is passed as the recipient field; the L2
-        // owner travels inside the payload (V2 design).
-        expect(call.args[3]).to.equal(
-          toWormholeAddress(l2WormholeGateway.address.toLowerCase())
-        )
-      })
-    })
+          expect(l2Receiver.toLowerCase()).to.equal(
+            initializeDepositFixture.destinationChainDepositOwner.toLowerCase()
+          )
+          expect(call.args[3]).to.equal(
+            toWormholeAddress(l2WormholeGateway.address.toLowerCase())
+          )
+        })
+      }
+    )
   })
 })
