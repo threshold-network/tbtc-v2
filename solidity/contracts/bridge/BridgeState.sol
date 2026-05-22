@@ -325,6 +325,13 @@ library BridgeState {
         // governance wiring; changing it afterwards requires a dedicated
         // upgrade path of the Bridge implementation.
         address rebateStaking;
+        // Set of relayer-style depositor contracts whose `extraData` should be
+        // interpreted as the L1 rebate staker for reveals they submit on
+        // behalf of an L1 receiver. Governance-managed; intended for direct
+        // L1-receiver depositors (e.g. NativeBTCDepositor) and must not
+        // include cross-chain depositors whose `extraData` is an L2 user
+        // identifier.
+        mapping(address => bool) sponsoredDepositors;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
@@ -332,7 +339,7 @@ library BridgeState {
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
-        uint256[48] __gap;
+        uint256[47] __gap;
     }
 
     event DepositParametersUpdated(
@@ -392,6 +399,10 @@ library BridgeState {
     // used by the Bridge contract following the same pattern as other
     // parameter events.
     event RebateStakingSet(address rebateStaking);
+
+    // Event emitted when governance adds or removes an entry from the
+    // `sponsoredDepositors` allowlist. `sponsored` reflects the new state.
+    event SponsoredDepositorSet(address indexed depositor, bool sponsored);
 
     /// @notice Updates parameters of deposits.
     /// @param _depositDustThreshold New value of the deposit dust threshold in
@@ -891,5 +902,24 @@ library BridgeState {
 
         self.rebateStaking = _rebateStaking;
         emit RebateStakingSet(_rebateStaking);
+    }
+
+    /// @notice Adds or removes a depositor contract from the sponsored
+    ///         depositor allowlist. Reveals submitted by an allowlisted
+    ///         depositor have their rebate routed to the L1 address decoded
+    ///         from `extraData` instead of to the depositor contract.
+    /// @param _depositor Address of the depositor contract.
+    /// @param _sponsored New allowlist membership.
+    /// @dev Requirements:
+    ///      - Depositor address must not be 0x0.
+    function setSponsoredDepositor(
+        Storage storage self,
+        address _depositor,
+        bool _sponsored
+    ) internal {
+        require(_depositor != address(0), "Depositor address must not be 0x0");
+
+        self.sponsoredDepositors[_depositor] = _sponsored;
+        emit SponsoredDepositorSet(_depositor, _sponsored);
     }
 }
