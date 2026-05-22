@@ -150,6 +150,14 @@ abstract contract AbstractL1BTCDepositor is
         uint256 availableBalance
     );
 
+    /// @notice Emitted when the deposit transaction max fee reimbursement is
+    ///         skipped because the deposit receiver did not meet the
+    ///         eligibility criteria enforced by the concrete depositor.
+    event DepositTxMaxFeeReimbursementIneligible(
+        uint256 indexed depositKey,
+        uint256 txMaxFee
+    );
+
     /// @dev This modifier comes from the `Reimbursable` base contract and
     ///      must be overridden to protect the `updateReimbursementPool` call.
     modifier onlyReimbursableAdmin() override {
@@ -372,10 +380,14 @@ abstract contract AbstractL1BTCDepositor is
     ///        corresponding destination chain. The payment must be greater than or
     ///        equal to the value returned by the `quoteFinalizeDeposit` function.
     /// @dev When `reimburseTxMaxFee` is true, the deposit transaction max fee
-    ///      reimbursement is applied only if this contract's tBTC balance can
-    ///      cover the base deposit amount plus the reimbursement. Otherwise,
-    ///      only the base deposit amount is transferred and a
-    ///      `DepositTxMaxFeeReimbursementSkipped` event is emitted.
+    ///      reimbursement is applied only if both (1) the concrete depositor's
+    ///      `_isTxMaxFeeReimbursementEligible` hook approves the receiver and
+    ///      (2) this contract's tBTC balance can cover the base deposit amount
+    ///      plus the reimbursement. If the receiver is ineligible, only the
+    ///      base deposit amount is transferred and a
+    ///      `DepositTxMaxFeeReimbursementIneligible` event is emitted. If the
+    ///      receiver is eligible but the balance is insufficient, a
+    ///      `DepositTxMaxFeeReimbursementSkipped` event is emitted instead.
     function finalizeDeposit(uint256 depositKey) external payable {
         uint256 gasStart = gasleft();
 
@@ -404,19 +416,34 @@ abstract contract AbstractL1BTCDepositor is
             uint256 reimbursedAmount = tbtcAmount + txMaxFee;
 
             // The DAO is "refunding" the deposit tx max fee by adding it to
-            // the tBTC minted. This is best-effort: if earlier finalizations
-            // have consumed the shared contract balance, skip the reimbursement
-            // instead of blocking this deposit until later deposits top up the
-            // contract.
-            uint256 availableBalance = tbtcToken.balanceOf(address(this));
-            if (availableBalance >= reimbursedAmount) {
-                tbtcAmount = reimbursedAmount;
-            } else {
-                emit DepositTxMaxFeeReimbursementSkipped(
+            // the tBTC minted. The reimbursement is gated by two checks:
+            // (1) the concrete depositor may veto a specific receiver via the
+            // `_isTxMaxFeeReimbursementEligible` hook (e.g. require T staking),
+            // and (2) earlier finalizations may have consumed the shared
+            // contract balance, in which case we skip the reimbursement
+            // instead of blocking this deposit until later deposits top up
+            // the contract.
+            if (
+                !_isTxMaxFeeReimbursementEligible(
+                    destinationChainDepositOwner,
+                    txMaxFee
+                )
+            ) {
+                emit DepositTxMaxFeeReimbursementIneligible(
                     depositKey,
-                    txMaxFee,
-                    availableBalance
+                    txMaxFee
                 );
+            } else {
+                uint256 availableBalance = tbtcToken.balanceOf(address(this));
+                if (availableBalance >= reimbursedAmount) {
+                    tbtcAmount = reimbursedAmount;
+                } else {
+                    emit DepositTxMaxFeeReimbursementSkipped(
+                        depositKey,
+                        txMaxFee,
+                        availableBalance
+                    );
+                }
             }
         }
 
@@ -517,4 +544,26 @@ abstract contract AbstractL1BTCDepositor is
     function _transferTbtc(uint256 amount, bytes32 destinationChainReceiver)
         internal
         virtual;
+
+    /// @notice Hook that lets concrete depositors veto the deposit transaction
+    ///         max fee reimbursement for a specific receiver. Returning false
+    ///         causes the reimbursement to be skipped and a
+    ///         `DepositTxMaxFeeReimbursementIneligible` event to be emitted,
+    ///         regardless of the depositor contract's balance. Defaults to
+    ///         `true` so existing depositors keep their current behavior.
+    /// @param destinationChainDepositOwner Deposit owner on the destination
+    ///        chain in 32-byte format, as embedded in the Bitcoin deposit
+    ///        script.
+    /// @param txMaxFee Deposit transaction max fee in 1e18 precision.
+    // slither-disable-next-line dead-code
+    function _isTxMaxFeeReimbursementEligible(
+        bytes32 destinationChainDepositOwner,
+        uint256 txMaxFee
+    ) internal view virtual returns (bool) {
+        // The default implementation does not enforce any eligibility check.
+        // Concrete depositors may override this hook to add gating logic.
+        destinationChainDepositOwner;
+        txMaxFee;
+        return true;
+    }
 }

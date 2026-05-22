@@ -6,6 +6,7 @@ import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { BigNumber, ContractTransaction } from "ethers"
 import {
   IBridge,
+  IRebateStaking,
   ITBTCVault,
   NativeBTCDepositor,
   ReimbursementPool,
@@ -224,6 +225,95 @@ describe("NativeBTCDepositor", () => {
         await expect(tx)
           .to.emit(nativeBtcDepositor, "ReimbursementAuthorizationUpdated")
           .withArgs(relayer.address, true)
+      })
+    })
+  })
+
+  describe("setRebateStaking", () => {
+    context("when the caller is not the owner", () => {
+      it("should revert", async () => {
+        const someAddress = ethers.Wallet.createRandom().address
+        await expect(
+          nativeBtcDepositor.connect(relayer).setRebateStaking(someAddress)
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+    })
+
+    context("when the caller is the owner", () => {
+      let tx: ContractTransaction
+      const newAddress = "0x1111111111111111111111111111111111111111"
+
+      before(async () => {
+        await createSnapshot()
+
+        tx = await nativeBtcDepositor
+          .connect(governance)
+          .setRebateStaking(newAddress)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should set the rebate staking address", async () => {
+        expect(await nativeBtcDepositor.rebateStaking()).to.equal(newAddress)
+      })
+
+      it("should emit RebateStakingUpdated", async () => {
+        await expect(tx)
+          .to.emit(nativeBtcDepositor, "RebateStakingUpdated")
+          .withArgs(newAddress)
+      })
+
+      it("should allow clearing the address", async () => {
+        await expect(
+          nativeBtcDepositor
+            .connect(governance)
+            .setRebateStaking(ethers.constants.AddressZero)
+        )
+          .to.emit(nativeBtcDepositor, "RebateStakingUpdated")
+          .withArgs(ethers.constants.AddressZero)
+
+        expect(await nativeBtcDepositor.rebateStaking()).to.equal(
+          ethers.constants.AddressZero
+        )
+      })
+    })
+  })
+
+  describe("setMinStakeForWaiver", () => {
+    context("when the caller is not the owner", () => {
+      it("should revert", async () => {
+        await expect(
+          nativeBtcDepositor.connect(relayer).setMinStakeForWaiver(123)
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+    })
+
+    context("when the caller is the owner", () => {
+      let tx: ContractTransaction
+      const threshold = BigNumber.from("1000000000000000000000")
+
+      before(async () => {
+        await createSnapshot()
+
+        tx = await nativeBtcDepositor
+          .connect(governance)
+          .setMinStakeForWaiver(threshold)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should set the threshold", async () => {
+        expect(await nativeBtcDepositor.minStakeForWaiver()).to.equal(threshold)
+      })
+
+      it("should emit MinStakeForWaiverUpdated", async () => {
+        await expect(tx)
+          .to.emit(nativeBtcDepositor, "MinStakeForWaiverUpdated")
+          .withArgs(threshold)
       })
     })
   })
@@ -1473,6 +1563,244 @@ describe("NativeBTCDepositor", () => {
       expect(await tbtcToken.balanceOf(receiverAddress)).to.equal(
         expectedTbtcAmountBase
       )
+    })
+
+    context("when rebateStaking is configured", () => {
+      const minStake = BigNumber.from("1000000000000000000000")
+
+      let receiverAddress: string
+      let rebateStaking: FakeContract<IRebateStaking>
+
+      // Wires the bridge, vault, and deposit lookups used by every test in
+      // this block. Mints `tbtcBalance` to the depositor and runs the
+      // initialize + finalize sequence, returning the finalize transaction
+      // for event assertions.
+      const initAndFinalize = async (tbtcBalance: BigNumber) => {
+        await nativeBtcDepositor
+          .connect(relayer)
+          .initializeDeposit(
+            initializeDepositFixture.fundingTx,
+            initializeDepositFixture.reveal,
+            initializeDepositFixture.ethereumReceiverBytes32
+          )
+
+        bridge.depositParameters.returns({
+          depositDustThreshold: 0,
+          depositTreasuryFeeDivisor: 0,
+          depositTxMaxFee,
+          depositRevealAheadPeriod: 0,
+        })
+        tbtcVault.optimisticMintingFeeDivisor.returns(
+          optimisticMintingFeeDivisor
+        )
+
+        const revealedAt = (await lastBlockTime()) - 7200
+        const finalizedAt = await lastBlockTime()
+        bridge.deposits
+          .whenCalledWith(initializeDepositFixture.depositKey)
+          .returns({
+            depositor: nativeBtcDepositor.address,
+            amount: depositAmount,
+            revealedAt,
+            vault: initializeDepositFixture.reveal.vault,
+            treasuryFee,
+            sweptAt: finalizedAt,
+            extraData: initializeDepositFixture.ethereumReceiverBytes32,
+          })
+        tbtcVault.optimisticMintingRequests
+          .whenCalledWith(initializeDepositFixture.depositKey)
+          .returns([revealedAt, finalizedAt])
+
+        await tbtcToken.mint(nativeBtcDepositor.address, tbtcBalance)
+
+        return nativeBtcDepositor
+          .connect(relayer)
+          .finalizeDeposit(initializeDepositFixture.depositKey, { value: 0 })
+      }
+
+      beforeEach(async () => {
+        receiverAddress = ethers.utils.getAddress(
+          `0x${initializeDepositFixture.ethereumReceiverBytes32.slice(-40)}`
+        )
+
+        rebateStaking = await smock.fake<IRebateStaking>("IRebateStaking")
+
+        await nativeBtcDepositor
+          .connect(governance)
+          .setRebateStaking(rebateStaking.address)
+        await nativeBtcDepositor
+          .connect(governance)
+          .setMinStakeForWaiver(minStake)
+      })
+
+      context("and the receiver has no stake", () => {
+        it("should skip the reimbursement with an Ineligible event", async () => {
+          rebateStaking.getStake
+            .whenCalledWith(receiverAddress)
+            .returns(BigNumber.from(0))
+
+          const tx = await initAndFinalize(expectedTbtcAmountReimbursed)
+
+          const txMaxFee = depositTxMaxFee.mul(satoshiMultiplier)
+          await expect(tx)
+            .to.emit(
+              nativeBtcDepositor,
+              "DepositTxMaxFeeReimbursementIneligible"
+            )
+            .withArgs(initializeDepositFixture.depositKey, txMaxFee)
+
+          await expect(tx).to.not.emit(
+            nativeBtcDepositor,
+            "DepositTxMaxFeeReimbursementSkipped"
+          )
+
+          await expect(tx)
+            .to.emit(nativeBtcDepositor, "DepositFinalized")
+            .withArgs(
+              initializeDepositFixture.depositKey,
+              initializeDepositFixture.ethereumReceiverBytes32.toLowerCase(),
+              relayer.address,
+              depositAmount.mul(satoshiMultiplier),
+              expectedTbtcAmountBase
+            )
+
+          expect(await tbtcToken.balanceOf(receiverAddress)).to.equal(
+            expectedTbtcAmountBase
+          )
+        })
+      })
+
+      context("and the receiver's stake is below the threshold", () => {
+        it("should skip the reimbursement with an Ineligible event", async () => {
+          rebateStaking.getStake
+            .whenCalledWith(receiverAddress)
+            .returns(minStake.sub(1))
+
+          const tx = await initAndFinalize(expectedTbtcAmountReimbursed)
+
+          const txMaxFee = depositTxMaxFee.mul(satoshiMultiplier)
+          await expect(tx)
+            .to.emit(
+              nativeBtcDepositor,
+              "DepositTxMaxFeeReimbursementIneligible"
+            )
+            .withArgs(initializeDepositFixture.depositKey, txMaxFee)
+
+          expect(await tbtcToken.balanceOf(receiverAddress)).to.equal(
+            expectedTbtcAmountBase
+          )
+        })
+      })
+
+      context("and the receiver's stake meets the threshold", () => {
+        it("should reimburse the deposit tx max fee", async () => {
+          rebateStaking.getStake
+            .whenCalledWith(receiverAddress)
+            .returns(minStake)
+
+          const tx = await initAndFinalize(expectedTbtcAmountReimbursed)
+
+          await expect(tx).to.not.emit(
+            nativeBtcDepositor,
+            "DepositTxMaxFeeReimbursementIneligible"
+          )
+          await expect(tx).to.not.emit(
+            nativeBtcDepositor,
+            "DepositTxMaxFeeReimbursementSkipped"
+          )
+
+          await expect(tx)
+            .to.emit(nativeBtcDepositor, "DepositFinalized")
+            .withArgs(
+              initializeDepositFixture.depositKey,
+              initializeDepositFixture.ethereumReceiverBytes32.toLowerCase(),
+              relayer.address,
+              depositAmount.mul(satoshiMultiplier),
+              expectedTbtcAmountReimbursed
+            )
+
+          expect(await tbtcToken.balanceOf(receiverAddress)).to.equal(
+            expectedTbtcAmountReimbursed
+          )
+        })
+      })
+
+      context(
+        "and the receiver is eligible but the contract balance is insufficient",
+        () => {
+          it("should emit the Skipped event, not Ineligible", async () => {
+            rebateStaking.getStake
+              .whenCalledWith(receiverAddress)
+              .returns(minStake)
+
+            const tx = await initAndFinalize(expectedTbtcAmountBase)
+
+            const txMaxFee = depositTxMaxFee.mul(satoshiMultiplier)
+            await expect(tx)
+              .to.emit(
+                nativeBtcDepositor,
+                "DepositTxMaxFeeReimbursementSkipped"
+              )
+              .withArgs(
+                initializeDepositFixture.depositKey,
+                txMaxFee,
+                expectedTbtcAmountBase
+              )
+
+            await expect(tx).to.not.emit(
+              nativeBtcDepositor,
+              "DepositTxMaxFeeReimbursementIneligible"
+            )
+
+            expect(await tbtcToken.balanceOf(receiverAddress)).to.equal(
+              expectedTbtcAmountBase
+            )
+          })
+        }
+      )
+
+      context("and minStakeForWaiver is zero", () => {
+        it("treats any non-zero stake as eligible", async () => {
+          await nativeBtcDepositor.connect(governance).setMinStakeForWaiver(0)
+
+          rebateStaking.getStake
+            .whenCalledWith(receiverAddress)
+            .returns(BigNumber.from(1))
+
+          const tx = await initAndFinalize(expectedTbtcAmountReimbursed)
+
+          await expect(tx).to.not.emit(
+            nativeBtcDepositor,
+            "DepositTxMaxFeeReimbursementIneligible"
+          )
+
+          expect(await tbtcToken.balanceOf(receiverAddress)).to.equal(
+            expectedTbtcAmountReimbursed
+          )
+        })
+
+        it("still rejects a zero stake", async () => {
+          await nativeBtcDepositor.connect(governance).setMinStakeForWaiver(0)
+
+          rebateStaking.getStake
+            .whenCalledWith(receiverAddress)
+            .returns(BigNumber.from(0))
+
+          const tx = await initAndFinalize(expectedTbtcAmountReimbursed)
+
+          const txMaxFee = depositTxMaxFee.mul(satoshiMultiplier)
+          await expect(tx)
+            .to.emit(
+              nativeBtcDepositor,
+              "DepositTxMaxFeeReimbursementIneligible"
+            )
+            .withArgs(initializeDepositFixture.depositKey, txMaxFee)
+
+          expect(await tbtcToken.balanceOf(receiverAddress)).to.equal(
+            expectedTbtcAmountBase
+          )
+        })
+      })
     })
   })
 })
