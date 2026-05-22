@@ -551,19 +551,16 @@ abstract contract AbstractL1BTCDepositor is
     ///         `DepositTxMaxFeeReimbursementIneligible` event to be emitted,
     ///         regardless of the depositor contract's balance. Defaults to
     ///         `true` so existing depositors keep their current behavior.
-    /// @param destinationChainDepositOwner Deposit owner on the destination
-    ///        chain in 32-byte format, as embedded in the Bitcoin deposit
-    ///        script.
-    /// @param txMaxFee Deposit transaction max fee in 1e18 precision.
+    /// @dev The first parameter is the deposit owner on the destination chain
+    ///      in 32-byte format, as embedded in the Bitcoin deposit script. The
+    ///      second parameter is the deposit transaction max fee in 1e18
+    ///      precision. Parameter names are omitted to silence unused-variable
+    ///      warnings in the no-op default; overrides should re-declare them.
     // slither-disable-next-line dead-code
     function _isTxMaxFeeReimbursementEligible(
-        bytes32 destinationChainDepositOwner,
-        uint256 txMaxFee
+        bytes32, /* destinationChainDepositOwner */
+        uint256 /* txMaxFee */
     ) internal view virtual returns (bool) {
-        // The default implementation does not enforce any eligibility check.
-        // Concrete depositors may override this hook to add gating logic.
-        destinationChainDepositOwner;
-        txMaxFee;
         return true;
     }
 }

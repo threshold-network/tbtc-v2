@@ -42,7 +42,7 @@ contract NativeBTCDepositor is AbstractL1BTCDepositor {
     uint96 public minStakeForWaiver;
 
     /// @notice Emitted when the rebate staking contract is updated by the owner.
-    event RebateStakingUpdated(address rebateStaking);
+    event RebateStakingUpdated(address indexed rebateStaking);
 
     /// @notice Emitted when the minimum stake threshold is updated by the owner.
     event MinStakeForWaiverUpdated(uint96 minStakeForWaiver);
@@ -119,9 +119,8 @@ contract NativeBTCDepositor is AbstractL1BTCDepositor {
     ///      `destinationChainDepositOwner`.
     function _isTxMaxFeeReimbursementEligible(
         bytes32 destinationChainDepositOwner,
-        uint256 txMaxFee
+        uint256 /* txMaxFee */
     ) internal view override returns (bool) {
-        txMaxFee;
         IRebateStaking _rebateStaking = rebateStaking;
         if (address(_rebateStaking) == address(0)) {
             return true;
