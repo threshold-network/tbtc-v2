@@ -344,9 +344,23 @@ library Deposit {
         deposit.extraData = extraData;
 
         if (deposit.treasuryFee > 0 && self.rebateStaking != address(0)) {
+            // By default the rebate is keyed off the depositor (msg.sender).
+            // When the depositor is an allowlisted "sponsored" relay (e.g.
+            // NativeBTCDepositor) and an `extraData` payload is present,
+            // route the rebate to the L1 receiver encoded in `extraData`
+            // instead of to the relay contract, which has no stake of its
+            // own. `deposit.depositor` itself stays as the relay so refund
+            // and finalize accounting are unchanged.
+            address rebateStaker = deposit.depositor;
+            if (
+                extraData != bytes32(0) && self.sponsoredDepositors[msg.sender]
+            ) {
+                rebateStaker = address(uint160(uint256(extraData)));
+            }
+
             deposit.treasuryFee = RebateStaking(self.rebateStaking)
                 .applyForRebate(
-                    deposit.depositor,
+                    rebateStaker,
                     deposit.treasuryFee,
                     RebateStaking.TreasuryFeeType.Deposit
                 );

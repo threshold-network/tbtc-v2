@@ -1254,6 +1254,160 @@ describe("Bridge - Deposit", () => {
                     })
                   })
 
+                  context(
+                    "when depositor is on the sponsored depositor allowlist",
+                    () => {
+                      // The fixture's `extraData` is a fixed 32-byte value
+                      // embedded in the Bitcoin script; its low 20 bytes give
+                      // the L1 receiver address whose stake should be
+                      // honored when the depositor is on the allowlist.
+                      const receiverAddress = ethers.utils.getAddress(
+                        `0x${extraData.slice(-40)}`
+                      )
+                      const stakeAmount = to1e18(5)
+
+                      let receiver: SignerWithAddress
+                      let depositorAvailableBefore: BigNumber
+                      let receiverAvailableBefore: BigNumber
+
+                      before(async () => {
+                        await createSnapshot()
+
+                        // Allowlist the depositor that the existing fixture
+                        // already impersonates as the reveal caller. Goes
+                        // through `BridgeGovernance` because Bridge governance
+                        // is still held by that contract in this fixture.
+                        await bridgeGovernance
+                          .connect(governance)
+                          .setSponsoredDepositor(depositor.address, true)
+
+                        // Fund the receiver-impersonating account with ETH so
+                        // it can pay gas, then mint and stake T from it.
+                        receiver = await impersonateAccount(receiverAddress, {
+                          from: governance,
+                          value: 10,
+                        })
+                        await t
+                          .connect(deployer)
+                          .mint(receiver.address, stakeAmount)
+                        await t
+                          .connect(receiver)
+                          .approve(rebateStaking.address, stakeAmount)
+                        await rebateStaking.connect(receiver).stake(stakeAmount)
+
+                        depositorAvailableBefore =
+                          await rebateStaking.getAvailableRebate(
+                            depositor.address
+                          )
+                        receiverAvailableBefore =
+                          await rebateStaking.getAvailableRebate(
+                            receiver.address
+                          )
+
+                        await bridge
+                          .connect(depositor)
+                          .revealDepositWithExtraData(
+                            P2SHFundingTx,
+                            reveal,
+                            extraData
+                          )
+                      })
+
+                      after(async () => {
+                        await restoreSnapshot()
+                      })
+
+                      it("should consume rebate from the receiver, not the depositor", async () => {
+                        const depositorAvailableAfter =
+                          await rebateStaking.getAvailableRebate(
+                            depositor.address
+                          )
+                        const receiverAvailableAfter =
+                          await rebateStaking.getAvailableRebate(
+                            receiver.address
+                          )
+
+                        expect(receiverAvailableAfter).to.be.lt(
+                          receiverAvailableBefore
+                        )
+                        expect(depositorAvailableAfter).to.equal(
+                          depositorAvailableBefore
+                        )
+                      })
+
+                      it("should still record deposit.depositor as the depositor contract", async () => {
+                        const depositKey = ethers.utils.solidityKeccak256(
+                          ["bytes32", "uint32"],
+                          [
+                            "0x6383cd1829260b6034cd12bad36171748e8c3c6a8d57fcb6463c62f96116dfbc",
+                            reveal.fundingOutputIndex,
+                          ]
+                        )
+                        const deposit = await bridge.deposits(depositKey)
+                        expect(deposit.depositor).to.equal(depositor.address)
+                        expect(deposit.extraData).to.equal(extraData)
+                      })
+                    }
+                  )
+
+                  context(
+                    "when depositor is not on the sponsored depositor allowlist",
+                    () => {
+                      // Same setup as the sponsored case but without
+                      // allowlisting the depositor. The rebate should fall
+                      // back to the depositor identity (unchanged behavior),
+                      // and the L1 receiver's stake should be untouched.
+                      const receiverAddress = ethers.utils.getAddress(
+                        `0x${extraData.slice(-40)}`
+                      )
+                      const stakeAmount = to1e18(5)
+
+                      let receiver: SignerWithAddress
+                      let receiverAvailableBefore: BigNumber
+
+                      before(async () => {
+                        await createSnapshot()
+
+                        receiver = await impersonateAccount(receiverAddress, {
+                          from: governance,
+                          value: 10,
+                        })
+                        await t
+                          .connect(deployer)
+                          .mint(receiver.address, stakeAmount)
+                        await t
+                          .connect(receiver)
+                          .approve(rebateStaking.address, stakeAmount)
+                        await rebateStaking.connect(receiver).stake(stakeAmount)
+
+                        receiverAvailableBefore =
+                          await rebateStaking.getAvailableRebate(
+                            receiver.address
+                          )
+
+                        await bridge
+                          .connect(depositor)
+                          .revealDepositWithExtraData(
+                            P2SHFundingTx,
+                            reveal,
+                            extraData
+                          )
+                      })
+
+                      after(async () => {
+                        await restoreSnapshot()
+                      })
+
+                      it("should leave the receiver's rebate untouched", async () => {
+                        expect(
+                          await rebateStaking.getAvailableRebate(
+                            receiver.address
+                          )
+                        ).to.equal(receiverAvailableBefore)
+                      })
+                    }
+                  )
+
                   context("when deposit is not routed to a vault", () => {
                     let tx: ContractTransaction
                     let nonRoutedReveal: DepositRevealInfoStruct

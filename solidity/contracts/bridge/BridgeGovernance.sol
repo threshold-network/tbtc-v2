@@ -1807,4 +1807,17 @@ contract BridgeGovernance is Ownable {
     function setRebateStaking(address rebateStaking) external onlyOwner {
         bridge.setRebateStaking(rebateStaking);
     }
+
+    /// @notice Forwards a sponsored-depositor allowlist toggle to the
+    ///         underlying Bridge implementation.
+    /// @param depositor Address of the depositor contract.
+    /// @param sponsored New allowlist membership.
+    /// @dev Requirements:
+    ///      - The caller must be the owner.
+    function setSponsoredDepositor(address depositor, bool sponsored)
+        external
+        onlyOwner
+    {
+        bridge.setSponsoredDepositor(depositor, sponsored);
+    }
 }
