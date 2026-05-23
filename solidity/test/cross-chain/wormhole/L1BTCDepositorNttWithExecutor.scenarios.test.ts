@@ -90,7 +90,10 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
       // Set up executor parameters using real signed quote
       await depositor
         .connect(user)
-        .setExecutorParameters(EXECUTOR_ARGS_REAL_QUOTE, FEE_ARGS_ZERO)
+        .setExecutorParameters(
+          { ...EXECUTOR_ARGS_REAL_QUOTE, refundAddress: user.address },
+          FEE_ARGS_ZERO
+        )
 
       // Test quotes for different chains - will fail because we're using mock addresses
       await expect(
@@ -281,7 +284,10 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
       // Set valid parameters using real signed quote
       await depositor
         .connect(user)
-        .setExecutorParameters(EXECUTOR_ARGS_REAL_QUOTE, FEE_ARGS_ZERO)
+        .setExecutorParameters(
+          { ...EXECUTOR_ARGS_REAL_QUOTE, refundAddress: user.address },
+          FEE_ARGS_ZERO
+        )
 
       // Verify that executor parameters are now set
       const [isSet2] = await depositor.connect(user).areExecutorParametersSet()
@@ -294,7 +300,10 @@ describe("L1BTCDepositorNttWithExecutor - Real-World Scenarios", () => {
       // Use real signed quote
       await depositor
         .connect(user)
-        .setExecutorParameters(EXECUTOR_ARGS_REAL_QUOTE, FEE_ARGS_ZERO)
+        .setExecutorParameters(
+          { ...EXECUTOR_ARGS_REAL_QUOTE, refundAddress: user.address },
+          FEE_ARGS_ZERO
+        )
 
       // Try to quote for unsupported chain (should fail)
       // Note: This will fail with CALL_EXCEPTION because we're using mock addresses

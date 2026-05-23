@@ -90,7 +90,10 @@ describe("L1BTCDepositorNttWithExecutor - Integration Tests", () => {
       // Set up executor parameters using real signed quote
       await depositor
         .connect(user)
-        .setExecutorParameters(EXECUTOR_ARGS_REAL_QUOTE, FEE_ARGS_ZERO)
+        .setExecutorParameters(
+          { ...EXECUTOR_ARGS_REAL_QUOTE, refundAddress: user.address },
+          FEE_ARGS_ZERO
+        )
       const [isSet] = await depositor.connect(user).areExecutorParametersSet()
       expect(isSet).to.be.true
 

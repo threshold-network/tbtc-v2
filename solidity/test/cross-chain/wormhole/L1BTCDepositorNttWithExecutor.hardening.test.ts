@@ -3,6 +3,7 @@ import { expect } from "chai"
 import type {
   MockNttManager,
   MockNttManagerWithExecutor,
+  MockRefundRejector,
   MockTBTCBridge,
   MockTBTCVault,
   TestERC20,
@@ -123,7 +124,7 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
           DEFAULT_NONCE,
           { value: requiredPayment.sub(1) }
         )
-    ).to.be.revertedWith("Incorrect payment for executor service")
+    ).to.be.revertedWith("Insufficient payment for executor service")
 
     // Exact payment succeeds
     await expect(
@@ -236,5 +237,167 @@ describe("L1BTCDepositorNttWithExecutor - hardening", () => {
           { value: requiredPayment }
         )
     ).to.be.revertedWith("Fee payee must be zero when fee is zero")
+  })
+
+  context("when a non-zero executor fee default is configured", () => {
+    const nonZeroFeeBps = 50
+    let feeRecipient: string
+
+    beforeEach(async () => {
+      const [deployer, , , recipientSigner] = await ethers.getSigners()
+      feeRecipient = recipientSigner.address
+      // setDefaultParameters(gasLimit, feeBps, feeRecipient, platformFeeBps, platformFeeRecipient)
+      await depositor
+        .connect(deployer)
+        .setDefaultParameters(
+          100_000,
+          nonZeroFeeBps,
+          feeRecipient,
+          0,
+          ethers.constants.AddressZero
+        )
+    })
+
+    it("should accept fee args that match the configured default", async () => {
+      const [, user] = await ethers.getSigners()
+      const args = executorArgs(user.address)
+      const receiver = encodeDestinationChainReceiver(
+        WORMHOLE_CHAIN_SEI,
+        user.address
+      )
+      const feeArgs = {
+        dbps: nonZeroFeeBps,
+        payee: feeRecipient,
+      }
+      const requiredPayment = await nttManagerWithExecutor.quoteDeliveryPrice(
+        underlyingNttManager.address,
+        WORMHOLE_CHAIN_SEI,
+        "0x",
+        args,
+        feeArgs
+      )
+
+      await expect(
+        depositor
+          .connect(user)
+          .transferTbtcWithExecutor(
+            ethers.utils.parseEther("1"),
+            receiver,
+            args,
+            feeArgs,
+            DEFAULT_NONCE,
+            { value: requiredPayment }
+          )
+      ).to.emit(depositor, "TokensTransferredNttWithExecutor")
+    })
+
+    it("should reject a payee that does not match the configured default", async () => {
+      const [, user, , , imposter] = await ethers.getSigners()
+      const args = executorArgs(user.address)
+      const receiver = encodeDestinationChainReceiver(
+        WORMHOLE_CHAIN_SEI,
+        user.address
+      )
+      const feeArgs = {
+        dbps: nonZeroFeeBps,
+        payee: imposter.address, // wrong payee
+      }
+      const requiredPayment = await nttManagerWithExecutor.quoteDeliveryPrice(
+        underlyingNttManager.address,
+        WORMHOLE_CHAIN_SEI,
+        "0x",
+        args,
+        feeArgs
+      )
+
+      await expect(
+        depositor
+          .connect(user)
+          .transferTbtcWithExecutor(
+            ethers.utils.parseEther("1"),
+            receiver,
+            args,
+            feeArgs,
+            DEFAULT_NONCE,
+            { value: requiredPayment }
+          )
+      ).to.be.revertedWith(
+        "Fee payee must match default executor fee recipient"
+      )
+    })
+  })
+
+  it("should revert when refunding overpayment fails", async () => {
+    const [, user] = await ethers.getSigners()
+    const RejectorFactory = await ethers.getContractFactory(
+      "MockRefundRejector"
+    )
+    const rejector = (await RejectorFactory.connect(user).deploy(
+      depositor.address
+    )) as MockRefundRejector
+    const args = executorArgs(rejector.address)
+    const receiver = encodeDestinationChainReceiver(
+      WORMHOLE_CHAIN_SEI,
+      user.address
+    )
+    const requiredPayment = await nttManagerWithExecutor.quoteDeliveryPrice(
+      underlyingNttManager.address,
+      WORMHOLE_CHAIN_SEI,
+      "0x",
+      args,
+      zeroFeeArgs
+    )
+    const overpayment = requiredPayment.add(ethers.utils.parseEther("0.05"))
+
+    await expect(
+      rejector
+        .connect(user)
+        .callTransfer(
+          ethers.utils.parseEther("1"),
+          receiver,
+          args,
+          zeroFeeArgs,
+          DEFAULT_NONCE,
+          { value: overpayment }
+        )
+    ).to.be.revertedWith("ETH refund failed")
+  })
+
+  describe("setExecutorParameters (stage-time validation)", () => {
+    const validSignedQuote = `0x${"a".repeat(64)}`
+    const validInstructions = `0x${"b".repeat(32)}`
+
+    // Only the refund-address binding is enforced at stage time. Fee bps and
+    // payee equality are enforced at finalize time so admins can rotate the
+    // defaults without invalidating in-flight staged params.
+    it("should revert when refundAddress is not the caller", async () => {
+      const [, user, attacker] = await ethers.getSigners()
+      await expect(
+        depositor.connect(user).setExecutorParameters(
+          {
+            value: ethers.utils.parseEther("0.01"),
+            refundAddress: attacker.address, // not the caller
+            signedQuote: validSignedQuote,
+            instructions: validInstructions,
+          },
+          { dbps: 0, payee: ethers.constants.AddressZero }
+        )
+      ).to.be.revertedWith("Executor refund address must be caller")
+    })
+
+    it("should accept valid params and emit the staged event", async () => {
+      const [, user] = await ethers.getSigners()
+      await expect(
+        depositor.connect(user).setExecutorParameters(
+          {
+            value: ethers.utils.parseEther("0.01"),
+            refundAddress: user.address,
+            signedQuote: validSignedQuote,
+            instructions: validInstructions,
+          },
+          { dbps: 0, payee: ethers.constants.AddressZero }
+        )
+      ).to.emit(depositor, "ExecutorParametersSet")
+    })
   })
 })

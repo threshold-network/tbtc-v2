@@ -141,11 +141,18 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
     })
 
     it("should track nonce sequences per user", async () => {
-      const executorArgs = {
+      const baseExecutorArgs = {
         value: ethers.utils.parseEther("0.01"),
-        refundAddress: user1.address,
         signedQuote: ethers.utils.formatBytes32String("quote"),
         instructions: "0x",
+      }
+      const user1ExecutorArgs = {
+        ...baseExecutorArgs,
+        refundAddress: user1.address,
+      }
+      const user2ExecutorArgs = {
+        ...baseExecutorArgs,
+        refundAddress: user2.address,
       }
 
       const feeArgs = {
@@ -156,7 +163,7 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
       // User 1 sets parameters multiple times (clearing between calls)
       await depositor
         .connect(user1)
-        .setExecutorParameters(executorArgs, feeArgs)
+        .setExecutorParameters(user1ExecutorArgs, feeArgs)
 
       // getUserNonceSequence was removed to reduce contract size
       // Nonce tracking is still internal, just not exposed via getter
@@ -165,12 +172,12 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
       await depositor.connect(user1).clearExecutorParameters()
       await depositor
         .connect(user1)
-        .setExecutorParameters(executorArgs, feeArgs)
+        .setExecutorParameters(user1ExecutorArgs, feeArgs)
 
       // User 2's sequence should be independent
       await depositor
         .connect(user2)
-        .setExecutorParameters(executorArgs, feeArgs)
+        .setExecutorParameters(user2ExecutorArgs, feeArgs)
 
       // Verify parameters were set successfully by checking from each user's context
       const [isSet1] = await depositor.connect(user1).areExecutorParametersSet()

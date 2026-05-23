@@ -456,7 +456,12 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @param executorArgs Real executor arguments with valid signed quote from Wormhole Executor API
     /// @param feeArgs Fee arguments for the executor service
     /// @return nonce The nonce hash for these parameters (for informational purposes)
-    /// @dev Must be called before finalizeDeposit() to provide real signed quote
+    /// @dev Must be called before finalizeDeposit() to provide real signed quote.
+    ///      The refund address is bound to the staging caller; fee bps / payee
+    ///      must match the owner-configured defaults, but that equality is only
+    ///      enforced at finalize time (`_validateExecutorParameters`) so admins
+    ///      can rotate defaults without invalidating in-flight staged params
+    ///      until they're actually used.
     function setExecutorParameters(
         ExecutorArgs memory executorArgs,
         FeeArgs memory feeArgs
@@ -467,6 +472,14 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
             "Real signed quote from Wormhole Executor API is required"
         );
         _validateSignedQuoteFormat(executorArgs.signedQuote);
+
+        // Bind the refund address to the staging caller at stage time. The
+        // remaining fee / payee equality checks happen at finalize time inside
+        // `_validateExecutorParameters`.
+        require(
+            executorArgs.refundAddress == msg.sender,
+            "Executor refund address must be caller"
+        );
 
         // Validate fee basis points
         require(feeArgs.dbps <= MAX_BPS, "Fee cannot exceed 100% (10000 bps)");
@@ -842,17 +855,24 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
             "Executor parameters expired"
         );
 
-        // Call internal transfer with stored parameters
+        // Cache the parameters we need before clearing storage so the
+        // post-clear external call still sees the staged values.
+        ExecutorArgs memory cachedExecutorArgs = params.executorArgs;
+        FeeArgs memory cachedFeeArgs = params.feeArgs;
+
+        // Clear parameters BEFORE the external call so a reentrant call
+        // path (e.g. via the ETH refund inside `_transferTbtcWithExecutor`)
+        // cannot replay the same staged parameters against a second deposit.
+        delete parametersByNonce[latestNonce];
+
+        // Call internal transfer with the cached parameters
         _transferTbtcWithExecutor(
             amount,
             destinationChainReceiver,
-            params.executorArgs,
-            params.feeArgs,
+            cachedExecutorArgs,
+            cachedFeeArgs,
             latestNonce
         );
-
-        // Clear parameters after use to prevent reuse
-        delete parametersByNonce[latestNonce];
     }
 
     /// @notice Enhanced transfer function that requires real executor parameters
@@ -900,17 +920,8 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
 
         require(
             msg.value >= requiredPayment,
-            "Incorrect payment for executor service"
+            "Insufficient payment for executor service"
         );
-
-        if (msg.value > requiredPayment) {
-            // slither-disable-next-line arbitrary-send-eth
-            // solhint-disable-next-line avoid-low-level-calls
-            (bool ok, ) = payable(msg.sender).call{
-                value: msg.value - requiredPayment
-            }("");
-            require(ok, "ETH refund failed");
-        }
 
         // Approve the NttManagerWithExecutor to spend tBTC
         tbtcToken.safeIncreaseAllowance( // slither-disable-line reentrancy-vulnerabilities-3
@@ -940,6 +951,20 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
             destinationChainReceiver,
             msg.value
         );
+
+        // Refund any executor-payment overage to the caller as the very last
+        // step. Placed after emit so the contract finishes its checks and
+        // effects before re-entering an untrusted caller; the staged
+        // parameters were already deleted in `_transferTbtc` before we got
+        // here, so a reentrant call cannot replay them.
+        if (msg.value > requiredPayment) {
+            // slither-disable-next-line arbitrary-send-eth
+            // solhint-disable-next-line avoid-low-level-calls
+            (bool ok, ) = payable(msg.sender).call{
+                value: msg.value - requiredPayment
+            }("");
+            require(ok, "ETH refund failed");
+        }
     }
 
     /// @notice Extract destination chain from encoded receiver address

@@ -345,7 +345,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
   describe("Basis Points Validation", () => {
     it("should reject fee basis points exceeding 10000 in setExecutorParameters", async () => {
-      const executorArgs = createExecutorArgs()
+      const executorArgs = createExecutorArgs({ refundAddress: owner.address })
       const invalidFeeArgs = {
         dbps: 10001, // Exceeds 10% (10001/100000)
         payee: ethers.Wallet.createRandom().address,
@@ -416,7 +416,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       // Set a default platform fee
       await depositor.setDefaultPlatformFeeBps(100) // 0.1% (100/100000)
 
-      const executorArgs = createExecutorArgs()
+      const executorArgs = createExecutorArgs({ refundAddress: owner.address })
       const invalidFeeArgs = {
         dbps: 50, // 0.05% (50/100000) - below default of 0.1%
         payee: ethers.Wallet.createRandom().address,
@@ -431,7 +431,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       // Set a default platform fee
       await depositor.setDefaultPlatformFeeBps(100) // 0.1% (100/100000)
 
-      const executorArgs = createExecutorArgs()
+      const executorArgs = createExecutorArgs({ refundAddress: owner.address })
       const validFeeArgs = {
         dbps: 100, // 0.1% (100/100000) - equal to default
         payee: ethers.Wallet.createRandom().address,
@@ -445,7 +445,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       // Set a default platform fee
       await depositor.setDefaultPlatformFeeBps(100) // 0.1% (100/100000)
 
-      const executorArgs = createExecutorArgs()
+      const executorArgs = createExecutorArgs({ refundAddress: owner.address })
       const validFeeArgs = {
         dbps: 200, // 0.2% (200/100000) - above default
         payee: ethers.Wallet.createRandom().address,
@@ -459,7 +459,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       // Ensure default platform fee is 0
       await depositor.setDefaultPlatformFeeBps(0)
 
-      const executorArgs = createExecutorArgs()
+      const executorArgs = createExecutorArgs({ refundAddress: owner.address })
       const validFeeArgs = {
         dbps: 0, // 0% - should work when default is also 0
         payee: ethers.constants.AddressZero,
