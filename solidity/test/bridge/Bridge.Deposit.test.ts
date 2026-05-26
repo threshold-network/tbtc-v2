@@ -473,6 +473,33 @@ describe("Bridge - Deposit", () => {
                       })
                     }
                   )
+
+                  context(
+                    "when depositor is on the sponsored depositor allowlist",
+                    () => {
+                      before(async () => {
+                        await createSnapshot()
+
+                        await bridgeGovernance
+                          .connect(governance)
+                          .setSponsoredDepositor(depositor.address, true)
+                      })
+
+                      after(async () => {
+                        await restoreSnapshot()
+                      })
+
+                      it("should revert because extraData is required", async () => {
+                        await expect(
+                          bridge
+                            .connect(depositor)
+                            .revealDeposit(P2SHFundingTx, reveal)
+                        ).to.be.revertedWith(
+                          "Sponsored depositor must provide extraData"
+                        )
+                      })
+                    }
+                  )
                 })
 
                 context("when deposit is not routed to a vault", () => {

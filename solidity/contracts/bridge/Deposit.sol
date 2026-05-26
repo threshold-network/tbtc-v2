@@ -352,10 +352,17 @@ library Deposit {
             // own. `deposit.depositor` itself stays as the relay so refund
             // and finalize accounting are unchanged.
             address rebateStaker = deposit.depositor;
-            if (
-                extraData != bytes32(0) && self.sponsoredDepositors[msg.sender]
-            ) {
-                rebateStaker = address(uint160(uint256(extraData)));
+            if (self.sponsoredDepositors[msg.sender]) {
+                require(
+                    extraData != bytes32(0),
+                    "Sponsored depositor must provide extraData"
+                );
+                address decoded = address(uint160(uint256(extraData)));
+                require(
+                    decoded != address(0),
+                    "Sponsored extraData decodes to zero"
+                );
+                rebateStaker = decoded;
             }
 
             deposit.treasuryFee = RebateStaking(self.rebateStaking)
