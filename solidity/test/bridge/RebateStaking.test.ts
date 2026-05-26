@@ -981,7 +981,10 @@ describe("RebateStaking", () => {
         authorization: "0x",
       })
 
-      await bridge.cancelCrossChainRebate(thirdParty.address, actionId1)
+      const tx = await bridge.cancelCrossChainRebate(
+        thirdParty.address,
+        actionId1
+      )
 
       expect(
         (await rebateStaking.getRebate(thirdParty.address, 0)).feeRebate
@@ -989,6 +992,103 @@ describe("RebateStaking", () => {
       expect(
         (await rebateStaking.getRebate(thirdParty.address, 1)).feeRebate
       ).to.equal(200)
+
+      await expect(tx)
+        .to.emit(rebateStaking, "CrossChainRebateCancelRequested")
+        .withArgs(thirdParty.address, actionId1)
+      await expect(tx)
+        .to.emit(rebateStaking, "CrossChainRebateCanceled")
+        .withArgs(thirdParty.address, actionId1, 100)
+    })
+
+    it("should revert when canceling with zero action ID", async () => {
+      await expect(
+        bridge.cancelCrossChainRebate(
+          thirdParty.address,
+          ethers.constants.HashZero
+        )
+      ).to.be.revertedWith("InvalidCrossChainRebateContext")
+    })
+
+    it("should emit only the request event when no matching rebate exists", async () => {
+      await rebateStaking
+        .connect(deployer)
+        .setImplicitSameAddressAuthorization(sourceChainId, true)
+
+      const recordedActionId = ethers.utils.keccak256(
+        ethers.utils.toUtf8Bytes("recorded-action")
+      )
+      const missingActionId = ethers.utils.keccak256(
+        ethers.utils.toUtf8Bytes("never-recorded-action")
+      )
+
+      await bridge.applyForCrossChainRebate(thirdParty.address, 100, 0, {
+        sourceChainId,
+        l2User: thirdParty.address,
+        flowType: depositFlowType,
+        actionId: recordedActionId,
+        maxRebateSat: 100,
+        authorization: "0x",
+      })
+
+      const tx = await bridge.cancelCrossChainRebate(
+        thirdParty.address,
+        missingActionId
+      )
+
+      await expect(tx)
+        .to.emit(rebateStaking, "CrossChainRebateCancelRequested")
+        .withArgs(thirdParty.address, missingActionId)
+      await expect(tx).to.not.emit(rebateStaking, "CrossChainRebateCanceled")
+
+      expect(
+        (await rebateStaking.getRebate(thirdParty.address, 0)).feeRebate
+      ).to.equal(100)
+    })
+
+    it("should emit only the request event when the beneficiary never staked", async () => {
+      const actionId = ethers.utils.keccak256(
+        ethers.utils.toUtf8Bytes("unstaked-action")
+      )
+
+      const tx = await bridge.cancelCrossChainRebate(deployer.address, actionId)
+
+      await expect(tx)
+        .to.emit(rebateStaking, "CrossChainRebateCancelRequested")
+        .withArgs(deployer.address, actionId)
+      await expect(tx).to.not.emit(rebateStaking, "CrossChainRebateCanceled")
+    })
+
+    it("should emit only the request event when the rebate has aged out of the rolling window", async () => {
+      await rebateStaking
+        .connect(deployer)
+        .setImplicitSameAddressAuthorization(sourceChainId, true)
+
+      const actionId = ethers.utils.keccak256(
+        ethers.utils.toUtf8Bytes("aged-out-action")
+      )
+
+      await bridge.applyForCrossChainRebate(thirdParty.address, 100, 0, {
+        sourceChainId,
+        l2User: thirdParty.address,
+        flowType: depositFlowType,
+        actionId,
+        maxRebateSat: 100,
+        authorization: "0x",
+      })
+
+      const rollingWindow = (await rebateStaking.rollingWindow()).toNumber()
+      await increaseTime(rollingWindow + 1)
+
+      const tx = await bridge.cancelCrossChainRebate(
+        thirdParty.address,
+        actionId
+      )
+
+      await expect(tx)
+        .to.emit(rebateStaking, "CrossChainRebateCancelRequested")
+        .withArgs(thirdParty.address, actionId)
+      await expect(tx).to.not.emit(rebateStaking, "CrossChainRebateCanceled")
     })
   })
 
