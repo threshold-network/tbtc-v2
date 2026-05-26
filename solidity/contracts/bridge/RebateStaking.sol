@@ -156,6 +156,10 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         uint256 nonce,
         bytes32 indexed actionId
     );
+    event CrossChainRebateCancelRequested(
+        address indexed beneficiary,
+        bytes32 indexed actionId
+    );
     event CrossChainRebateCanceled(
         address indexed beneficiary,
         bytes32 indexed actionId,
@@ -778,6 +782,8 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         if (actionId == bytes32(0)) {
             revert InvalidCrossChainRebateContext();
         }
+
+        emit CrossChainRebateCancelRequested(beneficiary, actionId);
 
         address staker = getStaker(beneficiary);
         Stake storage stakeInfo = stakes[staker];
