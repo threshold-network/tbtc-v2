@@ -854,8 +854,10 @@ Contract tests must cover:
   and in-flight L2 flows succeeding without rebates.
 - `maxCrossChainRebateSat[chain][feeType]` is applied even when signed
   `maxRebateSat` is higher.
-- `minCrossChainRebateSat[chain][feeType]` rejects or skips uneconomical rebate
-  use according to the implementation decision.
+- `minCrossChainRebateSat[chain][feeType]` skips uneconomical rebate use: the
+  flow returns the original treasury fee without consuming the authorization
+  nonce, so the user can retry later when capacity or caps permit a larger
+  rebate.
 - Rebate capacity cannot be double-spent across L1 direct, L2 mint, and L2
   redeem flows.
 - Two redemptions in the same block from the same beneficiary both cancel
@@ -867,8 +869,6 @@ Contract tests must cover:
 
 The following details should be decided during implementation:
 
-1. Whether `minCrossChainRebateSat` should skip rebate application or reject the
-   rebate-aware path.
-2. Whether L1 redeemer timeout refunds should be one-at-a-time or batchable.
-3. Whether `authorizationDomainVersion` is needed for emergency invalidation or
+1. Whether L1 redeemer timeout refunds should be one-at-a-time or batchable.
+2. Whether `authorizationDomainVersion` is needed for emergency invalidation or
    can be omitted.
