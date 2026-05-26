@@ -737,16 +737,22 @@ consume rebate capacity.
 For each Arbitrum/Base environment:
 
 1. Deploy or upgrade the L1 and L2 depositor/redeemer contracts.
-2. Configure L1 redeemer timeout refund routes for the source chain.
-3. Set `supportedSourceChain[sourceChainId] = true`.
-4. Set deposit and redemption `maxCrossChainRebateSat` and
+2. Call `L1BTCRedeemerWormhole.setWormhole(_wormhole, _senders, _wormholeChainIds)`
+   to bind the Wormhole Core reference and the emitter-chain ID of every
+   currently-allowed sender. Until this is called, the redeemer skips the
+   VAA `emitterChainId` check for backward compatibility with pre-V2
+   deployments; the rebate-aware path must not be enabled on a redeemer whose
+   Wormhole Core reference is still unset.
+3. Configure L1 redeemer timeout refund routes for the source chain.
+4. Set `supportedSourceChain[sourceChainId] = true`.
+5. Set deposit and redemption `maxCrossChainRebateSat` and
    `minCrossChainRebateSat`, with `min <= max`.
-5. Authorize the L1 depositor and L1 redeemer with
+6. Authorize the L1 depositor and L1 redeemer with
    `setCrossChainIntegrator(integrator, true, evmSourceChainId, wormholeChainId)`.
-6. Keep `implicitSameAddressEnabled[sourceChainId] = false` unless governance has
+7. Keep `implicitSameAddressEnabled[sourceChainId] = false` unless governance has
    explicitly approved implicit deposit mode for that chain. L2 redemption
    rebates still require signed authorization.
-7. Enable `crossChainRebatesEnabled`.
+8. Enable `crossChainRebatesEnabled`.
 
 The initial Arbitrum and Base L1 depositor implementations map Wormhole chain
 IDs to EVM source chain IDs in code. Adding another EVM L2 therefore requires a
