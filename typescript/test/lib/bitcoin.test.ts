@@ -213,15 +213,25 @@ describe("Bitcoin", () => {
 
   describe("BitcoinAddressConverter", () => {
     const publicKeyHash = Hex.from("3a38d44d6a0c8d0bb84e0232cc632b7e48c72e0e")
+    const taprootOutputKey = Hex.from(
+      "11223344556677889900aabbccddeeff00112233445566778899aabbccddeeff"
+    )
     const P2WPKHAddress = "bc1q8gudgnt2pjxshwzwqgevccet0eyvwtswt03nuy"
     const P2PKHAddress = "16JrGhLx5bcBSA34kew9V6Mufa4aXhFe9X"
+    const P2TRAddress =
+      "bc1pzy3rx3z4vemc3xgq42aueh0wluqpzg3ng32kvaugnx4thnxaamlspzczex"
     const P2WPKHAddressTestnet = "tb1q8gudgnt2pjxshwzwqgevccet0eyvwtswpf2q8h"
     const P2PKHAddressTestnet = "mkpoZkRvtd3SDGWgUDuXK1aEXZfHRM2gKw"
+    const P2TRAddressTestnet =
+      "tb1pzy3rx3z4vemc3xgq42aueh0wluqpzg3ng32kvaugnx4thnxaamlsk2wdrf"
 
     const {
       publicKeyToAddress,
       publicKeyHashToAddress,
       addressToPublicKeyHash,
+      taprootOutputKeyToAddress,
+      addressToTaprootOutputKey,
+      taprootOutputKeyToWalletPublicKeyHash,
       addressToOutputScript,
       outputScriptToAddress,
     } = BitcoinAddressConverter
@@ -410,6 +420,17 @@ describe("Bitcoin", () => {
           })
         })
 
+        context("when proper P2TR address is provided", () => {
+          it("should derive compatibility wallet public key hash", () => {
+            const expectedPubKeyHash =
+              taprootOutputKeyToWalletPublicKeyHash(taprootOutputKey)
+
+            expect(
+              addressToPublicKeyHash(P2TRAddress, BitcoinNetwork.Mainnet)
+            ).to.be.deep.equal(expectedPubKeyHash)
+          })
+        })
+
         context("when wrong address is provided", () => {
           it("should throw", () => {
             const bitcoinAddress = "123" + P2PKHAddress
@@ -417,7 +438,7 @@ describe("Bitcoin", () => {
             expect(() =>
               addressToPublicKeyHash(bitcoinAddress, BitcoinNetwork.Mainnet)
             ).to.throw(
-              "Address must be P2PKH or P2WPKH valid for given network"
+              "Address must be P2PKH or P2WPKH or P2TR valid for given network"
             )
           })
         })
@@ -430,7 +451,7 @@ describe("Bitcoin", () => {
                 BitcoinNetwork.Mainnet
               )
             ).to.throw(
-              "Address must be P2PKH or P2WPKH valid for given network"
+              "Address must be P2PKH or P2WPKH or P2TR valid for given network"
             )
           })
         })
@@ -443,7 +464,7 @@ describe("Bitcoin", () => {
                 BitcoinNetwork.Mainnet
               )
             ).to.throw(
-              "Address must be P2PKH or P2WPKH valid for given network"
+              "Address must be P2PKH or P2WPKH or P2TR valid for given network"
             )
           })
         })
@@ -456,7 +477,7 @@ describe("Bitcoin", () => {
                 BitcoinNetwork.Mainnet
               )
             ).to.throw(
-              "Address must be P2PKH or P2WPKH valid for given network"
+              "Address must be P2PKH or P2WPKH or P2TR valid for given network"
             )
           })
         })
@@ -485,6 +506,17 @@ describe("Bitcoin", () => {
           })
         })
 
+        context("when proper P2TR address is provided", () => {
+          it("should derive compatibility wallet public key hash", () => {
+            const expectedPubKeyHash =
+              taprootOutputKeyToWalletPublicKeyHash(taprootOutputKey)
+
+            expect(
+              addressToPublicKeyHash(P2TRAddressTestnet, BitcoinNetwork.Testnet)
+            ).to.be.deep.equal(expectedPubKeyHash)
+          })
+        })
+
         context("when wrong address is provided", () => {
           it("should throw", () => {
             const bitcoinAddress = "123" + P2PKHAddressTestnet
@@ -492,7 +524,7 @@ describe("Bitcoin", () => {
             expect(() =>
               addressToPublicKeyHash(bitcoinAddress, BitcoinNetwork.Testnet)
             ).to.throw(
-              "Address must be P2PKH or P2WPKH valid for given network"
+              "Address must be P2PKH or P2WPKH or P2TR valid for given network"
             )
           })
         })
@@ -505,7 +537,7 @@ describe("Bitcoin", () => {
                 BitcoinNetwork.Testnet
               )
             ).to.throw(
-              "Address must be P2PKH or P2WPKH valid for given network"
+              "Address must be P2PKH or P2WPKH or P2TR valid for given network"
             )
           })
         })
@@ -518,7 +550,7 @@ describe("Bitcoin", () => {
                 BitcoinNetwork.Testnet
               )
             ).to.throw(
-              "Address must be P2PKH or P2WPKH valid for given network"
+              "Address must be P2PKH or P2WPKH or P2TR valid for given network"
             )
           })
         })
@@ -531,10 +563,44 @@ describe("Bitcoin", () => {
                 BitcoinNetwork.Testnet
               )
             ).to.throw(
-              "Address must be P2PKH or P2WPKH valid for given network"
+              "Address must be P2PKH or P2WPKH or P2TR valid for given network"
             )
           })
         })
+      })
+    })
+
+    describe("taprootOutputKeyToAddress", () => {
+      it("encodes output key to mainnet P2TR address", () => {
+        expect(
+          taprootOutputKeyToAddress(taprootOutputKey, BitcoinNetwork.Mainnet)
+        ).to.eq(P2TRAddress)
+      })
+
+      it("encodes output key to testnet P2TR address", () => {
+        expect(
+          taprootOutputKeyToAddress(taprootOutputKey, BitcoinNetwork.Testnet)
+        ).to.eq(P2TRAddressTestnet)
+      })
+    })
+
+    describe("addressToTaprootOutputKey", () => {
+      it("decodes mainnet P2TR address", () => {
+        expect(
+          addressToTaprootOutputKey(P2TRAddress, BitcoinNetwork.Mainnet)
+        ).to.deep.equal(taprootOutputKey)
+      })
+
+      it("decodes testnet P2TR address", () => {
+        expect(
+          addressToTaprootOutputKey(P2TRAddressTestnet, BitcoinNetwork.Testnet)
+        ).to.deep.equal(taprootOutputKey)
+      })
+
+      it("throws for wrong network", () => {
+        expect(() =>
+          addressToTaprootOutputKey(P2TRAddress, BitcoinNetwork.Testnet)
+        ).to.throw("Address must be P2TR valid for given network")
       })
     })
 

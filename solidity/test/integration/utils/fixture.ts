@@ -12,6 +12,8 @@ import {
   IRandomBeacon,
   WalletRegistry,
   BridgeGovernance,
+  EcdsaFraudRouter,
+  P2TRSignatureFraudRouter,
 } from "../../../typechain"
 import { Bank } from "../../../typechain/Bank"
 import { registerOperator } from "./ecdsa-wallet-registry"
@@ -41,6 +43,8 @@ export const fixture = deployments.createFixture(
     staking: Contract
     randomBeacon: FakeContract<IRandomBeacon>
     relay: FakeContract<IRelay>
+    ecdsaFraudRouter: EcdsaFraudRouter
+    p2trFraudRouter: P2TRSignatureFraudRouter
   }> => {
     await deployments.fixture()
     const { deployer, governance, chaosnetOwner, spvMaintainer } =
@@ -120,6 +124,46 @@ export const fixture = deployments.createFixture(
       )
     }
 
+    // Deploy + wire the two fraud router sidecars (same pattern as
+    // the unit-test bridgeFixture). The deploy scripts at
+    // deploy/44_deploy_ecdsa_fraud_router.ts and
+    // deploy/45_deploy_p2tr_signature_fraud_router.ts run during
+    // deployments.fixture() above; this block calls the one-time
+    // governance setters so the routers are usable for integration
+    // tests that exercise fraud paths through MaintainerProxy.
+    const existingEcdsaFraudRouter = await bridge.ecdsaFraudRouter()
+    let ecdsaFraudRouter: EcdsaFraudRouter
+    if (existingEcdsaFraudRouter === ethers.constants.AddressZero) {
+      ecdsaFraudRouter = await helpers.contracts.getContract<EcdsaFraudRouter>(
+        "EcdsaFraudRouter"
+      )
+      await bridgeGovernance
+        .connect(governance)
+        .setEcdsaFraudRouter(ecdsaFraudRouter.address)
+    } else {
+      ecdsaFraudRouter = (await ethers.getContractAt(
+        "EcdsaFraudRouter",
+        existingEcdsaFraudRouter
+      )) as EcdsaFraudRouter
+    }
+
+    const existingP2TRFraudRouter = await bridge.p2trFraudRouter()
+    let p2trFraudRouter: P2TRSignatureFraudRouter
+    if (existingP2TRFraudRouter === ethers.constants.AddressZero) {
+      p2trFraudRouter =
+        await helpers.contracts.getContract<P2TRSignatureFraudRouter>(
+          "P2TRSignatureFraudRouter"
+        )
+      await bridgeGovernance
+        .connect(governance)
+        .setP2TRFraudRouter(p2trFraudRouter.address)
+    } else {
+      p2trFraudRouter = (await ethers.getContractAt(
+        "P2TRSignatureFraudRouter",
+        existingP2TRFraudRouter
+      )) as P2TRSignatureFraudRouter
+    }
+
     return {
       deployer,
       governance,
@@ -133,6 +177,8 @@ export const fixture = deployments.createFixture(
       staking,
       randomBeacon,
       relay,
+      ecdsaFraudRouter,
+      p2trFraudRouter,
     }
   }
 )

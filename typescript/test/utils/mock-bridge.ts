@@ -74,6 +74,7 @@ export class MockBridge implements Bridge {
   private _newWalletRegisteredEvents: NewWalletRegisteredEvent[] = []
   private _newWalletRegisteredEventsLog: NewWalletRegisteredEventsLog[] = []
   private _wallets = new Map<string, Wallet>()
+  private _walletPubKeyHashByWalletID = new Map<string, Hex>()
   private _walletsLog: WalletLog[] = []
 
   setPendingRedemptions(value: Map<BigNumberish, RedemptionRequest>) {
@@ -86,6 +87,12 @@ export class MockBridge implements Bridge {
 
   setWallet(key: string, value: Wallet) {
     this._wallets.set(key, value)
+    if (value.walletID) {
+      this._walletPubKeyHashByWalletID.set(
+        value.walletID.toPrefixedString(),
+        Hex.from(key)
+      )
+    }
   }
 
   set newWalletRegisteredEvents(value: NewWalletRegisteredEvent[]) {
@@ -365,6 +372,18 @@ export class MockBridge implements Bridge {
     return this._activeWalletPublicKey
   }
 
+  async activeWalletID(): Promise<Hex | undefined> {
+    if (!this._activeWalletPublicKey) {
+      return undefined
+    }
+
+    const walletPublicKeyHash = BitcoinHashUtils.computeHash160(
+      this._activeWalletPublicKey
+    )
+
+    return this.walletID(walletPublicKeyHash)
+  }
+
   async getNewWalletRegisteredEvents(
     options?: GetChainEvents.Options,
     ...filterArgs: Array<unknown>
@@ -383,6 +402,28 @@ export class MockBridge implements Bridge {
     })
     const wallet = this._wallets.get(walletPublicKeyHash.toPrefixedString())
     return wallet!
+  }
+
+  async walletsByWalletID(walletID: Hex): Promise<Wallet> {
+    const walletPublicKeyHash = await this.walletPublicKeyHashForWalletID(
+      walletID
+    )
+    return this.wallets(walletPublicKeyHash)
+  }
+
+  async walletID(walletPublicKeyHash: Hex): Promise<Hex> {
+    return Hex.from(
+      utils.hexZeroPad(walletPublicKeyHash.toPrefixedString(), 32)
+    )
+  }
+
+  async walletPublicKeyHashForWalletID(walletID: Hex): Promise<Hex> {
+    const key = walletID.toPrefixedString()
+    if (this._walletPubKeyHashByWalletID.has(key)) {
+      return this._walletPubKeyHashByWalletID.get(key)!
+    }
+
+    return Hex.from(`0x${walletID.toString().slice(24)}`)
   }
 
   buildUtxoHash(utxo: BitcoinUtxo): Hex {
