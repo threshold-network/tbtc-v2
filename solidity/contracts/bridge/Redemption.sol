@@ -444,10 +444,7 @@ library Redemption {
         bytes memory redeemerOutputScript,
         uint64 amount
     ) internal {
-        require(
-            redeemer != address(0),
-            "Redeemer must not be the zero address"
-        );
+        require(redeemer != address(0), "Redeemer must not be zero address");
 
         if (self.redemptionWatchtower != address(0)) {
             require(
@@ -488,13 +485,14 @@ library Redemption {
         );
 
         // Validate if redeemer output script is a correct standard type
-        // (P2PKH, P2WPKH, P2SH or P2WSH). This is done by using
-        // `BTCUtils.extractHashAt` on it. Such a function extracts the payload
-        // properly only from standard outputs so if it succeeds, we have a
-        // guarantee the redeemer output script is proper. The underlying way
-        // of validation is the same as in tBTC v1.
-        bytes memory redeemerOutputScriptPayload = redeemerOutputScript
-            .extractHashAt(0, redeemerOutputScript.length);
+        // (P2PKH, P2WPKH, P2SH, P2WSH, or P2TR). This is done by using
+        // `BitcoinTx.extractStandardOutputScriptPayload`, which returns a
+        // non-empty payload only for the supported standard formats. P2TR
+        // is included so users with Taproot wallets can redeem to their
+        // native destination, matching the wallet-identity-compatibility
+        // readiness manifest.
+        bytes memory redeemerOutputScriptPayload = BitcoinTx
+            .extractStandardOutputScriptPayload(redeemerOutputScript);
 
         require(
             redeemerOutputScriptPayload.length > 0,

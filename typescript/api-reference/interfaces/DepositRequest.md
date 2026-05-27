@@ -23,7 +23,7 @@ Deposit amount in satoshis.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:281](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L281)
+[src/lib/contracts/bridge.ts:308](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L308)
 
 ___
 
@@ -35,7 +35,7 @@ Depositor's chain identifier.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:276](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L276)
+[src/lib/contracts/bridge.ts:303](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L303)
 
 ___
 
@@ -47,7 +47,7 @@ UNIX timestamp the deposit was revealed at.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:291](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L291)
+[src/lib/contracts/bridge.ts:318](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L318)
 
 ___
 
@@ -60,7 +60,7 @@ should have zero as value.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:296](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L296)
+[src/lib/contracts/bridge.ts:323](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L323)
 
 ___
 
@@ -73,7 +73,7 @@ Denominated in satoshi.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:301](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L301)
+[src/lib/contracts/bridge.ts:328](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L328)
 
 ___
 
@@ -85,4 +85,4 @@ Optional identifier of the vault the deposit should be routed in.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:286](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L286)
+[src/lib/contracts/bridge.ts:313](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L313)

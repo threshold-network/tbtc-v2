@@ -1,5 +1,6 @@
 import { address as btcjsaddress, payments } from "bitcoinjs-lib"
 import { Hex } from "../utils"
+import { BitcoinHashUtils } from "./hash"
 import { BitcoinNetwork, toBitcoinJsLibNetwork } from "./network"
 
 /**
@@ -49,9 +50,10 @@ function publicKeyHashToAddress(
 }
 
 /**
- * Converts a P2PKH or P2WPKH address into a public key hash. Throws if the
- * provided address is not PKH-based.
- * @param address P2PKH or P2WPKH address that will be decoded.
+ * Converts a P2PKH, P2WPKH, or P2TR address into a wallet public key hash.
+ * For P2TR, returns the compatibility alias:
+ * `HASH160(0x02 || xOnlyOutputKey)`.
+ * @param address P2PKH, P2WPKH, or P2TR address that will be decoded.
  * @param bitcoinNetwork Network the address should be decoded for.
  * @returns Public key hash decoded from the address.
  */
@@ -71,8 +73,79 @@ function addressToPublicKeyHash(
     return Hex.from(payments.p2wpkh({ address: address, network }).hash!)
   } catch (err) {}
 
+  try {
+    // Try extracting Taproot output key and deriving compatibility alias.
+    const outputKey = addressToTaprootOutputKey(address, bitcoinNetwork)
+    return taprootOutputKeyToWalletPublicKeyHash(outputKey)
+  } catch (err) {}
+
   // If neither of them succeeded, throw an error.
-  throw new Error("Address must be P2PKH or P2WPKH valid for given network")
+  throw new Error(
+    "Address must be P2PKH or P2WPKH or P2TR valid for given network"
+  )
+}
+
+/**
+ * Converts a Taproot x-only output key into a P2TR bech32m address.
+ * @param outputKey 32-byte Taproot output key.
+ * @param bitcoinNetwork Network the address should be encoded for.
+ * @returns P2TR address encoded from the given output key.
+ */
+function taprootOutputKeyToAddress(
+  outputKey: Hex,
+  bitcoinNetwork: BitcoinNetwork
+): string {
+  const outputKeyBuffer = outputKey.toBuffer()
+  if (outputKeyBuffer.length !== 32) {
+    throw new Error("Taproot output key must be 32-byte")
+  }
+
+  return btcjsaddress.toBech32(
+    outputKeyBuffer,
+    1,
+    toBitcoinJsLibNetwork(bitcoinNetwork).bech32
+  )
+}
+
+/**
+ * Converts a P2TR bech32m address into a Taproot x-only output key.
+ * @param address P2TR address to decode.
+ * @param bitcoinNetwork Network the address should be decoded for.
+ * @returns 32-byte Taproot output key.
+ */
+function addressToTaprootOutputKey(
+  address: string,
+  bitcoinNetwork: BitcoinNetwork
+): Hex {
+  const network = toBitcoinJsLibNetwork(bitcoinNetwork)
+  const decodedAddress = btcjsaddress.fromBech32(address)
+
+  if (
+    decodedAddress.prefix !== network.bech32 ||
+    decodedAddress.version !== 1 ||
+    decodedAddress.data.length !== 32
+  ) {
+    throw new Error("Address must be P2TR valid for given network")
+  }
+
+  return Hex.from(decodedAddress.data)
+}
+
+/**
+ * Converts a Taproot x-only output key to the bridge compatibility alias:
+ * HASH160(0x02 || xOnlyOutputKey).
+ * @param outputKey 32-byte Taproot output key.
+ * @returns 20-byte compatibility alias used by legacy interfaces.
+ */
+function taprootOutputKeyToWalletPublicKeyHash(outputKey: Hex): Hex {
+  const outputKeyBuffer = outputKey.toBuffer()
+  if (outputKeyBuffer.length !== 32) {
+    throw new Error("Taproot output key must be 32-byte")
+  }
+
+  return BitcoinHashUtils.computeHash160(
+    Hex.from(Buffer.concat([Buffer.from([0x02]), outputKeyBuffer]))
+  )
 }
 
 /**
@@ -85,9 +158,16 @@ function addressToOutputScript(
   address: string,
   bitcoinNetwork: BitcoinNetwork
 ): Hex {
-  return Hex.from(
-    btcjsaddress.toOutputScript(address, toBitcoinJsLibNetwork(bitcoinNetwork))
-  )
+  const network = toBitcoinJsLibNetwork(bitcoinNetwork)
+
+  try {
+    return Hex.from(btcjsaddress.toOutputScript(address, network))
+  } catch (error) {
+    const outputKey = addressToTaprootOutputKey(address, bitcoinNetwork)
+    return Hex.from(
+      Buffer.concat([Buffer.from([0x51, 0x20]), outputKey.toBuffer()])
+    )
+  }
 }
 
 /**
@@ -100,8 +180,22 @@ function outputScriptToAddress(
   script: Hex,
   bitcoinNetwork: BitcoinNetwork = BitcoinNetwork.Mainnet
 ): string {
+  const scriptBuffer = script.toBuffer()
+
+  // Taproot (P2TR): OP_1 (0x51) + push32 (0x20) + 32-byte key.
+  if (
+    scriptBuffer.length === 34 &&
+    scriptBuffer[0] === 0x51 &&
+    scriptBuffer[1] === 0x20
+  ) {
+    return taprootOutputKeyToAddress(
+      Hex.from(scriptBuffer.subarray(2)),
+      bitcoinNetwork
+    )
+  }
+
   return btcjsaddress.fromOutputScript(
-    script.toBuffer(),
+    scriptBuffer,
     toBitcoinJsLibNetwork(bitcoinNetwork)
   )
 }
@@ -113,6 +207,9 @@ export const BitcoinAddressConverter = {
   publicKeyToAddress,
   publicKeyHashToAddress,
   addressToPublicKeyHash,
+  taprootOutputKeyToAddress,
+  addressToTaprootOutputKey,
+  taprootOutputKeyToWalletPublicKeyHash,
   addressToOutputScript,
   outputScriptToAddress,
 }

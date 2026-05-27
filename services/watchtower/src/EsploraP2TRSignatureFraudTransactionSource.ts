@@ -1,0 +1,627 @@
+import { BitcoinNetwork, BitcoinTxHash } from "@keep-network/tbtc-v2.ts"
+import type {
+  BitcoinRawTx,
+  P2TRSignatureFraudWatchtowerTransactionSource,
+  P2TRWatchtowerConfirmedTransaction,
+  P2TRWatchtowerMempoolTransaction,
+} from "@keep-network/tbtc-v2.ts"
+
+export type P2TREsploraFetch = (
+  input: string,
+  init?: RequestInit
+) => Promise<Response>
+
+export type EsploraP2TRSignatureFraudTransactionSourceOptions = {
+  fetchFn?: P2TREsploraFetch
+  maxAttempts?: number
+  requestTimeoutMs?: number
+  retryDelayMs?: number
+  confirmedPageLimit?: number
+}
+
+type EsploraTransactionSummary = {
+  txid: string
+  status?: EsploraTransactionStatus
+}
+
+type EsploraTransactionStatus = {
+  confirmed: boolean
+  block_hash?: string
+  block_height?: number
+}
+
+const DEFAULT_MAX_ATTEMPTS = 3
+const DEFAULT_REQUEST_TIMEOUT_MS = 5000
+const DEFAULT_RETRY_DELAY_MS = 250
+const DEFAULT_CONFIRMED_PAGE_LIMIT = 1
+const MAX_UINT32 = 0xffffffff
+const BECH32M_CONST = 0x2bc830a3
+const BECH32_CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
+const BECH32_GENERATORS = [
+  0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3,
+]
+const TAPROOT_WITNESS_VERSION = 1
+
+export class EsploraP2TRSignatureFraudTransactionSource
+  implements P2TRSignatureFraudWatchtowerTransactionSource
+{
+  private readonly baseUrl: string
+  private readonly fetchFn: P2TREsploraFetch
+  private readonly maxAttempts: number
+  private readonly requestTimeoutMs: number
+  private readonly retryDelayMs: number
+  private readonly confirmedPageLimit: number
+  private readonly walletAddresses: string[]
+
+  constructor(
+    baseUrl: string,
+    bitcoinNetwork: BitcoinNetwork,
+    registeredWalletIDs: string[],
+    options: EsploraP2TRSignatureFraudTransactionSourceOptions = {}
+  ) {
+    if (registeredWalletIDs.length === 0) {
+      throw new Error("Esplora P2TR transaction source requires wallet IDs")
+    }
+
+    this.baseUrl = normalizeBaseUrl(baseUrl)
+    this.fetchFn = options.fetchFn ?? fetch
+    this.maxAttempts = parsePositiveIntegerOption(
+      options.maxAttempts,
+      DEFAULT_MAX_ATTEMPTS,
+      "maxAttempts"
+    )
+    this.requestTimeoutMs = parsePositiveIntegerOption(
+      options.requestTimeoutMs,
+      DEFAULT_REQUEST_TIMEOUT_MS,
+      "requestTimeoutMs"
+    )
+    this.retryDelayMs = parseNonNegativeIntegerOption(
+      options.retryDelayMs,
+      DEFAULT_RETRY_DELAY_MS,
+      "retryDelayMs"
+    )
+    this.confirmedPageLimit = parsePositiveIntegerOption(
+      options.confirmedPageLimit,
+      DEFAULT_CONFIRMED_PAGE_LIMIT,
+      "confirmedPageLimit"
+    )
+    this.walletAddresses = registeredWalletIDs.map((walletID) =>
+      deriveP2TRWalletAddress(walletID, bitcoinNetwork)
+    )
+  }
+
+  async listMempoolTransactions(): Promise<P2TRWatchtowerMempoolTransaction[]> {
+    const transactions = await this.listWalletTransactions((address) =>
+      this.listAddressMempoolTransactions(address)
+    )
+
+    return Promise.all(
+      transactions.map(async ({ txid }) => ({
+        bitcoinTxHash: BitcoinTxHash.from(txid),
+        rawTransaction: await this.getRawTransaction(txid),
+      }))
+    )
+  }
+
+  async listConfirmedTransactions(): Promise<
+    P2TRWatchtowerConfirmedTransaction[]
+  > {
+    const transactions = await this.listWalletTransactions((address) =>
+      this.listAddressConfirmedTransactions(address)
+    )
+
+    return Promise.all(
+      transactions.map(async ({ txid, status }) => {
+        const confirmedStatus = requireConfirmedStatus(txid, status)
+
+        return {
+          bitcoinTxHash: BitcoinTxHash.from(txid),
+          bitcoinBlockHash: confirmedStatus.block_hash,
+          bitcoinBlockHeight: confirmedStatus.block_height,
+          rawTransaction: await this.getRawTransaction(txid),
+        }
+      })
+    )
+  }
+
+  private async listWalletTransactions(
+    listAddressTransactions: (
+      address: string
+    ) => Promise<EsploraTransactionSummary[]>
+  ): Promise<EsploraTransactionSummary[]> {
+    const byTxid = new Map<string, EsploraTransactionSummary>()
+
+    for (const address of this.walletAddresses) {
+      const transactions = await listAddressTransactions(address)
+      for (const transaction of transactions) {
+        byTxid.set(transaction.txid, transaction)
+      }
+    }
+
+    return [...byTxid.values()]
+  }
+
+  private async listAddressMempoolTransactions(
+    address: string
+  ): Promise<EsploraTransactionSummary[]> {
+    return this.readTransactionSummaries(
+      `/address/${encodeURIComponent(address)}/txs/mempool`,
+      `fetch mempool P2TR wallet transactions for ${address}`
+    )
+  }
+
+  private async listAddressConfirmedTransactions(
+    address: string
+  ): Promise<EsploraTransactionSummary[]> {
+    const transactions: EsploraTransactionSummary[] = []
+    let path = `/address/${encodeURIComponent(address)}/txs/chain`
+
+    for (let page = 0; page < this.confirmedPageLimit; page++) {
+      const pageTransactions = await this.readTransactionSummaries(
+        path,
+        `fetch confirmed P2TR wallet transactions for ${address}`
+      )
+
+      if (pageTransactions.length === 0) {
+        break
+      }
+
+      transactions.push(...pageTransactions)
+      path = `/address/${encodeURIComponent(address)}/txs/chain/${
+        pageTransactions[pageTransactions.length - 1].txid
+      }`
+    }
+
+    return transactions
+  }
+
+  private async readTransactionSummaries(
+    path: string,
+    context: string
+  ): Promise<EsploraTransactionSummary[]> {
+    const response = await this.request("GET", path, context)
+    if (!response.ok) {
+      throw new Error(`Failed to ${context}: ${await readTextError(response)}`)
+    }
+
+    return readArray(
+      await this.readJson(response, "transaction summaries"),
+      context
+    ).map((item, index) =>
+      parseTransactionSummary(item, `${context} response[${index}]`)
+    )
+  }
+
+  private async getRawTransaction(txid: string): Promise<BitcoinRawTx> {
+    const response = await this.request(
+      "GET",
+      `/tx/${txid}/hex`,
+      `fetch raw Bitcoin transaction ${txid}`
+    )
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch raw Bitcoin transaction ${txid}: ${await readTextError(
+          response
+        )}`
+      )
+    }
+
+    return { transactionHex: normalizeHex((await response.text()).trim()) }
+  }
+
+  private async request(
+    method: "GET",
+    path: string,
+    context: string
+  ): Promise<Response> {
+    const url = `${this.baseUrl}${path}`
+
+    for (let attempt = 1; attempt <= this.maxAttempts; attempt++) {
+      try {
+        const response = await this.fetchWithTimeout(url, { method })
+        if (attempt < this.maxAttempts && isRetryableStatus(response.status)) {
+          await sleep(this.retryDelayMs)
+          continue
+        }
+
+        return response
+      } catch (error) {
+        if (attempt >= this.maxAttempts) {
+          throw new Error(
+            `Failed to ${context}: ${describeRequestError(error)}`
+          )
+        }
+
+        await sleep(this.retryDelayMs)
+      }
+    }
+
+    throw new Error(`Failed to ${context}: request attempts exhausted`)
+  }
+
+  private async fetchWithTimeout(
+    url: string,
+    init: RequestInit
+  ): Promise<Response> {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), this.requestTimeoutMs)
+
+    try {
+      return await this.fetchFn(url, {
+        ...init,
+        signal: controller.signal,
+      })
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
+
+  private async readJson(response: Response, field: string): Promise<unknown> {
+    try {
+      return await response.json()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      throw new Error(
+        `Esplora ${field} response was not valid JSON: ${message}`
+      )
+    }
+  }
+}
+
+export function deriveP2TRWalletAddress(
+  walletID: string,
+  bitcoinNetwork: BitcoinNetwork
+): string {
+  const walletIDBuffer = Buffer.from(
+    normalizeBytes32Hex(walletID, "wallet ID"),
+    "hex"
+  )
+
+  return encodeSegwitV1Address(bitcoinNetwork, walletIDBuffer)
+}
+
+function parseTransactionSummary(
+  value: unknown,
+  field: string
+): EsploraTransactionSummary {
+  const record = readObject(value, field)
+  const status =
+    record.status === undefined
+      ? undefined
+      : parseTransactionStatus(record.status, `${field}.status`)
+
+  return {
+    txid: normalizeTxid(readRequiredString(record.txid, `${field}.txid`)),
+    status,
+  }
+}
+
+function parseTransactionStatus(
+  value: unknown,
+  field: string
+): EsploraTransactionStatus {
+  const record = readObject(value, field)
+  const confirmed = readRequiredBoolean(record.confirmed, `${field}.confirmed`)
+  const blockHash =
+    record.block_hash === undefined
+      ? undefined
+      : normalizeTxid(
+          readRequiredString(record.block_hash, `${field}.block_hash`)
+        )
+  const blockHeight =
+    record.block_height === undefined
+      ? undefined
+      : readSafeInteger(record.block_height, `${field}.block_height`, {
+          minimum: 1,
+          maximum: MAX_UINT32,
+        })
+
+  return {
+    confirmed,
+    block_hash: blockHash,
+    block_height: blockHeight,
+  }
+}
+
+function requireConfirmedStatus(
+  txid: string,
+  status: EsploraTransactionStatus | undefined
+): Required<EsploraTransactionStatus> {
+  if (
+    status?.confirmed !== true ||
+    status.block_hash === undefined ||
+    status.block_height === undefined
+  ) {
+    throw new Error(
+      `Confirmed P2TR wallet transaction ${txid} is missing Esplora block metadata`
+    )
+  }
+
+  return {
+    confirmed: true,
+    block_hash: status.block_hash,
+    block_height: status.block_height,
+  }
+}
+
+function normalizeBaseUrl(value: string): string {
+  const normalizedValue = value.trim().replace(/\/+$/, "")
+
+  if (normalizedValue.length === 0) {
+    throw new Error("Esplora base URL is required")
+  }
+
+  let url: URL
+  try {
+    url = new URL(normalizedValue)
+  } catch {
+    throw new Error("Esplora base URL must be an absolute http(s) URL")
+  }
+
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    throw new Error("Esplora base URL must be an absolute http(s) URL")
+  }
+
+  return normalizedValue
+}
+
+function normalizeBytes32Hex(value: string, label: string): string {
+  const strippedValue = stripHexPrefix(value.trim())
+
+  if (!/^[0-9a-fA-F]{64}$/.test(strippedValue)) {
+    throw new Error(`P2TR signature-fraud watchtower ${label} must be 32 bytes`)
+  }
+
+  return strippedValue.toLowerCase()
+}
+
+function normalizeTxid(value: string): string {
+  const normalizedValue = stripHexPrefix(value.trim()).toLowerCase()
+
+  if (!/^[0-9a-f]{64}$/.test(normalizedValue)) {
+    throw new Error(`Esplora transaction hash was not 32 bytes: ${value}`)
+  }
+
+  return normalizedValue
+}
+
+function normalizeHex(value: string): string {
+  const normalizedValue = stripHexPrefix(value).toLowerCase()
+
+  if (
+    !/^[0-9a-f]*$/.test(normalizedValue) ||
+    normalizedValue.length % 2 !== 0
+  ) {
+    throw new Error("Esplora raw transaction response was not valid hex")
+  }
+
+  return normalizedValue
+}
+
+function encodeSegwitV1Address(
+  bitcoinNetwork: BitcoinNetwork,
+  witnessProgram: Buffer
+): string {
+  const humanReadablePart = bitcoinNetworkBech32Prefix(bitcoinNetwork)
+  const data = [
+    TAPROOT_WITNESS_VERSION,
+    ...convertBits([...witnessProgram], 8, 5, true),
+  ]
+
+  return encodeBech32m(humanReadablePart, data)
+}
+
+function bitcoinNetworkBech32Prefix(bitcoinNetwork: BitcoinNetwork): string {
+  switch (bitcoinNetwork) {
+    case BitcoinNetwork.Mainnet:
+      return "bc"
+    case BitcoinNetwork.Testnet:
+      return "tb"
+    default:
+      throw new Error("P2TR Esplora source supports only mainnet and testnet")
+  }
+}
+
+function encodeBech32m(humanReadablePart: string, data: number[]): string {
+  const checksum = createBech32mChecksum(humanReadablePart, data)
+  const combined = [...data, ...checksum]
+
+  return `${humanReadablePart}1${combined
+    .map((value) => BECH32_CHARSET[value])
+    .join("")}`
+}
+
+function createBech32mChecksum(
+  humanReadablePart: string,
+  data: number[]
+): number[] {
+  const values = [...expandBech32HumanReadablePart(humanReadablePart), ...data]
+  const polymod = bech32Polymod([...values, 0, 0, 0, 0, 0, 0]) ^ BECH32M_CONST
+  const checksum: number[] = []
+
+  for (let index = 0; index < 6; index++) {
+    checksum.push((polymod >> (5 * (5 - index))) & 31)
+  }
+
+  return checksum
+}
+
+function expandBech32HumanReadablePart(humanReadablePart: string): number[] {
+  return [
+    ...[...humanReadablePart].map((character) => character.charCodeAt(0) >> 5),
+    0,
+    ...[...humanReadablePart].map((character) => character.charCodeAt(0) & 31),
+  ]
+}
+
+function bech32Polymod(values: number[]): number {
+  let checksum = 1
+
+  for (const value of values) {
+    const top = checksum >> 25
+    checksum = ((checksum & 0x1ffffff) << 5) ^ value
+
+    for (let index = 0; index < BECH32_GENERATORS.length; index++) {
+      if (((top >> index) & 1) === 1) {
+        checksum ^= BECH32_GENERATORS[index]
+      }
+    }
+  }
+
+  return checksum
+}
+
+function convertBits(
+  data: number[],
+  fromBits: number,
+  toBits: number,
+  pad: boolean
+): number[] {
+  let accumulator = 0
+  let bits = 0
+  const result: number[] = []
+  const maxValue = (1 << toBits) - 1
+  const maxAccumulator = (1 << (fromBits + toBits - 1)) - 1
+
+  for (const value of data) {
+    if (value < 0 || value >> fromBits !== 0) {
+      throw new Error("Invalid Bech32 conversion input value")
+    }
+
+    accumulator = ((accumulator << fromBits) | value) & maxAccumulator
+    bits += fromBits
+
+    while (bits >= toBits) {
+      bits -= toBits
+      result.push((accumulator >> bits) & maxValue)
+    }
+  }
+
+  if (pad && bits > 0) {
+    result.push((accumulator << (toBits - bits)) & maxValue)
+  } else if (
+    !pad &&
+    (bits >= fromBits || ((accumulator << (toBits - bits)) & maxValue) !== 0)
+  ) {
+    throw new Error("Invalid Bech32 conversion padding")
+  }
+
+  return result
+}
+
+function stripHexPrefix(value: string): string {
+  return value.replace(/^0x/i, "")
+}
+
+function readObject(value: unknown, field: string): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`Esplora ${field} was not an object`)
+  }
+
+  return value as Record<string, unknown>
+}
+
+function readArray(value: unknown, field: string): unknown[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`Esplora ${field} was not an array`)
+  }
+
+  return value
+}
+
+function readRequiredString(value: unknown, field: string): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error(`Esplora ${field} was not a non-empty string`)
+  }
+
+  return value
+}
+
+function readRequiredBoolean(value: unknown, field: string): boolean {
+  if (typeof value !== "boolean") {
+    throw new Error(`Esplora ${field} was not a boolean`)
+  }
+
+  return value
+}
+
+function readSafeInteger(
+  value: unknown,
+  field: string,
+  options: { minimum: number; maximum: number }
+): number {
+  if (
+    typeof value !== "number" ||
+    !Number.isSafeInteger(value) ||
+    value < options.minimum ||
+    value > options.maximum
+  ) {
+    throw new Error(
+      `Esplora ${field} was not a safe integer in range [${options.minimum}, ${options.maximum}]`
+    )
+  }
+
+  return value
+}
+
+function parsePositiveIntegerOption(
+  value: number | undefined,
+  defaultValue: number,
+  label: string
+): number {
+  if (value === undefined) {
+    return defaultValue
+  }
+
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`Esplora ${label} must be a positive integer`)
+  }
+
+  return value
+}
+
+function parseNonNegativeIntegerOption(
+  value: number | undefined,
+  defaultValue: number,
+  label: string
+): number {
+  if (value === undefined) {
+    return defaultValue
+  }
+
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`Esplora ${label} must be a non-negative integer`)
+  }
+
+  return value
+}
+
+async function readTextError(response: Response): Promise<string> {
+  const body = (await response.text()).trim()
+  return body.length > 0
+    ? body
+    : `${response.status} ${response.statusText}`.trim()
+}
+
+function isRetryableStatus(status: number): boolean {
+  return status === 429 || status >= 500
+}
+
+async function sleep(milliseconds: number): Promise<void> {
+  if (milliseconds <= 0) {
+    return
+  }
+
+  await new Promise((resolve) => setTimeout(resolve, milliseconds))
+}
+
+function describeRequestError(error: unknown): string {
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return "request timed out"
+  }
+  if (error instanceof Error) {
+    return error.message
+  }
+
+  return String(error)
+}

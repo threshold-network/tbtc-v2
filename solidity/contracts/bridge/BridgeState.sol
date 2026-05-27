@@ -28,6 +28,19 @@ import "./MovingFunds.sol";
 import "../bank/Bank.sol";
 
 library BridgeState {
+    /// @notice On-chain identifier of the wallet scheme used when
+    ///         `requestNewWallet` is invoked. `Ecdsa` is the legacy
+    ///         keep-network ECDSA DKG path; `Frost` routes via the
+    ///         registered FROST wallet registry. Defaults to `Ecdsa`
+    ///         on activation of the C-2 upgrade so post-deploy
+    ///         behavior is unchanged until governance explicitly
+    ///         flips the scheme. See `setNewWalletScheme` and
+    ///         `dispatchNewWalletRequest`.
+    enum WalletScheme {
+        Ecdsa,
+        Frost
+    }
+
     struct Storage {
         // Address of the Bank the Bridge belongs to.
         Bank bank;
@@ -325,6 +338,124 @@ library BridgeState {
         // governance wiring; changing it afterwards requires a dedicated
         // upgrade path of the Bridge implementation.
         address rebateStaking;
+        // Upgrade note: the FROST wallet ID fields below and the FROST
+        // wallet registry address consume three reserved slots, reducing
+        // `__gap` from 50 to 47 for storage-layout compatibility.
+        // Maps canonical wallet identifier to the wallet public key hash used
+        // by legacy Bridge paths. For legacy ECDSA wallets, canonical wallet
+        // ID is a left-padded 20-byte wallet public key hash. New wallet
+        // generations can use a different canonical ID and still map to the
+        // compatibility key expected by old interfaces.
+        mapping(bytes32 => bytes20) walletPubKeyHashByWalletID;
+        // Canonical identifier of the currently active wallet.
+        // Legacy wallets use a left-padded 20-byte wallet public key hash,
+        // while future wallet generations can store native 32-byte IDs.
+        bytes32 activeWalletID;
+        // Address of the FROST wallet registry. When non-zero, the registry
+        // contract is the only caller authorized to invoke the Bridge's
+        // FROST wallet registration entry point. The registry is intended
+        // to be the on-chain receiver of the keep-core FROST DKG result;
+        // it is set exactly once via governance and remains zero until the
+        // FROST DKG coordinator and any required lifecycle-routing
+        // follow-up work are deployed.
+        address frostWalletRegistry;
+        // Address of the EcdsaFraudRouter sidecar. The router holds
+        // the new authoritative fraudChallenges mapping and the ETH
+        // escrow for every fraud challenge opened after the
+        // extraction cutover. Set exactly once via governance.
+        // After cutover, Bridge no longer exposes fraud entry points;
+        // consumers (watchtowers, indexers, MaintainerProxy, etc.)
+        // must call the router directly. While zero, the legacy
+        // fraud surface on Bridge is removed but the cutover is not
+        // yet active.
+        //
+        // The legacy `fraudChallenges` mapping above remains in
+        // storage so that the one-time
+        // Bridge.migrateLegacyFraudChallenges helper (routerKind 0
+        // for ECDSA, 1 for P2TR) can read and mark legacy entries
+        // during the cutover. It is removed in a follow-up storage
+        // cleanup once all legacy entries are migrated or aged out.
+        address ecdsaFraudRouter;
+        // Address of the P2TR signature-fraud sidecar router. Set
+        // exactly once via governance (setP2TRFraudRouter). Sister
+        // contract to ecdsaFraudRouter for the P2TR signature fraud
+        // lifecycle; see EcdsaFraudRouter / P2TRSignatureFraudRouter.
+        address p2trFraudRouter;
+        // Address of the BridgeLifecycleRouter. The router is the
+        // authorized dispatcher for FROST-scheme wallet lifecycle
+        // operations (closeWallet, seize, isWalletMember). It reads
+        // wallet state from this Bridge and forwards to the configured
+        // frostWalletRegistry. ECDSA lifecycle operations are NOT
+        // routed through it -- they continue to call
+        // ecdsaWalletRegistry directly, preserving the current
+        // ownership/callback model unchanged. Set exactly once via
+        // governance; FROST wallet registration is gated on this
+        // being non-zero (see registerNewFrostWallet) so a FROST
+        // wallet cannot enter Live state without a configured
+        // lifecycle router.
+        address lifecycleRouter;
+        // Reverse mapping for canonical wallet ID lookup. For ECDSA
+        // wallets the walletID can be derived on-chain from the
+        // public key hash via Wallets.deriveLegacyWalletID, so no
+        // storage is needed. For FROST wallets the walletID
+        // (xOnlyOutputKey) is NOT derivable from the legacy public
+        // key hash alias (HASH160(0x02 || xOnlyKey) is one-way); we
+        // store it explicitly at FROST wallet registration time so
+        // the lifecycle router can recover it during dispatch
+        // without an O(N) scan of walletPubKeyHashByWalletID.
+        // Populated only for FROST wallets; bytes32(0) for any
+        // wallet pubKeyHash that does not have a FROST registration
+        // entry.
+        mapping(bytes20 => bytes32) walletIDByWalletPubKeyHash;
+        // Currently selected wallet scheme for `requestNewWallet`.
+        // Governance flips via `setNewWalletScheme`. Defaults to
+        // `Ecdsa` on C-2 activation (preserves prior behavior;
+        // FROST opt-in must be explicit). Sits at slot 38 offset
+        // 0 (the preceding field is a mapping, which always
+        // occupies a full slot).
+        WalletScheme currentNewWalletScheme;
+        // Total ECDSA wallets ever registered on this Bridge,
+        // counted from the C-2.1 activation block forward.
+        // Used by D-2's `finalizeEcdsaRetirement` to verify the
+        // governance-supplied retired-wallet list against the
+        // post-activation counter (pre-activation wallets are
+        // handled via off-chain governance attestation; the
+        // historical-count `seedEcdsaWalletCount` setter
+        // originally specified in RFC v6 is deferred — see
+        // §"Deferred from C-2.1" in the migration plan doc).
+        // Strictly monotonic: incremented in
+        // `Wallets.registerNewWallet`; NEVER decremented.
+        //
+        // Packs into the SAME slot as `currentNewWalletScheme`
+        // above (slot 38): solc places `uint128` (16B) at offset
+        // 1, right after the 1-byte enum. Total slot 38 usage:
+        // 17 bytes of 32. No __gap change from C-2.
+        uint128 ecdsaWalletCount;
+        // D-1 soft-retirement flag. Set by the one-time
+        // governance setter `Bridge.retireEcdsa()` (the setter
+        // itself is deferred to D-2 — see Bridge.sol). When
+        // true, `Wallets.requestNewWallet` rejects new requests
+        // routed to the ECDSA registry. Late callbacks from an
+        // in-flight DKG that started BEFORE retirement are NOT
+        // blocked: reverting `Wallets.registerNewWallet` would
+        // strand the ECDSA registry in a non-IDLE state and
+        // freeze every subsequent FROST wallet creation via
+        // the unconditional IDLE precheck in `requestNewWallet`
+        // (per PR #443 review). Governance therefore
+        // enforces the "no late ECDSA wallets" invariant
+        // operationally: pause Bridge, wait for in-flight DKGs
+        // to settle (registry returns to IDLE), set the flag,
+        // unpause. Existing ECDSA wallets' lifecycle paths
+        // (sweeps, redemptions, fraud, moving funds, closing,
+        // termination) remain fully functional — D-1 only
+        // closes the *new wallet creation* boundary; D-2
+        // performs the final structural removal.
+        //
+        // Packs at slot 38 offset 17 (just after
+        // `ecdsaWalletCount`, which occupies bytes 1-16). Total
+        // slot 38 usage: 18 bytes of 32. No __gap change from
+        // C-2 / C-2.1.
+        bool ecdsaRetired;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
@@ -332,7 +463,7 @@ library BridgeState {
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
-        uint256[48] __gap;
+        uint256[40] __gap;
     }
 
     event DepositParametersUpdated(
@@ -386,6 +517,67 @@ library BridgeState {
     event TreasuryUpdated(address treasury);
 
     event RedemptionWatchtowerSet(address redemptionWatchtower);
+
+    // Event emitted when the FROST wallet registry address is initialized
+    // through governance. Declared here so it can be emitted from
+    // `setFrostWalletRegistry` below, alongside the matching event for the
+    // redemption watchtower. Bridge.sol mirrors this declaration so the
+    // event appears in the Bridge contract ABI (consumer indexers and
+    // tests resolve event types from the Bridge artifact, not the
+    // BridgeState library artifact).
+    event FrostWalletRegistrySet(address frostWalletRegistry);
+
+    // Mirror of the ECDSA fraud router setter event; Bridge.sol re-
+    // declares this so the event appears in the Bridge contract ABI.
+    event EcdsaFraudRouterSet(address ecdsaFraudRouter);
+
+    // Mirror of the P2TR fraud router setter event; Bridge.sol re-
+    // declares this so the event appears in the Bridge contract ABI.
+    event P2TRFraudRouterSet(address p2trFraudRouter);
+
+    // Mirror of the lifecycle router setter event; Bridge.sol re-
+    // declares this so the event appears in the Bridge contract ABI.
+    event LifecycleRouterSet(address lifecycleRouter);
+
+    // Declared for ABI back-compat. D-2.2 slice 3 removed the
+    // `setNewWalletScheme` setter so this event never fires;
+    // the declaration stays in the Bridge ABI so any out-of-tree
+    // tooling that registered for the topic doesn't see a
+    // missing entry. Same pattern D-2.2 slice 1 used for
+    // `EcdsaRetired`.
+    event NewWalletSchemeSet(WalletScheme indexed scheme);
+
+    // Declared for ABI back-compat. D-2.1 added the event
+    // mirror + emitted it from `Bridge.retireEcdsa()` because
+    // there was no on-chain getter for the flag — off-chain
+    // consumers had no other observation path. D-2.2 added the
+    // public `ecdsaRetired()` getter on Bridge and dropped the
+    // emit (the two together exceeded the EIP-170 budget);
+    // off-chain consumers now poll the getter, and the
+    // governance transaction itself is the canonical
+    // audit-trail record (block + tx + sender). The event
+    // declaration stays so any out-of-tree tooling that
+    // registered for the event-topic doesn't see a missing
+    // ABI entry — it just never fires.
+    event EcdsaRetired();
+
+    // Custom errors for the FROST wallet registry setter. Used instead of
+    // require strings to keep the Bridge implementation bytecode under the
+    // 24 KiB EIP-170 deploy limit.
+    error FrostWalletRegistryAlreadySet();
+    error FrostWalletRegistryAddressZero();
+
+    // Custom errors for the ECDSA fraud router setter; same rationale.
+    error EcdsaFraudRouterAlreadySet();
+    error EcdsaFraudRouterAddressZero();
+
+    // Custom errors for the P2TR fraud router setter; same rationale.
+    error P2TRFraudRouterAlreadySet();
+    error P2TRFraudRouterAddressZero();
+
+    // Custom errors for the lifecycle router setter; same rationale.
+    error LifecycleRouterAlreadySet();
+    error LifecycleRouterAddressZero();
 
     // Event emitted when the rebate staking address is initialized. Declared
     // in this library as the event is emitted from within `BridgeState` and
@@ -630,6 +822,7 @@ library BridgeState {
     ///      - Moving funds timeout reset delay must be greater than zero,
     ///      - Moving funds timeout must be greater than the moving funds
     ///        timeout reset delay,
+    ///      - Moving funds timeout slashing amount must be greater than zero,
     ///      - Moving funds timeout notifier reward multiplier must be in the
     ///        range [0, 100],
     ///      - Moved funds sweep transaction max total fee must be greater than zero,
@@ -669,6 +862,11 @@ library BridgeState {
         require(
             _movingFundsTimeout > _movingFundsTimeoutResetDelay,
             "Moving funds timeout must be greater than its reset delay"
+        );
+
+        require(
+            _movingFundsTimeoutSlashingAmount > 0,
+            "Moving funds timeout slashing amount must be greater than zero"
         );
 
         require(
@@ -743,6 +941,8 @@ library BridgeState {
     //         i.e. the period when the wallet remains in the Closing state
     //         and can be subject of deposit fraud challenges.
     /// @dev Requirements:
+    ///      - Wallet creation period must be greater than zero,
+    ///      - Wallet maximum age must be greater than zero,
     ///      - Wallet maximum BTC balance must be greater than the wallet
     ///        minimum BTC balance,
     ///      - Wallet maximum BTC transfer must be greater than zero,
@@ -757,6 +957,14 @@ library BridgeState {
         uint64 _walletMaxBtcTransfer,
         uint32 _walletClosingPeriod
     ) internal {
+        require(
+            _walletCreationPeriod > 0,
+            "Wallet creation period must be greater than zero"
+        );
+        require(
+            _walletMaxAge > 0,
+            "Wallet maximum age must be greater than zero"
+        );
         require(
             _walletCreationMaxBtcBalance > _walletCreationMinBtcBalance,
             "Wallet creation maximum BTC balance must be greater than the creation minimum BTC balance"
@@ -804,8 +1012,13 @@ library BridgeState {
     ///        the notifier reward from the staking contact the notifier of
     ///        a fraud receives. The value must be in the range [0, 100].
     /// @dev Requirements:
+    ///      - Fraud challenge deposit amount must be greater than zero,
     ///      - Fraud challenge defeat timeout must be greater than 0,
     ///      - Fraud notifier reward multiplier must be in the range [0, 100].
+    ///      Note: `_fraudSlashingAmount` is intentionally unbounded on the
+    ///      low end; the `DisableFraudChallenges` deploy flow relies on
+    ///      setting it to zero to signal that fraud challenges are
+    ///      disabled.
     function updateFraudParameters(
         Storage storage self,
         uint96 _fraudChallengeDepositAmount,
@@ -813,6 +1026,11 @@ library BridgeState {
         uint96 _fraudSlashingAmount,
         uint32 _fraudNotifierRewardMultiplier
     ) internal {
+        require(
+            _fraudChallengeDepositAmount > 0,
+            "Fraud challenge deposit amount must be greater than zero"
+        );
+
         require(
             _fraudChallengeDefeatTimeout > 0,
             "Fraud challenge defeat timeout must be greater than zero"
@@ -868,6 +1086,112 @@ library BridgeState {
         self.redemptionWatchtower = _redemptionWatchtower;
         emit RedemptionWatchtowerSet(_redemptionWatchtower);
     }
+
+    /// @notice Sets the FROST wallet registry address.
+    /// @param _frostWalletRegistry Address of the FROST wallet registry.
+    /// @dev One-time setter, matching the redemption watchtower pattern.
+    ///      Once set, the registry address cannot be changed without a
+    ///      Bridge implementation upgrade. Requirements:
+    ///      - FROST wallet registry address must not be already set,
+    ///      - FROST wallet registry address must not be 0x0.
+    function setFrostWalletRegistry(
+        Storage storage self,
+        address _frostWalletRegistry
+    ) internal {
+        if (self.frostWalletRegistry != address(0)) {
+            revert FrostWalletRegistryAlreadySet();
+        }
+        if (_frostWalletRegistry == address(0)) {
+            revert FrostWalletRegistryAddressZero();
+        }
+
+        self.frostWalletRegistry = _frostWalletRegistry;
+        emit FrostWalletRegistrySet(_frostWalletRegistry);
+    }
+
+    /// @notice Sets the EcdsaFraudRouter address.
+    /// @param _ecdsaFraudRouter Address of the EcdsaFraudRouter sidecar.
+    /// @dev One-time setter. Once set, the router address cannot be
+    ///      changed without a Bridge implementation upgrade.
+    ///      Requirements:
+    ///      - ECDSA fraud router address must not be already set,
+    ///      - ECDSA fraud router address must not be 0x0.
+    function setEcdsaFraudRouter(
+        Storage storage self,
+        address _ecdsaFraudRouter
+    ) internal {
+        if (self.ecdsaFraudRouter != address(0)) {
+            revert EcdsaFraudRouterAlreadySet();
+        }
+        if (_ecdsaFraudRouter == address(0)) {
+            revert EcdsaFraudRouterAddressZero();
+        }
+
+        self.ecdsaFraudRouter = _ecdsaFraudRouter;
+        emit EcdsaFraudRouterSet(_ecdsaFraudRouter);
+    }
+
+    /// @notice Sets the P2TR fraud router address.
+    /// @param _p2trFraudRouter Address of the P2TR fraud router sidecar.
+    /// @dev One-time setter; same pattern as setEcdsaFraudRouter.
+    ///      Requirements:
+    ///      - P2TR fraud router address must not be already set,
+    ///      - P2TR fraud router address must not be 0x0.
+    function setP2TRFraudRouter(Storage storage self, address _p2trFraudRouter)
+        internal
+    {
+        if (self.p2trFraudRouter != address(0)) {
+            revert P2TRFraudRouterAlreadySet();
+        }
+        if (_p2trFraudRouter == address(0)) {
+            revert P2TRFraudRouterAddressZero();
+        }
+
+        self.p2trFraudRouter = _p2trFraudRouter;
+        emit P2TRFraudRouterSet(_p2trFraudRouter);
+    }
+
+    /// @notice Sets the lifecycle router address.
+    /// @param _lifecycleRouter Address of the BridgeLifecycleRouter.
+    /// @dev One-time setter, matching the FROST wallet registry pattern.
+    ///      Once set, the router address cannot be changed without a
+    ///      Bridge implementation upgrade. Requirements:
+    ///      - Lifecycle router address must not be already set,
+    ///      - Lifecycle router address must not be 0x0.
+    function setLifecycleRouter(Storage storage self, address _lifecycleRouter)
+        internal
+    {
+        if (self.lifecycleRouter != address(0)) {
+            revert LifecycleRouterAlreadySet();
+        }
+        if (_lifecycleRouter == address(0)) {
+            revert LifecycleRouterAddressZero();
+        }
+
+        self.lifecycleRouter = _lifecycleRouter;
+        emit LifecycleRouterSet(_lifecycleRouter);
+    }
+
+    // D-2.2 slice 3: `setNewWalletScheme` internal library
+    // function removed. Pre-slice-3 it wrote the new scheme +
+    // emitted `NewWalletSchemeSet`. The `currentNewWalletScheme`
+    // storage field is preserved (upgrade-safety rule — never
+    // remove a slot from a proxy storage layout) but no longer
+    // written. `Wallets.requestNewWallet` no longer reads it
+    // either; the dispatcher always targets the FROST registry.
+    // See `d2-2-followups-plan.md` §"Slice 3".
+
+    // D-2 canonical retire setter is inlined directly on
+    // `Bridge.sol` (writes `self.ecdsaRetired = true` — D-2.2
+    // dropped the `emit EcdsaRetired()` that D-2.1 originally
+    // shipped, to fit the public `ecdsaRetired()` getter under
+    // EIP-170) rather than routed through a library function
+    // here, to shave the bytes of indirection that would
+    // otherwise push the Bridge implementation past the 24 KiB
+    // EIP-170 deploy limit. The bytecode budget for the setter
+    // comes from D-2's removal of the
+    // `__ecdsaWalletCreatedCallback` external function (~107
+    // bytes reclaim).
 
     /// @notice Sets the rebate staking address.
     /// @param _rebateStaking Address of the rebate staking contract.

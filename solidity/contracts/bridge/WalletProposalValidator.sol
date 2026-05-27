@@ -21,6 +21,10 @@ import {BytesLib} from "@keep-network/bitcoin-spv-sol/contracts/BytesLib.sol";
 import "./BitcoinTx.sol";
 import "./Bridge.sol";
 import "./Deposit.sol";
+// Heartbeat used to be reachable transitively via Fraud's imports;
+// after the ECDSA fraud extraction Fraud.sol no longer pulls it in,
+// so we depend on it explicitly here.
+import "./Heartbeat.sol";
 import "./Redemption.sol";
 import "./MovingFunds.sol";
 import "./Wallets.sol";

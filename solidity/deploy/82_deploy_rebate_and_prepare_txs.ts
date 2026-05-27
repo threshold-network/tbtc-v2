@@ -1,31 +1,9 @@
-// ////////////////////////////////////////////////////////////////////////
-// DEPRECATED -- DO NOT USE FOR MAINNET GOVERNANCE UPGRADES
-//
-// This script encodes BridgeGovernance.beginGovernanceUpdate to call
-// setRebateStaking, but Bridge.setRebateStaking is a direct onlyOwner
-// function -- it is not routed through BridgeGovernance's timelock.
-// The governance call would fail because the function selector is not
-// registered in BridgeGovernance.
-//
-// Additionally, the Bridge proxy upgrade uses plain upgrade() instead
-// of upgradeAndCall(), missing the required atomic reinitializer call.
-//
-// Suitable for local/testnet development and as a reference for the
-// overall deployment flow structure.
-// ////////////////////////////////////////////////////////////////////////
-
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
 import fs from "fs"
 import path from "path"
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
-  if (hre.network.name !== "hardhat") {
-    throw new Error(
-      "DEPRECATED: This script is replaced by 85_deploy_tip109_governance_upgrade.ts"
-    )
-  }
-
   const { ethers, helpers, deployments, getNamedAccounts } = hre
   const { get } = deployments
   const { deployer } = await getNamedAccounts()
@@ -139,12 +117,12 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   const DepositSweep = await get("DepositSweep")
   const Wallets = await get("Wallets")
-  const Fraud = await get("Fraud")
   const MovingFunds = await get("MovingFunds")
+  // Fraud and P2TRSignatureFraudLifecycle are no longer linked into
+  // Bridge -- ECDSA fraud surface moved to EcdsaFraudRouter sidecar.
 
   console.log("✓ Using existing DepositSweep at:", DepositSweep.address)
   console.log("✓ Using existing Wallets at:", Wallets.address)
-  console.log("✓ Using existing Fraud at:", Fraud.address)
   console.log("✓ Using existing MovingFunds at:", MovingFunds.address)
 
   // Step 4: Deploy Bridge implementation
@@ -165,7 +143,6 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       DepositSweep: DepositSweep.address,
       Redemption: Redemption.address,
       Wallets: Wallets.address,
-      Fraud: Fraud.address,
       MovingFunds: MovingFunds.address,
     },
   })
@@ -383,7 +360,6 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
           DepositSweep: DepositSweep.address,
           Redemption: Redemption.address,
           Wallets: Wallets.address,
-          Fraud: Fraud.address,
           MovingFunds: MovingFunds.address,
         },
       })
@@ -414,5 +390,3 @@ export default func
 func.tags = ["DeployRebateAndPrepareTxs"]
 // Dependencies removed to avoid redeploying existing mainnet contracts
 // func.dependencies = ["Bridge", "BridgeGovernance"]
-func.skip = async (hre: HardhatRuntimeEnvironment) =>
-  hre.network.name !== "hardhat" && process.env.DEPLOY_REBATE !== "true"

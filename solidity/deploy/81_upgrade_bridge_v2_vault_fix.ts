@@ -47,23 +47,22 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   log("Upgrading Bridge with vault=0x0 deposit fix")
   log("=".repeat(80))
 
-  // WARNING: This script expects no changes in the external libraries and uses
-  // `get` function to load the ones that were already published before.
-  // If there are any changes in the external libraries make sure to deploy fresh
-  // versions of the libraries and link them to the implementation.
+  // WARNING: This script expects no changes in the pre-existing external
+  // libraries and uses `get` to load the addresses published before.
+  // Fraud and P2TRSignatureFraudLifecycle were removed from Bridge's
+  // linked-library set as part of the ECDSA fraud extraction; the
+  // sidecar EcdsaFraudRouter is deployed separately.
   const Deposit = await get("Deposit")
   const DepositSweep = await get("DepositSweep")
   const Redemption = await get("Redemption")
   const Wallets = await get("Wallets")
-  const Fraud = await get("Fraud")
   const MovingFunds = await get("MovingFunds")
 
-  log("Using existing libraries:")
+  log("Libraries linked to the new Bridge implementation:")
   log(`  Deposit: ${Deposit.address}`)
   log(`  DepositSweep: ${DepositSweep.address}`)
   log(`  Redemption: ${Redemption.address}`)
   log(`  Wallets: ${Wallets.address}`)
-  log(`  Fraud: ${Fraud.address}`)
   log(`  MovingFunds: ${MovingFunds.address}`)
 
   // Get the existing Bridge proxy
@@ -83,7 +82,6 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
           DepositSweep: DepositSweep.address,
           Redemption: Redemption.address,
           Wallets: Wallets.address,
-          Fraud: Fraud.address,
           MovingFunds: MovingFunds.address,
         },
       },

@@ -21,4 +21,59 @@ contract TestBitcoinTx {
     ) external {
         emit ProofValidated(BitcoinTx.validateProof(self, txInfo, proof));
     }
+
+    function extractPubKeyHash(bytes calldata output)
+        external
+        view
+        returns (bytes20)
+    {
+        return BitcoinTx.extractPubKeyHash(self, output);
+    }
+
+    function extractWalletID(bytes calldata output)
+        external
+        view
+        returns (bytes32)
+    {
+        return BitcoinTx.extractWalletID(self, output);
+    }
+
+    function extractWalletPubKeyHash(bytes calldata output)
+        external
+        view
+        returns (bytes20)
+    {
+        return BitcoinTx.extractWalletPubKeyHash(self, output);
+    }
+
+    function setWalletPubKeyHashForWalletID(
+        bytes32 walletID,
+        bytes20 walletPubKeyHash
+    ) external {
+        self.walletPubKeyHashByWalletID[walletID] = walletPubKeyHash;
+    }
+
+    function deriveWalletPubKeyHashFromXOnly(bytes32 xOnlyKey)
+        external
+        view
+        returns (bytes20)
+    {
+        return BitcoinTx.deriveWalletPubKeyHashFromXOnly(xOnlyKey);
+    }
+
+    function makeP2TRScript(bytes32 xOnlyKey)
+        external
+        pure
+        returns (bytes memory)
+    {
+        return BitcoinTx.makeP2TRScript(xOnlyKey);
+    }
+
+    function extractStandardOutputScriptPayload(bytes calldata outputScript)
+        external
+        pure
+        returns (bytes memory)
+    {
+        return BitcoinTx.extractStandardOutputScriptPayload(outputScript);
+    }
 }

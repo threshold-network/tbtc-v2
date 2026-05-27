@@ -1661,7 +1661,7 @@
   dependencies:
     "@openzeppelin/contracts" "^2.4.0"
 
-"@keep-network/sortition-pools@^2.0.0-pre.16":
+"@keep-network/sortition-pools@2.0.0", "@keep-network/sortition-pools@^2.0.0-pre.16":
   version "2.0.0"
   resolved "https://registry.yarnpkg.com/@keep-network/sortition-pools/-/sortition-pools-2.0.0.tgz#04e29ec756d74e00d13505a3e2a7763b06d7a08d"
   integrity sha512-82pDOKcDBvHBFblCt0ALVr6qC6mxk339ZqnCfYx1zIPaPhzkw1RKOv28AqPoqzhzcdqLIoPh8g9RS/M2Lplh1A==
@@ -2371,6 +2371,12 @@
   version "0.0.1"
   resolved "https://codeload.github.com/thesis/prettier-config/tar.gz/a057ca0bab89fee9ee81ac580c446618c722d75d"
 
+"@thesis/solidity-contracts@git+https://github.com/thesis/solidity-contracts.git#c315b9d5f0c39253428898474e97552f5e5b9046":
+  version "0.0.1-pre"
+  resolved "git+https://github.com/thesis/solidity-contracts.git#c315b9d5f0c39253428898474e97552f5e5b9046"
+  dependencies:
+    "@openzeppelin/contracts" "^4.1.0"
+
 "@thesis/solidity-contracts@github:thesis/solidity-contracts#4985bcf":
   version "0.0.1"
   resolved "https://codeload.github.com/thesis/solidity-contracts/tar.gz/4985bcfc28e36eed9838993b16710e1b500f9e85"
@@ -2422,10 +2428,10 @@
     lodash "^4.17.15"
     ts-essentials "^7.0.1"
 
-"@typechain/hardhat@^4.0.0":
-  version "4.0.0"
-  resolved "https://registry.yarnpkg.com/@typechain/hardhat/-/hardhat-4.0.0.tgz#976d4dcc0d9237602d722801d30adc573c529981"
-  integrity sha512-SeEKtiHu4Io3LHhE8VV3orJbsj7dwJZX8pzSTv7WQR38P18vOLm2M52GrykVinMpkLK0uVc88ICT58emvfn74w==
+"@typechain/hardhat@^3.1.0":
+  version "3.1.0"
+  resolved "https://registry.yarnpkg.com/@typechain/hardhat/-/hardhat-3.1.0.tgz#88bd9e9d55e30fbece6fbb34c03ecd40a8b2013a"
+  integrity sha512-C6Be6l+vTpao19PvMH2CB/lhL1TRLkhdPkvQCF/zqkY1e+0iqY2Bb9Jd3PTt6I8QvMm89ZDerrCJC9927ZHmlg==
   dependencies:
     fs-extra "^9.1.0"
 
@@ -3981,6 +3987,11 @@ bn.js@^4.0.0, bn.js@^4.1.0, bn.js@^4.11.0, bn.js@^4.11.1, bn.js@^4.11.6, bn.js@^
   version "4.12.0"
   resolved "https://registry.yarnpkg.com/bn.js/-/bn.js-4.12.0.tgz#775b3f278efbb9718eec7361f483fb36fbbfea88"
   integrity sha512-c98Bf3tPniI+scsdk237ku1Dc3ujXQTSgyiPUDEOe7tRkhrqridvh8klBv0HCEso1OLOYcHuCv/cS6DNxKH+ZA==
+
+bn.js@^4.10.0, bn.js@^4.8.0:
+  version "4.12.3"
+  resolved "https://registry.yarnpkg.com/bn.js/-/bn.js-4.12.3.tgz#2cc2c679188eb35b006f2d0d4710bed8437a769e"
+  integrity sha512-fGTi3gxV/23FTYdAoUtLYp6qySe2KE3teyZitipKNRuVYcBkoP/bB3guXN/XVKUe9mxCHXnc9C4ocyz8OmgN0g==
 
 bn.js@^5.0.0, bn.js@^5.1.1, bn.js@^5.2.0, bn.js@^5.2.1:
   version "5.2.1"
@@ -6138,7 +6149,15 @@ ethereum-waffle@^3.4.0:
     "@ethereum-waffle/provider" "^3.4.0"
     ethers "^5.0.1"
 
-ethereumjs-abi@0.6.5, ethereumjs-abi@0.6.8, ethereumjs-abi@^0.6.8, "ethereumjs-abi@git+https://github.com/ethereumjs/ethereumjs-abi.git":
+ethereumjs-abi@0.6.5:
+  version "0.6.5"
+  resolved "https://registry.yarnpkg.com/ethereumjs-abi/-/ethereumjs-abi-0.6.5.tgz#5a637ef16ab43473fa72a29ad90871405b3f5241"
+  integrity sha512-rCjJZ/AE96c/AAZc6O3kaog4FhOsAViaysBxqJNy2+LHP0ttH0zkZ7nXdVHOAyt6lFwLO0nlCwWszysG/ao1+g==
+  dependencies:
+    bn.js "^4.10.0"
+    ethereumjs-util "^4.3.0"
+
+ethereumjs-abi@0.6.8, ethereumjs-abi@^0.6.8, "ethereumjs-abi@git+https://github.com/ethereumjs/ethereumjs-abi.git":
   version "0.6.8"
   resolved "https://registry.yarnpkg.com/ethereumjs-abi/-/ethereumjs-abi-0.6.8.tgz#71bc152db099f70e62f108b7cdfca1b362c6fcae"
   integrity sha512-Tx0r/iXI6r+lRsdvkFDlut0N08jWMnKRZ6Gkq+Nmw75lZe4e6o3EkSnkaBP5NF6+m5PTGAr9JP43N3LyeoglsA==
@@ -6240,6 +6259,17 @@ ethereumjs-util@6.2.1, ethereumjs-util@^6.0.0, ethereumjs-util@^6.1.0, ethereumj
     ethereum-cryptography "^0.1.3"
     ethjs-util "0.1.6"
     rlp "^2.2.3"
+
+ethereumjs-util@^4.3.0:
+  version "4.5.1"
+  resolved "https://registry.yarnpkg.com/ethereumjs-util/-/ethereumjs-util-4.5.1.tgz#f4bf9b3b515a484e3cc8781d61d9d980f7c83bd0"
+  integrity sha512-WrckOZ7uBnei4+AKimpuF1B3Fv25OmoRgmYCpGsP7u8PFxXAmAgiJSYT2kRWnt6fVIlKaQlZvuwXp7PIrmn3/w==
+  dependencies:
+    bn.js "^4.8.0"
+    create-hash "^1.1.2"
+    elliptic "^6.5.2"
+    ethereum-cryptography "^0.1.3"
+    rlp "^2.0.0"
 
 ethereumjs-util@^5.0.0, ethereumjs-util@^5.0.1, ethereumjs-util@^5.1.1, ethereumjs-util@^5.1.2, ethereumjs-util@^5.1.3, ethereumjs-util@^5.1.5, ethereumjs-util@^5.2.0:
   version "5.2.1"
@@ -11307,9 +11337,9 @@ solc@^0.6.3:
     semver "^5.5.0"
     tmp "0.0.33"
 
-"solhint-config-keep@github:keep-network/solhint-config-keep":
+"solhint-config-keep@git+https://github.com/keep-network/solhint-config-keep.git#5e1751e":
   version "0.1.0"
-  resolved "https://codeload.github.com/keep-network/solhint-config-keep/tar.gz/5e1751e58c0f1c507305ffc8c7f6c58047657ada"
+  resolved "git+https://github.com/keep-network/solhint-config-keep.git#5e1751e58c0f1c507305ffc8c7f6c58047657ada"
 
 solhint@^3.3.7:
   version "3.3.7"
