@@ -20,7 +20,7 @@ import "solidity-docgen"
 // unlinked bytecode. Bridge library placeholders can overlap unrelated
 // proxy bytecode after small Bridge code-size changes, producing a false
 // "not a valid hex string" before validation reaches the target contract.
-const getUnlinkedBytecode = upgradesCoreQuery.getUnlinkedBytecode
+const { getUnlinkedBytecode } = upgradesCoreQuery
 upgradesCoreQuery.getUnlinkedBytecode = (validations, bytecode) => {
   try {
     return getUnlinkedBytecode(validations, bytecode)
