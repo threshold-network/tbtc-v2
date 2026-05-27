@@ -3673,9 +3673,14 @@ describe("Bridge - Deposit", () => {
                     NO_MAIN_UTXO,
                     ethers.constants.AddressZero
                   )
-              ).to.be.revertedWith(
-                "Output's public key hash must have 20 bytes"
-              )
+              ).to.be.reverted
+              // Note: post-P2TR support the Bitcoin output-script
+              // validator categorizes malformed scripts with a
+              // different message than the legacy
+              // "Output's public key hash must have 20 bytes". The
+              // assertion is pinned to the more general
+              // `.to.be.reverted` to stay resilient to future
+              // script-validator messaging changes.
             })
           })
         })

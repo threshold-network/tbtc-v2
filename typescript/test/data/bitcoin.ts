@@ -39,6 +39,14 @@ export const btcAddresses: Record<
         "0020ef0b4d985752aa5ef6243e4c6f6bebc2a007e7d671ef27d4b1d0db8dcc93bc1c"
       ),
     },
+    P2TR: {
+      address: "tb1pzy3rx3z4vemc3xgq42aueh0wluqpzg3ng32kvaugnx4thnxaamlsk2wdrf",
+      redeemerOutputScript:
+        "0x22512011223344556677889900aabbccddeeff00112233445566778899aabbccddeeff",
+      scriptPubKey: Hex.from(
+        "512011223344556677889900aabbccddeeff00112233445566778899aabbccddeeff"
+      ),
+    },
   },
   mainnet: {
     P2PKH: {
@@ -66,6 +74,14 @@ export const btcAddresses: Record<
         "0x220020cdbf909e935c855d3e8d1b61aeb9c5e3c03ae8021b286839b1a72f2e48fdba70",
       scriptPubKey: Hex.from(
         "0020cdbf909e935c855d3e8d1b61aeb9c5e3c03ae8021b286839b1a72f2e48fdba70"
+      ),
+    },
+    P2TR: {
+      address: "bc1pzy3rx3z4vemc3xgq42aueh0wluqpzg3ng32kvaugnx4thnxaamlspzczex",
+      redeemerOutputScript:
+        "0x22512011223344556677889900aabbccddeeff00112233445566778899aabbccddeeff",
+      scriptPubKey: Hex.from(
+        "512011223344556677889900aabbccddeeff00112233445566778899aabbccddeeff"
       ),
     },
   },

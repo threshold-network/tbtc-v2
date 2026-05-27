@@ -27,8 +27,14 @@ describe("Bridge - Governance", () => {
   describe("beginGovernanceDelayUpdate", () => {
     context("when the caller is not the owner", () => {
       it("should revert", async () => {
+        // Pass a valid delay (>= MIN_GOVERNANCE_DELAY = 3600s) so the
+        // owner check fires cleanly without tripping the delay-range
+        // require — the test's intent is "third-party can't call",
+        // not "delay value too small".
         await expect(
-          bridgeGovernance.connect(thirdParty).beginGovernanceDelayUpdate(1)
+          bridgeGovernance
+            .connect(thirdParty)
+            .beginGovernanceDelayUpdate(constants.governanceDelay)
         ).to.be.revertedWith("Ownable: caller is not the owner")
       })
     })
@@ -39,9 +45,12 @@ describe("Bridge - Governance", () => {
       before(async () => {
         await createSnapshot()
 
+        // Use a delay >= MIN_GOVERNANCE_DELAY (3600s). The previous
+        // value `1337` predated the minimum-delay enforcement that
+        // the umbrella's BridgeGovernance now applies.
         tx = await bridgeGovernance
           .connect(governance)
-          .beginGovernanceDelayUpdate(1337)
+          .beginGovernanceDelayUpdate(7331)
       })
 
       after(async () => {

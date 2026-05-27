@@ -113,4 +113,155 @@ describe("BitcoinTx", () => {
       })
     })
   })
+
+  describe("wallet output parsing", () => {
+    const p2pkhHash = "0x1111111111111111111111111111111111111111"
+    const p2wpkhHash = "0x2222222222222222222222222222222222222222"
+    const xOnlyKey =
+      "0x3333333333333333333333333333333333333333333333333333333333333333"
+
+    const p2pkhOutput =
+      "0x00000000000000001976a914111111111111111111111111111111111111111188ac"
+    const p2wpkhOutput =
+      "0x00000000000000001600142222222222222222222222222222222222222222"
+    const p2trOutput =
+      "0x00000000000000002251203333333333333333333333333333333333333333333333333333333333333333"
+
+    it("extracts public key hash from P2PKH output", async () => {
+      expect(await bitcoinTx.extractPubKeyHash(p2pkhOutput)).to.eq(p2pkhHash)
+    })
+
+    it("extracts public key hash from P2WPKH output", async () => {
+      expect(await bitcoinTx.extractPubKeyHash(p2wpkhOutput)).to.eq(p2wpkhHash)
+    })
+
+    it("extracts wallet public key hash compatibility key from P2PKH output", async () => {
+      expect(await bitcoinTx.extractWalletPubKeyHash(p2pkhOutput)).to.eq(
+        p2pkhHash
+      )
+    })
+
+    it("extracts wallet public key hash compatibility key from P2WPKH output", async () => {
+      expect(await bitcoinTx.extractWalletPubKeyHash(p2wpkhOutput)).to.eq(
+        p2wpkhHash
+      )
+    })
+
+    it("rejects P2TR output when extracting wallet public key hash", async () => {
+      await expect(bitcoinTx.extractPubKeyHash(p2trOutput)).to.be.revertedWith(
+        "P2TR wallet outputs are not enabled"
+      )
+    })
+
+    it("rejects P2TR output with unknown canonical wallet id", async () => {
+      await expect(
+        bitcoinTx.extractWalletPubKeyHash(p2trOutput)
+      ).to.be.revertedWith("Unknown wallet ID")
+    })
+
+    it("extracts mapped wallet public key hash compatibility key from P2TR output", async () => {
+      const mappedWalletPubKeyHash =
+        await bitcoinTx.deriveWalletPubKeyHashFromXOnly(xOnlyKey)
+
+      await bitcoinTx.setWalletPubKeyHashForWalletID(
+        xOnlyKey,
+        mappedWalletPubKeyHash
+      )
+
+      expect(await bitcoinTx.extractWalletPubKeyHash(p2trOutput)).to.eq(
+        mappedWalletPubKeyHash
+      )
+    })
+
+    it("extracts canonical wallet id from P2TR output", async () => {
+      expect(await bitcoinTx.extractWalletID(p2trOutput)).to.eq(xOnlyKey)
+    })
+
+    it("extracts canonical wallet id from legacy output as left-padded bytes32", async () => {
+      const expectedWalletID = ethers.utils.hexZeroPad(p2pkhHash, 32)
+
+      expect(await bitcoinTx.extractWalletID(p2pkhOutput)).to.eq(
+        expectedWalletID
+      )
+    })
+
+    it("builds a proper P2TR script from x-only key", async () => {
+      expect(await bitcoinTx.makeP2TRScript(xOnlyKey)).to.eq(
+        `0x225120${xOnlyKey.substring(2)}`
+      )
+    })
+
+    it("rejects malformed P2TR script", async () => {
+      const malformedP2trOutput =
+        "0x00000000000000002200203333333333333333333333333333333333333333333333333333333333333333"
+
+      await expect(
+        bitcoinTx.extractPubKeyHash(malformedP2trOutput)
+      ).to.be.revertedWith("Invalid P2TR script")
+    })
+  })
+
+  describe("extractStandardOutputScriptPayload", () => {
+    const twentyByteHash = "0102030405060708090a0b0c0d0e0f1011121314"
+    const thirtyTwoByteHash =
+      "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"
+
+    it("extracts the 20-byte payload from a P2PKH script", async () => {
+      const script = `0x1976a914${twentyByteHash}88ac`
+      expect(await bitcoinTx.extractStandardOutputScriptPayload(script)).to.eq(
+        `0x${twentyByteHash}`
+      )
+    })
+
+    it("extracts the 20-byte payload from a P2WPKH script", async () => {
+      const script = `0x160014${twentyByteHash}`
+      expect(await bitcoinTx.extractStandardOutputScriptPayload(script)).to.eq(
+        `0x${twentyByteHash}`
+      )
+    })
+
+    it("extracts the 20-byte payload from a P2SH script", async () => {
+      const script = `0x17a914${twentyByteHash}87`
+      expect(await bitcoinTx.extractStandardOutputScriptPayload(script)).to.eq(
+        `0x${twentyByteHash}`
+      )
+    })
+
+    it("extracts the 32-byte payload from a P2WSH script", async () => {
+      const script = `0x220020${thirtyTwoByteHash}`
+      expect(await bitcoinTx.extractStandardOutputScriptPayload(script)).to.eq(
+        `0x${thirtyTwoByteHash}`
+      )
+    })
+
+    it("extracts the 32-byte x-only output key from a P2TR script", async () => {
+      const script = `0x225120${thirtyTwoByteHash}`
+      expect(await bitcoinTx.extractStandardOutputScriptPayload(script)).to.eq(
+        `0x${thirtyTwoByteHash}`
+      )
+    })
+
+    it("returns empty bytes for an OP_RETURN-style non-standard script", async () => {
+      const opReturnScript = "0x046a02deadbeef"
+      expect(
+        await bitcoinTx.extractStandardOutputScriptPayload(opReturnScript)
+      ).to.eq("0x")
+    })
+
+    it("returns empty bytes for a too-short script", async () => {
+      const tooShort = "0x1976a9"
+      expect(
+        await bitcoinTx.extractStandardOutputScriptPayload(tooShort)
+      ).to.eq("0x")
+    })
+
+    it("returns empty bytes for a P2PKH-length script that lacks the P2PKH prefix", async () => {
+      // 26 bytes total (the P2PKH length) but the first three bytes are
+      // 0xdeadbeef-style padding instead of the 0x1976a9 P2PKH prefix.
+      const malformed = `0xdeadbeef14${twentyByteHash}88ac`
+      expect(
+        await bitcoinTx.extractStandardOutputScriptPayload(malformed)
+      ).to.eq("0x")
+    })
+  })
 })
