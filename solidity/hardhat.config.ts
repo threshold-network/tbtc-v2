@@ -1,4 +1,6 @@
 import { HardhatUserConfig } from "hardhat/config"
+import fs from "fs"
+import path from "path"
 import "./tasks"
 
 import "@keep-network/hardhat-helpers"
@@ -50,6 +52,42 @@ export const testConfig = {
   operatorsCount: 110,
 }
 
+const resolveFirstExistingPath = (
+  ...candidatePaths: string[]
+): string | undefined =>
+  candidatePaths
+    .map((candidatePath) => path.resolve(__dirname, candidatePath))
+    .find((absolutePath) => fs.existsSync(absolutePath))
+
+const thresholdArtifactsPath = resolveFirstExistingPath(
+  "node_modules/@threshold-network/solidity-contracts/export/artifacts",
+  "../threshold-solidity/export/artifacts"
+)
+
+const thresholdDeployPath = resolveFirstExistingPath(
+  "node_modules/@threshold-network/solidity-contracts/export/deploy",
+  "../threshold-solidity/export/deploy"
+)
+
+const thresholdDevelopmentDeploymentsPath = resolveFirstExistingPath(
+  "node_modules/@threshold-network/solidity-contracts/deployments/development",
+  "../threshold-solidity/deployments/development"
+)
+
+const randomBeaconDevelopmentDeploymentsPath = resolveFirstExistingPath(
+  "node_modules/@keep-network/random-beacon/deployments/development"
+)
+
+const ecdsaDevelopmentDeploymentsPath = resolveFirstExistingPath(
+  "node_modules/@keep-network/ecdsa/deployments/development"
+)
+
+const externalDevelopmentDeployments = [
+  thresholdDevelopmentDeploymentsPath,
+  randomBeaconDevelopmentDeploymentsPath,
+  ecdsaDevelopmentDeploymentsPath,
+].filter((entry): entry is string => Boolean(entry))
+
 const config: HardhatUserConfig = {
   solidity: {
     compilers: [
@@ -58,7 +96,23 @@ const config: HardhatUserConfig = {
         settings: {
           optimizer: {
             enabled: true,
-            runs: 1000,
+            runs: 200, // Reduced from 1000 to prioritize bytecode size over gas efficiency
+          },
+          // Emit storageLayout into compilation artifacts so the
+          // Bridge storage-layout invariant test can read and pin it.
+          // See contracts/tbtc-v2/test/formal/BridgeStorageLayout.test.ts.
+          outputSelection: {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata",
+                "storageLayout",
+              ],
+              "": ["ast"],
+            },
           },
         },
       },
@@ -67,6 +121,14 @@ const config: HardhatUserConfig = {
       "@keep-network/ecdsa/contracts/WalletRegistry.sol":
         ecdsaSolidityCompilerConfig,
       "contracts/bridge/BridgeGovernance.sol": bridgeGovernanceCompilerConfig,
+      // Bridge.sol stays at the project-default runs=200. A per-file
+      // override is incompatible with the OpenZeppelin upgrades-core
+      // validation path used by every `helpers.upgrades.deployProxy`
+      // call in this package — overrides cause
+      // `getUnlinkedBytecode` to fail with "Bytecode is not a valid
+      // hex string" before the proxy can be deployed (confirmed
+      // 2026-05-24 with both runs=200-and-no-override and runs=1
+      // override variants of this config).
       "contracts/cross-chain/wormhole/L1BTCDepositorNttWithExecutor.sol": {
         version: "0.8.17",
         settings: {
@@ -153,12 +215,14 @@ const config: HardhatUserConfig = {
             {
               artifacts: "node_modules/@keep-network/tbtc/artifacts",
             },
-            {
-              artifacts:
-                "node_modules/@threshold-network/solidity-contracts/export/artifacts",
-              deploy:
-                "node_modules/@threshold-network/solidity-contracts/export/deploy",
-            },
+            ...(thresholdArtifactsPath && thresholdDeployPath
+              ? [
+                  {
+                    artifacts: thresholdArtifactsPath,
+                    deploy: thresholdDeployPath,
+                  },
+                ]
+              : []),
             {
               artifacts:
                 "node_modules/@keep-network/random-beacon/export/artifacts",
@@ -173,11 +237,7 @@ const config: HardhatUserConfig = {
     deployments: {
       // For development environment we expect the local dependencies to be
       // linked with `yarn link` command.
-      development: [
-        "node_modules/@threshold-network/solidity-contracts/deployments/development",
-        "node_modules/@keep-network/random-beacon/deployments/development",
-        "node_modules/@keep-network/ecdsa/deployments/development",
-      ],
+      development: externalDevelopmentDeployments,
       sepolia: [
         "node_modules/@keep-network/tbtc/artifacts",
         "node_modules/@keep-network/random-beacon/artifacts",
@@ -257,6 +317,19 @@ const config: HardhatUserConfig = {
     apiKey: {
       mainnet: process.env.ETHERSCAN_API_KEY,
     },
+    customChains: [
+      {
+        network: "mainnet",
+        chainId: 1,
+        urls: {
+          apiURL: "https://api.etherscan.io/v2/api?chainid=1",
+          browserURL: "https://etherscan.io",
+        },
+      },
+    ],
+  },
+  gasReporter: {
+    enabled: process.env.REPORT_GAS === "true",
   },
   contractSizer: {
     alphaSort: true,
