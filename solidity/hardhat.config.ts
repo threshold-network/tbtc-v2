@@ -1,4 +1,5 @@
 import { HardhatUserConfig } from "hardhat/config"
+import upgradesCoreQuery = require("@openzeppelin/upgrades-core/dist/validate/query")
 import fs from "fs"
 import path from "path"
 import "./tasks"
@@ -14,6 +15,26 @@ import "@tenderly/hardhat-tenderly"
 import "@typechain/hardhat"
 import "hardhat-dependency-compiler"
 import "solidity-docgen"
+
+// OpenZeppelin upgrades-core probes every linked contract when resolving
+// unlinked bytecode. Bridge library placeholders can overlap unrelated
+// proxy bytecode after small Bridge code-size changes, producing a false
+// "not a valid hex string" before validation reaches the target contract.
+const getUnlinkedBytecode = upgradesCoreQuery.getUnlinkedBytecode
+upgradesCoreQuery.getUnlinkedBytecode = (validations, bytecode) => {
+  try {
+    return getUnlinkedBytecode(validations, bytecode)
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === "Bytecode is not a valid hex string"
+    ) {
+      return bytecode
+    }
+
+    throw error
+  }
+}
 
 const ecdsaSolidityCompilerConfig = {
   version: "0.8.17",
