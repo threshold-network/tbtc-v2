@@ -17,7 +17,11 @@
   },
   "overrides": [
     {
-      "files": ["**/*.test.ts", "**/*.spec.ts"],
+      "files": [
+        "**/*.test.ts",
+        "**/*.spec.ts",
+        "test/integration/utils/**/*.ts"
+      ],
       "rules": {
         "no-underscore-dangle": "off",
         "@typescript-eslint/naming-convention": "off",
@@ -25,7 +29,12 @@
         "@typescript-eslint/no-unused-expressions": "off",
         "@typescript-eslint/no-shadow": "off",
         "no-console": "off",
-        "@typescript-eslint/no-unused-vars": "off"
+        "@typescript-eslint/no-unused-vars": "off",
+        "no-restricted-syntax": "off",
+        "@typescript-eslint/no-loop-func": "off",
+        "no-await-in-loop": "off",
+        "no-bitwise": "off",
+        "no-void": "off"
       }
     }
   ]
