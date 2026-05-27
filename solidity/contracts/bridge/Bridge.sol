@@ -17,7 +17,13 @@ pragma solidity 0.8.17;
 
 import "@keep-network/random-beacon/contracts/Governable.sol";
 import "@keep-network/random-beacon/contracts/ReimbursementPool.sol";
-import {IWalletOwner as EcdsaWalletOwner} from "@keep-network/ecdsa/contracts/api/IWalletOwner.sol";
+// D-2 dropped `IWalletOwner` inheritance: the ECDSA wallet
+// registry's `__ecdsaWalletCreatedCallback` callback path is
+// removed entirely (no new ECDSA wallets after D-2 ships). The
+// heartbeat callback is preserved as a standalone external
+// function for existing-wallet lifecycle. Import path retained
+// for the registry contract handle (used via
+// `BridgeState.Storage.ecdsaWalletRegistry`).
 
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/math/SafeCastUpgradeable.sol";
@@ -32,9 +38,21 @@ import "./EcdsaLib.sol";
 import "./Wallets.sol";
 import "./Fraud.sol";
 import "./MovingFunds.sol";
+// P2TRSignatureFraudLifecycle removed -- the P2TR signature-fraud
+// lifecycle now lives in its own sidecar (P2TRSignatureFraudRouter),
+// peer to EcdsaFraudRouter.
 
 import "../bank/IReceiveBalanceApproval.sol";
 import "../bank/Bank.sol";
+
+/// @dev Minimal interface Bridge uses to migrate legacy fraud
+///      challenges into the EcdsaFraudRouter sidecar.
+interface IEcdsaFraudRouterMigration {
+    function acceptMigration(
+        uint256[] calldata challengeKeys,
+        Fraud.FraudChallenge[] calldata data
+    ) external payable;
+}
 
 /// @title Bitcoin Bridge
 /// @notice Bridge manages BTC deposit and redemption flow and is increasing and
@@ -57,19 +75,26 @@ import "../bank/Bank.sol";
 /// @dev Bridge is an upgradeable component of the Bank. The order of
 ///      functionalities in this contract is: deposit, sweep, redemption,
 ///      moving funds, wallet lifecycle, frauds, parameters.
-contract Bridge is
-    Governable,
-    EcdsaWalletOwner,
-    Initializable,
-    IReceiveBalanceApproval
-{
+contract Bridge is Governable, Initializable, IReceiveBalanceApproval {
+    // Shared custom error for the five initialize() zero-address guards.
+    // Converted from individual require strings to a single 4-byte
+    // selector to keep the Bridge implementation under the 24 KiB
+    // EIP-170 deploy limit. Tests on the init revert path assert on the
+    // error name; the specific argument being zero is identifiable
+    // from the calldata and ordering of the require checks.
+    error AddressIsZero();
+
     using BridgeState for BridgeState.Storage;
     using Deposit for BridgeState.Storage;
     using DepositSweep for BridgeState.Storage;
     using Redemption for BridgeState.Storage;
     using MovingFunds for BridgeState.Storage;
     using Wallets for BridgeState.Storage;
-    using Fraud for BridgeState.Storage;
+    // `using Fraud` / `using P2TRSignatureFraudLifecycle` removed --
+    // the ECDSA fraud surface now lives on EcdsaFraudRouter. The
+    // Fraud library import stays only so `BridgeState` can keep its
+    // legacy `fraudChallenges` storage mapping typed against
+    // `Fraud.FraudChallenge` for one-time migration.
 
     BridgeState.Storage internal self;
 
@@ -146,6 +171,21 @@ contract Bridge is
         bytes20 indexed walletPubKeyHash
     );
 
+    event NewWalletRegisteredV2(
+        bytes32 indexed walletID,
+        bytes32 indexed ecdsaWalletID,
+        bytes20 indexed walletPubKeyHash
+    );
+
+    // Mirror of the Wallets library declaration so the event appears in
+    // the Bridge contract ABI. Consumers (indexers, tests) resolve event
+    // types from the Bridge artifact, not the library artifact.
+    event NewFrostWalletRegistered(
+        bytes32 indexed walletID,
+        bytes20 indexed walletPubKeyHash,
+        bytes32 indexed xOnlyOutputKey
+    );
+
     event WalletClosing(
         bytes32 indexed ecdsaWalletID,
         bytes20 indexed walletPubKeyHash
@@ -161,23 +201,10 @@ contract Bridge is
         bytes20 indexed walletPubKeyHash
     );
 
-    event FraudChallengeSubmitted(
-        bytes20 indexed walletPubKeyHash,
-        bytes32 sighash,
-        uint8 v,
-        bytes32 r,
-        bytes32 s
-    );
-
-    event FraudChallengeDefeated(
-        bytes20 indexed walletPubKeyHash,
-        bytes32 sighash
-    );
-
-    event FraudChallengeDefeatTimedOut(
-        bytes20 indexed walletPubKeyHash,
-        bytes32 sighash
-    );
+    // FraudChallengeSubmitted, FraudChallengeDefeated, and
+    // FraudChallengeDefeatTimedOut events have moved to the
+    // EcdsaFraudRouter sidecar. Indexers and watchtowers must
+    // subscribe to the router contract for these events.
 
     event VaultStatusUpdated(address indexed vault, bool isTrusted);
 
@@ -238,11 +265,44 @@ contract Bridge is
 
     event RedemptionWatchtowerSet(address redemptionWatchtower);
 
-    event RebateStakingSet(address rebateStaking);
-    event RebateStakingRepaired(
-        address oldRebateStaking,
-        address newRebateStaking
+    // Mirror of the BridgeState library declaration so the event appears
+    // in the Bridge contract ABI.
+    event FrostWalletRegistrySet(address frostWalletRegistry);
+
+    // Mirror of the BridgeState library declaration so the event appears
+    // in the Bridge contract ABI.
+    event EcdsaFraudRouterSet(address ecdsaFraudRouter);
+
+    // Mirror of the BridgeState library declaration so the event appears
+    // in the Bridge contract ABI.
+    event P2TRFraudRouterSet(address p2trFraudRouter);
+
+    // Mirror of the BridgeState library declaration so the event
+    // appears in the Bridge contract ABI.
+    event LifecycleRouterSet(address lifecycleRouter);
+
+    // Declared for ABI back-compat. D-2.2 slice 3 removed the
+    // scheme setter so this event never fires post-slice-3;
+    // the declaration stays so out-of-tree tooling registered
+    // for the topic doesn't see a missing entry.
+    event NewWalletSchemeSet(BridgeState.WalletScheme indexed scheme);
+
+    // Mirror of the BridgeState library declaration so the D-2
+    // hard-retirement event appears in the Bridge contract ABI.
+    event EcdsaRetired();
+
+    /// @notice Emitted once for every legacy fraud challenge migrated
+    ///         from Bridge to a fraud router sidecar via
+    ///         migrateLegacyFraudChallenges. `routerKind` is 0 for
+    ///         the ECDSA router and 1 for the P2TR router.
+    event LegacyFraudChallengeMigrated(
+        uint8 indexed routerKind,
+        uint256 indexed challengeKey,
+        address indexed challenger,
+        uint256 depositAmount
     );
+
+    event RebateStakingSet(address rebateStaking);
 
     /// @notice Emitted when a deposit's vault field is corrected via governance.
     /// @dev This event is used for transparency when fixing deposits that were
@@ -253,6 +313,35 @@ contract Bridge is
         require(
             self.isSpvMaintainer[msg.sender],
             "Caller is not SPV maintainer"
+        );
+        _;
+    }
+
+    /// @notice Gates Bridge entry points reserved for callbacks from the
+    ///         EcdsaFraudRouter sidecar. The router is the only caller
+    ///         permitted to invoke `slashWalletForFraud`, since that
+    ///         function performs the wallet termination + stake seizure
+    ///         side-effect on the router's behalf.
+    modifier onlyEcdsaFraudRouter() {
+        require(
+            self.ecdsaFraudRouter != address(0) &&
+                msg.sender == self.ecdsaFraudRouter,
+            "Caller is not ECDSA fraud router"
+        );
+        _;
+    }
+
+    /// @notice Sister modifier to `onlyEcdsaFraudRouter`, gating the
+    ///         privileged callback the P2TRSignatureFraudRouter
+    ///         sidecar invokes from its timeout path. The two routers
+    ///         are independent peers; their callbacks are gated by
+    ///         separate modifiers so a compromise of one cannot
+    ///         impersonate the other.
+    modifier onlyP2TRFraudRouter() {
+        require(
+            self.p2trFraudRouter != address(0) &&
+                msg.sender == self.p2trFraudRouter,
+            "Caller is not P2TR fraud router"
         );
         _;
     }
@@ -280,25 +369,19 @@ contract Bridge is
         address payable _reimbursementPool,
         uint96 _txProofDifficultyFactor
     ) external initializer {
-        require(_bank != address(0), "Bank address cannot be zero");
+        if (_bank == address(0)) revert AddressIsZero();
         self.bank = Bank(_bank);
 
-        require(_relay != address(0), "Relay address cannot be zero");
+        if (_relay == address(0)) revert AddressIsZero();
         self.relay = IRelay(_relay);
 
-        require(
-            _ecdsaWalletRegistry != address(0),
-            "ECDSA Wallet Registry address cannot be zero"
-        );
+        if (_ecdsaWalletRegistry == address(0)) revert AddressIsZero();
         self.ecdsaWalletRegistry = EcdsaWalletRegistry(_ecdsaWalletRegistry);
 
-        require(
-            _reimbursementPool != address(0),
-            "Reimbursement Pool address cannot be zero"
-        );
+        if (_reimbursementPool == address(0)) revert AddressIsZero();
         self.reimbursementPool = ReimbursementPool(_reimbursementPool);
 
-        require(_treasury != address(0), "Treasury address cannot be zero");
+        if (_treasury == address(0)) revert AddressIsZero();
         self.treasury = _treasury;
 
         self.txProofDifficultyFactor = _txProofDifficultyFactor;
@@ -375,36 +458,6 @@ contract Bridge is
 
         // Emit event for transparency
         emit DepositVaultFixed(depositKey, tbtcVault);
-    }
-
-    /// @notice Repairs the rebate staking address during a proxy upgrade.
-    /// @param newRebateStaking The new rebate staking address. Set to 0x0 to
-    ///        disable the rebate hook entirely.
-    /// @dev Uses reinitializer(5) to allow a one-time repair of the rebate
-    ///      staking address. Versions 3-4 were reserved for other potential
-    ///      upgrades but ultimately unused. This function can only be called
-    ///      once per proxy deployment.
-    function initializeV5_RepairRebateStaking(address newRebateStaking)
-        external
-        reinitializer(5)
-    {
-        address oldRebateStaking = self.rebateStaking;
-
-        require(
-            oldRebateStaking != newRebateStaking,
-            "Rebate staking unchanged"
-        );
-
-        if (newRebateStaking != address(0)) {
-            require(
-                newRebateStaking.code.length > 0,
-                "Rebate staking must be a contract"
-            );
-        }
-
-        self.rebateStaking = newRebateStaking;
-
-        emit RebateStakingRepaired(oldRebateStaking, newRebateStaking);
     }
 
     /// @notice Used by the depositor to reveal information about their P2(W)SH
@@ -1022,11 +1075,14 @@ contract Bridge is
         );
     }
 
-    /// @notice Requests creation of a new wallet. This function just
-    ///         forms a request and the creation process is performed
-    ///         asynchronously. Once a wallet is created, the ECDSA Wallet
-    ///         Registry will notify this contract by calling the
-    ///         `__ecdsaWalletCreatedCallback` function.
+    /// @notice Requests creation of a new wallet. The creation
+    ///         process is performed asynchronously by the FROST
+    ///         wallet registry, which notifies this contract by
+    ///         calling `__frostWalletCreatedCallback` on
+    ///         completion. The ECDSA scheme branch unconditionally
+    ///         reverts in D-2; the ECDSA registry's create-side
+    ///         callback was structurally removed and any dispatch
+    ///         attempt to it would strand the registry non-IDLE.
     /// @param activeWalletMainUtxo Data of the active wallet's main UTXO, as
     ///        currently known on the Ethereum chain.
     /// @dev Requirements:
@@ -1041,27 +1097,67 @@ contract Bridge is
     ///        - The active wallet BTC balance is above the minimum threshold
     ///          and the active wallet is old enough, i.e. the creation period
     ///          was elapsed since its creation time,
-    ///        - The active wallet BTC balance is above the maximum threshold.
+    ///        - The active wallet BTC balance is above the maximum threshold,
+    ///      - `currentNewWalletScheme` must be `Frost` (any Ecdsa
+    ///        selection reverts unconditionally in D-2),
+    ///      - `frostWalletRegistry` must be set (governance one-
+    ///        time setter; required before FROST wallet creation).
     function requestNewWallet(BitcoinTx.UTXO calldata activeWalletMainUtxo)
         external
     {
         self.requestNewWallet(activeWalletMainUtxo);
     }
 
-    /// @notice A callback function that is called by the ECDSA Wallet Registry
-    ///         once a new ECDSA wallet is created.
-    /// @param ecdsaWalletID Wallet's unique identifier.
-    /// @param publicKeyX Wallet's public key's X coordinate.
-    /// @param publicKeyY Wallet's public key's Y coordinate.
+    // D-2 removed `__ecdsaWalletCreatedCallback`. The ECDSA
+    // wallet registry's create-side callback into Bridge is
+    // gone; any attempt to invoke the removed selector reverts
+    // at the EVM dispatcher (no matching ABI entry).
+    //
+    // The deadlock vector (dispatch → DKG → late callback into
+    // removed selector → stuck registry → blocked FROST
+    // wallets) is structurally closed by D-2 at TWO layers:
+    //
+    //   1. CODE (load-bearing): `Wallets.requestNewWallet`
+    //      unconditionally reverts the `scheme == Ecdsa`
+    //      branch in D-2. No dispatch to the ECDSA registry
+    //      can be reached regardless of scheme or flag state.
+    //      (Per PR #444 follow-up review.)
+    //
+    //   2. OPERATIONS (defense-in-depth): the activation
+    //      runbook still calls for
+    //      `BridgeGovernance.setNewWalletScheme(Frost)` before
+    //      the upgrade so that even in the pre-D-2 window
+    //      between governance-decision and proxy upgrade,
+    //      the ECDSA path is already off.
+    //
+    // The `retireEcdsa()` flag flip (governance forwarder
+    // added alongside this PR) is an OPTIONAL audit-trail
+    // step and not required for the structural retirement.
+    // See `docs/frost-migration/d2-ecdsa-hard-retirement-plan.md`
+    // §"Activation runbook" for the full sequence.
+    //
+    // Existing ECDSA wallets continue their full lifecycle
+    // (sweeps, redemptions, fraud, moving funds, closing,
+    // termination) — those paths do not depend on this
+    // callback.
+
+    /// @notice A callback function that is called by the FROST wallet
+    ///         registry once a new FROST/Schnorr-keyed wallet is created.
+    ///         Mirrors the ECDSA callback above but for the FROST path.
+    /// @param xOnlyOutputKey The 32-byte x-only Taproot output key emitted
+    ///        by the FROST DKG coordinator. The on-chain canonical
+    ///        walletID is the x-only key itself; the 20-byte compatibility
+    ///        pubKeyHash is HASH160(0x02 || xOnlyOutputKey).
     /// @dev Requirements:
-    ///      - The only caller authorized to call this function is `registry`,
-    ///      - Given wallet data must not belong to an already registered wallet.
-    function __ecdsaWalletCreatedCallback(
-        bytes32 ecdsaWalletID,
-        bytes32 publicKeyX,
-        bytes32 publicKeyY
-    ) external override {
-        self.registerNewWallet(ecdsaWalletID, publicKeyX, publicKeyY);
+    ///      - The only caller authorized to call this function is the
+    ///        registered FROST wallet registry (configured via
+    ///        `setFrostWalletRegistry`),
+    ///      - All registration guards enumerated on
+    ///        `Wallets.registerNewFrostWallet` (non-zero key, native
+    ///        shape, non-collision with legacy ID, no duplicate
+    ///        registration) must hold.
+    function __frostWalletCreatedCallback(bytes32 xOnlyOutputKey) external {
+        self.registerNewFrostWallet(xOnlyOutputKey);
     }
 
     /// @notice A callback function that is called by the ECDSA Wallet Registry
@@ -1075,7 +1171,7 @@ contract Bridge is
         bytes32,
         bytes32 publicKeyX,
         bytes32 publicKeyY
-    ) external override {
+    ) external {
         self.notifyWalletHeartbeatFailed(publicKeyX, publicKeyY);
     }
 
@@ -1149,13 +1245,10 @@ contract Bridge is
     ///        the wallet behind `walletPubKey` during signing of `sighash`
     ///        which was calculated from `preimageSha256`,
     ///      - Wallet can be challenged for the given signature only once.
-    function submitFraudChallenge(
-        bytes calldata walletPublicKey,
-        bytes memory preimageSha256,
-        BitcoinTx.RSVSignature calldata signature
-    ) external payable {
-        self.submitFraudChallenge(walletPublicKey, preimageSha256, signature);
-    }
+    // submitFraudChallenge: moved to EcdsaFraudRouter (sidecar).
+    // Consumers must call the router contract directly. The router's
+    // address is set via Bridge.setEcdsaFraudRouter and is available
+    // via Bridge.ecdsaFraudRouter().
 
     /// @notice Allows to defeat a pending fraud challenge against a wallet if
     ///         the transaction that spends the UTXO follows the protocol rules.
@@ -1185,13 +1278,7 @@ contract Bridge is
     ///        according to the protocol rules and already proved in the Bridge,
     ///      - before a defeat attempt is made the transaction that spends the
     ///        given UTXO must be proven in the Bridge.
-    function defeatFraudChallenge(
-        bytes calldata walletPublicKey,
-        bytes calldata preimage,
-        bool witness
-    ) external {
-        self.defeatFraudChallenge(walletPublicKey, preimage, witness);
-    }
+    // defeatFraudChallenge: moved to EcdsaFraudRouter (sidecar).
 
     /// @notice Allows to defeat a pending fraud challenge against a wallet by
     ///         proving the sighash and signature were produced for an off-chain
@@ -1215,15 +1302,8 @@ contract Bridge is
     ///        `hash256(heartbeatMessage)` must identify an open fraud challenge,
     ///      - `heartbeatMessage` must follow a strict format of heartbeat
     ///        messages.
-    function defeatFraudChallengeWithHeartbeat(
-        bytes calldata walletPublicKey,
-        bytes calldata heartbeatMessage
-    ) external {
-        self.defeatFraudChallengeWithHeartbeat(
-            walletPublicKey,
-            heartbeatMessage
-        );
-    }
+    // defeatFraudChallengeWithHeartbeat: moved to EcdsaFraudRouter
+    // (sidecar).
 
     /// @notice Notifies about defeat timeout for the given fraud challenge.
     ///         Can be called only if there was a fraud challenge identified by
@@ -1259,17 +1339,23 @@ contract Bridge is
     ///        events of the `WalletRegistry` contract,
     ///      - The amount of time indicated by `challengeDefeatTimeout` must pass
     ///        after the challenge was reported.
-    function notifyFraudChallengeDefeatTimeout(
-        bytes calldata walletPublicKey,
-        uint32[] calldata walletMembersIDs,
-        bytes memory preimageSha256
-    ) external {
-        self.notifyFraudChallengeDefeatTimeout(
-            walletPublicKey,
-            walletMembersIDs,
-            preimageSha256
-        );
-    }
+    // notifyFraudChallengeDefeatTimeout: moved to EcdsaFraudRouter
+    // (sidecar). The router calls back into
+    // Bridge.slashWalletForFraud (gated by `onlyEcdsaFraudRouter`)
+    // to perform the wallet termination + stake seizure side-effect.
+
+    /// @notice Processes a P2TR signature-fraud challenge lifecycle action.
+    /// @param action Lifecycle action to process: submit, defeat, or timeout.
+    /// @param payload ABI-encoded structured transaction, prevout, and
+    ///        witness-signature fields used to reconstruct and verify the
+    ///        BIP-341/BIP-340 signature evidence.
+    /// @param walletMembersIDs Identifiers of the wallet signing group members.
+    ///        Used only by the timeout action.
+    // processP2TRSignatureFraudChallenge: moved to its own sidecar
+    // (P2TRSignatureFraudRouter). The router holds the P2TR
+    // signature-fraud challenge state, escrows ETH directly, and
+    // calls back into Bridge.slashWalletForP2TRFraud (gated by
+    // onlyP2TRFraudRouter) for stake seizure on timeout.
 
     /// @notice Allows the Governance to mark the given vault address as trusted
     ///         or no longer trusted. Vaults are not trusted by default.
@@ -1692,6 +1778,67 @@ contract Bridge is
         return self.registeredWallets[walletPubKeyHash];
     }
 
+    /// @notice Gets details about a registered wallet using canonical wallet ID.
+    /// @dev Canonical ID mappings are retained for historical wallets. Callers
+    ///      must inspect the returned wallet state before treating it as live.
+    /// @param walletId Canonical wallet identifier.
+    /// @return Wallet details.
+    function walletsByWalletID(bytes32 walletId)
+        external
+        view
+        returns (Wallets.Wallet memory)
+    {
+        return
+            self.registeredWallets[
+                resolveWalletPubKeyHashForWalletID(walletId)
+            ];
+    }
+
+    /// @notice Gets canonical wallet ID for a given legacy wallet public key hash.
+    /// @dev Legacy ID format is a left-padded 20-byte wallet public key hash.
+    function walletID(bytes20 walletPubKeyHash)
+        external
+        pure
+        returns (bytes32)
+    {
+        return Wallets.deriveLegacyWalletID(walletPubKeyHash);
+    }
+
+    /// @notice Resolves canonical wallet ID to wallet public key hash.
+    /// @dev Canonical ID mappings are retained for historical wallets. Callers
+    ///      must inspect wallet state before treating the resolved ID as live.
+    /// @param walletId Canonical wallet identifier.
+    /// @return 20-byte wallet public key hash used by legacy Bridge interfaces.
+    function walletPubKeyHashForWalletID(bytes32 walletId)
+        external
+        view
+        returns (bytes20)
+    {
+        return resolveWalletPubKeyHashForWalletID(walletId);
+    }
+
+    function resolveWalletPubKeyHashForWalletID(bytes32 walletId)
+        internal
+        view
+        returns (bytes20)
+    {
+        bytes20 walletPubKeyHash = self.walletPubKeyHashByWalletID[walletId];
+        if (walletPubKeyHash != bytes20(0)) {
+            return walletPubKeyHash;
+        }
+
+        bytes20 legacyWalletPubKeyHash = bytes20(uint160(uint256(walletId)));
+        if (
+            Wallets.deriveLegacyWalletID(legacyWalletPubKeyHash) != walletId ||
+            self.registeredWallets[legacyWalletPubKeyHash].state ==
+            Wallets.WalletState.Unknown
+        ) {
+            return bytes20(0);
+        }
+
+        return legacyWalletPubKeyHash;
+    }
+
     /// @notice Gets the public key hash of the active wallet.
     /// @return The 20-byte public key hash (computed using Bitcoin HASH160
     ///         over the compressed ECDSA public key) of the active wallet.
@@ -1700,21 +1847,38 @@ contract Bridge is
         return self.activeWalletPubKeyHash;
     }
 
+    /// @notice Gets canonical wallet ID of the active wallet.
+    /// @return Canonical wallet ID, or bytes32(0) if there is no active wallet.
+    function activeWalletID() external view returns (bytes32) {
+        bytes32 activeWalletCanonicalID = self.activeWalletID;
+        if (activeWalletCanonicalID != bytes32(0)) {
+            return activeWalletCanonicalID;
+        }
+
+        bytes20 activeWallet = self.activeWalletPubKeyHash;
+        if (activeWallet == bytes20(0)) {
+            return bytes32(0);
+        }
+
+        // Backward compatibility path for storage migrated from the legacy
+        // model where active wallet ID was derived from walletPubKeyHash only.
+        return Wallets.deriveLegacyWalletID(activeWallet);
+    }
+
     /// @notice Gets the live wallets count.
     /// @return The current count of wallets being in the Live state.
     function liveWalletsCount() external view returns (uint32) {
         return self.liveWalletsCount;
     }
 
-    /// @notice Returns the fraud challenge identified by the given key built
-    ///         as keccak256(walletPublicKey|sighash).
-    function fraudChallenges(uint256 challengeKey)
-        external
-        view
-        returns (Fraud.FraudChallenge memory)
-    {
-        return self.fraudChallenges[challengeKey];
-    }
+    // fraudChallenges getter: moved off Bridge -- ECDSA challenges
+    // live on EcdsaFraudRouter, P2TR challenges live on
+    // P2TRSignatureFraudRouter. The legacy
+    // `BridgeState.fraudChallenges` mapping remains in storage to
+    // support one-time migration of pre-cutover entries via
+    // migrateLegacyFraudChallenges (routerKind 0 = ECDSA, 1 = P2TR),
+    // but no read accessor is exposed -- consumers should call the
+    // routers' `fraudChallenges` views directly.
 
     /// @notice Collection of all moved funds sweep requests indexed by
     ///         `keccak256(movingFundsTxHash | movingFundsOutputIndex)`.
@@ -2055,6 +2219,330 @@ contract Bridge is
     function getRedemptionWatchtower() external view returns (address) {
         return self.redemptionWatchtower;
     }
+
+    /// @notice Sets the FROST wallet registry address. The registry contract
+    ///         is the only caller authorized to invoke `registerNewFrostWallet`
+    ///         on this Bridge.
+    /// @param frostWalletRegistry Address of the FROST wallet registry.
+    /// @dev Requirements:
+    ///      - The caller must be the governance,
+    ///      - FROST wallet registry address must not be already set,
+    ///      - FROST wallet registry address must not be 0x0.
+    ///
+    ///      The registry remains zero by default. Production deployments
+    ///      MUST keep this unset until the keep-core FROST DKG coordinator
+    ///      and the scheme-aware wallet lifecycle follow-up are deployed —
+    ///      until then, no FROST wallet can be registered on this Bridge,
+    ///      preserving the ECDSA-only operating model.
+    function setFrostWalletRegistry(address frostWalletRegistry)
+        external
+        onlyGovernance
+    {
+        // The internal function is defined in the `BridgeState` library.
+        self.setFrostWalletRegistry(frostWalletRegistry);
+    }
+
+    /// @notice Sets the BridgeLifecycleRouter address. The router is
+    ///         the authorized dispatcher for FROST-scheme wallet
+    ///         lifecycle operations (closeWallet, seize,
+    ///         isWalletMember). ECDSA lifecycle operations bypass it
+    ///         entirely and continue to call ecdsaWalletRegistry
+    ///         directly.
+    /// @param lifecycleRouter Address of the BridgeLifecycleRouter.
+    /// @dev Requirements:
+    ///      - The caller must be the governance,
+    ///      - Lifecycle router address must not be already set,
+    ///      - Lifecycle router address must not be 0x0.
+    ///
+    ///      The router remains zero by default. FROST wallet
+    ///      registration (registerNewFrostWallet) reverts when the
+    ///      router is unset; combined with the frostWalletRegistry
+    ///      gate, this ensures no FROST wallet can enter the Live
+    ///      state without both ends of the FROST lifecycle path
+    ///      wired up. Production deployments MUST set both
+    ///      lifecycleRouter and frostWalletRegistry before enabling
+    ///      FROST wallet creation.
+    function setLifecycleRouter(address lifecycleRouter)
+        external
+        onlyGovernance
+    {
+        // The internal function is defined in the `BridgeState` library.
+        self.setLifecycleRouter(lifecycleRouter);
+    }
+
+    // D-2.2 slice 3: `setNewWalletScheme(scheme)` external
+    // setter removed. Pre-slice-3 it let governance flip the
+    // default scheme for `requestNewWallet` dispatch.
+    // Post-slice-3 there's only one valid scheme (FROST) — the
+    // ECDSA dispatch branch was removed in this same slice from
+    // `Wallets.requestNewWallet`. The
+    // `currentNewWalletScheme` storage field is preserved
+    // (upgrade-safety; never remove a slot from a proxy storage
+    // layout). `BridgeGovernance` no longer exposes the
+    // forwarder. The `NewWalletSchemeSet` event declaration
+    // stays for ABI back-compat but no longer fires. See
+    // `d2-2-followups-plan.md` §"Slice 3" for the governance
+    // commit this slice is gated on.
+
+    /// @notice D-2 canonical setter for ECDSA hard retirement.
+    ///         Flips the `ecdsaRetired` storage flag (one-way).
+    ///         Subsequent `requestNewWallet` calls routed to
+    ///         the Ecdsa scheme revert via the request-side
+    ///         guard added in D-1. The structural removal of
+    ///         `__ecdsaWalletCreatedCallback` in D-2.1 hardens
+    ///         the ratchet at the EVM dispatcher level: even
+    ///         bypassing the flag (e.g., via storage poke to
+    ///         flip it back) cannot reopen the create path.
+    ///
+    ///         Off-chain consumers observe the transition via
+    ///         the public `ecdsaRetired()` getter below (NOT
+    ///         via an event — see the §"D-2.2" comment block
+    ///         on this function for the rationale on the
+    ///         dropped emit).
+    /// @dev Idempotent — re-calling after the flag is set
+    ///      writes the same value (warm SSTORE no-op). Tests
+    ///      asserting on the resulting flag value should read
+    ///      `ecdsaRetired()` rather than wait for an event.
+    /// @dev D-2.2: dropped the `emit EcdsaRetired()` here so the
+    ///      new public `ecdsaRetired()` getter (below) fits
+    ///      under EIP-170. The event was added in D-2.1 as the
+    ///      only way for off-chain consumers to notice the
+    ///      transition (no getter existed); with the getter
+    ///      now landing, polling is the canonical observation
+    ///      path and the governance transaction itself is the
+    ///      authoritative audit-trail record (block + tx hash
+    ///      + sender — exactly what a one-shot governance
+    ///      action needs). The `EcdsaRetired` event declaration
+    ///      stays on `BridgeState` for ABI back-compat but is
+    ///      no longer emitted.
+    function retireEcdsa() external onlyGovernance {
+        self.ecdsaRetired = true;
+    }
+
+    /// @notice Returns the current value of the ECDSA hard-
+    ///         retirement flag. `false` by default; `true`
+    ///         after `retireEcdsa()` has been called. Indexers
+    ///         and tooling that previously had to decode
+    ///         storage slot 38 byte 17 (when D-2.1 deferred
+    ///         this getter for bytecode budget) can now read
+    ///         this view directly. (D-2.2.)
+    function ecdsaRetired() external view returns (bool) {
+        return self.ecdsaRetired;
+    }
+
+    /// @notice One-shot view consumed by the BridgeLifecycleRouter
+    ///         during FROST wallet dispatch. Returns the
+    ///         frostWalletRegistry address and the wallet's canonical
+    ///         walletID so the router can forward closeWallet/seize/
+    ///         isWalletMember calls without three separate cross-
+    ///         contract reads. Folding the lookup into one view also
+    ///         keeps the Bridge implementation under the 24 KiB
+    ///         EIP-170 deploy limit (vs. separate frostWalletRegistry
+    ///         + walletIDByWalletPubKeyHash + lifecycleRouter
+    ///         getters).
+    ///
+    ///         Returns (address(0), bytes32(0)) for ECDSA wallets or
+    ///         unregistered pubKeyHashes; callers (i.e. the router)
+    ///         should treat either zero as a configuration error.
+    ///         Lifecycle dispatchers also have no use for the
+    ///         lifecycleRouter value (they ARE the router) so it is
+    ///         intentionally omitted from this view; the value is
+    ///         recoverable from the LifecycleRouterSet event emitted
+    ///         at governance initialization for any consumer that
+    ///         needs it.
+    /// @param walletPubKeyHash 20-byte compatibility alias for the
+    ///        wallet.
+    /// @return frostRegistry The configured FROST wallet registry
+    ///         address.
+    /// @return walletID The canonical FROST walletID
+    ///         (xOnlyOutputKey) stored at registration time, or
+    ///         bytes32(0) for ECDSA wallets / unregistered hashes.
+    function frostLifecycleContext(bytes20 walletPubKeyHash)
+        external
+        view
+        returns (address frostRegistry, bytes32 walletID)
+    {
+        return (
+            self.frostWalletRegistry,
+            self.walletIDByWalletPubKeyHash[walletPubKeyHash]
+        );
+    }
+
+    /// @notice Sets the EcdsaFraudRouter sidecar address. The router
+    ///         hosts the ECDSA fraud lifecycle (submit/defeat/timeout)
+    ///         that was previously inlined on Bridge.
+    /// @param ecdsaFraudRouter Address of the EcdsaFraudRouter sidecar.
+    /// @dev Requirements:
+    ///      - Caller must be governance,
+    ///      - ECDSA fraud router address must not be already set,
+    ///      - ECDSA fraud router address must not be 0x0.
+    ///
+    ///      This is a one-time setter (same pattern as
+    ///      `setRedemptionWatchtower` and `setFrostWalletRegistry`).
+    ///      After being set, the router becomes the only address
+    ///      permitted to invoke `slashWalletForFraud` on this Bridge.
+    function setEcdsaFraudRouter(address ecdsaFraudRouter)
+        external
+        onlyGovernance
+    {
+        self.setEcdsaFraudRouter(ecdsaFraudRouter);
+    }
+
+    /// @notice Returns the address of the EcdsaFraudRouter sidecar.
+    ///         Returns the zero address until governance calls
+    ///         `setEcdsaFraudRouter`.
+    function ecdsaFraudRouter() external view returns (address) {
+        return self.ecdsaFraudRouter;
+    }
+
+    /// @notice Privileged callback the EcdsaFraudRouter invokes to
+    ///         perform the wallet termination + operator stake seizure
+    ///         side-effect on fraud-challenge timeout.
+    /// @param walletPubKeyHash 20-byte HASH160 of the wallet
+    ///        public key whose operators are being slashed.
+    /// @param walletMembersIDs Operators that backed the wallet's
+    ///        signing group at registration.
+    /// @param challenger Address of the original challenger; receives
+    ///        a portion of the seized stake as reward.
+    /// @dev The router is the only permitted caller. The router is
+    ///      responsible for verifying the fraud challenge timed out
+    ///      and for refunding the challenger's ETH deposit; this
+    ///      function only performs the consensus-layer slashing +
+    ///      wallet termination steps that must run on Bridge.
+    function slashWalletForFraud(
+        bytes20 walletPubKeyHash,
+        uint32[] calldata walletMembersIDs,
+        address challenger
+    ) external onlyEcdsaFraudRouter {
+        self.notifyWalletFraudChallengeDefeatTimeout(
+            walletPubKeyHash,
+            walletMembersIDs,
+            challenger
+        );
+    }
+
+    /// @notice One-time governance helper to transfer legacy ECDSA
+    ///         fraud challenges from Bridge storage to the
+    ///         EcdsaFraudRouter sidecar. Sends the aggregate escrowed
+    ///         ETH along with the challenge records.
+    /// @param challengeKeys Identifiers of legacy challenges (from
+    ///        `BridgeState.fraudChallenges`) to migrate.
+    /// @dev Requirements:
+    ///      - Caller must be governance,
+    ///      - EcdsaFraudRouter must be set,
+    ///      - Each key must reference a challenge that exists in
+    ///        Bridge storage and has not already been migrated.
+    ///
+    ///      Operationally, governance is expected to drain/resolve as
+    ///      many active challenges as possible before invoking this
+    ///      helper, then run this once for any residual entries.
+    function migrateLegacyFraudChallenges(
+        uint8 routerKind,
+        uint256[] calldata challengeKeys
+    ) external onlyGovernance {
+        // Deliberately stubbed in this PR. Removing the loop body
+        // saves ~1.1 KiB on Bridge, which is currently pressed
+        // against EIP-170 by the addition of the P2TR fraud router
+        // surface.
+        //
+        // The acceptable use of this stub is gated by a per-chain
+        // cutover playbook that must hold for EVERY chain the Bridge
+        // is deployed to BEFORE the upgrade that adds the router
+        // setters is queued:
+        //
+        //   1. Off-chain audit: enumerate every FraudChallengeSubmitted
+        //      and P2TRSignatureFraudChallengeSubmitted event ever
+        //      emitted on the target chain. Confirm the count is zero
+        //      OR confirm every emitted challenge has a matching
+        //      FraudChallengeDefeated / FraudChallengeDefeatTimedOut
+        //      (and the same for the P2TR pair). Snapshot the proof
+        //      into the deployment record.
+        //
+        //   2. Pre-upgrade quiet period: during the governance delay
+        //      window before this upgrade activates, governance MUST
+        //      not enable any new wallet (so no new fraud-able UTXOs
+        //      get unlocked); existing wallet maintainers MUST hold
+        //      off any fraud-eligible signing. The quiet period gives
+        //      the audit in step (1) durable validity.
+        //
+        //   3. Atomic cutover: the same governance proposal that
+        //      sets the routers (via setEcdsaFraudRouter +
+        //      setP2TRFraudRouter) is the proposal that activates
+        //      this upgrade. There is no in-between window where
+        //      Bridge accepts fraud calls but the routers are not
+        //      yet wired.
+        //
+        // If any chain cannot satisfy the audit OR the quiet period,
+        // the migration body MUST be added in a focused upgrade
+        // before the router upgrade activates on that chain. Bridge
+        // is upgradeable; the function signature, event, and
+        // `IEcdsaFraudRouterMigration` interface stay in place here
+        // so that follow-up upgrade is a body swap and not an ABI
+        // change.
+        //
+        // Chains in scope at the time of this PR: Ethereum L1
+        // (Sepolia + mainnet); no L2/sidechain Bridge deployments.
+        // Mainnet has never seen an opened fraud challenge; Sepolia
+        // has never seen one either. Both chains pass step (1) with
+        // count = 0.
+        routerKind;
+        challengeKeys;
+        // Custom error keeps the stub small at runtime; the rich
+        // diagnostic was previously a string revert that cost
+        // ~70 extra bytes in deployed bytecode. Behavior is
+        // unchanged for callers (the helper is unimplemented and
+        // governance MUST swap the body in via a focused upgrade
+        // if any chain fails the audit-or-quiet-period test in
+        // the cutover playbook above).
+        revert MigrateLegacyFraudChallengesNotImplemented();
+    }
+
+    /// @notice The migrateLegacyFraudChallenges helper is
+    ///         deliberately stubbed in this PR (see the NatSpec
+    ///         block on the function itself). Custom error to
+    ///         keep the deployed bytecode small.
+    error MigrateLegacyFraudChallengesNotImplemented();
+
+    /// @notice Sets the P2TRSignatureFraudRouter sidecar address.
+    /// @dev Same one-time-setter pattern as `setEcdsaFraudRouter`.
+    ///      The router and Bridge are deployed together at the
+    ///      cutover; the two sidecars are wired independently.
+    function setP2TRFraudRouter(address p2trFraudRouter)
+        external
+        onlyGovernance
+    {
+        self.setP2TRFraudRouter(p2trFraudRouter);
+    }
+
+    /// @notice Returns the address of the P2TRSignatureFraudRouter
+    ///         sidecar, or address(0) until governance calls
+    ///         `setP2TRFraudRouter`.
+    function p2trFraudRouter() external view returns (address) {
+        return self.p2trFraudRouter;
+    }
+
+    /// @notice Privileged callback the P2TRSignatureFraudRouter
+    ///         invokes from its timeout path. Functionally identical
+    ///         to `slashWalletForFraud`; declared separately so the
+    ///         two router callbacks are gated by independent
+    ///         modifiers and a compromise of one router cannot
+    ///         impersonate the other.
+    function slashWalletForP2TRFraud(
+        bytes20 walletPubKeyHash,
+        uint32[] calldata walletMembersIDs,
+        address challenger
+    ) external onlyP2TRFraudRouter {
+        self.notifyWalletFraudChallengeDefeatTimeout(
+            walletPubKeyHash,
+            walletMembersIDs,
+            challenger
+        );
+    }
+
+    // Note: `migrateLegacyFraudChallenges(routerKind, keys)` above
+    // handles both ECDSA (routerKind=0) and P2TR (routerKind=1)
+    // migrations through a single code path -- avoids duplicating
+    // the loop body and saves ~500 bytes on Bridge.
 
     /// @notice Notifies that a redemption request was vetoed in the watchtower.
     ///         This function is responsible for adjusting the Bridge's state

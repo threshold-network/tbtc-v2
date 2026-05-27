@@ -23,6 +23,7 @@ import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 import {BTCUtils} from "@keep-network/bitcoin-spv-sol/contracts/BTCUtils.sol";
 import "./Wormhole.sol";
+import "../../bridge/BitcoinTx.sol";
 import "../../integrator/IL2WormholeGateway.sol";
 
 /// @title L2BTCRedeemerWormhole
@@ -140,14 +141,16 @@ contract L2BTCRedeemerWormhole is
         uint32 nonce
     ) external payable nonReentrant returns (uint64) {
         // Validate if redeemer output script is a correct standard type
-        // (P2PKH, P2WPKH, P2SH or P2WSH). This is done by using
-        // `BTCUtils.extractHashAt` on it. Such a function extracts the payload
-        // properly only from standard outputs so if it succeeds, we have a
-        // guarantee the redeemer output script is proper. The underlying way
-        // of validation is the same as in tBTC v1.
+        // (P2PKH, P2WPKH, P2SH, P2WSH, or P2TR) by using
+        // `BitcoinTx.extractStandardOutputScriptPayload`, which returns a
+        // non-empty payload only for the supported standard formats. P2TR
+        // is included so users with Taproot wallets can redeem to their
+        // native destination, matching the wallet-identity-compatibility
+        // readiness manifest's claim that the L2 wormhole redeem path
+        // accepts the standard P2TR user destination script.
         bytes memory redeemerOutputScriptMem = redeemerOutputScript;
-        bytes memory redeemerOutputScriptPayload = redeemerOutputScriptMem
-            .extractHashAt(0, redeemerOutputScriptMem.length);
+        bytes memory redeemerOutputScriptPayload = BitcoinTx
+            .extractStandardOutputScriptPayload(redeemerOutputScriptMem);
 
         if (redeemerOutputScriptPayload.length == 0) {
             revert InvalidRedeemerOutputScript();

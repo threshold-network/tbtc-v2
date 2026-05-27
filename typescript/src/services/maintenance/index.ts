@@ -1,4 +1,5 @@
 export * from "./maintenance-service"
 export * from "./optimistic-minting"
+export * from "./p2tr-signature-fraud"
 export * from "./spv"
 export * from "./wallet-tx"

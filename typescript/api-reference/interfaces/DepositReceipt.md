@@ -25,7 +25,7 @@ public key and refund public key.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:212](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L212)
+[src/lib/contracts/bridge.ts:239](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L239)
 
 ___
 
@@ -37,7 +37,7 @@ Depositor's chain identifier.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:206](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L206)
+[src/lib/contracts/bridge.ts:233](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L233)
 
 ___
 
@@ -49,7 +49,7 @@ Optional 32-byte extra data.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:237](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L237)
+[src/lib/contracts/bridge.ts:264](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L264)
 
 ___
 
@@ -61,7 +61,7 @@ A 4-byte little-endian refund locktime.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:232](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L232)
+[src/lib/contracts/bridge.ts:259](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L259)
 
 ___
 
@@ -76,7 +76,7 @@ You can use `computeHash160` function to get the hash from a public key.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:227](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L227)
+[src/lib/contracts/bridge.ts:254](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L254)
 
 ___
 
@@ -90,4 +90,4 @@ You can use `computeHash160` function to get the hash from a public key.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:219](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L219)
+[src/lib/contracts/bridge.ts:246](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L246)

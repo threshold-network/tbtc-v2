@@ -22,6 +22,23 @@ import "@keep-network/random-beacon/contracts/ReimbursementPool.sol";
 import "../bridge/BitcoinTx.sol";
 import "../bridge/Bridge.sol";
 
+/// @dev Minimal interface MaintainerProxy uses to invoke the ECDSA
+///      fraud lifecycle after the Bridge.sol extraction. Declared
+///      locally so MaintainerProxy doesn't depend on the router's
+///      full implementation.
+interface IEcdsaFraudRouter {
+    function defeatFraudChallenge(
+        bytes calldata walletPublicKey,
+        bytes calldata preimage,
+        bool witness
+    ) external;
+
+    function defeatFraudChallengeWithHeartbeat(
+        bytes calldata walletPublicKey,
+        bytes calldata heartbeatMessage
+    ) external;
+}
+
 /// @title Maintainer Proxy
 /// @notice Maintainers are the willing off-chain clients approved by the governance.
 ///         Maintainers proxy calls to the `Bridge` contract via 'MaintainerProxy'
@@ -339,9 +356,11 @@ contract MaintainerProxy is Ownable, Reimbursable {
         );
     }
 
-    /// @notice Wraps `Bridge.defeatFraudChallenge` call and reimburses the
-    ///         caller's transaction cost.
-    /// @dev See `Bridge.defeatFraudChallenge` function documentation.
+    /// @notice Wraps `EcdsaFraudRouter.defeatFraudChallenge` call and
+    ///         reimburses the caller's transaction cost. Reads the router
+    ///         address from Bridge.
+    /// @dev See `EcdsaFraudRouter.defeatFraudChallenge` function
+    ///      documentation.
     function defeatFraudChallenge(
         bytes calldata walletPublicKey,
         bytes calldata preimage,
@@ -349,7 +368,13 @@ contract MaintainerProxy is Ownable, Reimbursable {
     ) external {
         uint256 gasStart = gasleft();
 
-        bridge.defeatFraudChallenge(walletPublicKey, preimage, witness);
+        address router = bridge.ecdsaFraudRouter();
+        require(router != address(0), "ECDSA fraud router not set");
+        IEcdsaFraudRouter(router).defeatFraudChallenge(
+            walletPublicKey,
+            preimage,
+            witness
+        );
 
         reimbursementPool.refund(
             (gasStart - gasleft()) + defeatFraudChallengeGasOffset,
@@ -357,16 +382,20 @@ contract MaintainerProxy is Ownable, Reimbursable {
         );
     }
 
-    /// @notice Wraps `Bridge.defeatFraudChallengeWithHeartbeat` call and
-    ///         reimburses the caller's transaction cost.
-    /// @dev See `Bridge.defeatFraudChallengeWithHeartbeat` function documentation.
+    /// @notice Wraps `EcdsaFraudRouter.defeatFraudChallengeWithHeartbeat`
+    ///         call and reimburses the caller's transaction cost. Reads
+    ///         the router address from Bridge.
+    /// @dev See `EcdsaFraudRouter.defeatFraudChallengeWithHeartbeat`
+    ///      function documentation.
     function defeatFraudChallengeWithHeartbeat(
         bytes calldata walletPublicKey,
         bytes calldata heartbeatMessage
     ) external {
         uint256 gasStart = gasleft();
 
-        bridge.defeatFraudChallengeWithHeartbeat(
+        address router = bridge.ecdsaFraudRouter();
+        require(router != address(0), "ECDSA fraud router not set");
+        IEcdsaFraudRouter(router).defeatFraudChallengeWithHeartbeat(
             walletPublicKey,
             heartbeatMessage
         );

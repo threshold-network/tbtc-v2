@@ -182,6 +182,33 @@ export interface Bridge {
   wallets(walletPublicKeyHash: Hex): Promise<Wallet>
 
   /**
+   * Gets details about a registered wallet using canonical wallet ID.
+   * @param walletID Canonical wallet identifier.
+   * @returns Promise with the wallet details.
+   */
+  walletsByWalletID(walletID: Hex): Promise<Wallet>
+
+  /**
+   * Resolves canonical wallet ID from legacy wallet public key hash.
+   * @param walletPublicKeyHash The 20-byte wallet public key hash.
+   * @returns Canonical wallet ID.
+   */
+  walletID(walletPublicKeyHash: Hex): Promise<Hex>
+
+  /**
+   * Resolves legacy wallet public key hash from canonical wallet ID.
+   * @param walletID Canonical wallet identifier.
+   * @returns 20-byte wallet public key hash.
+   */
+  walletPublicKeyHashForWalletID(walletID: Hex): Promise<Hex>
+
+  /**
+   * Gets canonical wallet ID of the active wallet.
+   * @returns Canonical wallet ID of the active wallet, if set.
+   */
+  activeWalletID(): Promise<Hex | undefined>
+
+  /**
    * Builds the UTXO hash based on the UTXO components.
    * @param utxo UTXO components.
    * @returns The hash of the UTXO.
@@ -421,6 +448,10 @@ export namespace WalletState {
  */
 export interface Wallet {
   /**
+   * Canonical wallet identifier.
+   */
+  walletID?: Hex
+  /**
    * Identifier of a ECDSA Wallet registered in the ECDSA Wallet Registry.
    */
   ecdsaWalletID: Hex
@@ -469,6 +500,10 @@ export interface Wallet {
  * Represents an event emitted when new wallet is registered on the on-chain bridge.
  */
 export type NewWalletRegisteredEvent = {
+  /**
+   * Canonical wallet identifier.
+   */
+  walletID?: Hex
   /**
    * Identifier of a ECDSA Wallet registered in the ECDSA Wallet Registry.
    */

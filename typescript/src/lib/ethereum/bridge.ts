@@ -57,6 +57,78 @@ export class EthereumBridge
   extends EthersContractHandle<BridgeTypechain>
   implements Bridge
 {
+  private static legacyWalletIDFromPublicKeyHash(
+    walletPublicKeyHash: Hex
+  ): Hex {
+    return Hex.from(
+      utils.hexZeroPad(walletPublicKeyHash.toPrefixedString(), 32)
+    )
+  }
+
+  private static walletRegistrationFilterArgs(filterArgs: Array<unknown>): {
+    legacyFilterArgs: Array<unknown>
+    v2FilterArgs: Array<unknown>
+  } {
+    if (filterArgs.length === 0) {
+      return {
+        legacyFilterArgs: [],
+        v2FilterArgs: [],
+      }
+    }
+
+    if (filterArgs.length <= 2) {
+      return {
+        legacyFilterArgs: filterArgs,
+        v2FilterArgs: [undefined, ...filterArgs],
+      }
+    }
+
+    return {
+      legacyFilterArgs: filterArgs.slice(1),
+      v2FilterArgs: filterArgs,
+    }
+  }
+
+  private static compareEventsByChainOrder(
+    left: EthersEvent,
+    right: EthersEvent
+  ): number {
+    return (
+      left.blockNumber - right.blockNumber ||
+      (left.transactionIndex ?? 0) - (right.transactionIndex ?? 0) ||
+      (left.logIndex ?? 0) - (right.logIndex ?? 0)
+    )
+  }
+
+  private static parseLegacyNewWalletRegisteredEvent(
+    event: EthersEvent
+  ): NewWalletRegisteredEvent {
+    const walletPublicKeyHash = Hex.from(event.args!.walletPubKeyHash)
+
+    return {
+      blockNumber: BigNumber.from(event.blockNumber).toNumber(),
+      blockHash: Hex.from(event.blockHash),
+      transactionHash: Hex.from(event.transactionHash),
+      walletID:
+        EthereumBridge.legacyWalletIDFromPublicKeyHash(walletPublicKeyHash),
+      ecdsaWalletID: Hex.from(event.args!.ecdsaWalletID),
+      walletPublicKeyHash,
+    }
+  }
+
+  private static parseV2NewWalletRegisteredEvent(
+    event: EthersEvent
+  ): NewWalletRegisteredEvent {
+    return {
+      blockNumber: BigNumber.from(event.blockNumber).toNumber(),
+      blockHash: Hex.from(event.blockHash),
+      transactionHash: Hex.from(event.transactionHash),
+      walletID: Hex.from(event.args!.walletID),
+      ecdsaWalletID: Hex.from(event.args!.ecdsaWalletID),
+      walletPublicKeyHash: Hex.from(event.args!.walletPubKeyHash),
+    }
+  }
+
   constructor(
     config: EthersContractConfig,
     chainId: Chains.Ethereum = Chains.Ethereum.Local
@@ -527,6 +599,45 @@ export class EthereumBridge
     return walletPublicKey
   }
 
+  // eslint-disable-next-line valid-jsdoc
+  /**
+   * @see {Bridge#activeWalletID}
+   */
+  async activeWalletID(): Promise<Hex | undefined> {
+    const bridgeContract = this._instance as unknown as {
+      activeWalletID?: () => Promise<string>
+      activeWalletPubKeyHash: () => Promise<string>
+    }
+
+    if (typeof bridgeContract.activeWalletID === "function") {
+      const walletID = await backoffRetrier<string>(this._totalRetryAttempts)(
+        async () => bridgeContract.activeWalletID!()
+      )
+
+      if (walletID === constants.HashZero) {
+        return undefined
+      }
+
+      return Hex.from(walletID)
+    }
+
+    const activeWalletPublicKeyHash: string = await backoffRetrier<string>(
+      this._totalRetryAttempts
+    )(async () => {
+      return await bridgeContract.activeWalletPubKeyHash()
+    })
+
+    if (
+      activeWalletPublicKeyHash === "0x0000000000000000000000000000000000000000"
+    ) {
+      return undefined
+    }
+
+    return EthereumBridge.legacyWalletIDFromPublicKeyHash(
+      Hex.from(activeWalletPublicKeyHash)
+    )
+  }
+
   private async getWalletCompressedPublicKey(
     ecdsaWalletID: Hex
   ): Promise<Hex | undefined> {
@@ -557,21 +668,39 @@ export class EthereumBridge
     options?: GetChainEvents.Options,
     ...filterArgs: Array<unknown>
   ): Promise<NewWalletRegisteredEvent[]> {
-    const events: EthersEvent[] = await this.getEvents(
+    const { legacyFilterArgs, v2FilterArgs } =
+      EthereumBridge.walletRegistrationFilterArgs(filterArgs)
+    const legacyEvents: EthersEvent[] = await this.getEvents(
       "NewWalletRegistered",
       options,
-      ...filterArgs
+      ...legacyFilterArgs
     )
+    let v2Events: EthersEvent[] = []
 
-    return events.map<NewWalletRegisteredEvent>((event) => {
-      return {
-        blockNumber: BigNumber.from(event.blockNumber).toNumber(),
-        blockHash: Hex.from(event.blockHash),
-        transactionHash: Hex.from(event.transactionHash),
-        ecdsaWalletID: Hex.from(event.args!.ecdsaWalletID),
-        walletPublicKeyHash: Hex.from(event.args!.walletPubKeyHash),
-      }
-    })
+    try {
+      v2Events = await this.getEvents(
+        "NewWalletRegisteredV2",
+        options,
+        ...v2FilterArgs
+      )
+    } catch {
+      v2Events = []
+    }
+
+    return [
+      ...legacyEvents.map((event) => ({
+        event,
+        parsed: EthereumBridge.parseLegacyNewWalletRegisteredEvent(event),
+      })),
+      ...v2Events.map((event) => ({
+        event,
+        parsed: EthereumBridge.parseV2NewWalletRegisteredEvent(event),
+      })),
+    ]
+      .sort((left, right) =>
+        EthereumBridge.compareEventsByChainOrder(left.event, right.event)
+      )
+      .map(({ parsed }) => parsed)
   }
 
   // eslint-disable-next-line valid-jsdoc
@@ -604,20 +733,125 @@ export class EthereumBridge
       )
     })
 
-    return this.parseWalletDetails(wallet)
+    const walletID = await this.walletID(walletPublicKeyHash)
+
+    return this.parseWalletDetails(wallet, walletID)
+  }
+
+  // eslint-disable-next-line valid-jsdoc
+  /**
+   * @see {Bridge#walletsByWalletID}
+   */
+  async walletsByWalletID(walletID: Hex): Promise<Wallet> {
+    const bridgeContract = this._instance as unknown as {
+      walletsByWalletID?: (
+        walletID: string
+      ) => Promise<WalletsTypechain.WalletStructOutput>
+    }
+
+    if (typeof bridgeContract.walletsByWalletID === "function") {
+      const wallet = await backoffRetrier<WalletsTypechain.WalletStructOutput>(
+        this._totalRetryAttempts
+      )(async () => {
+        return await bridgeContract.walletsByWalletID!(
+          walletID.toPrefixedString()
+        )
+      })
+
+      return this.parseWalletDetails(wallet, walletID)
+    }
+
+    const walletPublicKeyHash = await this.walletPublicKeyHashForWalletID(
+      walletID
+    )
+    return this.wallets(walletPublicKeyHash)
+  }
+
+  // eslint-disable-next-line valid-jsdoc
+  /**
+   * @see {Bridge#walletID}
+   */
+  async walletID(walletPublicKeyHash: Hex): Promise<Hex> {
+    const bridgeContract = this._instance as unknown as {
+      walletID?: (walletPubKeyHash: string) => Promise<string>
+    }
+
+    if (typeof bridgeContract.walletID === "function") {
+      const walletID = await backoffRetrier<string>(this._totalRetryAttempts)(
+        async () => {
+          return await bridgeContract.walletID!(
+            walletPublicKeyHash.toPrefixedString()
+          )
+        }
+      )
+
+      return Hex.from(walletID)
+    }
+
+    return EthereumBridge.legacyWalletIDFromPublicKeyHash(walletPublicKeyHash)
+  }
+
+  // eslint-disable-next-line valid-jsdoc
+  /**
+   * @see {Bridge#walletPublicKeyHashForWalletID}
+   */
+  async walletPublicKeyHashForWalletID(walletID: Hex): Promise<Hex> {
+    const bridgeContract = this._instance as unknown as {
+      walletPubKeyHashForWalletID?: (walletID: string) => Promise<string>
+    }
+
+    if (typeof bridgeContract.walletPubKeyHashForWalletID === "function") {
+      const walletPublicKeyHash = await backoffRetrier<string>(
+        this._totalRetryAttempts
+      )(async () => {
+        return await bridgeContract.walletPubKeyHashForWalletID!(
+          walletID.toPrefixedString()
+        )
+      })
+
+      return Hex.from(walletPublicKeyHash)
+    }
+
+    // Legacy fallback for pre-upgrade contracts: wallet ID is a left-padded
+    // bytes20 walletPubKeyHash, so the high 12 bytes are guaranteed to be
+    // zero. Reject any wallet ID whose high 12 bytes are non-zero — that
+    // shape can only come from a native 32-byte wallet ID (e.g. a future
+    // FROST/Taproot wallet whose canonical identifier is not derivable
+    // from a 20-byte legacy alias), and slicing the low 20 bytes would
+    // silently misresolve it to a bogus legacy wallet key.
+    //
+    // Callers hitting this branch should upgrade the SDK to a Bridge ABI
+    // that exposes `walletPubKeyHashForWalletID` so resolution happens
+    // on-chain through the canonical mapping.
+    const walletIDHex = walletID.toString()
+    const highBytesHex = walletIDHex.slice(0, 24)
+    if (!/^0+$/.test(highBytesHex)) {
+      throw new Error(
+        "Bridge ABI lacks walletPubKeyHashForWalletID and the wallet ID " +
+          "is not a left-padded legacy alias (high 12 bytes are non-zero). " +
+          "Upgrade the SDK to use a post-upgrade Bridge ABI so wallet ID " +
+          "resolution can go through the on-chain canonical mapping."
+      )
+    }
+    return Hex.from(`0x${walletIDHex.slice(24)}`)
   }
 
   /**
    * Parses a wallet data using data fetched from the on-chain contract.
    * @param wallet Data of the wallet.
+   * @param walletID Optional canonical wallet identifier. When provided,
+   *        the legacy `walletPublicKeyHash` field is overridden with the
+   *        canonical mapping lookup derived from this ID.
    * @returns Parsed wallet data.
    */
   private async parseWalletDetails(
-    wallet: WalletsTypechain.WalletStructOutput
+    wallet: WalletsTypechain.WalletStructOutput,
+    walletID?: Hex
   ): Promise<Wallet> {
     const ecdsaWalletID = Hex.from(wallet.ecdsaWalletID)
 
     return {
+      walletID,
       ecdsaWalletID,
       walletPublicKey: await this.getWalletCompressedPublicKey(ecdsaWalletID),
       mainUtxoHash: Hex.from(wallet.mainUtxoHash),

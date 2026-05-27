@@ -325,7 +325,8 @@ library DepositSweep {
     ///        This function assumes vector's structure is valid so it must be
     ///        validated using e.g. `BTCUtils.validateVout` function before
     ///        it is passed here.
-    /// @return walletPubKeyHash 20-byte wallet public key hash.
+    /// @return walletPubKeyHash 20-byte wallet public key hash compatibility
+    ///         key.
     /// @return value 8-byte sweep transaction output value.
     function processDepositSweepTxOutput(
         BridgeState.Storage storage self,
@@ -346,7 +347,7 @@ library DepositSweep {
         );
 
         bytes memory output = sweepTxOutputVector.extractOutputAtIndex(0);
-        walletPubKeyHash = self.extractPubKeyHash(output);
+        walletPubKeyHash = self.extractWalletPubKeyHash(output);
         value = output.extractValue();
 
         return (walletPubKeyHash, value);

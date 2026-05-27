@@ -34,7 +34,14 @@ const func: DeployFunction = async function deployBridge(
     contract: "contracts/bridge/Wallets.sol:Wallets",
     ...deployOptions,
   })
-  const Fraud = await deploy("Fraud", deployOptions)
+  // Fraud and P2TRSignatureFraudLifecycle are no longer linked into
+  // Bridge -- the ECDSA fraud lifecycle moved to the EcdsaFraudRouter
+  // sidecar. Fraud retains a few `internal pure` helpers + the
+  // FraudChallenge struct (for the legacy storage mapping kept on
+  // Bridge until one-time migration completes), but internal-only
+  // libraries are inlined and need no separate deployment.
+  // EcdsaFraudRouter is deployed as a regular contract via its own
+  // deploy script.
   const MovingFunds = await deploy("MovingFunds", deployOptions)
 
   const [bridge, proxyDeployment] = await helpers.upgrades.deployProxy(
@@ -57,7 +64,6 @@ const func: DeployFunction = async function deployBridge(
           DepositSweep: DepositSweep.address,
           Redemption: Redemption.address,
           Wallets: Wallets.address,
-          Fraud: Fraud.address,
           MovingFunds: MovingFunds.address,
         },
       },
@@ -77,7 +83,6 @@ const func: DeployFunction = async function deployBridge(
     await helpers.etherscan.verify(DepositSweep)
     await helpers.etherscan.verify(Redemption)
     await helpers.etherscan.verify(Wallets)
-    await helpers.etherscan.verify(Fraud)
     await helpers.etherscan.verify(MovingFunds)
 
     // We use `verify` instead of `verify:verify` as the `verify` task is defined

@@ -20,6 +20,7 @@ import {BytesLib} from "@keep-network/bitcoin-spv-sol/contracts/BytesLib.sol";
 
 import "./BitcoinTx.sol";
 import "./BridgeState.sol";
+import "./IBridgeLifecycleRouter.sol";
 import "./Redemption.sol";
 import "./Wallets.sol";
 
@@ -193,15 +194,24 @@ library MovingFunds {
             "Target wallets commitment already submitted"
         );
 
-        require(
-            self.ecdsaWalletRegistry.isWalletMember(
+        bool isMember;
+        if (wallet.ecdsaWalletID != bytes32(0)) {
+            isMember = self.ecdsaWalletRegistry.isWalletMember(
                 wallet.ecdsaWalletID,
                 walletMembersIDs,
                 msg.sender,
                 walletMemberIndex
-            ),
-            "Caller is not a member of the source wallet"
-        );
+            );
+        } else {
+            isMember = IBridgeLifecycleRouter(self.lifecycleRouter)
+                .isWalletMember(
+                    walletPubKeyHash,
+                    walletMembersIDs,
+                    msg.sender,
+                    walletMemberIndex
+                );
+        }
+        require(isMember, "Caller is not a member of the source wallet");
 
         uint64 walletBtcBalance = self.getWalletBtcBalance(
             walletPubKeyHash,
@@ -480,7 +490,9 @@ library MovingFunds {
                 outputLength
             );
 
-            bytes20 targetWalletPubKeyHash = self.extractPubKeyHash(output);
+            bytes20 targetWalletPubKeyHash = self.extractWalletPubKeyHash(
+                output
+            );
 
             // Add the wallet public key hash to the list that will be used
             // to build the result list hash. There is no need to check if
@@ -720,12 +732,13 @@ library MovingFunds {
     ///        This function assumes vector's structure is valid so it must be
     ///        validated using e.g. `BTCUtils.validateVout` function before
     ///        it is passed here.
-    /// @return walletPubKeyHash 20-byte wallet public key hash.
+    /// @return walletPubKeyHash 20-byte wallet public key hash compatibility
+    ///         key.
     /// @return value 8-byte moved funds sweep transaction output value.
     /// @dev Requirements:
     ///      - Output vector must contain only one output,
-    ///      - The single output must be of P2PKH or P2WPKH type and lock the
-    ///        funds on a 20-byte public key hash.
+    ///      - The single output must be of P2PKH, P2WPKH, or P2TR type and
+    ///        lock the funds on a registered wallet.
     function processMovedFundsSweepTxOutput(
         BridgeState.Storage storage self,
         bytes memory sweepTxOutputVector
@@ -746,7 +759,7 @@ library MovingFunds {
         );
 
         bytes memory output = sweepTxOutputVector.extractOutputAtIndex(0);
-        walletPubKeyHash = self.extractPubKeyHash(output);
+        walletPubKeyHash = self.extractWalletPubKeyHash(output);
         value = output.extractValue();
 
         return (walletPubKeyHash, value);

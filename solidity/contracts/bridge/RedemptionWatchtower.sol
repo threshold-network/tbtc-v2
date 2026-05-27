@@ -293,7 +293,7 @@ contract RedemptionWatchtower is OwnableUpgradeable {
     ///         - The redeemer is banned from making future redemption requests.
     /// @param walletPubKeyHash 20-byte public key hash of the wallet.
     /// @param redeemerOutputScript The redeemer's length-prefixed output
-    ///        script (P2PKH, P2WPKH, P2SH or P2WSH).
+    ///        script (P2PKH, P2WPKH, P2SH, P2WSH, or P2TR).
     /// @dev Requirements:
     ///      - The caller must be a redemption guardian,
     ///      - The redemption request must not have been vetoed already,
@@ -308,6 +308,35 @@ contract RedemptionWatchtower is OwnableUpgradeable {
         bytes20 walletPubKeyHash,
         bytes calldata redeemerOutputScript
     ) external onlyGuardian {
+        _raiseObjection(walletPubKeyHash, redeemerOutputScript);
+    }
+
+    /// @notice Raises an objection to a redemption request identified by a
+    ///         canonical wallet ID and redeemer output script.
+    /// @dev Resolves `walletID` through the Bridge wallet identity mapping
+    ///      and uses the legacy wallet public key hash to build the same
+    ///      redemption key as `raiseObjection`. This entry point honors the
+    ///      operator-checklist promise that "guardian objections using
+    ///      walletID resolve to the same legacy redemption key as
+    ///      walletPubKeyHash"; under the hood it is one transaction instead
+    ///      of the manual two-step Bridge lookup + raiseObjection pattern.
+    /// @param walletID Canonical wallet identifier.
+    /// @param redeemerOutputScript The redeemer's length-prefixed output
+    ///        script (P2PKH, P2WPKH, P2SH, P2WSH, or P2TR).
+    function raiseObjectionByWalletID(
+        bytes32 walletID,
+        bytes calldata redeemerOutputScript
+    ) external onlyGuardian {
+        bytes20 walletPubKeyHash = bridge.walletPubKeyHashForWalletID(walletID);
+        require(walletPubKeyHash != bytes20(0), "Wallet ID is not registered");
+
+        _raiseObjection(walletPubKeyHash, redeemerOutputScript);
+    }
+
+    function _raiseObjection(
+        bytes20 walletPubKeyHash,
+        bytes calldata redeemerOutputScript
+    ) internal {
         uint256 redemptionKey = Redemption.getRedemptionKey(
             walletPubKeyHash,
             redeemerOutputScript
@@ -558,6 +587,54 @@ contract RedemptionWatchtower is OwnableUpgradeable {
         address balanceOwner,
         address redeemer
     ) external view returns (bool) {
+        return
+            _isSafeRedemption(
+                walletPubKeyHash,
+                redeemerOutputScript,
+                balanceOwner,
+                redeemer
+            );
+    }
+
+    /// @notice Determines whether a redemption request identified by a
+    ///         canonical wallet ID is considered safe.
+    /// @dev Resolves `walletID` through the Bridge wallet identity mapping
+    ///      and uses the legacy wallet public key hash to compute the same
+    ///      redemption key as `isSafeRedemption`. Honors the operator-
+    ///      checklist promise that safety checks using walletID resolve to
+    ///      the same legacy redemption key as walletPubKeyHash.
+    /// @param walletID Canonical wallet identifier.
+    /// @param redeemerOutputScript The redeemer's length-prefixed output
+    ///        script (P2PKH, P2WPKH, P2SH, P2WSH, or P2TR).
+    /// @param balanceOwner The address of the Bank balance owner whose
+    ///        balance is getting redeemed.
+    /// @param redeemer The address that requested the redemption.
+    /// @return True if the redemption request is safe, false otherwise.
+    ///         Reverts if `walletID` is not registered on the Bridge.
+    function isSafeRedemptionByWalletID(
+        bytes32 walletID,
+        bytes calldata redeemerOutputScript,
+        address balanceOwner,
+        address redeemer
+    ) external view returns (bool) {
+        bytes20 walletPubKeyHash = bridge.walletPubKeyHashForWalletID(walletID);
+        require(walletPubKeyHash != bytes20(0), "Wallet ID is not registered");
+
+        return
+            _isSafeRedemption(
+                walletPubKeyHash,
+                redeemerOutputScript,
+                balanceOwner,
+                redeemer
+            );
+    }
+
+    function _isSafeRedemption(
+        bytes20 walletPubKeyHash,
+        bytes calldata redeemerOutputScript,
+        address balanceOwner,
+        address redeemer
+    ) internal view returns (bool) {
         if (isBanned[balanceOwner]) {
             return false;
         }

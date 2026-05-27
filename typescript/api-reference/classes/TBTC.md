@@ -66,7 +66,7 @@ subpath which exports the base TBTC class.
 
 #### Defined in
 
-[services/tbtc.ts:40](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L40)
+[src/services/tbtc.ts:40](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L40)
 
 ## Properties
 
@@ -76,7 +76,7 @@ subpath which exports the base TBTC class.
 
 #### Defined in
 
-[services/tbtc.ts:35](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L35)
+[src/services/tbtc.ts:35](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L35)
 
 ___
 
@@ -86,7 +86,7 @@ ___
 
 #### Defined in
 
-[services/tbtc.ts:33](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L33)
+[src/services/tbtc.ts:33](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L33)
 
 ___
 
@@ -102,7 +102,7 @@ Will be removed in next major version.
 
 #### Defined in
 
-[services/tbtc.ts:191](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L191)
+[src/services/tbtc.ts:191](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L191)
 
 ___
 
@@ -118,7 +118,7 @@ Bitcoin client handle for low-level access.
 
 #### Defined in
 
-[services/tbtc-core.ts:45](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L45)
+[src/services/tbtc-core.ts:45](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L45)
 
 ___
 
@@ -134,7 +134,7 @@ Service supporting the tBTC v2 deposit flow.
 
 #### Defined in
 
-[services/tbtc-core.ts:28](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L28)
+[src/services/tbtc-core.ts:28](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L28)
 
 ___
 
@@ -151,7 +151,7 @@ and operators.
 
 #### Defined in
 
-[services/tbtc-core.ts:33](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L33)
+[src/services/tbtc-core.ts:33](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L33)
 
 ___
 
@@ -167,7 +167,7 @@ Service supporting the tBTC v2 redemption flow.
 
 #### Defined in
 
-[services/tbtc-core.ts:37](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L37)
+[src/services/tbtc-core.ts:37](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L37)
 
 ___
 
@@ -183,7 +183,7 @@ Handle to tBTC contracts for low-level access.
 
 #### Defined in
 
-[services/tbtc-core.ts:41](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L41)
+[src/services/tbtc-core.ts:41](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L41)
 
 ## Methods
 
@@ -215,7 +215,7 @@ Cross-chain contracts for the given L2 chain or
 
 #### Defined in
 
-[services/tbtc.ts:369](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L369)
+[src/services/tbtc.ts:369](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L369)
 
 ___
 
@@ -267,7 +267,7 @@ Throws an error if:
 
 #### Defined in
 
-[services/tbtc.ts:231](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L231)
+[src/services/tbtc.ts:231](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L231)
 
 ___
 
@@ -295,7 +295,7 @@ Throws an error if the provider is invalid or address cannot be extracted.
 
 #### Defined in
 
-[services/tbtc.ts:145](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L145)
+[src/services/tbtc.ts:145](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L145)
 
 ___
 
@@ -331,7 +331,7 @@ This function is especially useful for local development as it gives
 
 #### Defined in
 
-[services/tbtc-core.ts:142](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L142)
+[src/services/tbtc-core.ts:142](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L142)
 
 ___
 
@@ -369,7 +369,7 @@ Throws an error if the underlying signer's Ethereum network is
 
 #### Defined in
 
-[services/tbtc.ts:105](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L105)
+[src/services/tbtc.ts:105](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L105)
 
 ___
 
@@ -405,7 +405,7 @@ Throws an error if the signer's Ethereum network is other than
 
 #### Defined in
 
-[services/tbtc.ts:59](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L59)
+[src/services/tbtc.ts:59](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L59)
 
 ___
 
@@ -441,4 +441,4 @@ Throws an error if the signer's Ethereum network is other than
 
 #### Defined in
 
-[services/tbtc.ts:81](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L81)
+[src/services/tbtc.ts:81](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L81)
