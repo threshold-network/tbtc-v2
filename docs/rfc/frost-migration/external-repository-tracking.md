@@ -31,7 +31,7 @@
   Standard PR review against canonical convention suffices.
 
 - The `umbrella` term, references to `tlabs-xyz/tbtc`, and
-  "extraction" framing in *existing* commit messages and PR titles
+  "extraction" framing in _existing_ commit messages and PR titles
   are durable historical artifacts. Don't rewrite history to
   remove them; just use plain `feat:` / `fix:` / `refactor:` /
   `docs:` prefixes for new work.
@@ -70,12 +70,12 @@ from the FROST work):
 
 ## In-flight PRs at the time of the pivot
 
-| PR | Repo | Status | Notes |
-| -- | ---- | ------ | ----- |
-| #971 | tbtc-v2 | open, ready for review | Core FROST extraction. 3 commits, all CI green. |
-| #972 | tbtc-v2 | open, drain-dependent | D-2.2 slice 2 — remove `slashWalletForFraud`. Stacked on #971's branch. DO NOT MERGE until ECDSA wallet drain complete. |
-| #973 | tbtc-v2 | open, drain-dependent | D-2.2 slice 4 — remove `ecdsaWalletRegistry` handle + heartbeat callback. Stacked on #971's branch. DO NOT MERGE until full ECDSA drain. |
-| #4005, #4007 | keep-core | open, all CI green | Companion Go-side work. |
+| PR           | Repo      | Status                 | Notes                                                                                                                                    |
+| ------------ | --------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| #971         | tbtc-v2   | open, ready for review | Core FROST extraction. 3 commits, all CI green.                                                                                          |
+| #972         | tbtc-v2   | open, drain-dependent  | D-2.2 slice 2 — remove `slashWalletForFraud`. Stacked on #971's branch. DO NOT MERGE until ECDSA wallet drain complete.                  |
+| #973         | tbtc-v2   | open, drain-dependent  | D-2.2 slice 4 — remove `ecdsaWalletRegistry` handle + heartbeat callback. Stacked on #971's branch. DO NOT MERGE until full ECDSA drain. |
+| #4005, #4007 | keep-core | open, all CI green     | Companion Go-side work.                                                                                                                  |
 
 ## Reference: phases that landed via the mirror workflow (historical)
 
