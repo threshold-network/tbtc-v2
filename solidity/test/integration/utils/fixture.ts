@@ -124,22 +124,17 @@ export const fixture = deployments.createFixture(
       )
     }
 
-    // Deploy + wire the two fraud router sidecars (same pattern as
-    // the unit-test bridgeFixture). The deploy scripts at
-    // deploy/44_deploy_ecdsa_fraud_router.ts and
-    // deploy/45_deploy_p2tr_signature_fraud_router.ts run during
-    // deployments.fixture() above; this block calls the one-time
-    // governance setters so the routers are usable for integration
-    // tests that exercise fraud paths through MaintainerProxy.
+    // Resolve the ECDSA fraud router sidecar and wire the P2TR fraud
+    // router sidecar. Post-slice-2, EcdsaFraudRouter no longer calls
+    // back into Bridge and Bridge no longer has an ECDSA router setter.
+    // P2TRSignatureFraudRouter still uses the Bridge callback path and
+    // remains wired via its one-time setter.
     const existingEcdsaFraudRouter = await bridge.ecdsaFraudRouter()
     let ecdsaFraudRouter: EcdsaFraudRouter
     if (existingEcdsaFraudRouter === ethers.constants.AddressZero) {
       ecdsaFraudRouter = await helpers.contracts.getContract<EcdsaFraudRouter>(
         "EcdsaFraudRouter"
       )
-      await bridgeGovernance
-        .connect(governance)
-        .setEcdsaFraudRouter(ecdsaFraudRouter.address)
     } else {
       ecdsaFraudRouter = (await ethers.getContractAt(
         "EcdsaFraudRouter",

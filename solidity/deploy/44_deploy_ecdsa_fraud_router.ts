@@ -9,9 +9,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const Bridge = await deployments.get("Bridge")
 
   // EcdsaFraudRouter is a plain (non-upgradeable) contract that
-  // pins the Bridge address at construction. Wiring is a separate
-  // one-time governance step (Bridge.setEcdsaFraudRouter) performed
-  // by the deployment pipeline after this script runs.
+  // pins the Bridge address at construction. Post-slice-2, it no
+  // longer calls back into Bridge and there is no Bridge-side router
+  // setter to run after deployment.
   const ecdsaFraudRouter = await deploy("EcdsaFraudRouter", {
     from: deployer,
     args: [Bridge.address],

@@ -15,8 +15,7 @@ import "./MovingFunds.sol";
 import "./Wallets.sol";
 
 /// @notice State the router needs to read from Bridge while processing
-///         ECDSA fraud lifecycle actions, plus the one privileged
-///         callback used for slashing on timeout.
+///         ECDSA fraud lifecycle actions.
 interface IBridgeForFraud {
     function wallets(bytes20 walletPubKeyHash)
         external
@@ -64,24 +63,15 @@ interface IBridgeForFraud {
         external
         view
         returns (MovingFunds.MovedFundsSweepRequest memory);
-
-    /// @notice Privileged callback the router invokes from the timeout
-    ///         path. Bridge gates this with `onlyEcdsaFraudRouter`.
-    function slashWalletForFraud(
-        bytes20 walletPubKeyHash,
-        uint32[] calldata walletMembersIDs,
-        address challenger
-    ) external;
 }
 
 /// @title EcdsaFraudRouter
 /// @notice Sidecar contract that owns the ECDSA fraud challenge surface
 ///         previously hosted on Bridge.sol. Holds challenge state, escrows
 ///         the ETH challenge deposits, dispatches BIP-143 sighash
-///         reconstruction + ecrecover verification, and calls back into
-///         Bridge for the one privileged side-effect: terminating the
-///         wallet + seizing operator stake when a fraud challenge times
-///         out without defeat.
+///         reconstruction + ecrecover verification. Post-slice-2, the
+///         timeout path no longer calls back into Bridge; it only resolves
+///         the router-side challenge state and refunds the challenger.
 ///
 /// Why this exists
 ///
@@ -120,11 +110,10 @@ interface IBridgeForFraud {
 ///     The router reads wallet state from Bridge via the IBridgeForFraud
 ///     view surface (registered wallet lookup, fraud parameters,
 ///     treasury address, deposit / spentMainUTXO / movedFundsSweep
-///     state). For the one side-effect Bridge must perform on behalf of
-///     the router (terminate wallet + seize stake on timeout), the
-///     router calls `Bridge.slashWalletForFraud(walletPubKeyHash,
-///     walletMembersIDs, challenger)`, gated by Bridge's
-///     `onlyEcdsaFraudRouter` modifier.
+///     state). Post-slice-2, the router no longer calls back into
+///     Bridge from the timeout path; timeout processing remains
+///     on-chain only for router-side challenge resolution and ETH
+///     escrow refund.
 ///
 /// Lifecycle and replacement
 ///
@@ -407,15 +396,15 @@ contract EcdsaFraudRouter {
 
     /// @notice Notifies that an open fraud challenge passed its defeat
     ///         timeout. Refunds the challenger from this router's
-    ///         escrow and calls back into Bridge to slash the wallet's
-    ///         operator stake + terminate the wallet.
+    ///         escrow and records the timeout as resolved. Post-slice-2,
+    ///         this path no longer calls back into Bridge for wallet
+    ///         slashing or termination.
     function notifyFraudChallengeDefeatTimeout(
         bytes calldata walletPublicKey,
         uint32[] calldata walletMembersIDs,
         bytes memory preimageSha256
     ) external {
-        // Wallet state is validated inside Bridge.slashWalletForFraud
-        // (delegating to Wallets.notifyWalletFraudChallengeDefeatTimeout).
+        walletMembersIDs;
 
         bytes32 sighash = sha256(preimageSha256);
 
@@ -455,14 +444,6 @@ contract EcdsaFraudRouter {
         );
         bytes20 walletPubKeyHash = compressedWalletPublicKey.hash160View();
 
-        // Privileged callback into Bridge: perform stake seizure +
-        // wallet termination. Gated by Bridge's onlyEcdsaFraudRouter.
-        b.slashWalletForFraud(
-            walletPubKeyHash,
-            walletMembersIDs,
-            challenge.challenger
-        );
-
         // slither-disable-next-line reentrancy-events
         emit FraudChallengeDefeatTimedOut(walletPubKeyHash, sighash);
     }
@@ -474,7 +455,8 @@ contract EcdsaFraudRouter {
     // structured payloads, different wallet types. Co-locating them
     // would either (a) push past EIP-170 via inlined helpers or
     // (b) reintroduce the external-linked-library ceremony the
-    // structural extraction was designed to escape. Bridge sets the
-    // two routers independently via `setEcdsaFraudRouter` and
-    // `setP2TRFraudRouter` and gates their callbacks separately.
+    // structural extraction was designed to escape. Post-slice-2, the
+    // ECDSA router is not registered back into Bridge; the P2TR router
+    // remains independently wired and callback-gated for its own
+    // lifecycle.
 }

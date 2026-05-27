@@ -317,26 +317,9 @@ contract Bridge is Governable, Initializable, IReceiveBalanceApproval {
         _;
     }
 
-    /// @notice Gates Bridge entry points reserved for callbacks from the
-    ///         EcdsaFraudRouter sidecar. The router is the only caller
-    ///         permitted to invoke `slashWalletForFraud`, since that
-    ///         function performs the wallet termination + stake seizure
-    ///         side-effect on the router's behalf.
-    modifier onlyEcdsaFraudRouter() {
-        require(
-            self.ecdsaFraudRouter != address(0) &&
-                msg.sender == self.ecdsaFraudRouter,
-            "Caller is not ECDSA fraud router"
-        );
-        _;
-    }
-
-    /// @notice Sister modifier to `onlyEcdsaFraudRouter`, gating the
-    ///         privileged callback the P2TRSignatureFraudRouter
-    ///         sidecar invokes from its timeout path. The two routers
-    ///         are independent peers; their callbacks are gated by
-    ///         separate modifiers so a compromise of one cannot
-    ///         impersonate the other.
+    /// @notice Gates the privileged callback the
+    ///         P2TRSignatureFraudRouter sidecar invokes from its
+    ///         timeout path.
     modifier onlyP2TRFraudRouter() {
         require(
             self.p2trFraudRouter != address(0) &&
@@ -1246,9 +1229,9 @@ contract Bridge is Governable, Initializable, IReceiveBalanceApproval {
     ///        which was calculated from `preimageSha256`,
     ///      - Wallet can be challenged for the given signature only once.
     // submitFraudChallenge: moved to EcdsaFraudRouter (sidecar).
-    // Consumers must call the router contract directly. The router's
-    // address is set via Bridge.setEcdsaFraudRouter and is available
-    // via Bridge.ecdsaFraudRouter().
+    // Consumers must call the router contract directly. The legacy
+    // ecdsaFraudRouter storage slot and getter remain for ABI/storage
+    // compatibility, but Bridge no longer wires the router post-slice-2.
 
     /// @notice Allows to defeat a pending fraud challenge against a wallet if
     ///         the transaction that spends the UTXO follows the protocol rules.
@@ -1340,9 +1323,9 @@ contract Bridge is Governable, Initializable, IReceiveBalanceApproval {
     ///      - The amount of time indicated by `challengeDefeatTimeout` must pass
     ///        after the challenge was reported.
     // notifyFraudChallengeDefeatTimeout: moved to EcdsaFraudRouter
-    // (sidecar). The router calls back into
-    // Bridge.slashWalletForFraud (gated by `onlyEcdsaFraudRouter`)
-    // to perform the wallet termination + stake seizure side-effect.
+    // (sidecar). Post-slice-2, the router no longer calls back into
+    // Bridge; its timeout path only resolves router-side state and
+    // refunds the challenger.
 
     /// @notice Processes a P2TR signature-fraud challenge lifecycle action.
     /// @param action Lifecycle action to process: submit, defeat, or timeout.
@@ -2368,57 +2351,12 @@ contract Bridge is Governable, Initializable, IReceiveBalanceApproval {
         );
     }
 
-    /// @notice Sets the EcdsaFraudRouter sidecar address. The router
-    ///         hosts the ECDSA fraud lifecycle (submit/defeat/timeout)
-    ///         that was previously inlined on Bridge.
-    /// @param ecdsaFraudRouter Address of the EcdsaFraudRouter sidecar.
-    /// @dev Requirements:
-    ///      - Caller must be governance,
-    ///      - ECDSA fraud router address must not be already set,
-    ///      - ECDSA fraud router address must not be 0x0.
-    ///
-    ///      This is a one-time setter (same pattern as
-    ///      `setRedemptionWatchtower` and `setFrostWalletRegistry`).
-    ///      After being set, the router becomes the only address
-    ///      permitted to invoke `slashWalletForFraud` on this Bridge.
-    function setEcdsaFraudRouter(address ecdsaFraudRouter)
-        external
-        onlyGovernance
-    {
-        self.setEcdsaFraudRouter(ecdsaFraudRouter);
-    }
-
     /// @notice Returns the address of the EcdsaFraudRouter sidecar.
-    ///         Returns the zero address until governance calls
-    ///         `setEcdsaFraudRouter`.
+    ///         Kept for ABI/storage compatibility; post-slice-2,
+    ///         Bridge no longer wires this router or receives callbacks
+    ///         from it.
     function ecdsaFraudRouter() external view returns (address) {
         return self.ecdsaFraudRouter;
-    }
-
-    /// @notice Privileged callback the EcdsaFraudRouter invokes to
-    ///         perform the wallet termination + operator stake seizure
-    ///         side-effect on fraud-challenge timeout.
-    /// @param walletPubKeyHash 20-byte HASH160 of the wallet
-    ///        public key whose operators are being slashed.
-    /// @param walletMembersIDs Operators that backed the wallet's
-    ///        signing group at registration.
-    /// @param challenger Address of the original challenger; receives
-    ///        a portion of the seized stake as reward.
-    /// @dev The router is the only permitted caller. The router is
-    ///      responsible for verifying the fraud challenge timed out
-    ///      and for refunding the challenger's ETH deposit; this
-    ///      function only performs the consensus-layer slashing +
-    ///      wallet termination steps that must run on Bridge.
-    function slashWalletForFraud(
-        bytes20 walletPubKeyHash,
-        uint32[] calldata walletMembersIDs,
-        address challenger
-    ) external onlyEcdsaFraudRouter {
-        self.notifyWalletFraudChallengeDefeatTimeout(
-            walletPubKeyHash,
-            walletMembersIDs,
-            challenger
-        );
     }
 
     /// @notice One-time governance helper to transfer legacy ECDSA
@@ -2466,11 +2404,10 @@ contract Bridge is Governable, Initializable, IReceiveBalanceApproval {
         //      the audit in step (1) durable validity.
         //
         //   3. Atomic cutover: the same governance proposal that
-        //      sets the routers (via setEcdsaFraudRouter +
-        //      setP2TRFraudRouter) is the proposal that activates
-        //      this upgrade. There is no in-between window where
-        //      Bridge accepts fraud calls but the routers are not
-        //      yet wired.
+        //      wires the fraud router sidecars is the proposal that
+        //      activates this upgrade. There is no in-between window
+        //      where Bridge accepts fraud calls but the routers are not
+        //      yet ready.
         //
         // If any chain cannot satisfy the audit OR the quiet period,
         // the migration body MUST be added in a focused upgrade
@@ -2504,9 +2441,8 @@ contract Bridge is Governable, Initializable, IReceiveBalanceApproval {
     error MigrateLegacyFraudChallengesNotImplemented();
 
     /// @notice Sets the P2TRSignatureFraudRouter sidecar address.
-    /// @dev Same one-time-setter pattern as `setEcdsaFraudRouter`.
-    ///      The router and Bridge are deployed together at the
-    ///      cutover; the two sidecars are wired independently.
+    /// @dev One-time setter. The router and Bridge are deployed
+    ///      together at the cutover.
     function setP2TRFraudRouter(address p2trFraudRouter)
         external
         onlyGovernance
@@ -2523,10 +2459,7 @@ contract Bridge is Governable, Initializable, IReceiveBalanceApproval {
 
     /// @notice Privileged callback the P2TRSignatureFraudRouter
     ///         invokes from its timeout path. Functionally identical
-    ///         to `slashWalletForFraud`; declared separately so the
-    ///         two router callbacks are gated by independent
-    ///         modifiers and a compromise of one router cannot
-    ///         impersonate the other.
+    ///         to the retired ECDSA fraud timeout callback.
     function slashWalletForP2TRFraud(
         bytes20 walletPubKeyHash,
         uint32[] calldata walletMembersIDs,

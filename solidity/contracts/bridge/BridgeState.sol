@@ -567,10 +567,6 @@ library BridgeState {
     error FrostWalletRegistryAlreadySet();
     error FrostWalletRegistryAddressZero();
 
-    // Custom errors for the ECDSA fraud router setter; same rationale.
-    error EcdsaFraudRouterAlreadySet();
-    error EcdsaFraudRouterAddressZero();
-
     // Custom errors for the P2TR fraud router setter; same rationale.
     error P2TRFraudRouterAlreadySet();
     error P2TRFraudRouterAddressZero();
@@ -1109,32 +1105,9 @@ library BridgeState {
         emit FrostWalletRegistrySet(_frostWalletRegistry);
     }
 
-    /// @notice Sets the EcdsaFraudRouter address.
-    /// @param _ecdsaFraudRouter Address of the EcdsaFraudRouter sidecar.
-    /// @dev One-time setter. Once set, the router address cannot be
-    ///      changed without a Bridge implementation upgrade.
-    ///      Requirements:
-    ///      - ECDSA fraud router address must not be already set,
-    ///      - ECDSA fraud router address must not be 0x0.
-    function setEcdsaFraudRouter(
-        Storage storage self,
-        address _ecdsaFraudRouter
-    ) internal {
-        if (self.ecdsaFraudRouter != address(0)) {
-            revert EcdsaFraudRouterAlreadySet();
-        }
-        if (_ecdsaFraudRouter == address(0)) {
-            revert EcdsaFraudRouterAddressZero();
-        }
-
-        self.ecdsaFraudRouter = _ecdsaFraudRouter;
-        emit EcdsaFraudRouterSet(_ecdsaFraudRouter);
-    }
-
     /// @notice Sets the P2TR fraud router address.
     /// @param _p2trFraudRouter Address of the P2TR fraud router sidecar.
-    /// @dev One-time setter; same pattern as setEcdsaFraudRouter.
-    ///      Requirements:
+    /// @dev One-time setter. Requirements:
     ///      - P2TR fraud router address must not be already set,
     ///      - P2TR fraud router address must not be 0x0.
     function setP2TRFraudRouter(Storage storage self, address _p2trFraudRouter)
