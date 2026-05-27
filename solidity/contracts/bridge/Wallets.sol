@@ -16,20 +16,14 @@
 pragma solidity 0.8.17;
 
 import {BTCUtils} from "@keep-network/bitcoin-spv-sol/contracts/BTCUtils.sol";
-import {EcdsaDkg} from "@keep-network/ecdsa/contracts/libraries/EcdsaDkg.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import "./BitcoinTx.sol";
-import "./EcdsaLib.sol";
 import "./BridgeState.sol";
 import "./IBridgeLifecycleRouter.sol";
 
 /// @notice Minimal interface for the FROST wallet registry's wallet
-///         creation entry point. Mirrors the shape of the ECDSA
-///         wallet registry's `requestNewWallet()` so the C-2 scheme
-///         dispatcher can target either registry without branching
-///         on argument shape. Implementation lives on the future
-///         B-1 / B-2 FROST wallet registry contract.
+///         creation entry point.
 interface IFrostWalletRegistryRequest {
     function requestNewWallet() external;
 }
@@ -134,10 +128,10 @@ library Wallets {
         bytes32 indexed xOnlyOutputKey
     );
 
-    // Custom errors for the FROST wallet registration path and the new
-    // ECDSA-marker guard on `registerNewWallet`. Used instead of require
-    // strings to keep the Bridge implementation bytecode under the
-    // 24 KiB EIP-170 deploy limit.
+    // Custom errors for the FROST wallet registration path. Used instead
+    // of require strings to keep the Bridge implementation bytecode under
+    // the 24 KiB EIP-170 deploy limit. `EcdsaWalletIdIsZero` is retained
+    // for ABI continuity with the removed ECDSA registration guard.
     error EcdsaWalletIdIsZero();
     error FrostWalletRegistryNotSet();
     error CallerIsNotFrostWalletRegistry();
@@ -182,7 +176,7 @@ library Wallets {
     /// @notice Requests creation of a new wallet. This function just
     ///         forms a request and the creation process is performed
     ///         asynchronously. Outcome of that process should be delivered
-    ///         using `registerNewWallet` function.
+    ///         using `registerNewFrostWallet` function.
     /// @param activeWalletMainUtxo Data of the active wallet's main UTXO, as
     ///        currently known on the Ethereum chain.
     /// @dev Requirements:
@@ -191,7 +185,6 @@ library Wallets {
     ///        Ethereum chain. If there is no active wallet at the moment, or
     ///        the active wallet has no main UTXO, this parameter can be
     ///        empty as it is ignored,
-    ///      - Wallet creation must not be in progress,
     ///      - If the active wallet is set, one of the following
     ///        conditions must be true:
     ///        - The active wallet BTC balance is above the minimum threshold
@@ -202,18 +195,11 @@ library Wallets {
         BridgeState.Storage storage self,
         BitcoinTx.UTXO calldata activeWalletMainUtxo
     ) external {
-        require(
-            self.ecdsaWalletRegistry.getWalletCreationState() ==
-                EcdsaDkg.State.IDLE,
-            "Wallet creation already in progress"
-        );
-
         bytes20 activeWalletPubKeyHash = self.activeWalletPubKeyHash;
 
         // If the active wallet is set, fetch this wallet's details from
-        // storage to perform conditions check. The `registerNewWallet`
-        // function guarantees an active wallet is always one of the
-        // registered ones.
+        // storage to perform conditions check. Wallet registration
+        // guarantees an active wallet is always one of the registered ones.
         if (activeWalletPubKeyHash != bytes20(0)) {
             uint64 activeWalletBtcBalance = getWalletBtcBalance(
                 self,
@@ -256,92 +242,6 @@ library Wallets {
         IFrostWalletRegistryRequest(self.frostWalletRegistry).requestNewWallet();
     }
 
-    /// @notice Registers a new wallet. This function should be called
-    ///         after the wallet creation process initiated using
-    ///         `requestNewWallet` completes and brings the outcomes.
-    /// @param ecdsaWalletID Wallet's unique identifier.
-    /// @param publicKeyX Wallet's public key's X coordinate.
-    /// @param publicKeyY Wallet's public key's Y coordinate.
-    /// @dev Requirements:
-    ///      - The only caller authorized to call this function is `registry`,
-    ///      - Given wallet data must not belong to an already registered wallet.
-    function registerNewWallet(
-        BridgeState.Storage storage self,
-        bytes32 ecdsaWalletID,
-        bytes32 publicKeyX,
-        bytes32 publicKeyY
-    ) external {
-        require(
-            msg.sender == address(self.ecdsaWalletRegistry),
-            "Caller is not the ECDSA Wallet Registry"
-        );
-        // D-1 deliberately does NOT block the late-callback path
-        // here even when `ecdsaRetired == true`. Reverting from
-        // this callback would propagate up through
-        // `EcdsaWalletRegistry.approveDkgResult`, preventing the
-        // registry's own `dkg.complete()` transition and leaving
-        // the ECDSA registry stuck in a non-IDLE state. The
-        // `Wallets.requestNewWallet` gate above checks
-        // `ecdsaWalletRegistry.getWalletCreationState() == IDLE`
-        // unconditionally (before the scheme branch), so a
-        // stuck ECDSA registry would also block every subsequent
-        // FROST wallet creation — exactly the failure mode D-1
-        // is meant to prevent (per PR #443 review).
-        //
-        // The retirement contract instead relies on operational
-        // sequencing: governance pauses Bridge, waits for any
-        // in-flight ECDSA DKG to settle (callback fires, this
-        // function runs, registry returns to IDLE), then sets
-        // `ecdsaRetired = true`, then unpauses. The
-        // `requestNewWallet` request-side guard (above) and the
-        // `setNewWalletScheme(Frost)` dispatch handle every
-        // subsequent attempt to create an ECDSA wallet.
-        // Reserve `ecdsaWalletID == bytes32(0)` as the on-chain marker for
-        // FROST-keyed wallets registered via `registerNewFrostWallet`. The
-        // Bridge enforces this invariant at the registration boundary so
-        // downstream paths that distinguish wallet schemes by inspecting
-        // `wallet.ecdsaWalletID` can rely on the marker being correctly
-        // set. The external ECDSA Wallet Registry must therefore never
-        // pass a zero ECDSA wallet ID. Custom error keeps the Bridge
-        // implementation bytecode under the 24 KiB EIP-170 deploy limit.
-        if (ecdsaWalletID == bytes32(0)) {
-            revert EcdsaWalletIdIsZero();
-        }
-
-        // Compress wallet's public key and calculate Bitcoin's hash160 of it.
-        bytes20 walletPubKeyHash = bytes20(
-            EcdsaLib.compressPublicKey(publicKeyX, publicKeyY).hash160View()
-        );
-        bytes32 walletID = deriveLegacyWalletID(walletPubKeyHash);
-
-        Wallet storage wallet = self.registeredWallets[walletPubKeyHash];
-        require(
-            wallet.state == WalletState.Unknown,
-            "ECDSA wallet has been already registered"
-        );
-        wallet.ecdsaWalletID = ecdsaWalletID;
-        wallet.state = WalletState.Live;
-        /* solhint-disable-next-line not-rely-on-time */
-        wallet.createdAt = uint32(block.timestamp);
-
-        // Set the freshly created wallet as the new active wallet.
-        self.activeWalletPubKeyHash = walletPubKeyHash;
-        self.activeWalletID = walletID;
-        self.walletPubKeyHashByWalletID[walletID] = walletPubKeyHash;
-
-        self.liveWalletsCount++;
-        // C-2.1: total-created counter for D-2 retirement
-        // bookkeeping. Strictly monotonic; not decremented when
-        // a wallet closes or terminates. D-2's
-        // `finalizeEcdsaRetirement` verifies the
-        // governance-supplied retired-wallet list covers exactly
-        // this many wallets in a terminal state.
-        self.ecdsaWalletCount += 1;
-
-        emit NewWalletRegistered(ecdsaWalletID, walletPubKeyHash);
-        emit NewWalletRegisteredV2(walletID, ecdsaWalletID, walletPubKeyHash);
-    }
-
     /// @notice Registers a new FROST/Schnorr-keyed wallet given its 32-byte
     ///         x-only Taproot output key. The canonical 32-byte walletID is
     ///         the x-only output key itself; the 20-byte compatibility
@@ -372,7 +272,8 @@ library Wallets {
     ///      this is the on-chain marker that distinguishes FROST wallets
     ///      from ECDSA ones. The mainUtxoHash and other lifecycle fields
     ///      are initialised to zero/default so the wallet can cleanly
-    ///      accept its first deposit sweep, mirroring `registerNewWallet`.
+    ///      accept its first deposit sweep, mirroring the legacy ECDSA
+    ///      registration defaults.
     ///
     ///      Both `NewFrostWalletRegistered` (FROST-specific) and
     ///      `NewWalletRegisteredV2` (compatibility) events fire. The
@@ -421,10 +322,10 @@ library Wallets {
             revert FrostWalletAlreadyRegistered();
         }
 
-        // Mirror `registerNewWallet` field-for-field so the wallet is in
-        // an identical default state and can be consumed by every existing
-        // lifecycle path. `ecdsaWalletID` is left as the default
-        // `bytes32(0)` — that is the on-chain marker for FROST.
+        // Mirror the legacy ECDSA registration defaults so the wallet can
+        // be consumed by every existing lifecycle path. `ecdsaWalletID` is
+        // left as the default `bytes32(0)` -- that is the on-chain marker
+        // for FROST.
         wallet.state = WalletState.Live;
         /* solhint-disable-next-line not-rely-on-time */
         wallet.createdAt = uint32(block.timestamp);
@@ -491,62 +392,18 @@ library Wallets {
             walletState == Wallets.WalletState.Live ||
             walletState == Wallets.WalletState.MovingFunds
         ) {
-            // Slash the wallet operators and reward the notifier.
-            // Scheme-aware routing: ECDSA wallets call the ECDSA
-            // registry directly (unchanged); FROST wallets dispatch
-            // through the lifecycle router.
-            if (wallet.ecdsaWalletID != bytes32(0)) {
-                self.ecdsaWalletRegistry.seize(
-                    self.redemptionTimeoutSlashingAmount,
-                    self.redemptionTimeoutNotifierRewardMultiplier,
-                    msg.sender,
-                    wallet.ecdsaWalletID,
-                    walletMembersIDs
-                );
-            } else {
-                IBridgeLifecycleRouter(self.lifecycleRouter).seize(
-                    walletPubKeyHash,
-                    self.redemptionTimeoutSlashingAmount,
-                    self.redemptionTimeoutNotifierRewardMultiplier,
-                    msg.sender,
-                    walletMembersIDs
-                );
-            }
+            IBridgeLifecycleRouter(self.lifecycleRouter).seize(
+                walletPubKeyHash,
+                self.redemptionTimeoutSlashingAmount,
+                self.redemptionTimeoutNotifierRewardMultiplier,
+                msg.sender,
+                walletMembersIDs
+            );
         }
 
         if (walletState == WalletState.Live) {
             moveFunds(self, walletPubKeyHash);
         }
-    }
-
-    /// @notice Handles a notification about a wallet heartbeat failure and
-    ///         triggers the wallet moving funds process.
-    /// @param publicKeyX Wallet's public key's X coordinate.
-    /// @param publicKeyY Wallet's public key's Y coordinate.
-    /// @dev Requirements:
-    ///      - The only caller authorized to call this function is `registry`,
-    ///      - Wallet must be in Live state.
-    function notifyWalletHeartbeatFailed(
-        BridgeState.Storage storage self,
-        bytes32 publicKeyX,
-        bytes32 publicKeyY
-    ) external {
-        require(
-            msg.sender == address(self.ecdsaWalletRegistry),
-            "Caller is not the ECDSA Wallet Registry"
-        );
-
-        // Compress wallet's public key and calculate Bitcoin's hash160 of it.
-        bytes20 walletPubKeyHash = bytes20(
-            EcdsaLib.compressPublicKey(publicKeyX, publicKeyY).hash160View()
-        );
-
-        require(
-            self.registeredWallets[walletPubKeyHash].state == WalletState.Live,
-            "Wallet must be in Live state"
-        );
-
-        moveFunds(self, walletPubKeyHash);
     }
 
     /// @notice Notifies that the wallet is either old enough or has too few
@@ -595,7 +452,7 @@ library Wallets {
     }
 
     /// @notice Notifies about the end of the closing period for the given wallet.
-    ///         Closes the wallet ultimately and notifies the ECDSA registry
+    ///         Closes the wallet ultimately and notifies the lifecycle router
     ///         about this fact.
     /// @param walletPubKeyHash 20-byte public key hash of the wallet.
     /// @dev Requirements:
@@ -715,23 +572,13 @@ library Wallets {
             "Wallet must be in MovingFunds state"
         );
 
-        if (wallet.ecdsaWalletID != bytes32(0)) {
-            self.ecdsaWalletRegistry.seize(
-                self.movingFundsTimeoutSlashingAmount,
-                self.movingFundsTimeoutNotifierRewardMultiplier,
-                msg.sender,
-                wallet.ecdsaWalletID,
-                walletMembersIDs
-            );
-        } else {
-            IBridgeLifecycleRouter(self.lifecycleRouter).seize(
-                walletPubKeyHash,
-                self.movingFundsTimeoutSlashingAmount,
-                self.movingFundsTimeoutNotifierRewardMultiplier,
-                msg.sender,
-                walletMembersIDs
-            );
-        }
+        IBridgeLifecycleRouter(self.lifecycleRouter).seize(
+            walletPubKeyHash,
+            self.movingFundsTimeoutSlashingAmount,
+            self.movingFundsTimeoutNotifierRewardMultiplier,
+            msg.sender,
+            walletMembersIDs
+        );
 
         terminateWallet(self, walletPubKeyHash);
     }
@@ -764,23 +611,13 @@ library Wallets {
             walletState == Wallets.WalletState.Live ||
             walletState == Wallets.WalletState.MovingFunds
         ) {
-            if (wallet.ecdsaWalletID != bytes32(0)) {
-                self.ecdsaWalletRegistry.seize(
-                    self.movedFundsSweepTimeoutSlashingAmount,
-                    self.movedFundsSweepTimeoutNotifierRewardMultiplier,
-                    msg.sender,
-                    wallet.ecdsaWalletID,
-                    walletMembersIDs
-                );
-            } else {
-                IBridgeLifecycleRouter(self.lifecycleRouter).seize(
-                    walletPubKeyHash,
-                    self.movedFundsSweepTimeoutSlashingAmount,
-                    self.movedFundsSweepTimeoutNotifierRewardMultiplier,
-                    msg.sender,
-                    walletMembersIDs
-                );
-            }
+            IBridgeLifecycleRouter(self.lifecycleRouter).seize(
+                walletPubKeyHash,
+                self.movedFundsSweepTimeoutSlashingAmount,
+                self.movedFundsSweepTimeoutNotifierRewardMultiplier,
+                msg.sender,
+                walletMembersIDs
+            );
 
             terminateWallet(self, walletPubKeyHash);
         }
@@ -812,23 +649,13 @@ library Wallets {
             walletState == Wallets.WalletState.MovingFunds ||
             walletState == Wallets.WalletState.Closing
         ) {
-            if (wallet.ecdsaWalletID != bytes32(0)) {
-                self.ecdsaWalletRegistry.seize(
-                    self.fraudSlashingAmount,
-                    self.fraudNotifierRewardMultiplier,
-                    challenger,
-                    wallet.ecdsaWalletID,
-                    walletMembersIDs
-                );
-            } else {
-                IBridgeLifecycleRouter(self.lifecycleRouter).seize(
-                    walletPubKeyHash,
-                    self.fraudSlashingAmount,
-                    self.fraudNotifierRewardMultiplier,
-                    challenger,
-                    walletMembersIDs
-                );
-            }
+            IBridgeLifecycleRouter(self.lifecycleRouter).seize(
+                walletPubKeyHash,
+                self.fraudSlashingAmount,
+                self.fraudNotifierRewardMultiplier,
+                challenger,
+                walletMembersIDs
+            );
 
             terminateWallet(self, walletPubKeyHash);
         } else if (walletState == Wallets.WalletState.Terminated) {
@@ -904,7 +731,7 @@ library Wallets {
     }
 
     /// @notice Finalizes the closing period of the given wallet and notifies
-    ///         the ECDSA registry about this fact.
+    ///         the lifecycle router about this fact.
     /// @param walletPubKeyHash 20-byte public key hash of the wallet.
     /// @dev Requirements:
     ///      - The caller must make sure that the wallet is in the Closing state.
@@ -918,22 +745,12 @@ library Wallets {
 
         emit WalletClosed(wallet.ecdsaWalletID, walletPubKeyHash);
 
-        // Scheme-aware lifecycle routing. ECDSA wallets remain
-        // unchanged: Bridge stays the wallet owner and calls the
-        // ECDSA registry directly, preserving the existing
-        // ownership and callback model. FROST wallets dispatch
-        // through the lifecycle router, which forwards to
-        // frostWalletRegistry.
-        if (wallet.ecdsaWalletID != bytes32(0)) {
-            self.ecdsaWalletRegistry.closeWallet(wallet.ecdsaWalletID);
-        } else {
-            IBridgeLifecycleRouter(self.lifecycleRouter).closeWallet(
-                walletPubKeyHash
-            );
-        }
+        IBridgeLifecycleRouter(self.lifecycleRouter).closeWallet(
+            walletPubKeyHash
+        );
     }
 
-    /// @notice Terminates the given wallet and notifies the ECDSA registry
+    /// @notice Terminates the given wallet and notifies the lifecycle router
     ///         about this fact. If the wallet termination refers to the current
     ///         active wallet, such a wallet is no longer considered active and
     ///         the active wallet slot is unset allowing to trigger a new wallet
@@ -965,19 +782,9 @@ library Wallets {
             delete self.activeWalletID;
         }
 
-        // Scheme-aware lifecycle routing. ECDSA wallets remain
-        // unchanged: Bridge stays the wallet owner and calls the
-        // ECDSA registry directly, preserving the existing
-        // ownership and callback model. FROST wallets dispatch
-        // through the lifecycle router, which forwards to
-        // frostWalletRegistry.
-        if (wallet.ecdsaWalletID != bytes32(0)) {
-            self.ecdsaWalletRegistry.closeWallet(wallet.ecdsaWalletID);
-        } else {
-            IBridgeLifecycleRouter(self.lifecycleRouter).closeWallet(
-                walletPubKeyHash
-            );
-        }
+        IBridgeLifecycleRouter(self.lifecycleRouter).closeWallet(
+            walletPubKeyHash
+        );
     }
 
     /// @notice Gets BTC balance for given the wallet.

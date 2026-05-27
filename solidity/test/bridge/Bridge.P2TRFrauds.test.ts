@@ -10,8 +10,9 @@ import chai, { expect } from "chai"
 import { FakeContract, smock } from "@defi-wonderland/smock"
 import type {
   Bridge,
+  BridgeGovernance,
   BridgeStub,
-  IWalletRegistry,
+  IBridgeLifecycleRouter,
   P2TRSignatureFraudRouter,
 } from "../../typechain"
 import bridgeFixture from "../fixtures/bridge"
@@ -296,8 +297,9 @@ describe("Bridge - P2TR signature fraud", () => {
 
   let thirdParty: SignerWithAddress
   let treasury: SignerWithAddress
-  let walletRegistry: FakeContract<IWalletRegistry>
+  let lifecycleRouter: FakeContract<IBridgeLifecycleRouter>
   let bridge: Bridge & BridgeStub
+  let bridgeGovernance: BridgeGovernance
   let p2trFraudRouter: P2TRSignatureFraudRouter
   let fraudChallengeDepositAmount: BigNumber
   let fraudChallengeDefeatTimeout: number
@@ -308,9 +310,16 @@ describe("Bridge - P2TR signature fraud", () => {
     const fixture = await waffle.loadFixture(bridgeFixture)
     thirdParty = fixture.thirdParty
     treasury = fixture.treasury
-    walletRegistry = fixture.walletRegistry
     bridge = fixture.bridge
+    bridgeGovernance = fixture.bridgeGovernance
     p2trFraudRouter = fixture.p2trFraudRouter
+
+    lifecycleRouter = await smock.fake<IBridgeLifecycleRouter>(
+      "IBridgeLifecycleRouter"
+    )
+    await bridgeGovernance
+      .connect(fixture.governance)
+      .setLifecycleRouter(lifecycleRouter.address)
 
     const fraudParameters = await bridge.fraudParameters()
     fraudChallengeDepositAmount = fraudParameters.fraudChallengeDepositAmount
@@ -325,8 +334,8 @@ describe("Bridge - P2TR signature fraud", () => {
   })
 
   afterEach(async () => {
-    walletRegistry.closeWallet.reset()
-    walletRegistry.seize.reset()
+    lifecycleRouter.closeWallet.reset()
+    lifecycleRouter.seize.reset()
 
     await restoreSnapshot()
   })
@@ -818,11 +827,11 @@ describe("Bridge - P2TR signature fraud", () => {
     expect((await bridge.wallets(walletPubKeyHash)).state).to.equal(
       walletState.Terminated
     )
-    expect(walletRegistry.seize).to.have.been.calledOnceWith(
+    expect(lifecycleRouter.seize).to.have.been.calledOnceWith(
+      walletPubKeyHash,
       fraudSlashingAmount,
       fraudNotifierRewardMultiplier,
       await thirdParty.getAddress(),
-      ecdsaWalletTestData.walletID,
       walletMembersIDs
     )
 

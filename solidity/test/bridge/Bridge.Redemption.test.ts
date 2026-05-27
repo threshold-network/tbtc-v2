@@ -15,9 +15,9 @@ import type {
   Bridge,
   BridgeGovernance,
   BridgeStub,
+  IBridgeLifecycleRouter,
   IRedemptionWatchtower,
   IRelay,
-  IWalletRegistry,
   RebateStaking,
 } from "../../typechain"
 import { NO_MAIN_UTXO } from "../data/deposit-sweep"
@@ -66,7 +66,7 @@ describe("Bridge - Redemption", () => {
   let bridgeGovernance: BridgeGovernance
   let t: Contract
   let rebateStaking: RebateStaking
-  let walletRegistry: FakeContract<IWalletRegistry>
+  let lifecycleRouter: FakeContract<IBridgeLifecycleRouter>
 
   let deployBridge: (
     txProofDifficultyFactor: number
@@ -88,13 +88,19 @@ describe("Bridge - Redemption", () => {
       treasury,
       bank,
       relay,
-      walletRegistry,
       bridge,
       bridgeGovernance,
       t,
       rebateStaking,
       deployBridge,
     } = await waffle.loadFixture(bridgeFixture))
+
+    lifecycleRouter = await smock.fake<IBridgeLifecycleRouter>(
+      "IBridgeLifecycleRouter"
+    )
+    await bridgeGovernance
+      .connect(governance)
+      .setLifecycleRouter(lifecycleRouter.address)
     ;({
       redemptionTimeout,
       redemptionTimeoutSlashingAmount,
@@ -1789,7 +1795,7 @@ describe("Bridge - Redemption", () => {
                             })
 
                             after(async () => {
-                              walletRegistry.seize.reset()
+                              lifecycleRouter.seize.reset()
 
                               await restoreSnapshot()
                             })
@@ -1986,7 +1992,7 @@ describe("Bridge - Redemption", () => {
                             })
 
                             after(async () => {
-                              walletRegistry.seize.reset()
+                              lifecycleRouter.seize.reset()
 
                               await restoreSnapshot()
                             })
@@ -2526,7 +2532,7 @@ describe("Bridge - Redemption", () => {
                             })
 
                             after(async () => {
-                              walletRegistry.seize.reset()
+                              lifecycleRouter.seize.reset()
 
                               await restoreSnapshot()
                             })
@@ -2701,7 +2707,7 @@ describe("Bridge - Redemption", () => {
                             })
 
                             after(async () => {
-                              walletRegistry.seize.reset()
+                              lifecycleRouter.seize.reset()
 
                               await restoreSnapshot()
                             })
@@ -2885,7 +2891,7 @@ describe("Bridge - Redemption", () => {
                             })
 
                             after(async () => {
-                              walletRegistry.seize.reset()
+                              lifecycleRouter.seize.reset()
 
                               await restoreSnapshot()
                             })
@@ -3095,7 +3101,7 @@ describe("Bridge - Redemption", () => {
                             })
 
                             after(async () => {
-                              walletRegistry.seize.reset()
+                              lifecycleRouter.seize.reset()
 
                               await restoreSnapshot()
                             })
@@ -3361,7 +3367,7 @@ describe("Bridge - Redemption", () => {
                             })
 
                             after(async () => {
-                              walletRegistry.seize.reset()
+                              lifecycleRouter.seize.reset()
 
                               await restoreSnapshot()
                             })
@@ -4275,7 +4281,7 @@ describe("Bridge - Redemption", () => {
               })
 
               after(async () => {
-                walletRegistry.seize.reset()
+                lifecycleRouter.seize.reset()
 
                 await restoreSnapshot()
               })
@@ -4366,12 +4372,12 @@ describe("Bridge - Redemption", () => {
                 )
               })
 
-              it("should call the ECDSA wallet registry's seize function", async () => {
-                expect(walletRegistry.seize).to.have.been.calledOnceWith(
+              it("should call the lifecycle router's seize function", async () => {
+                expect(lifecycleRouter.seize).to.have.been.calledOnceWith(
+                  data.wallet.pubKeyHash,
                   redemptionTimeoutSlashingAmount,
                   redemptionTimeoutNotifierRewardMultiplier,
                   await thirdParty.getAddress(),
-                  data.wallet.ecdsaWalletID,
                   walletMembersIDs
                 )
               })
@@ -4496,7 +4502,7 @@ describe("Bridge - Redemption", () => {
                 })
 
                 after(async () => {
-                  walletRegistry.seize.reset()
+                  lifecycleRouter.seize.reset()
 
                   await restoreSnapshot()
                 })
@@ -4587,12 +4593,12 @@ describe("Bridge - Redemption", () => {
                   )
                 })
 
-                it("should call the ECDSA wallet registry's seize function", async () => {
-                  expect(walletRegistry.seize).to.have.been.calledOnceWith(
+                it("should call the lifecycle router's seize function", async () => {
+                  expect(lifecycleRouter.seize).to.have.been.calledOnceWith(
+                    data.wallet.pubKeyHash,
                     redemptionTimeoutSlashingAmount,
                     redemptionTimeoutNotifierRewardMultiplier,
                     await thirdParty.getAddress(),
-                    data.wallet.ecdsaWalletID,
                     walletMembersIDs
                   )
                 })
@@ -4684,7 +4690,7 @@ describe("Bridge - Redemption", () => {
             })
 
             after(async () => {
-              walletRegistry.seize.reset()
+              lifecycleRouter.seize.reset()
 
               await restoreSnapshot()
             })
@@ -4801,7 +4807,7 @@ describe("Bridge - Redemption", () => {
           })
 
           after(async () => {
-            walletRegistry.seize.reset()
+            lifecycleRouter.seize.reset()
 
             await restoreSnapshot()
           })
@@ -4872,12 +4878,12 @@ describe("Bridge - Redemption", () => {
             ).to.be.equal(walletState.MovingFunds)
           })
 
-          it("should call the ECDSA wallet registry's seize function", async () => {
-            expect(walletRegistry.seize).to.have.been.calledOnceWith(
+          it("should call the lifecycle router's seize function", async () => {
+            expect(lifecycleRouter.seize).to.have.been.calledOnceWith(
+              data.wallet.pubKeyHash,
               redemptionTimeoutSlashingAmount,
               redemptionTimeoutNotifierRewardMultiplier,
               await thirdParty.getAddress(),
-              data.wallet.ecdsaWalletID,
               walletMembersIDs
             )
           })
@@ -5068,8 +5074,8 @@ describe("Bridge - Redemption", () => {
             expect(currentRedeemerBalance).to.be.equal(expectedRedeemerBalance)
           })
 
-          it("should not call the ECDSA wallet registry's seize function", async () => {
-            expect(walletRegistry.seize).not.to.have.been.called
+          it("should not call the lifecycle router's seize function", async () => {
+            expect(lifecycleRouter.seize).not.to.have.been.called
           })
         })
 
