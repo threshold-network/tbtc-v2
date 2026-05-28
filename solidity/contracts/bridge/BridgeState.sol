@@ -339,8 +339,8 @@ library BridgeState {
         // upgrade path of the Bridge implementation.
         address rebateStaking;
         // Upgrade note: the FROST wallet ID fields below and the FROST
-        // wallet registry address consume three reserved slots, reducing
-        // `__gap` from 50 to 47 for storage-layout compatibility.
+        // FROST extraction state consumes eight reserved slots, reducing
+        // `__gap` from 48 to 40 for storage-layout compatibility.
         // Maps canonical wallet identifier to the wallet public key hash used
         // by legacy Bridge paths. For legacy ECDSA wallets, canonical wallet
         // ID is a left-padded 20-byte wallet public key hash. New wallet

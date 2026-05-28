@@ -156,37 +156,32 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     }
   }
 
-  // Wire the FrostWalletRegistry's lifecycleOwner. Until this is set,
-  // FrostWalletRegistry.requestNewWallet reverts with `LifecycleOwnerNotSet`
-  // (FrostWalletRegistry.sol:803-805) — the registry refuses to lock DKG
-  // unless a lifecycle owner is registered, per RFC v4's "no orphaned
-  // wallets" guarantee. Production wires `lifecycleOwner` to a dedicated
-  // `BridgeLifecycleRouter`, but that contract is not deployed in this
-  // canonical mirror. Bridge itself is the natural lifecycle owner — it
-  // has the close/seize call sites and is governance-controlled — so we
-  // wire `lifecycleOwner = Bridge.address` here. A future PR that
-  // introduces BridgeLifecycleRouter can rewire via
-  // `FrostWalletRegistry.updateLifecycleOwner(router)` (governance-only,
-  // not one-time, so re-binding is supported).
+  // Do NOT wire the FrostWalletRegistry's lifecycleOwner here. The only
+  // valid production value is the same BridgeLifecycleRouter address set
+  // on Bridge via `setLifecycleRouter`, and that router is delivered by a
+  // follow-up deployment. Setting `lifecycleOwner = Bridge.address` here
+  // would allow FROST wallets to be registered but later orphan their
+  // close/seize/isWalletMember lifecycle calls, because the Bridge routes
+  // those calls through the router while the registry authorizes only
+  // `lifecycleOwner`.
   //
-  // Idempotent like setFrostWalletRegistry above: skip if already set to
-  // the desired value, otherwise log and update.
+  // Bridge.requestNewWallet and Bridge.__frostWalletCreatedCallback both
+  // fail closed unless `Bridge.lifecycleRouter() ==
+  // FrostWalletRegistry.lifecycleOwner()`, so leaving this unset is the
+  // safe dormant state until the router deployment wires both sides.
   const frostWalletRegistryContract = await ethers.getContractAt(
     "FrostWalletRegistry",
     frostWalletRegistry.address
   )
   const currentLifecycleOwner =
     await frostWalletRegistryContract.lifecycleOwner()
-  if (currentLifecycleOwner.toLowerCase() !== Bridge.address.toLowerCase()) {
-    await frostWalletRegistryContract
-      .connect(await ethers.getSigner(deployer))
-      .updateLifecycleOwner(Bridge.address)
+  if (currentLifecycleOwner === ethers.constants.AddressZero) {
     console.log(
-      `wired FrostWalletRegistry.lifecycleOwner = ${Bridge.address} (Bridge)`
+      "FrostWalletRegistry.lifecycleOwner left unset; BridgeLifecycleRouter deployment must wire it before FROST wallet creation"
     )
   } else {
     console.log(
-      `FrostWalletRegistry.lifecycleOwner already = Bridge (${Bridge.address}); skipping`
+      `FrostWalletRegistry.lifecycleOwner already set to ${currentLifecycleOwner}; leaving unchanged`
     )
   }
 

@@ -318,7 +318,7 @@ contract P2TRSignatureFraudRouter {
 
         address treasury = b.treasury();
         /* solhint-disable avoid-low-level-calls */
-        // slither-disable-next-line low-level-calls,unchecked-lowlevel,arbitrary-send
+        // slither-disable-next-line low-level-calls,unchecked-lowlevel,arbitrary-send-eth
         treasury.call{gas: 100000, value: challenge.depositAmount}("");
         /* solhint-enable avoid-low-level-calls */
 
@@ -358,8 +358,11 @@ contract P2TRSignatureFraudRouter {
 
         challenge.resolved = true;
 
+        // The return value is intentionally ignored: a reverting
+        // challenger fallback self-griefs the refund but must not block
+        // the fraud timeout slashing path.
         /* solhint-disable avoid-low-level-calls */
-        // slither-disable-next-line low-level-calls,unchecked-lowlevel
+        // slither-disable-next-line low-level-calls,unchecked-lowlevel,arbitrary-send-eth
         challenge.challenger.call{gas: 100000, value: challenge.depositAmount}(
             ""
         );

@@ -138,7 +138,7 @@ contract FrostDkgValidator {
         if (groupSize - misbehavedMembersIndices.length < activeThreshold) {
             return (false, "Too many members misbehaving during DKG");
         }
-        if (misbehavedMembersIndices.length > 1) {
+        if (misbehavedMembersIndices.length > 0) {
             if (
                 misbehavedMembersIndices[0] < 1 ||
                 misbehavedMembersIndices[misbehavedMembersIndices.length - 1] >
