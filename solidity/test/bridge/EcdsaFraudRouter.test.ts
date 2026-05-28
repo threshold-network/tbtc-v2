@@ -214,6 +214,31 @@ describe("EcdsaFraudRouter", () => {
     )
   })
 
+  it("rejects unresolved migrated fraud challenges without a report timestamp", async () => {
+    const EcdsaFraudRouterFactory = await ethers.getContractFactory(
+      "EcdsaFraudRouter"
+    )
+    const migrationRouter = (await EcdsaFraudRouterFactory.deploy(
+      thirdParty.address
+    )) as EcdsaFraudRouter
+    await migrationRouter.deployed()
+
+    await expect(
+      migrationRouter.connect(thirdParty).acceptMigration(
+        [1],
+        [
+          {
+            challenger: thirdParty.address,
+            depositAmount: fraudChallengeDepositAmount,
+            reportedAt: 0,
+            resolved: false,
+          },
+        ],
+        { value: fraudChallengeDepositAmount }
+      )
+    ).to.be.revertedWith("Unresolved challenge not reported")
+  })
+
   it("rejects FROST wallets even when they are not the active wallet", async () => {
     bridge.wallets.whenCalledWith(fraudWallet.pubKeyHash160).returns({
       ecdsaWalletID: HashZero,

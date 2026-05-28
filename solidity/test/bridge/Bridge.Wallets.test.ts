@@ -9,10 +9,15 @@ import type {
   Bridge,
   BridgeGovernance,
   BridgeStub,
+  EcdsaFraudRouter,
   IWalletRegistry,
 } from "../../typechain"
 import { NO_MAIN_UTXO } from "../data/deposit-sweep"
 import { ecdsaWalletTestData } from "../data/ecdsa"
+import {
+  wallet as fraudWallet,
+  nonWitnessSignSingleInputTx,
+} from "../data/fraud"
 import { constants, ecdsaDkgState, walletState } from "../fixtures"
 import bridgeFixture from "../fixtures/bridge"
 
@@ -28,11 +33,18 @@ describe("Bridge - Wallets", () => {
   let walletRegistry: FakeContract<IWalletRegistry>
   let bridge: Bridge & BridgeStub
   let bridgeGovernance: BridgeGovernance
+  let ecdsaFraudRouter: EcdsaFraudRouter
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ governance, thirdParty, walletRegistry, bridge, bridgeGovernance } =
-      await waffle.loadFixture(bridgeFixture))
+    ;({
+      governance,
+      thirdParty,
+      walletRegistry,
+      bridge,
+      bridgeGovernance,
+      ecdsaFraudRouter,
+    } = await waffle.loadFixture(bridgeFixture))
   })
 
   describe("requestNewWallet", () => {
@@ -1773,6 +1785,70 @@ describe("Bridge - Wallets", () => {
           })
         })
       })
+    })
+  })
+
+  describe("slashWalletForFraud", () => {
+    before(async () => {
+      await createSnapshot()
+    })
+
+    after(async () => {
+      walletRegistry.seize.reset()
+      walletRegistry.closeWallet.reset()
+
+      await restoreSnapshot()
+    })
+
+    it("is reached by EcdsaFraudRouter timeout and terminates the wallet", async () => {
+      const data = nonWitnessSignSingleInputTx
+      const walletMembersIDs = [1, 2, 3]
+
+      await bridge.setWallet(fraudWallet.pubKeyHash160, {
+        ecdsaWalletID: fraudWallet.ecdsaWalletID,
+        mainUtxoHash: ethers.constants.HashZero,
+        pendingRedemptionsValue: 0,
+        createdAt: await lastBlockTime(),
+        movingFundsRequestedAt: 0,
+        closingStartedAt: 0,
+        pendingMovedFundsSweepRequestsCount: 0,
+        state: walletState.Closing,
+        movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+      })
+
+      await ecdsaFraudRouter
+        .connect(thirdParty)
+        .submitFraudChallenge(
+          fraudWallet.publicKey,
+          data.preimageSha256,
+          data.signature,
+          {
+            value: constants.fraudChallengeDepositAmount,
+          }
+        )
+      await increaseTime(constants.fraudChallengeDefeatTimeout)
+
+      await ecdsaFraudRouter
+        .connect(thirdParty)
+        .notifyFraudChallengeDefeatTimeout(
+          fraudWallet.publicKey,
+          walletMembersIDs,
+          data.preimageSha256
+        )
+
+      expect(walletRegistry.seize).to.have.been.calledWith(
+        constants.fraudSlashingAmount,
+        constants.fraudNotifierRewardMultiplier,
+        thirdParty.address,
+        fraudWallet.ecdsaWalletID,
+        walletMembersIDs
+      )
+      expect(walletRegistry.closeWallet).to.have.been.calledWith(
+        fraudWallet.ecdsaWalletID
+      )
+      expect((await bridge.wallets(fraudWallet.pubKeyHash160)).state).to.equal(
+        walletState.Terminated
+      )
     })
   })
 })

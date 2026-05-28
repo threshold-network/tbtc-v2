@@ -25,11 +25,15 @@ import "./BridgeState.sol";
 import "./IBridgeLifecycleRouter.sol";
 
 /// @notice Minimal interface for the FROST wallet registry's wallet
-///         creation entry point. Mirrors the shape of the ECDSA
-///         wallet registry's `requestNewWallet()` so the C-2 scheme
-///         dispatcher can target either registry without branching
-///         on argument shape. Implementation lives on the future
-///         B-1 / B-2 FROST wallet registry contract.
+///         creation entry point and lifecycle-owner handshake. The
+///         `requestNewWallet()` entry mirrors the ECDSA registry so
+///         Bridge can dispatch without argument-shape branching.
+///         `lifecycleOwner()` is load-bearing ABI: Bridge checks it
+///         against `Bridge.lifecycleRouter` before starting or
+///         completing FROST wallet creation so a wallet cannot be
+///         registered with an unauthorized lifecycle dispatcher.
+///         Implementation lives on the B-1 / B-2 FROST wallet
+///         registry contract.
 interface IFrostWalletRegistryRequest {
     function requestNewWallet() external;
 
