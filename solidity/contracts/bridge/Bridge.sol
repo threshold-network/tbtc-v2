@@ -1795,13 +1795,22 @@ contract Bridge is Governable, Initializable, IReceiveBalanceApproval {
             ];
     }
 
-    /// @notice Gets canonical wallet ID for a given legacy wallet public key hash.
-    /// @dev Legacy ID format is a left-padded 20-byte wallet public key hash.
+    /// @notice Gets canonical wallet ID for a given wallet public key hash.
+    /// @dev FROST wallets use the x-only output key persisted in the reverse
+    ///      mapping. Legacy ECDSA wallets fall back to a left-padded 20-byte
+    ///      wallet public key hash.
     function walletID(bytes20 walletPubKeyHash)
         external
-        pure
+        view
         returns (bytes32)
     {
+        bytes32 walletCanonicalID = self.walletIDByWalletPubKeyHash[
+            walletPubKeyHash
+        ];
+        if (walletCanonicalID != bytes32(0)) {
+            return walletCanonicalID;
+        }
+
         return Wallets.deriveLegacyWalletID(walletPubKeyHash);
     }
 

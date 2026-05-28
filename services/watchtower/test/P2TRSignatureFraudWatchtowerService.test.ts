@@ -536,12 +536,16 @@ test("wires file-backed Bridge lifecycle source config into an Ethers source", a
       },
     }
 
-    const source = createFileBackedP2TRBridgeLifecycleEventSource(bridge, {
-      scanCursorFilePath: cursorPath,
-      confirmationDepth: 12,
-      maxBlockRange: 200,
-      cursorOverlapBlocks: 6,
-    })
+    const source = createFileBackedP2TRBridgeLifecycleEventSource(
+      bridge,
+      bridge,
+      {
+        scanCursorFilePath: cursorPath,
+        confirmationDepth: 12,
+        maxBlockRange: 200,
+        cursorOverlapBlocks: 6,
+      }
+    )
 
     assert.equal(
       source.p2trSignatureFraudWatchtowerStoreProfile,

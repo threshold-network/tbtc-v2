@@ -406,6 +406,12 @@ describe("Bridge - FROST Wallet Registration", () => {
           expect(await bridge.activeWalletID()).to.not.equal(legacyDerived)
         })
 
+        it("should expose the xOnlyOutputKey through walletID(pubKeyHash)", async () => {
+          expect(await bridge.walletID(derivedWalletPubKeyHash)).to.equal(
+            frostXOnlyOutputKey
+          )
+        })
+
         it("should emit NewFrostWalletRegistered", async () => {
           await expect(tx)
             .to.emit(bridge, "NewFrostWalletRegistered")

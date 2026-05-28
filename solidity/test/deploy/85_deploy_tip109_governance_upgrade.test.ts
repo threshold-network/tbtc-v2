@@ -8,7 +8,7 @@ import fs from "fs"
 import path from "path"
 import func, {
   encodeRebateStakingUpgrade,
-  encodeBridgeUpgradeAndCall,
+  encodeBridgeUpgrade,
   encodeSetRebateStaking,
   encodeBeginDepositTreasuryFeeDivisorUpdate,
   KNOWN_PROXY_ADMIN,
@@ -394,10 +394,6 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
     // ABI interfaces used for decoding generated calldata
     const proxyAdminABI = [
       "function upgrade(address proxy, address implementation)",
-      "function upgradeAndCall(address proxy, address implementation, bytes data)",
-    ]
-    const bridgeABI = [
-      "function initializeV5_RepairRebateStaking(address newRebateStaking)",
     ]
     const bridgeGovABI = [
       "function setRebateStaking(address rebateStaking)",
@@ -405,7 +401,6 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
     ]
 
     const proxyAdminIface = new ethers.utils.Interface(proxyAdminABI)
-    const bridgeIface = new ethers.utils.Interface(bridgeABI)
     const bridgeGovIface = new ethers.utils.Interface(bridgeGovABI)
 
     // Calldata-specific test addresses (implementation addresses distinct
@@ -430,48 +425,17 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
       })
     })
 
-    describe("Bridge upgradeAndCall calldata", () => {
-      it("should encode upgradeAndCall(address,address,bytes) with correct params", () => {
-        const calldata = encodeBridgeUpgradeAndCall(
-          BRIDGE_PROXY_ADDRESS,
-          BRIDGE_IMPL
-        )
+    describe("Bridge upgrade calldata", () => {
+      it("should encode upgrade(address,address) with correct params", () => {
+        const calldata = encodeBridgeUpgrade(BRIDGE_PROXY_ADDRESS, BRIDGE_IMPL)
 
-        // Verify the function selector is upgradeAndCall(address,address,bytes) = 0x9623609d
-        expect(calldata.slice(0, 10)).to.equal("0x9623609d")
+        // Verify the function selector is upgrade(address,address) = 0x99a88ec4
+        expect(calldata.slice(0, 10)).to.equal("0x99a88ec4")
 
-        // Decode outer calldata and verify proxy and impl addresses
-        const decoded = proxyAdminIface.decodeFunctionData(
-          "upgradeAndCall",
-          calldata
-        )
+        // Decode calldata and verify proxy and impl addresses
+        const decoded = proxyAdminIface.decodeFunctionData("upgrade", calldata)
         expect(decoded.proxy).to.equal(BRIDGE_PROXY_ADDRESS)
         expect(decoded.implementation).to.equal(BRIDGE_IMPL)
-      })
-
-      it("should encode initializeV5_RepairRebateStaking(address(0)) as inner data", () => {
-        const calldata = encodeBridgeUpgradeAndCall(
-          BRIDGE_PROXY_ADDRESS,
-          BRIDGE_IMPL
-        )
-
-        // Decode the outer calldata to extract inner bytes
-        const decoded = proxyAdminIface.decodeFunctionData(
-          "upgradeAndCall",
-          calldata
-        )
-        const innerData: string = decoded.data
-
-        // Decode the inner calldata and verify it targets initializeV5
-        const innerDecoded = bridgeIface.decodeFunctionData(
-          "initializeV5_RepairRebateStaking",
-          innerData
-        )
-
-        // The repair target must be address(0) per D-7
-        expect(innerDecoded.newRebateStaking).to.equal(
-          ethers.constants.AddressZero
-        )
       })
     })
 
@@ -511,7 +475,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
     })
 
     describe("execution order", () => {
-      it("should place RebateStaking upgrade FIRST and Bridge upgradeAndCall SECOND in timelock actions", async () => {
+      it("should place RebateStaking upgrade FIRST and Bridge upgrade SECOND in timelock actions", async () => {
         const { mockHre } = createMockHre()
 
         const loggedMessages: string[] = []
@@ -530,22 +494,24 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
 
         const allOutput = loggedMessages.join("\n")
 
-        // The RebateStaking upgrade calldata (0x99a88ec4) must appear before
-        // the Bridge upgradeAndCall calldata (0x9623609d) in the output
-        const rebateUpgradeIndex = allOutput.indexOf("0x99a88ec4")
-        const bridgeUpgradeIndex = allOutput.indexOf("0x9623609d")
+        const rebateUpgradeIndex = allOutput.indexOf(
+          "Timelock Action [0]: RebateStaking upgrade"
+        )
+        const bridgeUpgradeIndex = allOutput.indexOf(
+          "Timelock Action [1]: Bridge upgrade"
+        )
 
         expect(rebateUpgradeIndex).to.be.greaterThan(
           -1,
-          "RebateStaking upgrade calldata should be logged"
+          "RebateStaking upgrade action should be logged"
         )
         expect(bridgeUpgradeIndex).to.be.greaterThan(
           -1,
-          "Bridge upgradeAndCall calldata should be logged"
+          "Bridge upgrade action should be logged"
         )
         expect(rebateUpgradeIndex).to.be.lessThan(
           bridgeUpgradeIndex,
-          "RebateStaking upgrade must appear BEFORE Bridge upgradeAndCall"
+          "RebateStaking upgrade must appear BEFORE Bridge upgrade"
         )
       })
     })
@@ -703,11 +669,11 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         "0x99a88ec4"
       )
 
-      // Index 1 must be Bridge upgradeAndCall
+      // Index 1 must be Bridge upgrade
       expect(summary.timelockActions[1].description).to.include("Bridge")
-      // Selector for upgradeAndCall(address,address,bytes) = 0x9623609d
+      // Selector for upgrade(address,address) = 0x99a88ec4
       expect(summary.timelockActions[1].data.slice(0, 10)).to.equal(
-        "0x9623609d"
+        "0x99a88ec4"
       )
     })
 
@@ -867,11 +833,11 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         )
       })
 
-      it("should have check[0] reference getRebateStaking with address(0) expected", () => {
+      it("should have check[0] reference getRebateStaking with RebateStaking proxy expected", () => {
         expect(summary).to.not.be.null
         const check = summary.verificationChecks[0]
         expect(check.command).to.include("getRebateStaking")
-        expect(check.expectedResult).to.match(/address\(0\)|0x0{40}/i)
+        expect(check.expectedResult).to.equal(REBATE_STAKING_PROXY_ADDRESS)
       })
 
       it("should have a storage layout check referencing slots 79, 80, and gap 81-128", () => {
@@ -900,9 +866,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
 
         const stateCheck = summary.verificationChecks.find(
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (c: any) =>
-            c.description.toLowerCase().includes("state") ||
-            c.description.toLowerCase().includes("rebatestaking")
+          (c: any) => c.description.toLowerCase().includes("preserved")
         )
         expect(
           stateCheck,
