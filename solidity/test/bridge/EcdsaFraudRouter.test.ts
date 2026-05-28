@@ -22,7 +22,6 @@ import {
 
 chai.use(smock.matchers)
 
-const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { increaseTime, lastBlockTime } = helpers.time
 
 async function expectBalanceDelta(
@@ -50,7 +49,7 @@ describe("EcdsaFraudRouter", () => {
   let fraudChallengeDepositAmount: BigNumber
   let fraudChallengeDefeatTimeout: number
 
-  before(async () => {
+  beforeEach(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ thirdParty, treasury, walletRegistry, bridge, ecdsaFraudRouter } =
       await waffle.loadFixture(bridgeFixture))
@@ -58,10 +57,7 @@ describe("EcdsaFraudRouter", () => {
     const fraudParameters = await bridge.fraudParameters()
     fraudChallengeDepositAmount = fraudParameters.fraudChallengeDepositAmount
     fraudChallengeDefeatTimeout = fraudParameters.fraudChallengeDefeatTimeout
-  })
 
-  beforeEach(async () => {
-    await createSnapshot()
     await bridge.setWallet(fraudWallet.pubKeyHash160, {
       ecdsaWalletID: fraudWallet.ecdsaWalletID,
       mainUtxoHash: ethers.constants.HashZero,
@@ -77,7 +73,6 @@ describe("EcdsaFraudRouter", () => {
 
   afterEach(async () => {
     walletRegistry.seize.reset()
-    await restoreSnapshot()
   })
 
   const challengeKey = (data: FraudTestData) =>
