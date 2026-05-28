@@ -192,7 +192,6 @@ A single Bridge wallet-creation cycle, end-to-end:
                                                                      |
         FrostWalletRegistry.submitDkgResult(result)  <-- B-2 submitter
         |
-        |    .validator.validate(result, seed, startBlock, bridge, this)
         |    .submittedResultHash = keccak256(result)
         |    .submittedResultBlock = block.number
         |    .transition CHALLENGE
@@ -201,7 +200,8 @@ A single Bridge wallet-creation cycle, end-to-end:
 
   --------- t + dkgResultChallengePeriodLength (default: ~48h) ---------
   Permissionless: any B-2 process or watcher can call challengeDkgResult
-  if the submitted result is malformed. Successful challenge:
+  if the submitted result is malformed. This is the only on-chain path
+  that calls FrostDkgValidator.validate. Successful challenge:
         FrostWalletRegistry.challengeDkgResult(result)
         |
         |    .validator.validate(result, ...) returns false
@@ -217,7 +217,6 @@ A single Bridge wallet-creation cycle, end-to-end:
 
         FrostWalletRegistry.approveDkgResult(result)  <-- B-2 approver
         |
-        |    .validator.validate(...) again (defense in depth)
         |    .wallets.addWallet(membersHash, xOnlyOutputKey)
         |    .registered[xOnlyOutputKey] = true                                          <-- RFC v4 delta #4
         |    .Bridge.__frostWalletCreatedCallback(xOnlyOutputKey)                        <-- registers on Bridge
