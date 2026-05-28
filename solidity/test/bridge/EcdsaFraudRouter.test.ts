@@ -1,6 +1,6 @@
 /* eslint-disable no-underscore-dangle */
 import { BigNumber } from "ethers"
-import { ethers, helpers, waffle } from "hardhat"
+import { ethers, helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import chai, { expect } from "chai"
 import { smock, FakeContract } from "@defi-wonderland/smock"
@@ -52,7 +52,7 @@ describe("EcdsaFraudRouter", () => {
   beforeEach(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ thirdParty, treasury, walletRegistry, bridge, ecdsaFraudRouter } =
-      await waffle.loadFixture(bridgeFixture))
+      await bridgeFixture())
 
     const fraudParameters = await bridge.fraudParameters()
     fraudChallengeDepositAmount = fraudParameters.fraudChallengeDepositAmount
