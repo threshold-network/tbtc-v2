@@ -1,5 +1,5 @@
 import { expect } from "chai"
-import { RpcProvider, Account } from "starknet"
+import { Account } from "starknet"
 import { TBTC } from "../../../src/services/tbtc"
 import {
   StarkNetAddress,
@@ -11,6 +11,23 @@ import { MockTBTCContracts } from "../../utils/mock-tbtc-contracts"
 import { MockCrossChainContractsLoader } from "../../utils/mock-cross-chain-contracts-loader"
 import { Chains } from "../../../src/lib/contracts/chain"
 import { BigNumber } from "ethers"
+
+const STARKNET_ADDRESS =
+  "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"
+
+function createMockAccount(address = STARKNET_ADDRESS): any {
+  return {
+    address,
+    getChainId: async () => "SN_SEPOLIA",
+  }
+}
+
+function createProviderWithAccount(address = STARKNET_ADDRESS): any {
+  return {
+    account: { address },
+    getChainId: async () => "SN_SEPOLIA",
+  }
+}
 
 describe("StarkNet Provider Integration", () => {
   let tbtc: TBTC
@@ -33,11 +50,8 @@ describe("StarkNet Provider Integration", () => {
   })
 
   describe("Complete deposit flow with provider", () => {
-    it("should complete deposit flow with Provider instance", async () => {
-      // Arrange
-      const starknetProvider = new RpcProvider({
-        nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
-      })
+    it("should complete deposit flow with provider connected to account", async () => {
+      const starknetProvider = createProviderWithAccount()
 
       // Initialize cross-chain with provider
       await tbtc.initializeCrossChain("StarkNet", starknetProvider)
@@ -64,12 +78,7 @@ describe("StarkNet Provider Integration", () => {
     })
 
     it("should complete deposit flow with Account instance", async () => {
-      // Arrange
-      const mockAccount = {
-        address:
-          "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7",
-        // Mock account methods
-      } as unknown as Account
+      const mockAccount = createMockAccount()
 
       // Initialize cross-chain with account
       await tbtc.initializeCrossChain("StarkNet", mockAccount)
@@ -85,20 +94,15 @@ describe("StarkNet Provider Integration", () => {
   })
 
   describe("Provider type validation", () => {
-    it("should accept Provider instance", async () => {
-      const provider = new RpcProvider({
-        nodeUrl: "https://starknet-mainnet.public.blastapi.io/rpc/v0_6",
-      })
+    it("should accept provider with connected account", async () => {
+      const provider = createProviderWithAccount()
 
       await expect(tbtc.initializeCrossChain("StarkNet", provider)).to.not.be
         .rejected
     })
 
     it("should accept Account instance", async () => {
-      const account = {
-        address: "0x123",
-        // Minimal Account interface
-      } as unknown as Account
+      const account = createMockAccount("0x123")
 
       await expect(tbtc.initializeCrossChain("StarkNet", account)).to.not.be
         .rejected
@@ -195,7 +199,11 @@ describe("StarkNet Provider Integration", () => {
       mockProvider = {
         nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
       }
+<<<<<<< HEAD
       const config = { chainId: Chains.StarkNet.Mainnet }
+=======
+      const config = { chainId: "0x534e5f4d41494e" }
+>>>>>>> 31d669ac (test(sdk): update StarkNet hardening coverage)
       depositor = new StarkNetBitcoinDepositor(config, "StarkNet", mockProvider)
     })
 
@@ -221,15 +229,13 @@ describe("StarkNet Provider Integration", () => {
   describe("End-to-end provider scenarios", () => {
     it("should handle provider switching", async () => {
       // Initialize with first provider
-      const provider1 = new RpcProvider({
-        nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
-      })
+      const provider1 = createProviderWithAccount()
       await tbtc.initializeCrossChain("StarkNet", provider1)
 
       // Switch to different provider
-      const provider2 = new RpcProvider({
-        nodeUrl: "https://starknet-mainnet.public.blastapi.io/rpc/v0_6",
-      })
+      const provider2 = createProviderWithAccount(
+        "0x06904a90dcc86f096c4f6daafa2d4e96cb926e5301bb5e6ed5cedc9981fa7064"
+      )
       await tbtc.initializeCrossChain("StarkNet", provider2)
 
       // Verify contracts were updated but _l2Signer not stored
@@ -242,15 +248,14 @@ describe("StarkNet Provider Integration", () => {
 
     it("should handle mixed provider types", async () => {
       // Start with Provider
-      const provider = new RpcProvider({
-        nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_6",
-      })
+      const provider = createProviderWithAccount()
       await tbtc.initializeCrossChain("StarkNet", provider)
 
       // Switch to Account
       const account = {
         address: "0x123",
         provider: provider,
+        getChainId: async () => "SN_SEPOLIA",
       } as unknown as Account
       await tbtc.initializeCrossChain("StarkNet", account)
 

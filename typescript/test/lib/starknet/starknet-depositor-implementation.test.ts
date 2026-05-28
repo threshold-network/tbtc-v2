@@ -83,7 +83,9 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
       expect(stub.getCall(0).args[1].l2DepositOwner).to.equal(
         mockReceipt.extraData.toPrefixedString()
       )
-      expect(stub.getCall(0).args[1].l2Sender).to.equal(depositOwner.toString())
+      expect(stub.getCall(0).args[1].l2Sender).to.equal(
+        mockReceipt.extraData.toPrefixedString()
+      )
     })
 
     it("should throw error if deposit owner not set", async () => {

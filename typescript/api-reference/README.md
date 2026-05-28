@@ -1698,10 +1698,14 @@ Use loadStarkNetCrossChainInterfaces instead
 #### Defined in
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 [src/lib/starknet/index.ts:139](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L139)
 =======
 [lib/starknet/index.ts:95](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L95)
 >>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
+=======
+[lib/starknet/index.ts:92](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L92)
+>>>>>>> 31d669ac (test(sdk): update StarkNet hardening coverage)
 
 ___
 
