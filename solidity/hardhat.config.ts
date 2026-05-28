@@ -16,10 +16,21 @@ import "@typechain/hardhat"
 import "hardhat-dependency-compiler"
 import "solidity-docgen"
 
-// OpenZeppelin upgrades-core probes every linked contract when resolving
+// Workaround scoped to @openzeppelin/upgrades-core 1.20.0. The
+// upgrades-core deploy path probes every linked contract when resolving
 // unlinked bytecode. Bridge library placeholders can overlap unrelated
 // proxy bytecode after small Bridge code-size changes, producing a false
-// "not a valid hex string" before validation reaches the target contract.
+// "Bytecode is not a valid hex string" before validation reaches the
+// target contract.
+//
+// Reproducer: remove this patch and run a Bridge proxy fixture/deploy
+// path such as:
+//   TEST_USE_STUBS_TBTC=false hardhat test test/bridge/Bridge.SchemePreference.test.ts
+//
+// Returning the original bytecode for this exact false positive lets the
+// rest of OZ's upgrade validation and the Bridge storage-layout invariant
+// run normally. TODO: remove this patch after upgrading upgrades-core and
+// verifying the Bridge proxy fixture/deploy path no longer throws.
 const { getUnlinkedBytecode } = upgradesCoreQuery
 upgradesCoreQuery.getUnlinkedBytecode = (validations, bytecode) => {
   try {
@@ -46,7 +57,7 @@ const ecdsaSolidityCompilerConfig = {
   },
 }
 
-// Reduce the number of optimizer runs to 100 to keep the contract size sane.
+// Reduce the number of optimizer runs to 200 to keep the contract size sane.
 // BridgeGovernance contract does not need to be super gas-efficient.
 const bridgeGovernanceCompilerConfig = {
   version: "0.8.17",

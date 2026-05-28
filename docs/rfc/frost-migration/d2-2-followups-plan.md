@@ -184,6 +184,16 @@ Likely the final slice in the migration.
 
 Cumulative reclaim from D-2.1 baseline by end-state: ~1.0-1.2 KiB.
 
+Gas visibility note: this migration also carries the project-wide
+optimizer-runs change from 1000 to 200 to keep Bridge under EIP-170
+after the FROST surface lands. Before external audit kickoff or
+governance activation, publish a small gas snapshot for the hottest
+Bridge paths (`revealDeposit`, redemption request/proof, sweep/moving
+funds) comparing the pre-FROST baseline against the canonical mirror
+head. The bytecode numbers above are point-in-time measurements; rerun
+contract-sizer before each deferred slice and update this table if a
+slice ships separately.
+
 ## Closed question: D-2.2.5 — do not re-add `EcdsaRetired` emit
 
 The `event EcdsaRetired();` ABI declaration remains for
