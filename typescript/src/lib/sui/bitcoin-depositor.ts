@@ -56,7 +56,16 @@ export class SuiBitcoinDepositor implements BitcoinDepositor {
   /**
    * @see {BitcoinDepositor#setDepositOwner}
    */
-  setDepositOwner(depositOwner: ChainIdentifier): void {
+  setDepositOwner(depositOwner: ChainIdentifier | undefined): void {
+    if (depositOwner === undefined || depositOwner === null) {
+      this.#depositOwner = undefined
+      return
+    }
+
+    if (!(depositOwner instanceof SuiAddress)) {
+      throw new Error("Deposit owner must be a SUI address")
+    }
+
     this.#depositOwner = depositOwner
   }
 
@@ -78,8 +87,15 @@ export class SuiBitcoinDepositor implements BitcoinDepositor {
     deposit: DepositReceipt,
     vault?: ChainIdentifier // Ignored for SUI - no vault support
   ): Promise<Hex | any> {
-    // This method is called by CrossChainDepositor in L2Transaction mode
-    // It initiates the deposit on SUI, which triggers the relayer
+    const depositOwner = deposit.extraData
+      ? this.#extraDataEncoder.decodeDepositOwner(deposit.extraData)
+      : this.#depositOwner
+
+    if (!depositOwner) {
+      throw new SuiError(
+        "SUI deposit owner must be set before initializing deposit"
+      )
+    }
 
     // Import SUI SDK with error handling
     let Transaction: typeof import("@mysten/sui/transactions").Transaction
@@ -104,19 +120,16 @@ export class SuiBitcoinDepositor implements BitcoinDepositor {
       depositOutputIndex
     )
 
-    // Extract deposit owner from extra data
-    const depositOwner = deposit.extraData
-      ? this.#extraDataEncoder.decodeDepositOwner(deposit.extraData)
-          .identifierHex
-      : this.#depositOwner?.identifierHex || ""
-
     // Call initialize_deposit on the Move module
     tx.moveCall({
       target: `${this.#packageId}::BitcoinDepositor::initialize_deposit`,
       arguments: [
         tx.pure.vector("u8", Array.from(fundingTx)),
         tx.pure.vector("u8", Array.from(depositReveal)),
-        tx.pure.vector("u8", Array.from(Buffer.from(depositOwner, "hex"))),
+        tx.pure.vector(
+          "u8",
+          Array.from(Buffer.from(depositOwner.identifierHex, "hex"))
+        ),
       ],
     })
 
@@ -177,10 +190,7 @@ export class SuiBitcoinDepositor implements BitcoinDepositor {
       )
 
       if (!depositEvent) {
-        console.warn(
-          "DepositInitialized event not found in transaction. " +
-            "The relayer may not process this deposit."
-        )
+        throw new SuiError("DepositInitialized event not found in transaction")
       }
 
       // Return the indexed transaction result which has all the proper fields

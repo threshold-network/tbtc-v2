@@ -19,7 +19,11 @@ Configuration for StarkNetBitcoinDepositor
 
 #### Defined in
 
+<<<<<<< HEAD
 [src/lib/starknet/starknet-depositor.ts:146](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L146)
+=======
+[lib/starknet/starknet-depositor.ts:58](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L58)
+>>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
 
 ___
 
@@ -29,6 +33,7 @@ ___
 
 #### Defined in
 
+<<<<<<< HEAD
 [src/lib/starknet/starknet-depositor.ts:156](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L156)
 
 ___
@@ -46,6 +51,9 @@ or similar placeholders.
 #### Defined in
 
 [src/lib/starknet/starknet-depositor.ts:155](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L155)
+=======
+[lib/starknet/starknet-depositor.ts:60](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L60)
+>>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
 
 ___
 
@@ -55,4 +63,8 @@ ___
 
 #### Defined in
 
+<<<<<<< HEAD
 [src/lib/starknet/starknet-depositor.ts:147](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L147)
+=======
+[lib/starknet/starknet-depositor.ts:59](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L59)
+>>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)

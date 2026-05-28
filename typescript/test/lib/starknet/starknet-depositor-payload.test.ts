@@ -80,13 +80,15 @@ describe("StarkNetDepositor Payload Format", () => {
     expect(payload).to.have.property("reveal")
   })
 
-  it("should validate StarkNet address format", () => {
-    const invalidAddress = "0x123" // Too short
+  it("should pad short StarkNet addresses", () => {
+    const address = "0x123"
 
-    expect(() => {
-      // @ts-ignore - accessing private method for testing
-      depositor["formatStarkNetAddressAsBytes32"](invalidAddress)
-    }).to.throw("Invalid StarkNet address length")
+    // @ts-ignore - accessing private method for testing
+    const formatted = depositor["formatStarkNetAddressAsBytes32"](address)
+
+    expect(formatted).to.equal(
+      "0x0000000000000000000000000000000000000000000000000000000000000123"
+    )
   })
 
   it("should format addresses as lowercase", async () => {
@@ -126,6 +128,44 @@ describe("StarkNetDepositor Payload Format", () => {
     // Should be lowercase
     expect(payload.l2DepositOwner).to.equal(testAddress.toLowerCase())
     expect(payload.l2Sender).to.equal(testAddress.toLowerCase())
+  })
+
+  it("should bind l2Sender to the owner encoded in deposit extra data", async () => {
+    axiosStub.resolves({
+      data: {
+        success: true,
+        receipt: {
+          transactionHash: "0xabc123",
+          blockNumber: 12345,
+        },
+      },
+    })
+
+    const receiptOwner =
+      "0x01268f380a5232144f34e7b7acf86b73ce1419eec641804823f66ce071482605"
+    depositor.setDepositOwner(StarkNetAddress.from(testAddress))
+
+    const depositTx: BitcoinRawTxVectors = {
+      version: Hex.from("02000000"),
+      inputs: Hex.from("01" + "a".repeat(64)),
+      outputs: Hex.from("02" + "e".repeat(64)),
+      locktime: Hex.from("00000000"),
+    }
+
+    const deposit: DepositReceipt = {
+      depositor: EthereumAddress.from("0x" + "0".repeat(40)),
+      walletPublicKeyHash: Hex.from("ef5a2946f294f1742a779c9ac034bc3fa5d417b8"),
+      refundPublicKeyHash: Hex.from("b4f19a044feea3aa4a7d3f494433a11d0f1c400e"),
+      blindingFactor: Hex.from("b3460f26eda61ad1"),
+      refundLocktime: Hex.from("a1faa569"),
+      extraData: Hex.from(receiptOwner),
+    }
+
+    await depositor.initializeDeposit(depositTx, 0, deposit)
+
+    const payload = axiosStub.getCall(0).args[1]
+    expect(payload.l2DepositOwner).to.equal(receiptOwner)
+    expect(payload.l2Sender).to.equal(receiptOwner)
   })
 
   it("should handle addresses without 0x prefix", () => {
@@ -209,6 +249,7 @@ describe("StarkNetDepositor Payload Format", () => {
     expect(payload).to.have.property("l2Sender")
   })
 
+<<<<<<< HEAD
   // The three exact-decimal expected values pinned below ("should calculate
   // deposit ID correctly", "should derive the canonical deposit ID for the
   // standard mock vectors (output index 0)", and "should pack the output
@@ -223,6 +264,9 @@ describe("StarkNetDepositor Payload Format", () => {
   // convention in deriveCanonicalDepositId's JSDoc.
   it("should calculate deposit ID correctly", async () => {
     // Mock console.log to capture deposit ID
+=======
+  it("should not log reveal request payloads", async () => {
+>>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
     const consoleLogStub = sinon.stub(console, "log")
 
     axiosStub.resolves({
@@ -254,6 +298,7 @@ describe("StarkNetDepositor Payload Format", () => {
 
     await depositor.initializeDeposit(depositTx, 0, deposit)
 
+<<<<<<< HEAD
     // Verify the exact deposit ID was logged. The ID is derived with Bitcoin
     // SHA-256d over the serialized funding transaction (digest used directly,
     // NOT reversed) packed with the uint32 output index, matching the on-chain
@@ -267,6 +312,9 @@ describe("StarkNetDepositor Payload Format", () => {
       "Deposit initialized with ID: 84327574594609900513771153583252034476167624431248952116381071070685377716504"
     )
   })
+=======
+    expect(consoleLogStub.called).to.be.false
+>>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
 
   it("should derive the canonical deposit ID for the standard mock vectors (output index 0)", async () => {
     // Canonical vector: createMockDepositTx() with output index 0 must

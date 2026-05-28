@@ -9,6 +9,7 @@ import { Chains } from "../../../src/lib/contracts"
 import { BitcoinRawTxVectors } from "../../../src/lib/bitcoin"
 import { DepositReceipt } from "../../../src/lib/contracts"
 import { Hex } from "../../../src/lib/utils"
+import { EthereumAddress } from "../../../src/lib/ethereum"
 
 // Create mock Transaction class
 class MockTransaction {
@@ -106,6 +107,25 @@ describe("SUI Bitcoin Depositor", () => {
 
       const retrievedOwner = depositor.getDepositOwner()
       expect(retrievedOwner).to.equal(owner)
+    })
+
+    it("should clear deposit owner", () => {
+      const owner = SuiAddress.from("0x" + "b".repeat(64))
+
+      depositor.setDepositOwner(owner)
+      depositor.setDepositOwner(undefined)
+
+      expect(depositor.getDepositOwner()).to.be.undefined
+    })
+
+    it("should reject non-SUI deposit owners", () => {
+      const ethereumAddress = EthereumAddress.from(
+        "0x1234567890123456789012345678901234567890"
+      )
+
+      expect(() => depositor.setDepositOwner(ethereumAddress)).to.throw(
+        "Deposit owner must be a SUI address"
+      )
     })
   })
 
@@ -244,6 +264,17 @@ describe("SUI Bitcoin Depositor", () => {
       // Verify vault is not included in the transaction
       const moveCallArg = mockTransaction.moveCall.getCall(0).args[0]
       expect(moveCallArg.arguments).to.have.length(3) // Only 3 args, no vault
+    })
+
+    it("should reject missing deposit owner before building transaction", async () => {
+      deposit.extraData = undefined
+
+      await expect(
+        depositor.initializeDeposit(depositTx, depositOutputIndex, deposit)
+      ).to.be.rejectedWith(
+        SuiError,
+        "SUI deposit owner must be set before initializing deposit"
+      )
     })
   })
 })

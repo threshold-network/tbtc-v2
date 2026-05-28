@@ -11,7 +11,6 @@ import { StarkNetProvider } from "./types"
 import { Hex } from "../utils"
 import { packRevealDepositParameters } from "../ethereum"
 import axios from "axios"
-import { ethers } from "ethers"
 import { TransactionReceipt } from "@ethersproject/providers"
 
 /**
@@ -583,16 +582,15 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
       vault
     )
 
-    // Use deposit owner from extraData if available, otherwise use the set owner
-    const l2DepositOwner = deposit.extraData
-      ? deposit.extraData.toString()
-      : this.#depositOwner.toString()
-    const l2Sender = this.#depositOwner.toString()
+    const depositOwner = deposit.extraData
+      ? this.#extraDataEncoder.decodeDepositOwner(deposit.extraData)
+      : this.#depositOwner
 
     // Format addresses for relayer
-    const formattedL2DepositOwner =
-      this.formatStarkNetAddressAsBytes32(l2DepositOwner)
-    const formattedL2Sender = this.formatStarkNetAddressAsBytes32(l2Sender)
+    const formattedL2DepositOwner = this.formatStarkNetAddressAsBytes32(
+      depositOwner.toString()
+    )
+    const formattedL2Sender = formattedL2DepositOwner
 
     // Derive the canonical deposit ID once, up front, so it is available on
     // BOTH the success path (for logging) and the 409-conflict path (to
@@ -624,16 +622,6 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
           l2DepositOwner: formattedL2DepositOwner,
           l2Sender: formattedL2Sender,
         }
-
-        console.log(
-          `Sending reveal request to relayer (attempt ${attempt + 1}/${
-            maxRetries + 1
-          }):`,
-          {
-            url: this.#config.relayerUrl,
-            payload: requestPayload,
-          }
-        )
 
         const response = await axios.post<RelayerRevealResponse>(
           this.#config.relayerUrl!,
@@ -697,7 +685,6 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
         if (locallyDerivedDepositId) {
           console.log(`Deposit initialized with ID: ${locallyDerivedDepositId}`)
         }
-
         return data.receipt as TransactionReceipt
       } catch (error: any) {
         lastError = error
@@ -737,7 +724,6 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
 
     // Format and throw the error
     const formattedError = this.formatRelayerError(lastError)
-    console.error("StarkNet depositor throwing error:", formattedError)
     throw new Error(formattedError)
   }
 
@@ -1012,26 +998,7 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
    * @throws Error if the address is invalid
    */
   private formatStarkNetAddressAsBytes32(address: string): string {
-    // Ensure 0x prefix
-    if (!address.startsWith("0x")) {
-      address = "0x" + address
-    }
-
-    // Must be exactly 66 characters (0x + 64 hex)
-    if (address.length !== 66) {
-      throw new Error(
-        `Invalid StarkNet address length: ${address.length}. Expected 66 characters (0x + 64 hex).`
-      )
-    }
-
-    // Validate hex format
-    if (!/^0x[0-9a-fA-F]{64}$/.test(address)) {
-      throw new Error(
-        `Invalid StarkNet address format: ${address}. Must be 0x followed by 64 hexadecimal characters.`
-      )
-    }
-
-    return address.toLowerCase()
+    return StarkNetAddress.from(address).toBytes32()
   }
 }
 

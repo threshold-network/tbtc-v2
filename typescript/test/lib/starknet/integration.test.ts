@@ -6,15 +6,19 @@ import {
 } from "../../../src/lib/starknet"
 import { Chains } from "../../../src/lib/contracts"
 import { Hex } from "../../../src/lib/utils"
+import { createMockProvider } from "./test-helpers"
 
 describe("StarkNet Integration Tests", () => {
+  const provider = createMockProvider()
+
   describe("L1 Bitcoin Depositor with StarkNet Integration", () => {
     it("should encode StarkNet recipient address for L1 deposit", async () => {
       // Create StarkNet contracts
       const starkNetRecipient =
         "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7"
       const contracts = await loadStarkNetCrossChainInterfaces(
-        starkNetRecipient
+        starkNetRecipient,
+        provider
       )
 
       // Get the extra data encoder
@@ -65,7 +69,10 @@ describe("StarkNet Integration Tests", () => {
     it("should handle deposit owner flow correctly", async () => {
       // Create contracts with initial owner
       const initialOwner = "0xaaa"
-      const contracts = await loadStarkNetCrossChainInterfaces(initialOwner)
+      const contracts = await loadStarkNetCrossChainInterfaces(
+        initialOwner,
+        provider
+      )
 
       // Verify initial owner is set
       const owner1 =
@@ -96,12 +103,16 @@ describe("StarkNet Integration Tests", () => {
         expect(() => StarkNetAddress.from(invalid)).to.throw()
 
         // Module loader should also fail
-        await expect(loadStarkNetCrossChainInterfaces(invalid)).to.be.rejected
+        await expect(loadStarkNetCrossChainInterfaces(invalid, provider)).to.be
+          .rejected
       }
     })
 
     it.skip("should handle error propagation correctly", async () => {
-      const contracts = await loadStarkNetCrossChainInterfaces("0x123")
+      const contracts = await loadStarkNetCrossChainInterfaces(
+        "0x123",
+        provider
+      )
 
       // Verify errors propagate correctly from token interface
       const validAddress = StarkNetAddress.from("0x456")
@@ -125,7 +136,7 @@ describe("StarkNet Integration Tests", () => {
       const addresses = Array.from({ length: 10 }, (_, i) => `0x${i}`)
 
       for (const addr of addresses) {
-        const contracts = await loadStarkNetCrossChainInterfaces(addr)
+        const contracts = await loadStarkNetCrossChainInterfaces(addr, provider)
         expect(contracts).to.exist
         expect(contracts.destinationChainBitcoinDepositor).to.exist
         expect(contracts.destinationChainTbtcToken).to.exist
@@ -133,8 +144,14 @@ describe("StarkNet Integration Tests", () => {
     })
 
     it("should maintain isolation between instances", async () => {
-      const contracts1 = await loadStarkNetCrossChainInterfaces("0x111")
-      const contracts2 = await loadStarkNetCrossChainInterfaces("0x222")
+      const contracts1 = await loadStarkNetCrossChainInterfaces(
+        "0x111",
+        provider
+      )
+      const contracts2 = await loadStarkNetCrossChainInterfaces(
+        "0x222",
+        provider
+      )
 
       // Change owner in first instance
       const newOwner = StarkNetAddress.from("0x333")

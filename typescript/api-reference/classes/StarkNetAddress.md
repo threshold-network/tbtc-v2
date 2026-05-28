@@ -42,7 +42,11 @@ StarkNet addresses are field elements (felt252) in the StarkNet prime field.
 
 #### Defined in
 
+<<<<<<< HEAD
 [src/lib/starknet/address.ts:14](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/address.ts#L14)
+=======
+[lib/starknet/address.ts:18](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/address.ts#L18)
+>>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
 
 ## Properties
 
@@ -59,7 +63,11 @@ This is always normalized to lowercase and padded to 32 bytes.
 
 #### Defined in
 
+<<<<<<< HEAD
 [src/lib/starknet/address.ts:12](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/address.ts#L12)
+=======
+[lib/starknet/address.ts:16](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/address.ts#L16)
+>>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
 
 ## Methods
 
@@ -87,7 +95,11 @@ true if both are StarkNetAddress instances with the same identifierHex
 
 #### Defined in
 
+<<<<<<< HEAD
 [src/lib/starknet/address.ts:50](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/address.ts#L50)
+=======
+[lib/starknet/address.ts:56](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/address.ts#L56)
+>>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
 
 ___
 
@@ -106,7 +118,11 @@ The address as a 0x-prefixed 64-character hex string
 
 #### Defined in
 
+<<<<<<< HEAD
 [src/lib/starknet/address.ts:62](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/address.ts#L62)
+=======
+[lib/starknet/address.ts:68](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/address.ts#L68)
+>>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
 
 ___
 
@@ -124,7 +140,11 @@ The address as a 0x-prefixed hex string
 
 #### Defined in
 
+<<<<<<< HEAD
 [src/lib/starknet/address.ts:70](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/address.ts#L70)
+=======
+[lib/starknet/address.ts:76](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/address.ts#L76)
+>>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
 
 ___
 
@@ -152,4 +172,8 @@ Error if the address format is invalid or exceeds field element size
 
 #### Defined in
 
+<<<<<<< HEAD
 [src/lib/starknet/address.ts:41](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/address.ts#L41)
+=======
+[lib/starknet/address.ts:47](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/address.ts#L47)
+>>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)

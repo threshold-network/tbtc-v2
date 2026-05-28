@@ -2,14 +2,20 @@ import { expect } from "chai"
 import { loadStarkNetCrossChainInterfaces } from "../../../src/lib/starknet"
 import { StarkNetAddress } from "../../../src/lib/starknet"
 import { DestinationChainInterfaces } from "../../../src/lib/contracts"
+import { createMockProvider } from "./test-helpers"
 
 describe("StarkNet Module", () => {
   describe("loadStarkNetCrossChainInterfaces", () => {
     let contracts: DestinationChainInterfaces
+    let provider: any
 
     beforeEach(async () => {
+      provider = createMockProvider()
       const walletAddress = "0x1234567890abcdef"
-      contracts = await loadStarkNetCrossChainInterfaces(walletAddress)
+      contracts = await loadStarkNetCrossChainInterfaces(
+        walletAddress,
+        provider
+      )
     })
 
     it("should return DestinationChainInterfaces with required properties", () => {
@@ -41,7 +47,8 @@ describe("StarkNet Module", () => {
     it("should handle wallet address without 0x prefix", async () => {
       const walletAddress = "abcdef123456"
       const contractsWithoutPrefix = await loadStarkNetCrossChainInterfaces(
-        walletAddress
+        walletAddress,
+        provider
       )
 
       const depositOwner =
@@ -53,21 +60,22 @@ describe("StarkNet Module", () => {
     })
 
     it("should handle full-length wallet address", async () => {
-      const walletAddress = "0x" + "f".repeat(64)
+      const walletAddress = "0x07" + "f".repeat(62)
       const contractsFullLength = await loadStarkNetCrossChainInterfaces(
-        walletAddress
+        walletAddress,
+        provider
       )
 
       const depositOwner =
         contractsFullLength.destinationChainBitcoinDepositor.getDepositOwner()
-      expect(depositOwner?.identifierHex).to.equal("f".repeat(64))
+      expect(depositOwner?.identifierHex).to.equal("07" + "f".repeat(62))
     })
 
     it("should throw error for invalid wallet address", async () => {
       const invalidAddress = "xyz123" // Invalid hex
 
       await expect(
-        loadStarkNetCrossChainInterfaces(invalidAddress)
+        loadStarkNetCrossChainInterfaces(invalidAddress, provider)
       ).to.be.rejectedWith("Invalid StarkNet address format")
     })
 
@@ -75,7 +83,7 @@ describe("StarkNet Module", () => {
       const tooLongAddress = "0x" + "f".repeat(65) // 65 hex chars exceeds limit
 
       await expect(
-        loadStarkNetCrossChainInterfaces(tooLongAddress)
+        loadStarkNetCrossChainInterfaces(tooLongAddress, provider)
       ).to.be.rejectedWith(
         "StarkNet address exceeds maximum field element size"
       )
@@ -85,7 +93,7 @@ describe("StarkNet Module", () => {
       const addresses = ["0x111", "0x222", "0x333"]
 
       const promises = addresses.map((addr) =>
-        loadStarkNetCrossChainInterfaces(addr)
+        loadStarkNetCrossChainInterfaces(addr, provider)
       )
 
       const results = await Promise.all(promises)
@@ -100,14 +108,20 @@ describe("StarkNet Module", () => {
     })
 
     it("should handle empty string address", async () => {
-      await expect(loadStarkNetCrossChainInterfaces("")).to.be.rejectedWith(
-        "Invalid StarkNet address format"
-      )
+      await expect(
+        loadStarkNetCrossChainInterfaces("", provider)
+      ).to.be.rejectedWith("Invalid StarkNet address format")
     })
 
     it("should create independent instances for different addresses", async () => {
-      const contracts1 = await loadStarkNetCrossChainInterfaces("0x111")
-      const contracts2 = await loadStarkNetCrossChainInterfaces("0x222")
+      const contracts1 = await loadStarkNetCrossChainInterfaces(
+        "0x111",
+        provider
+      )
+      const contracts2 = await loadStarkNetCrossChainInterfaces(
+        "0x222",
+        provider
+      )
 
       // Verify they are different instances
       expect(contracts1.destinationChainBitcoinDepositor).to.not.equal(
@@ -123,6 +137,22 @@ describe("StarkNet Module", () => {
       const owner2 =
         contracts2.destinationChainBitcoinDepositor.getDepositOwner()
       expect(owner1?.identifierHex).to.not.equal(owner2?.identifierHex)
+    })
+
+    it("should require a provider", async () => {
+      await expect(
+        loadStarkNetCrossChainInterfaces("0x111", undefined as any)
+      ).to.be.rejectedWith("StarkNet provider is required")
+    })
+
+    it("should reject provider chain mismatches", async () => {
+      const wrongProvider = {
+        getChainId: () => Promise.resolve("SN_MAIN"),
+      }
+
+      await expect(
+        loadStarkNetCrossChainInterfaces("0x111", wrongProvider as any)
+      ).to.be.rejectedWith("StarkNet provider chain mismatch")
     })
   })
 

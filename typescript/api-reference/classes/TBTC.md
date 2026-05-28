@@ -66,7 +66,11 @@ subpath which exports the base TBTC class.
 
 #### Defined in
 
+<<<<<<< HEAD
 [src/services/tbtc.ts:41](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L41)
+=======
+[services/tbtc.ts:41](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L41)
+>>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
 
 ## Properties
 
@@ -76,7 +80,11 @@ subpath which exports the base TBTC class.
 
 #### Defined in
 
+<<<<<<< HEAD
 [src/services/tbtc.ts:36](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L36)
+=======
+[services/tbtc.ts:36](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L36)
+>>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
 
 ___
 
@@ -86,7 +94,11 @@ ___
 
 #### Defined in
 
+<<<<<<< HEAD
 [src/services/tbtc.ts:34](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L34)
+=======
+[services/tbtc.ts:34](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L34)
+>>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
 
 ___
 
@@ -102,7 +114,11 @@ Will be removed in next major version.
 
 #### Defined in
 
+<<<<<<< HEAD
 [src/services/tbtc.ts:210](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L210)
+=======
+[services/tbtc.ts:192](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L192)
+>>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
 
 ___
 
@@ -215,7 +231,11 @@ Cross-chain contracts for the given L2 chain or
 
 #### Defined in
 
+<<<<<<< HEAD
 [src/services/tbtc.ts:407](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L407)
+=======
+[services/tbtc.ts:357](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L357)
+>>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
 
 ___
 
@@ -269,7 +289,11 @@ Throws an error if:
 
 #### Defined in
 
+<<<<<<< HEAD
 [src/services/tbtc.ts:257](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L257)
+=======
+[services/tbtc.ts:232](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L232)
+>>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
 
 ___
 
@@ -297,7 +321,11 @@ Throws an error if the provider is invalid or address cannot be extracted.
 
 #### Defined in
 
+<<<<<<< HEAD
 [src/services/tbtc.ts:164](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L164)
+=======
+[services/tbtc.ts:146](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L146)
+>>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
 
 ___
 
@@ -372,7 +400,11 @@ Throws an error if the underlying signer's Ethereum network is
 
 #### Defined in
 
+<<<<<<< HEAD
 [src/services/tbtc.ts:120](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L120)
+=======
+[services/tbtc.ts:106](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L106)
+>>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
 
 ___
 
@@ -408,7 +440,11 @@ Throws an error if the signer's Ethereum network is other than
 
 #### Defined in
 
+<<<<<<< HEAD
 [src/services/tbtc.ts:60](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L60)
+=======
+[services/tbtc.ts:60](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L60)
+>>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
 
 ___
 
@@ -453,4 +489,8 @@ Throws an error if the signer's Ethereum network is other than
 
 #### Defined in
 
+<<<<<<< HEAD
 [src/services/tbtc.ts:93](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L93)
+=======
+[services/tbtc.ts:82](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L82)
+>>>>>>> 686d5e70 (fix(sdk): harden cross-chain depositor inputs)
