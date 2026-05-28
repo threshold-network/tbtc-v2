@@ -112,6 +112,10 @@ contract BridgeStub is Bridge {
         self.frostWalletRegistry = frostWalletRegistry;
     }
 
+    function resetLifecycleRouterForTest(address lifecycleRouter) external {
+        self.lifecycleRouter = lifecycleRouter;
+    }
+
     function setDepositDustThreshold(uint64 _depositDustThreshold) external {
         self.depositDustThreshold = _depositDustThreshold;
     }

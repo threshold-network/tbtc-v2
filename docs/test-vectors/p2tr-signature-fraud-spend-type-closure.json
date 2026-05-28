@@ -17,10 +17,10 @@
       "productionApproved": false,
       "evidenceLevel": "policy-only",
       "evidenceRefs": [
-        "sdk/tbtc-v2-ts/src/services/maintenance/p2tr-signature-fraud.ts",
-        "sdk/tbtc-v2-ts/test/services/p2tr-signature-fraud.test.ts",
-        "services/p2tr-signature-fraud-watchtower/src/P2TRSignatureFraudWatchtowerService.ts",
-        "services/p2tr-signature-fraud-watchtower/test/P2TRSignatureFraudWatchtowerService.test.ts"
+        "typescript/src/services/maintenance/p2tr-signature-fraud.ts",
+        "typescript/test/services/p2tr-signature-fraud.test.ts",
+        "services/watchtower/src/P2TRSignatureFraudWatchtowerService.ts",
+        "services/watchtower/test/P2TRSignatureFraudWatchtowerService.test.ts"
       ],
       "openGaps": [
         "Fallback classification must remain unapproved for submission."
@@ -33,13 +33,13 @@
       "productionApproved": false,
       "evidenceLevel": "bridge-state-gate-seed",
       "evidenceRefs": [
-        "contracts/tbtc-v2/contracts/bridge/P2TRSignatureFraudLifecycle.sol",
-        "contracts/tbtc-v2/test/bridge/Bridge.P2TRFrauds.test.ts",
-        "docs/frost-migration/test-vectors/p2tr-signature-fraud-v0.json",
-        "sdk/tbtc-v2-ts/src/services/maintenance/p2tr-signature-fraud.ts",
-        "sdk/tbtc-v2-ts/test/services/p2tr-signature-fraud.test.ts",
-        "services/p2tr-signature-fraud-watchtower/src/EthersP2TRSignatureFraudBridgeLifecycleEventSource.ts",
-        "services/p2tr-signature-fraud-watchtower/test/EthersP2TRSignatureFraudBridgeLifecycleEventSource.test.ts"
+        "solidity/contracts/bridge/P2TRSignatureFraudRouter.sol",
+        "solidity/test/bridge/Bridge.P2TRFrauds.test.ts",
+        "docs/test-vectors/p2tr-signature-fraud-v0.json",
+        "typescript/src/services/maintenance/p2tr-signature-fraud.ts",
+        "typescript/test/services/p2tr-signature-fraud.test.ts",
+        "services/watchtower/src/EthersP2TRSignatureFraudBridgeLifecycleEventSource.ts",
+        "services/watchtower/test/EthersP2TRSignatureFraudBridgeLifecycleEventSource.test.ts"
       ],
       "openGaps": [
         "Add deposit-sweep-specific key-path vectors for one and many deposit inputs.",
@@ -54,13 +54,13 @@
       "productionApproved": false,
       "evidenceLevel": "flow-shaped-draft-vector-seed",
       "evidenceRefs": [
-        "contracts/tbtc-v2/contracts/bridge/P2TRSignatureFraudLifecycle.sol",
-        "contracts/tbtc-v2/test/bridge/Bridge.P2TRFrauds.test.ts",
-        "docs/frost-migration/test-vectors/p2tr-signature-fraud-v0.json"
+        "solidity/contracts/bridge/P2TRSignatureFraudRouter.sol",
+        "solidity/test/bridge/Bridge.P2TRFrauds.test.ts",
+        "docs/test-vectors/p2tr-signature-fraud-v0.json"
       ],
       "flowSpecificClosure": {
         "status": "open",
-        "vectorCoverageRef": "docs/frost-migration/test-vectors/p2tr-signature-fraud-v0.json#spendTypeCoverage:moving-funds",
+        "vectorCoverageRef": "docs/test-vectors/p2tr-signature-fraud-v0.json#spendTypeCoverage:moving-funds",
         "sharedGateLimit": "The shared spentMainUTXOs[utxoKey] gate proves only that the signed input was later accepted as spent by Bridge state. It does not prove moving-funds target-wallet ordering, timeout/below-dust handling, or proof-event correlation for the challenged identity."
       },
       "openGaps": [
@@ -75,8 +75,8 @@
       "productionApproved": false,
       "evidenceLevel": "bridge-state-gate-seed",
       "evidenceRefs": [
-        "contracts/tbtc-v2/contracts/bridge/P2TRSignatureFraudLifecycle.sol",
-        "contracts/tbtc-v2/test/bridge/Bridge.P2TRFrauds.test.ts"
+        "solidity/contracts/bridge/P2TRSignatureFraudRouter.sol",
+        "solidity/test/bridge/Bridge.P2TRFrauds.test.ts"
       ],
       "openGaps": [
         "Add moved-funds-sweep-specific key-path vectors.",
@@ -91,17 +91,17 @@
       "productionApproved": false,
       "evidenceLevel": "flow-shaped-draft-vector-seed",
       "evidenceRefs": [
-        "contracts/tbtc-v2/contracts/bridge/P2TRSignatureFraudLifecycle.sol",
-        "contracts/tbtc-v2/test/bridge/Bridge.P2TRFrauds.test.ts",
-        "docs/frost-migration/test-vectors/p2tr-signature-fraud-v0.json",
-        "sdk/tbtc-v2-ts/src/services/maintenance/p2tr-signature-fraud.ts",
-        "sdk/tbtc-v2-ts/test/services/p2tr-signature-fraud.test.ts",
-        "services/p2tr-signature-fraud-watchtower/src/EthersP2TRSignatureFraudBridgeLifecycleEventSource.ts",
-        "services/p2tr-signature-fraud-watchtower/test/EthersP2TRSignatureFraudBridgeLifecycleEventSource.test.ts"
+        "solidity/contracts/bridge/P2TRSignatureFraudRouter.sol",
+        "solidity/test/bridge/Bridge.P2TRFrauds.test.ts",
+        "docs/test-vectors/p2tr-signature-fraud-v0.json",
+        "typescript/src/services/maintenance/p2tr-signature-fraud.ts",
+        "typescript/test/services/p2tr-signature-fraud.test.ts",
+        "services/watchtower/src/EthersP2TRSignatureFraudBridgeLifecycleEventSource.ts",
+        "services/watchtower/test/EthersP2TRSignatureFraudBridgeLifecycleEventSource.test.ts"
       ],
       "flowSpecificClosure": {
         "status": "open",
-        "vectorCoverageRef": "docs/frost-migration/test-vectors/p2tr-signature-fraud-v0.json#spendTypeCoverage:redemption",
+        "vectorCoverageRef": "docs/test-vectors/p2tr-signature-fraud-v0.json#spendTypeCoverage:redemption",
         "sharedGateLimit": "The shared spentMainUTXOs[utxoKey] gate proves only that the signed input was later accepted as spent by Bridge state. It does not prove redeemer output scripts, optional change, fee boundaries, timeout handling, or proof-event correlation for the challenged identity."
       },
       "openGaps": [
@@ -116,10 +116,10 @@
       "productionApproved": false,
       "evidenceLevel": "policy-only",
       "evidenceRefs": [
-        "sdk/tbtc-v2-ts/src/services/maintenance/p2tr-signature-fraud.ts",
-        "sdk/tbtc-v2-ts/test/services/p2tr-signature-fraud.test.ts",
-        "services/p2tr-signature-fraud-watchtower/src/P2TRSignatureFraudWatchtowerService.ts",
-        "services/p2tr-signature-fraud-watchtower/test/P2TRSignatureFraudWatchtowerService.test.ts"
+        "typescript/src/services/maintenance/p2tr-signature-fraud.ts",
+        "typescript/test/services/p2tr-signature-fraud.test.ts",
+        "services/watchtower/src/P2TRSignatureFraudWatchtowerService.ts",
+        "services/watchtower/test/P2TRSignatureFraudWatchtowerService.test.ts"
       ],
       "openGaps": [
         "Decide whether wallet closing is unsupported or tied to the spend type that empties or moves the wallet.",
@@ -133,10 +133,10 @@
       "productionApproved": false,
       "evidenceLevel": "policy-only",
       "evidenceRefs": [
-        "sdk/tbtc-v2-ts/src/services/maintenance/p2tr-signature-fraud.ts",
-        "sdk/tbtc-v2-ts/test/services/p2tr-signature-fraud.test.ts",
-        "services/p2tr-signature-fraud-watchtower/src/P2TRSignatureFraudWatchtowerService.ts",
-        "services/p2tr-signature-fraud-watchtower/test/P2TRSignatureFraudWatchtowerService.test.ts"
+        "typescript/src/services/maintenance/p2tr-signature-fraud.ts",
+        "typescript/test/services/p2tr-signature-fraud.test.ts",
+        "services/watchtower/src/P2TRSignatureFraudWatchtowerService.ts",
+        "services/watchtower/test/P2TRSignatureFraudWatchtowerService.test.ts"
       ],
       "openGaps": [
         "Either add a BIP-340 heartbeat message domain with replay protection or remove heartbeat-style defeat from the P2TR model.",

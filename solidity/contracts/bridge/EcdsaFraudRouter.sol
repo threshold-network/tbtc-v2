@@ -279,6 +279,10 @@ contract EcdsaFraudRouter {
 
         Wallets.Wallet memory wallet = b.wallets(walletPubKeyHash);
         require(
+            wallet.ecdsaWalletID != bytes32(0),
+            "Legacy ECDSA wallet required"
+        );
+        require(
             wallet.state == Wallets.WalletState.Live ||
                 wallet.state == Wallets.WalletState.MovingFunds ||
                 wallet.state == Wallets.WalletState.Closing,
@@ -391,7 +395,7 @@ contract EcdsaFraudRouter {
 
         address treasury = IBridgeForFraud(bridge).treasury();
         /* solhint-disable avoid-low-level-calls */
-        // slither-disable-next-line low-level-calls,unchecked-lowlevel,arbitrary-send
+        // slither-disable-next-line low-level-calls,unchecked-lowlevel,arbitrary-send-eth
         treasury.call{gas: 100000, value: challenge.depositAmount}("");
         /* solhint-enable avoid-low-level-calls */
 
@@ -442,8 +446,11 @@ contract EcdsaFraudRouter {
         challenge.resolved = true;
 
         // Refund the challenger from the router's escrowed deposit.
+        // The return value is intentionally ignored: a reverting
+        // challenger fallback self-griefs the refund but must not block
+        // the fraud timeout slashing path.
         /* solhint-disable avoid-low-level-calls */
-        // slither-disable-next-line low-level-calls,unchecked-lowlevel
+        // slither-disable-next-line low-level-calls,unchecked-lowlevel,arbitrary-send-eth
         challenge.challenger.call{gas: 100000, value: challenge.depositAmount}(
             ""
         );
