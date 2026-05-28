@@ -5,14 +5,15 @@ import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import chai, { expect } from "chai"
 import { smock, FakeContract } from "@defi-wonderland/smock"
 import type {
-  Bridge,
-  BridgeStub,
   EcdsaFraudRouter,
-  IWalletRegistry,
+  IBridgeForFraud,
   RevertingEcdsaFraudChallenger,
 } from "../../typechain"
-import bridgeFixture from "../fixtures/bridge"
-import { walletState } from "../fixtures"
+import {
+  constants,
+  movedFundsSweepRequestState,
+  walletState,
+} from "../fixtures"
 import {
   FraudTestData,
   nonWitnessSignSingleInputTx,
@@ -22,7 +23,9 @@ import {
 
 chai.use(smock.matchers)
 
+const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { increaseTime, lastBlockTime } = helpers.time
+const { HashZero, AddressZero: ZeroAddress } = ethers.constants
 
 async function expectBalanceDelta(
   tx: { blockNumber?: number; from: string; wait: () => Promise<any> },
@@ -43,36 +46,78 @@ async function expectBalanceDelta(
 describe("EcdsaFraudRouter", () => {
   let thirdParty: SignerWithAddress
   let treasury: SignerWithAddress
-  let walletRegistry: FakeContract<IWalletRegistry>
-  let bridge: Bridge & BridgeStub
+  let bridge: FakeContract<IBridgeForFraud>
   let ecdsaFraudRouter: EcdsaFraudRouter
   let fraudChallengeDepositAmount: BigNumber
   let fraudChallengeDefeatTimeout: number
+  let fraudSlashingAmount: BigNumber
+  let fraudNotifierRewardMultiplier: number
 
   beforeEach(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ thirdParty, treasury, walletRegistry, bridge, ecdsaFraudRouter } =
-      await bridgeFixture())
+    await createSnapshot()
 
-    const fraudParameters = await bridge.fraudParameters()
-    fraudChallengeDepositAmount = fraudParameters.fraudChallengeDepositAmount
-    fraudChallengeDefeatTimeout = fraudParameters.fraudChallengeDefeatTimeout
+    const [thirdPartySigner, treasurySigner] =
+      await helpers.signers.getUnnamedSigners()
+    thirdParty = thirdPartySigner
+    treasury = treasurySigner
+    bridge = await smock.fake<IBridgeForFraud>("IBridgeForFraud")
 
-    await bridge.setWallet(fraudWallet.pubKeyHash160, {
+    fraudChallengeDepositAmount = constants.fraudChallengeDepositAmount
+    fraudChallengeDefeatTimeout = constants.fraudChallengeDefeatTimeout
+    fraudSlashingAmount = constants.fraudSlashingAmount
+    fraudNotifierRewardMultiplier = constants.fraudNotifierRewardMultiplier
+
+    bridge.fraudParameters.returns([
+      fraudChallengeDepositAmount,
+      fraudChallengeDefeatTimeout,
+      fraudSlashingAmount,
+      fraudNotifierRewardMultiplier,
+    ])
+    bridge.treasury.returns(treasury.address)
+    bridge.activeWalletPubKeyHash.returns(ZeroAddress)
+    bridge.activeWalletID.returns(HashZero)
+    bridge.walletID.returns(fraudWallet.ecdsaWalletID)
+    bridge.walletPubKeyHashForWalletID.returns(fraudWallet.pubKeyHash160)
+    bridge.deposits.returns({
+      depositor: ZeroAddress,
+      amount: 0,
+      revealedAt: 0,
+      vault: ZeroAddress,
+      treasuryFee: 0,
+      sweptAt: 0,
+      extraData: HashZero,
+    })
+    bridge.spentMainUTXOs.returns(false)
+    bridge.movedFundsSweepRequests.returns({
+      walletPubKeyHash: ZeroAddress,
+      value: 0,
+      createdAt: 0,
+      state: movedFundsSweepRequestState.Unknown,
+    })
+
+    bridge.wallets.whenCalledWith(fraudWallet.pubKeyHash160).returns({
       ecdsaWalletID: fraudWallet.ecdsaWalletID,
-      mainUtxoHash: ethers.constants.HashZero,
+      mainUtxoHash: HashZero,
       pendingRedemptionsValue: 0,
       createdAt: await lastBlockTime(),
       movingFundsRequestedAt: 0,
       closingStartedAt: 0,
       pendingMovedFundsSweepRequestsCount: 0,
       state: walletState.Live,
-      movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+      movingFundsTargetWalletsCommitmentHash: HashZero,
     })
+
+    const EcdsaFraudRouterFactory = await ethers.getContractFactory(
+      "EcdsaFraudRouter"
+    )
+    ecdsaFraudRouter = (await EcdsaFraudRouterFactory.deploy(
+      bridge.address
+    )) as EcdsaFraudRouter
+    await ecdsaFraudRouter.deployed()
   })
 
   afterEach(async () => {
-    walletRegistry.seize.reset()
+    await restoreSnapshot()
   })
 
   const challengeKey = (data: FraudTestData) =>
@@ -95,12 +140,42 @@ describe("EcdsaFraudRouter", () => {
         }
       )
 
-  const markHonestlySpent = async (data: FraudTestData) => {
-    await bridge.setSweptDeposits(data.deposits)
-    await bridge.setSpentMainUtxos(data.spentMainUtxos)
-    await bridge.setProcessedMovedFundsSweepRequests(
-      data.movedFundsSweepRequests
+  const utxoKey = (utxo: {
+    txHash: string | Uint8Array
+    txOutputIndex: number
+  }) =>
+    ethers.BigNumber.from(
+      ethers.utils.solidityKeccak256(
+        ["bytes32", "uint32"],
+        [utxo.txHash, utxo.txOutputIndex]
+      )
     )
+
+  const markHonestlySpent = async (data: FraudTestData) => {
+    data.deposits.forEach((deposit) => {
+      bridge.deposits.whenCalledWith(utxoKey(deposit)).returns({
+        depositor: ZeroAddress,
+        amount: deposit.txOutputValue,
+        revealedAt: 1,
+        vault: ZeroAddress,
+        treasuryFee: 0,
+        sweptAt: 1,
+        extraData: HashZero,
+      })
+    })
+
+    data.spentMainUtxos.forEach((spentMainUtxo) => {
+      bridge.spentMainUTXOs.whenCalledWith(utxoKey(spentMainUtxo)).returns(true)
+    })
+
+    data.movedFundsSweepRequests.forEach((request) => {
+      bridge.movedFundsSweepRequests.whenCalledWith(utxoKey(request)).returns({
+        walletPubKeyHash: fraudWallet.pubKeyHash160,
+        value: request.txOutputValue,
+        createdAt: 1,
+        state: movedFundsSweepRequestState.Processed,
+      })
+    })
   }
 
   it("submits and stores an ECDSA fraud challenge", async () => {
@@ -140,16 +215,16 @@ describe("EcdsaFraudRouter", () => {
   })
 
   it("rejects FROST wallets even when they are not the active wallet", async () => {
-    await bridge.setWallet(fraudWallet.pubKeyHash160, {
-      ecdsaWalletID: ethers.constants.HashZero,
-      mainUtxoHash: ethers.constants.HashZero,
+    bridge.wallets.whenCalledWith(fraudWallet.pubKeyHash160).returns({
+      ecdsaWalletID: HashZero,
+      mainUtxoHash: HashZero,
       pendingRedemptionsValue: 0,
       createdAt: await lastBlockTime(),
       movingFundsRequestedAt: 0,
       closingStartedAt: 0,
       pendingMovedFundsSweepRequestsCount: 0,
       state: walletState.Live,
-      movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+      movingFundsTargetWalletsCommitmentHash: HashZero,
     })
 
     await expect(submitChallenge()).to.be.revertedWith(
@@ -253,20 +328,15 @@ describe("EcdsaFraudRouter", () => {
       )
 
     await expectBalanceDelta(tx, thirdParty, fraudChallengeDepositAmount)
-    expect(walletRegistry.seize).to.have.been.calledWith(
-      (await bridge.fraudParameters()).fraudSlashingAmount,
-      (await bridge.fraudParameters()).fraudNotifierRewardMultiplier,
-      thirdParty.address,
-      fraudWallet.ecdsaWalletID,
-      walletMembersIDs
+    expect(bridge.slashWalletForFraud).to.have.been.calledWith(
+      fraudWallet.pubKeyHash160,
+      walletMembersIDs,
+      thirdParty.address
     )
     expect(
       (await ecdsaFraudRouter.fraudChallenges(challengeKey(data))).resolved
     ).to.equal(true)
     expect(await ecdsaFraudRouter.openFraudChallengeCount()).to.equal(0)
-    expect((await bridge.wallets(fraudWallet.pubKeyHash160)).state).to.equal(
-      walletState.Terminated
-    )
     await expect(tx)
       .to.emit(ecdsaFraudRouter, "FraudChallengeDefeatTimedOut")
       .withArgs(fraudWallet.pubKeyHash160, data.sighash)
@@ -305,20 +375,15 @@ describe("EcdsaFraudRouter", () => {
     expect(await ethers.provider.getBalance(ecdsaFraudRouter.address)).to.equal(
       routerBalanceBefore
     )
-    expect(walletRegistry.seize).to.have.been.calledWith(
-      (await bridge.fraudParameters()).fraudSlashingAmount,
-      (await bridge.fraudParameters()).fraudNotifierRewardMultiplier,
-      revertingChallenger.address,
-      fraudWallet.ecdsaWalletID,
-      walletMembersIDs
+    expect(bridge.slashWalletForFraud).to.have.been.calledWith(
+      fraudWallet.pubKeyHash160,
+      walletMembersIDs,
+      revertingChallenger.address
     )
     expect(
       (await ecdsaFraudRouter.fraudChallenges(challengeKey(data))).resolved
     ).to.equal(true)
     expect(await ecdsaFraudRouter.openFraudChallengeCount()).to.equal(0)
-    expect((await bridge.wallets(fraudWallet.pubKeyHash160)).state).to.equal(
-      walletState.Terminated
-    )
     await expect(tx)
       .to.emit(ecdsaFraudRouter, "FraudChallengeDefeatTimedOut")
       .withArgs(fraudWallet.pubKeyHash160, data.sighash)
