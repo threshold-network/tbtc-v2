@@ -130,6 +130,44 @@ markers:
 
 ## Recommended PR plan
 
+### 2026-05-27 addendum
+
+Follow-up review of the canonical PR #971 mirror found additional
+audit-readiness items not covered by the original 2026-05-25 sweep:
+
+1. **BridgeLifecycleRouter implementation missing from canonical
+   mirror.** PR #971 ships Bridge-side hooks and
+   `IBridgeLifecycleRouter`, but no deployable router contract. This
+   is resolved at the planning layer by
+   [`bridge-lifecycle-router-followup-plan.md`](./bridge-lifecycle-router-followup-plan.md).
+   External audit kickoff should treat that router plan as in-scope
+   and should not assume FROST wallet creation can be activated before
+   the router follow-up lands.
+
+2. **Storage-layout documentation drift.** The pinned snapshot places
+   `frostWalletRegistry` at slot 32, `lifecycleRouter` at slot 35,
+   and the packed `currentNewWalletScheme` / `ecdsaWalletCount` /
+   `ecdsaRetired` fields at slot 37. Older plan text and inline
+   comments claimed slots 33/36/38 and referred to the dropped
+   `ecdsaWalletCountSeeded` flag. The canonical comments and
+   `wallet-lifecycle-migration-plan.md` must match
+   `Bridge.storage-layout.json`.
+
+3. **ECDSA fraud unit coverage gap.** The deleted legacy
+   `Bridge.Frauds.test.ts` suite left the extracted
+   `EcdsaFraudRouter` without comparable unit coverage. The canonical
+   follow-up adds `EcdsaFraudRouter.test.ts`, including submit,
+   duplicate, defeat, timeout, FROST-wallet rejection, and
+   reverting-challenger refund self-grief coverage.
+
+4. **D-2.2 slice 2 drain enforcement.** The plan now distinguishes the
+   on-chain unresolved-challenge check
+   (`EcdsaFraudRouter.openFraudChallengeCount() == 0`) from the
+   runbook-only wallet-state drain proof. Because Bridge registered
+   wallets are mapping-backed, enumerating all challengeable ECDSA
+   wallets remains an off-chain/subgraph governance proof unless the
+   slice 2 implementation adds a separate index or freeze mode.
+
 If shipping cleanup PRs:
 
 1. **Single PR for findings #1-#4** (`d2-ecdsa-hard-retirement-plan.md`

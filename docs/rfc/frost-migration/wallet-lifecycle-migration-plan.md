@@ -1,6 +1,6 @@
 # tBTC FROST Wallet-Lifecycle Migration Plan
 
-**Status as of:** 2026-05-24
+**Status as of:** 2026-05-27
 **Owner:** Bridge contracts team
 **Tracker PRs:** #431 (FROST registration entry), #433 (storage-layout
 snapshot test), #434 (Phase A), #435 (fraud extraction), #436 (gate
@@ -16,21 +16,21 @@ signer side) and `docs/frost-migration/p2tr-signature-fraud-execution-spec.md`
 
 ## Phase summary
 
-| Phase                    | Scope                                                                                                                                                                    | PR   | Status                                           |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---- | ------------------------------------------------ |
-| Pre-Phase A              | `setFrostWalletRegistry` + `registerNewFrostWallet` entry on Bridge                                                                                                      | #431 | Merged                                           |
-| Storage invariant test   | Pinned storage-layout snapshot + invariant test                                                                                                                          | #433 | Merged                                           |
-| Pre-Phase B / extraction | ECDSA + P2TR fraud lifecycle extracted into peer sidecars                                                                                                                | #435 | Merged 2026-05-24                                |
-| Gate retarget + cleanup  | Retarget readiness gates at P2TR router source; drop dead lifecycle library                                                                                              | #436 | Merged 2026-05-24                                |
-| Phase A                  | Scheme-aware lifecycle routing via `BridgeLifecycleRouter` sister contract (runs=200 restored post-extraction)                                                           | #434 | **Merged 2026-05-24**                            |
-| Phase B-1 (RFC)          | On-chain FROST `WalletRegistry` contract trust model — sortition-attested DKG result with threshold pre-aggregated transcript                                            | #437 | RFC open (v4.1)                                  |
-| Phase B-1 (impl)         | Implementation of the contract per RFC #437                                                                                                                              | TBD  | Not started                                      |
-| Phase B-2                | keep-core Go-side FROST DKG coordination protocol                                                                                                                        | TBD  | Not started                                      |
-| Phase C-1                | Indexer / subgraph / relayer companion PRs (re-target fraud events at the new routers; teach indexers about the FROST wallet event surface + new C-2 scheme/seed events) | TBD  | Not started                                      |
-| Phase C-2 (RFC)          | Governance new-wallet-scheme preference + ECDSA wallet counter for D-2                                                                                                   | #438 | RFC open (v6.1)                                  |
-| Phase C-2 (impl)         | Implementation of scheme selector + counter per RFC #438                                                                                                                 | #439 | **Open 2026-05-24 (draft)**                      |
-| Phase D-1                | Soft ECDSA retirement (block new ECDSA wallets)                                                                                                                          | TBD  | Blocked on C-2 merge + FROST registry being live |
-| Phase D-2                | Hard ECDSA retirement (storage placeholder + bytecode reclaim)                                                                                                           | TBD  | Blocked on D-1 + buffer period                   |
+| Phase                    | Scope                                                                                                                                                                                                          | PR          | Status                                                                     |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | -------------------------------------------------------------------------- |
+| Pre-Phase A              | `setFrostWalletRegistry` + `registerNewFrostWallet` entry on Bridge                                                                                                                                            | #431        | Merged                                                                     |
+| Storage invariant test   | Pinned storage-layout snapshot + invariant test                                                                                                                                                                | #433        | Merged                                                                     |
+| Pre-Phase B / extraction | ECDSA + P2TR fraud lifecycle extracted into peer sidecars                                                                                                                                                      | #435        | Merged 2026-05-24                                                          |
+| Gate retarget + cleanup  | Retarget readiness gates at P2TR router source; drop dead lifecycle library                                                                                                                                    | #436        | Merged 2026-05-24                                                          |
+| Phase A                  | Scheme-aware lifecycle routing hooks + `IBridgeLifecycleRouter` interface. Canonical PR #971 ships the Bridge-side hooks; the router contract itself is tracked in `bridge-lifecycle-router-followup-plan.md`. | #434 / #971 | **Partially mirrored; router follow-up required before FROST activation**  |
+| Phase B-1 (RFC)          | On-chain FROST `WalletRegistry` contract trust model — sortition-attested DKG result with threshold pre-aggregated transcript                                                                                  | #437        | RFC open (v4.1)                                                            |
+| Phase B-1 (impl)         | Implementation of the FROST `WalletRegistry` contract per RFC #437                                                                                                                                             | #971        | Included in canonical mirror; activation blocked on lifecycle router + B-2 |
+| Phase B-2                | keep-core Go-side FROST DKG coordination protocol                                                                                                                                                              | #4005       | External companion PR                                                      |
+| Phase C-1                | Indexer / subgraph / relayer companion PRs (re-target fraud events at the new routers; teach indexers about the FROST wallet event surface + new C-2 scheme/seed events)                                       | TBD         | Not started                                                                |
+| Phase C-2 (RFC)          | Governance new-wallet-scheme preference + ECDSA wallet counter for D-2                                                                                                                                         | #438        | RFC open (v6.1)                                                            |
+| Phase C-2 (impl)         | Implementation of scheme selector + counter per RFC #438                                                                                                                                                       | #439        | **Open 2026-05-24 (draft)**                                                |
+| Phase D-1                | Soft ECDSA retirement (block new ECDSA wallets)                                                                                                                                                                | TBD         | Blocked on C-2 merge + FROST registry being live                           |
+| Phase D-2                | Hard ECDSA retirement (storage placeholder + bytecode reclaim)                                                                                                                                                 | TBD         | Blocked on D-1 + buffer period                                             |
 
 ## Bridge bytecode budget evolution
 
@@ -70,23 +70,27 @@ expected to restore runs=200 and reintroduce the deferred surface.
 `test/formal/BridgeStorageLayout.test.ts` enforces upgrade-safety
 invariants. Current slot order:
 
-| Slot        | Field                                                                                                                      | Source            |
-| ----------- | -------------------------------------------------------------------------------------------------------------------------- | ----------------- |
-| 0..32       | (pre-existing fields up through `frostWalletRegistry`)                                                                     | pre-PR-431 + #431 |
-| 33          | `frostWalletRegistry`                                                                                                      | #431              |
-| 34          | `ecdsaFraudRouter`                                                                                                         | #435              |
-| 35          | `p2trFraudRouter`                                                                                                          | #435              |
-| 36          | `lifecycleRouter`                                                                                                          | #434              |
-| 37          | `walletIDByWalletPubKeyHash` (mapping)                                                                                     | #434              |
-| 38 (packed) | `ecdsaWalletCount` (uint128 @ off 0) + `currentNewWalletScheme` (enum @ off 16) + `ecdsaWalletCountSeeded` (bool @ off 17) | #439              |
-| 39+         | `__gap` (uint256[39] after #439)                                                                                           | —                 |
+| Slot        | Field                                                                                                           | Source            |
+| ----------- | --------------------------------------------------------------------------------------------------------------- | ----------------- |
+| 0..31       | Pre-existing fields through `activeWalletID`                                                                    | pre-PR-431        |
+| 32          | `frostWalletRegistry`                                                                                           | #431 / #971       |
+| 33          | `ecdsaFraudRouter`                                                                                              | #435 / #971       |
+| 34          | `p2trFraudRouter`                                                                                               | #436 / #971       |
+| 35          | `lifecycleRouter`                                                                                               | #434 / #971       |
+| 36          | `walletIDByWalletPubKeyHash` (mapping)                                                                          | #434 / #971       |
+| 37 (packed) | `currentNewWalletScheme` (enum @ off 0) + `ecdsaWalletCount` (uint128 @ off 1) + `ecdsaRetired` (bool @ off 17) | #439 / D-1 / #971 |
+| 38+         | `__gap` (uint256[40])                                                                                           | —                 |
 
 `EXPECTED_RESERVED_TOTAL` is pinned by the storage-layout test
 (BridgeState's own header carries the rationale: "more slots as
 there are planned upgrades"). The pinned total moves from 104 →
-**106** with #439 because the three new C-2 members share one slot
-(each counts as one explicit member; `__gap` decrements by 1, net
-+2 to the total).
+**106** with the canonical mirror because the packed scheme/counter/
+retirement fields share one slot (each counts as one explicit member;
+`__gap` decrements by 1, net +2 to the total).
+
+The authoritative source is the generated storage snapshot, not this
+table. Any future storage-layout doc update must be checked against
+`solidity/test/formal/Bridge.storage-layout.json`.
 
 ## Cutover playbook recap (from `Bridge.migrateLegacyFraudChallenges` NatSpec)
 
@@ -176,19 +180,20 @@ existing #435/#434 retargeting work and the #439-added surface:
   consumers that need the canonical 32-byte walletID), and
   `NewFrostWalletRegistered` (FROST-specific lifecycle).
 
-**C-2 scheme + counter (from #439):**
+**C-2 / D-2 canonical mirror deltas:**
 
-- Subgraph + indexer must learn about `NewWalletSchemeSet(indexed WalletScheme)` (governance flip event) and
-  `EcdsaWalletCountSeeded(uint128 historicalCount, uint128 totalAfterSeed)`
-  (one-time pre-C-2 historical-count seed). Track on a `Wallet` or
-  `BridgeState` entity per the C-1 PR design.
-- Operator-facing dashboards / SDK helpers consuming
-  `Bridge.newWalletScheme()` or `Bridge.ecdsaWalletCount()` views
-  cannot use the standalone getters in the C-2 PR (deferred for
-  bytecode reasons; see #439). They must derive state from
-  `NewWalletSchemeSet` + `EcdsaWalletCountSeeded` +
-  `NewWalletRegistered` event replay until D-2 reclaims bytecode
-  and reintroduces the views.
+- `NewWalletSchemeSet` remains declared for ABI back-compat but no
+  longer fires because D-2.2 slice 3 removed the scheme setter and
+  request-time branch. Consumers should not use it as an activation
+  signal.
+- `EcdsaWalletCountSeeded` and `ecdsaWalletCountSeeded` were dropped /
+  deferred indefinitely before the canonical mirror. Consumers derive
+  ECDSA historical counts by replaying `NewWalletRegistered`.
+- Operator-facing dashboards / SDK helpers can read the public
+  `Bridge.ecdsaRetired()` getter. Scheme selection is no longer a live
+  runtime value in the canonical mirror; new wallet creation dispatches
+  only to the FROST registry once the lifecycle router and registry
+  owner are wired.
 
 - ~~Formal-evidence manifest update~~ — DONE in PR #436. The two
   readiness gates

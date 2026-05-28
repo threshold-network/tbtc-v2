@@ -233,8 +233,8 @@ fails fast.
 2. `BridgeGovernance.setFrostWalletRegistry(registry)` — wires
    Bridge → registry for wallet creation (one-time setter on
    Bridge).
-3. Deploy `BridgeLifecycleRouter` (separate future PR; not in
-   B-1 scope).
+3. Deploy `BridgeLifecycleRouter` (separate future PR; see
+   `bridge-lifecycle-router-followup-plan.md`).
 4. `BridgeGovernance.setLifecycleRouter(router)` — wires Bridge
    → router for lifecycle dispatch (one-time setter on Bridge).
 5. `FrostWalletRegistry.updateLifecycleOwner(router)` — wires
@@ -245,13 +245,13 @@ fails fast.
    this fail-fast guard). The `approveDkgResult` path also
    re-checks the same invariant so any in-flight DKG can't
    register a live wallet without an active lifecycle path.
-6. `BridgeGovernance.setNewWalletScheme(Frost)` (C-2 entry) —
-   flips Bridge's default scheme. Now `Bridge.requestNewWallet`
-   dispatches to the FROST registry; with steps 1-5 complete,
+6. No scheme flip is required in the canonical mirror: D-2.2
+   slice 3 removed the scheme setter and `Bridge.requestNewWallet`
+   dispatches only to the FROST registry. With steps 1-5 complete,
    the call succeeds and DKG starts.
 
 Skipping step 5 strands every newly-created FROST wallet — the
 registry refuses close + seize until lifecycle is wired. The
-on-chain guards at the registry's `requestNewWallet` +
-`approveDkgResult` block this scenario; both revert until
-`lifecycleOwner != 0`.
+on-chain guards at Bridge's `requestNewWallet` and
+`__frostWalletCreatedCallback` block this scenario; both revert until
+`Bridge.lifecycleRouter() == FrostWalletRegistry.lifecycleOwner()`.

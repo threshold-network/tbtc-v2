@@ -11,10 +11,10 @@ the bytecode-budget reason captured below.
 ## What this PR ships
 
 1. `BridgeState.Storage.ecdsaRetired` (bool, 1 byte) — packed into
-   slot 38 at offset 17, alongside the existing
+   slot 37 at offset 17, alongside the existing
    `currentNewWalletScheme` (offset 0, enum 1 byte) and
    `ecdsaWalletCount` (offset 1, uint128 16 bytes) from C-2 / C-2.1.
-   Total slot 38 usage: 18 bytes; no `__gap` decrement.
+   Total slot 37 usage: 18 bytes; no `__gap` decrement.
 2. Guard inside `Wallets.requestNewWallet` (external library):
    `require(!self.ecdsaRetired, "ECDSA wallet creation retired")`
    on the ECDSA-scheme branch. Frost-scheme routing is untouched.

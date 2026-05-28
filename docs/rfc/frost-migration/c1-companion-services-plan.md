@@ -61,17 +61,17 @@ the consumer that needs each:
 
 ### Bridge-emitted events (new since current subgraph ABI)
 
-| Event                                                                                                                                     | Emitter (after upgrade)                                    | C-1 consumer(s)                          | Notes                                                                                                                                                                                                                                                                                                                                                                                         |
-| ----------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `FrostWalletRegistrySet(address frostWalletRegistry)`                                                                                     | Bridge                                                     | subgraph, v3-indexer                     | One-time governance setter event; subgraph tracks for completeness                                                                                                                                                                                                                                                                                                                            |
-| `EcdsaFraudRouterSet(address ecdsaFraudRouter)`                                                                                           | Bridge                                                     | subgraph, v3-indexer                     | Cue to enable the EcdsaFraudRouter datasource at runtime if the indexer supports dynamic dataSources                                                                                                                                                                                                                                                                                          |
-| `P2TRFraudRouterSet(address p2trFraudRouter)`                                                                                             | Bridge                                                     | subgraph, v3-indexer                     | Same shape as above for P2TR router                                                                                                                                                                                                                                                                                                                                                           |
-| `LifecycleRouterSet(address lifecycleRouter)`                                                                                             | Bridge                                                     | subgraph, v3-indexer                     | Lifecycle router address (Phase A); cue for the lifecycle router datasource                                                                                                                                                                                                                                                                                                                   |
-| `NewFrostWalletRegistered(bytes32 walletID, bytes20 walletPubKeyHash, bytes32 xOnlyOutputKey)`                                            | Bridge (via Wallets library; emitter = Bridge address)     | subgraph, v3-indexer, crosschain-relayer | FROST-specific wallet registration; consumers must populate `Wallet.scheme = FROST`                                                                                                                                                                                                                                                                                                           |
-| `NewWalletRegisteredV2(bytes32 walletID, bytes32 ecdsaWalletID, bytes20 walletPubKeyHash)`                                                | Bridge (via Wallets library)                               | subgraph (already wired), v3-indexer     | Replaces the V1 event for canonical 32-byte walletID consumers; V1 still fires for ECDSA wallets                                                                                                                                                                                                                                                                                              |
-| `NewWalletSchemeSet(WalletScheme indexed scheme)`                                                                                         | Bridge (via BridgeState library; emitter = Bridge address) | subgraph, v3-indexer                     | C-2 scheme flip; consumers update `BridgeState.currentScheme` singleton                                                                                                                                                                                                                                                                                                                       |
-| `EcdsaWalletCountSeeded(uint128 historicalCount, uint128 totalAfterSeed)`                                                                 | Bridge (via BridgeState library)                           | subgraph, v3-indexer                     | **Deferred from C-2 PR (#439)**; will land in C-2.1. Consumers update `BridgeState.ecdsaWalletCount` to `event.params.totalAfterSeed` (absolute set — idempotent vs full reindex) and set `BridgeState.ecdsaWalletCountSeeded = true`. C-1.1c (paired with C-2.1) adds the matching handler; using `+= historicalCount` double-counts after replay (Codex P2 finding on the C-1.1a iteration) |
-| `LegacyFraudChallengeMigrated(uint8 indexed routerKind, uint256 indexed challengeKey, address indexed challenger, uint256 depositAmount)` | Bridge                                                     | subgraph, v3-indexer                     | One-time per-challenge migration event; consumers note the migration but the active challenge state lives on the router post-migration                                                                                                                                                                                                                                                        |
+| Event                                                                                                                                     | Emitter (after upgrade)                                | C-1 consumer(s)                          | Notes                                                                                                                                                                                                                       |
+| ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FrostWalletRegistrySet(address frostWalletRegistry)`                                                                                     | Bridge                                                 | subgraph, v3-indexer                     | One-time governance setter event; subgraph tracks for completeness                                                                                                                                                          |
+| `EcdsaFraudRouterSet(address ecdsaFraudRouter)`                                                                                           | Bridge                                                 | subgraph, v3-indexer                     | Cue to enable the EcdsaFraudRouter datasource at runtime if the indexer supports dynamic dataSources                                                                                                                        |
+| `P2TRFraudRouterSet(address p2trFraudRouter)`                                                                                             | Bridge                                                 | subgraph, v3-indexer                     | Same shape as above for P2TR router                                                                                                                                                                                         |
+| `LifecycleRouterSet(address lifecycleRouter)`                                                                                             | Bridge                                                 | subgraph, v3-indexer                     | Lifecycle router address (Phase A); cue for the lifecycle router datasource                                                                                                                                                 |
+| `NewFrostWalletRegistered(bytes32 walletID, bytes20 walletPubKeyHash, bytes32 xOnlyOutputKey)`                                            | Bridge (via Wallets library; emitter = Bridge address) | subgraph, v3-indexer, crosschain-relayer | FROST-specific wallet registration; consumers must populate `Wallet.scheme = FROST`                                                                                                                                         |
+| `NewWalletRegisteredV2(bytes32 walletID, bytes32 ecdsaWalletID, bytes20 walletPubKeyHash)`                                                | Bridge (via Wallets library)                           | subgraph (already wired), v3-indexer     | Replaces the V1 event for canonical 32-byte walletID consumers; V1 still fires for ECDSA wallets                                                                                                                            |
+| `NewWalletSchemeSet(WalletScheme indexed scheme)`                                                                                         | Bridge (ABI declaration only)                          | none                                     | D-2.2 slice 3 removed the scheme setter. The event declaration remains for ABI back-compat but no longer fires in the canonical mirror; consumers should not wait for it.                                                   |
+| `EcdsaWalletCountSeeded(uint128 historicalCount, uint128 totalAfterSeed)`                                                                 | N/A                                                    | none                                     | Dropped/deferred indefinitely before the canonical mirror. Consumers should derive historical ECDSA counts by replaying `NewWalletRegistered` and should not expect this event or an `ecdsaWalletCountSeeded` storage flag. |
+| `LegacyFraudChallengeMigrated(uint8 indexed routerKind, uint256 indexed challengeKey, address indexed challenger, uint256 depositAmount)` | Bridge                                                 | subgraph, v3-indexer                     | One-time per-challenge migration event; consumers note the migration but the active challenge state lives on the router post-migration                                                                                      |
 
 ### EcdsaFraudRouter-emitted events (datasource not yet wired)
 
@@ -92,16 +92,16 @@ sidecar after deployment. Event names: `P2TRSignatureFraudChallengeSubmitted`,
 
 ### BridgeLifecycleRouter-emitted events (datasource not yet wired)
 
-Phase A wires `BridgeLifecycleRouter` as the dispatcher for FROST
-wallet lifecycle operations. Specific events depend on the router
-ABI; document at deploy time.
+The Bridge-side hooks for `BridgeLifecycleRouter` ship in PR #971, but
+the router contract itself is a follow-up. Specific router events
+depend on that ABI; document them when the router deployment PR lands.
 
 ### FrostWalletRegistry-emitted events (B-1 dependency)
 
-Once B-1 ships, the FROST wallet registry contract will emit its
-own DKG-result event(s) that the subgraph + indexers may want to
-track. Out of scope for C-1 (depends on B-1's implementation
-choices); covered in `wallet-registry-trust-model-rfc.md` (#437).
+PR #971 ships the FROST wallet registry contract and its DKG-result
+events. Subgraph/indexer wiring for those events belongs to the
+registry activation workstream; see `wallet-registry-trust-model-rfc.md`
+(#437).
 
 ## Recommended schema additions
 
@@ -134,13 +134,7 @@ ECDSA) and `handleNewFrostWalletRegistered` (= FROST).
 ```graphql
 type BridgeState @entity {
   id: ID! # always "singleton"
-  currentScheme: WalletScheme! # set by NewWalletSchemeSet
-  ecdsaWalletCount: BigInt! # set by NewWalletRegistered + EcdsaWalletCountSeeded
-  ecdsaWalletCountSeeded: Boolean! # set by EcdsaWalletCountSeeded
-  historicalSeedAmount: BigInt
-  seededAt: BigInt
-  seededAtBlock: BigInt
-  seededTxHash: Bytes
+  ecdsaWalletCount: BigInt! # derived from NewWalletRegistered replay
   frostWalletRegistry: Bytes # null until FrostWalletRegistrySet fires
   ecdsaFraudRouter: Bytes
   p2trFraudRouter: Bytes
@@ -169,23 +163,21 @@ Recommended cutover sequence for C-1 work:
 - [x] C-1.1a (preparation): Update `data/tbtc-subgraph/abis/Bridge.json`
       with the merged legacy + post-#439 Bridge ABI (legacy fraud
       events kept for historical indexing per Codex P1). Add new
-      Bridge event handlers (`NewWalletSchemeSet`,
-      `NewFrostWalletRegistered`, `FrostWalletRegistrySet`,
-      `EcdsaFraudRouterSet`, `P2TRFraudRouterSet`,
-      `LifecycleRouterSet`, `LegacyFraudChallengeMigrated`). Add
-      schema entries (`WalletScheme` enum, `Wallet.scheme`,
-      `BridgeState` singleton, `WalletSchemeChange` audit entity).
-      **PR #440 (this).**
+      Bridge event handlers (`NewFrostWalletRegistered`,
+      `FrostWalletRegistrySet`, `EcdsaFraudRouterSet`,
+      `P2TRFraudRouterSet`, `LifecycleRouterSet`,
+      `LegacyFraudChallengeMigrated`). `NewWalletSchemeSet` remains in
+      the ABI but no longer fires in the canonical mirror. Add schema
+      entries (`Wallet.scheme`, `BridgeState` singleton). **PR #440
+      (this).**
 - [ ] C-1.1b (cutover): Add EcdsaFraudRouter,
       P2TRSignatureFraudRouter, BridgeLifecycleRouter datasources
       to `subgraph.yaml` + `networks.json` with their deploy
       addresses. Add handlers in `src/`. Re-deploy.
-- [ ] C-1.1c (C-2.1 follow-up): Re-add the `EcdsaWalletCountSeeded`
-      event handler + corresponding `BridgeState.ecdsaWalletCount`,
-      `ecdsaWalletCountSeeded`, and seed-audit fields once C-2.1
-      ships the on-chain counter + seed mechanism. The handler MUST
-      use `event.params.totalAfterSeed` for an absolute set
-      (idempotent vs full reindex) — per Codex P2 finding.
+- [x] C-1.1c (canonical reconciliation): Do not add an
+      `EcdsaWalletCountSeeded` handler. The event and seed flag were
+      dropped/deferred indefinitely; historical ECDSA counts are
+      derived from `NewWalletRegistered` replay.
 - [ ] C-1.2a (preparation): Same shape as C-1.1a for
       `data/v3-indexer/`.
 - [ ] C-1.2b (cutover): Same shape as C-1.1b for `data/v3-indexer/`.

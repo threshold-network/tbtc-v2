@@ -1098,10 +1098,10 @@ contract Bridge is Governable, Initializable, IReceiveBalanceApproval {
     ///          and the active wallet is old enough, i.e. the creation period
     ///          was elapsed since its creation time,
     ///        - The active wallet BTC balance is above the maximum threshold,
-    ///      - `currentNewWalletScheme` must be `Frost` (any Ecdsa
-    ///        selection reverts unconditionally in D-2),
     ///      - `frostWalletRegistry` must be set (governance one-
-    ///        time setter; required before FROST wallet creation).
+    ///        time setter; required before FROST wallet creation),
+    ///      - `lifecycleRouter` must be set and must match
+    ///        `FrostWalletRegistry.lifecycleOwner()`.
     function requestNewWallet(BitcoinTx.UTXO calldata activeWalletMainUtxo)
         external
     {
@@ -1118,17 +1118,18 @@ contract Bridge is Governable, Initializable, IReceiveBalanceApproval {
     // wallets) is structurally closed by D-2 at TWO layers:
     //
     //   1. CODE (load-bearing): `Wallets.requestNewWallet`
-    //      unconditionally reverts the `scheme == Ecdsa`
-    //      branch in D-2. No dispatch to the ECDSA registry
-    //      can be reached regardless of scheme or flag state.
-    //      (Per PR #444 follow-up review.)
+    //      dispatches only to the FROST registry in the
+    //      canonical mirror. The ECDSA branch and scheme setter
+    //      were removed in D-2.2 slice 3, so no dispatch to the
+    //      ECDSA registry can be reached regardless of preserved
+    //      storage flag values.
     //
-    //   2. OPERATIONS (defense-in-depth): the activation
-    //      runbook still calls for
-    //      `BridgeGovernance.setNewWalletScheme(Frost)` before
-    //      the upgrade so that even in the pre-D-2 window
-    //      between governance-decision and proxy upgrade,
-    //      the ECDSA path is already off.
+    //   2. OPERATIONS (defense-in-depth): the original D-2
+    //      source runbook called for flipping the scheme to
+    //      Frost before the proxy upgrade. In the canonical
+    //      mirror the setter is gone; FROST activation is
+    //      instead gated by the lifecycle-router/frost-registry
+    //      wiring checks in `Wallets.requestNewWallet`.
     //
     // The `retireEcdsa()` flag flip (governance forwarder
     // added alongside this PR) is an OPTIONAL audit-trail
@@ -2323,7 +2324,7 @@ contract Bridge is Governable, Initializable, IReceiveBalanceApproval {
     ///         retirement flag. `false` by default; `true`
     ///         after `retireEcdsa()` has been called. Indexers
     ///         and tooling that previously had to decode
-    ///         storage slot 38 byte 17 (when D-2.1 deferred
+    ///         storage slot 37 byte 17 (when D-2.1 deferred
     ///         this getter for bytecode budget) can now read
     ///         this view directly. (D-2.2.)
     function ecdsaRetired() external view returns (bool) {
