@@ -27,7 +27,7 @@ interface IBridgeForFraud {
 
     function activeWalletID() external view returns (bytes32);
 
-    function walletID(bytes20 walletPubKeyHash) external pure returns (bytes32);
+    function walletID(bytes20 walletPubKeyHash) external view returns (bytes32);
 
     function walletPubKeyHashForWalletID(bytes32 walletId)
         external

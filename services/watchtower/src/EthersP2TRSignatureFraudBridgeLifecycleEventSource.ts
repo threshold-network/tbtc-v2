@@ -97,16 +97,40 @@ export class EthersP2TRSignatureFraudBridgeLifecycleEventSource
     | undefined
   private pendingCursorBlock?: number
   private pendingCursorBlockHash?: string
+  private readonly bridge: P2TREthersBridgeLifecycleContract
+  private readonly options: EthersP2TRSignatureFraudBridgeLifecycleEventSourceOptions
 
   constructor(
-    private readonly bridge: P2TREthersBridgeLifecycleContract,
-    private readonly options: EthersP2TRSignatureFraudBridgeLifecycleEventSourceOptions = {}
+    p2trSignatureFraudRouter: P2TREthersBridgeLifecycleContract,
+    bridge: P2TREthersBridgeLifecycleContract,
+    options?: EthersP2TRSignatureFraudBridgeLifecycleEventSourceOptions
+  )
+
+  constructor(
+    p2trSignatureFraudRouter: P2TREthersBridgeLifecycleContract,
+    options?: EthersP2TRSignatureFraudBridgeLifecycleEventSourceOptions
+  )
+
+  constructor(
+    private readonly p2trSignatureFraudRouter: P2TREthersBridgeLifecycleContract,
+    bridgeOrOptions:
+      | P2TREthersBridgeLifecycleContract
+      | EthersP2TRSignatureFraudBridgeLifecycleEventSourceOptions = {},
+    maybeOptions: EthersP2TRSignatureFraudBridgeLifecycleEventSourceOptions = {}
   ) {
+    const hasSeparateBridgeContract =
+      isP2TREthersBridgeLifecycleContract(bridgeOrOptions)
+
+    this.bridge = hasSeparateBridgeContract
+      ? bridgeOrOptions
+      : p2trSignatureFraudRouter
+    this.options = hasSeparateBridgeContract ? maybeOptions : bridgeOrOptions
+
     this.p2trSignatureFraudWatchtowerStoreProfile =
-      options.scanCursorStore?.p2trSignatureFraudWatchtowerStoreProfile
+      this.options.scanCursorStore?.p2trSignatureFraudWatchtowerStoreProfile
     this.p2trSignatureFraudWatchtowerTransactionalStoreID =
-      options.scanCursorStore?.p2trSignatureFraudWatchtowerTransactionalStoreID
-    validateBlockRangeOptions(options)
+      this.options.scanCursorStore?.p2trSignatureFraudWatchtowerTransactionalStoreID
+    validateBlockRangeOptions(this.options)
   }
 
   async listBridgeLifecycleEvents(): Promise<
@@ -130,18 +154,30 @@ export class EthersP2TRSignatureFraudBridgeLifecycleEventSource
       movingFundsProofLogs,
       redemptionProofLogs,
     ] = await Promise.all([
-      this.queryLifecycleLogs(P2TR_DEFEATED_EVENT, "defeated", blockRange),
       this.queryLifecycleLogs(
+        this.p2trSignatureFraudRouter,
+        "P2TR signature fraud router",
+        P2TR_DEFEATED_EVENT,
+        "defeated",
+        blockRange
+      ),
+      this.queryLifecycleLogs(
+        this.p2trSignatureFraudRouter,
+        "P2TR signature fraud router",
         P2TR_DEFEAT_TIMED_OUT_EVENT,
         "timed-out",
         blockRange
       ),
       this.queryLifecycleLogs(
+        this.bridge,
+        "Bridge",
         MOVING_FUNDS_COMPLETED_EVENT,
         "moving-funds-proof",
         blockRange
       ),
       this.queryLifecycleLogs(
+        this.bridge,
+        "Bridge",
         REDEMPTIONS_COMPLETED_EVENT,
         "redemption-proof",
         blockRange
@@ -201,6 +237,8 @@ export class EthersP2TRSignatureFraudBridgeLifecycleEventSource
   }
 
   private async queryLifecycleLogs(
+    contract: P2TREthersBridgeLifecycleContract,
+    contractName: string,
     eventName: string,
     lifecycleType: TaggedP2TRBridgeLifecycleLog["lifecycleType"],
     blockRange: Extract<
@@ -208,13 +246,15 @@ export class EthersP2TRSignatureFraudBridgeLifecycleEventSource
       { isEmpty: false }
     >
   ): Promise<TaggedP2TRBridgeLifecycleLog[]> {
-    const filterBuilder = this.bridge.filters[eventName]
+    const filterBuilder = contract.filters[eventName]
 
     if (typeof filterBuilder !== "function") {
-      throw new Error(`Bridge contract filter ${eventName} is unavailable`)
+      throw new Error(
+        `${contractName} contract filter ${eventName} is unavailable`
+      )
     }
 
-    const logs = await this.bridge.queryFilter(
+    const logs = await contract.queryFilter(
       filterBuilder(),
       blockRange.fromBlock,
       blockRange.toBlock
@@ -306,6 +346,21 @@ export class EthersP2TRSignatureFraudBridgeLifecycleEventSource
       }
     }
   }
+}
+
+function isP2TREthersBridgeLifecycleContract(
+  value:
+    | P2TREthersBridgeLifecycleContract
+    | EthersP2TRSignatureFraudBridgeLifecycleEventSourceOptions
+): value is P2TREthersBridgeLifecycleContract {
+  const candidate = value as P2TREthersBridgeLifecycleContract
+
+  return (
+    candidate !== undefined &&
+    typeof candidate.queryFilter === "function" &&
+    candidate.filters !== undefined &&
+    typeof candidate.filters === "object"
+  )
 }
 
 function timedOutBridgeEventStatuses(

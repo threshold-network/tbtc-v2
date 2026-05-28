@@ -1113,6 +1113,31 @@ describe("Bridge - Parameters", () => {
         })
       })
 
+      context("when new moving funds timeout slashing amount is zero", () => {
+        before(async () => {
+          await createSnapshot()
+        })
+
+        after(async () => {
+          await restoreSnapshot()
+        })
+
+        it("should update the parameter", async () => {
+          await bridgeGovernance
+            .connect(governance)
+            .beginMovingFundsTimeoutSlashingAmountUpdate(0)
+
+          await helpers.time.increaseTime(constants.governanceDelay)
+
+          await bridgeGovernance
+            .connect(governance)
+            .finalizeMovingFundsTimeoutSlashingAmountUpdate()
+
+          const params = await bridge.movingFundsParameters()
+          expect(params.movingFundsTimeoutSlashingAmount).to.be.equal(0)
+        })
+      })
+
       context("when new moving funds transaction max total fee is zero", () => {
         it("should revert", async () => {
           await bridgeGovernance

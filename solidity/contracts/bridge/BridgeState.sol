@@ -818,7 +818,6 @@ library BridgeState {
     ///      - Moving funds timeout reset delay must be greater than zero,
     ///      - Moving funds timeout must be greater than the moving funds
     ///        timeout reset delay,
-    ///      - Moving funds timeout slashing amount must be greater than zero,
     ///      - Moving funds timeout notifier reward multiplier must be in the
     ///        range [0, 100],
     ///      - Moved funds sweep transaction max total fee must be greater than zero,
@@ -858,11 +857,6 @@ library BridgeState {
         require(
             _movingFundsTimeout > _movingFundsTimeoutResetDelay,
             "Moving funds timeout must be greater than its reset delay"
-        );
-
-        require(
-            _movingFundsTimeoutSlashingAmount > 0,
-            "Moving funds timeout slashing amount must be greater than zero"
         );
 
         require(

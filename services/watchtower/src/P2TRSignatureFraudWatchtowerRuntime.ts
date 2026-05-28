@@ -45,18 +45,25 @@ export function createFileBackedP2TRSignatureFraudWatchtowerRuntime(
 }
 
 export function createFileBackedP2TRBridgeLifecycleEventSource(
+  p2trSignatureFraudRouter: P2TREthersBridgeLifecycleContract,
   bridge: P2TREthersBridgeLifecycleContract,
   config: P2TRSignatureFraudWatchtowerBridgeLifecycleRuntimeConfig
 ): EthersP2TRSignatureFraudBridgeLifecycleEventSource {
   const { scanCursorFilePath, ...options } = config
 
-  return new EthersP2TRSignatureFraudBridgeLifecycleEventSource(bridge, {
-    ...options,
-    scanCursorStore:
-      scanCursorFilePath === undefined
-        ? undefined
-        : new FileBackedP2TRBridgeLifecycleScanCursorStore(scanCursorFilePath),
-  })
+  return new EthersP2TRSignatureFraudBridgeLifecycleEventSource(
+    p2trSignatureFraudRouter,
+    bridge,
+    {
+      ...options,
+      scanCursorStore:
+        scanCursorFilePath === undefined
+          ? undefined
+          : new FileBackedP2TRBridgeLifecycleScanCursorStore(
+              scanCursorFilePath
+            ),
+    }
+  )
 }
 
 export function createEsploraP2TRTransactionSourceFromRuntimeConfig(
