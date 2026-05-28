@@ -58,7 +58,7 @@ const config: HardhatUserConfig = {
         settings: {
           optimizer: {
             enabled: true,
-            runs: 200, // Reduced from 1000 to prioritize bytecode size over gas efficiency
+            runs: 1000,
           },
         },
       },

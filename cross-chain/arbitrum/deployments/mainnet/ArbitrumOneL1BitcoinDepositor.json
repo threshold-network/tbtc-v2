@@ -17,9 +17,9 @@
         },
         {
           "indexed": true,
-          "internalType": "address",
-          "name": "l2DepositOwner",
-          "type": "address"
+          "internalType": "bytes32",
+          "name": "destinationChainDepositOwner",
+          "type": "bytes32"
         },
         {
           "indexed": true,
@@ -54,9 +54,9 @@
         },
         {
           "indexed": true,
-          "internalType": "address",
-          "name": "l2DepositOwner",
-          "type": "address"
+          "internalType": "bytes32",
+          "name": "destinationChainDepositOwner",
+          "type": "bytes32"
         },
         {
           "indexed": true,
@@ -178,6 +178,31 @@
       "type": "event"
     },
     {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "l2Receiver",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint64",
+          "name": "transferSequence",
+          "type": "uint64"
+        }
+      ],
+      "name": "TokensTransferredWithPayload",
+      "type": "event"
+    },
+    {
       "inputs": [],
       "name": "SATOSHI_MULTIPLIER",
       "outputs": [
@@ -227,7 +252,7 @@
       "name": "deposits",
       "outputs": [
         {
-          "internalType": "enum L1BitcoinDepositor.DepositState",
+          "internalType": "enum L1BTCDepositorWormholeV2Arbitrum.DepositState",
           "name": "",
           "type": "uint8"
         }
@@ -395,9 +420,9 @@
           "type": "tuple"
         },
         {
-          "internalType": "address",
-          "name": "l2DepositOwner",
-          "type": "address"
+          "internalType": "bytes32",
+          "name": "destinationChainDepositOwner",
+          "type": "bytes32"
         }
       ],
       "name": "initializeDeposit",
@@ -771,6 +796,6 @@
     "byzantium": true
   },
   "numDeployments": 2,
-  "implementation": "0x3fFeE7D7bE970201a33d17E318E2421a06Ad69f8",
+  "implementation": "0x82FDDF79765Ed75325bCBdf65F67dF0879AAbe8C",
   "devdoc": "Contract deployed as upgradable proxy"
 }

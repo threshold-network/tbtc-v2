@@ -1,4 +1,6 @@
 import type { HardhatUserConfig } from "hardhat/config"
+import { task } from "hardhat/config"
+import { TASK_COMPILE } from "hardhat/builtin-tasks/task-names"
 
 import "@nomiclabs/hardhat-etherscan"
 import "@keep-network/hardhat-helpers"
@@ -8,6 +10,12 @@ import "hardhat-contract-sizer"
 import "hardhat-deploy"
 import "@typechain/hardhat"
 import "hardhat-dependency-compiler"
+import { copyWormholeV2Artifact } from "../common/copyWormholeV2Artifact"
+
+task(TASK_COMPILE).setAction(async (args, hre, runSuper) => {
+  await runSuper(args)
+  await copyWormholeV2Artifact(hre, __dirname)
+})
 
 const config: HardhatUserConfig = {
   solidity: {
@@ -176,8 +184,8 @@ const config: HardhatUserConfig = {
       sepolia: 0,
       baseGoerli: 0,
       baseSepolia: 0,
-      mainnet: "0x123694886DBf5Ac94DDA07135349534536D14cAf",
-      base: "0x123694886DBf5Ac94DDA07135349534536D14cAf",
+      mainnet: "0x716089154304f22a2F9c8d2f8C45815183BF3532",
+      base: "0x716089154304f22a2F9c8d2f8C45815183BF3532",
     },
     governance: {
       default: 2,

@@ -3,6 +3,10 @@
 Interface for communication with the L2BitcoinRedeemer on-chain contract
 deployed on the given L2 chain.
 
+## Implemented by
+
+- [`EthereumL1BitcoinRedeemer`](../classes/EthereumL1BitcoinRedeemer.md)
+
 ## Table of contents
 
 ### Methods

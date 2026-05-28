@@ -4,6 +4,12 @@ import fs from "fs"
 import path from "path"
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
+  if (hre.network.name !== "hardhat") {
+    throw new Error(
+      "DEPRECATED: This script is replaced by 85_deploy_tip109_governance_upgrade.ts"
+    )
+  }
+
   const { ethers, deployments } = hre
 
   console.log("\n========== VERIFYING REBATE DEPLOYMENT ==========")
@@ -248,5 +254,4 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 export default func
 
 func.tags = ["VerifyRebateDeployment"]
-// This script can be run at any time to check status
-func.skip = async () => false
+func.skip = async () => process.env.VERIFY_REBATE !== "true"
