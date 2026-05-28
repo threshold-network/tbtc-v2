@@ -28,14 +28,11 @@ import "./MovingFunds.sol";
 import "../bank/Bank.sol";
 
 library BridgeState {
-    /// @notice On-chain identifier of the wallet scheme used when
-    ///         `requestNewWallet` is invoked. `Ecdsa` is the legacy
-    ///         keep-network ECDSA DKG path; `Frost` routes via the
-    ///         registered FROST wallet registry. Defaults to `Ecdsa`
-    ///         on activation of the C-2 upgrade so post-deploy
-    ///         behavior is unchanged until governance explicitly
-    ///         flips the scheme. See `setNewWalletScheme` and
-    ///         `dispatchNewWalletRequest`.
+    /// @notice Historical on-chain identifier of the wallet scheme.
+    ///         D-2.2 slice 3 removed the scheme setter and the
+    ///         request-time branch, but this enum remains because
+    ///         preserved storage and ABI-compatible event declarations
+    ///         still reference the type.
     enum WalletScheme {
         Ecdsa,
         Frost
@@ -407,28 +404,27 @@ library BridgeState {
         // wallet pubKeyHash that does not have a FROST registration
         // entry.
         mapping(bytes20 => bytes32) walletIDByWalletPubKeyHash;
-        // Currently selected wallet scheme for `requestNewWallet`.
-        // Governance flips via `setNewWalletScheme`. Defaults to
-        // `Ecdsa` on C-2 activation (preserves prior behavior;
-        // FROST opt-in must be explicit). Sits at slot 38 offset
-        // 0 (the preceding field is a mapping, which always
+        // Historical wallet-scheme selector preserved for proxy
+        // storage compatibility. D-2.2 slice 3 removed the external
+        // setters and stopped reading this field; new wallet creation
+        // now dispatches only to the FROST registry. Sits at slot 37
+        // offset 0 (the preceding field is a mapping, which always
         // occupies a full slot).
         WalletScheme currentNewWalletScheme;
         // Total ECDSA wallets ever registered on this Bridge,
         // counted from the C-2.1 activation block forward.
-        // Used by D-2's `finalizeEcdsaRetirement` to verify the
-        // governance-supplied retired-wallet list against the
-        // post-activation counter (pre-activation wallets are
-        // handled via off-chain governance attestation; the
-        // historical-count `seedEcdsaWalletCount` setter
-        // originally specified in RFC v6 is deferred — see
-        // §"Deferred from C-2.1" in the migration plan doc).
+        // Retained for retirement audit/runbook visibility and
+        // future migration checks. The historical-count
+        // `seedEcdsaWalletCount` setter and on-chain
+        // `finalizeEcdsaRetirement` path originally specified in
+        // RFC v6 were dropped before the canonical mirror; see the
+        // v7 reconciliation notes in the migration plan docs.
         // Strictly monotonic: incremented in
         // `Wallets.registerNewWallet`; NEVER decremented.
         //
         // Packs into the SAME slot as `currentNewWalletScheme`
-        // above (slot 38): solc places `uint128` (16B) at offset
-        // 1, right after the 1-byte enum. Total slot 38 usage:
+        // above (slot 37): solc places `uint128` (16B) at offset
+        // 1, right after the 1-byte enum. Total slot 37 usage:
         // 17 bytes of 32. No __gap change from C-2.
         uint128 ecdsaWalletCount;
         // D-1 soft-retirement flag. Set by the one-time
@@ -451,9 +447,9 @@ library BridgeState {
         // closes the *new wallet creation* boundary; D-2
         // performs the final structural removal.
         //
-        // Packs at slot 38 offset 17 (just after
+        // Packs at slot 37 offset 17 (just after
         // `ecdsaWalletCount`, which occupies bytes 1-16). Total
-        // slot 38 usage: 18 bytes of 32. No __gap change from
+        // slot 37 usage: 18 bytes of 32. No __gap change from
         // C-2 / C-2.1.
         bool ecdsaRetired;
         // Reserved storage space in case we need to add more variables.

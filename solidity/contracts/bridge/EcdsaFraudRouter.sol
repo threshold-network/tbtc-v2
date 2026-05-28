@@ -151,6 +151,12 @@ contract EcdsaFraudRouter {
     ///         can hand records over without per-field conversion.
     mapping(uint256 => Fraud.FraudChallenge) public fraudChallenges;
 
+    /// @notice Number of unresolved ECDSA fraud challenges currently
+    ///         held by this router. Intended for D-2.2 drain runbooks:
+    ///         before removing Bridge's ECDSA fraud timeout callback,
+    ///         governance can assert this value is zero on-chain.
+    uint256 public openFraudChallengeCount;
+
     event FraudChallengeSubmitted(
         bytes20 indexed walletPubKeyHash,
         bytes32 sighash,
@@ -216,6 +222,9 @@ contract EcdsaFraudRouter {
                 "Challenge already migrated"
             );
             fraudChallenges[challengeKeys[i]] = data[i];
+            if (!data[i].resolved) {
+                openFraudChallengeCount++;
+            }
             totalDeposit += data[i].depositAmount;
             emit FraudChallengeMigratedFromBridge(
                 challengeKeys[i],
@@ -301,6 +310,7 @@ contract EcdsaFraudRouter {
         /* solhint-disable-next-line not-rely-on-time */
         challenge.reportedAt = uint32(block.timestamp);
         challenge.resolved = false;
+        openFraudChallengeCount++;
 
         // slither-disable-next-line reentrancy-events
         emit FraudChallengeSubmitted(
@@ -392,6 +402,7 @@ contract EcdsaFraudRouter {
         bytes32 sighash
     ) internal {
         challenge.resolved = true;
+        openFraudChallengeCount--;
 
         address treasury = IBridgeForFraud(bridge).treasury();
         /* solhint-disable avoid-low-level-calls */
@@ -444,6 +455,7 @@ contract EcdsaFraudRouter {
         );
 
         challenge.resolved = true;
+        openFraudChallengeCount--;
 
         // Refund the challenger from the router's escrowed deposit.
         // The return value is intentionally ignored: a reverting
