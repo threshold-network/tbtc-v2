@@ -101,18 +101,14 @@ describe("Bridge - FROST Wallet Registration", () => {
     // for exactly this purpose.
     await bridge.resetFrostWalletRegistryForTest(ethers.constants.AddressZero)
 
-    // Bridge.registerNewFrostWallet checks lifecycleRouter BEFORE the
+    // Bridge.registerNewFrostWallet checks lifecycleRouter before the
     // CallerIsNotFrostWalletRegistry / xOnlyOutputKey checks, so the
     // negative `__frostWalletCreatedCallback` tests below need a
     // non-zero lifecycleRouter to reach the assertion they actually
-    // care about. The canonical deploy chain does not wire
-    // lifecycleRouter (no deploy script calls Bridge.setLifecycleRouter),
-    // so the slot is address(0) after the fixture. Wire it via the
-    // governance path; any non-zero address works for these tests
-    // since the lifecycle callback path itself is not exercised here.
-    await bridgeGovernance
-      .connect(governance)
-      .setLifecycleRouter(thirdParty.address)
+    // care about. The production deploy chain now sets the one-time
+    // router slot; use the test-only reset helper to point it at the
+    // local stub lifecycle owner for these isolated callback tests.
+    await bridge.resetLifecycleRouterForTest(thirdParty.address)
     await frostRegistry.setLifecycleOwner(thirdParty.address)
   })
 
