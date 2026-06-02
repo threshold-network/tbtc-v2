@@ -6,7 +6,6 @@ import chai, { expect } from "chai"
 import bridgeFixture from "../fixtures/bridge"
 import type {
   Bridge,
-  BridgeGovernance,
   BridgeStub,
   IRandomBeacon,
   IStaking,
@@ -58,9 +57,7 @@ chai.use(smock.matchers)
 
 describe("FrostWalletRegistry DKG edge cases (B-1.5 slice 4)", () => {
   let deployer: SignerWithAddress
-  let governance: SignerWithAddress
   let bridge: Bridge & BridgeStub
-  let bridgeGovernance: BridgeGovernance
   let frostWalletRegistry: any
   let frostSortitionPool: any
   let randomBeacon: any
@@ -88,8 +85,7 @@ describe("FrostWalletRegistry DKG edge cases (B-1.5 slice 4)", () => {
     this.timeout(300_000)
 
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ deployer, governance, bridge, bridgeGovernance } =
-      await waffle.loadFixture(bridgeFixture))
+    ;({ deployer, bridge } = await waffle.loadFixture(bridgeFixture))
 
     const t = await deployments.get("T")
     randomBeacon = await smock.fake<IRandomBeacon>("IRandomBeacon")
@@ -150,37 +146,15 @@ describe("FrostWalletRegistry DKG edge cases (B-1.5 slice 4)", () => {
     frostWalletRegistry = registry
     await frostSortitionPool.transferOwnership(frostWalletRegistry.address)
 
-    // The production deploy chain already wired Bridge.frostWalletRegistry +
-
-    // Bridge.lifecycleRouter via the no-tags bridgeFixture. Re-wiring to
-
-    // this test-only registry/router would revert with
-
-    // FrostWalletRegistryAlreadySet / LifecycleRouterAlreadySet. The
-
-    // tests below impersonate Bridge directly to drive the test registry,
-
-    // so Bridge.frostWalletRegistry pointing at the production registry
-
-    // is harmless — the test path is registry.requestNewWallet from an
-
-    // impersonated-bridge signer, not Bridge -> registry routing.
+    // The production deploy chain already wired Bridge.frostWalletRegistry
+    // and Bridge.lifecycleRouter via the no-tags bridgeFixture. This suite
+    // deploys a fresh registry and still lets approveDkgResult callback into
+    // Bridge, so reset the Bridge-side pointers to the local test registry
+    // and lifecycle-owner stand-in.
 
     await bridge.resetFrostWalletRegistryForTest(frostWalletRegistry.address)
 
-    try {
-      try {
-        await bridgeGovernance
-
-          .connect(governance)
-
-          .setLifecycleRouter(deployer.address)
-      } catch (e) {
-        // Swallow LifecycleRouterAlreadySet — production deploy set it first.
-      }
-    } catch (e) {
-      // Swallow LifecycleRouterAlreadySet — see note above.
-    }
+    await bridge.resetLifecycleRouterForTest(deployer.address)
 
     await frostWalletRegistry
       .connect(deployer)

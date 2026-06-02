@@ -6,7 +6,6 @@ import { expect } from "chai"
 import bridgeFixture from "../fixtures/bridge"
 import type {
   Bridge,
-  BridgeGovernance,
   BridgeStub,
   IRandomBeacon,
   IStaking,
@@ -45,9 +44,7 @@ import {
 
 describe("FrostWalletRegistry full-cycle DKG happy path (B-1.5 slice 3)", () => {
   let deployer: SignerWithAddress
-  let governance: SignerWithAddress
   let bridge: Bridge & BridgeStub
-  let bridgeGovernance: BridgeGovernance
   let frostWalletRegistry: any
   let frostSortitionPool: any
   let randomBeacon: any
@@ -58,8 +55,7 @@ describe("FrostWalletRegistry full-cycle DKG happy path (B-1.5 slice 3)", () => 
     this.timeout(300_000)
 
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ deployer, governance, bridge, bridgeGovernance } =
-      await waffle.loadFixture(bridgeFixture))
+    ;({ deployer, bridge } = await waffle.loadFixture(bridgeFixture))
 
     const t = await deployments.get("T")
 
@@ -143,27 +139,14 @@ describe("FrostWalletRegistry full-cycle DKG happy path (B-1.5 slice 3)", () => 
 
     await bridge.resetFrostWalletRegistryForTest(frostWalletRegistry.address)
 
-    // Bridge-side guard: `Wallets.registerNewFrostWallet`
-    // reverts with `LifecycleRouterNotSet()` if the router
-    // is unset (Codex P2 on B-1 #441). The actual router
-    // address only matters for the closeWallet/seize lifecycle
-    // dispatch, which isn't exercised in this test — any
-    // non-zero address satisfies the guard. Use the deployer
-    // as a stand-in.
-    try {
-      await bridgeGovernance
+    // Bridge-side callback guard requires the registry lifecycle owner
+    // to match Bridge.lifecycleRouter. The deploy chain sets the
+    // one-time router slot before this test deploys a fresh registry,
+    // so use the test-only reset helper to point Bridge at the local
+    // stand-in lifecycle owner.
+    await bridge.resetLifecycleRouterForTest(deployer.address)
 
-        .connect(governance)
-
-        .setLifecycleRouter(deployer.address)
-    } catch (e) {
-      // Swallow LifecycleRouterAlreadySet — production deploy set it first.
-    }
-
-    // Wire lifecycleOwner so requestNewWallet's
-    // LifecycleOwnerNotSet guard doesn't fire. Any non-zero
-    // address works; the actual address only matters for the
-    // closeWallet/seize paths (not exercised here).
+    // Wire lifecycleOwner to match the test Bridge router stand-in.
     await frostWalletRegistry
       .connect(deployer)
       .updateLifecycleOwner(deployer.address)

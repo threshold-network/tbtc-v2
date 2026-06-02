@@ -158,12 +158,11 @@ describe("FrostWalletRegistry permissions (B-1.5 final-slice subset)", () => {
     // patterns, so the registry exposes a separate
     // `lifecycleOwner` slot + modifier.
     //
-    // The canonical deploy chain wires `lifecycleOwner = Bridge`
-    // (deploy/48_deploy_frost_wallet_registry.ts) so the registry
-    // is usable end-to-end immediately after deploy. These tests
-    // exercise the "lifecycleOwner unset" gate semantics, so we
-    // temporarily un-wire it for the duration of this describe
-    // block and restore it after.
+    // The canonical deploy chain wires `lifecycleOwner` to the
+    // BridgeLifecycleRouter so the registry is usable end-to-end
+    // immediately after deploy. These tests exercise the
+    // "lifecycleOwner unset" gate semantics, so we temporarily un-wire
+    // it for the duration of this describe block and restore it after.
     before(async () => {
       await createSnapshot()
       await frostWalletRegistry
@@ -176,11 +175,8 @@ describe("FrostWalletRegistry permissions (B-1.5 final-slice subset)", () => {
     })
 
     it("lifecycleOwner is unset before governance wires it", async () => {
-      // Lifecycle ownership is wired by governance AFTER the
-      // BridgeLifecycleRouter ships in a follow-up PR. Until
-      // then, close/seize revert with the lifecycle-owner
-      // error. Safe because no FROST wallets exist
-      // immediately after deploy.
+      // With lifecycle ownership cleared, close/seize revert with the
+      // lifecycle-owner error and requestNewWallet fails fast.
       expect(await frostWalletRegistry.lifecycleOwner()).to.equal(
         ethers.constants.AddressZero
       )
