@@ -6,6 +6,13 @@ dist/
 .vscode/
 .envrc
 
+# Local environment files for Solidity
+solidity/.env
+solidity/.env.sepolia
+
 yarn-error.log
 CLAUDE.md
 .claude/
+
+# Generated Solidity API docs
+solidity/generated-docs/

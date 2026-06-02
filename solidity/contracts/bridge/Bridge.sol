@@ -186,6 +186,18 @@ contract Bridge is
         bool isTrusted
     );
 
+    event ControllerBalanceIncreased(
+        address indexed controller,
+        address indexed recipient,
+        uint256 amount
+    );
+
+    event ControllerBalancesIncreased(
+        address indexed controller,
+        address[] recipients,
+        uint256[] amounts
+    );
+
     event DepositParametersUpdated(
         uint64 depositDustThreshold,
         uint64 depositTreasuryFeeDivisor,
@@ -248,6 +260,8 @@ contract Bridge is
     /// @dev This event is used for transparency when fixing deposits that were
     ///      revealed with incorrect vault targets.
     event DepositVaultFixed(uint256 indexed depositKey, address newVault);
+
+    event MintingControllerSet(address controller);
 
     modifier onlySpvMaintainer() {
         require(
@@ -1611,6 +1625,61 @@ contract Bridge is
         self.updateTreasury(treasury);
     }
 
+    /// @notice Allows the configured controller to increase Bank balances via
+    ///         the Bridge.
+    /// @param recipient Address receiving the balance increase.
+    /// @param amount Amount by which the balance is increased.
+    // slither-disable-next-line reentrancy-vulnerabilities-3 reentrancy-vulnerabilities-2
+    function controllerIncreaseBalance(address recipient, uint256 amount)
+        external
+    {
+        require(
+            msg.sender == self.mintingController,
+            "Caller is not the authorized controller"
+        );
+        emit ControllerBalanceIncreased(msg.sender, recipient, amount);
+
+        self.bank.increaseBalance(recipient, amount);
+    }
+
+    /// @notice Allows the configured controller to increase multiple Bank
+    ///         balances via the Bridge.
+    /// @param recipients Addresses receiving the balance increases.
+    /// @param amounts Amounts by which balances are increased.
+    // slither-disable-next-line reentrancy-vulnerabilities-3 reentrancy-vulnerabilities-2
+    function controllerIncreaseBalances(
+        address[] calldata recipients,
+        uint256[] calldata amounts
+    ) external {
+        require(
+            msg.sender == self.mintingController,
+            "Caller is not the authorized controller"
+        );
+
+        emit ControllerBalancesIncreased(msg.sender, recipients, amounts);
+
+        self.bank.increaseBalances(recipients, amounts);
+    }
+
+    /// @notice Returns the currently configured minting controller address.
+    function mintingController() external view returns (address) {
+        return self.mintingController;
+    }
+
+    /// @notice Sets the redemption watchtower address.
+    /// @param redemptionWatchtower Address of the redemption watchtower.
+    /// @dev Requirements:
+    ///      - The caller must be the governance,
+    ///      - Redemption watchtower address must not be already set,
+    ///      - Redemption watchtower address must not be 0x0.
+    function setRedemptionWatchtower(address redemptionWatchtower)
+        external
+        onlyGovernance
+    {
+        // The internal function is defined in the `BridgeState` library.
+        self.setRedemptionWatchtower(redemptionWatchtower);
+    }
+
     /// @notice Collection of all revealed deposits indexed by
     ///         keccak256(fundingTxHash | fundingOutputIndex).
     ///         The fundingTxHash is bytes32 (ordered as in Bitcoin internally)
@@ -2037,18 +2106,20 @@ contract Bridge is
         return self.rebateStaking;
     }
 
-    /// @notice Sets the redemption watchtower address.
-    /// @param redemptionWatchtower Address of the redemption watchtower.
+    /// @notice Allows Governance to designate a single controller that can
+    ///         mint TBTC through the Bridge.
+    /// @param controller Address of the minting controller contract (MintBurnGuard).
     /// @dev Requirements:
     ///      - The caller must be the governance,
-    ///      - Redemption watchtower address must not be already set,
-    ///      - Redemption watchtower address must not be 0x0.
-    function setRedemptionWatchtower(address redemptionWatchtower)
-        external
-        onlyGovernance
-    {
-        // The internal function is defined in the `BridgeState` library.
-        self.setRedemptionWatchtower(redemptionWatchtower);
+    ///
+    /// @dev Setting to the zero address effectively removes the controller.
+    function setMintingController(address controller) external onlyGovernance {
+        self.setMintingController(controller);
+    }
+
+    /// @notice Returns the address of the minting controller.
+    function getMintingController() external view returns (address) {
+        return self.mintingController;
     }
 
     /// @return Address of the redemption watchtower.

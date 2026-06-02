@@ -10,6 +10,13 @@ on:
       - "published"
   workflow_dispatch:
 
+env:
+  # Ignore Node.js engine constraints when installing dependencies for
+  # Solidity doc generation. Some transitive tooling may declare a stricter
+  # Node engine (for example >=20) even though this workflow uses Node 18.15.0
+  # in the reusable `reusable-solidity-docs.yml` workflow.
+  YARN_IGNORE_ENGINES: "true"
+
 jobs:
   docs-detect-changes:
     runs-on: ubuntu-latest

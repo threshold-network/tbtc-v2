@@ -13,7 +13,8 @@
     "new-cap": "off",
     "import/no-extraneous-dependencies": "off",
     "@typescript-eslint/no-use-before-define": "off",
-    "no-plusplus": ["error", { "allowForLoopAfterthoughts": true }]
+    "no-plusplus": ["error", { "allowForLoopAfterthoughts": true }],
+    "func-names": "off"
   },
   "overrides": [
     {
@@ -26,6 +27,23 @@
         "@typescript-eslint/no-shadow": "off",
         "no-console": "off",
         "@typescript-eslint/no-unused-vars": "off"
+      }
+    },
+    {
+      "files": ["test/helpers/smock-compat.ts"],
+      "rules": {
+        "no-underscore-dangle": "off"
+      }
+    },
+    {
+      "files": ["deploy/**/*.ts", "deploy/**/*.js"],
+      "rules": {
+        "@typescript-eslint/unbound-method": "off",
+        "padding-line-between-statements": "off",
+        "@typescript-eslint/require-await": "off",
+        "no-restricted-syntax": "off",
+        "no-await-in-loop": "off",
+        "no-continue": "off"
       }
     }
   ]

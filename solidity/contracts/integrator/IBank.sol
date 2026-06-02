@@ -33,6 +33,10 @@ interface IBank {
         uint256 value
     );
 
+    /// @notice Decrease the balance of the caller by `amount`.
+    /// @param amount Amount to decrease.
+    function decreaseBalance(uint256 amount) external;
+
     /// @notice Increase the allowance of the spender address.
     /// @param spender Address of the spender.
     /// @param amount Amount of the allowance to increase.
@@ -46,10 +50,9 @@ interface IBank {
     /// @param sender Address of the sender.
     /// @param recipient Address of the recipient.
     /// @param amount Amount of tokens to transfer.
-    /// @return A boolean value indicating whether the operation succeeded.
     function transferBalanceFrom(
         address sender,
         address recipient,
         uint256 amount
-    ) external returns (bool);
+    ) external;
 }

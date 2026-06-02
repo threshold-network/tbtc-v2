@@ -1762,19 +1762,6 @@ contract BridgeGovernance is Ownable {
         bridge.updateTreasury(newTreasury);
     }
 
-    /// @notice Gets the governance delay parameter.
-    function governanceDelay() internal view returns (uint256) {
-        return governanceDelays[0];
-    }
-
-    // === One-off wiring hooks ===
-    //
-    // The following functions are one-time configuration hooks used during
-    // initialization of auxiliary components. They are intentionally not
-    // subject to the standard governance delay and are expected to succeed
-    // exactly once for a given Bridge implementation. Changing their
-    // configuration afterwards requires a dedicated upgrade path.
-
     /// @notice Sets the redemption watchtower address. This function does not
     ///         have a governance delay as setting the redemption watchtower is
     ///         a one-off action performed during initialization of the
@@ -1789,6 +1776,11 @@ contract BridgeGovernance is Ownable {
         onlyOwner
     {
         bridge.setRedemptionWatchtower(redemptionWatchtower);
+    }
+
+    /// @notice Gets the governance delay parameter.
+    function governanceDelay() internal view returns (uint256) {
+        return governanceDelays[0];
     }
 
     /// @notice Sets the rebate staking address. This function does not
@@ -1806,5 +1798,20 @@ contract BridgeGovernance is Ownable {
     ///         rebate staking configuration, this call will revert.
     function setRebateStaking(address rebateStaking) external onlyOwner {
         bridge.setRebateStaking(rebateStaking);
+    }
+
+    /// @notice Sets the controller contract that can request Bank balance
+    ///         increases via the Bridge
+    /// @param controller Address of the minting controller contract.
+    /// @dev Requirements:
+    ///      - The caller must be the owner,
+    ///      - The Bridge implementation is expected to enforce that the
+    ///        controller address is not 0x0.
+    ///
+    /// @notice This function forwards the call to the underlying Bridge
+    ///         implementation. If the Bridge implementation does not support
+    ///         controller configuration, this call will revert.
+    function setMintingController(address controller) external onlyOwner {
+        bridge.setMintingController(controller);
     }
 }

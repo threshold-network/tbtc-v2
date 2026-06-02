@@ -3,8 +3,6 @@
 pragma solidity ^0.8.0;
 
 import "../integrator/AbstractBTCRedeemer.sol";
-import "../integrator/IBridge.sol";
-import "../integrator/IBank.sol";
 import "../integrator/BitcoinTx.sol";
 
 contract TestBTCRedeemer is AbstractBTCRedeemer {
