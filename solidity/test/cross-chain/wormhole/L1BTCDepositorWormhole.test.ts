@@ -1803,9 +1803,10 @@ describe("L1BTCDepositorWormhole", () => {
     //
     // The standard _calculateTbtcAmount would do: 99500e10 -4975e10 -1000e10=93525e10
     // Because we reimburse depositTxMaxFee, we add 1000e10 back => 94525e10
+    const expectedTbtcAmountBase = to1ePrecision(93525, 10)
     const expectedTbtcAmountReimbursed = to1ePrecision(94525, 10)
 
-    before(async () => {
+    beforeEach(async () => {
       await createSnapshot()
 
       // Turn the feature flag on
@@ -1821,7 +1822,17 @@ describe("L1BTCDepositorWormhole", () => {
       }
     })
 
-    after(async () => {
+    afterEach(async () => {
+      bridge.depositParameters.reset()
+      tbtcVault.optimisticMintingFeeDivisor.reset()
+      bridge.revealDepositWithExtraData.reset()
+      bridge.deposits.reset()
+      tbtcVault.optimisticMintingRequests.reset()
+      wormhole.messageFee.reset()
+      wormholeRelayer.quoteEVMDeliveryPrice.reset()
+      wormholeTokenBridge.transferTokensWithPayload.reset()
+      wormholeRelayer.sendVaasToEvm.reset()
+
       await restoreSnapshot()
     })
 
@@ -1874,14 +1885,17 @@ describe("L1BTCDepositorWormhole", () => {
       wormholeTokenBridge.transferTokensWithPayload.returns(555)
       wormholeRelayer.sendVaasToEvm.returns(999)
 
-      // 7) Now finalize with enough payment
+      // 7) Mint enough tBTC to cover the reimbursed amount.
+      await tbtcToken.mint(l1BtcDepositor.address, expectedTbtcAmountReimbursed)
+
+      // 8) Now finalize with enough payment
       const tx = await l1BtcDepositor
         .connect(relayer)
         .finalizeDeposit(initializeDepositFixture.depositKey, {
           value: messageFee + deliveryCost,
         })
 
-      // 8) The final minted TBTC should be 94525e10
+      // 9) The final minted TBTC should be 94525e10
       await expect(tx)
         .to.emit(l1BtcDepositor, "DepositFinalized")
         .withArgs(
@@ -1890,6 +1904,86 @@ describe("L1BTCDepositorWormhole", () => {
           relayer.address,
           depositAmount.mul(satoshiMultiplier),
           expectedTbtcAmountReimbursed
+        )
+    })
+
+    it("should skip depositTxMaxFee reimbursement when contract balance cannot cover it", async () => {
+      // 1) Initialize deposit
+      await l1BtcDepositor
+        .connect(relayer)
+        .initializeDeposit(
+          initializeDepositFixture.fundingTx,
+          initializeDepositFixture.reveal,
+          initializeDepositFixture.destinationChainDepositOwner
+        )
+
+      // 2) Setup Bridge deposit parameters
+      bridge.depositParameters.returns({
+        depositDustThreshold: 0,
+        depositTreasuryFeeDivisor: 0,
+        depositTxMaxFee,
+        depositRevealAheadPeriod: 0,
+      })
+      // 3) Setup vault fees
+      tbtcVault.optimisticMintingFeeDivisor.returns(optimisticMintingFeeDivisor)
+
+      // 4) Prepare deposit finalization
+      const revealedAt = (await lastBlockTime()) - 7200
+      const finalizedAt = await lastBlockTime()
+      bridge.deposits
+        .whenCalledWith(initializeDepositFixture.depositKey)
+        .returns({
+          depositor: l1BtcDepositor.address,
+          amount: depositAmount,
+          revealedAt,
+          vault: initializeDepositFixture.reveal.vault,
+          treasuryFee,
+          sweptAt: finalizedAt,
+          extraData: initializeDepositFixture.destinationChainDepositOwner,
+        })
+      tbtcVault.optimisticMintingRequests
+        .whenCalledWith(initializeDepositFixture.depositKey)
+        .returns([revealedAt, finalizedAt])
+
+      // 5) Setup Wormhole cost
+      wormhole.messageFee.returns(messageFee)
+      wormholeRelayer.quoteEVMDeliveryPrice.returns({
+        nativePriceQuote: BigNumber.from(deliveryCost),
+        targetChainRefundPerGasUnused: BigNumber.from(0),
+      })
+
+      // 6) The bridging calls
+      wormholeTokenBridge.transferTokensWithPayload.returns(555)
+      wormholeRelayer.sendVaasToEvm.returns(999)
+
+      // 7) Mint only the base tBTC amount, simulating a contract balance that
+      // cannot cover the extra depositTxMaxFee reimbursement.
+      await tbtcToken.mint(l1BtcDepositor.address, expectedTbtcAmountBase)
+
+      // 8) Now finalize with enough payment
+      const tx = await l1BtcDepositor
+        .connect(relayer)
+        .finalizeDeposit(initializeDepositFixture.depositKey, {
+          value: messageFee + deliveryCost,
+        })
+
+      const txMaxFee = depositTxMaxFee.mul(satoshiMultiplier)
+      await expect(tx)
+        .to.emit(l1BtcDepositor, "DepositTxMaxFeeReimbursementSkipped")
+        .withArgs(
+          initializeDepositFixture.depositKey,
+          txMaxFee,
+          expectedTbtcAmountBase
+        )
+
+      await expect(tx)
+        .to.emit(l1BtcDepositor, "DepositFinalized")
+        .withArgs(
+          initializeDepositFixture.depositKey,
+          initializeDepositFixture.destinationChainDepositOwner.toLowerCase(),
+          relayer.address,
+          depositAmount.mul(satoshiMultiplier),
+          expectedTbtcAmountBase
         )
     })
   })
