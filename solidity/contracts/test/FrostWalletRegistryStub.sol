@@ -108,7 +108,10 @@ contract FrostWalletRegistryStub {
         address operator,
         uint256 walletMemberIndex
     ) external view returns (bool) {
-        require(walletID == expectedIsWalletMemberWalletID, "Unexpected wallet");
+        require(
+            walletID == expectedIsWalletMemberWalletID,
+            "Unexpected wallet"
+        );
         require(
             operator == expectedIsWalletMemberOperator,
             "Unexpected operator"
@@ -125,7 +128,8 @@ contract FrostWalletRegistryStub {
 
         for (uint256 i = 0; i < walletMembersIDs.length; i++) {
             require(
-                walletMembersIDs[i] == expectedIsWalletMemberWalletMembersIDs[i],
+                walletMembersIDs[i] ==
+                    expectedIsWalletMemberWalletMembersIDs[i],
                 "Unexpected member"
             );
         }
