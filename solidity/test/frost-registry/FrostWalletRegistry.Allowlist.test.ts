@@ -26,8 +26,7 @@ async function expectCustomError(
     const errMsg = errAny.message || String(err)
     if (
       (revertData && revertData.toLowerCase().startsWith(expectedSelector)) ||
-      errMsg.toLowerCase().includes(expectedSelector) ||
-      errMsg.includes(errorName)
+      errMsg.toLowerCase().includes(expectedSelector)
     ) {
       return
     }

@@ -85,7 +85,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
           `configured as a signer for network ${hre.network.name}`
 
         if (hre.network.name === "mainnet") {
-          console.log(`${message}; skipping for manual governance execution`)
+          console.log(`${message}; skipping for manual ownership transfer`)
         } else {
           throw new Error(message)
         }
@@ -128,29 +128,52 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     frostAllowlistOwner.toLowerCase() === deployer.toLowerCase()
   ) {
     const pendingOwner = await frostAllowlist.pendingOwner()
-    if (pendingOwner.toLowerCase() !== governance.toLowerCase()) {
-      const transferTx = await frostAllowlist
-        .connect(await ethers.getSigner(deployer))
-        .transferOwnership(governance)
-      await transferTx.wait(1)
-      console.log(
-        `started FrostAllowlist ownership transfer from deployer ${deployer} to governance ${governance}`
-      )
+    let ownershipTransferPending =
+      pendingOwner.toLowerCase() === governance.toLowerCase()
+    if (!ownershipTransferPending) {
+      const deployerSigner = await getConfiguredSigner(hre, deployer)
+      if (!deployerSigner) {
+        const message =
+          "FrostAllowlist ownership transfer must be executed by deployer " +
+          `${deployer}, but that address is not configured as a signer for ` +
+          `network ${hre.network.name}`
+
+        if (hre.network.name === "mainnet") {
+          console.log(`${message}; skipping for manual governance execution`)
+        } else {
+          throw new Error(message)
+        }
+      } else {
+        const transferTx = await frostAllowlist
+          .connect(deployerSigner)
+          .transferOwnership(governance)
+        await transferTx.wait(1)
+        ownershipTransferPending = true
+        console.log(
+          `started FrostAllowlist ownership transfer from deployer ${deployer} to governance ${governance}`
+        )
+      }
     }
 
-    const governanceSigner = await getConfiguredSigner(hre, governance)
-    if (governanceSigner) {
-      const acceptTx = await frostAllowlist
-        .connect(governanceSigner)
-        .acceptOwnership()
-      await acceptTx.wait(1)
+    if (!ownershipTransferPending) {
       console.log(
-        `FrostAllowlist ownership accepted by governance ${governance}`
+        `FrostAllowlist ownership remains with deployer ${deployer}; deployer must transfer ownership to governance ${governance} before acceptOwnership`
       )
     } else {
-      console.log(
-        `FrostAllowlist ownership transfer is pending; governance ${governance} must call acceptOwnership`
-      )
+      const governanceSigner = await getConfiguredSigner(hre, governance)
+      if (governanceSigner) {
+        const acceptTx = await frostAllowlist
+          .connect(governanceSigner)
+          .acceptOwnership()
+        await acceptTx.wait(1)
+        console.log(
+          `FrostAllowlist ownership accepted by governance ${governance}`
+        )
+      } else {
+        console.log(
+          `FrostAllowlist ownership transfer is pending; governance ${governance} must call acceptOwnership`
+        )
+      }
     }
   } else if (
     governance &&

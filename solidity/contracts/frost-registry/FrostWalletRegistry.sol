@@ -160,8 +160,8 @@ contract FrostWalletRegistry is
 
     /// @notice Contract providing FROST operator authorization weights. The
     ///         current production source is `FrostAllowlist`, but the registry
-    ///         only depends on this neutral interface so future permissionless
-    ///         or bonded authorization sources can be introduced cleanly.
+    ///         only depends on this neutral interface. Source migration is
+    ///         upgrade-only because `initializeV2` is intentionally one-shot.
     IFrostAuthorizationSource public authorizationSource;
 
     // Events
