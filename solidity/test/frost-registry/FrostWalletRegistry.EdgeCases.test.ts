@@ -8,12 +8,12 @@ import type {
   Bridge,
   BridgeStub,
   IRandomBeacon,
-  IStaking,
   ReimbursementPool,
 } from "../../typechain"
 import {
   FROST_GROUP_SIZE,
   Operators,
+  allowlistOperatorWallets,
   computeFrostResultDigest,
   deriveFundedOperatorWallets,
   hardhatNetworkId,
@@ -21,7 +21,6 @@ import {
   registerOperators,
   selectFrostGroup,
   signFrostDkgResult,
-  wireStakingFake,
 } from "../integration/utils/frost-wallet-registry"
 
 // Register smock's chai matchers (`have.been.calledOnce`,
@@ -51,17 +50,17 @@ chai.use(smock.matchers)
 //      the sortition pool.
 //
 // The shared deploy logic mirrors slice 3 (smock beacon +
-// staking + reimbursement pool, deactivated chaosnet on the
-// sortition pool, registry wired to Bridge with both
-// walletOwner and lifecycleOwner set, DKG params compressed).
+// allowlist + reimbursement pool, deactivated chaosnet on the
+// sortition pool, registry wired to Bridge with both walletOwner
+// and lifecycleOwner set, DKG params compressed).
 
 describe("FrostWalletRegistry DKG edge cases (B-1.5 slice 4)", () => {
   let deployer: SignerWithAddress
   let bridge: Bridge & BridgeStub
   let frostWalletRegistry: any
+  let frostAllowlist: any
   let frostSortitionPool: any
   let randomBeacon: any
-  let staking: any
   let operators: Operators
 
   // DKG state enum mirrors `FrostDkg.State`:
@@ -89,8 +88,6 @@ describe("FrostWalletRegistry DKG edge cases (B-1.5 slice 4)", () => {
 
     const t = await deployments.get("T")
     randomBeacon = await smock.fake<IRandomBeacon>("IRandomBeacon")
-    staking = await smock.fake<IStaking>("IStaking")
-    wireStakingFake(hre, staking)
 
     const reimbursementPoolFake = await smock.fake<ReimbursementPool>(
       "ReimbursementPool"
@@ -137,7 +134,7 @@ describe("FrostWalletRegistry DKG edge cases (B-1.5 slice 4)", () => {
           libraries: { FrostInactivity: inact.address },
         },
         proxyOpts: {
-          constructorArgs: [frostSortitionPool.address, staking.address],
+          constructorArgs: [frostSortitionPool.address],
           unsafeAllow: ["external-library-linking"],
           kind: "transparent",
         },
@@ -172,7 +169,27 @@ describe("FrostWalletRegistry DKG edge cases (B-1.5 slice 4)", () => {
         SUBMITTER_PRECEDENCE_BLOCKS
       )
 
+    const [allowlist] = await helpers.upgrades.deployProxy(
+      "FrostAllowlistEdgeCasesTest",
+      {
+        contractName: "FrostAllowlist",
+        initializerArgs: [frostWalletRegistry.address],
+        factoryOpts: {
+          signer: deployer,
+        },
+        proxyOpts: {
+          kind: "transparent",
+        },
+      }
+    )
+    frostAllowlist = allowlist
+
+    await frostWalletRegistry
+      .connect(deployer)
+      .initializeV2(frostAllowlist.address)
+
     const wallets = await deriveFundedOperatorWallets(hre, FROST_GROUP_SIZE)
+    await allowlistOperatorWallets(frostAllowlist, frostWalletRegistry, wallets)
     operators = await registerOperators(
       hre,
       frostWalletRegistry,
@@ -341,12 +358,10 @@ describe("FrostWalletRegistry DKG edge cases (B-1.5 slice 4)", () => {
       "successful challenge resets state to AWAITING_RESULT (submission window not yet expired)"
     )
 
-    // `staking.seize(...)` was called with the slashing
-    // amount, mult, notifier, and the wrapped submitter
-    // operator address. Smock IStaking auto-stubs the
-    // function; assert it was called with the right
-    // notifier (msg.sender of challenge).
-    expect(staking.seize).to.have.been.calledOnce
+    await expect(challengeTx).to.emit(
+      frostAllowlist,
+      "MaliciousBehaviorIdentified"
+    )
   })
 
   it("misbehaved members: happy path with non-empty misbehaved list registers wallet + sets reward ineligibility", async function misbehavedMembers() {

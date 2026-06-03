@@ -9,13 +9,12 @@ import type {
   BridgeGovernance,
   BridgeStub,
   IRandomBeacon,
-  IStaking,
 } from "../../typechain"
 import {
   FROST_GROUP_SIZE,
+  allowlistOperatorWallets,
   deriveFundedOperatorWallets,
   registerOperators,
-  wireStakingFake,
 } from "../integration/utils/frost-wallet-registry"
 
 // B-1.5 slice 2: 100-operator sortition pool fixture.
@@ -55,17 +54,12 @@ describe("FrostWalletRegistry 100-operator fixture (B-1.5 slice 2)", () => {
 
     // Mirror the deploy chain from
     // FrostWalletRegistry.Permissions.test.ts: T token →
-    // SortitionPool → IStaking fake → IRandomBeacon fake →
-    // FrostDkgValidator → FrostInactivity → FrostWalletRegistry.
+    // SortitionPool → IRandomBeacon fake → FrostDkgValidator →
+    // FrostInactivity → FrostWalletRegistry → FrostAllowlist.
     const t = await deployments.get("T")
     const reimbursementPool = await deployments.get("ReimbursementPool")
 
     const randomBeacon = await smock.fake<IRandomBeacon>("IRandomBeacon")
-    const tokenStaking = await smock.fake<IStaking>("IStaking")
-    // Configure staking fake to return positive eligible-stake
-    // for every (stakingProvider, application) pair so
-    // `joinSortitionPool` passes the authorization check.
-    wireStakingFake(hre, tokenStaking)
 
     const SortitionPoolFactory = await ethers.getContractFactory(
       "@keep-network/sortition-pools/contracts/SortitionPool.sol:SortitionPool"
@@ -117,7 +111,7 @@ describe("FrostWalletRegistry 100-operator fixture (B-1.5 slice 2)", () => {
           libraries: { FrostInactivity: inact.address },
         },
         proxyOpts: {
-          constructorArgs: [frostSortitionPool.address, tokenStaking.address],
+          constructorArgs: [frostSortitionPool.address],
           unsafeAllow: ["external-library-linking"],
           kind: "transparent",
         },
@@ -142,11 +136,30 @@ describe("FrostWalletRegistry 100-operator fixture (B-1.5 slice 2)", () => {
 
     await bridge.resetFrostWalletRegistryForTest(frostWalletRegistry.address)
 
-    // Generate 100 deterministic funded wallets and register
-    // each as an operator. Wallet i is both the staking
-    // provider AND the operator for operator-slot i (tests
-    // don't need the prod separation between roles).
+    const [frostAllowlist] = await helpers.upgrades.deployProxy(
+      "FrostAllowlistOperatorFixtureTest",
+      {
+        contractName: "FrostAllowlist",
+        initializerArgs: [frostWalletRegistry.address],
+        factoryOpts: {
+          signer: deployer,
+        },
+        proxyOpts: {
+          kind: "transparent",
+        },
+      }
+    )
+
+    await frostWalletRegistry
+      .connect(deployer)
+      .initializeV2(frostAllowlist.address)
+
+    // Generate 100 deterministic funded wallets, admit them through
+    // the permissioned allowlist, and register each as an operator.
+    // Wallet i is both the staking provider AND the operator for
+    // operator-slot i (tests don't need the prod separation between roles).
     const wallets = await deriveFundedOperatorWallets(hre, FROST_GROUP_SIZE)
+    await allowlistOperatorWallets(frostAllowlist, frostWalletRegistry, wallets)
     operators = await registerOperators(
       hre,
       frostWalletRegistry,

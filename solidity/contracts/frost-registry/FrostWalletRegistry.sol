@@ -26,6 +26,7 @@ pragma solidity 0.8.17;
 // that would couple every FROST DKG state change to the ECDSA
 // enum's versioning.
 import "./api/IFrostWalletOwner.sol";
+import "./api/IFrostAuthorizationSource.sol";
 import "./libraries/FrostRegistryWallets.sol";
 import {FrostAuthorization as Authorization} from "./libraries/FrostAuthorization.sol";
 import {FrostDkg as DKG} from "./libraries/FrostDkg.sol";
@@ -40,7 +41,6 @@ import "@keep-network/random-beacon/contracts/ReimbursementPool.sol";
 import "@keep-network/random-beacon/contracts/Governable.sol";
 
 import "@threshold-network/solidity-contracts/contracts/staking/IApplication.sol";
-import "@threshold-network/solidity-contracts/contracts/staking/IStaking.sol";
 
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
@@ -68,13 +68,10 @@ contract FrostWalletRegistry is
     ///         `_maliciousDkgResultSlashingAmount`.
     uint96 internal _maliciousDkgResultSlashingAmount;
 
-    /// @notice Percentage of the staking contract malicious behavior
-    ///         notification reward which will be transferred to the notifier
-    ///         reporting about a malicious DKG result. Notifiers are rewarded
-    ///         from a notifiers treasury pool. For example, if
-    ///         notification reward is 1000 and the value of the multiplier is
-    ///         5, the notifier will receive: 5% of 1000 = 50 per each
-    ///         operator affected.
+    /// @notice Compatibility multiplier passed to the authorization source's
+    ///         malicious behavior hook. Under the FROST allowlist model, the
+    ///         hook is a no-op event emission; there are no staked tokens to
+    ///         seize or notifier rewards to pay from staking.
     uint256 internal _maliciousDkgResultNotificationRewardMultiplier;
 
     /// @notice Duration of the sortition pool rewards ban imposed on operators
@@ -159,9 +156,13 @@ contract FrostWalletRegistry is
 
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     SortitionPool public immutable sortitionPool;
-    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    IStaking public immutable staking;
     IRandomBeacon public randomBeacon;
+
+    /// @notice Contract providing FROST operator authorization weights. The
+    ///         current production source is `FrostAllowlist`, but the registry
+    ///         only depends on this neutral interface so future permissionless
+    ///         or bonded authorization sources can be introduced cleanly.
+    IFrostAuthorizationSource public authorizationSource;
 
     // Events
     event DkgStarted(uint256 indexed seed);
@@ -298,10 +299,15 @@ contract FrostWalletRegistry is
         address notifier
     );
 
-    modifier onlyStakingContract() {
+    modifier onlyAuthorizationSource() {
+        address currentAuthorizationSource = address(authorizationSource);
         require(
-            msg.sender == address(staking),
-            "Caller is not the staking contract"
+            currentAuthorizationSource != address(0),
+            "Authorization source is not initialized"
+        );
+        require(
+            msg.sender == currentAuthorizationSource,
+            "Caller is not the authorization source"
         );
         _;
     }
@@ -336,9 +342,8 @@ contract FrostWalletRegistry is
     /// @dev Used to initialize immutable variables only, use `initialize` function
     ///      for upgradable contract initialization on deployment.
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor(SortitionPool _sortitionPool, IStaking _staking) {
+    constructor(SortitionPool _sortitionPool) {
         sortitionPool = _sortitionPool;
-        staking = _staking;
 
         _disableInitializers();
     }
@@ -396,8 +401,8 @@ contract FrostWalletRegistry is
         // minimum authorization (400 T). This values needs to be increased
         // significantly once the system is fully launched.
         //
-        // Notifier of a malicious DKG result receives 100% of the notifier
-        // reward from the staking contract.
+        // Notifier multiplier kept at 100 for compatibility with the
+        // authorization-source hook. The FROST allowlist hook is event-only.
         //
         // Inactive operators are set as ineligible for rewards for 2 weeks.
         _maliciousDkgResultSlashingAmount = 400e18;
@@ -444,15 +449,32 @@ contract FrostWalletRegistry is
         _notifyDkgTimeoutNegativeGasOffset = 2_300;
     }
 
+    /// @notice Wires the FROST operator authorization source. Authorization
+    ///         callbacks and authorization weight reads are disabled until this
+    ///         method is called.
+    function initializeV2(address _authorizationSource)
+        external
+        reinitializer(2)
+    {
+        require(governance == msg.sender, "Caller is not the governance");
+        require(
+            _authorizationSource != address(0),
+            "Authorization source address cannot be zero"
+        );
+        authorizationSource = IFrostAuthorizationSource(_authorizationSource);
+    }
+
     /// @notice Withdraws application rewards for the given staking provider.
-    ///         Rewards are withdrawn to the staking provider's beneficiary
-    ///         address set in the staking contract. Reverts if staking provider
+    ///         Rewards are withdrawn to the beneficiary returned by the
+    ///         allowlist compatibility interface. Reverts if staking provider
     ///         has not registered the operator address.
     /// @dev Emits `RewardsWithdrawn` event.
     function withdrawRewards(address stakingProvider) external {
         address operator = stakingProviderToOperator(stakingProvider);
         require(operator != address(0), "Unknown operator");
-        (, address beneficiary, ) = staking.rolesOf(stakingProvider);
+        (, address beneficiary, ) = _currentAuthorizationSource().rolesOf(
+            stakingProvider
+        );
         uint96 amount = sortitionPool.withdrawRewards(operator, beneficiary);
         // slither-disable-next-line reentrancy-events
         emit RewardsWithdrawn(stakingProvider, amount);
@@ -471,7 +493,7 @@ contract FrostWalletRegistry is
     }
 
     /// @notice Used by staking provider to set operator address that will
-    ///         operate ECDSA node. The given staking provider can set operator
+    ///         operate a FROST node. The given staking provider can set operator
     ///         address only one time. The operator address can not be changed
     ///         and must be unique. Reverts if the operator is already set for
     ///         the staking provider or if the operator address is already in
@@ -485,12 +507,15 @@ contract FrostWalletRegistry is
     ///         must be known - before calling this function, it has to be
     ///         appointed by the staking provider by calling `registerOperator`.
     ///         Also, the operator must have the minimum authorization required
-    ///         by ECDSA. Function reverts if there is no minimum stake
-    ///         authorized or if the operator is not known. If there was an
+    ///         by FROST. Function reverts if there is no minimum authorization
+    ///         or if the operator is not known. If there was an
     ///         authorization decrease requested, it is activated by starting
     ///         the authorization decrease delay.
     function joinSortitionPool() external {
-        authorization.joinSortitionPool(staking, sortitionPool);
+        authorization.joinSortitionPool(
+            _currentAuthorizationSource(),
+            sortitionPool
+        );
     }
 
     /// @notice Updates status of the operator in the sortition pool. If there
@@ -498,11 +523,16 @@ contract FrostWalletRegistry is
     ///         starting the authorization decrease delay.
     ///         Function reverts if the operator is not known.
     function updateOperatorStatus(address operator) external {
-        authorization.updateOperatorStatus(staking, sortitionPool, operator);
+        authorization.updateOperatorStatus(
+            _currentAuthorizationSource(),
+            sortitionPool,
+            operator
+        );
     }
 
-    /// @notice Used by T staking contract to inform the application that the
-    ///         authorized stake amount for the given staking provider increased.
+    /// @notice Used by the authorization source to inform the registry that
+    ///         the authorization weight for the given staking provider
+    ///         increased.
     ///
     ///         Reverts if the authorization amount is below the minimum.
     ///
@@ -510,12 +540,12 @@ contract FrostWalletRegistry is
     ///         state needs to be updated by the operator with a call to
     ///         `joinSortitionPool` or `updateOperatorStatus`.
     ///
-    /// @dev Can only be called by T staking contract.
+    /// @dev Can only be called by the FROST allowlist authorization source.
     function authorizationIncreased(
         address stakingProvider,
         uint96 fromAmount,
         uint96 toAmount
-    ) external onlyStakingContract {
+    ) external onlyAuthorizationSource {
         authorization.authorizationIncreased(
             stakingProvider,
             fromAmount,
@@ -523,9 +553,9 @@ contract FrostWalletRegistry is
         );
     }
 
-    /// @notice Used by T staking contract to inform the application that the
-    ///         authorization decrease for the given staking provider has been
-    ///         requested.
+    /// @notice Used by the authorization source to inform the registry that an
+    ///         authorization weight decrease for the given staking provider has
+    ///         been requested.
     ///
     ///         Reverts if the amount after deauthorization would be non-zero
     ///         and lower than the minimum authorization.
@@ -545,12 +575,12 @@ contract FrostWalletRegistry is
     ///         If there is a pending authorization decrease request, it is
     ///         overwritten.
     ///
-    /// @dev Can only be called by T staking contract.
+    /// @dev Can only be called by the FROST allowlist authorization source.
     function authorizationDecreaseRequested(
         address stakingProvider,
         uint96 fromAmount,
         uint96 toAmount
-    ) external onlyStakingContract {
+    ) external onlyAuthorizationSource {
         authorization.authorizationDecreaseRequested(
             stakingProvider,
             fromAmount,
@@ -563,12 +593,15 @@ contract FrostWalletRegistry is
     ///         yet or if the authorization decrease was not requested for the
     ///         given staking provider.
     function approveAuthorizationDecrease(address stakingProvider) external {
-        authorization.approveAuthorizationDecrease(staking, stakingProvider);
+        authorization.approveAuthorizationDecrease(
+            _currentAuthorizationSource(),
+            stakingProvider
+        );
     }
 
-    /// @notice Used by T staking contract to inform the application the
-    ///         authorization has been decreased for the given staking provider
-    ///         involuntarily, as a result of slashing.
+    /// @notice Compatibility callback for involuntary authorization decreases.
+    ///         Under the FROST allowlist model, authorization changes are
+    ///         governance-controlled rather than token-slashing-controlled.
     ///
     ///         If the operator is not known (`registerOperator` was not called)
     ///         the function does nothing. The operator was never in a sortition
@@ -577,16 +610,16 @@ contract FrostWalletRegistry is
     ///         If the operator is known, sortition pool is unlocked, and the
     ///         operator is in the sortition pool, the sortition pool state is
     ///         updated. If the sortition pool is locked, update needs to be
-    ///         postponed. Every other staker is incentivized to call
+    ///         postponed. Every other operator provider is incentivized to call
     ///         `updateOperatorStatus` for the problematic operator to increase
     ///         their own rewards in the pool.
     function involuntaryAuthorizationDecrease(
         address stakingProvider,
         uint96 fromAmount,
         uint96 toAmount
-    ) external onlyStakingContract {
+    ) external onlyAuthorizationSource {
         authorization.involuntaryAuthorizationDecrease(
-            staking,
+            _currentAuthorizationSource(),
             sortitionPool,
             stakingProvider,
             fromAmount,
@@ -997,8 +1030,9 @@ contract FrostWalletRegistry is
             maliciousDkgResultSubmitterAddress
         );
 
+        IFrostAuthorizationSource currentAuthorizationSource = _currentAuthorizationSource();
         try
-            staking.seize(
+            currentAuthorizationSource.reportMaliciousBehavior(
                 _maliciousDkgResultSlashingAmount,
                 _maliciousDkgResultNotificationRewardMultiplier,
                 msg.sender,
@@ -1104,14 +1138,14 @@ contract FrostWalletRegistry is
         );
     }
 
-    /// @notice Allows the wallet owner to add all signing group members of the
-    ///         wallet with the given ID to the slashing queue of the staking .
-    ///         contract. The notifier will receive reward per each group member
-    ///         from the staking contract notifiers treasury. The reward is
-    ///         scaled by the `rewardMultiplier` provided as a parameter.
-    /// @param amount Amount of tokens to seize from each signing group member.
-    /// @param rewardMultiplier Fraction of the staking contract notifiers
-    ///        reward the notifier should receive; should be between [0, 100].
+    /// @notice Allows the wallet owner to report all signing group members of
+    ///         the wallet with the given ID to the authorization source's
+    ///         misbehavior hook. In the FROST allowlist implementation this is
+    ///         an event-only no-op because operators do not stake tokens.
+    /// @param amount Compatibility amount forwarded to the authorization
+    ///        source. The FROST allowlist ignores it.
+    /// @param rewardMultiplier Compatibility reward multiplier forwarded to the
+    ///        authorization source. The FROST allowlist ignores it.
     /// @param notifier Address of the misbehavior notifier.
     /// @param walletID ID of the wallet.
     /// @param walletMembersIDs Identifiers of the wallet signing group members.
@@ -1123,7 +1157,7 @@ contract FrostWalletRegistry is
     ///        read from appropriate `DkgResultSubmitted` and `DkgResultApproved`
     ///        events.
     ///      - `rewardMultiplier` must be between [0, 100].
-    ///      - This function does revert if staking contract call reverts.
+    ///      - This function reverts if the authorization source call reverts.
     ///        The calling code needs to handle the potential revert.
     function seize(
         uint96 amount,
@@ -1150,7 +1184,7 @@ contract FrostWalletRegistry is
             );
         }
 
-        staking.seize(
+        _currentAuthorizationSource().reportMaliciousBehavior(
             amount,
             rewardMultiplier,
             notifier,
@@ -1264,24 +1298,28 @@ contract FrostWalletRegistry is
         return wallets.isWalletRegistered(walletID);
     }
 
-    /// @notice The minimum authorization amount required so that operator can
-    ///         participate in ECDSA Wallet operations.
+    /// @notice The minimum authorization amount required so that an operator
+    ///         can participate in FROST wallet operations.
     function minimumAuthorization() external view returns (uint96) {
         return authorization.parameters.minimumAuthorization;
     }
 
-    /// @notice Returns the current value of the staking provider's eligible
-    ///         stake. Eligible stake is defined as the currently authorized
-    ///         stake minus the pending authorization decrease. Eligible stake
-    ///         is what is used for operator's weight in the sortition pool.
-    ///         If the authorized stake minus the pending authorization decrease
-    ///         is below the minimum authorization, eligible stake is 0.
+    /// @notice Returns the current value of the provider's eligible
+    ///         authorization. Eligible authorization is defined as the current
+    ///         authorization weight minus the pending authorization decrease.
+    ///         This value is used for the operator's weight in the sortition
+    ///         pool. If it is below the minimum authorization, eligible
+    ///         authorization is 0.
     function eligibleStake(address stakingProvider)
         external
         view
         returns (uint96)
     {
-        return authorization.eligibleStake(staking, stakingProvider);
+        return
+            authorization.eligibleStake(
+                _currentAuthorizationSource(),
+                stakingProvider
+            );
     }
 
     /// @notice Returns the amount of rewards available for withdrawal for the
@@ -1297,7 +1335,7 @@ contract FrostWalletRegistry is
         return sortitionPool.getAvailableRewards(operator);
     }
 
-    /// @notice Returns the amount of stake that is pending authorization
+    /// @notice Returns the amount of authorization weight that is pending
     ///         decrease for the given staking provider. If no authorization
     ///         decrease has been requested, returns zero.
     function pendingAuthorizationDecrease(address stakingProvider)
@@ -1340,13 +1378,29 @@ contract FrostWalletRegistry is
         return authorization.operatorToStakingProvider[operator];
     }
 
-    /// @notice Checks if the operator's authorized stake is in sync with
+    /// @notice Checks if the operator's authorization is in sync with the
     ///         operator's weight in the sortition pool.
     ///         If the operator is not in the sortition pool and their
-    ///         authorized stake is non-zero, function returns false.
+    ///         authorization weight is non-zero, function returns false.
     function isOperatorUpToDate(address operator) external view returns (bool) {
         return
-            authorization.isOperatorUpToDate(staking, sortitionPool, operator);
+            authorization.isOperatorUpToDate(
+                _currentAuthorizationSource(),
+                sortitionPool,
+                operator
+            );
+    }
+
+    function _currentAuthorizationSource()
+        internal
+        view
+        returns (IFrostAuthorizationSource)
+    {
+        require(
+            address(authorizationSource) != address(0),
+            "Authorization source is not initialized"
+        );
+        return authorizationSource;
     }
 
     /// @notice Returns true if the given operator is in the sortition pool.
@@ -1405,13 +1459,9 @@ contract FrostWalletRegistry is
     }
 
     /// @notice Retrieves reward-related parameters.
-    /// @return maliciousDkgResultNotificationRewardMultiplier Percentage of the
-    ///         staking contract malicious behavior notification reward which
-    ///         will be transferred to the notifier reporting about a malicious
-    ///         DKG result. Notifiers are rewarded from a notifiers treasury
-    ///         pool. For example, if notification reward is 1000 and the value
-    ///         of the multiplier is 5, the notifier will receive:
-    ///         5% of 1000 = 50 per each operator affected.
+    /// @return maliciousDkgResultNotificationRewardMultiplier Compatibility
+    ///         multiplier forwarded to the authorization source's malicious
+    ///         behavior hook.
     /// @return sortitionPoolRewardsBanDuration Duration of the sortition pool
     ///         rewards ban imposed on operators who missed their turn for DKG
     ///         result submission or who failed a heartbeat.
