@@ -358,10 +358,9 @@ describe("FrostWalletRegistry DKG edge cases (B-1.5 slice 4)", () => {
       "successful challenge resets state to AWAITING_RESULT (submission window not yet expired)"
     )
 
-    await expect(challengeTx).to.emit(
-      frostAllowlist,
-      "MaliciousBehaviorIdentified"
-    )
+    await expect(challengeTx)
+      .to.emit(frostAllowlist, "MaliciousBehaviorIdentified")
+      .withArgs(deployer.address, [groupMembers[0].stakingProvider])
   })
 
   it("misbehaved members: happy path with non-empty misbehaved list registers wallet + sets reward ineligibility", async function misbehavedMembers() {

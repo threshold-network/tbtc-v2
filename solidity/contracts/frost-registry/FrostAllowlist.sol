@@ -2,7 +2,6 @@
 
 pragma solidity 0.8.17;
 
-import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import "./api/IFrostAuthorizationSource.sol";
 
@@ -44,19 +43,26 @@ contract FrostAllowlist is IFrostAuthorizationSource, Ownable2StepUpgradeable {
         uint96 oldWeight,
         uint96 newWeight
     );
+    event WeightIncreased(
+        address indexed stakingProvider,
+        uint96 oldWeight,
+        uint96 newWeight
+    );
     event WeightDecreaseFinalized(
         address indexed stakingProvider,
         uint96 oldWeight,
         uint96 newWeight
     );
     event MaliciousBehaviorIdentified(
-        address notifier,
+        address indexed notifier,
         address[] stakingProviders
     );
 
     error StakingProviderAlreadyAdded();
     error StakingProviderUnknown();
+    error RequestedWeightNotAboveCurrentWeight();
     error RequestedWeightNotBelowCurrentWeight();
+    error DecreasePending();
     error NotWalletRegistry();
     error NoDecreasePending();
     error ZeroAddress();
@@ -102,6 +108,38 @@ contract FrostAllowlist is IFrostAuthorizationSource, Ownable2StepUpgradeable {
 
         info.weight = weight;
         walletRegistry.authorizationIncreased(stakingProvider, 0, weight);
+    }
+
+    /// @notice Increases an existing staking provider's authorization weight.
+    ///         The word "staking" is retained for registry compatibility; no T
+    ///         tokens are staked or locked.
+    function increaseWeight(address stakingProvider, uint96 newWeight)
+        external
+        onlyOwner
+    {
+        StakingProviderInfo storage info = stakingProviders[stakingProvider];
+        uint96 currentWeight = info.weight;
+
+        if (currentWeight == 0) {
+            revert StakingProviderUnknown();
+        }
+
+        if (info.decreasePending) {
+            revert DecreasePending();
+        }
+
+        if (newWeight <= currentWeight) {
+            revert RequestedWeightNotAboveCurrentWeight();
+        }
+
+        emit WeightIncreased(stakingProvider, currentWeight, newWeight);
+
+        info.weight = newWeight;
+        walletRegistry.authorizationIncreased(
+            stakingProvider,
+            currentWeight,
+            newWeight
+        );
     }
 
     /// @notice Requests a governance-controlled weight decrease. The registry
@@ -182,6 +220,10 @@ contract FrostAllowlist is IFrostAuthorizationSource, Ownable2StepUpgradeable {
         address notifier,
         address[] memory _stakingProviders
     ) external override {
+        if (msg.sender != address(walletRegistry)) {
+            revert NotWalletRegistry();
+        }
+
         emit MaliciousBehaviorIdentified(notifier, _stakingProviders);
     }
 
