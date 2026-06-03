@@ -1,5 +1,6 @@
 import { expect } from "chai"
 import { BigNumber } from "ethers"
+import { payments, Transaction } from "bitcoinjs-lib"
 import {
   testnetAddress,
   testnetPrivateKey,
@@ -8,8 +9,10 @@ import {
   testnetUTXO,
 } from "../data/deposit"
 import {
+  BitcoinAddressConverter,
   BitcoinLocktimeUtils,
   BitcoinNetwork,
+  BitcoinPrivateKeyUtils,
   BitcoinRawTx,
   BitcoinTxHash,
   BitcoinUtxo,
@@ -29,6 +32,7 @@ import {
   ChainIdentifier,
   BitcoinRawTxVectors,
   CrossChainContracts,
+  toBitcoinJsLibNetwork,
 } from "../../src"
 import { MockBitcoinClient } from "../utils/mock-bitcoin-client"
 import { MockTBTCContracts } from "../utils/mock-tbtc-contracts"
@@ -324,6 +328,37 @@ describe("Deposits", () => {
     expect(script.substring(182 + offset, 184 + offset)).to.be.equal("68")
   }
 
+  function createTestnetP2PKHUtxo(
+    value: BigNumber = BigNumber.from(3933200)
+  ): BitcoinUtxo & BitcoinRawTx {
+    const network = toBitcoinJsLibNetwork(BitcoinNetwork.Testnet)
+    const depositorKeyPair = BitcoinPrivateKeyUtils.createKeyPair(
+      testnetPrivateKey,
+      BitcoinNetwork.Testnet
+    )
+    const depositorLegacyAddress = BitcoinAddressConverter.publicKeyToAddress(
+      Hex.from(depositorKeyPair.publicKey),
+      BitcoinNetwork.Testnet,
+      false
+    )
+    const p2pkhScript = payments.p2pkh({
+      address: depositorLegacyAddress,
+      network,
+    }).output!
+
+    const transaction = new Transaction()
+    transaction.version = 1
+    transaction.addInput(Buffer.alloc(32, 1), 0)
+    transaction.addOutput(p2pkhScript, value.toNumber())
+
+    return {
+      transactionHash: BitcoinTxHash.from(transaction.getId()),
+      outputIndex: 0,
+      value,
+      transactionHex: transaction.toHex(),
+    }
+  }
+
   describe("DepositFunding", () => {
     describe("submitTransaction", () => {
       let bitcoinClient: MockBitcoinClient
@@ -384,6 +419,52 @@ describe("Deposits", () => {
             }
 
             expect(depositUtxo).to.be.eql(expectedDepositUtxo)
+          })
+        })
+
+        context("when input UTXO is P2PKH", () => {
+          let inputUtxo: BitcoinUtxo & BitcoinRawTx
+
+          beforeEach(async () => {
+            const fee = BigNumber.from(1520)
+
+            inputUtxo = createTestnetP2PKHUtxo()
+            bitcoinClient.rawTransactions = new Map<string, BitcoinRawTx>([
+              [
+                inputUtxo.transactionHash.toString(),
+                { transactionHex: inputUtxo.transactionHex },
+              ],
+            ])
+
+            const depositFunding = DepositFunding.fromScript(
+              DepositScript.fromReceipt(depositFixture.receipt, true)
+            )
+
+            await depositFunding.submitTransaction(
+              depositAmount,
+              [inputUtxo],
+              fee,
+              testnetPrivateKey,
+              bitcoinClient
+            )
+          })
+
+          it("should sign the input using scriptSig without witness data", () => {
+            expect(bitcoinClient.broadcastLog.length).to.be.equal(1)
+
+            const txJSON = txToJSON(
+              bitcoinClient.broadcastLog[0].transactionHex,
+              BitcoinNetwork.Testnet
+            )
+
+            expect(txJSON.inputs.length).to.be.equal(1)
+
+            const input = txJSON.inputs[0]
+
+            expect(input.hash).to.be.equal(inputUtxo.transactionHash.toString())
+            expect(input.index).to.be.equal(inputUtxo.outputIndex)
+            expect(input.script.length).to.be.greaterThan(0)
+            expect(input.witness.length).to.be.equal(0)
           })
         })
 
