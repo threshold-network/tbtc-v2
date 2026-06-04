@@ -1745,7 +1745,29 @@ describe("Deposits", () => {
               depositService.initiateDeposit(
                 "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc"
               )
-            ).to.be.rejectedWith("Could not get active wallet public key")
+            ).to.be.rejectedWith("Could not get active wallet public key hash")
+          })
+        })
+
+        context("when active wallet exposes only a public key hash", () => {
+          const activeWalletPublicKeyHash = Hex.from(
+            "c92a772f11bc97d8938a16a9db435401f4e6a7bc"
+          )
+
+          beforeEach(async () => {
+            tbtcContracts.bridge.setActiveWalletPublicKeyHash(
+              activeWalletPublicKeyHash
+            )
+          })
+
+          it("should initiate hash-only active wallet deposit without requiring the wallet public key", async () => {
+            const deposit = await depositService.initiateDeposit(
+              "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc"
+            )
+
+            expect(deposit.getReceipt().walletPublicKeyHash).to.be.deep.equal(
+              activeWalletPublicKeyHash
+            )
           })
         })
 
@@ -1917,7 +1939,7 @@ describe("Deposits", () => {
               "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
               depositorProxy
             )
-          ).to.be.rejectedWith("Could not get active wallet public key")
+          ).to.be.rejectedWith("Could not get active wallet public key hash")
         })
       })
 
@@ -2185,7 +2207,9 @@ describe("Deposits", () => {
                   "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
                   "Base"
                 )
-              ).to.be.rejectedWith("Could not get active wallet public key")
+              ).to.be.rejectedWith(
+                "Could not get active wallet public key hash"
+              )
             })
           })
 
@@ -2402,7 +2426,7 @@ describe("Deposits", () => {
                 "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
                 "Arbitrum"
               )
-            ).to.be.rejectedWith("Could not get active wallet public key")
+            ).to.be.rejectedWith("Could not get active wallet public key hash")
           })
         })
 
@@ -2605,7 +2629,7 @@ describe("Deposits", () => {
                 "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
                 "Solana"
               )
-            ).to.be.rejectedWith("Could not get active wallet public key")
+            ).to.be.rejectedWith("Could not get active wallet public key hash")
           })
         })
 

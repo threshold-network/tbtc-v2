@@ -9,7 +9,6 @@ import {
 import {
   BitcoinAddressConverter,
   BitcoinClient,
-  BitcoinHashUtils,
   BitcoinLocktimeUtils,
   BitcoinScriptUtils,
 } from "../../lib/bitcoin"
@@ -206,14 +205,12 @@ export class DepositsService {
   ): Promise<DepositReceipt> {
     const blindingFactor = Hex.from(crypto.randomBytes(8))
 
-    const walletPublicKey =
-      await this.tbtcContracts.bridge.activeWalletPublicKey()
+    const walletPublicKeyHash =
+      await this.tbtcContracts.bridge.activeWalletPublicKeyHash()
 
-    if (!walletPublicKey) {
-      throw new Error("Could not get active wallet public key")
+    if (!walletPublicKeyHash) {
+      throw new Error("Could not get active wallet public key hash")
     }
-
-    const walletPublicKeyHash = BitcoinHashUtils.computeHash160(walletPublicKey)
 
     const bitcoinNetwork = await this.bitcoinClient.getNetwork()
 

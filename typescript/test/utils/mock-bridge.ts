@@ -71,6 +71,7 @@ export class MockBridge implements Bridge {
   private _redemptionProofLog: RedemptionProofLogEntry[] = []
   private _deposits = new Map<BigNumberish, DepositRequest>()
   private _activeWalletPublicKey: Hex | undefined
+  private _activeWalletPublicKeyHash: Hex | undefined
   private _newWalletRegisteredEvents: NewWalletRegisteredEvent[] = []
   private _newWalletRegisteredEventsLog: NewWalletRegisteredEventsLog[] = []
   private _wallets = new Map<string, Wallet>()
@@ -129,6 +130,12 @@ export class MockBridge implements Bridge {
 
   setActiveWalletPublicKey(activeWalletPublicKey: Hex) {
     this._activeWalletPublicKey = activeWalletPublicKey
+    this._activeWalletPublicKeyHash =
+      BitcoinHashUtils.computeHash160(activeWalletPublicKey)
+  }
+
+  setActiveWalletPublicKeyHash(activeWalletPublicKeyHash: Hex) {
+    this._activeWalletPublicKeyHash = activeWalletPublicKeyHash
   }
 
   getDepositRevealedEvents(
@@ -372,16 +379,16 @@ export class MockBridge implements Bridge {
     return this._activeWalletPublicKey
   }
 
+  async activeWalletPublicKeyHash(): Promise<Hex | undefined> {
+    return this._activeWalletPublicKeyHash
+  }
+
   async activeWalletID(): Promise<Hex | undefined> {
-    if (!this._activeWalletPublicKey) {
+    if (!this._activeWalletPublicKeyHash) {
       return undefined
     }
 
-    const walletPublicKeyHash = BitcoinHashUtils.computeHash160(
-      this._activeWalletPublicKey
-    )
-
-    return this.walletID(walletPublicKeyHash)
+    return this.walletID(this._activeWalletPublicKeyHash)
   }
 
   async getNewWalletRegisteredEvents(

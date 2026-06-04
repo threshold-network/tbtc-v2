@@ -516,6 +516,34 @@ describe("Ethereum", () => {
       })
     })
 
+    describe("activeWalletPublicKeyHash", () => {
+      context("when there is an active wallet", () => {
+        beforeEach(async () => {
+          await bridgeContract.mock.activeWalletPubKeyHash.returns(
+            "0x8db50eb52063ea9d98b3eac91489a90f738986f6"
+          )
+        })
+
+        it("should return the active wallet's public key hash", async () => {
+          expect(
+            (await bridgeHandle.activeWalletPublicKeyHash())?.toString()
+          ).to.be.equal("8db50eb52063ea9d98b3eac91489a90f738986f6")
+        })
+      })
+
+      context("when there is no active wallet", () => {
+        beforeEach(async () => {
+          await bridgeContract.mock.activeWalletPubKeyHash.returns(
+            "0x0000000000000000000000000000000000000000"
+          )
+        })
+
+        it("should return undefined", async () => {
+          expect(await bridgeHandle.activeWalletPublicKeyHash()).to.be.undefined
+        })
+      })
+    })
+
     describe("activeWalletPublicKey", () => {
       context("when there is an active wallet", () => {
         beforeEach(async () => {
