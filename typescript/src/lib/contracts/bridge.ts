@@ -155,6 +155,13 @@ export interface Bridge {
   ): Promise<RedemptionRequest>
 
   /**
+   * Gets the public key hash of the current active wallet.
+   * @returns 20-byte active wallet public key hash. If there is no active
+   *          wallet at the moment, undefined is returned.
+   */
+  activeWalletPublicKeyHash(): Promise<Hex | undefined>
+
+  /**
    * Gets the public key of the current active wallet.
    * @returns Compressed (33 bytes long with 02 or 03 prefix) active wallet's
    *          public key. If there is no active wallet at the moment, undefined

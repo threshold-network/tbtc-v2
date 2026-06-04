@@ -576,9 +576,9 @@ export class EthereumBridge
 
   // eslint-disable-next-line valid-jsdoc
   /**
-   * @see {Bridge#activeWalletPublicKey}
+   * @see {Bridge#activeWalletPublicKeyHash}
    */
-  async activeWalletPublicKey(): Promise<Hex | undefined> {
+  async activeWalletPublicKeyHash(): Promise<Hex | undefined> {
     const activeWalletPublicKeyHash: string = await backoffRetrier<string>(
       this._totalRetryAttempts
     )(async () => {
@@ -592,8 +592,22 @@ export class EthereumBridge
       return undefined
     }
 
+    return Hex.from(activeWalletPublicKeyHash)
+  }
+
+  // eslint-disable-next-line valid-jsdoc
+  /**
+   * @see {Bridge#activeWalletPublicKey}
+   */
+  async activeWalletPublicKey(): Promise<Hex | undefined> {
+    const activeWalletPublicKeyHash = await this.activeWalletPublicKeyHash()
+
+    if (!activeWalletPublicKeyHash) {
+      return undefined
+    }
+
     const { walletPublicKey } = await this.wallets(
-      Hex.from(activeWalletPublicKeyHash)
+      activeWalletPublicKeyHash
     )
 
     return walletPublicKey
