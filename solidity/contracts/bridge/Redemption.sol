@@ -229,6 +229,9 @@ library Redemption {
         bytes32 walletP2PKHScriptKeccak;
         // P2WPKH script for the wallet. Needed to determine the change output.
         bytes32 walletP2WPKHScriptKeccak;
+        // P2TR script for a FROST wallet. Needed to determine the change
+        // output.
+        bytes32 walletP2TRScriptKeccak;
         // This struct doesn't contain `__gap` property as the structure is not
         // stored, it is used as a function's memory argument.
     }
@@ -788,9 +791,9 @@ library Redemption {
         // docs in `BitcoinTx` library for more details.
         uint256 outputStartingIndex = 1 + outputsCompactSizeUintLength;
 
-        // Calculate the keccak256 for two possible wallet's P2PKH or P2WPKH
-        // scripts that can be used to lock the change. This is done upfront to
-        // save on gas. Both scripts have a strict format defined by Bitcoin.
+        // Calculate the keccak256 for possible wallet scripts that can be used
+        // to lock the change. This is done upfront to save on gas. The scripts
+        // have strict formats defined by Bitcoin.
         //
         // The P2PKH script has the byte format: <0x1976a914> <20-byte PKH> <0x88ac>.
         // According to https://en.bitcoin.it/wiki/Script#Opcodes this translates to:
@@ -816,6 +819,18 @@ library Redemption {
             abi.encodePacked(BitcoinTx.makeP2WPKHScript(walletPubKeyHash))
         );
 
+        bytes32 walletP2TRScriptKeccak;
+        bytes32 walletID = self.walletIDByWalletPubKeyHash[walletPubKeyHash];
+        if (walletID != bytes32(0)) {
+            // FROST wallets store their x-only Taproot output key as the
+            // canonical wallet ID. That key is not derivable from the
+            // 20-byte compatibility wallet public key hash, so use the
+            // reverse mapping populated at FROST wallet registration time.
+            walletP2TRScriptKeccak = keccak256(
+                BitcoinTx.makeP2TRScript(walletID)
+            );
+        }
+
         return
             processRedemptionTxOutputs(
                 self,
@@ -825,7 +840,8 @@ library Redemption {
                     outputStartingIndex,
                     outputsCount,
                     walletP2PKHScriptKeccak,
-                    walletP2WPKHScriptKeccak
+                    walletP2WPKHScriptKeccak,
+                    walletP2TRScriptKeccak
                 )
             );
     }
@@ -889,7 +905,10 @@ library Redemption {
             if (
                 resultInfo.changeValue == 0 &&
                 (outputScriptHash == processInfo.walletP2PKHScriptKeccak ||
-                    outputScriptHash == processInfo.walletP2WPKHScriptKeccak) &&
+                    outputScriptHash ==
+                    processInfo.walletP2WPKHScriptKeccak ||
+                    outputScriptHash ==
+                    processInfo.walletP2TRScriptKeccak) &&
                 outputValue > 0
             ) {
                 // If we entered here, that means the change output with a
