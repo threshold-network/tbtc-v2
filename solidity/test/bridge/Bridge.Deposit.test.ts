@@ -20,6 +20,7 @@ import type {
 import type {
   DepositRevealInfoStruct,
   InfoStruct as BitcoinTxInfoStruct,
+  TaprootDepositRevealInfoStruct,
 } from "../../typechain/Bridge"
 import bridgeFixture from "../fixtures/bridge"
 import { constants, walletState } from "../fixtures"
@@ -43,6 +44,18 @@ const { impersonateAccount } = helpers.account
 
 const ZERO_ADDRESS = ethers.constants.AddressZero
 const redemptionOnlyRebateTreasuryFeeMode = 2
+
+const transactionHash = (tx: BitcoinTxInfoStruct): string =>
+  ethers.utils.sha256(
+    ethers.utils.sha256(
+      ethers.utils.hexConcat([
+        tx.version,
+        tx.inputVector,
+        tx.outputVector,
+        tx.locktime,
+      ])
+    )
+  )
 
 describe("Bridge - Deposit", () => {
   let governance: SignerWithAddress
@@ -96,6 +109,14 @@ describe("Bridge - Deposit", () => {
     P2WSHFundingTx: BitcoinTxInfoStruct
     depositorAddress: string
     reveal: DepositRevealInfoStruct
+    extraData?: string
+  }
+
+  type RevealTaprootDepositFixture = {
+    P2TRFundingTx: BitcoinTxInfoStruct
+    depositorAddress: string
+    reveal: TaprootDepositRevealInfoStruct
+    expectedOutputKey: string
     extraData?: string
   }
 
@@ -189,6 +210,60 @@ describe("Bridge - Deposit", () => {
     extraData:
       "0xa9b38ea6435c8941d6eda6a46b68e3e2117196995bd154ab55196396b03d9bda",
   }
+
+  const revealTaprootDepositFixture: RevealTaprootDepositFixture = {
+    // Data of a proper P2TR deposit funding transaction. The first output
+    // locks to the BIP341 output key derived from the revealed wallet x-only
+    // key and the refund tapscript leaf.
+    P2TRFundingTx: {
+      version: "0x01000000",
+      inputVector:
+        "0x018348cdeb551134fe1f19d378a8adec9b146671cb67b945b71bf56b20d" +
+        "c2b952f0100000000ffffffff",
+      outputVector:
+        "0x01102700000000000022512090e7ce2b6cd476b7a1c2c7f6585c3fd0eae" +
+        "4379a508e981ed422b3e28b9ae8c2",
+      locktime: "0x00000000",
+    },
+    depositorAddress: "0x934B98637cA318a4D6E7CA6ffd1690b8e77df637",
+    reveal: {
+      fundingOutputIndex: 0,
+      blindingFactor: "0xf9f0c90d00039523",
+      // HASH160(0x02 || walletXOnlyPublicKey).
+      walletPubKeyHash: "0xc92a772f11bc97d8938a16a9db435401f4e6a7bc",
+      walletXOnlyPublicKey:
+        "0x2336f65004d8f122f1fe947ebd009a8b4add3a0d937356d568e30f7fcc2e4008",
+      // HASH160(0x02 || refundXOnlyPublicKey).
+      refundPubKeyHash: "0xc2a27a88d8d03e271e8edc556923e9398619f17c",
+      refundXOnlyPublicKey:
+        "0x11223344556677889900aabbccddeeff00112233445566778899aabbccddeeff",
+      refundLocktime: "0x60bcea61",
+      vault: "0x594cfd89700040163727828AE20B52099C58F02C",
+    },
+    expectedOutputKey:
+      "0x90e7ce2b6cd476b7a1c2c7f6585c3fd0eae4379a508e981ed422b3e28b9ae8c2",
+  }
+
+  const revealTaprootDepositWithExtraDataFixture: RevealTaprootDepositFixture =
+    {
+      P2TRFundingTx: {
+        version: "0x01000000",
+        inputVector:
+          "0x018348cdeb551134fe1f19d378a8adec9b146671cb67b945b71bf56b20d" +
+          "c2b952f0100000000ffffffff",
+        outputVector:
+          "0x011027000000000000225120b57ad22351a7a074b6588836d08fbecae35b" +
+          "61ef9eeb35376a1c5f3d6049376e",
+        locktime: "0x00000000",
+      },
+      depositorAddress: revealTaprootDepositFixture.depositorAddress,
+      reveal: revealTaprootDepositFixture.reveal,
+      expectedOutputKey:
+        "0xb57ad22351a7a074b6588836d08fbecae35b61ef9eeb35376a1c5f3d6049376e",
+      // sha256("fancy extra data")
+      extraData:
+        "0xa9b38ea6435c8941d6eda6a46b68e3e2117196995bd154ab55196396b03d9bda",
+    }
 
   describe("revealDeposit", () => {
     const { P2SHFundingTx, P2WSHFundingTx, depositorAddress, reveal } =
@@ -1129,6 +1204,137 @@ describe("Bridge - Deposit", () => {
           })
         })
       })
+    })
+  })
+
+  describe("revealTaprootDeposit", () => {
+    const { P2TRFundingTx, depositorAddress, reveal, expectedOutputKey } =
+      revealTaprootDepositFixture
+
+    let depositor: SignerWithAddress
+
+    before(async () => {
+      depositor = await impersonateAccount(depositorAddress, {
+        from: governance,
+        value: 10,
+      })
+    })
+
+    beforeEach(async () => {
+      await createSnapshot()
+
+      await bridgeGovernance
+        .connect(governance)
+        .setVaultStatus(reveal.vault, true)
+
+      await bridge.setWallet(reveal.walletPubKeyHash, {
+        ecdsaWalletID: ethers.constants.HashZero,
+        mainUtxoHash: ethers.constants.HashZero,
+        pendingRedemptionsValue: 0,
+        createdAt: await lastBlockTime(),
+        movingFundsRequestedAt: 0,
+        closingStartedAt: 0,
+        pendingMovedFundsSweepRequestsCount: 0,
+        state: walletState.Live,
+        movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+      })
+
+      await bridge.setWalletPubKeyHashForWalletID(
+        reveal.walletXOnlyPublicKey,
+        reveal.walletPubKeyHash
+      )
+    })
+
+    afterEach(async () => {
+      await restoreSnapshot()
+    })
+
+    it("should reveal a Taproot deposit and emit compatibility events", async () => {
+      const tx = await bridge
+        .connect(depositor)
+        .revealTaprootDeposit(P2TRFundingTx, reveal)
+
+      await expect(tx)
+        .to.emit(bridge, "DepositRevealed")
+        .withArgs(
+          await transactionHash(P2TRFundingTx),
+          reveal.fundingOutputIndex,
+          depositorAddress,
+          10000,
+          reveal.blindingFactor,
+          reveal.walletPubKeyHash,
+          reveal.refundPubKeyHash,
+          reveal.refundLocktime,
+          reveal.vault
+        )
+
+      await expect(tx)
+        .to.emit(bridge, "TaprootDepositRevealed")
+        .withArgs(
+          await transactionHash(P2TRFundingTx),
+          reveal.fundingOutputIndex,
+          depositorAddress,
+          10000,
+          reveal.blindingFactor,
+          reveal.walletPubKeyHash,
+          reveal.walletXOnlyPublicKey,
+          reveal.refundPubKeyHash,
+          reveal.refundXOnlyPublicKey,
+          reveal.refundLocktime,
+          reveal.vault
+        )
+    })
+
+    it("should reveal a Taproot deposit with extra data", async () => {
+      const tx = await bridge
+        .connect(depositor)
+        .revealTaprootDepositWithExtraData(
+          revealTaprootDepositWithExtraDataFixture.P2TRFundingTx,
+          reveal,
+          revealTaprootDepositWithExtraDataFixture.extraData!
+        )
+
+      await expect(tx)
+        .to.emit(bridge, "TaprootDepositRevealed")
+        .withArgs(
+          await transactionHash(
+            revealTaprootDepositWithExtraDataFixture.P2TRFundingTx
+          ),
+          reveal.fundingOutputIndex,
+          depositorAddress,
+          10000,
+          reveal.blindingFactor,
+          reveal.walletPubKeyHash,
+          reveal.walletXOnlyPublicKey,
+          reveal.refundPubKeyHash,
+          reveal.refundXOnlyPublicKey,
+          reveal.refundLocktime,
+          reveal.vault
+        )
+    })
+
+    it("should reject refund x-only key that does not match refund alias", async () => {
+      await expect(
+        bridge.connect(depositor).revealTaprootDeposit(P2TRFundingTx, {
+          ...reveal,
+          refundXOnlyPublicKey: reveal.walletXOnlyPublicKey,
+        })
+      ).to.be.revertedWith("Refund x-only key mismatch")
+    })
+
+    it("should reject funding output that does not match the revealed refund leaf", async () => {
+      await expect(
+        bridge
+          .connect(depositor)
+          .revealTaprootDeposit(
+            revealTaprootDepositWithExtraDataFixture.P2TRFundingTx,
+            reveal
+          )
+      ).to.be.revertedWith("Wrong Taproot output key")
+
+      expect(expectedOutputKey).to.not.equal(
+        revealTaprootDepositWithExtraDataFixture.expectedOutputKey
+      )
     })
   })
 

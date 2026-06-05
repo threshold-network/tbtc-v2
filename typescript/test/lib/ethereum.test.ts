@@ -33,6 +33,16 @@ import { abi as ArbitrumL1BitcoinDepositorABI } from "../../src/lib/ethereum/art
 
 chai.use(waffleChai)
 
+const BridgeABIWithTaprootDepositReveal = [
+  ...BridgeABI,
+  ...JSON.parse(
+    new utils.Interface([
+      "function revealTaprootDeposit((bytes4 version, bytes inputVector, bytes outputVector, bytes4 locktime) fundingTx, (uint32 fundingOutputIndex, bytes8 blindingFactor, bytes20 walletPubKeyHash, bytes32 walletXOnlyPublicKey, bytes20 refundPubKeyHash, bytes32 refundXOnlyPublicKey, bytes4 refundLocktime, address vault) reveal)",
+      "function revealTaprootDepositWithExtraData((bytes4 version, bytes inputVector, bytes outputVector, bytes4 locktime) fundingTx, (uint32 fundingOutputIndex, bytes8 blindingFactor, bytes20 walletPubKeyHash, bytes32 walletXOnlyPublicKey, bytes20 refundPubKeyHash, bytes32 refundXOnlyPublicKey, bytes4 refundLocktime, address vault) reveal, bytes32 extraData)",
+    ]).format(utils.FormatTypes.json) as string
+  ),
+]
+
 describe("Ethereum", () => {
   describe("EthereumBridge", () => {
     let walletRegistry: MockContract
@@ -49,7 +59,7 @@ describe("Ethereum", () => {
 
       bridgeContract = await deployMockContract(
         signer,
-        `${JSON.stringify(BridgeABI)}`
+        `${JSON.stringify(BridgeABIWithTaprootDepositReveal)}`
       )
 
       await bridgeContract.mock.contractReferences.returns(
@@ -249,6 +259,134 @@ describe("Ethereum", () => {
                 blindingFactor: "0xf9f0c90d00039523",
                 walletPubKeyHash: "0x8db50eb52063ea9d98b3eac91489a90f738986f6",
                 refundPubKeyHash: "0x28e081f285138ccbe389c1eb8985716230129f89",
+                refundLocktime: "0x60bcea61",
+                vault: "0x82883a4c7a8dd73ef165deb402d432613615ced4",
+              },
+              "0xaebfb5afc9ee6432374ed39b58b8cf87797f9468eca40569b67ac8d59415c9c0",
+            ]
+          )
+        })
+      })
+
+      context("when deposit is Taproot-native", () => {
+        beforeEach(async () => {
+          await bridgeContract.mock.revealTaprootDeposit.returns()
+
+          await bridgeHandle.revealDeposit(
+            // Just short byte strings for clarity.
+            {
+              version: Hex.from("00000000"),
+              inputs: Hex.from("11111111"),
+              outputs: Hex.from("22222222"),
+              locktime: Hex.from("33333333"),
+            },
+            2,
+            {
+              depositor: EthereumAddress.from(
+                "934b98637ca318a4d6e7ca6ffd1690b8e77df637"
+              ),
+              walletPublicKeyHash: Hex.from(
+                "c92a772f11bc97d8938a16a9db435401f4e6a7bc"
+              ),
+              walletXOnlyPublicKey: Hex.from(
+                "2336f65004d8f122f1fe947ebd009a8b4add3a0d937356d568e30f7fcc2e4008"
+              ),
+              refundPublicKeyHash: Hex.from(
+                "c2a27a88d8d03e271e8edc556923e9398619f17c"
+              ),
+              refundXOnlyPublicKey: Hex.from(
+                "11223344556677889900aabbccddeeff00112233445566778899aabbccddeeff"
+              ),
+              blindingFactor: Hex.from("f9f0c90d00039523"),
+              refundLocktime: Hex.from("60bcea61"),
+            },
+            EthereumAddress.from("82883a4c7a8dd73ef165deb402d432613615ced4")
+          )
+        })
+
+        it("should reveal the Taproot deposit", async () => {
+          assertContractCalledWith(bridgeContract, "revealTaprootDeposit", [
+            {
+              version: "0x00000000",
+              inputVector: "0x11111111",
+              outputVector: "0x22222222",
+              locktime: "0x33333333",
+            },
+            {
+              fundingOutputIndex: 2,
+              blindingFactor: "0xf9f0c90d00039523",
+              walletPubKeyHash: "0xc92a772f11bc97d8938a16a9db435401f4e6a7bc",
+              walletXOnlyPublicKey:
+                "0x2336f65004d8f122f1fe947ebd009a8b4add3a0d937356d568e30f7fcc2e4008",
+              refundPubKeyHash: "0xc2a27a88d8d03e271e8edc556923e9398619f17c",
+              refundXOnlyPublicKey:
+                "0x11223344556677889900aabbccddeeff00112233445566778899aabbccddeeff",
+              refundLocktime: "0x60bcea61",
+              vault: "0x82883a4c7a8dd73ef165deb402d432613615ced4",
+            },
+          ])
+        })
+      })
+
+      context("when Taproot-native deposit has optional extra data", () => {
+        beforeEach(async () => {
+          await bridgeContract.mock.revealTaprootDepositWithExtraData.returns()
+
+          await bridgeHandle.revealDeposit(
+            // Just short byte strings for clarity.
+            {
+              version: Hex.from("00000000"),
+              inputs: Hex.from("11111111"),
+              outputs: Hex.from("22222222"),
+              locktime: Hex.from("33333333"),
+            },
+            2,
+            {
+              depositor: EthereumAddress.from(
+                "934b98637ca318a4d6e7ca6ffd1690b8e77df637"
+              ),
+              walletPublicKeyHash: Hex.from(
+                "c92a772f11bc97d8938a16a9db435401f4e6a7bc"
+              ),
+              walletXOnlyPublicKey: Hex.from(
+                "2336f65004d8f122f1fe947ebd009a8b4add3a0d937356d568e30f7fcc2e4008"
+              ),
+              refundPublicKeyHash: Hex.from(
+                "c2a27a88d8d03e271e8edc556923e9398619f17c"
+              ),
+              refundXOnlyPublicKey: Hex.from(
+                "11223344556677889900aabbccddeeff00112233445566778899aabbccddeeff"
+              ),
+              blindingFactor: Hex.from("f9f0c90d00039523"),
+              refundLocktime: Hex.from("60bcea61"),
+              extraData: Hex.from(
+                "aebfb5afc9ee6432374ed39b58b8cf87797f9468eca40569b67ac8d59415c9c0"
+              ),
+            },
+            EthereumAddress.from("82883a4c7a8dd73ef165deb402d432613615ced4")
+          )
+        })
+
+        it("should reveal the Taproot deposit", async () => {
+          assertContractCalledWith(
+            bridgeContract,
+            "revealTaprootDepositWithExtraData",
+            [
+              {
+                version: "0x00000000",
+                inputVector: "0x11111111",
+                outputVector: "0x22222222",
+                locktime: "0x33333333",
+              },
+              {
+                fundingOutputIndex: 2,
+                blindingFactor: "0xf9f0c90d00039523",
+                walletPubKeyHash: "0xc92a772f11bc97d8938a16a9db435401f4e6a7bc",
+                walletXOnlyPublicKey:
+                  "0x2336f65004d8f122f1fe947ebd009a8b4add3a0d937356d568e30f7fcc2e4008",
+                refundPubKeyHash: "0xc2a27a88d8d03e271e8edc556923e9398619f17c",
+                refundXOnlyPublicKey:
+                  "0x11223344556677889900aabbccddeeff00112233445566778899aabbccddeeff",
                 refundLocktime: "0x60bcea61",
                 vault: "0x82883a4c7a8dd73ef165deb402d432613615ced4",
               },

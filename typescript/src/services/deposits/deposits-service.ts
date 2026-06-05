@@ -14,7 +14,7 @@ import {
   BitcoinScriptUtils,
 } from "../../lib/bitcoin"
 import { Hex } from "../../lib/utils"
-import { Deposit } from "./deposit"
+import { Deposit, DepositScriptType } from "./deposit"
 import * as crypto from "crypto"
 import { CrossChainDepositor } from "./cross-chain"
 
@@ -105,10 +105,51 @@ export class DepositsService {
     const receipt = await this.generateDepositReceipt(
       bitcoinRecoveryAddress,
       this.#defaultDepositor,
-      extraData
+      extraData,
+      DepositScriptType.P2WSH
     )
 
     return Deposit.fromReceipt(receipt, this.tbtcContracts, this.bitcoinClient)
+  }
+
+  /**
+   * Initiates the Taproot-native tBTC v2 deposit process.
+   * @param bitcoinRecoveryAddress P2TR Bitcoin address whose x-only output key
+   *                               will be embedded in the refund tapscript.
+   * @param extraData Optional 32-byte extra data to be included in the
+   *                  deposit refund tapscript. Cannot be equal to 32 zero bytes.
+   * @returns Handle to the initiated deposit process.
+   * @throws Throws an error if one of the following occurs:
+   *         - The default depositor is not set
+   *         - There is no active FROST wallet in the Bridge contract
+   *         - The Bitcoin recovery address is not a valid P2TR address
+   *         - The optional extra data is set but is not 32-byte or equals
+   *           to 32 zero bytes.
+   */
+  async initiateTaprootDeposit(
+    bitcoinRecoveryAddress: string,
+    extraData?: Hex
+  ): Promise<Deposit> {
+    if (this.#defaultDepositor === undefined) {
+      throw new Error(
+        "Default depositor is not set; use setDefaultDepositor first"
+      )
+    }
+
+    const receipt = await this.generateDepositReceipt(
+      bitcoinRecoveryAddress,
+      this.#defaultDepositor,
+      extraData,
+      DepositScriptType.P2TR
+    )
+
+    return Deposit.fromReceipt(
+      receipt,
+      this.tbtcContracts,
+      this.bitcoinClient,
+      undefined,
+      DepositScriptType.P2TR
+    )
   }
 
   /**
@@ -139,7 +180,8 @@ export class DepositsService {
     const receipt = await this.generateDepositReceipt(
       bitcoinRecoveryAddress,
       depositorProxy.getChainIdentifier(),
-      extraData
+      extraData,
+      DepositScriptType.P2WSH
     )
 
     return Deposit.fromReceipt(
@@ -202,7 +244,8 @@ export class DepositsService {
   private async generateDepositReceipt(
     bitcoinRecoveryAddress: string,
     depositor: ChainIdentifier,
-    extraData?: Hex
+    extraData?: Hex,
+    scriptType: DepositScriptType = DepositScriptType.P2WSH
   ): Promise<DepositReceipt> {
     const blindingFactor = Hex.from(crypto.randomBytes(8))
 
@@ -214,14 +257,6 @@ export class DepositsService {
     }
 
     const activeWalletID = await this.tbtcContracts.bridge.activeWalletID()
-    if (
-      activeWalletID &&
-      !WalletIDUtils.isLegacyWalletID(activeWalletID, walletPublicKeyHash)
-    ) {
-      throw new Error(
-        "Legacy deposits are not supported for FROST active wallets"
-      )
-    }
 
     const bitcoinNetwork = await this.bitcoinClient.getNetwork()
 
@@ -229,17 +264,56 @@ export class DepositsService {
       bitcoinRecoveryAddress,
       bitcoinNetwork
     )
-    if (
-      !BitcoinScriptUtils.isP2PKHScript(recoveryOutputScript) &&
-      !BitcoinScriptUtils.isP2WPKHScript(recoveryOutputScript)
-    ) {
-      throw new Error("Bitcoin recovery address must be P2PKH or P2WPKH")
-    }
 
-    const refundPublicKeyHash = BitcoinAddressConverter.addressToPublicKeyHash(
-      bitcoinRecoveryAddress,
-      bitcoinNetwork
-    )
+    let refundPublicKeyHash: Hex
+    let walletXOnlyPublicKey: Hex | undefined
+    let refundXOnlyPublicKey: Hex | undefined
+
+    if (scriptType == DepositScriptType.P2TR) {
+      if (
+        !activeWalletID ||
+        WalletIDUtils.isLegacyWalletID(activeWalletID, walletPublicKeyHash)
+      ) {
+        throw new Error(
+          "Taproot deposits require an active FROST wallet with a P2TR wallet ID"
+        )
+      }
+
+      if (!BitcoinScriptUtils.isP2TRScript(recoveryOutputScript)) {
+        throw new Error("Bitcoin recovery address must be P2TR")
+      }
+
+      walletXOnlyPublicKey = activeWalletID
+      refundXOnlyPublicKey = BitcoinAddressConverter.addressToTaprootOutputKey(
+        bitcoinRecoveryAddress,
+        bitcoinNetwork
+      )
+      refundPublicKeyHash =
+        BitcoinAddressConverter.taprootOutputKeyToWalletPublicKeyHash(
+          refundXOnlyPublicKey
+        )
+    } else {
+      if (
+        activeWalletID &&
+        !WalletIDUtils.isLegacyWalletID(activeWalletID, walletPublicKeyHash)
+      ) {
+        throw new Error(
+          "Legacy deposits are not supported for FROST active wallets"
+        )
+      }
+
+      if (
+        !BitcoinScriptUtils.isP2PKHScript(recoveryOutputScript) &&
+        !BitcoinScriptUtils.isP2WPKHScript(recoveryOutputScript)
+      ) {
+        throw new Error("Bitcoin recovery address must be P2PKH or P2WPKH")
+      }
+
+      refundPublicKeyHash = BitcoinAddressConverter.addressToPublicKeyHash(
+        bitcoinRecoveryAddress,
+        bitcoinNetwork
+      )
+    }
 
     const currentTimestamp = Math.floor(new Date().getTime() / 1000)
 
@@ -271,6 +345,8 @@ export class DepositsService {
       blindingFactor,
       walletPublicKeyHash,
       refundPublicKeyHash,
+      walletXOnlyPublicKey,
+      refundXOnlyPublicKey,
       refundLocktime,
       extraData,
     }

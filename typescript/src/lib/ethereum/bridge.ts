@@ -17,11 +17,18 @@ import {
   DepositRevealedEvent,
   DepositReceipt,
   DepositRequest,
+  TaprootDepositRevealedEvent,
   Chains,
 } from "../contracts"
 import { WalletIDUtils } from "../contracts/wallet-id"
 import { Event as EthersEvent } from "@ethersproject/contracts"
-import { BigNumber, constants, ContractTransaction, utils } from "ethers"
+import {
+  BigNumber,
+  constants,
+  Contract,
+  ContractTransaction,
+  utils,
+} from "ethers"
 import { backoffRetrier, Hex } from "../utils"
 import {
   BitcoinPublicKeyUtils,
@@ -36,6 +43,7 @@ import {
   EthersContractConfig,
   EthersContractDeployment,
   EthersContractHandle,
+  EthersEventUtils,
   EthersTransactionUtils,
 } from "./adapter"
 import { EthereumAddress } from "./address"
@@ -49,6 +57,12 @@ type DepositRequestTypechain = DepositTypechain.DepositRequestStructOutput
 
 type RedemptionRequestTypechain =
   RedemptionTypechain.RedemptionRequestStructOutput
+
+const TaprootDepositRevealABI = [
+  "event TaprootDepositRevealed(bytes32 fundingTxHash, uint32 fundingOutputIndex, address indexed depositor, uint64 amount, bytes8 blindingFactor, bytes20 indexed walletPubKeyHash, bytes32 walletXOnlyPublicKey, bytes20 refundPubKeyHash, bytes32 refundXOnlyPublicKey, bytes4 refundLocktime, address vault)",
+  "function revealTaprootDeposit((bytes4 version, bytes inputVector, bytes outputVector, bytes4 locktime) fundingTx, (uint32 fundingOutputIndex, bytes8 blindingFactor, bytes20 walletPubKeyHash, bytes32 walletXOnlyPublicKey, bytes20 refundPubKeyHash, bytes32 refundXOnlyPublicKey, bytes4 refundLocktime, address vault) reveal)",
+  "function revealTaprootDepositWithExtraData((bytes4 version, bytes inputVector, bytes outputVector, bytes4 locktime) fundingTx, (uint32 fundingOutputIndex, bytes8 blindingFactor, bytes20 walletPubKeyHash, bytes32 walletXOnlyPublicKey, bytes20 refundPubKeyHash, bytes32 refundXOnlyPublicKey, bytes4 refundLocktime, address vault) reveal, bytes32 extraData)",
+]
 
 /**
  * Implementation of the Ethereum Bridge handle.
@@ -153,6 +167,14 @@ export class EthereumBridge
     return EthereumAddress.from(this._instance.address)
   }
 
+  private taprootDepositRevealContract(): Contract {
+    return new Contract(
+      this._instance.address,
+      TaprootDepositRevealABI,
+      this._instance.signer || this._instance.provider
+    )
+  }
+
   // eslint-disable-next-line valid-jsdoc
   /**
    * @see {Bridge#getDepositRevealedEvents}
@@ -181,6 +203,55 @@ export class EthereumBridge
         blindingFactor: Hex.from(event.args!.blindingFactor),
         walletPublicKeyHash: Hex.from(event.args!.walletPubKeyHash),
         refundPublicKeyHash: Hex.from(event.args!.refundPubKeyHash),
+        refundLocktime: Hex.from(event.args!.refundLocktime),
+        vault:
+          event.args!.vault === constants.AddressZero
+            ? undefined
+            : EthereumAddress.from(event.args!.vault),
+      }
+    })
+  }
+
+  // eslint-disable-next-line valid-jsdoc
+  /**
+   * @see {Bridge#getTaprootDepositRevealedEvents}
+   */
+  async getTaprootDepositRevealedEvents(
+    options?: GetChainEvents.Options,
+    ...filterArgs: Array<unknown>
+  ): Promise<TaprootDepositRevealedEvent[]> {
+    const bridge = this.taprootDepositRevealContract()
+    const taprootDepositRevealedFilter =
+      bridge.filters["TaprootDepositRevealed"]
+    const events: EthersEvent[] = await backoffRetrier<EthersEvent[]>(
+      options?.retries ?? this._totalRetryAttempts
+    )(async () => {
+      return await EthersEventUtils.getEvents(
+        bridge,
+        taprootDepositRevealedFilter(...filterArgs),
+        options?.fromBlock ?? this._deployedAtBlockNumber,
+        options?.toBlock,
+        options?.batchedQueryBlockInterval,
+        options?.logger
+      )
+    })
+
+    return events.map<TaprootDepositRevealedEvent>((event) => {
+      return {
+        blockNumber: BigNumber.from(event.blockNumber).toNumber(),
+        blockHash: Hex.from(event.blockHash),
+        transactionHash: Hex.from(event.transactionHash),
+        fundingTxHash: BitcoinTxHash.from(event.args!.fundingTxHash).reverse(),
+        fundingOutputIndex: BigNumber.from(
+          event.args!.fundingOutputIndex
+        ).toNumber(),
+        depositor: EthereumAddress.from(event.args!.depositor),
+        amount: BigNumber.from(event.args!.amount),
+        blindingFactor: Hex.from(event.args!.blindingFactor),
+        walletPublicKeyHash: Hex.from(event.args!.walletPubKeyHash),
+        walletXOnlyPublicKey: Hex.from(event.args!.walletXOnlyPublicKey),
+        refundPublicKeyHash: Hex.from(event.args!.refundPubKeyHash),
+        refundXOnlyPublicKey: Hex.from(event.args!.refundXOnlyPublicKey),
         refundLocktime: Hex.from(event.args!.refundLocktime),
         vault:
           event.args!.vault === constants.AddressZero
@@ -323,6 +394,30 @@ export class EthereumBridge
 
     const tx = await EthersTransactionUtils.sendWithRetry<ContractTransaction>(
       async () => {
+        if (isTaprootDepositReceipt(deposit)) {
+          const bridge = this.taprootDepositRevealContract() as unknown as {
+            revealTaprootDepositWithExtraData: (
+              taprootFundingTx: typeof fundingTx,
+              taprootReveal: typeof reveal,
+              extraData: string
+            ) => Promise<ContractTransaction>
+            revealTaprootDeposit: (
+              taprootFundingTx: typeof fundingTx,
+              taprootReveal: typeof reveal
+            ) => Promise<ContractTransaction>
+          }
+
+          if (typeof extraData !== "undefined") {
+            return await bridge.revealTaprootDepositWithExtraData(
+              fundingTx,
+              reveal,
+              extraData
+            )
+          }
+
+          return await bridge.revealTaprootDeposit(fundingTx, reveal)
+        }
+
         if (typeof extraData !== "undefined") {
           return await this._instance.revealDepositWithExtraData(
             fundingTx,
@@ -967,7 +1062,17 @@ export function packRevealDepositParameters(
     fundingOutputIndex: depositOutputIndex,
     blindingFactor: deposit.blindingFactor.toPrefixedString(),
     walletPubKeyHash: deposit.walletPublicKeyHash.toPrefixedString(),
+    ...(isTaprootDepositReceipt(deposit)
+      ? {
+          walletXOnlyPublicKey: deposit.walletXOnlyPublicKey.toPrefixedString(),
+        }
+      : {}),
     refundPubKeyHash: deposit.refundPublicKeyHash.toPrefixedString(),
+    ...(isTaprootDepositReceipt(deposit)
+      ? {
+          refundXOnlyPublicKey: deposit.refundXOnlyPublicKey.toPrefixedString(),
+        }
+      : {}),
     refundLocktime: deposit.refundLocktime.toPrefixedString(),
     vault: vault ? `0x${vault.identifierHex}` : constants.AddressZero,
   }
@@ -979,4 +1084,16 @@ export function packRevealDepositParameters(
     reveal,
     extraData,
   }
+}
+
+function isTaprootDepositReceipt(
+  deposit: DepositReceipt
+): deposit is DepositReceipt & {
+  walletXOnlyPublicKey: Hex
+  refundXOnlyPublicKey: Hex
+} {
+  return (
+    typeof deposit.walletXOnlyPublicKey !== "undefined" &&
+    typeof deposit.refundXOnlyPublicKey !== "undefined"
+  )
 }
