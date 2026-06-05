@@ -9,6 +9,7 @@ import {
 import {
   BitcoinAddressConverter,
   BitcoinClient,
+  BitcoinHashUtils,
   BitcoinNetwork,
   BitcoinScriptUtils,
   BitcoinTxHash,
@@ -374,15 +375,37 @@ export class RedemptionsService {
     for (let index = 0; index < potentialCandidateWallets.length; index++) {
       const serializableWallet = potentialCandidateWallets[index]
       const {
-        walletBTCBalance: candidateBTCBalance,
+        walletBTCBalance: apiCandidateBTCBalance,
         walletPublicKey: candidatePublicKey,
         mainUtxo: candidateMainUtxo,
       } = this.fromSerializableWallet(serializableWallet)
 
-      if (candidateBTCBalance.lt(amount)) {
+      if (apiCandidateBTCBalance.lt(amount)) {
         console.debug(
           `The wallet (${candidatePublicKey.toString()})` +
             `cannot handle the redemption request. ` +
+            `Continue the loop execution to the next wallet...`
+        )
+        continue
+      }
+
+      const candidatePublicKeyHash =
+        BitcoinHashUtils.computeHash160(candidatePublicKey)
+
+      const currentWallet = await this.tbtcContracts.bridge.wallets(
+        candidatePublicKeyHash
+      )
+
+      if (
+        !currentWallet ||
+        currentWallet.state !== WalletState.Live ||
+        !currentWallet.walletPublicKey ||
+        currentWallet.walletPublicKey.toString() !==
+          candidatePublicKey.toString()
+      ) {
+        console.debug(
+          `The wallet (${candidatePublicKey.toString()})` +
+            `is not Live or does not match the on-chain wallet record. ` +
             `Continue the loop execution to the next wallet...`
         )
         continue
@@ -407,8 +430,48 @@ export class RedemptionsService {
           continue
         }
       }
+
+      let currentMainUtxo = candidateMainUtxo
+      if (
+        !this.tbtcContracts.bridge
+          .buildUtxoHash(currentMainUtxo)
+          .equals(currentWallet.mainUtxoHash)
+      ) {
+        const bitcoinNetwork = await this.bitcoinClient.getNetwork()
+        const resolvedMainUtxo = await this.determineWalletMainUtxo(
+          candidatePublicKeyHash,
+          bitcoinNetwork
+        )
+
+        if (!resolvedMainUtxo) {
+          console.debug(
+            `Could not resolve current main UTXO for wallet ` +
+              `(${candidatePublicKey.toString()}). ` +
+              `Continue the loop execution to the next wallet...`
+          )
+          continue
+        }
+
+        currentMainUtxo = resolvedMainUtxo
+      }
+
+      const onChainCandidateBTCBalance = currentMainUtxo.value.gt(
+        currentWallet.pendingRedemptionsValue
+      )
+        ? currentMainUtxo.value.sub(currentWallet.pendingRedemptionsValue)
+        : BigNumber.from(0)
+
+      if (onChainCandidateBTCBalance.lt(amount)) {
+        console.debug(
+          `The wallet (${candidatePublicKey.toString()})` +
+            `cannot handle the redemption request based on on-chain state. ` +
+            `Continue the loop execution to the next wallet...`
+        )
+        continue
+      }
+
       walletPublicKey = candidatePublicKey
-      mainUtxo = candidateMainUtxo
+      mainUtxo = currentMainUtxo
 
       console.debug(
         `The wallet (${walletPublicKey.toString()})` +
