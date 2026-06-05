@@ -23,7 +23,7 @@ On-chain identifier of the redeemer.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:347](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L347)
+[src/lib/contracts/bridge.ts:354](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L354)
 
 ___
 
@@ -36,7 +36,7 @@ prepended with length.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:353](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L353)
+[src/lib/contracts/bridge.ts:360](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L360)
 
 ___
 
@@ -50,7 +50,7 @@ by the sum of the fee share and the treasury fee for this particular output.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:360](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L360)
+[src/lib/contracts/bridge.ts:367](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L367)
 
 ___
 
@@ -62,7 +62,7 @@ UNIX timestamp the request was created at.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:379](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L379)
+[src/lib/contracts/bridge.ts:386](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L386)
 
 ___
 
@@ -77,7 +77,7 @@ on-chain contract at the time the redemption request was made.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:368](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L368)
+[src/lib/contracts/bridge.ts:375](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L375)
 
 ___
 
@@ -90,4 +90,4 @@ redemption's `requestedAmount` to pay the transaction network fee.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:374](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L374)
+[src/lib/contracts/bridge.ts:381](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L381)

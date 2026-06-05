@@ -18,6 +18,7 @@ Interface for communication with the Bridge on-chain contract.
 
 - [activeWalletID](Bridge.md#activewalletid)
 - [activeWalletPublicKey](Bridge.md#activewalletpublickey)
+- [activeWalletPublicKeyHash](Bridge.md#activewalletpublickeyhash)
 - [buildUtxoHash](Bridge.md#buildutxohash)
 - [deposits](Bridge.md#deposits)
 - [getChainIdentifier](Bridge.md#getchainidentifier)
@@ -65,7 +66,7 @@ GetEventsFunction
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:169](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L169)
+[src/lib/contracts/bridge.ts:176](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L176)
 
 ___
 
@@ -81,7 +82,7 @@ GetEventsFunction
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:222](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L222)
+[src/lib/contracts/bridge.ts:229](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L229)
 
 ## Methods
 
@@ -99,7 +100,7 @@ Canonical wallet ID of the active wallet, if set.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:209](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L209)
+[src/lib/contracts/bridge.ts:216](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L216)
 
 ___
 
@@ -119,7 +120,26 @@ Compressed (33 bytes long with 02 or 03 prefix) active wallet's
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:163](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L163)
+[src/lib/contracts/bridge.ts:170](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L170)
+
+___
+
+### activeWalletPublicKeyHash
+
+▸ **activeWalletPublicKeyHash**(): `Promise`\<`undefined` \| [`Hex`](../classes/Hex.md)\>
+
+Gets the public key hash of the current active wallet.
+
+#### Returns
+
+`Promise`\<`undefined` \| [`Hex`](../classes/Hex.md)\>
+
+20-byte active wallet public key hash. If there is no active
+         wallet at the moment, undefined is returned.
+
+#### Defined in
+
+[src/lib/contracts/bridge.ts:162](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L162)
 
 ___
 
@@ -143,7 +163,7 @@ The hash of the UTXO.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:216](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L216)
+[src/lib/contracts/bridge.ts:223](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L223)
 
 ___
 
@@ -415,7 +435,7 @@ Canonical wallet ID.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:196](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L196)
+[src/lib/contracts/bridge.ts:203](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L203)
 
 ___
 
@@ -439,7 +459,7 @@ Resolves legacy wallet public key hash from canonical wallet ID.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:203](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L203)
+[src/lib/contracts/bridge.ts:210](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L210)
 
 ___
 
@@ -455,7 +475,7 @@ Returns the attached WalletRegistry instance.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:174](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L174)
+[src/lib/contracts/bridge.ts:181](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L181)
 
 ___
 
@@ -479,7 +499,7 @@ Promise with the wallet details.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:182](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L182)
+[src/lib/contracts/bridge.ts:189](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L189)
 
 ___
 
@@ -503,4 +523,4 @@ Promise with the wallet details.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:189](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L189)
+[src/lib/contracts/bridge.ts:196](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L196)

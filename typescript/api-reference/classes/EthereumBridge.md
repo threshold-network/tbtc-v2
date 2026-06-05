@@ -32,6 +32,7 @@ for reference.
 
 - [activeWalletID](EthereumBridge.md#activewalletid)
 - [activeWalletPublicKey](EthereumBridge.md#activewalletpublickey)
+- [activeWalletPublicKeyHash](EthereumBridge.md#activewalletpublickeyhash)
 - [buildUtxoHash](EthereumBridge.md#buildutxohash)
 - [deposits](EthereumBridge.md#deposits)
 - [getAddress](EthereumBridge.md#getaddress)
@@ -158,7 +159,7 @@ EthersContractHandle.\_totalRetryAttempts
 
 #### Defined in
 
-[src/lib/ethereum/bridge.ts:606](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L606)
+[src/lib/ethereum/bridge.ts:618](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L618)
 
 ___
 
@@ -175,6 +176,26 @@ ___
 #### Implementation of
 
 [Bridge](../interfaces/Bridge.md).[activeWalletPublicKey](../interfaces/Bridge.md#activewalletpublickey)
+
+#### Defined in
+
+[src/lib/ethereum/bridge.ts:602](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L602)
+
+___
+
+### activeWalletPublicKeyHash
+
+▸ **activeWalletPublicKeyHash**(): `Promise`\<`undefined` \| [`Hex`](Hex.md)\>
+
+#### Returns
+
+`Promise`\<`undefined` \| [`Hex`](Hex.md)\>
+
+**`See`**
+
+#### Implementation of
+
+[Bridge](../interfaces/Bridge.md).[activeWalletPublicKeyHash](../interfaces/Bridge.md#activewalletpublickeyhash)
 
 #### Defined in
 
@@ -207,7 +228,7 @@ Builds the UTXO hash based on the UTXO components. UTXO hash is computed as
 
 #### Defined in
 
-[src/lib/ethereum/bridge.ts:878](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L878)
+[src/lib/ethereum/bridge.ts:890](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L890)
 
 ___
 
@@ -364,7 +385,7 @@ Bridge.getNewWalletRegisteredEvents
 
 #### Defined in
 
-[src/lib/ethereum/bridge.ts:667](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L667)
+[src/lib/ethereum/bridge.ts:679](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L679)
 
 ___
 
@@ -391,7 +412,7 @@ Bridge.getRedemptionRequestedEvents
 
 #### Defined in
 
-[src/lib/ethereum/bridge.ts:895](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L895)
+[src/lib/ethereum/bridge.ts:907](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L907)
 
 ___
 
@@ -411,7 +432,7 @@ ___
 
 #### Defined in
 
-[src/lib/ethereum/bridge.ts:641](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L641)
+[src/lib/ethereum/bridge.ts:653](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L653)
 
 ___
 
@@ -485,7 +506,7 @@ Parsed wallet data.
 
 #### Defined in
 
-[src/lib/ethereum/bridge.ts:847](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L847)
+[src/lib/ethereum/bridge.ts:859](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L859)
 
 ___
 
@@ -728,7 +749,7 @@ ___
 
 #### Defined in
 
-[src/lib/ethereum/bridge.ts:774](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L774)
+[src/lib/ethereum/bridge.ts:786](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L786)
 
 ___
 
@@ -754,7 +775,7 @@ ___
 
 #### Defined in
 
-[src/lib/ethereum/bridge.ts:798](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L798)
+[src/lib/ethereum/bridge.ts:810](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L810)
 
 ___
 
@@ -774,7 +795,7 @@ ___
 
 #### Defined in
 
-[src/lib/ethereum/bridge.ts:710](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L710)
+[src/lib/ethereum/bridge.ts:722](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L722)
 
 ___
 
@@ -800,7 +821,7 @@ ___
 
 #### Defined in
 
-[src/lib/ethereum/bridge.ts:727](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L727)
+[src/lib/ethereum/bridge.ts:739](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L739)
 
 ___
 
@@ -826,7 +847,7 @@ ___
 
 #### Defined in
 
-[src/lib/ethereum/bridge.ts:745](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L745)
+[src/lib/ethereum/bridge.ts:757](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L757)
 
 ___
 

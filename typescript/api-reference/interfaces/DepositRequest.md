@@ -23,7 +23,7 @@ Deposit amount in satoshis.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:308](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L308)
+[src/lib/contracts/bridge.ts:315](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L315)
 
 ___
 
@@ -35,7 +35,7 @@ Depositor's chain identifier.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:303](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L303)
+[src/lib/contracts/bridge.ts:310](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L310)
 
 ___
 
@@ -47,7 +47,7 @@ UNIX timestamp the deposit was revealed at.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:318](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L318)
+[src/lib/contracts/bridge.ts:325](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L325)
 
 ___
 
@@ -60,7 +60,7 @@ should have zero as value.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:323](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L323)
+[src/lib/contracts/bridge.ts:330](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L330)
 
 ___
 
@@ -73,7 +73,7 @@ Denominated in satoshi.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:328](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L328)
+[src/lib/contracts/bridge.ts:335](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L335)
 
 ___
 
@@ -85,4 +85,4 @@ Optional identifier of the vault the deposit should be routed in.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:313](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L313)
+[src/lib/contracts/bridge.ts:320](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L320)
