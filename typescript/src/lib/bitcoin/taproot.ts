@@ -101,7 +101,10 @@ function tapTweak(internalKey: Hex, merkleRoot?: Hex): Hex {
  * @param merkleRoot Optional 32-byte Taproot tree root.
  * @returns 32-byte x-only Taproot output key.
  */
-function deriveTaprootOutputKey(internalKey: Hex, merkleRoot?: Hex): Hex {
+function deriveTaprootOutputKeyWithParity(
+  internalKey: Hex,
+  merkleRoot?: Hex
+): { outputKey: Hex; parity: number } {
   const internalKeyBuffer = ensure32Bytes(internalKey, "Taproot internal key")
   const tweakBuffer = tapTweak(internalKey, merkleRoot).toBuffer()
 
@@ -114,7 +117,21 @@ function deriveTaprootOutputKey(internalKey: Hex, merkleRoot?: Hex): Hex {
     throw new Error("Cannot derive Taproot output key")
   }
 
-  return Hex.from(Buffer.from(tweakedKey.xOnlyPubkey))
+  return {
+    outputKey: Hex.from(Buffer.from(tweakedKey.xOnlyPubkey)),
+    parity: tweakedKey.parity,
+  }
+}
+
+/**
+ * Derives a BIP-341 Taproot output key for the given internal key and optional
+ * script tree root.
+ * @param internalKey 32-byte x-only internal key.
+ * @param merkleRoot Optional 32-byte Taproot tree root.
+ * @returns 32-byte x-only Taproot output key.
+ */
+function deriveTaprootOutputKey(internalKey: Hex, merkleRoot?: Hex): Hex {
+  return deriveTaprootOutputKeyWithParity(internalKey, merkleRoot).outputKey
 }
 
 /**
@@ -126,5 +143,6 @@ export const BitcoinTaprootUtils = {
   compactSizeUint,
   tapLeafHash,
   tapTweak,
+  deriveTaprootOutputKeyWithParity,
   deriveTaprootOutputKey,
 }

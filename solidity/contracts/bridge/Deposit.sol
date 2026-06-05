@@ -416,8 +416,8 @@ library Deposit {
         );
 
         require(
-            self.walletPubKeyHashByWalletID[reveal.walletXOnlyPublicKey] ==
-                reveal.walletPubKeyHash,
+            self.walletIDByWalletPubKeyHash[reveal.walletPubKeyHash] ==
+                reveal.walletXOnlyPublicKey,
             "Wallet x-only key mismatch"
         );
 
@@ -780,6 +780,9 @@ library Deposit {
         bytes memory fundingOutput,
         bytes32 taprootOutputKey
     ) internal pure {
+        // 8-byte value + 1-byte script length + 34-byte P2TR script. The
+        // strict script prefix and output-key checks below rule out
+        // same-length non-P2TR outputs.
         require(fundingOutput.length == 43, "Output must be P2TR");
         require(fundingOutput.slice3(8) == hex"225120", "Output must be P2TR");
         require(

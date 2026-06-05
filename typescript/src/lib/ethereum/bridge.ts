@@ -79,6 +79,48 @@ export class EthereumBridge
   extends EthersContractHandle<BridgeTypechain>
   implements Bridge
 {
+  private static ensureBridgeV2CompatibilityFallback(
+    error: unknown,
+    methodName: string
+  ) {
+    if (!EthereumBridge.isMissingBridgeV2CompatibilityMethodError(error)) {
+      throw error
+    }
+
+    console.debug(
+      `Bridge ${methodName} compatibility call unavailable; ` +
+        `falling back to legacy behavior: ${error}`
+    )
+  }
+
+  private static isMissingBridgeV2CompatibilityMethodError(
+    error: unknown
+  ): boolean {
+    const candidate = error as {
+      code?: string
+      data?: unknown
+      reason?: string
+      message?: string
+      error?: { data?: unknown; message?: string }
+    }
+
+    if (candidate?.code !== "CALL_EXCEPTION") {
+      return false
+    }
+
+    const data = candidate.data ?? candidate.error?.data
+    const message = `${candidate.message ?? ""} ${
+      candidate.error?.message ?? ""
+    }`.toLowerCase()
+
+    return (
+      data === "0x" ||
+      (typeof data === "undefined" &&
+        (message.includes("missing revert data") ||
+          message.includes("call revert exception")))
+    )
+  }
+
   private static walletRegistrationFilterArgs(filterArgs: Array<unknown>): {
     legacyFilterArgs: Array<unknown>
     v2FilterArgs: Array<unknown>
@@ -746,6 +788,7 @@ export class EthereumBridge
 
       return Hex.from(walletID)
     } catch (err) {
+      EthereumBridge.ensureBridgeV2CompatibilityFallback(err, "activeWalletID")
       // Fall back to the legacy alias below for pre-upgrade Bridge contracts
       // whose ABI and bytecode do not expose `activeWalletID`.
     }
@@ -928,6 +971,7 @@ export class EthereumBridge
 
       return Hex.from(walletID)
     } catch (err) {
+      EthereumBridge.ensureBridgeV2CompatibilityFallback(err, "walletID")
       // Fall back to the legacy alias below for pre-upgrade Bridge contracts
       // whose ABI and bytecode do not expose canonical wallet IDs.
     }
@@ -970,6 +1014,10 @@ export class EthereumBridge
 
       return Hex.from(walletPublicKeyHash)
     } catch (err) {
+      EthereumBridge.ensureBridgeV2CompatibilityFallback(
+        err,
+        "walletPubKeyHashForWalletID"
+      )
       // Fall through to the strict legacy-shape guard below for pre-upgrade
       // Bridge contracts whose ABI and bytecode do not expose canonical wallet
       // ID resolution.

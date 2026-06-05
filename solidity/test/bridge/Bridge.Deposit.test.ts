@@ -1243,6 +1243,10 @@ describe("Bridge - Deposit", () => {
         reveal.walletXOnlyPublicKey,
         reveal.walletPubKeyHash
       )
+      await bridge.setWalletIDForWalletPubKeyHash(
+        reveal.walletPubKeyHash,
+        reveal.walletXOnlyPublicKey
+      )
     })
 
     afterEach(async () => {
@@ -1320,6 +1324,17 @@ describe("Bridge - Deposit", () => {
           refundXOnlyPublicKey: reveal.walletXOnlyPublicKey,
         })
       ).to.be.revertedWith("Refund x-only key mismatch")
+    })
+
+    it("should reject wallet x-only key that is not the canonical FROST wallet ID", async () => {
+      await bridge.setWalletIDForWalletPubKeyHash(
+        reveal.walletPubKeyHash,
+        ethers.constants.HashZero
+      )
+
+      await expect(
+        bridge.connect(depositor).revealTaprootDeposit(P2TRFundingTx, reveal)
+      ).to.be.revertedWith("Wallet x-only key mismatch")
     })
 
     it("should reject funding output that does not match the revealed refund leaf", async () => {

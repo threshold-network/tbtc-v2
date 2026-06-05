@@ -1,6 +1,7 @@
 import chai, { expect } from "chai"
 import chaiAsPromised from "chai-as-promised"
 import { BigNumber } from "ethers"
+import * as secp256k1 from "@bitcoinerlab/secp256k1"
 import { payments, Transaction } from "bitcoinjs-lib"
 import {
   testnetAddress,
@@ -34,6 +35,7 @@ import {
   ChainIdentifier,
   BitcoinRawTxVectors,
   CrossChainContracts,
+  BitcoinTaprootUtils,
   toBitcoinJsLibNetwork,
 } from "../../src"
 import { MockBitcoinClient } from "../utils/mock-bitcoin-client"
@@ -3341,6 +3343,125 @@ describe("Deposits", () => {
                 expect(transactionHash).to.be.deep.equal(
                   depositRefundOfNonWitnessDepositAndWitnessRefunderAddress
                     .expectedRefund.transactionHash
+                )
+              })
+            })
+
+            context("when the refunded deposit was Taproot-native", () => {
+              let transactionHash: BitcoinTxHash
+              let rawRefundTransaction: BitcoinRawTx
+              let depositScript: DepositScript
+              let depositUtxo: BitcoinUtxo & BitcoinRawTx
+              let refundXOnlyPublicKey: Hex
+
+              beforeEach(async () => {
+                const refunderKeyPair = BitcoinPrivateKeyUtils.createKeyPair(
+                  refunderPrivateKey,
+                  BitcoinNetwork.Testnet
+                )
+                refundXOnlyPublicKey = Hex.from(
+                  Buffer.from(refunderKeyPair.publicKey).subarray(1)
+                )
+
+                const depositReceipt: DepositReceipt = {
+                  ...taprootDepositFixture.receipt,
+                  refundPublicKeyHash:
+                    BitcoinAddressConverter.taprootOutputKeyToWalletPublicKeyHash(
+                      refundXOnlyPublicKey
+                    ),
+                  refundXOnlyPublicKey,
+                }
+
+                depositScript = DepositScript.fromReceipt(
+                  depositReceipt,
+                  DepositScriptType.P2TR
+                )
+
+                const fundingTransaction = new Transaction()
+                fundingTransaction.version = 1
+                fundingTransaction.addInput(Buffer.alloc(32), 0)
+                fundingTransaction.addOutput(
+                  await depositScript.deriveOutputScript(
+                    BitcoinNetwork.Testnet
+                  ),
+                  depositAmount.toNumber()
+                )
+
+                depositUtxo = {
+                  transactionHash: BitcoinTxHash.from(
+                    fundingTransaction.getId()
+                  ),
+                  outputIndex: 0,
+                  value: depositAmount,
+                  transactionHex: fundingTransaction.toHex(),
+                }
+
+                const depositRefund = DepositRefund.fromScript(depositScript)
+
+                ;({
+                  transactionHash,
+                  rawTransaction: rawRefundTransaction,
+                } = await depositRefund.assembleTransaction(
+                  BitcoinNetwork.Testnet,
+                  fee,
+                  depositUtxo,
+                  depositRefundOfWitnessDepositAndWitnessRefunderAddress
+                    .refunderAddress,
+                  refunderPrivateKey
+                ))
+              })
+
+              it("should assemble a valid P2TR script-path refund witness", async () => {
+                const refundTransaction = Transaction.fromHex(
+                  rawRefundTransaction.transactionHex
+                )
+                const previousOutput = Transaction.fromHex(
+                  depositUtxo.transactionHex
+                ).outs[depositUtxo.outputIndex]
+                const [signature, refundScript, controlBlock] =
+                  refundTransaction.ins[0].witness
+
+                expect(refundTransaction.ins[0].witness).to.have.length(3)
+                expect(signature).to.have.length(64)
+                expect(
+                  Hex.from(refundScript).equals(
+                    await depositScript.getPlainText()
+                  )
+                ).to.be.true
+                expect(controlBlock).to.have.length(33)
+                expect(controlBlock[0] & 0xfe).to.equal(
+                  BitcoinTaprootUtils.TAPROOT_LEAF_VERSION
+                )
+                expect(
+                  Hex.from(controlBlock.subarray(1)).equals(
+                    taprootDepositFixture.receipt.walletXOnlyPublicKey!
+                  )
+                ).to.be.true
+
+                const sigHash = refundTransaction.hashForWitnessV1(
+                  0,
+                  [previousOutput.script],
+                  [previousOutput.value],
+                  0,
+                  (await depositScript.getTaprootLeafHash()).toBuffer()
+                )
+
+                expect(
+                  secp256k1.verifySchnorr(
+                    sigHash,
+                    refundXOnlyPublicKey.toBuffer(),
+                    signature
+                  )
+                ).to.be.true
+              })
+
+              it("should return the proper transaction hash", async () => {
+                expect(transactionHash).to.be.deep.equal(
+                  BitcoinTxHash.from(
+                    Transaction.fromHex(
+                      rawRefundTransaction.transactionHex
+                    ).getId()
+                  )
                 )
               })
             })
