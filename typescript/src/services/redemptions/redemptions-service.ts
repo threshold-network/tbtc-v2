@@ -753,23 +753,6 @@ export class RedemptionsService {
     // fetch full transaction data (time-consuming calls) starting from
     // the most recent transactions as there is a high chance the main UTXO
     // comes from there.
-    const walletTxHashes = await this.bitcoinClient.getTxHashesForPublicKeyHash(
-      walletPublicKeyHash
-    )
-
-    const walletTransactions = new Map<string, BitcoinTx>()
-    await Promise.all(
-      walletTxHashes.map(async (walletTxHash) => {
-        const walletTransaction = await this.bitcoinClient.getTransaction(
-          walletTxHash
-        )
-        walletTransactions.set(
-          walletTransaction.transactionHash.toString(),
-          walletTransaction
-        )
-      })
-    )
-
     const getOutputScript = (witness: boolean): Hex => {
       const address = BitcoinAddressConverter.publicKeyHashToAddress(
         walletPublicKeyHash,
@@ -795,28 +778,14 @@ export class RedemptionsService {
         bitcoinNetwork
       )
       walletOutputScripts.push(walletP2TR)
-
-      const p2trTransactions =
-        (await this.bitcoinClient.getTransactionHistory(walletP2TRAddress)) ??
-        []
-
-      p2trTransactions.forEach((walletTransaction) => {
-        walletTransactions.set(
-          walletTransaction.transactionHash.toString(),
-          walletTransaction
-        )
-      })
     }
 
     const isWalletOutput = (output: BitcoinTxOutput) =>
       walletOutputScripts.some((script) => script.equals(output.scriptPubKey))
 
-    // Start iterating from the latest transaction as the chance it matches
-    // the wallet main UTXO is the highest.
-    const walletTransactionList = Array.from(walletTransactions.values())
-    for (let i = walletTransactionList.length - 1; i >= 0; i--) {
-      const walletTransaction = walletTransactionList[i]
-
+    const findMatchingUtxo = (
+      walletTransaction: BitcoinTx
+    ): BitcoinUtxo | undefined => {
       // Find the output that locks the funds on the wallet. Only such an output
       // can be a wallet main UTXO.
       const outputIndex = walletTransaction.outputs.findIndex(isWalletOutput)
@@ -827,7 +796,7 @@ export class RedemptionsService {
         console.error(
           `wallet output for transaction ${walletTransaction.transactionHash.toString()} not found`
         )
-        continue
+        return undefined
       }
 
       // Build a candidate UTXO instance based on the detected output.
@@ -840,6 +809,47 @@ export class RedemptionsService {
       // Check whether the candidate UTXO hash matches the main UTXO hash stored
       // on the Bridge.
       if (mainUtxoHash.equals(this.tbtcContracts.bridge.buildUtxoHash(utxo))) {
+        return utxo
+      }
+
+      return undefined
+    }
+
+    // Start iterating from the latest transaction as the chance it matches
+    // the wallet main UTXO is the highest. For FROST wallets, scan P2TR
+    // address history first because their main UTXOs are expected to be
+    // native Taproot wallet outputs.
+    if (taprootWalletID) {
+      const walletP2TRAddress =
+        BitcoinAddressConverter.taprootOutputKeyToAddress(
+          taprootWalletID,
+          bitcoinNetwork
+        )
+
+      const p2trTransactions =
+        (await this.bitcoinClient.getTransactionHistory(walletP2TRAddress)) ??
+        []
+
+      for (let i = p2trTransactions.length - 1; i >= 0; i--) {
+        const utxo = findMatchingUtxo(p2trTransactions[i])
+        if (utxo) {
+          return utxo
+        }
+      }
+    }
+
+    const walletTxHashes = await this.bitcoinClient.getTxHashesForPublicKeyHash(
+      walletPublicKeyHash
+    )
+
+    for (let i = walletTxHashes.length - 1; i >= 0; i--) {
+      const walletTxHash = walletTxHashes[i]
+      const walletTransaction = await this.bitcoinClient.getTransaction(
+        walletTxHash
+      )
+      const utxo = findMatchingUtxo(walletTransaction)
+
+      if (utxo) {
         return utxo
       }
     }

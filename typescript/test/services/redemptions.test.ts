@@ -2127,17 +2127,67 @@ describe("Redemptions", () => {
                     })
 
                     it("should return the expected main UTXO", async () => {
-                      const mainUtxo =
+                      const actualMainUtxo =
                         await redemptionsService.determineWalletMainUtxo(
                           walletPublicKeyHash,
                           bitcoinNetwork
                         )
 
-                      expect(mainUtxo).to.be.eql(mainUtxo)
+                      expect(actualMainUtxo).to.be.eql(mainUtxo)
                     })
                   })
                 })
               })
+            })
+
+            it("should stop fetching legacy transactions after the newest matching UTXO", async () => {
+              const mainUtxo: BitcoinUtxo = {
+                transactionHash: Hex.from(
+                  "00cc0cd13fc4de7a15cb41ab6d58f8b31c75b6b9b4194958c381441a67d09b08"
+                ),
+                outputIndex: 1,
+                value: BigNumber.from(200000),
+              }
+              const transactions = new Map<string, BitcoinTx>()
+              walletTransactionHistory.forEach((tx) => {
+                transactions.set(tx.transactionHash.toString(), tx)
+              })
+              bitcoinClient.transactions = transactions
+
+              const transactionHashes = new Map<string, BitcoinTxHash[]>()
+              transactionHashes.set(
+                walletPublicKeyHash.toString(),
+                walletTransactionHistory.map((tx) => tx.transactionHash)
+              )
+              bitcoinClient.transactionHashes = transactionHashes
+
+              const fetchedTransactionHashes: string[] = []
+              const getTransaction =
+                bitcoinClient.getTransaction.bind(bitcoinClient)
+              bitcoinClient.getTransaction = async (
+                transactionHash: BitcoinTxHash
+              ) => {
+                fetchedTransactionHashes.push(transactionHash.toString())
+                return getTransaction(transactionHash)
+              }
+
+              tbtcContracts.bridge.setWallet(
+                walletPublicKeyHash.toPrefixedString(),
+                {
+                  mainUtxoHash: tbtcContracts.bridge.buildUtxoHash(mainUtxo),
+                } as Wallet
+              )
+
+              const actualMainUtxo =
+                await redemptionsService.determineWalletMainUtxo(
+                  walletPublicKeyHash,
+                  BitcoinNetwork.Testnet
+                )
+
+              expect(actualMainUtxo).to.be.eql(mainUtxo)
+              expect(fetchedTransactionHashes).to.deep.equal([
+                mainUtxo.transactionHash.toString(),
+              ])
             })
           }
         )
