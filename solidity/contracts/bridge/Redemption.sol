@@ -905,10 +905,8 @@ library Redemption {
             if (
                 resultInfo.changeValue == 0 &&
                 (outputScriptHash == processInfo.walletP2PKHScriptKeccak ||
-                    outputScriptHash ==
-                    processInfo.walletP2WPKHScriptKeccak ||
-                    outputScriptHash ==
-                    processInfo.walletP2TRScriptKeccak) &&
+                    outputScriptHash == processInfo.walletP2WPKHScriptKeccak ||
+                    outputScriptHash == processInfo.walletP2TRScriptKeccak) &&
                 outputValue > 0
             ) {
                 // If we entered here, that means the change output with a
