@@ -2,6 +2,7 @@ import {
   BitcoinAddressConverter,
   BitcoinHashUtils,
   BitcoinNetwork,
+  BitcoinPublicKeyUtils,
   BitcoinRawTx,
   BitcoinTx,
   BitcoinTxHash,
@@ -357,6 +358,98 @@ describe("Redemptions", () => {
             })
           }
         )
+
+        context("when a FROST wallet can handle the redemption request", () => {
+          const amount: BigNumber = BigNumber.from("1000000") // 0.01 BTC
+          const frostWalletID = Hex.from(
+            "0x3333333333333333333333333333333333333333333333333333333333333333"
+          )
+          const frostWalletPublicKey =
+            BitcoinPublicKeyUtils.xOnlyToCompressedPublicKey(frostWalletID)
+          const frostWalletPublicKeyHash =
+            BitcoinAddressConverter.taprootOutputKeyToWalletPublicKeyHash(
+              frostWalletID
+            )
+          const frostMainUtxo: BitcoinUtxo = {
+            transactionHash: Hex.from(
+              "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+            ),
+            outputIndex: 0,
+            value: BigNumber.from("2000000"),
+          }
+
+          beforeEach(async () => {
+            tbtcContracts = new MockTBTCContracts()
+            bitcoinClient = new MockBitcoinClient()
+            bitcoinClient.network = BitcoinNetwork.Mainnet
+            tbtcContracts.bridge.newWalletRegisteredEvents = [
+              {
+                walletPublicKeyHash: frostWalletPublicKeyHash,
+              } as NewWalletRegisteredEvent,
+            ]
+
+            const frostWalletAddress =
+              BitcoinAddressConverter.taprootOutputKeyToAddress(
+                frostWalletID,
+                BitcoinNetwork.Mainnet
+              )
+            const frostWalletScript =
+              BitcoinAddressConverter.addressToOutputScript(
+                frostWalletAddress,
+                BitcoinNetwork.Mainnet
+              )
+            bitcoinClient.transactionHistory = new Map<string, BitcoinTx[]>([
+              [
+                frostWalletAddress,
+                [
+                  {
+                    transactionHash: frostMainUtxo.transactionHash,
+                    inputs: [],
+                    outputs: [
+                      {
+                        outputIndex: frostMainUtxo.outputIndex,
+                        value: frostMainUtxo.value,
+                        scriptPubKey: frostWalletScript,
+                      },
+                    ],
+                  } as BitcoinTx,
+                ],
+              ],
+            ])
+
+            tbtcContracts.bridge.setWallet(
+              frostWalletPublicKeyHash.toPrefixedString(),
+              {
+                walletID: frostWalletID,
+                ecdsaWalletID: Hex.from(
+                  "0x0000000000000000000000000000000000000000000000000000000000000000"
+                ),
+                state: WalletState.Live,
+                pendingRedemptionsValue: BigNumber.from(0),
+                mainUtxoHash: tbtcContracts.bridge.buildUtxoHash(frostMainUtxo),
+              } as Wallet
+            )
+
+            redemptionsService = new TestRedemptionsService(
+              tbtcContracts,
+              bitcoinClient,
+              // Mock cross-chain contracts resolver.
+              (_: L2Chain) => undefined
+            )
+
+            result = await redemptionsService.findWalletForRedemption(
+              amount,
+              redeemerOutputScript
+            )
+          })
+
+          it("should return the FROST wallet data", () => {
+            expect(result).to.deep.eq({
+              walletPublicKey: frostWalletPublicKey,
+              mainUtxo: frostMainUtxo,
+            })
+          })
+        })
 
         context(
           "when the redemption request amount is too large and no wallet can handle the request",
@@ -1498,6 +1591,151 @@ describe("Redemptions", () => {
             liveWallet.data.walletPublicKey.toString()
           )
         })
+
+        it("should accept FROST API candidates identified by x-only wallet ID", async () => {
+          const tbtcContracts = new MockTBTCContracts()
+          const bitcoinClient = new MockBitcoinClient()
+          bitcoinClient.network = BitcoinNetwork.Mainnet
+          const amountInSatoshi = testAmount.div(BigNumber.from("10000000000"))
+          const frostWalletID = Hex.from(
+            "0x1111111111111111111111111111111111111111111111111111111111111111"
+          )
+          const frostWalletPublicKey =
+            BitcoinPublicKeyUtils.xOnlyToCompressedPublicKey(frostWalletID)
+          const frostWalletPublicKeyHash =
+            BitcoinAddressConverter.taprootOutputKeyToWalletPublicKeyHash(
+              frostWalletID
+            )
+          const frostMainUtxo =
+            findWalletForRedemptionData.liveWallet.data.mainUtxo
+
+          tbtcContracts.bridge.setWallet(
+            frostWalletPublicKeyHash.toPrefixedString(),
+            {
+              walletID: frostWalletID,
+              ecdsaWalletID: Hex.from(
+                "0x0000000000000000000000000000000000000000000000000000000000000000"
+              ),
+              state: WalletState.Live,
+              pendingRedemptionsValue: BigNumber.from(0),
+              mainUtxoHash: tbtcContracts.bridge.buildUtxoHash(frostMainUtxo),
+            } as Wallet
+          )
+
+          const redemptionsService = new WalletValidationGuardService(
+            tbtcContracts,
+            bitcoinClient,
+            createCrossChainResolver(createMockL1BitcoinRedeemer())
+          )
+
+          const result =
+            await redemptionsService.determineValidRedemptionWallet(
+              amountInSatoshi,
+              [
+                serializeRedemptionWalletCandidate(
+                  frostWalletID,
+                  frostMainUtxo
+                ),
+              ],
+              testRedeemerOutputScript
+            )
+
+          expect(result.walletPublicKey.toString()).to.equal(
+            frostWalletPublicKey.toString()
+          )
+          expect(result.mainUtxo).to.deep.equal(frostMainUtxo)
+        })
+
+        it("should resolve stale FROST API main UTXOs from P2TR history", async () => {
+          const tbtcContracts = new MockTBTCContracts()
+          const bitcoinClient = new MockBitcoinClient()
+          bitcoinClient.network = BitcoinNetwork.Mainnet
+          const amountInSatoshi = testAmount.div(BigNumber.from("10000000000"))
+          const frostWalletID = Hex.from(
+            "0x2222222222222222222222222222222222222222222222222222222222222222"
+          )
+          const frostWalletPublicKey =
+            BitcoinPublicKeyUtils.xOnlyToCompressedPublicKey(frostWalletID)
+          const frostWalletPublicKeyHash =
+            BitcoinAddressConverter.taprootOutputKeyToWalletPublicKeyHash(
+              frostWalletID
+            )
+          const staleMainUtxo: BitcoinUtxo = {
+            transactionHash: Hex.from(
+              "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            ),
+            outputIndex: 0,
+            value: BigNumber.from("10000000"),
+          }
+          const currentMainUtxo: BitcoinUtxo = {
+            transactionHash: Hex.from(
+              "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            ),
+            outputIndex: 0,
+            value: BigNumber.from("10000000"),
+          }
+          const frostWalletAddress =
+            BitcoinAddressConverter.taprootOutputKeyToAddress(
+              frostWalletID,
+              BitcoinNetwork.Mainnet
+            )
+          const frostWalletScript =
+            BitcoinAddressConverter.addressToOutputScript(
+              frostWalletAddress,
+              BitcoinNetwork.Mainnet
+            )
+          const frostWalletTransaction: BitcoinTx = {
+            transactionHash: currentMainUtxo.transactionHash,
+            inputs: [],
+            outputs: [
+              {
+                outputIndex: currentMainUtxo.outputIndex,
+                value: currentMainUtxo.value,
+                scriptPubKey: frostWalletScript,
+              },
+            ],
+          }
+
+          bitcoinClient.transactionHistory = new Map<string, BitcoinTx[]>([
+            [frostWalletAddress, [frostWalletTransaction]],
+          ])
+
+          tbtcContracts.bridge.setWallet(
+            frostWalletPublicKeyHash.toPrefixedString(),
+            {
+              walletID: frostWalletID,
+              ecdsaWalletID: Hex.from(
+                "0x0000000000000000000000000000000000000000000000000000000000000000"
+              ),
+              state: WalletState.Live,
+              pendingRedemptionsValue: BigNumber.from(0),
+              mainUtxoHash: tbtcContracts.bridge.buildUtxoHash(currentMainUtxo),
+            } as Wallet
+          )
+
+          const redemptionsService = new WalletValidationGuardService(
+            tbtcContracts,
+            bitcoinClient,
+            createCrossChainResolver(createMockL1BitcoinRedeemer())
+          )
+
+          const result =
+            await redemptionsService.determineValidRedemptionWallet(
+              amountInSatoshi,
+              [
+                serializeRedemptionWalletCandidate(
+                  frostWalletID,
+                  staleMainUtxo
+                ),
+              ],
+              testRedeemerOutputScript
+            )
+
+          expect(result.walletPublicKey.toString()).to.equal(
+            frostWalletPublicKey.toString()
+          )
+          expect(result.mainUtxo).to.deep.equal(currentMainUtxo)
+        })
       })
 
       context("when redeemerOutputScript is invalid", () => {
@@ -1591,11 +1829,13 @@ describe("Redemptions", () => {
       class TestRedemptionsService extends RedemptionsService {
         public async determineWalletMainUtxo(
           walletPublicKeyHash: Hex,
-          bitcoinNetwork: BitcoinNetwork
+          bitcoinNetwork: BitcoinNetwork,
+          taprootWalletID?: Hex
         ): Promise<BitcoinUtxo | undefined> {
           return super.determineWalletMainUtxo(
             walletPublicKeyHash,
-            bitcoinNetwork
+            bitcoinNetwork,
+            taprootWalletID
           )
         }
       }

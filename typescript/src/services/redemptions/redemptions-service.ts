@@ -4,14 +4,16 @@ import {
   L2Chain,
   RedemptionRequest,
   TBTCContracts,
+  Wallet,
   WalletState,
 } from "../../lib/contracts"
 import {
   BitcoinAddressConverter,
   BitcoinClient,
-  BitcoinHashUtils,
   BitcoinNetwork,
+  BitcoinPublicKeyUtils,
   BitcoinScriptUtils,
+  BitcoinTx,
   BitcoinTxHash,
   BitcoinTxOutput,
   BitcoinUtxo,
@@ -29,6 +31,10 @@ import {
  * Service exposing features related to tBTC v2 redemptions.
  */
 export class RedemptionsService {
+  private static readonly ZeroBytes32 = Hex.from(
+    "0x0000000000000000000000000000000000000000000000000000000000000000"
+  )
+
   /**
    * Handle to tBTC contracts.
    */
@@ -389,19 +395,22 @@ export class RedemptionsService {
         continue
       }
 
-      const candidatePublicKeyHash =
-        BitcoinHashUtils.computeHash160(candidatePublicKey)
+      const candidateWalletIdentity =
+        this.redemptionWalletIdentityFromCandidate(candidatePublicKey)
+      const candidatePublicKeyHash = candidateWalletIdentity.walletPublicKeyHash
 
       const currentWallet = await this.tbtcContracts.bridge.wallets(
         candidatePublicKeyHash
       )
+      const currentWalletPublicKey = currentWallet
+        ? this.redemptionWalletPublicKey(currentWallet)
+        : undefined
 
       if (
         !currentWallet ||
         currentWallet.state !== WalletState.Live ||
-        !currentWallet.walletPublicKey ||
-        currentWallet.walletPublicKey.toString() !==
-          candidatePublicKey.toString()
+        !currentWalletPublicKey ||
+        !currentWalletPublicKey.equals(candidateWalletIdentity.walletPublicKey)
       ) {
         console.debug(
           `The wallet (${candidatePublicKey.toString()})` +
@@ -413,8 +422,8 @@ export class RedemptionsService {
 
       if (redeemerOutputScript) {
         const pendingRedemption =
-          await this.tbtcContracts.bridge.pendingRedemptions(
-            candidatePublicKey,
+          await this.tbtcContracts.bridge.pendingRedemptionsByWalletPKH(
+            candidatePublicKeyHash,
             redeemerOutputScript
           )
 
@@ -440,7 +449,8 @@ export class RedemptionsService {
         const bitcoinNetwork = await this.bitcoinClient.getNetwork()
         const resolvedMainUtxo = await this.determineWalletMainUtxo(
           candidatePublicKeyHash,
-          bitcoinNetwork
+          bitcoinNetwork,
+          this.frostWalletID(currentWallet) ?? candidateWalletIdentity.walletID
         )
 
         if (!resolvedMainUtxo) {
@@ -470,7 +480,7 @@ export class RedemptionsService {
         continue
       }
 
-      walletPublicKey = candidatePublicKey
+      walletPublicKey = currentWalletPublicKey
       mainUtxo = currentMainUtxo
 
       console.debug(
@@ -530,8 +540,11 @@ export class RedemptionsService {
         const globalIndex = cIndex * concurrencyLimit + indexInChunk
 
         const { walletPublicKeyHash } = walletEvent
-        const { state, walletPublicKey, pendingRedemptionsValue } =
-          await this.tbtcContracts.bridge.wallets(walletPublicKeyHash)
+        const wallet = await this.tbtcContracts.bridge.wallets(
+          walletPublicKeyHash
+        )
+        const { state, pendingRedemptionsValue } = wallet
+        const walletPublicKey = this.redemptionWalletPublicKey(wallet)
 
         // Wallet must be in Live state.
         if (state !== WalletState.Live || !walletPublicKey) {
@@ -546,8 +559,8 @@ export class RedemptionsService {
 
         if (redeemerOutputScript) {
           const pendingRedemption =
-            await this.tbtcContracts.bridge.pendingRedemptions(
-              walletPublicKey,
+            await this.tbtcContracts.bridge.pendingRedemptionsByWalletPKH(
+              walletPublicKeyHash,
               redeemerOutputScript
             )
 
@@ -566,7 +579,8 @@ export class RedemptionsService {
 
         const mainUtxo = await this.determineWalletMainUtxo(
           walletPublicKeyHash,
-          bitcoinNetwork
+          bitcoinNetwork,
+          this.frostWalletID(wallet)
         )
         if (!mainUtxo) {
           console.debug(
@@ -577,7 +591,9 @@ export class RedemptionsService {
           return
         }
 
-        const walletBTCBalance = mainUtxo.value.sub(pendingRedemptionsValue)
+        const walletBTCBalance = mainUtxo.value.gt(pendingRedemptionsValue)
+          ? mainUtxo.value.sub(pendingRedemptionsValue)
+          : BigNumber.from(0)
 
         if (walletBTCBalance.gt(maxAmount)) {
           maxAmount = walletBTCBalance
@@ -651,17 +667,69 @@ export class RedemptionsService {
     return result
   }
 
+  private redemptionWalletIdentityFromCandidate(walletKey: Hex): {
+    walletPublicKeyHash: Hex
+    walletPublicKey: Hex
+    walletID?: Hex
+  } {
+    const walletKeyBuffer = walletKey.toBuffer()
+
+    if (walletKeyBuffer.length === 32) {
+      return {
+        walletPublicKeyHash:
+          BitcoinPublicKeyUtils.walletKeyToPublicKeyHash(walletKey),
+        walletPublicKey:
+          BitcoinPublicKeyUtils.xOnlyToCompressedPublicKey(walletKey),
+        walletID: walletKey,
+      }
+    }
+
+    return {
+      walletPublicKeyHash:
+        BitcoinPublicKeyUtils.walletKeyToPublicKeyHash(walletKey),
+      walletPublicKey: walletKey,
+    }
+  }
+
+  private redemptionWalletPublicKey(wallet: Wallet): Hex | undefined {
+    if (wallet.walletPublicKey) {
+      return wallet.walletPublicKey
+    }
+
+    const walletID = this.frostWalletID(wallet)
+    if (walletID) {
+      return BitcoinPublicKeyUtils.xOnlyToCompressedPublicKey(walletID)
+    }
+
+    return undefined
+  }
+
+  private frostWalletID(wallet: Wallet): Hex | undefined {
+    if (
+      wallet.walletID &&
+      wallet.ecdsaWalletID &&
+      wallet.ecdsaWalletID.equals(RedemptionsService.ZeroBytes32)
+    ) {
+      return wallet.walletID
+    }
+
+    return undefined
+  }
+
   /**
    * Determines the plain-text wallet main UTXO currently registered in the
    * Bridge on-chain contract. The returned main UTXO can be undefined if the
    * wallet does not have a main UTXO registered in the Bridge at the moment.
    * @param walletPublicKeyHash - Public key hash of the wallet.
    * @param bitcoinNetwork - Bitcoin network.
+   * @param taprootWalletID - Optional 32-byte x-only FROST wallet ID. When
+   *        present, P2TR wallet history is scanned as well.
    * @returns Promise holding the wallet main UTXO or undefined value.
    */
   protected async determineWalletMainUtxo(
     walletPublicKeyHash: Hex,
-    bitcoinNetwork: BitcoinNetwork
+    bitcoinNetwork: BitcoinNetwork,
+    taprootWalletID?: Hex
   ): Promise<BitcoinUtxo | undefined> {
     const { mainUtxoHash } = await this.tbtcContracts.bridge.wallets(
       walletPublicKeyHash
@@ -669,13 +737,7 @@ export class RedemptionsService {
 
     // Valid case when the wallet doesn't have a main UTXO registered into
     // the Bridge.
-    if (
-      mainUtxoHash.equals(
-        Hex.from(
-          "0x0000000000000000000000000000000000000000000000000000000000000000"
-        )
-      )
-    ) {
+    if (mainUtxoHash.equals(RedemptionsService.ZeroBytes32)) {
       return undefined
     }
 
@@ -695,6 +757,19 @@ export class RedemptionsService {
       walletPublicKeyHash
     )
 
+    const walletTransactions = new Map<string, BitcoinTx>()
+    await Promise.all(
+      walletTxHashes.map(async (walletTxHash) => {
+        const walletTransaction = await this.bitcoinClient.getTransaction(
+          walletTxHash
+        )
+        walletTransactions.set(
+          walletTransaction.transactionHash.toString(),
+          walletTransaction
+        )
+      })
+    )
+
     const getOutputScript = (witness: boolean): Hex => {
       const address = BitcoinAddressConverter.publicKeyHashToAddress(
         walletPublicKeyHash,
@@ -707,20 +782,40 @@ export class RedemptionsService {
       )
     }
 
-    const walletP2PKH = getOutputScript(false)
-    const walletP2WPKH = getOutputScript(true)
+    const walletOutputScripts = [getOutputScript(false), getOutputScript(true)]
+
+    if (taprootWalletID) {
+      const walletP2TRAddress =
+        BitcoinAddressConverter.taprootOutputKeyToAddress(
+          taprootWalletID,
+          bitcoinNetwork
+        )
+      const walletP2TR = BitcoinAddressConverter.addressToOutputScript(
+        walletP2TRAddress,
+        bitcoinNetwork
+      )
+      walletOutputScripts.push(walletP2TR)
+
+      const p2trTransactions =
+        (await this.bitcoinClient.getTransactionHistory(walletP2TRAddress)) ??
+        []
+
+      p2trTransactions.forEach((walletTransaction) => {
+        walletTransactions.set(
+          walletTransaction.transactionHash.toString(),
+          walletTransaction
+        )
+      })
+    }
 
     const isWalletOutput = (output: BitcoinTxOutput) =>
-      walletP2PKH.equals(output.scriptPubKey) ||
-      walletP2WPKH.equals(output.scriptPubKey)
+      walletOutputScripts.some((script) => script.equals(output.scriptPubKey))
 
     // Start iterating from the latest transaction as the chance it matches
     // the wallet main UTXO is the highest.
-    for (let i = walletTxHashes.length - 1; i >= 0; i--) {
-      const walletTxHash = walletTxHashes[i]
-      const walletTransaction = await this.bitcoinClient.getTransaction(
-        walletTxHash
-      )
+    const walletTransactionList = Array.from(walletTransactions.values())
+    for (let i = walletTransactionList.length - 1; i >= 0; i--) {
+      const walletTransaction = walletTransactionList[i]
 
       // Find the output that locks the funds on the wallet. Only such an output
       // can be a wallet main UTXO.
