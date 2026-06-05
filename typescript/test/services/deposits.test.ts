@@ -3354,15 +3354,9 @@ describe("Deposits", () => {
               let depositUtxo: BitcoinUtxo & BitcoinRawTx
               let refundXOnlyPublicKey: Hex
 
-              beforeEach(async () => {
-                const refunderKeyPair = BitcoinPrivateKeyUtils.createKeyPair(
-                  refunderPrivateKey,
-                  BitcoinNetwork.Testnet
-                )
-                refundXOnlyPublicKey = Hex.from(
-                  Buffer.from(refunderKeyPair.publicKey).subarray(1)
-                )
-
+              const assembleTaprootRefund = async (
+                refundXOnlyPublicKey: Hex
+              ) => {
                 const depositReceipt: DepositReceipt = {
                   ...taprootDepositFixture.receipt,
                   refundPublicKeyHash:
@@ -3406,9 +3400,11 @@ describe("Deposits", () => {
                     depositRefundOfWitnessDepositAndWitnessRefunderAddress.refunderAddress,
                     refunderPrivateKey
                   ))
-              })
+              }
 
-              it("should assemble a valid P2TR script-path refund witness", async () => {
+              const assertValidP2TRRefundWitness = async (
+                signingXOnlyPublicKey: Hex
+              ) => {
                 const refundTransaction = Transaction.fromHex(
                   rawRefundTransaction.transactionHex
                 )
@@ -3446,10 +3442,41 @@ describe("Deposits", () => {
                 expect(
                   secp256k1.verifySchnorr(
                     sigHash,
-                    refundXOnlyPublicKey.toBuffer(),
+                    signingXOnlyPublicKey.toBuffer(),
                     signature
                   )
                 ).to.be.true
+              }
+
+              beforeEach(async () => {
+                const refunderKeyPair = BitcoinPrivateKeyUtils.createKeyPair(
+                  refunderPrivateKey,
+                  BitcoinNetwork.Testnet
+                )
+                refundXOnlyPublicKey = Hex.from(
+                  Buffer.from(refunderKeyPair.publicKey).subarray(1)
+                )
+
+                await assembleTaprootRefund(refundXOnlyPublicKey)
+              })
+
+              it("should assemble a valid P2TR script-path refund witness", async () => {
+                await assertValidP2TRRefundWitness(refundXOnlyPublicKey)
+              })
+
+              it("should assemble a valid P2TR script-path refund witness for a BIP86 recovery key", async () => {
+                const refunderKeyPair = BitcoinPrivateKeyUtils.createKeyPair(
+                  refunderPrivateKey,
+                  BitcoinNetwork.Testnet
+                )
+                refundXOnlyPublicKey =
+                  BitcoinTaprootUtils.deriveTaprootOutputKey(
+                    Hex.from(Buffer.from(refunderKeyPair.publicKey).subarray(1))
+                  )
+
+                await assembleTaprootRefund(refundXOnlyPublicKey)
+
+                await assertValidP2TRRefundWitness(refundXOnlyPublicKey)
               })
 
               it("should return the proper transaction hash", async () => {

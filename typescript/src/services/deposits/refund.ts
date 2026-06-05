@@ -21,6 +21,7 @@ import {
   script as btcjsscript,
   Stack,
 } from "bitcoinjs-lib"
+import * as secp256k1 from "@bitcoinerlab/secp256k1"
 
 const TAPROOT_SIGHASH_DEFAULT = 0
 
@@ -223,11 +224,14 @@ export class DepositRefund {
   /**
    * Assembles the Taproot refund tapscript and validates the refunder's key.
    * @param refunderKeyPair - Signer object containing the refunder's key pair.
-   * @returns A Promise resolving to the assembled tapscript as a Buffer.
+   * @returns A Promise resolving to the assembled tapscript and signer.
    */
-  private async prepareTaprootRefundScript(
+  private async prepareTaprootRefundSigningData(
     refunderKeyPair: Signer
-  ): Promise<Buffer> {
+  ): Promise<{
+    refundScript: Buffer
+    signSchnorr: (hash: Buffer) => Buffer
+  }> {
     const refundXOnlyPublicKey = this.script.receipt.refundXOnlyPublicKey
 
     if (!refundXOnlyPublicKey) {
@@ -243,8 +247,20 @@ export class DepositRefund {
       throw new Error("Refunder public key must be compressed")
     }
 
-    const refunderXOnlyPublicKey = Hex.from(refunderPublicKey.subarray(1))
-    if (!refunderXOnlyPublicKey.equals(refundXOnlyPublicKey)) {
+    const refunderInternalXOnlyPublicKey = Hex.from(
+      refunderPublicKey.subarray(1)
+    )
+    // Standard P2TR recovery addresses expose the BIP86 output key, not the
+    // untweaked WIF public key. Keep the direct-key path for legacy test
+    // fixtures, but accept and sign with the tweaked key for normal wallets.
+    const refunderBIP86OutputKey = BitcoinTaprootUtils.deriveTaprootOutputKey(
+      refunderInternalXOnlyPublicKey
+    )
+    const directRefundKey =
+      refunderInternalXOnlyPublicKey.equals(refundXOnlyPublicKey)
+    const bip86RefundKey = refunderBIP86OutputKey.equals(refundXOnlyPublicKey)
+
+    if (!directRefundKey && !bip86RefundKey) {
       throw new Error(
         "Refund x-only public key does not correspond to wallet private key"
       )
@@ -253,14 +269,67 @@ export class DepositRefund {
     if (
       !BitcoinHashUtils.computeHash160(
         Hex.from(
-          Buffer.concat([Buffer.from([0x02]), refunderPublicKey.subarray(1)])
+          Buffer.concat([Buffer.from([0x02]), refundXOnlyPublicKey.toBuffer()])
         )
       ).equals(this.script.receipt.refundPublicKeyHash)
     ) {
       throw new Error("Refund x-only public key does not match refund alias")
     }
 
-    return (await this.script.getTaprootRefundScript()).toBuffer()
+    const signSchnorr = bip86RefundKey
+      ? this.bip86TweakedSchnorrSigner(
+          refunderKeyPair,
+          refunderInternalXOnlyPublicKey
+        )
+      : this.directSchnorrSigner(refunderKeyPair)
+
+    return {
+      refundScript: (await this.script.getTaprootRefundScript()).toBuffer(),
+      signSchnorr,
+    }
+  }
+
+  private directSchnorrSigner(
+    refunderKeyPair: Signer
+  ): (hash: Buffer) => Buffer {
+    const schnorrSigner = refunderKeyPair as Signer & {
+      signSchnorr?: (hash: Buffer) => Buffer
+    }
+
+    if (typeof schnorrSigner.signSchnorr !== "function") {
+      throw new Error("Refunder key pair does not support Schnorr signing")
+    }
+
+    return (hash: Buffer) => schnorrSigner.signSchnorr!(hash)
+  }
+
+  private bip86TweakedSchnorrSigner(
+    refunderKeyPair: Signer,
+    internalXOnlyPublicKey: Hex
+  ): (hash: Buffer) => Buffer {
+    const privateKey = (refunderKeyPair as Signer & { privateKey?: Buffer })
+      .privateKey
+
+    if (!privateKey) {
+      throw new Error("Refunder key pair does not expose private key")
+    }
+
+    const publicKey = Buffer.from(refunderKeyPair.publicKey)
+    const privateKeyForEvenY =
+      publicKey[0] === 0x03
+        ? Buffer.from(secp256k1.privateNegate(privateKey))
+        : privateKey
+    const tweakedPrivateKey = secp256k1.privateAdd(
+      privateKeyForEvenY,
+      BitcoinTaprootUtils.tapTweak(internalXOnlyPublicKey).toBuffer()
+    )
+
+    if (!tweakedPrivateKey) {
+      throw new Error("Cannot derive BIP86 Taproot refund private key")
+    }
+
+    return (hash: Buffer) =>
+      Buffer.from(secp256k1.signSchnorr(hash, Buffer.from(tweakedPrivateKey)))
   }
 
   /**
@@ -361,7 +430,8 @@ export class DepositRefund {
       throw new Error("Taproot wallet key is missing")
     }
 
-    const depositScript = await this.prepareTaprootRefundScript(refunderKeyPair)
+    const { refundScript, signSchnorr } =
+      await this.prepareTaprootRefundSigningData(refunderKeyPair)
     const leafHash = await this.script.getTaprootLeafHash()
     const { parity } = BitcoinTaprootUtils.deriveTaprootOutputKeyWithParity(
       walletXOnlyPublicKey,
@@ -376,15 +446,7 @@ export class DepositRefund {
       leafHash.toBuffer()
     )
 
-    const schnorrSigner = refunderKeyPair as Signer & {
-      signSchnorr?: (hash: Buffer) => Buffer
-    }
-
-    if (typeof schnorrSigner.signSchnorr !== "function") {
-      throw new Error("Refunder key pair does not support Schnorr signing")
-    }
-
-    const signature = schnorrSigner.signSchnorr(sigHash)
+    const signature = signSchnorr(sigHash)
     const controlBlock = Buffer.concat([
       Buffer.from([BitcoinTaprootUtils.TAPROOT_LEAF_VERSION | parity]),
       walletXOnlyPublicKey.toBuffer(),
@@ -392,7 +454,7 @@ export class DepositRefund {
 
     transaction.ins[inputIndex].witness = [
       signature,
-      depositScript,
+      refundScript,
       controlBlock,
     ]
   }
