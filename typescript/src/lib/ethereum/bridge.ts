@@ -610,9 +610,7 @@ export class EthereumBridge
       return undefined
     }
 
-    const { walletPublicKey } = await this.wallets(
-      activeWalletPublicKeyHash
-    )
+    const { walletPublicKey } = await this.wallets(activeWalletPublicKeyHash)
 
     return walletPublicKey
   }
