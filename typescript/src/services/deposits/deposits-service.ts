@@ -212,6 +212,16 @@ export class DepositsService {
       throw new Error("Could not get active wallet public key hash")
     }
 
+    const activeWalletID = await this.tbtcContracts.bridge.activeWalletID()
+    if (
+      activeWalletID &&
+      !isLegacyWalletID(activeWalletID, walletPublicKeyHash)
+    ) {
+      throw new Error(
+        "Legacy P2WSH deposits are not supported for FROST active wallets"
+      )
+    }
+
     const bitcoinNetwork = await this.bitcoinClient.getNetwork()
 
     const recoveryOutputScript = BitcoinAddressConverter.addressToOutputScript(
@@ -277,4 +287,18 @@ export class DepositsService {
   setDefaultDepositor(defaultDepositor: ChainIdentifier) {
     this.#defaultDepositor = defaultDepositor
   }
+}
+
+function isLegacyWalletID(walletID: Hex, walletPublicKeyHash: Hex): boolean {
+  const walletIDBytes = walletID.toBuffer()
+  const walletPublicKeyHashBytes = walletPublicKeyHash.toBuffer()
+
+  if (walletIDBytes.length !== 32 || walletPublicKeyHashBytes.length !== 20) {
+    return false
+  }
+
+  return (
+    walletIDBytes.subarray(0, 12).every((byte) => byte === 0) &&
+    walletIDBytes.subarray(12).equals(walletPublicKeyHashBytes)
+  )
 }

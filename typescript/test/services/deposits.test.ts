@@ -1771,6 +1771,29 @@ describe("Deposits", () => {
           })
         })
 
+        context("when active wallet is a FROST wallet", () => {
+          beforeEach(async () => {
+            tbtcContracts.bridge.setActiveWalletPublicKeyHash(
+              Hex.from("c92a772f11bc97d8938a16a9db435401f4e6a7bc")
+            )
+            tbtcContracts.bridge.setActiveWalletID(
+              Hex.from(
+                "2336f65004d8f122f1fe947ebd009a8b4add3a0d937356d568e30f7fcc2e4008"
+              )
+            )
+          })
+
+          it("should reject legacy deposit scripts", async () => {
+            await expect(
+              depositService.initiateDeposit(
+                "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc"
+              )
+            ).to.be.rejectedWith(
+              "Legacy P2WSH deposits are not supported for FROST active wallets"
+            )
+          })
+        })
+
         context("when active wallet is set", () => {
           beforeEach(async () => {
             tbtcContracts.bridge.setActiveWalletPublicKey(
@@ -1950,6 +1973,30 @@ describe("Deposits", () => {
               "03989d253b17a6a0f41838b84ff0d20e8898f9d7b1a98f2564da4cc29dcf8581d9"
             )
           )
+        })
+
+        context("when active wallet is a FROST wallet", () => {
+          beforeEach(async () => {
+            tbtcContracts.bridge.setActiveWalletPublicKeyHash(
+              Hex.from("c92a772f11bc97d8938a16a9db435401f4e6a7bc")
+            )
+            tbtcContracts.bridge.setActiveWalletID(
+              Hex.from(
+                "2336f65004d8f122f1fe947ebd009a8b4add3a0d937356d568e30f7fcc2e4008"
+              )
+            )
+          })
+
+          it("should reject legacy deposit scripts", async () => {
+            await expect(
+              depositService.initiateDepositWithProxy(
+                "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+                depositorProxy
+              )
+            ).to.be.rejectedWith(
+              "Legacy P2WSH deposits are not supported for FROST active wallets"
+            )
+          })
         })
 
         context("when recovery address is incorrect", () => {
