@@ -3398,17 +3398,14 @@ describe("Deposits", () => {
 
                 const depositRefund = DepositRefund.fromScript(depositScript)
 
-                ;({
-                  transactionHash,
-                  rawTransaction: rawRefundTransaction,
-                } = await depositRefund.assembleTransaction(
-                  BitcoinNetwork.Testnet,
-                  fee,
-                  depositUtxo,
-                  depositRefundOfWitnessDepositAndWitnessRefunderAddress
-                    .refunderAddress,
-                  refunderPrivateKey
-                ))
+                ;({ transactionHash, rawTransaction: rawRefundTransaction } =
+                  await depositRefund.assembleTransaction(
+                    BitcoinNetwork.Testnet,
+                    fee,
+                    depositUtxo,
+                    depositRefundOfWitnessDepositAndWitnessRefunderAddress.refunderAddress,
+                    refunderPrivateKey
+                  ))
               })
 
               it("should assemble a valid P2TR script-path refund witness", async () => {

@@ -5683,9 +5683,7 @@ describe("Bridge - Redemption", () => {
       throw new Error("test helper supports only compact output vectors")
     }
 
-    return `0x${outputs.length
-      .toString(16)
-      .padStart(2, "0")}${outputs
+    return `0x${outputs.length.toString(16).padStart(2, "0")}${outputs
       .map(({ value, script }) => `${encodeUint64LE(value)}${script.slice(2)}`)
       .join("")}`
   }
@@ -5696,11 +5694,7 @@ describe("Bridge - Redemption", () => {
       8
     )
 
-    return bigEndian
-      .slice(2)
-      .match(/../g)!
-      .reverse()
-      .join("")
+    return bigEndian.slice(2).match(/../g)!.reverse().join("")
   }
 
   function buildMainUtxoHash(

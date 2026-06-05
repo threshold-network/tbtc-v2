@@ -101,8 +101,9 @@ describe("Ethereum", () => {
           .withArgs(walletPublicKeyHash.toPrefixedString())
           .returns(walletID.toPrefixedString())
 
-        expect((await bridgeHandle.walletID(walletPublicKeyHash)).toString()).to
-          .equal(walletID.toString())
+        expect(
+          (await bridgeHandle.walletID(walletPublicKeyHash)).toString()
+        ).to.equal(walletID.toString())
       })
 
       it("should resolve wallet public key hash from canonical wallet ID despite stale local ABI", async () => {
@@ -111,7 +112,9 @@ describe("Ethereum", () => {
           .returns(walletPublicKeyHash.toPrefixedString())
 
         expect(
-          (await bridgeHandle.walletPublicKeyHashForWalletID(walletID)).toString()
+          (
+            await bridgeHandle.walletPublicKeyHashForWalletID(walletID)
+          ).toString()
         ).to.equal(walletPublicKeyHash.toString())
       })
     })
@@ -744,6 +747,12 @@ describe("Ethereum", () => {
               state: 1,
               movingFundsTargetWalletsCommitmentHash: constants.HashZero,
             } as any)
+
+          await bridgeContract.mock.walletID
+            .withArgs("0x8db50eb52063ea9d98b3eac91489a90f738986f6")
+            .returns(
+              "0x0000000000000000000000008db50eb52063ea9d98b3eac91489a90f738986f6"
+            )
 
           await walletRegistry.mock.getWalletPublicKey
             .withArgs(

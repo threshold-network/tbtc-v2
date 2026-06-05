@@ -113,6 +113,9 @@ export class EthereumBridge
       candidate.error?.message ?? ""
     }`.toLowerCase()
 
+    // These compatibility methods are lookup-only Bridge V2 views. An empty
+    // CALL_EXCEPTION indicates the checked-out ABI is newer than the deployed
+    // bytecode; the methods are not expected to intentionally revert empty.
     return (
       data === "0x" ||
       (typeof data === "undefined" &&
@@ -774,9 +777,10 @@ export class EthereumBridge
       return Hex.from(walletID)
     }
 
-    const bridgeV2Contract = this.bridgeV2CompatibilityContract() as unknown as {
-      activeWalletID: () => Promise<string>
-    }
+    const bridgeV2Contract =
+      this.bridgeV2CompatibilityContract() as unknown as {
+        activeWalletID: () => Promise<string>
+      }
     try {
       const walletID = await backoffRetrier<string>(this._totalRetryAttempts)(
         async () => bridgeV2Contract.activeWalletID()
@@ -960,9 +964,10 @@ export class EthereumBridge
       return Hex.from(walletID)
     }
 
-    const bridgeV2Contract = this.bridgeV2CompatibilityContract() as unknown as {
-      walletID: (walletPubKeyHash: string) => Promise<string>
-    }
+    const bridgeV2Contract =
+      this.bridgeV2CompatibilityContract() as unknown as {
+        walletID: (walletPubKeyHash: string) => Promise<string>
+      }
     try {
       const walletID = await backoffRetrier<string>(this._totalRetryAttempts)(
         async () =>
@@ -1000,9 +1005,10 @@ export class EthereumBridge
       return Hex.from(walletPublicKeyHash)
     }
 
-    const bridgeV2Contract = this.bridgeV2CompatibilityContract() as unknown as {
-      walletPubKeyHashForWalletID: (walletID: string) => Promise<string>
-    }
+    const bridgeV2Contract =
+      this.bridgeV2CompatibilityContract() as unknown as {
+        walletPubKeyHashForWalletID: (walletID: string) => Promise<string>
+      }
     try {
       const walletPublicKeyHash = await backoffRetrier<string>(
         this._totalRetryAttempts
