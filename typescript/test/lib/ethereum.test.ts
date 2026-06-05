@@ -39,6 +39,9 @@ const BridgeABIWithTaprootDepositReveal = [
     new utils.Interface([
       "function revealTaprootDeposit((bytes4 version, bytes inputVector, bytes outputVector, bytes4 locktime) fundingTx, (uint32 fundingOutputIndex, bytes8 blindingFactor, bytes20 walletPubKeyHash, bytes32 walletXOnlyPublicKey, bytes20 refundPubKeyHash, bytes32 refundXOnlyPublicKey, bytes4 refundLocktime, address vault) reveal)",
       "function revealTaprootDepositWithExtraData((bytes4 version, bytes inputVector, bytes outputVector, bytes4 locktime) fundingTx, (uint32 fundingOutputIndex, bytes8 blindingFactor, bytes20 walletPubKeyHash, bytes32 walletXOnlyPublicKey, bytes20 refundPubKeyHash, bytes32 refundXOnlyPublicKey, bytes4 refundLocktime, address vault) reveal, bytes32 extraData)",
+      "function activeWalletID() view returns (bytes32)",
+      "function walletID(bytes20 walletPubKeyHash) view returns (bytes32)",
+      "function walletPubKeyHashForWalletID(bytes32 walletID) view returns (bytes20)",
     ]).format(utils.FormatTypes.json) as string
   ),
 ]
@@ -72,6 +75,44 @@ describe("Ethereum", () => {
       bridgeHandle = new EthereumBridge({
         address: bridgeContract.address,
         signerOrProvider: signer,
+      })
+    })
+
+    describe("canonical wallet ID accessors", () => {
+      const walletPublicKeyHash = Hex.from(
+        "2a621226d6f9916a929c0ab8cc7d3252c1485708"
+      )
+      const walletID = Hex.from(
+        "93fd799256287638b1589bc4c8db1b11fcf873796aabeac9edf4cf238f38e596"
+      )
+
+      it("should resolve active wallet ID from a post-upgrade Bridge despite stale local ABI", async () => {
+        await bridgeContract.mock.activeWalletID.returns(
+          walletID.toPrefixedString()
+        )
+
+        expect((await bridgeHandle.activeWalletID())?.toString()).to.equal(
+          walletID.toString()
+        )
+      })
+
+      it("should resolve canonical wallet ID from wallet public key hash despite stale local ABI", async () => {
+        await bridgeContract.mock.walletID
+          .withArgs(walletPublicKeyHash.toPrefixedString())
+          .returns(walletID.toPrefixedString())
+
+        expect((await bridgeHandle.walletID(walletPublicKeyHash)).toString()).to
+          .equal(walletID.toString())
+      })
+
+      it("should resolve wallet public key hash from canonical wallet ID despite stale local ABI", async () => {
+        await bridgeContract.mock.walletPubKeyHashForWalletID
+          .withArgs(walletID.toPrefixedString())
+          .returns(walletPublicKeyHash.toPrefixedString())
+
+        expect(
+          (await bridgeHandle.walletPublicKeyHashForWalletID(walletID)).toString()
+        ).to.equal(walletPublicKeyHash.toString())
       })
     })
 

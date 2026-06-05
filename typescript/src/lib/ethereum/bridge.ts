@@ -64,6 +64,13 @@ const TaprootDepositRevealABI = [
   "function revealTaprootDepositWithExtraData((bytes4 version, bytes inputVector, bytes outputVector, bytes4 locktime) fundingTx, (uint32 fundingOutputIndex, bytes8 blindingFactor, bytes20 walletPubKeyHash, bytes32 walletXOnlyPublicKey, bytes20 refundPubKeyHash, bytes32 refundXOnlyPublicKey, bytes4 refundLocktime, address vault) reveal, bytes32 extraData)",
 ]
 
+const BridgeV2CompatibilityABI = [
+  ...TaprootDepositRevealABI,
+  "function activeWalletID() view returns (bytes32)",
+  "function walletID(bytes20 walletPubKeyHash) view returns (bytes32)",
+  "function walletPubKeyHashForWalletID(bytes32 walletID) view returns (bytes20)",
+]
+
 /**
  * Implementation of the Ethereum Bridge handle.
  * @see {Bridge} for reference.
@@ -168,9 +175,13 @@ export class EthereumBridge
   }
 
   private taprootDepositRevealContract(): Contract {
+    return this.bridgeV2CompatibilityContract()
+  }
+
+  private bridgeV2CompatibilityContract(): Contract {
     return new Contract(
       this._instance.address,
-      TaprootDepositRevealABI,
+      BridgeV2CompatibilityABI,
       this._instance.signer || this._instance.provider
     )
   }
@@ -721,6 +732,24 @@ export class EthereumBridge
       return Hex.from(walletID)
     }
 
+    const bridgeV2Contract = this.bridgeV2CompatibilityContract() as unknown as {
+      activeWalletID: () => Promise<string>
+    }
+    try {
+      const walletID = await backoffRetrier<string>(this._totalRetryAttempts)(
+        async () => bridgeV2Contract.activeWalletID()
+      )
+
+      if (walletID === constants.HashZero) {
+        return undefined
+      }
+
+      return Hex.from(walletID)
+    } catch (err) {
+      // Fall back to the legacy alias below for pre-upgrade Bridge contracts
+      // whose ABI and bytecode do not expose `activeWalletID`.
+    }
+
     const activeWalletPublicKeyHash: string = await backoffRetrier<string>(
       this._totalRetryAttempts
     )(async () => {
@@ -888,6 +917,21 @@ export class EthereumBridge
       return Hex.from(walletID)
     }
 
+    const bridgeV2Contract = this.bridgeV2CompatibilityContract() as unknown as {
+      walletID: (walletPubKeyHash: string) => Promise<string>
+    }
+    try {
+      const walletID = await backoffRetrier<string>(this._totalRetryAttempts)(
+        async () =>
+          bridgeV2Contract.walletID(walletPublicKeyHash.toPrefixedString())
+      )
+
+      return Hex.from(walletID)
+    } catch (err) {
+      // Fall back to the legacy alias below for pre-upgrade Bridge contracts
+      // whose ABI and bytecode do not expose canonical wallet IDs.
+    }
+
     return WalletIDUtils.legacyWalletIDFromPublicKeyHash(walletPublicKeyHash)
   }
 
@@ -910,6 +954,25 @@ export class EthereumBridge
       })
 
       return Hex.from(walletPublicKeyHash)
+    }
+
+    const bridgeV2Contract = this.bridgeV2CompatibilityContract() as unknown as {
+      walletPubKeyHashForWalletID: (walletID: string) => Promise<string>
+    }
+    try {
+      const walletPublicKeyHash = await backoffRetrier<string>(
+        this._totalRetryAttempts
+      )(async () =>
+        bridgeV2Contract.walletPubKeyHashForWalletID(
+          walletID.toPrefixedString()
+        )
+      )
+
+      return Hex.from(walletPublicKeyHash)
+    } catch (err) {
+      // Fall through to the strict legacy-shape guard below for pre-upgrade
+      // Bridge contracts whose ABI and bytecode do not expose canonical wallet
+      // ID resolution.
     }
 
     // Legacy fallback for pre-upgrade contracts: wallet ID is a left-padded
