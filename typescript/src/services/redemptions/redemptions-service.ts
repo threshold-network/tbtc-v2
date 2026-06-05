@@ -402,9 +402,21 @@ export class RedemptionsService {
       const currentWallet = await this.tbtcContracts.bridge.wallets(
         candidatePublicKeyHash
       )
-      const currentWalletPublicKey = currentWallet
-        ? this.redemptionWalletPublicKey(currentWallet)
+      const currentWalletPublicKeyFromRecord = currentWallet
+        ? this.redemptionWalletPublicKey(currentWallet, candidatePublicKeyHash)
         : undefined
+      // With bundled pre-upgrade ABIs, the Bridge cannot return the native
+      // FROST walletID. The API candidate's x-only key is still safe to use
+      // here because bridge.wallets(candidatePublicKeyHash) has already proven
+      // it maps to the on-chain wallet record.
+      const candidateBackedFrostPublicKey =
+        currentWallet &&
+        candidateWalletIdentity.walletID &&
+        this.isFrostWallet(currentWallet)
+          ? candidateWalletIdentity.walletPublicKey
+          : undefined
+      const currentWalletPublicKey =
+        currentWalletPublicKeyFromRecord ?? candidateBackedFrostPublicKey
 
       if (
         !currentWallet ||
@@ -450,7 +462,8 @@ export class RedemptionsService {
         const resolvedMainUtxo = await this.determineWalletMainUtxo(
           candidatePublicKeyHash,
           bitcoinNetwork,
-          this.frostWalletID(currentWallet) ?? candidateWalletIdentity.walletID
+          this.frostWalletID(currentWallet, candidatePublicKeyHash) ??
+            candidateWalletIdentity.walletID
         )
 
         if (!resolvedMainUtxo) {
@@ -544,7 +557,10 @@ export class RedemptionsService {
           walletPublicKeyHash
         )
         const { state, pendingRedemptionsValue } = wallet
-        const walletPublicKey = this.redemptionWalletPublicKey(wallet)
+        const walletPublicKey = this.redemptionWalletPublicKey(
+          wallet,
+          walletPublicKeyHash
+        )
 
         // Wallet must be in Live state.
         if (state !== WalletState.Live || !walletPublicKey) {
@@ -580,7 +596,7 @@ export class RedemptionsService {
         const mainUtxo = await this.determineWalletMainUtxo(
           walletPublicKeyHash,
           bitcoinNetwork,
-          this.frostWalletID(wallet)
+          this.frostWalletID(wallet, walletPublicKeyHash)
         )
         if (!mainUtxo) {
           console.debug(
@@ -691,12 +707,15 @@ export class RedemptionsService {
     }
   }
 
-  private redemptionWalletPublicKey(wallet: Wallet): Hex | undefined {
+  private redemptionWalletPublicKey(
+    wallet: Wallet,
+    walletPublicKeyHash: Hex
+  ): Hex | undefined {
     if (wallet.walletPublicKey) {
       return wallet.walletPublicKey
     }
 
-    const walletID = this.frostWalletID(wallet)
+    const walletID = this.frostWalletID(wallet, walletPublicKeyHash)
     if (walletID) {
       return BitcoinPublicKeyUtils.xOnlyToCompressedPublicKey(walletID)
     }
@@ -704,16 +723,34 @@ export class RedemptionsService {
     return undefined
   }
 
-  private frostWalletID(wallet: Wallet): Hex | undefined {
+  private frostWalletID(
+    wallet: Wallet,
+    walletPublicKeyHash: Hex
+  ): Hex | undefined {
+    // Bundled pre-upgrade ABIs synthesize walletID as the legacy left-padded
+    // public key hash fallback. Do not treat that alias as a Taproot x-only ID.
     if (
       wallet.walletID &&
-      wallet.ecdsaWalletID &&
-      wallet.ecdsaWalletID.equals(RedemptionsService.ZeroBytes32)
+      this.isFrostWallet(wallet) &&
+      !wallet.walletID.equals(this.legacyWalletID(walletPublicKeyHash))
     ) {
       return wallet.walletID
     }
 
     return undefined
+  }
+
+  private isFrostWallet(wallet: Wallet): boolean {
+    return (
+      !!wallet.ecdsaWalletID &&
+      wallet.ecdsaWalletID.equals(RedemptionsService.ZeroBytes32)
+    )
+  }
+
+  private legacyWalletID(walletPublicKeyHash: Hex): Hex {
+    return Hex.from(
+      Buffer.concat([Buffer.alloc(12), walletPublicKeyHash.toBuffer()])
+    )
   }
 
   /**

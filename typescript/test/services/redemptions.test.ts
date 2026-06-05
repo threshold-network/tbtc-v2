@@ -1646,6 +1646,66 @@ describe("Redemptions", () => {
           expect(result.mainUtxo).to.deep.equal(frostMainUtxo)
         })
 
+        it("should not treat stale ABI wallet ID aliases as canonical FROST IDs", async () => {
+          const tbtcContracts = new MockTBTCContracts()
+          const bitcoinClient = new MockBitcoinClient()
+          bitcoinClient.network = BitcoinNetwork.Mainnet
+          const amountInSatoshi = testAmount.div(BigNumber.from("10000000000"))
+          const frostWalletID = Hex.from(
+            "0x1212121212121212121212121212121212121212121212121212121212121212"
+          )
+          const frostWalletPublicKey =
+            BitcoinPublicKeyUtils.xOnlyToCompressedPublicKey(frostWalletID)
+          const frostWalletPublicKeyHash =
+            BitcoinAddressConverter.taprootOutputKeyToWalletPublicKeyHash(
+              frostWalletID
+            )
+          const legacyWalletIDAlias = Hex.from(
+            Buffer.concat([
+              Buffer.alloc(12),
+              frostWalletPublicKeyHash.toBuffer(),
+            ])
+          )
+          const frostMainUtxo =
+            findWalletForRedemptionData.liveWallet.data.mainUtxo
+
+          tbtcContracts.bridge.setWallet(
+            frostWalletPublicKeyHash.toPrefixedString(),
+            {
+              walletID: legacyWalletIDAlias,
+              ecdsaWalletID: Hex.from(
+                "0x0000000000000000000000000000000000000000000000000000000000000000"
+              ),
+              state: WalletState.Live,
+              pendingRedemptionsValue: BigNumber.from(0),
+              mainUtxoHash: tbtcContracts.bridge.buildUtxoHash(frostMainUtxo),
+            } as Wallet
+          )
+
+          const redemptionsService = new WalletValidationGuardService(
+            tbtcContracts,
+            bitcoinClient,
+            createCrossChainResolver(createMockL1BitcoinRedeemer())
+          )
+
+          const result =
+            await redemptionsService.determineValidRedemptionWallet(
+              amountInSatoshi,
+              [
+                serializeRedemptionWalletCandidate(
+                  frostWalletID,
+                  frostMainUtxo
+                ),
+              ],
+              testRedeemerOutputScript
+            )
+
+          expect(result.walletPublicKey.toString()).to.equal(
+            frostWalletPublicKey.toString()
+          )
+          expect(result.mainUtxo).to.deep.equal(frostMainUtxo)
+        })
+
         it("should resolve stale FROST API main UTXOs from P2TR history", async () => {
           const tbtcContracts = new MockTBTCContracts()
           const bitcoinClient = new MockBitcoinClient()
@@ -1660,6 +1720,12 @@ describe("Redemptions", () => {
             BitcoinAddressConverter.taprootOutputKeyToWalletPublicKeyHash(
               frostWalletID
             )
+          const legacyWalletIDAlias = Hex.from(
+            Buffer.concat([
+              Buffer.alloc(12),
+              frostWalletPublicKeyHash.toBuffer(),
+            ])
+          )
           const staleMainUtxo: BitcoinUtxo = {
             transactionHash: Hex.from(
               "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -1703,7 +1769,7 @@ describe("Redemptions", () => {
           tbtcContracts.bridge.setWallet(
             frostWalletPublicKeyHash.toPrefixedString(),
             {
-              walletID: frostWalletID,
+              walletID: legacyWalletIDAlias,
               ecdsaWalletID: Hex.from(
                 "0x0000000000000000000000000000000000000000000000000000000000000000"
               ),
