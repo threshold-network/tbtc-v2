@@ -112,3 +112,42 @@ export async function copyWormholeV2Artifact(
   // Base variant (Initializable implicit via OwnableUpgradeable, tbtcToken at slot 201)
   await copySingleArtifact(hre, packageDir, "L1BTCDepositorWormholeV2Base")
 }
+
+// Stages the shared `BTCDepositorWormhole` implementation for packages (such as
+// Sui) that consume it directly rather than through an L1-variant wrapper. This
+// is intentionally distinct from `copyWormholeV2Artifact`, which stages the
+// Arbitrum/Base L1 variants; a consumer of the shared implementation must not
+// pull in those variants.
+//
+// The OpenZeppelin upgrades plugin only writes `validations.json` for contracts
+// it compiles locally. A package that compiles no local upgradeable source has
+// no `validations.json` for `mergeV2ValidationData` to merge the staged entry
+// into, so the merge would silently no-op. Seeding an empty validation log
+// before the copy gives the merge a target to write into, ensuring the staged
+// contract's validation entry lands so `prepareUpgrade()` can resolve it.
+export async function copyBTCDepositorWormholeArtifact(
+  hre: HardhatRuntimeEnvironment,
+  packageDir: string
+): Promise<void> {
+  await seedEmptyValidationLog(hre)
+  await copySingleArtifact(hre, packageDir, "BTCDepositorWormhole")
+}
+
+async function seedEmptyValidationLog(
+  hre: HardhatRuntimeEnvironment
+): Promise<void> {
+  const targetCachePath = path.resolve(hre.config.paths.cache, "validations.json")
+
+  try {
+    await fs.promises.access(targetCachePath)
+    return
+  } catch {
+    // No validation cache exists yet; create an empty log below.
+  }
+
+  await fs.promises.mkdir(hre.config.paths.cache, { recursive: true })
+  await fs.promises.writeFile(
+    targetCachePath,
+    JSON.stringify({ log: [] }, null, 2)
+  )
+}
