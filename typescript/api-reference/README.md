@@ -121,6 +121,8 @@
 - [CrossChainExtraDataEncoder](README.md#crosschainextradataencoder)
 - [CrossChainInterfaces](README.md#crosschaininterfaces)
 - [DepositRevealedEvent](README.md#depositrevealedevent)
+- [DepositScriptOptions](README.md#depositscriptoptions)
+- [DepositScriptType](README.md#depositscripttype)
 - [DestinationChainInterfaces](README.md#destinationchaininterfaces)
 - [DestinationChainName](README.md#destinationchainname)
 - [DkgResultApprovedEvent](README.md#dkgresultapprovedevent)
@@ -209,6 +211,8 @@
 - [StarkNetDepositorConfig](README.md#starknetdepositorconfig)
 - [StarkNetProvider](README.md#starknetprovider)
 - [TBTCContracts](README.md#tbtccontracts)
+- [TaprootDepositReceipt](README.md#taprootdepositreceipt)
+- [TaprootDepositRevealedEvent](README.md#taprootdepositrevealedevent)
 
 ### Variables
 
@@ -225,8 +229,10 @@
 - [BitcoinPrivateKeyUtils](README.md#bitcoinprivatekeyutils)
 - [BitcoinPublicKeyUtils](README.md#bitcoinpublickeyutils)
 - [BitcoinScriptUtils](README.md#bitcoinscriptutils)
+- [BitcoinTaprootUtils](README.md#bitcointaprootutils)
 - [BitcoinTargetConverter](README.md#bitcointargetconverter)
 - [ChainMappings](README.md#chainmappings)
+- [DepositScriptType](README.md#depositscripttype-1)
 - [EthereumCrossChainExtraDataEncoder](README.md#ethereumcrosschainextradataencoder)
 - [P2TR\_SIGHASH\_ALL](README.md#p2tr_sighash_all)
 - [P2TR\_SIGHASH\_DEFAULT](README.md#p2tr_sighash_default)
@@ -425,7 +431,29 @@ Represents an event emitted on deposit reveal to the on-chain bridge.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:341](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L341)
+[src/lib/contracts/bridge.ts:385](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L385)
+
+___
+
+### DepositScriptOptions
+
+Ƭ **DepositScriptOptions**: `boolean` \| [`DepositScriptType`](README.md#depositscripttype) \| \{ `scriptType?`: [`DepositScriptType`](README.md#depositscripttype)  }
+
+#### Defined in
+
+[src/services/deposits/deposit.ts:31](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L31)
+
+___
+
+### DepositScriptType
+
+Ƭ **DepositScriptType**: typeof [`DepositScriptType`](README.md#depositscripttype-1)[keyof typeof [`DepositScriptType`](README.md#depositscripttype-1)]
+
+#### Defined in
+
+[src/services/deposits/deposit.ts:22](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L22)
+
+[src/services/deposits/deposit.ts:28](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L28)
 
 ___
 
@@ -673,7 +701,7 @@ Represents an event emitted when new wallet is registered on the on-chain bridge
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:509](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L509)
+[src/lib/contracts/bridge.ts:563](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L563)
 
 ___
 
@@ -1761,7 +1789,7 @@ Represents an event emitted on redemption request.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:392](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L392)
+[src/lib/contracts/bridge.ts:446](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L446)
 
 ___
 
@@ -1867,6 +1895,32 @@ Convenience type aggregating all TBTC core contracts.
 #### Defined in
 
 [src/lib/contracts/index.ts:19](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/index.ts#L19)
+
+___
+
+### TaprootDepositReceipt
+
+Ƭ **TaprootDepositReceipt**: [`DepositReceipt`](interfaces/DepositReceipt.md) & \{ `refundXOnlyPublicKey`: [`Hex`](classes/Hex.md) ; `walletXOnlyPublicKey`: [`Hex`](classes/Hex.md)  }
+
+Represents a Taproot-native deposit receipt. The receipt holds all
+information required to build a unique P2TR deposit address on Bitcoin chain.
+
+#### Defined in
+
+[src/lib/contracts/bridge.ts:296](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L296)
+
+___
+
+### TaprootDepositRevealedEvent
+
+Ƭ **TaprootDepositRevealedEvent**: [`TaprootDepositReceipt`](README.md#taprootdepositreceipt) & `Pick`\<[`DepositRequest`](interfaces/DepositRequest.md), ``"amount"`` \| ``"vault"``\> & \{ `fundingOutputIndex`: `number` ; `fundingTxHash`: [`BitcoinTxHash`](classes/BitcoinTxHash.md)  } & [`ChainEvent`](interfaces/ChainEvent.md)
+
+Represents an event emitted on Taproot-native deposit reveal to the on-chain
+bridge.
+
+#### Defined in
+
+[src/lib/contracts/bridge.ts:395](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L395)
 
 ## Variables
 
@@ -2092,12 +2146,37 @@ Utility functions allowing to deal with Bitcoin scripts.
 | :------ | :------ |
 | `isP2PKHScript` | (`script`: [`Hex`](classes/Hex.md)) => `boolean` |
 | `isP2SHScript` | (`script`: [`Hex`](classes/Hex.md)) => `boolean` |
+| `isP2TRScript` | (`script`: [`Hex`](classes/Hex.md)) => `boolean` |
 | `isP2WPKHScript` | (`script`: [`Hex`](classes/Hex.md)) => `boolean` |
 | `isP2WSHScript` | (`script`: [`Hex`](classes/Hex.md)) => `boolean` |
 
 #### Defined in
 
-[src/lib/bitcoin/script.ts:63](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/script.ts#L63)
+[src/lib/bitcoin/script.ts:78](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/script.ts#L78)
+
+___
+
+### BitcoinTaprootUtils
+
+• `Const` **BitcoinTaprootUtils**: `Object`
+
+Utility functions for BIP-341 Taproot key and script tree derivation.
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `TAPROOT_LEAF_VERSION` | `number` |
+| `compactSizeUint` | (`value`: `number`) => `Buffer` |
+| `deriveTaprootOutputKey` | (`internalKey`: [`Hex`](classes/Hex.md), `merkleRoot?`: [`Hex`](classes/Hex.md)) => [`Hex`](classes/Hex.md) |
+| `deriveTaprootOutputKeyWithParity` | (`internalKey`: [`Hex`](classes/Hex.md), `merkleRoot?`: [`Hex`](classes/Hex.md)) => \{ `outputKey`: [`Hex`](classes/Hex.md) ; `parity`: `number`  } |
+| `taggedHash` | (`tag`: `string`, `payload`: `Buffer`\<`ArrayBufferLike`\>) => `Buffer` |
+| `tapLeafHash` | (`script`: [`Hex`](classes/Hex.md), `leafVersion`: `number`) => [`Hex`](classes/Hex.md) |
+| `tapTweak` | (`internalKey`: [`Hex`](classes/Hex.md), `merkleRoot?`: [`Hex`](classes/Hex.md)) => [`Hex`](classes/Hex.md) |
+
+#### Defined in
+
+[src/lib/bitcoin/taproot.ts:140](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/taproot.ts#L140)
 
 ___
 
@@ -2129,6 +2208,26 @@ List of chain mappings supported by tBTC v2 contracts.
 #### Defined in
 
 [src/lib/contracts/chain.ts:124](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L124)
+
+___
+
+### DepositScriptType
+
+• `Const` **DepositScriptType**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `P2SH` | ``"p2sh"`` |
+| `P2TR` | ``"p2tr"`` |
+| `P2WSH` | ``"p2wsh"`` |
+
+#### Defined in
+
+[src/services/deposits/deposit.ts:22](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L22)
+
+[src/services/deposits/deposit.ts:28](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L28)
 
 ___
 
@@ -3449,17 +3548,19 @@ Packed parameters.
 | `fundingTx.locktime` | `string` |
 | `fundingTx.outputVector` | `string` |
 | `fundingTx.version` | `string` |
-| `reveal` | \{ `blindingFactor`: `string` ; `fundingOutputIndex`: `number` = depositOutputIndex; `refundLocktime`: `string` ; `refundPubKeyHash`: `string` ; `vault`: `string` ; `walletPubKeyHash`: `string`  } |
+| `reveal` | \{ `blindingFactor`: `string` ; `fundingOutputIndex`: `number` = depositOutputIndex; `refundLocktime`: `string` ; `refundPubKeyHash`: `string` ; `refundXOnlyPublicKey?`: `string` ; `vault`: `string` ; `walletPubKeyHash`: `string` ; `walletXOnlyPublicKey?`: `string`  } |
 | `reveal.blindingFactor` | `string` |
 | `reveal.fundingOutputIndex` | `number` |
 | `reveal.refundLocktime` | `string` |
 | `reveal.refundPubKeyHash` | `string` |
+| `reveal.refundXOnlyPublicKey?` | `string` |
 | `reveal.vault` | `string` |
 | `reveal.walletPubKeyHash` | `string` |
+| `reveal.walletXOnlyPublicKey?` | `string` |
 
 #### Defined in
 
-[src/lib/ethereum/bridge.ts:953](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L953)
+[src/lib/ethereum/bridge.ts:1165](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L1165)
 
 ___
 
@@ -3847,7 +3948,7 @@ This function does not validate the depositor's identifier as its
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:281](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L281)
+[src/lib/contracts/bridge.ts:308](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L308)
 
 ___
 

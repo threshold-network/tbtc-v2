@@ -137,7 +137,7 @@ export class DepositFunding {
 
     // Add deposit output.
     psbt.addOutput({
-      address: await this.script.deriveAddress(bitcoinNetwork),
+      script: await this.script.deriveOutputScript(bitcoinNetwork),
       value: amount.toNumber(),
     })
 
