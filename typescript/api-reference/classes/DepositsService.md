@@ -46,7 +46,7 @@ Service exposing features related to tBTC v2 deposits.
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:52](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L52)
+[src/services/deposits/deposits-service.ts:53](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L53)
 
 ## Properties
 
@@ -72,7 +72,7 @@ Gets cross-chain contracts for the given supported L2 chain.
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:48](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L48)
+[src/services/deposits/deposits-service.ts:49](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L49)
 
 ___
 
@@ -85,7 +85,7 @@ initiated by this service.
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:41](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L41)
+[src/services/deposits/deposits-service.ts:42](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L42)
 
 ___
 
@@ -97,7 +97,7 @@ Bitcoin client handle.
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:36](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L36)
+[src/services/deposits/deposits-service.ts:37](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L37)
 
 ___
 
@@ -110,7 +110,7 @@ This is 9 month in seconds assuming 1 month = 30 days
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:28](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L28)
+[src/services/deposits/deposits-service.ts:29](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L29)
 
 ___
 
@@ -122,7 +122,7 @@ Handle to tBTC contracts.
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:32](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L32)
+[src/services/deposits/deposits-service.ts:33](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L33)
 
 ## Methods
 
@@ -145,7 +145,7 @@ Handle to tBTC contracts.
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:243](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L243)
+[src/services/deposits/deposits-service.ts:244](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L244)
 
 ___
 
@@ -199,7 +199,7 @@ This is actually a call to initiateDepositWithProxy with a built-in
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:223](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L223)
+[src/services/deposits/deposits-service.ts:224](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L224)
 
 ___
 
@@ -233,7 +233,7 @@ Throws an error if one of the following occurs:
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:94](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L94)
+[src/services/deposits/deposits-service.ts:95](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L95)
 
 ___
 
@@ -275,7 +275,7 @@ Throws an error if one of the following occurs:
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:174](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L174)
+[src/services/deposits/deposits-service.ts:175](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L175)
 
 ___
 
@@ -309,7 +309,7 @@ Throws an error if one of the following occurs:
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:128](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L128)
+[src/services/deposits/deposits-service.ts:129](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L129)
 
 ___
 
@@ -333,7 +333,7 @@ once the loader is ready.
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:73](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L73)
+[src/services/deposits/deposits-service.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L74)
 
 ___
 
@@ -362,4 +362,4 @@ Typically, there is no need to use this method when DepositsService
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:363](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L363)
+[src/services/deposits/deposits-service.ts:364](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L364)

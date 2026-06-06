@@ -2481,7 +2481,7 @@ const encoded = encodeDestinationReceiver(
 
 #### Defined in
 
-[src/lib/utils/wormhole.ts:18](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/wormhole.ts#L18)
+[src/lib/utils/wormhole.ts:20](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/wormhole.ts#L20)
 
 ___
 
@@ -3560,7 +3560,7 @@ Packed parameters.
 
 #### Defined in
 
-[src/lib/ethereum/bridge.ts:1172](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L1172)
+[src/lib/ethereum/bridge.ts:1165](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L1165)
 
 ___
 
