@@ -19,6 +19,7 @@ import {
   DepositRequest,
   Chains,
 } from "../contracts"
+import { WalletIDUtils } from "../contracts/wallet-id"
 import { Event as EthersEvent } from "@ethersproject/contracts"
 import { BigNumber, constants, ContractTransaction, utils } from "ethers"
 import { backoffRetrier, Hex } from "../utils"
@@ -56,14 +57,6 @@ export class EthereumBridge
   extends EthersContractHandle<BridgeTypechain>
   implements Bridge
 {
-  private static legacyWalletIDFromPublicKeyHash(
-    walletPublicKeyHash: Hex
-  ): Hex {
-    return Hex.from(
-      utils.hexZeroPad(walletPublicKeyHash.toPrefixedString(), 32)
-    )
-  }
-
   private static walletRegistrationFilterArgs(filterArgs: Array<unknown>): {
     legacyFilterArgs: Array<unknown>
     v2FilterArgs: Array<unknown>
@@ -109,7 +102,7 @@ export class EthereumBridge
       blockHash: Hex.from(event.blockHash),
       transactionHash: Hex.from(event.transactionHash),
       walletID:
-        EthereumBridge.legacyWalletIDFromPublicKeyHash(walletPublicKeyHash),
+        WalletIDUtils.legacyWalletIDFromPublicKeyHash(walletPublicKeyHash),
       ecdsaWalletID: Hex.from(event.args!.ecdsaWalletID),
       walletPublicKeyHash,
     }
@@ -649,7 +642,7 @@ export class EthereumBridge
       return undefined
     }
 
-    return EthereumBridge.legacyWalletIDFromPublicKeyHash(
+    return WalletIDUtils.legacyWalletIDFromPublicKeyHash(
       Hex.from(activeWalletPublicKeyHash)
     )
   }
@@ -804,7 +797,7 @@ export class EthereumBridge
       return Hex.from(walletID)
     }
 
-    return EthereumBridge.legacyWalletIDFromPublicKeyHash(walletPublicKeyHash)
+    return WalletIDUtils.legacyWalletIDFromPublicKeyHash(walletPublicKeyHash)
   }
 
   // eslint-disable-next-line valid-jsdoc

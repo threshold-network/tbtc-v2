@@ -1,4 +1,5 @@
-import { expect } from "chai"
+import chai, { expect } from "chai"
+import chaiAsPromised from "chai-as-promised"
 import { BigNumber } from "ethers"
 import { payments, Transaction } from "bitcoinjs-lib"
 import {
@@ -43,6 +44,8 @@ import {
   depositRefundOfWitnessDepositAndWitnessRefunderAddress,
   refunderPrivateKey,
 } from "../data/deposit-refund"
+
+chai.use(chaiAsPromised)
 import { MockDepositorProxy } from "../utils/mock-depositor-proxy"
 import {
   MockCrossChainExtraDataEncoder,
@@ -359,6 +362,38 @@ describe("Deposits", () => {
     }
   }
 
+  function createTestnetP2SHUtxo(
+    value: BigNumber = BigNumber.from(3933200)
+  ): BitcoinUtxo & BitcoinRawTx {
+    const network = toBitcoinJsLibNetwork(BitcoinNetwork.Testnet)
+    const depositorKeyPair = BitcoinPrivateKeyUtils.createKeyPair(
+      testnetPrivateKey,
+      BitcoinNetwork.Testnet
+    )
+    const p2wpkhScript = payments.p2wpkh({
+      pubkey: Buffer.from(depositorKeyPair.publicKey),
+      network,
+    }).output!
+    const p2shScript = payments.p2sh({
+      redeem: {
+        output: p2wpkhScript,
+      },
+      network,
+    }).output!
+
+    const transaction = new Transaction()
+    transaction.version = 1
+    transaction.addInput(Buffer.alloc(32, 1), 0)
+    transaction.addOutput(p2shScript, value.toNumber())
+
+    return {
+      transactionHash: BitcoinTxHash.from(transaction.getId()),
+      outputIndex: 0,
+      value,
+      transactionHex: transaction.toHex(),
+    }
+  }
+
   describe("DepositFunding", () => {
     describe("submitTransaction", () => {
       let bitcoinClient: MockBitcoinClient
@@ -465,6 +500,34 @@ describe("Deposits", () => {
             expect(input.index).to.be.equal(inputUtxo.outputIndex)
             expect(input.script.length).to.be.greaterThan(0)
             expect(input.witness.length).to.be.equal(0)
+          })
+        })
+
+        context("when input UTXO has an unsupported script", () => {
+          it("should throw an explicit unsupported script error", async () => {
+            const inputUtxo = createTestnetP2SHUtxo()
+            bitcoinClient.rawTransactions = new Map<string, BitcoinRawTx>([
+              [
+                inputUtxo.transactionHash.toString(),
+                { transactionHex: inputUtxo.transactionHex },
+              ],
+            ])
+
+            const depositFunding = DepositFunding.fromScript(
+              DepositScript.fromReceipt(depositFixture.receipt, true)
+            )
+
+            await expect(
+              depositFunding.submitTransaction(
+                depositAmount,
+                [inputUtxo],
+                BigNumber.from(1520),
+                testnetPrivateKey,
+                bitcoinClient
+              )
+            ).to.be.rejectedWith(
+              "Unsupported UTXO script type; only P2PKH and P2WPKH inputs are supported"
+            )
           })
         })
 
@@ -1789,7 +1852,7 @@ describe("Deposits", () => {
                 "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc"
               )
             ).to.be.rejectedWith(
-              "Legacy P2WSH deposits are not supported for FROST active wallets"
+              "Legacy deposits are not supported for FROST active wallets"
             )
           })
         })
@@ -1994,7 +2057,7 @@ describe("Deposits", () => {
                 depositorProxy
               )
             ).to.be.rejectedWith(
-              "Legacy P2WSH deposits are not supported for FROST active wallets"
+              "Legacy deposits are not supported for FROST active wallets"
             )
           })
         })

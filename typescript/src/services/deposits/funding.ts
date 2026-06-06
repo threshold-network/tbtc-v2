@@ -82,6 +82,7 @@ export class DepositFunding {
 
     const totalExpenses = amount.add(fee)
     let totalInputValue = BigNumber.from(0)
+    let skippedUnsupportedUtxos = 0
 
     for (const utxo of inputUtxos) {
       const previousOutput = Transaction.fromHex(utxo.transactionHex).outs[
@@ -117,13 +118,20 @@ export class DepositFunding {
         if (totalInputValue.gte(totalExpenses)) {
           break
         }
+      } else {
+        skippedUnsupportedUtxos++
       }
-      // Skip UTXO if the type is unsupported.
     }
 
     // Sum of the selected UTXOs must be equal to or greater than the deposit
     // amount plus fee.
     if (totalInputValue.lt(totalExpenses)) {
+      if (skippedUnsupportedUtxos > 0) {
+        throw new Error(
+          "Unsupported UTXO script type; only P2PKH and P2WPKH inputs are supported"
+        )
+      }
+
       throw new Error("Not enough funds in selected UTXOs to fund transaction")
     }
 

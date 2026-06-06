@@ -151,7 +151,7 @@ When the sum of the selected UTXOs is insufficient to cover
 
 #### Defined in
 
-[src/services/deposits/funding.ts:192](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/funding.ts#L192)
+[src/services/deposits/funding.ts:200](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/funding.ts#L200)
 
 ___
 

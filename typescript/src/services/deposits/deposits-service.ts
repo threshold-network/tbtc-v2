@@ -6,6 +6,7 @@ import {
   DestinationChainName,
   TBTCContracts,
 } from "../../lib/contracts"
+import { WalletIDUtils } from "../../lib/contracts/wallet-id"
 import {
   BitcoinAddressConverter,
   BitcoinClient,
@@ -215,10 +216,10 @@ export class DepositsService {
     const activeWalletID = await this.tbtcContracts.bridge.activeWalletID()
     if (
       activeWalletID &&
-      !isLegacyWalletID(activeWalletID, walletPublicKeyHash)
+      !WalletIDUtils.isLegacyWalletID(activeWalletID, walletPublicKeyHash)
     ) {
       throw new Error(
-        "Legacy P2WSH deposits are not supported for FROST active wallets"
+        "Legacy deposits are not supported for FROST active wallets"
       )
     }
 
@@ -287,18 +288,4 @@ export class DepositsService {
   setDefaultDepositor(defaultDepositor: ChainIdentifier) {
     this.#defaultDepositor = defaultDepositor
   }
-}
-
-function isLegacyWalletID(walletID: Hex, walletPublicKeyHash: Hex): boolean {
-  const walletIDBytes = walletID.toBuffer()
-  const walletPublicKeyHashBytes = walletPublicKeyHash.toBuffer()
-
-  if (walletIDBytes.length !== 32 || walletPublicKeyHashBytes.length !== 20) {
-    return false
-  }
-
-  return (
-    walletIDBytes.subarray(0, 12).every((byte) => byte === 0) &&
-    walletIDBytes.subarray(12).equals(walletPublicKeyHashBytes)
-  )
 }
