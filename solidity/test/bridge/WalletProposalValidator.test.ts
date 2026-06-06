@@ -1282,6 +1282,84 @@ describe("WalletProposalValidator", () => {
     })
   })
 
+  describe("validateTaprootDepositSweepProposal", () => {
+    const walletPubKeyHash = "0xc92a772f11bc97d8938a16a9db435401f4e6a7bc"
+    const ecdsaWalletID = HashZero
+    const vault = "0x2553E09f832c9f5C656808bb7A24793818877732"
+    const bridgeDepositTxMaxFee = 10000
+    const sweepTxFee = 5000
+
+    let deposit
+
+    before(async () => {
+      await createSnapshot()
+
+      bridge.depositParameters.returns([0, 0, bridgeDepositTxMaxFee, 0])
+      bridge.wallets.whenCalledWith(walletPubKeyHash).returns({
+        ecdsaWalletID,
+        mainUtxoHash: HashZero,
+        pendingRedemptionsValue: 0,
+        createdAt: 0,
+        movingFundsRequestedAt: 0,
+        closingStartedAt: 0,
+        pendingMovedFundsSweepRequestsCount: 0,
+        state: walletState.Live,
+        movingFundsTargetWalletsCommitmentHash: HashZero,
+      })
+
+      deposit = createTestTaprootDeposit(vault, (await lastBlockTime()) - day)
+
+      bridge.deposits
+        .whenCalledWith(
+          depositKey(deposit.key.fundingTxHash, deposit.key.fundingOutputIndex)
+        )
+        .returns(deposit.request)
+    })
+
+    after(async () => {
+      bridge.depositParameters.reset()
+      bridge.wallets.reset()
+      bridge.deposits.reset()
+
+      await restoreSnapshot()
+    })
+
+    it("should succeed for a valid Taproot-native deposit", async () => {
+      const result =
+        await walletProposalValidator.validateTaprootDepositSweepProposal(
+          {
+            walletPubKeyHash,
+            depositsKeys: [deposit.key],
+            sweepTxFee,
+            depositsRevealBlocks: [], // Not relevant in this scenario.
+          },
+          [deposit.extraInfo]
+        )
+
+      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+      expect(result).to.be.true
+    })
+
+    it("should reject Taproot extra info that derives a different output key", async () => {
+      await expect(
+        walletProposalValidator.validateTaprootDepositSweepProposal(
+          {
+            walletPubKeyHash,
+            depositsKeys: [deposit.key],
+            sweepTxFee,
+            depositsRevealBlocks: [], // Not relevant in this scenario.
+          },
+          [
+            {
+              ...deposit.extraInfo,
+              blindingFactor: "0x0000000000000000",
+            },
+          ]
+        )
+      ).to.be.revertedWith("Wrong Taproot output key")
+    })
+  })
+
   describe("validateRedemptionProposal", () => {
     const walletPubKeyHash = "0x7ac2d9378a1c47e589dfb8095ca95ed2140d2726"
     const ecdsaWalletID =
@@ -2971,6 +3049,65 @@ const createTestDeposit = (
       blindingFactor,
       walletPubKeyHash,
       refundPubKeyHash,
+      refundLocktime,
+    },
+  }
+}
+
+const createTestTaprootDeposit = (vault: string, revealedAt: number) => {
+  const depositor = "0x934b98637ca318a4d6e7ca6ffd1690b8e77df637"
+  const blindingFactor = "0xf9f0c90d00039523"
+  const walletPubKeyHash = "0xc92a772f11bc97d8938a16a9db435401f4e6a7bc"
+  const walletXOnlyPublicKey =
+    "0x2336f65004d8f122f1fe947ebd009a8b4add3a0d937356d568e30f7fcc2e4008"
+  const refundPubKeyHash = "0xc2a27a88d8d03e271e8edc556923e9398619f17c"
+  const refundXOnlyPublicKey =
+    "0x11223344556677889900aabbccddeeff00112233445566778899aabbccddeeff"
+  // 2033-05-18 03:33:20 UTC as a 4-byte little-endian locktime.
+  const refundLocktime = "0x00943577"
+  const taprootOutputKey =
+    "0xdc4be6abd1e2652a9b6e23842d443654221c71ab09ccdd1f82be676fb9fddc12"
+
+  const fundingTx = {
+    version: "0x01000000",
+    // Input vector is not relevant in this test suite so can be random.
+    inputVector: `0x01${crypto
+      .randomBytes(32)
+      .toString("hex")}0000000000ffffffff`,
+    outputVector: `0x010000000000000000225120${taprootOutputKey.substring(2)}`,
+    locktime: "0x00000000",
+  }
+
+  const fundingTxHash = ethers.utils.sha256(
+    ethers.utils.sha256(
+      `0x${fundingTx.version.substring(2)}` +
+        `${fundingTx.inputVector.substring(2)}` +
+        `${fundingTx.outputVector.substring(2)}` +
+        `${fundingTx.locktime.substring(2)}`
+    )
+  )
+
+  return {
+    key: {
+      fundingTxHash,
+      fundingOutputIndex: 0,
+    },
+    request: {
+      depositor,
+      amount: 0, // not relevant
+      revealedAt,
+      vault,
+      treasuryFee: 0, // not relevant
+      sweptAt: 0, // important to pass the validation
+      extraData: ethers.constants.HashZero,
+    },
+    extraInfo: {
+      fundingTx,
+      blindingFactor,
+      walletPubKeyHash,
+      walletXOnlyPublicKey,
+      refundPubKeyHash,
+      refundXOnlyPublicKey,
       refundLocktime,
     },
   }

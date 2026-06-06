@@ -328,9 +328,9 @@ export async function deriveFundedOperatorWallets(
 
 /// Registers `wallets.length` operators in the FROST sortition
 /// pool. Each wallet acts as BOTH the staking provider AND the
-/// operator (no separation in this test fixture). Requires the
-/// IStaking fake to return positive `eligibleStake` for any
-/// queried address — see `wireStakingFake` below.
+/// operator (no separation in this test fixture). Callers must
+/// admit those wallet addresses to the FrostAllowlist before
+/// invoking this helper.
 ///
 /// Returns the `Operators` array keyed by sortition pool ID,
 /// preserving wallet-index order so tests can map back to the
@@ -356,26 +356,18 @@ export async function registerOperators(
   return operators
 }
 
-/// Configures a smock IStaking fake so the FROST authorization
-/// library's `eligibleStake` view (which internally calls
-/// `tokenStaking.authorizedStake(stakingProvider, application)`)
-/// returns a positive value for any input. Without this, every
-/// `joinSortitionPool` call reverts with "Authorization below
-/// the minimum".
-///
-/// The amount returned (default 1_000_000 ETH equivalent in
-/// uint96 units) is well above the registry's default minimum
-/// authorization of 40_000 T. Production uses real T-token
-/// stake; tests don't exercise the actual ERC20.
-export function wireStakingFake(
-  hre: HardhatRuntimeEnvironment,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  tokenStaking: any,
-  amount?: BigNumber
-): void {
-  const { ethers } = hre
-  const stake = amount ?? ethers.utils.parseEther("1000000")
-  tokenStaking.authorizedStake.returns(stake)
+/// Adds deterministic operator wallets to the FROST allowlist using the
+/// registry's current minimum authorization as their sortition weight.
+export async function allowlistOperatorWallets(
+  frostAllowlist: Contract,
+  frostWalletRegistry: Contract,
+  wallets: Wallet[]
+): Promise<void> {
+  const weight: BigNumber = await frostWalletRegistry.minimumAuthorization()
+  for (const wallet of wallets) {
+    // eslint-disable-next-line no-await-in-loop
+    await frostAllowlist.addStakingProvider(wallet.address, weight)
+  }
 }
 
 /// One-shot "select group from the populated pool" wrapper.

@@ -3,6 +3,8 @@ import { Hex } from "../utils"
 import { ECPairFactory, ECPairInterface } from "ecpair"
 import * as tinysecp from "@bitcoinerlab/secp256k1"
 import { BitcoinNetwork, toBitcoinJsLibNetwork } from "./network"
+import { BitcoinAddressConverter } from "./address"
+import { BitcoinHashUtils } from "./hash"
 
 /**
  * Checks whether given public key is a compressed Bitcoin public key.
@@ -46,11 +48,50 @@ function compressPublicKey(publicKey: Hex): string {
 }
 
 /**
+ * Converts a wallet key into the Bridge wallet public key hash.
+ * Legacy ECDSA wallets use HASH160(compressedPublicKey). FROST wallets can
+ * identify themselves with their 32-byte x-only wallet ID and use the Bridge
+ * compatibility alias HASH160(0x02 || walletID).
+ * @param walletKey 33-byte compressed ECDSA key or 32-byte FROST x-only key.
+ * @returns 20-byte wallet public key hash accepted by the Bridge.
+ */
+function walletKeyToPublicKeyHash(walletKey: Hex): Hex {
+  const walletKeyBuffer = walletKey.toBuffer()
+
+  if (walletKeyBuffer.length === 32) {
+    return BitcoinAddressConverter.taprootOutputKeyToWalletPublicKeyHash(
+      walletKey
+    )
+  }
+
+  return BitcoinHashUtils.computeHash160(walletKey)
+}
+
+/**
+ * Converts a FROST x-only wallet ID into its compressed-key compatibility
+ * representation. This value is used only by legacy SDK interfaces that carry
+ * a single `walletPublicKey` field and then derive the Bridge wallet hash from
+ * it.
+ * @param walletID 32-byte FROST x-only wallet ID.
+ * @returns 33-byte 0x02-prefixed compatibility key.
+ */
+function xOnlyToCompressedPublicKey(walletID: Hex): Hex {
+  const walletIDBuffer = walletID.toBuffer()
+  if (walletIDBuffer.length !== 32) {
+    throw new Error("FROST wallet ID must be 32-byte")
+  }
+
+  return Hex.from(Buffer.concat([Buffer.from([0x02]), walletIDBuffer]))
+}
+
+/**
  * Utility functions allowing to perform operations on Bitcoin ECDSA public keys.
  */
 export const BitcoinPublicKeyUtils = {
   isCompressedPublicKey,
   compressPublicKey,
+  walletKeyToPublicKeyHash,
+  xOnlyToCompressedPublicKey,
 }
 
 /**
