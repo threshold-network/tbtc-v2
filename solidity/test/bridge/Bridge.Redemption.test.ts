@@ -967,6 +967,27 @@ describe("Bridge - Redemption", () => {
                       "Redeemer output script must not point to the wallet PKH"
                     )
 
+                    // FROST wallet ID hidden under P2TR.
+                    const walletID =
+                      "0x93fd799256287638b1589bc4c8db1b11fcf873796aabeac9edf4cf238f38e596"
+                    await (bridge as any).setWalletIDForWalletPubKeyHash(
+                      walletPubKeyHash,
+                      walletID
+                    )
+
+                    await expect(
+                      bridge
+                        .connect(thirdParty)
+                        .requestRedemption(
+                          walletPubKeyHash,
+                          mainUtxo,
+                          `0x225120${walletID.substring(2)}`,
+                          100000
+                        )
+                    ).to.be.revertedWith(
+                      "Redeemer output script must not point to the wallet P2TR script"
+                    )
+
                     // There is no need to check for P2WSH since that type
                     // uses 32-byte hashes. Because wallet public key hash is
                     // always 20-byte, there is no possibility those hashes

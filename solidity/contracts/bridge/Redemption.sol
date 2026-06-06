@@ -508,6 +508,13 @@ library Redemption {
                 walletPubKeyHash != redeemerOutputScriptPayload.slice20(0),
             "Redeemer output script must not point to the wallet PKH"
         );
+        bytes32 walletID = self.walletIDByWalletPubKeyHash[walletPubKeyHash];
+        require(
+            walletID == bytes32(0) ||
+                keccak256(redeemerOutputScript) !=
+                keccak256(BitcoinTx.makeP2TRScript(walletID)),
+            "Redeemer output script must not point to the wallet P2TR script"
+        );
 
         require(
             amount >= self.redemptionDustThreshold,
