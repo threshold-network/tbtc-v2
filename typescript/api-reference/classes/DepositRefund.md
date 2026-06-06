@@ -20,8 +20,12 @@ the given tBTC v2 deposit script.
 ### Methods
 
 - [assembleTransaction](DepositRefund.md#assembletransaction)
+- [bip86TweakedSchnorrSigner](DepositRefund.md#bip86tweakedschnorrsigner)
+- [directSchnorrSigner](DepositRefund.md#directschnorrsigner)
 - [prepareDepositScript](DepositRefund.md#preparedepositscript)
+- [prepareTaprootRefundSigningData](DepositRefund.md#preparetaprootrefundsigningdata)
 - [signP2SHDepositInput](DepositRefund.md#signp2shdepositinput)
+- [signP2TRDepositInput](DepositRefund.md#signp2trdepositinput)
 - [signP2WSHDepositInput](DepositRefund.md#signp2wshdepositinput)
 - [submitTransaction](DepositRefund.md#submittransaction)
 - [fromScript](DepositRefund.md#fromscript)
@@ -44,7 +48,7 @@ the given tBTC v2 deposit script.
 
 #### Defined in
 
-[src/services/deposits/refund.ts:37](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L37)
+[src/services/deposits/refund.ts:41](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L41)
 
 ## Properties
 
@@ -54,7 +58,7 @@ the given tBTC v2 deposit script.
 
 #### Defined in
 
-[src/services/deposits/refund.ts:35](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L35)
+[src/services/deposits/refund.ts:39](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L39)
 
 ## Methods
 
@@ -84,7 +88,72 @@ The outcome consisting of:
 
 #### Defined in
 
-[src/services/deposits/refund.ts:111](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L111)
+[src/services/deposits/refund.ts:115](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L115)
+
+___
+
+### bip86TweakedSchnorrSigner
+
+▸ **bip86TweakedSchnorrSigner**(`refunderKeyPair`, `internalXOnlyPublicKey`): (`hash`: `Buffer`\<`ArrayBufferLike`\>) => `Buffer`\<`ArrayBufferLike`\>
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `refunderKeyPair` | `Signer` |
+| `internalXOnlyPublicKey` | [`Hex`](Hex.md) |
+
+#### Returns
+
+`fn`
+
+▸ (`hash`): `Buffer`\<`ArrayBufferLike`\>
+
+##### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `hash` | `Buffer`\<`ArrayBufferLike`\> |
+
+##### Returns
+
+`Buffer`\<`ArrayBufferLike`\>
+
+#### Defined in
+
+[src/services/deposits/refund.ts:306](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L306)
+
+___
+
+### directSchnorrSigner
+
+▸ **directSchnorrSigner**(`refunderKeyPair`): (`hash`: `Buffer`\<`ArrayBufferLike`\>) => `Buffer`\<`ArrayBufferLike`\>
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `refunderKeyPair` | `Signer` |
+
+#### Returns
+
+`fn`
+
+▸ (`hash`): `Buffer`\<`ArrayBufferLike`\>
+
+##### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `hash` | `Buffer`\<`ArrayBufferLike`\> |
+
+##### Returns
+
+`Buffer`\<`ArrayBufferLike`\>
+
+#### Defined in
+
+[src/services/deposits/refund.ts:292](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L292)
 
 ___
 
@@ -113,7 +182,31 @@ Error if there are discrepancies in values or key formats.
 
 #### Defined in
 
-[src/services/deposits/refund.ts:191](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L191)
+[src/services/deposits/refund.ts:204](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L204)
+
+___
+
+### prepareTaprootRefundSigningData
+
+▸ **prepareTaprootRefundSigningData**(`refunderKeyPair`): `Promise`\<\{ `refundScript`: `Buffer`\<`ArrayBufferLike`\> ; `signSchnorr`: (`hash`: `Buffer`\<`ArrayBufferLike`\>) => `Buffer`\<`ArrayBufferLike`\>  }\>
+
+Assembles the Taproot refund tapscript and validates the refunder's key.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `refunderKeyPair` | `Signer` | Signer object containing the refunder's key pair. |
+
+#### Returns
+
+`Promise`\<\{ `refundScript`: `Buffer`\<`ArrayBufferLike`\> ; `signSchnorr`: (`hash`: `Buffer`\<`ArrayBufferLike`\>) => `Buffer`\<`ArrayBufferLike`\>  }\>
+
+A Promise resolving to the assembled tapscript and signer.
+
+#### Defined in
+
+[src/services/deposits/refund.ts:229](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L229)
 
 ___
 
@@ -139,7 +232,35 @@ An empty promise upon successful signing.
 
 #### Defined in
 
-[src/services/deposits/refund.ts:219](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L219)
+[src/services/deposits/refund.ts:343](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L343)
+
+___
+
+### signP2TRDepositInput
+
+▸ **signP2TRDepositInput**(`transaction`, `inputIndex`, `previousOutputScript`, `previousOutputValue`, `refunderKeyPair`): `Promise`\<`void`\>
+
+Signs a P2TR deposit transaction input and sets the script-path witness.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `transaction` | `Transaction` | The transaction containing the input to be signed. |
+| `inputIndex` | `number` | Index pointing to the input within the transaction. |
+| `previousOutputScript` | `Buffer`\<`ArrayBufferLike`\> | The scriptPubKey from the previous output. |
+| `previousOutputValue` | `number` | The value from the previous transaction output. |
+| `refunderKeyPair` | `Signer` | A Signer object with the refunder's public and private key pair. |
+
+#### Returns
+
+`Promise`\<`void`\>
+
+An empty promise upon successful signing.
+
+#### Defined in
+
+[src/services/deposits/refund.ts:420](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L420)
 
 ___
 
@@ -166,7 +287,7 @@ An empty promise upon successful signing.
 
 #### Defined in
 
-[src/services/deposits/refund.ts:256](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L256)
+[src/services/deposits/refund.ts:380](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L380)
 
 ___
 
@@ -203,7 +324,7 @@ This function should be called by the refunder after `refundLocktime`
 
 #### Defined in
 
-[src/services/deposits/refund.ts:63](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L63)
+[src/services/deposits/refund.ts:67](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L67)
 
 ___
 
@@ -223,4 +344,4 @@ ___
 
 #### Defined in
 
-[src/services/deposits/refund.ts:41](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L41)
+[src/services/deposits/refund.ts:45](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L45)
