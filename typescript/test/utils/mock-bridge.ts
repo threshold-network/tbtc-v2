@@ -11,6 +11,7 @@ import {
   DepositRevealedEvent,
   DepositRequest,
 } from "../../src/lib/contracts"
+import { WalletIDUtils } from "../../src/lib/contracts/wallet-id"
 import {
   BitcoinRawTxVectors,
   BitcoinSpvProof,
@@ -431,9 +432,7 @@ export class MockBridge implements Bridge {
   }
 
   async walletID(walletPublicKeyHash: Hex): Promise<Hex> {
-    return Hex.from(
-      utils.hexZeroPad(walletPublicKeyHash.toPrefixedString(), 32)
-    )
+    return WalletIDUtils.legacyWalletIDFromPublicKeyHash(walletPublicKeyHash)
   }
 
   async walletPublicKeyHashForWalletID(walletID: Hex): Promise<Hex> {
