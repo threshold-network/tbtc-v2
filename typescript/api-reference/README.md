@@ -2382,7 +2382,7 @@ const encoded = encodeDestinationReceiver(
 
 #### Defined in
 
-[src/lib/utils/wormhole.ts:18](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/wormhole.ts#L18)
+[src/lib/utils/wormhole.ts:20](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/wormhole.ts#L20)
 
 ___
 
