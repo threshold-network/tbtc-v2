@@ -55,48 +55,60 @@ async function mergeV2ValidationData(
     packageDir,
     "../../solidity/cache/validations.json"
   )
-  const targetCachePath = path.resolve(hre.config.paths.cache, "validations.json")
+  const targetCachePath = path.resolve(
+    hre.config.paths.cache,
+    "validations.json"
+  )
 
   let sourceData: any
   try {
-    sourceData = JSON.parse(
-      await fs.promises.readFile(sourceCachePath, "utf8")
-    )
+    sourceData = JSON.parse(await fs.promises.readFile(sourceCachePath, "utf8"))
   } catch {
     // Solidity package validation cache not available; skip silently.
     return
   }
 
+  // Ensure a target validation log exists to merge into. Packages that compile
+  // no local upgradeable source (they only consume staged artifacts) never have
+  // the OZ plugin create this file, so default to an empty log rather than
+  // skipping the merge.
   let targetData: any
   try {
-    targetData = JSON.parse(
-      await fs.promises.readFile(targetCachePath, "utf8")
-    )
+    targetData = JSON.parse(await fs.promises.readFile(targetCachePath, "utf8"))
   } catch {
-    // Local validation cache not available; skip silently.
-    return
+    targetData = { log: [] }
   }
 
-  // Find the log entry containing the V2 contract in the source cache
   const sourceLog: any[] = sourceData.log || []
-  const sourceEntry = sourceLog.find((entry: any) =>
-    Object.keys(entry).some((key) => key.includes(contractName))
-  )
-
-  if (!sourceEntry) return
-
-  // Check whether the V2 contract is already present in the target cache
   const targetLog: any[] = targetData.log || []
-  const alreadyPresent = targetLog.some((entry: any) =>
-    Object.keys(entry).some((key) => key.includes(contractName))
-  )
 
-  if (alreadyPresent) return
+  // Bring EVERY source log entry describing this contract into the target, not
+  // just the first. A re-upgrade (same contract name, new build) produces a new
+  // validation entry keyed by a new bytecode hash; skipping whenever ANY
+  // same-named entry was already present left a stale entry in place and
+  // prevented `prepareUpgrade` from resolving the freshly staged
+  // implementation. Dedupe by serialized identity so repeated compiles stay
+  // idempotent; the OZ plugin selects the matching entry by bytecode hash, so
+  // carrying older entries alongside the new one is harmless.
+  const seen = new Set(targetLog.map((entry: any) => JSON.stringify(entry)))
+  let changed = false
+  for (const entry of sourceLog) {
+    const describesContract = Object.keys(entry).some((key) =>
+      key.includes(contractName)
+    )
+    if (!describesContract) continue
+    const serialized = JSON.stringify(entry)
+    if (seen.has(serialized)) continue
+    targetLog.push(entry)
+    seen.add(serialized)
+    changed = true
+  }
 
-  // Append the source entry to the target validation log
-  targetLog.push(sourceEntry)
+  if (!changed) return
+
   targetData.log = targetLog
 
+  await fs.promises.mkdir(hre.config.paths.cache, { recursive: true })
   await fs.promises.writeFile(
     targetCachePath,
     JSON.stringify(targetData, null, 2)
@@ -136,7 +148,10 @@ export async function copyBTCDepositorWormholeArtifact(
 async function seedEmptyValidationLog(
   hre: HardhatRuntimeEnvironment
 ): Promise<void> {
-  const targetCachePath = path.resolve(hre.config.paths.cache, "validations.json")
+  const targetCachePath = path.resolve(
+    hre.config.paths.cache,
+    "validations.json"
+  )
 
   try {
     await fs.promises.access(targetCachePath)
