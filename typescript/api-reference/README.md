@@ -2057,7 +2057,7 @@ Utility functions allowing to perform operations on Bitcoin ECDSA private keys.
 
 #### Defined in
 
-[src/lib/bitcoin/ecdsa-key.ts:77](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/ecdsa-key.ts#L77)
+[src/lib/bitcoin/ecdsa-key.ts:118](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/ecdsa-key.ts#L118)
 
 ___
 
@@ -2073,10 +2073,12 @@ Utility functions allowing to perform operations on Bitcoin ECDSA public keys.
 | :------ | :------ |
 | `compressPublicKey` | (`publicKey`: [`Hex`](classes/Hex.md)) => `string` |
 | `isCompressedPublicKey` | (`publicKey`: [`Hex`](classes/Hex.md)) => `boolean` |
+| `walletKeyToPublicKeyHash` | (`walletKey`: [`Hex`](classes/Hex.md)) => [`Hex`](classes/Hex.md) |
+| `xOnlyToCompressedPublicKey` | (`walletID`: [`Hex`](classes/Hex.md)) => [`Hex`](classes/Hex.md) |
 
 #### Defined in
 
-[src/lib/bitcoin/ecdsa-key.ts:51](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/ecdsa-key.ts#L51)
+[src/lib/bitcoin/ecdsa-key.ts:90](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/ecdsa-key.ts#L90)
 
 ___
 
@@ -3459,7 +3461,7 @@ Packed parameters.
 
 #### Defined in
 
-[src/lib/ethereum/bridge.ts:948](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L948)
+[src/lib/ethereum/bridge.ts:952](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L952)
 
 ___
 

@@ -24,7 +24,6 @@ import { BigNumber, constants, ContractTransaction, utils } from "ethers"
 import { backoffRetrier, Hex } from "../utils"
 import {
   BitcoinPublicKeyUtils,
-  BitcoinHashUtils,
   BitcoinRawTxVectors,
   BitcoinSpvProof,
   BitcoinCompactSizeUint,
@@ -205,7 +204,8 @@ export class EthereumBridge
     walletPublicKey: Hex,
     redeemerOutputScript: Hex
   ): Promise<RedemptionRequest> {
-    const walletPublicKeyHash = BitcoinHashUtils.computeHash160(walletPublicKey)
+    const walletPublicKeyHash =
+      BitcoinPublicKeyUtils.walletKeyToPublicKeyHash(walletPublicKey)
     return this.pendingRedemptionsByWalletPKH(
       walletPublicKeyHash,
       redeemerOutputScript
@@ -244,7 +244,7 @@ export class EthereumBridge
     redeemerOutputScript: Hex
   ): Promise<RedemptionRequest> {
     const redemptionKey = EthereumBridge.buildRedemptionKey(
-      BitcoinHashUtils.computeHash160(walletPublicKey),
+      BitcoinPublicKeyUtils.walletKeyToPublicKeyHash(walletPublicKey),
       redeemerOutputScript
     )
 
@@ -425,7 +425,9 @@ export class EthereumBridge
     amount: BigNumber
   ): Promise<Hex> {
     const walletPublicKeyHash =
-      BitcoinHashUtils.computeHash160(walletPublicKey).toPrefixedString()
+      BitcoinPublicKeyUtils.walletKeyToPublicKeyHash(
+        walletPublicKey
+      ).toPrefixedString()
 
     const mainUtxoParam = {
       // The Ethereum Bridge expects this hash to be in the Bitcoin internal
@@ -492,7 +494,9 @@ export class EthereumBridge
     }
 
     const walletPublicKeyHash =
-      BitcoinHashUtils.computeHash160(walletPublicKey).toPrefixedString()
+      BitcoinPublicKeyUtils.walletKeyToPublicKeyHash(
+        walletPublicKey
+      ).toPrefixedString()
 
     const tx = await EthersTransactionUtils.sendWithRetry<ContractTransaction>(
       async () => {
