@@ -8,16 +8,15 @@ import type {
   Bridge,
   BridgeStub,
   IRandomBeacon,
-  IStaking,
   ReimbursementPool,
 } from "../../typechain"
 import {
   FROST_GROUP_SIZE,
+  allowlistOperatorWallets,
   deriveFundedOperatorWallets,
   performFrostDkg,
   registerOperators,
   selectFrostGroup,
-  wireStakingFake,
 } from "../integration/utils/frost-wallet-registry"
 
 // B-1.5 slice 3: full-cycle DKG happy path.
@@ -60,8 +59,6 @@ describe("FrostWalletRegistry full-cycle DKG happy path (B-1.5 slice 3)", () => 
     const t = await deployments.get("T")
 
     randomBeacon = await smock.fake<IRandomBeacon>("IRandomBeacon")
-    const tokenStaking = await smock.fake<IStaking>("IStaking")
-    wireStakingFake(hre, tokenStaking)
 
     // Smock the reimbursement pool so `refund(...)` is a no-op.
     // Production registry calls require the pool to be ETH-
@@ -116,7 +113,7 @@ describe("FrostWalletRegistry full-cycle DKG happy path (B-1.5 slice 3)", () => 
           libraries: { FrostInactivity: inact.address },
         },
         proxyOpts: {
-          constructorArgs: [frostSortitionPool.address, tokenStaking.address],
+          constructorArgs: [frostSortitionPool.address],
           unsafeAllow: ["external-library-linking"],
           kind: "transparent",
         },
@@ -162,8 +159,27 @@ describe("FrostWalletRegistry full-cycle DKG happy path (B-1.5 slice 3)", () => 
       dkgParams.submitterPrecedencePeriodLength
     )
 
-    // 100 operators registered + funded + joined the pool.
+    const [frostAllowlist] = await helpers.upgrades.deployProxy(
+      "FrostAllowlistHappyPathTest",
+      {
+        contractName: "FrostAllowlist",
+        initializerArgs: [frostWalletRegistry.address],
+        factoryOpts: {
+          signer: deployer,
+        },
+        proxyOpts: {
+          kind: "transparent",
+        },
+      }
+    )
+
+    await frostWalletRegistry
+      .connect(deployer)
+      .initializeV2(frostAllowlist.address)
+
+    // 100 operators allowlisted + funded + registered + joined the pool.
     const wallets = await deriveFundedOperatorWallets(hre, FROST_GROUP_SIZE)
+    await allowlistOperatorWallets(frostAllowlist, frostWalletRegistry, wallets)
     operators = await registerOperators(
       hre,
       frostWalletRegistry,

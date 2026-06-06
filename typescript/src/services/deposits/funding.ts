@@ -45,7 +45,7 @@ export class DepositFunding {
    * @param bitcoinNetwork The target Bitcoin network.
    * @param amount Deposit amount in satoshis.
    * @param inputUtxos UTXOs to be used for funding the deposit transaction.
-   *                   So far only P2WPKH UTXO inputs are supported.
+   *                   So far only P2PKH and P2WPKH UTXO inputs are supported.
    * @param fee Transaction fee to be subtracted from the sum of the UTXOs' values.
    * @param depositorPrivateKey Bitcoin private key of the depositor. Must
    *        be able to unlock input UTXOs.
@@ -82,6 +82,7 @@ export class DepositFunding {
 
     const totalExpenses = amount.add(fee)
     let totalInputValue = BigNumber.from(0)
+    let skippedUnsupportedUtxos = 0
 
     for (const utxo of inputUtxos) {
       const previousOutput = Transaction.fromHex(utxo.transactionHex).outs[
@@ -90,8 +91,6 @@ export class DepositFunding {
       const previousOutputValue = previousOutput.value
       const previousOutputScript = previousOutput.script
 
-      // TODO: Add support for other utxo types along with unit tests for the
-      //       given type.
       if (BitcoinScriptUtils.isP2WPKHScript(Hex.from(previousOutputScript))) {
         psbt.addInput({
           hash: utxo.transactionHash.reverse().toBuffer(),
@@ -106,19 +105,39 @@ export class DepositFunding {
         if (totalInputValue.gte(totalExpenses)) {
           break
         }
+      } else if (
+        BitcoinScriptUtils.isP2PKHScript(Hex.from(previousOutputScript))
+      ) {
+        psbt.addInput({
+          hash: utxo.transactionHash.reverse().toBuffer(),
+          index: utxo.outputIndex,
+          nonWitnessUtxo: Buffer.from(utxo.transactionHex, "hex"),
+        })
+
+        totalInputValue = totalInputValue.add(utxo.value)
+        if (totalInputValue.gte(totalExpenses)) {
+          break
+        }
+      } else {
+        skippedUnsupportedUtxos++
       }
-      // Skip UTXO if the type is unsupported.
     }
 
     // Sum of the selected UTXOs must be equal to or greater than the deposit
     // amount plus fee.
     if (totalInputValue.lt(totalExpenses)) {
+      if (skippedUnsupportedUtxos > 0) {
+        throw new Error(
+          "Unsupported UTXO script type; only P2PKH and P2WPKH inputs are supported"
+        )
+      }
+
       throw new Error("Not enough funds in selected UTXOs to fund transaction")
     }
 
     // Add deposit output.
     psbt.addOutput({
-      address: await this.script.deriveAddress(bitcoinNetwork),
+      script: await this.script.deriveOutputScript(bitcoinNetwork),
       value: amount.toNumber(),
     })
 
@@ -162,7 +181,7 @@ export class DepositFunding {
    *      to ensure the given deposit is funded exactly once.
    * @param amount Deposit amount in satoshis.
    * @param inputUtxos UTXOs to be used for funding the deposit transaction. So
-   *        far only P2WPKH UTXO inputs are supported.
+   *        far only P2PKH and P2WPKH UTXO inputs are supported.
    * @param fee The value that should be subtracted from the sum of the UTXOs
    *        values and used as the transaction fee.
    * @param depositorPrivateKey Bitcoin private key of the depositor.

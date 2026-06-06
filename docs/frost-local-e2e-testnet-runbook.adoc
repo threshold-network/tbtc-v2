@@ -1,0 +1,296 @@
+= FROST local Ethereum + Bitcoin testnet end-to-end runbook
+
+This runbook documents the local end-to-end FROST validation performed on
+2026-06-05. The run used a local Ethereum chain, real Bitcoin testnet
+transactions, and keep-core FROST operator nodes. It is intended to help other
+engineers reproduce the same validation without relying on the temporary
+`codex-*` harness scripts used during the original run.
+
+== Scope
+
+Validated:
+
+* FROST wallet DKG with a 100-operator local node cluster.
+* Taproot-native deposit reveal.
+* Threshold-signed Taproot deposit sweep on Bitcoin testnet.
+* Deposit sweep proof submission and Bank mint accounting.
+* Redemption request.
+* Threshold-signed Taproot key-path redemption on Bitcoin testnet.
+* Redemption proof submission and final Bridge/Bank accounting.
+
+Not validated by this run:
+
+* A full ECDSA-to-FROST upgrade from an existing ECDSA deployment state.
+* A public shared Ethereum testnet deployment.
+* Production governance batching.
+
+== Required branches
+
+The successful run used the following stacked branches:
+
+* `threshold-network/tbtc-v2#976`
+  (`codex/taproot-refund-preserving-deposits`)
+* `threshold-network/keep-core#4017`
+  (`codex/tweaked-taproot-deposit-sweeps`)
+* `threshold-network/keep-core#4018`
+  (`codex/tbtc-signer-taproot-tweaks`)
+
+The important follow-up fixes from the run were committed to those branches:
+
+* `b0365f809` - recognize P2TR wallet change outputs during redemption proof
+  processing.
+* `74349a0c4` - keep Taproot signing session IDs compact and bound to the
+  signing start block.
+* `6e54cb864` - do not archive live FROST Bridge wallets just because they are
+  absent from the legacy ECDSA wallet registry.
+* `6d9709ef0` - prefer `TaprootDepositRevealed` over the compatibility
+  `DepositRevealed` event during deposit sweep validation.
+* `20e6af3fc` - parse Taproot deposit sweep inputs in SPV proof submission.
+* `4c9c6547c` - let the native signer reuse an active round across distinct
+  member identifiers while rebuilding the member-specific contribution.
+
+== Topology
+
+The test environment consisted of:
+
+* Anvil on `127.0.0.1:8545`.
+* A websocket/RPC compatibility proxy exposed on `127.0.0.1:18545`.
+* An Electrum mux proxy exposed on `127.0.0.1:16001`, forwarding to Bitcoin
+  testnet.
+* 100 local keep-core tBTC-only nodes using the native FROST signer.
+* Bitcoin testnet for the funding, sweep, and redemption transactions.
+
+== Prerequisites
+
+Install or build:
+
+* Foundry/Anvil.
+* Node.js and npm dependencies for `tbtc-v2/solidity`.
+* Go dependencies for keep-core.
+* Rust/Cargo dependencies for `keep-core/pkg/tbtc/signer`.
+* A reachable Bitcoin testnet Electrum server.
+
+Prepare user-held Bitcoin testnet secrets through an env file, not
+command-line arguments:
+
+[source,sh]
+----
+DEPOSITOR_BITCOIN_WIF=...
+----
+
+The depositor key funds the testnet deposit and receives redemption output
+change as a normal user. There is no threshold-wallet WIF in a real FROST run;
+threshold wallet spends must be signed by the FROST operator group.
+
+== Procedure
+
+=== 1. Start local Ethereum
+
+Start Anvil with deterministic accounts and no base fee:
+
+[source,sh]
+----
+anvil --host 127.0.0.1 --port 8545 --chain-id 31337 --base-fee 0 --accounts 20
+----
+
+Deploy the tBTC Solidity stack from the tbtc-v2 branch:
+
+[source,sh]
+----
+cd solidity
+npm run deploy:test
+----
+
+Record the deployed `Bridge`, `Bank`, `RandomBeacon`,
+`FrostWalletRegistry`, `FrostDkgValidator`, `MaintainerProxy`, and
+`WalletProposalValidator` addresses.
+
+=== 2. Wire local FROST test dependencies
+
+For a local-only run, configure:
+
+* Random beacon requester authorization for `FrostWalletRegistry`.
+* The FROST wallet registry authorization source.
+* The FROST lifecycle router.
+* An SPV maintainer authorized through `MaintainerProxy`.
+
+If a local system-test relay is used, keep the relay substitution explicitly
+marked as local-only. Do not include direct storage writes or proxy
+implementation-slot mutations in production or shared-testnet runbooks.
+
+=== 3. Build the native signer and node binary
+
+Build the FROST signer library:
+
+[source,sh]
+----
+cd keep-core/pkg/tbtc/signer
+cargo build
+----
+
+Build a tBTC-only keep-core node with native FROST support:
+
+[source,sh]
+----
+go build \
+  -tags frost_native,frost_tbtc_signer,cgo \
+  -ldflags '-checklinkname=0' \
+  -o /tmp/tbtc-only-node \
+  ./path/to/tbtc_only_node.go
+----
+
+The original run used a temporary tBTC-only node entrypoint to avoid starting
+unrelated keep-core subsystems. The production equivalent should be a normal
+node configuration that enables the same tBTC/FROST paths.
+
+=== 4. Start 100 FROST operators
+
+Create 100 local operator configs, authorize them in the FROST allowlist, and
+start nodes with:
+
+* `--tbtc.disableLegacyECDSA`
+* `--tbtc.disableLegacySortitionPoolMonitoring`
+* `--frost-signing-backend=ffi`
+* the local Ethereum websocket URL
+* the Bitcoin testnet Electrum URL
+* the FROST wallet registry and DKG validator addresses
+
+Wait until all nodes are alive and connected before requesting a wallet.
+
+=== 5. Create a FROST wallet
+
+Request a new wallet through the Bridge/maintainer flow and wait until DKG
+completes. Verify:
+
+* `Bridge.activeWalletID()` is the 32-byte x-only Taproot output key.
+* `Bridge.activeWalletPubKeyHash()` is the compatibility HASH160 identifier.
+* The wallet state is `Live`.
+* The legacy ECDSA wallet ID is zero for the FROST wallet.
+
+=== 6. Reveal a Taproot deposit
+
+Generate a Taproot-native deposit using:
+
+* the active FROST wallet x-only key,
+* the depositor Ethereum address,
+* a depositor Bitcoin refund key,
+* a refund locktime.
+
+Fund the resulting Bitcoin testnet deposit address. Wait for the desired number
+of confirmations, then reveal the deposit through `revealTaprootDeposit`.
+
+=== 7. Sweep the deposit
+
+Run coordination until a deposit sweep is proposed and signed by the FROST
+group. Sweeps are not expected every coordination window; production sweep
+latency should be modeled as roughly 3-4 coordination windows plus Bitcoin
+confirmation time.
+
+Verify the sweep transaction:
+
+* spends the Taproot deposit output,
+* has a single 64-byte Schnorr witness for the Taproot key-path spend,
+* pays the FROST wallet P2TR output.
+
+After the sweep confirms, submit the deposit sweep proof and verify:
+
+* the deposit is marked swept,
+* `Bridge.wallets(activeWalletPubKeyHash).mainUtxoHash` matches the sweep
+  output,
+* the depositor Bank balance increased by deposit amount minus treasury fee,
+* the treasury Bank balance increased by the deposit treasury fee.
+
+=== 8. Request and execute redemption
+
+Request a redemption against the live FROST wallet. Then run coordination until
+the FROST group signs and broadcasts the Bitcoin redemption transaction.
+
+Verify the redemption transaction:
+
+* spends the wallet P2TR main UTXO,
+* has a single 64-byte Schnorr witness,
+* includes the redeemer output script,
+* includes a P2TR wallet change output if value remains on the wallet.
+
+After the redemption confirms, submit the redemption proof and verify:
+
+* the pending redemption is cleared,
+* `pendingRedemptionsValue` is zero,
+* the wallet main UTXO hash matches the redemption change output, if any,
+* the redeemer Bank balance was consumed,
+* treasury accounting includes the redemption treasury fee.
+
+== Validation artifacts from the 2026-06-05 run
+
+FROST wallet:
+
+* Wallet ID / x-only key:
+  `0x93fd799256287638b1589bc4c8db1b11fcf873796aabeac9edf4cf238f38e596`
+* Wallet public key hash:
+  `0x2a621226d6f9916a929c0ab8cc7d3252c1485708`
+
+Bitcoin testnet transactions:
+
+* Deposit funding transaction:
+  `08f0ca32d24a7343e24580eb28834dff676ccd784ae8c1f96a5778882ec8d679`
+* FROST threshold-signed deposit sweep:
+  `e079a5526d692f10b4a3d4df48d7db2b20f02b5e204fc9c041b9dab19da5d1a2`
+* FROST threshold-signed redemption:
+  `40864d99c89dfb9c063cb0c4a398b536dffd1d4b667f767495c0017d6ef857c8`
+* CPFP child used only to accelerate testnet confirmation:
+  `07f65719c1e68515a8f3665b690dcf140ea0e4121500c6b4f317bba3bd1fae76`
+
+Final checked state:
+
+* Wallet state: `Live`.
+* Wallet main UTXO hash matched the redemption P2TR change output.
+* Pending redemptions value: `0`.
+* Pending redemption entry: cleared.
+* Depositor Bank balance: `0` after redemption.
+* Treasury Bank balance: deposit treasury fee plus redemption treasury fee.
+
+== Local-only shortcuts used in the original run
+
+The original run intentionally used a few local-only shortcuts to keep the test
+moving while patches were being developed. These must not be copied into a
+production or public-testnet deployment:
+
+* Lowered confirmation and age gates in temporary keep-core builds.
+* Anvil time manipulation to pass governance and protocol delays.
+* A system-test relay and direct local relay-header updates.
+* Direct Anvil storage mutation to apply a patched Bridge implementation
+  during the already-running local test.
+* Temporary helper scripts under `solidity/scripts/codex-*`.
+
+For a clean shared testnet rehearsal, deploy the final branches from scratch
+and use normal governance/proxy upgrade paths instead of these shortcuts.
+
+== What remains
+
+The next validation step is a full ECDSA-to-FROST migration rehearsal:
+
+1. Start from an ECDSA-era deployment with realistic wallet state.
+2. Apply the FROST/Schnorr upgrade stack through the intended governance or
+   proxy-admin path.
+3. Confirm legacy ECDSA state is either preserved, retired, or rejected exactly
+   as expected.
+4. Create a FROST wallet post-upgrade.
+5. Repeat the Taproot deposit, sweep proof, mint, redemption, and redemption
+   proof flow.
+
+Run this first on local Anvil, then on a shared public test environment.
+
+== Cleanup
+
+After a local run, stop:
+
+[source,sh]
+----
+pkill -f /tmp/tbtc-only-node
+pkill -f rpc_compat_proxy
+pkill -f electrum_mux_proxy
+pkill -f anvil
+----
+
+Use more specific paths or PIDs if other local development processes match the
+same names.

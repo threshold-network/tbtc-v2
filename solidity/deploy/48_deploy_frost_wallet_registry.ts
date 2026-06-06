@@ -6,7 +6,6 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   const { deployer } = await getNamedAccounts()
 
   const FrostSortitionPool = await deployments.get("FrostSortitionPool")
-  const TokenStaking = await deployments.get("TokenStaking")
   const ReimbursementPool = await deployments.get("ReimbursementPool")
   const RandomBeacon = await deployments.get("RandomBeacon")
   const FrostDkgValidator = await deployments.get("FrostDkgValidator")
@@ -41,7 +40,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
         },
       },
       proxyOpts: {
-        constructorArgs: [FrostSortitionPool.address, TokenStaking.address],
+        constructorArgs: [FrostSortitionPool.address],
         unsafeAllow: ["external-library-linking"],
         kind: "transparent",
       },
@@ -212,5 +211,4 @@ func.dependencies = [
   "FrostDkgValidator",
   "ReimbursementPool",
   "RandomBeacon",
-  "TokenStaking",
 ]

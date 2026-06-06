@@ -15,15 +15,15 @@
 pragma solidity 0.8.17;
 
 import "@keep-network/sortition-pools/contracts/SortitionPool.sol";
-import "@threshold-network/solidity-contracts/contracts/staking/IStaking.sol";
+import "../api/IFrostAuthorizationSource.sol";
 
-/// @notice Library managing the state of stake authorizations for ECDSA
-///         operator contract and the presence of operators in the sortition
-///         pool based on the stake authorized for them.
+/// @notice Library managing operator authorizations for the FROST registry and
+///         the presence of operators in the sortition pool based on their
+///         authorization weight.
 library FrostAuthorization {
     struct Parameters {
-        // The minimum authorization required by ECDSA application so that
-        // operator can join the sortition pool and do the work.
+        // The minimum authorization required by the FROST application so that
+        // an operator can join the sortition pool and do the work.
         uint96 minimumAuthorization;
         // Authorization decrease delay in seconds between the time
         // authorization decrease is requested and the time the authorization
@@ -47,8 +47,7 @@ library FrostAuthorization {
         // approve it.
         //
         // This value protects against malicious operators who manipulate
-        // their weight by overwriting authorization decrease request, and
-        // lowering or increasing their eligible stake this way.
+        // their weight by overwriting authorization decrease request.
         //
         // If set to a value equal to `authorizationDecreaseDelay, it means
         // that authorization decrease request can be always overwritten.
@@ -131,8 +130,8 @@ library FrostAuthorization {
         address indexed operator
     );
 
-    /// @notice Sets the minimum authorization for ECDSA application. Without
-    ///         at least the minimum authorization, staking provider is not
+    /// @notice Sets the minimum authorization for the FROST application.
+    ///         Without at least the minimum authorization, the provider is not
     ///         eligible to join and operate in the network.
     function setMinimumAuthorization(
         Data storage self,
@@ -167,13 +166,13 @@ library FrostAuthorization {
             .authorizationDecreaseChangePeriod = _authorizationDecreaseChangePeriod;
     }
 
-    /// @notice Used by staking provider to set operator address that will
-    ///         operate ECDSA node. The given staking provider can set operator
+    /// @notice Used by an operator provider to set the operator address that
+    ///         will operate a FROST node. The provider can set the operator
     ///         address only one time. The operator address can not be changed
     ///         and must be unique. Reverts if the operator is already set for
-    ///         the staking provider or if the operator address is already in
-    ///         use. Reverts if there is a pending authorization decrease for
-    ///         the staking provider.
+    ///         the provider or if the operator address is already in use.
+    ///         Reverts if there is a pending authorization decrease for the
+    ///         provider.
     function registerOperator(Data storage self, address operator) internal {
         address stakingProvider = msg.sender;
 
@@ -187,7 +186,7 @@ library FrostAuthorization {
             "Operator address already in use"
         );
 
-        // Authorization request for a staking provider who has not yet
+        // Authorization request for a provider who has not yet
         // registered their operator can be approved immediately.
         // We need to make sure that the approval happens before operator
         // is registered to do not let the operator join the sortition pool
@@ -207,8 +206,8 @@ library FrostAuthorization {
         self.operatorToStakingProvider[operator] = stakingProvider;
     }
 
-    /// @notice Used by T staking contract to inform the application that the
-    ///         authorized stake amount for the given staking provider increased.
+    /// @notice Used by the authorization source to inform the registry that
+    ///         the authorization weight for the given provider increased.
     ///
     ///         Reverts if the authorization amount is below the minimum.
     ///
@@ -216,7 +215,7 @@ library FrostAuthorization {
     ///         state needs to be updated by the operator with a call to
     ///         `joinSortitionPool` or `updateOperatorStatus`.
     ///
-    /// @dev Should only be callable by T staking contract.
+    /// @dev Should only be callable by the configured authorization source.
     function authorizationIncreased(
         Data storage self,
         address stakingProvider,
@@ -229,11 +228,8 @@ library FrostAuthorization {
         );
 
         // Note that this function does not require the operator address to be
-        // set for the given staking provider. This allows the stake owner
-        // who is also an authorizer to increase the authorization before the
-        // staking provider sets the operator. This allows delegating stake
-        // and increasing authorization immediately one after another without
-        // having to wait for the staking provider to do their part.
+        // set for the given provider. This allows the authorization source to
+        // increase authorization before the provider sets the operator.
 
         address operator = self.stakingProviderToOperator[stakingProvider];
         emit AuthorizationIncreased(
@@ -244,16 +240,16 @@ library FrostAuthorization {
         );
     }
 
-    /// @notice Used by T staking contract to inform the application that the
-    ///         authorization decrease for the given staking provider has been
+    /// @notice Used by the authorization source to inform the registry that an
+    ///         authorization weight decrease for the given provider has been
     ///         requested.
     ///
     ///         Reverts if the amount after deauthorization would be non-zero
     ///         and lower than the minimum authorization.
     ///
     ///         Reverts if another authorization decrease request is pending for
-    ///         the staking provider and not enough time passed since the
-    ///         original request (see `authorizationDecreaseChangePeriod`).
+    ///         the provider and not enough time passed since the original
+    ///         request (see `authorizationDecreaseChangePeriod`).
     ///
     ///         If the operator is not known (`registerOperator` was not called)
     ///         it lets to `approveAuthorizationDecrease` immediately. If the
@@ -271,7 +267,7 @@ library FrostAuthorization {
     ///         overwritten, but only if enough time passed since the original
     ///         request. Otherwise, the function reverts.
     ///
-    /// @dev Should only be callable by T staking contract.
+    /// @dev Should only be callable by the configured authorization source.
     function authorizationDecreaseRequested(
         Data storage self,
         address stakingProvider,
@@ -316,7 +312,7 @@ library FrostAuthorization {
         uint64 pendingDecreaseAt = decreaseRequest.decreasingAt;
         if (pendingDecreaseAt != 0 && pendingDecreaseAt != type(uint64).max) {
             // If there is already a pending authorization decrease request for
-            // this staking provider and that request has been activated
+            // this provider and that request has been activated
             // (sortition pool was updated), require enough time to pass before
             // it can be overwritten.
             require(
@@ -343,10 +339,10 @@ library FrostAuthorization {
     /// @notice Approves the previously registered authorization decrease
     ///         request. Reverts if authorization decrease delay have not passed
     ///         yet or if the authorization decrease was not requested for the
-    ///         given staking provider.
+    ///         given provider.
     function approveAuthorizationDecrease(
         Data storage self,
-        IStaking tokenStaking,
+        IFrostAuthorizationSource authorizationSource,
         address stakingProvider
     ) internal {
         AuthorizationDecrease storage decrease = self.pendingDecreases[
@@ -369,13 +365,13 @@ library FrostAuthorization {
         emit AuthorizationDecreaseApproved(stakingProvider);
 
         // slither-disable-next-line unused-return
-        tokenStaking.approveAuthorizationDecrease(stakingProvider);
+        authorizationSource.approveAuthorizationDecrease(stakingProvider);
         delete self.pendingDecreases[stakingProvider];
     }
 
-    /// @notice Used by T staking contract to inform the application the
-    ///         authorization has been decreased for the given staking provider
-    ///         involuntarily, as a result of slashing.
+    /// @notice Compatibility callback for involuntary authorization decreases.
+    ///         Under the current allowlist source, authorization changes are
+    ///         governance-controlled rather than token-slashing-controlled.
     ///
     ///         If the operator is not known (`registerOperator` was not called)
     ///         the function does nothing. The operator was never in a sortition
@@ -384,14 +380,14 @@ library FrostAuthorization {
     ///         If the operator is known, sortition pool is unlocked, and the
     ///         operator is in the sortition pool, the sortition pool state is
     ///         updated. If the sortition pool is locked, update needs to be
-    ///         postponed. Every other staker is incentivized to call
+    ///         postponed. Every other operator provider is incentivized to call
     ///         `updateOperatorStatus` for the problematic operator to increase
     ///         their own rewards in the pool.
     ///
-    /// @dev Should only be callable by T staking contract.
+    /// @dev Should only be callable by the configured authorization source.
     function involuntaryAuthorizationDecrease(
         Data storage self,
-        IStaking tokenStaking,
+        IFrostAuthorizationSource authorizationSource,
         SortitionPool sortitionPool,
         address stakingProvider,
         uint96 fromAmount,
@@ -412,34 +408,10 @@ library FrostAuthorization {
             // If the sortition pool is not locked and the operator is in the
             // sortition pool, we are updating it.
             //
-            // To keep stakes synchronized between applications when staking
-            // providers are slashed, without the risk of running out of gas,
-            // the staking contract queues up slashings and let users process
-            // the transactions. When an application slashes one or more staking
-            // providers, it adds them to the slashing queue on the staking
-            // contract. A queue entry contains the staking provider’s address
-            // and the amount they are due to be slashed.
-            //
-            // When there is at least one staking provider in the slashing
-            // queue, any account can submit a transaction processing one or
-            // more staking providers' slashings, and collecting a reward for
-            // doing so. A queued slashing is processed by updating the staking
-            // provider’s stake to the post-slashing amount, updating authorized
-            // amount for each affected application, and notifying all affected
-            // applications that the staking provider’s authorized stake has
-            // been reduced due to slashing.
-            //
-            // The entire idea is that the process transaction is expensive
-            // because each application needs to be updated, so the reward for
-            // the processor is hefty and comes from the slashed tokens.
-            // Practically, it means that if the sortition pool is unlocked, and
-            // can be updated, it should be updated because we already paid
-            // someone for updating it.
-            //
-            // If the sortition pool is locked, update needs to wait. Other
-            // sortition pool members are incentivized to call
-            // `updateOperatorStatus` for the problematic operator because they
-            // will increase their rewards this way.
+            // If the authorization source reduces an operator's weight while
+            // the sortition pool is unlocked, update the operator immediately.
+            // If the pool is locked, the update is deferred and anyone can
+            // later call `updateOperatorStatus` once the pool is unlocked.
             if (sortitionPool.isOperatorInPool(operator)) {
                 if (sortitionPool.isLocked()) {
                     emit InvoluntaryAuthorizationDecreaseFailed(
@@ -451,7 +423,7 @@ library FrostAuthorization {
                 } else {
                     updateOperatorStatus(
                         self,
-                        tokenStaking,
+                        authorizationSource,
                         sortitionPool,
                         operator
                     );
@@ -464,13 +436,13 @@ library FrostAuthorization {
     ///         must be known - before calling this function, it has to be
     ///         appointed by the staking provider by calling `registerOperator`.
     ///         Also, the operator must have the minimum authorization required
-    ///         by ECDSA. Function reverts if there is no minimum stake
-    ///         authorized or if the operator is not known. If there was an
+    ///         by FROST. Function reverts if the operator has no eligible
+    ///         authorization or if the operator is not known. If there was an
     ///         authorization decrease requested, it is activated by starting
     ///         the authorization decrease delay.
     function joinSortitionPool(
         Data storage self,
-        IStaking tokenStaking,
+        IFrostAuthorizationSource authorizationSource,
         SortitionPool sortitionPool
     ) internal {
         address operator = msg.sender;
@@ -482,18 +454,18 @@ library FrostAuthorization {
             stakingProvider
         ];
 
-        uint96 _eligibleStake = eligibleStake(
+        uint96 eligibleWeight = eligibleStake(
             self,
-            tokenStaking,
+            authorizationSource,
             stakingProvider,
             decrease.decreasingBy
         );
 
-        require(_eligibleStake != 0, "Authorization below the minimum");
+        require(eligibleWeight != 0, "Authorization below the minimum");
 
         emit OperatorJoinedSortitionPool(stakingProvider, operator);
 
-        sortitionPool.insertOperator(operator, _eligibleStake);
+        sortitionPool.insertOperator(operator, eligibleWeight);
 
         // If there is a pending authorization decrease request, activate it.
         // At this point, the sortition pool state is up to date so the
@@ -512,7 +484,7 @@ library FrostAuthorization {
     ///         Function reverts if the operator is not known.
     function updateOperatorStatus(
         Data storage self,
-        IStaking tokenStaking,
+        IFrostAuthorizationSource authorizationSource,
         SortitionPool sortitionPool,
         address operator
     ) internal {
@@ -526,14 +498,14 @@ library FrostAuthorization {
         emit OperatorStatusUpdated(stakingProvider, operator);
 
         if (sortitionPool.isOperatorInPool(operator)) {
-            uint96 _eligibleStake = eligibleStake(
+            uint96 eligibleWeight = eligibleStake(
                 self,
-                tokenStaking,
+                authorizationSource,
                 stakingProvider,
                 decrease.decreasingBy
             );
 
-            sortitionPool.updateOperatorStatus(operator, _eligibleStake);
+            sortitionPool.updateOperatorStatus(operator, eligibleWeight);
         }
 
         // If there is a pending authorization decrease request, activate it.
@@ -547,13 +519,13 @@ library FrostAuthorization {
         }
     }
 
-    /// @notice Checks if the operator's authorized stake is in sync with
+    /// @notice Checks if the operator's authorization is in sync with the
     ///         operator's weight in the sortition pool.
     ///         If the operator is not in the sortition pool and their
-    ///         authorized stake is non-zero, function returns false.
+    ///         authorization weight is non-zero, function returns false.
     function isOperatorUpToDate(
         Data storage self,
-        IStaking tokenStaking,
+        IFrostAuthorizationSource authorizationSource,
         SortitionPool sortitionPool,
         address operator
     ) internal view returns (bool) {
@@ -564,48 +536,46 @@ library FrostAuthorization {
             stakingProvider
         ];
 
-        uint96 _eligibleStake = eligibleStake(
+        uint96 eligibleWeight = eligibleStake(
             self,
-            tokenStaking,
+            authorizationSource,
             stakingProvider,
             decrease.decreasingBy
         );
 
         if (!sortitionPool.isOperatorInPool(operator)) {
-            return _eligibleStake == 0;
+            return eligibleWeight == 0;
         } else {
-            return sortitionPool.isOperatorUpToDate(operator, _eligibleStake);
+            return sortitionPool.isOperatorUpToDate(operator, eligibleWeight);
         }
     }
 
-    /// @notice Returns the current value of the staking provider's eligible
-    ///         stake. Eligible stake is defined as the currently authorized
-    ///         stake minus the pending authorization decrease. Eligible stake
-    ///         is what is used for operator's weight in the pool. If the
-    ///         authorized stake minus the pending authorization decrease is
-    ///         below the minimum authorization, eligible stake is 0.
+    /// @notice Returns the current value of the provider's eligible
+    ///         authorization. Eligible authorization is defined as the current
+    ///         authorization weight minus the pending authorization decrease.
+    ///         This value is used for the operator's weight in the pool. If it
+    ///         is below the minimum authorization, eligible authorization is 0.
     /// @dev This function can be exposed to the public in contrast to the
     ///      second variant accepting `decreasingBy` as a parameter.
     function eligibleStake(
         Data storage self,
-        IStaking tokenStaking,
+        IFrostAuthorizationSource authorizationSource,
         address stakingProvider
     ) internal view returns (uint96) {
         return
             eligibleStake(
                 self,
-                tokenStaking,
+                authorizationSource,
                 stakingProvider,
                 pendingAuthorizationDecrease(self, stakingProvider)
             );
     }
 
-    /// @notice Returns the current value of the staking provider's eligible
-    ///         stake. Eligible stake is defined as the currently authorized
-    ///         stake minus the pending authorization decrease. Eligible stake
-    ///         is what is used for operator's weight in the pool. If the
-    ///         authorized stake minus the pending authorization decrease is
-    ///         below the minimum authorization, eligible stake is 0.
+    /// @notice Returns the current value of the provider's eligible
+    ///         authorization. Eligible authorization is defined as the current
+    ///         authorization weight minus the pending authorization decrease.
+    ///         This value is used for the operator's weight in the pool. If it
+    ///         is below the minimum authorization, eligible authorization is 0.
     /// @dev This function is not intended to be exposes to the public.
     ///      `decreasingBy` must be fetched from `pendingDecreases` mapping and
     ///      it is passed as a parameter to optimize gas usage of functions that
@@ -613,28 +583,28 @@ library FrostAuthorization {
     ///      fetched from `pendingDecreases` for some additional logic.
     function eligibleStake(
         Data storage self,
-        IStaking tokenStaking,
+        IFrostAuthorizationSource authorizationSource,
         address stakingProvider,
         uint96 decreasingBy
     ) internal view returns (uint96) {
-        uint96 authorizedStake = tokenStaking.authorizedStake(
+        uint96 authorizedWeight = authorizationSource.authorizedWeight(
             stakingProvider,
             address(this)
         );
 
-        uint96 _eligibleStake = authorizedStake > decreasingBy
-            ? authorizedStake - decreasingBy
+        uint96 eligibleWeight = authorizedWeight > decreasingBy
+            ? authorizedWeight - decreasingBy
             : 0;
 
-        if (_eligibleStake < self.parameters.minimumAuthorization) {
+        if (eligibleWeight < self.parameters.minimumAuthorization) {
             return 0;
         } else {
-            return _eligibleStake;
+            return eligibleWeight;
         }
     }
 
-    /// @notice Returns the amount of stake that is pending authorization
-    ///         decrease for the given staking provider. If no authorization
+    /// @notice Returns the weight that is pending authorization decrease for
+    ///         the given provider. If no authorization
     ///         decrease has been requested, returns zero.
     function pendingAuthorizationDecrease(
         Data storage self,

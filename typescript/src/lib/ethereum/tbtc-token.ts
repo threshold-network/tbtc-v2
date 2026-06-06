@@ -1,7 +1,7 @@
 import { TBTC as TBTCTypechain } from "../../../typechain/TBTC"
 import { ChainIdentifier, Chains, TBTCToken } from "../contracts"
 import { BigNumber, ContractTransaction, utils } from "ethers"
-import { BitcoinHashUtils, BitcoinUtxo } from "../bitcoin"
+import { BitcoinPublicKeyUtils, BitcoinUtxo } from "../bitcoin"
 import { Hex } from "../utils"
 import {
   EthersContractConfig,
@@ -142,7 +142,9 @@ export class EthereumTBTCToken
     redeemerOutputScript: Hex
   ) {
     const walletPublicKeyHash =
-      BitcoinHashUtils.computeHash160(walletPublicKey).toPrefixedString()
+      BitcoinPublicKeyUtils.walletKeyToPublicKeyHash(
+        walletPublicKey
+      ).toPrefixedString()
 
     const mainUtxoParam = {
       // The Ethereum Bridge expects this hash to be in the Bitcoin internal

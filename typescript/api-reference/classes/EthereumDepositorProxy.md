@@ -110,13 +110,15 @@ Packed parameters.
 | `fundingTx.locktime` | `string` |
 | `fundingTx.outputVector` | `string` |
 | `fundingTx.version` | `string` |
-| `reveal` | \{ `blindingFactor`: `string` ; `fundingOutputIndex`: `number` = depositOutputIndex; `refundLocktime`: `string` ; `refundPubKeyHash`: `string` ; `vault`: `string` ; `walletPubKeyHash`: `string`  } |
+| `reveal` | \{ `blindingFactor`: `string` ; `fundingOutputIndex`: `number` = depositOutputIndex; `refundLocktime`: `string` ; `refundPubKeyHash`: `string` ; `refundXOnlyPublicKey?`: `string` ; `vault`: `string` ; `walletPubKeyHash`: `string` ; `walletXOnlyPublicKey?`: `string`  } |
 | `reveal.blindingFactor` | `string` |
 | `reveal.fundingOutputIndex` | `number` |
 | `reveal.refundLocktime` | `string` |
 | `reveal.refundPubKeyHash` | `string` |
+| `reveal.refundXOnlyPublicKey?` | `string` |
 | `reveal.vault` | `string` |
 | `reveal.walletPubKeyHash` | `string` |
+| `reveal.walletXOnlyPublicKey?` | `string` |
 
 #### Defined in
 

@@ -7,6 +7,7 @@ import "../bridge/Bridge.sol";
 import "../bridge/EcdsaLib.sol";
 import "../bridge/MovingFunds.sol";
 import "../bridge/RebateStaking.sol";
+import "../bridge/Redemption.sol";
 import "../bridge/Wallets.sol";
 import {BTCUtils} from "@keep-network/bitcoin-spv-sol/contracts/BTCUtils.sol";
 
@@ -74,6 +75,13 @@ contract BridgeStub is Bridge {
         bytes20 walletPubKeyHash
     ) external {
         self.walletPubKeyHashByWalletID[walletID] = walletPubKeyHash;
+    }
+
+    function setWalletIDForWalletPubKeyHash(
+        bytes20 walletPubKeyHash,
+        bytes32 walletID
+    ) external {
+        self.walletIDByWalletPubKeyHash[walletPubKeyHash] = walletID;
     }
 
     function setWalletMainUtxo(
@@ -238,6 +246,35 @@ contract BridgeStub is Bridge {
 
     function cancelRebate(address user, uint256 requestedAt) external {
         RebateStaking(self.rebateStaking).cancelRebate(user, requestedAt);
+    }
+
+    function processRedemptionTxOutputsForTest(
+        bytes memory redemptionTxOutputVector,
+        bytes20 walletPubKeyHash
+    )
+        external
+        returns (
+            uint256 outputsTotalValue,
+            uint64 totalBurnableValue,
+            uint64 totalTreasuryFee,
+            uint32 changeIndex,
+            uint64 changeValue
+        )
+    {
+        Redemption.RedemptionTxOutputsInfo memory info = Redemption
+            .processRedemptionTxOutputs(
+                self,
+                redemptionTxOutputVector,
+                walletPubKeyHash
+            );
+
+        return (
+            info.outputsTotalValue,
+            info.totalBurnableValue,
+            info.totalTreasuryFee,
+            info.changeIndex,
+            info.changeValue
+        );
     }
 
     /// @notice Test-only setter for the ECDSA retirement flag.

@@ -110,6 +110,20 @@ contract Bridge is Governable, Initializable, IReceiveBalanceApproval {
         address vault
     );
 
+    event TaprootDepositRevealed(
+        bytes32 fundingTxHash,
+        uint32 fundingOutputIndex,
+        address indexed depositor,
+        uint64 amount,
+        bytes8 blindingFactor,
+        bytes20 indexed walletPubKeyHash,
+        bytes32 walletXOnlyPublicKey,
+        bytes20 refundPubKeyHash,
+        bytes32 refundXOnlyPublicKey,
+        bytes4 refundLocktime,
+        address vault
+    );
+
     event DepositsSwept(bytes20 walletPubKeyHash, bytes32 sweepTxHash);
 
     event RedemptionRequested(
@@ -528,6 +542,40 @@ contract Bridge is Governable, Initializable, IReceiveBalanceApproval {
         bytes32 extraData
     ) external {
         self.revealDepositWithExtraData(fundingTx, reveal, extraData);
+    }
+
+    /// @notice Used by the depositor to reveal information about their P2TR
+    ///         Bitcoin deposit to the Bridge on Ethereum chain. The off-chain
+    ///         wallet listens for revealed deposit events and may decide to
+    ///         include the revealed deposit in the next executed sweep.
+    /// @param fundingTx Bitcoin funding transaction data, see `BitcoinTx.Info`.
+    /// @param reveal Taproot deposit reveal data, see
+    ///        `TaprootDepositRevealInfo` struct.
+    /// @dev Requirements are equivalent to `revealDeposit`, except the Bitcoin
+    ///      funding output must be a P2TR output key derived from the revealed
+    ///      wallet x-only key and the refund tapscript leaf.
+    function revealTaprootDeposit(
+        BitcoinTx.Info calldata fundingTx,
+        Deposit.TaprootDepositRevealInfo calldata reveal
+    ) external {
+        self.revealTaprootDeposit(fundingTx, reveal);
+    }
+
+    /// @notice Sibling of the `revealTaprootDeposit` function. This function
+    ///         allows to reveal a P2TR Bitcoin deposit with 32-byte extra data
+    ///         embedded in the refund tapscript.
+    /// @param fundingTx Bitcoin funding transaction data, see `BitcoinTx.Info`.
+    /// @param reveal Taproot deposit reveal data, see
+    ///        `TaprootDepositRevealInfo` struct.
+    /// @param extraData 32-byte deposit extra data.
+    /// @dev Requirements are equivalent to `revealTaprootDeposit`, except
+    ///      `extraData` must not be bytes32(0).
+    function revealTaprootDepositWithExtraData(
+        BitcoinTx.Info calldata fundingTx,
+        Deposit.TaprootDepositRevealInfo calldata reveal,
+        bytes32 extraData
+    ) external {
+        self.revealTaprootDepositWithExtraData(fundingTx, reveal, extraData);
     }
 
     /// @notice Used by the wallet to prove the BTC deposit sweep transaction

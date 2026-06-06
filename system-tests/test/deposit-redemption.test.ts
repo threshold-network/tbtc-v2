@@ -75,6 +75,7 @@ describe("System Test - Deposit and redemption", () => {
   let sweepUtxo: BitcoinUtxo
 
   let depositorBitcoinAddress: string
+  let depositorBitcoinLegacyAddress: string
 
   before(async () => {
     systemTestsContext = await setupSystemTestsContext()
@@ -130,6 +131,12 @@ describe("System Test - Deposit and redemption", () => {
       systemTestsContext.depositorBitcoinKeyPair.publicKey.compressed,
       BitcoinNetwork.Testnet
     )
+    depositorBitcoinLegacyAddress =
+      BitcoinAddressConverter.publicKeyToAddress(
+        systemTestsContext.depositorBitcoinKeyPair.publicKey.compressed,
+        BitcoinNetwork.Testnet,
+        false
+      )
 
     depositorSdk.deposits.setDefaultDepositor(
       EthereumAddress.from(await depositor.getAddress())
@@ -155,10 +162,18 @@ describe("System Test - Deposit and redemption", () => {
         - refundLocktime: ${depositReceipt.refundLocktime}
       `)
 
-      const depositorUtxos =
+      const depositorWitnessUtxos =
         await depositorSdk.bitcoinClient.findAllUnspentTransactionOutputs(
           depositorBitcoinAddress
         )
+      const depositorLegacyUtxos =
+        await depositorSdk.bitcoinClient.findAllUnspentTransactionOutputs(
+          depositorBitcoinLegacyAddress
+        )
+      const depositorUtxos = [
+        ...depositorWitnessUtxos,
+        ...depositorLegacyUtxos,
+      ]
 
       ;({ depositUtxo } = await depositFunding.submitTransaction(
         depositAmount,
