@@ -121,11 +121,18 @@ async function ensureSmockReadyProvider(): Promise<void> {
       // change, so a rejection here would itself signal a real layout
       // regression.
       const factory = await ethers.getContractFactory(CONTRACT_NAME)
+      // The StarkNet depositor links an external library, and the unchanged
+      // `DepositState` enum cannot be auto-compared against the recorded
+      // baseline ("insufficient data to compare enums"). Both relaxations keep
+      // the rest of the storage-safety check active; the starkGateBridge
+      // assertion below is the storage-integrity guard.
       newImplementation = (await upgrades.prepareUpgrade(
         PROXY_ADDRESS,
         factory,
         {
           kind: "transparent",
+          unsafeAllow: ["external-library-linking"],
+          unsafeAllowCustomTypes: true,
         }
       )) as string
 
