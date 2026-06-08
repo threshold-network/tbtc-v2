@@ -129,7 +129,8 @@ async function deploymentsGet() {
   return deployments.get(DEPLOYMENT_NAME)
 }
 
-;(isForking ? describe : describe.skip)(
+const describeFork = isForking ? describe : describe.skip
+describeFork(
   "UpgradeArbitrumL1BitcoinDepositorTo968 - mainnet fork regression",
   () => {
     const { createSnapshot, restoreSnapshot } = helpers.snapshot

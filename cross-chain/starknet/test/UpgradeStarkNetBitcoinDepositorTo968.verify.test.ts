@@ -98,7 +98,8 @@ async function ensureSmockReadyProvider(): Promise<void> {
 // Mainnet-fork regression: live `starkGateBridge` survives the upgrade
 // and the new implementation differs from the current on-chain one.
 // -------------------------------------------------------------------
-;(isForking ? describe : describe.skip)(
+const describeFork = isForking ? describe : describe.skip
+describeFork(
   "UpgradeStarkNetBitcoinDepositorTo968 - mainnet fork regression",
   () => {
     const { createSnapshot, restoreSnapshot } = helpers.snapshot

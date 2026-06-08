@@ -119,7 +119,8 @@ async function simulateUpgrade(): Promise<string> {
   return newImplementation
 }
 
-;(isForking ? describe : describe.skip)(
+const describeFork = isForking ? describe : describe.skip
+describeFork(
   "UpgradeSuiBTCDepositorWormholeTo968 - mainnet fork regression",
   () => {
     const { createSnapshot, restoreSnapshot } = helpers.snapshot
