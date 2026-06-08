@@ -479,3 +479,42 @@ describe("UpgradeStarkNetBitcoinDepositorTo968 - best-effort skip path", () => {
       )
   })
 })
+
+// Skip-guard surface. Two axes are guarded: (1) the script runs only on
+// mainnet, never auto-executing against hardhat/sepolia during a full deploy
+// (the StarkNet hardhat.config.ts wires `deploy_l1` for every network, so
+// without this guard a sepolia `yarn deploy` would attempt to upgrade the
+// sepolia depositor); (2) an in-file `ALREADY_EXECUTED` sentinel must be
+// flipped to `true` after the proxy-admin owner broadcasts the upgrade, so a
+// second mainnet run does not deploy a fresh implementation and overwrite the
+// deployment artifact. The mainnet expectation below intentionally fails
+// after that flip — that failure is the gate that forces the post-execution
+// checklist to update both the script and this test together.
+describe("UpgradeStarkNetBitcoinDepositorTo968 - skip guard", () => {
+  type SkipHre = Parameters<NonNullable<typeof func.skip>>[0]
+
+  it("defines func.skip", () => {
+    assert.isFunction(func.skip)
+  })
+
+  it("skips on hardhat (no auto-run during a full deploy)", async () => {
+    const skipped = await func.skip!({
+      network: { name: "hardhat" },
+    } as unknown as SkipHre)
+    assert.equal(skipped, true)
+  })
+
+  it("skips on sepolia (no auto-run during a full deploy)", async () => {
+    const skipped = await func.skip!({
+      network: { name: "sepolia" },
+    } as unknown as SkipHre)
+    assert.equal(skipped, true)
+  })
+
+  it("runs on mainnet while ALREADY_EXECUTED is false", async () => {
+    const skipped = await func.skip!({
+      network: { name: "mainnet" },
+    } as unknown as SkipHre)
+    assert.equal(skipped, false)
+  })
+})

@@ -5,6 +5,13 @@ import { ContractFactory, providers } from "ethers"
 const CONTRACT_NAME = "L1BTCDepositorWormholeV2Base"
 const DEPLOYMENT_NAME = "BaseL1BitcoinDepositor"
 
+// Flip to `true` once the best-effort-reimbursement upgrade has been broadcast
+// on mainnet. Combined with the mainnet-only network guard below, this prevents
+// a second mainnet run from deploying a fresh (and unused) implementation and
+// overwriting the deployment artifact with an address that no longer matches
+// the on-chain implementation.
+const ALREADY_EXECUTED = false
+
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { ethers, helpers, deployments, upgrades, artifacts, run } = hre
 
@@ -88,7 +95,11 @@ export default func
 
 func.tags = ["UpgradeBaseL1BitcoinDepositorTo968"]
 
-// Set to `true` once the best-effort-reimbursement upgrade has been executed on
-// mainnet. Until then the script is runnable via
+// Implementation-swap tooling for the live mainnet Base proxy. Guarded on two
+// axes: only mainnet (never auto-runs against sepolia/hardhat during a full
+// deploy) AND a post-execution sentinel (ALREADY_EXECUTED above), so a re-run
+// on mainnet after governance has upgraded does not deploy a fresh
+// implementation and overwrite the deployment artifact. Run via
 // `yarn deploy --tags UpgradeBaseL1BitcoinDepositorTo968 --network mainnet`.
-func.skip = async () => false
+func.skip = async (hre: HardhatRuntimeEnvironment) =>
+  hre.network.name !== "mainnet" || ALREADY_EXECUTED

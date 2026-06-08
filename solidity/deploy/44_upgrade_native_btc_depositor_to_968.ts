@@ -8,6 +8,13 @@ import { Contract, ContractFactory, providers } from "ethers"
 // disabled initializer, which is why verification uses an empty argument list.
 const CONTRACT_NAME = "NativeBTCDepositor"
 
+// Flip to `true` once the best-effort-reimbursement upgrade has been broadcast
+// on mainnet. Combined with the mainnet-only network guard below, this prevents
+// a second mainnet run from deploying a fresh (and unused) implementation and
+// overwriting the deployment artifact with an address that no longer matches
+// the on-chain implementation.
+const ALREADY_EXECUTED = false
+
 // The Native transparent proxy under upgrade (unchanged across the swap). The
 // Native rail has no committed deployment artifact and the proxy is absent from
 // the OpenZeppelin upgrades manifest, so the address is supplied literally here
@@ -119,8 +126,10 @@ export default func
 
 func.tags = ["UpgradeNativeBTCDepositorTo968"]
 
-// Implementation-swap tooling for the live mainnet Native proxy. Guarded to
-// mainnet so it is never run automatically against other networks during a
-// full deployment.
+// Implementation-swap tooling for the live mainnet Native proxy. Guarded on
+// two axes: only mainnet (never auto-runs against sepolia/hardhat during a
+// full deploy) AND a post-execution sentinel (ALREADY_EXECUTED above), so a
+// re-run on mainnet after governance has upgraded does not deploy a fresh
+// implementation and overwrite the deployment artifact.
 func.skip = async (hre: HardhatRuntimeEnvironment) =>
-  hre.network.name !== "mainnet"
+  hre.network.name !== "mainnet" || ALREADY_EXECUTED

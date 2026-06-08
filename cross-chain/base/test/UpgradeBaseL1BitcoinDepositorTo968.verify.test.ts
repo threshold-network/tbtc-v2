@@ -279,3 +279,40 @@ describe("UpgradeBaseL1BitcoinDepositorTo968 - calldata shape", () => {
     )
   })
 })
+
+// Skip-guard surface. Two axes are guarded: (1) the script runs only on
+// mainnet, never auto-executing against hardhat/sepolia during a full deploy;
+// (2) an in-file `ALREADY_EXECUTED` sentinel must be flipped to `true` after
+// the timelock broadcasts the upgrade, so a second mainnet run does not
+// deploy a fresh implementation and overwrite the deployment artifact. The
+// mainnet expectation below intentionally fails after that flip — that
+// failure is the gate that forces the post-execution checklist to update
+// both the script and this test together.
+describe("UpgradeBaseL1BitcoinDepositorTo968 - skip guard", () => {
+  type SkipHre = Parameters<NonNullable<typeof func.skip>>[0]
+
+  it("defines func.skip", () => {
+    assert.isFunction(func.skip)
+  })
+
+  it("skips on hardhat (no auto-run during a full deploy)", async () => {
+    const skipped = await func.skip!({
+      network: { name: "hardhat" },
+    } as unknown as SkipHre)
+    assert.equal(skipped, true)
+  })
+
+  it("skips on sepolia (no auto-run during a full deploy)", async () => {
+    const skipped = await func.skip!({
+      network: { name: "sepolia" },
+    } as unknown as SkipHre)
+    assert.equal(skipped, true)
+  })
+
+  it("runs on mainnet while ALREADY_EXECUTED is false", async () => {
+    const skipped = await func.skip!({
+      network: { name: "mainnet" },
+    } as unknown as SkipHre)
+    assert.equal(skipped, false)
+  })
+})
