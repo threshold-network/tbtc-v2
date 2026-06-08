@@ -379,17 +379,13 @@ library BridgeState {
         // lifecycle; see EcdsaFraudRouter / P2TRSignatureFraudRouter.
         address p2trFraudRouter;
         // Address of the BridgeLifecycleRouter. The router is the
-        // authorized dispatcher for FROST-scheme wallet lifecycle
-        // operations (closeWallet, seize, isWalletMember). It reads
-        // wallet state from this Bridge and forwards to the configured
-        // frostWalletRegistry. ECDSA lifecycle operations are NOT
-        // routed through it -- they continue to call
-        // ecdsaWalletRegistry directly, preserving the current
-        // ownership/callback model unchanged. Set exactly once via
-        // governance; FROST wallet registration is gated on this
-        // being non-zero (see registerNewFrostWallet) so a FROST
-        // wallet cannot enter Live state without a configured
-        // lifecycle router.
+        // authorized dispatcher for wallet lifecycle operations
+        // (closeWallet, seize, isWalletMember). It reads wallet state
+        // from this Bridge and forwards to the configured
+        // frostWalletRegistry. Set exactly once via governance; FROST
+        // wallet registration is gated on this being non-zero (see
+        // registerNewFrostWallet) so a FROST wallet cannot enter Live
+        // state without a configured lifecycle router.
         address lifecycleRouter;
         // Reverse mapping for canonical wallet ID lookup. For ECDSA
         // wallets the walletID can be derived on-chain from the
@@ -427,25 +423,10 @@ library BridgeState {
         // 1, right after the 1-byte enum. Total slot 37 usage:
         // 17 bytes of 32. No __gap change from C-2.
         uint128 ecdsaWalletCount;
-        // D-1 soft-retirement flag. Set by the one-time
-        // governance setter `Bridge.retireEcdsa()` (the setter
-        // itself is deferred to D-2 — see Bridge.sol). When
-        // true, `Wallets.requestNewWallet` rejects new requests
-        // routed to the ECDSA registry. Late callbacks from an
-        // in-flight DKG that started BEFORE retirement are NOT
-        // blocked: reverting `Wallets.registerNewWallet` would
-        // strand the ECDSA registry in a non-IDLE state and
-        // freeze every subsequent FROST wallet creation via
-        // the unconditional IDLE precheck in `requestNewWallet`
-        // (per PR #443 review). Governance therefore
-        // enforces the "no late ECDSA wallets" invariant
-        // operationally: pause Bridge, wait for in-flight DKGs
-        // to settle (registry returns to IDLE), set the flag,
-        // unpause. Existing ECDSA wallets' lifecycle paths
-        // (sweeps, redemptions, fraud, moving funds, closing,
-        // termination) remain fully functional — D-1 only
-        // closes the *new wallet creation* boundary; D-2
-        // performs the final structural removal.
+        // D-1 soft-retirement flag. D-2 keeps it as an on-chain
+        // audit marker, while D-2.2 structurally removes the ECDSA
+        // request and callback paths. Existing storage is preserved
+        // for upgrade-safety and ABI-compatible observation.
         //
         // Packs at slot 37 offset 17 (just after
         // `ecdsaWalletCount`, which occupies bytes 1-16). Total

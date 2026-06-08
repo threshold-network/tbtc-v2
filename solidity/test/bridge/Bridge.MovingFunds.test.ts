@@ -10,6 +10,7 @@ import type {
   Bridge,
   BridgeStub,
   IRelay,
+  IBridgeLifecycleRouter,
   IWalletRegistry,
   BridgeGovernance,
   ReimbursementPool,
@@ -53,6 +54,7 @@ describe("Bridge - Moving funds", () => {
 
   let relay: FakeContract<IRelay>
   let walletRegistry: FakeContract<IWalletRegistry>
+  let lifecycleRouter: FakeContract<IBridgeLifecycleRouter>
   let bridge: Bridge & BridgeStub
   let bridgeGovernance: BridgeGovernance
   let reimbursementPool: ReimbursementPool
@@ -91,6 +93,11 @@ describe("Bridge - Moving funds", () => {
       movedFundsSweepTimeoutSlashingAmount,
       movedFundsSweepTimeoutNotifierRewardMultiplier,
     } = await bridge.movingFundsParameters())
+
+    lifecycleRouter = await smock.fake<IBridgeLifecycleRouter>(
+      "IBridgeLifecycleRouter"
+    )
+    await bridge.resetLifecycleRouterForTest(lifecycleRouter.address)
   })
 
   describe("submitMovingFundsCommitment", () => {
@@ -147,9 +154,9 @@ describe("Bridge - Moving funds", () => {
 
                     caller = thirdParty
 
-                    walletRegistry.isWalletMember
+                    lifecycleRouter.isWalletMember
                       .whenCalledWith(
-                        ecdsaWalletTestData.walletID,
+                        ecdsaWalletTestData.pubKeyHash160,
                         walletMembersIDs,
                         caller.address,
                         walletMemberIndex
@@ -158,7 +165,7 @@ describe("Bridge - Moving funds", () => {
                   })
 
                   after(async () => {
-                    walletRegistry.isWalletMember.reset()
+                    lifecycleRouter.isWalletMember.reset()
 
                     await restoreSnapshot()
                   })
@@ -534,11 +541,11 @@ describe("Bridge - Moving funds", () => {
                     await createSnapshot()
 
                     // That's the default behavior, but we just make it explicit.
-                    walletRegistry.isWalletMember.returns(false)
+                    lifecycleRouter.isWalletMember.returns(false)
                   })
 
                   after(async () => {
-                    walletRegistry.isWalletMember.reset()
+                    lifecycleRouter.isWalletMember.reset()
 
                     await restoreSnapshot()
                   })
@@ -2135,25 +2142,9 @@ describe("Bridge - Moving funds", () => {
 
         await bridge.setWallet(ecdsaWalletTestData.pubKeyHash160, {
           ...walletDraft,
-          state: walletState.Live,
+          movingFundsRequestedAt: await lastBlockTime(),
+          state: walletState.MovingFunds,
         })
-
-        // Wallet must have funds to be not closed immediately by
-        // the following `__ecdsaWalletHeartbeatFailedCallback` call.
-        await bridge.setWalletMainUtxo(ecdsaWalletTestData.pubKeyHash160, {
-          txHash: ethers.constants.HashZero,
-          txOutputIndex: 0,
-          txOutputValue: to1ePrecision(10, 8),
-        })
-
-        // Switches the wallet to moving funds.
-        await bridge
-          .connect(walletRegistry.wallet)
-          .__ecdsaWalletHeartbeatFailedCallback(
-            ecdsaWalletTestData.walletID,
-            ecdsaWalletTestData.publicKeyX,
-            ecdsaWalletTestData.publicKeyY
-          )
       })
 
       after(async () => {
@@ -2167,8 +2158,8 @@ describe("Bridge - Moving funds", () => {
         before(async () => {
           await createSnapshot()
 
-          walletRegistry.closeWallet.reset()
-          walletRegistry.seize.reset()
+          lifecycleRouter.closeWallet.reset()
+          lifecycleRouter.seize.reset()
 
           await increaseTime(movingFundsTimeout)
 
@@ -2181,8 +2172,8 @@ describe("Bridge - Moving funds", () => {
         })
 
         after(async () => {
-          walletRegistry.closeWallet.reset()
-          walletRegistry.seize.reset()
+          lifecycleRouter.closeWallet.reset()
+          lifecycleRouter.seize.reset()
 
           await restoreSnapshot()
         })
@@ -2202,19 +2193,19 @@ describe("Bridge - Moving funds", () => {
             )
         })
 
-        it("should call ECDSA Wallet Registry's closeWallet function", async () => {
+        it("should call the lifecycle router's closeWallet function", async () => {
           // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-          expect(walletRegistry.closeWallet).to.have.been.calledOnceWith(
-            ecdsaWalletTestData.walletID
+          expect(lifecycleRouter.closeWallet).to.have.been.calledOnceWith(
+            ecdsaWalletTestData.pubKeyHash160
           )
         })
 
-        it("should call the ECDSA wallet registry's seize function", async () => {
-          expect(walletRegistry.seize).to.have.been.calledOnceWith(
+        it("should call the lifecycle router's seize function", async () => {
+          expect(lifecycleRouter.seize).to.have.been.calledOnceWith(
+            ecdsaWalletTestData.pubKeyHash160,
             movingFundsTimeoutSlashingAmount,
             movingFundsTimeoutNotifierRewardMultiplier,
             await thirdParty.getAddress(),
-            ecdsaWalletTestData.walletID,
             walletMembersIDs
           )
         })
@@ -2230,7 +2221,13 @@ describe("Bridge - Moving funds", () => {
         before(async () => {
           await createSnapshot()
 
-          await increaseTime(movingFundsTimeout - 1)
+          await bridge.setWallet(ecdsaWalletTestData.pubKeyHash160, {
+            ...walletDraft,
+            movingFundsRequestedAt: (await lastBlockTime()) + 1,
+            state: walletState.MovingFunds,
+          })
+
+          await increaseTime(movingFundsTimeout - 2)
         })
 
         after(async () => {
@@ -3852,6 +3849,9 @@ describe("Bridge - Moving funds", () => {
 
                   await test.additionalSetup()
 
+                  lifecycleRouter.closeWallet.reset()
+                  lifecycleRouter.seize.reset()
+
                   tx = await bridge
                     .connect(thirdParty)
                     .notifyMovedFundsSweepTimeout(
@@ -3862,8 +3862,8 @@ describe("Bridge - Moving funds", () => {
                 })
 
                 after(async () => {
-                  walletRegistry.closeWallet.reset()
-                  walletRegistry.seize.reset()
+                  lifecycleRouter.closeWallet.reset()
+                  lifecycleRouter.seize.reset()
 
                   await restoreSnapshot()
                 })
@@ -3910,19 +3910,21 @@ describe("Bridge - Moving funds", () => {
                     )
                 })
 
-                it("should call ECDSA Wallet Registry's closeWallet function", async () => {
+                it("should call the lifecycle router's closeWallet function", async () => {
                   // eslint-disable-next-line @typescript-eslint/no-unused-expressions
                   expect(
-                    walletRegistry.closeWallet
-                  ).to.have.been.calledOnceWith(walletDraft.ecdsaWalletID)
+                    lifecycleRouter.closeWallet
+                  ).to.have.been.calledOnceWith(
+                    movedFundsSweepRequest.walletPubKeyHash
+                  )
                 })
 
-                it("should call the ECDSA wallet registry's seize function", async () => {
-                  expect(walletRegistry.seize).to.have.been.calledOnceWith(
+                it("should call the lifecycle router's seize function", async () => {
+                  expect(lifecycleRouter.seize).to.have.been.calledOnceWith(
+                    movedFundsSweepRequest.walletPubKeyHash,
                     movedFundsSweepTimeoutSlashingAmount,
                     movedFundsSweepTimeoutNotifierRewardMultiplier,
                     await thirdParty.getAddress(),
-                    walletDraft.ecdsaWalletID,
                     walletMembersIDs
                   )
                 })

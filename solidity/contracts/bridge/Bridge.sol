@@ -18,12 +18,11 @@ pragma solidity 0.8.17;
 import "@keep-network/random-beacon/contracts/Governable.sol";
 import "@keep-network/random-beacon/contracts/ReimbursementPool.sol";
 // D-2 dropped `IWalletOwner` inheritance: the ECDSA wallet
-// registry's `__ecdsaWalletCreatedCallback` callback path is
-// removed entirely (no new ECDSA wallets after D-2 ships). The
-// heartbeat callback is preserved as a standalone external
-// function for existing-wallet lifecycle. Import path retained
-// for the registry contract handle (used via
-// `BridgeState.Storage.ecdsaWalletRegistry`).
+// registry's `__ecdsaWalletCreatedCallback` callback path was
+// removed entirely (no new ECDSA wallets after D-2 ships).
+// D-2.2 slice 4 also removes the ECDSA heartbeat-failure
+// callback. Import path retained for the legacy registry storage
+// slot and ABI getter (`BridgeState.Storage.ecdsaWalletRegistry`).
 
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/math/SafeCastUpgradeable.sol";
@@ -886,12 +885,8 @@ contract Bridge is Governable, Initializable, IReceiveBalanceApproval {
     ///      - The source wallet must not have pending redemption requests,
     ///      - The source wallet must not have pending moved funds sweep requests,
     ///      - The source wallet must not have submitted its commitment already,
-    ///      - The expression `keccak256(abi.encode(walletMembersIDs))` must
-    ///        be exactly the same as the hash stored under `membersIdsHash`
-    ///        for the given source wallet in the ECDSA registry. Those IDs are
-    ///        not directly stored in the contract for gas efficiency purposes
-    ///        but they can be read from appropriate `DkgResultSubmitted`
-    ///        and `DkgResultApproved` events,
+    ///      - The lifecycle router must confirm the caller is a member of the
+    ///        source wallet signing group at the provided member index,
     ///      - The `walletMemberIndex` must be in range [1, walletMembersIDs.length],
     ///      - The caller must be the member of the source wallet signing group
     ///        at the position indicated by `walletMemberIndex` parameter,
@@ -1139,7 +1134,6 @@ contract Bridge is Governable, Initializable, IReceiveBalanceApproval {
     ///        Ethereum chain. If there is no active wallet at the moment, or
     ///        the active wallet has no main UTXO, this parameter can be
     ///        empty as it is ignored,
-    ///      - Wallet creation must not be in progress,
     ///      - If the active wallet is set, one of the following
     ///        conditions must be true:
     ///        - The active wallet BTC balance is above the minimum threshold
@@ -1209,21 +1203,6 @@ contract Bridge is Governable, Initializable, IReceiveBalanceApproval {
         self.registerNewFrostWallet(xOnlyOutputKey);
     }
 
-    /// @notice A callback function that is called by the ECDSA Wallet Registry
-    ///         once a wallet heartbeat failure is detected.
-    /// @param publicKeyX Wallet's public key's X coordinate.
-    /// @param publicKeyY Wallet's public key's Y coordinate.
-    /// @dev Requirements:
-    ///      - The only caller authorized to call this function is `registry`,
-    ///      - Wallet must be in Live state.
-    function __ecdsaWalletHeartbeatFailedCallback(
-        bytes32,
-        bytes32 publicKeyX,
-        bytes32 publicKeyY
-    ) external {
-        self.notifyWalletHeartbeatFailed(publicKeyX, publicKeyY);
-    }
-
     /// @notice Notifies that the wallet is either old enough or has too few
     ///         satoshi left and qualifies to be closed.
     /// @param walletPubKeyHash 20-byte public key hash of the wallet.
@@ -1247,7 +1226,7 @@ contract Bridge is Governable, Initializable, IReceiveBalanceApproval {
     }
 
     /// @notice Notifies about the end of the closing period for the given wallet.
-    ///         Closes the wallet ultimately and notifies the ECDSA registry
+    ///         Closes the wallet ultimately and notifies the lifecycle router
     ///         about this fact.
     /// @param walletPubKeyHash 20-byte public key hash of the wallet.
     /// @dev Requirements:
@@ -2301,11 +2280,8 @@ contract Bridge is Governable, Initializable, IReceiveBalanceApproval {
     }
 
     /// @notice Sets the BridgeLifecycleRouter address. The router is
-    ///         the authorized dispatcher for FROST-scheme wallet
-    ///         lifecycle operations (closeWallet, seize,
-    ///         isWalletMember). ECDSA lifecycle operations bypass it
-    ///         entirely and continue to call ecdsaWalletRegistry
-    ///         directly.
+    ///         the authorized dispatcher for wallet lifecycle
+    ///         operations (closeWallet, seize, isWalletMember).
     /// @param lifecycleRouter Address of the BridgeLifecycleRouter.
     /// @dev Requirements:
     ///      - The caller must be the governance,

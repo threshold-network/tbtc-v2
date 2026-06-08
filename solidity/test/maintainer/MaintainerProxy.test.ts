@@ -10,7 +10,6 @@ import { smock } from "@defi-wonderland/smock"
 import { ecdsaWalletTestData } from "../data/ecdsa"
 import type {
   BridgeStub,
-  IWalletRegistry,
   Bank,
   BankStub,
   MaintainerProxy,
@@ -18,6 +17,7 @@ import type {
   Bridge,
   BridgeGovernance,
   IRelay,
+  IBridgeLifecycleRouter,
   IVault,
   EcdsaFraudRouter,
 } from "../../typechain"
@@ -85,7 +85,7 @@ describe("MaintainerProxy", () => {
   let maintainerProxy: MaintainerProxy
   let reimbursementPool: ReimbursementPool
   let relay: FakeContract<IRelay>
-  let walletRegistry: FakeContract<IWalletRegistry>
+  let lifecycleRouter: FakeContract<IBridgeLifecycleRouter>
   let bank: Bank & BankStub
 
   let fraudChallengeDepositAmount: BigNumber
@@ -110,9 +110,10 @@ describe("MaintainerProxy", () => {
     } = await waffle.loadFixture(bridgeFixture))
     ;({ movingFundsTimeoutResetDelay } = await bridge.movingFundsParameters())
 
-    walletRegistry = await smock.fake<IWalletRegistry>("IWalletRegistry", {
-      address: (await bridge.contractReferences()).ecdsaWalletRegistry,
-    })
+    lifecycleRouter = await smock.fake<IBridgeLifecycleRouter>(
+      "IBridgeLifecycleRouter"
+    )
+    await bridge.resetLifecycleRouterForTest(lifecycleRouter.address)
 
     // Set the deposit dust threshold to 0.0001 BTC, i.e. 100x smaller than
     // the initial value in the Bridge in order to save test Bitcoins.
@@ -122,11 +123,6 @@ describe("MaintainerProxy", () => {
     // Disable the reveal ahead period since refund locktimes are fixed
     // within transactions used in this test suite.
     await bridge.setDepositRevealAheadPeriod(0)
-
-    await deployer.sendTransaction({
-      to: walletRegistry.address,
-      value: ethers.utils.parseEther("100"),
-    })
 
     await deployer.sendTransaction({
       to: reimbursementPool.address,
@@ -2431,21 +2427,11 @@ describe("MaintainerProxy", () => {
           pendingRedemptionsValue: 0,
           createdAt: 0,
           movingFundsRequestedAt: 0,
-          closingStartedAt: 0,
+          closingStartedAt: await lastBlockTime(),
           pendingMovedFundsSweepRequestsCount: 0,
-          state: walletState.Live,
+          state: walletState.Closing,
           movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
         })
-
-        // Switches the wallet to Closing state because the wallet has
-        // no main UTXO set.
-        await bridge
-          .connect(walletRegistry.wallet)
-          .__ecdsaWalletHeartbeatFailedCallback(
-            ecdsaWalletTestData.walletID,
-            ecdsaWalletTestData.publicKeyX,
-            ecdsaWalletTestData.publicKeyY
-          )
 
         await increaseTime(
           (
@@ -2460,7 +2446,6 @@ describe("MaintainerProxy", () => {
 
       after(async () => {
         await restoreSnapshot()
-        await walletRegistry.closeWallet.reset()
       })
 
       it("should emit WalletClosed event", async () => {

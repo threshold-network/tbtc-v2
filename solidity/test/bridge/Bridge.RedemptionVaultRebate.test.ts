@@ -13,7 +13,7 @@ import type {
   Bridge,
   BridgeStub,
   BridgeGovernance,
-  IWalletRegistry,
+  IBridgeLifecycleRouter,
   RebateStaking,
 } from "../../typechain"
 import { walletState } from "../fixtures"
@@ -101,7 +101,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
   let bridgeGovernance: BridgeGovernance
   let t: Contract
   let rebateStaking: RebateStaking
-  let walletRegistry: FakeContract<IWalletRegistry>
+  let lifecycleRouter: FakeContract<IBridgeLifecycleRouter>
 
   let redemptionTimeout: number
 
@@ -116,8 +116,12 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
       bridgeGovernance,
       t,
       rebateStaking,
-      walletRegistry,
     } = await waffle.loadFixture(bridgeFixture))
+
+    lifecycleRouter = await smock.fake<IBridgeLifecycleRouter>(
+      "IBridgeLifecycleRouter"
+    )
+    await bridge.resetLifecycleRouterForTest(lifecycleRouter.address)
 
     // Set the redemption dust threshold to 0.001 BTC (10x smaller than
     // the initial value) to save test Bitcoins.
@@ -318,7 +322,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
       })
 
       after(async () => {
-        walletRegistry.seize.reset()
+        lifecycleRouter.seize.reset()
 
         await restoreSnapshot()
       })

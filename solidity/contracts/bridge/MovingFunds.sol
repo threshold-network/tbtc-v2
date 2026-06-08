@@ -140,12 +140,8 @@ library MovingFunds {
     ///      - The source wallet must not have pending redemption requests,
     ///      - The source wallet must not have pending moved funds sweep requests,
     ///      - The source wallet must not have submitted its commitment already,
-    ///      - The expression `keccak256(abi.encode(walletMembersIDs))` must
-    ///        be exactly the same as the hash stored under `membersIdsHash`
-    ///        for the given source wallet in the ECDSA registry. Those IDs are
-    ///        not directly stored in the contract for gas efficiency purposes
-    ///        but they can be read from appropriate `DkgResultSubmitted`
-    ///        and `DkgResultApproved` events,
+    ///      - The lifecycle router must confirm the caller is a member of the
+    ///        source wallet signing group at the provided member index,
     ///      - The `walletMemberIndex` must be in range [1, walletMembersIDs.length],
     ///      - The caller must be the member of the source wallet signing group
     ///        at the position indicated by `walletMemberIndex` parameter,
@@ -194,23 +190,13 @@ library MovingFunds {
             "Target wallets commitment already submitted"
         );
 
-        bool isMember;
-        if (wallet.ecdsaWalletID != bytes32(0)) {
-            isMember = self.ecdsaWalletRegistry.isWalletMember(
-                wallet.ecdsaWalletID,
+        bool isMember = IBridgeLifecycleRouter(self.lifecycleRouter)
+            .isWalletMember(
+                walletPubKeyHash,
                 walletMembersIDs,
                 msg.sender,
                 walletMemberIndex
             );
-        } else {
-            isMember = IBridgeLifecycleRouter(self.lifecycleRouter)
-                .isWalletMember(
-                    walletPubKeyHash,
-                    walletMembersIDs,
-                    msg.sender,
-                    walletMemberIndex
-                );
-        }
         require(isMember, "Caller is not a member of the source wallet");
 
         uint64 walletBtcBalance = self.getWalletBtcBalance(
