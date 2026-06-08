@@ -1,5 +1,8 @@
 import { ethers, network, helpers, upgrades, artifacts } from "hardhat"
 import { assert, expect } from "chai"
+import fs from "fs"
+import os from "os"
+import path from "path"
 
 import func from "../deploy_l1/04_upgrade_base_l1_bitcoin_depositor_to_968"
 
@@ -197,6 +200,13 @@ describe("UpgradeBaseL1BitcoinDepositorTo968 - calldata shape", () => {
     const newImplementationAddress =
       "0x2222222222222222222222222222222222222222"
     const proxyAddress = "0x1111111111111111111111111111111111111111"
+    const proxyAdminAddress = "0x4444444444444444444444444444444444444444"
+    const proxyAdminOwnerAddress =
+      "0x3333333333333333333333333333333333333333"
+    const networkName = "mainnet"
+    const tmpRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tbtc-968-base-calldata-")
+    )
 
     // OpenZeppelin ProxyAdmin's plain upgrade entrypoint. The script must
     // encode THIS selector, never `upgradeAndCall` (which would re-run an
@@ -224,8 +234,8 @@ describe("UpgradeBaseL1BitcoinDepositorTo968 - calldata shape", () => {
     }
     const getInstance = async () =>
       ({
-        owner: async () => "0x3333333333333333333333333333333333333333",
-        address: "0x4444444444444444444444444444444444444444",
+        owner: async () => proxyAdminOwnerAddress,
+        address: proxyAdminAddress,
         interface: { encodeFunctionData },
       } as unknown)
     const saveDeployment = async () => undefined
@@ -237,6 +247,8 @@ describe("UpgradeBaseL1BitcoinDepositorTo968 - calldata shape", () => {
     const hre = {
       ethers: { getContractFactory },
       helpers: { signers: { getNamedSigners } },
+      network: { name: networkName },
+      config: { paths: { root: tmpRoot } },
       deployments: {
         get: getDeployment,
         log: () => undefined,
@@ -277,6 +289,35 @@ describe("UpgradeBaseL1BitcoinDepositorTo968 - calldata shape", () => {
       encodeCalls.some((c) => c.fn === "upgradeAndCall"),
       false
     )
+
+    // Durable governance-calldata artifact. See the corresponding Arbitrum
+    // test for the rationale; shape is asserted identically across rails.
+    const calldataPath = path.join(
+      tmpRoot,
+      "governance-calldata",
+      "968-BaseL1BitcoinDepositor.json"
+    )
+    assert.equal(fs.existsSync(calldataPath), true)
+    const calldataPayload = JSON.parse(fs.readFileSync(calldataPath, "utf8"))
+    const expectedUpgradeData = proxyAdminInterface.encodeFunctionData(
+      "upgrade",
+      [proxyAddress, newImplementationAddress]
+    )
+    assert.deepEqual(calldataPayload, {
+      network: networkName,
+      contract: "L1BTCDepositorWormholeV2Base",
+      proxy: proxyAddress,
+      newImpl: newImplementationAddress,
+      proxyAdmin: proxyAdminAddress,
+      proxyAdminOwner: proxyAdminOwnerAddress,
+      upgradeTx: {
+        from: proxyAdminOwnerAddress,
+        to: proxyAdminAddress,
+        data: expectedUpgradeData,
+      },
+    })
+
+    fs.rmSync(tmpRoot, { recursive: true, force: true })
   })
 })
 

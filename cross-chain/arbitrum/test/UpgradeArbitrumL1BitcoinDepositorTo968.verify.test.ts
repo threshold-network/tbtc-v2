@@ -1,6 +1,7 @@
 import { ethers, network, helpers, upgrades, artifacts } from "hardhat"
 import { assert, expect } from "chai"
 import fs from "fs"
+import os from "os"
 import path from "path"
 
 import func from "../deploy_l1/02_upgrade_arbitrum_l1_bitcoin_depositor_to_968"
@@ -266,6 +267,13 @@ describe("UpgradeArbitrumL1BitcoinDepositorTo968 - calldata shape", () => {
     const newImplementationAddress =
       "0x2222222222222222222222222222222222222222"
     const proxyAddress = "0x1111111111111111111111111111111111111111"
+    const proxyAdminAddress = "0x4444444444444444444444444444444444444444"
+    const proxyAdminOwnerAddress =
+      "0x3333333333333333333333333333333333333333"
+    const networkName = "mainnet"
+    const tmpRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tbtc-968-arbitrum-calldata-")
+    )
 
     // OpenZeppelin ProxyAdmin's plain upgrade entrypoint. The script must
     // encode THIS selector, never `upgradeAndCall` (which would re-run an
@@ -293,8 +301,8 @@ describe("UpgradeArbitrumL1BitcoinDepositorTo968 - calldata shape", () => {
     }
     const getInstance = async () =>
       ({
-        owner: async () => "0x3333333333333333333333333333333333333333",
-        address: "0x4444444444444444444444444444444444444444",
+        owner: async () => proxyAdminOwnerAddress,
+        address: proxyAdminAddress,
         interface: { encodeFunctionData },
       } as unknown)
     const saveDeployment = async () => undefined
@@ -306,6 +314,8 @@ describe("UpgradeArbitrumL1BitcoinDepositorTo968 - calldata shape", () => {
     const hre = {
       ethers: { getContractFactory },
       helpers: { signers: { getNamedSigners } },
+      network: { name: networkName },
+      config: { paths: { root: tmpRoot } },
       deployments: {
         get: getDeployment,
         log: () => undefined,
@@ -346,9 +356,46 @@ describe("UpgradeArbitrumL1BitcoinDepositorTo968 - calldata shape", () => {
       encodeCalls.some((c) => c.fn === "upgradeAndCall"),
       false
     )
+
+    // Durable governance-calldata artifact. The stdout log line is ephemeral
+    // and copy-paste-prone; the JSON file is the hand-off the timelock
+    // proposer (and reviewers of the upgrade PR) can verify against. The
+    // shape is fixed here so any silent change to the payload contract
+    // (added/removed field, renamed nesting) fails this assertion loudly.
+    const calldataPath = path.join(
+      tmpRoot,
+      "governance-calldata",
+      "968-ArbitrumOneL1BitcoinDepositor.json"
+    )
+    assert.equal(
+      fs.existsSync(calldataPath),
+      true,
+      `governance calldata file should be written at ${calldataPath}`
+    )
+    const calldataPayload = JSON.parse(fs.readFileSync(calldataPath, "utf8"))
+    const expectedUpgradeData = proxyAdminInterface.encodeFunctionData(
+      "upgrade",
+      [proxyAddress, newImplementationAddress]
+    )
+    assert.deepEqual(calldataPayload, {
+      network: networkName,
+      contract: "L1BTCDepositorWormholeV2Arbitrum",
+      proxy: proxyAddress,
+      newImpl: newImplementationAddress,
+      proxyAdmin: proxyAdminAddress,
+      proxyAdminOwner: proxyAdminOwnerAddress,
+      upgradeTx: {
+        from: proxyAdminOwnerAddress,
+        to: proxyAdminAddress,
+        data: expectedUpgradeData,
+      },
+    })
+
+    fs.rmSync(tmpRoot, { recursive: true, force: true })
   })
 })
 
+// -------------------------------------------------------------------
 // Skip-guard surface. Two axes are guarded: (1) the script runs only on
 // mainnet, never auto-executing against hardhat/sepolia during a full deploy;
 // (2) an in-file `ALREADY_EXECUTED` sentinel must be flipped to `true` after

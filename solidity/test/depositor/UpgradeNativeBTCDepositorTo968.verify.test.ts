@@ -1,4 +1,7 @@
 import { assert } from "chai"
+import * as fs from "fs"
+import * as os from "os"
+import * as path from "path"
 
 // The deploy script under test does not exist yet; this import binds the test
 // to the deliverable. Until the script is authored the import throws
@@ -28,6 +31,10 @@ describe("UpgradeNativeBTCDepositorTo968 verification", () => {
     }> = []
     let getInstanceCalled = false
     let deploymentsGetCalled = false
+    const networkName = "mainnet"
+    const tmpRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "tbtc-968-native-calldata-")
+    )
 
     const getNamedSigners = async () => ({ deployer: {} as unknown })
 
@@ -100,6 +107,8 @@ describe("UpgradeNativeBTCDepositorTo968 verification", () => {
     const hre = {
       ethers: { getContractFactory, getContractAt },
       helpers: { signers: { getNamedSigners } },
+      network: { name: networkName },
+      config: { paths: { root: tmpRoot } },
       deployments: {
         get: getDeployment,
         log: () => undefined,
@@ -159,6 +168,41 @@ describe("UpgradeNativeBTCDepositorTo968 verification", () => {
       deploymentsGetCalled,
       "deployments.get must not be called for Native"
     )
+
+    // Durable governance-calldata artifact. The Council Safe proposer
+    // verifies against this file rather than scraping stdout; the file diff
+    // is also the upgrade PR's review surface. Shape is identical across all
+    // five #968 rails, asserted strictly so a silent payload change fails
+    // here loudly. Native's proxy is hardcoded in the script (no committed
+    // deployment artifact) and the ProxyAdmin is resolved explicitly via
+    // `getContractAt`, so both values are taken from the script's literals,
+    // not the plugin's `getInstance()` default.
+    const calldataPath = path.join(
+      tmpRoot,
+      "governance-calldata",
+      "968-NativeBTCDepositor.json"
+    )
+    assert.equal(
+      fs.existsSync(calldataPath),
+      true,
+      `governance calldata file should be written at ${calldataPath}`
+    )
+    const calldataPayload = JSON.parse(fs.readFileSync(calldataPath, "utf8"))
+    assert.deepEqual(calldataPayload, {
+      network: networkName,
+      contract: "NativeBTCDepositor",
+      proxy: NATIVE_PROXY,
+      newImpl: NEW_IMPLEMENTATION,
+      proxyAdmin: NATIVE_PROXY_ADMIN,
+      proxyAdminOwner: PROXY_ADMIN_OWNER,
+      upgradeTx: {
+        from: PROXY_ADMIN_OWNER,
+        to: NATIVE_PROXY_ADMIN,
+        data: "0xdeadbeef",
+      },
+    })
+
+    fs.rmSync(tmpRoot, { recursive: true, force: true })
   })
 })
 

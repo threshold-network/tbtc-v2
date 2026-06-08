@@ -1,3 +1,6 @@
+import * as fs from "fs"
+import * as path from "path"
+
 import type { Artifact, HardhatRuntimeEnvironment } from "hardhat/types"
 import type { DeployFunction } from "hardhat-deploy/types"
 import { Contract, ContractFactory, providers } from "ethers"
@@ -102,6 +105,40 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       `\t\tto: ${proxyAdmin.address}\n` +
       `\t\tdata: ${upgradeTxData}`
   )
+
+  // Persist the governance calldata to a tracked JSON file alongside the
+  // log. The log line is ephemeral (stdout-scraped); the JSON is the durable
+  // hand-off artifact the Council Safe proposer can verify against — and the
+  // file diff doubles as a code-review surface for the upgrade proposal.
+  // Written outside `deployments/` because hardhat-deploy treats that
+  // directory as its own deployment-artifact namespace.
+  const calldataDir = path.join(
+    hre.config.paths.root,
+    "governance-calldata"
+  )
+  fs.mkdirSync(calldataDir, { recursive: true })
+  const calldataPath = path.join(
+    calldataDir,
+    `968-${CONTRACT_NAME}.json`
+  )
+  const calldataPayload = {
+    network: hre.network.name,
+    contract: CONTRACT_NAME,
+    proxy: NATIVE_PROXY,
+    newImpl: newImplementationAddress,
+    proxyAdmin: proxyAdmin.address,
+    proxyAdminOwner,
+    upgradeTx: {
+      from: proxyAdminOwner,
+      to: proxyAdmin.address,
+      data: upgradeTxData,
+    },
+  }
+  fs.writeFileSync(
+    calldataPath,
+    `${JSON.stringify(calldataPayload, null, 2)}\n`
+  )
+  deployments.log(`governance calldata written to ${calldataPath}`)
 
   // The Native rail has no prior committed deployment artifact to update, so a
   // record is written (rather than updated) with the freshly compiled ABI and
