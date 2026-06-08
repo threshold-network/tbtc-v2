@@ -113,9 +113,7 @@ describe("MaintainerProxy", () => {
     lifecycleRouter = await smock.fake<IBridgeLifecycleRouter>(
       "IBridgeLifecycleRouter"
     )
-    await bridgeGovernance
-      .connect(governance)
-      .setLifecycleRouter(lifecycleRouter.address)
+    await bridge.resetLifecycleRouterForTest(lifecycleRouter.address)
 
     // Set the deposit dust threshold to 0.0001 BTC, i.e. 100x smaller than
     // the initial value in the Bridge in order to save test Bitcoins.

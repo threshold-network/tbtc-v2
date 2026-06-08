@@ -121,9 +121,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
     lifecycleRouter = await smock.fake<IBridgeLifecycleRouter>(
       "IBridgeLifecycleRouter"
     )
-    await bridgeGovernance
-      .connect(governance)
-      .setLifecycleRouter(lifecycleRouter.address)
+    await bridge.resetLifecycleRouterForTest(lifecycleRouter.address)
 
     // Set the redemption dust threshold to 0.001 BTC (10x smaller than
     // the initial value) to save test Bitcoins.

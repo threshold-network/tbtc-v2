@@ -98,9 +98,7 @@ describe("Bridge - Redemption", () => {
     lifecycleRouter = await smock.fake<IBridgeLifecycleRouter>(
       "IBridgeLifecycleRouter"
     )
-    await bridgeGovernance
-      .connect(governance)
-      .setLifecycleRouter(lifecycleRouter.address)
+    await bridge.resetLifecycleRouterForTest(lifecycleRouter.address)
     ;({
       redemptionTimeout,
       redemptionTimeoutSlashingAmount,

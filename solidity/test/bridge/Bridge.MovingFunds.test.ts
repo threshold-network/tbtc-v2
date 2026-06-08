@@ -97,9 +97,7 @@ describe("Bridge - Moving funds", () => {
     lifecycleRouter = await smock.fake<IBridgeLifecycleRouter>(
       "IBridgeLifecycleRouter"
     )
-    await bridgeGovernance
-      .connect(governance)
-      .setLifecycleRouter(lifecycleRouter.address)
+    await bridge.resetLifecycleRouterForTest(lifecycleRouter.address)
   })
 
   describe("submitMovingFundsCommitment", () => {

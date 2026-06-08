@@ -317,9 +317,7 @@ describe("Bridge - P2TR signature fraud", () => {
     lifecycleRouter = await smock.fake<IBridgeLifecycleRouter>(
       "IBridgeLifecycleRouter"
     )
-    await bridgeGovernance
-      .connect(fixture.governance)
-      .setLifecycleRouter(lifecycleRouter.address)
+    await bridge.resetLifecycleRouterForTest(lifecycleRouter.address)
 
     const fraudParameters = await bridge.fraudParameters()
     fraudChallengeDepositAmount = fraudParameters.fraudChallengeDepositAmount
