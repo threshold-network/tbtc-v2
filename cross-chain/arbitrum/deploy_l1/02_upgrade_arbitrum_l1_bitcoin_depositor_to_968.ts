@@ -83,15 +83,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // file diff doubles as a code-review surface for the upgrade proposal.
   // Written outside `deployments/` because hardhat-deploy treats that
   // directory as its own deployment-artifact namespace.
-  const calldataDir = path.join(
-    hre.config.paths.root,
-    "governance-calldata"
-  )
+  const calldataDir = path.join(hre.config.paths.root, "governance-calldata")
   fs.mkdirSync(calldataDir, { recursive: true })
-  const calldataPath = path.join(
-    calldataDir,
-    `968-${DEPLOYMENT_NAME}.json`
-  )
+  const calldataPath = path.join(calldataDir, `968-${DEPLOYMENT_NAME}.json`)
   const calldataPayload = {
     network: hre.network.name,
     contract: CONTRACT_NAME,

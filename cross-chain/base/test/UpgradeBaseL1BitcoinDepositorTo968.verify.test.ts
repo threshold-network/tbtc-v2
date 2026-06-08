@@ -201,8 +201,7 @@ describe("UpgradeBaseL1BitcoinDepositorTo968 - calldata shape", () => {
       "0x2222222222222222222222222222222222222222"
     const proxyAddress = "0x1111111111111111111111111111111111111111"
     const proxyAdminAddress = "0x4444444444444444444444444444444444444444"
-    const proxyAdminOwnerAddress =
-      "0x3333333333333333333333333333333333333333"
+    const proxyAdminOwnerAddress = "0x3333333333333333333333333333333333333333"
     const networkName = "mainnet"
     const tmpRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), "tbtc-968-base-calldata-")
