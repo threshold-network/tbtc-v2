@@ -58,6 +58,21 @@ function isP2WSHScript(script: Hex): boolean {
 }
 
 /**
+ * Checks if the provided script comes from a P2TR input.
+ * @param script The script to be checked.
+ * @returns True if the script is P2TR, false otherwise.
+ */
+function isP2TRScript(script: Hex): boolean {
+  const scriptBuffer = script.toBuffer()
+
+  return (
+    scriptBuffer.length === 34 &&
+    scriptBuffer[0] === 0x51 &&
+    scriptBuffer[1] === 0x20
+  )
+}
+
+/**
  * Utility functions allowing to deal with Bitcoin scripts.
  */
 export const BitcoinScriptUtils = {
@@ -65,4 +80,5 @@ export const BitcoinScriptUtils = {
   isP2WPKHScript,
   isP2SHScript,
   isP2WSHScript,
+  isP2TRScript,
 }

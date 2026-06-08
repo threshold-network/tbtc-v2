@@ -495,8 +495,8 @@ library FrostDkg {
     ///         and the rest of the function is executed with the remaining
     ///         1/64 of gas, we require an extra gas amount to be left at the
     ///         end of the call to the function challenging DKG result and
-    ///         wrapping the call to FrostDkgValidator and TokenStaking
-    ///         contracts inside a try-catch.
+    ///         wrapping the validator and authorization-source calls inside a
+    ///         try-catch.
     function requireChallengeExtraGas(Data storage self) internal view {
         require(
             gasleft() >= self.parameters.resultChallengeExtraGas,

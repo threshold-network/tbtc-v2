@@ -6,15 +6,14 @@ import chai, { expect } from "chai"
 import bridgeFixture from "../fixtures/bridge"
 import type {
   Bridge,
-  BridgeGovernance,
   BridgeStub,
   IRandomBeacon,
-  IStaking,
   ReimbursementPool,
 } from "../../typechain"
 import {
   FROST_GROUP_SIZE,
   Operators,
+  allowlistOperatorWallets,
   computeFrostResultDigest,
   deriveFundedOperatorWallets,
   hardhatNetworkId,
@@ -22,7 +21,6 @@ import {
   registerOperators,
   selectFrostGroup,
   signFrostDkgResult,
-  wireStakingFake,
 } from "../integration/utils/frost-wallet-registry"
 
 // Register smock's chai matchers (`have.been.calledOnce`,
@@ -52,19 +50,17 @@ chai.use(smock.matchers)
 //      the sortition pool.
 //
 // The shared deploy logic mirrors slice 3 (smock beacon +
-// staking + reimbursement pool, deactivated chaosnet on the
-// sortition pool, registry wired to Bridge with both
-// walletOwner and lifecycleOwner set, DKG params compressed).
+// allowlist + reimbursement pool, deactivated chaosnet on the
+// sortition pool, registry wired to Bridge with both walletOwner
+// and lifecycleOwner set, DKG params compressed).
 
 describe("FrostWalletRegistry DKG edge cases (B-1.5 slice 4)", () => {
   let deployer: SignerWithAddress
-  let governance: SignerWithAddress
   let bridge: Bridge & BridgeStub
-  let bridgeGovernance: BridgeGovernance
   let frostWalletRegistry: any
+  let frostAllowlist: any
   let frostSortitionPool: any
   let randomBeacon: any
-  let staking: any
   let operators: Operators
 
   // DKG state enum mirrors `FrostDkg.State`:
@@ -88,13 +84,10 @@ describe("FrostWalletRegistry DKG edge cases (B-1.5 slice 4)", () => {
     this.timeout(300_000)
 
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ deployer, governance, bridge, bridgeGovernance } =
-      await waffle.loadFixture(bridgeFixture))
+    ;({ deployer, bridge } = await waffle.loadFixture(bridgeFixture))
 
     const t = await deployments.get("T")
     randomBeacon = await smock.fake<IRandomBeacon>("IRandomBeacon")
-    staking = await smock.fake<IStaking>("IStaking")
-    wireStakingFake(hre, staking)
 
     const reimbursementPoolFake = await smock.fake<ReimbursementPool>(
       "ReimbursementPool"
@@ -141,7 +134,7 @@ describe("FrostWalletRegistry DKG edge cases (B-1.5 slice 4)", () => {
           libraries: { FrostInactivity: inact.address },
         },
         proxyOpts: {
-          constructorArgs: [frostSortitionPool.address, staking.address],
+          constructorArgs: [frostSortitionPool.address],
           unsafeAllow: ["external-library-linking"],
           kind: "transparent",
         },
@@ -150,37 +143,15 @@ describe("FrostWalletRegistry DKG edge cases (B-1.5 slice 4)", () => {
     frostWalletRegistry = registry
     await frostSortitionPool.transferOwnership(frostWalletRegistry.address)
 
-    // The production deploy chain already wired Bridge.frostWalletRegistry +
-
-    // Bridge.lifecycleRouter via the no-tags bridgeFixture. Re-wiring to
-
-    // this test-only registry/router would revert with
-
-    // FrostWalletRegistryAlreadySet / LifecycleRouterAlreadySet. The
-
-    // tests below impersonate Bridge directly to drive the test registry,
-
-    // so Bridge.frostWalletRegistry pointing at the production registry
-
-    // is harmless — the test path is registry.requestNewWallet from an
-
-    // impersonated-bridge signer, not Bridge -> registry routing.
+    // The production deploy chain already wired Bridge.frostWalletRegistry
+    // and Bridge.lifecycleRouter via the no-tags bridgeFixture. This suite
+    // deploys a fresh registry and still lets approveDkgResult callback into
+    // Bridge, so reset the Bridge-side pointers to the local test registry
+    // and lifecycle-owner stand-in.
 
     await bridge.resetFrostWalletRegistryForTest(frostWalletRegistry.address)
 
-    try {
-      try {
-        await bridgeGovernance
-
-          .connect(governance)
-
-          .setLifecycleRouter(deployer.address)
-      } catch (e) {
-        // Swallow LifecycleRouterAlreadySet — production deploy set it first.
-      }
-    } catch (e) {
-      // Swallow LifecycleRouterAlreadySet — see note above.
-    }
+    await bridge.resetLifecycleRouterForTest(deployer.address)
 
     await frostWalletRegistry
       .connect(deployer)
@@ -198,7 +169,27 @@ describe("FrostWalletRegistry DKG edge cases (B-1.5 slice 4)", () => {
         SUBMITTER_PRECEDENCE_BLOCKS
       )
 
+    const [allowlist] = await helpers.upgrades.deployProxy(
+      "FrostAllowlistEdgeCasesTest",
+      {
+        contractName: "FrostAllowlist",
+        initializerArgs: [frostWalletRegistry.address],
+        factoryOpts: {
+          signer: deployer,
+        },
+        proxyOpts: {
+          kind: "transparent",
+        },
+      }
+    )
+    frostAllowlist = allowlist
+
+    await frostWalletRegistry
+      .connect(deployer)
+      .initializeV2(frostAllowlist.address)
+
     const wallets = await deriveFundedOperatorWallets(hre, FROST_GROUP_SIZE)
+    await allowlistOperatorWallets(frostAllowlist, frostWalletRegistry, wallets)
     operators = await registerOperators(
       hre,
       frostWalletRegistry,
@@ -367,12 +358,9 @@ describe("FrostWalletRegistry DKG edge cases (B-1.5 slice 4)", () => {
       "successful challenge resets state to AWAITING_RESULT (submission window not yet expired)"
     )
 
-    // `staking.seize(...)` was called with the slashing
-    // amount, mult, notifier, and the wrapped submitter
-    // operator address. Smock IStaking auto-stubs the
-    // function; assert it was called with the right
-    // notifier (msg.sender of challenge).
-    expect(staking.seize).to.have.been.calledOnce
+    await expect(challengeTx)
+      .to.emit(frostAllowlist, "MaliciousBehaviorIdentified")
+      .withArgs(deployer.address, [groupMembers[0].stakingProvider])
   })
 
   it("misbehaved members: happy path with non-empty misbehaved list registers wallet + sets reward ineligibility", async function misbehavedMembers() {

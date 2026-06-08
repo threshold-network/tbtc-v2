@@ -32,6 +32,9 @@ deferred from D-1.
 >   same PR.
 > - The activation runbook §"Sequence" step 6 references both
 >   the emit AND "no public getter — see §..."; both stale.
+> - Any body text that tells consumers to decode storage slot 38 byte
+>   17 is stale. The canonical storage-layout snapshot places
+>   `ecdsaRetired` at slot 37 byte 17.
 >
 > The body sections are preserved verbatim as historical design
 > record for PR #445. The live operator-facing reference for

@@ -3,7 +3,7 @@ import path from "path"
 import https from "https"
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction, DeployOptions } from "hardhat-deploy/types"
-import { utils, constants } from "ethers"
+import { utils } from "ethers"
 
 // EIP-1967 transparent proxy admin storage slot. Defined by the standard
 // at https://eips.ethereum.org/EIPS/eip-1967#admin-address and used to
@@ -37,11 +37,6 @@ export const KNOWN_T_TOKEN = "0xCdF7028ceAB81fA0C6971208e83fa7872994beE5"
 // full contract artifacts.
 const PROXY_ADMIN_ABI = [
   "function upgrade(address proxy, address implementation)",
-  "function upgradeAndCall(address proxy, address implementation, bytes data)",
-]
-
-const BRIDGE_ABI = [
-  "function initializeV5_RepairRebateStaking(address newRebateStaking)",
 ]
 
 const BRIDGE_GOVERNANCE_ABI = [
@@ -52,7 +47,6 @@ const BRIDGE_GOVERNANCE_ABI = [
 // Shared interface instances used by both helper functions and the main
 // deployment function for calldata encoding.
 const proxyAdminInterface = new utils.Interface(PROXY_ADMIN_ABI)
-const bridgeInterface = new utils.Interface(BRIDGE_ABI)
 const bridgeGovInterface = new utils.Interface(BRIDGE_GOVERNANCE_ABI)
 
 /**
@@ -73,26 +67,19 @@ export function encodeRebateStakingUpgrade(
 }
 
 /**
- * Encodes ProxyAdmin.upgradeAndCall() calldata for upgrading the Bridge proxy
- * and calling initializeV5_RepairRebateStaking(address(0)) in the same
- * transaction. The address(0) parameter clears the stale rebateStaking
- * pointer; the actual wiring happens later via setRebateStaking.
+ * Encodes ProxyAdmin.upgrade() calldata for upgrading the Bridge proxy to a
+ * new implementation.
  * @param bridgeProxy - Address of the Bridge proxy contract
  * @param newBridgeImpl - Address of the new Bridge implementation
- * @returns ABI-encoded calldata for ProxyAdmin.upgradeAndCall(proxy, impl, data)
+ * @returns ABI-encoded calldata for ProxyAdmin.upgrade(proxy, implementation)
  */
-export function encodeBridgeUpgradeAndCall(
+export function encodeBridgeUpgrade(
   bridgeProxy: string,
   newBridgeImpl: string
 ): string {
-  const initData = bridgeInterface.encodeFunctionData(
-    "initializeV5_RepairRebateStaking",
-    [constants.AddressZero]
-  )
-  return proxyAdminInterface.encodeFunctionData("upgradeAndCall", [
+  return proxyAdminInterface.encodeFunctionData("upgrade", [
     bridgeProxy,
     newBridgeImpl,
-    initData,
   ])
 }
 
@@ -228,9 +215,9 @@ function buildVerificationChecks(addresses: {
   return [
     {
       command: `cast call ${addresses.bridgeProxy} "getRebateStaking()(address)"`,
-      expectedResult: "0x0000000000000000000000000000000000000000 (address(0))",
+      expectedResult: addresses.rebateStakingProxy,
       description:
-        "After Bridge upgrade with initializeV5 repair, rebate staking getter should return address(0)",
+        "After setRebateStaking executes, Bridge should reference the RebateStaking proxy",
     },
     {
       command: `cast code ${addresses.bridgeImpl}`,
@@ -414,7 +401,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   //
   // Governance flow:
   //   Timelock route:  Council Safe -> Timelock.schedule() -> [wait 24h] ->
-  //                    Timelock.execute() -> ProxyAdmin.upgrade/upgradeAndCall
+  //                    Timelock.execute() -> ProxyAdmin.upgrade
   //   Council route:   Council Safe -> BridgeGovernance.setRebateStaking()
   //                    (direct onlyOwner, no begin/finalize)
   //   Governance route: Council Safe ->
@@ -425,7 +412,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const RebateStaking = await get("RebateStaking")
   const BridgeGovernance = await get("BridgeGovernance")
 
-  // Timelock actions array: RebateStaking upgrade FIRST, Bridge upgradeAndCall
+  // Timelock actions array: RebateStaking upgrade FIRST, Bridge upgrade
   // SECOND. This ordering ensures the RebateStaking proxy has the new 3-arg
   // ABI before Bridge activation references it.
   // Timelock minDelay = 86400s (24h)
@@ -443,20 +430,19 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     { Proxy: RebateStaking.address, "New impl": rebateImpl.address }
   )
 
-  // timelockActions[1]: Bridge upgradeAndCall
-  const bridgeUpgradeCalldata = encodeBridgeUpgradeAndCall(
+  // timelockActions[1]: Bridge upgrade
+  const bridgeUpgradeCalldata = encodeBridgeUpgrade(
     Bridge.address,
     bridgeImpl.address
   )
   logCalldataAction(
-    "Timelock Action [1]: Bridge upgradeAndCall",
+    "Timelock Action [1]: Bridge upgrade",
     proxyAdminAddress,
     "ProxyAdmin",
     bridgeUpgradeCalldata,
     {
       Proxy: Bridge.address,
       "New impl": bridgeImpl.address,
-      "Inner call": "initializeV5_RepairRebateStaking(address(0))",
     }
   )
 
@@ -519,7 +505,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         target: proxyAdminAddress,
         data: bridgeUpgradeCalldata,
         value: 0,
-        description: "Bridge proxy upgrade via ProxyAdmin.upgradeAndCall()",
+        description: "Bridge proxy upgrade via ProxyAdmin.upgrade()",
       },
     ],
     councilSafeActions: [
@@ -581,7 +567,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log(`        Selector: ${rebateUpgradeCalldata.slice(0, 10)}`)
   console.log(`        Proxy: ${RebateStaking.address}`)
   console.log(`        New impl: ${rebateImpl.address}`)
-  console.log("    [1] Bridge upgradeAndCall")
+  console.log("    [1] Bridge upgrade")
   console.log(`        Target: ProxyAdmin (${proxyAdminAddress})`)
   console.log(`        Selector: ${bridgeUpgradeCalldata.slice(0, 10)}`)
   console.log(`        Proxy: ${Bridge.address}`)

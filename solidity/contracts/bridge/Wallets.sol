@@ -23,9 +23,19 @@ import "./BridgeState.sol";
 import "./IBridgeLifecycleRouter.sol";
 
 /// @notice Minimal interface for the FROST wallet registry's wallet
-///         creation entry point.
+///         creation entry point and lifecycle-owner handshake. The
+///         `requestNewWallet()` entry mirrors the ECDSA registry so
+///         Bridge can dispatch without argument-shape branching.
+///         `lifecycleOwner()` is load-bearing ABI: Bridge checks it
+///         against `Bridge.lifecycleRouter` before starting or
+///         completing FROST wallet creation so a wallet cannot be
+///         registered with an unauthorized lifecycle dispatcher.
+///         Implementation lives on the B-1 / B-2 FROST wallet
+///         registry contract.
 interface IFrostWalletRegistryRequest {
     function requestNewWallet() external;
+
+    function lifecycleOwner() external view returns (address);
 }
 
 /// @title Wallet library
@@ -145,6 +155,7 @@ library Wallets {
     // operations. Caught at registration time, before the wallet enters
     // Live state.
     error LifecycleRouterNotSet();
+    error LifecycleOwnerMismatch();
     // FROST wallet's canonical walletID lookup failed. Raised when the
     // scheme-aware lifecycle path is invoked for a wallet whose
     // ecdsaWalletID is zero but whose walletIDByWalletPubKeyHash entry
@@ -236,10 +247,21 @@ library Wallets {
         // longer flip the scheme. (See
         // `d2-2-followups-plan.md` §"Slice 3" for the
         // governance commit this slice is gated on.)
-        if (self.frostWalletRegistry == address(0)) {
+        address frostWalletRegistry = self.frostWalletRegistry;
+        if (frostWalletRegistry == address(0)) {
             revert FrostWalletRegistryNotSet();
         }
-        IFrostWalletRegistryRequest(self.frostWalletRegistry).requestNewWallet();
+        address lifecycleRouter = self.lifecycleRouter;
+        if (lifecycleRouter == address(0)) {
+            revert LifecycleRouterNotSet();
+        }
+        if (
+            IFrostWalletRegistryRequest(frostWalletRegistry).lifecycleOwner() !=
+            lifecycleRouter
+        ) {
+            revert LifecycleOwnerMismatch();
+        }
+        IFrostWalletRegistryRequest(frostWalletRegistry).requestNewWallet();
     }
 
     /// @notice Registers a new FROST/Schnorr-keyed wallet given its 32-byte
@@ -287,19 +309,27 @@ library Wallets {
         BridgeState.Storage storage self,
         bytes32 xOnlyOutputKey
     ) external {
-        if (self.frostWalletRegistry == address(0)) {
+        address frostWalletRegistry = self.frostWalletRegistry;
+        if (frostWalletRegistry == address(0)) {
             revert FrostWalletRegistryNotSet();
+        }
+        if (msg.sender != frostWalletRegistry) {
+            revert CallerIsNotFrostWalletRegistry();
         }
         // Gate FROST wallet creation on both ends of the lifecycle
         // path being wired up. Without a lifecycle router, the
         // wallet's eventual closeWallet/seize/isWalletMember would
         // have no dispatcher and the wallet would be stuck. Caught
         // before the wallet enters Live state.
-        if (self.lifecycleRouter == address(0)) {
+        address lifecycleRouter = self.lifecycleRouter;
+        if (lifecycleRouter == address(0)) {
             revert LifecycleRouterNotSet();
         }
-        if (msg.sender != self.frostWalletRegistry) {
-            revert CallerIsNotFrostWalletRegistry();
+        if (
+            IFrostWalletRegistryRequest(frostWalletRegistry).lifecycleOwner() !=
+            lifecycleRouter
+        ) {
+            revert LifecycleOwnerMismatch();
         }
         if (xOnlyOutputKey == bytes32(0)) {
             revert FrostWalletIdIsZero();

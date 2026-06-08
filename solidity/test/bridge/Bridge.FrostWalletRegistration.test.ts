@@ -8,11 +8,13 @@ import type {
   Bridge,
   BridgeGovernance,
   BridgeStub,
+  FrostWalletRegistryStub,
   IWalletRegistry,
 } from "../../typechain"
 import { walletState } from "../fixtures"
 import bridgeFixture from "../fixtures/bridge"
 import { ecdsaWalletTestData } from "../data/ecdsa"
+import { NO_MAIN_UTXO } from "../data/deposit-sweep"
 
 chai.use(smock.matchers)
 
@@ -73,7 +75,7 @@ async function expectCustomError(
 describe("Bridge - FROST Wallet Registration", () => {
   let governance: SignerWithAddress
   let thirdParty: SignerWithAddress
-  let frostRegistry: SignerWithAddress
+  let frostRegistry: FrostWalletRegistryStub
   let walletRegistry: FakeContract<IWalletRegistry>
   let bridge: Bridge & BridgeStub
   let bridgeGovernance: BridgeGovernance
@@ -83,13 +85,12 @@ describe("Bridge - FROST Wallet Registration", () => {
     ;({ governance, thirdParty, walletRegistry, bridge, bridgeGovernance } =
       await waffle.loadFixture(bridgeFixture))
 
-    // This Hardhat setup exposes `getUnnamedSigners` via the
-    // `helpers.signers` namespace (not `ethers`); using `ethers`
-    // directly throws "ethers.getUnnamedSigners is not a function"
-    // in the before-all hook and silently skips the entire suite.
-    const accounts = await helpers.signers.getUnnamedSigners()
-    // eslint-disable-next-line prefer-destructuring
-    frostRegistry = accounts[1]
+    const FrostRegistryStubFactory = await ethers.getContractFactory(
+      "FrostWalletRegistryStub"
+    )
+    frostRegistry =
+      (await FrostRegistryStubFactory.deploy()) as FrostWalletRegistryStub
+    await frostRegistry.deployed()
 
     // Reset Bridge.frostWalletRegistry to address(0). The production
     // deploy chain in bridgeFixture wires it to the canonical FROST
@@ -100,18 +101,15 @@ describe("Bridge - FROST Wallet Registration", () => {
     // for exactly this purpose.
     await bridge.resetFrostWalletRegistryForTest(ethers.constants.AddressZero)
 
-    // Bridge.registerNewFrostWallet checks lifecycleRouter BEFORE the
+    // Bridge.registerNewFrostWallet checks lifecycleRouter before the
     // CallerIsNotFrostWalletRegistry / xOnlyOutputKey checks, so the
     // negative `__frostWalletCreatedCallback` tests below need a
     // non-zero lifecycleRouter to reach the assertion they actually
-    // care about. The canonical deploy chain does not wire
-    // lifecycleRouter (no deploy script calls Bridge.setLifecycleRouter),
-    // so the slot is address(0) after the fixture. Wire it via the
-    // governance path; any non-zero address works for these tests
-    // since the lifecycle callback path itself is not exercised here.
-    await bridgeGovernance
-      .connect(governance)
-      .setLifecycleRouter(thirdParty.address)
+    // care about. The production deploy chain now sets the one-time
+    // router slot; use the test-only reset helper to point it at the
+    // local stub lifecycle owner for these isolated callback tests.
+    await bridge.resetLifecycleRouterForTest(thirdParty.address)
+    await frostRegistry.setLifecycleOwner(thirdParty.address)
   })
 
   describe("setFrostWalletRegistry", () => {
@@ -206,6 +204,48 @@ describe("Bridge - FROST Wallet Registration", () => {
     )
   })
 
+  describe("requestNewWallet lifecycle wiring", () => {
+    beforeEach(async () => {
+      await createSnapshot()
+      await bridge.resetFrostWalletRegistryForTest(frostRegistry.address)
+      await frostRegistry.resetRequestNewWalletCalled()
+    })
+
+    afterEach(async () => {
+      await restoreSnapshot()
+    })
+
+    it("should fail before DKG when lifecycle router is unset", async () => {
+      await bridge.resetLifecycleRouterForTest(ethers.constants.AddressZero)
+      await frostRegistry.setLifecycleOwner(thirdParty.address)
+
+      await expectCustomError(
+        bridge.connect(thirdParty).requestNewWallet(NO_MAIN_UTXO),
+        "LifecycleRouterNotSet"
+      )
+      expect(await frostRegistry.requestNewWalletCalled()).to.equal(false)
+    })
+
+    it("should fail before DKG when registry lifecycle owner does not match Bridge lifecycle router", async () => {
+      await frostRegistry.setLifecycleOwner(bridge.address)
+
+      await expectCustomError(
+        bridge.connect(thirdParty).requestNewWallet(NO_MAIN_UTXO),
+        "LifecycleOwnerMismatch"
+      )
+      expect(await frostRegistry.requestNewWalletCalled()).to.equal(false)
+    })
+
+    it("should dispatch when registry lifecycle owner matches Bridge lifecycle router", async () => {
+      await frostRegistry.setLifecycleOwner(thirdParty.address)
+
+      await expect(
+        bridge.connect(thirdParty).requestNewWallet(NO_MAIN_UTXO)
+      ).to.emit(bridge, "NewWalletRequested")
+      expect(await frostRegistry.requestNewWalletCalled()).to.equal(true)
+    })
+  })
+
   describe("__frostWalletCreatedCallback", () => {
     context("when the FROST wallet registry is not set", () => {
       // No setFrostWalletRegistry call has been made on the fresh
@@ -242,12 +282,36 @@ describe("Bridge - FROST Wallet Registration", () => {
           ))
       })
 
+      context(
+        "when registry lifecycle owner does not match Bridge lifecycle router",
+        () => {
+          before(async () => {
+            await createSnapshot()
+            await frostRegistry.setLifecycleOwner(bridge.address)
+          })
+
+          after(async () => {
+            await restoreSnapshot()
+          })
+
+          it("should revert with LifecycleOwnerMismatch before registering a Live wallet", async () =>
+            expectCustomError(
+              frostRegistry.callBridgeFrostWalletCreatedCallback(
+                bridge.address,
+                frostXOnlyOutputKey
+              ),
+              "LifecycleOwnerMismatch"
+            ))
+        }
+      )
+
       context("when xOnlyOutputKey is zero", () => {
         it("should revert with FrostWalletIdIsZero", async () =>
           expectCustomError(
-            bridge
-              .connect(frostRegistry)
-              .__frostWalletCreatedCallback(ethers.constants.HashZero),
+            frostRegistry.callBridgeFrostWalletCreatedCallback(
+              bridge.address,
+              ethers.constants.HashZero
+            ),
             "FrostWalletIdIsZero"
           ))
       })
@@ -260,9 +324,10 @@ describe("Bridge - FROST Wallet Registration", () => {
           const legacyShapedID =
             "0x000000000000000000000000aabbccddeeff112233445566778899aabbccddee"
           await expectCustomError(
-            bridge
-              .connect(frostRegistry)
-              .__frostWalletCreatedCallback(legacyShapedID),
+            frostRegistry.callBridgeFrostWalletCreatedCallback(
+              bridge.address,
+              legacyShapedID
+            ),
             "FrostWalletIdNotNative"
           )
         })
@@ -274,9 +339,10 @@ describe("Bridge - FROST Wallet Registration", () => {
 
         before(async () => {
           await createSnapshot()
-          tx = await bridge
-            .connect(frostRegistry)
-            .__frostWalletCreatedCallback(frostXOnlyOutputKey)
+          tx = await frostRegistry.callBridgeFrostWalletCreatedCallback(
+            bridge.address,
+            frostXOnlyOutputKey
+          )
           // Source of truth for the derived pubKeyHash is the on-chain
           // mapping populated by the registration write. This avoids
           // baking a HASH160 result into a TypeScript constant that
@@ -336,6 +402,12 @@ describe("Bridge - FROST Wallet Registration", () => {
           expect(await bridge.activeWalletID()).to.not.equal(legacyDerived)
         })
 
+        it("should expose the xOnlyOutputKey through walletID(pubKeyHash)", async () => {
+          expect(await bridge.walletID(derivedWalletPubKeyHash)).to.equal(
+            frostXOnlyOutputKey
+          )
+        })
+
         it("should emit NewFrostWalletRegistered", async () => {
           await expect(tx)
             .to.emit(bridge, "NewFrostWalletRegistered")
@@ -366,9 +438,10 @@ describe("Bridge - FROST Wallet Registration", () => {
         context("when called again with the same xOnlyOutputKey", () => {
           it("should revert with FrostWalletAlreadyRegistered", async () =>
             expectCustomError(
-              bridge
-                .connect(frostRegistry)
-                .__frostWalletCreatedCallback(frostXOnlyOutputKey),
+              frostRegistry.callBridgeFrostWalletCreatedCallback(
+                bridge.address,
+                frostXOnlyOutputKey
+              ),
               "FrostWalletAlreadyRegistered"
             ))
         })

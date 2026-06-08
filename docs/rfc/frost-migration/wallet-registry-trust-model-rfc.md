@@ -501,6 +501,17 @@ Why split: close/seize calls come from the router
 (Bridge) and the lifecycle-side check (router) even with
 `walletOwner = Bridge` wired.
 
+The Bridge-side registry interface therefore requires both
+`requestNewWallet()` and `lifecycleOwner()`. The latter is not an
+internal convention; it is part of the production compatibility
+contract. `Wallets.requestNewWallet` and
+`Wallets.registerNewFrostWallet` compare
+`Bridge.lifecycleRouter()` against `FrostWalletRegistry.lifecycleOwner()`
+and fail closed before DKG lock or wallet registration if they differ.
+Any replacement FROST registry must expose the same public
+`lifecycleOwner() returns (address)` getter and preserve this
+authorization meaning.
+
 ### Activation guard
 
 ```solidity

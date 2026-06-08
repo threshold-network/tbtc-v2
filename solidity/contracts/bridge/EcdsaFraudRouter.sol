@@ -27,7 +27,7 @@ interface IBridgeForFraud {
 
     function activeWalletID() external view returns (bytes32);
 
-    function walletID(bytes20 walletPubKeyHash) external pure returns (bytes32);
+    function walletID(bytes20 walletPubKeyHash) external view returns (bytes32);
 
     function walletPubKeyHashForWalletID(bytes32 walletId)
         external
@@ -151,6 +151,12 @@ contract EcdsaFraudRouter {
     ///         can hand records over without per-field conversion.
     mapping(uint256 => Fraud.FraudChallenge) public fraudChallenges;
 
+    /// @notice Number of unresolved ECDSA fraud challenges currently
+    ///         held by this router. Intended for D-2.2 drain runbooks:
+    ///         before removing Bridge's ECDSA fraud timeout callback,
+    ///         governance can assert this value is zero on-chain.
+    uint256 public openFraudChallengeCount;
+
     event FraudChallengeSubmitted(
         bytes20 indexed walletPubKeyHash,
         bytes32 sighash,
@@ -215,7 +221,16 @@ contract EcdsaFraudRouter {
                 fraudChallenges[challengeKeys[i]].reportedAt == 0,
                 "Challenge already migrated"
             );
+            if (!data[i].resolved) {
+                require(
+                    data[i].reportedAt > 0,
+                    "Unresolved challenge not reported"
+                );
+            }
             fraudChallenges[challengeKeys[i]] = data[i];
+            if (!data[i].resolved) {
+                openFraudChallengeCount++;
+            }
             totalDeposit += data[i].depositAmount;
             emit FraudChallengeMigratedFromBridge(
                 challengeKeys[i],
@@ -279,6 +294,10 @@ contract EcdsaFraudRouter {
 
         Wallets.Wallet memory wallet = b.wallets(walletPubKeyHash);
         require(
+            wallet.ecdsaWalletID != bytes32(0),
+            "Legacy ECDSA wallet required"
+        );
+        require(
             wallet.state == Wallets.WalletState.Live ||
                 wallet.state == Wallets.WalletState.MovingFunds ||
                 wallet.state == Wallets.WalletState.Closing,
@@ -297,6 +316,7 @@ contract EcdsaFraudRouter {
         /* solhint-disable-next-line not-rely-on-time */
         challenge.reportedAt = uint32(block.timestamp);
         challenge.resolved = false;
+        openFraudChallengeCount++;
 
         // slither-disable-next-line reentrancy-events
         emit FraudChallengeSubmitted(
@@ -388,10 +408,11 @@ contract EcdsaFraudRouter {
         bytes32 sighash
     ) internal {
         challenge.resolved = true;
+        openFraudChallengeCount--;
 
         address treasury = IBridgeForFraud(bridge).treasury();
         /* solhint-disable avoid-low-level-calls */
-        // slither-disable-next-line low-level-calls,unchecked-lowlevel,arbitrary-send
+        // slither-disable-next-line low-level-calls,unchecked-lowlevel,arbitrary-send-eth
         treasury.call{gas: 100000, value: challenge.depositAmount}("");
         /* solhint-enable avoid-low-level-calls */
 
@@ -440,10 +461,14 @@ contract EcdsaFraudRouter {
         );
 
         challenge.resolved = true;
+        openFraudChallengeCount--;
 
         // Refund the challenger from the router's escrowed deposit.
+        // The return value is intentionally ignored: a reverting
+        // challenger fallback self-griefs the refund but must not block
+        // the fraud timeout slashing path.
         /* solhint-disable avoid-low-level-calls */
-        // slither-disable-next-line low-level-calls,unchecked-lowlevel
+        // slither-disable-next-line low-level-calls,unchecked-lowlevel,arbitrary-send-eth
         challenge.challenger.call{gas: 100000, value: challenge.depositAmount}(
             ""
         );

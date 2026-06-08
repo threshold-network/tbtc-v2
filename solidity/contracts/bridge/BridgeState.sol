@@ -28,14 +28,11 @@ import "./MovingFunds.sol";
 import "../bank/Bank.sol";
 
 library BridgeState {
-    /// @notice On-chain identifier of the wallet scheme used when
-    ///         `requestNewWallet` is invoked. `Ecdsa` is the legacy
-    ///         keep-network ECDSA DKG path; `Frost` routes via the
-    ///         registered FROST wallet registry. Defaults to `Ecdsa`
-    ///         on activation of the C-2 upgrade so post-deploy
-    ///         behavior is unchanged until governance explicitly
-    ///         flips the scheme. See `setNewWalletScheme` and
-    ///         `dispatchNewWalletRequest`.
+    /// @notice Historical on-chain identifier of the wallet scheme.
+    ///         D-2.2 slice 3 removed the scheme setter and the
+    ///         request-time branch, but this enum remains because
+    ///         preserved storage and ABI-compatible event declarations
+    ///         still reference the type.
     enum WalletScheme {
         Ecdsa,
         Frost
@@ -339,8 +336,8 @@ library BridgeState {
         // upgrade path of the Bridge implementation.
         address rebateStaking;
         // Upgrade note: the FROST wallet ID fields below and the FROST
-        // wallet registry address consume three reserved slots, reducing
-        // `__gap` from 50 to 47 for storage-layout compatibility.
+        // FROST extraction state consumes eight reserved slots, reducing
+        // `__gap` from 48 to 40 for storage-layout compatibility.
         // Maps canonical wallet identifier to the wallet public key hash used
         // by legacy Bridge paths. For legacy ECDSA wallets, canonical wallet
         // ID is a left-padded 20-byte wallet public key hash. New wallet
@@ -403,27 +400,27 @@ library BridgeState {
         // wallet pubKeyHash that does not have a FROST registration
         // entry.
         mapping(bytes20 => bytes32) walletIDByWalletPubKeyHash;
-        // Previously selected wallet scheme for `requestNewWallet`.
-        // Preserved for upgrade-safety; D-2.2 slice 3 removed the
-        // scheme dispatch path so no production code reads this value.
-        // Sits at slot 38 offset 0 (the preceding field is a mapping,
-        // which always occupies a full slot).
+        // Historical wallet-scheme selector preserved for proxy
+        // storage compatibility. D-2.2 slice 3 removed the external
+        // setters and stopped reading this field; new wallet creation
+        // now dispatches only to the FROST registry. Sits at slot 37
+        // offset 0 (the preceding field is a mapping, which always
+        // occupies a full slot).
         WalletScheme currentNewWalletScheme;
         // Total ECDSA wallets ever registered on this Bridge,
         // counted from the C-2.1 activation block forward.
-        // Used by D-2's `finalizeEcdsaRetirement` to verify the
-        // governance-supplied retired-wallet list against the
-        // post-activation counter (pre-activation wallets are
-        // handled via off-chain governance attestation; the
-        // historical-count `seedEcdsaWalletCount` setter
-        // originally specified in RFC v6 is deferred — see
-        // §"Deferred from C-2.1" in the migration plan doc).
-        // Strictly monotonic: incremented by the legacy ECDSA
-        // registration callback before D-2.2 slice 4; NEVER decremented.
+        // Retained for retirement audit/runbook visibility and
+        // future migration checks. The historical-count
+        // `seedEcdsaWalletCount` setter and on-chain
+        // `finalizeEcdsaRetirement` path originally specified in
+        // RFC v6 were dropped before the canonical mirror; see the
+        // v7 reconciliation notes in the migration plan docs.
+        // Strictly monotonic: incremented in
+        // `Wallets.registerNewWallet`; NEVER decremented.
         //
         // Packs into the SAME slot as `currentNewWalletScheme`
-        // above (slot 38): solc places `uint128` (16B) at offset
-        // 1, right after the 1-byte enum. Total slot 38 usage:
+        // above (slot 37): solc places `uint128` (16B) at offset
+        // 1, right after the 1-byte enum. Total slot 37 usage:
         // 17 bytes of 32. No __gap change from C-2.
         uint128 ecdsaWalletCount;
         // D-1 soft-retirement flag. D-2 keeps it as an on-chain
@@ -431,9 +428,9 @@ library BridgeState {
         // request and callback paths. Existing storage is preserved
         // for upgrade-safety and ABI-compatible observation.
         //
-        // Packs at slot 38 offset 17 (just after
+        // Packs at slot 37 offset 17 (just after
         // `ecdsaWalletCount`, which occupies bytes 1-16). Total
-        // slot 38 usage: 18 bytes of 32. No __gap change from
+        // slot 37 usage: 18 bytes of 32. No __gap change from
         // C-2 / C-2.1.
         bool ecdsaRetired;
         // Reserved storage space in case we need to add more variables.
@@ -802,7 +799,6 @@ library BridgeState {
     ///      - Moving funds timeout reset delay must be greater than zero,
     ///      - Moving funds timeout must be greater than the moving funds
     ///        timeout reset delay,
-    ///      - Moving funds timeout slashing amount must be greater than zero,
     ///      - Moving funds timeout notifier reward multiplier must be in the
     ///        range [0, 100],
     ///      - Moved funds sweep transaction max total fee must be greater than zero,
@@ -842,11 +838,6 @@ library BridgeState {
         require(
             _movingFundsTimeout > _movingFundsTimeoutResetDelay,
             "Moving funds timeout must be greater than its reset delay"
-        );
-
-        require(
-            _movingFundsTimeoutSlashingAmount > 0,
-            "Moving funds timeout slashing amount must be greater than zero"
         );
 
         require(

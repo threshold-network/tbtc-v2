@@ -87,6 +87,9 @@ jobs:
       - name: Build contracts
         run: yarn build
 
+      - name: Run formal vector conformance checks
+        run: yarn formal:vectors:check
+
       # We don't want to execute the tests for dapp-friendly contracts (either
       # when deploying from `dapp-development` or during PR checks on that branch).
       - name: Run tests

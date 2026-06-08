@@ -26,6 +26,12 @@ export interface Bridge {
   getDepositRevealedEvents: GetChainEvents.Function<DepositRevealedEvent>
 
   /**
+   * Get emitted TaprootDepositRevealed events.
+   * @see GetEventsFunction
+   */
+  getTaprootDepositRevealedEvents: GetChainEvents.Function<TaprootDepositRevealedEvent>
+
+  /**
    * Submits a deposit sweep transaction proof to the on-chain contract.
    * @param sweepTx - Sweep transaction data.
    * @param sweepProof - Sweep proof data.
@@ -155,6 +161,13 @@ export interface Bridge {
   ): Promise<RedemptionRequest>
 
   /**
+   * Gets the public key hash of the current active wallet.
+   * @returns 20-byte active wallet public key hash. If there is no active
+   *          wallet at the moment, undefined is returned.
+   */
+  activeWalletPublicKeyHash(): Promise<Hex | undefined>
+
+  /**
    * Gets the public key of the current active wallet.
    * @returns Compressed (33 bytes long with 02 or 03 prefix) active wallet's
    *          public key. If there is no active wallet at the moment, undefined
@@ -254,6 +267,18 @@ export interface DepositReceipt {
   refundPublicKeyHash: Hex
 
   /**
+   * Optional 32-byte x-only wallet key used as the Taproot internal key for
+   * Taproot-native deposits. Present only for P2TR deposit receipts.
+   */
+  walletXOnlyPublicKey?: Hex
+
+  /**
+   * Optional 32-byte x-only refund key embedded in the tapscript refund leaf
+   * for Taproot-native deposits. Present only for P2TR deposit receipts.
+   */
+  refundXOnlyPublicKey?: Hex
+
+  /**
    * A 4-byte little-endian refund locktime.
    */
   refundLocktime: Hex
@@ -262,6 +287,15 @@ export interface DepositReceipt {
    * Optional 32-byte extra data.
    */
   extraData?: Hex
+}
+
+/**
+ * Represents a Taproot-native deposit receipt. The receipt holds all
+ * information required to build a unique P2TR deposit address on Bitcoin chain.
+ */
+export type TaprootDepositReceipt = DepositReceipt & {
+  walletXOnlyPublicKey: Hex
+  refundXOnlyPublicKey: Hex
 }
 
 // eslint-disable-next-line valid-jsdoc
@@ -281,6 +315,23 @@ export function validateDepositReceipt(receipt: DepositReceipt) {
 
   if (receipt.refundPublicKeyHash.toString().length != 40) {
     throw new Error("Invalid refund public key hash")
+  }
+
+  const walletXOnlyPublicKey = receipt.walletXOnlyPublicKey
+  const refundXOnlyPublicKey = receipt.refundXOnlyPublicKey
+  if (
+    (walletXOnlyPublicKey && !refundXOnlyPublicKey) ||
+    (!walletXOnlyPublicKey && refundXOnlyPublicKey)
+  ) {
+    throw new Error("Taproot deposit receipt must include both x-only keys")
+  }
+
+  if (walletXOnlyPublicKey && walletXOnlyPublicKey.toString().length != 64) {
+    throw new Error("Invalid wallet x-only public key")
+  }
+
+  if (refundXOnlyPublicKey && refundXOnlyPublicKey.toString().length != 64) {
+    throw new Error("Invalid refund x-only public key")
   }
 
   if (receipt.refundLocktime.toString().length != 8) {
@@ -332,6 +383,16 @@ export interface DepositRequest {
  * Represents an event emitted on deposit reveal to the on-chain bridge.
  */
 export type DepositRevealedEvent = DepositReceipt &
+  Pick<DepositRequest, "amount" | "vault"> & {
+    fundingTxHash: BitcoinTxHash
+    fundingOutputIndex: number
+  } & ChainEvent
+
+/**
+ * Represents an event emitted on Taproot-native deposit reveal to the on-chain
+ * bridge.
+ */
+export type TaprootDepositRevealedEvent = TaprootDepositReceipt &
   Pick<DepositRequest, "amount" | "vault"> & {
     fundingTxHash: BitcoinTxHash
     fundingOutputIndex: number

@@ -109,6 +109,20 @@ contract Bridge is Governable, Initializable, IReceiveBalanceApproval {
         address vault
     );
 
+    event TaprootDepositRevealed(
+        bytes32 fundingTxHash,
+        uint32 fundingOutputIndex,
+        address indexed depositor,
+        uint64 amount,
+        bytes8 blindingFactor,
+        bytes20 indexed walletPubKeyHash,
+        bytes32 walletXOnlyPublicKey,
+        bytes20 refundPubKeyHash,
+        bytes32 refundXOnlyPublicKey,
+        bytes4 refundLocktime,
+        address vault
+    );
+
     event DepositsSwept(bytes20 walletPubKeyHash, bytes32 sweepTxHash);
 
     event RedemptionRequested(
@@ -527,6 +541,40 @@ contract Bridge is Governable, Initializable, IReceiveBalanceApproval {
         bytes32 extraData
     ) external {
         self.revealDepositWithExtraData(fundingTx, reveal, extraData);
+    }
+
+    /// @notice Used by the depositor to reveal information about their P2TR
+    ///         Bitcoin deposit to the Bridge on Ethereum chain. The off-chain
+    ///         wallet listens for revealed deposit events and may decide to
+    ///         include the revealed deposit in the next executed sweep.
+    /// @param fundingTx Bitcoin funding transaction data, see `BitcoinTx.Info`.
+    /// @param reveal Taproot deposit reveal data, see
+    ///        `TaprootDepositRevealInfo` struct.
+    /// @dev Requirements are equivalent to `revealDeposit`, except the Bitcoin
+    ///      funding output must be a P2TR output key derived from the revealed
+    ///      wallet x-only key and the refund tapscript leaf.
+    function revealTaprootDeposit(
+        BitcoinTx.Info calldata fundingTx,
+        Deposit.TaprootDepositRevealInfo calldata reveal
+    ) external {
+        self.revealTaprootDeposit(fundingTx, reveal);
+    }
+
+    /// @notice Sibling of the `revealTaprootDeposit` function. This function
+    ///         allows to reveal a P2TR Bitcoin deposit with 32-byte extra data
+    ///         embedded in the refund tapscript.
+    /// @param fundingTx Bitcoin funding transaction data, see `BitcoinTx.Info`.
+    /// @param reveal Taproot deposit reveal data, see
+    ///        `TaprootDepositRevealInfo` struct.
+    /// @param extraData 32-byte deposit extra data.
+    /// @dev Requirements are equivalent to `revealTaprootDeposit`, except
+    ///      `extraData` must not be bytes32(0).
+    function revealTaprootDepositWithExtraData(
+        BitcoinTx.Info calldata fundingTx,
+        Deposit.TaprootDepositRevealInfo calldata reveal,
+        bytes32 extraData
+    ) external {
+        self.revealTaprootDepositWithExtraData(fundingTx, reveal, extraData);
     }
 
     /// @notice Used by the wallet to prove the BTC deposit sweep transaction
@@ -1093,7 +1141,9 @@ contract Bridge is Governable, Initializable, IReceiveBalanceApproval {
     ///          was elapsed since its creation time,
     ///        - The active wallet BTC balance is above the maximum threshold,
     ///      - `frostWalletRegistry` must be set (governance one-
-    ///        time setter; required before FROST wallet creation).
+    ///        time setter; required before FROST wallet creation),
+    ///      - `lifecycleRouter` must be set and must match
+    ///        `FrostWalletRegistry.lifecycleOwner()`.
     function requestNewWallet(BitcoinTx.UTXO calldata activeWalletMainUtxo)
         external
     {
@@ -1110,17 +1160,18 @@ contract Bridge is Governable, Initializable, IReceiveBalanceApproval {
     // wallets) is structurally closed by D-2 at TWO layers:
     //
     //   1. CODE (load-bearing): `Wallets.requestNewWallet`
-    //      unconditionally reverts the `scheme == Ecdsa`
-    //      branch in D-2. No dispatch to the ECDSA registry
-    //      can be reached regardless of scheme or flag state.
-    //      (Per PR #444 follow-up review.)
+    //      dispatches only to the FROST registry in the
+    //      canonical mirror. The ECDSA branch and scheme setter
+    //      were removed in D-2.2 slice 3, so no dispatch to the
+    //      ECDSA registry can be reached regardless of preserved
+    //      storage flag values.
     //
-    //   2. OPERATIONS (defense-in-depth): the activation
-    //      runbook still calls for
-    //      `BridgeGovernance.setNewWalletScheme(Frost)` before
-    //      the upgrade so that even in the pre-D-2 window
-    //      between governance-decision and proxy upgrade,
-    //      the ECDSA path is already off.
+    //   2. OPERATIONS (defense-in-depth): the original D-2
+    //      source runbook called for flipping the scheme to
+    //      Frost before the proxy upgrade. In the canonical
+    //      mirror the setter is gone; FROST activation is
+    //      instead gated by the lifecycle-router/frost-registry
+    //      wiring checks in `Wallets.requestNewWallet`.
     //
     // The `retireEcdsa()` flag flip (governance forwarder
     // added alongside this PR) is an OPTIONAL audit-trail
@@ -1771,13 +1822,22 @@ contract Bridge is Governable, Initializable, IReceiveBalanceApproval {
             ];
     }
 
-    /// @notice Gets canonical wallet ID for a given legacy wallet public key hash.
-    /// @dev Legacy ID format is a left-padded 20-byte wallet public key hash.
+    /// @notice Gets canonical wallet ID for a given wallet public key hash.
+    /// @dev FROST wallets use the x-only output key persisted in the reverse
+    ///      mapping. Legacy ECDSA wallets fall back to a left-padded 20-byte
+    ///      wallet public key hash.
     function walletID(bytes20 walletPubKeyHash)
         external
-        pure
+        view
         returns (bytes32)
     {
+        bytes32 walletCanonicalID = self.walletIDByWalletPubKeyHash[
+            walletPubKeyHash
+        ];
+        if (walletCanonicalID != bytes32(0)) {
+            return walletCanonicalID;
+        }
+
         return Wallets.deriveLegacyWalletID(walletPubKeyHash);
     }
 
@@ -2297,7 +2357,7 @@ contract Bridge is Governable, Initializable, IReceiveBalanceApproval {
     ///         retirement flag. `false` by default; `true`
     ///         after `retireEcdsa()` has been called. Indexers
     ///         and tooling that previously had to decode
-    ///         storage slot 38 byte 17 (when D-2.1 deferred
+    ///         storage slot 37 byte 17 (when D-2.1 deferred
     ///         this getter for bytecode budget) can now read
     ///         this view directly. (D-2.2.)
     function ecdsaRetired() external view returns (bool) {

@@ -166,6 +166,27 @@ describe("FrostDkgValidator digest parity (B-1.5 helper invariant)", () => {
     })
   })
 
+  describe("field validation", () => {
+    for (const misbehavedMembersIndices of [[0], [101]]) {
+      it(`rejects a single out-of-range misbehaved member index ${misbehavedMembersIndices[0]} gracefully`, async () => {
+        const result = {
+          submitterMemberIndex: 1,
+          xOnlyOutputKey:
+            "0xaabbccddeeff00112233445566778899aabbccddeeff00112233445566778899",
+          misbehavedMembersIndices,
+          signatures: "0x",
+          signingMembersIndices: [],
+          members: [],
+          membersHash: ethers.constants.HashZero,
+        }
+
+        const [isValid, errorMsg] = await validator.validateFields(result)
+        expect(isValid).to.equal(false)
+        expect(errorMsg).to.equal("Corrupted misbehaved members indices")
+      })
+    }
+  })
+
   cases.forEach((c) => {
     it(`matches on-chain resultDigest: ${c.name}`, async () => {
       // Off-chain: TS helper.

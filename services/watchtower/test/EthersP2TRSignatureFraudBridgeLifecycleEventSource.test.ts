@@ -131,6 +131,64 @@ test("maps Bridge completed spend proof logs to honest spend evidence events", a
   ])
 })
 
+test("queries P2TR router and Bridge lifecycle events from separate contracts", async () => {
+  const router = new FakeBridgeLifecycleContract(
+    {
+      defeated: [
+        {
+          args: {
+            challengeKey: 2n,
+            walletID: walletID(),
+            bridgeChallengeIdentity: bridgeChallengeIdentity(),
+            sighash: sighash(),
+          },
+          transactionHash: txHash("aa"),
+          blockNumber: 11,
+          logIndex: 0,
+        },
+      ],
+    },
+    undefined,
+    {},
+    ["defeated", "timedOut"]
+  )
+  const bridge = new FakeBridgeLifecycleContract(
+    {
+      movingFundsCompleted: [
+        {
+          args: { movingFundsTxHash: txHash("ab") },
+          transactionHash: txHash("21"),
+          blockNumber: 12,
+          logIndex: 0,
+        },
+      ],
+    },
+    undefined,
+    {},
+    ["movingFundsCompleted", "redemptionsCompleted"]
+  )
+  const source = new EthersP2TRSignatureFraudBridgeLifecycleEventSource(
+    router,
+    bridge,
+    { fromBlock: 1, toBlock: 20 }
+  )
+
+  const events = await source.listBridgeLifecycleEvents()
+
+  assert.deepEqual(router.queries, [
+    { filter: defeatedFilter, fromBlock: 1, toBlock: 20 },
+    { filter: timedOutFilter, fromBlock: 1, toBlock: 20 },
+  ])
+  assert.deepEqual(bridge.queries, [
+    { filter: movingFundsCompletedFilter, fromBlock: 1, toBlock: 20 },
+    { filter: redemptionsCompletedFilter, fromBlock: 1, toBlock: 20 },
+  ])
+  assert.deepEqual(
+    events.map((event) => event.type),
+    ["defeated", "honest-spend-proven"]
+  )
+})
+
 test("orders Bridge lifecycle logs deterministically when positions match", async () => {
   const source = new EthersP2TRSignatureFraudBridgeLifecycleEventSource(
     new FakeBridgeLifecycleContract({
@@ -725,18 +783,26 @@ test("rejects contracts without the required Bridge event filters", async () => 
   )
 })
 
+type FakeBridgeLifecycleFilter =
+  | "defeated"
+  | "timedOut"
+  | "movingFundsCompleted"
+  | "redemptionsCompleted"
+
+const allFakeBridgeLifecycleFilters: FakeBridgeLifecycleFilter[] = [
+  "defeated",
+  "timedOut",
+  "movingFundsCompleted",
+  "redemptionsCompleted",
+]
+
 class FakeBridgeLifecycleContract implements P2TREthersBridgeLifecycleContract {
   readonly provider?: {
     getBlockNumber(): Promise<number>
     getBlock(blockNumber: number): Promise<{ hash: string } | undefined>
   }
 
-  readonly filters = {
-    P2TRSignatureFraudChallengeDefeated: () => defeatedFilter,
-    P2TRSignatureFraudChallengeDefeatTimedOut: () => timedOutFilter,
-    MovingFundsCompleted: () => movingFundsCompletedFilter,
-    RedemptionsCompleted: () => redemptionsCompletedFilter,
-  }
+  readonly filters: Record<string, () => unknown>
 
   readonly queries: {
     filter: unknown
@@ -752,8 +818,11 @@ class FakeBridgeLifecycleContract implements P2TREthersBridgeLifecycleContract {
       redemptionsCompleted?: P2TREthersBridgeLifecycleEventLog[]
     },
     public latestBlock?: number,
-    private readonly blockHashes: Record<number, string | undefined> = {}
+    private readonly blockHashes: Record<number, string | undefined> = {},
+    availableFilters: FakeBridgeLifecycleFilter[] = allFakeBridgeLifecycleFilters
   ) {
+    this.filters = buildFakeBridgeLifecycleFilters(availableFilters)
+
     const hasProvider =
       latestBlock !== undefined || Object.keys(blockHashes).length > 0
     this.provider = hasProvider
@@ -799,6 +868,30 @@ class FakeBridgeLifecycleContract implements P2TREthersBridgeLifecycleContract {
   setBlockHash(blockNumber: number, blockHash: string): void {
     this.blockHashes[blockNumber] = blockHash
   }
+}
+
+function buildFakeBridgeLifecycleFilters(
+  availableFilters: FakeBridgeLifecycleFilter[]
+): Record<string, () => unknown> {
+  const filters: Record<string, () => unknown> = {}
+
+  if (availableFilters.includes("defeated")) {
+    filters.P2TRSignatureFraudChallengeDefeated = () => defeatedFilter
+  }
+
+  if (availableFilters.includes("timedOut")) {
+    filters.P2TRSignatureFraudChallengeDefeatTimedOut = () => timedOutFilter
+  }
+
+  if (availableFilters.includes("movingFundsCompleted")) {
+    filters.MovingFundsCompleted = () => movingFundsCompletedFilter
+  }
+
+  if (availableFilters.includes("redemptionsCompleted")) {
+    filters.RedemptionsCompleted = () => redemptionsCompletedFilter
+  }
+
+  return filters
 }
 
 class FakeBridgeLifecycleScanCursorStore
