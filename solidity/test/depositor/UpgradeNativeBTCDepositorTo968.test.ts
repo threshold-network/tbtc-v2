@@ -42,6 +42,12 @@ function pad32(hex: string): string {
   return ethers.utils.hexZeroPad(ethers.utils.getAddress(hex), 32)
 }
 
+// The live-fork regression requires a mainnet fork (FORKING_URL). Without one
+// the Native proxy has no code and the suite cannot exercise the upgrade, so it
+// is skipped rather than failed — CI runs without a fork and must not break on
+// it. Mirrors the FORKING_URL gating used by the cross-chain upgrade tests.
+const isForking = !!process.env.FORKING_URL
+
 describe("UpgradeNativeBTCDepositorTo968 fork regression", () => {
   // Binding the fork suite to the deliverable: the deploy script must exist for
   // this upgrade to be meaningful. This also keeps the import from being
@@ -50,7 +56,8 @@ describe("UpgradeNativeBTCDepositorTo968 fork regression", () => {
     expect(func).to.be.a("function")
   })
 
-  describe("against the live mainnet proxy", () => {
+  const describeForkRegression = isForking ? describe : describe.skip
+  describeForkRegression("against the live mainnet proxy", () => {
     let manifestBackup: string | null = null
     let newImplementation: string
 
