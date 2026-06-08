@@ -2,6 +2,15 @@ import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import * as fs from "fs"
 import * as path from "path"
 
+// OpenZeppelin validations-cache schema version expected by the upgrades-core
+// releases these cross-chain packages pin: Arbitrum (1.24), Base (1.27), and Sui
+// (1.44) all resolve `currentVersion === "3.4"`. The OZ plugin only stamps this
+// top-level field on `validations.json` when it compiles a local upgradeable
+// contract; a package that only consumes a staged artifact has no such source,
+// so the merge backfills the field. Bump this if a package adopts an
+// upgrades-core whose `currentVersion` advances past "3.4".
+const VALIDATIONS_SCHEMA_VERSION = "3.4"
+
 async function copySingleArtifact(
   hre: HardhatRuntimeEnvironment,
   packageDir: string,
@@ -101,6 +110,20 @@ async function mergeV2ValidationData(
     if (seen.has(serialized)) continue
     targetLog.push(entry)
     seen.add(serialized)
+    changed = true
+  }
+
+  // Backfill the schema version the CONSUMING package's OZ plugin requires.
+  // `readValidations` rejects a cache whose top-level `version` is absent or
+  // stale ("Validations cache is outdated"). A staged-only package (Sui) seeds
+  // an empty `{ log: [] }` with no version; the merged entries originate from
+  // the solidity package's older "3.3" cache, but "3.4" readers accept them (the
+  // Arbitrum/Base caches already carry 3.3-sourced entries under a "3.4"
+  // header). Stamp the version only when it is missing, so packages that already
+  // have one (Arbitrum/Base) are untouched and the source's stale "3.3" is never
+  // propagated.
+  if (!targetData.version) {
+    targetData.version = VALIDATIONS_SCHEMA_VERSION
     changed = true
   }
 
