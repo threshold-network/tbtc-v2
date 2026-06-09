@@ -58,9 +58,43 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // `prepareUpgrade` can diff the new layout against a baseline. A bare
   // `prepareUpgrade` would fail the manifest storage-layout lookup. This ordering
   // (forceImport BEFORE prepareUpgrade) is mandatory.
+  //
+  // forceImport registers the CURRENT implementation under the bytecode version
+  // of the supplied factory. Because #968 is a logic-only change, that version
+  // equals the one `prepareUpgrade` would deploy under — so a bare
+  // forceImport+prepareUpgrade SHORT-CIRCUITS to the already-registered current
+  // implementation and emits a NO-OP `upgrade(proxy, currentImpl)` while never
+  // deploying the #968 bytecode. To prevent that, the entries forceImport
+  // injects are re-keyed off the version slot afterwards: the upgrade-safety
+  // baseline is resolved by address scan (so it still finds the re-keyed entry),
+  // while the version slot is freed so `prepareUpgrade` deploys the new
+  // implementation. Mirrors the workaround proven in
+  // test/depositor/UpgradeNativeBTCDepositorTo968.test.ts.
+  const manifestPath = path.join(
+    hre.config.paths.root,
+    ".openzeppelin",
+    "mainnet.json"
+  )
+  const implKeysBeforeImport = new Set<string>(
+    fs.existsSync(manifestPath)
+      ? Object.keys(
+          JSON.parse(fs.readFileSync(manifestPath, "utf8")).impls ?? {}
+        )
+      : []
+  )
+
   await upgrades.forceImport(NATIVE_PROXY, implementationContractFactory, {
     kind: "transparent",
   })
+
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"))
+  Object.keys(manifest.impls ?? {})
+    .filter((version) => !implKeysBeforeImport.has(version))
+    .forEach((version) => {
+      manifest.impls[`imported-baseline-${version}`] = manifest.impls[version]
+      delete manifest.impls[version]
+    })
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2))
 
   // Deploy the new implementation contract (no broadcast of any upgrade — only
   // the implementation is deployed here).
@@ -71,6 +105,31 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       kind: "transparent",
     }
   )) as string
+
+  // Self-protecting guard: refuse to emit a no-op. If the version-slot re-keying
+  // above ever fails to clear the collision, `prepareUpgrade` returns the
+  // current on-chain implementation and governance would execute
+  // `upgrade(proxy, currentImpl)` — a no-op — believing #968 shipped. Read the
+  // live implementation from the proxy's EIP-1967 slot and fail loudly if the
+  // deploy did not advance it.
+  const EIP1967_IMPLEMENTATION_SLOT =
+    "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc"
+  const currentImplementationRaw: string = await ethers.provider.getStorageAt(
+    NATIVE_PROXY,
+    EIP1967_IMPLEMENTATION_SLOT
+  )
+  const currentImplementation: string = ethers.utils.getAddress(
+    ethers.utils.hexDataSlice(currentImplementationRaw, 12)
+  )
+  if (
+    ethers.utils.getAddress(newImplementationAddress) === currentImplementation
+  ) {
+    throw new Error(
+      `Refusing to emit a no-op upgrade: prepareUpgrade returned the current ` +
+        `implementation ${currentImplementation}. The forceImport version-slot ` +
+        `collision was not cleared — #968 bytecode was not deployed.`
+    )
+  }
 
   deployments.log(
     `new implementation contract deployed at: ${newImplementationAddress}`
