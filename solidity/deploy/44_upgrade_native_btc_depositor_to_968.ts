@@ -125,9 +125,9 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     ethers.utils.getAddress(newImplementationAddress) === currentImplementation
   ) {
     throw new Error(
-      `Refusing to emit a no-op upgrade: prepareUpgrade returned the current ` +
+      "Refusing to emit a no-op upgrade: prepareUpgrade returned the current " +
         `implementation ${currentImplementation}. The forceImport version-slot ` +
-        `collision was not cleared — #968 bytecode was not deployed.`
+        "collision was not cleared — #968 bytecode was not deployed."
     )
   }
 
