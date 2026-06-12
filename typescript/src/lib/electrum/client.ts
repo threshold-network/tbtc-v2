@@ -319,7 +319,11 @@ export class ElectrumClient implements BitcoinClient {
       }
       const headerBuf = Buffer.from(rawHeader, "hex")
       const hash = BitcoinHashUtils.computeHash256(Hex.from(headerBuf))
-      genesisHash = hash.toString().replace(/^0x/, "")
+      // computeHash256 returns the raw double-SHA256; block hashes are
+      // displayed byte-reversed, which is what fromGenesisHash expects.
+      genesisHash = Buffer.from(hash.toString().replace(/^0x/, ""), "hex")
+        .reverse()
+        .toString("hex")
     }
 
     return BitcoinNetwork.fromGenesisHash(Hex.from(genesisHash))
