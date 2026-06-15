@@ -250,6 +250,15 @@ library BitcoinTx {
             revert("Not at current or previous difficulty");
         }
 
+        // Validate the structure before scanning. extractTargetAt reads a full
+        // 80-byte header at each offset, so a non-multiple-of-80 input would
+        // otherwise revert with a low-level out-of-bounds panic on the trailing
+        // partial header instead of this explicit message.
+        require(
+            bitcoinHeaders.length % 80 == 0,
+            "Invalid length of the headers chain"
+        );
+
         for (uint256 at = 0; at < bitcoinHeaders.length; at += 80) {
             uint256 target = bitcoinHeaders.extractTargetAt(at);
             // Skip minimum-difficulty headers only when the relay epoch is

@@ -257,5 +257,22 @@ describe("BitcoinTx", () => {
         ).to.be.revertedWith("Not at current or previous difficulty")
       })
     })
+
+    context("when the headers input length is not a multiple of 80", () => {
+      // The structural length check must run before the scan so a malformed
+      // proof reverts with an explicit message rather than a low-level
+      // out-of-bounds panic from reading a partial trailing header.
+      it("reverts with an invalid length error", async () => {
+        // A full 80-byte header followed by a 20-byte partial header.
+        const malformed = NORMAL_HEADER + "00".repeat(20)
+        await expect(
+          callDetermineRequestedDifficulty(
+            malformed,
+            NORMAL_DIFFICULTY,
+            NORMAL_DIFFICULTY
+          )
+        ).to.be.revertedWith("Invalid length of the headers chain")
+      })
+    })
   })
 })
