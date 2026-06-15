@@ -110,8 +110,13 @@ async function main() {
   }
   tbtc.deposits.setDefaultDepositor(EthereumAddress.from(wallet.address))
 
-  const bitcoinRecoveryAddress =
-    process.env.BTC_RECOVERY_ADDRESS || "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc"
+  const bitcoinRecoveryAddress = process.env.BTC_RECOVERY_ADDRESS
+  if (!bitcoinRecoveryAddress) {
+    throw new Error(
+      "BTC_RECOVERY_ADDRESS is not set. Set it to a Bitcoin address you " +
+        "control; deposit timeout refunds are sent to this address."
+    )
+  }
 
   let deposit: Deposit
   let justCreatedReceipt = false
