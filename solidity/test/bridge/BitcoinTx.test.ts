@@ -262,7 +262,7 @@ describe("BitcoinTx", () => {
       // A blob whose length is not 80-aligned must revert with the explicit
       // length message rather than slicing past the end of the last header.
       it("reverts", async () => {
-        const malformed = DIFF1_HEADER + "00"
+        const malformed = `${DIFF1_HEADER}00`
         await expect(
           callDetermineRequestedDifficulty(
             malformed,
