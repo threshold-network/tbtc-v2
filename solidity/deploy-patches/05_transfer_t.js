@@ -42,12 +42,18 @@ const func = async function (hre) {
 
     const needed = targetBn.sub(vmBn)
     if (deployerBn.lt(needed)) {
-      log(
-        `Deployer T balance ${from1e18(deployerBn)} < needed ${from1e18(
+      // The idempotent-rerun case is already handled by the vmBn.gte(targetBn)
+      // branch above. Reaching here means the vending machine is still under
+      // the target AND the deployer cannot cover the shortfall, i.e. a broken
+      // / underfunded deploy. Fail loudly instead of masking it as a successful
+      // replay, otherwise later phases run with less T than this stack expects.
+      throw new Error(
+        `VendingMachine for ${tokenSymbol} is short ${from1e18(
           needed
-        )}; skipping transfer (likely already sent in a prior deploy)`
+        )} T (has ${from1e18(vmBn)} of ${from1e18(
+          targetBn
+        )}) and deployer only holds ${from1e18(deployerBn)} T`
       )
-      continue
     }
 
     await execute(
