@@ -141,7 +141,9 @@ const config: HardhatUserConfig = {
         // deploys back on the timeout path this value is meant to fix. Require
         // a full positive integer, otherwise fall back to the default.
         const timeoutMs = Number(process.env.CHAIN_HTTP_TIMEOUT_MS)
-        return Number.isInteger(timeoutMs) && timeoutMs > 0 ? timeoutMs : 120_000
+        return Number.isInteger(timeoutMs) && timeoutMs > 0
+          ? timeoutMs
+          : 120_000
       })(),
       // Avoid "replacement fee too low" when many txs are sent in quick succession
       gasPrice: (() => {
