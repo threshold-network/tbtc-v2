@@ -224,7 +224,7 @@ Initializes the tBTC v2 SDK entrypoint for Ethereum Sepolia and Bitcoin testnet4
 The initialized instance uses default Electrum servers to interact
 with Bitcoin testnet4.
 
-BREAKING CHANGE (v2): This method previously connected to Bitcoin testnet3
+BREAKING CHANGE (v4): This method previously connected to Bitcoin testnet3
 (BitcoinNetwork.Testnet). It now connects to Bitcoin testnet4
 (BitcoinNetwork.Testnet4, BIP-94). Both networks share the same address
 prefixes (tb1/m/2), so callers will not see a compile-time or runtime
