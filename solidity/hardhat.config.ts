@@ -135,9 +135,10 @@ const config: HardhatUserConfig = {
       // that during deploy → HeadersTimeoutError / UND_ERR_HEADERS_TIMEOUT.
       // postinstall runs scripts/patch-hardhat-undici-connect-timeout.sh so undici Pool connectTimeout
       // matches this value too (default Pool connect is 10s → ConnectTimeoutError on cold RPC).
-      timeout: process.env.CHAIN_HTTP_TIMEOUT_MS
-        ? parseInt(process.env.CHAIN_HTTP_TIMEOUT_MS, 10)
-        : 120_000,
+      timeout: (() => {
+        const ms = Number(process.env.CHAIN_HTTP_TIMEOUT_MS)
+        return Number.isInteger(ms) && ms > 0 ? ms : 120_000 // 120s default
+      })(),
       // Avoid "replacement fee too low" when many txs are sent in quick succession
       gasPrice: (() => {
         const gwei = Number(process.env.GAS_PRICE_GWEI)
