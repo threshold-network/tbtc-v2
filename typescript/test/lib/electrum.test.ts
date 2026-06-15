@@ -183,6 +183,59 @@ describe("Electrum", () => {
     })
   })
 
+  describe("network detection (getNetworkFromElectrum)", () => {
+    // Authentic Bitcoin testnet4 (BIP-94) genesis block header (80 bytes).
+    // Double-SHA256 of these bytes, reversed to display order, equals the
+    // testnet4 genesis hash 00000000da84f2ba...0da8bf043.
+    const TESTNET4_GENESIS_HEADER =
+      "010000000000000000000000000000000000000000000000000000000000000000000000" +
+      "4e7b2b9128fe0291db0693af2ae418b767e657cd407e80cb1434221eaea7a07a046f3566" +
+      "ffff001dbb0c7817"
+
+    // fromUrl only parses credentials; it does not connect. We invoke the
+    // private getNetworkFromElectrum directly with a stubbed Electrum
+    // connection, so no real server is needed.
+    const client = ElectrumClient.fromUrl(
+      "ssl://localhost:50002",
+      undefined,
+      1,
+      1
+    )
+
+    it("derives the network from the block-0 header when server.features is unavailable", async () => {
+      // Electrs (e.g. mempool.space) does not implement server.features, so it
+      // throws a JSON-RPC method-not-found error and the client must fall back
+      // to deriving the genesis hash from the block-0 header.
+      const mockElectrum = {
+        server_features: async () => {
+          throw new Error("server.features: method not found (-32601)")
+        },
+        blockchain_block_header: async (height: number) => {
+          expect(height).to.equal(0)
+          return TESTNET4_GENESIS_HEADER
+        },
+      }
+
+      const network = await (client as any).getNetworkFromElectrum(mockElectrum)
+      expect(network).to.equal(BitcoinNetwork.Testnet4)
+    })
+
+    it("uses the genesis hash from server.features when available", async () => {
+      const mockElectrum = {
+        server_features: async () => ({
+          genesis_hash:
+            "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943",
+        }),
+        blockchain_block_header: async () => {
+          throw new Error("should not be called when server.features succeeds")
+        },
+      }
+
+      const network = await (client as any).getNetworkFromElectrum(mockElectrum)
+      expect(network).to.equal(BitcoinNetwork.Testnet)
+    })
+  })
+
   /**
    * This test suite is meant to check the behavior of the Electrum-based
    * Bitcoin client implementation. This suite requires an integration with a

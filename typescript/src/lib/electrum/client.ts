@@ -318,7 +318,13 @@ export class ElectrumClient implements BitcoinClient {
         )
       }
       const headerBuf = Buffer.from(rawHeader, "hex")
-      const hash = BitcoinHashUtils.computeHash256(Hex.from(headerBuf))
+      // computeHash256 returns the natural (internal, little-endian) byte
+      // order; genesis hashes are compared in display (big-endian) order, so
+      // reverse before matching. Omitting this makes every network resolve to
+      // Unknown via this fallback path.
+      const hash = BitcoinHashUtils.computeHash256(
+        Hex.from(headerBuf)
+      ).reverse()
       genesisHash = hash.toString().replace(/^0x/, "")
     }
 
