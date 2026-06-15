@@ -13,7 +13,7 @@ const hardhat = require("hardhat")
 
 const func = async function (hre) {
   const { getNamedAccounts, deployments } = hre
-  const { execute, log } = deployments
+  const { execute, log, save } = deployments
   const { deployer } = await getNamedAccounts()
 
   const T = await deployments.get("T")
@@ -61,6 +61,16 @@ const func = async function (hre) {
       "utf8"
     )
     log("Saved TokenStaking address and ABI in TokenStaking.json")
+
+    // Register the proxy with hardhat-deploy too. deployProxy does not create a
+    // hardhat-deploy record, so without this downstream deploy-patches that call
+    // deployments.get/read/execute("TokenStaking") would have nothing to bind to
+    // on mainnet.
+    await save("TokenStaking", {
+      address: tokenStakingAddress,
+      abi: parsedAbi,
+    })
+    log("Registered TokenStaking deployment with hardhat-deploy")
   } else {
     const TokenStaking = await deployments.deploy("TokenStaking", {
       from: deployer,
