@@ -1568,7 +1568,13 @@ describe("BTCDepositorWormhole", () => {
       // 6) The bridging calls
       wormholeTokenBridge.transferTokensWithPayload.returns(555)
 
-      // 7) Now finalize with enough payment
+      // 7) Mint enough tBTC to cover the reimbursed amount.
+      await tbtcToken.mint(
+        NonEvmBtcDepositor.address,
+        expectedTbtcAmountReimbursed
+      )
+
+      // 8) Now finalize with enough payment
       const tx = await NonEvmBtcDepositor.connect(relayer).finalizeDeposit(
         initializeDepositFixture.depositKey,
         {
@@ -1576,7 +1582,7 @@ describe("BTCDepositorWormhole", () => {
         }
       )
 
-      // 8) The final minted TBTC should be 94525e10
+      // 9) The final minted TBTC should be 94525e10
       await expect(tx)
         .to.emit(NonEvmBtcDepositor, "DepositFinalized")
         .withArgs(

@@ -128,7 +128,8 @@ contract L1BTCDepositorWormholeV2Arbitrum is
 
     /// @notice Feature flag controlling whether the deposit transaction max fee
     ///         is reimbursed (added to the user's tBTC) or deducted.
-    ///         - `true`  => Add `txMaxFee` to the minted tBTC amount
+    ///         - `true`  => Add `txMaxFee` on a best-effort basis when the
+    ///                      contract balance covers it
     ///         - `false` => Subtract `txMaxFee` from the minted tBTC amount
     bool public reimburseTxMaxFee;
 
@@ -161,6 +162,14 @@ contract L1BTCDepositorWormholeV2Arbitrum is
     );
 
     event ReimburseTxMaxFeeUpdated(bool reimburseTxMaxFee);
+
+    /// @notice Emitted when the deposit transaction max fee reimbursement is
+    ///         skipped because the depositor contract balance cannot cover it.
+    event DepositTxMaxFeeReimbursementSkipped(
+        uint256 indexed depositKey,
+        uint256 txMaxFee,
+        uint256 availableBalance
+    );
 
     /// @notice Emitted when the gas limit field is updated by the owner.
     ///         Preserved for backward compatibility.
@@ -280,8 +289,9 @@ contract L1BTCDepositorWormholeV2Arbitrum is
 
     /// @notice Toggles whether the deposit transaction max fee is reimbursed
     ///         or deducted. Only callable by the contract owner.
-    /// @param _reimburseTxMaxFee `true` => reimburse (add) the deposit tx max fee,
-    ///                        `false` => deduct the deposit tx max fee.
+    /// @param _reimburseTxMaxFee `true` => reimburse the deposit tx max fee
+    ///        on a best-effort basis when the contract balance covers it,
+    ///        `false` => deduct the deposit tx max fee.
     function setReimburseTxMaxFee(bool _reimburseTxMaxFee) external onlyOwner {
         reimburseTxMaxFee = _reimburseTxMaxFee;
         emit ReimburseTxMaxFeeUpdated(_reimburseTxMaxFee);
@@ -406,6 +416,11 @@ contract L1BTCDepositorWormholeV2Arbitrum is
     ///      - ERC20 L1 tBTC was minted by tBTC Bridge to this contract,
     ///      - The function was not called for the given deposit before,
     ///      - The call must carry a payment equal to `quoteFinalizeDeposit`.
+    /// @dev When `reimburseTxMaxFee` is true, the deposit transaction max fee
+    ///      reimbursement is applied only if this contract's tBTC balance can
+    ///      cover the base deposit amount plus the reimbursement. Otherwise,
+    ///      only the base deposit amount is transferred and a
+    ///      `DepositTxMaxFeeReimbursementSkipped` event is emitted.
     function finalizeDeposit(uint256 depositKey) external payable {
         uint256 gasStart = gasleft();
 
@@ -426,7 +441,18 @@ contract L1BTCDepositorWormholeV2Arbitrum is
         if (reimburseTxMaxFee) {
             (, , uint64 depositTxMaxFee, ) = bridge.depositParameters();
             uint256 txMaxFee = depositTxMaxFee * SATOSHI_MULTIPLIER;
-            tbtcAmount += txMaxFee;
+            uint256 reimbursedAmount = tbtcAmount + txMaxFee;
+
+            uint256 availableBalance = tbtcToken.balanceOf(address(this));
+            if (availableBalance >= reimbursedAmount) {
+                tbtcAmount = reimbursedAmount;
+            } else {
+                emit DepositTxMaxFeeReimbursementSkipped(
+                    depositKey,
+                    txMaxFee,
+                    availableBalance
+                );
+            }
         }
 
         // slither-disable-next-line reentrancy-events
