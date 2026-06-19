@@ -148,7 +148,7 @@ This function is especially useful for local development as it gives
 
 #### Defined in
 
-[services/tbtc-core.ts:142](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L142)
+[services/tbtc-core.ts:150](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L150)
 
 ___
 
@@ -181,7 +181,7 @@ Throws an error if the underlying signer's Ethereum network is
 
 #### Defined in
 
-[services/tbtc-core.ts:107](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L107)
+[services/tbtc-core.ts:115](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L115)
 
 ___
 
@@ -220,9 +220,17 @@ ___
 
 ▸ **initializeSepolia**(`ethereumSignerOrProvider`): `Promise`\<[`TBTCCore`](TBTCCore.md)\>
 
-Initializes the tBTC v2 SDK entrypoint for Ethereum Sepolia and Bitcoin testnet.
+Initializes the tBTC v2 SDK entrypoint for Ethereum Sepolia and Bitcoin testnet4.
 The initialized instance uses default Electrum servers to interact
-with Bitcoin testnet
+with Bitcoin testnet4.
+
+BREAKING CHANGE (v4): This method previously connected to Bitcoin testnet3
+(BitcoinNetwork.Testnet). It now connects to Bitcoin testnet4
+(BitcoinNetwork.Testnet4, BIP-94). Both networks share the same address
+prefixes (tb1/m/2), so callers will not see a compile-time or runtime
+error -- they will silently connect to the wrong Bitcoin network if not
+updated. Update your integration to testnet4 Bitcoin tooling before
+upgrading this SDK.
 
 #### Parameters
 
@@ -243,4 +251,4 @@ Throws an error if the signer's Ethereum network is other than
 
 #### Defined in
 
-[services/tbtc-core.ts:86](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L86)
+[services/tbtc-core.ts:94](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L94)

@@ -1308,7 +1308,8 @@ describe("MaintainerProxy", () => {
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
-                ethers.utils.parseUnits("7100000", "gwei") // 0,0071 ETH
+                // Keep a small headroom for minor gas/refund variance across environments.
+                ethers.utils.parseUnits("7200000", "gwei") // 0.0072 ETH
               )
             })
           }

@@ -96,6 +96,13 @@ library BitcoinTx {
     using ValidateSPV for bytes;
     using ValidateSPV for bytes32;
 
+    /// @dev Bitcoin minimum-difficulty target (compact bits `0x1d00ffff`).
+    /// Bitcoin testnet4 may emit minimum-difficulty headers inside an epoch; the
+    /// first header(s) in an SPV chain can encode this target while later headers
+    /// use the relay's current or previous epoch difficulty.
+    uint256 private constant MIN_DIFFICULTY_TARGET =
+        0xffff0000000000000000000000000000000000000000000000000000;
+
     /// @notice Represents Bitcoin transaction data.
     struct Info {
         /// @notice Bitcoin transaction version.
@@ -224,6 +231,62 @@ library BitcoinTx {
         return txHash;
     }
 
+    /// @notice Picks the relay epoch difficulty used as the baseline for SPV
+    ///         accumulated-work checks. When both relay difficulties are above
+    ///         minimum difficulty, walks past leading DIFF1 headers (Bitcoin
+    ///         testnet4 BIP94) until a header matches the relay's current or
+    ///         previous epoch difficulty. Reverts if every header is skipped or
+    ///         the first decisive header does not match either oracle value.
+    ///         When either difficulty is minimum (1), leading DIFF1 headers
+    ///         are never skipped—they are matched like any other header first
+    ///         (typically binding to whichever oracle side equals 1). Production
+    ///         mainnet relays are not expected to report an epoch difficulty of 1.
+    function determineRequestedDifficulty(
+        bytes memory bitcoinHeaders,
+        uint256 currentEpochDifficulty,
+        uint256 previousEpochDifficulty
+    ) internal pure returns (uint256 requestedDiff) {
+        if (bitcoinHeaders.length == 0) {
+            revert("Not at current or previous difficulty");
+        }
+
+        // Validate the structure before scanning. extractTargetAt reads a full
+        // 80-byte header at each offset, so a non-multiple-of-80 input would
+        // otherwise revert with a low-level out-of-bounds panic on the trailing
+        // partial header instead of this explicit message.
+        require(
+            bitcoinHeaders.length % 80 == 0,
+            "Invalid length of the headers chain"
+        );
+
+        for (uint256 at = 0; at < bitcoinHeaders.length; at += 80) {
+            uint256 target = bitcoinHeaders.extractTargetAt(at);
+            // Skip minimum-difficulty headers only when the relay epoch is
+            // above minimum difficulty. This allows testnet4 BIP94 DIFF1
+            // headers to be skipped in real epochs, while still accepting
+            // proofs in test/dev setups where the relay epoch is 1.
+            if (
+                target == MIN_DIFFICULTY_TARGET &&
+                currentEpochDifficulty > 1 &&
+                previousEpochDifficulty > 1
+            ) {
+                continue;
+            }
+
+            uint256 headerDiff = target.calculateDifficulty();
+            if (headerDiff == currentEpochDifficulty) {
+                return currentEpochDifficulty;
+            }
+            if (headerDiff == previousEpochDifficulty) {
+                return previousEpochDifficulty;
+            }
+
+            revert("Not at current or previous difficulty");
+        }
+
+        revert("Not at current or previous difficulty");
+    }
+
     /// @notice Evaluates the given Bitcoin proof difficulty against the actual
     ///         Bitcoin chain difficulty provided by the relay oracle.
     ///         Reverts in case the evaluation fails.
@@ -237,18 +300,11 @@ library BitcoinTx {
         uint256 currentEpochDifficulty = relay.getCurrentEpochDifficulty();
         uint256 previousEpochDifficulty = relay.getPrevEpochDifficulty();
 
-        uint256 requestedDiff = 0;
-        uint256 firstHeaderDiff = bitcoinHeaders
-            .extractTarget()
-            .calculateDifficulty();
-
-        if (firstHeaderDiff == currentEpochDifficulty) {
-            requestedDiff = currentEpochDifficulty;
-        } else if (firstHeaderDiff == previousEpochDifficulty) {
-            requestedDiff = previousEpochDifficulty;
-        } else {
-            revert("Not at current or previous difficulty");
-        }
+        uint256 requestedDiff = determineRequestedDifficulty(
+            bitcoinHeaders,
+            currentEpochDifficulty,
+            previousEpochDifficulty
+        );
 
         uint256 observedDiff = bitcoinHeaders.validateHeaderChain();
 

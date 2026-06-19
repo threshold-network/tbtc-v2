@@ -3,7 +3,7 @@ import { randomBytes } from "crypto"
 import chai, { expect } from "chai"
 import { FakeContract, smock } from "@defi-wonderland/smock"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { BigNumber, ContractTransaction } from "ethers"
+import { BigNumber, BigNumberish, ContractTransaction } from "ethers"
 import {
   IBridge,
   IWormholeGateway,
@@ -28,6 +28,23 @@ const { lastBlockTime } = helpers.time
 // Just arbitrary values.
 const l1ChainId = 10
 const l2ChainId = 20
+
+/** `sendVaasToEvm` passes `VaaTransfer[]`; deep `eql` fails on mixed BigNumber impls. */
+function assertVaaTransferBatchArg(
+  arg: unknown,
+  expected: {
+    emitterChainId: number
+    emitterAddress: string
+    sequence: BigNumberish
+  }
+) {
+  const batch = arg as unknown[]
+  expect(batch.length).to.equal(1)
+  const v = batch[0] as [unknown, unknown, unknown]
+  expect(Number(v[0])).to.equal(expected.emitterChainId)
+  expect(v[1]).to.equal(expected.emitterAddress)
+  expect(BigNumber.from(v[2]).eq(expected.sequence)).to.be.true
+}
 
 describe("L1BTCDepositorWormhole", () => {
   const contractsFixture = async () => {
@@ -604,11 +621,11 @@ describe("L1BTCDepositorWormhole", () => {
             })
 
             it("should not store the deferred gas reimbursement", async () => {
-              expect(
-                await l1BtcDepositor.gasReimbursements(
-                  initializeDepositFixture.depositKey
-                )
-              ).to.eql([ethers.constants.AddressZero, BigNumber.from(0)])
+              const gr = await l1BtcDepositor.gasReimbursements(
+                initializeDepositFixture.depositKey
+              )
+              expect(gr.receiver).to.equal(ethers.constants.AddressZero)
+              expect(BigNumber.from(gr.gasSpent).eq(0)).to.be.true
             })
           })
 
@@ -811,11 +828,11 @@ describe("L1BTCDepositorWormhole", () => {
               })
 
               it("should not store the deferred gas reimbursement", async () => {
-                expect(
-                  await l1BtcDepositor.gasReimbursements(
-                    initializeDepositFixture.depositKey
-                  )
-                ).to.eql([ethers.constants.AddressZero, BigNumber.from(0)])
+                const gr = await l1BtcDepositor.gasReimbursements(
+                  initializeDepositFixture.depositKey
+                )
+                expect(gr.receiver).to.equal(ethers.constants.AddressZero)
+                expect(BigNumber.from(gr.gasSpent).eq(0)).to.be.true
               })
             }
           )
@@ -1269,15 +1286,13 @@ describe("L1BTCDepositorWormhole", () => {
                 expect(call.args[4]).to.equal(
                   await l1BtcDepositor.l2FinalizeDepositGasLimit()
                 )
-                expect(call.args[5]).to.eql([
-                  [
-                    l1ChainId,
-                    toWormholeAddress(
-                      wormholeTokenBridge.address.toLowerCase()
-                    ),
-                    BigNumber.from(transferSequence),
-                  ],
-                ])
+                assertVaaTransferBatchArg(call.args[5], {
+                  emitterChainId: l1ChainId,
+                  emitterAddress: toWormholeAddress(
+                    wormholeTokenBridge.address.toLowerCase()
+                  ),
+                  sequence: transferSequence,
+                })
                 expect(call.args[6]).to.equal(await l1BtcDepositor.l2ChainId())
                 expect(call.args[7]).to.equal(relayer.address)
               })
@@ -1477,15 +1492,13 @@ describe("L1BTCDepositorWormhole", () => {
                   expect(call.args[4]).to.equal(
                     await l1BtcDepositor.l2FinalizeDepositGasLimit()
                   )
-                  expect(call.args[5]).to.eql([
-                    [
-                      l1ChainId,
-                      toWormholeAddress(
-                        wormholeTokenBridge.address.toLowerCase()
-                      ),
-                      BigNumber.from(transferSequence),
-                    ],
-                  ])
+                  assertVaaTransferBatchArg(call.args[5], {
+                    emitterChainId: l1ChainId,
+                    emitterAddress: toWormholeAddress(
+                      wormholeTokenBridge.address.toLowerCase()
+                    ),
+                    sequence: transferSequence,
+                  })
                   expect(call.args[6]).to.equal(
                     await l1BtcDepositor.l2ChainId()
                   )
@@ -1720,15 +1733,13 @@ describe("L1BTCDepositorWormhole", () => {
                   expect(call.args[4]).to.equal(
                     await l1BtcDepositor.l2FinalizeDepositGasLimit()
                   )
-                  expect(call.args[5]).to.eql([
-                    [
-                      l1ChainId,
-                      toWormholeAddress(
-                        wormholeTokenBridge.address.toLowerCase()
-                      ),
-                      BigNumber.from(transferSequence),
-                    ],
-                  ])
+                  assertVaaTransferBatchArg(call.args[5], {
+                    emitterChainId: l1ChainId,
+                    emitterAddress: toWormholeAddress(
+                      wormholeTokenBridge.address.toLowerCase()
+                    ),
+                    sequence: transferSequence,
+                  })
                   expect(call.args[6]).to.equal(
                     await l1BtcDepositor.l2ChainId()
                   )
