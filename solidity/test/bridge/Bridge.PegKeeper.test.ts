@@ -88,6 +88,18 @@ describe("Bridge - Peg keeper", () => {
         .withArgs(thirdParty.address, true, await lastBlockTime())
     })
 
+    it("should reject overwriting a pending peg keeper update", async () => {
+      await bridgeGovernance
+        .connect(governance)
+        .beginPegKeeperUpdate(thirdParty.address, true)
+
+      await expect(
+        bridgeGovernance
+          .connect(governance)
+          .beginPegKeeperUpdate(deployer.address, false)
+      ).to.be.revertedWith("Peg keeper update already initiated")
+    })
+
     it("should require governance delay before finalizing peg keeper update", async () => {
       await bridgeGovernance
         .connect(governance)
@@ -276,6 +288,26 @@ describe("Bridge - Peg keeper", () => {
       ).to.be.reverted
     })
 
+    it("should reject zero address initial peg keeper", async () => {
+      const bridgeFactory = await getBridgeFactory()
+      const newImplementation = await bridgeFactory.deploy()
+      await newImplementation.deployed()
+
+      const proxyAdminWithUpgrade = await getProxyAdminWithUpgrade()
+      const upgradeData = bridgeFactory.interface.encodeFunctionData(
+        "initializeV6_ConfigurePegKeeper",
+        [AddressZero]
+      )
+
+      await expect(
+        proxyAdminWithUpgrade.upgradeAndCall(
+          bridge.address,
+          newImplementation.address,
+          upgradeData
+        )
+      ).to.be.reverted
+    })
+
     it("should configure peg keeper and disable rebate staking", async () => {
       await bridgeGovernance
         .connect(governance)
@@ -300,6 +332,9 @@ describe("Bridge - Peg keeper", () => {
       await expect(tx)
         .to.emit(bridge, "PegKeeperUpdated")
         .withArgs(thirdParty.address, true)
+      await expect(tx)
+        .to.emit(bridge, "RebateStakingRepaired")
+        .withArgs(rebateStaking.address, AddressZero)
 
       expect(await bridge.isPegKeeper(thirdParty.address)).to.be.true
       expect(await bridge.getRebateStaking()).to.equal(AddressZero)

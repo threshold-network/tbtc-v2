@@ -1592,6 +1592,11 @@ library BridgeGovernanceParameters {
         address _pegKeeper,
         bool _allowed
     ) external {
+        require(
+            self.pegKeeperChangeInitiated == 0,
+            "Peg keeper update already initiated"
+        );
+
         /* solhint-disable not-rely-on-time */
         self.pegKeeper = _pegKeeper;
         self.allowed = _allowed;
