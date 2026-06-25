@@ -22,6 +22,11 @@ library BridgeGovernanceParameters {
         uint256 treasuryChangeInitiated;
     }
 
+    struct PegKeeperData {
+        address newPegKeeper;
+        uint256 pegKeeperChangeInitiated;
+    }
+
     struct DepositData {
         uint64 newDepositDustThreshold;
         uint256 depositDustThresholdChangeInitiated;
@@ -330,6 +335,8 @@ library BridgeGovernanceParameters {
 
     event TreasuryUpdateStarted(address newTreasury, uint256 timestamp);
     event TreasuryUpdated(address treasury);
+    event PegKeeperUpdateStarted(address newPegKeeper, uint256 timestamp);
+    event PegKeeperUpdated(address pegKeeper);
 
     /// @notice Reverts if called before the governance delay elapses.
     /// @param changeInitiatedTimestamp Timestamp indicating the beginning
@@ -1570,5 +1577,37 @@ library BridgeGovernanceParameters {
 
         self.newTreasury = address(0);
         self.treasuryChangeInitiated = 0;
+    }
+
+    /// @notice Begins the peg keeper address update process.
+    /// @param _newPegKeeper New peg keeper address. Set to 0x0 to disable the
+    ///        fee exemption.
+    function beginPegKeeperUpdate(
+        PegKeeperData storage self,
+        address _newPegKeeper
+    ) external {
+        /* solhint-disable not-rely-on-time */
+        self.newPegKeeper = _newPegKeeper;
+        self.pegKeeperChangeInitiated = block.timestamp;
+        emit PegKeeperUpdateStarted(_newPegKeeper, block.timestamp);
+        /* solhint-enable not-rely-on-time */
+    }
+
+    /// @notice Finalizes the peg keeper address update process.
+    /// @dev Can be called after the governance delay elapses.
+    function finalizePegKeeperUpdate(
+        PegKeeperData storage self,
+        uint256 governanceDelay
+    )
+        external
+        onlyAfterGovernanceDelay(
+            self.pegKeeperChangeInitiated,
+            governanceDelay
+        )
+    {
+        emit PegKeeperUpdated(self.newPegKeeper);
+
+        self.newPegKeeper = address(0);
+        self.pegKeeperChangeInitiated = 0;
     }
 }

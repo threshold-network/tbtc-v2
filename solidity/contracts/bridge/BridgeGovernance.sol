@@ -32,6 +32,7 @@ contract BridgeGovernance is Ownable {
     using BridgeGovernanceParameters for BridgeGovernanceParameters.WalletData;
     using BridgeGovernanceParameters for BridgeGovernanceParameters.FraudData;
     using BridgeGovernanceParameters for BridgeGovernanceParameters.TreasuryData;
+    using BridgeGovernanceParameters for BridgeGovernanceParameters.PegKeeperData;
 
     BridgeGovernanceParameters.DepositData internal depositData;
     BridgeGovernanceParameters.RedemptionData internal redemptionData;
@@ -39,6 +40,7 @@ contract BridgeGovernance is Ownable {
     BridgeGovernanceParameters.WalletData internal walletData;
     BridgeGovernanceParameters.FraudData internal fraudData;
     BridgeGovernanceParameters.TreasuryData internal treasuryData;
+    BridgeGovernanceParameters.PegKeeperData internal pegKeeperData;
 
     Bridge internal bridge;
 
@@ -287,6 +289,8 @@ contract BridgeGovernance is Ownable {
 
     event TreasuryUpdateStarted(address newTreasury, uint256 timestamp);
     event TreasuryUpdated(address treasury);
+    event PegKeeperUpdateStarted(address newPegKeeper, uint256 timestamp);
+    event PegKeeperUpdated(address pegKeeper);
 
     constructor(Bridge _bridge, uint256 _governanceDelay) {
         bridge = _bridge;
@@ -1760,6 +1764,23 @@ contract BridgeGovernance is Ownable {
         address newTreasury = treasuryData.newTreasury;
         treasuryData.finalizeTreasuryUpdate(governanceDelay());
         bridge.updateTreasury(newTreasury);
+    }
+
+    /// @notice Begins the peg keeper address update process.
+    /// @dev Can be called only by the contract owner. Set the address to 0x0
+    ///      to disable the fee exemption.
+    /// @param _newPegKeeper New peg keeper address.
+    function beginPegKeeperUpdate(address _newPegKeeper) external onlyOwner {
+        pegKeeperData.beginPegKeeperUpdate(_newPegKeeper);
+    }
+
+    /// @notice Finalizes the peg keeper address update process.
+    /// @dev Can be called only by the contract owner, after the governance
+    ///      delay elapses.
+    function finalizePegKeeperUpdate() external onlyOwner {
+        address newPegKeeper = pegKeeperData.newPegKeeper;
+        pegKeeperData.finalizePegKeeperUpdate(governanceDelay());
+        bridge.updatePegKeeper(newPegKeeper);
     }
 
     /// @notice Gets the governance delay parameter.

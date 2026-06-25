@@ -343,13 +343,20 @@ library Deposit {
             : 0;
         deposit.extraData = extraData;
 
-        if (deposit.treasuryFee > 0 && self.rebateStaking != address(0)) {
-            deposit.treasuryFee = RebateStaking(self.rebateStaking)
-                .applyForRebate(
-                    deposit.depositor,
-                    deposit.treasuryFee,
-                    RebateStaking.TreasuryFeeType.Deposit
-                );
+        if (deposit.treasuryFee > 0) {
+            if (
+                self.pegKeeper != address(0) &&
+                deposit.depositor == self.pegKeeper
+            ) {
+                deposit.treasuryFee = 0;
+            } else if (self.rebateStaking != address(0)) {
+                deposit.treasuryFee = RebateStaking(self.rebateStaking)
+                    .applyForRebate(
+                        deposit.depositor,
+                        deposit.treasuryFee,
+                        RebateStaking.TreasuryFeeType.Deposit
+                    );
+            }
         }
 
         _emitDepositRevealedEvent(fundingTxHash, fundingOutputAmount, reveal);

@@ -325,6 +325,9 @@ library BridgeState {
         // governance wiring; changing it afterwards requires a dedicated
         // upgrade path of the Bridge implementation.
         address rebateStaking;
+        // Address of the DAO-designated peg keeper exempt from deposit and
+        // redemption treasury fees.
+        address pegKeeper;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
@@ -332,7 +335,7 @@ library BridgeState {
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
-        uint256[48] __gap;
+        uint256[47] __gap;
     }
 
     event DepositParametersUpdated(
@@ -384,6 +387,8 @@ library BridgeState {
     );
 
     event TreasuryUpdated(address treasury);
+
+    event PegKeeperUpdated(address pegKeeper);
 
     event RedemptionWatchtowerSet(address redemptionWatchtower);
 
@@ -844,6 +849,17 @@ library BridgeState {
 
         self.treasury = _treasury;
         emit TreasuryUpdated(_treasury);
+    }
+
+    /// @notice Updates the peg keeper address. The peg keeper is exempt from
+    ///         deposit and redemption treasury fees. Set to 0x0 to disable the
+    ///         fee exemption.
+    /// @param _pegKeeper New peg keeper address.
+    function updatePegKeeper(Storage storage self, address _pegKeeper)
+        internal
+    {
+        self.pegKeeper = _pegKeeper;
+        emit PegKeeperUpdated(_pegKeeper);
     }
 
     /// @notice Sets the redemption watchtower address.

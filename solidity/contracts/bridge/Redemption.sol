@@ -538,12 +538,20 @@ library Redemption {
         uint64 treasuryFee = self.redemptionTreasuryFeeDivisor > 0
             ? amount / self.redemptionTreasuryFeeDivisor
             : 0;
-        if (treasuryFee > 0 && self.rebateStaking != address(0)) {
-            treasuryFee = RebateStaking(self.rebateStaking).applyForRebate(
-                redeemer,
-                treasuryFee,
-                RebateStaking.TreasuryFeeType.Redemption
-            );
+        if (treasuryFee > 0) {
+            if (
+                self.pegKeeper != address(0) &&
+                balanceOwner == self.pegKeeper &&
+                redeemer == self.pegKeeper
+            ) {
+                treasuryFee = 0;
+            } else if (self.rebateStaking != address(0)) {
+                treasuryFee = RebateStaking(self.rebateStaking).applyForRebate(
+                    redeemer,
+                    treasuryFee,
+                    RebateStaking.TreasuryFeeType.Redemption
+                );
+            }
         }
         uint64 txMaxFee = self.redemptionTxMaxFee;
 

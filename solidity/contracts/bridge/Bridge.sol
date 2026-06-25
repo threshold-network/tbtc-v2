@@ -243,6 +243,7 @@ contract Bridge is
         address oldRebateStaking,
         address newRebateStaking
     );
+    event PegKeeperUpdated(address pegKeeper);
 
     /// @notice Emitted when a deposit's vault field is corrected via governance.
     /// @dev This event is used for transparency when fixing deposits that were
@@ -405,6 +406,27 @@ contract Bridge is
         self.rebateStaking = newRebateStaking;
 
         emit RebateStakingRepaired(oldRebateStaking, newRebateStaking);
+    }
+
+    /// @notice Configures the peg keeper during a proxy upgrade.
+    /// @param newPegKeeper The new peg keeper address. Set to 0x0 to leave the
+    ///        fee exemption disabled.
+    /// @param disableRebateStaking Set to true to disable the legacy rebate
+    ///        staking hook during the same upgrade.
+    /// @dev Uses reinitializer(6) to allow a one-time configuration of the peg
+    ///      keeper. This function can only be called once per proxy deployment.
+    function initializeV6_ConfigurePegKeeper(
+        address newPegKeeper,
+        bool disableRebateStaking
+    ) external reinitializer(6) {
+        self.updatePegKeeper(newPegKeeper);
+
+        if (disableRebateStaking) {
+            address oldRebateStaking = self.rebateStaking;
+            self.rebateStaking = address(0);
+
+            emit RebateStakingRepaired(oldRebateStaking, address(0));
+        }
     }
 
     /// @notice Used by the depositor to reveal information about their P2(W)SH
@@ -1611,6 +1633,14 @@ contract Bridge is
         self.updateTreasury(treasury);
     }
 
+    /// @notice Updates the peg keeper address. The peg keeper is exempt from
+    ///         deposit and redemption treasury fees.
+    /// @param pegKeeper New value of the peg keeper address. Set to 0x0 to
+    ///        disable the fee exemption.
+    function updatePegKeeper(address pegKeeper) external onlyGovernance {
+        self.updatePegKeeper(pegKeeper);
+    }
+
     /// @notice Collection of all revealed deposits indexed by
     ///         keccak256(fundingTxHash | fundingOutputIndex).
     ///         The fundingTxHash is bytes32 (ordered as in Bitcoin internally)
@@ -2035,6 +2065,12 @@ contract Bridge is
     /// @return Address of the rebate staking contract.
     function getRebateStaking() external view returns (address) {
         return self.rebateStaking;
+    }
+
+    /// @return Address of the peg keeper exempt from deposit and redemption
+    ///         treasury fees.
+    function getPegKeeper() external view returns (address) {
+        return self.pegKeeper;
     }
 
     /// @notice Sets the redemption watchtower address.
