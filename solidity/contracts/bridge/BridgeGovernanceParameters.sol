@@ -1623,7 +1623,7 @@ library BridgeGovernanceParameters {
     }
 
     /// @notice Cancels a pending peg keeper status update.
-    function cancelPegKeeperUpdate(PegKeeperData storage self) external {
+    function cancelPegKeeperUpdate(PegKeeperData storage self) internal {
         require(
             self.pegKeeperChangeInitiated != 0,
             "Peg keeper update not initiated"
