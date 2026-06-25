@@ -268,39 +268,24 @@ describe("Bridge - Peg keeper", () => {
       await restoreSnapshot()
     })
 
+    it("should reject initializer from non-proxy-admin", async () => {
+      await expect(
+        bridge
+          .connect(thirdParty)
+          .initializeV6_ConfigurePegKeeper(thirdParty.address)
+      ).to.be.reverted
+    })
+
     it("should configure peg keeper and disable rebate staking", async () => {
       await bridgeGovernance
         .connect(governance)
         .setRebateStaking(rebateStaking.address)
 
-      const bridgeLibraries = {
-        Deposit: (await helpers.contracts.getContract("Deposit")).address,
-        DepositSweep: (await helpers.contracts.getContract("DepositSweep"))
-          .address,
-        Redemption: (await helpers.contracts.getContract("Redemption")).address,
-        Wallets: (await helpers.contracts.getContract("Wallets")).address,
-        Fraud: (await helpers.contracts.getContract("Fraud")).address,
-        MovingFunds: (await helpers.contracts.getContract("MovingFunds"))
-          .address,
-      }
-
-      const bridgeFactory = await ethers.getContractFactory("BridgeStub", {
-        signer: deployer,
-        libraries: bridgeLibraries,
-      })
-
+      const bridgeFactory = await getBridgeFactory()
       const newImplementation = await bridgeFactory.deploy()
       await newImplementation.deployed()
 
-      const proxyAdmin = await upgrades.admin.getInstance()
-      const proxyAdminWithUpgrade = await ethers.getContractAt(
-        [
-          "function upgradeAndCall(address proxy, address implementation, bytes data)",
-        ],
-        proxyAdmin.address,
-        esdm
-      )
-
+      const proxyAdminWithUpgrade = await getProxyAdminWithUpgrade()
       const upgradeData = bridgeFactory.interface.encodeFunctionData(
         "initializeV6_ConfigurePegKeeper",
         [thirdParty.address]
@@ -315,9 +300,6 @@ describe("Bridge - Peg keeper", () => {
       await expect(tx)
         .to.emit(bridge, "PegKeeperUpdated")
         .withArgs(thirdParty.address, true)
-      await expect(tx)
-        .to.emit(bridge, "RebateStakingRepaired")
-        .withArgs(rebateStaking.address, AddressZero)
 
       expect(await bridge.isPegKeeper(thirdParty.address)).to.be.true
       expect(await bridge.getRebateStaking()).to.equal(AddressZero)
@@ -330,6 +312,35 @@ describe("Bridge - Peg keeper", () => {
       .beginPegKeeperUpdate(pegKeeper, allowed)
     await increaseTime(constants.governanceDelay)
     await bridgeGovernance.connect(governance).finalizePegKeeperUpdate()
+  }
+
+  async function getBridgeFactory() {
+    const bridgeLibraries = {
+      Deposit: (await helpers.contracts.getContract("Deposit")).address,
+      DepositSweep: (await helpers.contracts.getContract("DepositSweep"))
+        .address,
+      Redemption: (await helpers.contracts.getContract("Redemption")).address,
+      Wallets: (await helpers.contracts.getContract("Wallets")).address,
+      Fraud: (await helpers.contracts.getContract("Fraud")).address,
+      MovingFunds: (await helpers.contracts.getContract("MovingFunds")).address,
+    }
+
+    return ethers.getContractFactory("BridgeStub", {
+      signer: deployer,
+      libraries: bridgeLibraries,
+    })
+  }
+
+  async function getProxyAdminWithUpgrade() {
+    const proxyAdmin = await upgrades.admin.getInstance()
+
+    return ethers.getContractAt(
+      [
+        "function upgradeAndCall(address proxy, address implementation, bytes data)",
+      ],
+      proxyAdmin.address,
+      esdm
+    )
   }
 
   async function setLiveWallet(walletPublicKeyHash: string) {

@@ -160,6 +160,7 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
     // solhint-disable-next-line func-name-mixedcase
     function initializeV2_Deprecate() external reinitializer(2) {
         if (msg.sender != proxyAdmin()) revert CallerNotProxyAdmin();
+        if (deprecated) return;
 
         _deprecate();
     }
@@ -520,8 +521,6 @@ contract RebateStaking is Initializable, OwnableUpgradeable {
         stakeInfo.stakedAmount = 0;
         stakeInfo.unstakingAmount = 0;
         stakeInfo.unstakingTimestamp = 0;
-        stakeInfo.rebateTreasuryFeeMode = RebateTreasuryFeeMode.Both;
-        stakeInfo.rollingWindowStartIndex = 0;
         if (stakeInfo.delegatee != address(0)) {
             delegates[stakeInfo.delegatee] = address(0);
             stakeInfo.delegatee = address(0);

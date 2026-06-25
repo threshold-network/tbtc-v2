@@ -1547,6 +1547,38 @@ describe("RebateStaking", () => {
       )
     })
 
+    it("should allow upgrade deprecation initializer after owner deprecation", async () => {
+      await rebateStaking.connect(deployer).deprecate()
+
+      const rebateStakingFactory = await ethers.getContractFactory(
+        "RebateStaking",
+        deployer
+      )
+      const newImplementation = await rebateStakingFactory.deploy()
+      await newImplementation.deployed()
+
+      const proxyAdmin = await upgrades.admin.getInstance()
+      const proxyAdminWithUpgrade = await ethers.getContractAt(
+        [
+          "function upgradeAndCall(address proxy, address implementation, bytes data)",
+        ],
+        proxyAdmin.address,
+        esdm
+      )
+
+      const upgradeData = rebateStakingFactory.interface.encodeFunctionData(
+        "initializeV2_Deprecate"
+      )
+
+      await proxyAdminWithUpgrade.upgradeAndCall(
+        rebateStaking.address,
+        newImplementation.address,
+        upgradeData
+      )
+
+      expect(await rebateStaking.deprecated()).to.be.equal(true)
+    })
+
     it("should not allow deprecation twice", async () => {
       await rebateStaking.connect(deployer).deprecate()
 
@@ -1643,7 +1675,7 @@ describe("RebateStaking", () => {
       )
       expect(
         await rebateStaking.getRebateTreasuryFeeMode(thirdParty.address)
-      ).to.be.equal(rebateTreasuryFeeMode.both)
+      ).to.be.equal(rebateTreasuryFeeMode.depositOnly)
 
       await expect(tx)
         .to.emit(rebateStaking, "StakeWithdrawn")

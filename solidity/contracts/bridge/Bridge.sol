@@ -416,12 +416,23 @@ contract Bridge is
         external
         reinitializer(6)
     {
+        // solhint-disable-next-line no-inline-assembly
+        assembly {
+            if iszero(
+                eq(
+                    caller(),
+                    sload(
+                        0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103
+                    )
+                )
+            ) {
+                revert(0, 0)
+            }
+        }
+
         self.updatePegKeeper(initialPegKeeper, true);
 
-        address oldRebateStaking = self.rebateStaking;
         self.rebateStaking = address(0);
-
-        emit RebateStakingRepaired(oldRebateStaking, address(0));
     }
 
     /// @notice Used by the depositor to reveal information about their P2(W)SH
