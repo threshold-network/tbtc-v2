@@ -344,10 +344,7 @@ library Deposit {
         deposit.extraData = extraData;
 
         if (deposit.treasuryFee > 0) {
-            if (
-                self.pegKeeper != address(0) &&
-                deposit.depositor == self.pegKeeper
-            ) {
+            if (self.pegKeepers[deposit.depositor]) {
                 deposit.treasuryFee = 0;
             } else if (self.rebateStaking != address(0)) {
                 deposit.treasuryFee = RebateStaking(self.rebateStaking)

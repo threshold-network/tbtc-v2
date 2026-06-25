@@ -289,8 +289,12 @@ contract BridgeGovernance is Ownable {
 
     event TreasuryUpdateStarted(address newTreasury, uint256 timestamp);
     event TreasuryUpdated(address treasury);
-    event PegKeeperUpdateStarted(address newPegKeeper, uint256 timestamp);
-    event PegKeeperUpdated(address pegKeeper);
+    event PegKeeperUpdateStarted(
+        address pegKeeper,
+        bool allowed,
+        uint256 timestamp
+    );
+    event PegKeeperUpdated(address pegKeeper, bool allowed);
 
     constructor(Bridge _bridge, uint256 _governanceDelay) {
         bridge = _bridge;
@@ -1766,21 +1770,25 @@ contract BridgeGovernance is Ownable {
         bridge.updateTreasury(newTreasury);
     }
 
-    /// @notice Begins the peg keeper address update process.
-    /// @dev Can be called only by the contract owner. Set the address to 0x0
-    ///      to disable the fee exemption.
-    /// @param _newPegKeeper New peg keeper address.
-    function beginPegKeeperUpdate(address _newPegKeeper) external onlyOwner {
-        pegKeeperData.beginPegKeeperUpdate(_newPegKeeper);
+    /// @notice Begins the peg keeper status update process.
+    /// @dev Can be called only by the contract owner.
+    /// @param _pegKeeper Peg keeper address.
+    /// @param _allowed True if the address should be allowed, false otherwise.
+    function beginPegKeeperUpdate(address _pegKeeper, bool _allowed)
+        external
+        onlyOwner
+    {
+        pegKeeperData.beginPegKeeperUpdate(_pegKeeper, _allowed);
     }
 
-    /// @notice Finalizes the peg keeper address update process.
+    /// @notice Finalizes the peg keeper status update process.
     /// @dev Can be called only by the contract owner, after the governance
     ///      delay elapses.
     function finalizePegKeeperUpdate() external onlyOwner {
-        address newPegKeeper = pegKeeperData.newPegKeeper;
+        address pegKeeper = pegKeeperData.pegKeeper;
+        bool allowed = pegKeeperData.allowed;
         pegKeeperData.finalizePegKeeperUpdate(governanceDelay());
-        bridge.updatePegKeeper(newPegKeeper);
+        bridge.updatePegKeeper(pegKeeper, allowed);
     }
 
     /// @notice Gets the governance delay parameter.

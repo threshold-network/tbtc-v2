@@ -325,9 +325,9 @@ library BridgeState {
         // governance wiring; changing it afterwards requires a dedicated
         // upgrade path of the Bridge implementation.
         address rebateStaking;
-        // Address of the DAO-designated peg keeper exempt from deposit and
-        // redemption treasury fees.
-        address pegKeeper;
+        // DAO-designated peg keepers exempt from deposit and redemption
+        // treasury fees.
+        mapping(address => bool) pegKeepers;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
@@ -388,7 +388,7 @@ library BridgeState {
 
     event TreasuryUpdated(address treasury);
 
-    event PegKeeperUpdated(address pegKeeper);
+    event PegKeeperUpdated(address pegKeeper, bool allowed);
 
     event RedemptionWatchtowerSet(address redemptionWatchtower);
 
@@ -851,15 +851,17 @@ library BridgeState {
         emit TreasuryUpdated(_treasury);
     }
 
-    /// @notice Updates the peg keeper address. The peg keeper is exempt from
-    ///         deposit and redemption treasury fees. Set to 0x0 to disable the
-    ///         fee exemption.
-    /// @param _pegKeeper New peg keeper address.
-    function updatePegKeeper(Storage storage self, address _pegKeeper)
-        internal
-    {
-        self.pegKeeper = _pegKeeper;
-        emit PegKeeperUpdated(_pegKeeper);
+    /// @notice Updates a peg keeper status. Peg keepers are exempt from
+    ///         deposit and redemption treasury fees.
+    /// @param _pegKeeper Peg keeper address.
+    /// @param _allowed True if the address should be allowed, false otherwise.
+    function updatePegKeeper(
+        Storage storage self,
+        address _pegKeeper,
+        bool _allowed
+    ) internal {
+        self.pegKeepers[_pegKeeper] = _allowed;
+        emit PegKeeperUpdated(_pegKeeper, _allowed);
     }
 
     /// @notice Sets the redemption watchtower address.

@@ -23,7 +23,8 @@ library BridgeGovernanceParameters {
     }
 
     struct PegKeeperData {
-        address newPegKeeper;
+        address pegKeeper;
+        bool allowed;
         uint256 pegKeeperChangeInitiated;
     }
 
@@ -335,8 +336,12 @@ library BridgeGovernanceParameters {
 
     event TreasuryUpdateStarted(address newTreasury, uint256 timestamp);
     event TreasuryUpdated(address treasury);
-    event PegKeeperUpdateStarted(address newPegKeeper, uint256 timestamp);
-    event PegKeeperUpdated(address pegKeeper);
+    event PegKeeperUpdateStarted(
+        address pegKeeper,
+        bool allowed,
+        uint256 timestamp
+    );
+    event PegKeeperUpdated(address pegKeeper, bool allowed);
 
     /// @notice Reverts if called before the governance delay elapses.
     /// @param changeInitiatedTimestamp Timestamp indicating the beginning
@@ -1579,35 +1584,35 @@ library BridgeGovernanceParameters {
         self.treasuryChangeInitiated = 0;
     }
 
-    /// @notice Begins the peg keeper address update process.
-    /// @param _newPegKeeper New peg keeper address. Set to 0x0 to disable the
-    ///        fee exemption.
+    /// @notice Begins the peg keeper status update process.
+    /// @param _pegKeeper Peg keeper address.
+    /// @param _allowed True if the address should be allowed, false otherwise.
     function beginPegKeeperUpdate(
         PegKeeperData storage self,
-        address _newPegKeeper
+        address _pegKeeper,
+        bool _allowed
     ) external {
         /* solhint-disable not-rely-on-time */
-        self.newPegKeeper = _newPegKeeper;
+        self.pegKeeper = _pegKeeper;
+        self.allowed = _allowed;
         self.pegKeeperChangeInitiated = block.timestamp;
-        emit PegKeeperUpdateStarted(_newPegKeeper, block.timestamp);
+        emit PegKeeperUpdateStarted(_pegKeeper, _allowed, block.timestamp);
         /* solhint-enable not-rely-on-time */
     }
 
-    /// @notice Finalizes the peg keeper address update process.
+    /// @notice Finalizes the peg keeper status update process.
     /// @dev Can be called after the governance delay elapses.
     function finalizePegKeeperUpdate(
         PegKeeperData storage self,
         uint256 governanceDelay
     )
         external
-        onlyAfterGovernanceDelay(
-            self.pegKeeperChangeInitiated,
-            governanceDelay
-        )
+        onlyAfterGovernanceDelay(self.pegKeeperChangeInitiated, governanceDelay)
     {
-        emit PegKeeperUpdated(self.newPegKeeper);
+        emit PegKeeperUpdated(self.pegKeeper, self.allowed);
 
-        self.newPegKeeper = address(0);
+        self.pegKeeper = address(0);
+        self.allowed = false;
         self.pegKeeperChangeInitiated = 0;
     }
 }

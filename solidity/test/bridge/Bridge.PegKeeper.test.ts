@@ -72,26 +72,26 @@ describe("Bridge - Peg keeper", () => {
       await expect(
         bridgeGovernance
           .connect(thirdParty)
-          .beginPegKeeperUpdate(thirdParty.address)
+          .beginPegKeeperUpdate(thirdParty.address, true)
       ).to.be.revertedWith("Ownable: caller is not the owner")
     })
 
     it("should begin peg keeper update without applying it", async () => {
       const tx = await bridgeGovernance
         .connect(governance)
-        .beginPegKeeperUpdate(thirdParty.address)
+        .beginPegKeeperUpdate(thirdParty.address, true)
 
-      expect(await bridge.getPegKeeper()).to.equal(AddressZero)
+      expect(await bridge.isPegKeeper(thirdParty.address)).to.be.false
 
       await expect(tx)
         .to.emit(bridgeGovernance, "PegKeeperUpdateStarted")
-        .withArgs(thirdParty.address, await lastBlockTime())
+        .withArgs(thirdParty.address, true, await lastBlockTime())
     })
 
     it("should require governance delay before finalizing peg keeper update", async () => {
       await bridgeGovernance
         .connect(governance)
-        .beginPegKeeperUpdate(thirdParty.address)
+        .beginPegKeeperUpdate(thirdParty.address, true)
 
       await increaseTime(constants.governanceDelay - 60)
 
@@ -103,7 +103,7 @@ describe("Bridge - Peg keeper", () => {
     it("should finalize peg keeper update", async () => {
       await bridgeGovernance
         .connect(governance)
-        .beginPegKeeperUpdate(thirdParty.address)
+        .beginPegKeeperUpdate(thirdParty.address, true)
 
       await increaseTime(constants.governanceDelay)
 
@@ -111,26 +111,39 @@ describe("Bridge - Peg keeper", () => {
         .connect(governance)
         .finalizePegKeeperUpdate()
 
-      expect(await bridge.getPegKeeper()).to.equal(thirdParty.address)
+      expect(await bridge.isPegKeeper(thirdParty.address)).to.be.true
 
       await expect(tx)
         .to.emit(bridgeGovernance, "PegKeeperUpdated")
-        .withArgs(thirdParty.address)
+        .withArgs(thirdParty.address, true)
       await expect(tx)
         .to.emit(bridge, "PegKeeperUpdated")
-        .withArgs(thirdParty.address)
+        .withArgs(thirdParty.address, true)
     })
 
-    it("should allow disabling peg keeper", async () => {
+    it("should allow removing a peg keeper", async () => {
       await setPegKeeper(thirdParty.address)
 
       await bridgeGovernance
         .connect(governance)
-        .beginPegKeeperUpdate(AddressZero)
+        .beginPegKeeperUpdate(thirdParty.address, false)
       await increaseTime(constants.governanceDelay)
       await bridgeGovernance.connect(governance).finalizePegKeeperUpdate()
 
-      expect(await bridge.getPegKeeper()).to.equal(AddressZero)
+      expect(await bridge.isPegKeeper(thirdParty.address)).to.be.false
+    })
+
+    it("should allow multiple peg keepers", async () => {
+      await setPegKeeper(thirdParty.address)
+      await setPegKeeper(deployer.address)
+
+      expect(await bridge.isPegKeeper(thirdParty.address)).to.be.true
+      expect(await bridge.isPegKeeper(deployer.address)).to.be.true
+
+      await setPegKeeper(thirdParty.address, false)
+
+      expect(await bridge.isPegKeeper(thirdParty.address)).to.be.false
+      expect(await bridge.isPegKeeper(deployer.address)).to.be.true
     })
   })
 
@@ -255,7 +268,7 @@ describe("Bridge - Peg keeper", () => {
       await restoreSnapshot()
     })
 
-    it("should configure peg keeper and optionally disable rebate staking", async () => {
+    it("should configure peg keeper and disable rebate staking", async () => {
       await bridgeGovernance
         .connect(governance)
         .setRebateStaking(rebateStaking.address)
@@ -290,7 +303,7 @@ describe("Bridge - Peg keeper", () => {
 
       const upgradeData = bridgeFactory.interface.encodeFunctionData(
         "initializeV6_ConfigurePegKeeper",
-        [thirdParty.address, true]
+        [thirdParty.address]
       )
 
       const tx = await proxyAdminWithUpgrade.upgradeAndCall(
@@ -301,18 +314,20 @@ describe("Bridge - Peg keeper", () => {
 
       await expect(tx)
         .to.emit(bridge, "PegKeeperUpdated")
-        .withArgs(thirdParty.address)
+        .withArgs(thirdParty.address, true)
       await expect(tx)
         .to.emit(bridge, "RebateStakingRepaired")
         .withArgs(rebateStaking.address, AddressZero)
 
-      expect(await bridge.getPegKeeper()).to.equal(thirdParty.address)
+      expect(await bridge.isPegKeeper(thirdParty.address)).to.be.true
       expect(await bridge.getRebateStaking()).to.equal(AddressZero)
     })
   })
 
-  async function setPegKeeper(pegKeeper: string) {
-    await bridgeGovernance.connect(governance).beginPegKeeperUpdate(pegKeeper)
+  async function setPegKeeper(pegKeeper: string, allowed = true) {
+    await bridgeGovernance
+      .connect(governance)
+      .beginPegKeeperUpdate(pegKeeper, allowed)
     await increaseTime(constants.governanceDelay)
     await bridgeGovernance.connect(governance).finalizePegKeeperUpdate()
   }

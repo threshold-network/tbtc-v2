@@ -539,11 +539,7 @@ library Redemption {
             ? amount / self.redemptionTreasuryFeeDivisor
             : 0;
         if (treasuryFee > 0) {
-            if (
-                self.pegKeeper != address(0) &&
-                balanceOwner == self.pegKeeper &&
-                redeemer == self.pegKeeper
-            ) {
+            if (balanceOwner == redeemer && self.pegKeepers[redeemer]) {
                 treasuryFee = 0;
             } else if (self.rebateStaking != address(0)) {
                 treasuryFee = RebateStaking(self.rebateStaking).applyForRebate(
