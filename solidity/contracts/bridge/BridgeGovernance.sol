@@ -294,6 +294,7 @@ contract BridgeGovernance is Ownable {
         bool allowed,
         uint256 timestamp
     );
+    event PegKeeperUpdateCanceled(address pegKeeper, bool allowed);
     event PegKeeperUpdated(address pegKeeper, bool allowed);
 
     constructor(Bridge _bridge, uint256 _governanceDelay) {
@@ -1789,6 +1790,12 @@ contract BridgeGovernance is Ownable {
         bool allowed = pegKeeperData.allowed;
         pegKeeperData.finalizePegKeeperUpdate(governanceDelay());
         bridge.updatePegKeeper(pegKeeper, allowed);
+    }
+
+    /// @notice Cancels a pending peg keeper status update.
+    /// @dev Can be called only by the contract owner.
+    function cancelPegKeeperUpdate() external onlyOwner {
+        pegKeeperData.cancelPegKeeperUpdate();
     }
 
     /// @notice Gets the governance delay parameter.

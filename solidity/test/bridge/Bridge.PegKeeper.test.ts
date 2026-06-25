@@ -100,6 +100,45 @@ describe("Bridge - Peg keeper", () => {
       ).to.be.revertedWith("Peg keeper update already initiated")
     })
 
+    it("should cancel a pending peg keeper update", async () => {
+      await bridgeGovernance
+        .connect(governance)
+        .beginPegKeeperUpdate(thirdParty.address, true)
+
+      const tx = await bridgeGovernance
+        .connect(governance)
+        .cancelPegKeeperUpdate()
+
+      await expect(tx)
+        .to.emit(bridgeGovernance, "PegKeeperUpdateCanceled")
+        .withArgs(thirdParty.address, true)
+
+      await bridgeGovernance
+        .connect(governance)
+        .beginPegKeeperUpdate(deployer.address, true)
+      await increaseTime(constants.governanceDelay)
+      await bridgeGovernance.connect(governance).finalizePegKeeperUpdate()
+
+      expect(await bridge.isPegKeeper(thirdParty.address)).to.be.false
+      expect(await bridge.isPegKeeper(deployer.address)).to.be.true
+    })
+
+    it("should require owner to cancel peg keeper update", async () => {
+      await bridgeGovernance
+        .connect(governance)
+        .beginPegKeeperUpdate(thirdParty.address, true)
+
+      await expect(
+        bridgeGovernance.connect(thirdParty).cancelPegKeeperUpdate()
+      ).to.be.revertedWith("Ownable: caller is not the owner")
+    })
+
+    it("should require a pending peg keeper update to cancel", async () => {
+      await expect(
+        bridgeGovernance.connect(governance).cancelPegKeeperUpdate()
+      ).to.be.revertedWith("Peg keeper update not initiated")
+    })
+
     it("should require governance delay before finalizing peg keeper update", async () => {
       await bridgeGovernance
         .connect(governance)
@@ -338,6 +377,35 @@ describe("Bridge - Peg keeper", () => {
 
       expect(await bridge.isPegKeeper(thirdParty.address)).to.be.true
       expect(await bridge.getRebateStaking()).to.equal(AddressZero)
+    })
+
+    it("should prevent rebate staking from being re-enabled after initializer", async () => {
+      await bridgeGovernance
+        .connect(governance)
+        .setRebateStaking(rebateStaking.address)
+
+      const bridgeFactory = await getBridgeFactory()
+      const newImplementation = await bridgeFactory.deploy()
+      await newImplementation.deployed()
+
+      const proxyAdminWithUpgrade = await getProxyAdminWithUpgrade()
+      const upgradeData = bridgeFactory.interface.encodeFunctionData(
+        "initializeV6_ConfigurePegKeeper",
+        [thirdParty.address]
+      )
+
+      await proxyAdminWithUpgrade.upgradeAndCall(
+        bridge.address,
+        newImplementation.address,
+        upgradeData
+      )
+
+      expect(await bridge.getRebateStaking()).to.equal(AddressZero)
+      await expect(
+        bridgeGovernance
+          .connect(governance)
+          .setRebateStaking(rebateStaking.address)
+      ).to.be.revertedWith("Rebate staking disabled")
     })
   })
 

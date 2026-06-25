@@ -341,6 +341,7 @@ library BridgeGovernanceParameters {
         bool allowed,
         uint256 timestamp
     );
+    event PegKeeperUpdateCanceled(address pegKeeper, bool allowed);
     event PegKeeperUpdated(address pegKeeper, bool allowed);
 
     /// @notice Reverts if called before the governance delay elapses.
@@ -1615,6 +1616,20 @@ library BridgeGovernanceParameters {
         onlyAfterGovernanceDelay(self.pegKeeperChangeInitiated, governanceDelay)
     {
         emit PegKeeperUpdated(self.pegKeeper, self.allowed);
+
+        self.pegKeeper = address(0);
+        self.allowed = false;
+        self.pegKeeperChangeInitiated = 0;
+    }
+
+    /// @notice Cancels a pending peg keeper status update.
+    function cancelPegKeeperUpdate(PegKeeperData storage self) external {
+        require(
+            self.pegKeeperChangeInitiated != 0,
+            "Peg keeper update not initiated"
+        );
+
+        emit PegKeeperUpdateCanceled(self.pegKeeper, self.allowed);
 
         self.pegKeeper = address(0);
         self.allowed = false;

@@ -325,6 +325,8 @@ library BridgeState {
         // governance wiring; changing it afterwards requires a dedicated
         // upgrade path of the Bridge implementation.
         address rebateStaking;
+        // Permanently disables one-time rebate staking wiring.
+        bool rebateStakingDisabled;
         // DAO-designated peg keepers exempt from deposit and redemption
         // treasury fees.
         mapping(address => bool) pegKeepers;
@@ -900,6 +902,8 @@ library BridgeState {
     function setRebateStaking(Storage storage self, address _rebateStaking)
         internal
     {
+        require(!self.rebateStakingDisabled, "Rebate staking disabled");
+
         require(self.rebateStaking == address(0), "Rebate staking already set");
 
         require(

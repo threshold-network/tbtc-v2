@@ -434,6 +434,7 @@ contract Bridge is
         self.updatePegKeeper(initialPegKeeper, true);
 
         emit RebateStakingRepaired(self.rebateStaking, address(0));
+        self.rebateStakingDisabled = true;
         self.rebateStaking = address(0);
     }
 
