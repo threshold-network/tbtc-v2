@@ -111,6 +111,12 @@ contract P2TRSignatureFraudRouter {
     ///         make any future cross-router migration straightforward.
     mapping(uint256 => Fraud.FraudChallenge) public fraudChallenges;
 
+    /// @notice Number of open (submitted but not yet resolved) P2TR fraud
+    ///         challenges. Mirrors EcdsaFraudRouter.openFraudChallengeCount so
+    ///         governance can assert on-chain that no P2TR challenge is open
+    ///         before retiring the slash-on-timeout callback.
+    uint256 public openFraudChallengeCount;
+
     enum P2TRFraudAction {
         Submit,
         Defeat,
@@ -192,7 +198,16 @@ contract P2TRSignatureFraudRouter {
                 fraudChallenges[challengeKeys[i]].reportedAt == 0,
                 "Challenge already migrated"
             );
+            if (!data[i].resolved) {
+                require(
+                    data[i].reportedAt > 0,
+                    "Unresolved challenge not reported"
+                );
+            }
             fraudChallenges[challengeKeys[i]] = data[i];
+            if (!data[i].resolved) {
+                openFraudChallengeCount++;
+            }
             totalDeposit += data[i].depositAmount;
             emit P2TRFraudChallengeMigratedFromBridge(
                 challengeKeys[i],
@@ -282,6 +297,7 @@ contract P2TRSignatureFraudRouter {
         /* solhint-disable-next-line not-rely-on-time */
         challenge.reportedAt = uint32(block.timestamp);
         challenge.resolved = false;
+        openFraudChallengeCount++;
 
         emit P2TRSignatureFraudChallengeSubmitted(
             payload.walletID,
@@ -315,6 +331,7 @@ contract P2TRSignatureFraudRouter {
         );
 
         challenge.resolved = true;
+        openFraudChallengeCount--;
 
         address treasury = b.treasury();
         /* solhint-disable avoid-low-level-calls */
@@ -357,6 +374,7 @@ contract P2TRSignatureFraudRouter {
         );
 
         challenge.resolved = true;
+        openFraudChallengeCount--;
 
         // The return value is intentionally ignored: a reverting
         // challenger fallback self-griefs the refund but must not block
