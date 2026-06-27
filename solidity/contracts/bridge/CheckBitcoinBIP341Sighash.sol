@@ -43,6 +43,19 @@ library CheckBitcoinBIP341Sighash {
     /// @param signedInputIndex Index of the input whose key-path signature is
     ///        being checked.
     /// @param sighashType Supported Taproot sighash type: DEFAULT or ALL.
+    /// @dev Scope and KNOWN coverage limitation: this verifier reconstructs only
+    ///      Taproot KEY-PATH spends signed with SIGHASH_DEFAULT or SIGHASH_ALL and
+    ///      no witness annex -- the form honest tBTC wallet operations (sweeps,
+    ///      redemptions, moving-funds) use. A signature using another sighash mode
+    ///      (NONE/SINGLE/ANYONECANPAY), a script-path spend, or an annex cannot be
+    ///      reconstructed here, so a P2TR signature-fraud proof for such a spend
+    ///      cannot be built and the timeout path (P2TRSignatureFraudRouter ->
+    ///      Bridge.slashWalletForP2TRFraud) cannot be reached for it. This is a
+    ///      coverage gap of the on-chain fraud proof, NOT a claim that such spends
+    ///      are harmless: it is a bypass of the P2TR fraud/slashing path for those
+    ///      signing modes. Closing it requires extending the sighash
+    ///      reconstruction to the remaining modes (SINGLE/ANYONECANPAY also need a
+    ///      richer challenge payload carrying per-input/-output context).
     function computeKeyPathSighash(
         uint32 version,
         uint32 locktime,
