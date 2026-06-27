@@ -31,10 +31,12 @@ import { Transaction } from "bitcoinjs-lib"
 import {
   FileBackedP2TRBridgeLifecycleScanCursorStore,
   FileBackedP2TRWatchtowerChallengeRecordPersistence,
+  P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV,
   P2TRSignatureFraudWatchtowerService,
   P2TRSignatureFraudWatchtowerCycleReport,
   createFileBackedP2TRBridgeLifecycleEventSource,
   createFileBackedP2TRSignatureFraudWatchtowerRuntime,
+  loadP2TRSignatureFraudWatchtowerRuntimeConfig,
   runP2TRSignatureFraudWatchtowerLoop,
 } from "../src/index.js"
 import type {
@@ -104,6 +106,37 @@ const draftSingleProcessRehearsalSubmission = {
   indexingStoreProfile: "single-process-rehearsal" as const,
   allowSingleProcessRehearsalSubmission: true,
 }
+
+// A complete submission-mode environment for the environment-backed runtime
+// builder. The classifier is intentionally absent because env vars cannot
+// supply the code predicate; the builder must receive it through options.
+const submissionRuntimeEnv = () => ({
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.stateFilePath]:
+    "/tmp/p2tr-watchtower-state.json",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.walletIDs]: `0x${"11".repeat(32)}`,
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submitChallenges]: "true",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.allowFileBackedSubmission]: "true",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submissionAllowedSpendTypes]:
+    P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.bridgeLifecycleCursorFilePath]:
+    "/tmp/p2tr-bridge-lifecycle-cursor.json",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.bridgeLifecycleConfirmationDepth]: "12",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.bridgeLifecycleMaxBlockRange]: "5000",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.bridgeLifecycleRequireCursorBlockHash]:
+    "true",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.bridgeChallengeChainID]: "11155111",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.bridgeChallengeBridgeAddress]:
+    "0x1111111111111111111111111111111111111111",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.maxRawTransactionBytes]: "10000",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.maxInputs]: "2",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.maxOutputs]: "2",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.maxScriptPubKeyBytes]: "34",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.maxSubmissionAttempts]: "3",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submissionAttemptLimitAlertCode]:
+    "submission-attempt-limit",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submissionAttemptLimitAlertMessage]:
+    "manual intervention required",
+})
 
 const transactionalChallengeRecordPersistence = (
   transactionalStoreID = "production-indexing-store"
@@ -833,6 +866,47 @@ test("wires file-backed runtime config into service and loop options", async () 
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
+})
+
+test("builds an environment-backed submission runtime with an injected classifier", () => {
+  const config = loadP2TRSignatureFraudWatchtowerRuntimeConfig(
+    submissionRuntimeEnv()
+  )
+
+  assert.deepEqual(config.service.submissionPolicy, {
+    allowedSpendTypes: [P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION],
+  })
+  assert.equal(config.service.spendTypeClassifier, undefined)
+
+  const runtime = createFileBackedP2TRSignatureFraudWatchtowerRuntime(
+    config,
+    {
+      bitcoinClient: {} as BitcoinClient,
+      challengeSubmitter: new FakeSubmitter(),
+      transactionSource: emptyTransactionSource,
+      bridgeLifecycleEventSource: emptyBridgeLifecycleSource,
+    },
+    { spendTypeClassifier: () => P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION }
+  )
+
+  assert.ok(runtime.service instanceof P2TRSignatureFraudWatchtowerService)
+})
+
+test("rejects an environment-backed submission runtime without an injected classifier", () => {
+  const config = loadP2TRSignatureFraudWatchtowerRuntimeConfig(
+    submissionRuntimeEnv()
+  )
+
+  assert.throws(
+    () =>
+      createFileBackedP2TRSignatureFraudWatchtowerRuntime(config, {
+        bitcoinClient: {} as BitcoinClient,
+        challengeSubmitter: new FakeSubmitter(),
+        transactionSource: emptyTransactionSource,
+        bridgeLifecycleEventSource: emptyBridgeLifecycleSource,
+      }),
+    /requires an injected spend-type classifier/
+  )
 })
 
 test("defaults service cycles to observation-only submission policy", async () => {
