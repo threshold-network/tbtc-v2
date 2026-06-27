@@ -130,6 +130,17 @@ contract P2TRSignatureFraudRouter {
         uint256 challengeKey;
     }
 
+    // P2TR signature-fraud proof transaction-shape limits, enforced by
+    // CheckBitcoinP2TRSignatureFraud.validatePayloadShape. These are a
+    // deliberate COVERAGE LIMIT and — like the SIGHASH-mode limitation
+    // documented on CheckBitcoinBIP341Sighash.computeKeyPathSighash — a bypass:
+    // a spend whose transaction exceeds these bounds (e.g. a theft tx with 3+
+    // outputs, such as an added change output, or 3+ inputs) cannot be
+    // challenged via processP2TRSignatureFraudChallenge, so the defeat-timeout
+    // slashing path (slashWalletForP2TRFraud) cannot be reached for it. The
+    // constants are not governance-tunable; widening the provable shape requires
+    // a contract upgrade. Closing the gap requires extending the verifier and
+    // the challenge payload to larger transaction shapes.
     uint16 internal constant P2TRSignatureFraudMaxInputs = 2;
     uint16 internal constant P2TRSignatureFraudMaxOutputs = 2;
     uint16 internal constant P2TRSignatureFraudMaxScriptPubKeyBytes = 34;
