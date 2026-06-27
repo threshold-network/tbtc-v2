@@ -1,0 +1,81 @@
+name: P2TR Signature-Fraud Watchtower
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  push:
+    branches:
+      - main
+    paths:
+      - "services/watchtower/**"
+      - "typescript/**"
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  watchtower-detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      path-filter: ${{ steps.filter.outputs.path-filter }}
+    steps:
+      - uses: actions/checkout@v3
+        if: github.event_name == 'pull_request'
+
+      - uses: dorny/paths-filter@v2
+        if: github.event_name == 'pull_request'
+        id: filter
+        with:
+          filters: |
+            path-filter:
+              - "./services/watchtower/**"
+              - "./typescript/**"
+              - "./.github/workflows/services-watchtower.yml"
+
+  watchtower-build-and-test:
+    needs: watchtower-detect-changes
+    if: |
+      github.event_name != 'pull_request'
+        || needs.watchtower-detect-changes.outputs.path-filter == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      # The watchtower is a pnpm workspace (`pnpm-workspace.yaml`: typescript +
+      # services/watchtower) and uses the `workspace:*` protocol, which yarn
+      # classic cannot resolve -- so this service is installed with pnpm, not
+      # the yarn flow used by `typescript.yml`.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "10.17.1"
+
+      - uses: actions/setup-node@v3
+        with:
+          node-version: "22.x"
+
+      # The SDK's transitive `@keep-network/tbtc-v2` dependency pulls a
+      # sub-dependency over the unauthenticated `git://` protocol, which is no
+      # longer supported. Rewrite `git://` to `https://` so the install
+      # resolves (same step the yarn-based `typescript.yml` relies on).
+      - name: Configure git to not use unauthenticated protocol
+        run: git config --global url."https://".insteadOf git://
+
+      # Installs the whole pnpm workspace (the SDK + the watchtower) from the
+      # repo root, where `pnpm-workspace.yaml` lives.
+      - name: Install dependencies
+        run: pnpm install
+
+      # The watchtower imports `@keep-network/tbtc-v2.ts`, whose `types` point at
+      # `dist/src/*.d.ts` (built output). `pnpm install` does not build workspace
+      # packages, so the SDK must be built before the watchtower typechecks /
+      # runs, otherwise tsc reports "Cannot find module '@keep-network/tbtc-v2.ts'".
+      - name: Build SDK (workspace dependency)
+        working-directory: ./typescript
+        run: pnpm build
+
+      - name: Typecheck
+        working-directory: ./services/watchtower
+        run: pnpm typecheck
+
+      - name: Tests
+        working-directory: ./services/watchtower
+        run: pnpm test
