@@ -16,7 +16,6 @@
 pragma solidity 0.8.17;
 
 import {BTCUtils} from "@keep-network/bitcoin-spv-sol/contracts/BTCUtils.sol";
-import {EcdsaDkg} from "@keep-network/ecdsa/contracts/libraries/EcdsaDkg.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import "./BitcoinTx.sol";
@@ -209,11 +208,13 @@ library Wallets {
         BridgeState.Storage storage self,
         BitcoinTx.UTXO calldata activeWalletMainUtxo
     ) external {
-        require(
-            self.ecdsaWalletRegistry.getWalletCreationState() ==
-                EcdsaDkg.State.IDLE,
-            "Wallet creation already in progress"
-        );
+        // The "wallet creation must not be in progress" guarantee is enforced
+        // by the FROST registry: requestNewWallet() below calls dkg.lockState(),
+        // which reverts ("Current state is not IDLE") unless the FROST DKG is
+        // IDLE. The previous gate here read the now-retired ECDSA wallet
+        // registry's creation state; with ECDSA wallet creation removed (its
+        // created-callback is gone), a stuck ECDSA DKG must not be able to
+        // permanently block FROST wallet creation.
 
         bytes20 activeWalletPubKeyHash = self.activeWalletPubKeyHash;
 
