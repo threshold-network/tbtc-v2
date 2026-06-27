@@ -244,6 +244,8 @@ contract FrostWalletRegistry is
 
     event LifecycleOwnerUpdated(address lifecycleOwner);
 
+    event AuthorizationSourceUpdated(address authorizationSource);
+
     /// @notice Raised when `requestNewWallet` or `approveDkgResult`
     ///         is called while `lifecycleOwner` is the zero
     ///         address — i.e., before governance has wired the
@@ -462,6 +464,7 @@ contract FrostWalletRegistry is
             "Authorization source address cannot be zero"
         );
         authorizationSource = IFrostAuthorizationSource(_authorizationSource);
+        emit AuthorizationSourceUpdated(_authorizationSource);
     }
 
     /// @notice Withdraws application rewards for the given staking provider.
