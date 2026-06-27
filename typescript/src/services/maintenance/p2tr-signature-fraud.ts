@@ -3258,21 +3258,33 @@ export class P2TRSignatureFraudWatchtower {
       observationID: observation.observationID,
     })
 
+    let challengeTxHash: Hex | Buffer | string
     try {
-      return recordP2TRWatchtowerChallengeEvent(this.store, {
-        type: "submission-accepted",
-        observationID: observation.observationID,
-        challengeTxHash: await submitter.submitSignatureFraudChallenge(
-          observation
-        ),
-      })
+      challengeTxHash = await submitter.submitSignatureFraudChallenge(
+        observation
+      )
     } catch (error) {
+      // Pre-broadcast failure: the on-chain challenge transaction was not
+      // submitted, so the submission is genuinely rejected and may be retried.
       return recordP2TRWatchtowerChallengeEvent(this.store, {
         type: "submission-rejected",
         observationID: observation.observationID,
         error: watchtowerSubmissionErrorMessage(error),
       })
     }
+
+    // The on-chain challenge transaction has been broadcast. Persist it as
+    // accepted with its transaction hash. A failure here must NOT be recorded
+    // as a rejection: the challenge already exists on-chain, so marking it
+    // rejected would drop the tx hash and leave local state retryable, causing
+    // a duplicate submission or a misleading alert for a challenge that was in
+    // fact submitted. Let the persistence error propagate instead so the caller
+    // can surface it without corrupting the challenge's submitted state.
+    return recordP2TRWatchtowerChallengeEvent(this.store, {
+      type: "submission-accepted",
+      observationID: observation.observationID,
+      challengeTxHash,
+    })
   }
 }
 

@@ -337,6 +337,21 @@ class BlockingP2TRWatchtowerChallengeRecordPersistence extends InMemoryP2TRWatch
   }
 }
 
+class RejectAcceptedSaveP2TRWatchtowerChallengeStore extends InMemoryP2TRWatchtowerChallengeStore {
+  async saveChallengeRecord(
+    record: P2TRWatchtowerChallengeRecord
+  ): Promise<void> {
+    // Simulate a durable-store failure that happens AFTER the on-chain challenge
+    // transaction has been broadcast: reject persistence of the accepted
+    // ("submitted") record only.
+    if (record.status === "submitted") {
+      throw new Error("durable write rejected after broadcast")
+    }
+
+    await super.saveChallengeRecord(record)
+  }
+}
+
 class FakeP2TRSignatureFraudChallengeSubmitter
   implements P2TRSignatureFraudChallengeSubmitter
 {
@@ -1502,6 +1517,52 @@ describe("P2TR signature-fraud witness parsing", () => {
     expect(rejected.status).to.equal("rejected")
     expect(rejected.submissionAttempts).to.equal(1)
     expect(rejected.lastError).to.equal("bridge rejected")
+  })
+
+  it("does not record a post-broadcast persistence failure as a rejected submission", async () => {
+    const vector = vectorCorpus.cases[0]
+    const rawTransaction = withInputWitness(
+      vector.unsignedTransactionHex,
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    const store = new RejectAcceptedSaveP2TRWatchtowerChallengeStore()
+    const watchtower = createDraftApprovedP2TRWatchtower(store, [
+      vector.walletIDHex,
+    ])
+    const [observed] = await watchtower.observeMempoolTransaction(
+      rawTransaction,
+      toObservationPrevouts(vector),
+      txHash("8")
+    )
+    // The submitter broadcasts the on-chain challenge successfully...
+    const submitter = new FakeP2TRSignatureFraudChallengeSubmitter(txHash("9"))
+
+    // ...but persisting the accepted record then fails. The error must propagate
+    // rather than being swallowed into a "rejected" record: the challenge already
+    // exists on-chain, so a rejected record would drop the tx hash and leave the
+    // submission retryable, causing a duplicate submission or a misleading alert.
+    let propagatedError: unknown
+    try {
+      await watchtower.submitChallenge(
+        observed.observation,
+        submitter,
+        draftApprovedSubmissionPolicy
+      )
+    } catch (error) {
+      propagatedError = error
+    }
+
+    expect((propagatedError as Error | undefined)?.message).to.equal(
+      "durable write rejected after broadcast"
+    )
+    // The on-chain challenge transaction was broadcast exactly once.
+    expect(submitter.submissionCount).to.equal(1)
+    // Local state was NOT corrupted into a retryable rejected record.
+    const records = await store.listChallengeRecords()
+    expect(records.some((record) => record.status === "rejected")).to.equal(
+      false
+    )
   })
 
   it("submits Bridge challenges and waits for configured finality", async () => {
