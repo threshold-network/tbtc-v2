@@ -406,46 +406,17 @@ describe("Bridge - Wallets", () => {
         })
       })
 
-      context("when wallet creation is already in progress", () => {
-        const testData = [
-          {
-            testName: "when wallet creation state is AWAITING_SEED",
-            walletCreationState: ecdsaDkgState.AWAITING_SEED,
-          },
-          {
-            testName: "when wallet creation state is AWAITING_RESULT",
-            walletCreationState: ecdsaDkgState.AWAITING_RESULT,
-          },
-          {
-            testName: "when wallet creation state is CHALLENGE",
-            walletCreationState: ecdsaDkgState.CHALLENGE,
-          },
-        ]
-
-        testData.forEach((test) => {
-          context(test.testName, () => {
-            before(async () => {
-              await createSnapshot()
-
-              walletRegistry.getWalletCreationState.returns(
-                test.walletCreationState
-              )
-            })
-
-            after(async () => {
-              walletRegistry.getWalletCreationState.reset()
-
-              await restoreSnapshot()
-            })
-
-            it("should revert", async () => {
-              await expect(
-                bridge.requestNewWallet(NO_MAIN_UTXO)
-              ).to.be.revertedWith("Wallet creation already in progress")
-            })
-          })
-        })
-      })
+      // The Bridge no longer gates FROST wallet creation on the LEGACY ECDSA
+      // wallet registry's DKG state. That gate read
+      // `ecdsaWalletRegistry.getWalletCreationState() == IDLE`; with ECDSA wallet
+      // creation retired (its created-callback removed), a stuck ECDSA DKG could
+      // never return to IDLE and would permanently block FROST wallet creation.
+      // The "one creation at a time" guarantee is now enforced by the FROST
+      // registry itself — FrostWalletRegistry.requestNewWallet() calls
+      // dkg.lockState(), which reverts ("Current state is not IDLE") unless the
+      // FROST DKG is IDLE — so the former "when wallet creation is already in
+      // progress" cases that asserted a revert based on the ECDSA registry's
+      // creation state are removed here (covered at the FROST registry layer).
     })
   })
 
