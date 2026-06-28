@@ -879,7 +879,7 @@ export class EthereumBridge
       )
     })
 
-    return [
+    const orderedEvents = [
       ...legacyEvents.map((event) => ({
         event,
         parsed: EthereumBridge.parseLegacyNewWalletRegisteredEvent(event),
@@ -888,11 +888,28 @@ export class EthereumBridge
         event,
         parsed: EthereumBridge.parseV2NewWalletRegisteredEvent(event),
       })),
-    ]
-      .sort((left, right) =>
-        EthereumBridge.compareEventsByChainOrder(left.event, right.event)
-      )
-      .map(({ parsed }) => parsed)
+    ].sort((left, right) =>
+      EthereumBridge.compareEventsByChainOrder(left.event, right.event)
+    )
+
+    // An ECDSA wallet registered after the V2 upgrade emits BOTH
+    // NewWalletRegistered and NewWalletRegisteredV2 in the same transaction
+    // (Wallets.registerNewWallet), so the legacy and V2 queries each return one
+    // (identical) record for it. De-duplicate by transaction + wallet public-key
+    // hash so each wallet is reported once. FROST wallets (V2 only) and
+    // pre-upgrade ECDSA wallets (legacy only) have no duplicate and are unaffected.
+    const seenWallets = new Set<string>()
+    const dedupedEvents: NewWalletRegisteredEvent[] = []
+    for (const { parsed } of orderedEvents) {
+      const key = `${parsed.transactionHash.toString()}:${parsed.walletPublicKeyHash.toString()}`
+      if (seenWallets.has(key)) {
+        continue
+      }
+      seenWallets.add(key)
+      dedupedEvents.push(parsed)
+    }
+
+    return dedupedEvents
   }
 
   // eslint-disable-next-line valid-jsdoc
