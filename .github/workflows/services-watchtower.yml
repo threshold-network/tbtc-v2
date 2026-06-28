@@ -11,6 +11,7 @@ on:
       - "typescript/**"
       # Root pnpm inputs control the `pnpm install` the watchtower job runs.
       - ".npmrc"
+      - "package.json"
       - "pnpm-workspace.yaml"
       - "pnpm-lock.yaml"
       - ".github/workflows/services-watchtower.yml"
@@ -36,6 +37,7 @@ jobs:
               - "typescript/**"
               # Root pnpm inputs control the `pnpm install` the watchtower job runs.
               - ".npmrc"
+              - "package.json"
               - "pnpm-workspace.yaml"
               - "pnpm-lock.yaml"
               - ".github/workflows/services-watchtower.yml"
