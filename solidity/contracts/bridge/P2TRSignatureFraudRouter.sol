@@ -132,21 +132,39 @@ contract P2TRSignatureFraudRouter {
 
     // P2TR signature-fraud evidence shape limits, enforced by
     // CheckBitcoinP2TRSignatureFraud.validatePayloadShape. The input/output caps
-    // are sized to comfortably exceed the largest valid protocol transaction
-    // shapes the Bridge accepts -- redemption batches, moving-funds fan-out to
-    // many target wallets, and multi-input deposit/moving-funds sweeps -- so a
-    // fraudulent signature over any real protocol spend can be challenged. The
-    // BIP-341 sighash reconstruction (CheckBitcoinBIP341Sighash) now builds its
-    // vector hashes in O(n), so these caps no longer double as a quadratic-gas
-    // guard; they remain only as a DoS bound on per-challenge work and calldata.
-    // They are fixed (not governance-tunable) so fraud-evidence validity cannot
-    // be censored or stranded by mutable state. (The standard output/prevout
-    // scripts the protocol uses -- P2PKH/P2SH/P2WPKH/P2WSH/P2TR -- are all <= 34
-    // bytes, so the script cap is unchanged.)
-    uint16 internal constant P2TRSignatureFraudMaxInputs = 512;
-    uint16 internal constant P2TRSignatureFraudMaxOutputs = 512;
+    // cover every shape the honest protocol produces, with comfortable gas margin:
+    // deposit sweeps (<= DEPOSIT_SWEEP_MAX_SIZE = 20 deposits, ~21 inputs),
+    // redemption batches (<= 20 outputs), moved-funds sweeps (1-2 in / 1 out), and
+    // moving-funds fan-out (one output per live target wallet, normally well below
+    // 128). They are NOT sized to the largest conceivable transaction: a
+    // signature-fraud challenge reconstructs the whole transaction on-chain, and
+    // even with the O(n) BIP-341 sighash and challenge-identity encoders a
+    // ~512-in/out challenge exceeds the block gas limit (empirically ~192 in/out
+    // is the edge; 256+ runs out of gas). 128 leaves margin under that ceiling.
+    //
+    // RESIDUAL (documented, accepted): a malicious wallet could sign a transaction
+    // with more than 128 outputs to make that (fraudulent) signature
+    // un-challengeable via this path. This is an inherent limit of on-chain fraud
+    // proofs -- Bitcoin permits far more outputs than fit in a block's gas, so no
+    // finite cap closes it -- and is currently non-impactful: this verifier is not
+    // yet wired into Bridge fraud entrypoints and operator slashing is
+    // economically inert (the on-chain slashing code is wired, but operators are
+    // not backed by slashable stake).
+    // Raising the cap further (e.g. to 512) requires replacing the linear
+    // byte-copy concat (CheckBitcoinBIP341Sighash.concat) with an assembly
+    // word-copy; revisit that, with fuzzing, if the path is wired in and slashing
+    // becomes economically active.
+    //
+    // Fixed (not governance-tunable) so fraud-evidence validity cannot be censored
+    // or stranded by mutable state. The standard output/prevout scripts the
+    // protocol uses (P2PKH/P2SH/P2WPKH/P2WSH/P2TR) are all <= 34 bytes.
+    uint16 internal constant P2TRSignatureFraudMaxInputs = 128;
+    uint16 internal constant P2TRSignatureFraudMaxOutputs = 128;
     uint16 internal constant P2TRSignatureFraudMaxScriptPubKeyBytes = 34;
-    uint32 internal constant P2TRSignatureFraudMaxPayloadBytes = 262144;
+    // 128 KiB: comfortably above the ~62 KB maximum ABI-encoded 128-in/128-out
+    // payload (34-byte scripts), so the pre-decode length gate never rejects a
+    // valid max-shape challenge.
+    uint32 internal constant P2TRSignatureFraudMaxPayloadBytes = 131072;
 
     event P2TRSignatureFraudChallengeSubmitted(
         bytes32 indexed walletID,
