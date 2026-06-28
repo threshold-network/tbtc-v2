@@ -65,6 +65,7 @@ const TaprootDepositRevealABI = [
 
 const BridgeV2CompatibilityABI = [
   ...TaprootDepositRevealABI,
+  "event NewWalletRegisteredV2(bytes32 indexed walletID, bytes32 indexed ecdsaWalletID, bytes20 indexed walletPubKeyHash)",
   "function activeWalletID() view returns (bytes32)",
   "function walletID(bytes20 walletPubKeyHash) view returns (bytes32)",
   "function walletPubKeyHashForWalletID(bytes32 walletID) view returns (bytes20)",
@@ -855,17 +856,28 @@ export class EthereumBridge
       options,
       ...legacyFilterArgs
     )
-    let v2Events: EthersEvent[] = []
-
-    try {
-      v2Events = await this.getEvents(
-        "NewWalletRegisteredV2",
-        options,
-        ...v2FilterArgs
+    // NewWalletRegisteredV2 (emitted for both ECDSA-V2 and FROST wallet
+    // registration) is absent from the bundled mainnet/sepolia Bridge artifacts,
+    // so it must be queried through the compatibility ABI. Querying it via the
+    // deployed-artifact instance throws on the missing event filter and would
+    // silently drop every FROST wallet, breaking redemption wallet selection
+    // after the FROST upgrade. On pre-upgrade deployments the log query simply
+    // returns empty.
+    const v2Bridge = this.bridgeV2CompatibilityContract()
+    const newWalletRegisteredV2Filter =
+      v2Bridge.filters["NewWalletRegisteredV2"]
+    const v2Events: EthersEvent[] = await backoffRetrier<EthersEvent[]>(
+      options?.retries ?? this._totalRetryAttempts
+    )(async () => {
+      return await EthersEventUtils.getEvents(
+        v2Bridge,
+        newWalletRegisteredV2Filter(...v2FilterArgs),
+        options?.fromBlock ?? this._deployedAtBlockNumber,
+        options?.toBlock,
+        options?.batchedQueryBlockInterval,
+        options?.logger
       )
-    } catch {
-      v2Events = []
-    }
+    })
 
     return [
       ...legacyEvents.map((event) => ({
