@@ -1605,6 +1605,71 @@ test("wraps production indexing cycles and cursor commits in the transaction coo
   assert.equal(committedBridgeLifecycleScanInTransaction, true)
 })
 
+test("does not commit the Bridge lifecycle cursor when a transaction source fails", async () => {
+  let committedBridgeLifecycleScan = false
+  const transactionCoordinator: P2TRSignatureFraudWatchtowerTransactionCoordinator =
+    {
+      p2trSignatureFraudWatchtowerStoreProfile:
+        "transactional-production" as const,
+      p2trSignatureFraudWatchtowerTransactionalStoreID:
+        "production-indexing-store",
+      p2trSignatureFraudWatchtowerAtomicTransactions: true,
+      assertP2TRSignatureFraudWatchtowerSharedStore() {},
+      async runInP2TRSignatureFraudWatchtowerTransaction<T>(
+        operation: () => Promise<T>
+      ): Promise<T> {
+        return await operation()
+      },
+    }
+  const bridgeLifecycleEventSource = {
+    ...transactionalBridgeLifecycleSource(),
+    async commitBridgeLifecycleScan() {
+      committedBridgeLifecycleScan = true
+    },
+  }
+  // A transaction source whose mempool listing fails records a mempool
+  // sourceFailure for the cycle. Honest-spend proof events processed in the same
+  // cycle then cannot be reliably matched against observed transactions, so the
+  // Bridge lifecycle cursor must NOT advance past them.
+  const failingTransactionSource: P2TRSignatureFraudWatchtowerTransactionSource =
+    {
+      async listMempoolTransactions() {
+        throw new Error("mempool source unavailable")
+      },
+      async listConfirmedTransactions() {
+        return []
+      },
+    }
+  const service = new P2TRSignatureFraudWatchtowerService(
+    {
+      registeredWalletIDs: [`0x${"11".repeat(32)}`],
+      submitChallenges: true,
+      indexingStoreProfile: "transactional-production",
+      submissionPolicy: draftRedemptionSubmissionPolicy,
+      payloadBounds: draftPayloadBounds,
+      bridgeChallengeDomain: draftBridgeChallengeDomain,
+      spendTypeClassifier: () => P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
+      maxSubmissionAttempts: 3,
+      submissionAttemptLimitAlert: draftSubmissionAttemptLimitAlert,
+    },
+    {
+      bitcoinClient: {} as BitcoinClient,
+      challengeSubmitter: new FakeSubmitter(),
+      transactionSource: failingTransactionSource,
+      bridgeLifecycleEventSource,
+      persistence: transactionalChallengeRecordPersistence(),
+      transactionCoordinator,
+      alertSink: noopAlertSink,
+    }
+  )
+
+  // Whether the cycle records the source failure or surfaces it, the cursor must
+  // never be committed for a cycle with an incomplete transaction view.
+  await service.processCycle().catch(() => undefined)
+
+  assert.equal(committedBridgeLifecycleScan, false)
+})
+
 test("rejects transaction coordinators that suppress indexing operation failures", async () => {
   const bridgeLifecycleEventSource = {
     ...transactionalBridgeLifecycleSource(),
