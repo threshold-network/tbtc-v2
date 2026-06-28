@@ -9,6 +9,11 @@ on:
     paths:
       - "services/watchtower/**"
       - "typescript/**"
+      # Root pnpm inputs control the `pnpm install` the watchtower job runs.
+      - ".npmrc"
+      - "pnpm-workspace.yaml"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/services-watchtower.yml"
   pull_request:
   workflow_dispatch:
 
@@ -29,6 +34,10 @@ jobs:
             path-filter:
               - "./services/watchtower/**"
               - "./typescript/**"
+              # Root pnpm inputs control the `pnpm install` the watchtower job runs.
+              - "./.npmrc"
+              - "./pnpm-workspace.yaml"
+              - "./pnpm-lock.yaml"
               - "./.github/workflows/services-watchtower.yml"
 
   watchtower-build-and-test:
