@@ -36,6 +36,11 @@ test("derives P2TR wallet addresses from canonical x-only wallet IDs", () => {
     deriveP2TRWalletAddress(walletID, BitcoinNetwork.Testnet),
     "tb1plycg5qvjtrp3qjf5f7zl382j9x6nrjz9sdhenvyxq8c3808qxmuswq2wgh"
   )
+  // testnet4 shares testnet3's `tb` bech32 HRP, so the P2TR address is identical.
+  assert.equal(
+    deriveP2TRWalletAddress(walletID, BitcoinNetwork.Testnet4),
+    "tb1plycg5qvjtrp3qjf5f7zl382j9x6nrjz9sdhenvyxq8c3808qxmuswq2wgh"
+  )
   assert.equal(
     deriveP2TRWalletAddress(walletID, BitcoinNetwork.Mainnet),
     "bc1plycg5qvjtrp3qjf5f7zl382j9x6nrjz9sdhenvyxq8c3808qxmusegupjc"
