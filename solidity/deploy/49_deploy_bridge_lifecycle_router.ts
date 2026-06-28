@@ -72,100 +72,127 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     FrostWalletRegistry.address
   )
 
-  // Wire the router onto the Bridge. The setter is one-time and governance-gated:
-  // - dev/test: Bridge.governance() is the deployer, so call Bridge.setLifecycleRouter
-  //   directly.
-  // - production: Bridge.governance() is BridgeGovernance, whose setLifecycleRouter is
-  //   onlyOwner. When that owner is the governance Safe (not a configured signer), the
-  //   deployer cannot send the call -- it would revert with Ownable and abort the deploy
-  //   -- so emit the calldata for manual governance execution and skip, instead.
-  const currentBridgeGovernance = await bridgeContract.governance()
-  const governanceIsDeployer =
-    currentBridgeGovernance.toLowerCase() === deployer.toLowerCase()
-  const alreadySetSelector = ethers.utils
-    .id("LifecycleRouterAlreadySet()")
-    .slice(0, 10)
+  // Wire the router onto the Bridge. The setter is one-time and governance-gated,
+  // and the Bridge exposes no getter for the current value -- it is only recoverable
+  // from the LifecycleRouterSet event. Read it first so re-runs are idempotent
+  // regardless of who governance is (the production Safe is not a deployer signer, so
+  // we must not depend on being able to send the setter to learn it is already set).
+  const lifecycleRouterEvents = await bridgeContract.queryFilter(
+    bridgeContract.filters.LifecycleRouterSet(),
+    0,
+    "latest"
+  )
+  const currentLifecycleRouter =
+    lifecycleRouterEvents.length > 0
+      ? lifecycleRouterEvents[lifecycleRouterEvents.length - 1].args
+          ?.lifecycleRouter
+      : undefined
 
-  const routerSetterContract = governanceIsDeployer
-    ? bridgeContract
-    : bridgeGovernance
-  const routerSetterCaller = governanceIsDeployer
-    ? deployer
-    : await bridgeGovernance.owner()
-  const routerSetterSigner = await getConfiguredSigner(hre, routerSetterCaller)
-
-  if (!routerSetterSigner) {
-    const calldata = routerSetterContract.interface.encodeFunctionData(
-      "setLifecycleRouter",
-      [router.address]
+  if (
+    currentLifecycleRouter &&
+    currentLifecycleRouter.toLowerCase() === router.address.toLowerCase()
+  ) {
+    console.log(
+      `BridgeLifecycleRouter already wired on this Bridge at ${router.address}; skipping Bridge setter`
     )
-    const message =
-      `BridgeLifecycleRouter wiring must be executed by ${routerSetterCaller}, ` +
-      `which is not a configured signer for network ${hre.network.name}. ` +
-      "Submit this call from governance:\n" +
-      `  target: ${routerSetterContract.address}\n` +
-      `  data:   ${calldata}`
-
-    if (hre.network.name === "mainnet") {
-      console.log(`${message}\nskipping for manual governance execution`)
-    } else {
-      throw new Error(message)
-    }
+  } else if (currentLifecycleRouter) {
+    throw new Error(
+      "Bridge lifecycle router is already set, but the LifecycleRouterSet event " +
+        `does not match this deployment (${router.address}). Refusing to guess ` +
+        "the one-time Bridge router value."
+    )
   } else {
-    let bridgeRouterConfirmed = false
-    try {
-      await routerSetterContract
-        .connect(routerSetterSigner)
-        .setLifecycleRouter(router.address)
-      bridgeRouterConfirmed = true
-      console.log(
-        `wired BridgeLifecycleRouter at ${router.address} onto Bridge ${
-          governanceIsDeployer
-            ? "directly (governance is still deployer)"
-            : "via BridgeGovernance"
-        }`
+    // Not yet wired. Resolve the authorized caller:
+    // - dev/test: Bridge.governance() is the deployer, so call Bridge.setLifecycleRouter
+    //   directly.
+    // - production: Bridge.governance() is BridgeGovernance, whose setLifecycleRouter is
+    //   onlyOwner. When that owner is the governance Safe (not a configured signer), the
+    //   deployer cannot send the call -- it would revert with Ownable -- so emit the
+    //   calldata for manual governance execution and skip, instead.
+    const currentBridgeGovernance = await bridgeContract.governance()
+    const governanceIsDeployer =
+      currentBridgeGovernance.toLowerCase() === deployer.toLowerCase()
+    const alreadySetSelector = ethers.utils
+      .id("LifecycleRouterAlreadySet()")
+      .slice(0, 10)
+
+    const routerSetterContract = governanceIsDeployer
+      ? bridgeContract
+      : bridgeGovernance
+    const routerSetterCaller = governanceIsDeployer
+      ? deployer
+      : await bridgeGovernance.owner()
+    const routerSetterSigner = await getConfiguredSigner(
+      hre,
+      routerSetterCaller
+    )
+
+    if (!routerSetterSigner) {
+      const calldata = routerSetterContract.interface.encodeFunctionData(
+        "setLifecycleRouter",
+        [router.address]
       )
-    } catch (err) {
-      if (!revertDataContains(err, alreadySetSelector)) {
-        const errAny = err as { message?: string }
-        console.error(
-          "setLifecycleRouter call reverted with an unexpected error;",
-          "deploy aborted so the operator can investigate:",
-          errAny.message || err
-        )
-        throw err
+      const message =
+        `BridgeLifecycleRouter wiring must be executed by ${routerSetterCaller}, ` +
+        `which is not a configured signer for network ${hre.network.name}. ` +
+        "Submit this call from governance:\n" +
+        `  target: ${routerSetterContract.address}\n` +
+        `  data:   ${calldata}`
+
+      if (hre.network.name === "mainnet") {
+        console.log(`${message}\nskipping for manual governance execution`)
+      } else {
+        throw new Error(message)
       }
+    } else {
+      try {
+        const tx = await routerSetterContract
+          .connect(routerSetterSigner)
+          .setLifecycleRouter(router.address)
+        await tx.wait(1)
+        console.log(
+          `wired BridgeLifecycleRouter at ${router.address} onto Bridge ${
+            governanceIsDeployer
+              ? "directly (governance is still deployer)"
+              : "via BridgeGovernance"
+          }`
+        )
+      } catch (err) {
+        // Tolerate only a concurrent deployment that wired the SAME router between
+        // the event read above and this call (AlreadySet revert + matching event).
+        if (!revertDataContains(err, alreadySetSelector)) {
+          const errAny = err as { message?: string }
+          console.error(
+            "setLifecycleRouter call reverted with an unexpected error;",
+            "deploy aborted so the operator can investigate:",
+            errAny.message || err
+          )
+          throw err
+        }
 
-      const lifecycleRouterEvents = await bridgeContract.queryFilter(
-        bridgeContract.filters.LifecycleRouterSet(),
-        0,
-        "latest"
-      )
-      const lastLifecycleRouter =
-        lifecycleRouterEvents.length > 0
-          ? lifecycleRouterEvents[lifecycleRouterEvents.length - 1].args
-              ?.lifecycleRouter
-          : undefined
-
-      if (
-        lastLifecycleRouter &&
-        lastLifecycleRouter.toLowerCase() === router.address.toLowerCase()
-      ) {
-        bridgeRouterConfirmed = true
+        const racedEvents = await bridgeContract.queryFilter(
+          bridgeContract.filters.LifecycleRouterSet(),
+          0,
+          "latest"
+        )
+        const racedRouter =
+          racedEvents.length > 0
+            ? racedEvents[racedEvents.length - 1].args?.lifecycleRouter
+            : undefined
+        if (
+          !racedRouter ||
+          racedRouter.toLowerCase() !== router.address.toLowerCase()
+        ) {
+          throw new Error(
+            "Bridge lifecycle router is already set, but the LifecycleRouterSet event " +
+              `does not match this deployment (${router.address}). Refusing to guess ` +
+              "the one-time Bridge router value."
+          )
+        }
         console.log(
           `BridgeLifecycleRouter already wired on this Bridge at ${router.address}; skipping Bridge setter`
         )
-      } else {
-        throw new Error(
-          "Bridge lifecycle router is already set, but the LifecycleRouterSet event " +
-            `does not match this deployment (${router.address}). Refusing to guess ` +
-            "the one-time Bridge router value."
-        )
       }
-    }
-
-    if (!bridgeRouterConfirmed) {
-      throw new Error("Bridge lifecycle router was not confirmed")
     }
   }
 
@@ -201,9 +228,10 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
         throw new Error(message)
       }
     } else {
-      await frostWalletRegistryContract
+      const updateTx = await frostWalletRegistryContract
         .connect(registrySigner)
         .updateLifecycleOwner(router.address)
+      await updateTx.wait(1)
       console.log(
         `wired FrostWalletRegistry.lifecycleOwner to BridgeLifecycleRouter ${router.address}`
       )
