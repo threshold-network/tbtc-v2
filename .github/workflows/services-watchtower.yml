@@ -64,13 +64,18 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      # The watchtower imports `@keep-network/tbtc-v2.ts`, whose `types` point at
-      # `dist/src/*.d.ts` (built output). `pnpm install` does not build workspace
-      # packages, so the SDK must be built before the watchtower typechecks /
-      # runs, otherwise tsc reports "Cannot find module '@keep-network/tbtc-v2.ts'".
-      - name: Build SDK (workspace dependency)
+      # The watchtower imports `@keep-network/tbtc-v2.ts`, whose `types`/`exports`
+      # point at `dist/src/*.d.ts` (built output), so the SDK must be built
+      # before the watchtower typechecks / runs. The SDK is a yarn package whose
+      # `typechain` step resolves contract artifacts from a per-package
+      # `./node_modules/...` layout that pnpm's workspace does not provide, so it
+      # is built with yarn (the same flow `typescript.yml` uses). The pnpm-linked
+      # watchtower then resolves the resulting `typescript/dist`.
+      - name: Build SDK (yarn)
         working-directory: ./typescript
-        run: pnpm build
+        run: |
+          yarn install
+          yarn build
 
       - name: Typecheck
         working-directory: ./services/watchtower
