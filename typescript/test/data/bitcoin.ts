@@ -1,8 +1,10 @@
 import { BitcoinNetwork } from "../../src"
 import { Hex } from "../../src"
 
+// testnet4 is intentionally excluded: it shares testnet3's address parameters,
+// so its addresses are identical to the `testnet` fixtures below.
 export const btcAddresses: Record<
-  Exclude<BitcoinNetwork, BitcoinNetwork.Unknown>,
+  Exclude<BitcoinNetwork, BitcoinNetwork.Unknown | BitcoinNetwork.Testnet4>,
   {
     [addressType: string]: {
       address: string
@@ -87,8 +89,10 @@ export const btcAddresses: Record<
   },
 }
 
+// testnet4 is intentionally excluded: it shares testnet3's address parameters
+// (see btcAddresses above).
 export const btcAddressFromPublicKey: Record<
-  Exclude<BitcoinNetwork, BitcoinNetwork.Unknown>,
+  Exclude<BitcoinNetwork, BitcoinNetwork.Unknown | BitcoinNetwork.Testnet4>,
   Record<string, { publicKey: Hex; address: string }>
 > = {
   testnet: {

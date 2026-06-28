@@ -62,6 +62,16 @@ describe("Bitcoin", () => {
         ),
         expectedToBitcoinJsLibResult: networks.bitcoin,
       },
+      {
+        enumKey: BitcoinNetwork.Testnet4,
+        enumValue: "testnet4",
+        // testnet4 genesis block hash (display order); shares testnet3's
+        // bitcoinjs-lib address parameters.
+        genesisHash: BitcoinTxHash.from(
+          "0x00000000da84f2bafbbc53dee25a72ae507ff4914b867c565be350b0da8bf043"
+        ),
+        expectedToBitcoinJsLibResult: networks.testnet,
+      },
     ]
 
     testData.forEach(
