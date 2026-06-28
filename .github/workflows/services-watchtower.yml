@@ -32,13 +32,13 @@ jobs:
         with:
           filters: |
             path-filter:
-              - "./services/watchtower/**"
-              - "./typescript/**"
+              - "services/watchtower/**"
+              - "typescript/**"
               # Root pnpm inputs control the `pnpm install` the watchtower job runs.
-              - "./.npmrc"
-              - "./pnpm-workspace.yaml"
-              - "./pnpm-lock.yaml"
-              - "./.github/workflows/services-watchtower.yml"
+              - ".npmrc"
+              - "pnpm-workspace.yaml"
+              - "pnpm-lock.yaml"
+              - ".github/workflows/services-watchtower.yml"
 
   watchtower-build-and-test:
     needs: watchtower-detect-changes
