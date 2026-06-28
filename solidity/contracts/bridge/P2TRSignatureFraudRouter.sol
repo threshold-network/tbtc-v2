@@ -130,10 +130,23 @@ contract P2TRSignatureFraudRouter {
         uint256 challengeKey;
     }
 
-    uint16 internal constant P2TRSignatureFraudMaxInputs = 2;
-    uint16 internal constant P2TRSignatureFraudMaxOutputs = 2;
+    // P2TR signature-fraud evidence shape limits, enforced by
+    // CheckBitcoinP2TRSignatureFraud.validatePayloadShape. The input/output caps
+    // are sized to comfortably exceed the largest valid protocol transaction
+    // shapes the Bridge accepts -- redemption batches, moving-funds fan-out to
+    // many target wallets, and multi-input deposit/moving-funds sweeps -- so a
+    // fraudulent signature over any real protocol spend can be challenged. The
+    // BIP-341 sighash reconstruction (CheckBitcoinBIP341Sighash) now builds its
+    // vector hashes in O(n), so these caps no longer double as a quadratic-gas
+    // guard; they remain only as a DoS bound on per-challenge work and calldata.
+    // They are fixed (not governance-tunable) so fraud-evidence validity cannot
+    // be censored or stranded by mutable state. (The standard output/prevout
+    // scripts the protocol uses -- P2PKH/P2SH/P2WPKH/P2WSH/P2TR -- are all <= 34
+    // bytes, so the script cap is unchanged.)
+    uint16 internal constant P2TRSignatureFraudMaxInputs = 512;
+    uint16 internal constant P2TRSignatureFraudMaxOutputs = 512;
     uint16 internal constant P2TRSignatureFraudMaxScriptPubKeyBytes = 34;
-    uint16 internal constant P2TRSignatureFraudMaxPayloadBytes = 4096;
+    uint32 internal constant P2TRSignatureFraudMaxPayloadBytes = 262144;
 
     event P2TRSignatureFraudChallengeSubmitted(
         bytes32 indexed walletID,
