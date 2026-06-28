@@ -3842,7 +3842,7 @@ An error if the network is not supported by `bitcoinjs-lib`.
 
 #### Defined in
 
-[src/lib/bitcoin/network.ts:55](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/network.ts#L55)
+[src/lib/bitcoin/network.ts:63](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/network.ts#L63)
 
 ___
 
