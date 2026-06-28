@@ -2,7 +2,8 @@ import assert from "assert/strict"
 import { readFileSync } from "fs"
 import { mkdtemp, readFile, rm, writeFile } from "fs/promises"
 import { tmpdir } from "os"
-import { join } from "path"
+import { dirname, join } from "path"
+import { fileURLToPath } from "url"
 import test from "node:test"
 
 import {
@@ -2472,7 +2473,11 @@ function loadFirstSignatureFraudVector(): SignatureFraudVector {
   return JSON.parse(
     readFileSync(
       join(
-        process.cwd(),
+        // Resolve relative to this test file (services/watchtower/test), not
+        // process.cwd(): the suite runs with cwd=services/watchtower, where
+        // "../../../docs" would escape the repo. From the test directory the
+        // three "../" segments reach the repo-root docs/ directory.
+        dirname(fileURLToPath(import.meta.url)),
         "../../../docs/test-vectors/p2tr-signature-fraud-v0.json"
       ),
       "utf8"
