@@ -209,48 +209,37 @@ library CheckBitcoinP2TRSignatureFraud {
         CheckBitcoinBIP341Sighash.TransactionOutput[] memory outputs,
         uint32 signedInputIndex
     ) internal pure returns (bytes memory) {
-        bytes memory payload = abi.encodePacked(
+        // Collect every fixed-format field as a separate part and concatenate
+        // once -- each byte is copied exactly once (O(n)). Appending into a
+        // growing `abi.encodePacked` buffer per element would be O(n^2) in the
+        // input/output count, so large but valid protocol-shaped evidence
+        // (redemption batches, moving-funds fan-out, multi-input sweeps) that the
+        // raised shape caps now accept could run out of gas building the
+        // challenge identity before the challenge is recorded. The concatenation
+        // order is byte-identical to the prior incremental encoding.
+        bytes[] memory parts = new bytes[](
+            3 + inputs.length + prevouts.length + outputs.length
+        );
+        uint256 next = 0;
+
+        parts[next++] = abi.encodePacked(
             P2TRSignatureFraud.uint32LE(signedInputIndex),
             P2TRSignatureFraud.uint32LE(version),
             P2TRSignatureFraud.uint32LE(locktime),
             P2TRSignatureFraud.encodeCompactSize(inputs.length)
         );
 
-        payload = encodeBridgeChallengeInputs(payload, inputs);
-        payload = encodeBridgeChallengePrevouts(payload, prevouts);
-        payload = encodeBridgeChallengeOutputs(payload, outputs);
-
-        return payload;
-    }
-
-    function encodeBridgeChallengeInputs(
-        bytes memory payload,
-        CheckBitcoinBIP341Sighash.TransactionInput[] memory inputs
-    ) internal pure returns (bytes memory) {
         for (uint256 i = 0; i < inputs.length; i++) {
-            payload = abi.encodePacked(
-                payload,
+            parts[next++] = abi.encodePacked(
                 inputs[i].txid,
                 P2TRSignatureFraud.uint32LE(inputs[i].vout),
                 P2TRSignatureFraud.uint32LE(inputs[i].sequence)
             );
         }
 
-        return payload;
-    }
-
-    function encodeBridgeChallengePrevouts(
-        bytes memory payload,
-        CheckBitcoinBIP341Sighash.InputPrevout[] memory prevouts
-    ) internal pure returns (bytes memory) {
-        payload = abi.encodePacked(
-            payload,
-            P2TRSignatureFraud.encodeCompactSize(prevouts.length)
-        );
-
+        parts[next++] = P2TRSignatureFraud.encodeCompactSize(prevouts.length);
         for (uint256 i = 0; i < prevouts.length; i++) {
-            payload = abi.encodePacked(
-                payload,
+            parts[next++] = abi.encodePacked(
                 P2TRSignatureFraud.uint64LE(prevouts[i].valueSats),
                 P2TRSignatureFraud.bytesWithCompactSize(
                     prevouts[i].scriptPubKey
@@ -258,27 +247,15 @@ library CheckBitcoinP2TRSignatureFraud {
             );
         }
 
-        return payload;
-    }
-
-    function encodeBridgeChallengeOutputs(
-        bytes memory payload,
-        CheckBitcoinBIP341Sighash.TransactionOutput[] memory outputs
-    ) internal pure returns (bytes memory) {
-        payload = abi.encodePacked(
-            payload,
-            P2TRSignatureFraud.encodeCompactSize(outputs.length)
-        );
-
+        parts[next++] = P2TRSignatureFraud.encodeCompactSize(outputs.length);
         for (uint256 i = 0; i < outputs.length; i++) {
-            payload = abi.encodePacked(
-                payload,
+            parts[next++] = abi.encodePacked(
                 P2TRSignatureFraud.uint64LE(outputs[i].valueSats),
                 P2TRSignatureFraud.bytesWithCompactSize(outputs[i].scriptPubKey)
             );
         }
 
-        return payload;
+        return CheckBitcoinBIP341Sighash.concat(parts);
     }
 
     /// @notice Validates bounded Taproot signature-fraud payload shape.
