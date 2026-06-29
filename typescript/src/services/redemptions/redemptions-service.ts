@@ -7,6 +7,7 @@ import {
   Wallet,
   WalletState,
 } from "../../lib/contracts"
+import { WalletIDUtils } from "../../lib/contracts/wallet-id"
 import {
   BitcoinAddressConverter,
   BitcoinClient,
@@ -727,29 +728,20 @@ export class RedemptionsService {
     wallet: Wallet,
     walletPublicKeyHash: Hex
   ): Hex | undefined {
-    // Bundled pre-upgrade ABIs synthesize walletID as the legacy left-padded
-    // public key hash fallback. Do not treat that alias as a Taproot x-only ID.
-    if (
-      wallet.walletID &&
-      this.isFrostWallet(wallet) &&
-      !wallet.walletID.equals(this.legacyWalletID(walletPublicKeyHash))
-    ) {
-      return wallet.walletID
-    }
-
-    return undefined
+    // Shared with bridge.parseWalletDetails. Guards against the legacy
+    // left-padded public-key-hash alias that bundled pre-upgrade ABIs synthesize
+    // as a walletID fallback (not a real Taproot x-only key).
+    return WalletIDUtils.frostWalletID(
+      wallet.ecdsaWalletID,
+      wallet.walletID,
+      walletPublicKeyHash
+    )
   }
 
   private isFrostWallet(wallet: Wallet): boolean {
     return (
       !!wallet.ecdsaWalletID &&
       wallet.ecdsaWalletID.equals(RedemptionsService.ZeroBytes32)
-    )
-  }
-
-  private legacyWalletID(walletPublicKeyHash: Hex): Hex {
-    return Hex.from(
-      Buffer.concat([Buffer.alloc(12), walletPublicKeyHash.toBuffer()])
     )
   }
 

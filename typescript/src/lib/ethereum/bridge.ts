@@ -915,7 +915,7 @@ export class EthereumBridge
 
     const walletID = await this.walletID(walletPublicKeyHash)
 
-    return this.parseWalletDetails(wallet, walletID)
+    return this.parseWalletDetails(wallet, walletID, walletPublicKeyHash)
   }
 
   // eslint-disable-next-line valid-jsdoc
@@ -1058,23 +1058,66 @@ export class EthereumBridge
   }
 
   /**
+   * Resolves a wallet's compressed public key. ECDSA wallets expose it via the
+   * ECDSA wallet registry; FROST wallets (zero `ecdsaWalletID`) carry their
+   * Taproot x-only key as the native `walletID`, which is synthesized into a
+   * compressed compatibility key (the same way redemption wallet selection does)
+   * so legacy callers such as `activeWalletPublicKey()` still get a key after
+   * FROST activation.
+   * @param ecdsaWalletID The wallet's ECDSA wallet ID (zero for FROST wallets).
+   * @param walletID The wallet's native wallet ID, if known.
+   * @param walletPublicKeyHash The wallet public key hash, when available; it
+   *        enables the exact legacy-alias guard in the FROST synthesis.
+   * @returns The compressed wallet public key, or undefined when unavailable.
+   */
+  private async resolveWalletPublicKey(
+    ecdsaWalletID: Hex,
+    walletID?: Hex,
+    walletPublicKeyHash?: Hex
+  ): Promise<Hex | undefined> {
+    const frostWalletID = WalletIDUtils.frostWalletID(
+      ecdsaWalletID,
+      walletID,
+      walletPublicKeyHash
+    )
+    if (frostWalletID) {
+      return BitcoinPublicKeyUtils.xOnlyToCompressedPublicKey(frostWalletID)
+    }
+
+    // A zero ecdsaWalletID is a FROST wallet; the ECDSA registry has no entry
+    // for it, so avoid a doomed lookup when its x-only walletID is unavailable.
+    if (ecdsaWalletID.equals(Hex.from(constants.HashZero))) {
+      return undefined
+    }
+
+    return this.getWalletCompressedPublicKey(ecdsaWalletID)
+  }
+
+  /**
    * Parses a wallet data using data fetched from the on-chain contract.
    * @param wallet Data of the wallet.
    * @param walletID Optional canonical wallet identifier. When provided,
    *        the legacy `walletPublicKeyHash` field is overridden with the
    *        canonical mapping lookup derived from this ID.
+   * @param walletPublicKeyHash Optional wallet public key hash, threaded through
+   *        for the FROST public-key synthesis legacy-alias guard.
    * @returns Parsed wallet data.
    */
   private async parseWalletDetails(
     wallet: WalletsTypechain.WalletStructOutput,
-    walletID?: Hex
+    walletID?: Hex,
+    walletPublicKeyHash?: Hex
   ): Promise<Wallet> {
     const ecdsaWalletID = Hex.from(wallet.ecdsaWalletID)
 
     return {
       walletID,
       ecdsaWalletID,
-      walletPublicKey: await this.getWalletCompressedPublicKey(ecdsaWalletID),
+      walletPublicKey: await this.resolveWalletPublicKey(
+        ecdsaWalletID,
+        walletID,
+        walletPublicKeyHash
+      ),
       mainUtxoHash: Hex.from(wallet.mainUtxoHash),
       pendingRedemptionsValue: wallet.pendingRedemptionsValue,
       createdAt: wallet.createdAt,
