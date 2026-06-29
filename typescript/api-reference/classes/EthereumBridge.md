@@ -50,6 +50,7 @@ for reference.
 - [pendingRedemptions](EthereumBridge.md#pendingredemptions)
 - [pendingRedemptionsByWalletPKH](EthereumBridge.md#pendingredemptionsbywalletpkh)
 - [requestRedemption](EthereumBridge.md#requestredemption)
+- [resolveWalletPublicKey](EthereumBridge.md#resolvewalletpublickey)
 - [revealDeposit](EthereumBridge.md#revealdeposit)
 - [submitDepositSweepProof](EthereumBridge.md#submitdepositsweepproof)
 - [submitRedemptionProof](EthereumBridge.md#submitredemptionproof)
@@ -246,7 +247,7 @@ Builds the UTXO hash based on the UTXO components. UTXO hash is computed as
 
 #### Defined in
 
-[src/lib/ethereum/bridge.ts:1099](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L1099)
+[src/lib/ethereum/bridge.ts:1142](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L1142)
 
 ___
 
@@ -430,7 +431,7 @@ Bridge.getRedemptionRequestedEvents
 
 #### Defined in
 
-[src/lib/ethereum/bridge.ts:1116](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L1116)
+[src/lib/ethereum/bridge.ts:1159](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L1159)
 
 ___
 
@@ -532,7 +533,7 @@ ___
 
 ### parseWalletDetails
 
-▸ **parseWalletDetails**(`wallet`, `walletID?`): `Promise`\<[`Wallet`](../interfaces/Wallet.md)\>
+▸ **parseWalletDetails**(`wallet`, `walletID?`, `walletPublicKeyHash?`): `Promise`\<[`Wallet`](../interfaces/Wallet.md)\>
 
 Parses a wallet data using data fetched from the on-chain contract.
 
@@ -542,6 +543,7 @@ Parses a wallet data using data fetched from the on-chain contract.
 | :------ | :------ | :------ |
 | `wallet` | `WalletStructOutput` | Data of the wallet. |
 | `walletID?` | [`Hex`](Hex.md) | Optional canonical wallet identifier. When provided, the legacy `walletPublicKeyHash` field is overridden with the canonical mapping lookup derived from this ID. |
+| `walletPublicKeyHash?` | [`Hex`](Hex.md) | Optional wallet public key hash, threaded through for the FROST public-key synthesis legacy-alias guard. |
 
 #### Returns
 
@@ -551,7 +553,7 @@ Parsed wallet data.
 
 #### Defined in
 
-[src/lib/ethereum/bridge.ts:1068](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L1068)
+[src/lib/ethereum/bridge.ts:1106](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L1106)
 
 ___
 
@@ -635,6 +637,37 @@ ___
 #### Defined in
 
 [src/lib/ethereum/bridge.ts:565](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L565)
+
+___
+
+### resolveWalletPublicKey
+
+▸ **resolveWalletPublicKey**(`ecdsaWalletID`, `walletID?`, `walletPublicKeyHash?`): `Promise`\<`undefined` \| [`Hex`](Hex.md)\>
+
+Resolves a wallet's compressed public key. ECDSA wallets expose it via the
+ECDSA wallet registry; FROST wallets (zero `ecdsaWalletID`) carry their
+Taproot x-only key as the native `walletID`, which is synthesized into a
+compressed compatibility key (the same way redemption wallet selection does)
+so legacy callers such as `activeWalletPublicKey()` still get a key after
+FROST activation.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `ecdsaWalletID` | [`Hex`](Hex.md) | The wallet's ECDSA wallet ID (zero for FROST wallets). |
+| `walletID?` | [`Hex`](Hex.md) | The wallet's native wallet ID, if known. |
+| `walletPublicKeyHash?` | [`Hex`](Hex.md) | The wallet public key hash, when available; it enables the exact legacy-alias guard in the FROST synthesis. |
+
+#### Returns
+
+`Promise`\<`undefined` \| [`Hex`](Hex.md)\>
+
+The compressed wallet public key, or undefined when unavailable.
+
+#### Defined in
+
+[src/lib/ethereum/bridge.ts:1073](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L1073)
 
 ___
 
