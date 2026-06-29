@@ -127,11 +127,13 @@ export class EthereumBridge
   private static walletRegistrationFilterArgs(filterArgs: Array<unknown>): {
     legacyFilterArgs: Array<unknown>
     v2FilterArgs: Array<unknown>
+    skipLegacy: boolean
   } {
     if (filterArgs.length === 0) {
       return {
         legacyFilterArgs: [],
         v2FilterArgs: [],
+        skipLegacy: false,
       }
     }
 
@@ -139,12 +141,23 @@ export class EthereumBridge
       return {
         legacyFilterArgs: filterArgs,
         v2FilterArgs: [undefined, ...filterArgs],
+        skipLegacy: false,
       }
     }
 
+    // 3-argument V2 form: [walletID, ecdsaWalletID, walletPubKeyHash]. The legacy
+    // NewWalletRegistered event has no walletID topic, so a walletID filter cannot
+    // be expressed against it. When a walletID is provided, skip the legacy query
+    // entirely -- dropping the walletID (slice(1)) would otherwise match every
+    // legacy wallet and pollute the result with unrelated ECDSA registrations.
+    // A walletID match is fully served by the V2 query: FROST wallets are V2-only,
+    // ECDSA-V2 wallets emit a V2 event too, and pre-upgrade ECDSA wallets have no
+    // walletID to match. Treat null and undefined alike -- ethers uses both as a
+    // topic wildcard, so neither expresses a walletID constraint.
     return {
       legacyFilterArgs: filterArgs.slice(1),
       v2FilterArgs: filterArgs,
+      skipLegacy: filterArgs[0] !== undefined && filterArgs[0] !== null,
     }
   }
 
@@ -849,13 +862,18 @@ export class EthereumBridge
     options?: GetChainEvents.Options,
     ...filterArgs: Array<unknown>
   ): Promise<NewWalletRegisteredEvent[]> {
-    const { legacyFilterArgs, v2FilterArgs } =
+    const { legacyFilterArgs, v2FilterArgs, skipLegacy } =
       EthereumBridge.walletRegistrationFilterArgs(filterArgs)
-    const legacyEvents: EthersEvent[] = await this.getEvents(
-      "NewWalletRegistered",
-      options,
-      ...legacyFilterArgs
-    )
+    // skipLegacy: the caller filtered by a V2-only walletID, which the legacy
+    // NewWalletRegistered event cannot express; querying it would return every
+    // legacy wallet.
+    const legacyEvents: EthersEvent[] = skipLegacy
+      ? []
+      : await this.getEvents(
+          "NewWalletRegistered",
+          options,
+          ...legacyFilterArgs
+        )
     // NewWalletRegisteredV2 (emitted for both ECDSA-V2 and FROST wallet
     // registration) is absent from the bundled mainnet/sepolia Bridge artifacts,
     // so it must be queried through the compatibility ABI. Querying it via the
