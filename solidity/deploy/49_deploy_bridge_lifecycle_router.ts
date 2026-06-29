@@ -1,5 +1,6 @@
 import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import type { DeployFunction } from "hardhat-deploy/types"
+import type { Contract } from "ethers"
 
 function revertDataContains(err: unknown, selector: string): boolean {
   const errAny = err as {
@@ -33,6 +34,46 @@ async function getConfiguredSigner(
   }
 
   return hre.ethers.getSigner(address)
+}
+
+// The Bridge exposes no getter for the current lifecycle router (omitted for
+// EIP-170); it is only recoverable from the one-shot LifecycleRouterSet event.
+// Read it newest-first in bounded block ranges so the lookup works on RPC providers
+// that enforce eth_getLogs block-range limits -- an unbounded
+// `queryFilter(0, "latest")` aborts there, breaking the idempotent / manual-governance
+// re-run path.
+//
+// The lower bound is genesis (0): the only stable choice. `Bridge.receipt.blockNumber`
+// is the proxy's LATEST UPGRADE block (hardhat-deploy overwrites the deployment receipt
+// on every upgrade) and can be AFTER the LifecycleRouterSet event, silently missing it.
+// The setter reverts once set, so at most one such event exists; the newest-first scan
+// early-exits on the first (newest) match, so re-runs shortly after wiring settle fast.
+const LIFECYCLE_ROUTER_LOG_QUERY_BLOCK_RANGE = 10000
+
+async function readCurrentLifecycleRouter(
+  bridgeContract: Contract
+): Promise<string | undefined> {
+  const filter = bridgeContract.filters.LifecycleRouterSet()
+  const latestBlock = await bridgeContract.provider.getBlockNumber()
+  for (
+    let toBlock = latestBlock;
+    toBlock >= 0;
+    toBlock -= LIFECYCLE_ROUTER_LOG_QUERY_BLOCK_RANGE
+  ) {
+    const fromBlock = Math.max(
+      toBlock - LIFECYCLE_ROUTER_LOG_QUERY_BLOCK_RANGE + 1,
+      0
+    )
+    // eslint-disable-next-line no-await-in-loop
+    const events = await bridgeContract.queryFilter(filter, fromBlock, toBlock)
+    if (events.length > 0) {
+      return events[events.length - 1].args?.lifecycleRouter as
+        | string
+        | undefined
+    }
+  }
+
+  return undefined
 }
 
 const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
@@ -74,19 +115,13 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
 
   // Wire the router onto the Bridge. The setter is one-time and governance-gated,
   // and the Bridge exposes no getter for the current value -- it is only recoverable
-  // from the LifecycleRouterSet event. Read it first so re-runs are idempotent
-  // regardless of who governance is (the production Safe is not a deployer signer, so
-  // we must not depend on being able to send the setter to learn it is already set).
-  const lifecycleRouterEvents = await bridgeContract.queryFilter(
-    bridgeContract.filters.LifecycleRouterSet(),
-    0,
-    "latest"
+  // from the one-shot LifecycleRouterSet event. Read it first so re-runs are
+  // idempotent regardless of who governance is (the production Safe is not a deployer
+  // signer, so we must not depend on being able to send the setter to learn it is
+  // already set).
+  const currentLifecycleRouter = await readCurrentLifecycleRouter(
+    bridgeContract
   )
-  const currentLifecycleRouter =
-    lifecycleRouterEvents.length > 0
-      ? lifecycleRouterEvents[lifecycleRouterEvents.length - 1].args
-          ?.lifecycleRouter
-      : undefined
 
   if (
     currentLifecycleRouter &&
@@ -170,15 +205,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
           throw err
         }
 
-        const racedEvents = await bridgeContract.queryFilter(
-          bridgeContract.filters.LifecycleRouterSet(),
-          0,
-          "latest"
-        )
-        const racedRouter =
-          racedEvents.length > 0
-            ? racedEvents[racedEvents.length - 1].args?.lifecycleRouter
-            : undefined
+        const racedRouter = await readCurrentLifecycleRouter(bridgeContract)
         if (
           !racedRouter ||
           racedRouter.toLowerCase() !== router.address.toLowerCase()
