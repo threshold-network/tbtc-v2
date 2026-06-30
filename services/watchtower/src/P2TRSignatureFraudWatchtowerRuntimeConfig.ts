@@ -681,9 +681,10 @@ function parseOptionalBitcoinNetworkEnv(
   switch (value) {
     case BitcoinNetwork.Mainnet:
     case BitcoinNetwork.Testnet:
+    case BitcoinNetwork.Testnet4:
       return value
     default:
-      throw new Error(`${key} must be mainnet or testnet`)
+      throw new Error(`${key} must be mainnet, testnet, or testnet4`)
   }
 }
 
