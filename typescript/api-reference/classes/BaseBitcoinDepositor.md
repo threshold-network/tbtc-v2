@@ -63,7 +63,7 @@ EthersContractHandle\&lt;L2BitcoinDepositorTypechain\&gt;.constructor
 
 #### Defined in
 
-[src/lib/base/l2-bitcoin-depositor.ts:34](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L34)
+[tbtc-v2-m993/typescript/src/lib/base/l2-bitcoin-depositor.ts:34](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L34)
 
 ## Properties
 
@@ -73,7 +73,7 @@ EthersContractHandle\&lt;L2BitcoinDepositorTypechain\&gt;.constructor
 
 #### Defined in
 
-[src/lib/base/l2-bitcoin-depositor.ts:32](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L32)
+[tbtc-v2-m993/typescript/src/lib/base/l2-bitcoin-depositor.ts:32](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L32)
 
 ___
 
@@ -83,7 +83,7 @@ ___
 
 #### Defined in
 
-[src/lib/base/l2-bitcoin-depositor.ts:31](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L31)
+[tbtc-v2-m993/typescript/src/lib/base/l2-bitcoin-depositor.ts:31](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L31)
 
 ___
 
@@ -101,7 +101,7 @@ EthersContractHandle.\_deployedAtBlockNumber
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:80](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L80)
+[tbtc-v2-m993/typescript/src/lib/ethereum/adapter.ts:80](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L80)
 
 ___
 
@@ -117,7 +117,7 @@ EthersContractHandle.\_instance
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L74)
+[tbtc-v2-m993/typescript/src/lib/ethereum/adapter.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L74)
 
 ___
 
@@ -133,7 +133,7 @@ EthersContractHandle.\_totalRetryAttempts
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:84](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L84)
+[tbtc-v2-m993/typescript/src/lib/ethereum/adapter.ts:84](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L84)
 
 ## Methods
 
@@ -153,7 +153,7 @@ EthersContractHandle.\_totalRetryAttempts
 
 #### Defined in
 
-[src/lib/base/l2-bitcoin-depositor.ts:81](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L81)
+[tbtc-v2-m993/typescript/src/lib/base/l2-bitcoin-depositor.ts:81](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L81)
 
 ___
 
@@ -175,7 +175,7 @@ EthersContractHandle.getAddress
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:112](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L112)
+[tbtc-v2-m993/typescript/src/lib/ethereum/adapter.ts:112](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L112)
 
 ___
 
@@ -195,7 +195,7 @@ ___
 
 #### Defined in
 
-[src/lib/base/l2-bitcoin-depositor.ts:57](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L57)
+[tbtc-v2-m993/typescript/src/lib/base/l2-bitcoin-depositor.ts:57](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L57)
 
 ___
 
@@ -215,7 +215,7 @@ ___
 
 #### Defined in
 
-[src/lib/base/l2-bitcoin-depositor.ts:65](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L65)
+[tbtc-v2-m993/typescript/src/lib/base/l2-bitcoin-depositor.ts:65](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L65)
 
 ___
 
@@ -249,7 +249,7 @@ EthersContractHandle.getEvents
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:127](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L127)
+[tbtc-v2-m993/typescript/src/lib/ethereum/adapter.ts:127](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L127)
 
 ___
 
@@ -278,7 +278,7 @@ ___
 
 #### Defined in
 
-[src/lib/base/l2-bitcoin-depositor.ts:89](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L89)
+[tbtc-v2-m993/typescript/src/lib/base/l2-bitcoin-depositor.ts:89](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L89)
 
 ___
 
@@ -304,4 +304,4 @@ ___
 
 #### Defined in
 
-[src/lib/base/l2-bitcoin-depositor.ts:73](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L73)
+[tbtc-v2-m993/typescript/src/lib/base/l2-bitcoin-depositor.ts:73](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L73)

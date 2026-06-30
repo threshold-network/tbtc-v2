@@ -1,3 +1,4 @@
+import { BitcoinTxHash } from "@keep-network/tbtc-v2.ts"
 import type {
   P2TRSignatureFraudWatchtowerBridgeLifecycleEvent,
   P2TRSignatureFraudWatchtowerBridgeLifecycleEventSource,
@@ -697,10 +698,24 @@ function extractCompletedProofBitcoinTxHash(
     throw new Error(`Bridge proof event is missing ${label}`)
   }
 
-  return normalizeFixedBytes32(
+  const internalOrderHash = normalizeFixedBytes32(
     normalizeIntegerHex(value, `Bridge proof event ${label}`),
     `Bridge proof event ${label}`
   )
+
+  // The Bridge stores/emits Bitcoin tx hashes in the Bitcoin INTERNAL (protocol,
+  // little-endian) byte order -- the value `validateProof` returns and Bridge
+  // storage keys use. Esplora observations and the watchtower challenge records
+  // key on the EXPLORER/DISPLAY byte order (`BitcoinTxHash.from(txid)`), and the
+  // matcher compares byte-for-byte via `Hex.equals`. Reverse to display order so
+  // a confirmed honest-spend proof event resolves to the observed transaction
+  // instead of silently failing to match -- otherwise the watchtower would keep
+  // or submit a fraud challenge against an already-proven honest spend. This
+  // mirrors the SDK convention (`BitcoinTxHash.from(...).reverse()`) applied to
+  // every other Bridge-emitted Bitcoin tx hash. Applied only to the Bitcoin
+  // proof tx hash; the Ethereum bytes32 fields (walletID/sighash/etc.) keep
+  // their order via the shared normalizeFixedBytes32 helper.
+  return BitcoinTxHash.from(internalOrderHash).reverse().toPrefixedString()
 }
 
 function extractBridgeLifecycleEventEvidence(

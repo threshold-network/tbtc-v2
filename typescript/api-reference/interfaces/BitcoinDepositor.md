@@ -35,7 +35,7 @@ encode and decode the extra data included in the cross-chain deposit script.
 
 #### Defined in
 
-[src/lib/contracts/cross-chain.ts:99](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L99)
+[tbtc-v2-m993/typescript/src/lib/contracts/cross-chain.ts:99](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L99)
 
 ___
 
@@ -52,7 +52,7 @@ Optional method - may not be available for off-chain implementations.
 
 #### Defined in
 
-[src/lib/contracts/cross-chain.ts:79](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L79)
+[tbtc-v2-m993/typescript/src/lib/contracts/cross-chain.ts:79](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L79)
 
 ___
 
@@ -71,7 +71,7 @@ The identifier of the deposit owner or undefined if not set.
 
 #### Defined in
 
-[src/lib/contracts/cross-chain.ts:86](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L86)
+[tbtc-v2-m993/typescript/src/lib/contracts/cross-chain.ts:86](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L86)
 
 ___
 
@@ -98,7 +98,7 @@ Transaction hash of the reveal deposit transaction or full transaction receipt.
 
 #### Defined in
 
-[src/lib/contracts/cross-chain.ts:111](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L111)
+[tbtc-v2-m993/typescript/src/lib/contracts/cross-chain.ts:111](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L111)
 
 ___
 
@@ -121,4 +121,4 @@ issued by this contract.
 
 #### Defined in
 
-[src/lib/contracts/cross-chain.ts:93](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L93)
+[tbtc-v2-m993/typescript/src/lib/contracts/cross-chain.ts:93](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L93)

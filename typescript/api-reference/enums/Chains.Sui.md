@@ -22,7 +22,7 @@ SUI Devnet.
 
 #### Defined in
 
-[src/lib/contracts/chain.ts:56](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L56)
+[tbtc-v2-m993/typescript/src/lib/contracts/chain.ts:56](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L56)
 
 ___
 
@@ -34,7 +34,7 @@ SUI Mainnet.
 
 #### Defined in
 
-[src/lib/contracts/chain.ts:48](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L48)
+[tbtc-v2-m993/typescript/src/lib/contracts/chain.ts:48](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L48)
 
 ___
 
@@ -46,4 +46,4 @@ SUI Testnet.
 
 #### Defined in
 
-[src/lib/contracts/chain.ts:52](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L52)
+[tbtc-v2-m993/typescript/src/lib/contracts/chain.ts:52](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L52)

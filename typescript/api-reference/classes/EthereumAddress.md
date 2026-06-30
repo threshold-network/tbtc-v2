@@ -39,7 +39,7 @@ Represents an Ethereum address.
 
 #### Defined in
 
-[src/lib/ethereum/address.ts:12](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/address.ts#L12)
+[tbtc-v2-m993/typescript/src/lib/ethereum/address.ts:12](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/address.ts#L12)
 
 ## Properties
 
@@ -55,7 +55,7 @@ Identifier as an un-prefixed hex string.
 
 #### Defined in
 
-[src/lib/ethereum/address.ts:10](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/address.ts#L10)
+[tbtc-v2-m993/typescript/src/lib/ethereum/address.ts:10](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/address.ts#L10)
 
 ## Methods
 
@@ -81,7 +81,7 @@ Checks if two identifiers are equal.
 
 #### Defined in
 
-[src/lib/ethereum/address.ts:28](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/address.ts#L28)
+[tbtc-v2-m993/typescript/src/lib/ethereum/address.ts:28](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/address.ts#L28)
 
 ___
 
@@ -101,4 +101,4 @@ ___
 
 #### Defined in
 
-[src/lib/ethereum/address.ts:24](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/address.ts#L24)
+[tbtc-v2-m993/typescript/src/lib/ethereum/address.ts:24](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/address.ts#L24)

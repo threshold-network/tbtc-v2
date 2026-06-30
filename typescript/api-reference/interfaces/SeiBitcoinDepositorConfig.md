@@ -18,7 +18,7 @@ Configuration for SeiBitcoinDepositor
 
 #### Defined in
 
-[src/lib/sei/sei-depositor.ts:60](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L60)
+[tbtc-v2-m993/typescript/src/lib/sei/sei-depositor.ts:60](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L60)
 
 ___
 
@@ -28,7 +28,7 @@ ___
 
 #### Defined in
 
-[src/lib/sei/sei-depositor.ts:62](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L62)
+[tbtc-v2-m993/typescript/src/lib/sei/sei-depositor.ts:62](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L62)
 
 ___
 
@@ -38,4 +38,4 @@ ___
 
 #### Defined in
 
-[src/lib/sei/sei-depositor.ts:61](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L61)
+[tbtc-v2-m993/typescript/src/lib/sei/sei-depositor.ts:61](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L61)

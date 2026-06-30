@@ -20,7 +20,7 @@ The 0-based index of the output.
 
 #### Defined in
 
-[src/lib/bitcoin/tx.ts:77](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L77)
+[tbtc-v2-m993/typescript/src/lib/bitcoin/tx.ts:77](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L77)
 
 ___
 
@@ -32,7 +32,7 @@ The receiving scriptPubKey.
 
 #### Defined in
 
-[src/lib/bitcoin/tx.ts:87](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L87)
+[tbtc-v2-m993/typescript/src/lib/bitcoin/tx.ts:87](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L87)
 
 ___
 
@@ -44,4 +44,4 @@ The value of the output in satoshis.
 
 #### Defined in
 
-[src/lib/bitcoin/tx.ts:82](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L82)
+[tbtc-v2-m993/typescript/src/lib/bitcoin/tx.ts:82](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L82)
