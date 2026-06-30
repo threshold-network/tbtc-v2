@@ -6,6 +6,7 @@ import { Program } from "@coral-xyz/anchor"
 import { WormholeGateway } from "../target/types/wormhole_gateway"
 
 const WH_POLYGON_CHAIN_ID = 5
+const ZERO_GATEWAY_ADDRESS = Array.from(Buffer.alloc(32))
 
 async function run(): Promise<void> {
   dotenv.config({ path: "../solana.env" })
@@ -14,6 +15,8 @@ async function run(): Promise<void> {
 
   const wormholeGatewayProgram = anchor.workspace
     .WormholeGateway as Program<WormholeGateway>
+  assertZeroGatewayGuard(wormholeGatewayProgram)
+
   const authority = loadKey(process.env.AUTHORITY).publicKey
 
   const custodian = PublicKey.findProgramAddressSync(
@@ -31,7 +34,7 @@ async function run(): Promise<void> {
   await wormholeGatewayProgram.methods
     .updateGatewayAddress({
       chain: WH_POLYGON_CHAIN_ID,
-      address: Array.from(Buffer.alloc(32)),
+      address: ZERO_GATEWAY_ADDRESS,
     })
     .accounts({
       custodian,
@@ -41,6 +44,18 @@ async function run(): Promise<void> {
     .rpc()
 
   console.log("Cleared Solana gateway Polygon peer")
+}
+
+function assertZeroGatewayGuard(program: Program<WormholeGateway>): void {
+  const hasZeroGatewayGuard = program.idl.errors?.some(
+    ({ name }) => name === "ZeroGateway"
+  )
+
+  if (!hasZeroGatewayGuard) {
+    throw new Error(
+      "Refusing to clear Polygon gateway peer before deploying the ZeroGateway send guard"
+    )
+  }
 }
 
 ;(async () => {
