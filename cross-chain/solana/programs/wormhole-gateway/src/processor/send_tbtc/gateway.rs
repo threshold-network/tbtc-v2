@@ -1,5 +1,6 @@
 use crate::{
     constants::MSG_SEED_PREFIX,
+    error::WormholeGatewayError,
     state::{Custodian, GatewayInfo},
 };
 use anchor_lang::prelude::*;
@@ -13,7 +14,7 @@ use wormhole_anchor_sdk::{
 #[instruction(args: SendTbtcGatewayArgs)]
 pub struct SendTbtcGateway<'info> {
     #[account(
-        mut, 
+        mut,
         seeds = [Custodian::SEED_PREFIX],
         bump = custodian.bump,
         has_one = wrapped_tbtc_token,
@@ -134,6 +135,7 @@ pub fn send_tbtc_gateway(ctx: Context<SendTbtcGateway>, args: SendTbtcGatewayArg
     let token_program = &ctx.accounts.token_program;
 
     let gateway = ctx.accounts.gateway_info.address;
+    require!(gateway != [0; 32], WormholeGatewayError::ZeroGateway);
 
     // Prepare for wrapped tBTC transfer (this method also truncates the amount to prevent having to
     // handle dust since tBTC has >8 decimals).

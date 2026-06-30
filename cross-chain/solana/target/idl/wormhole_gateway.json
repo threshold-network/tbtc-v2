@@ -949,6 +949,11 @@
       "msg": "0x0 recipient not allowed"
     },
     {
+      "code": 6050,
+      "name": "ZeroGateway",
+      "msg": "0x0 gateway not allowed"
+    },
+    {
       "code": 6064,
       "name": "NotEnoughWrappedTbtc",
       "msg": "Not enough wormhole tBTC in the gateway to bridge"
