@@ -22,11 +22,12 @@ pragma solidity 0.8.17;
 /// with one argument) at the cost of one cross-contract view per
 /// dispatch.
 ///
-/// The router is stateless and immutable; replacement is done by
-/// deploying a new router contract and using
-/// `Bridge.setLifecycleRouter` to point the Bridge at the new
-/// implementation. There are no in-flight lifecycle operations to
-/// migrate between router versions.
+/// The router is stateless and immutable. `Bridge.setLifecycleRouter`
+/// is a one-time setter that reverts once a router has been set, so the
+/// Bridge cannot be repointed at a different router after
+/// initialization; replacing the router requires a Bridge
+/// implementation upgrade. There are no in-flight lifecycle operations
+/// to migrate between router versions.
 interface IBridgeLifecycleRouter {
     /// @notice Forwards a closeWallet call for the FROST wallet
     ///         identified by `walletPubKeyHash` to the configured

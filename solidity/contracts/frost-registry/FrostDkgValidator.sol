@@ -89,6 +89,14 @@ contract FrostDkgValidator {
             return (false, error);
         }
 
+        // validateGroupMembers enforces members.length == groupSize and must
+        // run before validateSignatures, which indexes result.members by the
+        // [1, groupSize]-bounded signing member indices -- a shorter members
+        // array would otherwise cause an out-of-bounds read here.
+        if (!validateGroupMembers(result, seed)) {
+            return (false, "Invalid group members");
+        }
+
         if (
             !validateSignatures(
                 result,
@@ -98,10 +106,6 @@ contract FrostDkgValidator {
             )
         ) {
             return (false, "Invalid signatures");
-        }
-
-        if (!validateGroupMembers(result, seed)) {
-            return (false, "Invalid group members");
         }
 
         // At this point all group members and misbehaved members were verified
