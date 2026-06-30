@@ -6,6 +6,11 @@ import {
   getChainIdFromEncodedReceiver,
   getRecipientFromEncodedReceiver,
 } from "../../src/lib/utils/ntt"
+import {
+  WORMHOLE_CHAIN_IDS,
+  WORMHOLE_NTT_CHAIN_IDS,
+} from "../../src/lib/utils/wormhole"
+import { Chains } from "../../src/lib/contracts"
 
 const TEST_WORMHOLE_CHAIN_ID = 10002
 
@@ -233,6 +238,24 @@ describe("NTT Utilities", () => {
         assert.equal(decoded.chainId, chainId)
         assert.equal(decoded.recipient, recipient)
       })
+    })
+  })
+
+  describe("Wormhole chain ID constants", () => {
+    it("should expose NTT migration target chain IDs", () => {
+      assert.equal(WORMHOLE_CHAIN_IDS[Chains.Arbitrum.Arbitrum], 23)
+      assert.equal(WORMHOLE_CHAIN_IDS[Chains.Base.Base], 30)
+      assert.equal(WORMHOLE_NTT_CHAIN_IDS.Optimism.Optimism, 24)
+      assert.equal(WORMHOLE_CHAIN_IDS[Chains.Sui.Mainnet], 21)
+      assert.equal(WORMHOLE_CHAIN_IDS[Chains.Solana.Solana], 1)
+    })
+
+    it("should expose NTT migration testnet chain IDs", () => {
+      assert.equal(WORMHOLE_CHAIN_IDS[Chains.Arbitrum.ArbitrumSepolia], 10003)
+      assert.equal(WORMHOLE_CHAIN_IDS[Chains.Base.BaseSepolia], 10004)
+      assert.equal(WORMHOLE_NTT_CHAIN_IDS.Optimism.OptimismSepolia, 10005)
+      assert.equal(WORMHOLE_CHAIN_IDS[Chains.Sui.Testnet], 21)
+      assert.equal(WORMHOLE_CHAIN_IDS[Chains.Solana.Devnet], 1)
     })
   })
 })

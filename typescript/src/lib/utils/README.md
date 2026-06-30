@@ -21,15 +21,20 @@ Encodes a destination chain ID and recipient address into a 32-byte value.
 import {
   encodeDestinationReceiver,
   WORMHOLE_CHAIN_IDS,
+  WORMHOLE_NTT_CHAIN_IDS,
   Chains,
 } from "@keep-network/tbtc-v2"
 
 const encoded = encodeDestinationReceiver(
-  WORMHOLE_CHAIN_IDS[Chains.Ethereum.Sepolia], // 10002
+  WORMHOLE_CHAIN_IDS[Chains.Base.BaseSepolia], // 10004
   "0x1234567890123456789012345678901234567890"
 )
-console.log(encoded.toPrefixedString())
-// Output: "0x2712000000000000000000001234567890123456789012345678901234567890"
+
+const optimismEncoded = encodeDestinationReceiver(
+  WORMHOLE_NTT_CHAIN_IDS.Optimism.OptimismSepolia, // 10005
+  "0x1234567890123456789012345678901234567890"
+)
+
 ```
 
 ### `decodeDestinationReceiver(encodedReceiver)`
@@ -91,13 +96,19 @@ import {
   encodeDestinationReceiver,
   decodeDestinationReceiver,
   WORMHOLE_CHAIN_IDS,
+  WORMHOLE_NTT_CHAIN_IDS,
   Chains,
 } from "@keep-network/tbtc-v2"
 
 // Encode destination chain and recipient.
 const recipient = "0x1234567890123456789012345678901234567890"
 const encoded = encodeDestinationReceiver(
-  WORMHOLE_CHAIN_IDS[Chains.Ethereum.Sepolia],
+  WORMHOLE_CHAIN_IDS[Chains.Arbitrum.ArbitrumSepolia],
+  recipient
+)
+
+const optimismEncoded = encodeDestinationReceiver(
+  WORMHOLE_NTT_CHAIN_IDS.Optimism.OptimismSepolia,
   recipient
 )
 
