@@ -299,22 +299,27 @@ library Wallets {
         // this callback would propagate up through
         // `EcdsaWalletRegistry.approveDkgResult`, preventing the
         // registry's own `dkg.complete()` transition and leaving
-        // the ECDSA registry stuck in a non-IDLE state. The
-        // `Wallets.requestNewWallet` gate above checks
-        // `ecdsaWalletRegistry.getWalletCreationState() == IDLE`
-        // unconditionally (before the scheme branch), so a
-        // stuck ECDSA registry would also block every subsequent
-        // FROST wallet creation — exactly the failure mode D-1
-        // is meant to prevent (per PR #443 review).
+        // the ECDSA registry stuck in a non-IDLE state — which is
+        // why this callback is never reverted.
         //
-        // The retirement contract instead relies on operational
-        // sequencing: governance pauses Bridge, waits for any
-        // in-flight ECDSA DKG to settle (callback fires, this
-        // function runs, registry returns to IDLE), then sets
-        // `ecdsaRetired = true`, then unpauses. The
-        // `requestNewWallet` request-side guard (above) and the
-        // `setNewWalletScheme(Frost)` dispatch handle every
-        // subsequent attempt to create an ECDSA wallet.
+        // (A prior `Wallets.requestNewWallet` gate read
+        // `ecdsaWalletRegistry.getWalletCreationState() == IDLE`, so a
+        // stuck ECDSA registry would also have blocked every subsequent
+        // FROST wallet creation. That gate has since been removed —
+        // FROST wallet creation no longer reads the ECDSA registry's
+        // state — so a stuck registry can no longer block FROST
+        // creation, and not reverting here is retained only to avoid
+        // breaking the ECDSA registry's own DKG completion.)
+        //
+        // The retirement contract relies on operational sequencing:
+        // governance pauses Bridge, waits for any in-flight ECDSA DKG
+        // to settle (callback fires, this function runs, registry
+        // returns to IDLE), then sets `ecdsaRetired = true`, then
+        // unpauses. Bridge no longer dispatches ECDSA wallet creation
+        // at all: `requestNewWallet` dispatches only to the FROST
+        // registry (the scheme branch and the `setNewWalletScheme`
+        // setters were removed), so no subsequent ECDSA wallet can be
+        // created.
         // Reserve `ecdsaWalletID == bytes32(0)` as the on-chain marker for
         // FROST-keyed wallets registered via `registerNewFrostWallet`. The
         // Bridge enforces this invariant at the registration boundary so
