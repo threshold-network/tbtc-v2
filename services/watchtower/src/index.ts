@@ -67,4 +67,5 @@ export type {
   P2TRSignatureFraudWatchtowerEsploraRuntimeOptions,
   P2TRSignatureFraudWatchtowerRuntime,
   P2TRSignatureFraudWatchtowerRuntimeDependencies,
+  P2TRSignatureFraudWatchtowerRuntimeSubmissionOptions,
 } from "./P2TRSignatureFraudWatchtowerRuntime.js"
