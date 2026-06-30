@@ -137,5 +137,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 }
 
 func.tags = ["ConfigureTokenPoolChains"]
+// BOB CCIP support is deprecated. Keep this script for historical reference
+// without configuring new BOB CCIP routes.
+func.skip = async () => true
 
 export default func

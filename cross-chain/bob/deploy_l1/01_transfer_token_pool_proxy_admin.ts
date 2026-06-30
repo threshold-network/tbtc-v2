@@ -70,3 +70,6 @@ export default func
 
 func.tags = ["TransferProxyAdmin"]
 func.dependencies = ["LockReleaseTokenPoolUpgradeable"]
+// BOB CCIP support is deprecated. Keep this script for historical reference
+// without mutating BOB CCIP token-pool ownership.
+func.skip = async () => true
