@@ -527,22 +527,24 @@ library Wallets {
             // Scheme-aware routing: ECDSA wallets call the ECDSA
             // registry directly (unchanged); FROST wallets dispatch
             // through the lifecycle router.
-            if (wallet.ecdsaWalletID != bytes32(0)) {
-                self.ecdsaWalletRegistry.seize(
-                    self.redemptionTimeoutSlashingAmount,
-                    self.redemptionTimeoutNotifierRewardMultiplier,
-                    msg.sender,
-                    wallet.ecdsaWalletID,
-                    walletMembersIDs
-                );
-            } else {
-                IBridgeLifecycleRouter(self.lifecycleRouter).seize(
-                    walletPubKeyHash,
-                    self.redemptionTimeoutSlashingAmount,
-                    self.redemptionTimeoutNotifierRewardMultiplier,
-                    msg.sender,
-                    walletMembersIDs
-                );
+            if (self.slashingActive) {
+                if (wallet.ecdsaWalletID != bytes32(0)) {
+                    self.ecdsaWalletRegistry.seize(
+                        self.redemptionTimeoutSlashingAmount,
+                        self.redemptionTimeoutNotifierRewardMultiplier,
+                        msg.sender,
+                        wallet.ecdsaWalletID,
+                        walletMembersIDs
+                    );
+                } else {
+                    IBridgeLifecycleRouter(self.lifecycleRouter).seize(
+                        walletPubKeyHash,
+                        self.redemptionTimeoutSlashingAmount,
+                        self.redemptionTimeoutNotifierRewardMultiplier,
+                        msg.sender,
+                        walletMembersIDs
+                    );
+                }
             }
         }
 
@@ -747,22 +749,24 @@ library Wallets {
             "Wallet must be in MovingFunds state"
         );
 
-        if (wallet.ecdsaWalletID != bytes32(0)) {
-            self.ecdsaWalletRegistry.seize(
-                self.movingFundsTimeoutSlashingAmount,
-                self.movingFundsTimeoutNotifierRewardMultiplier,
-                msg.sender,
-                wallet.ecdsaWalletID,
-                walletMembersIDs
-            );
-        } else {
-            IBridgeLifecycleRouter(self.lifecycleRouter).seize(
-                walletPubKeyHash,
-                self.movingFundsTimeoutSlashingAmount,
-                self.movingFundsTimeoutNotifierRewardMultiplier,
-                msg.sender,
-                walletMembersIDs
-            );
+        if (self.slashingActive) {
+            if (wallet.ecdsaWalletID != bytes32(0)) {
+                self.ecdsaWalletRegistry.seize(
+                    self.movingFundsTimeoutSlashingAmount,
+                    self.movingFundsTimeoutNotifierRewardMultiplier,
+                    msg.sender,
+                    wallet.ecdsaWalletID,
+                    walletMembersIDs
+                );
+            } else {
+                IBridgeLifecycleRouter(self.lifecycleRouter).seize(
+                    walletPubKeyHash,
+                    self.movingFundsTimeoutSlashingAmount,
+                    self.movingFundsTimeoutNotifierRewardMultiplier,
+                    msg.sender,
+                    walletMembersIDs
+                );
+            }
         }
 
         terminateWallet(self, walletPubKeyHash);
@@ -796,22 +800,24 @@ library Wallets {
             walletState == Wallets.WalletState.Live ||
             walletState == Wallets.WalletState.MovingFunds
         ) {
-            if (wallet.ecdsaWalletID != bytes32(0)) {
-                self.ecdsaWalletRegistry.seize(
-                    self.movedFundsSweepTimeoutSlashingAmount,
-                    self.movedFundsSweepTimeoutNotifierRewardMultiplier,
-                    msg.sender,
-                    wallet.ecdsaWalletID,
-                    walletMembersIDs
-                );
-            } else {
-                IBridgeLifecycleRouter(self.lifecycleRouter).seize(
-                    walletPubKeyHash,
-                    self.movedFundsSweepTimeoutSlashingAmount,
-                    self.movedFundsSweepTimeoutNotifierRewardMultiplier,
-                    msg.sender,
-                    walletMembersIDs
-                );
+            if (self.slashingActive) {
+                if (wallet.ecdsaWalletID != bytes32(0)) {
+                    self.ecdsaWalletRegistry.seize(
+                        self.movedFundsSweepTimeoutSlashingAmount,
+                        self.movedFundsSweepTimeoutNotifierRewardMultiplier,
+                        msg.sender,
+                        wallet.ecdsaWalletID,
+                        walletMembersIDs
+                    );
+                } else {
+                    IBridgeLifecycleRouter(self.lifecycleRouter).seize(
+                        walletPubKeyHash,
+                        self.movedFundsSweepTimeoutSlashingAmount,
+                        self.movedFundsSweepTimeoutNotifierRewardMultiplier,
+                        msg.sender,
+                        walletMembersIDs
+                    );
+                }
             }
 
             terminateWallet(self, walletPubKeyHash);
@@ -844,22 +850,24 @@ library Wallets {
             walletState == Wallets.WalletState.MovingFunds ||
             walletState == Wallets.WalletState.Closing
         ) {
-            if (wallet.ecdsaWalletID != bytes32(0)) {
-                self.ecdsaWalletRegistry.seize(
-                    self.fraudSlashingAmount,
-                    self.fraudNotifierRewardMultiplier,
-                    challenger,
-                    wallet.ecdsaWalletID,
-                    walletMembersIDs
-                );
-            } else {
-                IBridgeLifecycleRouter(self.lifecycleRouter).seize(
-                    walletPubKeyHash,
-                    self.fraudSlashingAmount,
-                    self.fraudNotifierRewardMultiplier,
-                    challenger,
-                    walletMembersIDs
-                );
+            if (self.slashingActive) {
+                if (wallet.ecdsaWalletID != bytes32(0)) {
+                    self.ecdsaWalletRegistry.seize(
+                        self.fraudSlashingAmount,
+                        self.fraudNotifierRewardMultiplier,
+                        challenger,
+                        wallet.ecdsaWalletID,
+                        walletMembersIDs
+                    );
+                } else {
+                    IBridgeLifecycleRouter(self.lifecycleRouter).seize(
+                        walletPubKeyHash,
+                        self.fraudSlashingAmount,
+                        self.fraudNotifierRewardMultiplier,
+                        challenger,
+                        walletMembersIDs
+                    );
+                }
             }
 
             terminateWallet(self, walletPubKeyHash);

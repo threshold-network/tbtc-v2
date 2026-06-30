@@ -2388,6 +2388,23 @@ contract Bridge is Governable, Initializable, IReceiveBalanceApproval {
         return self.ecdsaRetired;
     }
 
+    /// @notice Returns whether economic slashing is currently active. `false`
+    ///         by default: the (economically inert) operator-stake slashing in
+    ///         the timeout / fraud-defeat handlers is skipped while permissionless
+    ///         fraud-proof wallet termination remains fully enabled. Governance
+    ///         can re-enable slashing via `setSlashingActive` if staking is
+    ///         reintroduced.
+    function slashingActive() external view returns (bool) {
+        return self.slashingActive;
+    }
+
+    /// @notice Sets whether economic slashing is active. Callable only by the
+    ///         governance.
+    /// @param active New value of the `slashingActive` flag.
+    function setSlashingActive(bool active) external onlyGovernance {
+        self.slashingActive = active;
+    }
+
     /// @notice One-shot view consumed by the BridgeLifecycleRouter
     ///         during FROST wallet dispatch. Returns the
     ///         frostWalletRegistry address and the wallet's canonical

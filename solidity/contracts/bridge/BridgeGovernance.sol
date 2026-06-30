@@ -314,6 +314,14 @@ contract BridgeGovernance is Ownable {
         bridge.setVaultStatus(vault, isTrusted);
     }
 
+    /// @notice Sets whether economic slashing is active on the Bridge. `false`
+    ///         disables the (economically inert) operator-stake slashing without
+    ///         affecting permissionless fraud-proof wallet termination.
+    /// @param active New value of the slashing-active flag.
+    function setSlashingActive(bool active) external onlyOwner {
+        bridge.setSlashingActive(active);
+    }
+
     /// @notice Allows the Governance to mark the given address as trusted
     ///         or no longer trusted SPV maintainer. Addresses are not trusted
     ///         as SPV maintainers by default.
