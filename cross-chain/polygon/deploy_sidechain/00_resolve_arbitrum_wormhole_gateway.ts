@@ -1,26 +1,9 @@
-import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import type { DeployFunction } from "hardhat-deploy/types"
 
-const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
-  const { helpers, deployments } = hre
-  const { log } = deployments
-
-  const ArbitrumWormholeGateway = await deployments.getOrNull(
-    "ArbitrumWormholeGateway"
-  )
-
-  if (
-    ArbitrumWormholeGateway &&
-    helpers.address.isValid(ArbitrumWormholeGateway.address)
-  ) {
-    log(
-      `using existing ArbitrumWormholeGateway at ${ArbitrumWormholeGateway.address}`
-    )
-  } else if (hre.network.name === "hardhat") {
-    log("using fake ArbitrumWormholeGateway for hardhat network")
-  } else {
-    throw new Error("deployed ArbitrumWormholeGateway contract not found")
-  }
+const func: DeployFunction = async function () {
+  // Polygon support is deprecated. This resolver is intentionally kept as a
+  // no-op so historical deployments remain loadable without configuring a new
+  // Arbitrum peer.
 }
 
 export default func

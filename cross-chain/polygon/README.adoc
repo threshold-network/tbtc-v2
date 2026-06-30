@@ -2,8 +2,31 @@
 
 = Threshold cross-chain - Polygon
 
-This package brings Bitcoin to Ethereum Polygon. For more details please
-see link:https://github.com/keep-network/tbtc-v2/blob/main/docs/rfc/rfc-8.adoc[RFC 8: Cross-chain Tokenized Threshold BTC]
+This package is deprecated and kept only for Polygon exit operations. Do not
+use it to configure new Polygon bridge-in routes. Existing Polygon tBTC
+liquidity should be withdrawn through `PolygonWormholeGateway.sendTbtc` and
+routed back to Ethereum before moving through the supported hub path.
+
+The deprecation path keeps the withdrawal/burn path available while blocking
+new canonical Polygon mints:
+
+- set `PolygonWormholeGateway.updateMintingLimit(0)` so inbound Wormhole
+  transfers no longer mint canonical Polygon tBTC;
+- clear Polygon peer mappings on Base, Arbitrum, Optimism, and Polygon gateway
+  contracts;
+- remove Polygon from new Solana gateway initialization and clear the existing
+  Solana gateway Polygon peer with `cross-chain/solana/deploy/deprecate_polygon.ts`;
+- keep `PolygonTBTC` unpaused and keep the gateway minter role until the
+  outstanding Polygon exit surface is fully drained.
+
+For fresh deployments, the deploy scripts apply these settings before gateway
+ownership is transferred. For existing live deployments where gateway ownership
+has already been transferred, governance must execute the equivalent
+`updateMintingLimit(0)` and `updateGatewayAddress(..., bytes32(0))` calls.
+
+For historical context, this package originally brought Bitcoin to Polygon via
+the Wormhole Token Bridge. See
+link:https://github.com/keep-network/tbtc-v2/blob/main/docs/rfc/rfc-8.adoc[RFC 8: Cross-chain Tokenized Threshold BTC].
 
 == How it works?
 
