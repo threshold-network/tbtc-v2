@@ -18,7 +18,7 @@ Main UTXO of the wallet.
 
 #### Defined in
 
-[src/lib/utils/types.ts:14](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/types.ts#L14)
+[tbtc-v2-m993/typescript/src/lib/utils/types.ts:14](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/types.ts#L14)
 
 ___
 
@@ -30,7 +30,7 @@ Redeemer output script of the wallet.
 
 #### Defined in
 
-[src/lib/utils/types.ts:19](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/types.ts#L19)
+[tbtc-v2-m993/typescript/src/lib/utils/types.ts:19](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/types.ts#L19)
 
 ___
 
@@ -42,4 +42,4 @@ Public key of the wallet.
 
 #### Defined in
 
-[src/lib/utils/types.ts:9](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/types.ts#L9)
+[tbtc-v2-m993/typescript/src/lib/utils/types.ts:9](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/types.ts#L9)

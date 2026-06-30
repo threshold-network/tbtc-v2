@@ -62,7 +62,7 @@ Electrum-based implementation of the Bitcoin client.
 
 #### Defined in
 
-[src/lib/electrum/client.ts:77](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L77)
+[tbtc-v2-m993/typescript/src/lib/electrum/client.ts:77](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L77)
 
 ## Properties
 
@@ -72,7 +72,7 @@ Electrum-based implementation of the Bitcoin client.
 
 #### Defined in
 
-[src/lib/electrum/client.ts:75](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L75)
+[tbtc-v2-m993/typescript/src/lib/electrum/client.ts:75](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L75)
 
 ___
 
@@ -82,7 +82,7 @@ ___
 
 #### Defined in
 
-[src/lib/electrum/client.ts:71](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L71)
+[tbtc-v2-m993/typescript/src/lib/electrum/client.ts:71](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L71)
 
 ___
 
@@ -92,7 +92,7 @@ ___
 
 #### Defined in
 
-[src/lib/electrum/client.ts:72](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L72)
+[tbtc-v2-m993/typescript/src/lib/electrum/client.ts:72](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L72)
 
 ___
 
@@ -102,7 +102,7 @@ ___
 
 #### Defined in
 
-[src/lib/electrum/client.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L74)
+[tbtc-v2-m993/typescript/src/lib/electrum/client.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L74)
 
 ___
 
@@ -112,7 +112,7 @@ ___
 
 #### Defined in
 
-[src/lib/electrum/client.ts:73](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L73)
+[tbtc-v2-m993/typescript/src/lib/electrum/client.ts:73](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L73)
 
 ## Methods
 
@@ -138,7 +138,7 @@ ___
 
 #### Defined in
 
-[src/lib/electrum/client.ts:661](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L661)
+[tbtc-v2-m993/typescript/src/lib/electrum/client.ts:661](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L661)
 
 ___
 
@@ -164,7 +164,7 @@ ___
 
 #### Defined in
 
-[src/lib/electrum/client.ts:289](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L289)
+[tbtc-v2-m993/typescript/src/lib/electrum/client.ts:289](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L289)
 
 ___
 
@@ -190,7 +190,7 @@ ___
 
 #### Defined in
 
-[src/lib/electrum/client.ts:675](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L675)
+[tbtc-v2-m993/typescript/src/lib/electrum/client.ts:675](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L675)
 
 ___
 
@@ -217,7 +217,7 @@ ___
 
 #### Defined in
 
-[src/lib/electrum/client.ts:611](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L611)
+[tbtc-v2-m993/typescript/src/lib/electrum/client.ts:611](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L611)
 
 ___
 
@@ -237,7 +237,7 @@ ___
 
 #### Defined in
 
-[src/lib/electrum/client.ts:267](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L267)
+[tbtc-v2-m993/typescript/src/lib/electrum/client.ts:267](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L267)
 
 ___
 
@@ -263,7 +263,7 @@ ___
 
 #### Defined in
 
-[src/lib/electrum/client.ts:424](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L424)
+[tbtc-v2-m993/typescript/src/lib/electrum/client.ts:424](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L424)
 
 ___
 
@@ -289,7 +289,7 @@ ___
 
 #### Defined in
 
-[src/lib/electrum/client.ts:374](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L374)
+[tbtc-v2-m993/typescript/src/lib/electrum/client.ts:374](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L374)
 
 ___
 
@@ -315,7 +315,7 @@ ___
 
 #### Defined in
 
-[src/lib/electrum/client.ts:445](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L445)
+[tbtc-v2-m993/typescript/src/lib/electrum/client.ts:445](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L445)
 
 ___
 
@@ -342,7 +342,7 @@ ___
 
 #### Defined in
 
-[src/lib/electrum/client.ts:320](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L320)
+[tbtc-v2-m993/typescript/src/lib/electrum/client.ts:320](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L320)
 
 ___
 
@@ -369,7 +369,7 @@ ___
 
 #### Defined in
 
-[src/lib/electrum/client.ts:630](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L630)
+[tbtc-v2-m993/typescript/src/lib/electrum/client.ts:630](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L630)
 
 ___
 
@@ -395,7 +395,7 @@ ___
 
 #### Defined in
 
-[src/lib/electrum/client.ts:537](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L537)
+[tbtc-v2-m993/typescript/src/lib/electrum/client.ts:537](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L537)
 
 ___
 
@@ -415,7 +415,7 @@ ___
 
 #### Defined in
 
-[src/lib/electrum/client.ts:595](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L595)
+[tbtc-v2-m993/typescript/src/lib/electrum/client.ts:595](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L595)
 
 ___
 
@@ -439,7 +439,7 @@ A function that can retry any function.
 
 #### Defined in
 
-[src/lib/electrum/client.ts:259](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L259)
+[tbtc-v2-m993/typescript/src/lib/electrum/client.ts:259](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L259)
 
 ___
 
@@ -470,7 +470,7 @@ Promise holding the outcome.
 
 #### Defined in
 
-[src/lib/electrum/client.ts:194](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L194)
+[tbtc-v2-m993/typescript/src/lib/electrum/client.ts:194](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L194)
 
 ___
 
@@ -495,7 +495,7 @@ Electrum client instance.
 
 #### Defined in
 
-[src/lib/electrum/client.ts:131](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L131)
+[tbtc-v2-m993/typescript/src/lib/electrum/client.ts:131](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L131)
 
 ___
 
@@ -523,7 +523,7 @@ Electrum client instance.
 
 #### Defined in
 
-[src/lib/electrum/client.ts:102](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L102)
+[tbtc-v2-m993/typescript/src/lib/electrum/client.ts:102](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L102)
 
 ___
 
@@ -547,4 +547,4 @@ Electrum credentials object.
 
 #### Defined in
 
-[src/lib/electrum/client.ts:152](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L152)
+[tbtc-v2-m993/typescript/src/lib/electrum/client.ts:152](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L152)

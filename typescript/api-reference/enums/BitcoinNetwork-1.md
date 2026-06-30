@@ -20,7 +20,7 @@ Bitcoin Mainnet.
 
 #### Defined in
 
-[src/lib/bitcoin/network.ts:20](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/network.ts#L20)
+[tbtc-v2-m993/typescript/src/lib/bitcoin/network.ts:20](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/network.ts#L20)
 
 ___
 
@@ -32,7 +32,7 @@ Bitcoin Testnet.
 
 #### Defined in
 
-[src/lib/bitcoin/network.ts:16](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/network.ts#L16)
+[tbtc-v2-m993/typescript/src/lib/bitcoin/network.ts:16](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/network.ts#L16)
 
 ___
 
@@ -44,4 +44,4 @@ Unknown network.
 
 #### Defined in
 
-[src/lib/bitcoin/network.ts:12](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/network.ts#L12)
+[tbtc-v2-m993/typescript/src/lib/bitcoin/network.ts:12](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/network.ts#L12)
