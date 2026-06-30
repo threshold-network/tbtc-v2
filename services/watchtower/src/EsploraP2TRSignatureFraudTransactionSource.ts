@@ -416,9 +416,13 @@ function bitcoinNetworkBech32Prefix(bitcoinNetwork: BitcoinNetwork): string {
     case BitcoinNetwork.Mainnet:
       return "bc"
     case BitcoinNetwork.Testnet:
+    case BitcoinNetwork.Testnet4:
+      // testnet3 and testnet4 P2TR addresses share the same `tb` bech32 HRP.
       return "tb"
     default:
-      throw new Error("P2TR Esplora source supports only mainnet and testnet")
+      throw new Error(
+        "P2TR Esplora source supports only mainnet, testnet, and testnet4"
+      )
   }
 }
 

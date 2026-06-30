@@ -531,7 +531,7 @@ test("rejects unsafe watchtower runtime config before service startup", () => {
         ...baseEnv(),
         [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.esploraBitcoinNetwork]: "regtest",
       }),
-    /ESPLORA_BITCOIN_NETWORK must be mainnet or testnet/
+    /ESPLORA_BITCOIN_NETWORK must be mainnet, testnet, or testnet4/
   )
 
   assert.throws(
