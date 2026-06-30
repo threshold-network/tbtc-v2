@@ -48,7 +48,7 @@ Error.constructor
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:45](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L45)
+[tbtc-v2-m993/typescript/src/services/maintenance/p2tr-signature-fraud.ts:46](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L46)
 
 ## Properties
 
@@ -58,7 +58,7 @@ Error.constructor
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:43](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L43)
+[tbtc-v2-m993/typescript/src/services/maintenance/p2tr-signature-fraud.ts:44](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L44)
 
 ___
 
@@ -72,7 +72,7 @@ Error.message
 
 #### Defined in
 
-node_modules/typescript/lib/lib.es5.d.ts:1077
+tbtc-v2/typescript/node_modules/typescript/lib/lib.es5.d.ts:1077
 
 ___
 
@@ -86,7 +86,7 @@ Error.name
 
 #### Defined in
 
-node_modules/typescript/lib/lib.es5.d.ts:1076
+tbtc-v2/typescript/node_modules/typescript/lib/lib.es5.d.ts:1076
 
 ___
 
@@ -100,7 +100,7 @@ Error.stack
 
 #### Defined in
 
-node_modules/typescript/lib/lib.es5.d.ts:1078
+tbtc-v2/typescript/node_modules/typescript/lib/lib.es5.d.ts:1078
 
 ___
 
@@ -135,7 +135,7 @@ Error.prepareStackTrace
 
 #### Defined in
 
-node_modules/@types/node/globals.d.ts:98
+tbtc-v2/typescript/node_modules/@types/node/globals.d.ts:98
 
 ___
 
@@ -149,7 +149,7 @@ Error.stackTraceLimit
 
 #### Defined in
 
-node_modules/@types/node/globals.d.ts:100
+tbtc-v2/typescript/node_modules/@types/node/globals.d.ts:100
 
 ## Methods
 
@@ -176,4 +176,4 @@ Error.captureStackTrace
 
 #### Defined in
 
-node_modules/@types/node/globals.d.ts:91
+tbtc-v2/typescript/node_modules/@types/node/globals.d.ts:91

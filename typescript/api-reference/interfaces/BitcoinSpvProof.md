@@ -24,7 +24,7 @@ Concatenated block headers in hexadecimal format. Each block header is
 
 #### Defined in
 
-[src/lib/bitcoin/spv.ts:31](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/spv.ts#L31)
+[tbtc-v2-m993/typescript/src/lib/bitcoin/spv.ts:31](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/spv.ts#L31)
 
 ___
 
@@ -37,7 +37,7 @@ the sha256 hash of the coinbase transaction.
 
 #### Defined in
 
-[src/lib/bitcoin/spv.ts:37](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/spv.ts#L37)
+[tbtc-v2-m993/typescript/src/lib/bitcoin/spv.ts:37](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/spv.ts#L37)
 
 ___
 
@@ -49,7 +49,7 @@ Merkle proof of coinbase transaction inclusion in a block.
 
 #### Defined in
 
-[src/lib/bitcoin/spv.ts:42](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/spv.ts#L42)
+[tbtc-v2-m993/typescript/src/lib/bitcoin/spv.ts:42](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/spv.ts#L42)
 
 ___
 
@@ -61,7 +61,7 @@ The merkle proof of transaction inclusion in a block.
 
 #### Defined in
 
-[src/lib/bitcoin/spv.ts:20](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/spv.ts#L20)
+[tbtc-v2-m993/typescript/src/lib/bitcoin/spv.ts:20](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/spv.ts#L20)
 
 ___
 
@@ -73,4 +73,4 @@ Transaction index in the block (0-indexed).
 
 #### Defined in
 
-[src/lib/bitcoin/spv.ts:25](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/spv.ts#L25)
+[tbtc-v2-m993/typescript/src/lib/bitcoin/spv.ts:25](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/spv.ts#L25)

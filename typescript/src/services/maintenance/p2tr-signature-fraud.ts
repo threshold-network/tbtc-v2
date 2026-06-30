@@ -38,6 +38,7 @@ export type P2TRWitnessSignatureErrorCode =
   | "missing-witness"
   | "unsupported-sighash"
   | "unsupported-witness-form"
+  | "challenge-transaction-reverted"
 
 export class P2TRWitnessSignatureError extends Error {
   readonly code: P2TRWitnessSignatureErrorCode
@@ -366,9 +367,20 @@ export type P2TRWatchtowerConfirmedTransaction =
     bitcoinBlockHeight: number
   }
 
+export interface P2TRSignatureFraudChallengeSubmissionOptions {
+  /**
+   * Invoked immediately after the challenge transaction has been broadcast (its
+   * hash is known) and before any confirmation wait. Lets callers durably record
+   * the irreversible broadcast before the submission is fully resolved, so the
+   * challenge is never re-broadcast on replay after a later failure.
+   */
+  onBroadcast?: (challengeTxHash: Hex | Buffer | string) => Promise<void> | void
+}
+
 export interface P2TRSignatureFraudChallengeSubmitter {
   submitSignatureFraudChallenge(
-    observation: P2TRSignatureFraudWitnessObservation
+    observation: P2TRSignatureFraudWitnessObservation,
+    options?: P2TRSignatureFraudChallengeSubmissionOptions
   ): Promise<Hex | Buffer | string>
 }
 
@@ -501,6 +513,7 @@ export const P2TR_SIGNATURE_FRAUD_BRIDGE_CHALLENGE_KEY_DOMAIN =
 export type P2TRWatchtowerChallengeStatus =
   | "observed"
   | "submitting"
+  | "broadcast-pending"
   | "submitted"
   | "rejected"
   | "defeat-eligible"
@@ -621,6 +634,11 @@ export type P2TRWatchtowerChallengeEvent =
   | {
       type: "submission-started"
       observationID: Hex | Buffer | string
+    }
+  | {
+      type: "submission-broadcast"
+      observationID: Hex | Buffer | string
+      challengeTxHash: Hex | Buffer | string
     }
   | {
       type: "submission-accepted"
@@ -812,6 +830,7 @@ const isReplayableWatchtowerStatus = (
 const watchtowerChallengeStatusValues: P2TRWatchtowerChallengeStatus[] = [
   "observed",
   "submitting",
+  "broadcast-pending",
   "submitted",
   "rejected",
   "defeat-eligible",
@@ -1861,6 +1880,30 @@ export const applyP2TRWatchtowerChallengeEvent = (
         lastError: undefined,
       }
 
+    case "submission-broadcast":
+      if (record.status === "broadcast-pending") {
+        // Idempotent: the broadcast was already recorded (e.g. a retried persist
+        // whose prior attempt committed before its promise rejected).
+        return record
+      }
+
+      if (record.status !== "submitting") {
+        throw new P2TRWitnessSignatureError(
+          "invalid-watchtower-state",
+          "Watchtower challenge must be submitting before broadcast"
+        )
+      }
+
+      // Non-replayable: the transaction is irreversibly broadcast. The record
+      // stays here (rather than a replayable status) if acceptance cannot be
+      // recorded, so the challenge is never re-broadcast.
+      return {
+        ...record,
+        status: "broadcast-pending",
+        challengeTxHash: toHex(event.challengeTxHash),
+        lastError: undefined,
+      }
+
     case "mempool-observed": {
       const mempoolRecord = applyP2TRWatchtowerObservationPayload(record, event)
       return {
@@ -1913,10 +1956,13 @@ export const applyP2TRWatchtowerChallengeEvent = (
       }
 
     case "submission-accepted":
-      if (record.status !== "submitting") {
+      if (
+        record.status !== "submitting" &&
+        record.status !== "broadcast-pending"
+      ) {
         throw new P2TRWitnessSignatureError(
           "invalid-watchtower-state",
-          "Watchtower challenge must be submitting before acceptance"
+          "Watchtower challenge must be submitting or broadcast-pending before acceptance"
         )
       }
 
@@ -1928,10 +1974,13 @@ export const applyP2TRWatchtowerChallengeEvent = (
       }
 
     case "submission-rejected":
-      if (record.status !== "submitting") {
+      if (
+        record.status !== "submitting" &&
+        record.status !== "broadcast-pending"
+      ) {
         throw new P2TRWitnessSignatureError(
           "invalid-watchtower-state",
-          "Watchtower challenge must be submitting before rejection"
+          "Watchtower challenge must be submitting or broadcast-pending before rejection"
         )
       }
 
@@ -2049,6 +2098,41 @@ export const recordP2TRWatchtowerChallengeEvent = async (
   await store.saveChallengeRecord(updatedRecord)
 
   return updatedRecord
+}
+
+/**
+ * Records a watchtower challenge event, retrying transient persistence failures.
+ *
+ * Used for submission lifecycle events where losing the write is consequential:
+ * once a challenge transaction is broadcast, its "submission-broadcast" and
+ * "submission-accepted" records must reach durable storage so the challenge is
+ * not re-broadcast on replay. Retries are bounded and immediate; the durable,
+ * non-replayable "broadcast-pending" status (recorded first via the broadcast
+ * event) is the backstop if persistence remains unavailable.
+ * @param store Challenge record store to persist the event into.
+ * @param event Challenge event to record.
+ * @param attempts Maximum number of persistence attempts (bounded to >= 1).
+ * @returns The updated challenge record after a successful persist.
+ */
+export const recordP2TRWatchtowerChallengeEventWithRetry = async (
+  store: P2TRWatchtowerChallengeStore,
+  event: P2TRWatchtowerChallengeEvent,
+  attempts = 3
+): Promise<P2TRWatchtowerChallengeRecord> => {
+  const boundedAttempts = Number.isFinite(attempts)
+    ? Math.max(1, Math.trunc(attempts))
+    : 1
+  let lastError: unknown
+  for (let attempt = 0; attempt < boundedAttempts; attempt++) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      return await recordP2TRWatchtowerChallengeEvent(store, event)
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  throw lastError
 }
 
 /**
@@ -2817,7 +2901,8 @@ export class P2TRSignatureFraudBridgeChallengeSubmitter
   }
 
   async submitSignatureFraudChallenge(
-    observation: P2TRSignatureFraudWitnessObservation
+    observation: P2TRSignatureFraudWitnessObservation,
+    options?: P2TRSignatureFraudChallengeSubmissionOptions
   ): Promise<string> {
     const challengeDepositAmount = await this.challengeDepositAmount()
     const tx = await this.bridge.processP2TRSignatureFraudChallenge(
@@ -2827,6 +2912,11 @@ export class P2TRSignatureFraudBridgeChallengeSubmitter
       { value: challengeDepositAmount }
     )
     const txHash = validateP2TRSignatureFraudBridgeTxHash(tx.hash)
+
+    // The transaction is now broadcast (its hash is known). Surface the
+    // irreversible broadcast before the confirmation wait so callers can durably
+    // record it and never re-broadcast the same challenge on replay.
+    await options?.onBroadcast?.(txHash)
 
     if (this.confirmations > 0) {
       if (tx.wait === undefined) {
@@ -2845,7 +2935,10 @@ export class P2TRSignatureFraudBridgeChallengeSubmitter
       }
 
       if (receipt.status === 0) {
-        throw new Error("Bridge challenge transaction reverted")
+        throw new P2TRWitnessSignatureError(
+          "challenge-transaction-reverted",
+          "Bridge challenge transaction reverted"
+        )
       }
     }
 
@@ -3241,7 +3334,12 @@ export class P2TRSignatureFraudWatchtower {
       }
     )
 
-    if (isSubmissionClosedWatchtowerStatus(observedRecord.status)) {
+    if (
+      isSubmissionClosedWatchtowerStatus(observedRecord.status) ||
+      observedRecord.status === "broadcast-pending"
+    ) {
+      // Already broadcast (or settled): never initiate another submission for
+      // the same challenge, which would duplicate the on-chain transaction.
       return observedRecord
     }
 
@@ -3253,21 +3351,74 @@ export class P2TRSignatureFraudWatchtower {
       )
     }
 
-    await recordP2TRWatchtowerChallengeEvent(this.store, {
+    await recordP2TRWatchtowerChallengeEventWithRetry(this.store, {
       type: "submission-started",
       observationID: observation.observationID,
     })
 
+    // Once the challenge transaction is broadcast it is irreversible, so the
+    // record must never be left in a replayable state (which would re-broadcast a
+    // duplicate). The submitter reports the broadcast via `onBroadcast`, which
+    // durably records the non-replayable "broadcast-pending" status before the
+    // confirmation wait and the final acceptance record.
+    let broadcastAttempted = false
+    let broadcastRecord: P2TRWatchtowerChallengeRecord | undefined
     try {
-      return recordP2TRWatchtowerChallengeEvent(this.store, {
+      const challengeTxHash = await submitter.submitSignatureFraudChallenge(
+        observation,
+        {
+          onBroadcast: async (txHash) => {
+            broadcastAttempted = true
+            broadcastRecord = await recordP2TRWatchtowerChallengeEventWithRetry(
+              this.store,
+              {
+                type: "submission-broadcast",
+                observationID: observation.observationID,
+                challengeTxHash: txHash,
+              }
+            )
+          },
+        }
+      )
+
+      return await recordP2TRWatchtowerChallengeEventWithRetry(this.store, {
         type: "submission-accepted",
         observationID: observation.observationID,
-        challengeTxHash: await submitter.submitSignatureFraudChallenge(
-          observation
-        ),
+        challengeTxHash,
       })
     } catch (error) {
-      return recordP2TRWatchtowerChallengeEvent(this.store, {
+      if (
+        error instanceof P2TRWitnessSignatureError &&
+        error.code === "challenge-transaction-reverted"
+      ) {
+        // The challenge transaction was broadcast but the finality wait observed
+        // an on-chain revert, so it created no state and is safe to retry. Mark it
+        // rejected (replayable) even though the broadcast was already recorded.
+        return recordP2TRWatchtowerChallengeEventWithRetry(this.store, {
+          type: "submission-rejected",
+          observationID: observation.observationID,
+          error: watchtowerSubmissionErrorMessage(error),
+        })
+      }
+
+      if (broadcastRecord !== undefined) {
+        // Broadcast succeeded (or its outcome is unknown) but a later step
+        // (confirmation wait or acceptance persistence) failed. The durable
+        // "broadcast-pending" record is non-replayable; surface it instead of
+        // marking the challenge rejected (which is replayable and would
+        // re-broadcast).
+        return broadcastRecord
+      }
+
+      if (broadcastAttempted) {
+        // The challenge was broadcast but its broadcast status could not be
+        // persisted. Marking it rejected would re-broadcast on replay, so surface
+        // the failure and leave the (replayable) submitting record for an
+        // operator to resolve rather than silently duplicating the submission.
+        throw error
+      }
+
+      return recordP2TRWatchtowerChallengeEventWithRetry(this.store, {
         type: "submission-rejected",
         observationID: observation.observationID,
         error: watchtowerSubmissionErrorMessage(error),
@@ -3358,6 +3509,7 @@ export class P2TRSignatureFraudWatchtowerRunner {
     return (
       this.submitChallenges &&
       !isSubmissionClosedWatchtowerStatus(record.status) &&
+      record.status !== "broadcast-pending" &&
       !this.hasReachedSubmissionAttemptLimit(record)
     )
   }

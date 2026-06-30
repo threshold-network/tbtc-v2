@@ -53,7 +53,7 @@ Error if provider is not provided or config is invalid
 
 #### Defined in
 
-[src/lib/starknet/starknet-tbtc-token.ts:32](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-tbtc-token.ts#L32)
+[tbtc-v2-m993/typescript/src/lib/starknet/starknet-tbtc-token.ts:32](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-tbtc-token.ts#L32)
 
 ## Properties
 
@@ -63,7 +63,7 @@ Error if provider is not provided or config is invalid
 
 #### Defined in
 
-[src/lib/starknet/starknet-tbtc-token.ts:22](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-tbtc-token.ts#L22)
+[tbtc-v2-m993/typescript/src/lib/starknet/starknet-tbtc-token.ts:22](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-tbtc-token.ts#L22)
 
 ___
 
@@ -73,7 +73,7 @@ ___
 
 #### Defined in
 
-[src/lib/starknet/starknet-tbtc-token.ts:24](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-tbtc-token.ts#L24)
+[tbtc-v2-m993/typescript/src/lib/starknet/starknet-tbtc-token.ts:24](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-tbtc-token.ts#L24)
 
 ___
 
@@ -83,7 +83,7 @@ ___
 
 #### Defined in
 
-[src/lib/starknet/starknet-tbtc-token.ts:23](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-tbtc-token.ts#L23)
+[tbtc-v2-m993/typescript/src/lib/starknet/starknet-tbtc-token.ts:23](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-tbtc-token.ts#L23)
 
 ## Methods
 
@@ -111,7 +111,7 @@ The balance as a BigNumber
 
 #### Defined in
 
-[src/lib/starknet/starknet-tbtc-token.ts:63](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-tbtc-token.ts#L63)
+[tbtc-v2-m993/typescript/src/lib/starknet/starknet-tbtc-token.ts:63](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-tbtc-token.ts#L63)
 
 ___
 
@@ -139,7 +139,7 @@ Error if address is not a StarkNetAddress
 
 #### Defined in
 
-[src/lib/starknet/starknet-tbtc-token.ts:76](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-tbtc-token.ts#L76)
+[tbtc-v2-m993/typescript/src/lib/starknet/starknet-tbtc-token.ts:76](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-tbtc-token.ts#L76)
 
 ___
 
@@ -163,7 +163,7 @@ Always throws since StarkNet doesn't have an L2 contract identifier.
 
 #### Defined in
 
-[src/lib/starknet/starknet-tbtc-token.ts:51](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-tbtc-token.ts#L51)
+[tbtc-v2-m993/typescript/src/lib/starknet/starknet-tbtc-token.ts:51](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-tbtc-token.ts#L51)
 
 ___
 
@@ -181,7 +181,7 @@ The configuration object
 
 #### Defined in
 
-[src/lib/starknet/starknet-tbtc-token.ts:102](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-tbtc-token.ts#L102)
+[tbtc-v2-m993/typescript/src/lib/starknet/starknet-tbtc-token.ts:102](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-tbtc-token.ts#L102)
 
 ___
 
@@ -209,4 +209,4 @@ Not implemented yet
 
 #### Defined in
 
-[src/lib/starknet/starknet-tbtc-token.ts:112](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-tbtc-token.ts#L112)
+[tbtc-v2-m993/typescript/src/lib/starknet/starknet-tbtc-token.ts:112](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-tbtc-token.ts#L112)
