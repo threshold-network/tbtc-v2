@@ -18,4 +18,4 @@ The full transaction payload as an un-prefixed hex string.
 
 #### Defined in
 
-[src/lib/bitcoin/tx.ts:22](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L22)
+[tbtc-v2-m993/typescript/src/lib/bitcoin/tx.ts:22](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L22)

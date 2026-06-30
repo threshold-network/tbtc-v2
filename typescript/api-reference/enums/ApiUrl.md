@@ -14,4 +14,4 @@
 
 #### Defined in
 
-[src/lib/utils/api.ts:3](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/api.ts#L3)
+[tbtc-v2-m993/typescript/src/lib/utils/api.ts:3](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/api.ts#L3)

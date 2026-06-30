@@ -41,7 +41,7 @@ the Ethereum address format (20 bytes, 0x-prefixed).
 
 #### Defined in
 
-[src/lib/sei/address.ts:15](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/address.ts#L15)
+[tbtc-v2-m993/typescript/src/lib/sei/address.ts:15](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/address.ts#L15)
 
 ## Properties
 
@@ -58,7 +58,7 @@ This is normalized to lowercase and represents the 20-byte EVM address.
 
 #### Defined in
 
-[src/lib/sei/address.ts:13](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/address.ts#L13)
+[tbtc-v2-m993/typescript/src/lib/sei/address.ts:13](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/address.ts#L13)
 
 ## Methods
 
@@ -86,7 +86,7 @@ True if addresses are equal, false otherwise
 
 #### Defined in
 
-[src/lib/sei/address.ts:54](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/address.ts#L54)
+[tbtc-v2-m993/typescript/src/lib/sei/address.ts:54](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/address.ts#L54)
 
 ___
 
@@ -104,7 +104,7 @@ The Sei address as a 0x-prefixed string
 
 #### Defined in
 
-[src/lib/sei/address.ts:45](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/address.ts#L45)
+[tbtc-v2-m993/typescript/src/lib/sei/address.ts:45](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/address.ts#L45)
 
 ___
 
@@ -128,4 +128,4 @@ A new SeiAddress instance
 
 #### Defined in
 
-[src/lib/sei/address.ts:35](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/address.ts#L35)
+[tbtc-v2-m993/typescript/src/lib/sei/address.ts:35](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/address.ts#L35)

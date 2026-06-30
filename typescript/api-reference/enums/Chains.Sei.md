@@ -21,7 +21,7 @@ Sei Mainnet (Pacific-1).
 
 #### Defined in
 
-[src/lib/contracts/chain.ts:66](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L66)
+[tbtc-v2-m993/typescript/src/lib/contracts/chain.ts:66](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L66)
 
 ___
 
@@ -33,4 +33,4 @@ Sei Testnet (Atlantic-2).
 
 #### Defined in
 
-[src/lib/contracts/chain.ts:70](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L70)
+[tbtc-v2-m993/typescript/src/lib/contracts/chain.ts:70](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L70)
