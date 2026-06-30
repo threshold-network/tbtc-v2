@@ -1648,6 +1648,124 @@ describe("P2TR signature-fraud witness parsing", () => {
     expect(submitted.challengeTxHash?.toString()).to.equal(txHash("9"))
   })
 
+  it("records broadcast-pending when the acceptance record cannot be persisted", async () => {
+    const vector = vectorCorpus.cases[0]
+    const rawTransaction = withInputWitness(
+      vector.unsignedTransactionHex,
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    const backing = new InMemoryP2TRWatchtowerChallengeStore()
+    // Persisting the "submitted" acceptance record fails after the transaction
+    // has been broadcast.
+    const store: P2TRWatchtowerChallengeStore = {
+      getChallengeRecord: (observationID: Hex) =>
+        backing.getChallengeRecord(observationID),
+      saveChallengeRecord: async (record: P2TRWatchtowerChallengeRecord) => {
+        if (record.status === "submitted") {
+          throw new Error("challenge store unavailable")
+        }
+        await backing.saveChallengeRecord(record)
+      },
+    }
+    const watchtower = createDraftApprovedP2TRWatchtower(
+      store,
+      [vector.walletIDHex],
+      bridgeChallengeDomain
+    )
+    const [observed] = await watchtower.observeMempoolTransaction(
+      rawTransaction,
+      toObservationPrevouts(vector),
+      txHash("b")
+    )
+    const bridge = {
+      async processP2TRSignatureFraudChallenge() {
+        return {
+          hash: `0x${txHash("c")}`,
+          async wait() {
+            return { status: 1 }
+          },
+        }
+      },
+    }
+    const submitter = new P2TRSignatureFraudBridgeChallengeSubmitter(bridge, {
+      challengeDepositAmount: 1,
+    })
+
+    const result = await watchtower.submitChallenge(
+      observed.observation,
+      submitter,
+      draftApprovedSubmissionPolicy
+    )
+
+    // The acceptance record could not be persisted, but the durable state is the
+    // non-replayable "broadcast-pending" status -- never "submitting"/"rejected",
+    // which would re-broadcast the already-sent challenge on the next cycle.
+    expect(result.status).to.equal("broadcast-pending")
+    expect(result.challengeTxHash?.toString()).to.equal(txHash("c"))
+    const stored = await backing.listChallengeRecords()
+    expect(stored).to.have.length(1)
+    expect(stored[0].status).to.equal("broadcast-pending")
+  })
+
+  it("never re-broadcasts a challenge already in broadcast-pending", async () => {
+    const vector = vectorCorpus.cases[0]
+    const rawTransaction = withInputWitness(
+      vector.unsignedTransactionHex,
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    const store = new InMemoryP2TRWatchtowerChallengeStore()
+    const watchtower = createDraftApprovedP2TRWatchtower(
+      store,
+      [vector.walletIDHex],
+      bridgeChallengeDomain
+    )
+    const [observed] = await watchtower.observeMempoolTransaction(
+      rawTransaction,
+      toObservationPrevouts(vector),
+      txHash("d")
+    )
+    // Drive the record into the broadcast-pending state directly.
+    await recordP2TRWatchtowerChallengeEvent(store, {
+      type: "submission-started",
+      observationID: observed.observation.observationID,
+    })
+    await recordP2TRWatchtowerChallengeEvent(store, {
+      type: "submission-broadcast",
+      observationID: observed.observation.observationID,
+      challengeTxHash: `0x${txHash("e")}`,
+    })
+
+    let submitCount = 0
+    const bridge = {
+      async processP2TRSignatureFraudChallenge() {
+        submitCount++
+        return {
+          hash: `0x${txHash("f")}`,
+          async wait() {
+            return { status: 1 }
+          },
+        }
+      },
+    }
+    const submitter = new P2TRSignatureFraudBridgeChallengeSubmitter(bridge, {
+      challengeDepositAmount: 1,
+    })
+
+    const result = await watchtower.submitChallenge(
+      observed.observation,
+      submitter,
+      draftApprovedSubmissionPolicy
+    )
+
+    // Already broadcast: the submitter is never invoked again, so no duplicate
+    // on-chain submission, and the record stays broadcast-pending.
+    expect(submitCount).to.equal(0)
+    expect(result.status).to.equal("broadcast-pending")
+    expect(result.challengeTxHash?.toString()).to.equal(txHash("e"))
+  })
+
   it("rejects Bridge submissions with ambiguous finality receipts", async () => {
     const vector = vectorCorpus.cases[0]
     const rawTransaction = withInputWitness(

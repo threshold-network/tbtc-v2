@@ -1,5 +1,15 @@
-import { BitcoinNetwork } from "@keep-network/tbtc-v2.ts"
-import type { P2TRWatchtowerOperatorAlert } from "@keep-network/tbtc-v2.ts"
+import {
+  BitcoinNetwork,
+  P2TR_SIGNATURE_FRAUD_SPEND_TYPE_DEPOSIT_SWEEP,
+  P2TR_SIGNATURE_FRAUD_SPEND_TYPE_MOVED_FUNDS_SWEEP,
+  P2TR_SIGNATURE_FRAUD_SPEND_TYPE_MOVING_FUNDS,
+  P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
+} from "@keep-network/tbtc-v2.ts"
+import type {
+  P2TRSignatureFraudChallengeSubmissionPolicy,
+  P2TRSignatureFraudSpendType,
+  P2TRWatchtowerOperatorAlert,
+} from "@keep-network/tbtc-v2.ts"
 
 import type { EsploraP2TRSignatureFraudTransactionSourceOptions } from "./EsploraP2TRSignatureFraudTransactionSource.js"
 import type {
@@ -55,6 +65,8 @@ export const P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV = {
     "P2TR_SIGNATURE_FRAUD_WATCHTOWER_MAX_SUBMISSION_ATTEMPTS",
   pollIntervalMs: "P2TR_SIGNATURE_FRAUD_WATCHTOWER_POLL_INTERVAL_MS",
   stateFilePath: "P2TR_SIGNATURE_FRAUD_WATCHTOWER_STATE_FILE",
+  submissionAllowedSpendTypes:
+    "P2TR_SIGNATURE_FRAUD_WATCHTOWER_SUBMISSION_ALLOWED_SPEND_TYPES",
   submissionAttemptLimitAlertCode:
     "P2TR_SIGNATURE_FRAUD_WATCHTOWER_SUBMISSION_ATTEMPT_LIMIT_ALERT_CODE",
   submissionAttemptLimitAlertMessage:
@@ -130,6 +142,17 @@ export function loadP2TRSignatureFraudWatchtowerRuntimeConfig(
     allowFileBackedSubmission
   )
 
+  const bridgeChallengeDomain = parseBridgeChallengeDomain(env)
+  const payloadBounds = parsePayloadBounds(env)
+  const submissionPolicy = parseSubmissionPolicy(env, submitChallenges)
+
+  validateSubmissionServiceRuntimeConfig(submitChallenges, {
+    bridgeChallengeDomain,
+    payloadBounds,
+    maxSubmissionAttempts,
+    submissionAttemptLimitAlert,
+  })
+
   return {
     stateFilePath,
     bridgeLifecycle,
@@ -140,8 +163,9 @@ export function loadP2TRSignatureFraudWatchtowerRuntimeConfig(
         env,
         P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.bridgeIdentifier
       ),
-      bridgeChallengeDomain: parseBridgeChallengeDomain(env),
-      payloadBounds: parsePayloadBounds(env),
+      bridgeChallengeDomain,
+      payloadBounds,
+      submissionPolicy,
       maxSubmissionAttempts,
       submissionAttemptLimitAlert,
       submitChallenges,
@@ -187,6 +211,114 @@ function validateSubmissionBridgeLifecycleRuntimeConfig(
   if (!allowFileBackedSubmission) {
     throw new Error(
       `${P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submitChallenges} uses bundled file-backed stores and requires ${P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.allowFileBackedSubmission}=true for single-process rehearsal; production submission requires transactional challenge-record and cursor stores`
+    )
+  }
+}
+
+// The approved submission spend types are the env-expressible part of the
+// submission policy. The fail-closed spend types (`unclassified`,
+// `wallet-closing`, `heartbeat`) are intentionally excluded so an operator
+// cannot allowlist a spend type the service rejects as fail-closed.
+const approvedSubmissionSpendTypes = new Set<P2TRSignatureFraudSpendType>([
+  P2TR_SIGNATURE_FRAUD_SPEND_TYPE_DEPOSIT_SWEEP,
+  P2TR_SIGNATURE_FRAUD_SPEND_TYPE_MOVING_FUNDS,
+  P2TR_SIGNATURE_FRAUD_SPEND_TYPE_MOVED_FUNDS_SWEEP,
+  P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
+])
+
+function parseSubmissionPolicy(
+  env: P2TRSignatureFraudWatchtowerRuntimeEnv,
+  submitChallenges: boolean
+): P2TRSignatureFraudChallengeSubmissionPolicy | undefined {
+  const key = P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submissionAllowedSpendTypes
+  const value = readOptionalEnv(env, key)
+
+  if (!submitChallenges) {
+    if (value !== undefined) {
+      throw new Error(
+        `${key} requires ${P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submitChallenges}=true`
+      )
+    }
+
+    return undefined
+  }
+
+  if (value === undefined) {
+    throw new Error(
+      `${P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submitChallenges} requires ${key}`
+    )
+  }
+
+  const entries = value.split(",").map((entry) => entry.trim())
+
+  if (entries.some((entry) => entry.length === 0)) {
+    throw new Error(`${key} must not contain empty entries`)
+  }
+
+  const allowedSpendTypes: P2TRSignatureFraudSpendType[] = []
+  const seenSpendTypes = new Set<P2TRSignatureFraudSpendType>()
+
+  for (const entry of entries) {
+    const spendType = entry as P2TRSignatureFraudSpendType
+
+    if (!approvedSubmissionSpendTypes.has(spendType)) {
+      throw new Error(
+        `${key} must contain only approved submission spend types (${[
+          ...approvedSubmissionSpendTypes,
+        ].join(", ")}); got ${entry}`
+      )
+    }
+
+    if (!seenSpendTypes.has(spendType)) {
+      seenSpendTypes.add(spendType)
+      allowedSpendTypes.push(spendType)
+    }
+  }
+
+  return { allowedSpendTypes }
+}
+
+// Enforce the env-owned submission preconditions the service also requires so
+// operators get a config-time error that names the missing environment
+// variable instead of a later service-constructor failure. The spend-type
+// classifier is intentionally not validated here because it is a code-injected
+// predicate that cannot be expressed from environment variables.
+function validateSubmissionServiceRuntimeConfig(
+  submitChallenges: boolean,
+  config: {
+    bridgeChallengeDomain:
+      | { chainID: string; bridgeAddress: string }
+      | undefined
+    payloadBounds: P2TRSignatureFraudWatchtowerServiceConfig["payloadBounds"]
+    maxSubmissionAttempts: number | undefined
+    submissionAttemptLimitAlert: P2TRWatchtowerOperatorAlert | undefined
+  }
+): void {
+  if (!submitChallenges) {
+    return
+  }
+
+  if (config.payloadBounds === undefined) {
+    throw new Error(
+      `${P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submitChallenges} requires ${P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.maxRawTransactionBytes}, ${P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.maxInputs}, ${P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.maxOutputs}, and ${P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.maxScriptPubKeyBytes}`
+    )
+  }
+
+  if (config.bridgeChallengeDomain === undefined) {
+    throw new Error(
+      `${P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submitChallenges} requires ${P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.bridgeChallengeChainID} and ${P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.bridgeChallengeBridgeAddress}`
+    )
+  }
+
+  if (config.maxSubmissionAttempts === undefined) {
+    throw new Error(
+      `${P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submitChallenges} requires ${P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.maxSubmissionAttempts}`
+    )
+  }
+
+  if (config.submissionAttemptLimitAlert === undefined) {
+    throw new Error(
+      `${P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submitChallenges} requires ${P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submissionAttemptLimitAlertCode} and ${P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submissionAttemptLimitAlertMessage}`
     )
   }
 }

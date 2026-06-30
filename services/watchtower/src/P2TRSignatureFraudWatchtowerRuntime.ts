@@ -1,3 +1,8 @@
+import type {
+  P2TRSignatureFraudChallengeSubmissionPolicy,
+  P2TRSignatureFraudSpendTypeClassifier,
+} from "@keep-network/tbtc-v2.ts"
+
 import { EthersP2TRSignatureFraudBridgeLifecycleEventSource } from "./EthersP2TRSignatureFraudBridgeLifecycleEventSource.js"
 import { EsploraP2TRSignatureFraudTransactionSource } from "./EsploraP2TRSignatureFraudTransactionSource.js"
 import { FileBackedP2TRWatchtowerChallengeRecordPersistence } from "./FileBackedP2TRWatchtowerChallengeRecordPersistence.js"
@@ -29,17 +34,47 @@ export type P2TRSignatureFraudWatchtowerEsploraRuntimeOptions = {
   fetchFn?: P2TREsploraFetch
 }
 
+export type P2TRSignatureFraudWatchtowerRuntimeSubmissionOptions = {
+  spendTypeClassifier?: P2TRSignatureFraudSpendTypeClassifier
+  submissionPolicy?: P2TRSignatureFraudChallengeSubmissionPolicy
+}
+
 export function createFileBackedP2TRSignatureFraudWatchtowerRuntime(
   config: P2TRSignatureFraudWatchtowerRuntimeConfig,
-  dependencies: P2TRSignatureFraudWatchtowerRuntimeDependencies
+  dependencies: P2TRSignatureFraudWatchtowerRuntimeDependencies,
+  options: P2TRSignatureFraudWatchtowerRuntimeSubmissionOptions = {}
 ): P2TRSignatureFraudWatchtowerRuntime {
+  const spendTypeClassifier =
+    options.spendTypeClassifier ?? config.service.spendTypeClassifier
+  const submissionPolicy =
+    options.submissionPolicy ?? config.service.submissionPolicy
+
+  // The spend-type classifier is a code predicate that cannot be synthesized
+  // from environment variables. Fail closed here so a submission-mode env
+  // configuration cannot silently start without an injected classifier.
+  if (
+    config.service.submitChallenges === true &&
+    spendTypeClassifier === undefined
+  ) {
+    throw new Error(
+      "P2TR signature-fraud watchtower submission mode requires an injected spend-type classifier; the environment-backed runtime cannot synthesize one from env vars"
+    )
+  }
+
   return {
-    service: new P2TRSignatureFraudWatchtowerService(config.service, {
-      ...dependencies,
-      persistence: new FileBackedP2TRWatchtowerChallengeRecordPersistence(
-        config.stateFilePath
-      ),
-    }),
+    service: new P2TRSignatureFraudWatchtowerService(
+      {
+        ...config.service,
+        spendTypeClassifier,
+        submissionPolicy,
+      },
+      {
+        ...dependencies,
+        persistence: new FileBackedP2TRWatchtowerChallengeRecordPersistence(
+          config.stateFilePath
+        ),
+      }
+    ),
     loopOptions: config.loop,
   }
 }
