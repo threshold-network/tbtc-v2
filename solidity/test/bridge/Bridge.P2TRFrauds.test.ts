@@ -522,27 +522,6 @@ describe("Bridge - P2TR signature fraud", () => {
     revertMessage: string
   }[] = [
     {
-      name: "too many inputs",
-      mutatePayload: (payload) => ({
-        ...payload,
-        inputs: [...payload.inputs, payload.inputs[0], payload.inputs[0]],
-        prevouts: [
-          ...payload.prevouts,
-          payload.prevouts[0],
-          payload.prevouts[0],
-        ],
-      }),
-      revertMessage: "Too many inputs",
-    },
-    {
-      name: "too many outputs",
-      mutatePayload: (payload) => ({
-        ...payload,
-        outputs: [...payload.outputs, payload.outputs[0], payload.outputs[0]],
-      }),
-      revertMessage: "Too many outputs",
-    },
-    {
       name: "prevout count mismatch",
       mutatePayload: (payload) => ({
         ...payload,
@@ -614,6 +593,130 @@ describe("Bridge - P2TR signature fraud", () => {
     })
   }
 
+  // The router must accept protocol-realistic shapes with more than two inputs
+  // or outputs (redemption batches, moving-funds fan-out, multi-input sweeps).
+  // The shape check no longer rejects them, so an altered shape reaches -- and
+  // fails -- signature verification instead of being rejected as "Too many".
+  const acceptedLargerShapeScenarios: {
+    name: string
+    mutatePayload: (payload: BridgeChallengePayload) => BridgeChallengePayload
+  }[] = [
+    {
+      name: "more than two inputs",
+      mutatePayload: (payload) => ({
+        ...payload,
+        inputs: [...payload.inputs, payload.inputs[0], payload.inputs[0]],
+        prevouts: [
+          ...payload.prevouts,
+          payload.prevouts[0],
+          payload.prevouts[0],
+        ],
+      }),
+    },
+    {
+      name: "more than two outputs",
+      mutatePayload: (payload) => ({
+        ...payload,
+        outputs: [...payload.outputs, payload.outputs[0], payload.outputs[0]],
+      }),
+    },
+  ]
+
+  for (const scenario of acceptedLargerShapeScenarios) {
+    it(`accepts P2TR challenges with ${scenario.name} past the shape check`, async () => {
+      const payload = vectorPayload(vector)
+      await registerP2TRWallet(payload.walletID)
+
+      await expect(
+        p2trFraudRouter
+          .connect(thirdParty)
+          .processP2TRSignatureFraudChallenge(
+            p2trFraudAction.Submit,
+            encodePayload(scenario.mutatePayload(payload)),
+            [],
+            { value: fraudChallengeDepositAmount }
+          )
+      ).to.be.revertedWith("Signature verification failure")
+    })
+  }
+
+  // The shape caps accept up to 512 inputs/outputs. The challenge-identity
+  // encoder (encodeBridgeChallengeTransactionPayload) and the BIP-341 sighash
+  // reconstruction must build that payload in LINEAR time -- a quadratic encoder
+  // lets a maximum-size but valid protocol shape pass the shape check yet run out
+  // of gas before the challenge is recorded. Submitting at the cap must still
+  // reach (and fail) signature verification rather than exhausting gas.
+  // The shape caps accept up to 128 inputs/outputs (see P2TRSignatureFraudRouter
+  // for why 128 and not higher). A maximum-size but valid shape must reconstruct
+  // on-chain within the block gas limit: the linearized challenge-identity encoder
+  // and BIP-341 sighash reconstruction make 128 in/out reach signature
+  // verification with margin (empirically ~192 is the edge, 256+ runs out of gas),
+  // whereas a quadratic encoder -- or a higher cap -- would exhaust gas before the
+  // challenge is recorded.
+  it("builds the challenge identity for a maximum-size (128 in/out) shape within gas", async () => {
+    const base = vectorPayload(vector)
+    await registerP2TRWallet(base.walletID)
+
+    const count = 128
+    const maxShapePayload = {
+      ...base,
+      inputs: Array.from({ length: count }, () => base.inputs[0]),
+      prevouts: Array.from({ length: count }, () => base.prevouts[0]),
+      outputs: Array.from({ length: count }, () => base.outputs[0]),
+      signedInputIndex: 0,
+    }
+
+    await expect(
+      p2trFraudRouter
+        .connect(thirdParty)
+        .processP2TRSignatureFraudChallenge(
+          p2trFraudAction.Submit,
+          encodePayload(maxShapePayload),
+          [],
+          { value: fraudChallengeDepositAmount, gasLimit: 29500000 }
+        )
+    ).to.be.revertedWith("Signature verification failure")
+  })
+
+  // One past the cap must be rejected cheaply at the shape check (before the
+  // encoder/sighash run), so an oversized payload cannot grief the challenger.
+  it("rejects P2TR challenges that exceed the 128 input/output caps", async () => {
+    const base = vectorPayload(vector)
+    await registerP2TRWallet(base.walletID)
+
+    const tooManyInputs = {
+      ...base,
+      inputs: Array.from({ length: 129 }, () => base.inputs[0]),
+      prevouts: Array.from({ length: 129 }, () => base.prevouts[0]),
+      signedInputIndex: 0,
+    }
+    await expect(
+      p2trFraudRouter
+        .connect(thirdParty)
+        .processP2TRSignatureFraudChallenge(
+          p2trFraudAction.Submit,
+          encodePayload(tooManyInputs),
+          [],
+          { value: fraudChallengeDepositAmount, gasLimit: 29500000 }
+        )
+    ).to.be.revertedWith("Too many inputs")
+
+    const tooManyOutputs = {
+      ...base,
+      outputs: Array.from({ length: 129 }, () => base.outputs[0]),
+    }
+    await expect(
+      p2trFraudRouter
+        .connect(thirdParty)
+        .processP2TRSignatureFraudChallenge(
+          p2trFraudAction.Submit,
+          encodePayload(tooManyOutputs),
+          [],
+          { value: fraudChallengeDepositAmount, gasLimit: 29500000 }
+        )
+    ).to.be.revertedWith("Too many outputs")
+  })
+
   for (const action of [
     p2trFraudAction.Submit,
     p2trFraudAction.Defeat,
@@ -625,13 +728,19 @@ describe("Bridge - P2TR signature fraud", () => {
           .connect(thirdParty)
           .processP2TRSignatureFraudChallenge(
             action,
-            `0x${"00".repeat(4097)}`,
+            `0x${"00".repeat(131073)}`,
             [],
             {
               value:
                 action === p2trFraudAction.Submit
                   ? fraudChallengeDepositAmount
                   : 0,
+              // The payload exceeds P2TRSignatureFraudMaxPayloadBytes so the call
+              // reverts at the early length check before ABI decode. Set the gas
+              // limit explicitly: eth_estimateGas cannot price a tx that always
+              // reverts and otherwise falls back above the block gas limit for a
+              // calldata this large.
+              gasLimit: 29000000,
             }
           )
       ).to.be.revertedWith("P2TR payload too large")
