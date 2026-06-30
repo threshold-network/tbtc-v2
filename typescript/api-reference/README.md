@@ -159,6 +159,7 @@
 - [StarkNetCrossChainExtraDataEncoder](README.md#starknetcrosschainextradataencoder)
 - [StarkNetDepositor](README.md#starknetdepositor)
 - [WORMHOLE\_CHAIN\_IDS](README.md#wormhole_chain_ids)
+- [WORMHOLE\_NTT\_CHAIN\_IDS](README.md#wormhole_ntt_chain_ids)
 - [tbtcABI](README.md#tbtcabi)
 
 ### Functions
@@ -1078,7 +1079,7 @@ receivers for NTT (Native Token Transfer) bridges.
 import { WORMHOLE_CHAIN_IDS, Chains, encodeDestinationReceiver } from "@keep-network/tbtc-v2"
 
 const encoded = encodeDestinationReceiver(
-  WORMHOLE_CHAIN_IDS[Chains.Ethereum.Sepolia],
+  WORMHOLE_CHAIN_IDS[Chains.Base.BaseSepolia],
   "0x1234567890123456789012345678901234567890"
 )
 ```
@@ -1087,12 +1088,55 @@ const encoded = encodeDestinationReceiver(
 
 | Name | Type |
 | :------ | :------ |
-| `1` | `number` |
-| `11155111` | `number` |
+| `1` | ``2`` |
+| `11155111` | ``10002`` |
+| `42161` | ``23`` |
+| `421614` | ``10003`` |
+| `5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d` | ``1`` |
+| `8453` | ``30`` |
+| `84532` | ``10004`` |
+| `EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG` | ``1`` |
+| `sui:devnet` | ``21`` |
+| `sui:mainnet` | ``21`` |
+| `sui:testnet` | ``21`` |
 
 #### Defined in
 
 [src/lib/utils/wormhole.ts:18](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/wormhole.ts#L18)
+
+___
+
+### WORMHOLE\_NTT\_CHAIN\_IDS
+
+• `Const` **WORMHOLE\_NTT\_CHAIN\_IDS**: `Object`
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `Arbitrum` | \{ `Arbitrum`: ``23`` = 23; `ArbitrumSepolia`: ``10003`` = 10003 } |
+| `Arbitrum.Arbitrum` | ``23`` |
+| `Arbitrum.ArbitrumSepolia` | ``10003`` |
+| `Base` | \{ `Base`: ``30`` = 30; `BaseSepolia`: ``10004`` = 10004 } |
+| `Base.Base` | ``30`` |
+| `Base.BaseSepolia` | ``10004`` |
+| `Ethereum` | \{ `Mainnet`: ``2`` = 2; `Sepolia`: ``10002`` = 10002 } |
+| `Ethereum.Mainnet` | ``2`` |
+| `Ethereum.Sepolia` | ``10002`` |
+| `Optimism` | \{ `Optimism`: ``24`` = 24; `OptimismSepolia`: ``10005`` = 10005 } |
+| `Optimism.Optimism` | ``24`` |
+| `Optimism.OptimismSepolia` | ``10005`` |
+| `Solana` | \{ `Devnet`: ``1`` = 1; `Solana`: ``1`` = 1 } |
+| `Solana.Devnet` | ``1`` |
+| `Solana.Solana` | ``1`` |
+| `Sui` | \{ `Devnet`: ``21`` = 21; `Mainnet`: ``21`` = 21; `Testnet`: ``21`` = 21 } |
+| `Sui.Devnet` | ``21`` |
+| `Sui.Mainnet` | ``21`` |
+| `Sui.Testnet` | ``21`` |
+
+#### Defined in
+
+[lib/utils/wormhole.ts:32](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/wormhole.ts#L32)
 
 ___
 
