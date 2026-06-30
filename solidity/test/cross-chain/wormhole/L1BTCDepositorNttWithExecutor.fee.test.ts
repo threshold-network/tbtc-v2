@@ -13,7 +13,7 @@ import { to1ePrecision } from "../../helpers/contract-test-helpers"
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
 // Wormhole Chain IDs for testing
-const WORMHOLE_CHAIN_SEI = 32
+const WORMHOLE_CHAIN_DESTINATION = 32
 const WORMHOLE_CHAIN_BASE = 30
 
 describe("L1BTCDepositorNttWithExecutor - Fee Handling", () => {
@@ -68,9 +68,9 @@ describe("L1BTCDepositorNttWithExecutor - Fee Handling", () => {
     depositor = L1BTCDepositorFactory.attach(proxy.address)
 
     // Set up basic configuration
-    await depositor.setSupportedChain(WORMHOLE_CHAIN_SEI, true)
+    await depositor.setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
     await depositor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
-    await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
+    await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_DESTINATION)
   })
 
   beforeEach(async () => {
@@ -103,7 +103,7 @@ describe("L1BTCDepositorNttWithExecutor - Fee Handling", () => {
 
     it("should revert fee estimation with chain parameter without executor parameters", async () => {
       await expect(
-        depositor["quoteFinalizeDeposit(uint16)"](WORMHOLE_CHAIN_SEI)
+        depositor["quoteFinalizeDeposit(uint16)"](WORMHOLE_CHAIN_DESTINATION)
       ).to.be.revertedWith("Executor parameters not set")
     })
   })

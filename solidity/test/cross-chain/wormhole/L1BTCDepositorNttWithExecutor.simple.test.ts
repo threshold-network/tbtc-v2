@@ -12,7 +12,7 @@ import type {
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
 // Wormhole Chain IDs for testing
-const WORMHOLE_CHAIN_SEI = 32
+const WORMHOLE_CHAIN_DESTINATION = 32
 const WORMHOLE_CHAIN_BASE = 30
 
 describe("L1BTCDepositorNttWithExecutor Simple Tests", () => {
@@ -72,9 +72,9 @@ describe("L1BTCDepositorNttWithExecutor Simple Tests", () => {
     ) as L1BTCDepositorNttWithExecutor
 
     // Set up supported chains
-    await l1BTCDepositor.setSupportedChain(WORMHOLE_CHAIN_SEI, true)
+    await l1BTCDepositor.setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
     await l1BTCDepositor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
-    await l1BTCDepositor.setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
+    await l1BTCDepositor.setDefaultSupportedChain(WORMHOLE_CHAIN_DESTINATION)
   })
 
   beforeEach(async () => {
@@ -111,12 +111,12 @@ describe("L1BTCDepositorNttWithExecutor Simple Tests", () => {
     })
 
     it("should have correct supported chains", async () => {
-      expect(await l1BTCDepositor.supportedChains(WORMHOLE_CHAIN_SEI)).to.be
+      expect(await l1BTCDepositor.supportedChains(WORMHOLE_CHAIN_DESTINATION)).to.be
         .true
       expect(await l1BTCDepositor.supportedChains(WORMHOLE_CHAIN_BASE)).to.be
         .true
       expect(await l1BTCDepositor.defaultSupportedChain()).to.equal(
-        WORMHOLE_CHAIN_SEI
+        WORMHOLE_CHAIN_DESTINATION
       )
     })
   })

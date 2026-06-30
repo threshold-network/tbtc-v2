@@ -25,7 +25,7 @@ import {
 } from "@keep-network/tbtc-v2"
 
 const encoded = encodeDestinationReceiver(
-  WORMHOLE_CHAIN_IDS[Chains.Sei.Testnet], // 40
+  WORMHOLE_CHAIN_IDS[Chains.Ethereum.Sepolia], // 10002
   "0x1234567890123456789012345678901234567890"
 )
 console.log(encoded.toPrefixedString())
@@ -84,7 +84,7 @@ Gets the recipient address from encoded receiver data without full decoding.
 
 ## Usage in NTT Bridges
 
-These utilities are particularly useful for SEI and other NTT bridges where you need to encode destination chain and recipient information for cross-chain transfers.
+These utilities are particularly useful for NTT bridges where you need to encode destination chain and recipient information for cross-chain transfers.
 
 ```typescript
 import {
@@ -94,10 +94,10 @@ import {
   Chains,
 } from "@keep-network/tbtc-v2"
 
-// Encode destination for SEI chain
+// Encode destination chain and recipient.
 const recipient = "0x1234567890123456789012345678901234567890"
 const encoded = encodeDestinationReceiver(
-  WORMHOLE_CHAIN_IDS[Chains.Sei.Testnet],
+  WORMHOLE_CHAIN_IDS[Chains.Ethereum.Sepolia],
   recipient
 )
 

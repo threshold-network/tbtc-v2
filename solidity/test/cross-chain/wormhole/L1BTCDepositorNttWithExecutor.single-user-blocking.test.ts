@@ -13,7 +13,7 @@ import type {
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
 // Wormhole Chain IDs for testing
-const WORMHOLE_CHAIN_SEI = 32
+const WORMHOLE_CHAIN_DESTINATION = 32
 
 describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
   let depositor: L1BTCDepositorNttWithExecutor
@@ -52,7 +52,7 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
     underlyingNttManager = await TestERC20Factory.deploy()
 
     // Set up mock NTT manager to support our test chains
-    await nttManagerWithExecutor.setSupportedChain(WORMHOLE_CHAIN_SEI, true)
+    await nttManagerWithExecutor.setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
 
     // Deploy main contract with proxy following the working pattern
     const L1BTCDepositorFactory = await ethers.getContractFactory(
@@ -73,8 +73,8 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
     depositor = L1BTCDepositorFactory.attach(proxy.address)
 
     // Set up basic configuration
-    await depositor.setSupportedChain(WORMHOLE_CHAIN_SEI, true)
-    await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
+    await depositor.setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
+    await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_DESTINATION)
 
     // Set parameter expiration time to 1 hour for testing
     await depositor.setParameterExpirationTime(3600)

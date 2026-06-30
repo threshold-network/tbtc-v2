@@ -11,7 +11,7 @@ import type {
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
 // Wormhole Chain IDs for testing
-const WORMHOLE_CHAIN_SEI = 32
+const WORMHOLE_CHAIN_DESTINATION = 32
 const WORMHOLE_CHAIN_BASE = 30
 
 describe("L1BTCDepositorNttWithExecutor - Core Functions", () => {
@@ -64,9 +64,9 @@ describe("L1BTCDepositorNttWithExecutor - Core Functions", () => {
     ) as L1BTCDepositorNttWithExecutor
 
     // Set up supported chains
-    await depositor.setSupportedChain(WORMHOLE_CHAIN_SEI, true)
+    await depositor.setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
     await depositor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
-    await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
+    await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_DESTINATION)
   })
 
   beforeEach(async () => {
@@ -92,10 +92,10 @@ describe("L1BTCDepositorNttWithExecutor - Core Functions", () => {
     })
 
     it("should have correct supported chains", async () => {
-      expect(await depositor.supportedChains(WORMHOLE_CHAIN_SEI)).to.be.true
+      expect(await depositor.supportedChains(WORMHOLE_CHAIN_DESTINATION)).to.be.true
       expect(await depositor.supportedChains(WORMHOLE_CHAIN_BASE)).to.be.true
       expect(await depositor.defaultSupportedChain()).to.equal(
-        WORMHOLE_CHAIN_SEI
+        WORMHOLE_CHAIN_DESTINATION
       )
     })
   })

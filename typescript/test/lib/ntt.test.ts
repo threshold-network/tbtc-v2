@@ -10,7 +10,7 @@ import {
 describe("NTT Utilities", () => {
   describe("encodeDestinationReceiver", () => {
     it("should encode chain ID and recipient correctly", () => {
-      const chainId = 40 // Sei chain ID
+      const chainId = 10002
       const recipient = "0x1234567890123456789012345678901234567890"
 
       const encoded = encodeDestinationReceiver(chainId, recipient)

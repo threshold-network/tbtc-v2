@@ -18,7 +18,7 @@ const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
 // Wormhole Chain IDs for testing
 const WORMHOLE_CHAIN_ETH = 2
-const WORMHOLE_CHAIN_SEI = 32
+const WORMHOLE_CHAIN_DESTINATION = 32
 const WORMHOLE_CHAIN_BASE = 30
 
 // Mock NTT Manager interface
@@ -130,7 +130,7 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
   })
 
   describe("Encoding/Decoding Utilities Logic", () => {
-    const testChainId = WORMHOLE_CHAIN_SEI
+    const testChainId = WORMHOLE_CHAIN_DESTINATION
     const testRecipient = "0x23b82a7108F9CEb34C3CDC44268be21D151d4124"
 
     it("should encode and decode chain ID and recipient correctly", async () => {
@@ -211,7 +211,7 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
       // Test the _getDestinationChainFromReceiver logic
       const testCases = [
         {
-          chainId: WORMHOLE_CHAIN_SEI,
+          chainId: WORMHOLE_CHAIN_DESTINATION,
           recipient: "0x23b82a7108F9CEb34C3CDC44268be21D151d4124",
         },
         {
@@ -291,7 +291,7 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
     it("should validate transfer parameters structure", async () => {
       // Test the _transferTbtc logic validation
       const amount = ethers.utils.parseEther("1") // 1 tBTC
-      const chainId = WORMHOLE_CHAIN_SEI
+      const chainId = WORMHOLE_CHAIN_DESTINATION
       const recipient = "0x23b82a7108F9CEb34C3CDC44268be21D151d4124"
 
       // Encode receiver
@@ -331,7 +331,7 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
       const supportedChains: { [key: number]: boolean } = {}
 
       // Add chains
-      supportedChains[WORMHOLE_CHAIN_SEI] = true
+      supportedChains[WORMHOLE_CHAIN_DESTINATION] = true
       supportedChains[WORMHOLE_CHAIN_BASE] = true
 
       // Test getSupportedChains logic
@@ -340,8 +340,8 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
         .filter((chainId) => supportedChains[chainId])
         .sort((a, b) => a - b)
 
-      expect(chainIds).to.deep.equal([WORMHOLE_CHAIN_BASE, WORMHOLE_CHAIN_SEI])
-      expect(supportedChains[WORMHOLE_CHAIN_SEI]).to.be.true
+      expect(chainIds).to.deep.equal([WORMHOLE_CHAIN_BASE, WORMHOLE_CHAIN_DESTINATION])
+      expect(supportedChains[WORMHOLE_CHAIN_DESTINATION]).to.be.true
       expect(supportedChains[WORMHOLE_CHAIN_BASE]).to.be.true
       expect(supportedChains[999]).to.be.undefined // Unsupported chain
     })
@@ -350,7 +350,7 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
       // Test _getDefaultSupportedChain logic
       const supportedChains: { [key: number]: boolean } = {
         [WORMHOLE_CHAIN_BASE]: true,
-        [WORMHOLE_CHAIN_SEI]: true,
+        [WORMHOLE_CHAIN_DESTINATION]: true,
       }
 
       // Find first supported chain (ascending order)
@@ -378,7 +378,7 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
       // Test validation logic for various functions
 
       // Chain ID validation
-      const validChainId = WORMHOLE_CHAIN_SEI
+      const validChainId = WORMHOLE_CHAIN_DESTINATION
       const invalidChainId = 0
 
       expect(validChainId).to.be.greaterThan(0) // Valid
@@ -539,7 +539,7 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
     })
 
     it("should handle address with leading zeros", async () => {
-      const chainId = WORMHOLE_CHAIN_SEI
+      const chainId = WORMHOLE_CHAIN_DESTINATION
       const addressWithZeros = "0x0000000000000000000000000000000000000123"
 
       const encoded = BigNumber.from(chainId)
@@ -560,7 +560,7 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
     })
 
     it("should handle address with all Fs", async () => {
-      const chainId = WORMHOLE_CHAIN_SEI
+      const chainId = WORMHOLE_CHAIN_DESTINATION
       const addressWithFs = "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
 
       const encoded = BigNumber.from(chainId)
@@ -594,27 +594,27 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
       // Add a supported chain
       await l1BtcDepositorNtt
         .connect(governance)
-        .setSupportedChain(WORMHOLE_CHAIN_SEI, true)
+        .setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
 
       // Set it as default
       await l1BtcDepositorNtt
         .connect(governance)
-        .setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
+        .setDefaultSupportedChain(WORMHOLE_CHAIN_DESTINATION)
 
       expect(await l1BtcDepositorNtt.defaultSupportedChain()).to.equal(
-        WORMHOLE_CHAIN_SEI
+        WORMHOLE_CHAIN_DESTINATION
       )
     })
 
     it("should maintain backward compatibility when no chain ID is encoded", async () => {
-      // Set up SEI as default chain
+      // Set up the sample destination as default chain
       await l1BtcDepositorNtt
         .connect(governance)
-        .setSupportedChain(WORMHOLE_CHAIN_SEI, true)
+        .setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
 
       await l1BtcDepositorNtt
         .connect(governance)
-        .setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
+        .setDefaultSupportedChain(WORMHOLE_CHAIN_DESTINATION)
 
       // Test with receiver that has chain ID 0 (backward compatibility)
       const backwardCompatibleReceiver =
@@ -626,21 +626,21 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
       )
       expect(decodedChainId.chainId).to.equal(0)
 
-      // The default chain should be SEI
+      // The default chain should be the sample destination
       expect(await l1BtcDepositorNtt.defaultSupportedChain()).to.equal(
-        WORMHOLE_CHAIN_SEI
+        WORMHOLE_CHAIN_DESTINATION
       )
     })
 
     it("should prioritize encoded chain ID over default chain", async () => {
-      // Set up SEI as default chain
+      // Set up the sample destination as default chain
       await l1BtcDepositorNtt
         .connect(governance)
-        .setSupportedChain(WORMHOLE_CHAIN_SEI, true)
+        .setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
 
       await l1BtcDepositorNtt
         .connect(governance)
-        .setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
+        .setDefaultSupportedChain(WORMHOLE_CHAIN_DESTINATION)
 
       // Add BASE as supported chain
       await l1BtcDepositorNtt
@@ -668,9 +668,9 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
       )
       expect(decodedChainId.chainId).to.equal(WORMHOLE_CHAIN_BASE)
 
-      // The default chain should still be SEI
+      // The default chain should still be the sample destination
       expect(await l1BtcDepositorNtt.defaultSupportedChain()).to.equal(
-        WORMHOLE_CHAIN_SEI
+        WORMHOLE_CHAIN_DESTINATION
       )
     })
   })
