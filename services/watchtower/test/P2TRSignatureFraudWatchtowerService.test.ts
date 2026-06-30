@@ -2,7 +2,8 @@ import assert from "assert/strict"
 import { readFileSync } from "fs"
 import { mkdtemp, readFile, rm, writeFile } from "fs/promises"
 import { tmpdir } from "os"
-import { join } from "path"
+import { dirname, join } from "path"
+import { fileURLToPath } from "url"
 import test from "node:test"
 
 import {
@@ -31,10 +32,12 @@ import { Transaction } from "bitcoinjs-lib"
 import {
   FileBackedP2TRBridgeLifecycleScanCursorStore,
   FileBackedP2TRWatchtowerChallengeRecordPersistence,
+  P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV,
   P2TRSignatureFraudWatchtowerService,
   P2TRSignatureFraudWatchtowerCycleReport,
   createFileBackedP2TRBridgeLifecycleEventSource,
   createFileBackedP2TRSignatureFraudWatchtowerRuntime,
+  loadP2TRSignatureFraudWatchtowerRuntimeConfig,
   runP2TRSignatureFraudWatchtowerLoop,
 } from "../src/index.js"
 import type {
@@ -104,6 +107,37 @@ const draftSingleProcessRehearsalSubmission = {
   indexingStoreProfile: "single-process-rehearsal" as const,
   allowSingleProcessRehearsalSubmission: true,
 }
+
+// A complete submission-mode environment for the environment-backed runtime
+// builder. The classifier is intentionally absent because env vars cannot
+// supply the code predicate; the builder must receive it through options.
+const submissionRuntimeEnv = () => ({
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.stateFilePath]:
+    "/tmp/p2tr-watchtower-state.json",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.walletIDs]: `0x${"11".repeat(32)}`,
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submitChallenges]: "true",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.allowFileBackedSubmission]: "true",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submissionAllowedSpendTypes]:
+    P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.bridgeLifecycleCursorFilePath]:
+    "/tmp/p2tr-bridge-lifecycle-cursor.json",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.bridgeLifecycleConfirmationDepth]: "12",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.bridgeLifecycleMaxBlockRange]: "5000",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.bridgeLifecycleRequireCursorBlockHash]:
+    "true",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.bridgeChallengeChainID]: "11155111",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.bridgeChallengeBridgeAddress]:
+    "0x1111111111111111111111111111111111111111",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.maxRawTransactionBytes]: "10000",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.maxInputs]: "2",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.maxOutputs]: "2",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.maxScriptPubKeyBytes]: "34",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.maxSubmissionAttempts]: "3",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submissionAttemptLimitAlertCode]:
+    "submission-attempt-limit",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submissionAttemptLimitAlertMessage]:
+    "manual intervention required",
+})
 
 const transactionalChallengeRecordPersistence = (
   transactionalStoreID = "production-indexing-store"
@@ -835,6 +869,47 @@ test("wires file-backed runtime config into service and loop options", async () 
   }
 })
 
+test("builds an environment-backed submission runtime with an injected classifier", () => {
+  const config = loadP2TRSignatureFraudWatchtowerRuntimeConfig(
+    submissionRuntimeEnv()
+  )
+
+  assert.deepEqual(config.service.submissionPolicy, {
+    allowedSpendTypes: [P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION],
+  })
+  assert.equal(config.service.spendTypeClassifier, undefined)
+
+  const runtime = createFileBackedP2TRSignatureFraudWatchtowerRuntime(
+    config,
+    {
+      bitcoinClient: {} as BitcoinClient,
+      challengeSubmitter: new FakeSubmitter(),
+      transactionSource: emptyTransactionSource,
+      bridgeLifecycleEventSource: emptyBridgeLifecycleSource,
+    },
+    { spendTypeClassifier: () => P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION }
+  )
+
+  assert.ok(runtime.service instanceof P2TRSignatureFraudWatchtowerService)
+})
+
+test("rejects an environment-backed submission runtime without an injected classifier", () => {
+  const config = loadP2TRSignatureFraudWatchtowerRuntimeConfig(
+    submissionRuntimeEnv()
+  )
+
+  assert.throws(
+    () =>
+      createFileBackedP2TRSignatureFraudWatchtowerRuntime(config, {
+        bitcoinClient: {} as BitcoinClient,
+        challengeSubmitter: new FakeSubmitter(),
+        transactionSource: emptyTransactionSource,
+        bridgeLifecycleEventSource: emptyBridgeLifecycleSource,
+      }),
+    /requires an injected spend-type classifier/
+  )
+})
+
 test("defaults service cycles to observation-only submission policy", async () => {
   const directory = await mkdtemp(join(tmpdir(), "p2tr-watchtower-"))
   const statePath = join(directory, "records.json")
@@ -1528,6 +1603,71 @@ test("wraps production indexing cycles and cursor commits in the transaction coo
 
   assert.equal(transactionCount, 1)
   assert.equal(committedBridgeLifecycleScanInTransaction, true)
+})
+
+test("does not commit the Bridge lifecycle cursor when a transaction source fails", async () => {
+  let committedBridgeLifecycleScan = false
+  const transactionCoordinator: P2TRSignatureFraudWatchtowerTransactionCoordinator =
+    {
+      p2trSignatureFraudWatchtowerStoreProfile:
+        "transactional-production" as const,
+      p2trSignatureFraudWatchtowerTransactionalStoreID:
+        "production-indexing-store",
+      p2trSignatureFraudWatchtowerAtomicTransactions: true,
+      assertP2TRSignatureFraudWatchtowerSharedStore() {},
+      async runInP2TRSignatureFraudWatchtowerTransaction<T>(
+        operation: () => Promise<T>
+      ): Promise<T> {
+        return await operation()
+      },
+    }
+  const bridgeLifecycleEventSource = {
+    ...transactionalBridgeLifecycleSource(),
+    async commitBridgeLifecycleScan() {
+      committedBridgeLifecycleScan = true
+    },
+  }
+  // A transaction source whose mempool listing fails records a mempool
+  // sourceFailure for the cycle. Honest-spend proof events processed in the same
+  // cycle then cannot be reliably matched against observed transactions, so the
+  // Bridge lifecycle cursor must NOT advance past them.
+  const failingTransactionSource: P2TRSignatureFraudWatchtowerTransactionSource =
+    {
+      async listMempoolTransactions() {
+        throw new Error("mempool source unavailable")
+      },
+      async listConfirmedTransactions() {
+        return []
+      },
+    }
+  const service = new P2TRSignatureFraudWatchtowerService(
+    {
+      registeredWalletIDs: [`0x${"11".repeat(32)}`],
+      submitChallenges: true,
+      indexingStoreProfile: "transactional-production",
+      submissionPolicy: draftRedemptionSubmissionPolicy,
+      payloadBounds: draftPayloadBounds,
+      bridgeChallengeDomain: draftBridgeChallengeDomain,
+      spendTypeClassifier: () => P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
+      maxSubmissionAttempts: 3,
+      submissionAttemptLimitAlert: draftSubmissionAttemptLimitAlert,
+    },
+    {
+      bitcoinClient: {} as BitcoinClient,
+      challengeSubmitter: new FakeSubmitter(),
+      transactionSource: failingTransactionSource,
+      bridgeLifecycleEventSource,
+      persistence: transactionalChallengeRecordPersistence(),
+      transactionCoordinator,
+      alertSink: noopAlertSink,
+    }
+  )
+
+  // Whether the cycle records the source failure or surfaces it, the cursor must
+  // never be committed for a cycle with an incomplete transaction view.
+  await service.processCycle().catch(() => undefined)
+
+  assert.equal(committedBridgeLifecycleScan, false)
 })
 
 test("rejects transaction coordinators that suppress indexing operation failures", async () => {
@@ -2398,7 +2538,11 @@ function loadFirstSignatureFraudVector(): SignatureFraudVector {
   return JSON.parse(
     readFileSync(
       join(
-        process.cwd(),
+        // Resolve relative to this test file (services/watchtower/test), not
+        // process.cwd(): the suite runs with cwd=services/watchtower, where
+        // "../../../docs" would escape the repo. From the test directory the
+        // three "../" segments reach the repo-root docs/ directory.
+        dirname(fileURLToPath(import.meta.url)),
         "../../../docs/test-vectors/p2tr-signature-fraud-v0.json"
       ),
       "utf8"

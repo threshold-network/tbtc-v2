@@ -1,6 +1,26 @@
 import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import type { DeployFunction } from "hardhat-deploy/types"
 
+// Returns a signer for `address` only when that account is configured for the
+// current network. Used to decide whether a governance-gated call can be sent by
+// this deployment, or must instead be emitted as calldata for manual governance
+// execution (the governance owner -- e.g. a Safe -- is not a deployer-controlled
+// signer in production). Mirrors 49_deploy_bridge_lifecycle_router.
+async function getConfiguredSigner(
+  hre: HardhatRuntimeEnvironment,
+  address: string
+) {
+  const configuredAccounts = (await hre.ethers.provider.listAccounts()).map(
+    (account) => account.toLowerCase()
+  )
+
+  if (!configuredAccounts.includes(address.toLowerCase())) {
+    return undefined
+  }
+
+  return hre.ethers.getSigner(address)
+}
+
 const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   const { getNamedAccounts, deployments, ethers, helpers } = hre
   const { deployer } = await getNamedAccounts()
@@ -62,11 +82,11 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   // re-called, so this is a one-shot wiring at deploy time.
   //
   // Bridge governance lives on BridgeGovernance which forwards
-  // through to Bridge.setFrostWalletRegistry. Production deploys
-  // call BridgeGovernance from the governance multisig; this
-  // script wires directly via the helper for dev/test flows. A
-  // separate later deploy script will repeat the call on
-  // production networks under the governance multisig.
+  // through to Bridge.setFrostWalletRegistry. On dev/test, where
+  // governance is still the deployer, this script sends the wiring
+  // directly; once governance has been handed off it sends from the
+  // BridgeGovernance owner when that owner is a configured signer, or
+  // emits the calldata for manual governance execution otherwise.
   //
   // NOTE: B-1 ships the registry deployed-but-dead from Bridge's
   // perspective: until C-2 governance flips
@@ -117,41 +137,105 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   const ALREADY_SET_SELECTOR = ethers.utils
     .id("FrostWalletRegistryAlreadySet()")
     .slice(0, 10)
-  try {
-    if (governanceIsDeployer) {
-      await bridgeContract
-        .connect(await ethers.getSigner(deployer))
-        .setFrostWalletRegistry(frostWalletRegistry.address)
-      console.log(
-        `wired FrostWalletRegistry at ${frostWalletRegistry.address} onto Bridge directly (governance is still deployer)`
+
+  // Idempotency pre-check. setFrostWalletRegistry is a one-shot setter, so a
+  // re-run must skip cleanly on EVERY governance configuration -- including a
+  // multisig owner that is not a configured signer, where the AlreadySet revert
+  // path is never reached because the wiring is emitted as calldata, not sent.
+  // frostLifecycleContext returns the global frostWalletRegistry as its first
+  // value regardless of the wallet argument.
+  const [currentFrostWalletRegistry] =
+    await bridgeContract.frostLifecycleContext(ethers.constants.AddressZero)
+
+  if (
+    currentFrostWalletRegistry.toLowerCase() ===
+    frostWalletRegistry.address.toLowerCase()
+  ) {
+    console.log(
+      `FrostWalletRegistry already wired on this Bridge at ${frostWalletRegistry.address}; skipping`
+    )
+  } else if (currentFrostWalletRegistry !== ethers.constants.AddressZero) {
+    throw new Error(
+      "Bridge is already wired to a different FrostWalletRegistry " +
+        `(${currentFrostWalletRegistry}); refusing to wire ` +
+        `${frostWalletRegistry.address}`
+    )
+  } else {
+    // Resolve the authorized caller. In the governance-wrapper case the setter
+    // is `BridgeGovernance.onlyOwner`, so the call must come from the wrapper
+    // owner -- which post-handoff is the governance multisig, not `deployer`.
+    // When that owner is not a configured signer, emit the calldata for manual
+    // governance execution and skip (mainnet) rather than sending from
+    // `deployer` and reverting.
+    const registrySetterContract = governanceIsDeployer
+      ? bridgeContract
+      : bridgeGovernance
+    const registrySetterCaller = governanceIsDeployer
+      ? deployer
+      : await bridgeGovernance.owner()
+    const registrySetterSigner = await getConfiguredSigner(
+      hre,
+      registrySetterCaller
+    )
+
+    if (!registrySetterSigner) {
+      const calldata = registrySetterContract.interface.encodeFunctionData(
+        "setFrostWalletRegistry",
+        [frostWalletRegistry.address]
       )
+      const message =
+        `FrostWalletRegistry wiring must be executed by ${registrySetterCaller}, ` +
+        `which is not a configured signer for network ${hre.network.name}. ` +
+        "Submit this call from governance:\n" +
+        `  target: ${registrySetterContract.address}\n` +
+        `  data:   ${calldata}`
+
+      if (hre.network.name === "mainnet") {
+        console.log(`${message}\nskipping for manual governance execution`)
+      } else {
+        throw new Error(message)
+      }
     } else {
-      await bridgeGovernance
-        .connect(await ethers.getSigner(deployer))
-        .setFrostWalletRegistry(frostWalletRegistry.address)
-      console.log(
-        `wired FrostWalletRegistry at ${frostWalletRegistry.address} onto Bridge via BridgeGovernance`
-      )
-    }
-  } catch (err) {
-    const errAny = err as {
-      data?: string
-      error?: { data?: string }
-      message?: string
-    }
-    const revertData = errAny.data || errAny.error?.data || errAny.message || ""
-    if (
-      typeof revertData === "string" &&
-      revertData.toLowerCase().includes(ALREADY_SET_SELECTOR.toLowerCase())
-    ) {
-      console.log("FrostWalletRegistry already wired on this Bridge; skipping")
-    } else {
-      console.error(
-        "setFrostWalletRegistry call reverted with an unexpected error;",
-        "deploy aborted so the operator can investigate:",
-        errAny.message || err
-      )
-      throw err
+      try {
+        const tx = await registrySetterContract
+          .connect(registrySetterSigner)
+          .setFrostWalletRegistry(frostWalletRegistry.address)
+        await tx.wait(1)
+        console.log(
+          `wired FrostWalletRegistry at ${
+            frostWalletRegistry.address
+          } onto Bridge ${
+            governanceIsDeployer
+              ? "directly (governance is still deployer)"
+              : "via BridgeGovernance"
+          }`
+        )
+      } catch (err) {
+        // Tolerate only a concurrent deployment that wired the SAME registry
+        // between the pre-check read above and this call (AlreadySet revert).
+        const errAny = err as {
+          data?: string
+          error?: { data?: string }
+          message?: string
+        }
+        const revertData =
+          errAny.data || errAny.error?.data || errAny.message || ""
+        if (
+          typeof revertData === "string" &&
+          revertData.toLowerCase().includes(ALREADY_SET_SELECTOR.toLowerCase())
+        ) {
+          console.log(
+            "FrostWalletRegistry already wired on this Bridge; skipping"
+          )
+        } else {
+          console.error(
+            "setFrostWalletRegistry call reverted with an unexpected error;",
+            "deploy aborted so the operator can investigate:",
+            errAny.message || err
+          )
+          throw err
+        }
+      }
     }
   }
 

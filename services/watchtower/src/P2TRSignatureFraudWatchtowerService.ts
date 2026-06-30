@@ -427,9 +427,20 @@ async function commitBridgeLifecycleScanIfSafe(
   if (
     !hasBridgeLifecycleScanCommitter(eventSource) ||
     result.bridgeLifecycle.failures.length > 0 ||
-    result.sourceFailures.some(
-      (failure) => failure.source === "bridge-lifecycle"
-    )
+    // Matching honest-spend proof events (MovingFundsCompleted /
+    // RedemptionsCompleted) against observed transactions requires a complete,
+    // reliable transaction view for the cycle. If the mempool/confirmed
+    // transaction source failed, or any transaction failed to process, proof
+    // logs can still be handled this cycle but fail to find a matching record
+    // (the spend was not indexed) and land in bridgeLifecycle.ignored.
+    // Committing the cursor past those logs would drop them permanently -- after
+    // indexing recovers the proof is never replayed, so the watchtower could
+    // keep or submit a fraud challenge for an already-proven honest spend.
+    // Treat ANY source failure or transaction-batch processing failure as unsafe
+    // for the cursor commit, not just bridge-lifecycle failures.
+    result.sourceFailures.length > 0 ||
+    result.mempool.failures.length > 0 ||
+    result.confirmed.failures.length > 0
   ) {
     return
   }

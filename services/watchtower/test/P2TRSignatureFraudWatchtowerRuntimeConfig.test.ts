@@ -1,7 +1,11 @@
 import assert from "assert/strict"
 import test from "node:test"
 
-import { BitcoinNetwork } from "@keep-network/tbtc-v2.ts"
+import {
+  BitcoinNetwork,
+  P2TR_SIGNATURE_FRAUD_SPEND_TYPE_DEPOSIT_SWEEP,
+  P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
+} from "@keep-network/tbtc-v2.ts"
 
 import {
   DEFAULT_P2TR_SIGNATURE_FRAUD_WATCHTOWER_POLL_INTERVAL_MS,
@@ -18,6 +22,33 @@ const baseEnv = (): P2TRSignatureFraudWatchtowerRuntimeEnv => ({
 const bridgeLifecycleRequireCursorBlockHashEnv =
   P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.bridgeLifecycleRequireCursorBlockHash
 
+// A complete, valid submission-mode environment. Negative cases override a
+// single field so each assertion isolates the precondition under test.
+const submissionEnv = (): P2TRSignatureFraudWatchtowerRuntimeEnv => ({
+  ...baseEnv(),
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submitChallenges]: "true",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.allowFileBackedSubmission]: "true",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submissionAllowedSpendTypes]:
+    "redemption",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.bridgeLifecycleCursorFilePath]:
+    "/var/lib/tbtc/p2tr-bridge-lifecycle-cursor.json",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.bridgeLifecycleConfirmationDepth]: "12",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.bridgeLifecycleMaxBlockRange]: "5000",
+  [bridgeLifecycleRequireCursorBlockHashEnv]: "true",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.bridgeChallengeChainID]: "11155111",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.bridgeChallengeBridgeAddress]:
+    "0x1111111111111111111111111111111111111111",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.maxRawTransactionBytes]: "10000",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.maxInputs]: "2",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.maxOutputs]: "2",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.maxScriptPubKeyBytes]: "34",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.maxSubmissionAttempts]: "3",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submissionAttemptLimitAlertCode]:
+    "submission-attempt-limit",
+  [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submissionAttemptLimitAlertMessage]:
+    "manual intervention required",
+})
+
 test("loads required watchtower runtime config with safe defaults", () => {
   const config = loadP2TRSignatureFraudWatchtowerRuntimeConfig(baseEnv())
 
@@ -27,6 +58,7 @@ test("loads required watchtower runtime config with safe defaults", () => {
   assert.equal(config.service.bridgeChallengeDomain, undefined)
   assert.equal(config.service.maxSubmissionAttempts, undefined)
   assert.equal(config.service.submissionAttemptLimitAlert, undefined)
+  assert.equal(config.service.submissionPolicy, undefined)
   assert.equal(config.service.submitChallenges, false)
   assert.equal(config.service.indexingStoreProfile, "single-process-rehearsal")
   assert.equal(config.service.allowSingleProcessRehearsalSubmission, false)
@@ -86,6 +118,8 @@ test("loads explicit watchtower runtime config values", () => {
     [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.pollIntervalMs]: "45000",
     [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.continueOnError]: "true",
     [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submitChallenges]: "true",
+    [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submissionAllowedSpendTypes]:
+      "redemption, deposit-sweep, redemption",
     [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.maxRawTransactionBytes]: "10000",
     [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.maxInputs]: "2",
     [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.maxOutputs]: "2",
@@ -138,10 +172,72 @@ test("loads explicit watchtower runtime config values", () => {
     code: "submission-attempt-limit",
     message: "manual intervention required",
   })
+  assert.deepEqual(config.service.submissionPolicy, {
+    allowedSpendTypes: [
+      P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
+      P2TR_SIGNATURE_FRAUD_SPEND_TYPE_DEPOSIT_SWEEP,
+    ],
+  })
   assert.deepEqual(config.loop, {
     pollIntervalMs: 45000,
     continueOnError: true,
   })
+})
+
+test("validates the submission spend-type policy environment variable", () => {
+  assert.doesNotThrow(() =>
+    loadP2TRSignatureFraudWatchtowerRuntimeConfig(submissionEnv())
+  )
+
+  assert.throws(
+    () =>
+      loadP2TRSignatureFraudWatchtowerRuntimeConfig({
+        ...submissionEnv(),
+        [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submissionAllowedSpendTypes]:
+          undefined,
+      }),
+    /SUBMIT_CHALLENGES requires .*SUBMISSION_ALLOWED_SPEND_TYPES/
+  )
+
+  assert.throws(
+    () =>
+      loadP2TRSignatureFraudWatchtowerRuntimeConfig({
+        ...baseEnv(),
+        [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submissionAllowedSpendTypes]:
+          "redemption",
+      }),
+    /SUBMISSION_ALLOWED_SPEND_TYPES requires .*SUBMIT_CHALLENGES=true/
+  )
+
+  assert.throws(
+    () =>
+      loadP2TRSignatureFraudWatchtowerRuntimeConfig({
+        ...submissionEnv(),
+        [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submissionAllowedSpendTypes]:
+          "redemption,,deposit-sweep",
+      }),
+    /SUBMISSION_ALLOWED_SPEND_TYPES must not contain empty entries/
+  )
+
+  assert.throws(
+    () =>
+      loadP2TRSignatureFraudWatchtowerRuntimeConfig({
+        ...submissionEnv(),
+        [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submissionAllowedSpendTypes]:
+          "heartbeat",
+      }),
+    /SUBMISSION_ALLOWED_SPEND_TYPES must contain only approved submission spend types/
+  )
+
+  assert.throws(
+    () =>
+      loadP2TRSignatureFraudWatchtowerRuntimeConfig({
+        ...submissionEnv(),
+        [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submissionAllowedSpendTypes]:
+          "not-a-real-spend-type",
+      }),
+    /SUBMISSION_ALLOWED_SPEND_TYPES must contain only approved submission spend types/
+  )
 })
 
 test("rejects unsafe watchtower runtime config before service startup", () => {
