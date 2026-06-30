@@ -49,7 +49,7 @@ This component tries to abstract away that complexity.
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/services/deposits/deposit.ts:66](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L66)
+[src/services/deposits/deposit.ts:66](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L66)
 
 ## Properties
 
@@ -61,7 +61,7 @@ Bitcoin client handle.
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/services/deposits/deposit.ts:55](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L55)
+[src/services/deposits/deposit.ts:55](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L55)
 
 ___
 
@@ -74,7 +74,7 @@ generated deposit address.
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/services/deposits/deposit.ts:64](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L64)
+[src/services/deposits/deposit.ts:64](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L64)
 
 ___
 
@@ -86,7 +86,7 @@ Optional depositor proxy used to initiate minting.
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/services/deposits/deposit.ts:59](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L59)
+[src/services/deposits/deposit.ts:59](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L59)
 
 ___
 
@@ -98,7 +98,7 @@ Bitcoin script corresponding to this deposit.
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/services/deposits/deposit.ts:47](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L47)
+[src/services/deposits/deposit.ts:47](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L47)
 
 ___
 
@@ -110,7 +110,7 @@ Handle to tBTC contracts.
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/services/deposits/deposit.ts:51](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L51)
+[src/services/deposits/deposit.ts:51](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L51)
 
 ## Methods
 
@@ -131,7 +131,7 @@ Specific UTXOs targeting this deposit. Empty array in case
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/services/deposits/deposit.ts:121](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L121)
+[src/services/deposits/deposit.ts:121](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L121)
 
 ___
 
@@ -147,7 +147,7 @@ Bitcoin address corresponding to this deposit.
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/services/deposits/deposit.ts:110](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L110)
+[src/services/deposits/deposit.ts:110](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L110)
 
 ___
 
@@ -163,7 +163,7 @@ Receipt corresponding to this deposit.
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/services/deposits/deposit.ts:103](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L103)
+[src/services/deposits/deposit.ts:103](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L103)
 
 ___
 
@@ -207,7 +207,7 @@ Throws an error if the funding outpoint was already used to
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/services/deposits/deposit.ts:150](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L150)
+[src/services/deposits/deposit.ts:150](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L150)
 
 ___
 
@@ -231,4 +231,4 @@ ___
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/services/deposits/deposit.ts:81](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L81)
+[src/services/deposits/deposit.ts:81](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L81)

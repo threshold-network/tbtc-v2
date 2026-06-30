@@ -46,7 +46,7 @@ for reference.
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/lib/ethereum/depositor-proxy.ts:16](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/depositor-proxy.ts#L16)
+[src/lib/ethereum/depositor-proxy.ts:16](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/depositor-proxy.ts#L16)
 
 ## Properties
 
@@ -56,7 +56,7 @@ for reference.
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/lib/ethereum/depositor-proxy.ts:14](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/depositor-proxy.ts#L14)
+[src/lib/ethereum/depositor-proxy.ts:14](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/depositor-proxy.ts#L14)
 
 ## Methods
 
@@ -76,7 +76,7 @@ for reference.
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/lib/ethereum/depositor-proxy.ts:28](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/depositor-proxy.ts#L28)
+[src/lib/ethereum/depositor-proxy.ts:28](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/depositor-proxy.ts#L28)
 
 ___
 
@@ -122,7 +122,7 @@ Packed parameters.
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/lib/ethereum/depositor-proxy.ts:44](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/depositor-proxy.ts#L44)
+[src/lib/ethereum/depositor-proxy.ts:44](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/depositor-proxy.ts#L44)
 
 ___
 
@@ -151,4 +151,4 @@ ___
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/lib/ethereum/depositor-proxy.ts:62](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/depositor-proxy.ts#L62)
+[src/lib/ethereum/depositor-proxy.ts:62](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/depositor-proxy.ts#L62)
