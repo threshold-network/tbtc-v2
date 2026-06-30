@@ -48,7 +48,7 @@ Error.constructor
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:45](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L45)
+[src/services/maintenance/p2tr-signature-fraud.ts:46](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L46)
 
 ## Properties
 
@@ -58,7 +58,7 @@ Error.constructor
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:43](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L43)
+[src/services/maintenance/p2tr-signature-fraud.ts:44](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L44)
 
 ___
 
