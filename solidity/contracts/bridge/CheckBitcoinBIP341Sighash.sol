@@ -108,17 +108,16 @@ library CheckBitcoinBIP341Sighash {
         pure
         returns (bytes32)
     {
-        bytes memory serialized;
+        bytes[] memory parts = new bytes[](inputs.length);
 
         for (uint256 i = 0; i < inputs.length; i++) {
-            serialized = abi.encodePacked(
-                serialized,
+            parts[i] = abi.encodePacked(
                 inputs[i].txid,
                 P2TRSignatureFraud.uint32LE(inputs[i].vout)
             );
         }
 
-        return sha256(serialized);
+        return sha256(concat(parts));
     }
 
     function hashAmounts(InputPrevout[] memory prevouts)
@@ -126,16 +125,13 @@ library CheckBitcoinBIP341Sighash {
         pure
         returns (bytes32)
     {
-        bytes memory serialized;
+        bytes[] memory parts = new bytes[](prevouts.length);
 
         for (uint256 i = 0; i < prevouts.length; i++) {
-            serialized = abi.encodePacked(
-                serialized,
-                P2TRSignatureFraud.uint64LE(prevouts[i].valueSats)
-            );
+            parts[i] = P2TRSignatureFraud.uint64LE(prevouts[i].valueSats);
         }
 
-        return sha256(serialized);
+        return sha256(concat(parts));
     }
 
     function hashScriptPubKeys(InputPrevout[] memory prevouts)
@@ -143,18 +139,15 @@ library CheckBitcoinBIP341Sighash {
         pure
         returns (bytes32)
     {
-        bytes memory serialized;
+        bytes[] memory parts = new bytes[](prevouts.length);
 
         for (uint256 i = 0; i < prevouts.length; i++) {
-            serialized = abi.encodePacked(
-                serialized,
-                P2TRSignatureFraud.bytesWithCompactSize(
-                    prevouts[i].scriptPubKey
-                )
+            parts[i] = P2TRSignatureFraud.bytesWithCompactSize(
+                prevouts[i].scriptPubKey
             );
         }
 
-        return sha256(serialized);
+        return sha256(concat(parts));
     }
 
     function hashSequences(TransactionInput[] memory inputs)
@@ -162,16 +155,13 @@ library CheckBitcoinBIP341Sighash {
         pure
         returns (bytes32)
     {
-        bytes memory serialized;
+        bytes[] memory parts = new bytes[](inputs.length);
 
         for (uint256 i = 0; i < inputs.length; i++) {
-            serialized = abi.encodePacked(
-                serialized,
-                P2TRSignatureFraud.uint32LE(inputs[i].sequence)
-            );
+            parts[i] = P2TRSignatureFraud.uint32LE(inputs[i].sequence);
         }
 
-        return sha256(serialized);
+        return sha256(concat(parts));
     }
 
     function hashOutputs(TransactionOutput[] memory outputs)
@@ -179,16 +169,43 @@ library CheckBitcoinBIP341Sighash {
         pure
         returns (bytes32)
     {
-        bytes memory serialized;
+        bytes[] memory parts = new bytes[](outputs.length);
 
         for (uint256 i = 0; i < outputs.length; i++) {
-            serialized = abi.encodePacked(
-                serialized,
+            parts[i] = abi.encodePacked(
                 P2TRSignatureFraud.uint64LE(outputs[i].valueSats),
                 P2TRSignatureFraud.bytesWithCompactSize(outputs[i].scriptPubKey)
             );
         }
 
-        return sha256(serialized);
+        return sha256(concat(parts));
+    }
+
+    /// @notice Concatenates `parts` into a single byte string.
+    /// @dev Equivalent to chaining `abi.encodePacked` over `parts`, but copies
+    ///      each byte exactly once (O(total length)) instead of re-copying a
+    ///      growing buffer on every element (which is O(n^2) in the element
+    ///      count). The BIP-341 vector hashes above feed this with one part per
+    ///      input or output, so an O(n^2) build would make large -- but valid --
+    ///      protocol transaction shapes (redemption batches, moving-funds
+    ///      fan-out, multi-input sweeps) exceed the block gas limit and become
+    ///      impossible to submit as fraud challenges.
+    function concat(bytes[] memory parts) internal pure returns (bytes memory) {
+        uint256 totalLength = 0;
+        for (uint256 i = 0; i < parts.length; i++) {
+            totalLength += parts[i].length;
+        }
+
+        bytes memory serialized = new bytes(totalLength);
+        uint256 offset = 0;
+        for (uint256 i = 0; i < parts.length; i++) {
+            bytes memory part = parts[i];
+            for (uint256 j = 0; j < part.length; j++) {
+                serialized[offset] = part[j];
+                offset++;
+            }
+        }
+
+        return serialized;
     }
 }
