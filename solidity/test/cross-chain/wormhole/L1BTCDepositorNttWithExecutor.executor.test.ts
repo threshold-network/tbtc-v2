@@ -87,10 +87,14 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
     underlyingNttManager = await MockNttManagerFactory.deploy()
 
     // Set up mock NTT manager to support our test chains
+<<<<<<< HEAD
     await nttManagerWithExecutor.setSupportedChain(
       WORMHOLE_CHAIN_DESTINATION,
       true
     )
+=======
+    await nttManagerWithExecutor.setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
+>>>>>>> f7e0f616 (Remove Sei support)
     await nttManagerWithExecutor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
     await nttManagerWithExecutor.setSupportedChain(
       WORMHOLE_CHAIN_ARBITRUM,
@@ -740,8 +744,12 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
   describe("Chain Configuration", () => {
     it("should have supported chains configured", async () => {
+<<<<<<< HEAD
       expect(await depositor.supportedChains(WORMHOLE_CHAIN_DESTINATION)).to.be
         .true
+=======
+      expect(await depositor.supportedChains(WORMHOLE_CHAIN_DESTINATION)).to.be.true
+>>>>>>> f7e0f616 (Remove Sei support)
       expect(await depositor.supportedChains(WORMHOLE_CHAIN_BASE)).to.be.true
       expect(await depositor.supportedChains(WORMHOLE_CHAIN_ARBITRUM)).to.be
         .true
