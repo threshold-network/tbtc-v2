@@ -80,7 +80,10 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
     await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_DESTINATION)
 
     // Set supported chains for the mock NTT manager
-    await nttManagerWithExecutor.setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
+    await nttManagerWithExecutor.setSupportedChain(
+      WORMHOLE_CHAIN_DESTINATION,
+      true
+    )
     await nttManagerWithExecutor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
   })
 
@@ -155,7 +158,8 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
     })
 
     it("should have proper chain support configuration", async () => {
-      expect(await depositor.supportedChains(WORMHOLE_CHAIN_DESTINATION)).to.be.true
+      expect(await depositor.supportedChains(WORMHOLE_CHAIN_DESTINATION)).to.be
+        .true
       expect(await depositor.supportedChains(WORMHOLE_CHAIN_BASE)).to.be.true
 
       // Unsupported chain should return false
@@ -250,7 +254,8 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
 
       // Step 3: Verify the mock NTT manager integration works
       // Test that the contract can interact with supported chains
-      expect(await depositor.supportedChains(WORMHOLE_CHAIN_DESTINATION)).to.be.true
+      expect(await depositor.supportedChains(WORMHOLE_CHAIN_DESTINATION)).to.be
+        .true
       expect(await depositor.supportedChains(WORMHOLE_CHAIN_BASE)).to.be.true
 
       // Step 4: Test parameter clearing works

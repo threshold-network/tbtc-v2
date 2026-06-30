@@ -47,7 +47,10 @@ describe("L1BTCDepositorNttWithExecutor - Workflow Observers", () => {
     underlyingNttManager = await TestERC20Factory.deploy()
 
     // Set up mock NTT manager to support our test chains
-    await nttManagerWithExecutor.setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
+    await nttManagerWithExecutor.setSupportedChain(
+      WORMHOLE_CHAIN_DESTINATION,
+      true
+    )
     await nttManagerWithExecutor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
 
     // Deploy main contract with proxy following the working pattern

@@ -52,7 +52,10 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
     underlyingNttManager = await TestERC20Factory.deploy()
 
     // Set up mock NTT manager to support our test chains
-    await nttManagerWithExecutor.setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
+    await nttManagerWithExecutor.setSupportedChain(
+      WORMHOLE_CHAIN_DESTINATION,
+      true
+    )
 
     // Deploy main contract with proxy following the working pattern
     const L1BTCDepositorFactory = await ethers.getContractFactory(

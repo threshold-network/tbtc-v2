@@ -230,7 +230,7 @@ Type representing a mapping between specific L1 and L2 chains.
 
 #### Defined in
 
-[lib/contracts/chain.ts:88](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L88)
+[lib/contracts/chain.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L74)
 
 ___
 
@@ -333,7 +333,7 @@ These are chains other than the main Ethereum L1 chain.
 
 #### Defined in
 
-[lib/contracts/chain.ts:78](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L78)
+[lib/contracts/chain.ts:64](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L64)
 
 ___
 
@@ -508,7 +508,7 @@ Use DestinationChainName instead
 
 #### Defined in
 
-[lib/contracts/chain.ts:83](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L83)
+[lib/contracts/chain.ts:69](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L69)
 
 ___
 
@@ -959,7 +959,7 @@ List of chain mappings supported by tBTC v2 contracts.
 
 #### Defined in
 
-[lib/contracts/chain.ts:124](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L124)
+[lib/contracts/chain.ts:106](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/chain.ts#L106)
 
 ___
 
@@ -973,7 +973,7 @@ Use EthereumExtraDataEncoder instead
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-depositor.ts:221](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L221)
+[lib/ethereum/l1-bitcoin-depositor.ts:215](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L215)
 
 ___
 

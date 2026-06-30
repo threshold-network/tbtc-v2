@@ -161,8 +161,9 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
             .connect(governance)
             .setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
 
-          expect(await l1BtcDepositorNtt.supportedChains(WORMHOLE_CHAIN_DESTINATION)).to
-            .be.true
+          expect(
+            await l1BtcDepositorNtt.supportedChains(WORMHOLE_CHAIN_DESTINATION)
+          ).to.be.true
         })
 
         it("should remove supported chain", async () => {
@@ -170,8 +171,9 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
             .connect(governance)
             .setSupportedChain(WORMHOLE_CHAIN_DESTINATION, false)
 
-          expect(await l1BtcDepositorNtt.supportedChains(WORMHOLE_CHAIN_DESTINATION)).to
-            .be.false
+          expect(
+            await l1BtcDepositorNtt.supportedChains(WORMHOLE_CHAIN_DESTINATION)
+          ).to.be.false
         })
       })
     })

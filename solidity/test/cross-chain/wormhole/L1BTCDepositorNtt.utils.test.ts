@@ -340,7 +340,10 @@ describe("L1BTCDepositorNtt Utilities and Edge Cases", () => {
         .filter((chainId) => supportedChains[chainId])
         .sort((a, b) => a - b)
 
-      expect(chainIds).to.deep.equal([WORMHOLE_CHAIN_BASE, WORMHOLE_CHAIN_DESTINATION])
+      expect(chainIds).to.deep.equal([
+        WORMHOLE_CHAIN_BASE,
+        WORMHOLE_CHAIN_DESTINATION,
+      ])
       expect(supportedChains[WORMHOLE_CHAIN_DESTINATION]).to.be.true
       expect(supportedChains[WORMHOLE_CHAIN_BASE]).to.be.true
       expect(supportedChains[999]).to.be.undefined // Unsupported chain

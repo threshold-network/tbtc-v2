@@ -87,7 +87,10 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
     underlyingNttManager = await MockNttManagerFactory.deploy()
 
     // Set up mock NTT manager to support our test chains
-    await nttManagerWithExecutor.setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
+    await nttManagerWithExecutor.setSupportedChain(
+      WORMHOLE_CHAIN_DESTINATION,
+      true
+    )
     await nttManagerWithExecutor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
     await nttManagerWithExecutor.setSupportedChain(
       WORMHOLE_CHAIN_ARBITRUM,
@@ -663,7 +666,8 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
   describe("Chain Configuration", () => {
     it("should have supported chains configured", async () => {
-      expect(await depositor.supportedChains(WORMHOLE_CHAIN_DESTINATION)).to.be.true
+      expect(await depositor.supportedChains(WORMHOLE_CHAIN_DESTINATION)).to.be
+        .true
       expect(await depositor.supportedChains(WORMHOLE_CHAIN_BASE)).to.be.true
       expect(await depositor.supportedChains(WORMHOLE_CHAIN_ARBITRUM)).to.be
         .true
@@ -832,13 +836,10 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
 
       // Get quotes for different chains
-      const [
-        destinationNttPrice,
-        destinationExecutorCost,
-        destinationTotal,
-      ] = await depositor
-        .connect(user)
-        .quoteFinalizedDeposit(WORMHOLE_CHAIN_DESTINATION)
+      const [destinationNttPrice, destinationExecutorCost, destinationTotal] =
+        await depositor
+          .connect(user)
+          .quoteFinalizedDeposit(WORMHOLE_CHAIN_DESTINATION)
 
       const [baseNttPrice, baseExecutorCost, baseTotal] = await depositor
         .connect(user)
@@ -874,7 +875,9 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       const [, , user] = await ethers.getSigners()
 
       await expect(
-        depositor.connect(user).quoteFinalizedDeposit(WORMHOLE_CHAIN_DESTINATION)
+        depositor
+          .connect(user)
+          .quoteFinalizedDeposit(WORMHOLE_CHAIN_DESTINATION)
       ).to.be.revertedWith("Executor parameters not set")
     })
 

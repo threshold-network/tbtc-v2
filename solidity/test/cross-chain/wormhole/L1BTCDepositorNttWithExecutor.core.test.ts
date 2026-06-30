@@ -92,7 +92,8 @@ describe("L1BTCDepositorNttWithExecutor - Core Functions", () => {
     })
 
     it("should have correct supported chains", async () => {
-      expect(await depositor.supportedChains(WORMHOLE_CHAIN_DESTINATION)).to.be.true
+      expect(await depositor.supportedChains(WORMHOLE_CHAIN_DESTINATION)).to.be
+        .true
       expect(await depositor.supportedChains(WORMHOLE_CHAIN_BASE)).to.be.true
       expect(await depositor.defaultSupportedChain()).to.equal(
         WORMHOLE_CHAIN_DESTINATION
