@@ -35,7 +35,7 @@
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/services/maintenance/optimistic-minting.ts:9](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/optimistic-minting.ts#L9)
+[src/services/maintenance/optimistic-minting.ts:9](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/optimistic-minting.ts#L9)
 
 ## Properties
 
@@ -45,7 +45,7 @@
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/services/maintenance/optimistic-minting.ts:7](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/optimistic-minting.ts#L7)
+[src/services/maintenance/optimistic-minting.ts:7](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/optimistic-minting.ts#L7)
 
 ## Methods
 
@@ -70,7 +70,7 @@ Transaction hash of the optimistic mint cancel transaction.
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/services/maintenance/optimistic-minting.ts:37](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/optimistic-minting.ts#L37)
+[src/services/maintenance/optimistic-minting.ts:37](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/optimistic-minting.ts#L37)
 
 ___
 
@@ -95,7 +95,7 @@ Transaction hash of the optimistic mint finalize transaction.
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/services/maintenance/optimistic-minting.ts:54](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/optimistic-minting.ts#L54)
+[src/services/maintenance/optimistic-minting.ts:54](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/optimistic-minting.ts#L54)
 
 ___
 
@@ -120,7 +120,7 @@ Optimistic minting request.
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/services/maintenance/optimistic-minting.ts:71](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/optimistic-minting.ts#L71)
+[src/services/maintenance/optimistic-minting.ts:71](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/optimistic-minting.ts#L71)
 
 ___
 
@@ -145,4 +145,4 @@ Transaction hash of the optimistic mint request transaction.
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/services/maintenance/optimistic-minting.ts:20](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/optimistic-minting.ts#L20)
+[src/services/maintenance/optimistic-minting.ts:20](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/optimistic-minting.ts#L20)

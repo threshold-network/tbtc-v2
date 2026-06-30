@@ -25,7 +25,7 @@ claim the tBTC tokens if anything goes wrong during the redemption process.
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/services/redemptions/redeemer-proxy.ts:13](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redeemer-proxy.ts#L13)
+[src/services/redemptions/redeemer-proxy.ts:13](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redeemer-proxy.ts#L13)
 
 ___
 
@@ -50,4 +50,4 @@ Target chain hash of the request redemption transaction
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/services/redemptions/redeemer-proxy.ts:21](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redeemer-proxy.ts#L21)
+[src/services/redemptions/redeemer-proxy.ts:21](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redeemer-proxy.ts#L21)

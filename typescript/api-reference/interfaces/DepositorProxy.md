@@ -34,7 +34,7 @@ Gets the chain-specific identifier of this contract.
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/lib/contracts/depositor-proxy.ts:20](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/depositor-proxy.ts#L20)
+[src/lib/contracts/depositor-proxy.ts:20](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/depositor-proxy.ts#L20)
 
 ___
 
@@ -61,4 +61,4 @@ Transaction hash of the reveal deposit transaction.
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/lib/contracts/depositor-proxy.ts:32](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/depositor-proxy.ts#L32)
+[src/lib/contracts/depositor-proxy.ts:32](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/depositor-proxy.ts#L32)

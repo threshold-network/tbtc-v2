@@ -25,7 +25,7 @@ less than or equal to. The field is 4-byte long.
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/lib/bitcoin/header.ts:37](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/header.ts#L37)
+[src/lib/bitcoin/header.ts:37](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/header.ts#L37)
 
 ___
 
@@ -38,7 +38,7 @@ The field is 32-byte long.
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/lib/bitcoin/header.ts:25](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/header.ts#L25)
+[src/lib/bitcoin/header.ts:25](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/header.ts#L25)
 
 ___
 
@@ -52,7 +52,7 @@ produce a hash less than or equal to the target threshold. The field is
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/lib/bitcoin/header.ts:44](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/header.ts#L44)
+[src/lib/bitcoin/header.ts:44](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/header.ts#L44)
 
 ___
 
@@ -64,7 +64,7 @@ The hash of the previous block's header. The field is 32-byte long.
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/lib/bitcoin/header.ts:19](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/header.ts#L19)
+[src/lib/bitcoin/header.ts:19](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/header.ts#L19)
 
 ___
 
@@ -77,7 +77,7 @@ The Unix epoch time when the miner started hashing the header. The field is
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/lib/bitcoin/header.ts:31](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/header.ts#L31)
+[src/lib/bitcoin/header.ts:31](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/header.ts#L31)
 
 ___
 
@@ -90,4 +90,4 @@ to follow. The field is 4-byte long.
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/lib/bitcoin/header.ts:14](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/header.ts#L14)
+[src/lib/bitcoin/header.ts:14](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/header.ts#L14)

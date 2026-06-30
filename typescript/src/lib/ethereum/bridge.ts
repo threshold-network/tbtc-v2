@@ -784,15 +784,25 @@ export class EthereumBridge
     }
 
     if (typeof bridgeContract.activeWalletID === "function") {
-      const walletID = await backoffRetrier<string>(this._totalRetryAttempts)(
-        async () => bridgeContract.activeWalletID!()
-      )
+      try {
+        const walletID = await backoffRetrier<string>(this._totalRetryAttempts)(
+          async () => bridgeContract.activeWalletID!()
+        )
 
-      if (walletID === constants.HashZero) {
-        return undefined
+        if (walletID === constants.HashZero) {
+          return undefined
+        }
+
+        return Hex.from(walletID)
+      } catch (err) {
+        // The bundled artifact ABI may expose this selector while the deployed
+        // (pre-upgrade) bytecode does not; fall through to the compatibility
+        // contract and legacy path below rather than throwing.
+        EthereumBridge.ensureBridgeV2CompatibilityFallback(
+          err,
+          "activeWalletID"
+        )
       }
-
-      return Hex.from(walletID)
     }
 
     const bridgeV2Contract =
@@ -977,15 +987,28 @@ export class EthereumBridge
     }
 
     if (typeof bridgeContract.walletsByWalletID === "function") {
-      const wallet = await backoffRetrier<WalletsTypechain.WalletStructOutput>(
-        this._totalRetryAttempts
-      )(async () => {
-        return await bridgeContract.walletsByWalletID!(
-          walletID.toPrefixedString()
+      let wallet: WalletsTypechain.WalletStructOutput | undefined
+      try {
+        wallet = await backoffRetrier<WalletsTypechain.WalletStructOutput>(
+          this._totalRetryAttempts
+        )(async () => {
+          return await bridgeContract.walletsByWalletID!(
+            walletID.toPrefixedString()
+          )
+        })
+      } catch (err) {
+        // The bundled artifact ABI may expose this selector while the deployed
+        // (pre-upgrade) bytecode does not; fall through to the public-key-hash
+        // lookup path below rather than throwing.
+        EthereumBridge.ensureBridgeV2CompatibilityFallback(
+          err,
+          "walletsByWalletID"
         )
-      })
+      }
 
-      return this.parseWalletDetails(wallet, walletID)
+      if (wallet) {
+        return this.parseWalletDetails(wallet, walletID)
+      }
     }
 
     const walletPublicKeyHash = await this.walletPublicKeyHashForWalletID(
@@ -1004,15 +1027,22 @@ export class EthereumBridge
     }
 
     if (typeof bridgeContract.walletID === "function") {
-      const walletID = await backoffRetrier<string>(this._totalRetryAttempts)(
-        async () => {
-          return await bridgeContract.walletID!(
-            walletPublicKeyHash.toPrefixedString()
-          )
-        }
-      )
+      try {
+        const walletID = await backoffRetrier<string>(this._totalRetryAttempts)(
+          async () => {
+            return await bridgeContract.walletID!(
+              walletPublicKeyHash.toPrefixedString()
+            )
+          }
+        )
 
-      return Hex.from(walletID)
+        return Hex.from(walletID)
+      } catch (err) {
+        // The bundled artifact ABI may expose this selector while the deployed
+        // (pre-upgrade) bytecode does not; fall through to the compatibility
+        // contract and legacy alias below rather than throwing.
+        EthereumBridge.ensureBridgeV2CompatibilityFallback(err, "walletID")
+      }
     }
 
     const bridgeV2Contract =
@@ -1045,15 +1075,25 @@ export class EthereumBridge
     }
 
     if (typeof bridgeContract.walletPubKeyHashForWalletID === "function") {
-      const walletPublicKeyHash = await backoffRetrier<string>(
-        this._totalRetryAttempts
-      )(async () => {
-        return await bridgeContract.walletPubKeyHashForWalletID!(
-          walletID.toPrefixedString()
-        )
-      })
+      try {
+        const walletPublicKeyHash = await backoffRetrier<string>(
+          this._totalRetryAttempts
+        )(async () => {
+          return await bridgeContract.walletPubKeyHashForWalletID!(
+            walletID.toPrefixedString()
+          )
+        })
 
-      return Hex.from(walletPublicKeyHash)
+        return Hex.from(walletPublicKeyHash)
+      } catch (err) {
+        // The bundled artifact ABI may expose this selector while the deployed
+        // (pre-upgrade) bytecode does not; fall through to the compatibility
+        // contract and legacy-shape guard below rather than throwing.
+        EthereumBridge.ensureBridgeV2CompatibilityFallback(
+          err,
+          "walletPubKeyHashForWalletID"
+        )
+      }
     }
 
     const bridgeV2Contract =

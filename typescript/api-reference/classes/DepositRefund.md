@@ -48,7 +48,7 @@ the given tBTC v2 deposit script.
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/services/deposits/refund.ts:41](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L41)
+[src/services/deposits/refund.ts:41](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L41)
 
 ## Properties
 
@@ -58,7 +58,7 @@ the given tBTC v2 deposit script.
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/services/deposits/refund.ts:39](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L39)
+[src/services/deposits/refund.ts:39](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L39)
 
 ## Methods
 
@@ -88,7 +88,7 @@ The outcome consisting of:
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/services/deposits/refund.ts:115](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L115)
+[src/services/deposits/refund.ts:115](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L115)
 
 ___
 
@@ -121,7 +121,7 @@ ___
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/services/deposits/refund.ts:306](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L306)
+[src/services/deposits/refund.ts:306](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L306)
 
 ___
 
@@ -153,7 +153,7 @@ ___
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/services/deposits/refund.ts:292](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L292)
+[src/services/deposits/refund.ts:292](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L292)
 
 ___
 
@@ -182,7 +182,7 @@ Error if there are discrepancies in values or key formats.
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/services/deposits/refund.ts:204](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L204)
+[src/services/deposits/refund.ts:204](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L204)
 
 ___
 
@@ -206,7 +206,7 @@ A Promise resolving to the assembled tapscript and signer.
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/services/deposits/refund.ts:229](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L229)
+[src/services/deposits/refund.ts:229](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L229)
 
 ___
 
@@ -232,7 +232,7 @@ An empty promise upon successful signing.
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/services/deposits/refund.ts:343](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L343)
+[src/services/deposits/refund.ts:343](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L343)
 
 ___
 
@@ -260,7 +260,7 @@ An empty promise upon successful signing.
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/services/deposits/refund.ts:420](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L420)
+[src/services/deposits/refund.ts:420](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L420)
 
 ___
 
@@ -287,7 +287,7 @@ An empty promise upon successful signing.
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/services/deposits/refund.ts:380](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L380)
+[src/services/deposits/refund.ts:380](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L380)
 
 ___
 
@@ -324,7 +324,7 @@ This function should be called by the refunder after `refundLocktime`
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/services/deposits/refund.ts:67](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L67)
+[src/services/deposits/refund.ts:67](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L67)
 
 ___
 
@@ -344,4 +344,4 @@ ___
 
 #### Defined in
 
-[tbtc-v2-m993/typescript/src/services/deposits/refund.ts:45](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L45)
+[src/services/deposits/refund.ts:45](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/refund.ts#L45)
