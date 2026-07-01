@@ -113,13 +113,15 @@ function destinationChain(
 function hubChain(
   chainId: number,
   name: string,
+  rateLimitAmount: string,
+  rateLimitDuration: number,
   peerAddress = ZERO_PEER_ADDRESS
 ): ChainConfig {
   return destinationChain(
     chainId,
     name,
-    "1000",
-    RATE_LIMIT_DURATION.hour,
+    rateLimitAmount,
+    rateLimitDuration,
     peerAddress
   )
 }
@@ -132,6 +134,8 @@ const NETWORK_CONFIGURATIONS: Record<string, NetworkConfiguration> = {
       hubChain(
         WORMHOLE_CHAIN_IDS.ethereum.sepolia,
         "Ethereum Sepolia",
+        "500",
+        RATE_LIMIT_DURATION.hour,
         evmPeerAddress("0x06413c42e913327Bc9a08B7C1E362BAE7C0b9598")
       ),
     ],
@@ -145,7 +149,12 @@ const NETWORK_CONFIGURATIONS: Record<string, NetworkConfiguration> = {
   arbitrumSepolia: {
     networkName: "Arbitrum Sepolia",
     supportedChains: [
-      hubChain(WORMHOLE_CHAIN_IDS.ethereum.sepolia, "Ethereum Sepolia"),
+      hubChain(
+        WORMHOLE_CHAIN_IDS.ethereum.sepolia,
+        "Ethereum Sepolia",
+        "500",
+        RATE_LIMIT_DURATION.hour
+      ),
     ],
     defaultRateLimit: {
       amount: tbtcAmount("500"), // 500 tBTC default
@@ -157,7 +166,12 @@ const NETWORK_CONFIGURATIONS: Record<string, NetworkConfiguration> = {
   optimismSepolia: {
     networkName: "Optimism Sepolia",
     supportedChains: [
-      hubChain(WORMHOLE_CHAIN_IDS.ethereum.sepolia, "Ethereum Sepolia"),
+      hubChain(
+        WORMHOLE_CHAIN_IDS.ethereum.sepolia,
+        "Ethereum Sepolia",
+        "500",
+        RATE_LIMIT_DURATION.hour
+      ),
     ],
     defaultRateLimit: {
       amount: tbtcAmount("500"), // 500 tBTC default
@@ -211,7 +225,12 @@ const NETWORK_CONFIGURATIONS: Record<string, NetworkConfiguration> = {
   base: {
     networkName: "Base Mainnet",
     supportedChains: [
-      hubChain(WORMHOLE_CHAIN_IDS.ethereum.mainnet, "Ethereum Mainnet"),
+      hubChain(
+        WORMHOLE_CHAIN_IDS.ethereum.mainnet,
+        "Ethereum Mainnet",
+        "5000",
+        RATE_LIMIT_DURATION.day
+      ),
     ],
     defaultRateLimit: {
       amount: tbtcAmount("5000"), // 5000 tBTC default
@@ -223,7 +242,12 @@ const NETWORK_CONFIGURATIONS: Record<string, NetworkConfiguration> = {
   arbitrumOne: {
     networkName: "Arbitrum One",
     supportedChains: [
-      hubChain(WORMHOLE_CHAIN_IDS.ethereum.mainnet, "Ethereum Mainnet"),
+      hubChain(
+        WORMHOLE_CHAIN_IDS.ethereum.mainnet,
+        "Ethereum Mainnet",
+        "5000",
+        RATE_LIMIT_DURATION.day
+      ),
     ],
     defaultRateLimit: {
       amount: tbtcAmount("5000"), // 5000 tBTC default
@@ -235,7 +259,12 @@ const NETWORK_CONFIGURATIONS: Record<string, NetworkConfiguration> = {
   optimism: {
     networkName: "Optimism Mainnet",
     supportedChains: [
-      hubChain(WORMHOLE_CHAIN_IDS.ethereum.mainnet, "Ethereum Mainnet"),
+      hubChain(
+        WORMHOLE_CHAIN_IDS.ethereum.mainnet,
+        "Ethereum Mainnet",
+        "5000",
+        RATE_LIMIT_DURATION.day
+      ),
     ],
     defaultRateLimit: {
       amount: tbtcAmount("5000"), // 5000 tBTC default
