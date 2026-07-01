@@ -18,7 +18,7 @@ const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
 // Wormhole chain IDs
 const WORMHOLE_CHAIN_ETH = 2
-const WORMHOLE_CHAIN_DESTINATION = 26
+const WORMHOLE_CHAIN_DESTINATION = 32
 const WORMHOLE_CHAIN_BASE = 30
 
 // Mock NTT Manager interface
