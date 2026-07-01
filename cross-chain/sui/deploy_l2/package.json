@@ -2,7 +2,8 @@
   "scripts": {
     "build:mainnet": "sui move build -p . --config Move.mainnet.toml",
     "deploy:mainnet": "sui client publish --gas-budget 100000000 --config Move.mainnet.toml",
-    "initialize:mainnet": "npx tsx scripts/initialize_gateway_mainnet.ts"
+    "initialize:mainnet": "npx tsx scripts/initialize_gateway_mainnet.ts",
+    "test:token": "sui move test -p token_test"
   },
   "devDependencies": {
     "@types/node": "^24.0.4",

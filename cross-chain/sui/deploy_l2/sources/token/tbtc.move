@@ -16,6 +16,7 @@ module l2_tbtc::TBTC {
     const E_NOT_IN_GUARDIANS_LIST: u64 = 5;
     const E_PAUSED: u64 = 6;
     const E_NOT_PAUSED: u64 = 7;
+    const E_NOT_MINTER: u64 = 8;
 
     // === Events ===
 
@@ -145,8 +146,10 @@ module l2_tbtc::TBTC {
 
         vector::remove(&mut state.minters, index);
 
-        // Note: We cannot delete the MinterCap that was previously transferred,
-        // but it will no longer be valid as we've removed the minter from the state
+        // The MinterCap object issued to this minter cannot be destroyed here,
+        // but it is now inert: `mint` rejects any MinterCap whose minter
+        // address is not present in the minters list, so removing the address
+        // here revokes the cap's minting authority.
 
         event::emit(MinterRemoved { minter });
     }
@@ -238,16 +241,22 @@ module l2_tbtc::TBTC {
     /// ctx - Transaction context
     /// Emits TokensMinted event
     public entry fun mint(
-        _: &MinterCap,
+        minter_cap: &MinterCap,
         treasury_cap: &mut TreasuryCap<TBTC>,
         state: &TokenState,
         amount: u64,
         recipient: address,
         ctx: &mut TxContext,
     ) {
-        // Only check that the contract is not paused
-        // The MinterCap is sufficient authorization
         assert!(!state.paused, E_PAUSED);
+
+        // Possession of a MinterCap is not sufficient authorization on its
+        // own. `remove_minter` cannot destroy a MinterCap that was already
+        // issued, so a removed minter (or a compromised gateway whose minter
+        // was revoked) would otherwise keep minting with its retained cap.
+        // Require the cap's minter address to still be present in the active
+        // minters list.
+        assert!(is_minter(state, minter_cap.minter), E_NOT_MINTER);
 
         let minted_coin = coin::mint(treasury_cap, amount, ctx);
         let minted_amount = coin::value(&minted_coin);

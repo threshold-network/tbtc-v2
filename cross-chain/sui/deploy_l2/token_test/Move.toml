@@ -1,0 +1,20 @@
+[package]
+# Minimal standalone package that compiles ONLY the self-contained TBTC token
+# module and its unit tests, so the mint-authorization coverage can run without
+# the Wormhole / TokenBridge Move sources that the full `l2_tBTC` package pulls
+# in as local dependencies (see README.md). The token module (`l2_tbtc::TBTC`)
+# depends only on the Sui framework, so this harness needs nothing else.
+name = "l2_tbtc_token_test"
+edition = "2024.beta"
+license = "GPL-3.0-only"
+authors = ["The tBTC team"]
+version = "0.1.0"
+
+# No explicit dependencies. The Sui CLI automatically injects the framework it
+# ships with (Sui, MoveStdlib, ...), which keeps this harness in lockstep with
+# the installed `sui` version and avoids the framework-revision drift that makes
+# a pinned `rev` fail to parse under a newer CLI.
+[dependencies]
+
+[addresses]
+l2_tbtc = "0x0"
