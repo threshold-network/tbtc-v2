@@ -92,16 +92,17 @@ export function abortableDelay(
   }
 
   return new Promise((resolve) => {
-    const timeout = setTimeout(resolve, milliseconds)
+    const onAbort = () => {
+      clearTimeout(timeout)
+      resolve()
+    }
 
-    signal?.addEventListener(
-      "abort",
-      () => {
-        clearTimeout(timeout)
-        resolve()
-      },
-      { once: true }
-    )
+    const timeout = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort)
+      resolve()
+    }, milliseconds)
+
+    signal?.addEventListener("abort", onAbort, { once: true })
   })
 }
 

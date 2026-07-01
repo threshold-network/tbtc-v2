@@ -49,7 +49,8 @@ export class FileBackedP2TRWatchtowerChallengeRecordPersistence
   async saveChallengeRecords(
     records: P2TRWatchtowerChallengeRecordJSON[]
   ): Promise<void> {
-    const serializedRecords = `${JSON.stringify(records, null, 2)}\n`
+    const normalizedRecords = records.map(normalizeSerializedRecord)
+    const serializedRecords = `${JSON.stringify(normalizedRecords, null, 2)}\n`
     await this.assertStateFileUnchangedSinceLoad()
 
     await writeFileAtomically(this.filePath, serializedRecords)

@@ -109,7 +109,7 @@ re-checked in `submitDkgResult` to fail fast.
 ### B-1.4: Deploy script + Bridge fixture wiring
 
 - New deploy script at
-  `contracts/tbtc-v2/deploy/46_deploy_frost_wallet_registry.ts`
+  `contracts/tbtc-v2/deploy/48_deploy_frost_wallet_registry.ts`
   (depends on `Bridge`, `SortitionPool`, `RandomBeacon`; tags
   `["FrostWalletRegistry"]`).
 - Extend `test/fixtures/bridge.ts` to deploy the registry and
