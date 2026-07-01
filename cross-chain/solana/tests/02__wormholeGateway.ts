@@ -307,16 +307,6 @@ describe("wormhole-gateway", () => {
       );
       await expectIxFail([failingIx], [imposter], "IsNotAuthority");
     });
-
-    it("cannot update gateway address to zero address", async () => {
-      const failingIx = await wormholeGateway.updateGatewayAddress(
-        {
-          authority: authority.publicKey,
-        },
-        { chain, address: Array.from(Buffer.alloc(32)) }
-      );
-      await expectIxFail([failingIx], [authority], "ZeroGateway");
-    });
   });
 
   describe("deposit wrapped tbtc", () => {
@@ -1052,6 +1042,43 @@ describe("wormhole-gateway", () => {
         }
       );
       await expectIxFail([ix], [commonTokenOwner], "ZeroRecipient");
+    });
+
+    it("cannot send tbtc to gateway (gateway is zero address)", async () => {
+      // Use common token account.
+      const sender = commonTokenOwner.publicKey;
+      const senderToken = getAssociatedTokenAddressSync(
+        tbtc.getMintPDA(),
+        sender
+      );
+
+      // Clear the destination gateway address, as done when deprecating a route.
+      const recipientChain = 5;
+      const clearGatewayIx = await wormholeGateway.updateGatewayAddress(
+        {
+          authority: authority.publicKey,
+        },
+        { chain: recipientChain, address: Array.from(Buffer.alloc(32)) }
+      );
+      await expectIxSuccess([clearGatewayIx], [authority]);
+
+      const recipient = Array.from(Buffer.alloc(32, "deadbeef", "hex"));
+      const nonce = 420;
+
+      const sendAmount = BigInt(69);
+      const ix = await wormholeGateway.sendTbtcGatewayIx(
+        {
+          senderToken,
+          sender,
+        },
+        {
+          amount: new anchor.BN(sendAmount.toString()),
+          recipientChain,
+          recipient,
+          nonce,
+        }
+      );
+      await expectIxFail([ix], [commonTokenOwner], "ZeroGateway");
     });
 
     it("cannot send tbtc to gateway (invalid target gateway)", async () => {

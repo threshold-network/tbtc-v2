@@ -41,8 +41,6 @@ pub fn update_gateway_address(
 ) -> Result<()> {
     let UpdateGatewayAddressArgs { chain, address } = args;
 
-    require!(address != [0; 32], WormholeGatewayError::ZeroGateway);
-
     ctx.accounts.gateway_info.set_inner(GatewayInfo {
         bump: ctx.bumps["gateway_info"],
         address,
