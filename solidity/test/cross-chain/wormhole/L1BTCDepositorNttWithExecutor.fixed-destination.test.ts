@@ -15,8 +15,12 @@ const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const WORMHOLE_CHAIN_DESTINATION = 32
 const UPDATED_WORMHOLE_CHAIN_DESTINATION = 40
 const TBTC_SATOSHI_MULTIPLIER = BigNumber.from(10).pow(10)
+const DEPOSITS_STORAGE_SLOT = 200
+const DEPOSIT_STATE_INITIALIZED = 1
 const destinationChainDepositOwner =
   "0xabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd"
+const legacyEncodedDestinationChainDepositOwner = `0x0020${"11".repeat(30)}`
+const legacyDecodedDestinationChainDepositOwner = `0x0000${"11".repeat(30)}`
 
 const loadFixture = (vault: string) => ({
   fundingTx: {
@@ -318,6 +322,79 @@ describe("L1BTCDepositorNttWithExecutor fixed destination", () => {
     )
   })
 
+  it("preserves fixed-destination recipients with a legacy-shaped prefix", async () => {
+    const [, relayer] = await ethers.getSigners()
+    const executorValue = BigNumber.from(70000)
+    const executorArgs = buildExecutorArgs(executorValue, relayer.address)
+    const feeArgs = buildFeeArgs()
+
+    await bridge.setNextDepositKey(fixture.expectedDepositKey)
+    await depositor
+      .connect(relayer)
+      .initializeDeposit(
+        fixture.fundingTx,
+        fixture.reveal,
+        legacyEncodedDestinationChainDepositOwner
+      )
+    await bridge.sweepDeposit(fixture.expectedDepositKey)
+
+    const tbtcAmount = await calculateTbtcAmount(
+      bridge,
+      fixture.expectedDepositKey
+    )
+    await tbtcToken.mint(depositor.address, tbtcAmount)
+    await depositor
+      .connect(relayer)
+      .setExecutorParameters(executorArgs, feeArgs)
+
+    const quote = await depositor.connect(relayer).quoteFinalizeDeposit()
+    await depositor
+      .connect(relayer)
+      .finalizeDeposit(fixture.expectedDepositKey, {
+        value: quote,
+      })
+
+    expect(await nttManagerWithExecutor.lastRecipientAddress()).to.equal(
+      legacyEncodedDestinationChainDepositOwner
+    )
+  })
+
+  it("decodes legacy encoded recipients for unmarked pre-upgrade deposits", async () => {
+    const [, relayer] = await ethers.getSigners()
+    const executorValue = BigNumber.from(70000)
+    const executorArgs = buildExecutorArgs(executorValue, relayer.address)
+    const feeArgs = buildFeeArgs()
+
+    await bridge.setNextDepositKey(fixture.expectedDepositKey)
+    await bridge.revealDepositWithExtraData(
+      fixture.fundingTx,
+      fixture.reveal,
+      legacyEncodedDestinationChainDepositOwner
+    )
+    await markDepositInitialized(depositor.address, fixture.expectedDepositKey)
+    await bridge.sweepDeposit(fixture.expectedDepositKey)
+
+    const tbtcAmount = await calculateTbtcAmount(
+      bridge,
+      fixture.expectedDepositKey
+    )
+    await tbtcToken.mint(depositor.address, tbtcAmount)
+    await depositor
+      .connect(relayer)
+      .setExecutorParameters(executorArgs, feeArgs)
+
+    const quote = await depositor.connect(relayer).quoteFinalizeDeposit()
+    await depositor
+      .connect(relayer)
+      .finalizeDeposit(fixture.expectedDepositKey, {
+        value: quote,
+      })
+
+    expect(await nttManagerWithExecutor.lastRecipientAddress()).to.equal(
+      legacyDecodedDestinationChainDepositOwner
+    )
+  })
+
   it("reverts when executor payment omits the NTT delivery price", async () => {
     const [, relayer] = await ethers.getSigners()
     const executorValue = BigNumber.from(70000)
@@ -418,6 +495,40 @@ function buildFeeArgs() {
     dbps: 0,
     payee: ethers.constants.AddressZero,
   }
+}
+
+async function calculateTbtcAmount(
+  bridge: MockTBTCBridgeWithSweep,
+  depositKey: string
+) {
+  const deposit = await bridge.deposits(depositKey)
+  const [, , depositTxMaxFee] = await bridge.depositParameters()
+
+  return BigNumber.from(deposit.amount)
+    .sub(deposit.treasuryFee)
+    .sub(depositTxMaxFee)
+    .mul(TBTC_SATOSHI_MULTIPLIER)
+}
+
+async function markDepositInitialized(
+  contractAddress: string,
+  depositKey: string
+) {
+  const depositStateSlot = ethers.utils.keccak256(
+    ethers.utils.defaultAbiCoder.encode(
+      ["uint256", "uint256"],
+      [depositKey, DEPOSITS_STORAGE_SLOT]
+    )
+  )
+
+  await ethers.provider.send("hardhat_setStorageAt", [
+    contractAddress,
+    ethers.BigNumber.from(depositStateSlot).toHexString(),
+    ethers.utils.hexZeroPad(
+      ethers.BigNumber.from(DEPOSIT_STATE_INITIALIZED).toHexString(),
+      32
+    ),
+  ])
 }
 
 async function clearDestinationChainIdSlot(

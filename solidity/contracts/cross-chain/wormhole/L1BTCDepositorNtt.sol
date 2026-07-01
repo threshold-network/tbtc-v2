@@ -83,6 +83,9 @@ interface INttManager {
 contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
     using SafeERC20Upgradeable for IERC20Upgradeable;
 
+    uint256 private constant LEGACY_DESTINATION_RECEIVER_MASK =
+        0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF;
+
     /// @notice NTT Manager contract for Hub-and-Spoke cross-chain transfers
     /// @dev Configured in "locking" mode for L1 Hub operation
     INttManager public nttManager;
@@ -95,6 +98,11 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
     /// @notice Wormhole chain ID of the configured destination chain.
     /// @dev Stored in the slot previously used by `defaultSupportedChain`.
     uint16 public destinationChainId;
+
+    /// @notice Deposits initialized after the fixed-destination format went live.
+    /// @dev Unmarked deposits may have been initialized by the deprecated
+    ///      encoded-recipient implementation before a proxy upgrade.
+    mapping(uint256 => bool) private fixedDestinationDeposits;
 
     /// @notice Emitted when tokens are transferred via NTT Hub-and-Spoke framework
     /// @param amount Amount of tBTC transferred and locked on L1
@@ -303,6 +311,50 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
             oldDestinationChainId,
             _destinationChainId
         );
+    }
+
+    /// @notice Marks deposits initialized with full 32-byte fixed-destination
+    ///         recipients.
+    function _afterDepositInitialized(
+        uint256 depositKey,
+        bytes32 // destinationChainDepositOwner
+    ) internal override {
+        fixedDestinationDeposits[depositKey] = true;
+    }
+
+    /// @notice Preserves compatibility with deposits initialized before the
+    ///         fixed-destination upgrade.
+    /// @dev Legacy NTT deposits encoded the destination as
+    ///      [2-byte chain ID][30-byte recipient]. For those unmarked deposits,
+    ///      strip the chain prefix only when it matches the configured fixed
+    ///      destination. Deposits initialized by this implementation are marked
+    ///      and keep the full 32-byte recipient unchanged.
+    function _destinationChainDepositOwnerForTransfer(
+        uint256 depositKey,
+        bytes32 destinationChainDepositOwner
+    ) internal view override returns (bytes32) {
+        if (fixedDestinationDeposits[depositKey]) {
+            return destinationChainDepositOwner;
+        }
+
+        uint16 legacyDestinationChainId = uint16(
+            bytes2(destinationChainDepositOwner)
+        );
+
+        if (legacyDestinationChainId == 0) {
+            return destinationChainDepositOwner;
+        }
+
+        require(
+            legacyDestinationChainId == destinationChainId,
+            "Legacy destination chain mismatch"
+        );
+
+        return
+            bytes32(
+                uint256(destinationChainDepositOwner) &
+                    LEGACY_DESTINATION_RECEIVER_MASK
+            );
     }
 
     /// @notice Returns the configured destination chain and reverts if unset.
