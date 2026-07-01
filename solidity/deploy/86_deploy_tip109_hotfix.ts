@@ -18,6 +18,9 @@ const PROXY_ADMIN_ABI = [
 
 const BRIDGE_GOVERNANCE_ABI = [
   "function seedFraudChallengeEscrow(uint256 preUpgradeOpenEscrow)",
+  "function beginBridgeGovernanceTransfer(address newBridgeGovernance)",
+  "function finalizeBridgeGovernanceTransfer()",
+  "function transferOwnership(address newOwner)",
 ]
 
 const BRIDGE_EVENT_ABI = [
@@ -42,6 +45,28 @@ function encodeSeedFraudChallengeEscrow(
     "seedFraudChallengeEscrow",
     [preUpgradeOpenEscrow]
   )
+}
+
+function encodeBeginBridgeGovernanceTransfer(
+  newBridgeGovernance: string
+): string {
+  return bridgeGovernanceInterface.encodeFunctionData(
+    "beginBridgeGovernanceTransfer",
+    [newBridgeGovernance]
+  )
+}
+
+function encodeFinalizeBridgeGovernanceTransfer(): string {
+  return bridgeGovernanceInterface.encodeFunctionData(
+    "finalizeBridgeGovernanceTransfer",
+    []
+  )
+}
+
+function encodeTransferOwnership(newOwner: string): string {
+  return bridgeGovernanceInterface.encodeFunctionData("transferOwnership", [
+    newOwner,
+  ])
 }
 
 async function getFraudChallengeLogs(
@@ -330,6 +355,33 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const RebateStaking = await get("RebateStaking")
   const BridgeGovernance = await get("BridgeGovernance")
 
+  // --- Step 7a: Deploy a new BridgeGovernance (PR #957) ---
+  // The existing mainnet BridgeGovernance predates `seedFraudChallengeEscrow`
+  // and has no fallback, so routing the post-upgrade seed call at it would
+  // revert and leave `fraudChallengeEscrowSeeded` false — permanently blocking
+  // all new fraud challenges. Deploy a fresh BridgeGovernance built from this
+  // tree (which forwards `seedFraudChallengeEscrow` to the Bridge), preserving
+  // the current governance delay, so governance can transfer Bridge ownership
+  // to it before seeding.
+  console.log("\n--- Deploying new BridgeGovernance ---")
+  const existingBridgeGovernance = await ethers.getContractAt(
+    "BridgeGovernance",
+    BridgeGovernance.address
+  )
+  const bridgeGovernanceDelay = await existingBridgeGovernance.governanceDelays(
+    0
+  )
+  console.log(
+    `  Preserving governance delay: ${bridgeGovernanceDelay.toString()}s`
+  )
+  const newBridgeGovernance = await deploy("BridgeGovernanceTIP109Hotfix", {
+    ...deployOptions,
+    contract: "BridgeGovernance",
+    skipIfAlreadyDeployed: false,
+    args: [Bridge.address, bridgeGovernanceDelay],
+  })
+  console.log(`  New BridgeGovernance: ${newBridgeGovernance.address}`)
+
   const bridgeArtifact = artifacts.readArtifactSync("Bridge")
   await save("Bridge", {
     ...Bridge,
@@ -417,12 +469,49 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // fixed value would let a stale, under-counted seed be executed, which
   // understates `openFraudChallengeEscrow`, exposes challenger deposits to
   // `recoverETH`, and can underflow later challenge resolution.
+  // --- BridgeGovernance transfer calldata (finding TOB-18) ---
+  // Governance must transfer Bridge ownership to the new BridgeGovernance
+  // before the seed action, otherwise `seedFraudChallengeEscrow` (forwarded to
+  // the Bridge's `onlyGovernance` entry point) reverts. The freshly deployed
+  // BridgeGovernance is owned by the deployer, so its ownership is first handed
+  // to the Council Safe.
+  // `KNOWN_COUNCIL_SAFE` is stored without an EIP-55 checksum; normalize it to
+  // its canonical checksummed form before ABI-encoding it as an address arg.
+  const councilSafeAddress = utils.getAddress(KNOWN_COUNCIL_SAFE.toLowerCase())
+  const newBridgeGovernanceOwnershipCalldata =
+    encodeTransferOwnership(councilSafeAddress)
+  const beginBridgeGovernanceTransferCalldata =
+    encodeBeginBridgeGovernanceTransfer(newBridgeGovernance.address)
+  const finalizeBridgeGovernanceTransferCalldata =
+    encodeFinalizeBridgeGovernanceTransfer()
+
+  console.log("\n  Deployer Action: transfer new BridgeGovernance ownership")
+  console.log(
+    `    Target: new BridgeGovernance (${newBridgeGovernance.address})`
+  )
+  console.log(`    New owner: Council Safe (${KNOWN_COUNCIL_SAFE})`)
+
+  console.log("\n  Council Safe Action [A]: beginBridgeGovernanceTransfer")
+  console.log(
+    `    Target: existing BridgeGovernance (${BridgeGovernance.address})`
+  )
+  console.log(`    New BridgeGovernance: ${newBridgeGovernance.address}`)
+  console.log(
+    `    Then, after ${bridgeGovernanceDelay.toString()}s, call ` +
+      "finalizeBridgeGovernanceTransfer on the existing BridgeGovernance."
+  )
+
   const referenceSeedCalldata =
     encodeSeedFraudChallengeEscrow(preUpgradeOpenEscrow)
   console.log(
-    "\n  Council Safe Action: seedFraudChallengeEscrow (RECOMPUTE REQUIRED)"
+    "\n  Council Safe Action [B]: seedFraudChallengeEscrow (RECOMPUTE REQUIRED)"
   )
-  console.log(`    Target: BridgeGovernance (${BridgeGovernance.address})`)
+  console.log(
+    `    Target: new BridgeGovernance (${newBridgeGovernance.address})`
+  )
+  console.log(
+    "    Only after the Bridge upgrade AND the BridgeGovernance transfer above."
+  )
   console.log("    Recompute the open escrow immediately before execution and")
   console.log("    encode seedFraudChallengeEscrow with that fresh value.")
   console.log(
@@ -452,6 +541,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       FraudTIP109Hotfix: Fraud.address,
       BridgeTIP109HotfixImplementation: bridgeImpl.address,
       RebateStakingTIP109HotfixImplementation: rebateImpl.address,
+      BridgeGovernanceTIP109Hotfix: newBridgeGovernance.address,
     },
     reusedContracts: {
       Wallets: Wallets.address,
@@ -465,6 +555,39 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       RebateStaking: RebateStaking.address,
       BridgeGovernance: BridgeGovernance.address,
     },
+    // The Council Safe must run these BridgeGovernance actions, in order,
+    // before the post-upgrade seed action. Without them the seed call reverts
+    // (the existing BridgeGovernance lacks `seedFraudChallengeEscrow`), leaving
+    // fraud challenges permanently disabled after the Bridge upgrade.
+    deployerActions: [
+      {
+        target: newBridgeGovernance.address,
+        data: newBridgeGovernanceOwnershipCalldata,
+        value: 0,
+        description:
+          "Transfer ownership of the new BridgeGovernance from the deployer " +
+          "to the Council Safe so it can run seedFraudChallengeEscrow",
+      },
+    ],
+    bridgeGovernanceTransferActions: [
+      {
+        target: BridgeGovernance.address,
+        data: beginBridgeGovernanceTransferCalldata,
+        value: 0,
+        description:
+          "Council Safe: begin transferring Bridge governance to the new " +
+          "BridgeGovernance (existing BridgeGovernance.onlyOwner)",
+      },
+      {
+        target: BridgeGovernance.address,
+        data: finalizeBridgeGovernanceTransferCalldata,
+        value: 0,
+        governanceDelaySeconds: bridgeGovernanceDelay.toString(),
+        description:
+          "Council Safe: after the governance delay, finalize the transfer, " +
+          "handing Bridge governance to the new BridgeGovernance",
+      },
+    ],
     timelockActions: [
       {
         target: proxyAdminAddress,
@@ -481,7 +604,10 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     ],
     postUpgradeActions: [
       {
-        target: BridgeGovernance.address,
+        // Route the seed at the NEW BridgeGovernance, which forwards it to the
+        // upgraded Bridge. It is executable only after both the Bridge upgrade
+        // and the BridgeGovernance transfer above have completed.
+        target: newBridgeGovernance.address,
         // Executable calldata is intentionally omitted so a stale, precomputed
         // seed value cannot be copied into the Council Safe action. The seed
         // must be recomputed immediately before execution (see below) and the
@@ -526,17 +652,57 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log(`  Chain ID: ${chainId}`)
   console.log(`  Deployer: ${deployer}`)
   console.log(`  Summary:  ${summaryPath}`)
-  console.log("\n  Timelock Actions (minDelay=86400s / 24h):")
+  // Print the runbook in execution order. The BridgeGovernance transfer must
+  // land BEFORE the Bridge upgrade: the upgraded Bridge blocks new fraud
+  // challenges until the escrow is seeded, and only the new BridgeGovernance
+  // exposes seedFraudChallengeEscrow. Transferring governance first lets the
+  // seed run immediately after the upgrade instead of leaving fraud challenges
+  // disabled for the whole governance-transfer delay.
+  console.log(
+    "\n  STEP 1 - Pre-upgrade Council Safe actions (transfer Bridge governance):"
+  )
+  console.log(
+    "    [A] beginBridgeGovernanceTransfer on the existing BridgeGovernance"
+  )
+  console.log(`        To: ${BridgeGovernance.address}`)
+  console.log(`        New BridgeGovernance: ${newBridgeGovernance.address}`)
+  console.log(
+    "    [B] finalizeBridgeGovernanceTransfer on the existing BridgeGovernance"
+  )
+  console.log(`        To: ${BridgeGovernance.address}`)
+  console.log(
+    "        Run [A] and [B] BEFORE the STEP 2 Bridge upgrade so the new"
+  )
+  console.log(
+    "        BridgeGovernance owns the Bridge and the STEP 3 seed can execute"
+  )
+  console.log(
+    "        immediately after the upgrade, not after the transfer delay."
+  )
+  console.log("\n  STEP 2 - Timelock Actions (minDelay=86400s / 24h):")
   console.log("    [0] RebateStaking upgrade (plain)")
   console.log(`        Proxy: ${RebateStaking.address}`)
   console.log(`        New impl: ${rebateImpl.address}`)
   console.log("    [1] Bridge upgrade (plain)")
   console.log(`        Proxy: ${Bridge.address}`)
   console.log(`        New impl: ${bridgeImpl.address}`)
-  console.log("  Post-upgrade Council Safe action:")
-  console.log("    seedFraudChallengeEscrow on BridgeGovernance")
-  console.log(`        To: ${BridgeGovernance.address}`)
-  console.log(`        Current seed: ${preUpgradeOpenEscrow.toString()} wei`)
+  console.log(
+    "\n  STEP 3 - Post-upgrade Council Safe actions (run immediately after STEP 2):"
+  )
+  console.log("    [C] seedFraudChallengeEscrow on the NEW BridgeGovernance")
+  console.log(`        To: ${newBridgeGovernance.address}`)
+  console.log(
+    "        Seed: RECOMPUTE the open pre-upgrade escrow immediately before"
+  )
+  console.log(
+    "              executing this action. Do NOT reuse an earlier snapshot;"
+  )
+  console.log(
+    "              new pre-upgrade challenges may open during the timelock delay."
+  )
+  console.log(
+    `        Reference-only snapshot (NOT executable): ${preUpgradeOpenEscrow.toString()} wei`
+  )
   console.log("=".repeat(80))
 
   // --- Step 10: Verify contracts on Etherscan (v2 API) ---

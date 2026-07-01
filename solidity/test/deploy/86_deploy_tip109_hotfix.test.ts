@@ -27,6 +27,7 @@ describe("Deploy Script 86: TIP-109 Hotfix", () => {
   const REBATE_STAKING_PROXY_ADDRESS =
     "0x0184739c02d51bFc1cc2E3a2bF6bbBe31e265a45"
   const BRIDGE_GOV_ADDRESS = "0xCBcFa30000000000000000000000000000000009"
+  const BRIDGE_GOV_HOTFIX_ADDRESS = "0x000000000000000000000000000000000000000A"
 
   interface DeployCall {
     name: string
@@ -93,6 +94,7 @@ describe("Deploy Script 86: TIP-109 Hotfix", () => {
       FraudTIP109Hotfix: FRAUD_HOTFIX_ADDRESS,
       BridgeTIP109HotfixImplementation: BRIDGE_IMPL_ADDRESS,
       RebateStakingTIP109HotfixImplementation: REBATE_IMPL_ADDRESS,
+      BridgeGovernanceTIP109Hotfix: BRIDGE_GOV_HOTFIX_ADDRESS,
     }
 
     const getAddressMap: Record<string, string> = {
@@ -122,6 +124,9 @@ describe("Deploy Script 86: TIP-109 Hotfix", () => {
           },
         },
         utils: ethers.utils,
+        getContractAt: async () => ({
+          governanceDelays: async () => ethers.BigNumber.from(172800),
+        }),
       },
       deployments: {
         deploy: async (name: string, options: any) => {
@@ -281,5 +286,90 @@ describe("Deploy Script 86: TIP-109 Hotfix", () => {
     expect(seedAction.eventScan).to.not.have.property("openEscrowWei")
     expect(seedAction.eventScan).to.have.property("referenceOpenEscrowWei")
     expect(seedAction.eventScan).to.have.property("fromBlock")
+  })
+
+  it("deploys a new BridgeGovernance preserving the existing governance delay", async () => {
+    const { deployCalls } = await runScript()
+
+    const govDeploy = deployCalls.find(
+      (call) => call.name === "BridgeGovernanceTIP109Hotfix"
+    )
+    expect(govDeploy, "new BridgeGovernance deploy").to.not.equal(undefined)
+    expect(govDeploy!.options.contract).to.equal("BridgeGovernance")
+    expect(govDeploy!.options.skipIfAlreadyDeployed).to.equal(false)
+    // Constructed against the Bridge proxy with the preserved governance delay.
+    expect(govDeploy!.options.args[0]).to.equal(BRIDGE_PROXY_ADDRESS)
+    expect(govDeploy!.options.args[1].toString()).to.equal("172800")
+
+    expect(
+      capturedSummary.deployedContracts.BridgeGovernanceTIP109Hotfix
+    ).to.equal(BRIDGE_GOV_HOTFIX_ADDRESS)
+  })
+
+  it("prints the runbook with the governance transfer before the Bridge upgrade before the seed", async () => {
+    // The runbook order is the finding's core concern: the new BridgeGovernance
+    // must own the Bridge before the Bridge upgrade so the fraud escrow seed can
+    // run immediately after the upgrade, instead of leaving new fraud challenges
+    // disabled for the whole governance-transfer delay.
+    const lines: string[] = []
+    console.log = (...loggedArgs: any[]) => {
+      lines.push(loggedArgs.join(" "))
+    }
+
+    await runScript()
+
+    const transferStep = lines.findIndex((line) =>
+      line.includes("STEP 1 - Pre-upgrade Council Safe actions")
+    )
+    const upgradeStep = lines.findIndex((line) =>
+      line.includes("STEP 2 - Timelock Actions")
+    )
+    const seedStep = lines.findIndex((line) =>
+      line.includes("STEP 3 - Post-upgrade Council Safe actions")
+    )
+
+    expect(transferStep, "governance transfer step").to.be.greaterThan(-1)
+    expect(upgradeStep, "Bridge upgrade step").to.be.greaterThan(-1)
+    expect(seedStep, "fraud escrow seed step").to.be.greaterThan(-1)
+
+    // Governance transfer is printed before the Bridge upgrade, which is printed
+    // before the escrow seed.
+    expect(transferStep).to.be.lessThan(upgradeStep)
+    expect(upgradeStep).to.be.lessThan(seedStep)
+
+    // The beginBridgeGovernanceTransfer action is grouped under STEP 1, ahead of
+    // the "[1] Bridge upgrade" action under STEP 2.
+    const beginTransfer = lines.findIndex((line) =>
+      line.includes("[A] beginBridgeGovernanceTransfer")
+    )
+    const bridgeUpgrade = lines.findIndex((line) =>
+      line.includes("[1] Bridge upgrade")
+    )
+    expect(beginTransfer).to.be.greaterThan(transferStep)
+    expect(beginTransfer).to.be.lessThan(bridgeUpgrade)
+  })
+
+  it("routes the fraud escrow seed to the new BridgeGovernance and transfers governance to it", async () => {
+    await runScript()
+
+    // The seed action must target the freshly deployed BridgeGovernance, which
+    // exposes seedFraudChallengeEscrow, not the legacy one that lacks it.
+    const seedAction = capturedSummary.postUpgradeActions.find(
+      (action: any) => action.function === "seedFraudChallengeEscrow(uint256)"
+    )
+    expect(seedAction.target).to.equal(BRIDGE_GOV_HOTFIX_ADDRESS)
+    expect(seedAction.target).to.not.equal(BRIDGE_GOV_ADDRESS)
+
+    // The deployer hands the new BridgeGovernance to the Council Safe.
+    const ownershipAction = capturedSummary.deployerActions.find(
+      (action: any) => action.target === BRIDGE_GOV_HOTFIX_ADDRESS
+    )
+    expect(ownershipAction, "ownership transfer action").to.not.equal(undefined)
+
+    // Governance is transferred from the legacy BridgeGovernance to the new one.
+    expect(capturedSummary.bridgeGovernanceTransferActions).to.have.lengthOf(2)
+    capturedSummary.bridgeGovernanceTransferActions.forEach((action: any) => {
+      expect(action.target).to.equal(BRIDGE_GOV_ADDRESS)
+    })
   })
 })
