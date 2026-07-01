@@ -55,6 +55,14 @@ describe("Bitcoin", () => {
         expectedToBitcoinJsLibResult: networks.testnet,
       },
       {
+        enumKey: BitcoinNetwork.Testnet4,
+        enumValue: "testnet4",
+        genesisHash: BitcoinTxHash.from(
+          "0x00000000da84f2bafbbc53dee25a72ae507ff4914b867c565be350b0da8bf043"
+        ),
+        expectedToBitcoinJsLibResult: networks.testnet,
+      },
+      {
         enumKey: BitcoinNetwork.Mainnet,
         enumValue: "mainnet",
         genesisHash: BitcoinTxHash.from(

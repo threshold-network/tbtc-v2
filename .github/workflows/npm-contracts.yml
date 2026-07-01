@@ -26,8 +26,10 @@ jobs:
         with:
           node-version: "18.x"
           registry-url: "https://registry.npmjs.org"
-          cache: "yarn"
           cache-dependency-path: solidity/yarn.lock
+
+      - name: Enable Corepack
+        run: corepack enable
 
       # We need this step because the `@keep-network/tbtc` which we update in
       # next steps has a dependency to `@summa-tx/relay-sol@2.0.2` package, which

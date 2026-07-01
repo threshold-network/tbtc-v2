@@ -67,7 +67,8 @@ export function toBitcoinJsLibNetwork(
     case BitcoinNetwork.Mainnet: {
       return networks.bitcoin
     }
-    case BitcoinNetwork.Testnet: {
+    case BitcoinNetwork.Testnet:
+    case BitcoinNetwork.Testnet4: {
       return networks.testnet
     }
     case BitcoinNetwork.Testnet4: {
