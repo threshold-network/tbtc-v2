@@ -1126,7 +1126,7 @@ ___
 
 #### Defined in
 
-[lib/utils/wormhole.ts:34](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/wormhole.ts#L34)
+[lib/utils/wormhole.ts:31](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/wormhole.ts#L31)
 
 ___
 
@@ -1666,6 +1666,37 @@ Error if the chain ID is unrecognized and no URL overrides are provided.
 #### Defined in
 
 [src/lib/starknet/index.ts:52](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/index.ts#L52)
+
+___
+
+### normalizeNttRecipient
+
+▸ **normalizeNttRecipient**(`recipient`): [`Hex`](classes/Hex.md)
+
+Normalizes an NTT recipient into the bytes32 format expected by Wormhole NTT.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `recipient` | `string` \| [`Hex`](classes/Hex.md) | EVM address (20 bytes) or full Wormhole recipient (32 bytes). |
+
+#### Returns
+
+[`Hex`](classes/Hex.md)
+
+Recipient as a 32-byte hex string. EVM addresses are left-padded.
+
+**`Example`**
+
+```typescript
+const recipient = normalizeNttRecipient("0x1234567890123456789012345678901234567890")
+// Returns: "0x0000000000000000000000001234567890123456789012345678901234567890"
+```
+
+#### Defined in
+
+[lib/utils/ntt.ts:23](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/ntt.ts#L23)
 
 ___
 

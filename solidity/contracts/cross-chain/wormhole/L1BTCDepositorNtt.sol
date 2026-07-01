@@ -216,10 +216,10 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
     ///      5. Spoke chain receives attested message and mints native tokens to recipient
     ///      6. Result: Bitcoin-backed native tBTC on destination chain
     // slither-disable-next-line reentrancy-vulnerabilities-3
-    function _transferTbtc(
-        uint256 amount,
-        bytes32 destinationChainDepositOwner
-    ) internal override {
+    function _transferTbtc(uint256 amount, bytes32 destinationChainDepositOwner)
+        internal
+        override
+    {
         // External calls are to trusted contracts (tbtcToken, nttManager)
         // Event emission after external calls is correct pattern
         require(amount > 0, "Amount must be greater than 0");
