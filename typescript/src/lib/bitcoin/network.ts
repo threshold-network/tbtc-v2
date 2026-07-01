@@ -69,9 +69,6 @@ export function toBitcoinJsLibNetwork(
     }
     case BitcoinNetwork.Testnet:
     case BitcoinNetwork.Testnet4: {
-      return networks.testnet
-    }
-    case BitcoinNetwork.Testnet4: {
       // Testnet4 shares testnet3's address parameters; `bitcoinjs-lib` has no
       // separate testnet4 network, so reuse the testnet parameters for address
       // and script encoding.
