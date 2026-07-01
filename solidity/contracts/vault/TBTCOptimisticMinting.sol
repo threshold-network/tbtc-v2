@@ -1013,6 +1013,7 @@ abstract contract TBTCOptimisticMinting is Ownable, ITBTCVaultMigrationDebt {
         ) = TBTCMigrationDebtOperations.repayDebt(
                 migrationDebt,
                 pendingMigrationSweepCompletion,
+                migrationSweepReserve,
                 revealer,
                 amount
             );
@@ -1033,12 +1034,21 @@ abstract contract TBTCOptimisticMinting is Ownable, ITBTCVaultMigrationDebt {
         bytes32 sweepTxHash,
         address revealer
     ) internal {
-        address reserve = TBTCMigrationDebtOperations.pullPendingSweepReserve(
-            migrationSweepReserve,
-            pendingMigrationSweepCompletion,
-            revealer
-        );
+        (
+            address reserve,
+            bool clearedWithoutReserve
+        ) = TBTCMigrationDebtOperations.pullPendingSweepReserve(
+                migrationSweepReserve,
+                pendingMigrationSweepCompletion,
+                revealer
+            );
         if (reserve == address(0)) {
+            // A pending completion existed but no reserve was configured, so
+            // it was dropped instead of being left to replay against a
+            // later-configured reserve. Surface the drop for observability.
+            if (clearedWithoutReserve) {
+                emit MigrationSweepCompletionPendingCleared(revealer);
+            }
             return;
         }
 
