@@ -497,6 +497,55 @@ describe("CheckBitcoinP2TRSignatureFraud", () => {
     ).to.be.revertedWith("Annex not supported")
   })
 
+  // The witness-encoding boundary must fail closed for every sighash byte other
+  // than the two in scope (implicit DEFAULT / explicit ALL). A 65-byte witness
+  // carrying NONE/SINGLE/ANYONECANPAY (or a non-canonical explicit 0x00) is
+  // rejected at parse time -- before any sighash reconstruction or signature
+  // verification -- so such a spend can never be adjudicated by this path.
+  it("fails closed for every unsupported Taproot witness sighash byte", async () => {
+    const vector = vectorCorpus.cases[0] // SIGHASH_DEFAULT: 64-byte witness
+    const baseSignatureHex = vector.witnessSignatureHex
+
+    const unsupportedTrailingBytes = [
+      "00", // explicit, non-canonical SIGHASH_DEFAULT
+      "02", // SIGHASH_NONE
+      "03", // SIGHASH_SINGLE
+      "80", // bare ANYONECANPAY bit
+      "81", // SIGHASH_ALL | ANYONECANPAY
+      "82", // SIGHASH_NONE | ANYONECANPAY
+      "83", // SIGHASH_SINGLE | ANYONECANPAY
+      "ff",
+    ]
+
+    // eslint-disable-next-line no-restricted-syntax
+    for (const trailing of unsupportedTrailingBytes) {
+      const unsupportedWitnessSignatureHex = `${baseSignatureHex}${trailing}`
+
+      // eslint-disable-next-line no-await-in-loop
+      await expect(
+        callWithVector(harness, "computeKeyPathSighashForWitness", vector, {
+          witnessSignatureHex: unsupportedWitnessSignatureHex,
+        }),
+        `computeKeyPathSighashForWitness trailing=0x${trailing}`
+      ).to.be.revertedWith("Unsupported witness sighash type")
+
+      // eslint-disable-next-line no-await-in-loop
+      await expect(
+        callWithVector(harness, "checkKeyPathSignature", vector, {
+          witnessSignatureHex: unsupportedWitnessSignatureHex,
+        }),
+        `checkKeyPathSignature trailing=0x${trailing}`
+      ).to.be.revertedWith("Unsupported witness sighash type")
+    }
+
+    // The only accepted 65-byte form (explicit SIGHASH_ALL) is not rejected.
+    await expect(
+      callWithVector(harness, "computeKeyPathSighashForWitness", vector, {
+        witnessSignatureHex: `${baseSignatureHex}01`,
+      })
+    ).not.to.be.reverted
+  })
+
   it("accepts vector payloads within explicit bounds", async () => {
     await Promise.all(
       vectorCorpus.cases.map(async (vector) => {

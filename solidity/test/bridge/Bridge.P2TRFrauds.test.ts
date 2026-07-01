@@ -545,6 +545,42 @@ describe("Bridge - P2TR signature fraud", () => {
       }),
       revertMessage: "Annex not supported",
     },
+    // The base vector is a 64-byte SIGHASH_DEFAULT witness; appending a trailing
+    // sighash byte other than 0x01 produces an out-of-scope 65-byte witness that
+    // the router must refuse to adjudicate (fail-closed), never mis-verify into a
+    // slash. These reject at `parseWitnessSignature`, before signature checking.
+    {
+      name: "unsupported SIGHASH_NONE witness",
+      mutatePayload: (payload) => ({
+        ...payload,
+        witnessSignature: `${payload.witnessSignature}02`,
+      }),
+      revertMessage: "Unsupported witness sighash type",
+    },
+    {
+      name: "unsupported SIGHASH_SINGLE witness",
+      mutatePayload: (payload) => ({
+        ...payload,
+        witnessSignature: `${payload.witnessSignature}03`,
+      }),
+      revertMessage: "Unsupported witness sighash type",
+    },
+    {
+      name: "unsupported ANYONECANPAY witness",
+      mutatePayload: (payload) => ({
+        ...payload,
+        witnessSignature: `${payload.witnessSignature}81`,
+      }),
+      revertMessage: "Unsupported witness sighash type",
+    },
+    {
+      name: "non-canonical explicit-SIGHASH_DEFAULT witness",
+      mutatePayload: (payload) => ({
+        ...payload,
+        witnessSignature: `${payload.witnessSignature}00`,
+      }),
+      revertMessage: "Unsupported witness sighash type",
+    },
     {
       name: "oversized prevout script",
       mutatePayload: (payload) => ({

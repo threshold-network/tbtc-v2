@@ -46,8 +46,27 @@ library P2TRSignatureFraud {
 
     /// @notice Parses Taproot key-path witness signature encodings supported by
     ///         the selected P2TR signature-fraud challenge direction.
-    /// @dev BIP-341 represents SIGHASH_DEFAULT by omitting the sighash byte.
-    ///      Explicit 0x00 and any non-SIGHASH_ALL byte are rejected.
+    /// @dev SUPPORTED-SHAPE BOUNDARY (fail-closed). Only two witness-signature
+    ///      encodings are accepted:
+    ///        * 64 bytes -> BIP-341 SIGHASH_DEFAULT (the sighash byte is omitted);
+    ///        * 65 bytes whose trailing byte is exactly 0x01 -> SIGHASH_ALL.
+    ///      Every other encoding is rejected with a revert BEFORE any sighash
+    ///      reconstruction or signature verification, so a challenge for it can
+    ///      never be recorded:
+    ///        * an explicit 0x00 trailing byte (non-canonical SIGHASH_DEFAULT),
+    ///        * SIGHASH_NONE (0x02), SIGHASH_SINGLE (0x03),
+    ///        * any ANYONECANPAY variant (0x81/0x82/0x83, or the 0x80 bit set on
+    ///          any base type),
+    ///        * any other length (empty, short, or long) witness.
+    ///      This is a deliberate coverage boundary, not full BIP-341 support: the
+    ///      reconstructed message in `CheckBitcoinBIP341Sighash.computeKeyPathSighash`
+    ///      only matches DEFAULT/ALL key-path semantics, so admitting any other
+    ///      mode here would let the verifier compare a signature against a message
+    ///      the signer never committed to. Rejecting instead keeps the fraud path
+    ///      fail-closed (an unsupported-mode fraud is un-challengeable via this
+    ///      path, never mis-adjudicated). See the module-level notes in
+    ///      `CheckBitcoinP2TRSignatureFraud` for why this cannot cause a false
+    ///      slash.
     function parseWitnessSignature(bytes memory witnessSignature)
         internal
         pure
