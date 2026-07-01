@@ -255,6 +255,19 @@ contract TBTCVault is IVault, Ownable, TBTCOptimisticMinting {
             "Cannot finalize upgrade with outstanding migration debt"
         );
 
+        // Optimistic minting debt is per-depositor local vault state repaid
+        // from future sweep proceeds routed through the vault callback.
+        // Transferring TBTC ownership and the Bank balance while optimistic
+        // debt is outstanding would strand that debt on the old vault: a
+        // deposit revealed for the old vault cannot repay the debt on the new
+        // vault (sweep validation pins the recorded vault), and if the old
+        // vault is later untrusted the sweep proceeds bypass the repayment
+        // callback entirely, enabling a second mint for the same deposit.
+        require(
+            !hasOutstandingOptimisticMintingDebt(),
+            "Cannot finalize upgrade with outstanding optimistic minting debt"
+        );
+
         emit UpgradeFinalized(newVault);
         // slither-disable-next-line reentrancy-no-eth
         tbtcToken.transferOwnership(newVault);

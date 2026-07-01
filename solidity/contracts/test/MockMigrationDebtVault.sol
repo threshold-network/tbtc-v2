@@ -11,6 +11,9 @@ contract MockMigrationDebtVault is ITBTCVaultMigrationDebt {
     // Tracks the number of revealers with nonzero outstanding debt.
     uint256 private _outstandingDebtRevealerCount;
 
+    // Test-controlled flag mirroring outstanding optimistic minting debt.
+    bool private _hasOutstandingOptimisticMintingDebtFlag;
+
     function registerMigrationDebt(address revealer, uint256 amount)
         external
         override
@@ -63,6 +66,22 @@ contract MockMigrationDebtVault is ITBTCVaultMigrationDebt {
         returns (bool)
     {
         return _outstandingDebtRevealerCount > 0;
+    }
+
+    /// @notice Allows tests to toggle the reported outstanding optimistic
+    ///         minting debt state.
+    function setHasOutstandingOptimisticMintingDebt(bool hasDebt) external {
+        _hasOutstandingOptimisticMintingDebtFlag = hasDebt;
+    }
+
+    /// @notice Returns the test-controlled optimistic minting debt flag.
+    function hasOutstandingOptimisticMintingDebt()
+        external
+        view
+        override
+        returns (bool)
+    {
+        return _hasOutstandingOptimisticMintingDebtFlag;
     }
 
     /// @notice Allows tests to simulate debt repayment by zeroing a

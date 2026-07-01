@@ -177,6 +177,35 @@ abstract contract TBTCOptimisticMinting is Ownable, ITBTCVaultMigrationDebt {
     ///      before the Bridge is repointed.
     uint256 private _outstandingMigrationDebtCount;
 
+    /// @notice Tracks the number of depositors with nonzero outstanding
+    ///         optimistic minting debt. Incremented in
+    ///         `finalizeOptimisticMint` when a depositor's debt transitions
+    ///         from zero to nonzero, decremented in
+    ///         `repayOptimisticMintingDebt` when a depositor's debt
+    ///         transitions back to zero. Enables an O(1)
+    ///         `hasOutstandingOptimisticMintingDebt()` query without
+    ///         enumerating depositors.
+    /// @dev This storage is append-only to preserve upgrade safety.
+    ///
+    ///      MIGRATION SAFETY: like `_outstandingMigrationDebtCount`, this
+    ///      counter is local to the current TBTCVault deployment. Because
+    ///      TBTCVault is a direct (non-proxy) contract, a freshly-deployed
+    ///      vault starts this counter at zero even if the prior deployment
+    ///      still held in-flight optimistic minting debt. Governance levers
+    ///      that change sweep routing for in-flight deposits (untrust,
+    ///      canonical rotation, vault upgrade) rely on this counter to block
+    ///      the operation while optimistic debt is outstanding; those
+    ///      operations MUST be performed on the vault that actually holds the
+    ///      debt.
+    ///
+    ///      Visibility is `internal` (rather than `private` like
+    ///      `_outstandingMigrationDebtCount`) so a test harness that seeds
+    ///      `optimisticMintingDebt` directly can keep this aggregate
+    ///      consistent with the per-depositor mapping; production debt
+    ///      creation and repayment maintain it through
+    ///      `finalizeOptimisticMint` and `repayOptimisticMintingDebt`.
+    uint256 internal _outstandingOptimisticMintingDebtCount;
+
     event OptimisticMintingRequested(
         address indexed minter,
         uint256 indexed depositKey,
@@ -432,9 +461,17 @@ abstract contract TBTCOptimisticMinting is Ownable, ITBTCVaultMigrationDebt {
         // minted should be added to the optimistic minting debt. When the
         // deposit is swept, it is paying off both the depositor's share and the
         // treasury's share (optimistic minting fee).
-        uint256 newDebt = optimisticMintingDebt[deposit.depositor] +
-            amountToMint;
+        uint256 oldDebt = optimisticMintingDebt[deposit.depositor];
+        uint256 newDebt = oldDebt + amountToMint;
         optimisticMintingDebt[deposit.depositor] = newDebt;
+
+        // Track the aggregate count of depositors with nonzero optimistic
+        // debt. Only count the zero-to-nonzero transition so the counter
+        // equals the number of distinct depositors currently in debt, not the
+        // number of optimistic mints.
+        if (oldDebt == 0 && newDebt > 0) {
+            _outstandingOptimisticMintingDebtCount++;
+        }
 
         _mint(deposit.depositor, amountToMint - optimisticMintFee);
         if (optimisticMintFee > 0) {
@@ -877,6 +914,21 @@ abstract contract TBTCOptimisticMinting is Ownable, ITBTCVaultMigrationDebt {
         return _outstandingMigrationDebtCount > 0;
     }
 
+    /// @inheritdoc ITBTCVaultMigrationDebt
+    /// @dev Read by `TBTCVault.finalizeUpgrade` to block finalizing a vault
+    ///      upgrade while optimistic minting debt is in flight, and by
+    ///      Bridge.sol via a fail-open staticcall during vault untrust and
+    ///      canonical rotation. Visibility is `public` so subclasses can read
+    ///      it without paying for an external self-call.
+    function hasOutstandingOptimisticMintingDebt()
+        public
+        view
+        override
+        returns (bool)
+    {
+        return _outstandingOptimisticMintingDebtCount > 0;
+    }
+
     /// @notice Calculates deposit key the same way as the Bridge contract.
     ///         The deposit key is computed as
     ///         `keccak256(fundingTxHash | fundingOutputIndex)`.
@@ -913,11 +965,25 @@ abstract contract TBTCOptimisticMinting is Ownable, ITBTCVaultMigrationDebt {
 
         if (amount > debt) {
             optimisticMintingDebt[depositor] = 0;
+            // Debt transitioned from nonzero to zero: decrement the aggregate
+            // count of depositors with outstanding optimistic debt.
+            // The single SSTORE is required per fully-repaid depositor and this
+            // function is invoked once per depositor by the caller's sweep loop.
+            // slither-disable-next-line costly-loop
+            _outstandingOptimisticMintingDebtCount--;
             emit OptimisticMintingDebtRepaid(depositor, 0);
             return amount - debt;
         } else {
-            optimisticMintingDebt[depositor] = debt - amount;
-            emit OptimisticMintingDebtRepaid(depositor, debt - amount);
+            uint256 remainingDebt = debt - amount;
+            optimisticMintingDebt[depositor] = remainingDebt;
+            // Decrement the aggregate count only when the debt is fully
+            // repaid (amount == debt). A partial repayment leaves the
+            // depositor in debt and must not touch the counter.
+            if (remainingDebt == 0) {
+                // slither-disable-next-line costly-loop
+                _outstandingOptimisticMintingDebtCount--;
+            }
+            emit OptimisticMintingDebtRepaid(depositor, remainingDebt);
             return 0;
         }
     }

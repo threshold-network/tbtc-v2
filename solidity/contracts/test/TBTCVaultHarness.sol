@@ -17,6 +17,15 @@ contract TBTCVaultHarness is TBTCVault {
     function setOptimisticMintingDebtForTest(address depositor, uint256 amount)
         external
     {
+        // Keep the aggregate outstanding-optimistic-debt counter consistent
+        // with the per-depositor mapping so that a later repayment through
+        // `repayOptimisticMintingDebt` does not underflow the counter.
+        uint256 oldDebt = optimisticMintingDebt[depositor];
+        if (oldDebt == 0 && amount > 0) {
+            _outstandingOptimisticMintingDebtCount++;
+        } else if (oldDebt > 0 && amount == 0) {
+            _outstandingOptimisticMintingDebtCount--;
+        }
         optimisticMintingDebt[depositor] = amount;
     }
 
