@@ -13,6 +13,7 @@ import type {
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
 const WORMHOLE_CHAIN_DESTINATION = 32
+const UPDATED_WORMHOLE_CHAIN_DESTINATION = 40
 const TBTC_SATOSHI_MULTIPLIER = BigNumber.from(10).pow(10)
 const destinationChainDepositOwner =
   "0xabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd"
@@ -116,6 +117,52 @@ describe("L1BTCDepositorNttWithExecutor fixed destination", () => {
     )
   })
 
+  it("migrates the fixed destination chain once during upgrade", async () => {
+    const [, nonOwner, relayer] = await ethers.getSigners()
+
+    await expect(
+      depositor
+        .connect(nonOwner)
+        .initializeV2DestinationChain(UPDATED_WORMHOLE_CHAIN_DESTINATION)
+    ).to.be.revertedWith("Ownable: caller is not the owner")
+
+    await expect(depositor.initializeV2DestinationChain(0)).to.be.revertedWith(
+      "Chain ID cannot be zero"
+    )
+
+    await expect(
+      depositor.initializeV2DestinationChain(UPDATED_WORMHOLE_CHAIN_DESTINATION)
+    )
+      .to.emit(depositor, "DestinationChainUpdated")
+      .withArgs(WORMHOLE_CHAIN_DESTINATION, UPDATED_WORMHOLE_CHAIN_DESTINATION)
+
+    expect(await depositor.destinationChainId()).to.equal(
+      UPDATED_WORMHOLE_CHAIN_DESTINATION
+    )
+
+    const executorArgs = buildExecutorArgs(
+      BigNumber.from(70000),
+      relayer.address
+    )
+    const feeArgs = buildFeeArgs()
+
+    await depositor
+      .connect(relayer)
+      .setExecutorParameters(executorArgs, feeArgs)
+
+    const quote = await depositor.connect(relayer).quoteFinalizeDeposit()
+    const expectedQuote = (await nttManagerWithExecutor.MOCK_DELIVERY_PRICE())
+      .add(await nttManagerWithExecutor.MOCK_WRAPPER_SURCHARGE())
+      .add(BigNumber.from("2000000000000000"))
+      .add(executorArgs.value)
+
+    expect(quote).to.equal(expectedQuote)
+
+    await expect(
+      depositor.initializeV2DestinationChain(WORMHOLE_CHAIN_DESTINATION)
+    ).to.be.reverted
+  })
+
   it("quotes the configured destination chain", async () => {
     const [, relayer] = await ethers.getSigners()
     const executorArgs = buildExecutorArgs(
@@ -151,7 +198,7 @@ describe("L1BTCDepositorNttWithExecutor fixed destination", () => {
 
     const [nttDeliveryPrice, executorCost, totalCost] = await depositor
       .connect(relayer)
-      .quoteFinalizedDeposit()
+      .quoteFinalizeDepositBreakdown()
     const wrapperQuote = await depositor.connect(relayer).quoteFinalizeDeposit()
     const expectedNttDeliveryPrice = (
       await underlyingNttManager.MOCK_DELIVERY_PRICE()
@@ -171,20 +218,20 @@ describe("L1BTCDepositorNttWithExecutor fixed destination", () => {
   it("sets only active default parameters", async () => {
     const [, , platformFeeRecipient] = await ethers.getSigners()
     const gasLimit = BigNumber.from(800000)
-    const platformFeeBps = 100
+    const platformFeeDbps = 100
 
     await expect(
       depositor.setDefaultParameters(
         gasLimit,
-        platformFeeBps,
+        platformFeeDbps,
         platformFeeRecipient.address
       )
     )
       .to.emit(depositor, "DefaultParametersUpdated")
-      .withArgs(gasLimit, platformFeeBps, platformFeeRecipient.address)
+      .withArgs(gasLimit, platformFeeDbps, platformFeeRecipient.address)
 
     expect(await depositor.defaultDestinationGasLimit()).to.equal(gasLimit)
-    expect(await depositor.defaultPlatformFeeBps()).to.equal(platformFeeBps)
+    expect(await depositor.defaultPlatformFeeDbps()).to.equal(platformFeeDbps)
     expect(await depositor.defaultPlatformFeeRecipient()).to.equal(
       platformFeeRecipient.address
     )
@@ -282,7 +329,7 @@ describe("L1BTCDepositorNttWithExecutor fixed destination", () => {
     }
 
     await depositor.setDefaultPlatformFeeRecipient(platformFeeRecipient.address)
-    await depositor.setDefaultPlatformFeeBps(feeArgs.dbps)
+    await depositor.setDefaultPlatformFeeDbps(feeArgs.dbps)
 
     await bridge.setNextDepositKey(fixture.expectedDepositKey)
     await depositor

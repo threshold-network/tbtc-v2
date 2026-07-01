@@ -12,6 +12,7 @@ import type {
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
 const WORMHOLE_CHAIN_DESTINATION = 32
+const UPDATED_WORMHOLE_CHAIN_DESTINATION = 40
 const TBTC_SATOSHI_MULTIPLIER = BigNumber.from(10).pow(10)
 const destinationChainDepositOwner =
   "0xabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd"
@@ -100,6 +101,43 @@ describe("L1BTCDepositorNtt fixed destination", () => {
       WORMHOLE_CHAIN_DESTINATION
     )
     expect(await l1BtcDepositorNtt.nttManager()).to.equal(nttManager.address)
+  })
+
+  it("migrates the fixed destination chain once during upgrade", async () => {
+    const [, nonOwner] = await ethers.getSigners()
+
+    await expect(
+      l1BtcDepositorNtt
+        .connect(nonOwner)
+        .initializeV2DestinationChain(UPDATED_WORMHOLE_CHAIN_DESTINATION)
+    ).to.be.revertedWith("Ownable: caller is not the owner")
+
+    await expect(
+      l1BtcDepositorNtt.initializeV2DestinationChain(0)
+    ).to.be.revertedWith("Chain ID cannot be zero")
+
+    await expect(
+      l1BtcDepositorNtt.initializeV2DestinationChain(
+        UPDATED_WORMHOLE_CHAIN_DESTINATION
+      )
+    )
+      .to.emit(l1BtcDepositorNtt, "DestinationChainUpdated")
+      .withArgs(WORMHOLE_CHAIN_DESTINATION, UPDATED_WORMHOLE_CHAIN_DESTINATION)
+
+    expect(await l1BtcDepositorNtt.destinationChainId()).to.equal(
+      UPDATED_WORMHOLE_CHAIN_DESTINATION
+    )
+
+    const quote = await l1BtcDepositorNtt.quoteFinalizeDeposit()
+    const expectedQuote = (await nttManager.MOCK_DELIVERY_PRICE()).add(
+      await nttManager.chainSpecificPrices(UPDATED_WORMHOLE_CHAIN_DESTINATION)
+    )
+
+    expect(quote).to.equal(expectedQuote)
+
+    await expect(
+      l1BtcDepositorNtt.initializeV2DestinationChain(WORMHOLE_CHAIN_DESTINATION)
+    ).to.be.reverted
   })
 
   it("quotes the configured destination chain", async () => {

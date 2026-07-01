@@ -108,6 +108,12 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
         uint64 transferSequence
     );
 
+    /// @notice Emitted when the fixed NTT destination chain is migrated.
+    event DestinationChainUpdated(
+        uint16 indexed oldDestinationChain,
+        uint16 indexed newDestinationChain
+    );
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
@@ -136,6 +142,18 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
 
         nttManager = INttManager(_nttManager);
         destinationChainId = _destinationChainId;
+    }
+
+    /// @notice Migrates the fixed destination chain during a proxy upgrade.
+    /// @param _destinationChainId Wormhole chain ID of the destination chain
+    /// @dev Intended as a one-time upgrade hook for proxies that were initialized
+    ///      before the fixed-destination storage slot existed.
+    function initializeV2DestinationChain(uint16 _destinationChainId)
+        external
+        onlyOwner
+        reinitializer(2)
+    {
+        _updateDestinationChain(_destinationChainId);
     }
 
     /// @notice Allows the owner to retrieve tokens from the contract and send to another wallet.
@@ -265,6 +283,19 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
             chainId,
             destinationChainDepositOwner,
             sequence
+        );
+    }
+
+    /// @notice Updates the fixed destination chain.
+    function _updateDestinationChain(uint16 _destinationChainId) internal {
+        require(_destinationChainId != 0, "Chain ID cannot be zero");
+
+        uint16 oldDestinationChainId = destinationChainId;
+        destinationChainId = _destinationChainId;
+
+        emit DestinationChainUpdated(
+            oldDestinationChainId,
+            _destinationChainId
         );
     }
 

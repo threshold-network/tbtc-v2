@@ -127,8 +127,6 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         address user;
         uint256 timestamp;
         bool exists;
-        uint256 cachedRequiredPayment;
-        uint16 cachedDestinationChain;
     }
 
     /// @notice NTT Manager With Executor contract for enhanced cross-chain transfers
@@ -153,7 +151,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
 
     /// @notice Default TBTC platform fee in executor dbps units
     /// @dev Default is 0 (no fee). 100 = 0.1% (100/100000)
-    uint16 public defaultPlatformFeeBps;
+    uint16 public defaultPlatformFeeDbps;
 
     /// @notice Default platform fee recipient address
     /// @dev Address to receive TBTC platform fees
@@ -161,7 +159,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
 
     /// @notice Maximum platform fee in executor dbps units
     /// @dev NttManagerWithExecutor uses 100000 as divisor, so 10000 = 10%
-    uint16 public constant MAX_BPS = 10000;
+    uint16 public constant MAX_PLATFORM_FEE_DBPS = 10000;
 
     /// @notice Default destination gas limit for execution (500k gas)
     uint256 private constant DEFAULT_DESTINATION_GAS_LIMIT = 500000;
@@ -227,7 +225,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @notice Emitted when default parameters are updated
     event DefaultParametersUpdated(
         uint256 gasLimit,
-        uint16 platformFeeBps,
+        uint16 platformFeeDbps,
         address platformFeeRecipient
     );
 
@@ -238,9 +236,9 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     );
 
     /// @notice Emitted when the default platform fee dbps value is updated
-    event DefaultPlatformFeeBpsUpdated(
-        uint16 indexed oldFeeBps,
-        uint16 indexed newFeeBps
+    event DefaultPlatformFeeDbpsUpdated(
+        uint16 indexed oldFeeDbps,
+        uint16 indexed newFeeDbps
     );
 
     /// @notice Emitted when the default platform fee recipient is updated
@@ -259,6 +257,12 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     event NttManagerWithExecutorUpdated(
         address indexed oldManager,
         address indexed newManager
+    );
+
+    /// @notice Emitted when the fixed NTT destination chain is migrated.
+    event DestinationChainUpdated(
+        uint16 indexed oldDestinationChain,
+        uint16 indexed newDestinationChain
     );
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -303,33 +307,41 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         parameterExpirationTime = 3600; // 1 hour default expiration time
     }
 
+    /// @notice Migrates the fixed destination chain during a proxy upgrade.
+    /// @param _destinationChainId Wormhole chain ID of the destination chain
+    /// @dev Intended as a one-time upgrade hook for proxies that were initialized
+    ///      before the fixed-destination storage slot existed.
+    function initializeV2DestinationChain(
+        uint16 _destinationChainId
+    ) external onlyOwner reinitializer(2) {
+        _updateDestinationChain(_destinationChainId);
+    }
+
     /// @notice Updates default parameters for executor transfers
     /// @param _gasLimit Default gas limit for destination chain execution
-    /// @param _platformFeeBps Default TBTC platform fee in executor dbps units
+    /// @param _platformFeeDbps Default TBTC platform fee in executor dbps units
     /// @param _platformFeeRecipient Default TBTC platform fee recipient
     function setDefaultParameters(
         uint256 _gasLimit,
-        uint16 _platformFeeBps,
+        uint16 _platformFeeDbps,
         address _platformFeeRecipient
     ) external onlyOwner {
         require(_gasLimit > 0, "Gas limit must be greater than zero");
         require(
-            _platformFeeBps <= MAX_BPS,
+            _platformFeeDbps <= MAX_PLATFORM_FEE_DBPS,
             "Platform fee exceeds maximum"
         );
         require(
-            _platformFeeRecipient != address(0) || _platformFeeBps == 0,
+            _platformFeeRecipient != address(0) || _platformFeeDbps == 0,
             "Platform fee recipient cannot be zero when platform fee is set"
         );
-        require(_feeBps >= _platformFeeBps, "Executor fee must be >= platform fee");
-        require(_feeBps != 0 || _feeRecipient == address(0), "Executor fee recipient cannot be set when fee is zero");
         defaultDestinationGasLimit = _gasLimit;
-        defaultPlatformFeeBps = _platformFeeBps;
+        defaultPlatformFeeDbps = _platformFeeDbps;
         defaultPlatformFeeRecipient = _platformFeeRecipient;
 
         emit DefaultParametersUpdated(
             _gasLimit,
-            _platformFeeBps,
+            _platformFeeDbps,
             _platformFeeRecipient
         );
     }
@@ -346,16 +358,19 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     }
 
     /// @notice Sets the default TBTC platform fee in executor dbps units
-    /// @param _newFeeBps New default platform fee in executor dbps units (100 = 0.1%)
-    function setDefaultPlatformFeeBps(uint16 _newFeeBps) external onlyOwner {
-        require(_newFeeBps <= MAX_BPS, "Fee exceeds maximum");
+    /// @param _newFeeDbps New default platform fee in executor dbps units (100 = 0.1%)
+    function setDefaultPlatformFeeDbps(uint16 _newFeeDbps) external onlyOwner {
         require(
-            defaultPlatformFeeRecipient != address(0) || _newFeeBps == 0,
+            _newFeeDbps <= MAX_PLATFORM_FEE_DBPS,
+            "Fee exceeds maximum"
+        );
+        require(
+            defaultPlatformFeeRecipient != address(0) || _newFeeDbps == 0,
             "Recipient address cannot be zero when platform fee is set"
         );
-        uint16 oldFeeBps = defaultPlatformFeeBps;
-        defaultPlatformFeeBps = _newFeeBps;
-        emit DefaultPlatformFeeBpsUpdated(oldFeeBps, _newFeeBps);
+        uint16 oldFeeDbps = defaultPlatformFeeDbps;
+        defaultPlatformFeeDbps = _newFeeDbps;
+        emit DefaultPlatformFeeDbpsUpdated(oldFeeDbps, _newFeeDbps);
     }
 
     /// @notice Sets the default platform fee recipient address
@@ -364,7 +379,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         address _newRecipient
     ) external onlyOwner {
         require(
-            _newRecipient != address(0) || defaultPlatformFeeBps == 0,
+            _newRecipient != address(0) || defaultPlatformFeeDbps == 0,
             "Recipient address cannot be zero when platform fee is set"
         );
         address oldRecipient = defaultPlatformFeeRecipient;
@@ -436,10 +451,8 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @dev Must be called before finalizeDeposit() to provide real signed quote.
     function setExecutorParameters(
         ExecutorArgs memory executorArgs,
-        FeeArgs memory feeArgs,
-        uint16 destinationChain
+        FeeArgs memory feeArgs
     ) external returns (bytes32 nonce) {
-        _validateExecutorParameters(feeArgs);
         // CRITICAL: Validate that we have a real signed quote
         require(
             executorArgs.signedQuote.length > 0,
@@ -447,11 +460,19 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         );
         _validateSignedQuoteFormat(executorArgs.signedQuote);
 
-        // Validate fee amount in executor dbps units.
-        require(feeArgs.dbps <= MAX_BPS, "Fee exceeds maximum");
         require(
             executorArgs.refundAddress == msg.sender,
             "Executor refund address must be caller"
+        );
+
+        // Validate fee amount in executor dbps units.
+        require(
+            feeArgs.dbps <= MAX_PLATFORM_FEE_DBPS,
+            "Fee exceeds maximum"
+        );
+        require(
+            feeArgs.dbps >= defaultPlatformFeeDbps,
+            "Fee must be at least the default platform fee"
         );
         require(
             defaultPlatformFeeRecipient != address(0) || feeArgs.dbps == 0,
@@ -459,9 +480,14 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         );
         feeArgs.payee = defaultPlatformFeeRecipient;
 
-        // Validate fee basis points
-        require(supportedChains[destinationChain], "Destination chain not supported");
-        uint256 requiredPayment = nttManagerWithExecutor.quoteDeliveryPrice(underlyingNttManager, destinationChain, "", executorArgs, feeArgs);
+        uint16 chainId = _destinationChain();
+        uint256 requiredPayment = nttManagerWithExecutor.quoteDeliveryPrice(
+            underlyingNttManager,
+            chainId,
+            "",
+            executorArgs,
+            feeArgs
+        );
         require(requiredPayment >= executorArgs.value, "Insufficient payment for executor service");
         // Remove one expired entry before minting a new nonce
         if (userNonceCounter[msg.sender] > 0) {
@@ -501,8 +527,6 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
                 if (!expired) {
                     existingParams.executorArgs = executorArgs;
                     existingParams.feeArgs = feeArgs;
-                    existingParams.cachedRequiredPayment = requiredPayment;
-                    existingParams.cachedDestinationChain = destinationChain;
                     // solhint-disable-next-line not-rely-on-time
                     existingParams.timestamp = block.timestamp;
 
@@ -532,9 +556,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
             feeArgs: feeArgs,
             user: msg.sender,
             timestamp: block.timestamp, // solhint-disable-line not-rely-on-time
-            exists: true,
-            cachedRequiredPayment: requiredPayment,
-            cachedDestinationChain: destinationChain
+            exists: true
         });
 
         emit ExecutorParametersSet(
@@ -600,7 +622,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @return totalCost The exact total cost required by finalizeDeposit
     /// @dev The total is quoted through NttManagerWithExecutor, matching the
     ///      value enforced during finalizeDeposit.
-    function quoteFinalizedDeposit()
+    function quoteFinalizeDepositBreakdown()
         external
         view
         returns (
@@ -822,8 +844,8 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         _transferTbtcWithExecutor(
             amount,
             destinationChainDepositOwner,
-            params.executorArgs,
-            params.feeArgs,
+            cachedParams.executorArgs,
+            cachedParams.feeArgs,
             latestNonce
         );
     }
@@ -901,6 +923,19 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
 
     }
 
+    /// @notice Updates the fixed destination chain.
+    function _updateDestinationChain(uint16 _destinationChainId) internal {
+        require(_destinationChainId != 0, "Chain ID cannot be zero");
+
+        uint16 oldDestinationChainId = destinationChainId;
+        destinationChainId = _destinationChainId;
+
+        emit DestinationChainUpdated(
+            oldDestinationChainId,
+            _destinationChainId
+        );
+    }
+
     /// @notice Returns the configured destination chain and reverts if unset.
     function _destinationChain() internal view returns (uint16 chainId) {
         chainId = destinationChainId;
@@ -914,24 +949,6 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         bytes memory signedQuote
     ) internal pure {
         require(signedQuote.length >= 32, "Signed quote too short");
-    }
-
-    /// @notice Validates user-provided executor parameters against owner defaults.
-    /// @param feeArgs Fee arguments supplied by the caller
-    function _validateExecutorParameters(FeeArgs memory feeArgs) internal view {
-        // Fee basis points check
-        require(feeArgs.dbps <= MAX_BPS, "Fee cannot exceed 100% (10000 bps)");
-        // Fee parity check: must be >= platform fee and == default executor fee
-        require(feeArgs.dbps >= defaultPlatformFeeBps, "Fee must be >= platform fee");
-        require(feeArgs.dbps == defaultExecutorFeeBps, "Fee must match default executor fee");
-        if (feeArgs.dbps == 0) {
-            require(feeArgs.payee == address(0), "Fee payee must be zero when fee is zero");
-        } else {
-            require(
-                feeArgs.payee == defaultExecutorFeeRecipient,
-                "Fee payee must match default executor fee recipient"
-            );
-        }
     }
 
     /// @notice Generates a unique nonce for a user and sequence
