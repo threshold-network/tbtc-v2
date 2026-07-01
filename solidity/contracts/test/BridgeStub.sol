@@ -66,6 +66,52 @@ contract BridgeStub is Bridge {
     function setWallet(bytes20 walletPubKeyHash, Wallets.Wallet calldata wallet)
         external
     {
+        Wallets.WalletState previousState = self
+            .registeredWallets[walletPubKeyHash]
+            .state;
+
+        self.registeredWallets[walletPubKeyHash] = wallet;
+
+        if (wallet.state == Wallets.WalletState.Live) {
+            self.liveWalletsCount++;
+        }
+
+        // Mirror `Wallets.registerNewWallet`: record the registration order the
+        // first time a previously-unknown wallet is registered, so tests can
+        // exercise the deterministic moving-funds target-wallet selection.
+        if (
+            previousState == Wallets.WalletState.Unknown &&
+            wallet.state != Wallets.WalletState.Unknown
+        ) {
+            self.walletRegistrationOrder.push(walletPubKeyHash);
+        }
+    }
+
+    function getWalletRegistrationOrder()
+        external
+        view
+        returns (bytes20[] memory)
+    {
+        return self.walletRegistrationOrder;
+    }
+
+    function getWalletRegistrationOrderSeeded() external view returns (bool) {
+        return self.walletRegistrationOrderSeeded;
+    }
+
+    function setWalletRegistrationOrderSeeded(bool seeded) external {
+        self.walletRegistrationOrderSeeded = seeded;
+    }
+
+    /// @notice Sets a wallet without recording it in the registration order,
+    ///         simulating a wallet registered before the upgrade that
+    ///         introduced the on-chain order. Used to exercise the
+    ///         moving-funds commitment fallback path where the order cannot yet
+    ///         reconstruct the deterministic target set.
+    function setWalletSkipRegistrationOrder(
+        bytes20 walletPubKeyHash,
+        Wallets.Wallet calldata wallet
+    ) external {
         self.registeredWallets[walletPubKeyHash] = wallet;
 
         if (wallet.state == Wallets.WalletState.Live) {

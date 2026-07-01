@@ -225,7 +225,93 @@ library Wallets {
 
         self.liveWalletsCount++;
 
+        // Record the registration order so moving-funds target selection can be
+        // reconstructed deterministically on-chain. This mirrors the ordering
+        // of the `NewWalletRegistered` events consumed off-chain. Wallets are
+        // registered at most once (the `Unknown` state guard above), so the
+        // list never contains duplicates.
+        self.walletRegistrationOrder.push(walletPubKeyHash);
+
         emit NewWalletRegistered(ecdsaWalletID, walletPubKeyHash);
+    }
+
+    /// @notice Backfills `walletRegistrationOrder` with the wallets that were
+    ///         registered before the upgrade that introduced the on-chain
+    ///         order, so the deterministic moving-funds target-wallet selection
+    ///         can be reconstructed for them too.
+    /// @param preUpgradeWallets Pre-upgrade wallet public key hashes, ordered
+    ///        oldest registration first, matching the `NewWalletRegistered`
+    ///        event history consumed off-chain.
+    /// @dev Requirements:
+    ///      - Callable only once (guarded by `walletRegistrationOrderSeeded`).
+    ///      Access control is enforced by the calling Bridge function, which
+    ///      restricts this to governance. After this runs the order is
+    ///      authoritative and `submitMovingFundsCommitment` enforces the
+    ///      deterministic selection with no fallback.
+    ///
+    ///      Wallet registration (`registerNewWallet`) is driven by
+    ///      permissionless DKG completion and is not gated on this backfill, so
+    ///      a wallet can register between the Bridge upgrade and this call. Any
+    ///      wallets already present were therefore appended after the upgrade
+    ///      (the order was empty at upgrade time) and are strictly newer than
+    ///      every pre-upgrade wallet. Rather than requiring an empty order —
+    ///      which a single in-window registration would make permanently
+    ///      unsatisfiable, bricking the seed — this reconstructs the order with
+    ///      the pre-upgrade wallets first (oldest) followed by the post-upgrade
+    ///      ones (newer), preserving the global oldest-first registration order.
+    ///      Any supplied wallet already captured in the on-chain snapshot (an
+    ///      in-window registration that the off-chain event scan also picked
+    ///      up) is recorded once, at its post-upgrade position, so the rebuilt
+    ///      order stays duplicate-free and the deterministic target-wallet
+    ///      selection stays matchable.
+    function seedWalletRegistrationOrder(
+        BridgeState.Storage storage self,
+        bytes20[] calldata preUpgradeWallets
+    ) external {
+        require(
+            !self.walletRegistrationOrderSeeded,
+            "Wallet registration order already seeded"
+        );
+
+        // Snapshot any wallets that registered post-upgrade before this
+        // backfill, then rebuild the order with the pre-upgrade wallets ahead
+        // of them so the oldest-first ordering the reconstruction relies on is
+        // preserved regardless of the upgrade-to-seed timing.
+        //
+        // A wallet that registers in the window between the upgrade and this
+        // backfill is captured in the on-chain snapshot below. The off-chain
+        // routine that builds `preUpgradeWallets` scans the registration event
+        // history to the chain head, so that same wallet can also appear in the
+        // supplied list. Skip any supplied entry already present in the snapshot
+        // so it is recorded exactly once, at its true post-upgrade position.
+        // Otherwise the order would hold a duplicate and the deterministic
+        // target-wallet reconstruction would emit it twice, making the
+        // strictly-ascending commitment permanently unmatchable and bricking
+        // moving-funds commitments.
+        bytes20[] memory postUpgradeWallets = self.walletRegistrationOrder;
+        delete self.walletRegistrationOrder;
+
+        for (uint256 i = 0; i < preUpgradeWallets.length; i++) {
+            bytes20 preUpgradeWallet = preUpgradeWallets[i];
+
+            bool alreadyTracked = false;
+            for (uint256 k = 0; k < postUpgradeWallets.length; k++) {
+                if (postUpgradeWallets[k] == preUpgradeWallet) {
+                    alreadyTracked = true;
+                    break;
+                }
+            }
+            if (alreadyTracked) {
+                continue;
+            }
+
+            self.walletRegistrationOrder.push(preUpgradeWallet);
+        }
+        for (uint256 j = 0; j < postUpgradeWallets.length; j++) {
+            self.walletRegistrationOrder.push(postUpgradeWallets[j]);
+        }
+
+        self.walletRegistrationOrderSeeded = true;
     }
 
     /// @notice Handles a notification about a wallet redemption timeout.

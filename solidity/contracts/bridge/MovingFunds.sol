@@ -250,6 +250,58 @@ library MovingFunds {
             lastProcessedTargetWallet = uint160(targetWallet);
         }
 
+        // Enforce the deterministic target-wallet selection so that no single
+        // source-wallet member can pin an arbitrary valid subset of Live
+        // wallets. The canonical target set is the `expectedTargetWalletsCount`
+        // most-recently-registered Live wallets other than the source wallet,
+        // matching the selection computed off-chain. Reconstruct it from the
+        // append-only registration order and require the submitted list to
+        // equal it. The submitted list was validated above as strictly
+        // ascending, so comparing it element-wise against the ascending-sorted
+        // canonical set is a full set-equality check.
+        //
+        // The append-only order is populated going forward by
+        // `registerNewWallet`, but wallets registered before the upgrade that
+        // introduced it are absent until governance backfills them via
+        // `seedWalletRegistrationOrder`. The reconstruction is authoritative
+        // only once the order contains every eligible wallet; until then it
+        // cannot build the canonical set for pre-upgrade wallets and
+        // `selectionComplete` is false. When that happens the commitment is
+        // rejected rather than falling back to the permissive structural
+        // validation: a permissive fallback would let a single source-wallet
+        // member pin an arbitrary subset during the post-upgrade transition
+        // window. Rejecting instead makes the wallet-order backfill a required
+        // precondition for resuming moving-funds commitments after the upgrade.
+        // Governance must run `seedWalletRegistrationOrder` to backfill the
+        // pre-upgrade wallets so the deterministic selection can be
+        // reconstructed and enforced. The seed is latch-guarded and folds in
+        // any wallet that registers between the upgrade and the call by
+        // prepending the pre-upgrade wallets and de-duplicating any also
+        // captured on-chain, so it does not require an empty order.
+        (
+            bytes20[] memory expectedTargetWallets,
+            bool selectionComplete
+        ) = selectMovingFundsTargetWallets(
+                self,
+                walletPubKeyHash,
+                expectedTargetWalletsCount
+            );
+
+        // The deterministic reconstruction must succeed. Reject any submission
+        // the registration order cannot reconstruct instead of silently
+        // accepting an arbitrary subset.
+        require(
+            selectionComplete,
+            "Wallet registration order cannot reconstruct the target selection"
+        );
+
+        for (uint256 i = 0; i < expectedTargetWalletsCount; i++) {
+            require(
+                targetWallets[i] == expectedTargetWallets[i],
+                "Submitted target wallets do not match the expected selection"
+            );
+        }
+
         wallet.movingFundsTargetWalletsCommitmentHash = keccak256(
             abi.encodePacked(targetWallets)
         );
@@ -259,6 +311,70 @@ library MovingFunds {
             targetWallets,
             msg.sender
         );
+    }
+
+    /// @notice Reconstructs the canonical moving-funds target wallet set: the
+    ///         `count` most-recently-registered Live wallets other than the
+    ///         source wallet, returned sorted ascending by their numeric
+    ///         representation (the order the on-chain commitment expects).
+    /// @param self The Bridge state storage.
+    /// @param sourceWalletPubKeyHash 20-byte public key hash of the source
+    ///        wallet, excluded from the selection.
+    /// @param count Number of target wallets to select.
+    /// @return selected The selected target wallets, sorted ascending. Empty
+    ///         when the selection is not complete.
+    /// @return complete True when the registration order yields exactly `count`
+    ///         eligible wallets and the deterministic set can be enforced.
+    ///         False when the order does not yet contain enough Live wallets
+    ///         (the post-upgrade transition), in which case the caller rejects
+    ///         the commitment until the order is backfilled.
+    /// @dev Iterates the append-only `walletRegistrationOrder` from newest to
+    ///      oldest, collecting Live wallets until `count` are found, then
+    ///      insertion-sorts the result. `count` is small (bounded by the
+    ///      expected target wallets count), so the sort cost is negligible.
+    function selectMovingFundsTargetWallets(
+        BridgeState.Storage storage self,
+        bytes20 sourceWalletPubKeyHash,
+        uint256 count
+    ) internal view returns (bytes20[] memory selected, bool complete) {
+        selected = new bytes20[](count);
+        uint256 found = 0;
+
+        bytes20[] storage order = self.walletRegistrationOrder;
+        for (uint256 i = order.length; i > 0 && found < count; i--) {
+            bytes20 candidate = order[i - 1];
+
+            if (candidate == sourceWalletPubKeyHash) {
+                continue;
+            }
+
+            if (
+                self.registeredWallets[candidate].state ==
+                Wallets.WalletState.Live
+            ) {
+                selected[found] = candidate;
+                found++;
+            }
+        }
+
+        if (found != count) {
+            return (new bytes20[](0), false);
+        }
+
+        // Insertion-sort ascending by numeric representation so the result can
+        // be compared element-wise against the strictly-ascending submitted
+        // list.
+        for (uint256 i = 1; i < count; i++) {
+            bytes20 key = selected[i];
+            uint256 j = i;
+            while (j > 0 && uint160(selected[j - 1]) > uint160(key)) {
+                selected[j] = selected[j - 1];
+                j--;
+            }
+            selected[j] = key;
+        }
+
+        return (selected, true);
     }
 
     /// @notice Resets the moving funds timeout for the given wallet if the

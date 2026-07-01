@@ -18,6 +18,7 @@ const PROXY_ADMIN_ABI = [
 
 const BRIDGE_GOVERNANCE_ABI = [
   "function seedFraudChallengeEscrow(uint256 preUpgradeOpenEscrow)",
+  "function seedWalletRegistrationOrder(bytes20[] wallets)",
   "function beginBridgeGovernanceTransfer(address newBridgeGovernance)",
   "function finalizeBridgeGovernanceTransfer()",
   "function transferOwnership(address newOwner)",
@@ -46,6 +47,7 @@ const BRIDGE_EVENT_ABI = [
   "event FraudChallengeSubmitted(bytes20 indexed walletPubKeyHash, bytes32 sighash, uint8 v, bytes32 r, bytes32 s)",
   "event FraudChallengeDefeated(bytes20 indexed walletPubKeyHash, bytes32 sighash)",
   "event FraudChallengeDefeatTimedOut(bytes20 indexed walletPubKeyHash, bytes32 sighash)",
+  "event NewWalletRegistered(bytes32 indexed ecdsaWalletID, bytes20 indexed walletPubKeyHash)",
 ]
 
 const proxyAdminInterface = new utils.Interface(PROXY_ADMIN_ABI)
@@ -65,6 +67,13 @@ function encodeSeedFraudChallengeEscrow(
   return bridgeGovernanceInterface.encodeFunctionData(
     "seedFraudChallengeEscrow",
     [preUpgradeOpenEscrow]
+  )
+}
+
+function encodeSeedWalletRegistrationOrder(wallets: string[]): string {
+  return bridgeGovernanceInterface.encodeFunctionData(
+    "seedWalletRegistrationOrder",
+    [wallets]
   )
 }
 
@@ -291,6 +300,59 @@ async function computeOpenFraudChallengeEscrow(
   }
 
   return openEscrow
+}
+
+/**
+ * Reconstructs the canonical wallet registration order by scanning
+ * `NewWalletRegistered` events and returning the wallet public key hashes in
+ * event-emission order. This mirrors both the off-chain keep-core target-wallet
+ * selection and the on-chain append order of `walletRegistrationOrder`, so the
+ * returned list is exactly what `seedWalletRegistrationOrder` must be seeded
+ * with for the deterministic moving-funds target selection to be enforced for
+ * pre-upgrade wallets. Duplicate hashes cannot occur because a wallet is
+ * registered at most once.
+ */
+async function computeWalletRegistrationOrder(
+  provider: providers.Provider,
+  bridgeAddress: string,
+  fromBlock: number,
+  toBlock: number
+): Promise<string[]> {
+  const topics = [bridgeEventInterface.getEventTopic("NewWalletRegistered")]
+
+  const logs: providers.Log[] = []
+
+  for (let startBlock = fromBlock; startBlock <= toBlock; ) {
+    const endBlock = Math.min(
+      startBlock + FRAUD_LOG_SCAN_CHUNK_SIZE - 1,
+      toBlock
+    )
+
+    // eslint-disable-next-line no-await-in-loop
+    const chunk = await provider.getLogs({
+      address: bridgeAddress,
+      topics,
+      fromBlock: startBlock,
+      toBlock: endBlock,
+    })
+    logs.push(...chunk)
+
+    startBlock = endBlock + 1
+  }
+
+  logs.sort((left, right) => {
+    if (left.blockNumber !== right.blockNumber) {
+      return left.blockNumber - right.blockNumber
+    }
+    if (left.transactionIndex !== right.transactionIndex) {
+      return left.transactionIndex - right.transactionIndex
+    }
+    return left.logIndex - right.logIndex
+  })
+
+  return logs.map(
+    (log) => bridgeEventInterface.parseLog(log).args.walletPubKeyHash as string
+  )
 }
 
 /**
@@ -577,6 +639,30 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       "call succeeds."
   )
 
+  const walletRegistrationScanFromBlock = Number(
+    process.env.BRIDGE_WALLET_EVENT_FROM_BLOCK ||
+      Bridge.receipt?.blockNumber ||
+      0
+  )
+  const preUpgradeWalletRegistrationOrder =
+    await computeWalletRegistrationOrder(
+      ethers.provider,
+      Bridge.address,
+      walletRegistrationScanFromBlock,
+      latestBlock
+    )
+  console.log(
+    `  Wallet registration order at block ${latestBlock}: ` +
+      `${preUpgradeWalletRegistrationOrder.length} wallet(s)`
+  )
+  console.log(
+    "  Recompute this ordered list immediately after the Bridge upgrade " +
+      "executes, then run seedWalletRegistrationOrder. Wallets that register " +
+      "between the upgrade and the seed are folded in automatically: the seed " +
+      "prepends the pre-upgrade wallets and de-duplicates any that the scan " +
+      "also captured on-chain, so it does not require an empty order."
+  )
+
   const rebateUpgradeCalldata = encodeUpgrade(
     RebateStaking.address,
     rebateImpl.address
@@ -657,6 +743,42 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log(
     `    Reference-only seed: ${preUpgradeOpenEscrow.toString()} wei ` +
       `(scanned blocks ${fraudScanFromBlock}..${latestBlock})`
+  )
+
+  const referenceWalletOrderCalldata = encodeSeedWalletRegistrationOrder(
+    preUpgradeWalletRegistrationOrder
+  )
+  console.log(
+    "\n  Council Safe Action [C]: seedWalletRegistrationOrder (RECOMPUTE REQUIRED)"
+  )
+  console.log(
+    `    Target: new BridgeGovernance (${newBridgeGovernance.address})`
+  )
+  console.log(
+    "    Only after the Bridge upgrade AND the BridgeGovernance transfer above,"
+  )
+  console.log(
+    "    (wallets that register in between are folded in automatically; the " +
+      "seed de-duplicates and does not require an empty order)."
+  )
+  console.log(
+    "    REQUIRED PRECONDITION: until this executes, submitMovingFundsCommitment"
+  )
+  console.log(
+    "    reverts because the deterministic target selection cannot be rebuilt."
+  )
+  console.log(
+    "    Recompute the event-ordered wallet list immediately before execution"
+  )
+  console.log(
+    "    and encode seedWalletRegistrationOrder with that fresh list."
+  )
+  console.log(
+    `    Reference-only calldata (DO NOT EXECUTE AS-IS): ${referenceWalletOrderCalldata}`
+  )
+  console.log(
+    `    Reference-only order: ${preUpgradeWalletRegistrationOrder.length} ` +
+      `wallet(s) (scanned blocks ${walletRegistrationScanFromBlock}..${latestBlock})`
   )
 
   // --- Migration-debt TBTCVault activation calldata (finding TOB-17) ---
@@ -974,6 +1096,48 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
           referenceOpenEscrowWei: preUpgradeOpenEscrow.toString(),
         },
       },
+      {
+        // Backfill the wallet registration order so the upgraded Bridge can
+        // enforce the deterministic moving-funds target-wallet selection for
+        // wallets registered before this upgrade. Routed at the NEW
+        // BridgeGovernance, which forwards it to the upgraded Bridge. This is a
+        // required precondition for resuming moving funds: until it executes,
+        // `submitMovingFundsCommitment` reverts with "Wallet registration order
+        // cannot reconstruct the target selection" for any wallet whose targets
+        // predate the on-chain order (there is no permissive fallback).
+        target: newBridgeGovernance.address,
+        // Executable calldata is intentionally omitted. Like the fraud escrow
+        // seed, the ordered wallet list must be recomputed immediately before
+        // execution: wallets can register between this script running and the
+        // action executing. The seed prepends the pre-upgrade wallets ahead of
+        // any post-upgrade registrations and de-duplicates any wallet the scan
+        // also captured on-chain, so it stays valid regardless of in-window
+        // registrations and does not require an empty on-chain order. Encode
+        // seedWalletRegistrationOrder(bytes20[]) from the freshly scanned,
+        // event-ordered list at execution time.
+        function: "seedWalletRegistrationOrder(bytes20[])",
+        requiresRecomputation: true,
+        value: 0,
+        description:
+          "Recompute the wallet registration order immediately before " +
+          "execution by scanning NewWalletRegistered events from " +
+          "`eventScan.fromBlock` to the current chain head in emission order, " +
+          "then encode seedWalletRegistrationOrder with that list. Wallets that " +
+          "register between the upgrade and this call are folded in " +
+          "automatically: the seed prepends the pre-upgrade wallets and " +
+          "de-duplicates any that the scan also captured on-chain, so it does " +
+          "not require an empty order and can run at any point after the " +
+          "upgrade. This action is a required precondition for resuming moving " +
+          "funds: until it executes, submitMovingFundsCommitment reverts " +
+          "because the deterministic target selection cannot be reconstructed. " +
+          "Do not reuse the reference list below.",
+        eventScan: {
+          fromBlock: walletRegistrationScanFromBlock,
+          referenceToBlock: latestBlock,
+          referenceWalletCount: preUpgradeWalletRegistrationOrder.length,
+          referenceWallets: preUpgradeWalletRegistrationOrder,
+        },
+      },
     ],
     libraries: bridgeLibraries,
   }
@@ -1050,6 +1214,76 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log(
     `        Reference-only snapshot (NOT executable): ${preUpgradeOpenEscrow.toString()} wei`
   )
+  console.log("    [D] seedWalletRegistrationOrder on the NEW BridgeGovernance")
+  console.log(`        To: ${newBridgeGovernance.address}`)
+  console.log(
+    "        Order: RECOMPUTE the event-ordered wallet list immediately before"
+  )
+  console.log(
+    "               executing. Wallets that register between the upgrade and"
+  )
+  console.log(
+    "               this call are folded in automatically; the seed prepends the"
+  )
+  console.log(
+    "               pre-upgrade wallets and de-duplicates any also captured"
+  )
+  console.log("               on-chain, so it does not require an empty order.")
+  console.log(
+    `        Reference-only snapshot (NOT executable): ${preUpgradeWalletRegistrationOrder.length} wallet(s)`
+  )
+  console.log(
+    "\n  STEP 4 - TBTCVault migration (non-proxy vault rotation + activation):"
+  )
+  console.log("    [E] initiateUpgrade(newTBTCVault) on the existing TBTCVault")
+  console.log(`        To (existing TBTCVault owner): ${TBTCVault.address}`)
+  console.log(`        New TBTCVault: ${newTBTCVault.address}`)
+  console.log(
+    "    [F] transferOwnership(CouncilSafe) on the new TBTCVault (deployer)"
+  )
+  console.log(`        To: ${newTBTCVault.address}`)
+  console.log(`        New owner: Council Safe (${KNOWN_COUNCIL_SAFE})`)
+  console.log(
+    "        Run [F] before [G] so the canonical vault is governance-owned the"
+  )
+  console.log("        moment TBTC ownership and the Bank balance move to it.")
+  console.log(
+    "    [G] finalizeUpgrade() on the existing TBTCVault, after the 24h vault"
+  )
+  console.log(
+    "        governance delay (existing TBTCVault owner). Transfers TBTC"
+  )
+  console.log("        ownership and the Bank balance to the new TBTCVault.")
+  console.log(
+    "    [H] setVaultStatus(newTBTCVault, true) on the NEW BridgeGovernance"
+  )
+  console.log(`        To: ${newBridgeGovernance.address}`)
+  console.log(
+    "    [I] setMigrationDebtVault(newTBTCVault) on the NEW BridgeGovernance"
+  )
+  console.log(`        To: ${newBridgeGovernance.address}`)
+  console.log(
+    "        Run [H] and [I] only after STEP 1 (governance transferred to the"
+  )
+  console.log(
+    "        new BridgeGovernance) and STEP 2 (Bridge upgraded); [I] needs the"
+  )
+  console.log(
+    "        vault trusted by [H] and the upgraded Bridge's setMigrationDebtVault."
+  )
+  console.log(
+    "    NOTE: setMigrationRevealer(revealer, true) is NOT emitted here. It is a"
+  )
+  console.log(
+    "        post-activation owner action on the NEW TBTCVault (now Council-"
+  )
+  console.log(
+    "        owned): call it for each migration revealer once [I] has set the"
+  )
+  console.log(
+    "        canonical migration debt vault. It requires a revealer address not"
+  )
+  console.log("        known at deploy time, so it is intentionally omitted.")
   console.log("=".repeat(80))
 
   // --- Step 10: Verify contracts on Etherscan (v2 API) ---

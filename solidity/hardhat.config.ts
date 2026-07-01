@@ -69,13 +69,14 @@ const config: HardhatUserConfig = {
       "contracts/bridge/BridgeGovernance.sol": bridgeGovernanceCompilerConfig,
       // Bridge sits near the EIP-170 24,576-byte deployed-bytecode limit.
       // A reduced optimizer-runs setting trades a small amount of runtime
-      // gas efficiency for deployment-size headroom.
+      // gas efficiency for deployment-size headroom. Lowered further to make
+      // room for the wallet-registration-order backfill governance entry point.
       "contracts/bridge/Bridge.sol": {
         version: "0.8.17",
         settings: {
           optimizer: {
             enabled: true,
-            runs: 500,
+            runs: 300,
           },
         },
       },

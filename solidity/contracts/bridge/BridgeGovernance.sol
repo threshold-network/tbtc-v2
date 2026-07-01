@@ -369,6 +369,26 @@ contract BridgeGovernance is Ownable {
         bridge.seedFraudChallengeEscrow(preUpgradeOpenEscrow);
     }
 
+    /// @notice Backfills the Bridge wallet registration order with the wallets
+    ///         registered before the upgrade that introduced the on-chain
+    ///         order, so moving-funds target-wallet selection is enforced
+    ///         deterministically for pre-upgrade wallets.
+    /// @param wallets Pre-upgrade wallet public key hashes, ordered oldest
+    ///        registration first.
+    /// @dev Can be executed only once, guarded by the Bridge's
+    ///      `walletRegistrationOrderSeeded` latch rather than an empty-order
+    ///      requirement. It prepends the supplied pre-upgrade wallets ahead of
+    ///      any wallets already registered post-upgrade and skips any supplied
+    ///      wallet already tracked on-chain, so it stays valid and
+    ///      duplicate-free even when a wallet registers between the upgrade and
+    ///      this call.
+    function seedWalletRegistrationOrder(bytes20[] calldata wallets)
+        external
+        onlyOwner
+    {
+        bridge.seedWalletRegistrationOrder(wallets);
+    }
+
     /// @notice Begins the governance delay update process.
     /// @dev Can be called only by the contract owner. The new governance delay
     ///      must be at least `MIN_GOVERNANCE_DELAY`. The event that informs

@@ -2356,6 +2356,31 @@ contract Bridge is
         self.fraudChallengeEscrowSeeded = true;
     }
 
+    /// @notice Backfills the wallet registration order with the wallets that
+    ///         were registered before the upgrade that introduced the on-chain
+    ///         order. This lets `submitMovingFundsCommitment` reconstruct and
+    ///         enforce the deterministic target-wallet selection for pre-upgrade
+    ///         wallets instead of accepting any valid sorted subset.
+    /// @param walletPubKeyHashes Pre-upgrade wallet public key hashes, ordered oldest
+    ///        registration first, matching the `NewWalletRegistered` event
+    ///        history consumed off-chain.
+    /// @dev Can only be called once by governance, guarded by the
+    ///      `walletRegistrationOrderSeeded` latch rather than an empty-order
+    ///      requirement. It prepends the supplied pre-upgrade wallets ahead of
+    ///      any wallets already registered post-upgrade, so it stays valid even
+    ///      when a wallet registers between the upgrade and this call; a
+    ///      supplied wallet already tracked on-chain is skipped to keep the
+    ///      order duplicate-free. Until it runs, `submitMovingFundsCommitment`
+    ///      rejects commitments it cannot reconstruct for pre-upgrade wallets,
+    ///      so this backfill is a required precondition for resuming moving
+    ///      funds.
+    function seedWalletRegistrationOrder(bytes20[] calldata walletPubKeyHashes)
+        external
+        onlyGovernance
+    {
+        self.seedWalletRegistrationOrder(walletPubKeyHashes);
+    }
+
     /// @notice Allows the Governance to rescue ETH from the contract balance.
     /// @param recipient Address that receives the rescued ETH. Must be
     ///        non-zero and able to accept ETH via a default `receive`/`fallback`

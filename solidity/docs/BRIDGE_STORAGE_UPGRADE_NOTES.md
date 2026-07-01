@@ -33,3 +33,28 @@
   `uint256[46]`.
 - This change is intentional and must be reflected in any future storage-layout
   diff review before proxy upgrades.
+
+## walletRegistrationOrder slot consumption
+
+- `BridgeState.Storage` added `bytes20[] walletRegistrationOrder` at
+  `contracts/bridge/BridgeState.sol`, before `__gap`. It records every wallet's
+  20-byte public key hash in registration order so the moving-funds
+  target-wallet selection can be reconstructed deterministically on-chain.
+- To preserve layout continuity, `__gap` was reduced from `uint256[46]` to
+  `uint256[45]`.
+- This change is intentional and must be reflected in any future storage-layout
+  diff review before proxy upgrades.
+
+## walletRegistrationOrderSeeded slot
+
+- `walletRegistrationOrderSeeded` was appended after `fraudChallengeEscrowSeeded`
+  and packs into the same slot 130 (both are single-byte `bool` values placed
+  consecutively). Fresh deployments set it during `initialize`; upgraded
+  deployments start with the default `false` value.
+- Until governance calls `seedWalletRegistrationOrder`, the on-chain order
+  cannot reconstruct the canonical target-wallet set for wallets registered
+  before the upgrade, so `MovingFunds.submitMovingFundsCommitment` rejects the
+  commitment. Seeding it is a required precondition for resuming moving-funds
+  commitments after the upgrade. The seed prepends the supplied pre-upgrade
+  wallets and de-duplicates any that also registered post-upgrade, so it does
+  not require an empty order.

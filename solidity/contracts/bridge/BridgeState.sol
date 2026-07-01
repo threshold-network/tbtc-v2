@@ -341,6 +341,22 @@ library BridgeState {
         // Upgrade note: this field consumed one reserved slot, reducing
         // `__gap` from 47 to 46 for storage-layout compatibility.
         mapping(bytes20 => uint32) walletPendingFraudChallenges;
+        // Ordered list of every wallet's 20-byte public key hash appended in
+        // registration order by `Wallets.registerNewWallet`. It mirrors the
+        // off-chain `NewWalletRegistered` event ordering so the Bridge can
+        // deterministically reconstruct the canonical moving-funds target
+        // wallet set (the newest Live wallets) inside
+        // `MovingFunds.submitMovingFundsCommitment`, instead of accepting any
+        // valid sorted subset. Append-only: entries are never removed, and a
+        // wallet's current eligibility is read live from `registeredWallets`.
+        // Wallets registered before the upgrade that introduced this list are
+        // absent from it; until enough Live wallets are recorded to reconstruct
+        // the canonical target set, `submitMovingFundsCommitment` rejects the
+        // commitment rather than accepting an arbitrary subset. See that
+        // function for details.
+        // Upgrade note: this field consumed one reserved slot, reducing
+        // `__gap` from 46 to 45 for storage-layout compatibility.
+        bytes20[] walletRegistrationOrder;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
@@ -348,7 +364,7 @@ library BridgeState {
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
-        uint256[46] __gap;
+        uint256[45] __gap;
         /// @notice Sum of `depositAmount` across currently-open fraud
         ///         challenges, used to keep `recoverETH` scoped to
         ///         non-escrowed ETH.
@@ -356,6 +372,18 @@ library BridgeState {
         /// @notice True once governance has accounted for pre-upgrade open
         ///         fraud challenges in `openFraudChallengeEscrow`.
         bool fraudChallengeEscrowSeeded;
+        /// @notice True once governance has backfilled `walletRegistrationOrder`
+        ///         with the wallets that were registered before the upgrade
+        ///         that introduced the on-chain order. Until this is set, the
+        ///         order cannot reconstruct the canonical target-wallet set for
+        ///         those wallets, so `MovingFunds.submitMovingFundsCommitment`
+        ///         rejects the commitment; backfilling it is a required
+        ///         precondition for resuming moving-funds commitments after the
+        ///         upgrade. Once set, the order is authoritative and the
+        ///         deterministic target-wallet selection is enforced. Packs into
+        ///         the slot shared with `fraudChallengeEscrowSeeded`; both
+        ///         default to false on a fresh upgrade.
+        bool walletRegistrationOrderSeeded;
     }
 
     event DepositParametersUpdated(
