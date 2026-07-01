@@ -72,6 +72,10 @@ library Fraud {
         // True when `depositAmount` was included in openFraudChallengeEscrow
         // on submit. Pre-upgrade challenges default to false.
         bool escrowCounted;
+        // True when this challenge incremented `walletPendingFraudChallenges`
+        // on submit. Pre-upgrade challenges default to false, so resolving them
+        // never decrements a counted challenge's slot for the same wallet.
+        bool pendingCounted;
         // This struct doesn't contain `__gap` property as the structure is stored
         // in a mapping, mappings store values in different slots and they are
         // not contiguous with other values.
@@ -193,6 +197,14 @@ library Fraud {
         /* solhint-disable-next-line not-rely-on-time */
         challenge.reportedAt = uint32(block.timestamp);
         challenge.resolved = false;
+
+        // Track the challenge as unresolved for this wallet so the wallet
+        // cannot finalize closing while the challenge can still mature. The
+        // per-challenge flag lets resolution decrement only this challenge's
+        // own contribution, so a pre-upgrade uncounted challenge resolving on
+        // the same wallet cannot steal a counted challenge's slot.
+        self.walletPendingFraudChallenges[walletPubKeyHash]++;
+        challenge.pendingCounted = true;
         // slither-disable-next-line reentrancy-events
         emit FraudChallengeSubmitted(
             walletPubKeyHash,
@@ -347,6 +359,9 @@ library Fraud {
         );
         bytes20 walletPubKeyHash = compressedWalletPublicKey.hash160View();
 
+        // The challenge is resolved; it no longer blocks wallet closing.
+        decrementPendingFraudChallenges(self, challenge, walletPubKeyHash);
+
         // slither-disable-next-line reentrancy-events
         emit FraudChallengeDefeated(walletPubKeyHash, sighash);
     }
@@ -431,6 +446,9 @@ library Fraud {
         );
         bytes20 walletPubKeyHash = compressedWalletPublicKey.hash160View();
 
+        // The challenge is resolved; it no longer blocks wallet closing.
+        decrementPendingFraudChallenges(self, challenge, walletPubKeyHash);
+
         self.notifyWalletFraudChallengeDefeatTimeout(
             walletPubKeyHash,
             walletMembersIDs,
@@ -447,6 +465,30 @@ library Fraud {
     ) private {
         if (challenge.escrowCounted || self.fraudChallengeEscrowSeeded) {
             self.openFraudChallengeEscrow -= challenge.depositAmount;
+        }
+    }
+
+    /// @notice Decrements the wallet's unresolved fraud challenge counter used
+    ///         to keep a wallet in the `Closing` state while a challenge can
+    ///         still mature.
+    /// @dev Decrements only for a challenge that incremented the counter on
+    ///      submit (`pendingCounted`), and clears the flag so a challenge can
+    ///      never decrement twice. Pre-upgrade challenges have
+    ///      `pendingCounted == false` and are no-ops here, so resolving one can
+    ///      never steal a counted challenge's slot. The `> 0` check is retained
+    ///      as underflow defense-in-depth; the flag alone already prevents any
+    ///      decrement the counter did not account for.
+    function decrementPendingFraudChallenges(
+        BridgeState.Storage storage self,
+        FraudChallenge storage challenge,
+        bytes20 walletPubKeyHash
+    ) private {
+        if (
+            challenge.pendingCounted &&
+            self.walletPendingFraudChallenges[walletPubKeyHash] > 0
+        ) {
+            challenge.pendingCounted = false;
+            self.walletPendingFraudChallenges[walletPubKeyHash]--;
         }
     }
 

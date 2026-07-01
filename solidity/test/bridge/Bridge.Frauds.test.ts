@@ -1853,17 +1853,102 @@ describe("Bridge - Fraud", () => {
             })
           })
 
+          context("when the wallet is in the Closed state", () => {
+            let tx: ContractTransaction
+
+            before(async () => {
+              await createSnapshot()
+
+              // First, the wallet must be Live to make fraud challenge
+              // submission possible.
+              await bridge.setWallet(walletPublicKeyHash, {
+                ...walletDraft,
+                state: walletState.Live,
+              })
+
+              await bridge
+                .connect(thirdParty)
+                .submitFraudChallenge(
+                  walletPublicKey,
+                  data.preimageSha256,
+                  data.signature,
+                  {
+                    value: fraudChallengeDepositAmount,
+                  }
+                )
+
+              await increaseTime(fraudChallengeDefeatTimeout)
+
+              // Then, the state of the wallet changes to the Closed state. This
+              // stands in for a fraud challenge opened before the per-wallet
+              // counter existed: such a challenge cannot keep the wallet in
+              // Closing, so the wallet can reach Closed while the challenge is
+              // still open. The timeout path must remain reachable so the
+              // challenger can recover their deposit.
+              await bridge.setWallet(walletPublicKeyHash, {
+                ...walletDraft,
+                state: walletState.Closed,
+              })
+
+              tx = await bridge
+                .connect(thirdParty)
+                .notifyFraudChallengeDefeatTimeout(
+                  walletPublicKey,
+                  walletMembersIDs,
+                  data.preimageSha256
+                )
+            })
+
+            after(async () => {
+              await restoreSnapshot()
+            })
+
+            it("should mark the fraud challenge as resolved", async () => {
+              const challengeKey = buildChallengeKey(
+                walletPublicKey,
+                data.sighash
+              )
+
+              const fraudChallenge = await bridge.fraudChallenges(challengeKey)
+
+              expect(fraudChallenge.resolved).to.be.true
+            })
+
+            it("should return the deposited ether to the challenger", async () => {
+              await expect(tx).to.changeEtherBalance(
+                bridge,
+                fraudChallengeDepositAmount.mul(-1)
+              )
+              await expect(tx).to.changeEtherBalance(
+                thirdParty,
+                fraudChallengeDepositAmount
+              )
+            })
+
+            it("should emit FraudChallengeDefeatTimedOut event", async () => {
+              await expect(tx)
+                .to.emit(bridge, "FraudChallengeDefeatTimedOut")
+                .withArgs(walletPublicKeyHash, data.sighash)
+            })
+
+            it("should not change the wallet state", async () => {
+              expect(
+                (await bridge.wallets(walletPublicKeyHash)).state
+              ).to.be.equal(walletState.Closed)
+            })
+
+            it("should not call the ECDSA wallet registry's seize function", async () => {
+              expect(walletRegistry.seize).not.to.have.been.called
+            })
+          })
+
           context(
-            "when the wallet is neither in the Live nor MovingFunds nor Closing nor Terminated state",
+            "when the wallet is neither in the Live nor MovingFunds nor Closing nor Closed nor Terminated state",
             () => {
               const testData = [
                 {
                   testName: "when the wallet is in the Unknown state",
                   walletState: walletState.Unknown,
-                },
-                {
-                  testName: "when the wallet is in the Closed state",
-                  walletState: walletState.Closed,
                 },
               ]
 
@@ -1920,7 +2005,7 @@ describe("Bridge - Fraud", () => {
                           data.preimageSha256
                         )
                     ).to.be.revertedWith(
-                      "Wallet must be in Live or MovingFunds or Closing or Terminated state"
+                      "Wallet must be in Live or MovingFunds or Closing or Closed or Terminated state"
                     )
                   })
                 })
@@ -2125,6 +2210,191 @@ describe("Bridge - Fraud", () => {
             )
         ).to.be.revertedWith("Fraud challenge does not exist")
       })
+    })
+  })
+
+  describe("finalizeWalletClosing with a pending fraud challenge", () => {
+    // Heartbeat message and derived sighash used for a self-contained fraud
+    // challenge that can be defeated without any BTC-specific UTXO setup.
+    const heartbeatMessage = "0xFFFFFFFFFFFFFFFF0000000000E0EED7"
+    const heartbeatMessageSha256 = sha256(heartbeatMessage)
+    const heartbeatSighash = sha256(heartbeatMessageSha256)
+
+    let closingWalletPublicKey: string
+    let closingWalletPublicKeyHash: string
+    let closingWalletID: string
+    let closingSigningKey: SigningKey
+    let walletClosingPeriod: number
+
+    before(async () => {
+      await createSnapshot()
+
+      // Register a wallet whose signing key we control, so we can both submit
+      // and later defeat a heartbeat fraud challenge against it.
+      const randomWallet = ethers.Wallet.createRandom()
+      closingSigningKey = new ethers.utils.SigningKey(randomWallet.privateKey)
+      closingWalletPublicKey = `0x${randomWallet.publicKey.substring(4)}`
+      closingWalletID = keccak256(closingWalletPublicKey)
+
+      const walletPublicKeyX = `0x${closingWalletPublicKey.substring(2, 66)}`
+      const walletPublicKeyY = `0x${closingWalletPublicKey.substring(66)}`
+      await bridge
+        .connect(walletRegistry.wallet)
+        .__ecdsaWalletCreatedCallback(
+          closingWalletID,
+          walletPublicKeyX,
+          walletPublicKeyY
+        )
+      closingWalletPublicKeyHash = await bridge.activeWalletPubKeyHash()
+      ;({ walletClosingPeriod } = await bridge.walletParameters())
+    })
+
+    after(async () => {
+      await restoreSnapshot()
+    })
+
+    beforeEach(async () => {
+      await createSnapshot()
+
+      // Move the wallet into the Closing state with the period just started.
+      await bridge.setWallet(closingWalletPublicKeyHash, {
+        ecdsaWalletID: closingWalletID,
+        mainUtxoHash: ethers.constants.HashZero,
+        pendingRedemptionsValue: 0,
+        createdAt: await lastBlockTime(),
+        movingFundsRequestedAt: 0,
+        closingStartedAt: await lastBlockTime(),
+        pendingMovedFundsSweepRequestsCount: 0,
+        state: walletState.Closing,
+        movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+      })
+
+      // Submit a fraud challenge while the wallet is Closing.
+      const signature = ethers.utils.splitSignature(
+        closingSigningKey.signDigest(heartbeatSighash)
+      )
+      await bridge
+        .connect(thirdParty)
+        .submitFraudChallenge(
+          closingWalletPublicKey,
+          heartbeatMessageSha256,
+          signature,
+          { value: fraudChallengeDepositAmount }
+        )
+
+      // Advance past the closing period so only the fraud guard blocks closing.
+      await increaseTime(walletClosingPeriod + 1)
+    })
+
+    afterEach(async () => {
+      // `closeWallet` is a smock fake whose call history lives in JS memory and
+      // survives `restoreSnapshot`. Reset it so a `closeWallet` call recorded
+      // here (via `notifyWalletClosingPeriodElapsed`) cannot leak into other
+      // suites that share the same fixture and assert `calledOnceWith`.
+      walletRegistry.closeWallet.reset()
+
+      await restoreSnapshot()
+    })
+
+    it("reverts finalizing the closing while the fraud challenge is unresolved", async () => {
+      await expect(
+        bridge.notifyWalletClosingPeriodElapsed(closingWalletPublicKeyHash)
+      ).to.be.revertedWith("Wallet has unresolved fraud challenges")
+    })
+
+    it("allows finalizing the closing once the fraud challenge is defeated", async () => {
+      await bridge
+        .connect(thirdParty)
+        .defeatFraudChallengeWithHeartbeat(
+          closingWalletPublicKey,
+          heartbeatMessage
+        )
+
+      await expect(
+        bridge.notifyWalletClosingPeriodElapsed(closingWalletPublicKeyHash)
+      ).to.not.be.reverted
+
+      expect((await bridge.wallets(closingWalletPublicKeyHash)).state).to.equal(
+        walletState.Closed
+      )
+    })
+
+    it("still resolves an uncounted challenge after the wallet closes", async () => {
+      // Simulate a fraud challenge opened before the per-wallet counter
+      // existed. Such a challenge is open but leaves the counter at zero, so it
+      // cannot keep the wallet in the Closing state.
+      await bridge.setWalletPendingFraudChallenges(
+        closingWalletPublicKeyHash,
+        0
+      )
+
+      // With the counter at zero, closing finalizes and the wallet becomes
+      // Closed even though the challenge is still unresolved.
+      await expect(
+        bridge.notifyWalletClosingPeriodElapsed(closingWalletPublicKeyHash)
+      ).to.not.be.reverted
+      expect((await bridge.wallets(closingWalletPublicKeyHash)).state).to.equal(
+        walletState.Closed
+      )
+
+      // The closing period (40 days) already elapsed past the fraud challenge
+      // defeat timeout (1 week) in the shared beforeEach, so the challenge can
+      // be timed out. The timeout must still resolve and refund the challenger
+      // even though the wallet is now Closed, instead of reverting and
+      // stranding the deposit.
+      const tx = await bridge
+        .connect(thirdParty)
+        .notifyFraudChallengeDefeatTimeout(
+          closingWalletPublicKey,
+          [],
+          heartbeatMessageSha256
+        )
+
+      await expect(tx).to.changeEtherBalance(
+        bridge,
+        fraudChallengeDepositAmount.mul(-1)
+      )
+      await expect(tx).to.changeEtherBalance(
+        thirdParty,
+        fraudChallengeDepositAmount
+      )
+
+      const challengeKey = buildChallengeKey(
+        closingWalletPublicKey,
+        heartbeatSighash
+      )
+      expect((await bridge.fraudChallenges(challengeKey)).resolved).to.be.true
+
+      expect((await bridge.wallets(closingWalletPublicKeyHash)).state).to.equal(
+        walletState.Closed
+      )
+    })
+
+    it("does not let an uncounted challenge steal a counted challenge's slot", async () => {
+      // The wallet counter is 1 from the fixture challenge. Treat that count as
+      // belonging to a coexisting counted (post-upgrade) challenge, and mark the
+      // fixture challenge itself as uncounted (pre-upgrade). Resolving the
+      // uncounted challenge must not decrement the counted challenge's slot,
+      // otherwise closing could finalize while the counted challenge can still
+      // mature — the exact slashing-evasion this guard prevents.
+      const challengeKey = buildChallengeKey(
+        closingWalletPublicKey,
+        heartbeatSighash
+      )
+      await bridge.setFraudChallengePendingCounted(challengeKey, false)
+
+      // Defeat the uncounted challenge.
+      await bridge
+        .connect(thirdParty)
+        .defeatFraudChallengeWithHeartbeat(
+          closingWalletPublicKey,
+          heartbeatMessage
+        )
+
+      // The counted challenge's slot survives: closing stays blocked.
+      await expect(
+        bridge.notifyWalletClosingPeriodElapsed(closingWalletPublicKeyHash)
+      ).to.be.revertedWith("Wallet has unresolved fraud challenges")
     })
   })
 

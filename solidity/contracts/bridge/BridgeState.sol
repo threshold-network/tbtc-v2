@@ -331,6 +331,16 @@ library BridgeState {
         // Upgrade note: this field consumed one reserved slot, reducing
         // `__gap` from 48 to 47 for storage-layout compatibility.
         address migrationDebtVault;
+        // Number of fraud challenges submitted against each wallet that have
+        // not yet been resolved (neither defeated nor timed out), keyed by the
+        // 20-byte wallet public key hash. Incremented in
+        // `Fraud.submitFraudChallenge` and decremented when a challenge is
+        // resolved. Used to keep a wallet in the `Closing` state while a
+        // challenge can still mature, so the fraud-challenge timeout path
+        // (which does not accept `Closed` wallets) stays reachable.
+        // Upgrade note: this field consumed one reserved slot, reducing
+        // `__gap` from 47 to 46 for storage-layout compatibility.
+        mapping(bytes20 => uint32) walletPendingFraudChallenges;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
@@ -338,7 +348,7 @@ library BridgeState {
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
-        uint256[47] __gap;
+        uint256[46] __gap;
         /// @notice Sum of `depositAmount` across currently-open fraud
         ///         challenges, used to keep `recoverETH` scoped to
         ///         non-escrowed ETH.

@@ -111,6 +111,27 @@ contract BridgeStub is Bridge {
         self.fraudChallenges[challengeKey].escrowCounted = counted;
     }
 
+    /// @notice Overrides a fraud challenge's per-challenge pending-counted flag.
+    ///         Used to simulate a challenge opened before `submitFraudChallenge`
+    ///         began flagging counted challenges, so its resolution must not
+    ///         decrement a coexisting counted challenge's wallet counter.
+    function setFraudChallengePendingCounted(uint256 challengeKey, bool counted)
+        external
+    {
+        self.fraudChallenges[challengeKey].pendingCounted = counted;
+    }
+
+    /// @notice Overrides a wallet's unresolved fraud-challenge counter. Used to
+    ///         simulate a fraud challenge opened before `submitFraudChallenge`
+    ///         began counting them per wallet, which leaves the counter at zero
+    ///         while the challenge is still open.
+    function setWalletPendingFraudChallenges(
+        bytes20 walletPubKeyHash,
+        uint32 count
+    ) external {
+        self.walletPendingFraudChallenges[walletPubKeyHash] = count;
+    }
+
     function setPendingMovedFundsSweepRequest(
         bytes20 walletPubKeyHash,
         BitcoinTx.UTXO calldata utxo

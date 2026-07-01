@@ -22,3 +22,14 @@
   disabled. Pre-upgrade challenges can still resolve; if they do so before the
   seed, they are omitted from the one-time seed. Challenges submitted after the
   seed are marked as counted on submit.
+
+## walletPendingFraudChallenges slot consumption
+
+- `BridgeState.Storage` added `mapping(bytes20 => uint32) walletPendingFraudChallenges`
+  at `contracts/bridge/BridgeState.sol`, before `__gap`. It counts the fraud
+  challenges open against each wallet so the wallet stays in `Closing` while a
+  challenge can still mature.
+- To preserve layout continuity, `__gap` was reduced from `uint256[47]` to
+  `uint256[46]`.
+- This change is intentional and must be reflected in any future storage-layout
+  diff review before proxy upgrades.

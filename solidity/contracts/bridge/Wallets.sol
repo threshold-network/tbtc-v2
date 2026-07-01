@@ -525,15 +525,32 @@ library Wallets {
     /// @notice Called when a wallet which was challenged for a fraud did not
     ///         defeat the challenge before the timeout. Slashes and terminates
     ///         the wallet who failed to defeat the challenge. If the wallet is
-    ///         already terminated, it does nothing.
+    ///         already terminated or closed, it does nothing beyond letting the
+    ///         challenger recover their ETH deposit.
     /// @param walletPubKeyHash 20-byte public key hash of the wallet which was
     ///        supposed to sweep funds.
     /// @param walletMembersIDs Identifiers of the wallet signing group members.
     /// @param challenger Address of the party which submitted the fraud
     ///        challenge.
     /// @dev Requirements:
-    ///      - The wallet must be in the `Live`, `MovingFunds`, `Closing`
-    ///        or `Terminated` state.
+    ///      - The wallet must be in the `Live`, `MovingFunds`, `Closing`,
+    ///        `Closed`, or `Terminated` state.
+    ///
+    ///      `Live`, `MovingFunds`, and `Closing` wallets still hold their ECDSA
+    ///      registry metadata, so they are slashed and terminated. `Terminated`
+    ///      and `Closed` wallets have already had that registry entry deleted
+    ///      (by `terminateWallet` and `finalizeWalletClosing` respectively), so
+    ///      seizing is impossible; the timeout still resolves the challenge and
+    ///      refunds the challenger without slashing.
+    ///
+    ///      Accepting `Closed` is the backstop for fraud challenges opened
+    ///      before `submitFraudChallenge` began counting them per wallet. An
+    ///      uncounted challenge leaves `walletPendingFraudChallenges` at zero,
+    ///      so `finalizeWalletClosing` cannot see it and the wallet can reach
+    ///      `Closed` while the challenge is still maturing. Counted
+    ///      (post-upgrade) challenges keep the wallet in `Closing`, where
+    ///      slashing still applies, so this branch only runs for those
+    ///      uncounted pre-upgrade challenges.
     function notifyWalletFraudChallengeDefeatTimeout(
         BridgeState.Storage storage self,
         bytes20 walletPubKeyHash,
@@ -557,16 +574,20 @@ library Wallets {
             );
 
             terminateWallet(self, walletPubKeyHash);
-        } else if (walletState == Wallets.WalletState.Terminated) {
-            // This is a special case when the wallet was already terminated
-            // due to a previous deliberate protocol violation. In that
-            // case, this function should be still callable for other fraud
-            // challenges timeouts in order to let the challenger unlock its
-            // ETH deposit back. However, the wallet termination logic is
-            // not called and the challenger is not rewarded.
+        } else if (
+            walletState == Wallets.WalletState.Terminated ||
+            walletState == Wallets.WalletState.Closed
+        ) {
+            // The wallet was already terminated (due to a previous deliberate
+            // protocol violation) or closed (its closing period elapsed with no
+            // counted fraud challenges). Its ECDSA registry entry is already
+            // gone, so it cannot be seized here. This function must still be
+            // callable so the challenger can unlock its ETH deposit back; the
+            // wallet termination logic is not called and the challenger is not
+            // rewarded.
         } else {
             revert(
-                "Wallet must be in Live or MovingFunds or Closing or Terminated state"
+                "Wallet must be in Live or MovingFunds or Closing or Closed or Terminated state"
             );
         }
     }
@@ -638,6 +659,24 @@ library Wallets {
         bytes20 walletPubKeyHash
     ) internal {
         Wallet storage wallet = self.registeredWallets[walletPubKeyHash];
+
+        // Do not close a wallet while a counted fraud challenge against it can
+        // still mature. Keeping the wallet in `Closing` preserves the ECDSA
+        // registry metadata that `notifyWalletFraudChallengeDefeatTimeout`
+        // needs to slash the operators; once the wallet is `Closed` that
+        // metadata is gone and the timeout path can only refund the challenger.
+        // The wallet stays in `Closing` until every counted challenge is
+        // defeated or timed out, both reachable in the `Closing` state.
+        //
+        // This counter only covers challenges opened after `submitFraudChallenge`
+        // began tracking them per wallet. Fraud challenges opened before that
+        // are not counted, so they cannot block closing here; the fraud-challenge
+        // timeout path accepts `Closed` wallets as a refund-only backstop for
+        // exactly that pre-upgrade case.
+        require(
+            self.walletPendingFraudChallenges[walletPubKeyHash] == 0,
+            "Wallet has unresolved fraud challenges"
+        );
 
         wallet.state = WalletState.Closed;
 

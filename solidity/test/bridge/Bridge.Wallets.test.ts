@@ -1461,6 +1461,13 @@ describe("Bridge - Wallets", () => {
         before(async () => {
           await createSnapshot()
 
+          // `closeWallet` is a smock fake whose call history lives in JS memory
+          // and is shared across suites through the cached bridge fixture.
+          // Reset it before the transaction under test so the `calledOnceWith`
+          // assertion below counts only this call and cannot be tripped by a
+          // `closeWallet` call leaked from an earlier suite.
+          walletRegistry.closeWallet.reset()
+
           await increaseTime(
             (
               await bridge.walletParameters()
