@@ -280,7 +280,6 @@ contract L2WormholeGateway is
         bytes calldata payload
     ) external payable nonReentrant returns (uint64) {
         bytes32 gateway = gateways[recipientNativeChain];
-        require(gateway != DISABLED_GATEWAY, "Gateway disabled");
         require(
             gateway == bytes32(0),
             "No Wormhole tBTC gateway on the native chain"

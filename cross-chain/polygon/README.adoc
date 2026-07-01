@@ -26,8 +26,11 @@ ownership is transferred. For existing live deployments where gateway ownership
 has already been transferred, governance must execute the equivalent
 `updateMintingLimit(0)` and `updateGatewayAddress(..., DISABLED_GATEWAY())`
 calls on the EVM gateway contracts after those contracts are upgraded. The
-Solana cleanup script refuses to clear the Polygon peer unless the deployed
-program data matches the locally built program containing the zero-gateway send
+EVM mapping scripts skip the gateway block if the deployed gateway is not
+upgraded with `DISABLED_GATEWAY()` support yet; set
+`REQUIRE_DISABLED_GATEWAY_SUPPORT=true` to make that precondition fatal for a
+deprecation-specific run. The Solana cleanup script refuses to clear the
+Polygon peer unless the deployed Anchor IDL contains the zero-gateway send
 guard.
 
 For historical context, this package originally brought Bitcoin to Polygon via
