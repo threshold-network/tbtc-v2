@@ -2,25 +2,29 @@ import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import type { DeployFunction } from "hardhat-deploy/types"
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
-  const { deployments, getNamedAccounts, ethers } = hre
-  const { execute } = deployments
+  const { deployments, getNamedAccounts } = hre
+  const { execute, read } = deployments
   const { deployer } = await getNamedAccounts()
 
   // This ID is valid for both Polygon Goerli-based Testnet (Mumbai) and
   // Mainnet. Wormhole does not support the Sepolia-based Amoy Testnet yet.
   // TODO: Update the ID once the support is added.
   const polygonWormholeChainID = 5
+  const disabledGateway = await read(
+    "ArbitrumWormholeGateway",
+    "DISABLED_GATEWAY"
+  )
 
   await execute(
     "ArbitrumWormholeGateway",
     { from: deployer, log: true, waitConfirmations: 1 },
     "updateGatewayAddress",
     polygonWormholeChainID,
-    ethers.constants.HashZero
+    disabledGateway
   )
 }
 
 export default func
 
-func.tags = ["ClearPolygonGatewayAddress"]
+func.tags = ["BlockPolygonGatewayAddress"]
 func.dependencies = ["ArbitrumWormholeGateway"]

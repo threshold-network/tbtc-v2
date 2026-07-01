@@ -2,8 +2,8 @@ import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import type { DeployFunction } from "hardhat-deploy/types"
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
-  const { deployments, getNamedAccounts, ethers } = hre
-  const { execute } = deployments
+  const { deployments, getNamedAccounts } = hre
+  const { execute, read } = deployments
   const { deployer } = await getNamedAccounts()
 
   // See https://docs.wormhole.com/wormhole/blockchain-environments/evm#polygon
@@ -11,17 +11,21 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // Mainnet. Wormhole does not support the Sepolia-based Amoy Testnet yet.
   // TODO: Update the ID once the support is added.
   const polygonWormholeChainID = 5
+  const disabledGateway = await read(
+    "OptimismWormholeGateway",
+    "DISABLED_GATEWAY"
+  )
 
   await execute(
     "OptimismWormholeGateway",
     { from: deployer, log: true, waitConfirmations: 1 },
     "updateGatewayAddress",
     polygonWormholeChainID,
-    ethers.constants.HashZero
+    disabledGateway
   )
 }
 
 export default func
 
-func.tags = ["ClearPolygonGatewayAddress"]
+func.tags = ["BlockPolygonGatewayAddress"]
 func.dependencies = ["OptimismWormholeGateway"]
