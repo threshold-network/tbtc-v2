@@ -524,11 +524,16 @@ library Wallets {
             walletState == Wallets.WalletState.MovingFunds
         ) {
             // Slash the wallet operators and reward the notifier.
-            // Scheme-aware routing: ECDSA wallets call the ECDSA
-            // registry directly (unchanged); FROST wallets dispatch
-            // through the lifecycle router.
-            if (self.slashingActive) {
-                if (wallet.ecdsaWalletID != bytes32(0)) {
+            // Scheme-aware routing. For ECDSA wallets the registry `seize` is
+            // economic token seizure — inert while no T is staked, so it is
+            // gated behind `slashingActive`. For FROST wallets the router
+            // `seize` is an event-only misbehavior report
+            // (FrostAllowlist.reportMaliciousBehavior emits
+            // `MaliciousBehaviorIdentified` for DAO-managed operator
+            // enforcement) with no economic effect, so it must fire regardless
+            // of `slashingActive`.
+            if (wallet.ecdsaWalletID != bytes32(0)) {
+                if (self.slashingActive) {
                     self.ecdsaWalletRegistry.seize(
                         self.redemptionTimeoutSlashingAmount,
                         self.redemptionTimeoutNotifierRewardMultiplier,
@@ -536,15 +541,15 @@ library Wallets {
                         wallet.ecdsaWalletID,
                         walletMembersIDs
                     );
-                } else {
-                    IBridgeLifecycleRouter(self.lifecycleRouter).seize(
-                        walletPubKeyHash,
-                        self.redemptionTimeoutSlashingAmount,
-                        self.redemptionTimeoutNotifierRewardMultiplier,
-                        msg.sender,
-                        walletMembersIDs
-                    );
                 }
+            } else {
+                IBridgeLifecycleRouter(self.lifecycleRouter).seize(
+                    walletPubKeyHash,
+                    self.redemptionTimeoutSlashingAmount,
+                    self.redemptionTimeoutNotifierRewardMultiplier,
+                    msg.sender,
+                    walletMembersIDs
+                );
             }
         }
 
@@ -749,8 +754,12 @@ library Wallets {
             "Wallet must be in MovingFunds state"
         );
 
-        if (self.slashingActive) {
-            if (wallet.ecdsaWalletID != bytes32(0)) {
+        // Scheme-aware routing: ECDSA economic seize is gated behind
+        // `slashingActive`; the FROST router `seize` is an event-only
+        // misbehavior report and fires regardless (see
+        // notifyWalletRedemptionTimeout).
+        if (wallet.ecdsaWalletID != bytes32(0)) {
+            if (self.slashingActive) {
                 self.ecdsaWalletRegistry.seize(
                     self.movingFundsTimeoutSlashingAmount,
                     self.movingFundsTimeoutNotifierRewardMultiplier,
@@ -758,15 +767,15 @@ library Wallets {
                     wallet.ecdsaWalletID,
                     walletMembersIDs
                 );
-            } else {
-                IBridgeLifecycleRouter(self.lifecycleRouter).seize(
-                    walletPubKeyHash,
-                    self.movingFundsTimeoutSlashingAmount,
-                    self.movingFundsTimeoutNotifierRewardMultiplier,
-                    msg.sender,
-                    walletMembersIDs
-                );
             }
+        } else {
+            IBridgeLifecycleRouter(self.lifecycleRouter).seize(
+                walletPubKeyHash,
+                self.movingFundsTimeoutSlashingAmount,
+                self.movingFundsTimeoutNotifierRewardMultiplier,
+                msg.sender,
+                walletMembersIDs
+            );
         }
 
         terminateWallet(self, walletPubKeyHash);
@@ -800,8 +809,12 @@ library Wallets {
             walletState == Wallets.WalletState.Live ||
             walletState == Wallets.WalletState.MovingFunds
         ) {
-            if (self.slashingActive) {
-                if (wallet.ecdsaWalletID != bytes32(0)) {
+            // Scheme-aware routing: ECDSA economic seize is gated behind
+            // `slashingActive`; the FROST router `seize` is an event-only
+            // misbehavior report and fires regardless (see
+            // notifyWalletRedemptionTimeout).
+            if (wallet.ecdsaWalletID != bytes32(0)) {
+                if (self.slashingActive) {
                     self.ecdsaWalletRegistry.seize(
                         self.movedFundsSweepTimeoutSlashingAmount,
                         self.movedFundsSweepTimeoutNotifierRewardMultiplier,
@@ -809,15 +822,15 @@ library Wallets {
                         wallet.ecdsaWalletID,
                         walletMembersIDs
                     );
-                } else {
-                    IBridgeLifecycleRouter(self.lifecycleRouter).seize(
-                        walletPubKeyHash,
-                        self.movedFundsSweepTimeoutSlashingAmount,
-                        self.movedFundsSweepTimeoutNotifierRewardMultiplier,
-                        msg.sender,
-                        walletMembersIDs
-                    );
                 }
+            } else {
+                IBridgeLifecycleRouter(self.lifecycleRouter).seize(
+                    walletPubKeyHash,
+                    self.movedFundsSweepTimeoutSlashingAmount,
+                    self.movedFundsSweepTimeoutNotifierRewardMultiplier,
+                    msg.sender,
+                    walletMembersIDs
+                );
             }
 
             terminateWallet(self, walletPubKeyHash);
@@ -850,8 +863,12 @@ library Wallets {
             walletState == Wallets.WalletState.MovingFunds ||
             walletState == Wallets.WalletState.Closing
         ) {
-            if (self.slashingActive) {
-                if (wallet.ecdsaWalletID != bytes32(0)) {
+            // Scheme-aware routing: ECDSA economic seize is gated behind
+            // `slashingActive`; the FROST router `seize` is an event-only
+            // misbehavior report and fires regardless (see
+            // notifyWalletRedemptionTimeout).
+            if (wallet.ecdsaWalletID != bytes32(0)) {
+                if (self.slashingActive) {
                     self.ecdsaWalletRegistry.seize(
                         self.fraudSlashingAmount,
                         self.fraudNotifierRewardMultiplier,
@@ -859,15 +876,15 @@ library Wallets {
                         wallet.ecdsaWalletID,
                         walletMembersIDs
                     );
-                } else {
-                    IBridgeLifecycleRouter(self.lifecycleRouter).seize(
-                        walletPubKeyHash,
-                        self.fraudSlashingAmount,
-                        self.fraudNotifierRewardMultiplier,
-                        challenger,
-                        walletMembersIDs
-                    );
                 }
+            } else {
+                IBridgeLifecycleRouter(self.lifecycleRouter).seize(
+                    walletPubKeyHash,
+                    self.fraudSlashingAmount,
+                    self.fraudNotifierRewardMultiplier,
+                    challenger,
+                    walletMembersIDs
+                );
             }
 
             terminateWallet(self, walletPubKeyHash);
