@@ -489,8 +489,23 @@ library Wallets {
     ///        supposed to sweep funds.
     /// @param walletMembersIDs Identifiers of the wallet signing group members.
     /// @dev Requirements:
-    ///      - The wallet must be in the `Live`, `MovingFunds`,
-    ///        or `Terminated` state.
+    ///      - The wallet must be in the `Live`, `MovingFunds`, `Closing`,
+    ///        `Closed`, or `Terminated` state.
+    ///
+    ///      A moved-funds sweep request is committed and registered against a
+    ///      target wallet while that wallet is `Live`, but the target can move
+    ///      to `Closing` or `Closed` before the sweep completes. Accepting
+    ///      those states here lets the timeout clear the otherwise-stuck sweep
+    ///      request instead of reverting. Only `Live` and `MovingFunds` wallets
+    ///      can still submit the sweep proof (see
+    ///      `MovingFunds.resolveMovedFundsSweepingWallet`), so only they are
+    ///      slashed and terminated for missing it. A `Closing` wallet cannot
+    ///      submit the proof — the transition to `Closing` is permissionless
+    ///      (`notifyWalletCloseable`) and can be forced on a target before its
+    ///      sweep window elapses — so slashing it would punish an action it
+    ///      structurally cannot perform. Like `Closed` and `Terminated`, a
+    ///      `Closing` wallet therefore has its request simply cleared by the
+    ///      caller without slashing.
     function notifyWalletMovedFundsSweepTimeout(
         BridgeState.Storage storage self,
         bytes20 walletPubKeyHash,
@@ -502,8 +517,10 @@ library Wallets {
         require(
             walletState == WalletState.Live ||
                 walletState == WalletState.MovingFunds ||
+                walletState == WalletState.Closing ||
+                walletState == WalletState.Closed ||
                 walletState == WalletState.Terminated,
-            "Wallet must be in Live or MovingFunds or Terminated state"
+            "Wallet must be in Live or MovingFunds or Closing or Closed or Terminated state"
         );
 
         if (

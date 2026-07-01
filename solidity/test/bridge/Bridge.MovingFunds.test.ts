@@ -3993,59 +3993,150 @@ describe("Bridge - Moving funds", () => {
           })
         })
 
-        context(
-          "when the wallet is neither in the Live nor MovingFunds nor Terminated state",
-          () => {
-            const testData = [
-              {
-                testName: "when the wallet is in the Unknown state",
-                walletState: walletState.Unknown,
-              },
-              {
-                testName: "when the wallet is in the Closing state",
-                walletState: walletState.Closing,
-              },
-              {
-                testName: "when the wallet is in the Closed state",
-                walletState: walletState.Closed,
-              },
-            ]
+        context("when the wallet is in the Closing state", () => {
+          let tx: ContractTransaction
 
-            testData.forEach((test) => {
-              context(test.testName, async () => {
-                before(async () => {
-                  await createSnapshot()
+          before(async () => {
+            await createSnapshot()
 
-                  await bridge.setWallet(
-                    movedFundsSweepRequest.walletPubKeyHash,
-                    {
-                      ...(await bridge.wallets(
-                        movedFundsSweepRequest.walletPubKeyHash
-                      )),
-                      state: test.walletState,
-                    }
-                  )
-                })
-
-                after(async () => {
-                  await restoreSnapshot()
-                })
-
-                it("should revert", async () => {
-                  await expect(
-                    bridge.notifyMovedFundsSweepTimeout(
-                      movedFundsSweepRequest.txHash,
-                      movedFundsSweepRequest.txOutputIndex,
-                      walletMembersIDs
-                    )
-                  ).to.be.revertedWith(
-                    "Wallet must be in Live or MovingFunds or Terminated state"
-                  )
-                })
-              })
+            await bridge.setWallet(movedFundsSweepRequest.walletPubKeyHash, {
+              ...(await bridge.wallets(
+                movedFundsSweepRequest.walletPubKeyHash
+              )),
+              state: walletState.Closing,
             })
-          }
-        )
+
+            tx = await bridge
+              .connect(thirdParty)
+              .notifyMovedFundsSweepTimeout(
+                movedFundsSweepRequest.txHash,
+                movedFundsSweepRequest.txOutputIndex,
+                walletMembersIDs
+              )
+          })
+
+          after(async () => {
+            await restoreSnapshot()
+          })
+
+          it("should switch the moved funds sweep request to the TimedOut state", async () => {
+            const requestKey = ethers.utils.solidityKeccak256(
+              ["bytes32", "uint32"],
+              [
+                movedFundsSweepRequest.txHash,
+                movedFundsSweepRequest.txOutputIndex,
+              ]
+            )
+
+            expect(
+              (await bridge.movedFundsSweepRequests(requestKey)).state
+            ).to.be.equal(movedFundsSweepRequestState.TimedOut)
+          })
+
+          it("should decrease the number of pending moved funds sweep requests for the given wallet", async () =>
+            expect(
+              (await bridge.wallets(movedFundsSweepRequest.walletPubKeyHash))
+                .pendingMovedFundsSweepRequestsCount
+            ).to.be.equal(0))
+
+          it("should not slash or change the wallet state", async () => {
+            // A Closing wallet cannot submit the sweep proof, and the
+            // transition to Closing is permissionless, so slashing it would
+            // punish an action it structurally cannot perform. The request is
+            // cleared without slashing and the state stays Closing.
+            expect(
+              (await bridge.wallets(movedFundsSweepRequest.walletPubKeyHash))
+                .state
+            ).to.be.equal(walletState.Closing)
+            await expect(tx).to.not.emit(bridge, "WalletTerminated")
+          })
+        })
+
+        context("when the wallet is in the Closed state", () => {
+          let tx: ContractTransaction
+
+          before(async () => {
+            await createSnapshot()
+
+            await bridge.setWallet(movedFundsSweepRequest.walletPubKeyHash, {
+              ...(await bridge.wallets(
+                movedFundsSweepRequest.walletPubKeyHash
+              )),
+              state: walletState.Closed,
+            })
+
+            tx = await bridge
+              .connect(thirdParty)
+              .notifyMovedFundsSweepTimeout(
+                movedFundsSweepRequest.txHash,
+                movedFundsSweepRequest.txOutputIndex,
+                walletMembersIDs
+              )
+          })
+
+          after(async () => {
+            await restoreSnapshot()
+          })
+
+          it("should switch the moved funds sweep request to the TimedOut state", async () => {
+            const requestKey = ethers.utils.solidityKeccak256(
+              ["bytes32", "uint32"],
+              [
+                movedFundsSweepRequest.txHash,
+                movedFundsSweepRequest.txOutputIndex,
+              ]
+            )
+
+            expect(
+              (await bridge.movedFundsSweepRequests(requestKey)).state
+            ).to.be.equal(movedFundsSweepRequestState.TimedOut)
+          })
+
+          it("should decrease the number of pending moved funds sweep requests for the given wallet", async () =>
+            expect(
+              (await bridge.wallets(movedFundsSweepRequest.walletPubKeyHash))
+                .pendingMovedFundsSweepRequestsCount
+            ).to.be.equal(0))
+
+          it("should not slash or change the wallet state", async () => {
+            // A Closed wallet has no ECDSA registry metadata to seize, so the
+            // request is cleared without slashing and the state is unchanged.
+            expect(
+              (await bridge.wallets(movedFundsSweepRequest.walletPubKeyHash))
+                .state
+            ).to.be.equal(walletState.Closed)
+            await expect(tx).to.not.emit(bridge, "WalletTerminated")
+          })
+        })
+
+        context("when the wallet is in the Unknown state", () => {
+          before(async () => {
+            await createSnapshot()
+
+            await bridge.setWallet(movedFundsSweepRequest.walletPubKeyHash, {
+              ...(await bridge.wallets(
+                movedFundsSweepRequest.walletPubKeyHash
+              )),
+              state: walletState.Unknown,
+            })
+          })
+
+          after(async () => {
+            await restoreSnapshot()
+          })
+
+          it("should revert", async () => {
+            await expect(
+              bridge.notifyMovedFundsSweepTimeout(
+                movedFundsSweepRequest.txHash,
+                movedFundsSweepRequest.txOutputIndex,
+                walletMembersIDs
+              )
+            ).to.be.revertedWith(
+              "Wallet must be in Live or MovingFunds or Closing or Closed or Terminated state"
+            )
+          })
+        })
       })
 
       context("when moved funds sweep request has not timed out yet", () => {
