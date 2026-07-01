@@ -262,4 +262,24 @@ describe("Deploy Script 86: TIP-109 Hotfix", () => {
     expect(capturedSummary.reusedContracts).to.not.have.property("DepositSweep")
     expect(capturedSummary.libraries.Fraud).to.equal(FRAUD_HOTFIX_ADDRESS)
   })
+
+  it("does not persist executable seedFraudChallengeEscrow calldata in postUpgradeActions", async () => {
+    await runScript()
+
+    expect(capturedSummary).to.not.equal(undefined)
+    const seedAction = capturedSummary.postUpgradeActions.find(
+      (action: any) => action.function === "seedFraudChallengeEscrow(uint256)"
+    )
+    expect(seedAction, "seed action").to.not.equal(undefined)
+
+    // No executable calldata is persisted; the operator must recompute the
+    // open escrow immediately before executing the seed action.
+    expect(seedAction).to.not.have.property("data")
+    expect(seedAction.requiresRecomputation).to.equal(true)
+
+    // The precomputed value is retained only as a clearly-labeled reference.
+    expect(seedAction.eventScan).to.not.have.property("openEscrowWei")
+    expect(seedAction.eventScan).to.have.property("referenceOpenEscrowWei")
+    expect(seedAction.eventScan).to.have.property("fromBlock")
+  })
 })

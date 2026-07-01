@@ -410,14 +410,28 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log(`    Proxy: ${Bridge.address}`)
   console.log(`    New impl: ${bridgeImpl.address}`)
 
-  const seedEscrowCalldata =
+  // The executable seed calldata is intentionally NOT precomputed and saved.
+  // The open pre-upgrade fraud-challenge escrow can grow between this script's
+  // run and the post-upgrade seed execution, because new pre-upgrade challenges
+  // can still be opened during the governance timelock delay. Persisting a
+  // fixed value would let a stale, under-counted seed be executed, which
+  // understates `openFraudChallengeEscrow`, exposes challenger deposits to
+  // `recoverETH`, and can underflow later challenge resolution.
+  const referenceSeedCalldata =
     encodeSeedFraudChallengeEscrow(preUpgradeOpenEscrow)
-  console.log("\n  Council Safe Action: seedFraudChallengeEscrow")
+  console.log(
+    "\n  Council Safe Action: seedFraudChallengeEscrow (RECOMPUTE REQUIRED)"
+  )
   console.log(`    Target: BridgeGovernance (${BridgeGovernance.address})`)
-  console.log(`    Calldata: ${seedEscrowCalldata}`)
-  console.log(`    Selector: ${seedEscrowCalldata.slice(0, 10)}`)
-  console.log(`    Current seed: ${preUpgradeOpenEscrow.toString()} wei`)
-  console.log(`    Event scan: blocks ${fraudScanFromBlock}..${latestBlock}`)
+  console.log("    Recompute the open escrow immediately before execution and")
+  console.log("    encode seedFraudChallengeEscrow with that fresh value.")
+  console.log(
+    `    Reference-only calldata (DO NOT EXECUTE AS-IS): ${referenceSeedCalldata}`
+  )
+  console.log(
+    `    Reference-only seed: ${preUpgradeOpenEscrow.toString()} wei ` +
+      `(scanned blocks ${fraudScanFromBlock}..${latestBlock})`
+  )
 
   // --- Step 9: Save deployment summary JSON ---
   const chainId = await hre.getChainId()
@@ -468,14 +482,23 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     postUpgradeActions: [
       {
         target: BridgeGovernance.address,
-        data: seedEscrowCalldata,
+        // Executable calldata is intentionally omitted so a stale, precomputed
+        // seed value cannot be copied into the Council Safe action. The seed
+        // must be recomputed immediately before execution (see below) and the
+        // calldata encoded from the freshly computed open escrow at that time.
+        function: "seedFraudChallengeEscrow(uint256)",
+        requiresRecomputation: true,
         value: 0,
         description:
-          "Seed Bridge fraud challenge escrow after recomputing the current open pre-upgrade escrow",
+          "Recompute the open pre-upgrade fraud challenge escrow immediately " +
+          "before execution by scanning fraud challenge events from " +
+          "`eventScan.fromBlock` to the current chain head, then encode " +
+          "seedFraudChallengeEscrow with that value. Do not reuse the " +
+          "reference values below.",
         eventScan: {
           fromBlock: fraudScanFromBlock,
-          toBlock: latestBlock,
-          openEscrowWei: preUpgradeOpenEscrow.toString(),
+          referenceToBlock: latestBlock,
+          referenceOpenEscrowWei: preUpgradeOpenEscrow.toString(),
         },
       },
     ],
