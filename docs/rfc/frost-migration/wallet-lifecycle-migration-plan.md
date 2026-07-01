@@ -78,15 +78,18 @@ invariants. Current slot order:
 | 34          | `p2trFraudRouter`                                                                                               | #436 / #971       |
 | 35          | `lifecycleRouter`                                                                                               | #434 / #971       |
 | 36          | `walletIDByWalletPubKeyHash` (mapping)                                                                          | #434 / #971       |
-| 37 (packed) | `currentNewWalletScheme` (enum @ off 0) + `ecdsaWalletCount` (uint128 @ off 1) + `ecdsaRetired` (bool @ off 17) | #439 / D-1 / #971 |
+| 37 (packed) | `currentNewWalletScheme` (enum @ off 0) + `ecdsaWalletCount` (uint128 @ off 1) + `ecdsaRetired` (bool @ off 17) + `slashingActive` (bool @ off 18) | #439 / D-1 / #971 / #1002 |
 | 38+         | `__gap` (uint256[40])                                                                                           | —                 |
 
 `EXPECTED_RESERVED_TOTAL` is pinned by the storage-layout test
 (BridgeState's own header carries the rationale: "more slots as
-there are planned upgrades"). The pinned total moves from 104 →
+there are planned upgrades"). The pinned total moved from 104 →
 **106** with the canonical mirror because the packed scheme/counter/
 retirement fields share one slot (each counts as one explicit member;
-`__gap` decrements by 1, net +2 to the total).
+`__gap` decrements by 1, net +2 to the total). The slashing-active
+gate then appends `slashingActive` (bool) into the same packed slot 37
+without taking a new slot or decrementing `__gap`, moving the pinned
+total to **107** (#1002).
 
 The authoritative source is the generated storage snapshot, not this
 table. Any future storage-layout doc update must be checked against
