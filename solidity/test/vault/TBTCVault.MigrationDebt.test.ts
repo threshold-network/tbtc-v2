@@ -278,6 +278,38 @@ describe("TBTCVault - MigrationDebt", () => {
     expect(await notifier.notificationCount()).to.equal(0)
   })
 
+  it("does not complete a migration sweep for a regular-deposit (zero-address) revealer slot", async () => {
+    const sweepTxHash = ethers.utils.keccak256(
+      ethers.utils.toUtf8Bytes("regular-deposit-sweep")
+    )
+
+    await vault.setMigrationSweepNotifier(notifier.address)
+    await vault.setMigrationRevealer(revealer.address, true)
+    await vault.setMigrationSweepReserve(revealer.address, reserve.address)
+    await vault.registerMigrationDebt(
+      revealer.address,
+      SATOSHI_MULTIPLIER.mul(3)
+    )
+
+    // A regular deposit by the revealer repays their migration debt, setting
+    // the pending completion flag.
+    await bank.increaseBalanceAndCall(vault.address, [revealer.address], [3])
+
+    // DepositSweep populates the migration revealer slot only for
+    // migration-tagged deposits, leaving regular-deposit slots as the zero
+    // address. A regular sweep therefore drives the callback with a zero
+    // address, which must not send a migration completion notification.
+    await vault.notifyPendingMigrationSweep(sweepTxHash, [
+      ethers.constants.AddressZero,
+    ])
+    expect(await notifier.notificationCount()).to.equal(0)
+
+    // The genuine migration revealer address still completes the sweep.
+    await vault.notifyPendingMigrationSweep(sweepTxHash, [revealer.address])
+    expect(await notifier.notificationCount()).to.equal(1)
+    expect(await notifier.lastReserve()).to.equal(reserve.address)
+  })
+
   it("does not queue a migration completion when a notifier is set but no reserve is configured", async () => {
     const sweepSats = 6
     const sweepTxHash = ethers.utils.keccak256(
