@@ -7,20 +7,25 @@ pragma solidity 0.8.17;
 ///
 /// The Bridge dispatches FROST-scheme wallet lifecycle operations
 /// (closeWallet, seize, isWalletMember) to a router implementing this
-/// interface. The router resolves the wallet's canonical walletID from
-/// the Bridge's `walletIDByWalletPubKeyHash` mapping and forwards the
-/// call to the configured `frostWalletRegistry`. ECDSA-scheme lifecycle
+/// interface. The router resolves the configured FROST wallet registry
+/// address and the wallet's canonical walletID from the Bridge's
+/// `frostLifecycleContext(walletPubKeyHash)` view and forwards the call
+/// to that registry. ECDSA-scheme lifecycle
 /// operations bypass the router entirely and continue to call
 /// `ecdsaWalletRegistry` directly, preserving the existing
 /// ownership/callback model for ECDSA wallets.
 ///
 /// The Bridge passes only the 20-byte wallet public key hash to the
 /// router; the router reads the rest of the lifecycle state from the
-/// Bridge via its public view functions (lifecycleRouter,
-/// frostWalletRegistry, walletIDByWalletPubKeyHash). This keeps the
-/// per-call-site Bridge bytecode footprint minimal (one external call
-/// with one argument) at the cost of one cross-contract view per
-/// dispatch.
+/// Bridge's single `frostLifecycleContext(walletPubKeyHash)` view,
+/// which returns the configured `frostWalletRegistry` address and the
+/// canonical walletID in one call. The Bridge does not expose separate
+/// `lifecycleRouter`, `frostWalletRegistry`, or
+/// `walletIDByWalletPubKeyHash` getters; folding them into
+/// `frostLifecycleContext` keeps the Bridge implementation under the
+/// EIP-170 deploy limit. This keeps the per-call-site Bridge bytecode
+/// footprint minimal (one external call with one argument) at the cost
+/// of one cross-contract view per dispatch.
 ///
 /// The router is stateless and immutable. `Bridge.setLifecycleRouter`
 /// is a one-time setter that reverts once a router has been set, so the
