@@ -34,6 +34,17 @@ contract MockNttManagerWithExecutor {
 
     mapping(bytes => bool) public validSignedQuotes;
 
+    address public lastNttManager;
+    uint256 public lastAmount;
+    uint16 public lastRecipientChain;
+    bytes32 public lastRecipientAddress;
+    bytes32 public lastRefundAddress;
+    bytes public lastEncodedInstructions;
+    uint256 public lastExecutorValue;
+    uint16 public lastFeeDbps;
+    address public lastFeePayee;
+    uint256 public lastMsgValue;
+
     // Mock events to match real implementation
     event MockTransferExecuted(
         uint64 indexed msgId,
@@ -56,12 +67,12 @@ contract MockNttManagerWithExecutor {
 
     /// @notice Mock implementation of transfer matching real NttManagerWithExecutor
     function transfer(
-        address, /* nttManager */
+        address nttManager,
         uint256 amount,
         uint16 recipientChain,
         bytes32 recipientAddress,
-        bytes32, /* refundAddress */
-        bytes memory, /* encodedInstructions */
+        bytes32 refundAddress,
+        bytes memory encodedInstructions,
         ExecutorArgs calldata executorArgs,
         FeeArgs calldata feeArgs
     ) external payable returns (uint64 msgId) {
@@ -73,6 +84,16 @@ contract MockNttManagerWithExecutor {
         require(executorArgs.signedQuote.length > 0, "Empty signed quote");
 
         msgId = nextMsgId++;
+        lastNttManager = nttManager;
+        lastAmount = amount;
+        lastRecipientChain = recipientChain;
+        lastRecipientAddress = recipientAddress;
+        lastRefundAddress = refundAddress;
+        lastEncodedInstructions = encodedInstructions;
+        lastExecutorValue = executorArgs.value;
+        lastFeeDbps = feeArgs.dbps;
+        lastFeePayee = feeArgs.payee;
+        lastMsgValue = msg.value;
 
         // Mock fee calculation (simplified)
         uint256 fee = calculateFee(amount, feeArgs.dbps);
@@ -98,9 +119,9 @@ contract MockNttManagerWithExecutor {
 
     /// @notice Mock implementation of quoteDeliveryPrice matching real implementation
     function quoteDeliveryPrice(
-        address, /* nttManager */
+        address /* nttManager */,
         uint16 recipientChain,
-        bytes memory, /* encodedInstructions */
+        bytes memory /* encodedInstructions */,
         ExecutorArgs calldata executorArgs,
         FeeArgs calldata /* feeArgs */
     ) external view returns (uint256 totalCost) {
@@ -140,11 +161,10 @@ contract MockNttManagerWithExecutor {
     }
 
     /// @notice Calculate fee matching real implementation
-    function calculateFee(uint256 amount, uint16 dbps)
-        public
-        pure
-        returns (uint256 fee)
-    {
+    function calculateFee(
+        uint256 amount,
+        uint16 dbps
+    ) public pure returns (uint256 fee) {
         unchecked {
             uint256 q = amount / 100000;
             uint256 r = amount % 100000;

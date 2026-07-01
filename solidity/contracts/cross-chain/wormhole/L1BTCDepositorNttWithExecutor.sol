@@ -19,7 +19,6 @@ import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 
 import "../AbstractL1BTCDepositor.sol";
-import "./TransceiverStructs.sol";
 
 /// @notice Executor arguments for NttManagerWithExecutor transfers
 /// @dev These parameters are used by the Wormhole Executor service
@@ -139,11 +138,8 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @dev This is passed to the NttManagerWithExecutor during transfers
     address public underlyingNttManager;
 
-    /// @notice Mapping of supported destination chains by Wormhole chain ID
-    mapping(uint16 => bool) public supportedChains;
-
-    /// @notice Default supported chain ID for backward compatibility
-    uint16 public defaultSupportedChain;
+    /// @notice Wormhole chain ID of the configured destination chain.
+    uint16 public destinationChainId;
 
     /// @notice Default gas limit for destination chain execution
     /// @dev Used when no specific gas limit is provided in relay instructions
@@ -206,26 +202,20 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @notice Emitted when tokens are transferred via NTT Manager With Executor
     /// @param amount Amount of tBTC transferred
     /// @param destinationChain Wormhole chain ID of the destination
-    /// @param actualRecipient Actual recipient address on destination chain
+    /// @param recipient Recipient address on destination chain
     /// @param transferSequence NTT transfer sequence number
-    /// @param encodedReceiver Original encoded receiver data
+    /// @param destinationChainDepositOwner Original deposit extra data
     /// @param executorCost Cost paid to executor service in wei
     event TokensTransferredNttWithExecutor(
         address indexed sender,
         bytes32 indexed nonce,
         uint256 amount,
         uint16 destinationChain,
-        bytes32 actualRecipient,
+        bytes32 recipient,
         uint64 transferSequence,
-        bytes32 encodedReceiver,
+        bytes32 destinationChainDepositOwner,
         uint256 executorCost
     );
-
-    /// @notice Emitted when a destination chain is added or removed
-    event SupportedChainUpdated(uint16 indexed chainId, bool supported);
-
-    /// @notice Emitted when default supported chain is updated
-    event DefaultSupportedChainUpdated(uint16 indexed chainId);
 
     /// @notice Emitted when default parameters are updated
     event DefaultParametersUpdated(
@@ -274,11 +264,13 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @param _tbtcVault tBTC Vault contract address
     /// @param _nttManagerWithExecutor NTT Manager With Executor contract address
     /// @param _underlyingNttManager Underlying NTT Manager contract address
+    /// @param _destinationChainId Wormhole chain ID of the destination chain
     function initialize(
         address _tbtcBridge,
         address _tbtcVault,
         address _nttManagerWithExecutor,
-        address _underlyingNttManager
+        address _underlyingNttManager,
+        uint16 _destinationChainId
     ) external initializer {
         __AbstractL1BTCDepositor_initialize(_tbtcBridge, _tbtcVault);
         __Ownable_init();
@@ -291,41 +283,19 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
             _underlyingNttManager != address(0),
             "Underlying NTT Manager address cannot be zero"
         );
+        require(_destinationChainId != 0, "Chain ID cannot be zero");
 
         nttManagerWithExecutor = INttManagerWithExecutor(
             _nttManagerWithExecutor
         );
         underlyingNttManager = _underlyingNttManager;
+        destinationChainId = _destinationChainId;
 
         // Set reasonable defaults
         defaultDestinationGasLimit = DEFAULT_DESTINATION_GAS_LIMIT;
         defaultExecutorFeeBps = 0; // 0% executor fee by default
         defaultExecutorFeeRecipient = address(0); // No fee recipient by default
         parameterExpirationTime = 3600; // 1 hour default expiration time
-    }
-
-    /// @notice Sets the default supported chain for backward compatibility
-    /// @param _chainId Wormhole chain ID to set as default
-    function setDefaultSupportedChain(uint16 _chainId) external onlyOwner {
-        require(_chainId != 0, "Chain ID cannot be zero");
-        require(
-            supportedChains[_chainId],
-            "Chain must be supported before setting as default"
-        );
-        defaultSupportedChain = _chainId;
-        emit DefaultSupportedChainUpdated(_chainId);
-    }
-
-    /// @notice Adds or removes support for a destination chain
-    /// @param _chainId Wormhole chain ID of the destination chain
-    /// @param _supported Whether to support transfers to this chain
-    function setSupportedChain(
-        uint16 _chainId,
-        bool _supported
-    ) external onlyOwner {
-        require(_chainId != 0, "Chain ID cannot be zero");
-        supportedChains[_chainId] = _supported;
-        emit SupportedChainUpdated(_chainId, _supported);
     }
 
     /// @notice Updates default parameters for executor transfers
@@ -607,22 +577,34 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         ExecutorParameterSet storage params = parametersByNonce[latestNonce];
         require(params.exists, "Executor parameters not set");
 
-        return params.cachedRequiredPayment;
+        return
+            nttManagerWithExecutor.quoteDeliveryPrice(
+                underlyingNttManager,
+                destinationChainId,
+                "",
+                params.executorArgs,
+                params.feeArgs
+            );
     }
 
-    /// @notice Quotes cost for specific destination chain using latest parameters
-    /// @param destinationChain Target chain ID
-    /// @return cost Total cost for the transfer
-    function quoteFinalizeDeposit(
-        uint16 destinationChain
-    ) external view returns (uint256 cost) {
+    /// @notice Quotes the underlying NTT delivery price and total cost including executor fees
+    /// @return nttDeliveryPrice The NTT delivery price from the underlying manager
+    /// @return executorCost The executor cost from the signed quote
+    /// @return totalCost The total cost (NTT + executor)
+    /// @dev This function calls the underlying NTT manager's quoteDeliveryPrice and returns
+    ///      the breakdown of costs. The caller should validate that their msg.value >= totalCost
+    function quoteFinalizedDeposit()
+        external
+        view
+        returns (
+            uint256 nttDeliveryPrice,
+            uint256 executorCost,
+            uint256 totalCost
+        )
+    {
         require(
             userNonceCounter[msg.sender] > 0,
             "Executor parameters not set"
-        );
-        require(
-            supportedChains[destinationChain],
-            "Destination chain not supported"
         );
 
         bytes32 latestNonce = _generateNonce(
@@ -633,48 +615,11 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         ExecutorParameterSet storage params = parametersByNonce[latestNonce];
         require(params.exists, "Executor parameters not set");
 
-        return
-            nttManagerWithExecutor.quoteDeliveryPrice(
-                underlyingNttManager,
-                destinationChain,
-                "",
-                params.executorArgs,
-                params.feeArgs
-            );
-    }
-
-    /// @param destinationChain The destination chain ID
-    /// @return nttDeliveryPrice The NTT delivery price
-    /// @return executorCost The executor cost (from executorArgs.value)
-    /// @return totalCost The total cost (nttDeliveryPrice + executorCost)
-    /// @dev Routes through the same formula as the finalize path for consistency.
-    ///      totalCost is derived from nttManagerWithExecutor.quoteDeliveryPrice.
-    ///      executorCost is derived from the stored executorArgs.
-    ///      nttDeliveryPrice is the difference (totalCost - executorCost).
-    function quoteFinalizedDeposit(
-        uint16 destinationChain
-    )
-        external
-        view
-        returns (
-            uint256 nttDeliveryPrice,
-            uint256 executorCost,
-            uint256 totalCost
-        )
-    {
-        require(userNonceCounter[msg.sender] > 0, "Executor parameters not set");
-        uint256 currentSequence = userNonceCounter[msg.sender];
-        require(supportedChains[destinationChain], "Destination chain not supported");
-        bytes32 latestNonce = _generateNonce(msg.sender, currentSequence - 1);
-        ExecutorParameterSet storage params = parametersByNonce[latestNonce];
-        require(params.exists, "Executor parameters not set");
-
-        totalCost = nttManagerWithExecutor.quoteDeliveryPrice(
-            underlyingNttManager,
-            destinationChain,
-            "",
-            params.executorArgs,
-            params.feeArgs
+        // Get NTT delivery price from underlying manager
+        INttManager nttManager = INttManager(underlyingNttManager);
+        (, nttDeliveryPrice) = nttManager.quoteDeliveryPrice(
+            destinationChainId,
+            "" // Empty transceiver instructions for basic transfer
         );
         executorCost = params.executorArgs.value;
         require(totalCost >= executorCost, "Total cost less than executor cost");
@@ -819,10 +764,10 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @notice Transfers tBTC using NTT Manager With Executor for automatic destination execution
     /// @dev Uses the latest executor parameters for msg.sender (auto-nonce approach)
     /// @param amount Amount of tBTC to transfer
-    /// @param destinationChainReceiver Encoded receiver data with chain ID and recipient
+    /// @param destinationChainDepositOwner Full 32-byte recipient on the destination chain
     function _transferTbtc(
         uint256 amount,
-        bytes32 destinationChainReceiver
+        bytes32 destinationChainDepositOwner
     ) internal override {
         require(
             userNonceCounter[msg.sender] > 0,
@@ -856,39 +801,37 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         // Call internal transfer with the cached parameters
         _transferTbtcWithExecutor(
             amount,
-            destinationChainReceiver,
-            cachedParams,
+            destinationChainDepositOwner,
+            params.executorArgs,
+            params.feeArgs,
             latestNonce
         );
     }
 
     /// @notice Enhanced transfer function that requires real executor parameters
     /// @param amount Amount of tBTC to transfer
-    /// @param destinationChainReceiver Encoded receiver data with chain ID and recipient
-    /// @param params The staged executor parameter set (args, fee, cached payment and chain)
+    /// @param destinationChainDepositOwner Full 32-byte recipient on the destination chain
+    /// @param executorArgs Real executor arguments with valid signed quote
+    /// @param feeArgs Fee arguments for the executor
     /// @param nonce The nonce used for this transfer
     // slither-disable-next-line reentrancy-vulnerabilities-3
     function _transferTbtcWithExecutor(
         uint256 amount,
-        bytes32 destinationChainReceiver,
-        ExecutorParameterSet memory params,
+        bytes32 destinationChainDepositOwner,
+        ExecutorArgs memory executorArgs,
+        FeeArgs memory feeArgs,
         bytes32 nonce
     ) internal {
         // External calls are to trusted contracts (tbtcToken, nttManagerWithExecutor)
         // Event emission after external calls is correct pattern
         require(amount > 0, "Amount must be greater than 0");
 
-        // Extract destination chain and recipient
-        uint16 destinationChain = _getDestinationChainFromReceiver(
-            destinationChainReceiver
+        // CRITICAL: Validate that we have a real signed quote
+        require(
+            executorArgs.signedQuote.length > 0,
+            "Real signed quote from Wormhole Executor API is required"
         );
-        bytes32 actualRecipient = _getRecipientAddressFromReceiver(
-            destinationChainReceiver
-        );
-
-        // Validate against cached parameters
-        require(destinationChain == params.cachedDestinationChain, "Executor parameters bound to default chain");
-        require(msg.value == params.cachedRequiredPayment, "Payment must exactly match executor service quote");
+        _validateSignedQuoteFormat(executorArgs.signedQuote);
 
         _validateExecutorParameters(params.feeArgs);
 
@@ -902,8 +845,8 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         uint64 sequence = nttManagerWithExecutor.transfer{value: params.cachedRequiredPayment}( // slither-disable-line reentrancy-vulnerabilities-3
             underlyingNttManager,
             amount,
-            destinationChain,
-            actualRecipient,
+            destinationChainId,
+            destinationChainDepositOwner,
             bytes32(uint256(uint160(msg.sender))), // refundAddress as bytes32
             "", // Empty transceiver instructions for basic transfer
             params.executorArgs,
@@ -914,56 +857,13 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
             msg.sender,
             nonce,
             amount,
-            destinationChain,
-            actualRecipient,
+            destinationChainId,
+            destinationChainDepositOwner,
             sequence,
-            destinationChainReceiver,
-            params.cachedRequiredPayment
+            destinationChainDepositOwner,
+            msg.value
         );
 
-    }
-
-    /// @notice Extract destination chain from encoded receiver address
-    /// @param destinationChainReceiver Encoded receiver with chain ID in first 2 bytes
-    /// @return chainId The destination chain ID
-    function _getDestinationChainFromReceiver(
-        bytes32 destinationChainReceiver
-    ) internal view returns (uint16 chainId) {
-        chainId = uint16(bytes2(destinationChainReceiver));
-
-        // CRITICAL: No fallback to default chain - user must specify valid chain
-        if (chainId == 0) {
-            revert("Chain ID cannot be zero");
-        }
-
-        if (!supportedChains[chainId]) {
-            revert("Destination chain not supported");
-        }
-
-        return chainId;
-    }
-
-    /// @notice Get the default supported chain ID
-    /// @return chainId The default supported chain ID
-    function _getDefaultSupportedChain()
-        internal
-        view
-        returns (uint16 chainId)
-    {
-        return defaultSupportedChain;
-    }
-
-    /// @notice Extract recipient address from encoded receiver data
-    /// @param destinationChainReceiver Encoded receiver data
-    /// @return recipient The recipient address (last 30 bytes, padded to 32 bytes)
-    function _getRecipientAddressFromReceiver(
-        bytes32 destinationChainReceiver
-    ) internal pure returns (bytes32 recipient) {
-        return
-            bytes32(
-                uint256(destinationChainReceiver) &
-                    0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
-            );
     }
 
     /// @notice Validates the format of a signed quote from Wormhole Executor API

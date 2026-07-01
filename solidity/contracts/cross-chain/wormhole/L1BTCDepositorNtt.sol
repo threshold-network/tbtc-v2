@@ -63,28 +63,22 @@ interface INttManager {
     ) external view returns (uint256[] memory priceQuotes, uint256 totalPrice);
 }
 
-/// @title L1BTCDepositorNtt (Enhanced Multi-Chain Version)
+/// @title L1BTCDepositorNtt
 /// @notice This contract is part of the direct bridging mechanism allowing
 ///         users to obtain native ERC20 tBTC on supported chains, without the need
 ///         to interact with the L1 tBTC ledger chain where minting occurs.
 ///         This implementation uses Wormhole's Native Token Transfer (NTT) framework
 ///         for enhanced security and Hub-and-Spoke model transfers.
 ///
-/// @dev Enhanced Multi-Chain Hub-and-Spoke Implementation:
+/// @dev Fixed-destination Hub-and-Spoke Implementation:
 ///      - This contract operates as the HUB on Ethereum Mainnet L1
 ///      - Uses "locking" mode: tokens are locked on L1 instead of burned
-///      - Spoke chains (L2s, sidechains) use "burning" mode for native tokens
+///      - The destination chain is configured once during initialization
 ///      - Enhanced security through NTT's multi-transceiver attestations
 ///      - Rate limiting and access controls provided by NTT framework
 ///      - Compatible with Bitcoin-backed tBTC minting flow on L1
-///      - ENHANCED: Supports multi-chain destination selection via address encoding
-///
-/// @dev Address Encoding Format:
-///      destinationChainReceiver: [2 bytes: Chain ID][30 bytes: Recipient Address]
-///      Examples:
-///      - 0x001e[Base address padded]    → Base (Wormhole Chain ID 30)
-///      - 0x0017[Arbitrum address padded] → Arbitrum (Wormhole Chain ID 23)
-///      - 0x0000[address]                → Default chain (backward compatibility)
+///      - The Bitcoin deposit extra data is the full 32-byte destination
+///        recipient. No chain ID is packed into the recipient.
 // slither-disable-next-line reentrancy-vulnerabilities-3
 contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
     using SafeERC20Upgradeable for IERC20Upgradeable;
@@ -93,32 +87,22 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
     /// @dev Configured in "locking" mode for L1 Hub operation
     INttManager public nttManager;
 
-    /// @notice Mapping of supported destination chains by Wormhole chain ID
-    /// @dev Only registered chains can receive transfers
-    mapping(uint16 => bool) public supportedChains;
-
-    /// @notice Default supported chain ID for backward compatibility
-    /// @dev Used when no specific chain ID is encoded in receiver address
-    uint16 public defaultSupportedChain;
+    /// @notice Wormhole chain ID of the configured destination chain.
+    uint16 public destinationChainId;
 
     /// @notice Emitted when tokens are transferred via NTT Hub-and-Spoke framework
     /// @param amount Amount of tBTC transferred and locked on L1
     /// @param destinationChain Wormhole chain ID of the destination
-    /// @param actualRecipient Actual recipient address on destination chain (cleaned)
+    /// @param recipient Recipient address on destination chain
     /// @param transferSequence NTT transfer sequence number for tracking
-    /// @param encodedReceiver Original encoded receiver data with chain ID
+    /// @param destinationChainDepositOwner Original deposit extra data
     event TokensTransferredNTT(
         uint256 amount,
         uint16 destinationChain,
-        bytes32 actualRecipient,
+        bytes32 recipient,
         uint64 transferSequence,
-        bytes32 encodedReceiver
+        bytes32 destinationChainDepositOwner
     );
-
-    /// @notice Emitted when a destination chain is added or removed from supported chains
-    /// @param chainId Wormhole chain ID
-    /// @param supported Whether the chain is supported
-    event SupportedChainUpdated(uint16 indexed chainId, bool supported);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -129,11 +113,13 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
     /// @param _tbtcBridge tBTC Bridge contract address
     /// @param _tbtcVault tBTC Vault contract address
     /// @param _nttManager NTT Manager contract address (configured in locking mode)
+    /// @param _destinationChainId Wormhole chain ID of the destination chain
     /// @dev The NTT Manager must be deployed and configured in "locking" mode before initializing
     function initialize(
         address _tbtcBridge,
         address _tbtcVault,
-        address _nttManager
+        address _nttManager,
+        uint16 _destinationChainId
     ) external initializer {
         __AbstractL1BTCDepositor_initialize(_tbtcBridge, _tbtcVault);
         __Ownable_init();
@@ -142,21 +128,10 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
             _nttManager != address(0),
             "NTT Manager address cannot be zero"
         );
+        require(_destinationChainId != 0, "Chain ID cannot be zero");
 
         nttManager = INttManager(_nttManager);
-    }
-
-    /// @notice Sets the default supported chain for backward compatibility
-    /// @param _chainId Wormhole chain ID to set as default
-    /// @dev Only callable by contract owner
-    function setDefaultSupportedChain(uint16 _chainId) external onlyOwner {
-        require(_chainId != 0, "Chain ID cannot be zero");
-        require(
-            supportedChains[_chainId],
-            "Chain must be supported before setting as default"
-        );
-        defaultSupportedChain = _chainId;
-        emit DefaultSupportedChainUpdated(_chainId);
+        destinationChainId = _destinationChainId;
     }
 
     /// @notice Allows the owner to retrieve tokens from the contract and send to another wallet.
@@ -182,19 +157,6 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
         }
     }
 
-    /// @notice Adds or removes support for a destination chain
-    /// @param _chainId Wormhole chain ID of the destination chain
-    /// @param _supported Whether to support transfers to this chain
-    /// @dev Only callable by contract owner
-    function setSupportedChain(uint16 _chainId, bool _supported)
-        external
-        onlyOwner
-    {
-        require(_chainId != 0, "Chain ID cannot be zero");
-        supportedChains[_chainId] = _supported;
-        emit SupportedChainUpdated(_chainId, _supported);
-    }
-
     /// @notice Updates the NTT Manager contract address
     /// @param _newNttManager New NTT Manager contract address
     /// @dev Only callable by contract owner. Use with caution as this changes the Hub behavior.
@@ -211,77 +173,27 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
     }
 
     /// @notice Quotes the payment that must be attached to the `finalizeDeposit`
-    ///         function call for a specific destination chain. The payment is necessary
+    ///         function call. The payment is necessary
     ///         to cover the cost of the Wormhole NTT Hub-and-Spoke transfer.
-    /// @param _destinationChain Wormhole chain ID of the destination chain
     /// @return cost The cost of the `finalizeDeposit` function call in WEI.
     /// @dev This function queries the NTT Manager for delivery pricing,
     ///      which includes fees for all configured transceivers (e.g., Wormhole, Axelar)
-    function quoteFinalizeDeposit(uint16 _destinationChain)
-        external
-        view
-        returns (uint256 cost)
-    {
-        require(
-            supportedChains[_destinationChain],
-            "Destination chain not supported"
-        );
-        (, cost) = nttManager.quoteDeliveryPrice(
-            _destinationChain,
-            "" // Empty transceiver instructions for basic transfer
-        );
-    }
-
-    /// @notice Overloaded version that uses the first supported chain for backward compatibility
-    /// @return cost The cost for the default destination chain
-    /// @dev This maintains compatibility with the abstract base contract
     function quoteFinalizeDeposit() external view returns (uint256 cost) {
-        // Find the first supported chain for backward compatibility
-        uint16 defaultChain = _getDefaultSupportedChain();
-        require(defaultChain != 0, "No supported chains configured");
         (, cost) = nttManager.quoteDeliveryPrice(
-            defaultChain,
+            destinationChainId,
             "" // Empty transceiver instructions for basic transfer
         );
     }
 
     /// @notice Returns the current NTT Manager configuration
     /// @return manager Address of the current NTT Hub Manager
-    function getNttConfiguration() external view returns (address manager) {
-        return address(nttManager);
-    }
-
-    /// @notice Utility function to encode destination chain and recipient into receiver format
-    /// @param chainId Wormhole chain ID of the destination
-    /// @param recipient Recipient address on the destination chain
-    /// @return encoded The encoded receiver data: [2 bytes: Chain ID][30 bytes: Recipient]
-    /// @dev This is a helper function for frontend/SDK integration
-    function encodeDestinationReceiver(uint16 chainId, address recipient)
+    /// @return chainId Wormhole chain ID of the configured destination chain
+    function getNttConfiguration()
         external
-        pure
-        returns (bytes32 encoded)
+        view
+        returns (address manager, uint16 chainId)
     {
-        // Encode: [2 bytes: Chain ID][30 bytes: Address padded]
-        return bytes32((uint256(chainId) << 240) | uint256(uint160(recipient)));
-    }
-
-    /// @notice Utility function to decode destination chain and recipient from receiver format
-    /// @param encodedReceiver The encoded receiver data
-    /// @return chainId The destination chain ID
-    /// @return recipient The recipient address
-    /// @dev This is a helper function for frontend/SDK integration and testing
-    function decodeDestinationReceiver(bytes32 encodedReceiver)
-        external
-        pure
-        returns (uint16 chainId, address recipient)
-    {
-        chainId = uint16(bytes2(encodedReceiver));
-        recipient = address(
-            uint160(
-                uint256(encodedReceiver) &
-                    0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
-            )
-        );
+        return (address(nttManager), destinationChainId);
     }
 
     /// @notice Transfers tBTC to the destination chain using Wormhole NTT Hub-and-Spoke framework.
@@ -289,7 +201,7 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
     ///         the NTT Manager contract and instructs the destination chain's
     ///         NTT Manager to mint native tokens to the specified receiver address.
     /// @param amount Amount of tBTC to transfer (1e18 precision)
-    /// @param destinationChainReceiver Encoded receiver data: [2 bytes: Chain ID][30 bytes: Recipient]
+    /// @param destinationChainDepositOwner Full 32-byte recipient on the destination chain
     /// @dev This function is called internally by finalizeDeposit from parent contract
     /// @dev Requirements:
     ///      - The amount must be greater than 0,
@@ -297,39 +209,25 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
     ///        attached to the call (as calculated by `quoteFinalizeDeposit`).
     ///
     /// @dev Enhanced Hub-and-Spoke NTT Transfer Flow:
-    ///      1. Extract destination chain and recipient from encoded receiver
+    ///      1. Use the configured destination chain and deposit owner recipient
     ///      2. NTT Manager pulls tBTC from this contract (via approval)
     ///      3. NTT Manager locks tBTC tokens on L1 Hub (locking mode)
     ///      4. NTT framework sends cross-chain message via multiple transceivers
-    ///      5. Spoke chain receives attested message and mints native tokens to actual recipient
+    ///      5. Spoke chain receives attested message and mints native tokens to recipient
     ///      6. Result: Bitcoin-backed native tBTC on destination chain
     // slither-disable-next-line reentrancy-vulnerabilities-3
-    function _transferTbtc(uint256 amount, bytes32 destinationChainReceiver)
-        internal
-        override
-    {
+    function _transferTbtc(
+        uint256 amount,
+        bytes32 destinationChainDepositOwner
+    ) internal override {
         // External calls are to trusted contracts (tbtcToken, nttManager)
         // Event emission after external calls is correct pattern
         require(amount > 0, "Amount must be greater than 0");
 
-        // Enhanced: Extract destination chain from encoded receiver address
-        uint16 destinationChain = _getDestinationChainFromReceiver(
-            destinationChainReceiver
-        );
-        require(
-            supportedChains[destinationChain],
-            "Destination chain not supported"
-        );
-
-        // Enhanced: Extract actual recipient address (removes chain ID encoding)
-        bytes32 actualRecipient = _getRecipientAddressFromReceiver(
-            destinationChainReceiver
-        );
-
         // Get quote for the transfer to ensure we have sufficient payment
         // This includes fees for all configured transceivers
         (, uint256 requiredFee) = nttManager.quoteDeliveryPrice(
-            destinationChain,
+            destinationChainId,
             "" // Empty transceiver instructions for basic transfer
         );
         require(
@@ -350,72 +248,17 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
         // 4. Spoke chain receives attested message and mints native tokens to actual recipient
         uint64 sequence = nttManager.transfer{value: msg.value}( // slither-disable-line reentrancy-vulnerabilities-3
             amount,
-            destinationChain,
-            actualRecipient // Use cleaned recipient address
+            destinationChainId,
+            destinationChainDepositOwner
         );
 
         emit TokensTransferredNTT( // slither-disable-line reentrancy-vulnerabilities-3
             amount,
-            destinationChain,
-            actualRecipient,
+            destinationChainId,
+            destinationChainDepositOwner,
             sequence,
-            destinationChainReceiver
+            destinationChainDepositOwner
         );
-    }
-
-    /// @notice Enhanced function to get destination chain from encoded receiver address
-    /// @param destinationChainReceiver The encoded receiver with chain ID in first 2 bytes
-    /// @return chainId The destination chain ID
-    /// @dev Enhanced implementation that extracts chain ID from first 2 bytes of receiver address.
-    ///      Format: [2 bytes: Chain ID][30 bytes: Recipient Address]
-    ///      Reverts if chain ID is 0 or not supported - no fallback behavior
-    function _getDestinationChainFromReceiver(bytes32 destinationChainReceiver)
-        internal
-        view
-        returns (uint16 chainId)
-    {
-        // Extract chain ID from first 2 bytes of receiver
-        chainId = uint16(bytes2(destinationChainReceiver));
-
-        // CRITICAL: No fallback to default chain - user must specify valid chain
-        if (chainId == 0) {
-            revert("Chain ID cannot be zero");
-        }
-
-        if (!supportedChains[chainId]) {
-            revert("Destination chain not supported");
-        }
-
-        return chainId;
-    }
-
-    /// @notice Internal function to get the default supported chain
-    /// @return chainId The default supported chain ID, or 0 if none set
-    /// @dev Used for backward compatibility when no chain ID is encoded in receiver
-    function _getDefaultSupportedChain()
-        internal
-        view
-        returns (uint16 chainId)
-    {
-        return defaultSupportedChain;
-    }
-
-    /// @param destinationChainReceiver The encoded receiver data with chain ID in first 2 bytes
-    /// @return recipient The actual recipient address (last 30 bytes, left-padded to 32 bytes)
-    /// @dev Removes the chain ID from first 2 bytes and returns the recipient address
-    ///      Format: [2 bytes: Chain ID][30 bytes: Recipient] → [32 bytes: Recipient padded]
-    function _getRecipientAddressFromReceiver(bytes32 destinationChainReceiver)
-        internal
-        pure
-        returns (bytes32 recipient)
-    {
-        // Remove chain ID (first 2 bytes) and keep recipient address (last 30 bytes)
-        // Mask: 0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
-        return
-            bytes32(
-                uint256(destinationChainReceiver) &
-                    0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
-            );
     }
 
     /// @notice Emitted when NTT Manager address is updated
@@ -423,7 +266,4 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
         address indexed oldManager,
         address indexed newManager
     );
-
-    /// @notice Emitted when default supported chain is updated
-    event DefaultSupportedChainUpdated(uint16 indexed chainId);
 }

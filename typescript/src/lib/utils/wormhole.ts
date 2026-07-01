@@ -2,17 +2,14 @@ import { Chains } from "../contracts"
 
 /**
  * Mapping of chain identifiers to their corresponding Wormhole chain IDs.
- * Use these constants instead of hardcoded chain IDs when encoding destination
- * receivers for NTT (Native Token Transfer) bridges.
+ * Use these constants instead of hardcoded chain IDs when configuring Wormhole
+ * routes and Native Token Transfer (NTT) peers.
  *
  * @example
  * ```typescript
- * import { WORMHOLE_CHAIN_IDS, Chains, encodeDestinationReceiver } from "@keep-network/tbtc-v2"
+ * import { WORMHOLE_CHAIN_IDS, Chains } from "@keep-network/tbtc-v2"
  *
- * const encoded = encodeDestinationReceiver(
- *   WORMHOLE_CHAIN_IDS[Chains.Base.BaseSepolia],
- *   "0x1234567890123456789012345678901234567890"
- * )
+ * const baseWormholeChain = WORMHOLE_CHAIN_IDS[Chains.Base.BaseSepolia]
  * ```
  */
 export const WORMHOLE_CHAIN_IDS = {
@@ -47,14 +44,5 @@ export const WORMHOLE_NTT_CHAIN_IDS = {
   Optimism: {
     OptimismSepolia: WORMHOLE_CHAIN_IDS[Chains.Optimism.OptimismSepolia],
     Optimism: WORMHOLE_CHAIN_IDS[Chains.Optimism.Optimism],
-  },
-  Solana: {
-    Devnet: WORMHOLE_CHAIN_IDS[Chains.Solana.Devnet],
-    Solana: WORMHOLE_CHAIN_IDS[Chains.Solana.Solana],
-  },
-  Sui: {
-    Testnet: WORMHOLE_CHAIN_IDS[Chains.Sui.Testnet],
-    Mainnet: WORMHOLE_CHAIN_IDS[Chains.Sui.Mainnet],
-    Devnet: WORMHOLE_CHAIN_IDS[Chains.Sui.Devnet],
   },
 } as const

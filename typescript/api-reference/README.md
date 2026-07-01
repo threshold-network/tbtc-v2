@@ -169,14 +169,10 @@
 - [backoffRetrier](README.md#backoffretrier)
 - [chainIdFromSigner](README.md#chainidfromsigner)
 - [computeElectrumScriptHash](README.md#computeelectrumscripthash)
-- [decodeDestinationReceiver](README.md#decodedestinationreceiver)
-- [encodeDestinationReceiver](README.md#encodedestinationreceiver)
 - [ethereumAddressFromSigner](README.md#ethereumaddressfromsigner)
 - [ethereumCrossChainContractsLoader](README.md#ethereumcrosschaincontractsloader)
 - [extractBitcoinRawTxVectors](README.md#extractbitcoinrawtxvectors)
-- [getChainIdFromEncodedReceiver](README.md#getchainidfromencodedreceiver)
-- [getRecipientFromEncodedReceiver](README.md#getrecipientfromencodedreceiver)
-- [isValidEncodedReceiver](README.md#isvalidencodedreceiver)
+- [isValidNttRecipient](README.md#isvalidnttrecipient)
 - [loadArbitrumCrossChainContracts](README.md#loadarbitrumcrosschaincontracts)
 - [loadArbitrumCrossChainInterfaces](README.md#loadarbitrumcrosschaininterfaces)
 - [loadBaseCrossChainContracts](README.md#loadbasecrosschaincontracts)
@@ -185,6 +181,7 @@
 - [loadSolanaCrossChainInterfaces](README.md#loadsolanacrosschaininterfaces)
 - [loadStarkNetCrossChainContracts](README.md#loadstarknetcrosschaincontracts)
 - [loadStarkNetCrossChainInterfaces](README.md#loadstarknetcrosschaininterfaces)
+- [normalizeNttRecipient](README.md#normalizenttrecipient)
 - [packRevealDepositParameters](README.md#packrevealdepositparameters)
 - [retryAll](README.md#retryall)
 - [skipRetryWhenMatched](README.md#skipretrywhenmatched)
@@ -1071,18 +1068,15 @@ ___
 • `Const` **WORMHOLE\_CHAIN\_IDS**: `Object`
 
 Mapping of chain identifiers to their corresponding Wormhole chain IDs.
-Use these constants instead of hardcoded chain IDs when encoding destination
-receivers for NTT (Native Token Transfer) bridges.
+Use these constants instead of hardcoded chain IDs when configuring Wormhole
+routes and Native Token Transfer (NTT) peers.
 
 **`Example`**
 
 ```typescript
-import { WORMHOLE_CHAIN_IDS, Chains, encodeDestinationReceiver } from "@keep-network/tbtc-v2"
+import { WORMHOLE_CHAIN_IDS, Chains } from "@keep-network/tbtc-v2"
 
-const encoded = encodeDestinationReceiver(
-  WORMHOLE_CHAIN_IDS[Chains.Base.BaseSepolia],
-  "0x1234567890123456789012345678901234567890"
-)
+const baseWormholeChain = WORMHOLE_CHAIN_IDS[Chains.Base.BaseSepolia]
 ```
 
 #### Type declaration
@@ -1129,13 +1123,6 @@ ___
 | `Optimism` | \{ `Optimism`: ``24`` ; `OptimismSepolia`: ``10005``  } |
 | `Optimism.Optimism` | ``24`` |
 | `Optimism.OptimismSepolia` | ``10005`` |
-| `Solana` | \{ `Devnet`: ``1`` ; `Solana`: ``1``  } |
-| `Solana.Devnet` | ``1`` |
-| `Solana.Solana` | ``1`` |
-| `Sui` | \{ `Devnet`: ``21`` ; `Mainnet`: ``21`` ; `Testnet`: ``21``  } |
-| `Sui.Devnet` | ``21`` |
-| `Sui.Mainnet` | ``21`` |
-| `Sui.Testnet` | ``21`` |
 
 #### Defined in
 
@@ -1306,73 +1293,6 @@ Electrum script hash as a hex string.
 
 ___
 
-### decodeDestinationReceiver
-
-▸ **decodeDestinationReceiver**(`encodedReceiver`): `Object`
-
-Decodes destination chain ID and recipient address from encoded receiver data.
-
-#### Parameters
-
-| Name | Type | Description |
-| :------ | :------ | :------ |
-| `encodedReceiver` | `string` \| [`Hex`](classes/Hex.md) | The encoded receiver data (32 bytes) |
-
-#### Returns
-
-`Object`
-
-Object containing the decoded chain ID and recipient address
-
-| Name | Type |
-| :------ | :------ |
-| `chainId` | `number` |
-| `recipient` | `string` |
-
-**`Example`**
-
-```typescript
-const { chainId, recipient } = decodeDestinationReceiver("0x2712000000000000000000001234567890123456789012345678901234567890")
-// Returns: { chainId: 10002, recipient: "0x1234567890123456789012345678901234567890" }
-```
-
-#### Defined in
-
-[src/lib/utils/ntt.ts:59](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/ntt.ts#L59)
-
-___
-
-### encodeDestinationReceiver
-
-▸ **encodeDestinationReceiver**(`chainId`, `recipient`): [`Hex`](classes/Hex.md)
-
-Encodes destination chain ID and recipient address into a 32-byte value.
-
-#### Parameters
-
-| Name | Type | Description |
-| :------ | :------ | :------ |
-| `chainId` | `number` | Wormhole chain ID of the destination chain (uint16) |
-| `recipient` | `string` | Recipient address on the destination chain (20 bytes) |
-
-#### Returns
-
-[`Hex`](classes/Hex.md)
-
-The encoded receiver data as a 32-byte hex string
-
-**`Example`**
-
-```typescript
-const encoded = encodeDestinationReceiver(10002, "0x1234567890123456789012345678901234567890")
-// Returns: "0x2712000000000000000000001234567890123456789012345678901234567890"
-```
-
-#### Defined in
-
-[src/lib/utils/ntt.ts:23](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/ntt.ts#L23)
-
-___
 
 ### ethereumAddressFromSigner
 
@@ -1462,75 +1382,58 @@ Transaction data with fields represented as un-prefixed hex strings.
 
 ___
 
-### getChainIdFromEncodedReceiver
+### isValidNttRecipient
 
-▸ **getChainIdFromEncodedReceiver**(`encodedReceiver`): `number`
+▸ **isValidNttRecipient**(`recipient`): `boolean`
 
-Gets the chain ID from encoded receiver data without full decoding.
-
-#### Parameters
-
-| Name | Type | Description |
-| :------ | :------ | :------ |
-| `encodedReceiver` | `string` \| [`Hex`](classes/Hex.md) | The encoded receiver data |
-
-#### Returns
-
-`number`
-
-The chain ID
-
-#### Defined in
-
-[src/lib/utils/ntt.ts:133](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/ntt.ts#L133)
-
-___
-
-### getRecipientFromEncodedReceiver
-
-▸ **getRecipientFromEncodedReceiver**(`encodedReceiver`): `string`
-
-Gets the recipient address from encoded receiver data without full decoding.
+Validates whether an NTT recipient can be normalized to bytes32.
 
 #### Parameters
 
 | Name | Type | Description |
 | :------ | :------ | :------ |
-| `encodedReceiver` | `string` \| [`Hex`](classes/Hex.md) | The encoded receiver data |
-
-#### Returns
-
-`string`
-
-The recipient address
-
-#### Defined in
-
-[src/lib/utils/ntt.ts:159](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/ntt.ts#L159)
-
-___
-
-### isValidEncodedReceiver
-
-▸ **isValidEncodedReceiver**(`encodedReceiver`): `boolean`
-
-Validates that an encoded receiver has the correct format.
-
-#### Parameters
-
-| Name | Type | Description |
-| :------ | :------ | :------ |
-| `encodedReceiver` | `string` \| [`Hex`](classes/Hex.md) | The encoded receiver data to validate |
+| `recipient` | `string` \| [`Hex`](classes/Hex.md) | Recipient data to validate. |
 
 #### Returns
 
 `boolean`
 
-True if the format is valid, false otherwise
+True if the recipient is a 20-byte address or 32-byte Wormhole recipient.
 
 #### Defined in
 
-[src/lib/utils/ntt.ts:100](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/ntt.ts#L100)
+[src/lib/utils/ntt.ts:47](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/ntt.ts#L47)
+
+___
+
+### normalizeNttRecipient
+
+▸ **normalizeNttRecipient**(`recipient`): [`Hex`](classes/Hex.md)
+
+Normalizes an NTT recipient into the bytes32 format expected by Wormhole NTT.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `recipient` | `string` \| [`Hex`](classes/Hex.md) | EVM address (20 bytes) or full Wormhole recipient (32 bytes). |
+
+#### Returns
+
+[`Hex`](classes/Hex.md)
+
+Recipient as a 32-byte hex string. EVM addresses are left-padded.
+
+**`Example`**
+
+```typescript
+const recipient = normalizeNttRecipient("0x1234567890123456789012345678901234567890")
+// Returns: "0x0000000000000000000000001234567890123456789012345678901234567890"
+```
+
+#### Defined in
+
+[src/lib/utils/ntt.ts:20](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/ntt.ts#L20)
 
 ___
 
