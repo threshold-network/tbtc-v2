@@ -70,16 +70,16 @@ expected to restore runs=200 and reintroduce the deferred surface.
 `test/formal/BridgeStorageLayout.test.ts` enforces upgrade-safety
 invariants. Current slot order:
 
-| Slot        | Field                                                                                                           | Source            |
-| ----------- | --------------------------------------------------------------------------------------------------------------- | ----------------- |
-| 0..31       | Pre-existing fields through `activeWalletID`                                                                    | pre-PR-431        |
-| 32          | `frostWalletRegistry`                                                                                           | #431 / #971       |
-| 33          | `ecdsaFraudRouter`                                                                                              | #435 / #971       |
-| 34          | `p2trFraudRouter`                                                                                               | #436 / #971       |
-| 35          | `lifecycleRouter`                                                                                               | #434 / #971       |
-| 36          | `walletIDByWalletPubKeyHash` (mapping)                                                                          | #434 / #971       |
+| Slot        | Field                                                                                                                                              | Source                    |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| 0..31       | Pre-existing fields through `activeWalletID`                                                                                                       | pre-PR-431                |
+| 32          | `frostWalletRegistry`                                                                                                                              | #431 / #971               |
+| 33          | `ecdsaFraudRouter`                                                                                                                                 | #435 / #971               |
+| 34          | `p2trFraudRouter`                                                                                                                                  | #436 / #971               |
+| 35          | `lifecycleRouter`                                                                                                                                  | #434 / #971               |
+| 36          | `walletIDByWalletPubKeyHash` (mapping)                                                                                                             | #434 / #971               |
 | 37 (packed) | `currentNewWalletScheme` (enum @ off 0) + `ecdsaWalletCount` (uint128 @ off 1) + `ecdsaRetired` (bool @ off 17) + `slashingActive` (bool @ off 18) | #439 / D-1 / #971 / #1002 |
-| 38+         | `__gap` (uint256[40])                                                                                           | —                 |
+| 38+         | `__gap` (uint256[40])                                                                                                                              | —                         |
 
 `EXPECTED_RESERVED_TOTAL` is pinned by the storage-layout test
 (BridgeState's own header carries the rationale: "more slots as
