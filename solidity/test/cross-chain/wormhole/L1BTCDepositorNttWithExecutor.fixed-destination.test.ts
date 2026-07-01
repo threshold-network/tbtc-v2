@@ -117,14 +117,33 @@ describe("L1BTCDepositorNttWithExecutor fixed destination", () => {
     )
   })
 
-  it("migrates the fixed destination chain once during upgrade", async () => {
-    const [, nonOwner, relayer] = await ethers.getSigners()
+  it("does not retarget an initialized fixed destination chain", async () => {
+    const [, nonOwner] = await ethers.getSigners()
 
     await expect(
       depositor
         .connect(nonOwner)
         .initializeV2DestinationChain(UPDATED_WORMHOLE_CHAIN_DESTINATION)
     ).to.be.revertedWith("Ownable: caller is not the owner")
+
+    await expect(
+      depositor.initializeV2DestinationChain(UPDATED_WORMHOLE_CHAIN_DESTINATION)
+    ).to.be.revertedWith("Destination chain already configured")
+
+    expect(await depositor.destinationChainId()).to.equal(
+      WORMHOLE_CHAIN_DESTINATION
+    )
+  })
+
+  it("backfills an unset fixed destination chain once during upgrade", async () => {
+    const [, relayer] = await ethers.getSigners()
+
+    await clearDestinationChainIdSlot(
+      depositor.address,
+      WORMHOLE_CHAIN_DESTINATION
+    )
+
+    expect(await depositor.destinationChainId()).to.equal(0)
 
     await expect(depositor.initializeV2DestinationChain(0)).to.be.revertedWith(
       "Chain ID cannot be zero"
@@ -134,7 +153,7 @@ describe("L1BTCDepositorNttWithExecutor fixed destination", () => {
       depositor.initializeV2DestinationChain(UPDATED_WORMHOLE_CHAIN_DESTINATION)
     )
       .to.emit(depositor, "DestinationChainUpdated")
-      .withArgs(WORMHOLE_CHAIN_DESTINATION, UPDATED_WORMHOLE_CHAIN_DESTINATION)
+      .withArgs(0, UPDATED_WORMHOLE_CHAIN_DESTINATION)
 
     expect(await depositor.destinationChainId()).to.equal(
       UPDATED_WORMHOLE_CHAIN_DESTINATION
@@ -235,6 +254,21 @@ describe("L1BTCDepositorNttWithExecutor fixed destination", () => {
     expect(await depositor.defaultPlatformFeeRecipient()).to.equal(
       platformFeeRecipient.address
     )
+  })
+
+  it("uses dbps units for platform fee updates", async () => {
+    const [, , platformFeeRecipient] = await ethers.getSigners()
+    const platformFeeDbps = 100
+
+    expect(await depositor.MAX_PLATFORM_FEE_DBPS()).to.equal(10000)
+
+    await depositor.setDefaultPlatformFeeRecipient(platformFeeRecipient.address)
+
+    await expect(depositor.setDefaultPlatformFeeDbps(platformFeeDbps))
+      .to.emit(depositor, "DefaultPlatformFeeDbpsUpdated")
+      .withArgs(0, platformFeeDbps)
+
+    expect(await depositor.defaultPlatformFeeDbps()).to.equal(platformFeeDbps)
   })
 
   it("passes the full 32-byte deposit owner to NTT with executor", async () => {
@@ -384,4 +418,36 @@ function buildFeeArgs() {
     dbps: 0,
     payee: ethers.constants.AddressZero,
   }
+}
+
+async function clearDestinationChainIdSlot(
+  contractAddress: string,
+  currentDestinationChainId: number
+) {
+  const destinationChainIdSlot = await findStorageSlot(
+    contractAddress,
+    currentDestinationChainId
+  )
+
+  await ethers.provider.send("hardhat_setStorageAt", [
+    contractAddress,
+    ethers.utils.hexValue(destinationChainIdSlot),
+    ethers.constants.HashZero,
+  ])
+}
+
+async function findStorageSlot(contractAddress: string, expectedValue: number) {
+  const slots = Array.from({ length: 21 }, (_, index) => 200 + index)
+  const values = await Promise.all(
+    slots.map((slot) => ethers.provider.getStorageAt(contractAddress, slot))
+  )
+  const slotIndex = values.findIndex((value) =>
+    ethers.BigNumber.from(value).eq(expectedValue)
+  )
+
+  if (slotIndex >= 0) {
+    return slots[slotIndex]
+  }
+
+  throw new Error("destinationChainId storage slot not found")
 }

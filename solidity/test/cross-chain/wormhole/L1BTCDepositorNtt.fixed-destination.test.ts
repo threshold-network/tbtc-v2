@@ -103,7 +103,7 @@ describe("L1BTCDepositorNtt fixed destination", () => {
     expect(await l1BtcDepositorNtt.nttManager()).to.equal(nttManager.address)
   })
 
-  it("migrates the fixed destination chain once during upgrade", async () => {
+  it("does not retarget an initialized fixed destination chain", async () => {
     const [, nonOwner] = await ethers.getSigners()
 
     await expect(
@@ -111,6 +111,25 @@ describe("L1BTCDepositorNtt fixed destination", () => {
         .connect(nonOwner)
         .initializeV2DestinationChain(UPDATED_WORMHOLE_CHAIN_DESTINATION)
     ).to.be.revertedWith("Ownable: caller is not the owner")
+
+    await expect(
+      l1BtcDepositorNtt.initializeV2DestinationChain(
+        UPDATED_WORMHOLE_CHAIN_DESTINATION
+      )
+    ).to.be.revertedWith("Destination chain already configured")
+
+    expect(await l1BtcDepositorNtt.destinationChainId()).to.equal(
+      WORMHOLE_CHAIN_DESTINATION
+    )
+  })
+
+  it("backfills an unset fixed destination chain once during upgrade", async () => {
+    await clearDestinationChainIdSlot(
+      l1BtcDepositorNtt.address,
+      WORMHOLE_CHAIN_DESTINATION
+    )
+
+    expect(await l1BtcDepositorNtt.destinationChainId()).to.equal(0)
 
     await expect(
       l1BtcDepositorNtt.initializeV2DestinationChain(0)
@@ -122,7 +141,7 @@ describe("L1BTCDepositorNtt fixed destination", () => {
       )
     )
       .to.emit(l1BtcDepositorNtt, "DestinationChainUpdated")
-      .withArgs(WORMHOLE_CHAIN_DESTINATION, UPDATED_WORMHOLE_CHAIN_DESTINATION)
+      .withArgs(0, UPDATED_WORMHOLE_CHAIN_DESTINATION)
 
     expect(await l1BtcDepositorNtt.destinationChainId()).to.equal(
       UPDATED_WORMHOLE_CHAIN_DESTINATION
@@ -219,3 +238,35 @@ describe("L1BTCDepositorNtt fixed destination", () => {
     ).to.be.revertedWith("Payment for Wormhole NTT has incorrect value")
   })
 })
+
+async function clearDestinationChainIdSlot(
+  contractAddress: string,
+  currentDestinationChainId: number
+) {
+  const destinationChainIdSlot = await findStorageSlot(
+    contractAddress,
+    currentDestinationChainId
+  )
+
+  await ethers.provider.send("hardhat_setStorageAt", [
+    contractAddress,
+    ethers.utils.hexValue(destinationChainIdSlot),
+    ethers.constants.HashZero,
+  ])
+}
+
+async function findStorageSlot(contractAddress: string, expectedValue: number) {
+  const slots = Array.from({ length: 21 }, (_, index) => 200 + index)
+  const values = await Promise.all(
+    slots.map((slot) => ethers.provider.getStorageAt(contractAddress, slot))
+  )
+  const slotIndex = values.findIndex((value) =>
+    ethers.BigNumber.from(value).eq(expectedValue)
+  )
+
+  if (slotIndex >= 0) {
+    return slots[slotIndex]
+  }
+
+  throw new Error("destinationChainId storage slot not found")
+}

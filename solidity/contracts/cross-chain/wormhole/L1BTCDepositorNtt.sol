@@ -146,13 +146,19 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
 
     /// @notice Migrates the fixed destination chain during a proxy upgrade.
     /// @param _destinationChainId Wormhole chain ID of the destination chain
-    /// @dev Intended as a one-time upgrade hook for proxies that were initialized
-    ///      before the fixed-destination storage slot existed.
+    /// @dev Intended as a one-time backfill hook for proxies that were initialized
+    ///      before the fixed-destination storage slot existed. Fresh deployments
+    ///      configure the destination during `initialize` and cannot use this
+    ///      hook to retarget in-flight deposits.
     function initializeV2DestinationChain(uint16 _destinationChainId)
         external
         onlyOwner
         reinitializer(2)
     {
+        require(
+            destinationChainId == 0,
+            "Destination chain already configured"
+        );
         _updateDestinationChain(_destinationChainId);
     }
 
