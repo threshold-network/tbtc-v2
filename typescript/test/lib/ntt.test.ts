@@ -245,7 +245,7 @@ describe("NTT Utilities", () => {
     it("should expose NTT migration target chain IDs", () => {
       assert.equal(WORMHOLE_CHAIN_IDS[Chains.Arbitrum.Arbitrum], 23)
       assert.equal(WORMHOLE_CHAIN_IDS[Chains.Base.Base], 30)
-      assert.equal(WORMHOLE_NTT_CHAIN_IDS.Optimism.Optimism, 24)
+      assert.equal(WORMHOLE_CHAIN_IDS[Chains.Optimism.Optimism], 24)
       assert.equal(WORMHOLE_CHAIN_IDS[Chains.Sui.Mainnet], 21)
       assert.equal(WORMHOLE_CHAIN_IDS[Chains.Solana.Solana], 1)
     })
@@ -253,9 +253,16 @@ describe("NTT Utilities", () => {
     it("should expose NTT migration testnet chain IDs", () => {
       assert.equal(WORMHOLE_CHAIN_IDS[Chains.Arbitrum.ArbitrumSepolia], 10003)
       assert.equal(WORMHOLE_CHAIN_IDS[Chains.Base.BaseSepolia], 10004)
-      assert.equal(WORMHOLE_NTT_CHAIN_IDS.Optimism.OptimismSepolia, 10005)
+      assert.equal(WORMHOLE_CHAIN_IDS[Chains.Optimism.OptimismSepolia], 10005)
       assert.equal(WORMHOLE_CHAIN_IDS[Chains.Sui.Testnet], 21)
       assert.equal(WORMHOLE_CHAIN_IDS[Chains.Solana.Devnet], 1)
+    })
+
+    it("should keep the NTT chain ID alias backed by the primary map", () => {
+      assert.equal(
+        WORMHOLE_NTT_CHAIN_IDS.Optimism.Optimism,
+        WORMHOLE_CHAIN_IDS[Chains.Optimism.Optimism]
+      )
     })
   })
 })

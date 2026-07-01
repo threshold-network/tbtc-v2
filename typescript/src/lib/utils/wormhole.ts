@@ -22,6 +22,8 @@ export const WORMHOLE_CHAIN_IDS = {
   [Chains.Arbitrum.Arbitrum]: 23,
   [Chains.Base.BaseSepolia]: 10004,
   [Chains.Base.Base]: 30,
+  [Chains.Optimism.OptimismSepolia]: 10005,
+  [Chains.Optimism.Optimism]: 24,
   [Chains.Solana.Devnet]: 1,
   [Chains.Solana.Solana]: 1,
   [Chains.Sui.Testnet]: 21,
@@ -31,28 +33,28 @@ export const WORMHOLE_CHAIN_IDS = {
 
 export const WORMHOLE_NTT_CHAIN_IDS = {
   Ethereum: {
-    Sepolia: 10002,
-    Mainnet: 2,
+    Sepolia: WORMHOLE_CHAIN_IDS[Chains.Ethereum.Sepolia],
+    Mainnet: WORMHOLE_CHAIN_IDS[Chains.Ethereum.Mainnet],
   },
   Arbitrum: {
-    ArbitrumSepolia: 10003,
-    Arbitrum: 23,
+    ArbitrumSepolia: WORMHOLE_CHAIN_IDS[Chains.Arbitrum.ArbitrumSepolia],
+    Arbitrum: WORMHOLE_CHAIN_IDS[Chains.Arbitrum.Arbitrum],
   },
   Base: {
-    BaseSepolia: 10004,
-    Base: 30,
+    BaseSepolia: WORMHOLE_CHAIN_IDS[Chains.Base.BaseSepolia],
+    Base: WORMHOLE_CHAIN_IDS[Chains.Base.Base],
   },
   Optimism: {
-    OptimismSepolia: 10005,
-    Optimism: 24,
+    OptimismSepolia: WORMHOLE_CHAIN_IDS[Chains.Optimism.OptimismSepolia],
+    Optimism: WORMHOLE_CHAIN_IDS[Chains.Optimism.Optimism],
   },
   Solana: {
-    Devnet: 1,
-    Solana: 1,
+    Devnet: WORMHOLE_CHAIN_IDS[Chains.Solana.Devnet],
+    Solana: WORMHOLE_CHAIN_IDS[Chains.Solana.Solana],
   },
   Sui: {
-    Testnet: 21,
-    Mainnet: 21,
-    Devnet: 21,
+    Testnet: WORMHOLE_CHAIN_IDS[Chains.Sui.Testnet],
+    Mainnet: WORMHOLE_CHAIN_IDS[Chains.Sui.Mainnet],
+    Devnet: WORMHOLE_CHAIN_IDS[Chains.Sui.Devnet],
   },
 } as const

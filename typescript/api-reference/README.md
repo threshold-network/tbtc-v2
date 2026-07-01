@@ -232,6 +232,7 @@ Type representing a mapping between specific L1 and L2 chains.
 | `arbitrum?` | [`Arbitrum`](enums/Chains.Arbitrum.md) | Identifier of the Arbitrum L2 chain. |
 | `base?` | [`Base`](enums/Chains.Base.md) | Identifier of the Base L2 chain. |
 | `ethereum?` | [`Ethereum`](enums/Chains.Ethereum.md) | Identifier of the Ethereum L1 chain. |
+| `optimism?` | [`Optimism`](enums/Chains.Optimism.md) | Identifier of the Optimism L2 chain. |
 | `solana?` | [`Solana`](enums/Chains.Solana.md) | Identifier of the Solana chain. |
 | `starknet?` | [`StarkNet`](enums/Chains.StarkNet.md) | Identifier of the StarkNet L2 chain. |
 | `sui?` | [`Sui`](enums/Chains.Sui.md) | Identifier of the SUI L2 chain. |
@@ -334,7 +335,7 @@ ___
 
 ### DestinationChainName
 
-Ƭ **DestinationChainName**: `Exclude`\<keyof typeof [`Chains`](modules/Chains.md), ``"Ethereum"``\>
+Ƭ **DestinationChainName**: `Exclude`\<keyof typeof [`Chains`](modules/Chains.md), ``"Ethereum"`` \| ``"Optimism"``\>
 
 Destination chains supported by tBTC v2 contracts.
 These are chains other than the main Ethereum L1 chain.
@@ -1089,7 +1090,9 @@ const encoded = encodeDestinationReceiver(
 | Name | Type |
 | :------ | :------ |
 | `1` | ``2`` |
+| `10` | ``24`` |
 | `11155111` | ``10002`` |
+| `11155420` | ``10005`` |
 | `42161` | ``23`` |
 | `421614` | ``10003`` |
 | `5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d` | ``1`` |
@@ -1114,29 +1117,29 @@ ___
 
 | Name | Type |
 | :------ | :------ |
-| `Arbitrum` | \{ `Arbitrum`: ``23`` = 23; `ArbitrumSepolia`: ``10003`` = 10003 } |
+| `Arbitrum` | \{ `Arbitrum`: ``23`` ; `ArbitrumSepolia`: ``10003``  } |
 | `Arbitrum.Arbitrum` | ``23`` |
 | `Arbitrum.ArbitrumSepolia` | ``10003`` |
-| `Base` | \{ `Base`: ``30`` = 30; `BaseSepolia`: ``10004`` = 10004 } |
+| `Base` | \{ `Base`: ``30`` ; `BaseSepolia`: ``10004``  } |
 | `Base.Base` | ``30`` |
 | `Base.BaseSepolia` | ``10004`` |
-| `Ethereum` | \{ `Mainnet`: ``2`` = 2; `Sepolia`: ``10002`` = 10002 } |
+| `Ethereum` | \{ `Mainnet`: ``2`` ; `Sepolia`: ``10002``  } |
 | `Ethereum.Mainnet` | ``2`` |
 | `Ethereum.Sepolia` | ``10002`` |
-| `Optimism` | \{ `Optimism`: ``24`` = 24; `OptimismSepolia`: ``10005`` = 10005 } |
+| `Optimism` | \{ `Optimism`: ``24`` ; `OptimismSepolia`: ``10005``  } |
 | `Optimism.Optimism` | ``24`` |
 | `Optimism.OptimismSepolia` | ``10005`` |
-| `Solana` | \{ `Devnet`: ``1`` = 1; `Solana`: ``1`` = 1 } |
+| `Solana` | \{ `Devnet`: ``1`` ; `Solana`: ``1``  } |
 | `Solana.Devnet` | ``1`` |
 | `Solana.Solana` | ``1`` |
-| `Sui` | \{ `Devnet`: ``21`` = 21; `Mainnet`: ``21`` = 21; `Testnet`: ``21`` = 21 } |
+| `Sui` | \{ `Devnet`: ``21`` ; `Mainnet`: ``21`` ; `Testnet`: ``21``  } |
 | `Sui.Devnet` | ``21`` |
 | `Sui.Mainnet` | ``21`` |
 | `Sui.Testnet` | ``21`` |
 
 #### Defined in
 
-[lib/utils/wormhole.ts:32](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/wormhole.ts#L32)
+[lib/utils/wormhole.ts:34](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/utils/wormhole.ts#L34)
 
 ___
 

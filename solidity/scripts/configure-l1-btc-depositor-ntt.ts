@@ -86,6 +86,13 @@ function evmPeerAddress(address: string): string {
   return ethers.utils.hexZeroPad(address, 32)
 }
 
+function isConfiguredPeerAddress(peerAddress?: string): boolean {
+  return (
+    !!peerAddress &&
+    peerAddress.toLowerCase() !== ZERO_PEER_ADDRESS.toLowerCase()
+  )
+}
+
 function destinationChain(
   chainId: number,
   name: string,
@@ -96,7 +103,7 @@ function destinationChain(
   return {
     chainId,
     name,
-    enabled: true,
+    enabled: isConfiguredPeerAddress(peerAddress),
     peerAddress,
     rateLimitAmount: tbtcAmount(rateLimitAmount),
     rateLimitDuration,
