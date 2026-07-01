@@ -130,10 +130,64 @@ describe("L1BTCDepositorNttWithExecutor fixed destination", () => {
 
     const quote = await depositor.connect(relayer).quoteFinalizeDeposit()
     const expectedQuote = (await nttManagerWithExecutor.MOCK_DELIVERY_PRICE())
+      .add(await nttManagerWithExecutor.MOCK_WRAPPER_SURCHARGE())
       .add(BigNumber.from("2000000000000000"))
       .add(executorArgs.value)
 
     expect(quote).to.equal(expectedQuote)
+  })
+
+  it("uses the executor wrapper quote for the detailed total cost", async () => {
+    const [, relayer] = await ethers.getSigners()
+    const executorArgs = buildExecutorArgs(
+      BigNumber.from(70000),
+      relayer.address
+    )
+    const feeArgs = buildFeeArgs()
+
+    await depositor
+      .connect(relayer)
+      .setExecutorParameters(executorArgs, feeArgs)
+
+    const [nttDeliveryPrice, executorCost, totalCost] = await depositor
+      .connect(relayer)
+      .quoteFinalizedDeposit()
+    const wrapperQuote = await depositor.connect(relayer).quoteFinalizeDeposit()
+    const expectedNttDeliveryPrice = (
+      await underlyingNttManager.MOCK_DELIVERY_PRICE()
+    ).add(
+      await underlyingNttManager.chainSpecificPrices(WORMHOLE_CHAIN_DESTINATION)
+    )
+
+    expect(nttDeliveryPrice).to.equal(expectedNttDeliveryPrice)
+    expect(executorCost).to.equal(
+      executorArgs.value.add(
+        await nttManagerWithExecutor.MOCK_WRAPPER_SURCHARGE()
+      )
+    )
+    expect(totalCost).to.equal(wrapperQuote)
+  })
+
+  it("sets only active default parameters", async () => {
+    const [, , platformFeeRecipient] = await ethers.getSigners()
+    const gasLimit = BigNumber.from(800000)
+    const platformFeeBps = 100
+
+    await expect(
+      depositor.setDefaultParameters(
+        gasLimit,
+        platformFeeBps,
+        platformFeeRecipient.address
+      )
+    )
+      .to.emit(depositor, "DefaultParametersUpdated")
+      .withArgs(gasLimit, platformFeeBps, platformFeeRecipient.address)
+
+    expect(await depositor.defaultDestinationGasLimit()).to.equal(gasLimit)
+    expect(await depositor.defaultPlatformFeeBps()).to.equal(platformFeeBps)
+    expect(await depositor.defaultPlatformFeeRecipient()).to.equal(
+      platformFeeRecipient.address
+    )
   })
 
   it("passes the full 32-byte deposit owner to NTT with executor", async () => {
@@ -218,7 +272,7 @@ describe("L1BTCDepositorNttWithExecutor fixed destination", () => {
     ).to.be.revertedWith("Payment for Wormhole NTT has incorrect value")
   })
 
-  it("forces executor fee payments to the configured platform recipient", async () => {
+  it("forces platform fee payments to the configured platform recipient", async () => {
     const [, relayer, platformFeeRecipient] = await ethers.getSigners()
     const executorValue = BigNumber.from(70000)
     const executorArgs = buildExecutorArgs(executorValue, relayer.address)

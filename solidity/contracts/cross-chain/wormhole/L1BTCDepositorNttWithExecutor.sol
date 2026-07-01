@@ -34,9 +34,9 @@ struct ExecutorArgs {
 }
 
 /// @notice Fee arguments for NttManagerWithExecutor transfers
-/// @dev Used to specify fees taken by the executor service
+/// @dev Used to specify tBTC-denominated platform fees.
 struct FeeArgs {
-    /// @notice Fee in basis points (e.g., 100 = 1%)
+    /// @notice Fee in executor dbps units (100 = 0.1%)
     uint16 dbps;
     /// @notice Address to receive the fee payment
     address payee;
@@ -80,7 +80,7 @@ interface INttManagerWithExecutor {
         FeeArgs memory feeArgs
     ) external payable returns (uint64 msgId);
 
-    /// @notice Quote the total cost for a transfer including executor fees
+    /// @notice Quote the total cost for a transfer including executor wrapper costs
     /// @param nttManager Address of the underlying NTT Manager contract
     /// @param recipientChain Wormhole chain ID of the destination
     /// @param encodedInstructions Additional instructions for the transfer (transceiver instructions)
@@ -106,15 +106,15 @@ interface INttManagerWithExecutor {
 ///
 /// @dev Key differences from L1BTCDepositorNtt:
 /// - Uses NttManagerWithExecutor instead of direct NTT Manager
-/// - Requires executor quotes and fee configuration
+/// - Requires executor quotes and platform fee configuration
 /// - Supports automatic destination chain execution
-/// - Handles more complex fee structures (executor fees + destination gas)
+/// - Handles executor costs, platform fees, and destination gas
 /// - Provides better UX by eliminating manual claim steps
 ///
 /// @dev Executor Integration:
 /// - Fetches signed quotes from Wormhole Executor API
 /// - Configures gas limits for destination chain execution
-/// - Handles fee payments to executor service
+/// - Handles executor payments and gas refunds
 /// - Provides refund mechanisms for unused gas
 // slither-disable-next-line reentrancy-vulnerabilities-3
 contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
@@ -151,7 +151,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @dev Used when no specific gas limit is provided in relay instructions
     uint256 public defaultDestinationGasLimit;
 
-    /// @notice Default TBTC platform fee in basis points
+    /// @notice Default TBTC platform fee in executor dbps units
     /// @dev Default is 0 (no fee). 100 = 0.1% (100/100000)
     uint16 public defaultPlatformFeeBps;
 
@@ -159,19 +159,22 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @dev Address to receive TBTC platform fees
     address public defaultPlatformFeeRecipient;
 
-    /// @notice Maximum basis points value (100%)
-    /// @dev NttManagerWithExecutor uses 100000 as divisor, so 100% = 10000 dbps
+    /// @notice Maximum platform fee in executor dbps units
+    /// @dev NttManagerWithExecutor uses 100000 as divisor, so 10000 = 10%
     uint16 public constant MAX_BPS = 10000;
 
     /// @notice Default destination gas limit for execution (500k gas)
     uint256 private constant DEFAULT_DESTINATION_GAS_LIMIT = 500000;
 
-    /// @notice Default executor fee in basis points
-    /// @dev Used when no specific fee is configured (e.g., 100 = 1%)
-    uint16 public defaultExecutorFeeBps;
+    /// @dev Deprecated storage slot previously used by `defaultExecutorFeeBps`.
+    ///      FeeArgs is now reserved for platform fees.
+    // slither-disable-next-line unused-state
+    uint16 private __deprecatedDefaultExecutorFeeBps;
 
-    /// @notice Default executor fee recipient
-    address public defaultExecutorFeeRecipient;
+    /// @dev Deprecated storage slot previously used by `defaultExecutorFeeRecipient`.
+    ///      FeeArgs is now reserved for platform fees.
+    // slither-disable-next-line unused-state
+    address private __deprecatedDefaultExecutorFeeRecipient;
 
     /// @notice Mapping of nonce to executor parameter sets for parallel user support
     mapping(bytes32 => ExecutorParameterSet) private parametersByNonce;
@@ -210,7 +213,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @param destinationChain Wormhole chain ID of the destination
     /// @param recipient Recipient address on destination chain
     /// @param transferSequence NTT transfer sequence number
-    /// @param executorCost Cost paid to executor service in wei
+    /// @param transferCost Total native token cost paid for the transfer
     event TokensTransferredNttWithExecutor(
         address indexed sender,
         bytes32 indexed nonce,
@@ -218,14 +221,14 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         uint16 destinationChain,
         bytes32 recipient,
         uint64 transferSequence,
-        uint256 executorCost
+        uint256 transferCost
     );
 
     /// @notice Emitted when default parameters are updated
     event DefaultParametersUpdated(
         uint256 gasLimit,
-        uint16 feeBps,
-        address feeRecipient
+        uint16 platformFeeBps,
+        address platformFeeRecipient
     );
 
     /// @notice Emitted when the default destination gas limit is updated
@@ -234,7 +237,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         uint256 indexed newGasLimit
     );
 
-    /// @notice Emitted when the default platform fee basis points is updated
+    /// @notice Emitted when the default platform fee dbps value is updated
     event DefaultPlatformFeeBpsUpdated(
         uint16 indexed oldFeeBps,
         uint16 indexed newFeeBps
@@ -297,32 +300,22 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
 
         // Set reasonable defaults
         defaultDestinationGasLimit = DEFAULT_DESTINATION_GAS_LIMIT;
-        defaultExecutorFeeBps = 0; // 0% executor fee by default
-        defaultExecutorFeeRecipient = address(0); // No fee recipient by default
         parameterExpirationTime = 3600; // 1 hour default expiration time
     }
 
     /// @notice Updates default parameters for executor transfers
     /// @param _gasLimit Default gas limit for destination chain execution
-    /// @param _feeBps Default executor fee in basis points (max 10000 = 100%)
-    /// @param _feeRecipient Default executor fee recipient
-    /// @param _platformFeeBps Default TBTC platform fee in basis points (max 10000 = 100%)
+    /// @param _platformFeeBps Default TBTC platform fee in executor dbps units
     /// @param _platformFeeRecipient Default TBTC platform fee recipient
     function setDefaultParameters(
         uint256 _gasLimit,
-        uint16 _feeBps,
-        address _feeRecipient,
         uint16 _platformFeeBps,
         address _platformFeeRecipient
     ) external onlyOwner {
-        require(_feeBps <= MAX_BPS, "Fee cannot exceed 100% (10000 bps)");
+        require(_gasLimit > 0, "Gas limit must be greater than zero");
         require(
             _platformFeeBps <= MAX_BPS,
-            "Platform fee cannot exceed 100% (10000 bps)"
-        );
-        require(
-            _feeRecipient != address(0) || _feeBps == 0,
-            "Fee recipient cannot be zero when fee is set"
+            "Platform fee exceeds maximum"
         );
         require(
             _platformFeeRecipient != address(0) || _platformFeeBps == 0,
@@ -331,12 +324,14 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         require(_feeBps >= _platformFeeBps, "Executor fee must be >= platform fee");
         require(_feeBps != 0 || _feeRecipient == address(0), "Executor fee recipient cannot be set when fee is zero");
         defaultDestinationGasLimit = _gasLimit;
-        defaultExecutorFeeBps = _feeBps;
-        defaultExecutorFeeRecipient = _feeRecipient;
         defaultPlatformFeeBps = _platformFeeBps;
         defaultPlatformFeeRecipient = _platformFeeRecipient;
 
-        emit DefaultParametersUpdated(_gasLimit, _feeBps, _feeRecipient);
+        emit DefaultParametersUpdated(
+            _gasLimit,
+            _platformFeeBps,
+            _platformFeeRecipient
+        );
     }
 
     /// @notice Updates the default destination gas limit
@@ -350,10 +345,10 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         emit DefaultDestinationGasLimitUpdated(oldGasLimit, _newGasLimit);
     }
 
-    /// @notice Sets the default TBTC platform fee in basis points
-    /// @param _newFeeBps New default platform fee in basis points (100 = 0.1%)
+    /// @notice Sets the default TBTC platform fee in executor dbps units
+    /// @param _newFeeBps New default platform fee in executor dbps units (100 = 0.1%)
     function setDefaultPlatformFeeBps(uint16 _newFeeBps) external onlyOwner {
-        require(_newFeeBps <= MAX_BPS, "Fee cannot exceed 100% (10000 bps)");
+        require(_newFeeBps <= MAX_BPS, "Fee exceeds maximum");
         require(
             defaultPlatformFeeRecipient != address(0) || _newFeeBps == 0,
             "Recipient address cannot be zero when platform fee is set"
@@ -436,7 +431,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
 
     /// @notice Sets executor parameters and returns the nonce for reference
     /// @param executorArgs Real executor arguments with valid signed quote from Wormhole Executor API
-    /// @param feeArgs Fee arguments for the executor service
+    /// @param feeArgs Platform fee arguments
     /// @return nonce The nonce hash for these parameters (for informational purposes)
     /// @dev Must be called before finalizeDeposit() to provide real signed quote.
     function setExecutorParameters(
@@ -452,9 +447,8 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         );
         _validateSignedQuoteFormat(executorArgs.signedQuote);
 
-        // Bind the refund address to the staging caller at stage time. The
-        // remaining fee / payee equality checks happen at finalize time inside
-        // `_validateExecutorParameters`.
+        // Validate fee amount in executor dbps units.
+        require(feeArgs.dbps <= MAX_BPS, "Fee exceeds maximum");
         require(
             executorArgs.refundAddress == msg.sender,
             "Executor refund address must be caller"
@@ -600,12 +594,12 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
             );
     }
 
-    /// @notice Quotes the underlying NTT delivery price and total cost including executor fees
+    /// @notice Quotes the underlying NTT delivery price and total cost including executor costs
     /// @return nttDeliveryPrice The NTT delivery price from the underlying manager
-    /// @return executorCost The executor cost from the signed quote
-    /// @return totalCost The total cost (NTT + executor)
-    /// @dev This function calls the underlying NTT manager's quoteDeliveryPrice and returns
-    ///      the breakdown of costs. The caller should validate that their msg.value >= totalCost
+    /// @return executorCost Cost charged by the executor wrapper on top of NTT delivery
+    /// @return totalCost The exact total cost required by finalizeDeposit
+    /// @dev The total is quoted through NttManagerWithExecutor, matching the
+    ///      value enforced during finalizeDeposit.
     function quoteFinalizedDeposit()
         external
         view
@@ -636,9 +630,20 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
             chainId,
             "" // Empty transceiver instructions for basic transfer
         );
-        executorCost = params.executorArgs.value;
-        require(totalCost >= executorCost, "Total cost less than executor cost");
-        nttDeliveryPrice = totalCost - executorCost;
+
+        totalCost = nttManagerWithExecutor.quoteDeliveryPrice(
+            underlyingNttManager,
+            chainId,
+            "",
+            params.executorArgs,
+            params.feeArgs
+        );
+
+        // Report the wrapper/executor component without assuming it is exactly
+        // executorArgs.value; wrappers may add surcharges or aggregate costs.
+        executorCost = totalCost > nttDeliveryPrice
+            ? totalCost - nttDeliveryPrice
+            : 0;
     }
 
     /// @notice Checks if the current user has executor parameters set
@@ -827,7 +832,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @param amount Amount of tBTC to transfer
     /// @param destinationChainDepositOwner Full 32-byte recipient on the destination chain
     /// @param executorArgs Real executor arguments with valid signed quote
-    /// @param feeArgs Fee arguments for the executor
+    /// @param feeArgs Platform fee arguments
     /// @param nonce The nonce used for this transfer
     // slither-disable-next-line reentrancy-vulnerabilities-3
     function _transferTbtcWithExecutor(
@@ -875,7 +880,10 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
             amount,
             chainId,
             destinationChainDepositOwner,
-            bytes32(uint256(uint160(msg.sender))), // refundAddress as bytes32
+            // Current NTT migration destinations are EVM chains, so refund the
+            // relayer using Wormhole's left-padded EVM address convention.
+            // Non-EVM destinations need a dedicated bytes32 refund address.
+            bytes32(uint256(uint160(msg.sender))),
             "", // Empty transceiver instructions for basic transfer
             executorArgs,
             feeArgs

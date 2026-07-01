@@ -25,6 +25,7 @@ contract MockNttManagerWithExecutor {
     using SafeERC20 for IERC20;
 
     uint256 public constant MOCK_DELIVERY_PRICE = 10000000000000000; // 0.01 ETH
+    uint256 public constant MOCK_WRAPPER_SURCHARGE = 1000000000000000; // 0.001 ETH
     uint64 public nextMsgId = 1;
 
     mapping(uint16 => bool) public supportedChains;
@@ -132,7 +133,7 @@ contract MockNttManagerWithExecutor {
         require(executorArgs.signedQuote.length > 0, "Empty signed quote");
 
         // Base cost for executor service
-        uint256 baseCost = MOCK_DELIVERY_PRICE;
+        uint256 baseCost = MOCK_DELIVERY_PRICE + MOCK_WRAPPER_SURCHARGE;
 
         // Add chain-specific costs
         if (recipientChain == 32 || recipientChain == 40) {
