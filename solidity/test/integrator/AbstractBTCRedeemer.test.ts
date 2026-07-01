@@ -661,4 +661,113 @@ describe("AbstractBTCRedeemer", () => {
       })
     })
   })
+
+  describe("withdrawVetoedRedemptionFunds", () => {
+    const vetoedAmount = BigNumber.from(50000000) // 0.5 BTC in satoshis
+    const redemptionKey = BigNumber.from(12345)
+    let randomAccount: any
+    let watchtower: any
+
+    beforeEach(async () => {
+      // eslint-disable-next-line @typescript-eslint/no-extra-semi
+      ;[, randomAccount] = await ethers.getSigners()
+      await createSnapshot()
+
+      const MockWatchtowerFactory = await ethers.getContractFactory(
+        "MockRedemptionWatchtower"
+      )
+      watchtower = await MockWatchtowerFactory.deploy(bank.address)
+
+      // The watchtower holds the vetoed non-penalty Bank balance, withdrawable
+      // by the redeemer (recorded as veto.redeemer).
+      await bank.setBalance(watchtower.address, vetoedAmount)
+      await watchtower.setWithdrawableAmount(redemptionKey, vetoedAmount)
+    })
+
+    afterEach(async () => {
+      await restoreSnapshot()
+    })
+
+    context("when caller is not the owner", () => {
+      it("should revert", async () => {
+        await expect(
+          redeemer
+            .connect(randomAccount)
+            .withdrawVetoedRedemptionFunds(
+              watchtower.address,
+              redemptionKey,
+              randomAccount.address
+            )
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+    })
+
+    context("when the recipient is the zero address", () => {
+      it("should revert", async () => {
+        await expect(
+          redeemer.withdrawVetoedRedemptionFunds(
+            watchtower.address,
+            redemptionKey,
+            ethers.constants.AddressZero
+          )
+        ).to.be.revertedWith("ZeroAddress")
+      })
+    })
+
+    context("when the watchtower is the zero address", () => {
+      it("should revert", async () => {
+        await expect(
+          redeemer.withdrawVetoedRedemptionFunds(
+            ethers.constants.AddressZero,
+            redemptionKey,
+            randomAccount.address
+          )
+        ).to.be.revertedWith("ZeroAddress")
+      })
+    })
+
+    context("when withdrawal is successful", () => {
+      it("should withdraw the vetoed balance and forward it to the recipient", async () => {
+        const initialRecipientBalance = await bank.balanceOf(
+          randomAccount.address
+        )
+
+        const tx = await redeemer.withdrawVetoedRedemptionFunds(
+          watchtower.address,
+          redemptionKey,
+          randomAccount.address
+        )
+
+        // The redeemer keeps nothing; the full recovered amount is forwarded.
+        expect(await bank.balanceOf(redeemer.address)).to.equal(0)
+        expect(await bank.balanceOf(randomAccount.address)).to.equal(
+          initialRecipientBalance.add(vetoedAmount)
+        )
+        expect(await bank.balanceOf(watchtower.address)).to.equal(0)
+
+        await expect(tx)
+          .to.emit(redeemer, "VetoedFundsRescued")
+          .withArgs(randomAccount.address, redemptionKey, vetoedAmount)
+      })
+
+      it("should leave unrelated pre-existing Bank balance untouched", async () => {
+        // A prior timeout refund credited the redeemer with Bank balance.
+        const preExisting = BigNumber.from(7000000)
+        await bank.setBalance(redeemer.address, preExisting)
+
+        await redeemer.withdrawVetoedRedemptionFunds(
+          watchtower.address,
+          redemptionKey,
+          randomAccount.address
+        )
+
+        // Only the freshly withdrawn amount is forwarded; the pre-existing
+        // balance stays with the redeemer for separate recovery.
+        expect(await bank.balanceOf(redeemer.address)).to.equal(preExisting)
+        expect(await bank.balanceOf(randomAccount.address)).to.equal(
+          vetoedAmount
+        )
+      })
+    })
+  })
 })

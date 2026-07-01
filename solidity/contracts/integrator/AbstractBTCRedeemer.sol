@@ -24,6 +24,7 @@ import "./IBridge.sol";
 import "./IBank.sol";
 import "./BitcoinTx.sol";
 import "./ITBTCVault.sol";
+import "./IRedemptionWatchtowerWithdrawal.sol";
 
 /// @title Abstract AbstractBTCRedeemer contract.
 /// @notice This abstract contract is meant to facilitate integration of protocols
@@ -87,6 +88,17 @@ abstract contract AbstractBTCRedeemer is OwnableUpgradeable {
     /// @param recipient The address that received the rescued Bank balance.
     /// @param amount The amount of Bank balance (in satoshis) rescued.
     event BankBalanceRescued(address indexed recipient, uint256 amount);
+
+    /// @notice Emitted when vetoed redemption funds are withdrawn from the
+    ///         RedemptionWatchtower and forwarded to a recovery recipient.
+    /// @param recipient The address that received the recovered Bank balance.
+    /// @param redemptionKey The vetoed redemption key that was withdrawn.
+    /// @param amount The amount of Bank balance (in satoshis) forwarded.
+    event VetoedFundsRescued(
+        address indexed recipient,
+        uint256 indexed redemptionKey,
+        uint256 amount
+    );
 
     /// @notice Multiplier to convert satoshi to TBTC token units.
     uint256 public constant SATOSHI_MULTIPLIER = 10**10;
@@ -291,5 +303,40 @@ abstract contract AbstractBTCRedeemer is OwnableUpgradeable {
 
         // slither-disable-next-line reentrancy-events
         emit BankBalanceRescued(recipient, amount);
+    }
+
+    /// @notice Withdraws the Bank balance of a vetoed cross-chain redemption
+    ///         from the RedemptionWatchtower and forwards it to a recovery
+    ///         recipient.
+    /// @dev A cross-chain redemption records this contract as the Bridge
+    ///      redeemer, so a veto leaves the non-penalty Bank balance withdrawable
+    ///      only by this contract via `RedemptionWatchtower.withdrawVetoedFunds`.
+    ///      Without this function the balance would be stranded because the
+    ///      contract has no other way to call the watchtower or move the
+    ///      recovered balance to the originating user. Only the balance credited
+    ///      by this specific withdrawal is forwarded, so any unrelated Bank
+    ///      balance already held by the contract is left untouched (and remains
+    ///      recoverable via `rescueBankBalance`).
+    /// @param watchtower The RedemptionWatchtower holding the vetoed funds.
+    /// @param redemptionKey Redemption key of the vetoed request to withdraw.
+    /// @param recipient The address that will receive the recovered balance.
+    function withdrawVetoedRedemptionFunds(
+        IRedemptionWatchtowerWithdrawal watchtower,
+        uint256 redemptionKey,
+        address recipient
+    ) external onlyOwner {
+        if (address(watchtower) == address(0)) revert ZeroAddress();
+        if (recipient == address(0)) revert ZeroAddress();
+
+        uint256 balanceBefore = bank.balanceOf(address(this));
+        watchtower.withdrawVetoedFunds(redemptionKey);
+        uint256 recovered = bank.balanceOf(address(this)) - balanceBefore;
+
+        if (recovered > 0) {
+            bank.transferBalance(recipient, recovered);
+        }
+
+        // slither-disable-next-line reentrancy-events
+        emit VetoedFundsRescued(recipient, redemptionKey, recovered);
     }
 }
