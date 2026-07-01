@@ -447,11 +447,11 @@ describe("NativeBTCDepositor", () => {
             })
 
             it("should not store the deferred gas reimbursement", async () => {
-              expect(
-                await nativeBtcDepositor.gasReimbursements(
-                  initializeDepositFixture.depositKey
-                )
-              ).to.eql([ethers.constants.AddressZero, BigNumber.from(0)])
+              const gr = await nativeBtcDepositor.gasReimbursements(
+                initializeDepositFixture.depositKey
+              )
+              expect(gr.receiver).to.equal(ethers.constants.AddressZero)
+              expect(BigNumber.from(gr.gasSpent).eq(0)).to.be.true
             })
           })
 
@@ -653,11 +653,11 @@ describe("NativeBTCDepositor", () => {
               })
 
               it("should not store the deferred gas reimbursement", async () => {
-                expect(
-                  await nativeBtcDepositor.gasReimbursements(
-                    initializeDepositFixture.depositKey
-                  )
-                ).to.eql([ethers.constants.AddressZero, BigNumber.from(0)])
+                const gr = await nativeBtcDepositor.gasReimbursements(
+                  initializeDepositFixture.depositKey
+                )
+                expect(gr.receiver).to.equal(ethers.constants.AddressZero)
+                expect(BigNumber.from(gr.gasSpent).eq(0)).to.be.true
               })
             }
           )

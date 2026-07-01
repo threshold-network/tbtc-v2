@@ -36,6 +36,24 @@
         "no-bitwise": "off",
         "no-void": "off"
       }
+    },
+    {
+      "files": ["deploy-patches/**/*.js"],
+      "parserOptions": {
+        "sourceType": "script"
+      },
+      "env": {
+        "node": true
+      },
+      "rules": {
+        "func-names": "off",
+        "no-restricted-syntax": "off",
+        "no-await-in-loop": "off",
+        "no-continue": "off",
+        "@typescript-eslint/no-var-requires": "off",
+        "global-require": "off",
+        "no-console": "off"
+      }
     }
   ]
 }

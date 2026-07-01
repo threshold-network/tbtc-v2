@@ -76,4 +76,17 @@ contract TestBitcoinTx {
     {
         return BitcoinTx.extractStandardOutputScriptPayload(outputScript);
     }
+
+    function exposeDetermineRequestedDifficulty(
+        bytes memory bitcoinHeaders,
+        uint256 currentEpochDifficulty,
+        uint256 previousEpochDifficulty
+    ) external pure returns (uint256) {
+        return
+            BitcoinTx.determineRequestedDifficulty(
+                bitcoinHeaders,
+                currentEpochDifficulty,
+                previousEpochDifficulty
+            );
+    }
 }

@@ -54,7 +54,6 @@ jobs:
       - uses: actions/setup-node@v3
         with:
           node-version: "18.x"
-          cache: "yarn"
           cache-dependency-path: typescript/yarn.lock
 
       # We need this step because the `@keep-network/tbtc-v2` which we update in
@@ -64,6 +63,9 @@ jobs:
       # step `https://` is used instead of `git://`.
       - name: Configure git to don't use unauthenticated protocol
         run: git config --global url."https://".insteadOf git://
+
+      - name: Enable Corepack
+        run: corepack enable
 
       - name: Install dependencies
         run: yarn install
@@ -89,7 +91,6 @@ jobs:
       - uses: actions/setup-node@v3
         with:
           node-version: "18.x"
-          cache: "yarn"
           cache-dependency-path: typescript/yarn.lock
 
       # We need this step because the `@keep-network/tbtc-v2` which we update in
@@ -99,6 +100,9 @@ jobs:
       # step `https://` is used instead of `git://`.
       - name: Configure git to don't use unauthenticated protocol
         run: git config --global url."https://".insteadOf git://
+
+      - name: Enable Corepack
+        run: corepack enable
 
       - name: Install dependencies
         run: yarn install
@@ -121,11 +125,13 @@ jobs:
       - uses: actions/setup-node@v3
         with:
           node-version: "18.x"
-          cache: "yarn"
           cache-dependency-path: typescript/yarn.lock
 
       - name: Configure git to don't use unauthenticated protocol
         run: git config --global url."https://".insteadOf git://
+
+      - name: Enable Corepack
+        run: corepack enable
 
       - name: Install dependencies
         run: yarn install

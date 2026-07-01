@@ -19,19 +19,23 @@ jobs:
       run:
         working-directory: ./solidity
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v4
         with:
-          node-version: "18.x"
-          cache: "yarn"
+          node-version: "20.19.0"
           cache-dependency-path: solidity/yarn.lock
 
       - name: Configure git protocol
         run: git config --global url."https://".insteadOf git://
 
+      - name: Enable Corepack
+        run: |
+          corepack enable
+          corepack prepare yarn@4.12.0 --activate
+
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: yarn install --immutable
 
       - name: Validate deployment artifacts
         run: npx hardhat test ./test/deployment-artifacts.test.ts
