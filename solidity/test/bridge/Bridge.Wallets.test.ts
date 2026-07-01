@@ -1822,4 +1822,75 @@ describe("Bridge - Wallets", () => {
       )
     })
   })
+
+  describe("slashWalletForFraud when slashing is inactive", () => {
+    before(async () => {
+      await createSnapshot()
+
+      // The contract default is slashingActive=false; the shared fixture
+      // turns it on so the legacy seize assertions hold. Turn it back off
+      // here to exercise the gate-off path: the inert slashing economics
+      // must be skipped while wallet termination is preserved.
+      await bridgeGovernance.connect(governance).setSlashingActive(false)
+
+      walletRegistry.seize.reset()
+      walletRegistry.closeWallet.reset()
+    })
+
+    after(async () => {
+      walletRegistry.seize.reset()
+      walletRegistry.closeWallet.reset()
+
+      await restoreSnapshot()
+    })
+
+    it("terminates the wallet without seizing", async () => {
+      const data = nonWitnessSignSingleInputTx
+      const walletMembersIDs = [1, 2, 3]
+
+      await bridge.setWallet(fraudWallet.pubKeyHash160, {
+        ecdsaWalletID: fraudWallet.ecdsaWalletID,
+        mainUtxoHash: ethers.constants.HashZero,
+        pendingRedemptionsValue: 0,
+        createdAt: await lastBlockTime(),
+        movingFundsRequestedAt: 0,
+        closingStartedAt: 0,
+        pendingMovedFundsSweepRequestsCount: 0,
+        state: walletState.Closing,
+        movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+      })
+
+      await ecdsaFraudRouter
+        .connect(thirdParty)
+        .submitFraudChallenge(
+          fraudWallet.publicKey,
+          data.preimageSha256,
+          data.signature,
+          {
+            value: constants.fraudChallengeDepositAmount,
+          }
+        )
+      await increaseTime(constants.fraudChallengeDefeatTimeout)
+
+      await ecdsaFraudRouter
+        .connect(thirdParty)
+        .notifyFraudChallengeDefeatTimeout(
+          fraudWallet.publicKey,
+          walletMembersIDs,
+          data.preimageSha256
+        )
+
+      // Slashing is gated off: `seize` must not be invoked.
+      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+      expect(walletRegistry.seize).not.to.have.been.called
+      // Termination is unconditional: the wallet is still closed in the
+      // registry and transitions to Terminated regardless of the gate.
+      expect(walletRegistry.closeWallet).to.have.been.calledWith(
+        fraudWallet.ecdsaWalletID
+      )
+      expect((await bridge.wallets(fraudWallet.pubKeyHash160)).state).to.equal(
+        walletState.Terminated
+      )
+    })
+  })
 })

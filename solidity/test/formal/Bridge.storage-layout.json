@@ -37,6 +37,12 @@
       "label": "address",
       "numberOfBytes": "20"
     },
+    "t_array(t_uint256)40_storage": {
+      "encoding": "inplace",
+      "label": "uint256[40]",
+      "numberOfBytes": "1280",
+      "base": "t_uint256"
+    },
     "t_array(t_uint256)49_storage": {
       "encoding": "inplace",
       "label": "uint256[49]",
@@ -706,6 +712,12 @@
           "type": "t_bool"
         },
         {
+          "label": "slashingActive",
+          "offset": 18,
+          "slot": "37",
+          "type": "t_bool"
+        },
+        {
           "label": "__gap",
           "offset": 0,
           "slot": "38",
@@ -808,12 +820,6 @@
       "encoding": "inplace",
       "label": "uint96",
       "numberOfBytes": "12"
-    },
-    "t_array(t_uint256)40_storage": {
-      "encoding": "inplace",
-      "label": "uint256[40]",
-      "numberOfBytes": "1280",
-      "base": "t_uint256"
     }
   }
 }
