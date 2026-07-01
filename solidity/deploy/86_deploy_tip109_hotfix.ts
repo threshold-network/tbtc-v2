@@ -21,6 +21,25 @@ const BRIDGE_GOVERNANCE_ABI = [
   "function beginBridgeGovernanceTransfer(address newBridgeGovernance)",
   "function finalizeBridgeGovernanceTransfer()",
   "function transferOwnership(address newOwner)",
+  "function setVaultStatus(address vault, bool isTrusted)",
+  "function setMigrationDebtVault(address vault)",
+]
+
+const TBTC_VAULT_ABI = [
+  "function initiateUpgrade(address newVault)",
+  "function finalizeUpgrade()",
+  "function transferOwnership(address newOwner)",
+]
+
+// Read-only ABI for reconstructing the legacy TBTCVault's outstanding
+// optimistic minting debt. The legacy mainnet vault predates the aggregate
+// `hasOutstandingOptimisticMintingDebt()` selector and exposes only the
+// per-depositor mapping, so the runbook derives the aggregate by scanning
+// `OptimisticMintingFinalized` events for candidate depositors and reading the
+// live per-depositor balance for each.
+const TBTC_VAULT_OM_ABI = [
+  "function optimisticMintingDebt(address depositor) view returns (uint256)",
+  "event OptimisticMintingFinalized(address indexed minter, uint256 indexed depositKey, address indexed depositor, uint256 optimisticMintingDebt)",
 ]
 
 const BRIDGE_EVENT_ABI = [
@@ -31,6 +50,8 @@ const BRIDGE_EVENT_ABI = [
 
 const proxyAdminInterface = new utils.Interface(PROXY_ADMIN_ABI)
 const bridgeGovernanceInterface = new utils.Interface(BRIDGE_GOVERNANCE_ABI)
+const tbtcVaultInterface = new utils.Interface(TBTC_VAULT_ABI)
+const tbtcVaultOmInterface = new utils.Interface(TBTC_VAULT_OM_ABI)
 const bridgeEventInterface = new utils.Interface(BRIDGE_EVENT_ABI)
 const FRAUD_LOG_SCAN_CHUNK_SIZE = 100000
 
@@ -67,6 +88,31 @@ function encodeTransferOwnership(newOwner: string): string {
   return bridgeGovernanceInterface.encodeFunctionData("transferOwnership", [
     newOwner,
   ])
+}
+
+function encodeSetVaultStatus(vault: string, isTrusted: boolean): string {
+  return bridgeGovernanceInterface.encodeFunctionData("setVaultStatus", [
+    vault,
+    isTrusted,
+  ])
+}
+
+function encodeSetMigrationDebtVault(vault: string): string {
+  return bridgeGovernanceInterface.encodeFunctionData("setMigrationDebtVault", [
+    vault,
+  ])
+}
+
+function encodeInitiateVaultUpgrade(newVault: string): string {
+  return tbtcVaultInterface.encodeFunctionData("initiateUpgrade", [newVault])
+}
+
+function encodeFinalizeVaultUpgrade(): string {
+  return tbtcVaultInterface.encodeFunctionData("finalizeUpgrade", [])
+}
+
+function encodeTransferVaultOwnership(newOwner: string): string {
+  return tbtcVaultInterface.encodeFunctionData("transferOwnership", [newOwner])
 }
 
 async function getFraudChallengeLogs(
@@ -112,6 +158,77 @@ async function getFraudChallengeLogs(
     }
     return left.logIndex - right.logIndex
   })
+}
+
+/**
+ * Reconstructs the set of depositors that still carry nonzero optimistic
+ * minting debt on the given (legacy) TBTCVault. The legacy mainnet vault is an
+ * immutable, non-proxy contract that predates the aggregate
+ * `hasOutstandingOptimisticMintingDebt()` selector and exposes only the
+ * per-depositor `optimisticMintingDebt(address)` mapping. The aggregate signal
+ * is rebuilt in two steps: scan `OptimisticMintingFinalized` events to
+ * enumerate every depositor ever assigned optimistic minting debt, then read
+ * the live per-depositor balance for each and keep the ones that are still
+ * nonzero. Repaid debt is captured implicitly because the mapping read
+ * reflects current on-chain state; the event scan only bounds the candidate
+ * depositor set.
+ */
+async function computeOutstandingOptimisticMintingDebt(
+  provider: providers.Provider,
+  vaultAddress: string,
+  fromBlock: number,
+  toBlock: number
+): Promise<{ depositor: string; debt: BigNumber }[]> {
+  const topics = [
+    tbtcVaultOmInterface.getEventTopic("OptimisticMintingFinalized"),
+  ]
+
+  const logs: providers.Log[] = []
+
+  for (let startBlock = fromBlock; startBlock <= toBlock; ) {
+    const endBlock = Math.min(
+      startBlock + FRAUD_LOG_SCAN_CHUNK_SIZE - 1,
+      toBlock
+    )
+
+    // eslint-disable-next-line no-await-in-loop
+    const chunk = await provider.getLogs({
+      address: vaultAddress,
+      topics,
+      fromBlock: startBlock,
+      toBlock: endBlock,
+    })
+    logs.push(...chunk)
+
+    startBlock = endBlock + 1
+  }
+
+  const depositors = new Set<string>()
+  // eslint-disable-next-line no-restricted-syntax
+  for (const log of logs) {
+    const parsed = tbtcVaultOmInterface.parseLog(log)
+    depositors.add(utils.getAddress(String(parsed.args.depositor)))
+  }
+
+  const outstanding: { depositor: string; debt: BigNumber }[] = []
+  // eslint-disable-next-line no-restricted-syntax
+  for (const depositor of depositors) {
+    const callData = tbtcVaultOmInterface.encodeFunctionData(
+      "optimisticMintingDebt",
+      [depositor]
+    )
+    // eslint-disable-next-line no-await-in-loop
+    const raw = await provider.call({ to: vaultAddress, data: callData })
+    const [debt] = tbtcVaultOmInterface.decodeFunctionResult(
+      "optimisticMintingDebt",
+      raw
+    ) as [BigNumber]
+    if (debt.gt(0)) {
+      outstanding.push({ depositor, debt })
+    }
+  }
+
+  return outstanding
 }
 
 async function computeOpenFraudChallengeEscrow(
@@ -382,6 +499,26 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   })
   console.log(`  New BridgeGovernance: ${newBridgeGovernance.address}`)
 
+  // --- Step 7b: Deploy a new migration-debt TBTCVault (PR #957) ---
+  // The existing mainnet TBTCVault predates the migration-debt read interface
+  // (`hasOutstandingMigrationDebt`, `isMigrationRevealer`, `canRevealMigration`),
+  // so the upgraded Bridge would reject it as the canonical migration debt
+  // vault (`MigrationDebtVaultInterfaceMissing`). Deploy a fresh TBTCVault
+  // built from this tree, wired to the same Bank, TBTC token, and Bridge, so
+  // governance can complete the non-proxy vault rotation and activate the
+  // migration-debt path.
+  console.log("\n--- Deploying new migration-debt TBTCVault ---")
+  const Bank = await get("Bank")
+  const TBTCToken = await get("TBTC")
+  const TBTCVault = await get("TBTCVault")
+  const newTBTCVault = await deploy("TBTCVaultTIP109Hotfix", {
+    ...deployOptions,
+    contract: "TBTCVault",
+    skipIfAlreadyDeployed: false,
+    args: [Bank.address, TBTCToken.address, Bridge.address],
+  })
+  console.log(`  New TBTCVault: ${newTBTCVault.address}`)
+
   const bridgeArtifact = artifacts.readArtifactSync("Bridge")
   await save("Bridge", {
     ...Bridge,
@@ -522,6 +659,109 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       `(scanned blocks ${fraudScanFromBlock}..${latestBlock})`
   )
 
+  // --- Migration-debt TBTCVault activation calldata (finding TOB-17) ---
+  // Complete the non-proxy TBTCVault rotation, then trust the new vault and
+  // set it as the Bridge's canonical migration debt vault so migration reveals
+  // can be activated. `setMigrationDebtVault` requires the vault to be trusted
+  // and to expose the migration-debt interface, so the ordering below matters.
+  const initiateVaultUpgradeCalldata = encodeInitiateVaultUpgrade(
+    newTBTCVault.address
+  )
+  const finalizeVaultUpgradeCalldata = encodeFinalizeVaultUpgrade()
+  const trustNewVaultCalldata = encodeSetVaultStatus(newTBTCVault.address, true)
+  const setMigrationDebtVaultCalldata = encodeSetMigrationDebtVault(
+    newTBTCVault.address
+  )
+
+  // The new TBTCVault is deployed by the deployer EOA, so OpenZeppelin Ownable
+  // sets the deployer as its owner. `finalizeUpgrade` moves TBTC ownership and
+  // the full Bank balance to this vault, making it canonical, so its owner-only
+  // surface (addMinter, setAccountControlRedemptionNotifier,
+  // activateAccountControlReconciliation, setMigrationRevealer, and the
+  // migration-debt operations) must be handed to governance. Transfer its
+  // ownership to the Council Safe, matching the new BridgeGovernance handoff and
+  // the existing standalone TBTCVault ownership-transfer convention, and run it
+  // before finalizeUpgrade so the canonical vault is governance-owned the moment
+  // TBTC ownership and the Bank balance move to it.
+  const transferNewVaultOwnershipCalldata =
+    encodeTransferVaultOwnership(councilSafeAddress)
+
+  // --- Legacy TBTCVault outstanding optimistic minting debt precondition ---
+  // The finalizeUpgrade guard that blocks finalization while optimistic minting
+  // debt is outstanding lives in the NEW TBTCVault bytecode, but the runbook
+  // runs finalizeUpgrade against the LEGACY vault, whose immutable, non-proxy
+  // bytecode predates that guard and never runs it. The legacy vault also
+  // predates the aggregate optimistic-minting-debt selector, so the runbook
+  // reconstructs the aggregate from the per-depositor mapping and gates the
+  // finalize action on zero outstanding debt. This is a reference snapshot
+  // only: the operator MUST recompute it immediately before executing
+  // finalizeUpgrade, because new optimistic mints can finalize on the legacy
+  // vault during the 24h vault governance delay.
+  const legacyVaultOmEventFromBlock = Number(
+    process.env.TBTCVAULT_OM_EVENT_FROM_BLOCK ||
+      TBTCVault.receipt?.blockNumber ||
+      0
+  )
+  const legacyOutstandingOmDebt = await computeOutstandingOptimisticMintingDebt(
+    ethers.provider,
+    TBTCVault.address,
+    legacyVaultOmEventFromBlock,
+    latestBlock
+  )
+  const legacyOutstandingOmDebtors = legacyOutstandingOmDebt.map((entry) => ({
+    depositor: entry.depositor,
+    debt: entry.debt.toString(),
+  }))
+  console.log("\n--- Legacy TBTCVault outstanding optimistic minting debt ---")
+  console.log(
+    `  ${legacyOutstandingOmDebt.length} depositor(s) with nonzero debt at ` +
+      `block ${latestBlock} (scanned from block ${legacyVaultOmEventFromBlock})`
+  )
+  if (legacyOutstandingOmDebt.length > 0) {
+    console.log(
+      "  BLOCKING: the legacy TBTCVault still carries outstanding optimistic " +
+        "minting debt. finalizeUpgrade would strand that debt on the legacy " +
+        "vault and re-open the double-mint footgun. Do NOT execute the " +
+        "finalizeUpgrade action until every listed depositor's " +
+        "optimisticMintingDebt reads zero."
+    )
+    // eslint-disable-next-line no-restricted-syntax
+    for (const entry of legacyOutstandingOmDebtors) {
+      console.log(`    depositor ${entry.depositor}: ${entry.debt}`)
+    }
+  }
+  console.log(
+    "  Bridge untrust/rotation guard note: the Bridge optimistic-minting-debt " +
+      "check is a fail-open staticcall and does NOT fire for the legacy vault " +
+      "(the selector is absent). Before untrusting the legacy vault or " +
+      "rotating the canonical migration debt pointer away from it, manually " +
+      "verify this debt set is empty using the same scan."
+  )
+
+  console.log("\n  TBTCVault Owner Action [A]: initiateUpgrade(newTBTCVault)")
+  console.log(`    Target: existing TBTCVault (${TBTCVault.address})`)
+  console.log(`    New TBTCVault: ${newTBTCVault.address}`)
+  console.log(
+    "    Then, after the 24h vault governance delay, call finalizeUpgrade() " +
+      "on the existing TBTCVault."
+  )
+  console.log(
+    "\n  Deployer Action: transfer new TBTCVault ownership to the Council Safe"
+  )
+  console.log(`    Target: new TBTCVault (${newTBTCVault.address})`)
+  console.log(`    New owner: Council Safe (${KNOWN_COUNCIL_SAFE})`)
+  console.log(
+    "    Run before finalizeUpgrade so the canonical vault is governance-owned " +
+      "the moment TBTC ownership and the Bank balance move to it."
+  )
+  console.log(
+    "\n  Council Safe Action [C]: trust and activate the new TBTCVault"
+  )
+  console.log(
+    `    Via new BridgeGovernance (${newBridgeGovernance.address}): ` +
+      "setVaultStatus(newTBTCVault, true) then setMigrationDebtVault(newTBTCVault)"
+  )
+
   // --- Step 9: Save deployment summary JSON ---
   const chainId = await hre.getChainId()
 
@@ -542,6 +782,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       BridgeTIP109HotfixImplementation: bridgeImpl.address,
       RebateStakingTIP109HotfixImplementation: rebateImpl.address,
       BridgeGovernanceTIP109Hotfix: newBridgeGovernance.address,
+      TBTCVaultTIP109Hotfix: newTBTCVault.address,
     },
     reusedContracts: {
       Wallets: Wallets.address,
@@ -554,6 +795,112 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       CouncilSafe: KNOWN_COUNCIL_SAFE,
       RebateStaking: RebateStaking.address,
       BridgeGovernance: BridgeGovernance.address,
+      TBTCVault: TBTCVault.address,
+      Bank: Bank.address,
+      TBTC: TBTCToken.address,
+    },
+    // Complete the non-proxy TBTCVault rotation, then trust and activate the
+    // new migration-debt vault. `initiateUpgrade`/`finalizeUpgrade` are run by
+    // the TBTCVault owner; the trust/activate steps go through the new
+    // BridgeGovernance (after governance has been transferred to it). Ordering
+    // is required: finalizeUpgrade only after the 24h vault delay, and
+    // setMigrationDebtVault only after setVaultStatus trusts the new vault.
+    tbtcVaultMigrationActions: [
+      {
+        target: TBTCVault.address,
+        data: initiateVaultUpgradeCalldata,
+        value: 0,
+        description:
+          "TBTCVault owner: initiate the upgrade to the new migration-debt " +
+          "TBTCVault",
+      },
+      {
+        target: newTBTCVault.address,
+        data: transferNewVaultOwnershipCalldata,
+        value: 0,
+        description:
+          "Deployer: transfer ownership of the new TBTCVault to the Council " +
+          "Safe. Run before finalizeUpgrade so the canonical vault's owner-only " +
+          "functions (addMinter, setAccountControlRedemptionNotifier, " +
+          "activateAccountControlReconciliation, setMigrationRevealer, and the " +
+          "migration-debt operations) are governance-controlled the moment TBTC " +
+          "ownership and the Bank balance move to it",
+      },
+      {
+        target: TBTCVault.address,
+        data: finalizeVaultUpgradeCalldata,
+        value: 0,
+        governanceDelaySeconds: "86400",
+        // HARD PRECONDITION: the legacy TBTCVault is immutable and predates the
+        // finalizeUpgrade optimistic-minting-debt guard, so nothing on-chain
+        // blocks a finalize that strands outstanding optimistic minting debt.
+        // The operator MUST recompute the outstanding-debt set immediately
+        // before execution (the legacy vault can finalize new optimistic mints
+        // during the 24h delay) and MUST NOT execute this action while any
+        // depositor still reports nonzero optimisticMintingDebt.
+        requiresRecomputation: true,
+        precondition:
+          "Legacy TBTCVault must have zero outstanding optimistic minting " +
+          "debt. Recompute by scanning OptimisticMintingFinalized events on " +
+          "the legacy TBTCVault, then read optimisticMintingDebt(depositor) " +
+          "for every emitted depositor; all must read zero before finalizing.",
+        omDebtScan: {
+          fromBlock: legacyVaultOmEventFromBlock,
+          referenceToBlock: latestBlock,
+          referenceOutstandingDepositorCount: legacyOutstandingOmDebt.length,
+          referenceOutstandingDepositors: legacyOutstandingOmDebtors,
+        },
+        description:
+          "TBTCVault owner: after the 24h vault governance delay, finalize " +
+          "the upgrade, transferring TBTC ownership and Bank balance to the " +
+          "new vault. BLOCKED until the legacy vault's outstanding optimistic " +
+          "minting debt is zero (see precondition).",
+      },
+      {
+        target: newBridgeGovernance.address,
+        data: trustNewVaultCalldata,
+        value: 0,
+        description:
+          "Council Safe (via new BridgeGovernance): trust the new TBTCVault",
+      },
+      {
+        target: newBridgeGovernance.address,
+        data: setMigrationDebtVaultCalldata,
+        value: 0,
+        description:
+          "Council Safe (via new BridgeGovernance): set the new TBTCVault as " +
+          "the canonical Bridge migration debt vault",
+      },
+    ],
+    // The Bridge optimistic-minting-debt untrust/rotation guard uses a
+    // fail-open staticcall against `hasOutstandingOptimisticMintingDebt()`. The
+    // legacy TBTCVault predates that selector, so the guard is a no-op for it:
+    // untrusting or rotating away from the legacy vault while it still holds
+    // optimistic minting debt would be silently allowed and re-open the
+    // double-mint footgun. Before ever untrusting the legacy vault or rotating
+    // the canonical migration debt pointer away from it, governance MUST
+    // manually verify the legacy vault has zero outstanding optimistic minting
+    // debt using the per-depositor scan below. A correctly executed
+    // finalizeUpgrade precondition already drives the legacy vault to zero
+    // debt, and finalizeUpgrade removes its TBTC mint authority, so it cannot
+    // accrue new optimistic minting debt afterward.
+    legacyVaultUntrustPrecondition: {
+      vault: TBTCVault.address,
+      guard:
+        "Bridge.setVaultStatus / rotateMigrationDebtVault fail-open " +
+        "optimistic-minting-debt check does not fire for the legacy vault",
+      requirement:
+        "Manually verify zero outstanding optimistic minting debt on the " +
+        "legacy TBTCVault (scan OptimisticMintingFinalized events, then read " +
+        "optimisticMintingDebt(depositor) for each emitted depositor) before " +
+        "untrusting it or rotating the canonical migration debt vault away " +
+        "from it.",
+      omDebtScan: {
+        fromBlock: legacyVaultOmEventFromBlock,
+        referenceToBlock: latestBlock,
+        referenceOutstandingDepositorCount: legacyOutstandingOmDebt.length,
+        referenceOutstandingDepositors: legacyOutstandingOmDebtors,
+      },
     },
     // The Council Safe must run these BridgeGovernance actions, in order,
     // before the post-upgrade seed action. Without them the seed call reverts

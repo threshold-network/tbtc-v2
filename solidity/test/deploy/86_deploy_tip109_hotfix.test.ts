@@ -28,6 +28,10 @@ describe("Deploy Script 86: TIP-109 Hotfix", () => {
     "0x0184739c02d51bFc1cc2E3a2bF6bbBe31e265a45"
   const BRIDGE_GOV_ADDRESS = "0xCBcFa30000000000000000000000000000000009"
   const BRIDGE_GOV_HOTFIX_ADDRESS = "0x000000000000000000000000000000000000000A"
+  const TBTC_VAULT_HOTFIX_ADDRESS = "0x000000000000000000000000000000000000000B"
+  const BANK_ADDRESS = "0x000000000000000000000000000000000000000C"
+  const TBTC_TOKEN_ADDRESS = "0x000000000000000000000000000000000000000D"
+  const TBTC_VAULT_ADDRESS = "0x000000000000000000000000000000000000000E"
 
   interface DeployCall {
     name: string
@@ -95,6 +99,7 @@ describe("Deploy Script 86: TIP-109 Hotfix", () => {
       BridgeTIP109HotfixImplementation: BRIDGE_IMPL_ADDRESS,
       RebateStakingTIP109HotfixImplementation: REBATE_IMPL_ADDRESS,
       BridgeGovernanceTIP109Hotfix: BRIDGE_GOV_HOTFIX_ADDRESS,
+      TBTCVaultTIP109Hotfix: TBTC_VAULT_HOTFIX_ADDRESS,
     }
 
     const getAddressMap: Record<string, string> = {
@@ -106,6 +111,9 @@ describe("Deploy Script 86: TIP-109 Hotfix", () => {
       Bridge: BRIDGE_PROXY_ADDRESS,
       RebateStaking: REBATE_STAKING_PROXY_ADDRESS,
       BridgeGovernance: BRIDGE_GOV_ADDRESS,
+      Bank: BANK_ADDRESS,
+      TBTC: TBTC_TOKEN_ADDRESS,
+      TBTCVault: TBTC_VAULT_ADDRESS,
     }
 
     const paddedAdmin = `0x${"0".repeat(24)}${KNOWN_PROXY_ADMIN.slice(
@@ -371,5 +379,45 @@ describe("Deploy Script 86: TIP-109 Hotfix", () => {
     capturedSummary.bridgeGovernanceTransferActions.forEach((action: any) => {
       expect(action.target).to.equal(BRIDGE_GOV_ADDRESS)
     })
+  })
+
+  it("deploys a new migration-debt TBTCVault wired to Bank, TBTC, and Bridge", async () => {
+    const { deployCalls } = await runScript()
+
+    const vaultDeploy = deployCalls.find(
+      (call) => call.name === "TBTCVaultTIP109Hotfix"
+    )
+    expect(vaultDeploy, "new TBTCVault deploy").to.not.equal(undefined)
+    expect(vaultDeploy!.options.contract).to.equal("TBTCVault")
+    expect(vaultDeploy!.options.skipIfAlreadyDeployed).to.equal(false)
+    expect(vaultDeploy!.options.args).to.deep.equal([
+      BANK_ADDRESS,
+      TBTC_TOKEN_ADDRESS,
+      BRIDGE_PROXY_ADDRESS,
+    ])
+
+    expect(capturedSummary.deployedContracts.TBTCVaultTIP109Hotfix).to.equal(
+      TBTC_VAULT_HOTFIX_ADDRESS
+    )
+  })
+
+  it("generates the ordered TBTCVault rotation and migration-debt activation actions", async () => {
+    await runScript()
+
+    const actions = capturedSummary.tbtcVaultMigrationActions
+    expect(actions, "migration actions").to.have.lengthOf(5)
+
+    // The vault upgrade is driven on the existing TBTCVault by its owner.
+    expect(actions[0].target).to.equal(TBTC_VAULT_ADDRESS)
+    // The new vault's ownership is transferred to governance before finalize,
+    // so the canonical vault is never left owned by the deployer EOA.
+    expect(actions[1].target).to.equal(TBTC_VAULT_HOTFIX_ADDRESS)
+    // finalizeUpgrade must observe the 24h vault governance delay.
+    expect(actions[2].target).to.equal(TBTC_VAULT_ADDRESS)
+    expect(actions[2].governanceDelaySeconds).to.equal("86400")
+
+    // Trust then activate the new vault via the new BridgeGovernance.
+    expect(actions[3].target).to.equal(BRIDGE_GOV_HOTFIX_ADDRESS)
+    expect(actions[4].target).to.equal(BRIDGE_GOV_HOTFIX_ADDRESS)
   })
 })
