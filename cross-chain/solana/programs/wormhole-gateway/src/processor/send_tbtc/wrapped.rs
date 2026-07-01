@@ -1,4 +1,8 @@
-use crate::{constants::MSG_SEED_PREFIX, state::Custodian};
+use crate::{
+    constants::{DISABLED_GATEWAY, MSG_SEED_PREFIX},
+    error::WormholeGatewayError,
+    state::{Custodian, GatewayInfo},
+};
 use anchor_lang::prelude::*;
 use anchor_spl::token;
 use wormhole_anchor_sdk::{
@@ -18,6 +22,12 @@ pub struct SendTbtcWrapped<'info> {
         has_one = tbtc_mint,
     )]
     custodian: Account<'info, Custodian>,
+
+    #[account(
+        seeds = [GatewayInfo::SEED_PREFIX, &args.recipient_chain.to_le_bytes()],
+        bump = gateway_info.bump,
+    )]
+    gateway_info: Account<'info, GatewayInfo>,
 
     /// Custody account.
     #[account(mut)]
@@ -120,6 +130,11 @@ pub fn send_tbtc_wrapped(ctx: Context<SendTbtcWrapped>, args: SendTbtcWrappedArg
     let wrapped_tbtc_token = &ctx.accounts.wrapped_tbtc_token;
     let token_bridge_transfer_authority = &ctx.accounts.token_bridge_transfer_authority;
     let token_program = &ctx.accounts.token_program;
+
+    require!(
+        ctx.accounts.gateway_info.address != DISABLED_GATEWAY,
+        WormholeGatewayError::GatewayDisabled
+    );
 
     // Prepare for wrapped tBTC transfer.
     super::burn_and_prepare_transfer(

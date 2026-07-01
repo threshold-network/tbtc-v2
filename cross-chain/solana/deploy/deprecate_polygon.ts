@@ -6,7 +6,9 @@ import { Idl, Program } from "@coral-xyz/anchor"
 import { WormholeGateway } from "../target/types/wormhole_gateway"
 
 const WH_POLYGON_CHAIN_ID = 5
-const ZERO_GATEWAY_ADDRESS = Array.from(Buffer.alloc(32))
+const DISABLED_GATEWAY_ADDRESS = Array.from(
+  Buffer.concat([Buffer.alloc(31), Buffer.from([1])])
+)
 
 async function run(): Promise<void> {
   dotenv.config({ path: "../solana.env" })
@@ -15,7 +17,7 @@ async function run(): Promise<void> {
 
   const wormholeGatewayProgram = anchor.workspace
     .WormholeGateway as Program<WormholeGateway>
-  await assertDeployedZeroGatewayGuard(wormholeGatewayProgram)
+  await assertDeployedDisabledGatewaySupport(wormholeGatewayProgram)
 
   const authority = loadKey(process.env.AUTHORITY).publicKey
 
@@ -34,7 +36,7 @@ async function run(): Promise<void> {
   await wormholeGatewayProgram.methods
     .updateGatewayAddress({
       chain: WH_POLYGON_CHAIN_ID,
-      address: ZERO_GATEWAY_ADDRESS,
+      address: DISABLED_GATEWAY_ADDRESS,
     })
     .accounts({
       custodian,
@@ -43,36 +45,42 @@ async function run(): Promise<void> {
     })
     .rpc()
 
-  console.log("Cleared Solana gateway Polygon peer")
+  console.log("Disabled Solana gateway Polygon peer")
 }
 
-function assertZeroGatewayGuard(idl: Idl, source: string): void {
-  const hasZeroGatewayGuard = idl.errors?.some(
-    ({ name }) => name === "ZeroGateway"
+function assertDisabledGatewaySupport(idl: Idl, source: string): void {
+  const hasDisabledGatewayGuard = idl.errors?.some(
+    ({ name }) => name === "GatewayDisabled"
+  )
+  const sendWrappedAccounts =
+    idl.instructions.find(({ name }) => name === "sendTbtcWrapped")?.accounts ??
+    []
+  const sendWrappedChecksGatewayInfo = sendWrappedAccounts.some(
+    ({ name }) => name === "gatewayInfo"
   )
 
-  if (!hasZeroGatewayGuard) {
+  if (!hasDisabledGatewayGuard || !sendWrappedChecksGatewayInfo) {
     throw new Error(
-      `Refusing to clear Polygon gateway peer because ${source} does not include the ZeroGateway send guard`
+      `Refusing to disable Polygon gateway peer because ${source} does not include disabled-gateway send guards`
     )
   }
 }
 
-async function assertDeployedZeroGatewayGuard(
+async function assertDeployedDisabledGatewaySupport(
   program: Program<WormholeGateway>
 ): Promise<void> {
-  assertZeroGatewayGuard(program.idl, "the local IDL")
+  assertDisabledGatewaySupport(program.idl, "the local IDL")
 
   const provider = program.provider as anchor.AnchorProvider
   const deployedIdl = await Program.fetchIdl(program.programId, provider)
 
   if (!deployedIdl) {
     throw new Error(
-      "Refusing to clear Polygon gateway peer because the deployed Anchor IDL was not found"
+      "Refusing to disable Polygon gateway peer because the deployed Anchor IDL was not found"
     )
   }
 
-  assertZeroGatewayGuard(deployedIdl, "the deployed Anchor IDL")
+  assertDisabledGatewaySupport(deployedIdl, "the deployed Anchor IDL")
 }
 
 ;(async () => {

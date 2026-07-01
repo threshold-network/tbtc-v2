@@ -1,5 +1,5 @@
 use crate::{
-    constants::MSG_SEED_PREFIX,
+    constants::{DISABLED_GATEWAY, MSG_SEED_PREFIX},
     error::WormholeGatewayError,
     state::{Custodian, GatewayInfo},
 };
@@ -135,6 +135,10 @@ pub fn send_tbtc_gateway(ctx: Context<SendTbtcGateway>, args: SendTbtcGatewayArg
     let token_program = &ctx.accounts.token_program;
 
     let gateway = ctx.accounts.gateway_info.address;
+    require!(
+        gateway != DISABLED_GATEWAY,
+        WormholeGatewayError::GatewayDisabled
+    );
     require!(gateway != [0; 32], WormholeGatewayError::ZeroGateway);
 
     // Prepare for wrapped tBTC transfer (this method also truncates the amount to prevent having to

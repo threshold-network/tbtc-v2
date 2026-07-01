@@ -15,7 +15,7 @@ new canonical Polygon mints:
 - block Polygon peer mappings on Base, Arbitrum, Optimism, and Polygon gateway
   contracts by setting them to each gateway contract's `DISABLED_GATEWAY`
   sentinel;
-- remove Polygon from new Solana gateway initialization and clear the existing
+- remove Polygon from new Solana gateway initialization and disable the existing
   Solana gateway Polygon peer with `cross-chain/solana/deploy/deprecate_polygon.ts`
   after the upgraded Solana Wormhole Gateway program is deployed;
 - keep `PolygonTBTC` unpaused and keep the gateway minter role until the
@@ -29,9 +29,9 @@ calls on the EVM gateway contracts after those contracts are upgraded. The
 EVM mapping scripts skip the gateway block if the deployed gateway is not
 upgraded with `DISABLED_GATEWAY()` support yet; set
 `REQUIRE_DISABLED_GATEWAY_SUPPORT=true` to make that precondition fatal for a
-deprecation-specific run. The Solana cleanup script refuses to clear the
-Polygon peer unless the deployed Anchor IDL contains the zero-gateway send
-guard.
+deprecation-specific run. The Solana cleanup script refuses to disable the
+Polygon peer unless the deployed Anchor IDL contains disabled-gateway guards
+for both Solana send paths.
 
 For historical context, this package originally brought Bitcoin to Polygon via
 the Wormhole Token Bridge. See

@@ -72,6 +72,9 @@ describe("wormhole-gateway", () => {
   const txPayer = anchor.web3.Keypair.generate();
 
   const commonTokenOwner = anchor.web3.Keypair.generate();
+  const DISABLED_GATEWAY_ADDRESS = Array.from(
+    Buffer.concat([Buffer.alloc(31), Buffer.from([1])])
+  );
 
   // Mock foreign emitter.
   const ethereumTokenBridge = new MockEthereumTokenBridge(
@@ -1081,6 +1084,43 @@ describe("wormhole-gateway", () => {
       await expectIxFail([ix], [commonTokenOwner], "ZeroGateway");
     });
 
+    it("cannot send tbtc to gateway (gateway is disabled)", async () => {
+      // Use common token account.
+      const sender = commonTokenOwner.publicKey;
+      const senderToken = getAssociatedTokenAddressSync(
+        tbtc.getMintPDA(),
+        sender
+      );
+
+      // Disable the destination gateway address, as done when deprecating a route.
+      const recipientChain = 5;
+      const disableGatewayIx = await wormholeGateway.updateGatewayAddress(
+        {
+          authority: authority.publicKey,
+        },
+        { chain: recipientChain, address: DISABLED_GATEWAY_ADDRESS }
+      );
+      await expectIxSuccess([disableGatewayIx], [authority]);
+
+      const recipient = Array.from(Buffer.alloc(32, "deadbeef", "hex"));
+      const nonce = 420;
+
+      const sendAmount = BigInt(69);
+      const ix = await wormholeGateway.sendTbtcGatewayIx(
+        {
+          senderToken,
+          sender,
+        },
+        {
+          amount: new anchor.BN(sendAmount.toString()),
+          recipientChain,
+          recipient,
+          nonce,
+        }
+      );
+      await expectIxFail([ix], [commonTokenOwner], "GatewayDisabled");
+    });
+
     it("cannot send tbtc to gateway (invalid target gateway)", async () => {
       // Use common token account.
       const sender = commonTokenOwner.publicKey;
@@ -1131,6 +1171,14 @@ describe("wormhole-gateway", () => {
 
       // Get destination gateway.
       const recipientChain = 69;
+      const clearGatewayIx = await wormholeGateway.updateGatewayAddress(
+        {
+          authority: authority.publicKey,
+        },
+        { chain: recipientChain, address: Array.from(Buffer.alloc(32)) }
+      );
+      await expectIxSuccess([clearGatewayIx], [authority]);
+
       const recipient = Array.from(Buffer.alloc(32, "deadbeef", "hex"));
       const nonce = 420;
 
@@ -1264,6 +1312,43 @@ describe("wormhole-gateway", () => {
         }
       );
       await expectIxFail([ix], [commonTokenOwner], "ZeroRecipient");
+    });
+
+    it("cannot send wrapped tbtc when route is disabled", async () => {
+      // Use common token account.
+      const sender = commonTokenOwner.publicKey;
+      const senderToken = getAssociatedTokenAddressSync(
+        tbtc.getMintPDA(),
+        sender
+      );
+
+      const recipientChain = 5;
+      const disableGatewayIx = await wormholeGateway.updateGatewayAddress(
+        {
+          authority: authority.publicKey,
+        },
+        { chain: recipientChain, address: DISABLED_GATEWAY_ADDRESS }
+      );
+      await expectIxSuccess([disableGatewayIx], [authority]);
+
+      const recipient = Array.from(Buffer.alloc(32, "deadbeef", "hex"));
+      const nonce = 420;
+
+      const sendAmount = BigInt(69);
+      const ix = await wormholeGateway.sendTbtcWrappedIx(
+        {
+          senderToken,
+          sender,
+        },
+        {
+          amount: new anchor.BN(sendAmount.toString()),
+          recipientChain,
+          recipient,
+          arbiterFee: new anchor.BN(0),
+          nonce,
+        }
+      );
+      await expectIxFail([ix], [commonTokenOwner], "GatewayDisabled");
     });
   });
 });
