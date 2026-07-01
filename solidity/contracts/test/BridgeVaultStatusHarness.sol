@@ -22,8 +22,10 @@ contract BridgeVaultStatusHarness {
     error MigrationDebtVaultInterfaceMissing(address vault);
     error MigrationDebtVaultUnreachable(address vault);
     error PreviousMigrationDebtVaultHasDebt(address vault);
+    error PreviousMigrationDebtVaultHasOptimisticDebt(address vault);
     error VaultIsCanonicalMigrationDebtVault(address vault);
     error VaultHasOutstandingMigrationDebt(address vault);
+    error VaultHasOutstandingOptimisticMintingDebt(address vault);
     error VaultNotTrusted(address vault);
 
     /// @notice Mirrors Bridge.setVaultStatus vault trust management with
@@ -36,6 +38,9 @@ contract BridgeVaultStatusHarness {
         if (!isTrusted) {
             if (_hasOutstandingMigrationDebt(vault)) {
                 revert VaultHasOutstandingMigrationDebt(vault);
+            }
+            if (_hasOutstandingOptimisticMintingDebt(vault)) {
+                revert VaultHasOutstandingOptimisticMintingDebt(vault);
             }
         }
 
@@ -104,6 +109,10 @@ contract BridgeVaultStatusHarness {
 
         if (_hasOutstandingMigrationDebt(previousVault)) {
             revert PreviousMigrationDebtVaultHasDebt(previousVault);
+        }
+
+        if (_hasOutstandingOptimisticMintingDebt(previousVault)) {
+            revert PreviousMigrationDebtVaultHasOptimisticDebt(previousVault);
         }
 
         self.migrationDebtVault = newVault;
@@ -196,6 +205,24 @@ contract BridgeVaultStatusHarness {
         returns (bool)
     {
         (, bool hasDebt) = _getOutstandingMigrationDebt(vault);
+        return hasDebt;
+    }
+
+    /// @notice Fail-open staticcall mirroring
+    ///         Bridge._hasOutstandingOptimisticMintingDebt.
+    function _hasOutstandingOptimisticMintingDebt(address vault)
+        private
+        view
+        returns (bool)
+    {
+        (, bool hasDebt) = _migrationDebtVaultStaticcall(
+            vault,
+            ITBTCVaultMigrationDebt
+                .hasOutstandingOptimisticMintingDebt
+                .selector,
+            address(0),
+            4
+        );
         return hasDebt;
     }
 }

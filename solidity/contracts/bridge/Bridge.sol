@@ -73,6 +73,7 @@ contract Bridge is
     error CallerNotBank();
     error VaultIsCanonicalMigrationDebtVault(address vault);
     error VaultHasOutstandingMigrationDebt(address vault);
+    error VaultHasOutstandingOptimisticMintingDebt(address vault);
     error VaultNotTrusted(address vault);
     error PreviousMigrationDebtVaultIsZero();
     error PreviousMigrationDebtVaultMismatch(address expected, address actual);
@@ -80,6 +81,7 @@ contract Bridge is
     error MigrationDebtVaultInterfaceMissing(address vault);
     error MigrationDebtVaultUnreachable(address vault);
     error PreviousMigrationDebtVaultHasDebt(address vault);
+    error PreviousMigrationDebtVaultHasOptimisticDebt(address vault);
     error EthRescueRecipientZero();
     error EthRescueAmountZero();
     error EthRescueInsufficientBalance(uint256 requested, uint256 available);
@@ -1291,6 +1293,15 @@ contract Bridge is
             if (_hasOutstandingMigrationDebt(vault)) {
                 revert VaultHasOutstandingMigrationDebt(vault);
             }
+            // Untrusting a vault that still has in-flight optimistic minting
+            // debt would silently reroute the depositor's later sweep through
+            // `Bank.increaseBalances`, bypassing the vault's optimistic-debt
+            // repayment callback and enabling a second mint for the same
+            // satoshis. The staticcall is fail-open: vaults that predate the
+            // interface are unaffected.
+            if (_hasOutstandingOptimisticMintingDebt(vault)) {
+                revert VaultHasOutstandingOptimisticMintingDebt(vault);
+            }
         }
 
         self.isVaultTrusted[vault] = isTrusted;
@@ -1388,6 +1399,15 @@ contract Bridge is
 
         if (_hasOutstandingMigrationDebt(previousVault)) {
             revert PreviousMigrationDebtVaultHasDebt(previousVault);
+        }
+
+        // The rotation atomically untrusts the previous vault. Blocking it
+        // while the previous vault still has outstanding optimistic minting
+        // debt closes the same sweep-rerouting bypass guarded in
+        // `setVaultStatus`. Fail-open staticcall: vaults that do not
+        // implement the interface are unaffected.
+        if (_hasOutstandingOptimisticMintingDebt(previousVault)) {
+            revert PreviousMigrationDebtVaultHasOptimisticDebt(previousVault);
         }
 
         self.migrationDebtVault = newVault;
@@ -1494,6 +1514,32 @@ contract Bridge is
         returns (bool)
     {
         (, bool hasDebt) = _getOutstandingMigrationDebt(vault);
+        return hasDebt;
+    }
+
+    /// @notice Queries whether a vault has outstanding optimistic minting debt
+    ///         using a fail-open staticcall to `ITBTCVaultMigrationDebt`.
+    /// @param vault The address to query.
+    /// @return True if the vault implements the interface and reports
+    ///         outstanding optimistic minting debt. Returns false when the
+    ///         staticcall fails (vault does not implement the interface) or
+    ///         when the vault reports no outstanding optimistic debt. This
+    ///         fail-open behaviour matches `_hasOutstandingMigrationDebt` and
+    ///         preserves backwards compatibility with vaults that predate the
+    ///         optimistic-minting-debt query.
+    function _hasOutstandingOptimisticMintingDebt(address vault)
+        private
+        view
+        returns (bool)
+    {
+        (, bool hasDebt) = _migrationDebtVaultStaticcall(
+            vault,
+            ITBTCVaultMigrationDebt
+                .hasOutstandingOptimisticMintingDebt
+                .selector,
+            address(0),
+            4
+        );
         return hasDebt;
     }
 
