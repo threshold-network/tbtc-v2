@@ -153,4 +153,31 @@ describe("L1BTCDepositorNtt fixed destination", () => {
       destinationChainDepositOwner
     )
   })
+
+  it("reverts when payment exceeds the quoted NTT cost", async () => {
+    await bridge.setNextDepositKey(fixture.expectedDepositKey)
+
+    await l1BtcDepositorNtt.initializeDeposit(
+      fixture.fundingTx,
+      fixture.reveal,
+      destinationChainDepositOwner
+    )
+    await bridge.sweepDeposit(fixture.expectedDepositKey)
+
+    const deposit = await bridge.deposits(fixture.expectedDepositKey)
+    const [, , depositTxMaxFee] = await bridge.depositParameters()
+    const tbtcAmount = BigNumber.from(deposit.amount)
+      .sub(deposit.treasuryFee)
+      .sub(depositTxMaxFee)
+      .mul(TBTC_SATOSHI_MULTIPLIER)
+
+    await tbtcToken.mint(l1BtcDepositorNtt.address, tbtcAmount)
+
+    const quote = await l1BtcDepositorNtt.quoteFinalizeDeposit()
+    await expect(
+      l1BtcDepositorNtt.finalizeDeposit(fixture.expectedDepositKey, {
+        value: quote.add(1),
+      })
+    ).to.be.revertedWith("Payment for Wormhole NTT has incorrect value")
+  })
 })

@@ -138,7 +138,13 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @dev This is passed to the NttManagerWithExecutor during transfers
     address public underlyingNttManager;
 
+    /// @dev Retains the storage slot used by the previous `supportedChains`
+    ///      mapping for compatibility with ERC1967 proxy upgrades.
+    // slither-disable-next-line unused-state
+    mapping(uint16 => bool) private __deprecatedSupportedChains;
+
     /// @notice Wormhole chain ID of the configured destination chain.
+    /// @dev Stored in the slot previously used by `defaultSupportedChain`.
     uint16 public destinationChainId;
 
     /// @notice Default gas limit for destination chain execution
@@ -204,7 +210,6 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @param destinationChain Wormhole chain ID of the destination
     /// @param recipient Recipient address on destination chain
     /// @param transferSequence NTT transfer sequence number
-    /// @param destinationChainDepositOwner Original deposit extra data
     /// @param executorCost Cost paid to executor service in wei
     event TokensTransferredNttWithExecutor(
         address indexed sender,
@@ -213,7 +218,6 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         uint16 destinationChain,
         bytes32 recipient,
         uint64 transferSequence,
-        bytes32 destinationChainDepositOwner,
         uint256 executorCost
     );
 
@@ -350,7 +354,10 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @param _newFeeBps New default platform fee in basis points (100 = 0.1%)
     function setDefaultPlatformFeeBps(uint16 _newFeeBps) external onlyOwner {
         require(_newFeeBps <= MAX_BPS, "Fee cannot exceed 100% (10000 bps)");
-        require(_newFeeBps <= defaultExecutorFeeBps, "Platform fee cannot exceed executor fee");
+        require(
+            defaultPlatformFeeRecipient != address(0) || _newFeeBps == 0,
+            "Recipient address cannot be zero when platform fee is set"
+        );
         uint16 oldFeeBps = defaultPlatformFeeBps;
         defaultPlatformFeeBps = _newFeeBps;
         emit DefaultPlatformFeeBpsUpdated(oldFeeBps, _newFeeBps);
@@ -452,6 +459,11 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
             executorArgs.refundAddress == msg.sender,
             "Executor refund address must be caller"
         );
+        require(
+            defaultPlatformFeeRecipient != address(0) || feeArgs.dbps == 0,
+            "Platform fee recipient cannot be zero when fee is set"
+        );
+        feeArgs.payee = defaultPlatformFeeRecipient;
 
         // Validate fee basis points
         require(supportedChains[destinationChain], "Destination chain not supported");
@@ -577,10 +589,11 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         ExecutorParameterSet storage params = parametersByNonce[latestNonce];
         require(params.exists, "Executor parameters not set");
 
+        uint16 chainId = _destinationChain();
         return
             nttManagerWithExecutor.quoteDeliveryPrice(
                 underlyingNttManager,
-                destinationChainId,
+                chainId,
                 "",
                 params.executorArgs,
                 params.feeArgs
@@ -615,10 +628,12 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         ExecutorParameterSet storage params = parametersByNonce[latestNonce];
         require(params.exists, "Executor parameters not set");
 
+        uint16 chainId = _destinationChain();
+
         // Get NTT delivery price from underlying manager
         INttManager nttManager = INttManager(underlyingNttManager);
         (, nttDeliveryPrice) = nttManager.quoteDeliveryPrice(
-            destinationChainId,
+            chainId,
             "" // Empty transceiver instructions for basic transfer
         );
         executorCost = params.executorArgs.value;
@@ -833,7 +848,20 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         );
         _validateSignedQuoteFormat(executorArgs.signedQuote);
 
-        _validateExecutorParameters(params.feeArgs);
+        uint16 chainId = _destinationChain();
+
+        // CRITICAL: Validate payment amount before calling NTT manager
+        uint256 requiredCost = nttManagerWithExecutor.quoteDeliveryPrice(
+            underlyingNttManager,
+            chainId,
+            "",
+            executorArgs,
+            feeArgs
+        );
+        require(
+            msg.value == requiredCost,
+            "Payment for Wormhole NTT has incorrect value"
+        );
 
         // Approve the NttManagerWithExecutor to spend tBTC
         tbtcToken.safeIncreaseAllowance( // slither-disable-line reentrancy-vulnerabilities-3
@@ -842,28 +870,33 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         );
 
         // Execute the transfer with executor support
-        uint64 sequence = nttManagerWithExecutor.transfer{value: params.cachedRequiredPayment}( // slither-disable-line reentrancy-vulnerabilities-3
+        uint64 sequence = nttManagerWithExecutor.transfer{value: requiredCost}( // slither-disable-line reentrancy-vulnerabilities-3
             underlyingNttManager,
             amount,
-            destinationChainId,
+            chainId,
             destinationChainDepositOwner,
             bytes32(uint256(uint160(msg.sender))), // refundAddress as bytes32
             "", // Empty transceiver instructions for basic transfer
-            params.executorArgs,
-            params.feeArgs
+            executorArgs,
+            feeArgs
         );
 
         emit TokensTransferredNttWithExecutor( // slither-disable-line reentrancy-vulnerabilities-3
             msg.sender,
             nonce,
             amount,
-            destinationChainId,
+            chainId,
             destinationChainDepositOwner,
             sequence,
-            destinationChainDepositOwner,
             msg.value
         );
 
+    }
+
+    /// @notice Returns the configured destination chain and reverts if unset.
+    function _destinationChain() internal view returns (uint16 chainId) {
+        chainId = destinationChainId;
+        require(chainId != 0, "Destination chain not configured");
     }
 
     /// @notice Validates the format of a signed quote from Wormhole Executor API

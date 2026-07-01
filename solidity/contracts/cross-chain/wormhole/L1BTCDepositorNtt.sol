@@ -87,7 +87,13 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
     /// @dev Configured in "locking" mode for L1 Hub operation
     INttManager public nttManager;
 
+    /// @dev Retains the storage slot used by the previous `supportedChains`
+    ///      mapping for compatibility with ERC1967 proxy upgrades.
+    // slither-disable-next-line unused-state
+    mapping(uint16 => bool) private __deprecatedSupportedChains;
+
     /// @notice Wormhole chain ID of the configured destination chain.
+    /// @dev Stored in the slot previously used by `defaultSupportedChain`.
     uint16 public destinationChainId;
 
     /// @notice Emitted when tokens are transferred via NTT Hub-and-Spoke framework
@@ -95,13 +101,11 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
     /// @param destinationChain Wormhole chain ID of the destination
     /// @param recipient Recipient address on destination chain
     /// @param transferSequence NTT transfer sequence number for tracking
-    /// @param destinationChainDepositOwner Original deposit extra data
     event TokensTransferredNTT(
         uint256 amount,
         uint16 destinationChain,
         bytes32 recipient,
-        uint64 transferSequence,
-        bytes32 destinationChainDepositOwner
+        uint64 transferSequence
     );
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -151,7 +155,9 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
         );
 
         if (_token == address(0)) {
-            payable(_to).transfer(_amount);
+            // solhint-disable-next-line avoid-low-level-calls
+            (bool success, ) = payable(_to).call{value: _amount}("");
+            require(success, "Failed to transfer native token");
         } else {
             IERC20Upgradeable(_token).safeTransfer(_to, _amount);
         }
@@ -179,8 +185,9 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
     /// @dev This function queries the NTT Manager for delivery pricing,
     ///      which includes fees for all configured transceivers (e.g., Wormhole, Axelar)
     function quoteFinalizeDeposit() external view returns (uint256 cost) {
+        uint16 chainId = _destinationChain();
         (, cost) = nttManager.quoteDeliveryPrice(
-            destinationChainId,
+            chainId,
             "" // Empty transceiver instructions for basic transfer
         );
     }
@@ -216,23 +223,24 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
     ///      5. Spoke chain receives attested message and mints native tokens to recipient
     ///      6. Result: Bitcoin-backed native tBTC on destination chain
     // slither-disable-next-line reentrancy-vulnerabilities-3
-    function _transferTbtc(uint256 amount, bytes32 destinationChainDepositOwner)
-        internal
-        override
-    {
+    function _transferTbtc(
+        uint256 amount,
+        bytes32 destinationChainDepositOwner
+    ) internal override {
         // External calls are to trusted contracts (tbtcToken, nttManager)
         // Event emission after external calls is correct pattern
         require(amount > 0, "Amount must be greater than 0");
 
         // Get quote for the transfer to ensure we have sufficient payment
         // This includes fees for all configured transceivers
+        uint16 chainId = _destinationChain();
         (, uint256 requiredFee) = nttManager.quoteDeliveryPrice(
-            destinationChainId,
+            chainId,
             "" // Empty transceiver instructions for basic transfer
         );
         require(
-            msg.value >= requiredFee,
-            "Payment for Wormhole NTT is too low"
+            msg.value == requiredFee,
+            "Payment for Wormhole NTT has incorrect value"
         );
 
         // The NTT Manager will pull the tBTC amount from this contract
@@ -248,17 +256,22 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
         // 4. Spoke chain receives attested message and mints native tokens to actual recipient
         uint64 sequence = nttManager.transfer{value: msg.value}( // slither-disable-line reentrancy-vulnerabilities-3
             amount,
-            destinationChainId,
+            chainId,
             destinationChainDepositOwner
         );
 
         emit TokensTransferredNTT( // slither-disable-line reentrancy-vulnerabilities-3
             amount,
-            destinationChainId,
+            chainId,
             destinationChainDepositOwner,
-            sequence,
-            destinationChainDepositOwner
+            sequence
         );
+    }
+
+    /// @notice Returns the configured destination chain and reverts if unset.
+    function _destinationChain() internal view returns (uint16 chainId) {
+        chainId = destinationChainId;
+        require(chainId != 0, "Destination chain not configured");
     }
 
     /// @notice Emitted when NTT Manager address is updated

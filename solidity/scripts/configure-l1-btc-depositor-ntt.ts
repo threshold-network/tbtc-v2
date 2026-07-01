@@ -30,8 +30,9 @@ interface DestinationConfig {
   chainId: number
   name: string
   peerAddress?: string
-  rateLimitAmount: string
-  rateLimitDuration: number
+  peerDecimals: number
+  inboundLimitAmount: string
+  outboundLimitAmount: string
 }
 
 interface NetworkConfiguration {
@@ -41,11 +42,6 @@ interface NetworkConfiguration {
 
 const ZERO_PEER_ADDRESS =
   "0x0000000000000000000000000000000000000000000000000000000000000000"
-
-const RATE_LIMIT_DURATION = {
-  hour: 3600,
-  day: 86400,
-}
 
 const WORMHOLE_CHAIN_IDS = {
   arbitrum: {
@@ -73,16 +69,17 @@ function evmPeerAddress(address: string): string {
 function destination(
   chainId: number,
   name: string,
-  rateLimitAmount: string,
-  rateLimitDuration: number,
+  inboundLimitAmount: string,
+  outboundLimitAmount: string,
   peerAddress = ZERO_PEER_ADDRESS
 ): DestinationConfig {
   return {
     chainId,
     name,
     peerAddress,
-    rateLimitAmount: tbtcAmount(rateLimitAmount),
-    rateLimitDuration,
+    peerDecimals: 18,
+    inboundLimitAmount: tbtcAmount(inboundLimitAmount),
+    outboundLimitAmount: tbtcAmount(outboundLimitAmount),
   }
 }
 
@@ -94,20 +91,20 @@ const NETWORK_CONFIGURATIONS: Record<string, NetworkConfiguration> = {
         WORMHOLE_CHAIN_IDS.arbitrum.sepolia,
         "Arbitrum Sepolia",
         "1000",
-        RATE_LIMIT_DURATION.hour
+        "1000"
       ),
       base: destination(
         WORMHOLE_CHAIN_IDS.base.sepolia,
         "Base Sepolia",
         "1000",
-        RATE_LIMIT_DURATION.hour,
+        "1000",
         evmPeerAddress("0x8b9E328bE1b1Bc7501B413d04EBF7479B110775c")
       ),
       optimism: destination(
         WORMHOLE_CHAIN_IDS.optimism.sepolia,
         "Optimism Sepolia",
         "1000",
-        RATE_LIMIT_DURATION.hour
+        "1000"
       ),
     },
   },
@@ -118,19 +115,19 @@ const NETWORK_CONFIGURATIONS: Record<string, NetworkConfiguration> = {
         WORMHOLE_CHAIN_IDS.arbitrum.mainnet,
         "Arbitrum One",
         "100000",
-        RATE_LIMIT_DURATION.day
+        "100000"
       ),
       base: destination(
         WORMHOLE_CHAIN_IDS.base.mainnet,
         "Base Mainnet",
         "100000",
-        RATE_LIMIT_DURATION.day
+        "100000"
       ),
       optimism: destination(
         WORMHOLE_CHAIN_IDS.optimism.mainnet,
         "Optimism Mainnet",
         "100000",
-        RATE_LIMIT_DURATION.day
+        "100000"
       ),
     },
   },
@@ -243,7 +240,7 @@ async function main() {
     destinationConfig.peerAddress !== ZERO_PEER_ADDRESS
   ) {
     console.log(
-      `   await nttManager.setPeer(${destinationConfig.chainId}, "${destinationConfig.peerAddress}");`
+      `   await nttManager.setPeer(${destinationConfig.chainId}, "${destinationConfig.peerAddress}", ${destinationConfig.peerDecimals}, "${destinationConfig.inboundLimitAmount}");`
     )
   } else {
     console.log(
@@ -252,7 +249,12 @@ async function main() {
   }
 
   console.log(
-    `   await nttManager.setOutboundLimit(${destinationConfig.chainId}, "${destinationConfig.rateLimitAmount}", ${destinationConfig.rateLimitDuration});`
+    `   await nttManager.setOutboundLimit("${destinationConfig.outboundLimitAmount}");`
+  )
+  console.log(
+    "   // setOutboundLimit is global for this NTT Manager. Confirm the " +
+      "manager constructor's rate-limit duration and aggregate outbound " +
+      "policy before applying."
   )
 
   console.log(

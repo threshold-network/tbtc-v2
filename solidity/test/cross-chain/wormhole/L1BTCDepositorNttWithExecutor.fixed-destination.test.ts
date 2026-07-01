@@ -118,7 +118,10 @@ describe("L1BTCDepositorNttWithExecutor fixed destination", () => {
 
   it("quotes the configured destination chain", async () => {
     const [, relayer] = await ethers.getSigners()
-    const executorArgs = buildExecutorArgs(BigNumber.from(70000))
+    const executorArgs = buildExecutorArgs(
+      BigNumber.from(70000),
+      relayer.address
+    )
     const feeArgs = buildFeeArgs()
 
     await depositor
@@ -136,7 +139,7 @@ describe("L1BTCDepositorNttWithExecutor fixed destination", () => {
   it("passes the full 32-byte deposit owner to NTT with executor", async () => {
     const [, relayer] = await ethers.getSigners()
     const executorValue = BigNumber.from(70000)
-    const executorArgs = buildExecutorArgs(executorValue)
+    const executorArgs = buildExecutorArgs(executorValue, relayer.address)
     const feeArgs = buildFeeArgs()
 
     await bridge.setNextDepositKey(fixture.expectedDepositKey)
@@ -161,10 +164,11 @@ describe("L1BTCDepositorNttWithExecutor fixed destination", () => {
       .connect(relayer)
       .setExecutorParameters(executorArgs, feeArgs)
 
+    const quote = await depositor.connect(relayer).quoteFinalizeDeposit()
     await depositor
       .connect(relayer)
       .finalizeDeposit(fixture.expectedDepositKey, {
-        value: executorValue,
+        value: quote,
       })
 
     expect(await nttManagerWithExecutor.lastNttManager()).to.equal(
@@ -178,12 +182,97 @@ describe("L1BTCDepositorNttWithExecutor fixed destination", () => {
       destinationChainDepositOwner
     )
   })
+
+  it("reverts when executor payment omits the NTT delivery price", async () => {
+    const [, relayer] = await ethers.getSigners()
+    const executorValue = BigNumber.from(70000)
+    const executorArgs = buildExecutorArgs(executorValue, relayer.address)
+    const feeArgs = buildFeeArgs()
+
+    await bridge.setNextDepositKey(fixture.expectedDepositKey)
+    await depositor
+      .connect(relayer)
+      .initializeDeposit(
+        fixture.fundingTx,
+        fixture.reveal,
+        destinationChainDepositOwner
+      )
+    await bridge.sweepDeposit(fixture.expectedDepositKey)
+
+    const deposit = await bridge.deposits(fixture.expectedDepositKey)
+    const [, , depositTxMaxFee] = await bridge.depositParameters()
+    const tbtcAmount = BigNumber.from(deposit.amount)
+      .sub(deposit.treasuryFee)
+      .sub(depositTxMaxFee)
+      .mul(TBTC_SATOSHI_MULTIPLIER)
+
+    await tbtcToken.mint(depositor.address, tbtcAmount)
+    await depositor
+      .connect(relayer)
+      .setExecutorParameters(executorArgs, feeArgs)
+
+    await expect(
+      depositor.connect(relayer).finalizeDeposit(fixture.expectedDepositKey, {
+        value: executorValue,
+      })
+    ).to.be.revertedWith("Payment for Wormhole NTT has incorrect value")
+  })
+
+  it("forces executor fee payments to the configured platform recipient", async () => {
+    const [, relayer, platformFeeRecipient] = await ethers.getSigners()
+    const executorValue = BigNumber.from(70000)
+    const executorArgs = buildExecutorArgs(executorValue, relayer.address)
+    const feeArgs = {
+      dbps: 100,
+      payee: relayer.address,
+    }
+
+    await depositor.setDefaultPlatformFeeRecipient(platformFeeRecipient.address)
+    await depositor.setDefaultPlatformFeeBps(feeArgs.dbps)
+
+    await bridge.setNextDepositKey(fixture.expectedDepositKey)
+    await depositor
+      .connect(relayer)
+      .initializeDeposit(
+        fixture.fundingTx,
+        fixture.reveal,
+        destinationChainDepositOwner
+      )
+    await bridge.sweepDeposit(fixture.expectedDepositKey)
+
+    const deposit = await bridge.deposits(fixture.expectedDepositKey)
+    const [, , depositTxMaxFee] = await bridge.depositParameters()
+    const tbtcAmount = BigNumber.from(deposit.amount)
+      .sub(deposit.treasuryFee)
+      .sub(depositTxMaxFee)
+      .mul(TBTC_SATOSHI_MULTIPLIER)
+
+    await tbtcToken.mint(depositor.address, tbtcAmount)
+    await depositor
+      .connect(relayer)
+      .setExecutorParameters(executorArgs, feeArgs)
+
+    const quote = await depositor.connect(relayer).quoteFinalizeDeposit()
+    await depositor
+      .connect(relayer)
+      .finalizeDeposit(fixture.expectedDepositKey, {
+        value: quote,
+      })
+
+    expect(await nttManagerWithExecutor.lastFeeDbps()).to.equal(feeArgs.dbps)
+    expect(await nttManagerWithExecutor.lastFeePayee()).to.equal(
+      platformFeeRecipient.address
+    )
+  })
 })
 
-function buildExecutorArgs(value: BigNumber) {
+function buildExecutorArgs(
+  value: BigNumber,
+  refundAddress = ethers.constants.AddressZero
+) {
   return {
     value,
-    refundAddress: ethers.constants.AddressZero,
+    refundAddress,
     signedQuote: `0x${"11".repeat(32)}`,
     instructions: "0x",
   }
