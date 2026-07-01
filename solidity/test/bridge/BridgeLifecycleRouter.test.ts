@@ -1,14 +1,16 @@
 /* eslint-disable no-underscore-dangle */
-import { ethers, waffle } from "hardhat"
+import { ethers, waffle, helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { expect } from "chai"
 import type {
   Bridge,
+  BridgeGovernance,
   BridgeLifecycleRouter,
   BridgeStub,
   FrostWalletRegistryStub,
 } from "../../typechain"
 import bridgeFixture from "../fixtures/bridge"
+import { walletState } from "../fixtures"
 
 const frostXOnlyOutputKey =
   "0xb1de1afa17e1cbb20d8a4f8e54f8a55fbf5c8d2da9e1c6c4d1f0c7b3a2e5d4c8"
@@ -53,7 +55,9 @@ function hardhatQuantity(value: string): string {
 
 describe("BridgeLifecycleRouter", () => {
   let thirdParty: SignerWithAddress
+  let governance: SignerWithAddress
   let bridge: Bridge & BridgeStub
+  let bridgeGovernance: BridgeGovernance
   let bridgeSigner: SignerWithAddress
   let frostRegistry: FrostWalletRegistryStub
   let router: BridgeLifecycleRouter
@@ -62,7 +66,9 @@ describe("BridgeLifecycleRouter", () => {
   beforeEach(async () => {
     const fixture = await waffle.loadFixture(bridgeFixture)
     thirdParty = fixture.thirdParty
+    governance = fixture.governance
     bridge = fixture.bridge
+    bridgeGovernance = fixture.bridgeGovernance
 
     const FrostRegistryStubFactory = await ethers.getContractFactory(
       "FrostWalletRegistryStub"
@@ -197,5 +203,45 @@ describe("BridgeLifecycleRouter", () => {
           1
         )
     ).to.equal(true)
+  })
+
+  it("fires the FROST misbehavior report on a Bridge timeout even when slashing is inactive", async () => {
+    // The FROST router `seize` is an event-only misbehavior report
+    // (FrostWalletRegistry.seize -> FrostAllowlist.reportMaliciousBehavior ->
+    // MaliciousBehaviorIdentified), the live DAO-enforcement signal with no
+    // economic effect. It must fire regardless of the economic-slashing gate,
+    // so turn the gate off (the shared fixture enables it) and confirm a
+    // Bridge timeout on a FROST wallet still reaches the router seize.
+    await bridgeGovernance.connect(governance).setSlashingActive(false)
+
+    // Place the FROST wallet (ecdsaWalletID == 0) into MovingFunds so the
+    // moving-funds-timeout handler dispatches through the lifecycle router.
+    const now = await helpers.time.lastBlockTime()
+    await bridge.setWallet(walletPubKeyHash, {
+      ecdsaWalletID: ethers.constants.HashZero,
+      mainUtxoHash: ethers.constants.HashZero,
+      pendingRedemptionsValue: 0,
+      createdAt: now,
+      movingFundsRequestedAt: now,
+      closingStartedAt: 0,
+      pendingMovedFundsSweepRequestsCount: 0,
+      state: walletState.MovingFunds,
+      movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+    })
+
+    // Advance past the moving-funds timeout so the handler proceeds to seize.
+    const { movingFundsTimeout } = await bridge.movingFundsParameters()
+    await helpers.time.increaseTime(movingFundsTimeout)
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+    expect(await frostRegistry.seizeCalled()).to.equal(false)
+
+    await bridge
+      .connect(thirdParty)
+      .notifyMovingFundsTimeout(walletPubKeyHash, [11, 12, 13])
+
+    // The misbehavior report fired even though economic slashing is off.
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+    expect(await frostRegistry.seizeCalled()).to.equal(true)
   })
 })

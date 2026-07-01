@@ -298,6 +298,12 @@ export default async function bridgeFixture(): Promise<{
       },
     })
 
+  // Enable economic slashing for the test suite. The contract default is off
+  // (slashingActive=false); the existing fraud/timeout tests assert that `seize`
+  // fires, so restore the pre-gate behavior here. Gate-off behavior (slashing
+  // skipped, termination preserved) is covered by dedicated tests.
+  await bridgeGovernance.connect(governance).setSlashingActive(true)
+
   return {
     deployer,
     governance,

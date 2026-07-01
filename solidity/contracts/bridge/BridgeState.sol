@@ -452,6 +452,13 @@ library BridgeState {
         // slot 37 usage: 18 bytes of 32. No __gap change from
         // C-2 / C-2.1.
         bool ecdsaRetired;
+        // Governance-controlled flag gating the (currently economically inert)
+        // operator-stake slashing performed by the `seize` calls in the timeout
+        // handlers and the FROST DKG malicious-result path. `false` by default
+        // (slashing off); permissionless fraud-proof wallet termination is
+        // unaffected. Packs at slot 37 offset 18 (one byte after `ecdsaRetired`);
+        // total slot 37 usage: 19 bytes of 32. No __gap change.
+        bool slashingActive;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are

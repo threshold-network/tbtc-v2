@@ -244,8 +244,13 @@ describe("Bridge storage layout invariant", () => {
     // preserved the `currentNewWalletScheme` storage field
     // (upgrade-safety: never remove a slot from a proxy
     // storage layout), so the slot 38 layout + the
-    // `EXPECTED_RESERVED_TOTAL` count below are unchanged.
-    const EXPECTED_RESERVED_TOTAL = 106
+    // `EXPECTED_RESERVED_TOTAL` count were unchanged through D-2.2.
+    //
+    // The slashing-active gate appends `slashingActive` (bool, 1 byte)
+    // which packs into the same slot right after `ecdsaRetired`'s byte
+    // WITHOUT taking a new slot. No `__gap` decrement; the member+gap
+    // total grows by 1 (106 → 107).
+    const EXPECTED_RESERVED_TOTAL = 107
 
     const explicitMemberCount = selfType.members!.length - 1
     const expectedGapSize = EXPECTED_RESERVED_TOTAL - explicitMemberCount
