@@ -83,6 +83,11 @@ abstract contract AbstractBTCRedeemer is OwnableUpgradeable {
     /// @param amount The amount of tBTC rescued.
     event TbtcRescued(address indexed recipient, uint256 amount);
 
+    /// @notice Emitted when Bank balance is rescued from the contract.
+    /// @param recipient The address that received the rescued Bank balance.
+    /// @param amount The amount of Bank balance (in satoshis) rescued.
+    event BankBalanceRescued(address indexed recipient, uint256 amount);
+
     /// @notice Multiplier to convert satoshi to TBTC token units.
     uint256 public constant SATOSHI_MULTIPLIER = 10**10;
 
@@ -261,5 +266,30 @@ abstract contract AbstractBTCRedeemer is OwnableUpgradeable {
 
         // slither-disable-next-line reentrancy-events
         emit TbtcRescued(recipient, amount);
+    }
+
+    /// @notice Allows the contract owner to recover Bank balance that may
+    ///         remain credited to this contract. A cross-chain redemption
+    ///         records this contract as the Bridge redeemer, so a redemption
+    ///         timeout refunds the Bank balance here (rather than to the
+    ///         originating L2 user). Bank balance is a distinct asset from
+    ///         tBTC tokens, so `rescueTbtc` cannot recover it; this function
+    ///         lets the owner forward the refunded balance to the user or a
+    ///         designated recovery address.
+    /// @param recipient The address that will receive the rescued Bank balance.
+    /// @param amount The amount of Bank balance (in satoshis) to transfer.
+    function rescueBankBalance(address recipient, uint256 amount)
+        external
+        onlyOwner
+    {
+        if (recipient == address(0)) revert ZeroAddress();
+        if (bank.balanceOf(address(this)) < amount) {
+            revert InsufficientBalance();
+        }
+
+        bank.transferBalance(recipient, amount);
+
+        // slither-disable-next-line reentrancy-events
+        emit BankBalanceRescued(recipient, amount);
     }
 }

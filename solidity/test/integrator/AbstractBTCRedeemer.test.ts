@@ -585,4 +585,80 @@ describe("AbstractBTCRedeemer", () => {
       })
     })
   })
+
+  describe("rescueBankBalance", () => {
+    // Bank balance is denominated in satoshis.
+    const balanceToRescue = BigNumber.from(100000000) // 1 BTC
+    let randomAccount: any
+
+    beforeEach(async () => {
+      // eslint-disable-next-line @typescript-eslint/no-extra-semi
+      ;[, randomAccount] = await ethers.getSigners()
+      await createSnapshot()
+      // Simulate a redemption timeout refund crediting Bank balance to the
+      // redeemer contract.
+      await bank.setBalance(redeemer.address, balanceToRescue.mul(2))
+    })
+
+    afterEach(async () => {
+      await restoreSnapshot()
+    })
+
+    context("when caller is not the owner", () => {
+      it("should revert", async () => {
+        await expect(
+          redeemer
+            .connect(randomAccount)
+            .rescueBankBalance(randomAccount.address, balanceToRescue)
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+    })
+
+    context("when recipient is the zero address", () => {
+      it("should revert", async () => {
+        await expect(
+          redeemer.rescueBankBalance(
+            ethers.constants.AddressZero,
+            balanceToRescue
+          )
+        ).to.be.revertedWith("ZeroAddress")
+      })
+    })
+
+    context("when contract has insufficient Bank balance", () => {
+      it("should revert", async () => {
+        await expect(
+          redeemer.rescueBankBalance(
+            randomAccount.address,
+            balanceToRescue.mul(3)
+          )
+        ).to.be.revertedWith("InsufficientBalance")
+      })
+    })
+
+    context("when rescue is successful", () => {
+      it("should transfer Bank balance from contract to recipient and emit", async () => {
+        const initialContractBalance = await bank.balanceOf(redeemer.address)
+        const initialRecipientBalance = await bank.balanceOf(
+          randomAccount.address
+        )
+
+        const tx = await redeemer.rescueBankBalance(
+          randomAccount.address,
+          balanceToRescue
+        )
+
+        expect(await bank.balanceOf(redeemer.address)).to.equal(
+          initialContractBalance.sub(balanceToRescue)
+        )
+        expect(await bank.balanceOf(randomAccount.address)).to.equal(
+          initialRecipientBalance.add(balanceToRescue)
+        )
+
+        await expect(tx)
+          .to.emit(redeemer, "BankBalanceRescued")
+          .withArgs(randomAccount.address, balanceToRescue)
+      })
+    })
+  })
 })

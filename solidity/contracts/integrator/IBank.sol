@@ -41,6 +41,15 @@ interface IBank {
     /// @notice Returns the amount of tokens owned by `account`.
     function balanceAvailable(address account) external view returns (uint256);
 
+    /// @notice Returns the Bank balance of `account`.
+    /// @dev Matches the public `balanceOf` getter on the Bank contract.
+    function balanceOf(address account) external view returns (uint256);
+
+    /// @notice Transfers `amount` of the caller's Bank balance to `recipient`.
+    /// @param recipient Address of the recipient.
+    /// @param amount Amount of tokens to transfer.
+    function transferBalance(address recipient, uint256 amount) external;
+
     /// @notice Transfers `amount` tokens from `sender` to `recipient` using
     ///         the allowance mechanism.
     /// @param sender Address of the sender.
