@@ -1,5 +1,6 @@
 import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import type { DeployFunction } from "hardhat-deploy/types"
+import { isDisabledGatewaySupported } from "../../deploy_helpers/disabled_gateway"
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { deployments, ethers, getNamedAccounts } = hre
@@ -31,39 +32,6 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     arbitrumWormholeChainID,
     disabledGateway
   )
-}
-
-async function isDisabledGatewaySupported(
-  hre: HardhatRuntimeEnvironment,
-  gatewayAddress: string,
-  gatewayName: string,
-  destinationName: string,
-  disabledGateway: string
-): Promise<boolean> {
-  if (hre.network.name === "hardhat") {
-    return true
-  }
-
-  const encodedDisabledGateway = await hre.ethers.provider.call({
-    to: gatewayAddress,
-    data: hre.ethers.utils.id("DISABLED_GATEWAY()").slice(0, 10),
-  })
-
-  if (encodedDisabledGateway.toLowerCase() === disabledGateway) {
-    return true
-  }
-
-  const message =
-    `${gatewayName} is not upgraded with disabled gateway support; ` +
-    `skipping ${destinationName} gateway block. Upgrade the gateway ` +
-    "implementation, then rerun this deployment."
-
-  if (process.env.REQUIRE_DISABLED_GATEWAY_SUPPORT === "true") {
-    throw new Error(message)
-  }
-
-  hre.deployments.log(message)
-  return false
 }
 
 export default func

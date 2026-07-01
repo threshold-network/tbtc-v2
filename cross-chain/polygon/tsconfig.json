@@ -8,6 +8,7 @@
   },
   "files": ["./hardhat.config.ts"],
   "include": [
+    "../deploy_helpers",
     "./deploy_parentchain",
     "./deploy_sidechain",
     "./test",
