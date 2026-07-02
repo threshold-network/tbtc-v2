@@ -144,8 +144,35 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   // path is never reached because the wiring is emitted as calldata, not sent.
   // frostLifecycleContext returns the global frostWalletRegistry as its first
   // value regardless of the wallet argument.
-  const [currentFrostWalletRegistry] =
-    await bridgeContract.frostLifecycleContext(ethers.constants.AddressZero)
+  //
+  // When preparing the atomic upgrade of an EXISTING Bridge, the proxy is still
+  // on the pre-upgrade implementation, which has no `frostLifecycleContext`
+  // selector until the governance proposal executes -- so this read reverts
+  // with a CALL_EXCEPTION (no return data to decode). A plain view getter
+  // cannot revert for any other reason, so tolerate ONLY that case: treat the
+  // registry as unwired and fall through to emit the setter calldata the
+  // operator needs for the upgrade/wiring proposal, rather than aborting before
+  // that branch is reached. Any other error (e.g. an RPC failure) rethrows so
+  // it is not silently swallowed (the same non-blanket-catch discipline this
+  // file's setter path already follows).
+  const currentFrostWalletRegistry = await (async (): Promise<string> => {
+    try {
+      const [registry] = await bridgeContract.frostLifecycleContext(
+        ethers.constants.AddressZero
+      )
+      return registry
+    } catch (err) {
+      if ((err as { code?: string }).code !== "CALL_EXCEPTION") {
+        throw err
+      }
+      console.log(
+        "Bridge.frostLifecycleContext() reverted (no such selector on the " +
+          "current Bridge implementation -- pre-upgrade proxy); treating the " +
+          "registry as unwired and emitting wiring for the upgrade proposal"
+      )
+      return ethers.constants.AddressZero
+    }
+  })()
 
   if (
     currentFrostWalletRegistry.toLowerCase() ===
