@@ -75,6 +75,15 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      # The SDK's package.json pins `packageManager: yarn@4.12.0` (Yarn Berry),
+      # so the yarn build below must run under Corepack-provisioned Yarn 4, not
+      # the runner's global Yarn Classic (which errors on the version mismatch).
+      # Same setup `typescript.yml` uses for the SDK build.
+      - name: Enable Corepack (Yarn 4 for the SDK build)
+        run: |
+          corepack enable
+          corepack prepare yarn@4.12.0 --activate
+
       # The watchtower imports `@keep-network/tbtc-v2.ts`, whose `types`/`exports`
       # point at `dist/src/*.d.ts` (built output), so the SDK must be built
       # before the watchtower typechecks / runs. The SDK is a yarn package whose
