@@ -65,6 +65,13 @@ library CheckBitcoinBIP341Sighash {
         uint32 signedInputIndex,
         uint8 sighashType
     ) internal pure returns (bytes32) {
+        // Defense-in-depth boundary guard. Callers already funnel `sighashType`
+        // through `P2TRSignatureFraud.parseWitnessSignature`, which only yields
+        // DEFAULT (0x00) or ALL (0x01); this independent check additionally
+        // fail-closes any direct caller so an unsupported mode (explicit 0x00 via
+        // a non-witness path, NONE, SINGLE, ANYONECANPAY, or any other byte) can
+        // never reach the message reconstruction below -- which only encodes
+        // DEFAULT/ALL key-path semantics.
         require(
             sighashType == SighashDefault || sighashType == SighashAll,
             "Unsupported BIP341 sighash type"
