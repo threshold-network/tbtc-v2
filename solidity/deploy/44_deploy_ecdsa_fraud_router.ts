@@ -91,6 +91,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   // rethrows so it is not silently swallowed (cf. the blanket-catch regression
   // fixed in 48_deploy_frost_wallet_registry).
   let currentEcdsaFraudRouter: string
+  let bridgeExposesGetter = true
   try {
     currentEcdsaFraudRouter = await bridgeContract.ecdsaFraudRouter()
   } catch (err) {
@@ -103,6 +104,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
         "unwired and emitting wiring for the upgrade proposal"
     )
     currentEcdsaFraudRouter = ethers.constants.AddressZero
+    bridgeExposesGetter = false
   }
 
   if (
@@ -131,21 +133,35 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     const setterCaller = governanceIsDeployer
       ? deployer
       : await bridgeGovernance.owner()
-    const setterSigner = await getConfiguredSigner(hre, setterCaller)
+    // A pre-upgrade Bridge has no `setEcdsaFraudRouter` selector yet, so the
+    // transaction cannot be sent regardless of who is a configured signer.
+    // Force the calldata-emission path in that case (leave the signer
+    // unresolved) rather than attempting -- and reverting -- the send.
+    const setterSigner = bridgeExposesGetter
+      ? await getConfiguredSigner(hre, setterCaller)
+      : undefined
 
     if (!setterSigner) {
       const calldata = setterContract.interface.encodeFunctionData(
         "setEcdsaFraudRouter",
         [ecdsaFraudRouter.address]
       )
+      const reason = !bridgeExposesGetter
+        ? `the Bridge at ${Bridge.address} does not yet expose ` +
+          "setEcdsaFraudRouter (pre-upgrade implementation); wire it as part " +
+          "of the upgrade proposal"
+        : `${setterCaller} is not a configured signer for network ${hre.network.name}`
       const message =
-        `EcdsaFraudRouter wiring must be executed by ${setterCaller}, ` +
-        `which is not a configured signer for network ${hre.network.name}. ` +
+        `EcdsaFraudRouter wiring must be executed by governance -- ${reason}. ` +
         "Submit this call from governance:\n" +
         `  target: ${setterContract.address}\n` +
         `  data:   ${calldata}`
 
-      if (hre.network.name === "mainnet") {
+      // A pre-upgrade Bridge genuinely cannot be wired now on ANY network, so
+      // emit the calldata and continue. Otherwise keep the existing guard:
+      // skip on mainnet (a non-signer governance owner is expected there) and
+      // error elsewhere so an unexpected non-signer is surfaced.
+      if (!bridgeExposesGetter || hre.network.name === "mainnet") {
         console.log(`${message}\nskipping for manual governance execution`)
       } else {
         throw new Error(message)
