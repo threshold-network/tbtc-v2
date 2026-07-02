@@ -2344,13 +2344,21 @@ contract Bridge is Governable, Initializable, IReceiveBalanceApproval {
 
     /// @notice D-2 canonical setter for ECDSA hard retirement.
     ///         Flips the `ecdsaRetired` storage flag (one-way).
-    ///         Subsequent `requestNewWallet` calls routed to
-    ///         the Ecdsa scheme revert via the request-side
-    ///         guard added in D-1. The structural removal of
-    ///         `__ecdsaWalletCreatedCallback` in D-2.1 hardens
-    ///         the ratchet at the EVM dispatcher level: even
-    ///         bypassing the flag (e.g., via storage poke to
-    ///         flip it back) cannot reopen the create path.
+    ///         The flag is purely an on-chain audit-trail marker
+    ///         that governance has formally retired ECDSA wallet
+    ///         creation; it is NOT load-bearing and no on-chain
+    ///         code path reads it (there is no `requestNewWallet`
+    ///         guard that inspects it — only the public
+    ///         `ecdsaRetired()` getter below returns it, for
+    ///         off-chain observation). ECDSA wallet creation is
+    ///         already blocked structurally, independent of this
+    ///         flag: `requestNewWallet` dispatches only to the
+    ///         FROST registry (the scheme-dispatch branch was
+    ///         removed in D-2.2 slice 3) and
+    ///         `__ecdsaWalletCreatedCallback` was removed in
+    ///         D-2.1. Because the create path is closed at the
+    ///         EVM dispatcher level, even flipping the flag back
+    ///         (e.g., via a storage poke) cannot reopen it.
     ///
     ///         Off-chain consumers observe the transition via
     ///         the public `ecdsaRetired()` getter below (NOT

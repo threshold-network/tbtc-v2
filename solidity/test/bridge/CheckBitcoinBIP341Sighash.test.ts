@@ -294,4 +294,43 @@ describe("CheckBitcoinBIP341Sighash", () => {
       computeSighash(bip341Harness, vector, { prevouts: [] })
     ).to.be.revertedWith("Prevout count mismatch")
   })
+
+  // The verifier reconstructs only DEFAULT/ALL key-path semantics, so it must
+  // fail closed for every other sighash-type byte rather than compare a
+  // signature against a message the signer never committed to (which could
+  // otherwise mis-adjudicate a fraud challenge). This is the defense-in-depth
+  // boundary guard inside `computeKeyPathSighash`, exercised directly here.
+  it("fails closed for every unsupported BIP341 sighash type byte", async () => {
+    const vector = vectorCorpus.cases[0]
+
+    const unsupportedSighashTypes = [
+      0x02, // SIGHASH_NONE
+      0x03, // SIGHASH_SINGLE
+      0x80, // bare ANYONECANPAY bit
+      0x81, // SIGHASH_ALL | ANYONECANPAY
+      0x82, // SIGHASH_NONE | ANYONECANPAY
+      0x83, // SIGHASH_SINGLE | ANYONECANPAY
+      0x04,
+      0xff,
+    ]
+
+    // eslint-disable-next-line no-restricted-syntax
+    for (const sighashType of unsupportedSighashTypes) {
+      // eslint-disable-next-line no-await-in-loop
+      await expect(
+        computeSighash(bip341Harness, vector, { sighashType }),
+        `sighashType=0x${sighashType.toString(16)}`
+      ).to.be.revertedWith("Unsupported BIP341 sighash type")
+    }
+
+    // Both in-scope types still reconstruct without reverting.
+    // eslint-disable-next-line no-restricted-syntax
+    for (const sighashType of [0, 1]) {
+      // eslint-disable-next-line no-await-in-loop
+      await expect(
+        computeSighash(bip341Harness, vector, { sighashType }),
+        `sighashType=${sighashType}`
+      ).not.to.be.reverted
+    }
+  })
 })
