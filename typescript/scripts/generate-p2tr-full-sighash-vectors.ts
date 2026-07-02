@@ -83,16 +83,27 @@ const inputs = [
 const prevoutValues = [600000000, 900000000, 250000000]
 
 const outputs: OutputSpec[] = [
-  { valueSats: 700000000, scriptPubKeyHex: p2trScript("44".repeat(32)).toString("hex") },
-  { valueSats: 550000000, scriptPubKeyHex: p2trScript("55".repeat(32)).toString("hex") },
-  { valueSats: 480000000, scriptPubKeyHex: p2trScript("66".repeat(32)).toString("hex") },
+  {
+    valueSats: 700000000,
+    scriptPubKeyHex: p2trScript("44".repeat(32)).toString("hex"),
+  },
+  {
+    valueSats: 550000000,
+    scriptPubKeyHex: p2trScript("55".repeat(32)).toString("hex"),
+  },
+  {
+    valueSats: 480000000,
+    scriptPubKeyHex: p2trScript("66".repeat(32)).toString("hex"),
+  },
 ]
 
 const buildUnsignedTransaction = (): Transaction => {
   const tx = new Transaction()
   tx.version = 2
   tx.locktime = 500000
-  inputs.forEach((input) => tx.addInput(input.hash, input.index, input.sequence))
+  inputs.forEach((input) =>
+    tx.addInput(input.hash, input.index, input.sequence)
+  )
   outputs.forEach((output) =>
     tx.addOutput(Buffer.from(output.scriptPubKeyHex, "hex"), output.valueSats)
   )
@@ -116,7 +127,11 @@ type Mode = {
 }
 
 const modes: Mode[] = [
-  { id: "default-multi", sighashType: P2TR_SIGHASH_DEFAULT, signedInputIndex: 1 },
+  {
+    id: "default-multi",
+    sighashType: P2TR_SIGHASH_DEFAULT,
+    signedInputIndex: 1,
+  },
   { id: "all-multi", sighashType: P2TR_SIGHASH_ALL, signedInputIndex: 1 },
   { id: "none-multi", sighashType: P2TR_SIGHASH_NONE, signedInputIndex: 0 },
   { id: "single-multi", sighashType: P2TR_SIGHASH_SINGLE, signedInputIndex: 2 },
@@ -149,7 +164,10 @@ const modes: Mode[] = [
   },
 ]
 
-const witnessSignatureHex = (sighashType: number, signatureHex: string): string =>
+const witnessSignatureHex = (
+  sighashType: number,
+  signatureHex: string
+): string =>
   sighashType === P2TR_SIGHASH_DEFAULT
     ? signatureHex
     : `${signatureHex}${sighashType.toString(16).padStart(2, "0")}`
@@ -179,8 +197,8 @@ const cases = modes.map((mode) => {
   const unsignedTransactionHex = tx.toHex()
   const signatureHex = toHex(signature)
 
-  const bridgeChallengeIdentity = computeP2TRSignatureFraudBridgeChallengeIdentity(
-    {
+  const bridgeChallengeIdentity =
+    computeP2TRSignatureFraudBridgeChallengeIdentity({
       walletID,
       sighash: toHex(sighash),
       signature: signatureHex,
@@ -194,8 +212,7 @@ const cases = modes.map((mode) => {
         scriptPubKey: prevout.scriptPubKeyHex,
       })),
       annex: mode.annexHex ? `0x${mode.annexHex}` : undefined,
-    }
-  )
+    })
 
   return {
     id: `bip341-keypath-${mode.id}`,
