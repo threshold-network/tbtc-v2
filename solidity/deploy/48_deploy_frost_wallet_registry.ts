@@ -281,6 +281,26 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
           throw err
         }
       }
+
+      // Idempotent post-check: re-read the on-chain registry and assert it now
+      // reflects THIS deployment's registry. Only reached in the send path (the
+      // calldata-emit path skips earlier). This also closes the AlreadySet
+      // race: if a concurrent deployment or governance action wired a DIFFERENT
+      // FrostWalletRegistry between the pre-check and this send, the AlreadySet
+      // catch above would otherwise let this deploy continue wiring/authorizing
+      // its own registry while the Bridge actually points at another one.
+      const [wiredRegistry] = await bridgeContract.frostLifecycleContext(
+        ethers.constants.AddressZero
+      )
+      if (
+        wiredRegistry.toLowerCase() !==
+        frostWalletRegistry.address.toLowerCase()
+      ) {
+        throw new Error(
+          "Bridge FrostWalletRegistry mismatch after deploy: " +
+            `expected ${frostWalletRegistry.address}, got ${wiredRegistry}`
+        )
+      }
     }
   }
 
