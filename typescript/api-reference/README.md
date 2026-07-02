@@ -24,6 +24,7 @@
 - [ArbitrumTBTCToken](classes/ArbitrumTBTCToken.md)
 - [BaseBitcoinDepositor](classes/BaseBitcoinDepositor.md)
 - [BaseTBTCToken](classes/BaseTBTCToken.md)
+- [BitcoinClientWithNetworkOverride](classes/BitcoinClientWithNetworkOverride.md)
 - [BitcoinTxHash](classes/BitcoinTxHash.md)
 - [CrossChainDepositor](classes/CrossChainDepositor.md)
 - [Deposit](classes/Deposit.md)
@@ -539,7 +540,7 @@ Additional options used by the Electrum server.
 
 #### Defined in
 
-[src/lib/electrum/client.ts:53](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L53)
+[src/lib/electrum/client.ts:54](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L54)
 
 ___
 
@@ -2689,7 +2690,7 @@ Electrum script hash as a hex string.
 
 #### Defined in
 
-[src/lib/electrum/client.ts:696](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L696)
+[src/lib/electrum/client.ts:756](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/electrum/client.ts#L756)
 
 ___
 
