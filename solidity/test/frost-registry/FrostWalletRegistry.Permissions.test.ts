@@ -163,10 +163,16 @@ describe("FrostWalletRegistry permissions (B-1.5 final-slice subset)", () => {
     // immediately after deploy. These tests exercise the
     // "lifecycleOwner unset" gate semantics, so we temporarily un-wire
     // it for the duration of this describe block and restore it after.
+    //
+    // Registry governance is the `governance` named account after the
+    // deploy chain's `53_transfer_frost_wallet_registry_governance.ts`
+    // step hands governance off the deployer (Codex P1), so the
+    // `onlyGovernance` registry calls in this block are sent by
+    // `governance`, not `deployer`.
     before(async () => {
       await createSnapshot()
       await frostWalletRegistry
-        .connect(deployer)
+        .connect(governance)
         .updateLifecycleOwner(ethers.constants.AddressZero)
     })
 
@@ -237,9 +243,10 @@ describe("FrostWalletRegistry permissions (B-1.5 final-slice subset)", () => {
       const bridgeSigner = await ethers.getSigner(bridge.address)
       // At this point in the suite, prior tests may have
       // configured lifecycleOwner. Reset it to zero for this
-      // assertion (registry governance is `deployer` per init).
+      // assertion (registry governance is the `governance` account
+      // after the deploy chain's governance handoff — Codex P1).
       await frostWalletRegistry
-        .connect(deployer)
+        .connect(governance)
         .updateLifecycleOwner(ethers.constants.AddressZero)
 
       await expectCustomError(
@@ -250,11 +257,14 @@ describe("FrostWalletRegistry permissions (B-1.5 final-slice subset)", () => {
 
     it("closeWallet succeeds (past the modifier check) when called by the configured lifecycleOwner", async () => {
       // Configure a test lifecycle owner via governance. The
-      // registry's governance is `deployer` (set at init via
-      // `_transferGovernance(msg.sender)`); thirdParty is
-      // the simulated lifecycle router for this test.
+      // registry's governance is the `governance` account after the
+      // deploy chain's governance handoff: init sets it to the
+      // deployer via `_transferGovernance(msg.sender)`, then
+      // `53_transfer_frost_wallet_registry_governance.ts` moves it to
+      // `governance` (Codex P1). thirdParty is the simulated lifecycle
+      // router for this test.
       await frostWalletRegistry
-        .connect(deployer)
+        .connect(governance)
         .updateLifecycleOwner(thirdParty.address)
       expect(await frostWalletRegistry.lifecycleOwner()).to.equal(
         thirdParty.address
