@@ -512,9 +512,9 @@
       "expectedError": "unsupported-sighash"
     },
     {
-      "id": "unsupported-sighash-single",
+      "id": "unsupported-sighash-invalid-flag",
       "baseCaseId": "bip341-keypath-sighash-all-single-input",
-      "witnessSignatureHex": "5edb4c17e5b201b76807acf8aca97ceed15ed6f71df48af4d44eca038358228b7a35ccc1043903dab814beec096f19bd34e9529604260988e9cab3d3e368993702",
+      "witnessSignatureHex": "5edb4c17e5b201b76807acf8aca97ceed15ed6f71df48af4d44eca038358228b7a35ccc1043903dab814beec096f19bd34e9529604260988e9cab3d3e368993704",
       "expectedError": "unsupported-sighash"
     },
     {

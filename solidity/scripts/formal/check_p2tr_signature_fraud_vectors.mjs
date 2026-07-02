@@ -603,11 +603,15 @@ const checkBitcoinP2TRSignatureFraudExecutable = stripCommentsForGate(
   checkBitcoinP2TRSignatureFraud
 )
 if (
-  !checkBitcoinP2TRSignatureFraudExecutable.includes("annexPresent") ||
-  !checkBitcoinP2TRSignatureFraudExecutable.includes("validateAnnexAbsent") ||
-  !checkBitcoinP2TRSignatureFraudExecutable.includes("Annex not supported")
+  !checkBitcoinP2TRSignatureFraudExecutable.includes("validateAnnex") ||
+  !checkBitcoinP2TRSignatureFraudExecutable.includes(
+    "Annex must start with 0x50"
+  )
 ) {
-  fail("P2TR verifier payload must reject annex-present payloads explicitly")
+  // The verifier now reconstructs annex-bearing key-path sighashes. It must
+  // still validate the annex explicitly (BIP-341 mandatory 0x50 prefix) rather
+  // than accept arbitrary bytes; assert that validation is present.
+  fail("P2TR verifier must validate the witness annex (0x50 prefix) explicitly")
 }
 if (
   productionP2TRSignatureFraud.includes("computeDraftChallengeIdentity") ||

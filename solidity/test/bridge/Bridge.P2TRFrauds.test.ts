@@ -75,7 +75,7 @@ const p2trLifecycleInterface = new ethers.utils.Interface([
 ])
 
 const payloadType =
-  "tuple(bytes32 walletID,uint32 version,uint32 locktime,tuple(bytes32 txid,uint32 vout,uint32 sequence)[] inputs,tuple(uint64 valueSats,bytes scriptPubKey)[] prevouts,tuple(uint64 valueSats,bytes scriptPubKey)[] outputs,uint32 signedInputIndex,bool annexPresent,bytes witnessSignature)"
+  "tuple(bytes32 walletID,uint32 version,uint32 locktime,tuple(bytes32 txid,uint32 vout,uint32 sequence)[] inputs,tuple(uint64 valueSats,bytes scriptPubKey)[] prevouts,tuple(uint64 valueSats,bytes scriptPubKey)[] outputs,uint32 signedInputIndex,bytes witnessSignature,bytes annex)"
 
 const hex = (value: string): string => `0x${value}`
 
@@ -178,7 +178,7 @@ const loadVectorCorpus = (): SignatureFraudVectorCorpus =>
 
 const vectorPayload = (
   vector: SignatureFraudVector,
-  options: { witnessSignatureHex?: string; annexPresent?: boolean } = {}
+  options: { witnessSignatureHex?: string; annexHex?: string } = {}
 ) => {
   const parsedTransaction = parseUnsignedTransaction(
     vector.unsignedTransactionHex
@@ -202,10 +202,10 @@ const vectorPayload = (
       scriptPubKey: hex(output.scriptPubKey),
     })),
     signedInputIndex: vector.signedInputIndex,
-    annexPresent: options.annexPresent ?? false,
     witnessSignature: hex(
       options.witnessSignatureHex ?? vector.witnessSignatureHex
     ),
+    annex: options.annexHex ?? "0x",
   }
 }
 
@@ -538,41 +538,19 @@ describe("Bridge - P2TR signature fraud", () => {
       revertMessage: "Signed input out of range",
     },
     {
-      name: "annex-present witnesses",
+      name: "malformed annex (missing 0x50 prefix)",
       mutatePayload: (payload) => ({
         ...payload,
-        annexPresent: true,
+        annex: "0x00",
       }),
-      revertMessage: "Annex not supported",
+      revertMessage: "Annex must start with 0x50",
     },
-    // The base vector is a 64-byte SIGHASH_DEFAULT witness; appending a trailing
-    // sighash byte other than 0x01 produces an out-of-scope 65-byte witness that
-    // the router must refuse to adjudicate (fail-closed), never mis-verify into a
-    // slash. These reject at `parseWitnessSignature`, before signature checking.
-    {
-      name: "unsupported SIGHASH_NONE witness",
-      mutatePayload: (payload) => ({
-        ...payload,
-        witnessSignature: `${payload.witnessSignature}02`,
-      }),
-      revertMessage: "Unsupported witness sighash type",
-    },
-    {
-      name: "unsupported SIGHASH_SINGLE witness",
-      mutatePayload: (payload) => ({
-        ...payload,
-        witnessSignature: `${payload.witnessSignature}03`,
-      }),
-      revertMessage: "Unsupported witness sighash type",
-    },
-    {
-      name: "unsupported ANYONECANPAY witness",
-      mutatePayload: (payload) => ({
-        ...payload,
-        witnessSignature: `${payload.witnessSignature}81`,
-      }),
-      revertMessage: "Unsupported witness sighash type",
-    },
+    // The base vector is a 64-byte SIGHASH_DEFAULT witness. SIGHASH_NONE (0x02),
+    // SIGHASH_SINGLE (0x03) and the ANYONECANPAY variants (0x81/0x82/0x83) are
+    // now in scope and adjudicated via the multi-mode sighash. The remaining
+    // rejected 65-byte encoding is the explicit, non-canonical SIGHASH_DEFAULT
+    // (0x00 trailing byte), which BIP-341 forbids; it must be refused at
+    // `parseWitnessSignature`, before signature checking, never mis-verified.
     {
       name: "non-canonical explicit-SIGHASH_DEFAULT witness",
       mutatePayload: (payload) => ({
