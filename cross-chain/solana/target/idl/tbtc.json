@@ -578,6 +578,11 @@
       "msg": "Caller is not a guardian"
     },
     {
+      "code": 6054,
+      "name": "GuardianCannotBeAuthority",
+      "msg": "Guardian cannot be the authority"
+    },
+    {
       "code": 6064,
       "name": "MinterAlreadyExists",
       "msg": "This address is already a minter"

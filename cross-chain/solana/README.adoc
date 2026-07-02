@@ -20,4 +20,7 @@ Before Solana can be configured as an L1 NTT peer:
 The tBTC program exposes `transfer_mint_authority` for the last step. It requires
 the program to be paused, the SPL mint supply to be zero, all minters to be
 removed, a non-default new authority, and signatures from both the tBTC authority
-and an active guardian.
+and an active guardian. The guardian must be a separate key from the authority
+and should be held by an independent operator before the cutover; the program
+enforces key separation, but operational independence is a governance
+requirement.

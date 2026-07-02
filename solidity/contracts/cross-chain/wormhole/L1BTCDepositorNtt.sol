@@ -18,7 +18,7 @@ pragma solidity 0.8.17;
 import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 
-import "../AbstractL1BTCDepositor.sol";
+import "./AbstractFixedDestinationNttDepositor.sol";
 
 /// @notice NTT Manager interface for Hub-and-Spoke model transfers
 /// @dev Interface matches native-token-transfers/evm/src/interfaces/INttManager.sol
@@ -80,7 +80,7 @@ interface INttManager {
 ///      - The Bitcoin deposit extra data is the full 32-byte destination
 ///        recipient. No chain ID is packed into the recipient.
 // slither-disable-next-line reentrancy-vulnerabilities-3
-contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
+contract L1BTCDepositorNtt is AbstractFixedDestinationNttDepositor {
     using SafeERC20Upgradeable for IERC20Upgradeable;
 
     /// @notice NTT Manager contract for Hub-and-Spoke cross-chain transfers
@@ -101,9 +101,6 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
     ///      whose extra data used `[2-byte chain id][30-byte recipient]`.
     mapping(uint256 => bool) public fixedDestinationDeposits;
 
-    uint256 private constant LEGACY_DESTINATION_RECEIVER_MASK =
-        type(uint240).max;
-
     /// @notice Emitted when tokens are transferred via NTT Hub-and-Spoke framework
     /// @param amount Amount of tBTC transferred and locked on L1
     /// @param destinationChain Wormhole chain ID of the destination
@@ -116,10 +113,10 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
         uint64 transferSequence
     );
 
-    /// @notice Emitted when the fixed NTT destination chain is migrated.
-    event DestinationChainUpdated(
-        uint16 indexed oldDestinationChain,
-        uint16 indexed newDestinationChain
+    /// @notice Emitted when NTT Manager address is updated
+    event NttManagerUpdated(
+        address indexed oldManager,
+        address indexed newManager
     );
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -301,67 +298,31 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
         );
     }
 
-    /// @notice Updates the fixed destination chain.
-    function _updateDestinationChain(uint16 _destinationChainId) internal {
-        require(_destinationChainId != 0, "Chain ID cannot be zero");
-
-        uint16 oldDestinationChainId = destinationChainId;
+    function _setDestinationChainId(
+        uint16 _destinationChainId
+    ) internal override {
         destinationChainId = _destinationChainId;
-
-        emit DestinationChainUpdated(
-            oldDestinationChainId,
-            _destinationChainId
-        );
     }
 
-    /// @notice Marks deposits initialized under the fixed-destination format.
-    function _afterDepositInitialized(
-        uint256 depositKey,
-        bytes32 // destinationChainDepositOwner
+    function _markFixedDestinationDeposit(
+        uint256 depositKey
     ) internal override {
         fixedDestinationDeposits[depositKey] = true;
     }
 
-    /// @notice Requires destination configuration before deposit initialization.
-    function _beforeDepositInitialized(
-        bytes32 // destinationChainDepositOwner
-    ) internal view override {
-        _destinationChain();
+    function _destinationChainIdValue()
+        internal
+        view
+        override
+        returns (uint16)
+    {
+        return destinationChainId;
     }
 
-    /// @notice Decodes legacy packed recipients for in-flight upgraded deposits.
-    function _destinationChainDepositOwnerForTransfer(
-        uint256 depositKey,
-        bytes32 destinationChainDepositOwner
-    ) internal view override returns (bytes32) {
-        if (fixedDestinationDeposits[depositKey]) {
-            return destinationChainDepositOwner;
-        }
-
-        uint16 legacyDestinationChain = uint16(
-            uint256(destinationChainDepositOwner) >> 240
-        );
-        require(
-            legacyDestinationChain == _destinationChain(),
-            "Legacy destination chain mismatch"
-        );
-
-        return
-            bytes32(
-                uint256(destinationChainDepositOwner) &
-                    LEGACY_DESTINATION_RECEIVER_MASK
-            );
+    function _isFixedDestinationDeposit(
+        uint256 depositKey
+    ) internal view override returns (bool) {
+        return fixedDestinationDeposits[depositKey];
     }
 
-    /// @notice Returns the configured destination chain and reverts if unset.
-    function _destinationChain() internal view returns (uint16 chainId) {
-        chainId = destinationChainId;
-        require(chainId != 0, "Destination chain not configured");
-    }
-
-    /// @notice Emitted when NTT Manager address is updated
-    event NttManagerUpdated(
-        address indexed oldManager,
-        address indexed newManager
-    );
 }

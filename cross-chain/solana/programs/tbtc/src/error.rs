@@ -20,6 +20,9 @@ pub enum TbtcError {
     #[msg("Caller is not a guardian")]
     SignerNotGuardian = 0x34,
 
+    #[msg("Guardian cannot be the authority")]
+    GuardianCannotBeAuthority = 0x36,
+
     #[msg("This address is already a minter")]
     MinterAlreadyExists = 0x40,
 

@@ -406,6 +406,18 @@ describe("tbtc", () => {
       await expectIxFail([cannotAddIx], [imposter], "IsNotAuthority");
     });
 
+    it("cannot add the authority as guardian", async () => {
+      const cannotAddIx = await tbtc.addGuardianIx({
+        authority: authority.publicKey,
+        guardian: authority.publicKey,
+      });
+      await expectIxFail(
+        [cannotAddIx],
+        [authority],
+        "GuardianCannotBeAuthority"
+      );
+    });
+
     it("add guardian", async () => {
       const mustBeNull = await tbtc
         .checkGuardianInfo(guardian.publicKey)

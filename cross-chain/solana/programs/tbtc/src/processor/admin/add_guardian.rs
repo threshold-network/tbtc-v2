@@ -38,6 +38,10 @@ pub struct AddGuardian<'info> {
 
     /// CHECK: Required authority to pause contract. This pubkey lives in `GuardianInfo` and
     /// `Guardians`.
+    #[account(
+        constraint = guardian.key() != authority.key()
+            @ TbtcError::GuardianCannotBeAuthority
+    )]
     guardian: AccountInfo<'info>,
 
     system_program: Program<'info, System>,

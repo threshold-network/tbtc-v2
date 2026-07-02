@@ -18,7 +18,7 @@ pragma solidity 0.8.17;
 import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 
-import "../AbstractL1BTCDepositor.sol";
+import "./AbstractFixedDestinationNttDepositor.sol";
 
 /// @notice Executor arguments for NttManagerWithExecutor transfers
 /// @dev These parameters are used by the Wormhole Executor service
@@ -117,7 +117,7 @@ interface INttManagerWithExecutor {
 /// - Handles executor payments and gas refunds
 /// - Provides refund mechanisms for unused gas
 // slither-disable-next-line reentrancy-vulnerabilities-3
-contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
+contract L1BTCDepositorNttWithExecutor is AbstractFixedDestinationNttDepositor {
     using SafeERC20Upgradeable for IERC20Upgradeable;
 
     /// @notice Executor parameter set with metadata for nonce-based storage
@@ -198,9 +198,6 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     ///      whose extra data used `[2-byte chain id][30-byte recipient]`.
     mapping(uint256 => bool) public fixedDestinationDeposits;
 
-    uint256 private constant LEGACY_DESTINATION_RECEIVER_MASK = type(uint240)
-        .max;
-
     /// @notice Emitted when executor parameters are set
     /// @param sender Address that set the parameters
     /// @param signedQuoteLength Length of the signed quote in bytes
@@ -275,12 +272,6 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     event NttManagerWithExecutorUpdated(
         address indexed oldManager,
         address indexed newManager
-    );
-
-    /// @notice Emitted when the fixed NTT destination chain is migrated.
-    event DestinationChainUpdated(
-        uint16 indexed oldDestinationChain,
-        uint16 indexed newDestinationChain
     );
 
     /// @notice Emitted when the destination refund address is updated
@@ -979,62 +970,31 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
 
     }
 
-    /// @notice Updates the fixed destination chain.
-    function _updateDestinationChain(uint16 _destinationChainId) internal {
-        require(_destinationChainId != 0, "Chain ID cannot be zero");
-
-        uint16 oldDestinationChainId = destinationChainId;
+    function _setDestinationChainId(
+        uint16 _destinationChainId
+    ) internal override {
         destinationChainId = _destinationChainId;
-
-        emit DestinationChainUpdated(
-            oldDestinationChainId,
-            _destinationChainId
-        );
     }
 
-    /// @notice Marks deposits initialized under the fixed-destination format.
-    function _afterDepositInitialized(
-        uint256 depositKey,
-        bytes32 // destinationChainDepositOwner
+    function _markFixedDestinationDeposit(
+        uint256 depositKey
     ) internal override {
         fixedDestinationDeposits[depositKey] = true;
     }
 
-    /// @notice Requires destination configuration before deposit initialization.
-    function _beforeDepositInitialized(
-        bytes32 // destinationChainDepositOwner
-    ) internal view override {
-        _destinationChain();
+    function _destinationChainIdValue()
+        internal
+        view
+        override
+        returns (uint16)
+    {
+        return destinationChainId;
     }
 
-    /// @notice Decodes legacy packed recipients for in-flight upgraded deposits.
-    function _destinationChainDepositOwnerForTransfer(
-        uint256 depositKey,
-        bytes32 destinationChainDepositOwner
-    ) internal view override returns (bytes32) {
-        if (fixedDestinationDeposits[depositKey]) {
-            return destinationChainDepositOwner;
-        }
-
-        uint16 legacyDestinationChain = uint16(
-            uint256(destinationChainDepositOwner) >> 240
-        );
-        require(
-            legacyDestinationChain == _destinationChain(),
-            "Legacy destination chain mismatch"
-        );
-
-        return
-            bytes32(
-                uint256(destinationChainDepositOwner) &
-                    LEGACY_DESTINATION_RECEIVER_MASK
-            );
-    }
-
-    /// @notice Returns the configured destination chain and reverts if unset.
-    function _destinationChain() internal view returns (uint16 chainId) {
-        chainId = destinationChainId;
-        require(chainId != 0, "Destination chain not configured");
+    function _isFixedDestinationDeposit(
+        uint256 depositKey
+    ) internal view override returns (bool) {
+        return fixedDestinationDeposits[depositKey];
     }
 
     /// @notice Validates the format of a signed quote from Wormhole Executor API

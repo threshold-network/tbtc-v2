@@ -36,6 +36,10 @@ pub struct TransferMintAuthority<'info> {
     )]
     guardian_info: Account<'info, GuardianInfo>,
 
+    #[account(
+        constraint = guardian.key() != authority.key()
+            @ TbtcError::GuardianCannotBeAuthority
+    )]
     guardian: Signer<'info>,
 
     /// CHECK: Target SPL mint authority, typically the Wormhole NTT token authority PDA
