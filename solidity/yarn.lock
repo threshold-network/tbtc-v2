@@ -2028,7 +2028,7 @@ __metadata:
     "@openzeppelin/hardhat-upgrades": "npm:1.22.0"
     "@tenderly/hardhat-tenderly": "npm:>=1.0.12 <1.2.0"
     "@thesis-co/eslint-config": "github:thesis/eslint-config"
-    "@thesis/solidity-contracts": "git+https://github.com/thesis/solidity-contracts.git#c315b9d5f0c39253428898474e97552f5e5b9046"
+    "@thesis/solidity-contracts": "github:thesis/solidity-contracts#4985bcf"
     "@typechain/ethers-v5": "npm:^8.0.5"
     "@typechain/hardhat": "npm:^3.1.0"
     "@types/chai": "npm:^4.3.0"
@@ -3014,15 +3014,6 @@ __metadata:
   peerDependencies:
     prettier: ^2.3.0
   checksum: 10c0/38c4d28415a8fcb9cff1ad17558151aab1a821c894d32512165af39444a68a73a43336e227abba4d2d5e24dd3cb4b90394e582600b3b1758fe4143766edeaf14
-  languageName: node
-  linkType: hard
-
-"@thesis/solidity-contracts@git+https://github.com/thesis/solidity-contracts.git#c315b9d5f0c39253428898474e97552f5e5b9046":
-  version: 0.0.1-pre
-  resolution: "@thesis/solidity-contracts@https://github.com/thesis/solidity-contracts.git#commit=c315b9d5f0c39253428898474e97552f5e5b9046"
-  dependencies:
-    "@openzeppelin/contracts": "npm:^4.1.0"
-  checksum: 10c0/989d691315d6614e7db10208c20063d419cb8b20d5962eb15cb18277e113180208f2503d185d05ce558447ece5330a9f961b493e8c09f86dd100cb2f41e56d20
   languageName: node
   linkType: hard
 
