@@ -180,6 +180,7 @@ const computeSighash = (
     prevouts?: PrevoutVector[]
     sighashType?: number
     signedInputIndex?: number
+    annexHex?: string
   } = {}
 ): Promise<string> => {
   const parsedTransaction = parseUnsignedTransaction(
@@ -193,7 +194,8 @@ const computeSighash = (
     toHarnessPrevouts(options.prevouts ?? vector.prevouts),
     toHarnessOutputs(parsedTransaction.outputs),
     options.signedInputIndex ?? vector.signedInputIndex,
-    options.sighashType ?? vector.sighashType
+    options.sighashType ?? vector.sighashType,
+    options.annexHex ?? "0x"
   )
 }
 
@@ -275,8 +277,11 @@ describe("CheckBitcoinBIP341Sighash", () => {
   it("rejects unsupported sighash types and malformed payload shape", async () => {
     const vector = vectorCorpus.cases[0]
 
+    // 0x04 sets a bit outside the valid base/ANYONECANPAY mask, so it is not a
+    // real key-path sighash type. (NONE/SINGLE and the ANYONECANPAY variants are
+    // now supported and exercised by the full-sighash corpus.)
     await expect(
-      computeSighash(bip341Harness, vector, { sighashType: 2 })
+      computeSighash(bip341Harness, vector, { sighashType: 4 })
     ).to.be.revertedWith("Unsupported BIP341 sighash type")
 
     await expect(
@@ -290,22 +295,27 @@ describe("CheckBitcoinBIP341Sighash", () => {
     ).to.be.revertedWith("Prevout count mismatch")
   })
 
-  // The verifier reconstructs only DEFAULT/ALL key-path semantics, so it must
-  // fail closed for every other sighash-type byte rather than compare a
-  // signature against a message the signer never committed to (which could
-  // otherwise mis-adjudicate a fraud challenge). This is the defense-in-depth
-  // boundary guard inside `computeKeyPathSighash`, exercised directly here.
+  // The verifier reconstructs every supported key-path mode
+  // (DEFAULT/ALL/NONE/SINGLE and their ANYONECANPAY variants), so it must fail
+  // closed for every INVALID sighash-type byte -- the bare ANYONECANPAY bit
+  // (0x80) and bytes outside the 0x83 mask -- rather than reconstruct a bogus
+  // message. This is the defense-in-depth boundary guard inside
+  // `computeKeyPathSighash`, exercised directly here.
   it("fails closed for every unsupported BIP341 sighash type byte", async () => {
     const vector = vectorCorpus.cases[0]
 
+    // SIGHASH_NONE (0x02), SIGHASH_SINGLE (0x03) and the ANYONECANPAY variants
+    // (0x81/0x82/0x83) are now reconstructed and are covered by the vector
+    // corpus above. Only genuinely invalid sighash bytes remain unsupported:
+    // the bare ANYONECANPAY bit (0x80, i.e. ANYONECANPAY|DEFAULT, which is not a
+    // real Bitcoin sighash type) and any byte that sets bits outside the 0x83
+    // mask.
     const unsupportedSighashTypes = [
-      0x02, // SIGHASH_NONE
-      0x03, // SIGHASH_SINGLE
-      0x80, // bare ANYONECANPAY bit
-      0x81, // SIGHASH_ALL | ANYONECANPAY
-      0x82, // SIGHASH_NONE | ANYONECANPAY
-      0x83, // SIGHASH_SINGLE | ANYONECANPAY
+      0x80, // bare ANYONECANPAY bit (ANYONECANPAY | DEFAULT is not valid)
       0x04,
+      0x40,
+      0x7f,
+      0xc1,
       0xff,
     ]
 

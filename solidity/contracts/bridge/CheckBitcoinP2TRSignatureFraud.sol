@@ -7,43 +7,15 @@ import "./CheckBitcoinBIP341Sighash.sol";
 import "./P2TRSignatureFraud.sol";
 
 /// @title Check Bitcoin P2TR Signature Fraud
-/// @notice Reconstructs annex-free Taproot key-path sighashes and verifies the
+/// @notice Reconstructs Taproot key-path sighashes for every supported sighash
+///         mode -- with or without a witness annex -- and verifies the
 ///         corresponding BIP-340 witness signature.
 /// @dev This helper is intentionally not wired into Bridge fraud entrypoints
-///      yet. It combines the focused BIP-341 sighash and BIP-340 verifier seeds
+///      yet. It combines the BIP-341 key-path sighash and BIP-340 verifier
 ///      behind one contract-facing API for verifier feasibility testing.
-///
-///      SUPPORTED-SHAPE BOUNDARY (in scope). This verifier adjudicates ONLY:
-///        * Taproot KEY-PATH spends (no control block / tapscript),
-///        * signed with SIGHASH_DEFAULT (64-byte witness) or SIGHASH_ALL
-///          (65-byte witness ending in 0x01),
-///        * with NO witness annex.
-///      Every other spend shape is rejected BEFORE any sighash reconstruction:
-///        * unsupported sighash modes (explicit 0x00, NONE, SINGLE, any
-///          ANYONECANPAY variant) revert in
-///          `P2TRSignatureFraud.parseWitnessSignature`;
-///        * an annex reverts in `validateAnnexAbsent` ("Annex not supported");
-///        * a script-path spend is structurally unrepresentable -- the
-///          `BridgeChallengeIdentityPayload` carries no control block or tapleaf
-///          fields, and the reconstructed message hard-codes the key-path
-///          spend_type (ext_flag = 0), so a script-path spend can never be
-///          encoded as an accepted challenge.
-///
-///      WHY THIS CANNOT CAUSE A FALSE SLASH. The security-load-bearing step is
-///      `checkSignature`: it verifies the witness BIP-340 signature against the
-///      reconstructed key-path sighash under the x-only `walletID`. An
-///      out-of-scope spend (other sighash mode, annex, or script path) commits
-///      its signature to a DIFFERENT message (and, for script path, often a
-///      different key) than the reconstructed DEFAULT/ALL key-path sighash, so
-///      that signature cannot pass `checkSignature`. Passing it would require a
-///      genuine `walletID` key-path signature over the reconstructed
-///      transaction -- which is itself the real key-path fraud this verifier
-///      exists to catch. The failure mode is therefore fail-CLOSED: unsupported
-///      shapes are un-challengeable (a documented coverage gap / fraud-escape
-///      for those shapes), never silently mis-verified into an honest-signer
-///      slash. Closing the coverage gap requires adding real multi-mode BIP-341
-///      reconstruction (and, for SINGLE/ANYONECANPAY, a richer challenge
-///      payload); it is deliberately out of scope here.
+///      Script-path (ext_flag = 1) spends stay out of scope: a key-path-only
+///      tBTC FROST wallet signer cannot produce a script-path signature, so
+///      such a spend is not a signer-producible fraud.
 library CheckBitcoinP2TRSignatureFraud {
     struct PayloadBounds {
         uint16 maxInputs;
@@ -59,8 +31,8 @@ library CheckBitcoinP2TRSignatureFraud {
         CheckBitcoinBIP341Sighash.InputPrevout[] prevouts;
         CheckBitcoinBIP341Sighash.TransactionOutput[] outputs;
         uint32 signedInputIndex;
-        bool annexPresent;
         bytes witnessSignature;
+        bytes annex;
     }
 
     /// @notice Verifies the Taproot key-path witness signature for the given
@@ -75,7 +47,9 @@ library CheckBitcoinP2TRSignatureFraud {
     ///        being checked.
     /// @param witnessSignature Taproot witness signature: 64-byte BIP-340
     ///        signature for SIGHASH_DEFAULT or 65-byte signature with a trailing
-    ///        SIGHASH_ALL byte.
+    ///        explicit sighash byte (ALL/NONE/SINGLE, optionally ANYONECANPAY).
+    /// @param annex Witness annex bytes including their 0x50 prefix, or empty
+    ///        when the spend carries no annex.
     function checkKeyPathSignature(
         bytes32 walletID,
         uint32 version,
@@ -84,7 +58,8 @@ library CheckBitcoinP2TRSignatureFraud {
         CheckBitcoinBIP341Sighash.InputPrevout[] memory prevouts,
         CheckBitcoinBIP341Sighash.TransactionOutput[] memory outputs,
         uint32 signedInputIndex,
-        bytes memory witnessSignature
+        bytes memory witnessSignature,
+        bytes memory annex
     ) internal view returns (bool) {
         bytes32 sighash = computeKeyPathSighashForWitness(
             version,
@@ -93,22 +68,13 @@ library CheckBitcoinP2TRSignatureFraud {
             prevouts,
             outputs,
             signedInputIndex,
-            witnessSignature
+            witnessSignature,
+            annex
         );
 
         return checkSignature(walletID, sighash, witnessSignature);
     }
 
-    /// @notice Security-load-bearing check: verifies the witness BIP-340
-    ///         signature against the supplied key-path `sighash` under the
-    ///         x-only `walletID`.
-    /// @dev This binding is what makes the supported-shape boundary safe. A
-    ///      signature that actually commits to a different message (any
-    ///      unsupported sighash mode, an annex, or a script-path spend) cannot
-    ///      pass here against the reconstructed DEFAULT/ALL key-path `sighash`,
-    ///      so an out-of-scope spend cannot be smuggled into a passing challenge.
-    ///      `parseWitnessSignature` additionally reverts on any non-DEFAULT/ALL
-    ///      witness encoding before this point.
     function checkSignature(
         bytes32 walletID,
         bytes32 sighash,
@@ -139,7 +105,9 @@ library CheckBitcoinP2TRSignatureFraud {
     ///        being checked.
     /// @param witnessSignature Taproot witness signature: 64-byte BIP-340
     ///        signature for SIGHASH_DEFAULT or 65-byte signature with a trailing
-    ///        SIGHASH_ALL byte.
+    ///        explicit sighash byte (ALL/NONE/SINGLE, optionally ANYONECANPAY).
+    /// @param annex Witness annex bytes including their 0x50 prefix, or empty
+    ///        when the spend carries no annex.
     function computeKeyPathSighashForWitness(
         uint32 version,
         uint32 locktime,
@@ -147,7 +115,8 @@ library CheckBitcoinP2TRSignatureFraud {
         CheckBitcoinBIP341Sighash.InputPrevout[] memory prevouts,
         CheckBitcoinBIP341Sighash.TransactionOutput[] memory outputs,
         uint32 signedInputIndex,
-        bytes memory witnessSignature
+        bytes memory witnessSignature,
+        bytes memory annex
     ) internal pure returns (bytes32) {
         (, uint8 sighashType) = P2TRSignatureFraud.parseWitnessSignature(
             witnessSignature
@@ -161,7 +130,8 @@ library CheckBitcoinP2TRSignatureFraud {
                 prevouts,
                 outputs,
                 signedInputIndex,
-                sighashType
+                sighashType,
+                annex
             );
     }
 
@@ -195,7 +165,7 @@ library CheckBitcoinP2TRSignatureFraud {
     function computeBridgeChallengeIdentitySighash(
         BridgeChallengeIdentityPayload memory payload
     ) internal pure returns (bytes32) {
-        validateAnnexAbsent(payload.annexPresent);
+        validateAnnex(payload.annex);
 
         return
             computeKeyPathSighashForWitness(
@@ -205,7 +175,8 @@ library CheckBitcoinP2TRSignatureFraud {
                 payload.prevouts,
                 payload.outputs,
                 payload.signedInputIndex,
-                payload.witnessSignature
+                payload.witnessSignature,
+                payload.annex
             );
     }
 
@@ -232,25 +203,6 @@ library CheckBitcoinP2TRSignatureFraud {
     function encodeBridgeChallengeTransactionPayload(
         BridgeChallengeIdentityPayload memory payload
     ) internal pure returns (bytes memory) {
-        return
-            encodeBridgeChallengeTransactionPayloadFields(
-                payload.version,
-                payload.locktime,
-                payload.inputs,
-                payload.prevouts,
-                payload.outputs,
-                payload.signedInputIndex
-            );
-    }
-
-    function encodeBridgeChallengeTransactionPayloadFields(
-        uint32 version,
-        uint32 locktime,
-        CheckBitcoinBIP341Sighash.TransactionInput[] memory inputs,
-        CheckBitcoinBIP341Sighash.InputPrevout[] memory prevouts,
-        CheckBitcoinBIP341Sighash.TransactionOutput[] memory outputs,
-        uint32 signedInputIndex
-    ) internal pure returns (bytes memory) {
         // Collect every fixed-format field as a separate part and concatenate
         // once -- each byte is copied exactly once (O(n)). Appending into a
         // growing `abi.encodePacked` buffer per element would be O(n^2) in the
@@ -258,42 +210,64 @@ library CheckBitcoinP2TRSignatureFraud {
         // (redemption batches, moving-funds fan-out, multi-input sweeps) that the
         // raised shape caps now accept could run out of gas building the
         // challenge identity before the challenge is recorded. The concatenation
-        // order is byte-identical to the prior incremental encoding.
+        // order for the transaction fields is byte-identical to the prior
+        // incremental encoding; an annex, when present, is committed as a
+        // length-prefixed trailer so an annex-free payload stays byte-identical
+        // to the pre-annex encoding. The encoding reads the struct pointer
+        // directly (rather than unpacking every field into locals) to keep this
+        // routine's stack shallow enough for the legacy code generator.
+        bool annexPresent = payload.annex.length > 0;
         bytes[] memory parts = new bytes[](
-            3 + inputs.length + prevouts.length + outputs.length
+            3 +
+                payload.inputs.length +
+                payload.prevouts.length +
+                payload.outputs.length +
+                (annexPresent ? 1 : 0)
         );
         uint256 next = 0;
 
         parts[next++] = abi.encodePacked(
-            P2TRSignatureFraud.uint32LE(signedInputIndex),
-            P2TRSignatureFraud.uint32LE(version),
-            P2TRSignatureFraud.uint32LE(locktime),
-            P2TRSignatureFraud.encodeCompactSize(inputs.length)
+            P2TRSignatureFraud.uint32LE(payload.signedInputIndex),
+            P2TRSignatureFraud.uint32LE(payload.version),
+            P2TRSignatureFraud.uint32LE(payload.locktime),
+            P2TRSignatureFraud.encodeCompactSize(payload.inputs.length)
         );
 
-        for (uint256 i = 0; i < inputs.length; i++) {
+        for (uint256 i = 0; i < payload.inputs.length; i++) {
             parts[next++] = abi.encodePacked(
-                inputs[i].txid,
-                P2TRSignatureFraud.uint32LE(inputs[i].vout),
-                P2TRSignatureFraud.uint32LE(inputs[i].sequence)
+                payload.inputs[i].txid,
+                P2TRSignatureFraud.uint32LE(payload.inputs[i].vout),
+                P2TRSignatureFraud.uint32LE(payload.inputs[i].sequence)
             );
         }
 
-        parts[next++] = P2TRSignatureFraud.encodeCompactSize(prevouts.length);
-        for (uint256 i = 0; i < prevouts.length; i++) {
+        parts[next++] = P2TRSignatureFraud.encodeCompactSize(
+            payload.prevouts.length
+        );
+        for (uint256 i = 0; i < payload.prevouts.length; i++) {
             parts[next++] = abi.encodePacked(
-                P2TRSignatureFraud.uint64LE(prevouts[i].valueSats),
+                P2TRSignatureFraud.uint64LE(payload.prevouts[i].valueSats),
                 P2TRSignatureFraud.bytesWithCompactSize(
-                    prevouts[i].scriptPubKey
+                    payload.prevouts[i].scriptPubKey
                 )
             );
         }
 
-        parts[next++] = P2TRSignatureFraud.encodeCompactSize(outputs.length);
-        for (uint256 i = 0; i < outputs.length; i++) {
+        parts[next++] = P2TRSignatureFraud.encodeCompactSize(
+            payload.outputs.length
+        );
+        for (uint256 i = 0; i < payload.outputs.length; i++) {
             parts[next++] = abi.encodePacked(
-                P2TRSignatureFraud.uint64LE(outputs[i].valueSats),
-                P2TRSignatureFraud.bytesWithCompactSize(outputs[i].scriptPubKey)
+                P2TRSignatureFraud.uint64LE(payload.outputs[i].valueSats),
+                P2TRSignatureFraud.bytesWithCompactSize(
+                    payload.outputs[i].scriptPubKey
+                )
+            );
+        }
+
+        if (annexPresent) {
+            parts[next++] = P2TRSignatureFraud.bytesWithCompactSize(
+                payload.annex
             );
         }
 
@@ -328,7 +302,7 @@ library CheckBitcoinP2TRSignatureFraud {
             payload.signedInputIndex < payload.inputs.length,
             "Signed input out of range"
         );
-        validateAnnexAbsent(payload.annexPresent);
+        validateAnnex(payload.annex);
 
         P2TRSignatureFraud.parseWitnessSignature(payload.witnessSignature);
 
@@ -349,20 +323,17 @@ library CheckBitcoinP2TRSignatureFraud {
         }
     }
 
-    /// @notice Rejects annex-bearing spends, which this key-path verifier does
-    ///         not reconstruct.
-    /// @dev Fail-closed guard invoked before sighash reconstruction on every
-    ///      lifecycle path (`validatePayloadShape` and
-    ///      `computeBridgeChallengeIdentitySighash`). The reconstructed message
-    ///      hard-codes the no-annex spend_type, so an annex-bearing spend's
-    ///      sighash (which additionally commits to SHA_ANNEX) would never match;
-    ///      rejecting up front keeps the boundary explicit. Note the flag is
-    ///      challenger-supplied: mis-declaring `annexPresent = false` for an
-    ///      annex-bearing spend does not forge a passing challenge, because the
-    ///      annex-committing signature still cannot verify against the
-    ///      no-annex key-path sighash in `checkSignature`.
-    function validateAnnexAbsent(bool annexPresent) internal pure {
-        require(!annexPresent, "Annex not supported");
+    /// @notice Validates a witness annex, if present.
+    /// @dev An empty `annex` denotes an annex-free spend and is accepted. A
+    ///      non-empty annex must carry its mandatory BIP-341 0x50 prefix byte;
+    ///      any other leading byte is not a valid annex and is rejected. This is
+    ///      key-path only: the verifier never treats the second witness stack
+    ///      item as a script-path control block, so script-path spends remain
+    ///      unsupported by construction.
+    function validateAnnex(bytes memory annex) internal pure {
+        if (annex.length > 0) {
+            require(uint8(annex[0]) == 0x50, "Annex must start with 0x50");
+        }
     }
 
     function splitSignature(bytes memory signature)

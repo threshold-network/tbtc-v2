@@ -6,10 +6,25 @@ import { Hex } from "../../lib/utils"
 
 export const P2TR_SIGHASH_DEFAULT = 0
 export const P2TR_SIGHASH_ALL = 1
+export const P2TR_SIGHASH_NONE = 2
+export const P2TR_SIGHASH_SINGLE = 3
+export const P2TR_SIGHASH_ANYONECANPAY_FLAG = 0x80
+export const P2TR_SIGHASH_ANYONECANPAY_ALL = 0x81
+export const P2TR_SIGHASH_ANYONECANPAY_NONE = 0x82
+export const P2TR_SIGHASH_ANYONECANPAY_SINGLE = 0x83
 
+// The Taproot KEY-PATH (ext_flag = 0) sighash types this model reconstructs:
+// the four base types and their ANYONECANPAY variants. An explicit
+// ANYONECANPAY|DEFAULT (0x80) is not a real Bitcoin sighash type (DEFAULT is
+// only ever the omitted-byte form) and is intentionally excluded.
 export type P2TRSupportedSighashType =
   | typeof P2TR_SIGHASH_DEFAULT
   | typeof P2TR_SIGHASH_ALL
+  | typeof P2TR_SIGHASH_NONE
+  | typeof P2TR_SIGHASH_SINGLE
+  | typeof P2TR_SIGHASH_ANYONECANPAY_ALL
+  | typeof P2TR_SIGHASH_ANYONECANPAY_NONE
+  | typeof P2TR_SIGHASH_ANYONECANPAY_SINGLE
 
 export const P2TR_SIGNATURE_FRAUD_SPEND_TYPE_UNCLASSIFIED = "unclassified"
 export const P2TR_SIGNATURE_FRAUD_SPEND_TYPE_DEPOSIT_SWEEP = "deposit-sweep"
@@ -103,6 +118,10 @@ export type P2TRSignatureFraudBridgeChallengeIdentity = {
   signedInputIndex: number
   unsignedTransaction: BitcoinRawTx
   inputPrevouts: P2TRWalletInputObservationPrevout[]
+  // Witness annex bytes (including the mandatory 0x50 prefix), or omitted/empty
+  // for an annex-free spend. When present it is committed as a length-prefixed
+  // trailer so the identity binds the exact annex the sighash commits to.
+  annex?: Hex | Buffer | string
 }
 
 export type P2TRSignatureFraudBridgeChallengeKey = {
@@ -410,12 +429,12 @@ export type P2TRSignatureFraudBridgeChallengePayload = {
   prevouts: P2TRSignatureFraudBridgeChallengePayloadPrevout[]
   outputs: P2TRSignatureFraudBridgeChallengePayloadOutput[]
   signedInputIndex: number
-  annexPresent: boolean
   witnessSignature: string
+  annex: string
 }
 
 export const P2TR_SIGNATURE_FRAUD_BRIDGE_CHALLENGE_PAYLOAD_ABI_TYPE =
-  "tuple(bytes32 walletID,uint32 version,uint32 locktime,tuple(bytes32 txid,uint32 vout,uint32 sequence)[] inputs,tuple(uint64 valueSats,bytes scriptPubKey)[] prevouts,tuple(uint64 valueSats,bytes scriptPubKey)[] outputs,uint32 signedInputIndex,bool annexPresent,bytes witnessSignature)"
+  "tuple(bytes32 walletID,uint32 version,uint32 locktime,tuple(bytes32 txid,uint32 vout,uint32 sequence)[] inputs,tuple(uint64 valueSats,bytes scriptPubKey)[] prevouts,tuple(uint64 valueSats,bytes scriptPubKey)[] outputs,uint32 signedInputIndex,bytes witnessSignature,bytes annex)"
 
 export type P2TRSignatureFraudBridgeFraudParameters = {
   fraudChallengeDepositAmount?: BigNumberish
@@ -861,6 +880,11 @@ const watchtowerOperatorAlertStatuses = new Set(
 const supportedP2TRSighashTypes = new Set<number>([
   P2TR_SIGHASH_DEFAULT,
   P2TR_SIGHASH_ALL,
+  P2TR_SIGHASH_NONE,
+  P2TR_SIGHASH_SINGLE,
+  P2TR_SIGHASH_ANYONECANPAY_ALL,
+  P2TR_SIGHASH_ANYONECANPAY_NONE,
+  P2TR_SIGHASH_ANYONECANPAY_SINGLE,
 ])
 
 const p2trSignatureFraudSpendTypeValues: P2TRSignatureFraudSpendType[] = [
@@ -2175,7 +2199,14 @@ export const parseP2TRKeyPathWitnessSignature = (
   }
 
   const sighashType = witnessSignatureBuffer[64]
-  if (sighashType !== P2TR_SIGHASH_ALL) {
+  // A 65-byte signature carries an explicit sighash byte, which must be one of
+  // the supported key-path types. SIGHASH_DEFAULT is only ever the 64-byte
+  // omitted-byte form, so an explicit 0x00 byte (and any non key-path byte) is
+  // rejected here.
+  if (
+    sighashType === P2TR_SIGHASH_DEFAULT ||
+    !supportedP2TRSighashTypes.has(sighashType)
+  ) {
     throw new P2TRWitnessSignatureError(
       "unsupported-sighash",
       "Taproot key-path witness signature uses unsupported sighash type"
@@ -2185,7 +2216,7 @@ export const parseP2TRKeyPathWitnessSignature = (
   return {
     witnessSignature: Hex.from(witnessSignatureBuffer),
     signature: Hex.from(witnessSignatureBuffer.subarray(0, 64)),
-    sighashType,
+    sighashType: sighashType as P2TRSupportedSighashType,
   }
 }
 
@@ -2380,11 +2411,25 @@ export const resolveP2TRInputPrevouts = async (
   )
 }
 
+/**
+ * Reconstructs a BIP-341 KEY-PATH (ext_flag = 0) sighash for any supported
+ * sighash mode, with or without a witness annex.
+ *
+ * @param rawTransaction Raw (unsigned) Bitcoin transaction.
+ * @param inputIndex Zero-based index of the signed input.
+ * @param inputPrevouts Per-input prevout records (script, amount). Length must
+ *        equal the transaction's input vector length.
+ * @param sighashType Supported Taproot key-path sighash type: DEFAULT, ALL,
+ *        NONE, SINGLE, or any of those OR-ed with ANYONECANPAY.
+ * @param annex Optional witness annex bytes including the mandatory 0x50 prefix.
+ * @returns 32-byte BIP-341 key-path sighash.
+ */
 export const computeP2TRKeyPathSighash = (
   rawTransaction: BitcoinRawTx,
   inputIndex: number,
   inputPrevouts: P2TRWalletInputObservationPrevout[],
-  sighashType: P2TRSupportedSighashType
+  sighashType: P2TRSupportedSighashType,
+  annex?: Hex | Buffer | string
 ): Hex => {
   const transaction = Transaction.fromHex(rawTransaction.transactionHex)
 
@@ -2406,15 +2451,31 @@ export const computeP2TRKeyPathSighash = (
     )
   }
 
-  if (
-    sighashType !== P2TR_SIGHASH_DEFAULT &&
-    sighashType !== P2TR_SIGHASH_ALL
-  ) {
+  if (!supportedP2TRSighashTypes.has(sighashType)) {
     throw new P2TRWitnessSignatureError(
       "unsupported-sighash",
       "Taproot key-path sighash type is unsupported"
     )
   }
+
+  // SIGHASH_SINGLE commits to the output paired with the signed input index;
+  // BIP-341 makes that output mandatory, so a SINGLE signature over an input
+  // without a corresponding output is invalid rather than merely hashing a
+  // different message.
+  if (
+    (sighashType & 0x03) === P2TR_SIGHASH_SINGLE &&
+    inputIndex >= transaction.outs.length
+  ) {
+    throw new P2TRWitnessSignatureError(
+      "unsupported-sighash",
+      "SIGHASH_SINGLE requires an output at the signed input index"
+    )
+  }
+
+  const annexBuffer =
+    annex === undefined || toBuffer(annex).length === 0
+      ? undefined
+      : toBuffer(annex)
 
   return Hex.from(
     transaction.hashForWitnessV1(
@@ -2423,7 +2484,9 @@ export const computeP2TRKeyPathSighash = (
       inputPrevouts.map((prevout) =>
         BigNumber.from(prevout.valueSats).toNumber()
       ),
-      sighashType
+      sighashType,
+      undefined,
+      annexBuffer
     )
   )
 }
@@ -2604,10 +2667,7 @@ export const computeP2TRSignatureFraudBridgeChallengeIdentity = (
     )
   }
 
-  if (
-    challenge.sighashType !== P2TR_SIGHASH_DEFAULT &&
-    challenge.sighashType !== P2TR_SIGHASH_ALL
-  ) {
+  if (!supportedP2TRSighashTypes.has(challenge.sighashType)) {
     throw new P2TRWitnessSignatureError(
       "unsupported-sighash",
       "Taproot key-path sighash type is unsupported"
@@ -2636,6 +2696,15 @@ export const computeP2TRSignatureFraudBridgeChallengeIdentity = (
     )
   }
 
+  const annexBuffer =
+    challenge.annex === undefined ? Buffer.alloc(0) : toBuffer(challenge.annex)
+  if (annexBuffer.length > 0 && annexBuffer[0] !== 0x50) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-observation-payload",
+      "Witness annex must start with the 0x50 prefix byte"
+    )
+  }
+
   const inputParts = transaction.ins.flatMap((input) => {
     const inputTxid = Hex.from(input.hash)
 
@@ -2656,6 +2725,13 @@ export const computeP2TRSignatureFraudBridgeChallengeIdentity = (
     bytesWithCompactSize(Buffer.from(output.script)),
   ])
 
+  // An annex, when present, is committed as a length-prefixed trailer after the
+  // outputs so an annex-free payload stays byte-identical to the pre-annex
+  // encoding. Byte-for-byte identical to the Solidity
+  // `encodeBridgeChallengeTransactionPayload` trailer.
+  const annexParts =
+    annexBuffer.length > 0 ? [bytesWithCompactSize(annexBuffer)] : []
+
   const preimageParts = [
     Buffer.from(P2TR_SIGNATURE_FRAUD_BRIDGE_CHALLENGE_ID_DOMAIN, "utf8"),
     toBytes32Hex(challenge.walletID, "Wallet ID").toBuffer(),
@@ -2671,6 +2747,7 @@ export const computeP2TRSignatureFraudBridgeChallengeIdentity = (
     ...prevoutParts,
     encodeCompactSize(transaction.outs.length),
     ...outputParts,
+    ...annexParts,
   ]
 
   return Hex.from(utils.sha256(Buffer.concat(preimageParts)))
@@ -2701,10 +2778,7 @@ export const computeP2TRSignatureFraudDraftChallengeIdentity = (
     )
   }
 
-  if (
-    challenge.sighashType !== P2TR_SIGHASH_DEFAULT &&
-    challenge.sighashType !== P2TR_SIGHASH_ALL
-  ) {
+  if (!supportedP2TRSighashTypes.has(challenge.sighashType)) {
     throw new P2TRWitnessSignatureError(
       "unsupported-sighash",
       "Taproot key-path sighash type is unsupported"
@@ -2824,8 +2898,13 @@ export const buildP2TRSignatureFraudBridgeChallengePayload = (
       scriptPubKey: utils.hexlify(Buffer.from(output.script)),
     })),
     signedInputIndex: observation.inputIndex,
-    annexPresent: false,
     witnessSignature: utils.hexlify(toBuffer(observation.witnessSignature)),
+    // The raw-transaction observation path is key-path, annex-free (see
+    // `extractP2TRKeyPathInputWitnessSignature`, which rejects multi-item
+    // witnesses fail-closed), so an observation-derived payload carries no
+    // annex. Annex-bearing evidence is built via the direct challenge-identity
+    // API, which threads the annex explicitly.
+    annex: "0x",
   }
 }
 
