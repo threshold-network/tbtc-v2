@@ -301,6 +301,41 @@
       "args": []
     },
     {
+      "name": "transferMintAuthority",
+      "accounts": [
+        {
+          "name": "config",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "authority",
+          "isMut": false,
+          "isSigner": true
+        },
+        {
+          "name": "mint",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "newAuthority",
+          "isMut": false,
+          "isSigner": false,
+          "docs": [
+            "Target SPL mint authority, typically the Wormhole NTT token authority PDA",
+            "or a Token Program multisig that includes that PDA."
+          ]
+        },
+        {
+          "name": "tokenProgram",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "mint",
       "accounts": [
         {

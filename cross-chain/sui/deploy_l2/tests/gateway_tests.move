@@ -145,6 +145,99 @@ module l2_tbtc::gateway_tests {
     }
 
     #[test]
+    fun test_retire_gateway_for_ntt_after_pause_and_drain() {
+        let (admin, coin_deployer) = two_people();
+        let mut scenario = test_scenario::begin(admin);
+
+        // Initialize TBTC
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            init_tbtc_for_test_scenario(&mut scenario, admin);
+        };
+
+        // Initialize Wormhole
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            init_wormhole_for_test(&mut scenario, coin_deployer);
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            setup::init_test_only(test_scenario::ctx(&mut scenario));
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            Gateway::init_test(test_scenario::ctx(&mut scenario));
+        };
+
+        // Initialize Gateway
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            initialize_gateway_state(&mut scenario);
+        };
+
+        // Pause before migration.
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            let gateway_admin_cap = test_scenario::take_from_sender<Gateway::AdminCap>(&scenario);
+            let mut gateway_state = test_scenario::take_shared<Gateway::GatewayState>(&scenario);
+
+            Gateway::pause(
+                &gateway_admin_cap,
+                &mut gateway_state,
+                test_scenario::ctx(&mut scenario),
+            );
+
+            test_scenario::return_to_sender(&scenario, gateway_admin_cap);
+            test_scenario::return_shared(gateway_state);
+        };
+
+        // Retire the gateway and recover token capabilities for NTT setup.
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            let gateway_admin_cap = test_scenario::take_from_sender<Gateway::AdminCap>(&scenario);
+            let mut gateway_state = test_scenario::take_shared<Gateway::GatewayState>(&scenario);
+            let treasury = test_scenario::take_shared<
+                Gateway::WrappedTokenTreasury<coin_wrapped_12::COIN_WRAPPED_12>
+            >(&scenario);
+            let capabilities = test_scenario::take_shared<Gateway::GatewayCapabilities>(&scenario);
+
+            Gateway::retire_gateway_for_ntt<coin_wrapped_12::COIN_WRAPPED_12>(
+                &gateway_admin_cap,
+                &mut gateway_state,
+                &treasury,
+                capabilities,
+                admin,
+                test_scenario::ctx(&mut scenario),
+            );
+
+            assert!(Gateway::is_initialized(&gateway_state), 0);
+            assert!(Gateway::is_paused(&gateway_state), 1);
+            assert!(Gateway::get_minting_limit(&gateway_state) == 0, 2);
+
+            test_scenario::return_to_sender(&scenario, gateway_admin_cap);
+            test_scenario::return_shared(gateway_state);
+            test_scenario::return_shared(treasury);
+        };
+
+        // The recovered capabilities are now owned by the admin and can be passed
+        // to the Wormhole NTT setup transaction.
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            let treasury_cap = test_scenario::take_from_sender<TreasuryCap<TBTC::TBTC>>(&scenario);
+            let minter_cap = test_scenario::take_from_sender<TBTC::MinterCap>(&scenario);
+            let emitter_cap = test_scenario::take_from_sender<EmitterCap>(&scenario);
+
+            transfer::public_transfer(treasury_cap, admin);
+            transfer::public_transfer(minter_cap, admin);
+            transfer::public_transfer(emitter_cap, admin);
+        };
+
+        test_scenario::end(scenario);
+    }
+
+    #[test]
     fun test_trusted_emitter_management() {
         let (admin, coin_deployer) = two_people();
         let mut scenario = test_scenario::begin(admin);

@@ -31,6 +31,8 @@ module l2_tbtc::Gateway {
     const E_PAUSED: u64 = 8;
     const E_NOT_PAUSED: u64 = 9;
     const E_WRONG_NONCE: u64 = 10;
+    const E_OUTSTANDING_MINTED_AMOUNT: u64 = 11;
+    const E_NON_EMPTY_WRAPPED_TREASURY: u64 = 12;
 
     // === Events ===
 
@@ -60,6 +62,10 @@ module l2_tbtc::Gateway {
     public struct AdminChanged has copy, drop {
         previous_admin: address,
         new_admin: address,
+    }
+    public struct GatewayRetiredForNtt has copy, drop {
+        admin: address,
+        recipient: address,
     }
 
     // === Types ===
@@ -347,6 +353,42 @@ module l2_tbtc::Gateway {
         event::emit(AdminChanged {
             previous_admin: tx_context::sender(ctx),
             new_admin,
+        });
+    }
+
+    /// Retire the legacy Wormhole gateway and return token capabilities for NTT setup.
+    /// Requires the gateway to be paused and drained so no lockbox-backed tBTC supply
+    /// or wrapped-token custody is migrated implicitly.
+    public entry fun retire_gateway_for_ntt<CoinType>(
+        _: &AdminCap,
+        state: &mut GatewayState,
+        treasury: &WrappedTokenTreasury<CoinType>,
+        capabilities: GatewayCapabilities,
+        recipient: address,
+        ctx: &mut TxContext,
+    ) {
+        assert!(state.is_initialized, E_NOT_INITIALIZED);
+        assert!(state.paused, E_NOT_PAUSED);
+        assert!(state.minted_amount == 0, E_OUTSTANDING_MINTED_AMOUNT);
+        assert!(coin::value(&treasury.tokens) == 0, E_NON_EMPTY_WRAPPED_TREASURY);
+
+        let GatewayCapabilities {
+            id,
+            minter_cap,
+            emitter_cap,
+            treasury_cap,
+        } = capabilities;
+
+        object::delete(id);
+        state.minting_limit = 0;
+
+        transfer::public_transfer(minter_cap, recipient);
+        transfer::public_transfer(emitter_cap, recipient);
+        transfer::public_transfer(treasury_cap, recipient);
+
+        event::emit(GatewayRetiredForNtt {
+            admin: tx_context::sender(ctx),
+            recipient,
         });
     }
 

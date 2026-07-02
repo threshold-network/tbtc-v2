@@ -259,8 +259,10 @@ async function main() {
 
   console.log(
     "\nSui and Solana are intentionally not configured here. They require " +
-      "spoke-side mint authority and legacy lockbox migration work before " +
-      "their existing token representations can be moved to NTT."
+      "spoke-side NTT deployment plus token-authority and legacy lockbox " +
+      "migration before their existing token representations can be moved " +
+      "to NTT. Do not set them as L1 NTT peers until those chain-local " +
+      "migration transactions are complete."
   )
 
   console.log(`\nConfiguration validation completed for ${config.networkName}.`)

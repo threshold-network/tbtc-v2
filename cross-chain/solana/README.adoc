@@ -1,0 +1,19 @@
+= Threshold cross-chain - Solana
+
+== NTT migration
+
+The existing Solana deployment uses a Wormhole Token Bridge lockbox gateway. The
+custom tBTC program owns the SPL mint through its `config` PDA, and the gateway
+custodian mints canonical tBTC against wrapped Wormhole tBTC held in custody.
+
+Before Solana can be configured as an L1 NTT peer:
+
+1. Pause the existing tBTC program and Wormhole gateway.
+2. Drain or otherwise reconcile the gateway custodian's wrapped-token lockbox.
+3. Deploy and initialize the Wormhole NTT manager/transceiver in burning mode.
+4. Transfer the SPL mint authority from the tBTC `config` PDA to the NTT token
+   authority PDA, or to an SPL multisig that contains the NTT token authority PDA.
+
+The tBTC program exposes `transfer_mint_authority` for the last step. It is
+authority-only and requires the program to be paused so no legacy minter can mint
+during the handoff.

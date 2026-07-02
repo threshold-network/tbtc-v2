@@ -28,6 +28,7 @@ describe("tbtc", () => {
   const imposter = anchor.web3.Keypair.generate();
   const guardian = anchor.web3.Keypair.generate();
   const anotherGuardian = anchor.web3.Keypair.generate();
+  const nttMintAuthority = anchor.web3.Keypair.generate();
 
   const recipient = anchor.web3.Keypair.generate();
   const txPayer = anchor.web3.Keypair.generate();
@@ -817,6 +818,55 @@ describe("tbtc", () => {
         supply: BigInt(2000),
         paused: false,
         pendingAuthority: null,
+      });
+    });
+  });
+
+  describe("NTT mint authority migration", () => {
+    it("cannot transfer mint authority while unpaused", async () => {
+      const transferIx = await tbtc.transferMintAuthorityIx({
+        authority: authority.publicKey,
+        newAuthority: nttMintAuthority.publicKey,
+      });
+
+      await expectIxFail([transferIx], [authority], "IsNotPaused");
+    });
+
+    it("cannot transfer mint authority without authority", async () => {
+      const addGuardianIx = await tbtc.addGuardianIx({
+        authority: authority.publicKey,
+        guardian: guardian.publicKey,
+      });
+      await expectIxSuccess([addGuardianIx], [authority]);
+
+      const pauseIx = await tbtc.pauseIx({
+        guardian: guardian.publicKey,
+      });
+      await expectIxSuccess([pauseIx], [txPayer, guardian]);
+
+      const transferIx = await tbtc.transferMintAuthorityIx({
+        authority: imposter.publicKey,
+        newAuthority: nttMintAuthority.publicKey,
+      });
+
+      await expectIxFail([transferIx], [imposter], "IsNotAuthority");
+    });
+
+    it("transfers mint authority to the NTT authority", async () => {
+      const transferIx = await tbtc.transferMintAuthorityIx({
+        authority: authority.publicKey,
+        newAuthority: nttMintAuthority.publicKey,
+      });
+
+      await expectIxSuccess([transferIx], [authority]);
+      await tbtc.checkConfig({
+        authority: authority.publicKey,
+        numMinters: 0,
+        numGuardians: 1,
+        supply: BigInt(2000),
+        paused: true,
+        pendingAuthority: null,
+        mintAuthority: nttMintAuthority.publicKey,
       });
     });
   });

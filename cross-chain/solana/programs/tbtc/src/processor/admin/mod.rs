@@ -25,5 +25,8 @@ pub use remove_minter::*;
 mod take_authority;
 pub use take_authority::*;
 
+mod transfer_mint_authority;
+pub use transfer_mint_authority::*;
+
 mod unpause;
 pub use unpause::*;
