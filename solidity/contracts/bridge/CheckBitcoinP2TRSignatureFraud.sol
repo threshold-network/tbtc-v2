@@ -12,6 +12,38 @@ import "./P2TRSignatureFraud.sol";
 /// @dev This helper is intentionally not wired into Bridge fraud entrypoints
 ///      yet. It combines the focused BIP-341 sighash and BIP-340 verifier seeds
 ///      behind one contract-facing API for verifier feasibility testing.
+///
+///      SUPPORTED-SHAPE BOUNDARY (in scope). This verifier adjudicates ONLY:
+///        * Taproot KEY-PATH spends (no control block / tapscript),
+///        * signed with SIGHASH_DEFAULT (64-byte witness) or SIGHASH_ALL
+///          (65-byte witness ending in 0x01),
+///        * with NO witness annex.
+///      Every other spend shape is rejected BEFORE any sighash reconstruction:
+///        * unsupported sighash modes (explicit 0x00, NONE, SINGLE, any
+///          ANYONECANPAY variant) revert in
+///          `P2TRSignatureFraud.parseWitnessSignature`;
+///        * an annex reverts in `validateAnnexAbsent` ("Annex not supported");
+///        * a script-path spend is structurally unrepresentable -- the
+///          `BridgeChallengeIdentityPayload` carries no control block or tapleaf
+///          fields, and the reconstructed message hard-codes the key-path
+///          spend_type (ext_flag = 0), so a script-path spend can never be
+///          encoded as an accepted challenge.
+///
+///      WHY THIS CANNOT CAUSE A FALSE SLASH. The security-load-bearing step is
+///      `checkSignature`: it verifies the witness BIP-340 signature against the
+///      reconstructed key-path sighash under the x-only `walletID`. An
+///      out-of-scope spend (other sighash mode, annex, or script path) commits
+///      its signature to a DIFFERENT message (and, for script path, often a
+///      different key) than the reconstructed DEFAULT/ALL key-path sighash, so
+///      that signature cannot pass `checkSignature`. Passing it would require a
+///      genuine `walletID` key-path signature over the reconstructed
+///      transaction -- which is itself the real key-path fraud this verifier
+///      exists to catch. The failure mode is therefore fail-CLOSED: unsupported
+///      shapes are un-challengeable (a documented coverage gap / fraud-escape
+///      for those shapes), never silently mis-verified into an honest-signer
+///      slash. Closing the coverage gap requires adding real multi-mode BIP-341
+///      reconstruction (and, for SINGLE/ANYONECANPAY, a richer challenge
+///      payload); it is deliberately out of scope here.
 library CheckBitcoinP2TRSignatureFraud {
     struct PayloadBounds {
         uint16 maxInputs;
@@ -67,6 +99,16 @@ library CheckBitcoinP2TRSignatureFraud {
         return checkSignature(walletID, sighash, witnessSignature);
     }
 
+    /// @notice Security-load-bearing check: verifies the witness BIP-340
+    ///         signature against the supplied key-path `sighash` under the
+    ///         x-only `walletID`.
+    /// @dev This binding is what makes the supported-shape boundary safe. A
+    ///      signature that actually commits to a different message (any
+    ///      unsupported sighash mode, an annex, or a script-path spend) cannot
+    ///      pass here against the reconstructed DEFAULT/ALL key-path `sighash`,
+    ///      so an out-of-scope spend cannot be smuggled into a passing challenge.
+    ///      `parseWitnessSignature` additionally reverts on any non-DEFAULT/ALL
+    ///      witness encoding before this point.
     function checkSignature(
         bytes32 walletID,
         bytes32 sighash,
@@ -307,6 +349,18 @@ library CheckBitcoinP2TRSignatureFraud {
         }
     }
 
+    /// @notice Rejects annex-bearing spends, which this key-path verifier does
+    ///         not reconstruct.
+    /// @dev Fail-closed guard invoked before sighash reconstruction on every
+    ///      lifecycle path (`validatePayloadShape` and
+    ///      `computeBridgeChallengeIdentitySighash`). The reconstructed message
+    ///      hard-codes the no-annex spend_type, so an annex-bearing spend's
+    ///      sighash (which additionally commits to SHA_ANNEX) would never match;
+    ///      rejecting up front keeps the boundary explicit. Note the flag is
+    ///      challenger-supplied: mis-declaring `annexPresent = false` for an
+    ///      annex-bearing spend does not forge a passing challenge, because the
+    ///      annex-committing signature still cannot verify against the
+    ///      no-annex key-path sighash in `checkSignature`.
     function validateAnnexAbsent(bool annexPresent) internal pure {
         require(!annexPresent, "Annex not supported");
     }
