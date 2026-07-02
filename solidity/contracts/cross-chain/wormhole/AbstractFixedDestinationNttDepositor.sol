@@ -83,11 +83,7 @@ abstract contract AbstractFixedDestinationNttDepositor is
         require(chainId != 0, "Destination chain not configured");
     }
 
-    function _destinationChainIdValue()
-        internal
-        view
-        virtual
-        returns (uint16);
+    function _destinationChainIdValue() internal view virtual returns (uint16);
 
     function _isFixedDestinationDeposit(uint256 depositKey)
         internal

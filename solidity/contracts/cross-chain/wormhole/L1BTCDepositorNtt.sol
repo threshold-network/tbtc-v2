@@ -298,15 +298,17 @@ contract L1BTCDepositorNtt is AbstractFixedDestinationNttDepositor {
         );
     }
 
-    function _setDestinationChainId(
-        uint16 _destinationChainId
-    ) internal override {
+    function _setDestinationChainId(uint16 _destinationChainId)
+        internal
+        override
+    {
         destinationChainId = _destinationChainId;
     }
 
-    function _markFixedDestinationDeposit(
-        uint256 depositKey
-    ) internal override {
+    function _markFixedDestinationDeposit(uint256 depositKey)
+        internal
+        override
+    {
         fixedDestinationDeposits[depositKey] = true;
     }
 
@@ -319,10 +321,12 @@ contract L1BTCDepositorNtt is AbstractFixedDestinationNttDepositor {
         return destinationChainId;
     }
 
-    function _isFixedDestinationDeposit(
-        uint256 depositKey
-    ) internal view override returns (bool) {
+    function _isFixedDestinationDeposit(uint256 depositKey)
+        internal
+        view
+        override
+        returns (bool)
+    {
         return fixedDestinationDeposits[depositKey];
     }
-
 }
