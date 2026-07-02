@@ -313,8 +313,6 @@ abstract contract AbstractL1BTCDepositor is
         // slither-disable-next-line reentrancy-benign
         deposits[depositKey] = DepositState.Initialized;
 
-        _afterDepositInitialized(depositKey, destinationChainDepositOwner);
-
         // slither-disable-next-line reentrancy-events
         emit DepositInitialized(
             depositKey,
@@ -449,13 +447,7 @@ abstract contract AbstractL1BTCDepositor is
             }
         }
 
-        _transferTbtc(
-            tbtcAmount,
-            _destinationChainDepositOwnerForTransfer(
-                depositKey,
-                destinationChainDepositOwner
-            )
-        );
+        _transferTbtc(tbtcAmount, destinationChainDepositOwner);
 
         // `ReimbursementPool` calls the untrusted receiver address using a
         // low-level call. Reentrancy risk is mitigated by making sure that
@@ -542,24 +534,6 @@ abstract contract AbstractL1BTCDepositor is
         }
 
         return gasSpent - staticGas;
-    }
-
-    /// @notice Hook called after a deposit is initialized.
-    /// @param depositKey Deposit key identifying the initialized deposit.
-    /// @param destinationChainDepositOwner Deposit owner stored in extra data.
-    function _afterDepositInitialized(
-        uint256 depositKey,
-        bytes32 destinationChainDepositOwner
-    ) internal virtual {}
-
-    /// @notice Resolves the deposit owner value used by the bridge transfer.
-    /// @param destinationChainDepositOwner Deposit owner stored in extra data.
-    /// @return Deposit owner value to pass to `_transferTbtc`.
-    function _destinationChainDepositOwnerForTransfer(
-        uint256,
-        bytes32 destinationChainDepositOwner
-    ) internal view virtual returns (bytes32) {
-        return destinationChainDepositOwner;
     }
 
     /// @notice Generic function for bridging tBTC to the destination chain. Overridden by child contracts.

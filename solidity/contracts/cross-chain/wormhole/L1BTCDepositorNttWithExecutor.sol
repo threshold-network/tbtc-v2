@@ -129,9 +129,6 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         bool exists;
     }
 
-    uint256 private constant LEGACY_DESTINATION_RECEIVER_MASK =
-        0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF;
-
     /// @notice NTT Manager With Executor contract for enhanced cross-chain transfers
     INttManagerWithExecutor public nttManagerWithExecutor;
 
@@ -139,13 +136,7 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @dev This is passed to the NttManagerWithExecutor during transfers
     address public underlyingNttManager;
 
-    /// @dev Retains the storage slot used by the previous `supportedChains`
-    ///      mapping for compatibility with ERC1967 proxy upgrades.
-    // slither-disable-next-line unused-state
-    mapping(uint16 => bool) private __deprecatedSupportedChains;
-
     /// @notice Wormhole chain ID of the configured destination chain.
-    /// @dev Stored in the slot previously used by `defaultSupportedChain`.
     uint16 public destinationChainId;
 
     /// @notice Default gas limit for destination chain execution
@@ -167,16 +158,6 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @notice Default destination gas limit for execution (500k gas)
     uint256 private constant DEFAULT_DESTINATION_GAS_LIMIT = 500000;
 
-    /// @dev Deprecated storage slot previously used by `defaultExecutorFeeBps`.
-    ///      FeeArgs is now reserved for platform fees.
-    // slither-disable-next-line unused-state
-    uint16 private __deprecatedDefaultExecutorFeeBps;
-
-    /// @dev Deprecated storage slot previously used by `defaultExecutorFeeRecipient`.
-    ///      FeeArgs is now reserved for platform fees.
-    // slither-disable-next-line unused-state
-    address private __deprecatedDefaultExecutorFeeRecipient;
-
     /// @notice Mapping of nonce to executor parameter sets for parallel user support
     mapping(bytes32 => ExecutorParameterSet) private parametersByNonce;
 
@@ -185,11 +166,6 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
 
     /// @notice Parameter expiration time in seconds (default: 1 hour)
     uint256 public parameterExpirationTime;
-
-    /// @notice Deposits initialized after the fixed-destination format went live.
-    /// @dev Unmarked deposits may have been initialized by the deprecated
-    ///      encoded-recipient implementation before a proxy upgrade.
-    mapping(uint256 => bool) private fixedDestinationDeposits;
 
     /// @notice Emitted when executor parameters are set
     /// @param sender Address that set the parameters
@@ -267,12 +243,6 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         address indexed newManager
     );
 
-    /// @notice Emitted when the fixed NTT destination chain is migrated.
-    event DestinationChainUpdated(
-        uint16 indexed oldDestinationChain,
-        uint16 indexed newDestinationChain
-    );
-
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
@@ -313,22 +283,6 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         // Set reasonable defaults
         defaultDestinationGasLimit = DEFAULT_DESTINATION_GAS_LIMIT;
         parameterExpirationTime = 3600; // 1 hour default expiration time
-    }
-
-    /// @notice Migrates the fixed destination chain during a proxy upgrade.
-    /// @param _destinationChainId Wormhole chain ID of the destination chain
-    /// @dev Intended as a one-time backfill hook for proxies that were initialized
-    ///      before the fixed-destination storage slot existed. Fresh deployments
-    ///      configure the destination during `initialize` and cannot use this
-    ///      hook to retarget in-flight deposits.
-    function initializeV2DestinationChain(
-        uint16 _destinationChainId
-    ) external onlyOwner reinitializer(2) {
-        require(
-            destinationChainId == 0,
-            "Destination chain already configured"
-        );
-        _updateDestinationChain(_destinationChainId);
     }
 
     /// @notice Updates default parameters for executor transfers
@@ -935,63 +889,6 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
             msg.value
         );
 
-    }
-
-    /// @notice Updates the fixed destination chain.
-    function _updateDestinationChain(uint16 _destinationChainId) internal {
-        require(_destinationChainId != 0, "Chain ID cannot be zero");
-
-        uint16 oldDestinationChainId = destinationChainId;
-        destinationChainId = _destinationChainId;
-
-        emit DestinationChainUpdated(
-            oldDestinationChainId,
-            _destinationChainId
-        );
-    }
-
-    /// @notice Marks deposits initialized with full 32-byte fixed-destination
-    ///         recipients.
-    function _afterDepositInitialized(
-        uint256 depositKey,
-        bytes32 // destinationChainDepositOwner
-    ) internal override {
-        fixedDestinationDeposits[depositKey] = true;
-    }
-
-    /// @notice Preserves compatibility with deposits initialized before the
-    ///         fixed-destination upgrade.
-    /// @dev Legacy NTT deposits encoded the destination as
-    ///      [2-byte chain ID][30-byte recipient]. For those unmarked deposits,
-    ///      strip the chain prefix only when it matches the configured fixed
-    ///      destination. Deposits initialized by this implementation are marked
-    ///      and keep the full 32-byte recipient unchanged.
-    function _destinationChainDepositOwnerForTransfer(
-        uint256 depositKey,
-        bytes32 destinationChainDepositOwner
-    ) internal view override returns (bytes32) {
-        if (fixedDestinationDeposits[depositKey]) {
-            return destinationChainDepositOwner;
-        }
-
-        uint16 legacyDestinationChainId = uint16(
-            bytes2(destinationChainDepositOwner)
-        );
-
-        if (legacyDestinationChainId == 0) {
-            return destinationChainDepositOwner;
-        }
-
-        require(
-            legacyDestinationChainId == destinationChainId,
-            "Legacy destination chain mismatch"
-        );
-
-        return
-            bytes32(
-                uint256(destinationChainDepositOwner) &
-                    LEGACY_DESTINATION_RECEIVER_MASK
-            );
     }
 
     /// @notice Returns the configured destination chain and reverts if unset.

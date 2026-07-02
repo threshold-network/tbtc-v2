@@ -13,14 +13,10 @@ import type {
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
 const WORMHOLE_CHAIN_DESTINATION = 32
-const UPDATED_WORMHOLE_CHAIN_DESTINATION = 40
 const TBTC_SATOSHI_MULTIPLIER = BigNumber.from(10).pow(10)
-const DEPOSITS_STORAGE_SLOT = 200
-const DEPOSIT_STATE_INITIALIZED = 1
 const destinationChainDepositOwner =
   "0xabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd"
-const legacyEncodedDestinationChainDepositOwner = `0x0020${"11".repeat(30)}`
-const legacyDecodedDestinationChainDepositOwner = `0x0000${"11".repeat(30)}`
+const chainLikePrefixedDestinationChainDepositOwner = `0x0020${"11".repeat(30)}`
 
 const loadFixture = (vault: string) => ({
   fundingTx: {
@@ -119,71 +115,6 @@ describe("L1BTCDepositorNttWithExecutor fixed destination", () => {
     expect(await depositor.underlyingNttManager()).to.equal(
       underlyingNttManager.address
     )
-  })
-
-  it("does not retarget an initialized fixed destination chain", async () => {
-    const [, nonOwner] = await ethers.getSigners()
-
-    await expect(
-      depositor
-        .connect(nonOwner)
-        .initializeV2DestinationChain(UPDATED_WORMHOLE_CHAIN_DESTINATION)
-    ).to.be.revertedWith("Ownable: caller is not the owner")
-
-    await expect(
-      depositor.initializeV2DestinationChain(UPDATED_WORMHOLE_CHAIN_DESTINATION)
-    ).to.be.revertedWith("Destination chain already configured")
-
-    expect(await depositor.destinationChainId()).to.equal(
-      WORMHOLE_CHAIN_DESTINATION
-    )
-  })
-
-  it("backfills an unset fixed destination chain once during upgrade", async () => {
-    const [, relayer] = await ethers.getSigners()
-
-    await clearDestinationChainIdSlot(
-      depositor.address,
-      WORMHOLE_CHAIN_DESTINATION
-    )
-
-    expect(await depositor.destinationChainId()).to.equal(0)
-
-    await expect(depositor.initializeV2DestinationChain(0)).to.be.revertedWith(
-      "Chain ID cannot be zero"
-    )
-
-    await expect(
-      depositor.initializeV2DestinationChain(UPDATED_WORMHOLE_CHAIN_DESTINATION)
-    )
-      .to.emit(depositor, "DestinationChainUpdated")
-      .withArgs(0, UPDATED_WORMHOLE_CHAIN_DESTINATION)
-
-    expect(await depositor.destinationChainId()).to.equal(
-      UPDATED_WORMHOLE_CHAIN_DESTINATION
-    )
-
-    const executorArgs = buildExecutorArgs(
-      BigNumber.from(70000),
-      relayer.address
-    )
-    const feeArgs = buildFeeArgs()
-
-    await depositor
-      .connect(relayer)
-      .setExecutorParameters(executorArgs, feeArgs)
-
-    const quote = await depositor.connect(relayer).quoteFinalizeDeposit()
-    const expectedQuote = (await nttManagerWithExecutor.MOCK_DELIVERY_PRICE())
-      .add(await nttManagerWithExecutor.MOCK_WRAPPER_SURCHARGE())
-      .add(BigNumber.from("2000000000000000"))
-      .add(executorArgs.value)
-
-    expect(quote).to.equal(expectedQuote)
-
-    await expect(
-      depositor.initializeV2DestinationChain(WORMHOLE_CHAIN_DESTINATION)
-    ).to.be.reverted
   })
 
   it("quotes the configured destination chain", async () => {
@@ -322,7 +253,7 @@ describe("L1BTCDepositorNttWithExecutor fixed destination", () => {
     )
   })
 
-  it("preserves fixed-destination recipients with a legacy-shaped prefix", async () => {
+  it("passes the full 32-byte deposit owner with a chain-like prefix", async () => {
     const [, relayer] = await ethers.getSigners()
     const executorValue = BigNumber.from(70000)
     const executorArgs = buildExecutorArgs(executorValue, relayer.address)
@@ -334,7 +265,7 @@ describe("L1BTCDepositorNttWithExecutor fixed destination", () => {
       .initializeDeposit(
         fixture.fundingTx,
         fixture.reveal,
-        legacyEncodedDestinationChainDepositOwner
+        chainLikePrefixedDestinationChainDepositOwner
       )
     await bridge.sweepDeposit(fixture.expectedDepositKey)
 
@@ -355,43 +286,7 @@ describe("L1BTCDepositorNttWithExecutor fixed destination", () => {
       })
 
     expect(await nttManagerWithExecutor.lastRecipientAddress()).to.equal(
-      legacyEncodedDestinationChainDepositOwner
-    )
-  })
-
-  it("decodes legacy encoded recipients for unmarked pre-upgrade deposits", async () => {
-    const [, relayer] = await ethers.getSigners()
-    const executorValue = BigNumber.from(70000)
-    const executorArgs = buildExecutorArgs(executorValue, relayer.address)
-    const feeArgs = buildFeeArgs()
-
-    await bridge.setNextDepositKey(fixture.expectedDepositKey)
-    await bridge.revealDepositWithExtraData(
-      fixture.fundingTx,
-      fixture.reveal,
-      legacyEncodedDestinationChainDepositOwner
-    )
-    await markDepositInitialized(depositor.address, fixture.expectedDepositKey)
-    await bridge.sweepDeposit(fixture.expectedDepositKey)
-
-    const tbtcAmount = await calculateTbtcAmount(
-      bridge,
-      fixture.expectedDepositKey
-    )
-    await tbtcToken.mint(depositor.address, tbtcAmount)
-    await depositor
-      .connect(relayer)
-      .setExecutorParameters(executorArgs, feeArgs)
-
-    const quote = await depositor.connect(relayer).quoteFinalizeDeposit()
-    await depositor
-      .connect(relayer)
-      .finalizeDeposit(fixture.expectedDepositKey, {
-        value: quote,
-      })
-
-    expect(await nttManagerWithExecutor.lastRecipientAddress()).to.equal(
-      legacyDecodedDestinationChainDepositOwner
+      chainLikePrefixedDestinationChainDepositOwner
     )
   })
 
@@ -508,57 +403,4 @@ async function calculateTbtcAmount(
     .sub(deposit.treasuryFee)
     .sub(depositTxMaxFee)
     .mul(TBTC_SATOSHI_MULTIPLIER)
-}
-
-async function markDepositInitialized(
-  contractAddress: string,
-  depositKey: string
-) {
-  const depositStateSlot = ethers.utils.keccak256(
-    ethers.utils.defaultAbiCoder.encode(
-      ["uint256", "uint256"],
-      [depositKey, DEPOSITS_STORAGE_SLOT]
-    )
-  )
-
-  await ethers.provider.send("hardhat_setStorageAt", [
-    contractAddress,
-    ethers.BigNumber.from(depositStateSlot).toHexString(),
-    ethers.utils.hexZeroPad(
-      ethers.BigNumber.from(DEPOSIT_STATE_INITIALIZED).toHexString(),
-      32
-    ),
-  ])
-}
-
-async function clearDestinationChainIdSlot(
-  contractAddress: string,
-  currentDestinationChainId: number
-) {
-  const destinationChainIdSlot = await findStorageSlot(
-    contractAddress,
-    currentDestinationChainId
-  )
-
-  await ethers.provider.send("hardhat_setStorageAt", [
-    contractAddress,
-    ethers.utils.hexValue(destinationChainIdSlot),
-    ethers.constants.HashZero,
-  ])
-}
-
-async function findStorageSlot(contractAddress: string, expectedValue: number) {
-  const slots = Array.from({ length: 21 }, (_, index) => 200 + index)
-  const values = await Promise.all(
-    slots.map((slot) => ethers.provider.getStorageAt(contractAddress, slot))
-  )
-  const slotIndex = values.findIndex((value) =>
-    ethers.BigNumber.from(value).eq(expectedValue)
-  )
-
-  if (slotIndex >= 0) {
-    return slots[slotIndex]
-  }
-
-  throw new Error("destinationChainId storage slot not found")
 }
