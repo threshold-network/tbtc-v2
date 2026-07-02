@@ -509,14 +509,18 @@ describe("CheckBitcoinP2TRSignatureFraud", () => {
     const vector = vectorCorpus.cases[0] // SIGHASH_DEFAULT: 64-byte witness
     const baseSignatureHex = vector.witnessSignatureHex
 
+    // SIGHASH_NONE (0x02), SIGHASH_SINGLE (0x03) and the ANYONECANPAY variants
+    // (0x81/0x82/0x83) are now accepted 65-byte encodings and are exercised by
+    // the vector corpus. The trailing bytes that remain unsupported are the
+    // explicit, non-canonical SIGHASH_DEFAULT (0x00), the bare ANYONECANPAY bit
+    // (0x80), and any byte outside the valid 0x83 mask.
     const unsupportedTrailingBytes = [
       "00", // explicit, non-canonical SIGHASH_DEFAULT
-      "02", // SIGHASH_NONE
-      "03", // SIGHASH_SINGLE
-      "80", // bare ANYONECANPAY bit
-      "81", // SIGHASH_ALL | ANYONECANPAY
-      "82", // SIGHASH_NONE | ANYONECANPAY
-      "83", // SIGHASH_SINGLE | ANYONECANPAY
+      "80", // bare ANYONECANPAY bit (ANYONECANPAY | DEFAULT is not valid)
+      "04",
+      "40",
+      "7f",
+      "c1",
       "ff",
     ]
 

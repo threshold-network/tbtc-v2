@@ -793,7 +793,7 @@ describe("P2TR signature-fraud witness parsing", () => {
     expect(payload.version).to.equal(unsignedTransaction.version)
     expect(payload.locktime).to.equal(unsignedTransaction.locktime)
     expect(payload.signedInputIndex).to.equal(vector.signedInputIndex)
-    expect(payload.annexPresent).to.equal(false)
+    expect(payload.annex).to.equal("0x")
     expect(payload.witnessSignature).to.equal(`0x${vector.witnessSignatureHex}`)
     expect(payload.inputs).to.have.lengthOf(unsignedTransaction.ins.length)
     expect(payload.inputs[0].txid).to.equal(
@@ -806,7 +806,7 @@ describe("P2TR signature-fraud witness parsing", () => {
       `0x${vector.prevouts[0].scriptPubKeyHex}`
     )
     expect(decodedPayload.walletID).to.equal(payload.walletID)
-    expect(decodedPayload.annexPresent).to.equal(false)
+    expect(decodedPayload.annex).to.equal("0x")
     expect(decodedPayload.inputs[0].txid).to.equal(payload.inputs[0].txid)
     expect(decodedPayload.prevouts[0].scriptPubKey).to.equal(
       payload.prevouts[0].scriptPubKey
@@ -1573,7 +1573,7 @@ describe("P2TR signature-fraud witness parsing", () => {
       calls[0].payload
     )
     expect(decodedPayload.walletID).to.equal(`0x${vector.walletIDHex}`)
-    expect(decodedPayload.annexPresent).to.equal(false)
+    expect(decodedPayload.annex).to.equal("0x")
     expect(decodedPayload.witnessSignature).to.equal(
       `0x${vector.witnessSignatureHex}`
     )
