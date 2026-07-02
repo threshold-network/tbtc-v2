@@ -295,11 +295,12 @@ describe("CheckBitcoinBIP341Sighash", () => {
     ).to.be.revertedWith("Prevout count mismatch")
   })
 
-  // The verifier reconstructs only DEFAULT/ALL key-path semantics, so it must
-  // fail closed for every other sighash-type byte rather than compare a
-  // signature against a message the signer never committed to (which could
-  // otherwise mis-adjudicate a fraud challenge). This is the defense-in-depth
-  // boundary guard inside `computeKeyPathSighash`, exercised directly here.
+  // The verifier reconstructs every supported key-path mode
+  // (DEFAULT/ALL/NONE/SINGLE and their ANYONECANPAY variants), so it must fail
+  // closed for every INVALID sighash-type byte -- the bare ANYONECANPAY bit
+  // (0x80) and bytes outside the 0x83 mask -- rather than reconstruct a bogus
+  // message. This is the defense-in-depth boundary guard inside
+  // `computeKeyPathSighash`, exercised directly here.
   it("fails closed for every unsupported BIP341 sighash type byte", async () => {
     const vector = vectorCorpus.cases[0]
 
