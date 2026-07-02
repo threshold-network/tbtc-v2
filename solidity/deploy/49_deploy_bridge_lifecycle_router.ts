@@ -151,30 +151,53 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
       .id("LifecycleRouterAlreadySet()")
       .slice(0, 10)
 
+    // A pre-upgrade Bridge proxy does not expose `setLifecycleRouter` yet, so
+    // the send would revert regardless of who is a configured signer (unlike
+    // the fraud-router / registry scripts, this one has no getter for its own
+    // value, so probe a view added in the same FROST upgrade instead). If
+    // `frostLifecycleContext` reverts with a CALL_EXCEPTION the Bridge is
+    // pre-upgrade, so force the calldata-emission path rather than attempting --
+    // and reverting -- the send, so testnet upgrade preparation is not blocked.
+    let bridgeExposesLifecycleWiring = true
+    try {
+      await bridgeContract.frostLifecycleContext(ethers.constants.AddressZero)
+    } catch (err) {
+      if ((err as { code?: string }).code !== "CALL_EXCEPTION") {
+        throw err
+      }
+      bridgeExposesLifecycleWiring = false
+    }
+
     const routerSetterContract = governanceIsDeployer
       ? bridgeContract
       : bridgeGovernance
     const routerSetterCaller = governanceIsDeployer
       ? deployer
       : await bridgeGovernance.owner()
-    const routerSetterSigner = await getConfiguredSigner(
-      hre,
-      routerSetterCaller
-    )
+    const routerSetterSigner = bridgeExposesLifecycleWiring
+      ? await getConfiguredSigner(hre, routerSetterCaller)
+      : undefined
 
     if (!routerSetterSigner) {
       const calldata = routerSetterContract.interface.encodeFunctionData(
         "setLifecycleRouter",
         [router.address]
       )
+      const reason = !bridgeExposesLifecycleWiring
+        ? `the Bridge at ${bridgeContract.address} does not yet expose ` +
+          "setLifecycleRouter (pre-upgrade implementation); wire it as part of " +
+          "the upgrade proposal"
+        : `${routerSetterCaller} is not a configured signer for network ${hre.network.name}`
       const message =
-        `BridgeLifecycleRouter wiring must be executed by ${routerSetterCaller}, ` +
-        `which is not a configured signer for network ${hre.network.name}. ` +
+        `BridgeLifecycleRouter wiring must be executed by governance -- ${reason}. ` +
         "Submit this call from governance:\n" +
         `  target: ${routerSetterContract.address}\n` +
         `  data:   ${calldata}`
 
-      if (hre.network.name === "mainnet") {
+      // A pre-upgrade Bridge cannot be wired now on any network, so emit the
+      // calldata and continue. Otherwise keep the existing guard: skip on
+      // mainnet (a non-signer governance owner is expected) and error elsewhere.
+      if (!bridgeExposesLifecycleWiring || hre.network.name === "mainnet") {
         console.log(`${message}\nskipping for manual governance execution`)
       } else {
         throw new Error(message)
