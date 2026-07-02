@@ -1830,21 +1830,6 @@ contract BridgeGovernance is Ownable {
         bridge.setFrostWalletRegistry(frostWalletRegistry);
     }
 
-    /// @notice Sets the EcdsaFraudRouter sidecar address on the Bridge.
-    ///         This function does not have a governance delay since
-    ///         setting the router is a one-off action performed during
-    ///         enablement of the extracted ECDSA fraud lifecycle. Once
-    ///         set, the router address cannot be changed without a
-    ///         Bridge implementation upgrade.
-    /// @param ecdsaFraudRouter Address of the EcdsaFraudRouter sidecar.
-    /// @dev Requirements:
-    ///      - The caller must be the owner,
-    ///      - ECDSA fraud router address must not be already set,
-    ///      - ECDSA fraud router address must not be 0x0.
-    function setEcdsaFraudRouter(address ecdsaFraudRouter) external onlyOwner {
-        bridge.setEcdsaFraudRouter(ecdsaFraudRouter);
-    }
-
     /// @notice Migrates a batch of legacy fraud challenges from
     ///         Bridge storage to one of the fraud router sidecars.
     ///         Forwards to `Bridge.migrateLegacyFraudChallenges`,
@@ -1862,8 +1847,9 @@ contract BridgeGovernance is Ownable {
     }
 
     /// @notice Sets the P2TRSignatureFraudRouter sidecar address on
-    ///         the Bridge. Same one-off (no governance delay) pattern
-    ///         as `setEcdsaFraudRouter`.
+    ///         the Bridge. This function does not have a governance
+    ///         delay because it is a one-off action performed during
+    ///         enablement of the P2TR signature-fraud lifecycle.
     function setP2TRFraudRouter(address p2trFraudRouter) external onlyOwner {
         bridge.setP2TRFraudRouter(p2trFraudRouter);
     }

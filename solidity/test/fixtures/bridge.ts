@@ -206,12 +206,11 @@ export default async function bridgeFixture(): Promise<{
   const redemptionWatchtower: RedemptionWatchtower =
     await helpers.contracts.getContract("RedemptionWatchtower")
 
-  // Deploy + wire the two fraud router sidecars. EcdsaFraudRouter
-  // hosts the ECDSA fraud lifecycle (was inlined on Bridge);
-  // P2TRSignatureFraudRouter is the sister sidecar for the P2TR
-  // signature-fraud lifecycle. Both routers are pinned to the
-  // Bridge address at construction and wired via the one-time
-  // setters on Bridge.
+  // Deploy the ECDSA fraud router sidecar and wire the P2TR fraud
+  // router sidecar. Post-slice-2, EcdsaFraudRouter no longer calls
+  // back into Bridge and Bridge no longer has an ECDSA router setter.
+  // P2TRSignatureFraudRouter still uses the Bridge callback path and
+  // remains wired via its one-time setter.
   const existingEcdsaFraudRouter = await bridge.ecdsaFraudRouter()
   let ecdsaFraudRouter: EcdsaFraudRouter
   if (existingEcdsaFraudRouter === ethers.constants.AddressZero) {
@@ -223,9 +222,6 @@ export default async function bridgeFixture(): Promise<{
       bridge.address
     )) as EcdsaFraudRouter
     await ecdsaFraudRouter.deployed()
-    await bridgeGovernance
-      .connect(governance)
-      .setEcdsaFraudRouter(ecdsaFraudRouter.address)
   } else {
     ecdsaFraudRouter = (await ethers.getContractAt(
       "EcdsaFraudRouter",

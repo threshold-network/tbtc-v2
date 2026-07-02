@@ -82,12 +82,10 @@ interface IBridgeForP2TRFraud {
 ///     Bridge.
 ///
 ///     The two routers are intentionally peers (not parent/child) --
-///     they share no storage and they're set on Bridge independently
-///     via separate one-time governance setters
-///     (setEcdsaFraudRouter / setP2TRFraudRouter). Bridge gates the
-///     two privileged callbacks (slashWalletForFraud /
-///     slashWalletForP2TRFraud) with separate modifiers so a
-///     compromise of one router cannot impersonate the other.
+///     they share no storage. Post-slice-2, only the P2TR router keeps
+///     a privileged Bridge timeout callback
+///     (`slashWalletForP2TRFraud`); the ECDSA router no longer calls
+///     back into Bridge.
 ///
 /// ETH escrow
 ///
