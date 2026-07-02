@@ -22,37 +22,30 @@ const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
 // D-1 ECDSA soft-retirement guards.
 //
-// This phase ships the `ecdsaRetired` storage flag and the
-// matching guards in the `Wallets` external library. The
-// governance-callable setter on Bridge that flips the flag is
-// deferred to D-2 (see `Bridge.sol` after `setNewWalletScheme`
-// for the bytecode-budget rationale); D-1 unit tests reach the
-// flag via a test-only `BridgeStub.setEcdsaRetiredForTest`
-// helper that mirrors how mainnet would activate it through a
+// This suite ships the `ecdsaRetired` storage flag plus its
+// governance setter (`Bridge.retireEcdsa`) and public getter
+// (`Bridge.ecdsaRetired`). Unit tests reach the flag via a
+// test-only `BridgeStub.setEcdsaRetiredForTest` helper that
+// mirrors how mainnet would activate it through a
 // storage-layout-compatible upgrade.
 //
-// One guard site is exercised here:
-//   - `Wallets.requestNewWallet` rejects requests routed to
-//     the ECDSA registry once `ecdsaRetired == true`.
+// The flag is purely an on-chain audit-trail marker and is NOT
+// load-bearing: no code path reads it (only the getter returns
+// it, for off-chain observation). `Wallets.requestNewWallet`
+// does NOT inspect it — the originally planned D-1 read-side
+// guard, and the unconditional ECDSA-registry IDLE precheck it
+// depended on, were both dropped when D-2.2 slice 3 removed the
+// scheme-enum dispatch branch. Post-slice-3 the dispatcher
+// always targets the FROST registry, so dispatch behavior is
+// independent of the flag. The tests below pin exactly that
+// invariant: `requestNewWallet` reverts identically whether the
+// flag is set or not (FROST-only dispatch, unwired registry).
 //
-// `Wallets.registerNewWallet` deliberately does NOT block the
-// late-callback path: reverting from the ECDSA registry's
-// `__ecdsaWalletCreatedCallback` would propagate up through
-// `WalletRegistry.approveDkgResult` and prevent the registry's
-// own DKG state machine from completing, stranding it in a
-// non-IDLE state. Because `Wallets.requestNewWallet` has an
-// unconditional IDLE precheck on the ECDSA registry BEFORE the
-// scheme branch, a stuck ECDSA registry would also block every
-// subsequent FROST wallet creation — the exact failure mode
-// D-1 is meant to prevent (Codex P1 review on PR #443). The
-// "no late ECDSA wallets after retirement" invariant is
-// enforced operationally: governance pauses Bridge, waits for
-// in-flight DKGs to settle (registry returns to IDLE), sets
-// the flag, then unpauses. The second `__ecdsaWalletCreatedCallback`
-// context below pins the explicit no-deadlock invariant: late
-// callbacks under `ecdsaRetired == true` still succeed
-// end-to-end and register the wallet.
-describe("Bridge - ECDSA retirement (D-1 guard + D-2 setter)", () => {
+// ECDSA wallet creation is instead blocked structurally: the
+// scheme branch is gone (D-2.2 slice 3) and
+// `Bridge.__ecdsaWalletCreatedCallback` was removed entirely in
+// D-2 — so there is no late-callback drain path left to test.
+describe("Bridge - ECDSA retirement (informational flag + D-2 setter)", () => {
   let governance: SignerWithAddress
   let thirdParty: SignerWithAddress
 
