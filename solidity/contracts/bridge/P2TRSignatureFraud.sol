@@ -16,6 +16,31 @@ library P2TRSignatureFraud {
         "tbtc-p2tr-signature-fraud-bridge-key-v0";
     uint8 internal constant SighashDefault = 0;
     uint8 internal constant SighashAll = 1;
+    uint8 internal constant SighashNone = 2;
+    uint8 internal constant SighashSingle = 3;
+    uint8 internal constant SighashBaseMask = 0x03;
+    uint8 internal constant SighashAnyoneCanPayFlag = 0x80;
+
+    /// @notice Returns true for the explicit (65-byte-encoded) Taproot key-path
+    ///         sighash bytes this challenge direction accepts.
+    /// @dev Excludes an explicit 0x00 byte: BIP-341 SIGHASH_DEFAULT is only ever
+    ///      represented by the 64-byte omitted-sighash form, so an explicit 0x00
+    ///      on a 65-byte signature is a malformed encoding and is rejected. Every
+    ///      other byte outside {0x01,0x02,0x03} and their ANYONECANPAY variants
+    ///      is rejected.
+    function isSupportedExplicitSighashType(uint8 sighashType)
+        internal
+        pure
+        returns (bool)
+    {
+        return
+            sighashType == SighashAll ||
+            sighashType == SighashNone ||
+            sighashType == SighashSingle ||
+            sighashType == (SighashAnyoneCanPayFlag | SighashAll) ||
+            sighashType == (SighashAnyoneCanPayFlag | SighashNone) ||
+            sighashType == (SighashAnyoneCanPayFlag | SighashSingle);
+    }
 
     /// @notice Computes the domain-separated Bridge fraud challenge key for a
     ///         P2TR signature-fraud Bridge challenge identity.
@@ -46,8 +71,11 @@ library P2TRSignatureFraud {
 
     /// @notice Parses Taproot key-path witness signature encodings supported by
     ///         the selected P2TR signature-fraud challenge direction.
-    /// @dev BIP-341 represents SIGHASH_DEFAULT by omitting the sighash byte.
-    ///      Explicit 0x00 and any non-SIGHASH_ALL byte are rejected.
+    /// @dev BIP-341 represents SIGHASH_DEFAULT by omitting the sighash byte, so a
+    ///      64-byte signature resolves to SIGHASH_DEFAULT. A 65-byte signature
+    ///      carries an explicit sighash byte, which must be one of the supported
+    ///      key-path types (ALL/NONE/SINGLE and their ANYONECANPAY variants). An
+    ///      explicit 0x00 byte and any other byte are rejected.
     function parseWitnessSignature(bytes memory witnessSignature)
         internal
         pure
@@ -63,9 +91,13 @@ library P2TRSignatureFraud {
         );
 
         sighashType = uint8(witnessSignature[64]);
-        // A 65-byte signature must use explicit SIGHASH_ALL. BIP-341
-        // SIGHASH_DEFAULT is accepted only as the 64-byte omitted-sighash form.
-        require(sighashType == SighashAll, "Unsupported witness sighash type");
+        // A 65-byte signature carries an explicit sighash byte. SIGHASH_DEFAULT
+        // is accepted only as the 64-byte omitted-sighash form, so an explicit
+        // 0x00 byte (and any non key-path byte) is rejected.
+        require(
+            isSupportedExplicitSighashType(sighashType),
+            "Unsupported witness sighash type"
+        );
 
         return (copySignature(witnessSignature), sighashType);
     }
