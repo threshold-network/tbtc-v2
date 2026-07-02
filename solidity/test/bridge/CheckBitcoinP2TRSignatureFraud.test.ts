@@ -224,7 +224,7 @@ const vectorPayload = (
     prevouts?: PrevoutVector[]
     witnessSignatureHex?: string
     signedInputIndex?: number
-    annexPresent?: boolean
+    annexHex?: string
   } = {}
 ): Promise<string | boolean> => {
   const parsedTransaction = parseUnsignedTransaction(
@@ -239,10 +239,10 @@ const vectorPayload = (
     prevouts: toHarnessPrevouts(options.prevouts ?? vector.prevouts),
     outputs: toHarnessOutputs(parsedTransaction.outputs),
     signedInputIndex: options.signedInputIndex ?? vector.signedInputIndex,
-    annexPresent: options.annexPresent ?? false,
     witnessSignature: hex(
       options.witnessSignatureHex ?? vector.witnessSignatureHex
     ),
+    annex: options.annexHex ?? "0x",
   }
 }
 
@@ -267,6 +267,7 @@ const callWithVector = (
     payload.outputs,
     payload.signedInputIndex,
     payload.witnessSignature,
+    payload.annex,
   ]
 
   if (method === "computeKeyPathSighashForWitness") {
@@ -288,7 +289,7 @@ const validateWithVector = (
     prevouts?: PrevoutVector[]
     witnessSignatureHex?: string
     signedInputIndex?: number
-    annexPresent?: boolean
+    annexHex?: string
   } = {}
 ): Promise<void> => {
   const payload = vectorPayload(vector, options)
@@ -373,8 +374,8 @@ describe("CheckBitcoinP2TRSignatureFraud", () => {
             prevouts: payload.prevouts,
             outputs: payload.outputs,
             signedInputIndex: payload.signedInputIndex,
-            annexPresent: payload.annexPresent,
             witnessSignature: payload.witnessSignature,
+            annex: payload.annex,
           }),
           vector.id
         ).to.equal(hex(vector.expectedBridgeChallengeIdentityHex))
@@ -382,9 +383,11 @@ describe("CheckBitcoinP2TRSignatureFraud", () => {
     )
   })
 
-  it("rejects Bridge challenge identities with annex-present payloads", async () => {
+  it("rejects Bridge challenge identities with a malformed annex", async () => {
     const vector = vectorCorpus.cases[0]
-    const payload = vectorPayload(vector, { annexPresent: true })
+    // A non-empty annex must carry the mandatory 0x50 prefix; a leading byte
+    // other than 0x50 is not a valid annex.
+    const payload = vectorPayload(vector, { annexHex: "0x00" })
 
     await expect(
       harness.computeBridgeChallengeIdentity({
@@ -395,10 +398,10 @@ describe("CheckBitcoinP2TRSignatureFraud", () => {
         prevouts: payload.prevouts,
         outputs: payload.outputs,
         signedInputIndex: payload.signedInputIndex,
-        annexPresent: payload.annexPresent,
         witnessSignature: payload.witnessSignature,
+        annex: payload.annex,
       })
-    ).to.be.revertedWith("Annex not supported")
+    ).to.be.revertedWith("Annex must start with 0x50")
   })
 
   it("returns false for wallet, signature, and sighash-data mutations", async () => {
@@ -492,9 +495,9 @@ describe("CheckBitcoinP2TRSignatureFraud", () => {
 
     await expect(
       validateWithVector(harness, vector, vectorBounds, {
-        annexPresent: true,
+        annexHex: "0x00",
       })
-    ).to.be.revertedWith("Annex not supported")
+    ).to.be.revertedWith("Annex must start with 0x50")
   })
 
   it("accepts vector payloads within explicit bounds", async () => {
@@ -585,9 +588,9 @@ describe("CheckBitcoinP2TRSignatureFraud", () => {
 
     await expect(
       validateWithVector(harness, multiInputVector, vectorBounds, {
-        annexPresent: true,
+        annexHex: "0x00",
       })
-    ).to.be.revertedWith("Annex not supported")
+    ).to.be.revertedWith("Annex must start with 0x50")
   })
 
   it("reports the current bounded payload-shape gas envelope", async () => {
@@ -616,7 +619,8 @@ describe("CheckBitcoinP2TRSignatureFraud", () => {
       payload.prevouts,
       payload.outputs,
       payload.signedInputIndex,
-      payload.witnessSignature
+      payload.witnessSignature,
+      payload.annex
     )
 
     expectGasAtMost(

@@ -180,6 +180,7 @@ const computeSighash = (
     prevouts?: PrevoutVector[]
     sighashType?: number
     signedInputIndex?: number
+    annexHex?: string
   } = {}
 ): Promise<string> => {
   const parsedTransaction = parseUnsignedTransaction(
@@ -193,7 +194,8 @@ const computeSighash = (
     toHarnessPrevouts(options.prevouts ?? vector.prevouts),
     toHarnessOutputs(parsedTransaction.outputs),
     options.signedInputIndex ?? vector.signedInputIndex,
-    options.sighashType ?? vector.sighashType
+    options.sighashType ?? vector.sighashType,
+    options.annexHex ?? "0x"
   )
 }
 
@@ -275,8 +277,11 @@ describe("CheckBitcoinBIP341Sighash", () => {
   it("rejects unsupported sighash types and malformed payload shape", async () => {
     const vector = vectorCorpus.cases[0]
 
+    // 0x04 sets a bit outside the valid base/ANYONECANPAY mask, so it is not a
+    // real key-path sighash type. (NONE/SINGLE and the ANYONECANPAY variants are
+    // now supported and exercised by the full-sighash corpus.)
     await expect(
-      computeSighash(bip341Harness, vector, { sighashType: 2 })
+      computeSighash(bip341Harness, vector, { sighashType: 4 })
     ).to.be.revertedWith("Unsupported BIP341 sighash type")
 
     await expect(

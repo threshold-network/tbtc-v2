@@ -75,7 +75,7 @@ const p2trLifecycleInterface = new ethers.utils.Interface([
 ])
 
 const payloadType =
-  "tuple(bytes32 walletID,uint32 version,uint32 locktime,tuple(bytes32 txid,uint32 vout,uint32 sequence)[] inputs,tuple(uint64 valueSats,bytes scriptPubKey)[] prevouts,tuple(uint64 valueSats,bytes scriptPubKey)[] outputs,uint32 signedInputIndex,bool annexPresent,bytes witnessSignature)"
+  "tuple(bytes32 walletID,uint32 version,uint32 locktime,tuple(bytes32 txid,uint32 vout,uint32 sequence)[] inputs,tuple(uint64 valueSats,bytes scriptPubKey)[] prevouts,tuple(uint64 valueSats,bytes scriptPubKey)[] outputs,uint32 signedInputIndex,bytes witnessSignature,bytes annex)"
 
 const hex = (value: string): string => `0x${value}`
 
@@ -178,7 +178,7 @@ const loadVectorCorpus = (): SignatureFraudVectorCorpus =>
 
 const vectorPayload = (
   vector: SignatureFraudVector,
-  options: { witnessSignatureHex?: string; annexPresent?: boolean } = {}
+  options: { witnessSignatureHex?: string; annexHex?: string } = {}
 ) => {
   const parsedTransaction = parseUnsignedTransaction(
     vector.unsignedTransactionHex
@@ -202,10 +202,10 @@ const vectorPayload = (
       scriptPubKey: hex(output.scriptPubKey),
     })),
     signedInputIndex: vector.signedInputIndex,
-    annexPresent: options.annexPresent ?? false,
     witnessSignature: hex(
       options.witnessSignatureHex ?? vector.witnessSignatureHex
     ),
+    annex: options.annexHex ?? "0x",
   }
 }
 
@@ -538,12 +538,12 @@ describe("Bridge - P2TR signature fraud", () => {
       revertMessage: "Signed input out of range",
     },
     {
-      name: "annex-present witnesses",
+      name: "malformed annex (missing 0x50 prefix)",
       mutatePayload: (payload) => ({
         ...payload,
-        annexPresent: true,
+        annex: "0x00",
       }),
-      revertMessage: "Annex not supported",
+      revertMessage: "Annex must start with 0x50",
     },
     {
       name: "oversized prevout script",
