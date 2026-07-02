@@ -167,6 +167,16 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @notice Parameter expiration time in seconds (default: 1 hour)
     uint256 public parameterExpirationTime;
 
+    /// @notice Optional destination-chain account that receives refunds of
+    ///         unused execution gas from the Wormhole Executor.
+    /// @dev Stored in Wormhole's 32-byte universal address format. When left
+    ///      unset (`bytes32(0)`), refunds fall back to the deposit recipient so
+    ///      they are always deliverable on the destination chain, including
+    ///      non-EVM chains (Solana, Sui) where a left-padded EVM address is not
+    ///      a controllable account. Owners can point it at a dedicated relayer
+    ///      or treasury account via `setDestinationRefundAddress`.
+    bytes32 public destinationRefundAddress;
+
     /// @notice Emitted when executor parameters are set
     /// @param sender Address that set the parameters
     /// @param signedQuoteLength Length of the signed quote in bytes
@@ -241,6 +251,12 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     event NttManagerWithExecutorUpdated(
         address indexed oldManager,
         address indexed newManager
+    );
+
+    /// @notice Emitted when the destination refund address is updated
+    event DestinationRefundAddressUpdated(
+        bytes32 indexed oldRefundAddress,
+        bytes32 indexed newRefundAddress
     );
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -323,6 +339,25 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         uint256 oldGasLimit = defaultDestinationGasLimit;
         defaultDestinationGasLimit = _newGasLimit;
         emit DefaultDestinationGasLimitUpdated(oldGasLimit, _newGasLimit);
+    }
+
+    /// @notice Sets the destination-chain account that receives refunds of
+    ///         unused execution gas.
+    /// @param _destinationRefundAddress Refund account in Wormhole's 32-byte
+    ///        universal address format, or `bytes32(0)` to refund the deposit
+    ///        recipient by default.
+    /// @dev Use this to point refunds at a controllable account on non-EVM
+    ///      destinations, or at a dedicated relayer/treasury account on EVM
+    ///      destinations (left-padded EVM address).
+    function setDestinationRefundAddress(
+        bytes32 _destinationRefundAddress
+    ) external onlyOwner {
+        bytes32 oldRefundAddress = destinationRefundAddress;
+        destinationRefundAddress = _destinationRefundAddress;
+        emit DestinationRefundAddressUpdated(
+            oldRefundAddress,
+            _destinationRefundAddress
+        );
     }
 
     /// @notice Sets the default TBTC platform fee in executor dbps units
@@ -864,16 +899,22 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
             amount
         );
 
+        // Refund unused destination-chain execution gas to the configured
+        // refund account, or to the deposit recipient by default. Defaulting to
+        // the recipient keeps the refund deliverable on any destination chain,
+        // including non-EVM chains (Solana, Sui) where a left-padded EVM address
+        // is not a controllable account.
+        bytes32 refundAddress = destinationRefundAddress != bytes32(0)
+            ? destinationRefundAddress
+            : destinationChainDepositOwner;
+
         // Execute the transfer with executor support
         uint64 sequence = nttManagerWithExecutor.transfer{value: requiredCost}( // slither-disable-line reentrancy-vulnerabilities-3
             underlyingNttManager,
             amount,
             chainId,
             destinationChainDepositOwner,
-            // Current NTT migration destinations are EVM chains, so refund the
-            // relayer using Wormhole's left-padded EVM address convention.
-            // Non-EVM destinations need a dedicated bytes32 refund address.
-            bytes32(uint256(uint160(msg.sender))),
+            refundAddress,
             "", // Empty transceiver instructions for basic transfer
             executorArgs,
             feeArgs

@@ -371,6 +371,100 @@ describe("L1BTCDepositorNttWithExecutor fixed destination", () => {
       platformFeeRecipient.address
     )
   })
+
+  it("defaults the destination refund to the deposit recipient", async () => {
+    const [, relayer] = await ethers.getSigners()
+    const executorValue = BigNumber.from(70000)
+    const executorArgs = buildExecutorArgs(executorValue, relayer.address)
+    const feeArgs = buildFeeArgs()
+
+    expect(await depositor.destinationRefundAddress()).to.equal(
+      ethers.constants.HashZero
+    )
+
+    await bridge.setNextDepositKey(fixture.expectedDepositKey)
+    await depositor
+      .connect(relayer)
+      .initializeDeposit(
+        fixture.fundingTx,
+        fixture.reveal,
+        destinationChainDepositOwner
+      )
+    await bridge.sweepDeposit(fixture.expectedDepositKey)
+
+    const tbtcAmount = await calculateTbtcAmount(
+      bridge,
+      fixture.expectedDepositKey
+    )
+    await tbtcToken.mint(depositor.address, tbtcAmount)
+    await depositor
+      .connect(relayer)
+      .setExecutorParameters(executorArgs, feeArgs)
+
+    const quote = await depositor.connect(relayer).quoteFinalizeDeposit()
+    await depositor
+      .connect(relayer)
+      .finalizeDeposit(fixture.expectedDepositKey, { value: quote })
+
+    // With no configured refund address, the refund falls back to the full
+    // 32-byte recipient, which is always a controllable account on the
+    // destination chain (including non-EVM chains).
+    expect(await nttManagerWithExecutor.lastRefundAddress()).to.equal(
+      destinationChainDepositOwner
+    )
+  })
+
+  it("routes the destination refund to the configured refund address", async () => {
+    const [, relayer] = await ethers.getSigners()
+    const executorValue = BigNumber.from(70000)
+    const executorArgs = buildExecutorArgs(executorValue, relayer.address)
+    const feeArgs = buildFeeArgs()
+
+    const configuredRefund = `0x${"ab".repeat(32)}`
+    await expect(depositor.setDestinationRefundAddress(configuredRefund))
+      .to.emit(depositor, "DestinationRefundAddressUpdated")
+      .withArgs(ethers.constants.HashZero, configuredRefund)
+    expect(await depositor.destinationRefundAddress()).to.equal(
+      configuredRefund
+    )
+
+    await bridge.setNextDepositKey(fixture.expectedDepositKey)
+    await depositor
+      .connect(relayer)
+      .initializeDeposit(
+        fixture.fundingTx,
+        fixture.reveal,
+        destinationChainDepositOwner
+      )
+    await bridge.sweepDeposit(fixture.expectedDepositKey)
+
+    const tbtcAmount = await calculateTbtcAmount(
+      bridge,
+      fixture.expectedDepositKey
+    )
+    await tbtcToken.mint(depositor.address, tbtcAmount)
+    await depositor
+      .connect(relayer)
+      .setExecutorParameters(executorArgs, feeArgs)
+
+    const quote = await depositor.connect(relayer).quoteFinalizeDeposit()
+    await depositor
+      .connect(relayer)
+      .finalizeDeposit(fixture.expectedDepositKey, { value: quote })
+
+    expect(await nttManagerWithExecutor.lastRefundAddress()).to.equal(
+      configuredRefund
+    )
+  })
+
+  it("restricts setting the destination refund address to the owner", async () => {
+    const [, nonOwner] = await ethers.getSigners()
+    await expect(
+      depositor
+        .connect(nonOwner)
+        .setDestinationRefundAddress(`0x${"cd".repeat(32)}`)
+    ).to.be.revertedWith("Ownable: caller is not the owner")
+  })
 })
 
 function buildExecutorArgs(
