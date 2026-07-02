@@ -13,6 +13,7 @@ import type {
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
 const WORMHOLE_CHAIN_DESTINATION = 32
+const UPDATED_WORMHOLE_CHAIN_DESTINATION = 40
 const TBTC_SATOSHI_MULTIPLIER = BigNumber.from(10).pow(10)
 const destinationChainDepositOwner =
   "0xabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd"
@@ -136,6 +137,87 @@ describe("L1BTCDepositorNttWithExecutor fixed destination", () => {
       .add(executorArgs.value)
 
     expect(quote).to.equal(expectedQuote)
+  })
+
+  it("does not retarget an initialized fixed destination chain", async () => {
+    const [, nonOwner] = await ethers.getSigners()
+
+    await expect(
+      depositor
+        .connect(nonOwner)
+        .initializeV2DestinationChain(UPDATED_WORMHOLE_CHAIN_DESTINATION)
+    ).to.be.revertedWith("Ownable: caller is not the owner")
+
+    await expect(
+      depositor.initializeV2DestinationChain(UPDATED_WORMHOLE_CHAIN_DESTINATION)
+    ).to.be.revertedWith("Destination chain already configured")
+
+    expect(await depositor.destinationChainId()).to.equal(
+      WORMHOLE_CHAIN_DESTINATION
+    )
+  })
+
+  it("backfills an unset fixed destination chain once during upgrade", async () => {
+    const [, relayer] = await ethers.getSigners()
+    const executorArgs = buildExecutorArgs(
+      BigNumber.from(70000),
+      relayer.address
+    )
+    const feeArgs = buildFeeArgs()
+
+    await clearDestinationChainIdSlot(
+      depositor.address,
+      WORMHOLE_CHAIN_DESTINATION
+    )
+    expect(await depositor.destinationChainId()).to.equal(0)
+
+    await expect(depositor.initializeV2DestinationChain(0)).to.be.revertedWith(
+      "Chain ID cannot be zero"
+    )
+
+    await expect(
+      depositor.initializeV2DestinationChain(UPDATED_WORMHOLE_CHAIN_DESTINATION)
+    )
+      .to.emit(depositor, "DestinationChainUpdated")
+      .withArgs(0, UPDATED_WORMHOLE_CHAIN_DESTINATION)
+
+    expect(await depositor.destinationChainId()).to.equal(
+      UPDATED_WORMHOLE_CHAIN_DESTINATION
+    )
+
+    await depositor
+      .connect(relayer)
+      .setExecutorParameters(executorArgs, feeArgs)
+
+    const quote = await depositor.connect(relayer).quoteFinalizeDeposit()
+    const expectedQuote = (await nttManagerWithExecutor.MOCK_DELIVERY_PRICE())
+      .add(await nttManagerWithExecutor.MOCK_WRAPPER_SURCHARGE())
+      .add(BigNumber.from("2000000000000000"))
+      .add(executorArgs.value)
+    expect(quote).to.equal(expectedQuote)
+
+    await expect(
+      depositor.initializeV2DestinationChain(WORMHOLE_CHAIN_DESTINATION)
+    ).to.be.revertedWith("Initializable: contract is already initialized")
+  })
+
+  it("requires a destination chain before initializing deposits", async () => {
+    const [, relayer] = await ethers.getSigners()
+
+    await clearDestinationChainIdSlot(
+      depositor.address,
+      WORMHOLE_CHAIN_DESTINATION
+    )
+
+    await expect(
+      depositor
+        .connect(relayer)
+        .initializeDeposit(
+          fixture.fundingTx,
+          fixture.reveal,
+          destinationChainDepositOwner
+        )
+    ).to.be.revertedWith("Destination chain not configured")
   })
 
   it("uses the executor wrapper quote for the detailed total cost", async () => {
@@ -497,4 +579,44 @@ async function calculateTbtcAmount(
     .sub(deposit.treasuryFee)
     .sub(depositTxMaxFee)
     .mul(TBTC_SATOSHI_MULTIPLIER)
+}
+
+async function clearDestinationChainIdSlot(
+  contractAddress: string,
+  currentDestinationChainId: number
+) {
+  const destinationChainIdSlot = await findStorageSlot(
+    contractAddress,
+    ethers.utils.hexZeroPad(
+      BigNumber.from(currentDestinationChainId).toHexString(),
+      32
+    )
+  )
+
+  await ethers.provider.send("hardhat_setStorageAt", [
+    contractAddress,
+    destinationChainIdSlot,
+    ethers.constants.HashZero,
+  ])
+}
+
+async function findStorageSlot(contractAddress: string, expectedValue: string) {
+  const storageSlots = await Promise.all(
+    Array.from({ length: 300 }, async (_, slot) => {
+      const slotKey = ethers.utils.hexValue(slot)
+      const value = await ethers.provider.getStorageAt(contractAddress, slotKey)
+
+      return { slotKey, value }
+    })
+  )
+
+  const matchingSlot = storageSlots.find(
+    ({ value }) => value.toLowerCase() === expectedValue.toLowerCase()
+  )
+
+  if (matchingSlot) {
+    return matchingSlot.slotKey
+  }
+
+  throw new Error(`Storage slot not found for value ${expectedValue}`)
 }

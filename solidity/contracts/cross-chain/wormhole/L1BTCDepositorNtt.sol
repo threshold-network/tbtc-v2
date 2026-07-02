@@ -87,7 +87,13 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
     /// @dev Configured in "locking" mode for L1 Hub operation
     INttManager public nttManager;
 
+    /// @dev Retains the storage slot used by the previous `supportedChains`
+    ///      mapping for compatibility with ERC1967 proxy upgrades.
+    // slither-disable-next-line unused-state
+    mapping(uint16 => bool) private __deprecatedSupportedChains;
+
     /// @notice Wormhole chain ID of the configured destination chain.
+    /// @dev Stored in the slot previously used by `defaultSupportedChain`.
     uint16 public destinationChainId;
 
     /// @notice Emitted when tokens are transferred via NTT Hub-and-Spoke framework
@@ -100,6 +106,12 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
         uint16 destinationChain,
         bytes32 recipient,
         uint64 transferSequence
+    );
+
+    /// @notice Emitted when the fixed NTT destination chain is migrated.
+    event DestinationChainUpdated(
+        uint16 indexed oldDestinationChain,
+        uint16 indexed newDestinationChain
     );
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -130,6 +142,25 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
 
         nttManager = INttManager(_nttManager);
         destinationChainId = _destinationChainId;
+    }
+
+    /// @notice Migrates the fixed destination chain during a proxy upgrade.
+    /// @param _destinationChainId Wormhole chain ID of the destination chain
+    /// @dev Intended as a one-time backfill hook for proxies that were
+    ///      initialized before the fixed-destination slot existed and had no
+    ///      default destination set. Fresh deployments configure the
+    ///      destination during `initialize` and cannot use this hook to
+    ///      retarget in-flight deposits.
+    function initializeV2DestinationChain(uint16 _destinationChainId)
+        external
+        onlyOwner
+        reinitializer(2)
+    {
+        require(
+            destinationChainId == 0,
+            "Destination chain already configured"
+        );
+        _updateDestinationChain(_destinationChainId);
     }
 
     /// @notice Allows the owner to retrieve tokens from the contract and send to another wallet.
@@ -260,6 +291,26 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
             destinationChainDepositOwner,
             sequence
         );
+    }
+
+    /// @notice Updates the fixed destination chain.
+    function _updateDestinationChain(uint16 _destinationChainId) internal {
+        require(_destinationChainId != 0, "Chain ID cannot be zero");
+
+        uint16 oldDestinationChainId = destinationChainId;
+        destinationChainId = _destinationChainId;
+
+        emit DestinationChainUpdated(
+            oldDestinationChainId,
+            _destinationChainId
+        );
+    }
+
+    /// @notice Requires destination configuration before deposit initialization.
+    function _beforeDepositInitialized(
+        bytes32 // destinationChainDepositOwner
+    ) internal view override {
+        _destinationChain();
     }
 
     /// @notice Returns the configured destination chain and reverts if unset.

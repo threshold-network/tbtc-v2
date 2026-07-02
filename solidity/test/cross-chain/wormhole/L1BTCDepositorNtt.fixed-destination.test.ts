@@ -12,6 +12,7 @@ import type {
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
 const WORMHOLE_CHAIN_DESTINATION = 32
+const UPDATED_WORMHOLE_CHAIN_DESTINATION = 40
 const TBTC_SATOSHI_MULTIPLIER = BigNumber.from(10).pow(10)
 const destinationChainDepositOwner =
   "0xabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd"
@@ -110,6 +111,75 @@ describe("L1BTCDepositorNtt fixed destination", () => {
     )
 
     expect(quote).to.equal(expectedQuote)
+  })
+
+  it("does not retarget an initialized fixed destination chain", async () => {
+    const [, nonOwner] = await ethers.getSigners()
+
+    await expect(
+      l1BtcDepositorNtt
+        .connect(nonOwner)
+        .initializeV2DestinationChain(UPDATED_WORMHOLE_CHAIN_DESTINATION)
+    ).to.be.revertedWith("Ownable: caller is not the owner")
+
+    await expect(
+      l1BtcDepositorNtt.initializeV2DestinationChain(
+        UPDATED_WORMHOLE_CHAIN_DESTINATION
+      )
+    ).to.be.revertedWith("Destination chain already configured")
+
+    expect(await l1BtcDepositorNtt.destinationChainId()).to.equal(
+      WORMHOLE_CHAIN_DESTINATION
+    )
+  })
+
+  it("backfills an unset fixed destination chain once during upgrade", async () => {
+    await clearDestinationChainIdSlot(
+      l1BtcDepositorNtt.address,
+      WORMHOLE_CHAIN_DESTINATION
+    )
+    expect(await l1BtcDepositorNtt.destinationChainId()).to.equal(0)
+
+    await expect(
+      l1BtcDepositorNtt.initializeV2DestinationChain(0)
+    ).to.be.revertedWith("Chain ID cannot be zero")
+
+    await expect(
+      l1BtcDepositorNtt.initializeV2DestinationChain(
+        UPDATED_WORMHOLE_CHAIN_DESTINATION
+      )
+    )
+      .to.emit(l1BtcDepositorNtt, "DestinationChainUpdated")
+      .withArgs(0, UPDATED_WORMHOLE_CHAIN_DESTINATION)
+
+    expect(await l1BtcDepositorNtt.destinationChainId()).to.equal(
+      UPDATED_WORMHOLE_CHAIN_DESTINATION
+    )
+
+    const quote = await l1BtcDepositorNtt.quoteFinalizeDeposit()
+    const expectedQuote = (await nttManager.MOCK_DELIVERY_PRICE()).add(
+      await nttManager.chainSpecificPrices(UPDATED_WORMHOLE_CHAIN_DESTINATION)
+    )
+    expect(quote).to.equal(expectedQuote)
+
+    await expect(
+      l1BtcDepositorNtt.initializeV2DestinationChain(WORMHOLE_CHAIN_DESTINATION)
+    ).to.be.revertedWith("Initializable: contract is already initialized")
+  })
+
+  it("requires a destination chain before initializing deposits", async () => {
+    await clearDestinationChainIdSlot(
+      l1BtcDepositorNtt.address,
+      WORMHOLE_CHAIN_DESTINATION
+    )
+
+    await expect(
+      l1BtcDepositorNtt.initializeDeposit(
+        fixture.fundingTx,
+        fixture.reveal,
+        destinationChainDepositOwner
+      )
+    ).to.be.revertedWith("Destination chain not configured")
   })
 
   it("passes the full 32-byte deposit owner to NTT without masking", async () => {
@@ -230,4 +300,44 @@ async function calculateTbtcAmount(
     .sub(deposit.treasuryFee)
     .sub(depositTxMaxFee)
     .mul(TBTC_SATOSHI_MULTIPLIER)
+}
+
+async function clearDestinationChainIdSlot(
+  contractAddress: string,
+  currentDestinationChainId: number
+) {
+  const destinationChainIdSlot = await findStorageSlot(
+    contractAddress,
+    ethers.utils.hexZeroPad(
+      BigNumber.from(currentDestinationChainId).toHexString(),
+      32
+    )
+  )
+
+  await ethers.provider.send("hardhat_setStorageAt", [
+    contractAddress,
+    destinationChainIdSlot,
+    ethers.constants.HashZero,
+  ])
+}
+
+async function findStorageSlot(contractAddress: string, expectedValue: string) {
+  const storageSlots = await Promise.all(
+    Array.from({ length: 300 }, async (_, slot) => {
+      const slotKey = ethers.utils.hexValue(slot)
+      const value = await ethers.provider.getStorageAt(contractAddress, slotKey)
+
+      return { slotKey, value }
+    })
+  )
+
+  const matchingSlot = storageSlots.find(
+    ({ value }) => value.toLowerCase() === expectedValue.toLowerCase()
+  )
+
+  if (matchingSlot) {
+    return matchingSlot.slotKey
+  }
+
+  throw new Error(`Storage slot not found for value ${expectedValue}`)
 }

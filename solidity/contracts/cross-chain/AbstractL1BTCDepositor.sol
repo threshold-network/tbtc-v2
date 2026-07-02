@@ -292,6 +292,8 @@ abstract contract AbstractL1BTCDepositor is
             "L2 deposit owner must not be 0x0"
         );
 
+        _beforeDepositInitialized(destinationChainDepositOwner);
+
         // Input parameters do not have to be validated in any way.
         // The tBTC Bridge is responsible for validating whether the provided
         // Bitcoin funding transaction transfers funds to the P2(W)SH deposit
@@ -535,6 +537,9 @@ abstract contract AbstractL1BTCDepositor is
 
         return gasSpent - staticGas;
     }
+
+    /// @notice Hook called before a deposit is initialized.
+    function _beforeDepositInitialized(bytes32) internal view virtual {}
 
     /// @notice Generic function for bridging tBTC to the destination chain. Overridden by child contracts.
     /// @dev In child contracts, this can be LayerZero, Wormhole, or any bridging code.

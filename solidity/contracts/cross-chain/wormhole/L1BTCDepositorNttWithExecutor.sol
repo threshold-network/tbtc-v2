@@ -136,7 +136,13 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
     /// @dev This is passed to the NttManagerWithExecutor during transfers
     address public underlyingNttManager;
 
+    /// @dev Retains the storage slot used by the previous `supportedChains`
+    ///      mapping for compatibility with ERC1967 proxy upgrades.
+    // slither-disable-next-line unused-state
+    mapping(uint16 => bool) private __deprecatedSupportedChains;
+
     /// @notice Wormhole chain ID of the configured destination chain.
+    /// @dev Stored in the slot previously used by `defaultSupportedChain`.
     uint16 public destinationChainId;
 
     /// @notice Default gas limit for destination chain execution
@@ -157,6 +163,16 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
 
     /// @notice Default destination gas limit for execution (500k gas)
     uint256 private constant DEFAULT_DESTINATION_GAS_LIMIT = 500000;
+
+    /// @dev Deprecated storage slot previously used by `defaultExecutorFeeBps`.
+    ///      FeeArgs is now reserved for platform fees.
+    // slither-disable-next-line unused-state
+    uint16 private __deprecatedDefaultExecutorFeeBps;
+
+    /// @dev Deprecated storage slot previously used by `defaultExecutorFeeRecipient`.
+    ///      FeeArgs is now reserved for platform fees.
+    // slither-disable-next-line unused-state
+    address private __deprecatedDefaultExecutorFeeRecipient;
 
     /// @notice Mapping of nonce to executor parameter sets for parallel user support
     mapping(bytes32 => ExecutorParameterSet) private parametersByNonce;
@@ -253,6 +269,12 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         address indexed newManager
     );
 
+    /// @notice Emitted when the fixed NTT destination chain is migrated.
+    event DestinationChainUpdated(
+        uint16 indexed oldDestinationChain,
+        uint16 indexed newDestinationChain
+    );
+
     /// @notice Emitted when the destination refund address is updated
     event DestinationRefundAddressUpdated(
         bytes32 indexed oldRefundAddress,
@@ -299,6 +321,23 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
         // Set reasonable defaults
         defaultDestinationGasLimit = DEFAULT_DESTINATION_GAS_LIMIT;
         parameterExpirationTime = 3600; // 1 hour default expiration time
+    }
+
+    /// @notice Migrates the fixed destination chain during a proxy upgrade.
+    /// @param _destinationChainId Wormhole chain ID of the destination chain
+    /// @dev Intended as a one-time backfill hook for proxies that were
+    ///      initialized before the fixed-destination slot existed and had no
+    ///      default destination set. Fresh deployments configure the
+    ///      destination during `initialize` and cannot use this hook to
+    ///      retarget in-flight deposits.
+    function initializeV2DestinationChain(
+        uint16 _destinationChainId
+    ) external onlyOwner reinitializer(2) {
+        require(
+            destinationChainId == 0,
+            "Destination chain already configured"
+        );
+        _updateDestinationChain(_destinationChainId);
     }
 
     /// @notice Updates default parameters for executor transfers
@@ -930,6 +969,26 @@ contract L1BTCDepositorNttWithExecutor is AbstractL1BTCDepositor {
             msg.value
         );
 
+    }
+
+    /// @notice Updates the fixed destination chain.
+    function _updateDestinationChain(uint16 _destinationChainId) internal {
+        require(_destinationChainId != 0, "Chain ID cannot be zero");
+
+        uint16 oldDestinationChainId = destinationChainId;
+        destinationChainId = _destinationChainId;
+
+        emit DestinationChainUpdated(
+            oldDestinationChainId,
+            _destinationChainId
+        );
+    }
+
+    /// @notice Requires destination configuration before deposit initialization.
+    function _beforeDepositInitialized(
+        bytes32 // destinationChainDepositOwner
+    ) internal view override {
+        _destinationChain();
     }
 
     /// @notice Returns the configured destination chain and reverts if unset.
