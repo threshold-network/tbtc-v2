@@ -42,6 +42,7 @@ interface NetworkConfiguration {
 
 const ZERO_PEER_ADDRESS =
   "0x0000000000000000000000000000000000000000000000000000000000000000"
+const SPOKE_MIGRATION_BLOCKED_DESTINATIONS = new Set(["solana", "sui"])
 
 const WORMHOLE_CHAIN_IDS = {
   arbitrum: {
@@ -142,6 +143,13 @@ function selectDestination(
       `Set NTT_DESTINATION to one of: ${Object.keys(config.destinations).join(
         ", "
       )}`
+    )
+  }
+
+  if (SPOKE_MIGRATION_BLOCKED_DESTINATIONS.has(destinationKey.toLowerCase())) {
+    throw new Error(
+      `NTT destination "${destinationKey}" is blocked until spoke-side NTT ` +
+        "deployment plus token-authority and legacy lockbox migration are complete."
     )
   }
 

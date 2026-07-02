@@ -198,17 +198,12 @@ module l2_tbtc::gateway_tests {
         {
             let gateway_admin_cap = test_scenario::take_from_sender<Gateway::AdminCap>(&scenario);
             let mut gateway_state = test_scenario::take_shared<Gateway::GatewayState>(&scenario);
-            let treasury = test_scenario::take_shared<
-                Gateway::WrappedTokenTreasury<coin_wrapped_12::COIN_WRAPPED_12>
-            >(&scenario);
             let capabilities = test_scenario::take_shared<Gateway::GatewayCapabilities>(&scenario);
 
-            Gateway::retire_gateway_for_ntt<coin_wrapped_12::COIN_WRAPPED_12>(
+            Gateway::retire_gateway_for_ntt(
                 &gateway_admin_cap,
                 &mut gateway_state,
-                &treasury,
                 capabilities,
-                admin,
                 test_scenario::ctx(&mut scenario),
             );
 
@@ -218,7 +213,6 @@ module l2_tbtc::gateway_tests {
 
             test_scenario::return_to_sender(&scenario, gateway_admin_cap);
             test_scenario::return_shared(gateway_state);
-            test_scenario::return_shared(treasury);
         };
 
         // The recovered capabilities are now owned by the admin and can be passed
@@ -232,6 +226,118 @@ module l2_tbtc::gateway_tests {
             transfer::public_transfer(treasury_cap, admin);
             transfer::public_transfer(minter_cap, admin);
             transfer::public_transfer(emitter_cap, admin);
+        };
+
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = Gateway::E_NOT_PAUSED)]
+    fun test_retire_gateway_for_ntt_requires_pause() {
+        let (admin, coin_deployer) = two_people();
+        let mut scenario = test_scenario::begin(admin);
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            init_tbtc_for_test_scenario(&mut scenario, admin);
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            init_wormhole_for_test(&mut scenario, coin_deployer);
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            setup::init_test_only(test_scenario::ctx(&mut scenario));
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            Gateway::init_test(test_scenario::ctx(&mut scenario));
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            initialize_gateway_state(&mut scenario);
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            let gateway_admin_cap = test_scenario::take_from_sender<Gateway::AdminCap>(&scenario);
+            let mut gateway_state = test_scenario::take_shared<Gateway::GatewayState>(&scenario);
+            let capabilities = test_scenario::take_shared<Gateway::GatewayCapabilities>(&scenario);
+
+            Gateway::retire_gateway_for_ntt(
+                &gateway_admin_cap,
+                &mut gateway_state,
+                capabilities,
+                test_scenario::ctx(&mut scenario),
+            );
+        };
+
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = Gateway::E_OUTSTANDING_MINTED_AMOUNT)]
+    fun test_retire_gateway_for_ntt_requires_zero_minted_amount() {
+        let (admin, coin_deployer) = two_people();
+        let mut scenario = test_scenario::begin(admin);
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            init_tbtc_for_test_scenario(&mut scenario, admin);
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            init_wormhole_for_test(&mut scenario, coin_deployer);
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            setup::init_test_only(test_scenario::ctx(&mut scenario));
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            Gateway::init_test(test_scenario::ctx(&mut scenario));
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            initialize_gateway_state(&mut scenario);
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            let gateway_admin_cap = test_scenario::take_from_sender<Gateway::AdminCap>(&scenario);
+            let mut gateway_state = test_scenario::take_shared<Gateway::GatewayState>(&scenario);
+
+            Gateway::pause(
+                &gateway_admin_cap,
+                &mut gateway_state,
+                test_scenario::ctx(&mut scenario),
+            );
+            Gateway::set_minted_amount(&mut gateway_state, 1);
+
+            test_scenario::return_to_sender(&scenario, gateway_admin_cap);
+            test_scenario::return_shared(gateway_state);
+        };
+
+        test_scenario::next_tx(&mut scenario, admin);
+        {
+            let gateway_admin_cap = test_scenario::take_from_sender<Gateway::AdminCap>(&scenario);
+            let mut gateway_state = test_scenario::take_shared<Gateway::GatewayState>(&scenario);
+            let capabilities = test_scenario::take_shared<Gateway::GatewayCapabilities>(&scenario);
+
+            Gateway::retire_gateway_for_ntt(
+                &gateway_admin_cap,
+                &mut gateway_state,
+                capabilities,
+                test_scenario::ctx(&mut scenario),
+            );
         };
 
         test_scenario::end(scenario);

@@ -96,6 +96,14 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
     /// @dev Stored in the slot previously used by `defaultSupportedChain`.
     uint16 public destinationChainId;
 
+    /// @dev Marks deposits initialized after the fixed-destination upgrade.
+    ///      Unmarked initialized deposits are treated as legacy NTT deposits
+    ///      whose extra data used `[2-byte chain id][30-byte recipient]`.
+    mapping(uint256 => bool) public fixedDestinationDeposits;
+
+    uint256 private constant LEGACY_DESTINATION_RECEIVER_MASK =
+        type(uint240).max;
+
     /// @notice Emitted when tokens are transferred via NTT Hub-and-Spoke framework
     /// @param amount Amount of tBTC transferred and locked on L1
     /// @param destinationChain Wormhole chain ID of the destination
@@ -306,11 +314,43 @@ contract L1BTCDepositorNtt is AbstractL1BTCDepositor {
         );
     }
 
+    /// @notice Marks deposits initialized under the fixed-destination format.
+    function _afterDepositInitialized(
+        uint256 depositKey,
+        bytes32 // destinationChainDepositOwner
+    ) internal override {
+        fixedDestinationDeposits[depositKey] = true;
+    }
+
     /// @notice Requires destination configuration before deposit initialization.
     function _beforeDepositInitialized(
         bytes32 // destinationChainDepositOwner
     ) internal view override {
         _destinationChain();
+    }
+
+    /// @notice Decodes legacy packed recipients for in-flight upgraded deposits.
+    function _destinationChainDepositOwnerForTransfer(
+        uint256 depositKey,
+        bytes32 destinationChainDepositOwner
+    ) internal view override returns (bytes32) {
+        if (fixedDestinationDeposits[depositKey]) {
+            return destinationChainDepositOwner;
+        }
+
+        uint16 legacyDestinationChain = uint16(
+            uint256(destinationChainDepositOwner) >> 240
+        );
+        require(
+            legacyDestinationChain == _destinationChain(),
+            "Legacy destination chain mismatch"
+        );
+
+        return
+            bytes32(
+                uint256(destinationChainDepositOwner) &
+                    LEGACY_DESTINATION_RECEIVER_MASK
+            );
     }
 
     /// @notice Returns the configured destination chain and reverts if unset.

@@ -479,6 +479,8 @@ type TransferMintAuthorityContext = {
   config?: PublicKey;
   authority: PublicKey;
   mint?: PublicKey;
+  guardianInfo?: PublicKey;
+  guardian: PublicKey;
   newAuthority: PublicKey;
 };
 
@@ -487,7 +489,8 @@ export async function transferMintAuthorityIx(
 ): Promise<TransactionInstruction> {
   const program = workspace.Tbtc as Program<Tbtc>;
 
-  let { config, authority, mint, newAuthority } = accounts;
+  let { config, authority, mint, guardianInfo, guardian, newAuthority } =
+    accounts;
   if (config === undefined) {
     config = getConfigPDA();
   }
@@ -496,12 +499,18 @@ export async function transferMintAuthorityIx(
     mint = getMintPDA();
   }
 
+  if (guardianInfo === undefined) {
+    guardianInfo = getGuardianInfoPDA(guardian);
+  }
+
   return program.methods
     .transferMintAuthority()
     .accounts({
       config,
       authority,
       mint,
+      guardianInfo,
+      guardian,
       newAuthority,
     })
     .instruction();

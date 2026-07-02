@@ -315,6 +315,8 @@ abstract contract AbstractL1BTCDepositor is
         // slither-disable-next-line reentrancy-benign
         deposits[depositKey] = DepositState.Initialized;
 
+        _afterDepositInitialized(depositKey, destinationChainDepositOwner);
+
         // slither-disable-next-line reentrancy-events
         emit DepositInitialized(
             depositKey,
@@ -398,6 +400,11 @@ abstract contract AbstractL1BTCDepositor is
             bytes32 destinationChainDepositOwner
         ) = _finalizeDeposit(depositKey);
 
+        bytes32 destinationChainDepositOwnerForTransfer = _destinationChainDepositOwnerForTransfer(
+                depositKey,
+                destinationChainDepositOwner
+            );
+
         // ----------------------------
         // Reimburse or Deduct Max Fee
         // ----------------------------
@@ -449,7 +456,7 @@ abstract contract AbstractL1BTCDepositor is
             }
         }
 
-        _transferTbtc(tbtcAmount, destinationChainDepositOwner);
+        _transferTbtc(tbtcAmount, destinationChainDepositOwnerForTransfer);
 
         // `ReimbursementPool` calls the untrusted receiver address using a
         // low-level call. Reentrancy risk is mitigated by making sure that
@@ -540,6 +547,17 @@ abstract contract AbstractL1BTCDepositor is
 
     /// @notice Hook called before a deposit is initialized.
     function _beforeDepositInitialized(bytes32) internal view virtual {}
+
+    /// @notice Hook called after a deposit is initialized.
+    function _afterDepositInitialized(uint256, bytes32) internal virtual {}
+
+    /// @notice Hook transforming the stored deposit owner into the bridge transfer recipient.
+    function _destinationChainDepositOwnerForTransfer(
+        uint256,
+        bytes32 destinationChainDepositOwner
+    ) internal view virtual returns (bytes32) {
+        return destinationChainDepositOwner;
+    }
 
     /// @notice Generic function for bridging tBTC to the destination chain. Overridden by child contracts.
     /// @dev In child contracts, this can be LayerZero, Wormhole, or any bridging code.

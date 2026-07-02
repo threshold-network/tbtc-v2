@@ -319,6 +319,16 @@
           "isSigner": false
         },
         {
+          "name": "guardianInfo",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "guardian",
+          "isMut": false,
+          "isSigner": true
+        },
+        {
           "name": "newAuthority",
           "isMut": false,
           "isSigner": false,
@@ -587,6 +597,21 @@
       "code": 6082,
       "name": "IsNotPaused",
       "msg": "Program is not paused"
+    },
+    {
+      "code": 6084,
+      "name": "MintSupplyNotZero",
+      "msg": "Mint supply must be zero"
+    },
+    {
+      "code": 6086,
+      "name": "MintersStillConfigured",
+      "msg": "All minters must be removed"
+    },
+    {
+      "code": 6088,
+      "name": "NewMintAuthorityCannotBeDefault",
+      "msg": "New mint authority cannot be the default pubkey"
     }
   ],
   "metadata": {

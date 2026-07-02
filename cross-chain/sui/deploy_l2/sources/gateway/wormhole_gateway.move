@@ -32,7 +32,6 @@ module l2_tbtc::Gateway {
     const E_NOT_PAUSED: u64 = 9;
     const E_WRONG_NONCE: u64 = 10;
     const E_OUTSTANDING_MINTED_AMOUNT: u64 = 11;
-    const E_NON_EMPTY_WRAPPED_TREASURY: u64 = 12;
 
     // === Events ===
 
@@ -359,18 +358,16 @@ module l2_tbtc::Gateway {
     /// Retire the legacy Wormhole gateway and return token capabilities for NTT setup.
     /// Requires the gateway to be paused and drained so no lockbox-backed tBTC supply
     /// or wrapped-token custody is migrated implicitly.
-    public entry fun retire_gateway_for_ntt<CoinType>(
+    public entry fun retire_gateway_for_ntt(
         _: &AdminCap,
         state: &mut GatewayState,
-        treasury: &WrappedTokenTreasury<CoinType>,
         capabilities: GatewayCapabilities,
-        recipient: address,
         ctx: &mut TxContext,
     ) {
         assert!(state.is_initialized, E_NOT_INITIALIZED);
         assert!(state.paused, E_NOT_PAUSED);
         assert!(state.minted_amount == 0, E_OUTSTANDING_MINTED_AMOUNT);
-        assert!(coin::value(&treasury.tokens) == 0, E_NON_EMPTY_WRAPPED_TREASURY);
+        let recipient = tx_context::sender(ctx);
 
         let GatewayCapabilities {
             id,
@@ -969,5 +966,10 @@ module l2_tbtc::Gateway {
     #[test_only]
     public fun get_total_supply(capabilities: &mut GatewayCapabilities): u64 {
         capabilities.treasury_cap.total_supply()
+    }
+
+    #[test_only]
+    public fun set_minted_amount(state: &mut GatewayState, amount: u64) {
+        state.minted_amount = amount;
     }
 }

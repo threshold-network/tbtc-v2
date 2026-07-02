@@ -17,6 +17,8 @@ const TBTC_SATOSHI_MULTIPLIER = BigNumber.from(10).pow(10)
 const destinationChainDepositOwner =
   "0xabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd"
 const chainLikePrefixedDestinationChainDepositOwner = `0x0020${"11".repeat(30)}`
+const legacyDecodedDestinationChainDepositOwner = `0x0000${"11".repeat(30)}`
+const wrongChainLegacyDestinationChainDepositOwner = `0x0021${"22".repeat(30)}`
 
 const loadFixture = (vault: string) => ({
   fundingTx: {
@@ -190,6 +192,11 @@ describe("L1BTCDepositorNtt fixed destination", () => {
       fixture.reveal,
       destinationChainDepositOwner
     )
+    expect(
+      await l1BtcDepositorNtt.fixedDestinationDeposits(
+        fixture.expectedDepositKey
+      )
+    ).to.equal(true)
     await bridge.sweepDeposit(fixture.expectedDepositKey)
 
     const deposit = await bridge.deposits(fixture.expectedDepositKey)
@@ -233,6 +240,11 @@ describe("L1BTCDepositorNtt fixed destination", () => {
       fixture.reveal,
       chainLikePrefixedDestinationChainDepositOwner
     )
+    expect(
+      await l1BtcDepositorNtt.fixedDestinationDeposits(
+        fixture.expectedDepositKey
+      )
+    ).to.equal(true)
     await bridge.sweepDeposit(fixture.expectedDepositKey)
 
     const tbtcAmount = await calculateTbtcAmount(
@@ -259,6 +271,74 @@ describe("L1BTCDepositorNtt fixed destination", () => {
     expect(await nttManager.lastRecipient()).to.equal(
       chainLikePrefixedDestinationChainDepositOwner
     )
+  })
+
+  it("decodes unmarked legacy packed recipients during upgrade finalization", async () => {
+    await bridge.setNextDepositKey(fixture.expectedDepositKey)
+
+    await l1BtcDepositorNtt.initializeDeposit(
+      fixture.fundingTx,
+      fixture.reveal,
+      chainLikePrefixedDestinationChainDepositOwner
+    )
+    await clearFixedDestinationDepositMarker(
+      l1BtcDepositorNtt,
+      fixture.expectedDepositKey
+    )
+    await bridge.sweepDeposit(fixture.expectedDepositKey)
+
+    const tbtcAmount = await calculateTbtcAmount(
+      bridge,
+      fixture.expectedDepositKey
+    )
+    await tbtcToken.mint(l1BtcDepositorNtt.address, tbtcAmount)
+
+    const quote = await l1BtcDepositorNtt.quoteFinalizeDeposit()
+    await expect(
+      l1BtcDepositorNtt.finalizeDeposit(fixture.expectedDepositKey, {
+        value: quote,
+      })
+    )
+      .to.emit(nttManager, "MockTransferExecuted")
+      .withArgs(
+        1,
+        WORMHOLE_CHAIN_DESTINATION,
+        legacyDecodedDestinationChainDepositOwner,
+        tbtcAmount,
+        quote
+      )
+
+    expect(await nttManager.lastRecipient()).to.equal(
+      legacyDecodedDestinationChainDepositOwner
+    )
+  })
+
+  it("rejects unmarked legacy packed recipients for a different chain", async () => {
+    await bridge.setNextDepositKey(fixture.expectedDepositKey)
+
+    await l1BtcDepositorNtt.initializeDeposit(
+      fixture.fundingTx,
+      fixture.reveal,
+      wrongChainLegacyDestinationChainDepositOwner
+    )
+    await clearFixedDestinationDepositMarker(
+      l1BtcDepositorNtt,
+      fixture.expectedDepositKey
+    )
+    await bridge.sweepDeposit(fixture.expectedDepositKey)
+
+    const tbtcAmount = await calculateTbtcAmount(
+      bridge,
+      fixture.expectedDepositKey
+    )
+    await tbtcToken.mint(l1BtcDepositorNtt.address, tbtcAmount)
+
+    const quote = await l1BtcDepositorNtt.quoteFinalizeDeposit()
+    await expect(
+      l1BtcDepositorNtt.finalizeDeposit(fixture.expectedDepositKey, {
+        value: quote,
+      })
+    ).to.be.revertedWith("Legacy destination chain mismatch")
   })
 
   it("reverts when payment exceeds the quoted NTT cost", async () => {
@@ -340,4 +420,60 @@ async function findStorageSlot(contractAddress: string, expectedValue: string) {
   }
 
   throw new Error(`Storage slot not found for value ${expectedValue}`)
+}
+
+async function clearFixedDestinationDepositMarker(
+  contract: L1BTCDepositorNtt,
+  depositKey: string
+) {
+  expect(await contract.fixedDestinationDeposits(depositKey)).to.equal(true)
+
+  const encodedTrue = ethers.utils.hexZeroPad("0x01", 32)
+  const candidateSlots = await Promise.all(
+    Array.from({ length: 400 }, async (_, slot) => {
+      const slotKey = ethers.utils.keccak256(
+        ethers.utils.defaultAbiCoder.encode(
+          ["uint256", "uint256"],
+          [depositKey, slot]
+        )
+      )
+      const storageSlotKey = ethers.utils.hexStripZeros(slotKey)
+      const value = await ethers.provider.getStorageAt(
+        contract.address,
+        storageSlotKey
+      )
+
+      return { storageSlotKey, value }
+    })
+  )
+  const matchingSlots = candidateSlots.filter(
+    ({ value }) => value.toLowerCase() === encodedTrue.toLowerCase()
+  )
+
+  async function clearMatchingSlot(index: number): Promise<void> {
+    const matchingSlot = matchingSlots[index]
+    if (!matchingSlot) {
+      throw new Error("Fixed destination marker storage slot not found")
+    }
+
+    await ethers.provider.send("hardhat_setStorageAt", [
+      contract.address,
+      matchingSlot.storageSlotKey,
+      ethers.constants.HashZero,
+    ])
+
+    if (!(await contract.fixedDestinationDeposits(depositKey))) {
+      return
+    }
+
+    await ethers.provider.send("hardhat_setStorageAt", [
+      contract.address,
+      matchingSlot.storageSlotKey,
+      matchingSlot.value,
+    ])
+
+    await clearMatchingSlot(index + 1)
+  }
+
+  await clearMatchingSlot(0)
 }

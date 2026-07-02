@@ -1,4 +1,8 @@
-use crate::{constants::SEED_PREFIX_TBTC_MINT, error::TbtcError, state::Config};
+use crate::{
+    constants::SEED_PREFIX_TBTC_MINT,
+    error::TbtcError,
+    state::{Config, GuardianInfo},
+};
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, spl_token::instruction::AuthorityType};
 
@@ -10,6 +14,7 @@ pub struct TransferMintAuthority<'info> {
         has_one = authority @ TbtcError::IsNotAuthority,
         has_one = mint,
         constraint = config.paused @ TbtcError::IsNotPaused,
+        constraint = config.num_minters == 0 @ TbtcError::MintersStillConfigured,
     )]
     config: Account<'info, Config>,
 
@@ -20,11 +25,25 @@ pub struct TransferMintAuthority<'info> {
         seeds = [SEED_PREFIX_TBTC_MINT],
         bump = config.mint_bump,
         mint::authority = config,
+        constraint = mint.supply == 0 @ TbtcError::MintSupplyNotZero,
     )]
     mint: Account<'info, token::Mint>,
 
+    #[account(
+        has_one = guardian,
+        seeds = [GuardianInfo::SEED_PREFIX, guardian.key().as_ref()],
+        bump = guardian_info.bump,
+    )]
+    guardian_info: Account<'info, GuardianInfo>,
+
+    guardian: Signer<'info>,
+
     /// CHECK: Target SPL mint authority, typically the Wormhole NTT token authority PDA
     /// or a Token Program multisig that includes that PDA.
+    #[account(
+        constraint = new_authority.key() != Pubkey::default()
+            @ TbtcError::NewMintAuthorityCannotBeDefault
+    )]
     new_authority: UncheckedAccount<'info>,
 
     token_program: Program<'info, token::Token>,

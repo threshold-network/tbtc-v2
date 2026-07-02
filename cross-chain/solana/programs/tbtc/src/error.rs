@@ -34,4 +34,13 @@ pub enum TbtcError {
 
     #[msg("Program is not paused")]
     IsNotPaused = 0x52,
+
+    #[msg("Mint supply must be zero")]
+    MintSupplyNotZero = 0x54,
+
+    #[msg("All minters must be removed")]
+    MintersStillConfigured = 0x56,
+
+    #[msg("New mint authority cannot be the default pubkey")]
+    NewMintAuthorityCannotBeDefault = 0x58,
 }
