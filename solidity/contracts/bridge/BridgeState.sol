@@ -427,25 +427,28 @@ library BridgeState {
         // 1, right after the 1-byte enum. Total slot 37 usage:
         // 17 bytes of 32. No __gap change from C-2.
         uint128 ecdsaWalletCount;
-        // D-1 soft-retirement flag. Set by the one-time
-        // governance setter `Bridge.retireEcdsa()` (the setter
-        // itself is deferred to D-2 — see Bridge.sol). When
-        // true, `Wallets.requestNewWallet` rejects new requests
-        // routed to the ECDSA registry. Late callbacks from an
-        // in-flight DKG that started BEFORE retirement are NOT
-        // blocked: reverting `Wallets.registerNewWallet` would
-        // strand the ECDSA registry in a non-IDLE state and
-        // freeze every subsequent FROST wallet creation via
-        // the unconditional IDLE precheck in `requestNewWallet`
-        // (per PR #443 review). Governance therefore
-        // enforces the "no late ECDSA wallets" invariant
-        // operationally: pause Bridge, wait for in-flight DKGs
-        // to settle (registry returns to IDLE), set the flag,
-        // unpause. Existing ECDSA wallets' lifecycle paths
-        // (sweeps, redemptions, fraud, moving funds, closing,
-        // termination) remain fully functional — D-1 only
-        // closes the *new wallet creation* boundary; D-2
-        // performs the final structural removal.
+        // ECDSA-retirement audit-trail flag. Set by the one-time
+        // governance setter `Bridge.retireEcdsa()`. It is purely
+        // an on-chain marker that governance has formally retired
+        // ECDSA wallet creation and is NOT load-bearing: no code
+        // path reads it (only the public `ecdsaRetired()` getter
+        // returns it, for off-chain observation).
+        // `Wallets.requestNewWallet` does NOT inspect this flag —
+        // ECDSA wallet creation is already blocked structurally,
+        // because that function dispatches only to the FROST
+        // registry (the scheme-dispatch branch was removed in
+        // D-2.2 slice 3) and `__ecdsaWalletCreatedCallback` was
+        // removed in D-2.1. The originally planned D-1 read-side
+        // guard (rejecting ECDSA-routed requests) and the
+        // pre-existing IDLE precheck it depended on were both
+        // dropped when the scheme dispatch was removed, so no such
+        // guard exists today. Governance still sequences
+        // retirement operationally on existing deployments: pause
+        // Bridge, wait for in-flight DKGs to settle (registry
+        // returns to IDLE), then flip the flag. Existing ECDSA
+        // wallets' lifecycle paths (sweeps, redemptions, fraud,
+        // moving funds, closing, termination) remain fully
+        // functional.
         //
         // Packs at slot 37 offset 17 (just after
         // `ecdsaWalletCount`, which occupies bytes 1-16). Total

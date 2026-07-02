@@ -1854,6 +1854,14 @@ contract BridgeGovernance is Ownable {
     ///        classification is required since the legacy Bridge
     ///        mapping was shared between the two lifecycles.
     /// @param challengeKeys Legacy challenge keys to migrate.
+    /// @dev The target `Bridge.migrateLegacyFraudChallenges` helper is
+    ///      intentionally non-operational in the current Bridge
+    ///      implementation: its body is stubbed out and it always
+    ///      reverts with `MigrateLegacyFraudChallengesNotImplemented`.
+    ///      Calls through this forwarder therefore revert until a
+    ///      future Bridge upgrade swaps in the migration body. The
+    ///      forwarder is kept in place so the governance ABI stays
+    ///      stable across that upgrade (a body swap, not an ABI change).
     function migrateLegacyFraudChallenges(
         uint8 routerKind,
         uint256[] calldata challengeKeys
