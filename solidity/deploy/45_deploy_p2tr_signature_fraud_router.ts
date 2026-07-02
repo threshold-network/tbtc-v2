@@ -79,7 +79,31 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   // configuration -- including a multisig owner that is not a configured
   // signer, where the wiring is emitted as calldata (not sent) and the
   // AlreadySet revert path is never reached.
-  const currentP2TRFraudRouter = await bridgeContract.p2trFraudRouter()
+  //
+  // When preparing the atomic upgrade of an EXISTING Bridge, the proxy is
+  // still on the pre-upgrade implementation, which has no `p2trFraudRouter()`
+  // selector until the governance proposal executes -- so this read reverts
+  // with a CALL_EXCEPTION (the eth_call returns no data to decode). A plain
+  // getter cannot revert for any other reason, so tolerate ONLY that case:
+  // treat the router as unwired and fall through to emit the setter calldata
+  // the operator needs for the upgrade/wiring proposal, rather than aborting
+  // before that branch is reached. Any other error (e.g. an RPC failure)
+  // rethrows so it is not silently swallowed (cf. the blanket-catch regression
+  // fixed in 48_deploy_frost_wallet_registry).
+  let currentP2TRFraudRouter: string
+  try {
+    currentP2TRFraudRouter = await bridgeContract.p2trFraudRouter()
+  } catch (err) {
+    if ((err as { code?: string }).code !== "CALL_EXCEPTION") {
+      throw err
+    }
+    console.log(
+      "Bridge.p2trFraudRouter() reverted (no such selector on the current " +
+        "Bridge implementation -- pre-upgrade proxy); treating the router as " +
+        "unwired and emitting wiring for the upgrade proposal"
+    )
+    currentP2TRFraudRouter = ethers.constants.AddressZero
+  }
 
   if (
     currentP2TRFraudRouter.toLowerCase() ===
