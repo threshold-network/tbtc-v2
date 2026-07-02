@@ -78,6 +78,38 @@ describe("Redemptions", () => {
           amount: amount.div(1e10),
         })
       })
+
+      it("should accept a P2TR (tb1p) redeemer address and submit the correct P2TR output script", async () => {
+        // BIP-350 Taproot test vector. The witness program is the x-only
+        // coordinate of the secp256k1 generator point, so the expected P2TR
+        // output script is 0x5120<32-byte x-only key>. This matches the
+        // on-chain BitcoinTx.extractStandardOutputScriptPayload P2TR branch.
+        const testnetP2TRAddress =
+          "tb1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vq47zagq"
+        const expectedP2TRScript = Hex.from(
+          "0x512079be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+        )
+
+        const {
+          redemptionsService: p2trRedemptionsService,
+          tbtcContracts: p2trTbtcContracts,
+        } = prepareRedemptionsService(mainUtxo)
+
+        await p2trRedemptionsService.requestRedemption(
+          testnetP2TRAddress,
+          amount
+        )
+
+        const tokenLog = p2trTbtcContracts.tbtcToken.requestRedemptionLog
+
+        expect(tokenLog.length).to.equal(1)
+        expect(tokenLog[0].walletPublicKey).to.deep.equal(walletPublicKey)
+        expect(tokenLog[0].mainUtxo).to.deep.equal(mainUtxo)
+        expect(tokenLog[0].amount).to.deep.equal(amount.div(1e10))
+        expect(tokenLog[0].redeemerOutputScript.toPrefixedString()).to.equal(
+          expectedP2TRScript.toPrefixedString()
+        )
+      })
     })
 
     describe("requestRedemptionWithProxy", () => {
@@ -124,6 +156,69 @@ describe("Redemptions", () => {
 
         expect(proxyLog.length).to.equal(1)
         expect(proxyLog[0]).to.deep.equal(expectedRedemptionData)
+      })
+    })
+
+    describe("getRedeemerOutputScript", () => {
+      // Exposes the protected getRedeemerOutputScript for direct assertions.
+      class TestRedeemerScriptService extends RedemptionsService {
+        public async getRedeemerOutputScript(
+          bitcoinRedeemerAddress: string
+        ): Promise<Hex> {
+          return super.getRedeemerOutputScript(bitcoinRedeemerAddress)
+        }
+      }
+
+      // BIP-350 Taproot test vector. The witness program is the x-only
+      // coordinate of the secp256k1 generator point, so the expected P2TR
+      // output script is 0x5120<32-byte x-only key>. Once length-prefixed on
+      // chain (0x22 0x51 0x20 <32-byte key>) this is exactly what the Bridge's
+      // BitcoinTx.extractStandardOutputScriptPayload P2TR branch accepts.
+      const expectedP2TRScript = Hex.from(
+        "0x512079be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+      )
+      const mainnetP2TRAddress =
+        "bc1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqzk5jj0"
+      const testnetP2TRAddress =
+        "tb1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vq47zagq"
+
+      let tbtcContracts: MockTBTCContracts
+      let bitcoinClient: MockBitcoinClient
+      let redemptionsService: TestRedeemerScriptService
+
+      beforeEach(() => {
+        tbtcContracts = new MockTBTCContracts()
+        bitcoinClient = new MockBitcoinClient()
+        redemptionsService = new TestRedeemerScriptService(
+          tbtcContracts,
+          bitcoinClient,
+          // Mock cross-chain contracts resolver.
+          (_: L2Chain) => undefined
+        )
+      })
+
+      it("should produce the correct P2TR script for a mainnet bc1p address", async () => {
+        bitcoinClient.network = BitcoinNetwork.Mainnet
+
+        const script = await redemptionsService.getRedeemerOutputScript(
+          mainnetP2TRAddress
+        )
+
+        expect(script.toPrefixedString()).to.equal(
+          expectedP2TRScript.toPrefixedString()
+        )
+      })
+
+      it("should produce the correct P2TR script for a testnet tb1p address", async () => {
+        bitcoinClient.network = BitcoinNetwork.Testnet
+
+        const script = await redemptionsService.getRedeemerOutputScript(
+          testnetP2TRAddress
+        )
+
+        expect(script.toPrefixedString()).to.equal(
+          expectedP2TRScript.toPrefixedString()
+        )
       })
     })
 
