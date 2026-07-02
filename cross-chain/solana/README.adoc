@@ -23,4 +23,6 @@ removed, a non-default new authority, and signatures from both the tBTC authorit
 and an active guardian. The guardian must be a separate key from the authority
 and should be held by an independent operator before the cutover; the program
 enforces key separation, but operational independence is a governance
-requirement.
+requirement. Because guardian registration is authority-controlled, the guardian
+co-signature should be treated as true two-party control only when the guardian
+was pre-established under independent custody.
