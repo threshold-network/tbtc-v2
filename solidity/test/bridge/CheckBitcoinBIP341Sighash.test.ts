@@ -303,14 +303,18 @@ describe("CheckBitcoinBIP341Sighash", () => {
   it("fails closed for every unsupported BIP341 sighash type byte", async () => {
     const vector = vectorCorpus.cases[0]
 
+    // SIGHASH_NONE (0x02), SIGHASH_SINGLE (0x03) and the ANYONECANPAY variants
+    // (0x81/0x82/0x83) are now reconstructed and are covered by the vector
+    // corpus above. Only genuinely invalid sighash bytes remain unsupported:
+    // the bare ANYONECANPAY bit (0x80, i.e. ANYONECANPAY|DEFAULT, which is not a
+    // real Bitcoin sighash type) and any byte that sets bits outside the 0x83
+    // mask.
     const unsupportedSighashTypes = [
-      0x02, // SIGHASH_NONE
-      0x03, // SIGHASH_SINGLE
-      0x80, // bare ANYONECANPAY bit
-      0x81, // SIGHASH_ALL | ANYONECANPAY
-      0x82, // SIGHASH_NONE | ANYONECANPAY
-      0x83, // SIGHASH_SINGLE | ANYONECANPAY
+      0x80, // bare ANYONECANPAY bit (ANYONECANPAY | DEFAULT is not valid)
       0x04,
+      0x40,
+      0x7f,
+      0xc1,
       0xff,
     ]
 
