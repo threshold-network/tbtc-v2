@@ -155,24 +155,31 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   // that branch is reached. Any other error (e.g. an RPC failure) rethrows so
   // it is not silently swallowed (the same non-blanket-catch discipline this
   // file's setter path already follows).
-  const currentFrostWalletRegistry = await (async (): Promise<string> => {
-    try {
-      const [registry] = await bridgeContract.frostLifecycleContext(
-        ethers.constants.AddressZero
-      )
-      return registry
-    } catch (err) {
-      if ((err as { code?: string }).code !== "CALL_EXCEPTION") {
-        throw err
+  const { registry: currentFrostWalletRegistry, bridgeExposesGetter } =
+    await (async (): Promise<{
+      registry: string
+      bridgeExposesGetter: boolean
+    }> => {
+      try {
+        const [registry] = await bridgeContract.frostLifecycleContext(
+          ethers.constants.AddressZero
+        )
+        return { registry, bridgeExposesGetter: true }
+      } catch (err) {
+        if ((err as { code?: string }).code !== "CALL_EXCEPTION") {
+          throw err
+        }
+        console.log(
+          "Bridge.frostLifecycleContext() reverted (no such selector on the " +
+            "current Bridge implementation -- pre-upgrade proxy); treating the " +
+            "registry as unwired and emitting wiring for the upgrade proposal"
+        )
+        return {
+          registry: ethers.constants.AddressZero,
+          bridgeExposesGetter: false,
+        }
       }
-      console.log(
-        "Bridge.frostLifecycleContext() reverted (no such selector on the " +
-          "current Bridge implementation -- pre-upgrade proxy); treating the " +
-          "registry as unwired and emitting wiring for the upgrade proposal"
-      )
-      return ethers.constants.AddressZero
-    }
-  })()
+    })()
 
   if (
     currentFrostWalletRegistry.toLowerCase() ===
@@ -200,24 +207,35 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     const registrySetterCaller = governanceIsDeployer
       ? deployer
       : await bridgeGovernance.owner()
-    const registrySetterSigner = await getConfiguredSigner(
-      hre,
-      registrySetterCaller
-    )
+    // A pre-upgrade Bridge has no `setFrostWalletRegistry` selector yet, so the
+    // transaction cannot be sent regardless of who is a configured signer.
+    // Force the calldata-emission path in that case (leave the signer
+    // unresolved) rather than attempting -- and reverting -- the send.
+    const registrySetterSigner = bridgeExposesGetter
+      ? await getConfiguredSigner(hre, registrySetterCaller)
+      : undefined
 
     if (!registrySetterSigner) {
       const calldata = registrySetterContract.interface.encodeFunctionData(
         "setFrostWalletRegistry",
         [frostWalletRegistry.address]
       )
+      const reason = !bridgeExposesGetter
+        ? `the Bridge at ${bridgeContract.address} does not yet expose ` +
+          "setFrostWalletRegistry (pre-upgrade implementation); wire it as " +
+          "part of the upgrade proposal"
+        : `${registrySetterCaller} is not a configured signer for network ${hre.network.name}`
       const message =
-        `FrostWalletRegistry wiring must be executed by ${registrySetterCaller}, ` +
-        `which is not a configured signer for network ${hre.network.name}. ` +
+        `FrostWalletRegistry wiring must be executed by governance -- ${reason}. ` +
         "Submit this call from governance:\n" +
         `  target: ${registrySetterContract.address}\n` +
         `  data:   ${calldata}`
 
-      if (hre.network.name === "mainnet") {
+      // A pre-upgrade Bridge genuinely cannot be wired now on ANY network, so
+      // emit the calldata and continue. Otherwise keep the existing guard:
+      // skip on mainnet (a non-signer governance owner is expected there) and
+      // error elsewhere so an unexpected non-signer is surfaced.
+      if (!bridgeExposesGetter || hre.network.name === "mainnet") {
         console.log(`${message}\nskipping for manual governance execution`)
       } else {
         throw new Error(message)
