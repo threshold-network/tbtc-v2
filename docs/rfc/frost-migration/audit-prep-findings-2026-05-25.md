@@ -1,9 +1,9 @@
 # FROST migration audit-prep findings (2026-05-25)
 
 Sweep of the merged FROST migration surface
-(`contracts/frost-registry/`, `contracts/bridge/`,
-`test/frost-registry/`, `test/integration/utils/`,
-`docs/frost-migration/`) for residual hygiene issues prior to
+(`solidity/contracts/frost-registry/`, `solidity/contracts/bridge/`,
+`solidity/test/frost-registry/`, `solidity/test/integration/utils/`,
+`docs/rfc/frost-migration/`) for residual hygiene issues prior to
 external audit. Categorized by load-bearingness.
 
 ## Methodology
@@ -29,7 +29,7 @@ external audit. Categorized by load-bearingness.
 
 ### MUST-FIX — stale plan-doc claims that mislead readers
 
-All four are in `docs/frost-migration/d2-ecdsa-hard-retirement-plan.md`
+All four are in `docs/rfc/frost-migration/d2-ecdsa-hard-retirement-plan.md`
 (the D-2.1 plan doc). After D-2.2 slice 1 (PR #447), several
 claims in this doc are factually wrong about runtime behavior:
 
