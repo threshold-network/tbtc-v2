@@ -68,7 +68,9 @@ const hex = (value: string): string =>
   value.startsWith("0x") ? value : `0x${value}`
 
 const loadVectorCorpus = (): FullSighashVectorCorpus =>
-  JSON.parse(fs.readFileSync(vectorCorpusPath, "utf8")) as FullSighashVectorCorpus
+  JSON.parse(
+    fs.readFileSync(vectorCorpusPath, "utf8")
+  ) as FullSighashVectorCorpus
 
 const annexArg = (vector: FullSighashVector): string =>
   vector.annexHex && vector.annexHex.length > 0 ? hex(vector.annexHex) : "0x"
@@ -185,9 +187,10 @@ describe("CheckBitcoinBIP341Sighash (full multi-mode coverage)", () => {
 
     const covered = new Set(vectorCorpus.cases.map((v) => v.sighashType))
     // DEFAULT, ALL, NONE, SINGLE and the three ANYONECANPAY variants.
-    ;[0, 1, 2, 3, 0x81, 0x82, 0x83].forEach((type) =>
-      expect(covered.has(type), `missing sighash type 0x${type.toString(16)}`).to
-        .be.true
+    ;[0, 1, 2, 3, 0x81, 0x82, 0x83].forEach(
+      (type) =>
+        expect(covered.has(type), `missing sighash type 0x${type.toString(16)}`)
+          .to.be.true
     )
     // At least one vector carries a witness annex.
     expect(vectorCorpus.cases.some((v) => v.annexHex.length > 0)).to.be.true
@@ -211,7 +214,9 @@ describe("CheckBitcoinBIP341Sighash (full multi-mode coverage)", () => {
         )
 
         // Equality against the INDEPENDENT bitcoinjs reference value.
-        expect(sighash, vector.id).to.equal(hex(vector.expectedBip341SighashHex))
+        expect(sighash, vector.id).to.equal(
+          hex(vector.expectedBip341SighashHex)
+        )
       })
     )
   })
@@ -249,7 +254,9 @@ describe("CheckBitcoinBIP341Sighash (full multi-mode coverage)", () => {
             prevouts,
             outputs,
             vector.signedInputIndex,
-            hex(witnessSignatureHexFor(vector, vector.tamperedBip340SignatureHex)),
+            hex(
+              witnessSignatureHexFor(vector, vector.tamperedBip340SignatureHex)
+            ),
             annexArg(vector)
           ),
           `${vector.id}/tampered`
@@ -400,10 +407,12 @@ describe("CheckBitcoinBIP341Sighash (full multi-mode coverage)", () => {
       ...base,
       annex: annexArg(vector),
     })
-    const withDifferentAnnex = await p2trHarness.computeBridgeChallengeIdentity({
-      ...base,
-      annex: "0x5000",
-    })
+    const withDifferentAnnex = await p2trHarness.computeBridgeChallengeIdentity(
+      {
+        ...base,
+        annex: "0x5000",
+      }
+    )
 
     expect(withAnnex).to.not.equal(withDifferentAnnex)
   })
