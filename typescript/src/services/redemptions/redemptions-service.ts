@@ -79,8 +79,8 @@ export class RedemptionsService {
   /**
    * Requests a redemption of TBTC v2 token into BTC.
    * @param bitcoinRedeemerAddress Bitcoin address redeemed BTC should be
-   *                               sent to. Only P2PKH, P2WPKH, P2SH, and P2WSH
-   *                               address types are supported.
+   *                               sent to. Only P2PKH, P2WPKH, P2SH, P2WSH,
+   *                               and P2TR address types are supported.
    * @param amount The amount to be redeemed with the precision of the tBTC
    *        on-chain token contract.
    * @returns Object containing:
@@ -150,7 +150,8 @@ export class RedemptionsService {
    * The function builds the redemption data and handles the redemption request
    * through the provided redeemer proxy.
    * @param bitcoinRedeemerAddress Bitcoin address the redeemed BTC should be
-   *        sent to. Only P2PKH, P2WPKH, P2SH, and P2WSH address types are supported.
+   *        sent to. Only P2PKH, P2WPKH, P2SH, P2WSH, and P2TR address types are
+   *        supported.
    * @param amount The amount to be redeemed with the precision of the tBTC
    *        on-chain token contract.
    * @param redeemerProxy Object impleenting functions required to route tBTC
@@ -197,7 +198,8 @@ export class RedemptionsService {
    * The function builds the redemption data and handles the redemption request
    * through the provided redeemer proxy.
    * @param bitcoinRedeemerAddress Bitcoin address the redeemed BTC should be
-   *        sent to. Only P2PKH, P2WPKH, P2SH, and P2WSH address types are supported.
+   *        sent to. Only P2PKH, P2WPKH, P2SH, P2WSH, and P2TR address types are
+   *        supported.
    * @param amount The amount to be redeemed with the precision of the tBTC
    *        on-chain token contract.
    * @param l2ChainName The name of the L2 chain to request redemption on.
@@ -310,8 +312,8 @@ export class RedemptionsService {
   /**
    *
    * @param bitcoinRedeemerAddress Bitcoin address redeemed BTC should be
-   *                               sent to. Only P2PKH, P2WPKH, P2SH, and P2WSH
-   *                               address types are supported.
+   *                               sent to. Only P2PKH, P2WPKH, P2SH, P2WSH,
+   *                               and P2TR address types are supported.
    * @param amount The amount to be redeemed with the precision of the tBTC
    *                on-chain token contract.
    * @returns Object containing:
@@ -349,7 +351,7 @@ export class RedemptionsService {
    * @param potentialCandidateWallets Array of wallets that can handle the
    *        redemption request. The wallets must be in the Live state.
    * @param redeemerAddressOrScript Optional. Either a Bitcoin address (P2PKH,
-   *        P2WPKH, P2SH, P2WSH) or a raw hex output script (with or without
+   *        P2WPKH, P2SH, P2WSH, P2TR) or a raw hex output script (with or without
    *        0x prefix). When provided, the function checks for pending
    *        redemptions to avoid wallet collisions.
    *        - If the input matches /^(0x)?[0-9a-fA-F]+$/, it's treated as a
@@ -986,7 +988,8 @@ export class RedemptionsService {
       !BitcoinScriptUtils.isP2PKHScript(redeemerOutputScript) &&
       !BitcoinScriptUtils.isP2WPKHScript(redeemerOutputScript) &&
       !BitcoinScriptUtils.isP2SHScript(redeemerOutputScript) &&
-      !BitcoinScriptUtils.isP2WSHScript(redeemerOutputScript)
+      !BitcoinScriptUtils.isP2WSHScript(redeemerOutputScript) &&
+      !BitcoinScriptUtils.isP2TRScript(redeemerOutputScript)
     ) {
       throw new Error("Redeemer output script must be of standard type")
     }
@@ -999,7 +1002,8 @@ export class RedemptionsService {
    * This method detects whether the input is a raw hex output script or a
    * Bitcoin address and handles each case appropriately.
    * @param redeemerAddressOrScript Either a Bitcoin address (P2PKH, P2WPKH,
-   *        P2SH, P2WSH) or a raw hex output script (with or without 0x prefix).
+   *        P2SH, P2WSH, P2TR) or a raw hex output script (with or without 0x
+   *        prefix).
    * @returns The resolved output script as a Hex object.
    */
   protected async resolveRedeemerOutputScript(
