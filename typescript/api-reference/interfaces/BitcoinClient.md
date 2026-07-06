@@ -4,6 +4,7 @@ Represents a Bitcoin client.
 
 ## Implemented by
 
+- [`BitcoinClientWithNetworkOverride`](../classes/BitcoinClientWithNetworkOverride.md)
 - [`ElectrumClient`](../classes/ElectrumClient.md)
 
 ## Table of contents

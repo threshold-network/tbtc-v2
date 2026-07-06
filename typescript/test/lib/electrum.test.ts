@@ -18,6 +18,7 @@ import {
 } from "../data/electrum"
 import MainnetElectrumUrls from "../../src/lib/electrum/urls/mainnet.json"
 import TestnetElectrumUrls from "../../src/lib/electrum/urls/testnet.json"
+import Testnet4ElectrumUrls from "../../src/lib/electrum/urls/testnet4.json"
 import chai, { expect } from "chai"
 import chaiAsPromised from "chai-as-promised"
 import https from "https"
@@ -180,6 +181,29 @@ describe("Electrum", () => {
       expect(credentials.port).to.equal(443)
       expect(credentials.protocol).to.equal("wss")
       expect(credentials.path).to.equal("/QxbJgaSLUHqrgAa9BW7bDpnGPxrlhnCa")
+    })
+
+    // `fromDefaultConfig` consumes these lists directly, so a plaintext
+    // endpoint here would put unauthenticated transport on the default path
+    // for every caller, letting an on-path attacker tamper with UTXO/SPV
+    // responses without the caller opting into insecure transport. Default
+    // endpoints must therefore stay on encrypted transports (ssl/wss).
+    it("should only use encrypted transports in every default config", () => {
+      const configs = {
+        mainnet: MainnetElectrumUrls.urls,
+        testnet: TestnetElectrumUrls.urls,
+        testnet4: Testnet4ElectrumUrls.urls,
+      }
+
+      for (const [network, urls] of Object.entries(configs)) {
+        for (const url of urls) {
+          const protocol = url.split("://")[0]
+          expect(
+            ["ssl", "wss"],
+            `${network} default endpoint must use an encrypted transport: ${url}`
+          ).to.include(protocol)
+        }
+      }
     })
   })
 

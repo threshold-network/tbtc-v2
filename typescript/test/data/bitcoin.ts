@@ -40,6 +40,35 @@ export const btcAddresses: Record<
       ),
     },
   },
+  testnet4: {
+    P2PKH: {
+      address: "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+      redeemerOutputScript:
+        "0x1976a9142cd680318747b720d67bf4246eb7403b476adb3488ac",
+      scriptPubKey: Hex.from(
+        "76a9142cd680318747b720d67bf4246eb7403b476adb3488ac"
+      ),
+    },
+    P2WPKH: {
+      address: "tb1qumuaw3exkxdhtut0u85latkqfz4ylgwstkdzsx",
+      redeemerOutputScript: "0x160014e6f9d74726b19b75f16fe1e9feaec048aa4fa1d0",
+      scriptPubKey: Hex.from("0014e6f9d74726b19b75f16fe1e9feaec048aa4fa1d0"),
+    },
+    P2SH: {
+      address: "2MsM67NLa71fHvTUBqNENW15P68nHB2vVXb",
+      redeemerOutputScript:
+        "0x17a914011beb6fb8499e075a57027fb0a58384f2d3f78487",
+      scriptPubKey: Hex.from("a914011beb6fb8499e075a57027fb0a58384f2d3f78487"),
+    },
+    P2WSH: {
+      address: "tb1qau95mxzh2249aa3y8exx76ltc2sq0e7kw8hj04936rdcmnynhswqqz02vv",
+      redeemerOutputScript:
+        "0x220020ef0b4d985752aa5ef6243e4c6f6bebc2a007e7d671ef27d4b1d0db8dcc93bc1c",
+      scriptPubKey: Hex.from(
+        "0020ef0b4d985752aa5ef6243e4c6f6bebc2a007e7d671ef27d4b1d0db8dcc93bc1c"
+      ),
+    },
+  },
   mainnet: {
     P2PKH: {
       address: "12higDjoCCNXSA95xZMWUdPvXNmkAduhWv",
@@ -76,6 +105,20 @@ export const btcAddressFromPublicKey: Record<
   Record<string, { publicKey: Hex; address: string }>
 > = {
   testnet: {
+    P2PKH: {
+      publicKey: Hex.from(
+        "0304cc460f320822d17d567a9a1b1039f765ff72512758605b5962226b3d8e5329"
+      ),
+      address: "msVQ3CCdqffxc5BtxUrtHFPq6CoZSTaJTq",
+    },
+    P2WPKH: {
+      publicKey: Hex.from(
+        "0304cc460f320822d17d567a9a1b1039f765ff72512758605b5962226b3d8e5329"
+      ),
+      address: "tb1qsdtz442y5fmay39rj39vancf7jm0jrf40qkulw",
+    },
+  },
+  testnet4: {
     P2PKH: {
       publicKey: Hex.from(
         "0304cc460f320822d17d567a9a1b1039f765ff72512758605b5962226b3d8e5329"
