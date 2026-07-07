@@ -32,7 +32,6 @@
  * passing no-op), it compiles against any SDK version, and it requires no env.
  */
 describe("System Test - FROST testnet4 lifecycle", () => {
-  // eslint-disable-next-line mocha/no-pending-tests
   it(
     "deposit → sweep → MINT → redemption → FROST→FROST moving funds " +
       "(pending — see system-tests/FROST_TESTNET4_E2E.md)"

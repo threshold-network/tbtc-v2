@@ -87,11 +87,19 @@ Bank balance minted**.
 ### 3. Redemption
 
 ```ts
+// Bridge.requestRedemption takes a bytes20 walletPubKeyHash (hash160 of the
+// compressed key), NOT the 33-byte key — derive it (or use the SDK's
+// redemptions service, which accepts the compressed key + resolves the UTXO).
+const walletPubKeyHash = BitcoinHashUtils.computeHash160(
+  walletPublicKey.toString()
+).toPrefixedString()
 await bank.connect(depositor).approveBalance(bridge.address, redemptionAmount)
 await bridge.connect(depositor).requestRedemption(
-  walletPublicKey, walletMainUtxo, redeemerOutputScript, redemptionAmount)
+  walletPubKeyHash, walletMainUtxo, redeemerOutputScript, redemptionAmount)
 // nodes build + sign + broadcast the redemption; discover it, then:
 await fakeRelayDifficulty(relay, client, redemptionTxHash)
+// maintenance.spv.submitRedemptionProof accepts the compressed key (it hashes
+// internally), so pass walletPublicKey here — not the hash.
 await maintainerSdk.maintenance.spv.submitRedemptionProof(
   redemptionTxHash, walletMainUtxo, walletPublicKey)
 ```
