@@ -134,5 +134,80 @@ Additionally requires a **second Live FROST wallet** (target). Steps:
 - **testnet4 reorgs** the low-difficulty tip frequently; a low-fee wallet tx can
   drop back to 0 confirmations. Fee wallet txs adequately (or CPFP) and wait for
   a couple of confirmations before submitting proofs.
-- **`maintenance.spv` lacks `submitMovingFundsProof`** — provided here in
-  `test/utils/frost.ts`; promoting it into the SDK would be a clean follow-up.
+- **`maintenance.spv` lacks `submitMovingFundsProof`** — it has
+  `submitDepositSweepProof` + `submitRedemptionProof` but not moving-funds; build
+  the proof from SDK primitives and call the Bridge directly (see the appendix).
+  Promoting it into the SDK would be a clean follow-up.
+
+## Appendix — reusable helpers
+
+These are the two FROST-specific helpers the eventual mocha test needs. They are
+documented here rather than shipped as `test/*.ts` because system-tests currently
+pins `@keep-network/tbtc-v2.ts@^2.3.0`, whose loader (`ts-node/register/files`)
+would compile them against an SDK that lacks the 4.x APIs. Add them under
+`test/utils/` once system-tests is wired to the FROST SDK.
+
+```ts
+// A FROST wallet is threshold-signed by the live nodes, so the test cannot sign
+// and instead WAITS for a node-broadcast wallet transaction to appear at an
+// address (the deposit address for the sweep, the redeemer for the redemption,
+// the target wallet for the move).
+export async function waitForNewTransactionAtAddress(
+  bitcoinClient: BitcoinClient,
+  address: string,
+  knownTransactionHashes: string[],
+  { timeoutMs = 60 * 60 * 1000, pollMs = 20000 } = {}
+): Promise<BitcoinTx> {
+  const known = new Set(knownTransactionHashes.map((h) => h.toLowerCase()))
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    const history = await bitcoinClient.getTransactionHistory(address, 25)
+    const fresh = history.find(
+      (tx) => !known.has(tx.transactionHash.toString().toLowerCase())
+    )
+    if (fresh) return fresh
+    if (Date.now() > deadline) throw new Error(`no new wallet tx at ${address}`)
+    await new Promise((r) => setTimeout(r, pollMs))
+  }
+}
+
+// maintenance.spv has no submitMovingFundsProof; mirror submitRedemptionProof's
+// serialization and call the Bridge directly (SPV-maintainer signer required).
+export async function submitMovingFundsProof(
+  bridge: Contract, // maintainer-connected Bridge
+  bitcoinClient: BitcoinClient,
+  movingFundsTxHash: BitcoinTxHash,
+  sourceWalletMainUtxo: BitcoinUtxo,
+  sourceWalletPublicKeyHash: string // 0x + 20 bytes
+): Promise<string> {
+  const factor = await bridge.txProofDifficultyFactor()
+  const proof = await assembleBitcoinSpvProof(movingFundsTxHash, factor, bitcoinClient)
+  const vectors = extractBitcoinRawTxVectors(
+    await bitcoinClient.getRawTransaction(movingFundsTxHash)
+  )
+  const tx = await bridge.submitMovingFundsProof(
+    {
+      version: `0x${vectors.version}`,
+      inputVector: `0x${vectors.inputs}`,
+      outputVector: `0x${vectors.outputs}`,
+      locktime: `0x${vectors.locktime}`,
+    },
+    {
+      merkleProof: proof.merkleProof.toPrefixedString(),
+      txIndexInBlock: proof.txIndexInBlock,
+      bitcoinHeaders: proof.bitcoinHeaders.toPrefixedString(),
+      coinbasePreimage: proof.coinbasePreimage.toPrefixedString(),
+      coinbaseProof: proof.coinbaseProof.toPrefixedString(),
+    },
+    {
+      // Bridge expects the hash in Bitcoin internal (little-endian) byte order.
+      txHash: sourceWalletMainUtxo.transactionHash.reverse().toPrefixedString(),
+      txOutputIndex: sourceWalletMainUtxo.outputIndex,
+      txOutputValue: BigNumber.from(sourceWalletMainUtxo.value),
+    },
+    sourceWalletPublicKeyHash
+  )
+  await tx.wait()
+  return tx.hash
+}
+```
