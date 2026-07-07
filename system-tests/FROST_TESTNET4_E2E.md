@@ -86,20 +86,22 @@ Bank balance minted**.
 
 ### 3. Redemption
 
+Redeem from Bank balance. Use the **SDK Bridge handle** rather than a raw ethers
+call — `bridge.requestRedemption(walletPublicKey, mainUtxo, redeemerOutputScript,
+amount)` does every conversion the contract needs (derives the `bytes20`
+walletPubKeyHash from the compressed key, puts the main-UTXO tx hash in Bitcoin
+internal byte order, length-prefixes `redeemerOutputScript`). A raw
+`Contract.requestRedemption` would need all of those done by hand.
+
 ```ts
-// Bridge.requestRedemption takes a bytes20 walletPubKeyHash (hash160 of the
-// compressed key), NOT the 33-byte key — derive it (or use the SDK's
-// redemptions service, which accepts the compressed key + resolves the UTXO).
-const walletPubKeyHash = BitcoinHashUtils.computeHash160(
-  walletPublicKey.toString()
-).toPrefixedString()
 await bank.connect(depositor).approveBalance(bridge.address, redemptionAmount)
-await bridge.connect(depositor).requestRedemption(
-  walletPubKeyHash, walletMainUtxo, redeemerOutputScript, redemptionAmount)
+// walletPublicKey: Hex (33-byte compressed); walletMainUtxo: BitcoinUtxo;
+// redeemerOutputScript: Hex (unprefixed). The wrapper serializes all three.
+await depositorSdk.tbtcContracts.bridge.requestRedemption(
+  walletPublicKey, walletMainUtxo, redeemerOutputScript, redemptionAmount)
 // nodes build + sign + broadcast the redemption; discover it, then:
 await fakeRelayDifficulty(relay, client, redemptionTxHash)
-// maintenance.spv.submitRedemptionProof accepts the compressed key (it hashes
-// internally), so pass walletPublicKey here — not the hash.
+// submitRedemptionProof likewise accepts the compressed key (it hashes internally).
 await maintainerSdk.maintenance.spv.submitRedemptionProof(
   redemptionTxHash, walletMainUtxo, walletPublicKey)
 ```
