@@ -5,11 +5,15 @@ This document specifies the end-to-end funds-movement lifecycle of a native
 
 ```
 Taproot deposit → sweep → MINT → redemption → FROST→FROST moving funds
+  → moved-funds sweep
 ```
 
 It is the reference/runbook for `test/frost-testnet4-lifecycle.test.ts` (a
-gated, full-stack e2e template). Every step below was executed and verified once
+gated, full-stack e2e template). Every step below was executed and verified
 end-to-end; the resulting Bitcoin/Ethereum artifacts are quoted as evidence.
+The lifecycle was re-executed in full on 2026-07-10 on the fully merged
+node/signer stack: sweep `3e87d011…`, redemption `86c978c6…`, moving funds
+`f3b951b0…`, moved-funds sweep `d9134503…`.
 
 ## Why testnet4 (and why the Ethereum side stays local)
 
@@ -42,6 +46,10 @@ with `--tbtc.frostSigningBackend native|ffi`.
   on top. A funded testnet4 wallet for the depositor.
 - **Nodes**: ≥3 keep-core FROST nodes, connected to the testnet4 Electrum and the
   local anvil, that have created a **Live FROST wallet with no main UTXO** via DKG.
+  Each node **must** set `TBTC_SIGNER_STATE_ENCRYPTION_KEY_HEX` (32-byte hex,
+  **stable per node across restarts**) — without it the signer's distributed-DKG
+  key-package persist fails with "missing required state encryption key env",
+  and a restarted node cannot decrypt its stored state if the key changed.
 - **Maintainer**: an SPV-maintainer address authorized via
   `Bridge.setSpvMaintainerStatus(maintainer, true)` (governance-only).
 
@@ -130,6 +138,25 @@ Additionally requires a **second Live FROST wallet** (target). Steps:
    `0x7c042859…`; move `bc709b80…` (Schnorr `R:82142636…`) → **22 602 sat moved
    source→target**; `submitMovingFundsProof` accepted.
 
+### 5. Moved-funds sweep
+
+The **target** wallet still has to absorb the moved-funds UTXO. At a
+`block%3600==0` window the nodes propose a `MovedFundsSweep`, build a
+single-input Taproot key-path sweep of the moved-funds UTXO into the target
+wallet's **own first main UTXO** — the target wallet's first threshold
+signature — then sign and broadcast it. Prove it with the appendix helper.
+The sweeping wallet has **no prior main UTXO** here, so pass the zero UTXO
+(same convention as `submitDepositSweepProof`):
+
+```ts
+await submitMovedFundsSweepProof(bridge, client, sweepTxHash, ZERO_MAIN_UTXO)
+```
+
+Assert the target's main UTXO is now set and its
+`pendingMovedFundsSweepRequestsCount == 0`. *Evidence:* moved-funds sweep
+`d9134503…` (24 372 sat, single 64-byte key-path witness) → proof accepted
+with the zero main UTXO.
+
 ## Notes / gotchas learned running this
 
 - **`-txindex=1` is mandatory** — otherwise the node/maintainer cannot read
@@ -141,17 +168,34 @@ Additionally requires a **second Live FROST wallet** (target). Steps:
 - **Forced Ethereum mining races in-flight FROST signing** — on anvil, mine once
   to the coordination window then let the auto-miner drive; don't fast-forward
   through the active phase.
+- **Never bulk-mine across a `block%900` coordination boundary** while any
+  wallet action is pending — on a dev Ethereum chain the nodes then process
+  the stale window with every block-paced wait already expired, attempts burn
+  instantly, and the ROAST retry ledger fails closed for later attempts. Mine
+  to (boundary − ~10) and let the auto-miner cross. (This complements the
+  forced-mining note above: that one is about racing an in-flight signature,
+  this one about how the window is entered.)
+- **Full-drain redemptions are unfulfillable** — requesting `amount ==` the
+  wallet's main UTXO builds a redemption tx whose change output equals the
+  treasury-fee remainder (`mainUtxo − Σ(amount − treasuryFee)`) — a few sat of
+  dust — which Bitcoin relay policy rejects ("dust, tx with dust output must
+  be 0-fee"). The wallet re-signs the same rejected tx every window until the
+  request times out, and `notifyRedemptionTimeout` forces a Live wallet into
+  `MovingFunds`. keep-core has a pending fix that folds sub-dust change into
+  the tx fee; until it lands, always leave a margin (≥ ~600 sat) below the
+  main UTXO when requesting.
 - **testnet4 reorgs** the low-difficulty tip frequently; a low-fee wallet tx can
   drop back to 0 confirmations. Fee wallet txs adequately (or CPFP) and wait for
   a couple of confirmations before submitting proofs.
-- **`maintenance.spv` lacks `submitMovingFundsProof`** — it has
-  `submitDepositSweepProof` + `submitRedemptionProof` but not moving-funds; build
-  the proof from SDK primitives and call the Bridge directly (see the appendix).
-  Promoting it into the SDK would be a clean follow-up.
+- **`maintenance.spv` lacks `submitMovingFundsProof` and
+  `submitMovedFundsSweepProof`** — it has `submitDepositSweepProof` +
+  `submitRedemptionProof` but neither moving-funds proof; build the proofs from
+  SDK primitives and call the Bridge directly (see the appendix). Promoting
+  them into the SDK would be a clean follow-up.
 
 ## Appendix — reusable helpers
 
-These are the two FROST-specific helpers the eventual mocha test needs. They are
+These are the FROST-specific helpers the eventual mocha test needs. They are
 documented here rather than shipped as `test/*.ts` because system-tests currently
 pins `@keep-network/tbtc-v2.ts@^2.3.0`, whose loader (`ts-node/register/files`)
 would compile them against an SDK that lacks the 4.x APIs. Add them under
@@ -216,6 +260,50 @@ export async function submitMovingFundsProof(
       txOutputValue: BigNumber.from(sourceWalletMainUtxo.value),
     },
     sourceWalletPublicKeyHash
+  )
+  await tx.wait()
+  return tx.hash
+}
+
+// maintenance.spv has no submitMovedFundsSweepProof either; same shape, but the
+// Bridge signature is (sweepTx, sweepProof, mainUtxo) — no wallet-PKH parameter
+// (the Bridge derives the sweeping wallet from the sweep tx's single output).
+// mainUtxo is the SWEEPING wallet's current main UTXO. When the wallet has none
+// yet (mainUtxoHash == bytes32(0) — its first main UTXO comes FROM this sweep)
+// the Bridge ignores the parameter, so pass the all-zero UTXO, same convention
+// as submitDepositSweepProof. If it does exist, the values must hash-match the
+// stored mainUtxoHash and the sweep tx must spend it as its second input.
+export async function submitMovedFundsSweepProof(
+  bridge: Contract, // maintainer-connected Bridge
+  bitcoinClient: BitcoinClient,
+  sweepTxHash: BitcoinTxHash,
+  mainUtxo: BitcoinUtxo // zero UTXO when the wallet has no main UTXO yet
+): Promise<string> {
+  const factor = await bridge.txProofDifficultyFactor()
+  const proof = await assembleBitcoinSpvProof(sweepTxHash, factor, bitcoinClient)
+  const vectors = extractBitcoinRawTxVectors(
+    await bitcoinClient.getRawTransaction(sweepTxHash)
+  )
+  const tx = await bridge.submitMovedFundsSweepProof(
+    {
+      version: `0x${vectors.version}`,
+      inputVector: `0x${vectors.inputs}`,
+      outputVector: `0x${vectors.outputs}`,
+      locktime: `0x${vectors.locktime}`,
+    },
+    {
+      merkleProof: proof.merkleProof.toPrefixedString(),
+      txIndexInBlock: proof.txIndexInBlock,
+      bitcoinHeaders: proof.bitcoinHeaders.toPrefixedString(),
+      coinbasePreimage: proof.coinbasePreimage.toPrefixedString(),
+      coinbaseProof: proof.coinbaseProof.toPrefixedString(),
+    },
+    {
+      // Bridge expects the hash in Bitcoin internal (little-endian) byte order.
+      txHash: mainUtxo.transactionHash.reverse().toPrefixedString(),
+      txOutputIndex: mainUtxo.outputIndex,
+      txOutputValue: BigNumber.from(mainUtxo.value),
+    }
   )
   await tx.wait()
   return tx.hash
