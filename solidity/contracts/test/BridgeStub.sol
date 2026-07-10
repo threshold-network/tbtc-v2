@@ -20,6 +20,17 @@ contract BridgeStub is Bridge {
         }
     }
 
+    function setRevealedDeposits(BitcoinTx.UTXO[] calldata utxos) external {
+        for (uint256 i = 0; i < utxos.length; i++) {
+            uint256 utxoKey = uint256(
+                keccak256(
+                    abi.encodePacked(utxos[i].txHash, utxos[i].txOutputIndex)
+                )
+            );
+            self.deposits[utxoKey].revealedAt = 1641650400;
+        }
+    }
+
     function setSpentMainUtxos(BitcoinTx.UTXO[] calldata utxos) external {
         for (uint256 i = 0; i < utxos.length; i++) {
             uint256 utxoKey = uint256(

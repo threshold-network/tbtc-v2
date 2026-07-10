@@ -209,6 +209,10 @@ contract Bridge is
     event VaultStatusUpdated(address indexed vault, bool isTrusted);
     event MigrationDebtVaultUpdated(address indexed migrationDebtVault);
 
+    event CovenantSpendAuthorizationUpdated(
+        address indexed covenantSpendAuthorization
+    );
+
     event EthRescued(address indexed recipient, uint256 amount);
 
     event SpvMaintainerStatusUpdated(
@@ -1179,6 +1183,43 @@ contract Bridge is
         self.defeatFraudChallenge(walletPublicKey, preimage, witness);
     }
 
+    /// @notice Allows to defeat a pending fraud challenge against a wallet when
+    ///         the challenged input is a covenant active UTXO spent by an
+    ///         account-control covenant migration. A covenant active UTXO is
+    ///         not part of the Bridge UTXO accounting, so the regular
+    ///         `defeatFraudChallenge` can never recognize it as honestly spent.
+    ///         Instead, this path recognizes the spend when the covenant
+    ///         authorization registry attests — through the account-control
+    ///         covenant proof flow — that the challenged outpoint is a covenant
+    ///         active UTXO authorized to be spent by this wallet for the signed
+    ///         value. If successfully defeated, the fraud challenge is marked as
+    ///         resolved and the challenger's ether deposit is sent to the
+    ///         treasury.
+    /// @param walletPublicKey The public key of the wallet in the uncompressed
+    ///        and unprefixed format (64 bytes).
+    /// @param preimage The BIP-143 witness preimage which produces the sighash
+    ///        used to generate the ECDSA signature that is the subject of the
+    ///        fraud claim. Covenant active UTXOs are P2WSH outputs, so the
+    ///        preimage is always a witness preimage.
+    /// @dev Requirements:
+    ///      - The covenant spend authorization registry must be configured,
+    ///      - `walletPublicKey` and `sighash` calculated as `hash256(preimage)`
+    ///        must identify an open fraud challenge,
+    ///      - the preimage must be a valid BIP-143 witness preimage signed with
+    ///        the `SIGHASH_ALL` type,
+    ///      - the challenged outpoint must not be a UTXO the Bridge already
+    ///        tracks (a revealed deposit, a spent main UTXO, a moved-funds sweep
+    ///        request, or the wallet's current main UTXO),
+    ///      - the registry must attest that the challenged outpoint is a
+    ///        covenant active UTXO authorized to be spent by this wallet for the
+    ///        input value the preimage signs over.
+    function defeatFraudChallengeWithCovenantSpend(
+        bytes calldata walletPublicKey,
+        bytes calldata preimage
+    ) external {
+        self.defeatFraudChallengeWithCovenantSpend(walletPublicKey, preimage);
+    }
+
     /// @notice Allows to defeat a pending fraud challenge against a wallet by
     ///         proving the sighash and signature were produced for an off-chain
     ///         wallet heartbeat message following a strict format.
@@ -1415,6 +1456,38 @@ contract Bridge is
 
         self.isVaultTrusted[previousVault] = false;
         emit VaultStatusUpdated(previousVault, false);
+    }
+
+    /// @notice Sets the covenant spend authorization registry consulted by
+    ///         `defeatFraudChallengeWithCovenantSpend`.
+    /// @param covenantSpendAuthorization Address of the
+    ///        `CovenantSpendAuthorization` registry, or zero to disable the
+    ///        covenant spend defeat path.
+    /// @dev Can only be called by the Governance. While the registry is unset
+    ///      (zero), the covenant spend defeat path reverts and the covenant
+    ///      signer is expected to stay fail-closed, matching the posture before
+    ///      the covenant migration feature is enabled. The registry is expected
+    ///      to be owned by the account-control covenant authority.
+    ///
+    ///      Governance MUST treat this pointer as security-critical. The
+    ///      covenant spend defeat path reads the registry live at defeat time,
+    ///      so pointing it at a registry that lacks an outstanding covenant
+    ///      signature's authorization — by zeroing it, or rotating to a
+    ///      registry that was not populated with the prior registry's
+    ///      authorizations — strips the defense from a legitimate, still
+    ///      challengeable covenant signature and exposes that wallet to fraud
+    ///      slashing. It must therefore not be changed while any wallet that
+    ///      relied on the current registry remains challengeable; a replacement
+    ///      registry must carry forward every still-relevant authorization
+    ///      first. Because a registry that always returns `true` would exonerate
+    ///      arbitrary wallet signatures, governance must also verify the target
+    ///      is the intended `CovenantSpendAuthorization` deployment.
+    function setCovenantSpendAuthorization(address covenantSpendAuthorization)
+        external
+        onlyGovernance
+    {
+        self.covenantSpendAuthorization = covenantSpendAuthorization;
+        emit CovenantSpendAuthorizationUpdated(covenantSpendAuthorization);
     }
 
     /// @notice Queries whether a vault answers every migration debt selector

@@ -334,6 +334,18 @@ contract BridgeGovernance is Ownable {
         bridge.rotateMigrationDebtVault(newVault, previousVault);
     }
 
+    /// @notice Sets the covenant spend authorization registry consulted by the
+    ///         Bridge when defeating a covenant-spend fraud challenge.
+    /// @param covenantSpendAuthorization Address of the
+    ///        `CovenantSpendAuthorization` registry, or zero to disable the
+    ///        covenant spend defeat path.
+    function setCovenantSpendAuthorization(address covenantSpendAuthorization)
+        external
+        onlyOwner
+    {
+        bridge.setCovenantSpendAuthorization(covenantSpendAuthorization);
+    }
+
     /// @notice Allows the Governance to mark the given address as trusted
     ///         or no longer trusted SPV maintainer. Addresses are not trusted
     ///         as SPV maintainers by default.

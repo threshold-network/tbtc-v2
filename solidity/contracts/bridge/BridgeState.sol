@@ -384,6 +384,22 @@ library BridgeState {
         ///         the slot shared with `fraudChallengeEscrowSeeded`; both
         ///         default to false on a fresh upgrade.
         bool walletRegistrationOrderSeeded;
+        /// @notice Address of the covenant spend authorization registry
+        ///         (`CovenantSpendAuthorization`). It attests, through the
+        ///         account-control covenant proof flow, that a covenant active
+        ///         UTXO may be spent by a given wallet, so
+        ///         `Fraud.defeatFraudChallengeWithCovenantSpend` can recognize
+        ///         a covenant migration signature as an honest spend. Optional
+        ///         and set through governance; while unset (zero), the covenant
+        ///         spend defeat path is unavailable and the covenant signer is
+        ///         expected to stay fail-closed. Appended after `__gap` like the
+        ///         fraud-escrow and registration-order fields, leaving the
+        ///         reserved gap untouched. This 20-byte address packs into the
+        ///         same slot as `fraudChallengeEscrowSeeded` and
+        ///         `walletRegistrationOrderSeeded` (it occupies bytes 2-21 of
+        ///         that slot); those bytes were previously zero, so on upgrade
+        ///         it reads as `address(0)` and no existing field is disturbed.
+        address covenantSpendAuthorization;
     }
 
     event DepositParametersUpdated(
