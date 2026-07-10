@@ -293,6 +293,12 @@ describe("Bridge - P2TR signature fraud", () => {
   const multiInputVector = vectorCorpus.cases.find(
     ({ id }) => id === "bip341-keypath-sighash-default-multi-input-multi-output"
   )!
+  const distinctWalletVector = vectorCorpus.cases.find(
+    ({ walletIDHex }) => walletIDHex !== vector.walletIDHex
+  )
+  if (!distinctWalletVector) {
+    throw new Error("P2TR fraud vector corpus needs two distinct wallets")
+  }
 
   let thirdParty: SignerWithAddress
   let treasury: SignerWithAddress
@@ -409,6 +415,60 @@ describe("Bridge - P2TR signature fraud", () => {
     expect(event.args.bridgeChallengeIdentity).to.equal(bridgeChallengeIdentity)
     expect(event.args.challengeKey).to.equal(challengeKey)
     expect(event.args.sighash).to.equal(hex(vector.expectedBip341SighashHex))
+  })
+
+  it("submits a deposit-spend challenge using the committed Taproot output key", async () => {
+    const payload = {
+      ...vectorPayload(vector),
+      walletID: hex(distinctWalletVector.walletIDHex),
+    }
+    await registerP2TRWallet(payload.walletID)
+
+    const signedPrevout = payload.prevouts[payload.signedInputIndex]
+    const outputKey = ethers.utils.hexDataSlice(signedPrevout.scriptPubKey, 2)
+    await bridge.setTaprootDepositOutputKeyCommitment(
+      signedInputUtxo(payload),
+      payload.walletID,
+      outputKey
+    )
+
+    await expect(
+      p2trFraudRouter
+        .connect(thirdParty)
+        .processP2TRSignatureFraudChallenge(
+          p2trFraudAction.Submit,
+          encodePayload(payload),
+          [],
+          { value: fraudChallengeDepositAmount }
+        )
+    ).to.emit(p2trFraudRouter, "P2TRSignatureFraudChallengeSubmitted")
+  })
+
+  it("rejects a deposit output key not committed to the registered wallet", async () => {
+    const payload = {
+      ...vectorPayload(vector),
+      walletID: hex(distinctWalletVector.walletIDHex),
+    }
+    await registerP2TRWallet(payload.walletID)
+
+    const signedPrevout = payload.prevouts[payload.signedInputIndex]
+    const outputKey = ethers.utils.hexDataSlice(signedPrevout.scriptPubKey, 2)
+    await bridge.setTaprootDepositOutputKeyCommitment(
+      signedInputUtxo(payload),
+      hex(vector.walletIDHex),
+      outputKey
+    )
+
+    await expect(
+      p2trFraudRouter
+        .connect(thirdParty)
+        .processP2TRSignatureFraudChallenge(
+          p2trFraudAction.Submit,
+          encodePayload(payload),
+          [],
+          { value: fraudChallengeDepositAmount }
+        )
+    ).to.be.revertedWith("Taproot deposit key mismatch")
   })
 
   it("submits a bounded multi-input multi-output P2TR signature-fraud challenge", async () => {

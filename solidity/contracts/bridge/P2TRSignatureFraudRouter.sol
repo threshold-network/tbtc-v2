@@ -316,7 +316,7 @@ contract P2TRSignatureFraudRouter {
 
         require(
             CheckBitcoinP2TRSignatureFraud.checkSignature(
-                payload.walletID,
+                _signatureVerificationKey(b, payload),
                 context.sighash,
                 payload.witnessSignature
             ),
@@ -500,6 +500,47 @@ contract P2TRSignatureFraudRouter {
             b.spentMainUTXOs(utxoKey) ||
             b.movedFundsSweepRequests(utxoKey).state ==
             MovingFunds.MovedFundsSweepRequestState.Processed;
+    }
+
+    /// @dev Deposit inputs verify against their tweaked output key only after
+    ///      it is bound to the registered wallet by reveal-time Bridge state.
+    ///      All other wallet inputs continue to verify against the wallet ID.
+    function _signatureVerificationKey(
+        IBridgeForP2TRFraud b,
+        CheckBitcoinP2TRSignatureFraud.BridgeChallengeIdentityPayload
+            memory payload
+    ) internal view returns (bytes32) {
+        bytes32 depositKeyCommitment = b
+            .deposits(_signedInputUtxoKey(payload))
+            .taprootOutputKeyCommitment;
+
+        if (depositKeyCommitment == bytes32(0)) {
+            return payload.walletID;
+        }
+
+        bytes memory scriptPubKey = payload
+            .prevouts[payload.signedInputIndex]
+            .scriptPubKey;
+        require(
+            scriptPubKey.length == 34 &&
+                scriptPubKey[0] == 0x51 &&
+                scriptPubKey[1] == 0x20,
+            "Taproot deposit prevout must be P2TR"
+        );
+
+        bytes32 outputKey;
+        // solhint-disable-next-line no-inline-assembly
+        assembly {
+            outputKey := mload(add(scriptPubKey, 34))
+        }
+
+        require(
+            Deposit.taprootOutputKeyCommitment(payload.walletID, outputKey) ==
+                depositKeyCommitment,
+            "Taproot deposit key mismatch"
+        );
+
+        return outputKey;
     }
 
     function _payloadBounds()

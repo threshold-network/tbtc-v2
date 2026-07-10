@@ -25,6 +25,18 @@ contract BridgeStub is Bridge {
         }
     }
 
+    function setTaprootDepositOutputKeyCommitment(
+        BitcoinTx.UTXO calldata utxo,
+        bytes32 walletID,
+        bytes32 outputKey
+    ) external {
+        uint256 utxoKey = uint256(
+            keccak256(abi.encodePacked(utxo.txHash, utxo.txOutputIndex))
+        );
+        self.deposits[utxoKey].taprootOutputKeyCommitment = Deposit
+            .taprootOutputKeyCommitment(walletID, outputKey);
+    }
+
     function setSpentMainUtxos(BitcoinTx.UTXO[] calldata utxos) external {
         for (uint256 i = 0; i < utxos.length; i++) {
             uint256 utxoKey = uint256(

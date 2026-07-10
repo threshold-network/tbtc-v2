@@ -159,6 +159,9 @@ library Deposit {
         uint32 sweptAt;
         // The 32-byte deposit extra data. Optional, can be bytes32(0).
         bytes32 extraData;
+        // Commitment binding a Taproot-native deposit's wallet ID to its
+        // deposit-specific output key. Zero for legacy P2(W)SH deposits.
+        bytes32 taprootOutputKeyCommitment;
         // This struct doesn't contain `__gap` property as the structure is stored
         // in a mapping, mappings store values in different slots and they are
         // not contiguous with other values.
@@ -458,6 +461,22 @@ library Deposit {
                 extraData
             );
 
+        self
+            .deposits[
+                uint256(
+                    keccak256(
+                        abi.encodePacked(
+                            fundingTxHash,
+                            reveal.fundingOutputIndex
+                        )
+                    )
+                )
+            ]
+            .taprootOutputKeyCommitment = taprootOutputKeyCommitment(
+            reveal.walletXOnlyPublicKey,
+            taprootOutputKey
+        );
+
         _emitTaprootDepositRevealedEvents(
             fundingTxHash,
             fundingOutputAmount,
@@ -723,6 +742,15 @@ library Deposit {
                     merkleRoot
                 )
             );
+    }
+
+    /// @notice Commits a Taproot deposit output key to its registered wallet.
+    function taprootOutputKeyCommitment(
+        bytes32 walletXOnlyPublicKey,
+        bytes32 taprootOutputKey
+    ) internal pure returns (bytes32) {
+        return
+            keccak256(abi.encodePacked(walletXOnlyPublicKey, taprootOutputKey));
     }
 
     /// @notice Derives the x-only P2TR output key for a Taproot-native deposit.
