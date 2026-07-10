@@ -733,6 +733,9 @@ export class EthereumBridge
       revealedAt: BigNumber.from(deposit.revealedAt).toNumber(),
       sweptAt: BigNumber.from(deposit.sweptAt).toNumber(),
       treasuryFee: BigNumber.from(deposit.treasuryFee),
+      ...(deposit.extraData === constants.HashZero
+        ? {}
+        : { extraData: Hex.from(deposit.extraData) }),
     }
   }
 

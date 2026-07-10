@@ -190,6 +190,7 @@
 - [P2TRSignatureFraudWitnessObservationConsistencyContext](README.md#p2trsignaturefraudwitnessobservationconsistencycontext)
 - [P2TRSignatureFraudWitnessObservationJSON](README.md#p2trsignaturefraudwitnessobservationjson)
 - [P2TRSupportedSighashType](README.md#p2trsupportedsighashtype)
+- [P2TRWalletInputKeyBinding](README.md#p2trwalletinputkeybinding)
 - [P2TRWalletInputObservationPrevout](README.md#p2trwalletinputobservationprevout)
 - [P2TRWalletInputObservationPrevoutJSON](README.md#p2trwalletinputobservationprevoutjson)
 - [P2TRWalletInputPrevout](README.md#p2trwalletinputprevout)
@@ -440,7 +441,7 @@ Represents an event emitted on deposit reveal to the on-chain bridge.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:385](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L385)
+[src/lib/contracts/bridge.ts:390](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L390)
 
 ___
 
@@ -710,7 +711,7 @@ Represents an event emitted when new wallet is registered on the on-chain bridge
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:563](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L563)
+[src/lib/contracts/bridge.ts:568](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L568)
 
 ___
 
@@ -814,7 +815,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:133](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L133)
+[src/services/maintenance/p2tr-signature-fraud.ts:146](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L146)
 
 ___
 
@@ -837,7 +838,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:113](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L113)
+[src/services/maintenance/p2tr-signature-fraud.ts:126](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L126)
 
 ___
 
@@ -855,7 +856,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:127](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L127)
+[src/services/maintenance/p2tr-signature-fraud.ts:140](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L140)
 
 ___
 
@@ -879,7 +880,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:424](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L424)
+[src/services/maintenance/p2tr-signature-fraud.ts:438](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L438)
 
 ___
 
@@ -897,7 +898,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:408](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L408)
+[src/services/maintenance/p2tr-signature-fraud.ts:422](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L422)
 
 ___
 
@@ -914,7 +915,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:419](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L419)
+[src/services/maintenance/p2tr-signature-fraud.ts:433](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L433)
 
 ___
 
@@ -931,7 +932,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:414](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L414)
+[src/services/maintenance/p2tr-signature-fraud.ts:428](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L428)
 
 ___
 
@@ -948,7 +949,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:487](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L487)
+[src/services/maintenance/p2tr-signature-fraud.ts:501](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L501)
 
 ___
 
@@ -968,7 +969,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:439](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L439)
+[src/services/maintenance/p2tr-signature-fraud.ts:453](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L453)
 
 ___
 
@@ -985,7 +986,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:448](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L448)
+[src/services/maintenance/p2tr-signature-fraud.ts:462](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L462)
 
 ___
 
@@ -1001,7 +1002,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:444](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L444)
+[src/services/maintenance/p2tr-signature-fraud.ts:458](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L458)
 
 ___
 
@@ -1017,7 +1018,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:492](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L492)
+[src/services/maintenance/p2tr-signature-fraud.ts:506](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L506)
 
 ___
 
@@ -1039,7 +1040,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:103](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L103)
+[src/services/maintenance/p2tr-signature-fraud.ts:116](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L116)
 
 ___
 
@@ -1058,7 +1059,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:138](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L138)
+[src/services/maintenance/p2tr-signature-fraud.ts:151](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L151)
 
 ___
 
@@ -1092,7 +1093,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:504](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L504)
+[src/services/maintenance/p2tr-signature-fraud.ts:518](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L518)
 
 ___
 
@@ -1112,7 +1113,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:496](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L496)
+[src/services/maintenance/p2tr-signature-fraud.ts:510](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L510)
 
 ___
 
@@ -1129,7 +1130,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:508](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L508)
+[src/services/maintenance/p2tr-signature-fraud.ts:522](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L522)
 
 ___
 
@@ -1152,7 +1153,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:210](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L210)
+[src/services/maintenance/p2tr-signature-fraud.ts:223](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L223)
 
 ___
 
@@ -1162,7 +1163,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:238](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L238)
+[src/services/maintenance/p2tr-signature-fraud.ts:251](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L251)
 
 ___
 
@@ -1180,7 +1181,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:322](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L322)
+[src/services/maintenance/p2tr-signature-fraud.ts:335](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L335)
 
 ___
 
@@ -1199,7 +1200,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:333](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L333)
+[src/services/maintenance/p2tr-signature-fraud.ts:346](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L346)
 
 ___
 
@@ -1209,7 +1210,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:276](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L276)
+[src/services/maintenance/p2tr-signature-fraud.ts:289](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L289)
 
 ___
 
@@ -1227,7 +1228,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:270](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L270)
+[src/services/maintenance/p2tr-signature-fraud.ts:283](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L283)
 
 ___
 
@@ -1237,7 +1238,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:266](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L266)
+[src/services/maintenance/p2tr-signature-fraud.ts:279](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L279)
 
 ___
 
@@ -1254,7 +1255,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:312](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L312)
+[src/services/maintenance/p2tr-signature-fraud.ts:325](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L325)
 
 ___
 
@@ -1271,7 +1272,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:317](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L317)
+[src/services/maintenance/p2tr-signature-fraud.ts:330](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L330)
 
 ___
 
@@ -1288,7 +1289,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:307](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L307)
+[src/services/maintenance/p2tr-signature-fraud.ts:320](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L320)
 
 ___
 
@@ -1305,7 +1306,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:328](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L328)
+[src/services/maintenance/p2tr-signature-fraud.ts:341](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L341)
 
 ___
 
@@ -1315,7 +1316,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:252](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L252)
+[src/services/maintenance/p2tr-signature-fraud.ts:265](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L265)
 
 ___
 
@@ -1336,7 +1337,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:229](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L229)
+[src/services/maintenance/p2tr-signature-fraud.ts:242](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L242)
 
 ___
 
@@ -1358,7 +1359,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:344](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L344)
+[src/services/maintenance/p2tr-signature-fraud.ts:357](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L357)
 
 ___
 
@@ -1368,7 +1369,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:340](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L340)
+[src/services/maintenance/p2tr-signature-fraud.ts:353](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L353)
 
 ___
 
@@ -1385,7 +1386,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:183](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L183)
+[src/services/maintenance/p2tr-signature-fraud.ts:196](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L196)
 
 ___
 
@@ -1408,7 +1409,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:205](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L205)
+[src/services/maintenance/p2tr-signature-fraud.ts:218](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L218)
 
 ___
 
@@ -1427,7 +1428,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:198](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L198)
+[src/services/maintenance/p2tr-signature-fraud.ts:211](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L211)
 
 ___
 
@@ -1444,7 +1445,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:219](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L219)
+[src/services/maintenance/p2tr-signature-fraud.ts:232](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L232)
 
 ___
 
@@ -1454,7 +1455,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:188](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L188)
+[src/services/maintenance/p2tr-signature-fraud.ts:201](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L201)
 
 ___
 
@@ -1464,7 +1465,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:215](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L215)
+[src/services/maintenance/p2tr-signature-fraud.ts:228](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L228)
 
 ___
 
@@ -1474,7 +1475,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:145](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L145)
+[src/services/maintenance/p2tr-signature-fraud.ts:158](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L158)
 
 ___
 
@@ -1493,7 +1494,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:513](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L513)
+[src/services/maintenance/p2tr-signature-fraud.ts:527](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L527)
 
 ___
 
@@ -1523,7 +1524,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:165](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L165)
+[src/services/maintenance/p2tr-signature-fraud.ts:178](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L178)
 
 ___
 
@@ -1534,6 +1535,30 @@ ___
 #### Defined in
 
 [src/services/maintenance/p2tr-signature-fraud.ts:20](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L20)
+
+___
+
+### P2TRWalletInputKeyBinding
+
+Ƭ **P2TRWalletInputKeyBinding**: `Object`
+
+Binds a Taproot output key used by a revealed deposit back to the registered
+FROST wallet that controls its key path. The funding outpoint is part of the
+binding so an output key learned from one deposit cannot authorize an
+unrelated input.
+
+#### Type declaration
+
+| Name | Type |
+| :------ | :------ |
+| `outputKey` | [`Hex`](classes/Hex.md) \| `Buffer` \| `string` |
+| `txid` | [`Hex`](classes/Hex.md) \| `Buffer` \| `string` |
+| `vout` | `number` |
+| `walletID` | [`Hex`](classes/Hex.md) \| `Buffer` \| `string` |
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:94](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L94)
 
 ___
 
@@ -1562,7 +1587,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:158](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L158)
+[src/services/maintenance/p2tr-signature-fraud.ts:171](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L171)
 
 ___
 
@@ -1588,7 +1613,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:88](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L88)
+[src/services/maintenance/p2tr-signature-fraud.ts:101](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L101)
 
 ___
 
@@ -1609,7 +1634,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:94](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L94)
+[src/services/maintenance/p2tr-signature-fraud.ts:107](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L107)
 
 ___
 
@@ -1619,7 +1644,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:544](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L544)
+[src/services/maintenance/p2tr-signature-fraud.ts:558](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L558)
 
 ___
 
@@ -1629,7 +1654,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:625](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L625)
+[src/services/maintenance/p2tr-signature-fraud.ts:639](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L639)
 
 ___
 
@@ -1661,7 +1686,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:555](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L555)
+[src/services/maintenance/p2tr-signature-fraud.ts:569](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L569)
 
 ___
 
@@ -1693,7 +1718,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:575](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L575)
+[src/services/maintenance/p2tr-signature-fraud.ts:589](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L589)
 
 ___
 
@@ -1713,7 +1738,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:595](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L595)
+[src/services/maintenance/p2tr-signature-fraud.ts:609](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L609)
 
 ___
 
@@ -1723,7 +1748,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:532](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L532)
+[src/services/maintenance/p2tr-signature-fraud.ts:546](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L546)
 
 ___
 
@@ -1733,7 +1758,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:383](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L383)
+[src/services/maintenance/p2tr-signature-fraud.ts:397](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L397)
 
 ___
 
@@ -1747,10 +1772,11 @@ ___
 | :------ | :------ |
 | `bitcoinTxHash` | [`Hex`](classes/Hex.md) \| `Buffer` \| `string` |
 | `rawTransaction` | [`BitcoinRawTx`](interfaces/BitcoinRawTx.md) |
+| `walletInputKeyBindings?` | [`P2TRWalletInputKeyBinding`](README.md#p2trwalletinputkeybinding)[] |
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:378](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L378)
+[src/services/maintenance/p2tr-signature-fraud.ts:391](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L391)
 
 ___
 
@@ -1767,7 +1793,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:193](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L193)
+[src/services/maintenance/p2tr-signature-fraud.ts:206](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L206)
 
 ___
 
@@ -1777,7 +1803,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:550](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L550)
+[src/services/maintenance/p2tr-signature-fraud.ts:564](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L564)
 
 ___
 
@@ -1799,7 +1825,7 @@ Represents an event emitted on redemption request.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:446](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L446)
+[src/lib/contracts/bridge.ts:451](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L451)
 
 ___
 
@@ -1930,7 +1956,7 @@ bridge.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:395](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L395)
+[src/lib/contracts/bridge.ts:400](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L400)
 
 ## Variables
 
@@ -2343,7 +2369,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:406](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L406)
+[src/services/maintenance/p2tr-signature-fraud.ts:420](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L420)
 
 ___
 
@@ -2353,7 +2379,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:526](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L526)
+[src/services/maintenance/p2tr-signature-fraud.ts:540](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L540)
 
 ___
 
@@ -2363,7 +2389,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:529](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L529)
+[src/services/maintenance/p2tr-signature-fraud.ts:543](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L543)
 
 ___
 
@@ -2373,7 +2399,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:436](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L436)
+[src/services/maintenance/p2tr-signature-fraud.ts:450](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L450)
 
 ___
 
@@ -2383,7 +2409,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:523](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L523)
+[src/services/maintenance/p2tr-signature-fraud.ts:537](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L537)
 
 ___
 
@@ -2463,7 +2489,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:520](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L520)
+[src/services/maintenance/p2tr-signature-fraud.ts:534](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L534)
 
 ___
 
@@ -2611,7 +2637,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:1860](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L1860)
+[src/services/maintenance/p2tr-signature-fraud.ts:1874](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L1874)
 
 ___
 
@@ -2708,7 +2734,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:2856](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2856)
+[src/services/maintenance/p2tr-signature-fraud.ts:2939](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2939)
 
 ___
 
@@ -2786,7 +2812,7 @@ sighash mode, with or without a witness annex.
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:2427](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2427)
+[src/services/maintenance/p2tr-signature-fraud.ts:2441](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2441)
 
 ___
 
@@ -2820,7 +2846,7 @@ BIP-340 signature.
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:2659](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2659)
+[src/services/maintenance/p2tr-signature-fraud.ts:2742](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2742)
 
 ___
 
@@ -2840,7 +2866,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:2810](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2810)
+[src/services/maintenance/p2tr-signature-fraud.ts:2893](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2893)
 
 ___
 
@@ -2872,7 +2898,7 @@ harnesses. It is not a final production Bridge challenge key.
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:2770](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2770)
+[src/services/maintenance/p2tr-signature-fraud.ts:2853](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2853)
 
 ___
 
@@ -2906,7 +2932,7 @@ duplicate mempool/confirmed observations can be collapsed before submission.
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:2581](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2581)
+[src/services/maintenance/p2tr-signature-fraud.ts:2664](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2664)
 
 ___
 
@@ -2926,7 +2952,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:973](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L973)
+[src/services/maintenance/p2tr-signature-fraud.ts:987](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L987)
 
 ___
 
@@ -2946,7 +2972,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:1063](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L1063)
+[src/services/maintenance/p2tr-signature-fraud.ts:1077](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L1077)
 
 ___
 
@@ -3002,7 +3028,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:1135](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L1135)
+[src/services/maintenance/p2tr-signature-fraud.ts:1149](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L1149)
 
 ___
 
@@ -3022,7 +3048,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:1237](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L1237)
+[src/services/maintenance/p2tr-signature-fraud.ts:1251](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L1251)
 
 ___
 
@@ -3074,7 +3100,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:2911](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2911)
+[src/services/maintenance/p2tr-signature-fraud.ts:2994](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2994)
 
 ___
 
@@ -3195,25 +3221,26 @@ Parsed witness signature for the input, with sighash type resolved.
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:2238](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2238)
+[src/services/maintenance/p2tr-signature-fraud.ts:2252](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2252)
 
 ___
 
 ### extractP2TRSignatureFraudWitnessObservations
 
-▸ **extractP2TRSignatureFraudWitnessObservations**(`rawTransaction`, `inputPrevouts`, `registeredWalletIDs`, `bridgeIdentifier?`, `spendTypeClassifier?`, `payloadBounds?`, `bridgeChallengeDomain?`): [`P2TRSignatureFraudWitnessObservation`](README.md#p2trsignaturefraudwitnessobservation)[]
+▸ **extractP2TRSignatureFraudWitnessObservations**(`rawTransaction`, `inputPrevouts`, `registeredWalletIDs`, `bridgeIdentifier?`, `spendTypeClassifier?`, `payloadBounds?`, `bridgeChallengeDomain?`, `walletInputKeyBindings?`): [`P2TRSignatureFraudWitnessObservation`](README.md#p2trsignaturefraudwitnessobservation)[]
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `rawTransaction` | [`BitcoinRawTx`](interfaces/BitcoinRawTx.md) |
-| `inputPrevouts` | [`P2TRWalletInputObservationPrevout`](README.md#p2trwalletinputobservationprevout)[] |
-| `registeredWalletIDs` | (`string` \| [`Hex`](classes/Hex.md) \| `Buffer`\<`ArrayBufferLike`\>)[] |
-| `bridgeIdentifier?` | `string` \| [`Hex`](classes/Hex.md) \| `Buffer`\<`ArrayBufferLike`\> |
-| `spendTypeClassifier?` | [`P2TRSignatureFraudSpendTypeClassifier`](README.md#p2trsignaturefraudspendtypeclassifier) |
-| `payloadBounds?` | [`P2TRSignatureFraudPayloadBounds`](README.md#p2trsignaturefraudpayloadbounds) |
-| `bridgeChallengeDomain?` | [`P2TRSignatureFraudBridgeChallengeDomain`](README.md#p2trsignaturefraudbridgechallengedomain) |
+| Name | Type | Default value |
+| :------ | :------ | :------ |
+| `rawTransaction` | [`BitcoinRawTx`](interfaces/BitcoinRawTx.md) | `undefined` |
+| `inputPrevouts` | [`P2TRWalletInputObservationPrevout`](README.md#p2trwalletinputobservationprevout)[] | `undefined` |
+| `registeredWalletIDs` | (`string` \| [`Hex`](classes/Hex.md) \| `Buffer`\<`ArrayBufferLike`\>)[] | `undefined` |
+| `bridgeIdentifier?` | `string` \| [`Hex`](classes/Hex.md) \| `Buffer`\<`ArrayBufferLike`\> | `undefined` |
+| `spendTypeClassifier?` | [`P2TRSignatureFraudSpendTypeClassifier`](README.md#p2trsignaturefraudspendtypeclassifier) | `undefined` |
+| `payloadBounds?` | [`P2TRSignatureFraudPayloadBounds`](README.md#p2trsignaturefraudpayloadbounds) | `undefined` |
+| `bridgeChallengeDomain?` | [`P2TRSignatureFraudBridgeChallengeDomain`](README.md#p2trsignaturefraudbridgechallengedomain) | `undefined` |
+| `walletInputKeyBindings` | [`P2TRWalletInputKeyBinding`](README.md#p2trwalletinputkeybinding)[] | `[]` |
 
 #### Returns
 
@@ -3221,7 +3248,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:3055](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L3055)
+[src/services/maintenance/p2tr-signature-fraud.ts:3138](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L3138)
 
 ___
 
@@ -3241,13 +3268,13 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:2494](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2494)
+[src/services/maintenance/p2tr-signature-fraud.ts:2508](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2508)
 
 ___
 
 ### extractP2TRWalletInputWitnessCandidates
 
-▸ **extractP2TRWalletInputWitnessCandidates**(`rawTransaction`, `inputPrevouts`, `registeredWalletIDs`): [`P2TRWalletInputWitnessCandidate`](README.md#p2trwalletinputwitnesscandidate)[]
+▸ **extractP2TRWalletInputWitnessCandidates**(`rawTransaction`, `inputPrevouts`, `registeredWalletIDs`, `walletInputKeyBindings?`): [`P2TRWalletInputWitnessCandidate`](README.md#p2trwalletinputwitnesscandidate)[]
 
 Finds registered tBTC P2TR wallet inputs in a raw Bitcoin transaction and
 parses their key-path witness signatures.
@@ -3260,22 +3287,24 @@ inputs with unsupported witness forms are rejected fail-closed.
 
 #### Parameters
 
-| Name | Type | Description |
-| :------ | :------ | :------ |
-| `rawTransaction` | [`BitcoinRawTx`](interfaces/BitcoinRawTx.md) | Raw Bitcoin transaction whose inputs are being screened for P2TR wallet key-path spends. |
-| `inputPrevouts` | [`P2TRWalletInputPrevout`](README.md#p2trwalletinputprevout)[] | Per-input prevout records (script, amount). Length must equal the transaction's input vector length. |
-| `registeredWalletIDs` | (`string` \| [`Hex`](classes/Hex.md) \| `Buffer`\<`ArrayBufferLike`\>)[] | Canonical FROST wallet identifiers whose P2TR outputs are considered "registered" for this scan. |
+| Name | Type | Default value | Description |
+| :------ | :------ | :------ | :------ |
+| `rawTransaction` | [`BitcoinRawTx`](interfaces/BitcoinRawTx.md) | `undefined` | Raw Bitcoin transaction whose inputs are being screened for P2TR wallet key-path spends. |
+| `inputPrevouts` | [`P2TRWalletInputPrevout`](README.md#p2trwalletinputprevout)[] | `undefined` | Per-input prevout records (script, amount). Length must equal the transaction's input vector length. |
+| `registeredWalletIDs` | (`string` \| [`Hex`](classes/Hex.md) \| `Buffer`\<`ArrayBufferLike`\>)[] | `undefined` | Canonical FROST wallet identifiers whose P2TR outputs are considered "registered" for this scan. |
+| `walletInputKeyBindings` | [`P2TRWalletInputKeyBinding`](README.md#p2trwalletinputkeybinding)[] | `[]` | Revealed-deposit output keys bound to their registered wallet IDs and exact funding outpoints. |
 
 #### Returns
 
 [`P2TRWalletInputWitnessCandidate`](README.md#p2trwalletinputwitnesscandidate)[]
 
 Candidate witness records for each input whose prevout script
-         matches a registered wallet's P2TR output key.
+         matches a registered wallet's P2TR output key, directly or through
+         an exact revealed-deposit binding.
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:2528](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2528)
+[src/services/maintenance/p2tr-signature-fraud.ts:2545](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2545)
 
 ___
 
@@ -3367,7 +3396,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:1378](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L1378)
+[src/services/maintenance/p2tr-signature-fraud.ts:1392](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L1392)
 
 ___
 
@@ -3638,7 +3667,7 @@ Packed parameters.
 
 #### Defined in
 
-[src/lib/ethereum/bridge.ts:1299](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L1299)
+[src/lib/ethereum/bridge.ts:1302](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L1302)
 
 ___
 
@@ -3672,7 +3701,7 @@ Parsed signature with the 64-byte Schnorr signature and the
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:2178](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2178)
+[src/services/maintenance/p2tr-signature-fraud.ts:2192](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2192)
 
 ___
 
@@ -3693,7 +3722,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:2105](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2105)
+[src/services/maintenance/p2tr-signature-fraud.ts:2119](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2119)
 
 ___
 
@@ -3726,7 +3755,7 @@ The updated challenge record after a successful persist.
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:2141](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2141)
+[src/services/maintenance/p2tr-signature-fraud.ts:2155](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2155)
 
 ___
 
@@ -3747,7 +3776,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:2382](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2382)
+[src/services/maintenance/p2tr-signature-fraud.ts:2396](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2396)
 
 ___
 
@@ -3769,7 +3798,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:1471](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L1471)
+[src/services/maintenance/p2tr-signature-fraud.ts:1485](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L1485)
 
 ___
 
@@ -3791,7 +3820,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:1435](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L1435)
+[src/services/maintenance/p2tr-signature-fraud.ts:1449](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L1449)
 
 ___
 
@@ -3836,7 +3865,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:1094](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L1094)
+[src/services/maintenance/p2tr-signature-fraud.ts:1108](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L1108)
 
 ___
 
@@ -3856,7 +3885,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:1212](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L1212)
+[src/services/maintenance/p2tr-signature-fraud.ts:1226](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L1226)
 
 ___
 
@@ -3902,7 +3931,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:2276](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2276)
+[src/services/maintenance/p2tr-signature-fraud.ts:2290](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2290)
 
 ___
 
@@ -3922,7 +3951,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:1399](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L1399)
+[src/services/maintenance/p2tr-signature-fraud.ts:1413](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L1413)
 
 ___
 
@@ -4081,7 +4110,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:2315](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2315)
+[src/services/maintenance/p2tr-signature-fraud.ts:2329](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2329)
 
 ___
 
@@ -4102,4 +4131,4 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:3144](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L3144)
+[src/services/maintenance/p2tr-signature-fraud.ts:3229](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L3229)

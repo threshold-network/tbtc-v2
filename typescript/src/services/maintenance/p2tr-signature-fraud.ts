@@ -85,6 +85,19 @@ export type P2TRWalletInputObservationPrevout = P2TRWalletInputPrevout & {
   valueSats: BigNumberish
 }
 
+/**
+ * Binds a Taproot output key used by a revealed deposit back to the registered
+ * FROST wallet that controls its key path. The funding outpoint is part of the
+ * binding so an output key learned from one deposit cannot authorize an
+ * unrelated input.
+ */
+export type P2TRWalletInputKeyBinding = {
+  txid: Hex | Buffer | string
+  vout: number
+  outputKey: Hex | Buffer | string
+  walletID: Hex | Buffer | string
+}
+
 export type P2TRWalletInputWitnessCandidate =
   P2TRKeyPathInputWitnessSignature & {
     walletID: Hex
@@ -378,6 +391,7 @@ type P2TRSignatureFraudWatchtowerSettledBridgeLifecycleResult =
 export type P2TRWatchtowerMempoolTransaction = {
   rawTransaction: BitcoinRawTx
   bitcoinTxHash: Hex | Buffer | string
+  walletInputKeyBindings?: P2TRWalletInputKeyBinding[]
 }
 
 export type P2TRWatchtowerConfirmedTransaction =
@@ -2522,13 +2536,17 @@ export const extractP2TRWalletIDFromScriptPubKey = (
  *        must equal the transaction's input vector length.
  * @param registeredWalletIDs Canonical FROST wallet identifiers whose P2TR
  *        outputs are considered "registered" for this scan.
+ * @param walletInputKeyBindings Revealed-deposit output keys bound to their
+ *        registered wallet IDs and exact funding outpoints.
  * @returns Candidate witness records for each input whose prevout script
- *          matches a registered wallet's P2TR output key.
+ *          matches a registered wallet's P2TR output key, directly or through
+ *          an exact revealed-deposit binding.
  */
 export const extractP2TRWalletInputWitnessCandidates = (
   rawTransaction: BitcoinRawTx,
   inputPrevouts: P2TRWalletInputPrevout[],
-  registeredWalletIDs: (Hex | Buffer | string)[]
+  registeredWalletIDs: (Hex | Buffer | string)[],
+  walletInputKeyBindings: P2TRWalletInputKeyBinding[] = []
 ): P2TRWalletInputWitnessCandidate[] => {
   const transaction = Transaction.fromHex(rawTransaction.transactionHex)
 
@@ -2541,14 +2559,33 @@ export const extractP2TRWalletInputWitnessCandidates = (
 
   const registeredWalletIDStrings = new Set(
     registeredWalletIDs.map((walletID) =>
-      Hex.from(toBuffer(walletID)).toString()
+      toBytes32Hex(walletID, "Registered wallet ID").toString()
     )
+  )
+  const keyBindings = normalizeP2TRWalletInputKeyBindings(
+    walletInputKeyBindings,
+    registeredWalletIDStrings
   )
 
   return inputPrevouts.flatMap((prevout, inputIndex) => {
-    const walletID = extractP2TRWalletIDFromScriptPubKey(prevout.scriptPubKey)
+    const outputKey = extractP2TRWalletIDFromScriptPubKey(prevout.scriptPubKey)
 
-    if (!walletID || !registeredWalletIDStrings.has(walletID.toString())) {
+    if (!outputKey) {
+      return []
+    }
+
+    const input = transaction.ins[inputIndex]
+    const inputTxid = BitcoinTxHash.from(input.hash).reverse().toString()
+    const binding = keyBindings.get(
+      p2trWalletInputKeyBindingMapKey(inputTxid, input.index, outputKey)
+    )
+    const walletID =
+      binding ??
+      (registeredWalletIDStrings.has(outputKey.toString())
+        ? outputKey
+        : undefined)
+
+    if (walletID === undefined) {
       return []
     }
 
@@ -2561,6 +2598,52 @@ export const extractP2TRWalletInputWitnessCandidates = (
     ]
   })
 }
+
+const normalizeP2TRWalletInputKeyBindings = (
+  bindings: P2TRWalletInputKeyBinding[],
+  registeredWalletIDs: Set<string>
+): Map<string, Hex> => {
+  const result = new Map<string, Hex>()
+
+  for (const binding of bindings) {
+    const walletID = toBytes32Hex(binding.walletID, "Bound wallet ID")
+    const outputKey = toBytes32Hex(binding.outputKey, "Bound output key")
+    const txid = toBytes32Hex(binding.txid, "Bound funding txid")
+    uint32LE(binding.vout, "Bound funding output index")
+
+    if (!registeredWalletIDs.has(walletID.toString())) {
+      continue
+    }
+
+    const key = p2trWalletInputKeyBindingMapKey(
+      txid.toString(),
+      binding.vout,
+      outputKey
+    )
+    const existingWalletID = result.get(key)
+
+    if (existingWalletID !== undefined && !existingWalletID.equals(walletID)) {
+      throw new P2TRWitnessSignatureError(
+        "invalid-observation-payload",
+        "Taproot wallet input key bindings conflict for the same outpoint and output key"
+      )
+    }
+
+    result.set(key, walletID)
+  }
+
+  return result
+}
+
+const p2trWalletInputKeyBindingMapKey = (
+  txid: Hex | Buffer | string,
+  vout: number,
+  outputKey: Hex | Buffer | string
+): string =>
+  `${toBytes32Hex(txid, "Wallet input txid").toString()}:${vout}:${toBytes32Hex(
+    outputKey,
+    "Wallet input output key"
+  ).toString()}`
 
 /**
  * Computes a deterministic off-chain observation ID for watchtower
@@ -3059,7 +3142,8 @@ export const extractP2TRSignatureFraudWitnessObservations = (
   bridgeIdentifier?: Hex | Buffer | string,
   spendTypeClassifier?: P2TRSignatureFraudSpendTypeClassifier,
   payloadBounds?: P2TRSignatureFraudPayloadBounds,
-  bridgeChallengeDomain?: P2TRSignatureFraudBridgeChallengeDomain
+  bridgeChallengeDomain?: P2TRSignatureFraudBridgeChallengeDomain,
+  walletInputKeyBindings: P2TRWalletInputKeyBinding[] = []
 ): P2TRSignatureFraudWitnessObservation[] => {
   if (payloadBounds !== undefined) {
     validateP2TRSignatureFraudPayloadBounds(
@@ -3075,7 +3159,8 @@ export const extractP2TRSignatureFraudWitnessObservations = (
   return extractP2TRWalletInputWitnessCandidates(
     rawTransaction,
     inputPrevouts,
-    registeredWalletIDs
+    registeredWalletIDs,
+    walletInputKeyBindings
   ).map((candidate) => {
     const spendType = requireP2TRSignatureFraudSpendType(
       spendTypeClassifier?.({
@@ -3149,6 +3234,21 @@ export const validateP2TRSignatureFraudWitnessObservationConsistency = (
     observation.observationID,
     "Observation ID"
   )
+  const observedPrevout = observation.inputPrevouts[observation.inputIndex]
+  const observedOutputKey = extractP2TRWalletIDFromScriptPubKey(
+    observation.scriptPubKey
+  )
+  const walletInputKeyBindings =
+    observedPrevout === undefined || observedOutputKey === undefined
+      ? []
+      : [
+          {
+            txid: observedPrevout.txid,
+            vout: observedPrevout.vout,
+            outputKey: observedOutputKey,
+            walletID: observation.walletID,
+          },
+        ]
   const expectedObservation = extractP2TRSignatureFraudWitnessObservations(
     observation.rawTransaction,
     observation.inputPrevouts,
@@ -3156,7 +3256,8 @@ export const validateP2TRSignatureFraudWitnessObservationConsistency = (
     context.bridgeIdentifier,
     context.spendTypeClassifier,
     context.payloadBounds,
-    context.bridgeChallengeDomain
+    context.bridgeChallengeDomain,
+    walletInputKeyBindings
   ).find((expected) => expected.observationID.equals(observationID))
 
   if (expectedObservation === undefined) {
@@ -3198,7 +3299,8 @@ export class P2TRSignatureFraudWatchtower {
   async observeMempoolTransaction(
     rawTransaction: BitcoinRawTx,
     inputPrevouts: P2TRWalletInputObservationPrevout[],
-    bitcoinTxHash: Hex | Buffer | string
+    bitcoinTxHash: Hex | Buffer | string,
+    walletInputKeyBindings: P2TRWalletInputKeyBinding[] = []
   ): Promise<P2TRSignatureFraudWatchtowerObservationResult[]> {
     const observations = extractP2TRSignatureFraudWitnessObservations(
       rawTransaction,
@@ -3207,7 +3309,8 @@ export class P2TRSignatureFraudWatchtower {
       this.bridgeIdentifier,
       this.spendTypeClassifier,
       this.payloadBounds,
-      this.bridgeChallengeDomain
+      this.bridgeChallengeDomain,
+      walletInputKeyBindings
     )
 
     return Promise.all(
@@ -3226,12 +3329,14 @@ export class P2TRSignatureFraudWatchtower {
   async observeMempoolTransactionWithResolvedPrevouts(
     rawTransaction: BitcoinRawTx,
     bitcoinClient: BitcoinClient,
-    bitcoinTxHash: Hex | Buffer | string
+    bitcoinTxHash: Hex | Buffer | string,
+    walletInputKeyBindings: P2TRWalletInputKeyBinding[] = []
   ): Promise<P2TRSignatureFraudWatchtowerObservationResult[]> {
     return this.observeMempoolTransaction(
       rawTransaction,
       await resolveP2TRInputPrevouts(rawTransaction, bitcoinClient),
-      bitcoinTxHash
+      bitcoinTxHash,
+      walletInputKeyBindings
     )
   }
 
@@ -3240,7 +3345,8 @@ export class P2TRSignatureFraudWatchtower {
     inputPrevouts: P2TRWalletInputObservationPrevout[],
     bitcoinTxHash: Hex | Buffer | string,
     bitcoinBlockHash: Hex | Buffer | string,
-    bitcoinBlockHeight: number
+    bitcoinBlockHeight: number,
+    walletInputKeyBindings: P2TRWalletInputKeyBinding[] = []
   ): Promise<P2TRSignatureFraudWatchtowerObservationResult[]> {
     const observations = extractP2TRSignatureFraudWitnessObservations(
       rawTransaction,
@@ -3249,7 +3355,8 @@ export class P2TRSignatureFraudWatchtower {
       this.bridgeIdentifier,
       this.spendTypeClassifier,
       this.payloadBounds,
-      this.bridgeChallengeDomain
+      this.bridgeChallengeDomain,
+      walletInputKeyBindings
     )
 
     return Promise.all(
@@ -3272,14 +3379,16 @@ export class P2TRSignatureFraudWatchtower {
     bitcoinClient: BitcoinClient,
     bitcoinTxHash: Hex | Buffer | string,
     bitcoinBlockHash: Hex | Buffer | string,
-    bitcoinBlockHeight: number
+    bitcoinBlockHeight: number,
+    walletInputKeyBindings: P2TRWalletInputKeyBinding[] = []
   ): Promise<P2TRSignatureFraudWatchtowerObservationResult[]> {
     return this.observeConfirmedTransaction(
       rawTransaction,
       await resolveP2TRInputPrevouts(rawTransaction, bitcoinClient),
       bitcoinTxHash,
       bitcoinBlockHash,
-      bitcoinBlockHeight
+      bitcoinBlockHeight,
+      walletInputKeyBindings
     )
   }
 
@@ -3595,13 +3704,15 @@ export class P2TRSignatureFraudWatchtowerRunner {
 
   async processMempoolTransaction(
     rawTransaction: BitcoinRawTx,
-    bitcoinTxHash: Hex | Buffer | string
+    bitcoinTxHash: Hex | Buffer | string,
+    walletInputKeyBindings: P2TRWalletInputKeyBinding[] = []
   ): Promise<P2TRSignatureFraudWatchtowerSubmissionResult[]> {
     return this.submitObservationResults(
       await this.watchtower.observeMempoolTransactionWithResolvedPrevouts(
         rawTransaction,
         this.bitcoinClient,
-        bitcoinTxHash
+        bitcoinTxHash,
+        walletInputKeyBindings
       )
     )
   }
@@ -3613,7 +3724,8 @@ export class P2TRSignatureFraudWatchtowerRunner {
       transactions.map((transaction) =>
         this.processMempoolTransaction(
           transaction.rawTransaction,
-          transaction.bitcoinTxHash
+          transaction.bitcoinTxHash,
+          transaction.walletInputKeyBindings
         )
       )
     )
@@ -3629,7 +3741,8 @@ export class P2TRSignatureFraudWatchtowerRunner {
     return this.processTransactionsSettled(transactions, (transaction) =>
       this.processMempoolTransaction(
         transaction.rawTransaction,
-        transaction.bitcoinTxHash
+        transaction.bitcoinTxHash,
+        transaction.walletInputKeyBindings
       )
     )
   }
@@ -3638,7 +3751,8 @@ export class P2TRSignatureFraudWatchtowerRunner {
     rawTransaction: BitcoinRawTx,
     bitcoinTxHash: Hex | Buffer | string,
     bitcoinBlockHash: Hex | Buffer | string,
-    bitcoinBlockHeight: number
+    bitcoinBlockHeight: number,
+    walletInputKeyBindings: P2TRWalletInputKeyBinding[] = []
   ): Promise<P2TRSignatureFraudWatchtowerSubmissionResult[]> {
     return this.submitObservationResults(
       await this.watchtower.observeConfirmedTransactionWithResolvedPrevouts(
@@ -3646,7 +3760,8 @@ export class P2TRSignatureFraudWatchtowerRunner {
         this.bitcoinClient,
         bitcoinTxHash,
         bitcoinBlockHash,
-        bitcoinBlockHeight
+        bitcoinBlockHeight,
+        walletInputKeyBindings
       )
     )
   }
@@ -3660,7 +3775,8 @@ export class P2TRSignatureFraudWatchtowerRunner {
           transaction.rawTransaction,
           transaction.bitcoinTxHash,
           transaction.bitcoinBlockHash,
-          transaction.bitcoinBlockHeight
+          transaction.bitcoinBlockHeight,
+          transaction.walletInputKeyBindings
         )
       )
     )
@@ -3678,7 +3794,8 @@ export class P2TRSignatureFraudWatchtowerRunner {
         transaction.rawTransaction,
         transaction.bitcoinTxHash,
         transaction.bitcoinBlockHash,
-        transaction.bitcoinBlockHeight
+        transaction.bitcoinBlockHeight,
+        transaction.walletInputKeyBindings
       )
     )
   }

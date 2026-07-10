@@ -1,12 +1,19 @@
 import assert from "assert/strict"
 import test from "node:test"
 
-import { BitcoinNetwork } from "@keep-network/tbtc-v2.ts"
+import {
+  BitcoinNetwork,
+  BitcoinTxHash,
+  DepositScript,
+  DepositScriptType,
+  Hex,
+} from "@keep-network/tbtc-v2.ts"
 
 import {
   EsploraP2TRSignatureFraudTransactionSource,
   P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV,
   P2TREsploraFetch,
+  P2TRTaprootDepositRevealSource,
   createEsploraP2TRTransactionSourceFromRuntimeConfig,
   deriveP2TRWalletAddress,
   loadP2TRSignatureFraudWatchtowerRuntimeConfig,
@@ -30,6 +37,9 @@ const rawMempoolTx = "020000000001"
 const secondRawMempoolTx = "020000000002"
 const rawConfirmedTx = "020000000003"
 const nextRawConfirmedTx = "020000000004"
+const fundingTxid = "12".repeat(32)
+
+const emptyTaprootDepositRevealSource = taprootDepositRevealSource([])
 
 test("derives P2TR wallet addresses from canonical x-only wallet IDs", () => {
   assert.equal(
@@ -59,6 +69,7 @@ test("lists unique Esplora mempool P2TR wallet transactions", async () => {
     BitcoinNetwork.Testnet,
     [walletID, secondWalletID],
     {
+      taprootDepositRevealSource: emptyTaprootDepositRevealSource,
       fetchFn: fakeFetch(
         {
           [addressMempoolPath(firstAddress)]: [{ txid: `0x${mempoolTxid}` }],
@@ -92,6 +103,61 @@ test("lists unique Esplora mempool P2TR wallet transactions", async () => {
   )
 })
 
+test("discovers mempool spends of revealed Taproot deposit outpoints", async () => {
+  const address = deriveP2TRWalletAddress(walletID, BitcoinNetwork.Testnet)
+  const requestedPaths: string[] = []
+  const event = taprootDepositEvent()
+  const extraData = Hex.from("27".repeat(32))
+  const expectedOutputKey = (
+    await DepositScript.fromReceipt(
+      { ...(event as object), extraData } as never,
+      DepositScriptType.P2TR
+    ).getTaprootOutputKey()
+  ).toString()
+  const outputKeyWithoutExtraData = (
+    await DepositScript.fromReceipt(
+      event as never,
+      DepositScriptType.P2TR
+    ).getTaprootOutputKey()
+  ).toString()
+  const source = new EsploraP2TRSignatureFraudTransactionSource(
+    "https://esplora.test",
+    BitcoinNetwork.Testnet,
+    [walletID],
+    {
+      taprootDepositRevealSource: taprootDepositRevealSource(
+        [event],
+        extraData
+      ),
+      fetchFn: fakeFetch(
+        {
+          [addressMempoolPath(address)]: [],
+          [depositOutspendPath(fundingTxid, 2)]: {
+            spent: true,
+            txid: mempoolTxid,
+            status: { confirmed: false },
+          },
+          [`/tx/${mempoolTxid}/hex`]: rawMempoolTx,
+        },
+        requestedPaths
+      ),
+    }
+  )
+
+  const transactions = await source.listMempoolTransactions()
+
+  assert.equal(transactions.length, 1)
+  assert.equal(transactions[0].bitcoinTxHash.toString(), mempoolTxid)
+  const [binding] = transactions[0].walletInputKeyBindings ?? []
+  assert.equal(String(binding.txid), fundingTxid)
+  assert.equal(binding.vout, 2)
+  assert.equal(String(binding.walletID), walletID.slice(2))
+  assert.equal(String(binding.outputKey), expectedOutputKey)
+  assert.notEqual(String(binding.outputKey), outputKeyWithoutExtraData)
+  assert.notEqual(String(binding.outputKey), walletID.slice(2))
+  assert.ok(requestedPaths.includes(depositOutspendPath(fundingTxid, 2)))
+})
+
 test("wires Esplora transaction source from validated runtime config", async () => {
   const address = deriveP2TRWalletAddress(walletID, BitcoinNetwork.Testnet)
   const config = loadP2TRSignatureFraudWatchtowerRuntimeConfig({
@@ -107,6 +173,7 @@ test("wires Esplora transaction source from validated runtime config", async () 
     [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.esploraConfirmedPageLimit]: "1",
   })
   const source = createEsploraP2TRTransactionSourceFromRuntimeConfig(config, {
+    taprootDepositRevealSource: emptyTaprootDepositRevealSource,
     fetchFn: fakeFetch({
       [addressMempoolPath(address)]: [{ txid: mempoolTxid }],
       [`/tx/${mempoolTxid}/hex`]: rawMempoolTx,
@@ -128,6 +195,7 @@ test("lists paged Esplora confirmed P2TR wallet transactions with block metadata
     BitcoinNetwork.Testnet,
     [walletID],
     {
+      taprootDepositRevealSource: emptyTaprootDepositRevealSource,
       confirmedPageLimit: 2,
       fetchFn: fakeFetch({
         [addressConfirmedPath(address)]: [
@@ -158,6 +226,48 @@ test("lists paged Esplora confirmed P2TR wallet transactions with block metadata
   )
 })
 
+test("discovers confirmed spends of revealed Taproot deposit outpoints", async () => {
+  const address = deriveP2TRWalletAddress(walletID, BitcoinNetwork.Testnet)
+  const source = new EsploraP2TRSignatureFraudTransactionSource(
+    "https://esplora.test",
+    BitcoinNetwork.Testnet,
+    [walletID],
+    {
+      taprootDepositRevealSource: taprootDepositRevealSource([
+        taprootDepositEvent(),
+      ]),
+      fetchFn: fakeFetch({
+        [addressConfirmedPath(address)]: [],
+        [depositOutspendPath(fundingTxid, 2)]: {
+          spent: true,
+          txid: confirmedTxid,
+          status: {
+            confirmed: true,
+            block_hash: blockHash,
+            block_height: 123,
+          },
+        },
+        [`/tx/${confirmedTxid}/hex`]: rawConfirmedTx,
+      }),
+    }
+  )
+
+  const transactions = await source.listConfirmedTransactions()
+
+  assert.equal(transactions.length, 1)
+  assert.equal(transactions[0].bitcoinTxHash.toString(), confirmedTxid)
+  assert.equal(transactions[0].bitcoinBlockHash, blockHash)
+  assert.equal(transactions[0].bitcoinBlockHeight, 123)
+  assert.deepEqual(
+    transactions[0].walletInputKeyBindings?.map(({ txid, vout, walletID }) => ({
+      txid: String(txid),
+      vout,
+      walletID: String(walletID),
+    })),
+    [{ txid: fundingTxid, vout: 2, walletID: walletID.slice(2) }]
+  )
+})
+
 test("rejects confirmed Esplora transactions without block metadata", async () => {
   const address = deriveP2TRWalletAddress(walletID, BitcoinNetwork.Testnet)
   const source = new EsploraP2TRSignatureFraudTransactionSource(
@@ -165,6 +275,7 @@ test("rejects confirmed Esplora transactions without block metadata", async () =
     BitcoinNetwork.Testnet,
     [walletID],
     {
+      taprootDepositRevealSource: emptyTaprootDepositRevealSource,
       fetchFn: fakeFetch({
         [addressConfirmedPath(address)]: [
           {
@@ -188,7 +299,8 @@ test("validates Esplora source configuration before scanning", () => {
       new EsploraP2TRSignatureFraudTransactionSource(
         "",
         BitcoinNetwork.Testnet,
-        [walletID]
+        [walletID],
+        { taprootDepositRevealSource: emptyTaprootDepositRevealSource }
       ),
     /base URL is required/
   )
@@ -197,7 +309,8 @@ test("validates Esplora source configuration before scanning", () => {
       new EsploraP2TRSignatureFraudTransactionSource(
         "esplora.test",
         BitcoinNetwork.Testnet,
-        [walletID]
+        [walletID],
+        { taprootDepositRevealSource: emptyTaprootDepositRevealSource }
       ),
     /base URL must be an absolute http\(s\) URL/
   )
@@ -206,7 +319,8 @@ test("validates Esplora source configuration before scanning", () => {
       new EsploraP2TRSignatureFraudTransactionSource(
         "file:///tmp/esplora",
         BitcoinNetwork.Testnet,
-        [walletID]
+        [walletID],
+        { taprootDepositRevealSource: emptyTaprootDepositRevealSource }
       ),
     /base URL must be an absolute http\(s\) URL/
   )
@@ -215,7 +329,8 @@ test("validates Esplora source configuration before scanning", () => {
       new EsploraP2TRSignatureFraudTransactionSource(
         "https://esplora.test",
         BitcoinNetwork.Testnet,
-        []
+        [],
+        { taprootDepositRevealSource: emptyTaprootDepositRevealSource }
       ),
     /requires wallet IDs/
   )
@@ -224,11 +339,56 @@ test("validates Esplora source configuration before scanning", () => {
       new EsploraP2TRSignatureFraudTransactionSource(
         "https://esplora.test",
         BitcoinNetwork.Testnet,
-        ["0x1234"]
+        ["0x1234"],
+        { taprootDepositRevealSource: emptyTaprootDepositRevealSource }
       ),
     /wallet ID must be 32 bytes/
   )
+  assert.throws(
+    () =>
+      new EsploraP2TRSignatureFraudTransactionSource(
+        "https://esplora.test",
+        BitcoinNetwork.Testnet,
+        [walletID],
+        undefined as never
+      ),
+    /requires a Taproot deposit reveal source/
+  )
 })
+
+function taprootDepositRevealSource(
+  events: unknown[],
+  extraData?: Hex
+): P2TRTaprootDepositRevealSource {
+  return {
+    async getTaprootDepositRevealedEvents() {
+      return events as never[]
+    },
+    async deposits() {
+      return {
+        depositor: { identifierHex: "23".repeat(20) },
+        extraData,
+      } as never
+    },
+  }
+}
+
+function taprootDepositEvent(): unknown {
+  return {
+    blockNumber: 1,
+    blockHash: Hex.from("21".repeat(32)),
+    transactionHash: Hex.from("22".repeat(32)),
+    fundingTxHash: BitcoinTxHash.from(fundingTxid),
+    fundingOutputIndex: 2,
+    depositor: { identifierHex: "23".repeat(20) },
+    blindingFactor: Hex.from("24".repeat(8)),
+    walletPublicKeyHash: Hex.from("25".repeat(20)),
+    walletXOnlyPublicKey: Hex.from(walletID),
+    refundPublicKeyHash: Hex.from("26".repeat(20)),
+    refundXOnlyPublicKey: Hex.from(secondWalletID),
+    refundLocktime: Hex.from("00000000"),
+  }
+}
 
 function confirmedSummary(
   txid: string,
@@ -251,6 +411,10 @@ function addressMempoolPath(address: string): string {
 
 function addressConfirmedPath(address: string): string {
   return `/address/${encodeURIComponent(address)}/txs/chain`
+}
+
+function depositOutspendPath(txid: string, vout: number): string {
+  return `/tx/${txid}/outspend/${vout}`
 }
 
 function fakeFetch(

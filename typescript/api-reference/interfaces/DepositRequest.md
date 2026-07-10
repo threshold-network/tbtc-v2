@@ -8,6 +8,7 @@ Represents a deposit request revealed to the on-chain bridge.
 
 - [amount](DepositRequest.md#amount)
 - [depositor](DepositRequest.md#depositor)
+- [extraData](DepositRequest.md#extradata)
 - [revealedAt](DepositRequest.md#revealedat)
 - [sweptAt](DepositRequest.md#sweptat)
 - [treasuryFee](DepositRequest.md#treasuryfee)
@@ -36,6 +37,18 @@ Depositor's chain identifier.
 #### Defined in
 
 [src/lib/contracts/bridge.ts:354](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L354)
+
+___
+
+### extraData
+
+• `Optional` **extraData**: [`Hex`](../classes/Hex.md)
+
+Optional 32-byte extra data committed by the deposit script.
+
+#### Defined in
+
+[src/lib/contracts/bridge.ts:384](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L384)
 
 ___
 

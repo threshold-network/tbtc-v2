@@ -26,6 +26,7 @@ export {
 export type {
   EsploraP2TRSignatureFraudTransactionSourceOptions,
   P2TREsploraFetch,
+  P2TRTaprootDepositRevealSource,
 } from "./EsploraP2TRSignatureFraudTransactionSource.js"
 export type {
   EthersP2TRSignatureFraudBridgeLifecycleEventSourceOptions,
