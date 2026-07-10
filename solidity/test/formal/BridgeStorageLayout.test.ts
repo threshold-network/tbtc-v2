@@ -250,6 +250,10 @@ describe("Bridge storage layout invariant", () => {
     // which packs into the same slot right after `ecdsaRetired`'s byte
     // WITHOUT taking a new slot. No `__gap` decrement; the member+gap
     // total grows by 1 (106 → 107).
+    //
+    // Taproot deposit fraud verification appends the
+    // `taprootDepositOutputKeyCommitments` mapping in slot 38 and reduces
+    // `__gap` from 40 to 39. The explicit-member + gap total remains 107.
     const EXPECTED_RESERVED_TOTAL = 107
 
     const explicitMemberCount = selfType.members!.length - 1

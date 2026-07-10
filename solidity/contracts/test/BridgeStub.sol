@@ -33,7 +33,7 @@ contract BridgeStub is Bridge {
         uint256 utxoKey = uint256(
             keccak256(abi.encodePacked(utxo.txHash, utxo.txOutputIndex))
         );
-        self.deposits[utxoKey].taprootOutputKeyCommitment = Deposit
+        self.taprootDepositOutputKeyCommitments[utxoKey] = Deposit
             .taprootOutputKeyCommitment(walletID, outputKey);
     }
 

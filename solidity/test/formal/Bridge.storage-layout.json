@@ -37,10 +37,10 @@
       "label": "address",
       "numberOfBytes": "20"
     },
-    "t_array(t_uint256)40_storage": {
+    "t_array(t_uint256)39_storage": {
       "encoding": "inplace",
-      "label": "uint256[40]",
-      "numberOfBytes": "1280",
+      "label": "uint256[39]",
+      "numberOfBytes": "1248",
       "base": "t_uint256"
     },
     "t_array(t_uint256)49_storage": {
@@ -134,6 +134,13 @@
       "key": "t_uint256",
       "value": "t_bool"
     },
+    "t_mapping(t_uint256,t_bytes32)": {
+      "encoding": "mapping",
+      "label": "mapping(uint256 => bytes32)",
+      "numberOfBytes": "32",
+      "key": "t_uint256",
+      "value": "t_bytes32"
+    },
     "t_mapping(t_uint256,t_struct(DepositRequest)_storage)": {
       "encoding": "mapping",
       "label": "mapping(uint256 => struct Deposit.DepositRequest)",
@@ -165,7 +172,7 @@
     "t_struct(DepositRequest)_storage": {
       "encoding": "inplace",
       "label": "struct Deposit.DepositRequest",
-      "numberOfBytes": "128",
+      "numberOfBytes": "96",
       "members": [
         {
           "label": "depositor",
@@ -207,12 +214,6 @@
           "label": "extraData",
           "offset": 0,
           "slot": "2",
-          "type": "t_bytes32"
-        },
-        {
-          "label": "taprootOutputKeyCommitment",
-          "offset": 0,
-          "slot": "3",
           "type": "t_bytes32"
         }
       ]
@@ -724,10 +725,16 @@
           "type": "t_bool"
         },
         {
-          "label": "__gap",
+          "label": "taprootDepositOutputKeyCommitments",
           "offset": 0,
           "slot": "38",
-          "type": "t_array(t_uint256)40_storage"
+          "type": "t_mapping(t_uint256,t_bytes32)"
+        },
+        {
+          "label": "__gap",
+          "offset": 0,
+          "slot": "39",
+          "type": "t_array(t_uint256)39_storage"
         }
       ]
     },

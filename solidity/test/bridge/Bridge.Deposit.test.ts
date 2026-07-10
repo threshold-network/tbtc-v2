@@ -1296,8 +1296,9 @@ describe("Bridge - Deposit", () => {
           )
         )
       )
-      const deposit = await bridge.deposits(depositKey)
-      expect(deposit.taprootOutputKeyCommitment).to.equal(
+      expect(
+        await bridge.taprootDepositOutputKeyCommitment(depositKey)
+      ).to.equal(
         ethers.utils.keccak256(
           ethers.utils.solidityPack(
             ["bytes32", "bytes32"],

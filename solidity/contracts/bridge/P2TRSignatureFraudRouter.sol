@@ -46,6 +46,11 @@ interface IBridgeForP2TRFraud {
         view
         returns (Deposit.DepositRequest memory);
 
+    function taprootDepositOutputKeyCommitment(uint256 depositKey)
+        external
+        view
+        returns (bytes32);
+
     function spentMainUTXOs(uint256 utxoKey) external view returns (bool);
 
     function movedFundsSweepRequests(uint256 requestKey)
@@ -510,9 +515,9 @@ contract P2TRSignatureFraudRouter {
         CheckBitcoinP2TRSignatureFraud.BridgeChallengeIdentityPayload
             memory payload
     ) internal view returns (bytes32) {
-        bytes32 depositKeyCommitment = b
-            .deposits(_signedInputUtxoKey(payload))
-            .taprootOutputKeyCommitment;
+        bytes32 depositKeyCommitment = b.taprootDepositOutputKeyCommitment(
+            _signedInputUtxoKey(payload)
+        );
 
         if (depositKeyCommitment == bytes32(0)) {
             return payload.walletID;
