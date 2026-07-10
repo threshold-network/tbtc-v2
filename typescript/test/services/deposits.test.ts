@@ -1983,6 +1983,7 @@ describe("Deposits", () => {
         context("when deposit is Taproot-native", () => {
           let transaction: BitcoinRawTx
           let tbtcContracts: MockTBTCContracts
+          let depositorProxy: MockDepositorProxy
 
           beforeEach(async () => {
             const fee = BigNumber.from(1520)
@@ -2024,6 +2025,17 @@ describe("Deposits", () => {
                 DepositScriptType.P2TR
               )
             ).initiateMinting(depositUtxo)
+
+            depositorProxy = new MockDepositorProxy()
+            await (
+              await Deposit.fromReceipt(
+                taprootDepositFixture.receipt,
+                tbtcContracts,
+                bitcoinClient,
+                depositorProxy,
+                DepositScriptType.P2TR
+              )
+            ).initiateMinting(depositUtxo)
           })
 
           it("should reveal the Taproot deposit to the Bridge", () => {
@@ -2037,6 +2049,29 @@ describe("Deposits", () => {
             expect(revealDepositLogEntry.depositOutputIndex).to.be.equal(0)
             expect(revealDepositLogEntry.deposit).to.be.eql(
               taprootDepositFixture.receipt
+            )
+          })
+
+          it("should reveal the Taproot deposit to the DepositorProxy", () => {
+            expect(depositorProxy.revealDepositLog.length).to.be.equal(1)
+
+            const revealDepositLogEntry = depositorProxy.revealDepositLog[0]
+            expect(revealDepositLogEntry.depositTx).to.be.eql(
+              extractBitcoinRawTxVectors(transaction)
+            )
+            expect(revealDepositLogEntry.depositOutputIndex).to.be.equal(0)
+            expect(revealDepositLogEntry.deposit).to.be.eql(
+              taprootDepositFixture.receipt
+            )
+            expect(
+              revealDepositLogEntry.deposit.walletXOnlyPublicKey
+            ).to.be.deep.equal(
+              taprootDepositFixture.receipt.walletXOnlyPublicKey
+            )
+            expect(
+              revealDepositLogEntry.deposit.refundXOnlyPublicKey
+            ).to.be.deep.equal(
+              taprootDepositFixture.receipt.refundXOnlyPublicKey
             )
           })
         })
@@ -2453,6 +2488,29 @@ describe("Deposits", () => {
               "Legacy deposits are not supported for FROST active wallets"
             )
           })
+
+          it("should initiate a Taproot deposit for a proxy", async () => {
+            const deposit = await depositService.initiateDepositWithProxy(
+              "tb1pzy3rx3z4vemc3xgq42aueh0wluqpzg3ng32kvaugnx4thnxaamlsk2wdrf",
+              depositorProxy,
+              undefined,
+              DepositScriptType.P2TR
+            )
+
+            const receipt = deposit.getReceipt()
+            expect(receipt.depositor).to.be.deep.equal(
+              depositorProxy.getChainIdentifier()
+            )
+            expect(receipt.walletXOnlyPublicKey).to.be.deep.equal(
+              Hex.from(
+                "2336f65004d8f122f1fe947ebd009a8b4add3a0d937356d568e30f7fcc2e4008"
+              )
+            )
+            expect(receipt.refundXOnlyPublicKey).to.be.deep.equal(
+              taprootDepositFixture.receipt.refundXOnlyPublicKey
+            )
+            expect(await deposit.getBitcoinAddress()).to.match(/^tb1p/)
+          })
         })
 
         context("when recovery address is incorrect", () => {
@@ -2810,6 +2868,50 @@ describe("Deposits", () => {
                     Hex.from("e6f9d74726b19b75f16fe1e9feaec048aa4fa1d0")
                   )
                 })
+              })
+            })
+
+            context("when active wallet is a FROST wallet", () => {
+              const activeWalletPublicKeyHash = Hex.from(
+                "c92a772f11bc97d8938a16a9db435401f4e6a7bc"
+              )
+              const activeWalletID = Hex.from(
+                "2336f65004d8f122f1fe947ebd009a8b4add3a0d937356d568e30f7fcc2e4008"
+              )
+
+              beforeEach(async () => {
+                tbtcContracts.bridge.setActiveWalletPublicKeyHash(
+                  activeWalletPublicKeyHash
+                )
+                tbtcContracts.bridge.setActiveWalletID(activeWalletID)
+              })
+
+              it("should initiate a Taproot cross-chain deposit", async () => {
+                const deposit = await depositService.initiateCrossChainDeposit(
+                  "tb1pzy3rx3z4vemc3xgq42aueh0wluqpzg3ng32kvaugnx4thnxaamlsk2wdrf",
+                  "Base",
+                  DepositScriptType.P2TR
+                )
+
+                const receipt = deposit.getReceipt()
+                expect(receipt.depositor).to.be.equal(
+                  l1BitcoinDepositor.getChainIdentifier()
+                )
+                expect(receipt.walletPublicKeyHash).to.be.deep.equal(
+                  activeWalletPublicKeyHash
+                )
+                expect(receipt.walletXOnlyPublicKey).to.be.deep.equal(
+                  activeWalletID
+                )
+                expect(receipt.refundXOnlyPublicKey).to.be.deep.equal(
+                  taprootDepositFixture.receipt.refundXOnlyPublicKey
+                )
+                expect(receipt.extraData).to.be.eql(
+                  Hex.from(
+                    `000000000000000000000000${l2DepositOwner.identifierHex}`
+                  )
+                )
+                expect(await deposit.getBitcoinAddress()).to.match(/^tb1p/)
               })
             })
           })
@@ -3688,6 +3790,13 @@ describe("Deposits", () => {
           `000000000000000000000000${l2DepositOwner.identifierHex}`
         ),
       }
+      const taprootDeposit: DepositReceipt = {
+        ...deposit,
+        walletXOnlyPublicKey:
+          taprootDepositFixture.receipt.walletXOnlyPublicKey,
+        refundXOnlyPublicKey:
+          taprootDepositFixture.receipt.refundXOnlyPublicKey,
+      }
       const vault: ChainIdentifier = EthereumAddress.from(
         "82883a4c7a8dd73ef165deb402d432613615ced4"
       )
@@ -3753,6 +3862,38 @@ describe("Deposits", () => {
             deposit,
             vault,
           })
+        })
+      })
+
+      context("when the deposit is Taproot-native", () => {
+        beforeEach(async () => {
+          depositor = new CrossChainDepositor(
+            crossChainContracts,
+            "L2Transaction"
+          )
+
+          await depositor.revealDeposit(
+            depositTx,
+            depositOutputIndex,
+            taprootDeposit,
+            vault
+          )
+        })
+
+        it("should forward the x-only keys to the BitcoinDepositor", () => {
+          expect(l2BitcoinDepositor.initializeDepositCalls.length).to.be.equal(
+            1
+          )
+
+          const forwardedDeposit =
+            l2BitcoinDepositor.initializeDepositCalls[0].deposit
+          expect(forwardedDeposit).to.be.eql(taprootDeposit)
+          expect(forwardedDeposit.walletXOnlyPublicKey).to.be.deep.equal(
+            taprootDepositFixture.receipt.walletXOnlyPublicKey
+          )
+          expect(forwardedDeposit.refundXOnlyPublicKey).to.be.deep.equal(
+            taprootDepositFixture.receipt.refundXOnlyPublicKey
+          )
         })
       })
     })
