@@ -626,8 +626,7 @@ describe("Ethereum", () => {
               revealedAt: 1654774330,
               sweptAt: 1655033516,
               treasuryFee: BigNumber.from(200),
-              extraData:
-                "0x0000000000000000000000000000000000000000000000000000000000000000",
+              extraData: `0x${"11".repeat(32)}`,
             } as any)
         })
 
@@ -650,6 +649,7 @@ describe("Ethereum", () => {
             revealedAt: 1654774330,
             sweptAt: 1655033516,
             treasuryFee: BigNumber.from(200),
+            extraData: Hex.from("11".repeat(32)),
           })
         })
       })

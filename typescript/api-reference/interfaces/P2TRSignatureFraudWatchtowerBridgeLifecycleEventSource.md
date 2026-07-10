@@ -18,4 +18,4 @@
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:302](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L302)
+[src/services/maintenance/p2tr-signature-fraud.ts:315](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L315)

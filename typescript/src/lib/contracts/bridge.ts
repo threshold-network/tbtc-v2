@@ -377,6 +377,11 @@ export interface DepositRequest {
    * Denominated in satoshi.
    */
   treasuryFee: BigNumber
+
+  /**
+   * Optional 32-byte extra data committed by the deposit script.
+   */
+  extraData?: Hex
 }
 
 /**

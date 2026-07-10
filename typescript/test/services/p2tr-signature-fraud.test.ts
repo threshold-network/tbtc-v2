@@ -3598,6 +3598,59 @@ describe("P2TR signature-fraud witness parsing", () => {
     ).to.deep.equal([])
   })
 
+  it("binds a revealed deposit output key to its registered wallet and exact outpoint", () => {
+    const vector = vectorCorpus.cases[0]
+    const rawTransaction = withInputWitness(
+      vector.unsignedTransactionHex,
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    const depositOutputKey = "42".repeat(32)
+    const inputPrevouts = vector.prevouts.map((prevout, index) => ({
+      scriptPubKey:
+        index === vector.signedInputIndex
+          ? `5120${depositOutputKey}`
+          : prevout.scriptPubKeyHex,
+    }))
+    const signedPrevout = vector.prevouts[vector.signedInputIndex]
+    const binding = {
+      txid: signedPrevout.txidHex,
+      vout: signedPrevout.vout,
+      outputKey: depositOutputKey,
+      walletID: vector.walletIDHex,
+    }
+
+    const candidates = extractP2TRWalletInputWitnessCandidates(
+      rawTransaction,
+      inputPrevouts,
+      [vector.walletIDHex],
+      [binding]
+    )
+
+    expect(candidates).to.have.length(1)
+    expect(candidates[0].walletID.toString()).to.equal(vector.walletIDHex)
+    expect(candidates[0].scriptPubKey.toString()).to.equal(
+      `5120${depositOutputKey}`
+    )
+
+    expect(
+      extractP2TRWalletInputWitnessCandidates(
+        rawTransaction,
+        inputPrevouts,
+        [vector.walletIDHex],
+        [{ ...binding, vout: binding.vout + 1 }]
+      )
+    ).to.deep.equal([])
+    expect(
+      extractP2TRWalletInputWitnessCandidates(
+        rawTransaction,
+        inputPrevouts,
+        [vector.walletIDHex],
+        [{ ...binding, outputKey: "43".repeat(32) }]
+      )
+    ).to.deep.equal([])
+  })
+
   it("discovers multiple registered wallet inputs in the same transaction", () => {
     const vector = vectorCorpus.cases.find(
       (candidate) =>

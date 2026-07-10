@@ -1067,6 +1067,82 @@ test("passes configured spend-type classifier into live submissions", async () =
   }
 })
 
+test("threads revealed-deposit key bindings from transaction sources into observations", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "p2tr-watchtower-"))
+  const statePath = join(directory, "records.json")
+
+  try {
+    const vector = loadFirstSignatureFraudVector()
+    const rawTransaction = withInputWitness(
+      vector.unsignedTransactionHex,
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    const depositOutputKey = "42".repeat(32)
+    const signedPrevout = vector.prevouts[vector.signedInputIndex]
+    const bitcoinClient = {
+      async getRawTransaction(txid: string) {
+        const prevout = vector.prevouts.find(
+          (candidate) => candidate.txidHex === txid.toString()
+        )
+
+        if (prevout === undefined) {
+          throw new Error(`unexpected prevout lookup: ${txid.toString()}`)
+        }
+
+        return rawPreviousTransactionForPrevout({
+          ...prevout,
+          scriptPubKeyHex:
+            prevout === signedPrevout
+              ? `5120${depositOutputKey}`
+              : prevout.scriptPubKeyHex,
+        })
+      },
+    } as unknown as BitcoinClient
+    const persistence = new FileBackedP2TRWatchtowerChallengeRecordPersistence(
+      statePath
+    )
+    const service = new P2TRSignatureFraudWatchtowerService(
+      { registeredWalletIDs: [vector.walletIDHex] },
+      {
+        bitcoinClient,
+        transactionSource: {
+          async listMempoolTransactions() {
+            return [
+              {
+                rawTransaction,
+                bitcoinTxHash: `0x${"44".repeat(32)}`,
+                walletInputKeyBindings: [
+                  {
+                    txid: signedPrevout.txidHex,
+                    vout: signedPrevout.vout,
+                    outputKey: depositOutputKey,
+                    walletID: vector.walletIDHex,
+                  },
+                ],
+              },
+            ]
+          },
+          async listConfirmedTransactions() {
+            return []
+          },
+        },
+        bridgeLifecycleEventSource: emptyBridgeLifecycleSource,
+        persistence,
+      }
+    )
+
+    const report = await service.processCycle()
+
+    assert.equal(report.metrics.mempoolObservations, 1)
+    const [record] = await persistence.loadChallengeRecords()
+    assert.equal(record.observation?.walletID, vector.walletIDHex)
+    assert.equal(record.observation?.scriptPubKey, `5120${depositOutputKey}`)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
 test("requires a challenge submitter only when submissions are enabled", () => {
   assert.throws(
     () =>

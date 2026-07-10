@@ -1,7 +1,14 @@
-import { BitcoinNetwork, BitcoinTxHash } from "@keep-network/tbtc-v2.ts"
+import {
+  BitcoinNetwork,
+  BitcoinTxHash,
+  DepositScript,
+  DepositScriptType,
+} from "@keep-network/tbtc-v2.ts"
 import type {
   BitcoinRawTx,
+  Bridge,
   P2TRSignatureFraudWatchtowerTransactionSource,
+  P2TRWalletInputKeyBinding,
   P2TRWatchtowerConfirmedTransaction,
   P2TRWatchtowerMempoolTransaction,
 } from "@keep-network/tbtc-v2.ts"
@@ -11,7 +18,13 @@ export type P2TREsploraFetch = (
   init?: RequestInit
 ) => Promise<Response>
 
+export type P2TRTaprootDepositRevealSource = Pick<
+  Bridge,
+  "deposits" | "getTaprootDepositRevealedEvents"
+>
+
 export type EsploraP2TRSignatureFraudTransactionSourceOptions = {
+  taprootDepositRevealSource: P2TRTaprootDepositRevealSource
   fetchFn?: P2TREsploraFetch
   maxAttempts?: number
   requestTimeoutMs?: number
@@ -22,6 +35,10 @@ export type EsploraP2TRSignatureFraudTransactionSourceOptions = {
 type EsploraTransactionSummary = {
   txid: string
   status?: EsploraTransactionStatus
+}
+
+type EsploraTransactionCandidate = EsploraTransactionSummary & {
+  walletInputKeyBindings: P2TRWalletInputKeyBinding[]
 }
 
 type EsploraTransactionStatus = {
@@ -52,18 +69,33 @@ export class EsploraP2TRSignatureFraudTransactionSource
   private readonly retryDelayMs: number
   private readonly confirmedPageLimit: number
   private readonly walletAddresses: string[]
+  private readonly registeredWalletIDs: Set<string>
+  private readonly taprootDepositRevealSource: P2TRTaprootDepositRevealSource
+  private depositSpendScan?: Promise<EsploraTransactionCandidate[]>
 
   constructor(
     baseUrl: string,
     bitcoinNetwork: BitcoinNetwork,
     registeredWalletIDs: string[],
-    options: EsploraP2TRSignatureFraudTransactionSourceOptions = {}
+    options: EsploraP2TRSignatureFraudTransactionSourceOptions
   ) {
     if (registeredWalletIDs.length === 0) {
       throw new Error("Esplora P2TR transaction source requires wallet IDs")
     }
 
     this.baseUrl = normalizeBaseUrl(baseUrl)
+    if (
+      options?.taprootDepositRevealSource === undefined ||
+      typeof options.taprootDepositRevealSource.deposits !== "function" ||
+      typeof options.taprootDepositRevealSource
+        .getTaprootDepositRevealedEvents !== "function"
+    ) {
+      throw new Error(
+        "Esplora P2TR transaction source requires a Taproot deposit reveal source"
+      )
+    }
+
+    this.taprootDepositRevealSource = options.taprootDepositRevealSource
     this.fetchFn = options.fetchFn ?? fetch
     this.maxAttempts = parsePositiveIntegerOption(
       options.maxAttempts,
@@ -85,20 +117,35 @@ export class EsploraP2TRSignatureFraudTransactionSource
       DEFAULT_CONFIRMED_PAGE_LIMIT,
       "confirmedPageLimit"
     )
-    this.walletAddresses = registeredWalletIDs.map((walletID) =>
+    this.registeredWalletIDs = new Set(
+      registeredWalletIDs.map((walletID) =>
+        normalizeBytes32Hex(walletID, "wallet ID")
+      )
+    )
+    this.walletAddresses = [...this.registeredWalletIDs].map((walletID) =>
       deriveP2TRWalletAddress(walletID, bitcoinNetwork)
     )
   }
 
   async listMempoolTransactions(): Promise<P2TRWatchtowerMempoolTransaction[]> {
-    const transactions = await this.listWalletTransactions((address) =>
-      this.listAddressMempoolTransactions(address)
+    const [walletTransactions, depositSpendTransactions] = await Promise.all([
+      this.listWalletTransactions((address) =>
+        this.listAddressMempoolTransactions(address)
+      ),
+      this.listDepositSpendTransactions(),
+    ])
+    const transactions = mergeTransactionCandidates(
+      walletTransactions.map(withoutWalletInputKeyBindings),
+      depositSpendTransactions.filter(
+        ({ status }) => status?.confirmed === false
+      )
     )
 
     return Promise.all(
-      transactions.map(async ({ txid }) => ({
+      transactions.map(async ({ txid, walletInputKeyBindings }) => ({
         bitcoinTxHash: BitcoinTxHash.from(txid),
         rawTransaction: await this.getRawTransaction(txid),
+        walletInputKeyBindings,
       }))
     )
   }
@@ -106,12 +153,21 @@ export class EsploraP2TRSignatureFraudTransactionSource
   async listConfirmedTransactions(): Promise<
     P2TRWatchtowerConfirmedTransaction[]
   > {
-    const transactions = await this.listWalletTransactions((address) =>
-      this.listAddressConfirmedTransactions(address)
+    const [walletTransactions, depositSpendTransactions] = await Promise.all([
+      this.listWalletTransactions((address) =>
+        this.listAddressConfirmedTransactions(address)
+      ),
+      this.listDepositSpendTransactions(),
+    ])
+    const transactions = mergeTransactionCandidates(
+      walletTransactions.map(withoutWalletInputKeyBindings),
+      depositSpendTransactions.filter(
+        ({ status }) => status?.confirmed === true
+      )
     )
 
     return Promise.all(
-      transactions.map(async ({ txid, status }) => {
+      transactions.map(async ({ txid, status, walletInputKeyBindings }) => {
         const confirmedStatus = requireConfirmedStatus(txid, status)
 
         return {
@@ -119,8 +175,135 @@ export class EsploraP2TRSignatureFraudTransactionSource
           bitcoinBlockHash: confirmedStatus.block_hash,
           bitcoinBlockHeight: confirmedStatus.block_height,
           rawTransaction: await this.getRawTransaction(txid),
+          walletInputKeyBindings,
         }
       })
+    )
+  }
+
+  private listDepositSpendTransactions(): Promise<
+    EsploraTransactionCandidate[]
+  > {
+    if (this.depositSpendScan !== undefined) {
+      return this.depositSpendScan
+    }
+
+    const scan = this.scanDepositSpendTransactions()
+    this.depositSpendScan = scan
+    void scan.then(
+      () => {
+        if (this.depositSpendScan === scan) this.depositSpendScan = undefined
+      },
+      () => {
+        if (this.depositSpendScan === scan) this.depositSpendScan = undefined
+      }
+    )
+
+    return scan
+  }
+
+  private async scanDepositSpendTransactions(): Promise<
+    EsploraTransactionCandidate[]
+  > {
+    const depositEvents =
+      await this.taprootDepositRevealSource.getTaprootDepositRevealedEvents()
+    const bindings = await Promise.all(
+      depositEvents
+        .filter(({ walletXOnlyPublicKey }) =>
+          this.registeredWalletIDs.has(
+            normalizeBytes32Hex(
+              walletXOnlyPublicKey.toString(),
+              "revealed deposit wallet ID"
+            )
+          )
+        )
+        .map(async (event): Promise<P2TRWalletInputKeyBinding> => {
+          const vout = readSafeInteger(
+            event.fundingOutputIndex,
+            "revealed deposit funding output index",
+            { minimum: 0, maximum: MAX_UINT32 }
+          )
+          const depositRequest = await this.taprootDepositRevealSource.deposits(
+            event.fundingTxHash,
+            vout
+          )
+          if (
+            depositRequest.depositor.identifierHex.toLowerCase() !==
+            event.depositor.identifierHex.toLowerCase()
+          ) {
+            throw new Error(
+              `Taproot deposit ${event.fundingTxHash.toString()}:${vout} depositor does not match stored request`
+            )
+          }
+
+          const outputKey = (
+            await DepositScript.fromReceipt(
+              { ...event, extraData: depositRequest.extraData },
+              DepositScriptType.P2TR
+            ).getTaprootOutputKey()
+          ).toString()
+
+          return {
+            txid: normalizeTxid(event.fundingTxHash.toString()),
+            vout,
+            outputKey,
+            walletID: normalizeBytes32Hex(
+              event.walletXOnlyPublicKey.toString(),
+              "revealed deposit wallet ID"
+            ),
+          }
+        })
+    )
+    const uniqueBindings = new Map<string, P2TRWalletInputKeyBinding>()
+    for (const binding of bindings) {
+      uniqueBindings.set(depositBindingKey(binding), binding)
+    }
+
+    const candidates = await Promise.all(
+      [...uniqueBindings.values()].map(async (binding) => {
+        const summary = await this.readDepositOutspend(binding)
+        return summary === undefined ? undefined : { summary, binding }
+      })
+    )
+    const byTxid = new Map<string, EsploraTransactionCandidate>()
+
+    for (const candidate of candidates) {
+      if (candidate === undefined) continue
+
+      const existing = byTxid.get(candidate.summary.txid)
+      if (existing === undefined) {
+        byTxid.set(candidate.summary.txid, {
+          ...candidate.summary,
+          walletInputKeyBindings: [candidate.binding],
+        })
+      } else {
+        existing.walletInputKeyBindings.push(candidate.binding)
+      }
+    }
+
+    return [...byTxid.values()]
+  }
+
+  private async readDepositOutspend(
+    binding: P2TRWalletInputKeyBinding
+  ): Promise<EsploraTransactionSummary | undefined> {
+    const txid = normalizeTxid(String(binding.txid))
+    const response = await this.request(
+      "GET",
+      `/tx/${txid}/outspend/${binding.vout}`,
+      `fetch Taproot deposit outspend ${txid}:${binding.vout}`
+    )
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch Taproot deposit outspend ${txid}:${
+          binding.vout
+        }: ${await readTextError(response)}`
+      )
+    }
+
+    return parseDepositOutspend(
+      await this.readJson(response, "deposit outspend"),
+      `Taproot deposit outspend ${txid}:${binding.vout}`
     )
   }
 
@@ -268,6 +451,71 @@ export class EsploraP2TRSignatureFraudTransactionSource
   }
 }
 
+function withoutWalletInputKeyBindings(
+  transaction: EsploraTransactionSummary
+): EsploraTransactionCandidate {
+  return { ...transaction, walletInputKeyBindings: [] }
+}
+
+function mergeTransactionCandidates(
+  ...candidateGroups: EsploraTransactionCandidate[][]
+): EsploraTransactionCandidate[] {
+  const byTxid = new Map<string, EsploraTransactionCandidate>()
+
+  for (const candidate of candidateGroups.flat()) {
+    const existing = byTxid.get(candidate.txid)
+    if (existing === undefined) {
+      byTxid.set(candidate.txid, {
+        ...candidate,
+        walletInputKeyBindings: [...candidate.walletInputKeyBindings],
+      })
+      continue
+    }
+
+    if (
+      existing.status !== undefined &&
+      candidate.status !== undefined &&
+      existing.status.confirmed !== candidate.status.confirmed
+    ) {
+      throw new Error(
+        `Esplora transaction ${candidate.txid} has conflicting confirmation status`
+      )
+    }
+
+    existing.status ??= candidate.status
+    const existingBindings = new Set(
+      existing.walletInputKeyBindings.map(depositBindingKey)
+    )
+    for (const binding of candidate.walletInputKeyBindings) {
+      const key = depositBindingKey(binding)
+      if (!existingBindings.has(key)) {
+        existing.walletInputKeyBindings.push(binding)
+        existingBindings.add(key)
+      }
+    }
+  }
+
+  return [...byTxid.values()]
+}
+
+function depositBindingKey(binding: P2TRWalletInputKeyBinding): string {
+  const txid = normalizeTxid(String(binding.txid))
+  const vout = readSafeInteger(binding.vout, "deposit binding vout", {
+    minimum: 0,
+    maximum: MAX_UINT32,
+  })
+  const outputKey = normalizeBytes32Hex(
+    String(binding.outputKey),
+    "deposit output key"
+  )
+  const walletID = normalizeBytes32Hex(
+    String(binding.walletID),
+    "deposit wallet ID"
+  )
+
+  return `${txid}:${vout}:${outputKey}:${walletID}`
+}
+
 export function deriveP2TRWalletAddress(
   walletID: string,
   bitcoinNetwork: BitcoinNetwork
@@ -278,6 +526,27 @@ export function deriveP2TRWalletAddress(
   )
 
   return encodeSegwitV1Address(bitcoinNetwork, walletIDBuffer)
+}
+
+function parseDepositOutspend(
+  value: unknown,
+  field: string
+): EsploraTransactionSummary | undefined {
+  const record = readObject(value, field)
+  const spent = readRequiredBoolean(record.spent, `${field}.spent`)
+
+  if (!spent) {
+    return undefined
+  }
+
+  if (record.status === undefined) {
+    throw new Error(`Esplora ${field}.status was missing for a spent output`)
+  }
+
+  return {
+    txid: normalizeTxid(readRequiredString(record.txid, `${field}.txid`)),
+    status: parseTransactionStatus(record.status, `${field}.status`),
+  }
 }
 
 function parseTransactionSummary(
