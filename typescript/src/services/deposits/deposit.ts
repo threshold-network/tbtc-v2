@@ -1,4 +1,5 @@
 import {
+  assertTaprootDepositSupported,
   DepositorProxy,
   DepositReceipt,
   TBTCContracts,
@@ -146,10 +147,18 @@ export class Deposit {
    *         provision mode.
    * @throws Throws an error if the funding outpoint was already used to
    *         initiate minting (both modes).
+   * @throws Throws an error if a Taproot deposit uses a depositor proxy that
+   *         has not explicitly declared Taproot support.
    */
   async initiateMinting(
     fundingOutpoint?: BitcoinTxOutpoint
   ): Promise<Hex | TransactionReceipt> {
+    const receipt = this.getReceipt()
+
+    if (typeof this.depositorProxy !== "undefined") {
+      assertTaprootDepositSupported(this.depositorProxy, receipt)
+    }
+
     let resolvedFundingOutpoint: BitcoinTxOutpoint
 
     if (typeof fundingOutpoint !== "undefined") {
@@ -177,7 +186,7 @@ export class Deposit {
       return this.depositorProxy.revealDeposit(
         depositFundingTx,
         outputIndex,
-        this.getReceipt(),
+        receipt,
         tbtcVault.getChainIdentifier()
       )
     }
@@ -185,7 +194,7 @@ export class Deposit {
     return bridge.revealDeposit(
       depositFundingTx,
       outputIndex,
-      this.getReceipt(),
+      receipt,
       tbtcVault.getChainIdentifier()
     )
   }
