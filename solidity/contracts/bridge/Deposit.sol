@@ -458,6 +458,17 @@ library Deposit {
                 extraData
             );
 
+        self.taprootDepositOutputKeyCommitments[
+            uint256(
+                keccak256(
+                    abi.encodePacked(fundingTxHash, reveal.fundingOutputIndex)
+                )
+            )
+        ] = taprootOutputKeyCommitment(
+            reveal.walletXOnlyPublicKey,
+            taprootOutputKey
+        );
+
         _emitTaprootDepositRevealedEvents(
             fundingTxHash,
             fundingOutputAmount,
@@ -723,6 +734,15 @@ library Deposit {
                     merkleRoot
                 )
             );
+    }
+
+    /// @notice Commits a Taproot deposit output key to its registered wallet.
+    function taprootOutputKeyCommitment(
+        bytes32 walletXOnlyPublicKey,
+        bytes32 taprootOutputKey
+    ) internal pure returns (bytes32) {
+        return
+            keccak256(abi.encodePacked(walletXOnlyPublicKey, taprootOutputKey));
     }
 
     /// @notice Derives the x-only P2TR output key for a Taproot-native deposit.

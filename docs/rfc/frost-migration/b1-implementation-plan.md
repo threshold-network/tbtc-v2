@@ -245,9 +245,17 @@ fails fast.
    this fail-fast guard). The `approveDkgResult` path also
    re-checks the same invariant so any in-flight DKG can't
    register a live wallet without an active lifecycle path.
-6. No scheme flip is required in the canonical mirror: D-2.2
+6. Upgrade the Bridge to the Taproot deposit-commitment implementation before
+   the first FROST wallet or P2TR deposit is enabled. The commitment mapping is
+   populated only by successful reveals after this upgrade and has no automatic
+   backfill. As an activation preflight, replay `TaprootDepositRevealed` events
+   and require every still-unspent revealed P2TR outpoint to have the expected
+   nonzero `taprootDepositOutputKeyCommitment`. If any outstanding reveal lacks
+   a commitment, delay activation until it is swept or refunded, or deploy an
+   independently audited backfill mechanism first.
+7. No scheme flip is required in the canonical mirror: D-2.2
    slice 3 removed the scheme setter and `Bridge.requestNewWallet`
-   dispatches only to the FROST registry. With steps 1-5 complete,
+   dispatches only to the FROST registry. With steps 1-6 complete,
    the call succeeds and DKG starts.
 
 Skipping step 5 strands every newly-created FROST wallet — the

@@ -1760,6 +1760,16 @@ contract Bridge is Governable, Initializable, IReceiveBalanceApproval {
         return self.deposits[depositKey];
     }
 
+    /// @notice Returns the wallet/output-key commitment recorded for a
+    ///         Taproot-native deposit, or zero for other outpoints.
+    function taprootDepositOutputKeyCommitment(uint256 depositKey)
+        external
+        view
+        returns (bytes32)
+    {
+        return self.taprootDepositOutputKeyCommitments[depositKey];
+    }
+
     /// @notice Collection of all pending redemption requests indexed by
     ///         redemption key built as
     ///         `keccak256(keccak256(redeemerOutputScript) | walletPubKeyHash)`.
