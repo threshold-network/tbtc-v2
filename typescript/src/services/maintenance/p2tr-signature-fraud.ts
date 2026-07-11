@@ -2607,8 +2607,11 @@ export const extractP2TRWalletInputWitnessCandidates = (
 
 const isP2TRScriptPathWitness = (witness: Buffer[]): boolean => {
   const lastItem = witness[witness.length - 1]
+  // BIP-341 recognizes an annex only when at least two witness items exist.
   const witnessWithoutAnnex =
-    lastItem?.[0] === 0x50 ? witness.slice(0, -1) : witness
+    witness.length >= 2 && lastItem?.[0] === 0x50
+      ? witness.slice(0, -1)
+      : witness
 
   return witnessWithoutAnnex.length >= 2
 }

@@ -45,6 +45,7 @@ export type EsploraP2TRSignatureFraudTransactionSourceOptions = {
   requestTimeoutMs?: number
   retryDelayMs?: number
   confirmedPageLimit?: number
+  depositScanConcurrency?: number
 }
 
 type EsploraTransactionSummary = {
@@ -66,6 +67,7 @@ const DEFAULT_MAX_ATTEMPTS = 3
 const DEFAULT_REQUEST_TIMEOUT_MS = 5000
 const DEFAULT_RETRY_DELAY_MS = 250
 const DEFAULT_CONFIRMED_PAGE_LIMIT = 1
+const DEFAULT_DEPOSIT_SCAN_CONCURRENCY = 8
 const MAX_UINT32 = 0xffffffff
 const ZERO_BYTES32 = "00".repeat(32)
 const BECH32M_CONST = 0x2bc830a3
@@ -84,6 +86,7 @@ export class EsploraP2TRSignatureFraudTransactionSource
   private readonly requestTimeoutMs: number
   private readonly retryDelayMs: number
   private readonly confirmedPageLimit: number
+  private readonly scanTaskQueue: BoundedTaskQueue
   private readonly walletAddresses: string[]
   private readonly registeredWalletIDs: Set<string>
   private readonly taprootDepositRevealSource: P2TRTaprootDepositRevealSource
@@ -141,6 +144,13 @@ export class EsploraP2TRSignatureFraudTransactionSource
       options.confirmedPageLimit,
       DEFAULT_CONFIRMED_PAGE_LIMIT,
       "confirmedPageLimit"
+    )
+    this.scanTaskQueue = new BoundedTaskQueue(
+      parsePositiveIntegerOption(
+        options.depositScanConcurrency,
+        DEFAULT_DEPOSIT_SCAN_CONCURRENCY,
+        "depositScanConcurrency"
+      )
     )
     this.registeredWalletIDs = new Set(
       registeredWalletIDs.map((walletID) =>
@@ -223,10 +233,10 @@ export class EsploraP2TRSignatureFraudTransactionSource
     transactions: T[],
     materialize: (transaction: T, rawTransaction: BitcoinRawTx) => R
   ): Promise<R[]> {
-    const results = await Promise.allSettled(
-      transactions.map(async (transaction) =>
+    const results = await this.scanTaskQueue.mapSettled(
+      transactions,
+      async (transaction) =>
         materialize(transaction, await this.getRawTransaction(transaction.txid))
-      )
     )
     const materialized: R[] = []
 
@@ -309,63 +319,62 @@ export class EsploraP2TRSignatureFraudTransactionSource
       return []
     }
 
-    const bindingResults = await Promise.allSettled(
-      depositEvents.map(
-        async (event): Promise<P2TRWalletInputKeyBinding | undefined> => {
-          const walletID = normalizeBytes32Hex(
-            event.walletXOnlyPublicKey.toString(),
-            "revealed deposit wallet ID"
-          )
-          if (!this.registeredWalletIDs.has(walletID)) {
-            return undefined
-          }
-
-          const vout = readSafeInteger(
-            event.fundingOutputIndex,
-            "revealed deposit funding output index",
-            { minimum: 0, maximum: MAX_UINT32 }
-          )
-          const depositKeyCommitment = normalizeBytes32Hex(
-            (
-              await this.taprootDepositRevealSource.taprootDepositOutputKeyCommitment(
-                event.fundingTxHash,
-                vout
-              )
-            ).toString(),
-            "Taproot deposit output-key commitment"
-          )
-          if (depositKeyCommitment === ZERO_BYTES32) {
-            return undefined
-          }
-
-          const depositRequest = await this.taprootDepositRevealSource.deposits(
-            event.fundingTxHash,
-            vout
-          )
-          if (
-            depositRequest.depositor.identifierHex.toLowerCase() !==
-            event.depositor.identifierHex.toLowerCase()
-          ) {
-            throw new Error(
-              `Taproot deposit ${event.fundingTxHash.toString()}:${vout} depositor does not match stored request`
-            )
-          }
-
-          const outputKey = (
-            await DepositScript.fromReceipt(
-              { ...event, extraData: depositRequest.extraData },
-              DepositScriptType.P2TR
-            ).getTaprootOutputKey()
-          ).toString()
-
-          return {
-            txid: normalizeTxid(event.fundingTxHash.toString()),
-            vout,
-            outputKey,
-            walletID,
-          }
+    const bindingResults = await this.scanTaskQueue.mapSettled(
+      depositEvents,
+      async (event): Promise<P2TRWalletInputKeyBinding | undefined> => {
+        const walletID = normalizeBytes32Hex(
+          event.walletXOnlyPublicKey.toString(),
+          "revealed deposit wallet ID"
+        )
+        if (!this.registeredWalletIDs.has(walletID)) {
+          return undefined
         }
-      )
+
+        const vout = readSafeInteger(
+          event.fundingOutputIndex,
+          "revealed deposit funding output index",
+          { minimum: 0, maximum: MAX_UINT32 }
+        )
+        const depositKeyCommitment = normalizeBytes32Hex(
+          (
+            await this.taprootDepositRevealSource.taprootDepositOutputKeyCommitment(
+              event.fundingTxHash,
+              vout
+            )
+          ).toString(),
+          "Taproot deposit output-key commitment"
+        )
+        if (depositKeyCommitment === ZERO_BYTES32) {
+          return undefined
+        }
+
+        const depositRequest = await this.taprootDepositRevealSource.deposits(
+          event.fundingTxHash,
+          vout
+        )
+        if (
+          depositRequest.depositor.identifierHex.toLowerCase() !==
+          event.depositor.identifierHex.toLowerCase()
+        ) {
+          throw new Error(
+            `Taproot deposit ${event.fundingTxHash.toString()}:${vout} depositor does not match stored request`
+          )
+        }
+
+        const outputKey = (
+          await DepositScript.fromReceipt(
+            { ...event, extraData: depositRequest.extraData },
+            DepositScriptType.P2TR
+          ).getTaprootOutputKey()
+        ).toString()
+
+        return {
+          txid: normalizeTxid(event.fundingTxHash.toString()),
+          vout,
+          outputKey,
+          walletID,
+        }
+      }
     )
 
     const bindings: P2TRWalletInputKeyBinding[] = []
@@ -390,11 +399,12 @@ export class EsploraP2TRSignatureFraudTransactionSource
     }
 
     const uniqueBindingValues = [...uniqueBindings.values()]
-    const candidateResults = await Promise.allSettled(
-      uniqueBindingValues.map(async (binding) => {
+    const candidateResults = await this.scanTaskQueue.mapSettled(
+      uniqueBindingValues,
+      async (binding) => {
         const summary = await this.readDepositOutspend(binding)
         return summary === undefined ? undefined : { summary, binding }
-      })
+      }
     )
     const byTxid = new Map<string, EsploraTransactionCandidate>()
 
@@ -601,6 +611,52 @@ export class EsploraP2TRSignatureFraudTransactionSource
         `Esplora ${field} response was not valid JSON: ${message}`
       )
     }
+  }
+}
+
+class BoundedTaskQueue {
+  private activeTasks = 0
+  private readonly waitingTasks: Array<() => void> = []
+
+  constructor(private readonly concurrency: number) {}
+
+  async mapSettled<T, R>(
+    values: readonly T[],
+    mapper: (value: T, index: number) => Promise<R> | R
+  ): Promise<PromiseSettledResult<R>[]> {
+    return Promise.allSettled(
+      values.map((value, index) =>
+        this.run(() => Promise.resolve(mapper(value, index)))
+      )
+    )
+  }
+
+  private async run<T>(task: () => Promise<T>): Promise<T> {
+    await this.acquire()
+    try {
+      return await task()
+    } finally {
+      this.release()
+    }
+  }
+
+  private acquire(): Promise<void> {
+    if (this.activeTasks < this.concurrency) {
+      this.activeTasks++
+      return Promise.resolve()
+    }
+
+    return new Promise((resolve) => {
+      this.waitingTasks.push(() => {
+        this.activeTasks++
+        resolve()
+      })
+    })
+  }
+
+  private release(): void {
+    this.activeTasks--
+    this.waitingTasks.shift()?.()
   }
 }
 
