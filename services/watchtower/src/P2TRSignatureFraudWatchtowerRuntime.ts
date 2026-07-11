@@ -9,7 +9,7 @@ import { FileBackedP2TRWatchtowerChallengeRecordPersistence } from "./FileBacked
 import { FileBackedP2TRBridgeLifecycleScanCursorStore } from "./FileBackedP2TRBridgeLifecycleScanCursorStore.js"
 import type { P2TREthersBridgeLifecycleContract } from "./EthersP2TRSignatureFraudBridgeLifecycleEventSource.js"
 import type {
-  P2TRDepositScanFailure,
+  P2TRDepositScanFailureHandler,
   P2TREsploraFetch,
   P2TRTaprootDepositRevealSource,
 } from "./EsploraP2TRSignatureFraudTransactionSource.js"
@@ -36,7 +36,7 @@ export type P2TRSignatureFraudWatchtowerRuntime = {
 
 export type P2TRSignatureFraudWatchtowerEsploraRuntimeOptions = {
   taprootDepositRevealSource: P2TRTaprootDepositRevealSource
-  onDepositScanFailure: (failure: P2TRDepositScanFailure) => void
+  onDepositScanFailure: P2TRDepositScanFailureHandler
   fetchFn?: P2TREsploraFetch
 }
 

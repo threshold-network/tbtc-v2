@@ -2525,7 +2525,8 @@ export const extractP2TRWalletIDFromScriptPubKey = (
  * Finds registered tBTC P2TR wallet inputs in a raw Bitcoin transaction and
  * parses their key-path witness signatures.
  *
- * Unknown P2TR outputs and non-P2TR inputs are ignored. Registered wallet
+ * Unknown P2TR outputs and non-P2TR inputs are ignored. Script-path spends of
+ * exactly bound deposit outputs are refunds and are ignored. Registered wallet
  * inputs with unsupported witness forms are rejected fail-closed.
  *
  * @experimental This is a parser primitive for the draft P2TR signature-fraud
@@ -2579,6 +2580,11 @@ export const extractP2TRWalletInputWitnessCandidates = (
     const binding = keyBindings.get(
       p2trWalletInputKeyBindingMapKey(inputTxid, input.index, outputKey)
     )
+
+    if (binding !== undefined && isP2TRScriptPathWitness(input.witness)) {
+      return []
+    }
+
     const walletID =
       binding ??
       (registeredWalletIDStrings.has(outputKey.toString())
@@ -2597,6 +2603,14 @@ export const extractP2TRWalletInputWitnessCandidates = (
       },
     ]
   })
+}
+
+const isP2TRScriptPathWitness = (witness: Buffer[]): boolean => {
+  const lastItem = witness[witness.length - 1]
+  const witnessWithoutAnnex =
+    lastItem?.[0] === 0x50 ? witness.slice(0, -1) : witness
+
+  return witnessWithoutAnnex.length >= 2
 }
 
 const normalizeP2TRWalletInputKeyBindings = (

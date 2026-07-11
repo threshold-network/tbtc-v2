@@ -26,6 +26,7 @@ export {
 export type {
   EsploraP2TRSignatureFraudTransactionSourceOptions,
   P2TRDepositScanFailure,
+  P2TRDepositScanFailureHandler,
   P2TREsploraFetch,
   P2TRTaprootDepositRevealSource,
 } from "./EsploraP2TRSignatureFraudTransactionSource.js"
