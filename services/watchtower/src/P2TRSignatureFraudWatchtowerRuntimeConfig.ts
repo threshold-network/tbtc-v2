@@ -89,7 +89,7 @@ export type P2TRSignatureFraudWatchtowerBridgeLifecycleRuntimeConfig = Omit<
 
 export type P2TRSignatureFraudWatchtowerTransactionSourceRuntimeConfig = Omit<
   EsploraP2TRSignatureFraudTransactionSourceOptions,
-  "fetchFn" | "taprootDepositRevealSource"
+  "fetchFn" | "taprootDepositRevealSource" | "onDepositScanFailure"
 > & {
   esploraBaseUrl?: string
   bitcoinNetwork?: BitcoinNetwork
