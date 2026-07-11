@@ -4,6 +4,7 @@ import {
   Chains,
   DepositReceipt,
   ExtraDataEncoder,
+  assertTaprootDepositSupported,
 } from "../contracts"
 import { SuiAddress } from "./chain-identifier"
 import { SuiExtraDataEncoder } from "./extra-data-encoder"
@@ -68,6 +69,14 @@ export class SuiBitcoinDepositor implements BitcoinDepositor {
     return this.#extraDataEncoder
   }
 
+  /**
+   * @see {BitcoinDepositor#supportsTaprootDeposits}
+   * @returns False because the deployed contract uses the legacy reveal format.
+   */
+  supportsTaprootDeposits(): boolean {
+    return false
+  }
+
   // eslint-disable-next-line valid-jsdoc
   /**
    * @see {BitcoinDepositor#initializeDeposit}
@@ -78,6 +87,8 @@ export class SuiBitcoinDepositor implements BitcoinDepositor {
     deposit: DepositReceipt,
     vault?: ChainIdentifier // Ignored for SUI - no vault support
   ): Promise<Hex | any> {
+    assertTaprootDepositSupported(this, deposit)
+
     // This method is called by CrossChainDepositor in L2Transaction mode
     // It initiates the deposit on SUI, which triggers the relayer
 

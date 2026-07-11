@@ -23,6 +23,9 @@ Not validated by this run:
 * A full ECDSA-to-FROST upgrade from an existing ECDSA deployment state.
 * A public shared Ethereum testnet deployment.
 * Production governance batching.
+* Deposits routed through a depositor proxy or any cross-chain depositor. This
+  run used the direct L1 `revealTaprootDeposit` path and does not establish that
+  destination contracts or relayers preserve Taproot x-only reveal keys.
 
 == Required branches
 

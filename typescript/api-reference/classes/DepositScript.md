@@ -49,7 +49,7 @@ by the target wallet during the deposit sweep process.
 
 #### Defined in
 
-[src/services/deposits/deposit.ts:217](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L217)
+[src/services/deposits/deposit.ts:226](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L226)
 
 ## Properties
 
@@ -62,7 +62,7 @@ and allowing to build a unique deposit script (and address) on Bitcoin chain.
 
 #### Defined in
 
-[src/services/deposits/deposit.ts:206](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L206)
+[src/services/deposits/deposit.ts:215](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L215)
 
 ___
 
@@ -74,7 +74,7 @@ Deposit script/address type.
 
 #### Defined in
 
-[src/services/deposits/deposit.ts:215](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L215)
+[src/services/deposits/deposit.ts:224](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L224)
 
 ___
 
@@ -87,7 +87,7 @@ should be a witness P2WSH one. If false, legacy P2SH will be used instead.
 
 #### Defined in
 
-[src/services/deposits/deposit.ts:211](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L211)
+[src/services/deposits/deposit.ts:220](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L220)
 
 ## Methods
 
@@ -111,7 +111,7 @@ Bitcoin address corresponding to this deposit script.
 
 #### Defined in
 
-[src/services/deposits/deposit.ts:366](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L366)
+[src/services/deposits/deposit.ts:375](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L375)
 
 ___
 
@@ -136,7 +136,7 @@ Output script not prepended with length.
 
 #### Defined in
 
-[src/services/deposits/deposit.ts:409](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L409)
+[src/services/deposits/deposit.ts:418](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L418)
 
 ___
 
@@ -152,7 +152,7 @@ Hashed deposit script as Buffer.
 
 #### Defined in
 
-[src/services/deposits/deposit.ts:246](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L246)
+[src/services/deposits/deposit.ts:255](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L255)
 
 ___
 
@@ -168,7 +168,7 @@ Plain-text deposit script as a hex string.
 
 #### Defined in
 
-[src/services/deposits/deposit.ts:262](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L262)
+[src/services/deposits/deposit.ts:271](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L271)
 
 ___
 
@@ -184,7 +184,7 @@ TapLeaf hash of the Taproot refund script.
 
 #### Defined in
 
-[src/services/deposits/deposit.ts:335](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L335)
+[src/services/deposits/deposit.ts:344](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L344)
 
 ___
 
@@ -200,7 +200,7 @@ Taproot merkle root for this deposit's script tree.
 
 #### Defined in
 
-[src/services/deposits/deposit.ts:342](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L342)
+[src/services/deposits/deposit.ts:351](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L351)
 
 ___
 
@@ -216,7 +216,7 @@ X-only Taproot output key committing to the refund script.
 
 #### Defined in
 
-[src/services/deposits/deposit.ts:349](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L349)
+[src/services/deposits/deposit.ts:358](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L358)
 
 ___
 
@@ -232,7 +232,7 @@ Tapscript refund leaf for a Taproot-native deposit.
 
 #### Defined in
 
-[src/services/deposits/deposit.ts:304](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L304)
+[src/services/deposits/deposit.ts:313](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L313)
 
 ___
 
@@ -253,4 +253,4 @@ ___
 
 #### Defined in
 
-[src/services/deposits/deposit.ts:236](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L236)
+[src/services/deposits/deposit.ts:245](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L245)

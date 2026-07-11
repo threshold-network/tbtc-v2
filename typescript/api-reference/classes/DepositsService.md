@@ -46,7 +46,7 @@ Service exposing features related to tBTC v2 deposits.
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:53](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L53)
+[src/services/deposits/deposits-service.ts:54](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L54)
 
 ## Properties
 
@@ -72,7 +72,7 @@ Gets cross-chain contracts for the given supported L2 chain.
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:49](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L49)
+[src/services/deposits/deposits-service.ts:50](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L50)
 
 ___
 
@@ -85,7 +85,7 @@ initiated by this service.
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:42](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L42)
+[src/services/deposits/deposits-service.ts:43](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L43)
 
 ___
 
@@ -97,7 +97,7 @@ Bitcoin client handle.
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:37](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L37)
+[src/services/deposits/deposits-service.ts:38](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L38)
 
 ___
 
@@ -110,7 +110,7 @@ This is 9 month in seconds assuming 1 month = 30 days
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:29](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L29)
+[src/services/deposits/deposits-service.ts:30](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L30)
 
 ___
 
@@ -122,7 +122,7 @@ Handle to tBTC contracts.
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:33](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L33)
+[src/services/deposits/deposits-service.ts:34](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L34)
 
 ## Methods
 
@@ -145,13 +145,13 @@ Handle to tBTC contracts.
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:244](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L244)
+[src/services/deposits/deposits-service.ts:277](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L277)
 
 ___
 
 ### initiateCrossChainDeposit
 
-▸ **initiateCrossChainDeposit**(`bitcoinRecoveryAddress`, `destinationChainName`): `Promise`\<[`Deposit`](Deposit.md)\>
+▸ **initiateCrossChainDeposit**(`bitcoinRecoveryAddress`, `destinationChainName`, `scriptType?`): `Promise`\<[`Deposit`](Deposit.md)\>
 
 Initiates the tBTC v2 cross-chain deposit process. A cross-chain deposit
 is a deposit that targets an L2 chain other than the L1 chain the tBTC
@@ -166,10 +166,11 @@ must be initialized along with a L2 signer first.
 
 #### Parameters
 
-| Name | Type | Description |
-| :------ | :------ | :------ |
-| `bitcoinRecoveryAddress` | `string` | P2PKH or P2WPKH Bitcoin address that can be used for emergency recovery of the deposited funds. |
-| `destinationChainName` | [`DestinationChainName`](../README.md#destinationchainname) | Name of the L2 chain the deposit is targeting. |
+| Name | Type | Default value | Description |
+| :------ | :------ | :------ | :------ |
+| `bitcoinRecoveryAddress` | `string` | `undefined` | P2PKH or P2WPKH Bitcoin address for legacy deposits, or a P2TR Bitcoin address for Taproot deposits, that can be used for emergency recovery of the deposited funds. |
+| `destinationChainName` | [`DestinationChainName`](../README.md#destinationchainname) | `undefined` | Name of the L2 chain the deposit is targeting. |
+| `scriptType` | [`DepositScriptType`](../README.md#depositscripttype) | `DepositScriptType.P2WSH` | Type of the Bitcoin deposit script. Defaults to P2WSH for backward compatibility. |
 
 #### Returns
 
@@ -181,9 +182,12 @@ Handle to the initiated deposit process.
 
 Throws an error if one of the following occurs:
         - There are no active wallet in the Bridge contract
-        - The Bitcoin recovery address is not a valid P2(W)PKH
+        - The Bitcoin recovery address does not match the requested
+          deposit script type
         - The cross-chain contracts for the given L2 chain are not
           initialized
+        - The destination-chain or L1 depositor does not explicitly
+          support Taproot deposits end to end
         - The L2 deposit owner cannot be resolved. This typically
           happens if the L2 cross-chain contracts operate with a
           read-only signer whose address cannot be resolved.
@@ -199,7 +203,7 @@ This is actually a call to initiateDepositWithProxy with a built-in
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:224](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L224)
+[src/services/deposits/deposits-service.ts:246](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L246)
 
 ___
 
@@ -233,13 +237,13 @@ Throws an error if one of the following occurs:
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:95](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L95)
+[src/services/deposits/deposits-service.ts:96](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L96)
 
 ___
 
 ### initiateDepositWithProxy
 
-▸ **initiateDepositWithProxy**(`bitcoinRecoveryAddress`, `depositorProxy`, `extraData?`): `Promise`\<[`Deposit`](Deposit.md)\>
+▸ **initiateDepositWithProxy**(`bitcoinRecoveryAddress`, `depositorProxy`, `extraData?`, `scriptType?`): `Promise`\<[`Deposit`](Deposit.md)\>
 
 Initiates the tBTC v2 deposit process using a depositor proxy.
 The depositor proxy initiates minting on behalf of the user (i.e. original
@@ -249,11 +253,12 @@ to another protocols, in an automated way.
 
 #### Parameters
 
-| Name | Type | Description |
-| :------ | :------ | :------ |
-| `bitcoinRecoveryAddress` | `string` | P2PKH or P2WPKH Bitcoin address that can be used for emergency recovery of the deposited funds. |
-| `depositorProxy` | [`DepositorProxy`](../interfaces/DepositorProxy.md) | Depositor proxy used to initiate the deposit. |
-| `extraData?` | [`Hex`](Hex.md) | Optional 32-byte extra data to be included in the deposit script. Cannot be equal to 32 zero bytes. |
+| Name | Type | Default value | Description |
+| :------ | :------ | :------ | :------ |
+| `bitcoinRecoveryAddress` | `string` | `undefined` | P2PKH or P2WPKH Bitcoin address for legacy deposits, or a P2TR Bitcoin address for Taproot deposits, that can be used for emergency recovery of the deposited funds. |
+| `depositorProxy` | [`DepositorProxy`](../interfaces/DepositorProxy.md) | `undefined` | Depositor proxy used to initiate the deposit. |
+| `extraData?` | [`Hex`](Hex.md) | `undefined` | Optional 32-byte extra data to be included in the deposit script. Cannot be equal to 32 zero bytes. |
+| `scriptType` | [`DepositScriptType`](../README.md#depositscripttype) | `DepositScriptType.P2WSH` | Type of the Bitcoin deposit script. Defaults to P2WSH for backward compatibility. |
 
 #### Returns
 
@@ -269,13 +274,16 @@ DepositorProxy
 
 Throws an error if one of the following occurs:
         - There are no active wallet in the Bridge contract
-        - The Bitcoin recovery address is not a valid P2(W)PKH
+        - The Bitcoin recovery address does not match the requested
+          deposit script type
+        - A Taproot deposit is requested through a depositor proxy that
+          does not explicitly support Taproot deposits end to end
         - The optional extra data is set but is not 32-byte or equals
           to 32 zero bytes.
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:175](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L175)
+[src/services/deposits/deposits-service.ts:182](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L182)
 
 ___
 
@@ -309,7 +317,7 @@ Throws an error if one of the following occurs:
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:129](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L129)
+[src/services/deposits/deposits-service.ts:130](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L130)
 
 ___
 
@@ -333,7 +341,7 @@ once the loader is ready.
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L74)
+[src/services/deposits/deposits-service.ts:75](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L75)
 
 ___
 
@@ -362,4 +370,4 @@ Typically, there is no need to use this method when DepositsService
 
 #### Defined in
 
-[src/services/deposits/deposits-service.ts:364](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L364)
+[src/services/deposits/deposits-service.ts:397](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L397)
