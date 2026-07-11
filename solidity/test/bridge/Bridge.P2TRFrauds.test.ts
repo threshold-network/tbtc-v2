@@ -422,7 +422,7 @@ describe("Bridge - P2TR signature fraud", () => {
       ...vectorPayload(vector),
       walletID: hex(distinctWalletVector.walletIDHex),
     }
-    await registerP2TRWallet(payload.walletID)
+    const walletPubKeyHash = await registerP2TRWallet(payload.walletID)
 
     const signedPrevout = payload.prevouts[payload.signedInputIndex]
     const outputKey = ethers.utils.hexDataSlice(signedPrevout.scriptPubKey, 2)
@@ -432,19 +432,25 @@ describe("Bridge - P2TR signature fraud", () => {
       outputKey
     )
 
-    await expect(
-      p2trFraudRouter
-        .connect(thirdParty)
-        .processP2TRSignatureFraudChallenge(
-          p2trFraudAction.Submit,
-          encodePayload(payload),
-          [],
-          { value: fraudChallengeDepositAmount }
-        )
-    ).to.emit(p2trFraudRouter, "P2TRSignatureFraudChallengeSubmitted")
+    const tx = await p2trFraudRouter
+      .connect(thirdParty)
+      .processP2TRSignatureFraudChallenge(
+        p2trFraudAction.Submit,
+        encodePayload(payload),
+        [],
+        { value: fraudChallengeDepositAmount }
+      )
+
+    const event = await findP2TREvent(
+      tx,
+      p2trFraudRouter.address,
+      "P2TRSignatureFraudChallengeSubmitted"
+    )
+    expect(event.args.walletID).to.equal(payload.walletID)
+    expect(event.args.walletPubKeyHash).to.equal(walletPubKeyHash)
   })
 
-  it("rejects a deposit output key not committed to the registered wallet", async () => {
+  it("rejects a deposit output key committed to a different registered wallet", async () => {
     const payload = {
       ...vectorPayload(vector),
       walletID: hex(distinctWalletVector.walletIDHex),
@@ -471,6 +477,90 @@ describe("Bridge - P2TR signature fraud", () => {
     ).to.be.revertedWith("Taproot deposit key mismatch")
   })
 
+  it("rejects a different deposit output key committed to the registered wallet", async () => {
+    const payload = {
+      ...vectorPayload(vector),
+      walletID: hex(distinctWalletVector.walletIDHex),
+    }
+    await registerP2TRWallet(payload.walletID)
+
+    const signedPrevout = payload.prevouts[payload.signedInputIndex]
+    const outputKey = ethers.utils.hexDataSlice(signedPrevout.scriptPubKey, 2)
+    await bridge.setTaprootDepositOutputKeyCommitment(
+      signedInputUtxo(payload),
+      payload.walletID,
+      mutateLastByte(outputKey)
+    )
+
+    await expect(
+      p2trFraudRouter
+        .connect(thirdParty)
+        .processP2TRSignatureFraudChallenge(
+          p2trFraudAction.Submit,
+          encodePayload(payload),
+          [],
+          { value: fraudChallengeDepositAmount }
+        )
+    ).to.be.revertedWith("Taproot deposit key mismatch")
+  })
+
+  it("rejects a committed deposit whose signed prevout is not P2TR", async () => {
+    const basePayload = vectorPayload(vector)
+    const payload = {
+      ...basePayload,
+      walletID: hex(distinctWalletVector.walletIDHex),
+      prevouts: basePayload.prevouts.map((prevout, index) =>
+        index === basePayload.signedInputIndex
+          ? {
+              ...prevout,
+              scriptPubKey: `0x0014${"00".repeat(20)}`,
+            }
+          : prevout
+      ),
+    }
+    await registerP2TRWallet(payload.walletID)
+
+    const originalOutputKey = ethers.utils.hexDataSlice(
+      basePayload.prevouts[basePayload.signedInputIndex].scriptPubKey,
+      2
+    )
+    await bridge.setTaprootDepositOutputKeyCommitment(
+      signedInputUtxo(payload),
+      payload.walletID,
+      originalOutputKey
+    )
+
+    await expect(
+      p2trFraudRouter
+        .connect(thirdParty)
+        .processP2TRSignatureFraudChallenge(
+          p2trFraudAction.Submit,
+          encodePayload(payload),
+          [],
+          { value: fraudChallengeDepositAmount }
+        )
+    ).to.be.revertedWith("Taproot deposit prevout must be P2TR")
+  })
+
+  it("cannot verify a deposit-specific signature before its commitment exists", async () => {
+    const payload = {
+      ...vectorPayload(vector),
+      walletID: hex(distinctWalletVector.walletIDHex),
+    }
+    await registerP2TRWallet(payload.walletID)
+
+    await expect(
+      p2trFraudRouter
+        .connect(thirdParty)
+        .processP2TRSignatureFraudChallenge(
+          p2trFraudAction.Submit,
+          encodePayload(payload),
+          [],
+          { value: fraudChallengeDepositAmount }
+        )
+    ).to.be.revertedWith("Signature verification failure")
+  })
+
   it("submits a bounded multi-input multi-output P2TR signature-fraud challenge", async () => {
     const payload = vectorPayload(multiInputVector)
     const walletPubKeyHash = await registerP2TRWallet(payload.walletID)
@@ -495,6 +585,38 @@ describe("Bridge - P2TR signature fraud", () => {
     expect(event.args.sighash).to.equal(
       hex(multiInputVector.expectedBip341SighashHex)
     )
+  })
+
+  it("submits a multi-input deposit challenge using only the signed outpoint commitment", async () => {
+    const payload = {
+      ...vectorPayload(multiInputVector),
+      walletID: hex(distinctWalletVector.walletIDHex),
+    }
+    const walletPubKeyHash = await registerP2TRWallet(payload.walletID)
+    const signedPrevout = payload.prevouts[payload.signedInputIndex]
+    const outputKey = ethers.utils.hexDataSlice(signedPrevout.scriptPubKey, 2)
+    await bridge.setTaprootDepositOutputKeyCommitment(
+      signedInputUtxo(payload),
+      payload.walletID,
+      outputKey
+    )
+
+    const tx = await p2trFraudRouter
+      .connect(thirdParty)
+      .processP2TRSignatureFraudChallenge(
+        p2trFraudAction.Submit,
+        encodePayload(payload),
+        [],
+        { value: fraudChallengeDepositAmount }
+      )
+
+    const event = await findP2TREvent(
+      tx,
+      p2trFraudRouter.address,
+      "P2TRSignatureFraudChallengeSubmitted"
+    )
+    expect(event.args.walletID).to.equal(payload.walletID)
+    expect(event.args.walletPubKeyHash).to.equal(walletPubKeyHash)
   })
 
   it("rejects duplicate P2TR signature-fraud challenges", async () => {

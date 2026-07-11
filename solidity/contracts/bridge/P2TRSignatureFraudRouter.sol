@@ -508,8 +508,12 @@ contract P2TRSignatureFraudRouter {
     }
 
     /// @dev Deposit inputs verify against their tweaked output key only after
-    ///      it is bound to the registered wallet by reveal-time Bridge state.
-    ///      All other wallet inputs continue to verify against the wallet ID.
+    ///      a successful reveal on a commitment-capable Bridge binds that key
+    ///      to the registered wallet. A zero commitment falls back to the base
+    ///      wallet ID, so a deposit-specific signature is not challengeable
+    ///      through this router before that binding exists. Reveals predating
+    ///      the commitment storage are not backfilled automatically. All other
+    ///      wallet inputs continue to verify against the wallet ID.
     function _signatureVerificationKey(
         IBridgeForP2TRFraud b,
         CheckBitcoinP2TRSignatureFraud.BridgeChallengeIdentityPayload

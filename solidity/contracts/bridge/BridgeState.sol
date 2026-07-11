@@ -464,8 +464,10 @@ library BridgeState {
         bool slashingActive;
         // Binds each revealed Taproot-native deposit outpoint to its registered
         // wallet ID and deposit-specific output key. The value is
-        // keccak256(walletID || outputKey); zero denotes a legacy deposit or a
-        // non-deposit outpoint.
+        // keccak256(walletID || outputKey). Zero denotes a legacy, unrevealed,
+        // pre-upgrade, or non-deposit outpoint. Pre-upgrade reveals are not
+        // backfilled automatically; without a commitment, fraud verification
+        // falls back to the registered wallet's base x-only key.
         mapping(uint256 => bytes32) taprootDepositOutputKeyCommitments;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
