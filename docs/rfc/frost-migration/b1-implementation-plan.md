@@ -253,9 +253,31 @@ fails fast.
    nonzero `taprootDepositOutputKeyCommitment`. If any outstanding reveal lacks
    a commitment, delay activation until it is swept or refunded, or deploy an
    independently audited backfill mechanism first.
-7. No scheme flip is required in the canonical mirror: D-2.2
+7. Choose and verify the proxy/cross-chain deposit policy before the first
+   FROST wallet can become active. Direct L1 Taproot deposits can proceed, but
+   every proxy-based route MUST remain disabled unless it explicitly declares
+   end-to-end Taproot support. For each enabled destination, verify all of the
+   following before allowing the SDK to return a P2TR deposit address:
+
+   - the destination-chain depositor accepts and preserves
+     `walletXOnlyPublicKey` and `refundXOnlyPublicKey`;
+   - the L1 depositor accepts the Taproot reveal tuple and calls the Bridge's
+     Taproot reveal entry point;
+   - the relayer preserves both x-only keys across the complete route;
+   - the deployed contract artifacts and SDK adapters match those versions and
+     both adapters report `supportsTaprootDeposits() == true`; and
+   - a staging deposit has completed reveal, sweep, and minting through that
+     exact route.
+
+   Existing deployed cross-chain depositors expose legacy reveal tuples. Until
+   they and their relayers are upgraded, shipped SDK adapters MUST report the
+   capability as false and reject P2TR before constructing a receipt or handing
+   out a Bitcoin address. Activating FROST therefore temporarily disables those
+   cross-chain deposit routes; it must never silently fall back to P2WSH.
+
+8. No scheme flip is required in the canonical mirror: D-2.2
    slice 3 removed the scheme setter and `Bridge.requestNewWallet`
-   dispatches only to the FROST registry. With steps 1-6 complete,
+   dispatches only to the FROST registry. With steps 1-7 complete,
    the call succeeds and DKG starts.
 
 Skipping step 5 strands every newly-created FROST wallet — the

@@ -945,6 +945,27 @@ describe("Ethereum", () => {
         "82883a4c7a8dd73ef165deb402d432613615ced4"
       )
 
+      it("should declare Taproot deposits unsupported", () => {
+        expect(depositorHandle.supportsTaprootDeposits()).to.be.false
+      })
+
+      it("should reject a Taproot receipt before encoding the legacy tuple", async () => {
+        await expect(
+          depositorHandle.initializeDeposit(
+            depositTx,
+            depositOutputIndex,
+            {
+              ...deposit,
+              walletXOnlyPublicKey: Hex.from("11".repeat(32)),
+              refundXOnlyPublicKey: Hex.from("22".repeat(32)),
+            },
+            vault
+          )
+        ).to.be.rejectedWith(
+          "Taproot deposits are not supported by this depositor"
+        )
+      })
+
       context(
         "when L2 deposit owner is properly encoded in the extra data",
         () => {

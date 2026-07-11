@@ -17,14 +17,14 @@ preference + counter).
 C-1 is **not a single PR**. It is a fan-out of independent updates
 to downstream repositories:
 
-| Sub-phase | Repo / path                                 | Scope                                                                                                         |
-| --------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| C-1.1     | `data/tbtc-subgraph/`                       | Bridge ABI refresh; new sidecar datasources; schema additions; mapping handlers                               |
-| C-1.2     | `data/v3-indexer/`                          | Mirror of C-1.1's contract-surface deltas; whatever ingestion path the v3 indexer uses                        |
-| C-1.3     | `services/p2tr-signature-fraud-watchtower/` | Already prepared in #435 (duck-typed contract reference); production wiring to router address at deploy time  |
-| C-1.4     | `services/crosschain-relayer/`              | Wallet-aware fields for FROST scheme + new event types                                                        |
-| C-1.5     | `services/backend/src/interfaces/Bridge.ts` | If it references fraud entry points, retarget to the routers                                                  |
-| C-1.6     | `sdk/tbtc-v2-ts/`                           | Type rename `...BridgeChallengeContract` → `...RouterContract` (queued for follow-up breaking-change release) |
+| Sub-phase | Repo / path                                                      | Scope                                                                                                                                   |
+| --------- | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| C-1.1     | `data/tbtc-subgraph/`                                            | Bridge ABI refresh; new sidecar datasources; schema additions; mapping handlers                                                         |
+| C-1.2     | `data/v3-indexer/`                                               | Mirror of C-1.1's contract-surface deltas; whatever ingestion path the v3 indexer uses                                                  |
+| C-1.3     | `services/p2tr-signature-fraud-watchtower/`                      | Already prepared in #435 (duck-typed contract reference); production wiring to router address at deploy time                            |
+| C-1.4     | `services/crosschain-relayer/` + cross-chain depositor contracts | Preserve Taproot reveal x-only keys end to end; deploy matching destination/L1 contracts and relayer before enabling the SDK capability |
+| C-1.5     | `services/backend/src/interfaces/Bridge.ts`                      | If it references fraud entry points, retarget to the routers                                                                            |
+| C-1.6     | `sdk/tbtc-v2-ts/`                                                | Type rename `...BridgeChallengeContract` → `...RouterContract` (queued for follow-up breaking-change release)                           |
 
 The sub-phases are **independent**. Each can ship on its own
 timeline subject to its own deploy/release cadence; they share no
@@ -188,7 +188,13 @@ Recommended cutover sequence for C-1 work:
 - [ ] (External) Contract upgrade deployed on Sepolia → mainnet.
 - [ ] (External) Sidecar contract addresses captured into the
       deployment record.
-- [ ] C-1.4: crosschain-relayer scheme awareness.
+- [ ] C-1.4: cross-chain Taproot reveal support. Upgrade each destination
+      depositor event/payload, the corresponding L1 depositor reveal tuple,
+      and the relayer so `walletXOnlyPublicKey` and
+      `refundXOnlyPublicKey` reach the Bridge's Taproot reveal entry point.
+      Update deployment artifacts and enable the SDK adapter capability only
+      after an end-to-end staging reveal, sweep, and mint succeeds. Until then,
+      the SDK must reject P2TR before returning a deposit address.
 - [ ] C-1.5: backend Bridge interface retargeting (if needed).
 - [ ] C-1.6: SDK type rename, fold into the next breaking-change SDK
       release.
@@ -205,10 +211,10 @@ Recommended cutover sequence for C-1 work:
    for downstream queries that don't want to handle nulls but
    requires a one-time grafting / re-sync; nullable preserves
    indexer compatibility at the cost of consumer complexity.
-3. **Does the crosschain-relayer need scheme-aware logic?** The relayer
-   forwards Bridge state to L2s. If the L2 representation of a
-   wallet doesn't distinguish scheme, no relayer change is needed.
-   Audit required.
+3. **Which destination is upgraded first for cross-chain Taproot deposits?**
+   The relayer and both destination/L1 depositor contracts require explicit
+   Taproot reveal support. All legacy routes remain disabled until a destination
+   completes the C-1.4 readiness checklist.
 
 ## Out of scope for C-1
 

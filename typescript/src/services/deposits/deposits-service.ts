@@ -4,6 +4,7 @@ import {
   DepositorProxy,
   DepositReceipt,
   DestinationChainName,
+  supportsTaprootDeposits,
   TBTCContracts,
 } from "../../lib/contracts"
 import { WalletIDUtils } from "../../lib/contracts/wallet-id"
@@ -173,6 +174,8 @@ export class DepositsService {
    *         - There are no active wallet in the Bridge contract
    *         - The Bitcoin recovery address does not match the requested
    *           deposit script type
+   *         - A Taproot deposit is requested through a depositor proxy that
+   *           does not explicitly support Taproot deposits end to end
    *         - The optional extra data is set but is not 32-byte or equals
    *           to 32 zero bytes.
    */
@@ -182,6 +185,13 @@ export class DepositsService {
     extraData?: Hex,
     scriptType: DepositScriptType = DepositScriptType.P2WSH
   ): Promise<Deposit> {
+    if (
+      scriptType == DepositScriptType.P2TR &&
+      !supportsTaprootDeposits(depositorProxy)
+    ) {
+      throw new Error("Taproot deposits are not supported by this depositor")
+    }
+
     const receipt = await this.generateDepositReceipt(
       bitcoinRecoveryAddress,
       depositorProxy.getChainIdentifier(),
@@ -224,6 +234,8 @@ export class DepositsService {
    *           deposit script type
    *         - The cross-chain contracts for the given L2 chain are not
    *           initialized
+   *         - The destination-chain or L1 depositor does not explicitly
+   *           support Taproot deposits end to end
    *         - The L2 deposit owner cannot be resolved. This typically
    *           happens if the L2 cross-chain contracts operate with a
    *           read-only signer whose address cannot be resolved.
@@ -244,6 +256,15 @@ export class DepositsService {
     }
 
     const depositorProxy = new CrossChainDepositor(crossChainContracts)
+
+    if (
+      scriptType == DepositScriptType.P2TR &&
+      !supportsTaprootDeposits(depositorProxy)
+    ) {
+      throw new Error(
+        `Taproot deposits are not supported for ${destinationChainName}`
+      )
+    }
 
     return this.initiateDepositWithProxy(
       bitcoinRecoveryAddress,

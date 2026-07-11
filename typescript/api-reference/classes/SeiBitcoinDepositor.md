@@ -38,6 +38,7 @@ provider-aware interface for relayer integration.
 - [initializeDeposit](SeiBitcoinDepositor.md#initializedeposit)
 - [isRetryableError](SeiBitcoinDepositor.md#isretryableerror)
 - [setDepositOwner](SeiBitcoinDepositor.md#setdepositowner)
+- [supportsTaprootDeposits](SeiBitcoinDepositor.md#supportstaprootdeposits)
 
 ## Constructors
 
@@ -65,7 +66,7 @@ Error if provider is not provided
 
 #### Defined in
 
-[src/lib/sei/sei-depositor.ts:88](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L88)
+[src/lib/sei/sei-depositor.ts:89](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L89)
 
 ## Properties
 
@@ -75,7 +76,7 @@ Error if provider is not provided
 
 #### Defined in
 
-[src/lib/sei/sei-depositor.ts:77](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L77)
+[src/lib/sei/sei-depositor.ts:78](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L78)
 
 ___
 
@@ -85,7 +86,7 @@ ___
 
 #### Defined in
 
-[src/lib/sei/sei-depositor.ts:76](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L76)
+[src/lib/sei/sei-depositor.ts:77](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L77)
 
 ___
 
@@ -95,7 +96,7 @@ ___
 
 #### Defined in
 
-[src/lib/sei/sei-depositor.ts:79](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L79)
+[src/lib/sei/sei-depositor.ts:80](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L80)
 
 ___
 
@@ -105,7 +106,7 @@ ___
 
 #### Defined in
 
-[src/lib/sei/sei-depositor.ts:75](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L75)
+[src/lib/sei/sei-depositor.ts:76](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L76)
 
 ___
 
@@ -115,7 +116,7 @@ ___
 
 #### Defined in
 
-[src/lib/sei/sei-depositor.ts:78](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L78)
+[src/lib/sei/sei-depositor.ts:79](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L79)
 
 ## Methods
 
@@ -137,7 +138,7 @@ The SeiExtraDataEncoder instance.
 
 #### Defined in
 
-[src/lib/sei/sei-depositor.ts:192](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L192)
+[src/lib/sei/sei-depositor.ts:193](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L193)
 
 ___
 
@@ -161,7 +162,7 @@ Formatted error message
 
 #### Defined in
 
-[src/lib/sei/sei-depositor.ts:423](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L423)
+[src/lib/sei/sei-depositor.ts:434](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L434)
 
 ___
 
@@ -190,7 +191,7 @@ Error if the address is invalid
 
 #### Defined in
 
-[src/lib/sei/sei-depositor.ts:498](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L498)
+[src/lib/sei/sei-depositor.ts:509](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L509)
 
 ___
 
@@ -214,7 +215,7 @@ Always throws since Sei deposits are handled via L1.
 
 #### Defined in
 
-[src/lib/sei/sei-depositor.ts:152](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L152)
+[src/lib/sei/sei-depositor.ts:153](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L153)
 
 ___
 
@@ -232,7 +233,7 @@ The chain name (e.g., "Sei")
 
 #### Defined in
 
-[src/lib/sei/sei-depositor.ts:135](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L135)
+[src/lib/sei/sei-depositor.ts:136](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L136)
 
 ___
 
@@ -254,7 +255,7 @@ The Sei address set as deposit owner, or undefined if not set.
 
 #### Defined in
 
-[src/lib/sei/sei-depositor.ts:163](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L163)
+[src/lib/sei/sei-depositor.ts:164](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L164)
 
 ___
 
@@ -272,7 +273,7 @@ The Sei provider instance
 
 #### Defined in
 
-[src/lib/sei/sei-depositor.ts:143](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L143)
+[src/lib/sei/sei-depositor.ts:144](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L144)
 
 ___
 
@@ -311,7 +312,7 @@ Error if deposit owner not set or relayer returns unexpected response
 
 #### Defined in
 
-[src/lib/sei/sei-depositor.ts:211](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L211)
+[src/lib/sei/sei-depositor.ts:220](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L220)
 
 ___
 
@@ -335,7 +336,7 @@ True if the error is retryable
 
 #### Defined in
 
-[src/lib/sei/sei-depositor.ts:395](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L395)
+[src/lib/sei/sei-depositor.ts:406](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L406)
 
 ___
 
@@ -365,4 +366,26 @@ Error if the deposit owner is not a SeiAddress and not undefined/null.
 
 #### Defined in
 
-[src/lib/sei/sei-depositor.ts:173](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L173)
+[src/lib/sei/sei-depositor.ts:174](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L174)
+
+___
+
+### supportsTaprootDeposits
+
+▸ **supportsTaprootDeposits**(): `boolean`
+
+#### Returns
+
+`boolean`
+
+False until the relayer and L1 depositor support Taproot reveals.
+
+**`See`**
+
+#### Implementation of
+
+[BitcoinDepositor](../interfaces/BitcoinDepositor.md).[supportsTaprootDeposits](../interfaces/BitcoinDepositor.md#supportstaprootdeposits)
+
+#### Defined in
+
+[src/lib/sei/sei-depositor.ts:201](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/sei/sei-depositor.ts#L201)
