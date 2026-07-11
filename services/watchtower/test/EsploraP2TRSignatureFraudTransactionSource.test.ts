@@ -162,6 +162,143 @@ test("discovers mempool spends of revealed Taproot deposit outpoints", async () 
   assert.ok(requestedPaths.includes(depositOutspendPath(fundingTxid, 2)))
 })
 
+test("bounds historical deposit scan work across every RPC stage", async () => {
+  const address = deriveP2TRWalletAddress(walletID, BitcoinNetwork.Testnet)
+  const concurrency = 2
+  const fundingTxids = Array.from({ length: 5 }, (_, index) =>
+    (0x31 + index).toString(16).repeat(32)
+  )
+  const spendingTxids = Array.from({ length: 5 }, (_, index) =>
+    (0x41 + index).toString(16).repeat(32)
+  )
+  const commitmentProbe = createConcurrencyProbe()
+  const depositRequestProbe = createConcurrencyProbe()
+  const outspendProbe = createConcurrencyProbe()
+  const rawTransactionProbe = createConcurrencyProbe()
+  const routes: Record<string, FakeRoute["body"] | FakeRoute> = {
+    [addressMempoolPath(address)]: [],
+  }
+
+  fundingTxids.forEach((txid, index) => {
+    routes[depositOutspendPath(txid, index)] = {
+      spent: true,
+      txid: spendingTxids[index],
+      status: { confirmed: false },
+    }
+    routes[`/tx/${spendingTxids[index]}/hex`] = rawMempoolTx
+  })
+
+  const baseFetch = fakeFetch(routes)
+  const source = new EsploraP2TRSignatureFraudTransactionSource(
+    "https://esplora.test",
+    BitcoinNetwork.Testnet,
+    [walletID],
+    {
+      taprootDepositRevealSource: {
+        async getTaprootDepositRevealedEvents() {
+          return fundingTxids.map((txid, index) =>
+            taprootDepositEvent({
+              fundingTxHash: BitcoinTxHash.from(txid),
+              fundingOutputIndex: index,
+            })
+          ) as never[]
+        },
+        async taprootDepositOutputKeyCommitment() {
+          return commitmentProbe.track(() => Hex.from("01".repeat(32)))
+        },
+        async deposits() {
+          return depositRequestProbe.track(
+            () =>
+              ({
+                depositor: { identifierHex: "23".repeat(20) },
+              } as never)
+          )
+        },
+      },
+      onDepositScanFailure: ignoreDepositScanFailure,
+      depositScanConcurrency: concurrency,
+      fetchFn: async (input, init) => {
+        const path = new URL(input).pathname
+        if (path.includes("/outspend/")) {
+          return outspendProbe.track(() => baseFetch(input, init))
+        }
+        if (path.endsWith("/hex")) {
+          return rawTransactionProbe.track(() => baseFetch(input, init))
+        }
+        return baseFetch(input, init)
+      },
+    }
+  )
+
+  const transactions = await source.listMempoolTransactions()
+
+  assert.deepEqual(
+    transactions.map(({ bitcoinTxHash }) => bitcoinTxHash.toString()),
+    spendingTxids
+  )
+  const probes = [
+    commitmentProbe,
+    depositRequestProbe,
+    outspendProbe,
+    rawTransactionProbe,
+  ]
+  probes.forEach((probe) => {
+    assert.equal(probe.started, fundingTxids.length)
+    assert.equal(probe.maxInFlight, concurrency)
+  })
+})
+
+test("shares raw transaction concurrency across mempool and confirmed listings", async () => {
+  const address = deriveP2TRWalletAddress(walletID, BitcoinNetwork.Testnet)
+  const concurrency = 2
+  const mempoolTxids = ["51".repeat(32), "52".repeat(32), "53".repeat(32)]
+  const confirmedTxids = ["61".repeat(32), "62".repeat(32), "63".repeat(32)]
+  const rawTransactionProbe = createConcurrencyProbe()
+  const routes: Record<string, FakeRoute["body"] | FakeRoute> = {
+    [addressMempoolPath(address)]: mempoolTxids.map((txid) => ({ txid })),
+    [addressConfirmedPath(address)]: confirmedTxids.map((txid, index) =>
+      confirmedSummary(txid, blockHash, 100 + index)
+    ),
+  }
+  const transactionIDs = [...mempoolTxids, ...confirmedTxids]
+  transactionIDs.forEach((txid) => {
+    routes[`/tx/${txid}/hex`] = rawMempoolTx
+  })
+  const baseFetch = fakeFetch(routes)
+  const source = new EsploraP2TRSignatureFraudTransactionSource(
+    "https://esplora.test",
+    BitcoinNetwork.Testnet,
+    [walletID],
+    {
+      taprootDepositRevealSource: emptyTaprootDepositRevealSource,
+      onDepositScanFailure: ignoreDepositScanFailure,
+      depositScanConcurrency: concurrency,
+      fetchFn: async (input, init) => {
+        const path = new URL(input).pathname
+        return path.endsWith("/hex")
+          ? rawTransactionProbe.track(() => baseFetch(input, init))
+          : baseFetch(input, init)
+      },
+    }
+  )
+
+  const [mempoolTransactions, confirmedTransactions] = await Promise.all([
+    source.listMempoolTransactions(),
+    source.listConfirmedTransactions(),
+  ])
+
+  assert.deepEqual(
+    mempoolTransactions.map(({ bitcoinTxHash }) => bitcoinTxHash.toString()),
+    mempoolTxids
+  )
+  assert.deepEqual(
+    confirmedTransactions.map(({ bitcoinTxHash }) => bitcoinTxHash.toString()),
+    confirmedTxids
+  )
+  assert.equal(rawTransactionProbe.started, 6)
+  assert.equal(rawTransactionProbe.maxInFlight, concurrency)
+})
+
 test("excludes revealed deposits without an output-key commitment", async () => {
   const address = deriveP2TRWalletAddress(walletID, BitcoinNetwork.Testnet)
   const requestedPaths: string[] = []
@@ -893,6 +1030,22 @@ test("validates Esplora source configuration before scanning", () => {
       ),
     /requires a deposit scan failure handler/
   )
+  for (const depositScanConcurrency of [0, 1.5]) {
+    assert.throws(
+      () =>
+        new EsploraP2TRSignatureFraudTransactionSource(
+          "https://esplora.test",
+          BitcoinNetwork.Testnet,
+          [walletID],
+          {
+            taprootDepositRevealSource: emptyTaprootDepositRevealSource,
+            onDepositScanFailure: ignoreDepositScanFailure,
+            depositScanConcurrency,
+          }
+        ),
+      /depositScanConcurrency must be a positive integer/
+    )
+  }
 })
 
 function taprootDepositRevealSource(
@@ -993,4 +1146,30 @@ function isFakeRoute(value: FakeRoute["body"] | FakeRoute): value is FakeRoute {
     !Array.isArray(value) &&
     "body" in value
   )
+}
+
+function createConcurrencyProbe() {
+  let inFlight = 0
+  let maxInFlight = 0
+  let started = 0
+
+  return {
+    get maxInFlight() {
+      return maxInFlight
+    },
+    get started() {
+      return started
+    },
+    async track<T>(operation: () => T | Promise<T>): Promise<T> {
+      started++
+      inFlight++
+      maxInFlight = Math.max(maxInFlight, inFlight)
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      try {
+        return await operation()
+      } finally {
+        inFlight--
+      }
+    },
+  }
 }
