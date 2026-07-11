@@ -335,9 +335,9 @@ library BridgeState {
         // governance wiring; changing it afterwards requires a dedicated
         // upgrade path of the Bridge implementation.
         address rebateStaking;
-        // Upgrade note: the FROST wallet ID fields below and the FROST
-        // FROST extraction state consumes eight reserved slots, reducing
-        // `__gap` from 48 to 40 for storage-layout compatibility.
+        // Upgrade note: the FROST extraction state and Taproot deposit
+        // commitment mapping below consume nine reserved slots, reducing
+        // `__gap` from 48 to 39 for storage-layout compatibility.
         // Maps canonical wallet identifier to the wallet public key hash used
         // by legacy Bridge paths. For legacy ECDSA wallets, canonical wallet
         // ID is a left-padded 20-byte wallet public key hash. New wallet
@@ -462,6 +462,13 @@ library BridgeState {
         // unaffected. Packs at slot 37 offset 18 (one byte after `ecdsaRetired`);
         // total slot 37 usage: 19 bytes of 32. No __gap change.
         bool slashingActive;
+        // Binds each revealed Taproot-native deposit outpoint to its registered
+        // wallet ID and deposit-specific output key. The value is
+        // keccak256(walletID || outputKey). Zero denotes a legacy, unrevealed,
+        // pre-upgrade, or non-deposit outpoint. Pre-upgrade reveals are not
+        // backfilled automatically; without a commitment, fraud verification
+        // falls back to the registered wallet's base x-only key.
+        mapping(uint256 => bytes32) taprootDepositOutputKeyCommitments;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
@@ -469,7 +476,7 @@ library BridgeState {
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
-        uint256[40] __gap;
+        uint256[39] __gap;
     }
 
     event DepositParametersUpdated(

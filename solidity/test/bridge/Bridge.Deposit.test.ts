@@ -1287,6 +1287,25 @@ describe("Bridge - Deposit", () => {
           reveal.refundLocktime,
           reveal.vault
         )
+
+      const depositKey = BigNumber.from(
+        ethers.utils.keccak256(
+          ethers.utils.solidityPack(
+            ["bytes32", "uint32"],
+            [await transactionHash(P2TRFundingTx), reveal.fundingOutputIndex]
+          )
+        )
+      )
+      expect(
+        await bridge.taprootDepositOutputKeyCommitment(depositKey)
+      ).to.equal(
+        ethers.utils.keccak256(
+          ethers.utils.solidityPack(
+            ["bytes32", "bytes32"],
+            [reveal.walletXOnlyPublicKey, expectedOutputKey]
+          )
+        )
+      )
     })
 
     it("should reveal a Taproot deposit with extra data", async () => {
@@ -1315,6 +1334,33 @@ describe("Bridge - Deposit", () => {
           reveal.refundLocktime,
           reveal.vault
         )
+
+      const depositKey = BigNumber.from(
+        ethers.utils.keccak256(
+          ethers.utils.solidityPack(
+            ["bytes32", "uint32"],
+            [
+              await transactionHash(
+                revealTaprootDepositWithExtraDataFixture.P2TRFundingTx
+              ),
+              reveal.fundingOutputIndex,
+            ]
+          )
+        )
+      )
+      expect(
+        await bridge.taprootDepositOutputKeyCommitment(depositKey)
+      ).to.equal(
+        ethers.utils.keccak256(
+          ethers.utils.solidityPack(
+            ["bytes32", "bytes32"],
+            [
+              reveal.walletXOnlyPublicKey,
+              revealTaprootDepositWithExtraDataFixture.expectedOutputKey,
+            ]
+          )
+        )
+      )
     })
 
     it("should reject refund x-only key that does not match refund alias", async () => {
