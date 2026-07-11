@@ -1957,8 +1957,12 @@ describe("Deposits", () => {
 
           beforeEach(async () => {
             depositorProxy = new MockDepositorProxy()
+            const proxyWithoutTaprootCapability: DepositorProxy = {
+              getChainIdentifier: () => depositorProxy.getChainIdentifier(),
+              revealDeposit: depositorProxy.revealDeposit.bind(depositorProxy),
+            }
             ;({ transaction, tbtcContracts } = await initiateMinting(
-              depositorProxy
+              proxyWithoutTaprootCapability
             ))
           })
 
@@ -1984,6 +1988,8 @@ describe("Deposits", () => {
           let transaction: BitcoinRawTx
           let tbtcContracts: MockTBTCContracts
           let depositorProxy: MockDepositorProxy
+          let bitcoinClient: MockBitcoinClient
+          let depositUtxo: BitcoinUtxo
 
           beforeEach(async () => {
             const fee = BigNumber.from(1520)
@@ -2004,9 +2010,9 @@ describe("Deposits", () => {
             )
 
             transaction = result.rawTransaction
-            const depositUtxo: BitcoinUtxo = result.depositUtxo
+            depositUtxo = result.depositUtxo
 
-            const bitcoinClient: MockBitcoinClient = new MockBitcoinClient()
+            bitcoinClient = new MockBitcoinClient()
             const rawTransactions = new Map<string, BitcoinRawTx>()
             rawTransactions.set(
               depositUtxo.transactionHash.toString(),
@@ -2026,7 +2032,7 @@ describe("Deposits", () => {
               )
             ).initiateMinting(depositUtxo)
 
-            depositorProxy = new MockDepositorProxy()
+            depositorProxy = new MockDepositorProxy(true)
             await (
               await Deposit.fromReceipt(
                 taprootDepositFixture.receipt,
@@ -2073,6 +2079,46 @@ describe("Deposits", () => {
             ).to.be.deep.equal(
               taprootDepositFixture.receipt.refundXOnlyPublicKey
             )
+          })
+
+          it("should reject a restored Taproot deposit for a proxy without explicit support", async () => {
+            const legacyProxy = new MockDepositorProxy(true)
+            const proxyWithoutTaprootCapability: DepositorProxy = {
+              getChainIdentifier: () => legacyProxy.getChainIdentifier(),
+              revealDeposit: legacyProxy.revealDeposit.bind(legacyProxy),
+            }
+            const restoredDeposit = await Deposit.fromReceipt(
+              taprootDepositFixture.receipt,
+              new MockTBTCContracts(),
+              bitcoinClient,
+              proxyWithoutTaprootCapability,
+              DepositScriptType.P2TR
+            )
+
+            await expect(
+              restoredDeposit.initiateMinting(depositUtxo)
+            ).to.be.rejectedWith(
+              "Taproot deposits are not supported by this depositor"
+            )
+            expect(legacyProxy.revealDepositLog.length).to.be.equal(0)
+          })
+
+          it("should reject a restored Taproot deposit for an incapable proxy", async () => {
+            const incapableProxy = new MockDepositorProxy(false)
+            const restoredDeposit = await Deposit.fromReceipt(
+              taprootDepositFixture.receipt,
+              new MockTBTCContracts(),
+              bitcoinClient,
+              incapableProxy,
+              DepositScriptType.P2TR
+            )
+
+            await expect(
+              restoredDeposit.initiateMinting(depositUtxo)
+            ).to.be.rejectedWith(
+              "Taproot deposits are not supported by this depositor"
+            )
+            expect(incapableProxy.revealDepositLog.length).to.be.equal(0)
           })
         })
       })

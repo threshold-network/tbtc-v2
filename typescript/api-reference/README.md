@@ -454,7 +454,7 @@ ___
 
 #### Defined in
 
-[src/services/deposits/deposit.ts:31](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L31)
+[src/services/deposits/deposit.ts:32](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L32)
 
 ___
 
@@ -464,9 +464,9 @@ ___
 
 #### Defined in
 
-[src/services/deposits/deposit.ts:22](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L22)
+[src/services/deposits/deposit.ts:23](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L23)
 
-[src/services/deposits/deposit.ts:28](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L28)
+[src/services/deposits/deposit.ts:29](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L29)
 
 ___
 
@@ -2266,9 +2266,9 @@ ___
 
 #### Defined in
 
-[src/services/deposits/deposit.ts:22](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L22)
+[src/services/deposits/deposit.ts:23](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L23)
 
-[src/services/deposits/deposit.ts:28](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L28)
+[src/services/deposits/deposit.ts:29](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L29)
 
 ___
 
