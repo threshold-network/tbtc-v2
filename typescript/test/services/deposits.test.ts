@@ -1957,8 +1957,12 @@ describe("Deposits", () => {
 
           beforeEach(async () => {
             depositorProxy = new MockDepositorProxy()
+            const proxyWithoutTaprootCapability: DepositorProxy = {
+              getChainIdentifier: () => depositorProxy.getChainIdentifier(),
+              revealDeposit: depositorProxy.revealDeposit.bind(depositorProxy),
+            }
             ;({ transaction, tbtcContracts } = await initiateMinting(
-              depositorProxy
+              proxyWithoutTaprootCapability
             ))
           })
 
@@ -1983,6 +1987,9 @@ describe("Deposits", () => {
         context("when deposit is Taproot-native", () => {
           let transaction: BitcoinRawTx
           let tbtcContracts: MockTBTCContracts
+          let depositorProxy: MockDepositorProxy
+          let bitcoinClient: MockBitcoinClient
+          let depositUtxo: BitcoinUtxo
 
           beforeEach(async () => {
             const fee = BigNumber.from(1520)
@@ -2003,9 +2010,9 @@ describe("Deposits", () => {
             )
 
             transaction = result.rawTransaction
-            const depositUtxo: BitcoinUtxo = result.depositUtxo
+            depositUtxo = result.depositUtxo
 
-            const bitcoinClient: MockBitcoinClient = new MockBitcoinClient()
+            bitcoinClient = new MockBitcoinClient()
             const rawTransactions = new Map<string, BitcoinRawTx>()
             rawTransactions.set(
               depositUtxo.transactionHash.toString(),
@@ -2024,6 +2031,17 @@ describe("Deposits", () => {
                 DepositScriptType.P2TR
               )
             ).initiateMinting(depositUtxo)
+
+            depositorProxy = new MockDepositorProxy(true)
+            await (
+              await Deposit.fromReceipt(
+                taprootDepositFixture.receipt,
+                tbtcContracts,
+                bitcoinClient,
+                depositorProxy,
+                DepositScriptType.P2TR
+              )
+            ).initiateMinting(depositUtxo)
           })
 
           it("should reveal the Taproot deposit to the Bridge", () => {
@@ -2038,6 +2056,69 @@ describe("Deposits", () => {
             expect(revealDepositLogEntry.deposit).to.be.eql(
               taprootDepositFixture.receipt
             )
+          })
+
+          it("should reveal the Taproot deposit to the DepositorProxy", () => {
+            expect(depositorProxy.revealDepositLog.length).to.be.equal(1)
+
+            const revealDepositLogEntry = depositorProxy.revealDepositLog[0]
+            expect(revealDepositLogEntry.depositTx).to.be.eql(
+              extractBitcoinRawTxVectors(transaction)
+            )
+            expect(revealDepositLogEntry.depositOutputIndex).to.be.equal(0)
+            expect(revealDepositLogEntry.deposit).to.be.eql(
+              taprootDepositFixture.receipt
+            )
+            expect(
+              revealDepositLogEntry.deposit.walletXOnlyPublicKey
+            ).to.be.deep.equal(
+              taprootDepositFixture.receipt.walletXOnlyPublicKey
+            )
+            expect(
+              revealDepositLogEntry.deposit.refundXOnlyPublicKey
+            ).to.be.deep.equal(
+              taprootDepositFixture.receipt.refundXOnlyPublicKey
+            )
+          })
+
+          it("should reject a restored Taproot deposit for a proxy without explicit support", async () => {
+            const legacyProxy = new MockDepositorProxy(true)
+            const proxyWithoutTaprootCapability: DepositorProxy = {
+              getChainIdentifier: () => legacyProxy.getChainIdentifier(),
+              revealDeposit: legacyProxy.revealDeposit.bind(legacyProxy),
+            }
+            const restoredDeposit = await Deposit.fromReceipt(
+              taprootDepositFixture.receipt,
+              new MockTBTCContracts(),
+              bitcoinClient,
+              proxyWithoutTaprootCapability,
+              DepositScriptType.P2TR
+            )
+
+            await expect(
+              restoredDeposit.initiateMinting(depositUtxo)
+            ).to.be.rejectedWith(
+              "Taproot deposits are not supported by this depositor"
+            )
+            expect(legacyProxy.revealDepositLog.length).to.be.equal(0)
+          })
+
+          it("should reject a restored Taproot deposit for an incapable proxy", async () => {
+            const incapableProxy = new MockDepositorProxy(false)
+            const restoredDeposit = await Deposit.fromReceipt(
+              taprootDepositFixture.receipt,
+              new MockTBTCContracts(),
+              bitcoinClient,
+              incapableProxy,
+              DepositScriptType.P2TR
+            )
+
+            await expect(
+              restoredDeposit.initiateMinting(depositUtxo)
+            ).to.be.rejectedWith(
+              "Taproot deposits are not supported by this depositor"
+            )
+            expect(incapableProxy.revealDepositLog.length).to.be.equal(0)
           })
         })
       })
@@ -2399,7 +2480,7 @@ describe("Deposits", () => {
     describe("initiateDepositWithProxy", () => {
       const bitcoinClient = new MockBitcoinClient()
       const tbtcContracts = new MockTBTCContracts()
-      const depositorProxy = new MockDepositorProxy()
+      const depositorProxy = new MockDepositorProxy(true)
       let depositService: DepositsService
 
       beforeEach(async () => {
@@ -2419,6 +2500,24 @@ describe("Deposits", () => {
               depositorProxy
             )
           ).to.be.rejectedWith("Could not get active wallet public key hash")
+        })
+
+        it("should reject unsupported Taproot proxies before reading wallet state", async () => {
+          const unsupportedDepositorProxy: DepositorProxy = {
+            getChainIdentifier: () => depositorProxy.getChainIdentifier(),
+            revealDeposit: depositorProxy.revealDeposit.bind(depositorProxy),
+          }
+
+          await expect(
+            depositService.initiateDepositWithProxy(
+              "tb1pzy3rx3z4vemc3xgq42aueh0wluqpzg3ng32kvaugnx4thnxaamlsk2wdrf",
+              unsupportedDepositorProxy,
+              undefined,
+              DepositScriptType.P2TR
+            )
+          ).to.be.rejectedWith(
+            "Taproot deposits are not supported by this depositor"
+          )
         })
       })
 
@@ -2452,6 +2551,47 @@ describe("Deposits", () => {
             ).to.be.rejectedWith(
               "Legacy deposits are not supported for FROST active wallets"
             )
+          })
+
+          it("should reject Taproot deposits for a proxy without explicit support", async () => {
+            const unsupportedDepositorProxy: DepositorProxy = {
+              getChainIdentifier: () => depositorProxy.getChainIdentifier(),
+              revealDeposit: depositorProxy.revealDeposit.bind(depositorProxy),
+            }
+
+            await expect(
+              depositService.initiateDepositWithProxy(
+                "tb1pzy3rx3z4vemc3xgq42aueh0wluqpzg3ng32kvaugnx4thnxaamlsk2wdrf",
+                unsupportedDepositorProxy,
+                undefined,
+                DepositScriptType.P2TR
+              )
+            ).to.be.rejectedWith(
+              "Taproot deposits are not supported by this depositor"
+            )
+          })
+
+          it("should initiate a Taproot deposit for a proxy", async () => {
+            const deposit = await depositService.initiateDepositWithProxy(
+              "tb1pzy3rx3z4vemc3xgq42aueh0wluqpzg3ng32kvaugnx4thnxaamlsk2wdrf",
+              depositorProxy,
+              undefined,
+              DepositScriptType.P2TR
+            )
+
+            const receipt = deposit.getReceipt()
+            expect(receipt.depositor).to.be.deep.equal(
+              depositorProxy.getChainIdentifier()
+            )
+            expect(receipt.walletXOnlyPublicKey).to.be.deep.equal(
+              Hex.from(
+                "2336f65004d8f122f1fe947ebd009a8b4add3a0d937356d568e30f7fcc2e4008"
+              )
+            )
+            expect(receipt.refundXOnlyPublicKey).to.be.deep.equal(
+              taprootDepositFixture.receipt.refundXOnlyPublicKey
+            )
+            expect(await deposit.getBitcoinAddress()).to.match(/^tb1p/)
           })
         })
 
@@ -2694,6 +2834,16 @@ describe("Deposits", () => {
               "Cannot resolve destination chain deposit owner"
             )
           })
+
+          it("should reject unsupported Taproot routes before resolving the owner", async () => {
+            await expect(
+              depositService.initiateCrossChainDeposit(
+                "tb1pzy3rx3z4vemc3xgq42aueh0wluqpzg3ng32kvaugnx4thnxaamlsk2wdrf",
+                "Base",
+                DepositScriptType.P2TR
+              )
+            ).to.be.rejectedWith("Taproot deposits are not supported for Base")
+          })
         })
 
         context("when L2 deposit owner can be resolved", () => {
@@ -2810,6 +2960,65 @@ describe("Deposits", () => {
                     Hex.from("e6f9d74726b19b75f16fe1e9feaec048aa4fa1d0")
                   )
                 })
+              })
+            })
+
+            context("when active wallet is a FROST wallet", () => {
+              const activeWalletPublicKeyHash = Hex.from(
+                "c92a772f11bc97d8938a16a9db435401f4e6a7bc"
+              )
+              const activeWalletID = Hex.from(
+                "2336f65004d8f122f1fe947ebd009a8b4add3a0d937356d568e30f7fcc2e4008"
+              )
+
+              beforeEach(async () => {
+                tbtcContracts.bridge.setActiveWalletPublicKeyHash(
+                  activeWalletPublicKeyHash
+                )
+                tbtcContracts.bridge.setActiveWalletID(activeWalletID)
+              })
+
+              it("should reject a Taproot cross-chain deposit when the adapters do not support it", async () => {
+                await expect(
+                  depositService.initiateCrossChainDeposit(
+                    "tb1pzy3rx3z4vemc3xgq42aueh0wluqpzg3ng32kvaugnx4thnxaamlsk2wdrf",
+                    "Base",
+                    DepositScriptType.P2TR
+                  )
+                ).to.be.rejectedWith(
+                  "Taproot deposits are not supported for Base"
+                )
+              })
+
+              it("should initiate a Taproot cross-chain deposit when both adapters support it", async () => {
+                l2BitcoinDepositor.taprootDepositsSupported = true
+                l1BitcoinDepositor.taprootDepositsSupported = true
+
+                const deposit = await depositService.initiateCrossChainDeposit(
+                  "tb1pzy3rx3z4vemc3xgq42aueh0wluqpzg3ng32kvaugnx4thnxaamlsk2wdrf",
+                  "Base",
+                  DepositScriptType.P2TR
+                )
+
+                const receipt = deposit.getReceipt()
+                expect(receipt.depositor).to.be.equal(
+                  l1BitcoinDepositor.getChainIdentifier()
+                )
+                expect(receipt.walletPublicKeyHash).to.be.deep.equal(
+                  activeWalletPublicKeyHash
+                )
+                expect(receipt.walletXOnlyPublicKey).to.be.deep.equal(
+                  activeWalletID
+                )
+                expect(receipt.refundXOnlyPublicKey).to.be.deep.equal(
+                  taprootDepositFixture.receipt.refundXOnlyPublicKey
+                )
+                expect(receipt.extraData).to.be.eql(
+                  Hex.from(
+                    `000000000000000000000000${l2DepositOwner.identifierHex}`
+                  )
+                )
+                expect(await deposit.getBitcoinAddress()).to.match(/^tb1p/)
               })
             })
           })
@@ -3607,6 +3816,36 @@ describe("Deposits", () => {
       })
     })
 
+    describe("supportsTaprootDeposits", () => {
+      it("should fail closed when neither adapter declares support", () => {
+        expect(depositor.supportsTaprootDeposits()).to.be.false
+      })
+
+      it("should require both destination-chain and L1 support in L2 mode", () => {
+        l2BitcoinDepositor.taprootDepositsSupported = true
+        expect(depositor.supportsTaprootDeposits()).to.be.false
+
+        l2BitcoinDepositor.taprootDepositsSupported = false
+        l1BitcoinDepositor.taprootDepositsSupported = true
+        expect(depositor.supportsTaprootDeposits()).to.be.false
+
+        l2BitcoinDepositor.taprootDepositsSupported = true
+        expect(depositor.supportsTaprootDeposits()).to.be.true
+      })
+
+      it("should require only L1 support in L1 mode", () => {
+        depositor = new CrossChainDepositor(
+          crossChainContracts,
+          "L1Transaction"
+        )
+
+        expect(depositor.supportsTaprootDeposits()).to.be.false
+
+        l1BitcoinDepositor.taprootDepositsSupported = true
+        expect(depositor.supportsTaprootDeposits()).to.be.true
+      })
+    })
+
     describe("extraData", () => {
       context(
         "when the deposit owner is not set in the L2BitcoinDepositor contract",
@@ -3688,6 +3927,13 @@ describe("Deposits", () => {
           `000000000000000000000000${l2DepositOwner.identifierHex}`
         ),
       }
+      const taprootDeposit: DepositReceipt = {
+        ...deposit,
+        walletXOnlyPublicKey:
+          taprootDepositFixture.receipt.walletXOnlyPublicKey,
+        refundXOnlyPublicKey:
+          taprootDepositFixture.receipt.refundXOnlyPublicKey,
+      }
       const vault: ChainIdentifier = EthereumAddress.from(
         "82883a4c7a8dd73ef165deb402d432613615ced4"
       )
@@ -3753,6 +3999,50 @@ describe("Deposits", () => {
             deposit,
             vault,
           })
+        })
+      })
+
+      context("when the deposit is Taproot-native", () => {
+        it("should reject before calling either adapter when support is absent", async () => {
+          await expect(
+            depositor.revealDeposit(
+              depositTx,
+              depositOutputIndex,
+              taprootDeposit,
+              vault
+            )
+          ).to.be.rejectedWith(
+            "Taproot deposits are not supported by this depositor"
+          )
+
+          expect(l2BitcoinDepositor.initializeDepositCalls).to.be.empty
+          expect(l1BitcoinDepositor.initializeDepositCalls).to.be.empty
+        })
+
+        it("should forward the x-only keys when both adapters support Taproot", async () => {
+          l2BitcoinDepositor.taprootDepositsSupported = true
+          l1BitcoinDepositor.taprootDepositsSupported = true
+
+          await depositor.revealDeposit(
+            depositTx,
+            depositOutputIndex,
+            taprootDeposit,
+            vault
+          )
+
+          expect(l2BitcoinDepositor.initializeDepositCalls.length).to.be.equal(
+            1
+          )
+
+          const forwardedDeposit =
+            l2BitcoinDepositor.initializeDepositCalls[0].deposit
+          expect(forwardedDeposit).to.be.eql(taprootDeposit)
+          expect(forwardedDeposit.walletXOnlyPublicKey).to.be.deep.equal(
+            taprootDepositFixture.receipt.walletXOnlyPublicKey
+          )
+          expect(forwardedDeposit.refundXOnlyPublicKey).to.be.deep.equal(
+            taprootDepositFixture.receipt.refundXOnlyPublicKey
+          )
         })
       })
     })

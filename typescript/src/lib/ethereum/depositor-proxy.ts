@@ -30,6 +30,16 @@ export abstract class EthereumDepositorProxy implements DepositorProxy {
   }
 
   /**
+   * Legacy Ethereum depositor proxies do not preserve the x-only keys required
+   * by Taproot deposit reveals. Capable subclasses must override this method.
+   * @see {DepositorProxy#supportsTaprootDeposits}
+   * @returns False by default.
+   */
+  supportsTaprootDeposits(): boolean {
+    return false
+  }
+
+  /**
    * Packs deposit parameters to match the ABI of the revealDeposit and
    * revealDepositWithExtraData functions of the Ethereum Bridge contract.
    * @param depositTx - Deposit transaction data

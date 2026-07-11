@@ -29,6 +29,7 @@ for reference.
 - [extraData](CrossChainDepositor.md#extradata)
 - [getChainIdentifier](CrossChainDepositor.md#getchainidentifier)
 - [revealDeposit](CrossChainDepositor.md#revealdeposit)
+- [supportsTaprootDeposits](CrossChainDepositor.md#supportstaprootdeposits)
 
 ## Constructors
 
@@ -49,7 +50,7 @@ for reference.
 
 #### Defined in
 
-[src/services/deposits/cross-chain.ts:33](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L33)
+[src/services/deposits/cross-chain.ts:35](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L35)
 
 ## Properties
 
@@ -59,7 +60,7 @@ for reference.
 
 #### Defined in
 
-[src/services/deposits/cross-chain.ts:30](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L30)
+[src/services/deposits/cross-chain.ts:32](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L32)
 
 ___
 
@@ -69,7 +70,7 @@ ___
 
 #### Defined in
 
-[src/services/deposits/cross-chain.ts:31](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L31)
+[src/services/deposits/cross-chain.ts:33](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L33)
 
 ## Methods
 
@@ -83,7 +84,7 @@ ___
 
 #### Defined in
 
-[src/services/deposits/cross-chain.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L74)
+[src/services/deposits/cross-chain.ts:98](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L98)
 
 ___
 
@@ -107,7 +108,7 @@ Throws if the destination chain deposit owner cannot be resolved. This
 
 #### Defined in
 
-[src/services/deposits/cross-chain.ts:63](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L63)
+[src/services/deposits/cross-chain.ts:87](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L87)
 
 ___
 
@@ -135,7 +136,7 @@ The chain-specific identifier of the contract that will be
 
 #### Defined in
 
-[src/services/deposits/cross-chain.ts:51](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L51)
+[src/services/deposits/cross-chain.ts:53](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L53)
 
 ___
 
@@ -169,4 +170,27 @@ Reveals the given deposit depending on the reveal mode.
 
 #### Defined in
 
-[src/services/deposits/cross-chain.ts:89](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L89)
+[src/services/deposits/cross-chain.ts:113](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L113)
+
+___
+
+### supportsTaprootDeposits
+
+▸ **supportsTaprootDeposits**(): `boolean`
+
+#### Returns
+
+`boolean`
+
+True when every depositor used by the selected reveal mode
+         explicitly supports Taproot deposits end to end.
+
+**`See`**
+
+#### Implementation of
+
+[DepositorProxy](../interfaces/DepositorProxy.md).[supportsTaprootDeposits](../interfaces/DepositorProxy.md#supportstaprootdeposits)
+
+#### Defined in
+
+[src/services/deposits/cross-chain.ts:62](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L62)

@@ -1,5 +1,10 @@
 import axios from "axios"
-import { ChainIdentifier, BitcoinDepositor, DepositReceipt } from "../contracts"
+import {
+  assertTaprootDepositSupported,
+  ChainIdentifier,
+  BitcoinDepositor,
+  DepositReceipt,
+} from "../contracts"
 import { packRevealDepositParameters } from "../ethereum"
 import { BitcoinRawTxVectors } from "../bitcoin"
 import { TransactionReceipt } from "@ethersproject/providers"
@@ -41,6 +46,14 @@ export class SolanaDepositorInterface implements BitcoinDepositor {
     return this.#extraDataEncoder
   }
 
+  /**
+   * @see {BitcoinDepositor#supportsTaprootDeposits}
+   * @returns False until the relayer and L1 depositor support Taproot reveals.
+   */
+  supportsTaprootDeposits(): boolean {
+    return false
+  }
+
   // eslint-disable-next-line valid-jsdoc
   /**
    * @see {BitcoinDepositor#initializeDeposit}
@@ -55,6 +68,8 @@ export class SolanaDepositorInterface implements BitcoinDepositor {
     deposit: DepositReceipt,
     vault?: ChainIdentifier
   ): Promise<TransactionReceipt> {
+    assertTaprootDepositSupported(this, deposit)
+
     const { fundingTx, reveal, extraData } = packRevealDepositParameters(
       depositTx,
       depositOutputIndex,

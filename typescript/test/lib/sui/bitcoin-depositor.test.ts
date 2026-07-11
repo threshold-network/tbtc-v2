@@ -141,6 +141,22 @@ describe("SUI Bitcoin Depositor", () => {
       }
     })
 
+    it("should reject Taproot receipts before building a SUI transaction", async () => {
+      expect(depositor.supportsTaprootDeposits()).to.be.false
+
+      await expect(
+        depositor.initializeDeposit(depositTx, depositOutputIndex, {
+          ...deposit,
+          walletXOnlyPublicKey: Hex.from("11".repeat(32)),
+          refundXOnlyPublicKey: Hex.from("22".repeat(32)),
+        })
+      ).to.be.rejectedWith(
+        "Taproot deposits are not supported by this depositor"
+      )
+
+      expect(mockClient.signAndExecuteTransaction.called).to.be.false
+    })
+
     it.skip("should initialize deposit successfully", async () => {
       // Skipping: Dynamic import mocking not supported in test environment
       const result = await depositor.initializeDeposit(

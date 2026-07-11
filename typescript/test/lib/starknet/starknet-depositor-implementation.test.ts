@@ -28,6 +28,31 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
   })
 
   describe("initializeDeposit", () => {
+    it("should reject Taproot receipts before calling the relayer", async () => {
+      const depositor = new StarkNetDepositor(
+        {
+          chainId: "0x534e5f4d41494e",
+          relayerUrl: "http://test-relayer.local/api/reveal",
+        },
+        "StarkNet",
+        createMockProvider()
+      )
+      const mockReceipt = {
+        ...createMockDeposit(),
+        walletXOnlyPublicKey: Hex.from("11".repeat(32)),
+        refundXOnlyPublicKey: Hex.from("22".repeat(32)),
+      }
+      axios.post = sinon.stub()
+
+      expect(depositor.supportsTaprootDeposits()).to.be.false
+      await expect(
+        depositor.initializeDeposit(createMockDepositTx(), 0, mockReceipt)
+      ).to.be.rejectedWith(
+        "Taproot deposits are not supported by this depositor"
+      )
+      expect((axios.post as sinon.SinonStub).called).to.be.false
+    })
+
     it("should successfully initialize deposit through relayer", async () => {
       // Arrange
       const mockProvider = createMockProvider()
