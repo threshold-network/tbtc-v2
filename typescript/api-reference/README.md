@@ -441,7 +441,7 @@ Represents an event emitted on deposit reveal to the on-chain bridge.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:390](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L390)
+[src/lib/contracts/bridge.ts:403](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L403)
 
 ___
 
@@ -711,7 +711,7 @@ Represents an event emitted when new wallet is registered on the on-chain bridge
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:568](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L568)
+[src/lib/contracts/bridge.ts:581](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L581)
 
 ___
 
@@ -1825,7 +1825,7 @@ Represents an event emitted on redemption request.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:451](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L451)
+[src/lib/contracts/bridge.ts:464](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L464)
 
 ___
 
@@ -1943,7 +1943,7 @@ information required to build a unique P2TR deposit address on Bitcoin chain.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:296](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L296)
+[src/lib/contracts/bridge.ts:309](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L309)
 
 ___
 
@@ -1956,7 +1956,7 @@ bridge.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:400](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L400)
+[src/lib/contracts/bridge.ts:413](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L413)
 
 ## Variables
 
@@ -2734,7 +2734,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:2939](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2939)
+[src/services/maintenance/p2tr-signature-fraud.ts:2953](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2953)
 
 ___
 
@@ -2846,7 +2846,7 @@ BIP-340 signature.
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:2742](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2742)
+[src/services/maintenance/p2tr-signature-fraud.ts:2756](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2756)
 
 ___
 
@@ -2866,7 +2866,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:2893](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2893)
+[src/services/maintenance/p2tr-signature-fraud.ts:2907](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2907)
 
 ___
 
@@ -2898,7 +2898,7 @@ harnesses. It is not a final production Bridge challenge key.
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:2853](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2853)
+[src/services/maintenance/p2tr-signature-fraud.ts:2867](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2867)
 
 ___
 
@@ -2932,7 +2932,7 @@ duplicate mempool/confirmed observations can be collapsed before submission.
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:2664](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2664)
+[src/services/maintenance/p2tr-signature-fraud.ts:2678](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2678)
 
 ___
 
@@ -3100,7 +3100,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:2994](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2994)
+[src/services/maintenance/p2tr-signature-fraud.ts:3008](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L3008)
 
 ___
 
@@ -3248,7 +3248,7 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:3138](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L3138)
+[src/services/maintenance/p2tr-signature-fraud.ts:3152](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L3152)
 
 ___
 
@@ -3279,7 +3279,8 @@ ___
 Finds registered tBTC P2TR wallet inputs in a raw Bitcoin transaction and
 parses their key-path witness signatures.
 
-Unknown P2TR outputs and non-P2TR inputs are ignored. Registered wallet
+Unknown P2TR outputs and non-P2TR inputs are ignored. Script-path spends of
+exactly bound deposit outputs are refunds and are ignored. Registered wallet
 inputs with unsupported witness forms are rejected fail-closed.
 
  This is a parser primitive for the draft P2TR signature-fraud
@@ -3304,7 +3305,7 @@ Candidate witness records for each input whose prevout script
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:2545](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2545)
+[src/services/maintenance/p2tr-signature-fraud.ts:2546](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2546)
 
 ___
 
@@ -3667,7 +3668,7 @@ Packed parameters.
 
 #### Defined in
 
-[src/lib/ethereum/bridge.ts:1302](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L1302)
+[src/lib/ethereum/bridge.ts:1327](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L1327)
 
 ___
 
@@ -4088,7 +4089,7 @@ This function does not validate the depositor's identifier as its
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:308](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L308)
+[src/lib/contracts/bridge.ts:321](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L321)
 
 ___
 
@@ -4131,4 +4132,4 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:3229](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L3229)
+[src/services/maintenance/p2tr-signature-fraud.ts:3243](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L3243)

@@ -40,6 +40,7 @@ const BridgeABIWithTaprootDepositReveal = [
       "function revealTaprootDeposit((bytes4 version, bytes inputVector, bytes outputVector, bytes4 locktime) fundingTx, (uint32 fundingOutputIndex, bytes8 blindingFactor, bytes20 walletPubKeyHash, bytes32 walletXOnlyPublicKey, bytes20 refundPubKeyHash, bytes32 refundXOnlyPublicKey, bytes4 refundLocktime, address vault) reveal)",
       "function revealTaprootDepositWithExtraData((bytes4 version, bytes inputVector, bytes outputVector, bytes4 locktime) fundingTx, (uint32 fundingOutputIndex, bytes8 blindingFactor, bytes20 walletPubKeyHash, bytes32 walletXOnlyPublicKey, bytes20 refundPubKeyHash, bytes32 refundXOnlyPublicKey, bytes4 refundLocktime, address vault) reveal, bytes32 extraData)",
       "function activeWalletID() view returns (bytes32)",
+      "function taprootDepositOutputKeyCommitment(uint256 depositKey) view returns (bytes32)",
       "function walletID(bytes20 walletPubKeyHash) view returns (bytes32)",
       "function walletPubKeyHashForWalletID(bytes32 walletID) view returns (bytes20)",
     ]).format(utils.FormatTypes.json) as string
@@ -695,6 +696,26 @@ describe("Ethereum", () => {
             treasuryFee: BigNumber.from(200),
           })
         })
+      })
+    })
+
+    describe("taprootDepositOutputKeyCommitment", () => {
+      it("should return the commitment for the endian-normalized deposit key", async () => {
+        const commitment = Hex.from("11".repeat(32))
+        await bridgeContract.mock.taprootDepositOutputKeyCommitment
+          .withArgs(
+            "0x01151be714c10edde62a310bf0604c01134450416a0bf8a7bfd43cef90644f0f"
+          )
+          .returns(commitment.toPrefixedString())
+
+        expect(
+          await bridgeHandle.taprootDepositOutputKeyCommitment(
+            BitcoinTxHash.from(
+              "c1082c460527079a84e39ec6481666db72e5a22e473a78db03b996d26fd1dc83"
+            ),
+            0
+          )
+        ).to.eql(commitment)
       })
     })
 

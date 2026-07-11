@@ -67,6 +67,7 @@ const BridgeV2CompatibilityABI = [
   ...TaprootDepositRevealABI,
   "event NewWalletRegisteredV2(bytes32 indexed walletID, bytes32 indexed ecdsaWalletID, bytes20 indexed walletPubKeyHash)",
   "function activeWalletID() view returns (bytes32)",
+  "function taprootDepositOutputKeyCommitment(uint256 depositKey) view returns (bytes32)",
   "function walletID(bytes20 walletPubKeyHash) view returns (bytes32)",
   "function walletPubKeyHashForWalletID(bytes32 walletID) view returns (bytes20)",
 ]
@@ -692,6 +693,30 @@ export class EthereumBridge
       )
 
     return this.parseDepositRequest(deposit)
+  }
+
+  // eslint-disable-next-line valid-jsdoc
+  /**
+   * @see {Bridge#taprootDepositOutputKeyCommitment}
+   */
+  async taprootDepositOutputKeyCommitment(
+    depositTxHash: BitcoinTxHash,
+    depositOutputIndex: number
+  ): Promise<Hex> {
+    const depositKey = EthereumBridge.buildDepositKey(
+      depositTxHash,
+      depositOutputIndex
+    )
+    const bridge = this.bridgeV2CompatibilityContract() as unknown as {
+      taprootDepositOutputKeyCommitment: (depositKey: string) => Promise<string>
+    }
+    const commitment = await backoffRetrier<string>(this._totalRetryAttempts)(
+      async () => {
+        return await bridge.taprootDepositOutputKeyCommitment(depositKey)
+      }
+    )
+
+    return Hex.from(commitment)
   }
 
   /**

@@ -3662,6 +3662,125 @@ describe("P2TR signature-fraud witness parsing", () => {
     )
   })
 
+  it("ignores script-path refunds of exactly bound Taproot deposits", () => {
+    const vector = vectorCorpus.cases[0]
+    const transaction = Transaction.fromHex(vector.unsignedTransactionHex)
+    transaction.ins[vector.signedInputIndex].witness = [
+      Buffer.from(vector.witnessSignatureHex, "hex"),
+      Buffer.from("51", "hex"),
+      Buffer.from(`c0${"00".repeat(32)}`, "hex"),
+    ]
+    const depositOutputKey = "42".repeat(32)
+    const inputPrevouts = vector.prevouts.map((prevout, index) => ({
+      scriptPubKey:
+        index === vector.signedInputIndex
+          ? `5120${depositOutputKey}`
+          : prevout.scriptPubKeyHex,
+    }))
+    const signedPrevout = vector.prevouts[vector.signedInputIndex]
+
+    expect(
+      extractP2TRWalletInputWitnessCandidates(
+        { transactionHex: transaction.toHex() },
+        inputPrevouts,
+        [vector.walletIDHex],
+        [
+          {
+            txid: signedPrevout.txidHex,
+            vout: signedPrevout.vout,
+            outputKey: depositOutputKey,
+            walletID: vector.walletIDHex,
+          },
+        ]
+      )
+    ).to.deep.equal([])
+  })
+
+  it("keeps wallet key-path observations beside a bound deposit refund", () => {
+    const vector = vectorCorpus.cases.find(
+      (candidate) =>
+        candidate.id ===
+        "bip341-keypath-sighash-default-multi-input-multi-output"
+    )
+
+    if (!vector) {
+      throw new Error("Missing multi-input P2TR signature-fraud vector")
+    }
+
+    const transaction = Transaction.fromHex(vector.unsignedTransactionHex)
+    transaction.ins[0].witness = [
+      Buffer.from(vector.witnessSignatureHex, "hex"),
+      Buffer.from("51", "hex"),
+      Buffer.from(`c0${"00".repeat(32)}`, "hex"),
+    ]
+    transaction.ins[1].witness = [
+      Buffer.from(vector.witnessSignatureHex, "hex"),
+    ]
+    const depositOutputKey = "42".repeat(32)
+    const inputPrevouts = toObservationPrevouts(vector).map(
+      (prevout, index) => ({
+        ...prevout,
+        scriptPubKey:
+          index === 0 ? `5120${depositOutputKey}` : prevout.scriptPubKey,
+      })
+    )
+    const depositPrevout = vector.prevouts[0]
+    const observations = extractP2TRSignatureFraudWitnessObservations(
+      { transactionHex: transaction.toHex() },
+      inputPrevouts,
+      [vector.walletIDHex],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      [
+        {
+          txid: depositPrevout.txidHex,
+          vout: depositPrevout.vout,
+          outputKey: depositOutputKey,
+          walletID: vector.walletIDHex,
+        },
+      ]
+    )
+
+    expect(observations.map(({ inputIndex }) => inputIndex)).to.deep.equal([1])
+  })
+
+  it("rejects annexed key-path witnesses for bound Taproot deposits", () => {
+    const vector = vectorCorpus.cases[0]
+    const transaction = Transaction.fromHex(vector.unsignedTransactionHex)
+    transaction.ins[vector.signedInputIndex].witness = [
+      Buffer.from(vector.witnessSignatureHex, "hex"),
+      Buffer.from("50", "hex"),
+    ]
+    const depositOutputKey = "42".repeat(32)
+    const inputPrevouts = vector.prevouts.map((prevout, index) => ({
+      scriptPubKey:
+        index === vector.signedInputIndex
+          ? `5120${depositOutputKey}`
+          : prevout.scriptPubKeyHex,
+    }))
+    const signedPrevout = vector.prevouts[vector.signedInputIndex]
+
+    expectWitnessError(
+      () =>
+        extractP2TRWalletInputWitnessCandidates(
+          { transactionHex: transaction.toHex() },
+          inputPrevouts,
+          [vector.walletIDHex],
+          [
+            {
+              txid: signedPrevout.txidHex,
+              vout: signedPrevout.vout,
+              outputKey: depositOutputKey,
+              walletID: vector.walletIDHex,
+            },
+          ]
+        ),
+      "unsupported-witness-form"
+    )
+  })
+
   it("validates deposit-specific observations against their bound wallet", () => {
     const vector = vectorCorpus.cases[0]
     const rawTransaction = withInputWitness(

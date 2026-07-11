@@ -20,7 +20,9 @@ export type P2TREsploraFetch = (
 
 export type P2TRTaprootDepositRevealSource = Pick<
   Bridge,
-  "deposits" | "getTaprootDepositRevealedEvents"
+  | "deposits"
+  | "getTaprootDepositRevealedEvents"
+  | "taprootDepositOutputKeyCommitment"
 >
 
 export type P2TRDepositScanFailure = {
@@ -31,9 +33,13 @@ export type P2TRDepositScanFailure = {
   error: string
 }
 
+export type P2TRDepositScanFailureHandler = (
+  failure: P2TRDepositScanFailure
+) => void | Promise<void>
+
 export type EsploraP2TRSignatureFraudTransactionSourceOptions = {
   taprootDepositRevealSource: P2TRTaprootDepositRevealSource
-  onDepositScanFailure: (failure: P2TRDepositScanFailure) => void
+  onDepositScanFailure: P2TRDepositScanFailureHandler
   fetchFn?: P2TREsploraFetch
   maxAttempts?: number
   requestTimeoutMs?: number
@@ -61,6 +67,7 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 5000
 const DEFAULT_RETRY_DELAY_MS = 250
 const DEFAULT_CONFIRMED_PAGE_LIMIT = 1
 const MAX_UINT32 = 0xffffffff
+const ZERO_BYTES32 = "00".repeat(32)
 const BECH32M_CONST = 0x2bc830a3
 const BECH32_CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
 const BECH32_GENERATORS = [
@@ -80,9 +87,7 @@ export class EsploraP2TRSignatureFraudTransactionSource
   private readonly walletAddresses: string[]
   private readonly registeredWalletIDs: Set<string>
   private readonly taprootDepositRevealSource: P2TRTaprootDepositRevealSource
-  private readonly onDepositScanFailure: (
-    failure: P2TRDepositScanFailure
-  ) => void
+  private readonly onDepositScanFailure: P2TRDepositScanFailureHandler
   private depositSpendScan?: Promise<EsploraTransactionCandidate[]>
 
   constructor(
@@ -100,7 +105,9 @@ export class EsploraP2TRSignatureFraudTransactionSource
       options?.taprootDepositRevealSource === undefined ||
       typeof options.taprootDepositRevealSource.deposits !== "function" ||
       typeof options.taprootDepositRevealSource
-        .getTaprootDepositRevealedEvents !== "function"
+        .getTaprootDepositRevealedEvents !== "function" ||
+      typeof options.taprootDepositRevealSource
+        .taprootDepositOutputKeyCommitment !== "function"
     ) {
       throw new Error(
         "Esplora P2TR transaction source requires a Taproot deposit reveal source"
@@ -318,6 +325,19 @@ export class EsploraP2TRSignatureFraudTransactionSource
             "revealed deposit funding output index",
             { minimum: 0, maximum: MAX_UINT32 }
           )
+          const depositKeyCommitment = normalizeBytes32Hex(
+            (
+              await this.taprootDepositRevealSource.taprootDepositOutputKeyCommitment(
+                event.fundingTxHash,
+                vout
+              )
+            ).toString(),
+            "Taproot deposit output-key commitment"
+          )
+          if (depositKeyCommitment === ZERO_BYTES32) {
+            return undefined
+          }
+
           const depositRequest = await this.taprootDepositRevealSource.deposits(
             event.fundingTxHash,
             vout
@@ -409,7 +429,9 @@ export class EsploraP2TRSignatureFraudTransactionSource
 
   private reportDepositScanFailure(failure: P2TRDepositScanFailure): void {
     try {
-      this.onDepositScanFailure(failure)
+      void Promise.resolve(this.onDepositScanFailure(failure)).catch(
+        () => undefined
+      )
     } catch {
       // Failure reporting must never suppress the remaining transaction scan.
     }
