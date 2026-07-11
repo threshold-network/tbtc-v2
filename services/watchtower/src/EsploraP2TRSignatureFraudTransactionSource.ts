@@ -24,7 +24,8 @@ export type P2TRTaprootDepositRevealSource = Pick<
 >
 
 export type P2TRDepositScanFailure = {
-  stage: "reveal-history" | "deposit-request" | "outspend"
+  stage: "reveal-history" | "deposit-request" | "outspend" | "raw-transaction"
+  spendingTxid?: string
   fundingTxid?: string
   fundingOutputIndex?: number
   error: string
@@ -158,12 +159,13 @@ export class EsploraP2TRSignatureFraudTransactionSource
       )
     )
 
-    return Promise.all(
-      transactions.map(async ({ txid, walletInputKeyBindings }) => ({
+    return this.materializeRawTransactions(
+      transactions,
+      ({ txid, walletInputKeyBindings }, rawTransaction) => ({
         bitcoinTxHash: BitcoinTxHash.from(txid),
-        rawTransaction: await this.getRawTransaction(txid),
+        rawTransaction,
         walletInputKeyBindings,
-      }))
+      })
     )
   }
 
@@ -183,17 +185,78 @@ export class EsploraP2TRSignatureFraudTransactionSource
       )
     )
 
-    return Promise.all(
-      transactions.map(async ({ txid, status, walletInputKeyBindings }) => {
-        const confirmedStatus = requireConfirmedStatus(txid, status)
+    const confirmedTransactions = transactions.map(
+      ({ txid, status, walletInputKeyBindings }) => ({
+        txid,
+        status,
+        walletInputKeyBindings,
+        confirmedStatus: requireConfirmedStatus(txid, status),
+      })
+    )
 
+    return this.materializeRawTransactions(
+      confirmedTransactions,
+      ({ txid, walletInputKeyBindings, confirmedStatus }, rawTransaction) => {
         return {
           bitcoinTxHash: BitcoinTxHash.from(txid),
           bitcoinBlockHash: confirmedStatus.block_hash,
           bitcoinBlockHeight: confirmedStatus.block_height,
-          rawTransaction: await this.getRawTransaction(txid),
+          rawTransaction,
           walletInputKeyBindings,
         }
+      }
+    )
+  }
+
+  private async materializeRawTransactions<
+    T extends EsploraTransactionCandidate,
+    R
+  >(
+    transactions: T[],
+    materialize: (transaction: T, rawTransaction: BitcoinRawTx) => R
+  ): Promise<R[]> {
+    const results = await Promise.allSettled(
+      transactions.map(async (transaction) =>
+        materialize(transaction, await this.getRawTransaction(transaction.txid))
+      )
+    )
+    const materialized: R[] = []
+
+    results.forEach((result, index) => {
+      if (result.status === "fulfilled") {
+        materialized.push(result.value)
+        return
+      }
+
+      this.reportRawTransactionFailure(
+        transactions[index],
+        describeRequestError(result.reason)
+      )
+    })
+
+    return materialized
+  }
+
+  private reportRawTransactionFailure(
+    transaction: EsploraTransactionCandidate,
+    error: string
+  ): void {
+    const failure = {
+      stage: "raw-transaction" as const,
+      spendingTxid: transaction.txid,
+      error,
+    }
+
+    if (transaction.walletInputKeyBindings.length === 0) {
+      this.reportDepositScanFailure(failure)
+      return
+    }
+
+    transaction.walletInputKeyBindings.forEach((binding) =>
+      this.reportDepositScanFailure({
+        ...failure,
+        fundingTxid: String(binding.txid),
+        fundingOutputIndex: binding.vout,
       })
     )
   }
