@@ -11,6 +11,12 @@ It is the reference/runbook for `test/frost-testnet4-lifecycle.test.ts` (a
 gated, full-stack e2e template). Every step below was executed and verified once
 end-to-end; the resulting Bitcoin/Ethereum artifacts are quoted as evidence.
 
+This runbook validates a direct L1 Taproot deposit. It does not validate a
+depositor proxy or cross-chain route. A destination route is not Taproot-ready
+until its destination depositor, L1 depositor, relayer, and SDK adapters all
+preserve both x-only reveal keys and a deposit completes reveal, sweep, and mint
+through that exact deployed path.
+
 ## Why testnet4 (and why the Ethereum side stays local)
 
 The Bridge validates SPV proofs against real Bitcoin proof-of-work

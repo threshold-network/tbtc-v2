@@ -3,6 +3,9 @@ import { SeiBitcoinDepositor } from "../../../src/lib/sei/sei-depositor"
 import { SeiAddress } from "../../../src/lib/sei/address"
 import { MockProvider } from "@ethereum-waffle/provider"
 import { EthereumAddress } from "../../../src/lib/ethereum"
+import { DepositReceipt } from "../../../src/lib/contracts"
+import { BitcoinRawTxVectors } from "../../../src/lib/bitcoin"
+import { Hex } from "../../../src/lib/utils"
 
 describe("SeiBitcoinDepositor", () => {
   describe("constructor", () => {
@@ -239,6 +242,41 @@ describe("SeiBitcoinDepositor", () => {
       // Assert
       expect(encoder).to.exist
       expect(encoder.constructor.name).to.equal("SeiExtraDataEncoder")
+    })
+  })
+
+  describe("initializeDeposit", () => {
+    it("should reject Taproot receipts before calling the relayer", async () => {
+      const mockProvider = new MockProvider().getWallets()[0].provider
+      const depositor = new SeiBitcoinDepositor(
+        { chainId: "1328" },
+        "Sei",
+        mockProvider as any
+      )
+      const depositTx: BitcoinRawTxVectors = {
+        version: Hex.from("00000000"),
+        inputs: Hex.from("11111111"),
+        outputs: Hex.from("22222222"),
+        locktime: Hex.from("33333333"),
+      }
+      const deposit: DepositReceipt = {
+        depositor: SeiAddress.from(
+          "0x1234567890123456789012345678901234567890"
+        ),
+        walletPublicKeyHash: Hex.from("11".repeat(20)),
+        refundPublicKeyHash: Hex.from("22".repeat(20)),
+        walletXOnlyPublicKey: Hex.from("33".repeat(32)),
+        refundXOnlyPublicKey: Hex.from("44".repeat(32)),
+        blindingFactor: Hex.from("55".repeat(8)),
+        refundLocktime: Hex.from("66".repeat(4)),
+      }
+
+      expect(depositor.supportsTaprootDeposits()).to.be.false
+      await expect(
+        depositor.initializeDeposit(depositTx, 0, deposit)
+      ).to.be.rejectedWith(
+        "Taproot deposits are not supported by this depositor"
+      )
     })
   })
 })

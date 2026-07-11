@@ -39,6 +39,7 @@ for reference.
 - [getEvents](BaseBitcoinDepositor.md#getevents)
 - [initializeDeposit](BaseBitcoinDepositor.md#initializedeposit)
 - [setDepositOwner](BaseBitcoinDepositor.md#setdepositowner)
+- [supportsTaprootDeposits](BaseBitcoinDepositor.md#supportstaprootdeposits)
 
 ## Constructors
 
@@ -63,7 +64,7 @@ EthersContractHandle\&lt;L2BitcoinDepositorTypechain\&gt;.constructor
 
 #### Defined in
 
-[src/lib/base/l2-bitcoin-depositor.ts:34](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L34)
+[src/lib/base/l2-bitcoin-depositor.ts:35](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L35)
 
 ## Properties
 
@@ -73,7 +74,7 @@ EthersContractHandle\&lt;L2BitcoinDepositorTypechain\&gt;.constructor
 
 #### Defined in
 
-[src/lib/base/l2-bitcoin-depositor.ts:32](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L32)
+[src/lib/base/l2-bitcoin-depositor.ts:33](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L33)
 
 ___
 
@@ -83,7 +84,7 @@ ___
 
 #### Defined in
 
-[src/lib/base/l2-bitcoin-depositor.ts:31](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L31)
+[src/lib/base/l2-bitcoin-depositor.ts:32](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L32)
 
 ___
 
@@ -153,7 +154,7 @@ EthersContractHandle.\_totalRetryAttempts
 
 #### Defined in
 
-[src/lib/base/l2-bitcoin-depositor.ts:81](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L81)
+[src/lib/base/l2-bitcoin-depositor.ts:82](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L82)
 
 ___
 
@@ -195,7 +196,7 @@ ___
 
 #### Defined in
 
-[src/lib/base/l2-bitcoin-depositor.ts:57](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L57)
+[src/lib/base/l2-bitcoin-depositor.ts:58](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L58)
 
 ___
 
@@ -215,7 +216,7 @@ ___
 
 #### Defined in
 
-[src/lib/base/l2-bitcoin-depositor.ts:65](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L65)
+[src/lib/base/l2-bitcoin-depositor.ts:66](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L66)
 
 ___
 
@@ -278,7 +279,7 @@ ___
 
 #### Defined in
 
-[src/lib/base/l2-bitcoin-depositor.ts:89](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L89)
+[src/lib/base/l2-bitcoin-depositor.ts:98](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L98)
 
 ___
 
@@ -304,4 +305,26 @@ ___
 
 #### Defined in
 
-[src/lib/base/l2-bitcoin-depositor.ts:73](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L73)
+[src/lib/base/l2-bitcoin-depositor.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L74)
+
+___
+
+### supportsTaprootDeposits
+
+▸ **supportsTaprootDeposits**(): `boolean`
+
+#### Returns
+
+`boolean`
+
+False because the deployed contract uses the legacy reveal tuple.
+
+**`See`**
+
+#### Implementation of
+
+[BitcoinDepositor](../interfaces/BitcoinDepositor.md).[supportsTaprootDeposits](../interfaces/BitcoinDepositor.md#supportstaprootdeposits)
+
+#### Defined in
+
+[src/lib/base/l2-bitcoin-depositor.ts:90](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L90)

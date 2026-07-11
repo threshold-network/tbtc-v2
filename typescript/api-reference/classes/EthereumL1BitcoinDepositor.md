@@ -41,6 +41,7 @@ for reference.
 - [getEvents](EthereumL1BitcoinDepositor.md#getevents)
 - [initializeDeposit](EthereumL1BitcoinDepositor.md#initializedeposit)
 - [setDepositOwner](EthereumL1BitcoinDepositor.md#setdepositowner)
+- [supportsTaprootDeposits](EthereumL1BitcoinDepositor.md#supportstaprootdeposits)
 
 ## Constructors
 
@@ -66,7 +67,7 @@ EthersContractHandle\&lt;L1BitcoinDepositorTypechain\&gt;.constructor
 
 #### Defined in
 
-[src/lib/ethereum/l1-bitcoin-depositor.ts:91](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L91)
+[src/lib/ethereum/l1-bitcoin-depositor.ts:92](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L92)
 
 ## Properties
 
@@ -76,7 +77,7 @@ EthersContractHandle\&lt;L1BitcoinDepositorTypechain\&gt;.constructor
 
 #### Defined in
 
-[src/lib/ethereum/l1-bitcoin-depositor.ts:89](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L89)
+[src/lib/ethereum/l1-bitcoin-depositor.ts:90](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L90)
 
 ___
 
@@ -86,7 +87,7 @@ ___
 
 #### Defined in
 
-[src/lib/ethereum/l1-bitcoin-depositor.ts:88](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L88)
+[src/lib/ethereum/l1-bitcoin-depositor.ts:89](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L89)
 
 ___
 
@@ -156,7 +157,7 @@ L1BitcoinDepositor.extraDataEncoder
 
 #### Defined in
 
-[src/lib/ethereum/l1-bitcoin-depositor.ts:147](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L147)
+[src/lib/ethereum/l1-bitcoin-depositor.ts:148](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L148)
 
 ___
 
@@ -198,7 +199,7 @@ L1BitcoinDepositor.getChainIdentifier
 
 #### Defined in
 
-[src/lib/ethereum/l1-bitcoin-depositor.ts:139](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L139)
+[src/lib/ethereum/l1-bitcoin-depositor.ts:140](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L140)
 
 ___
 
@@ -218,7 +219,7 @@ L1BitcoinDepositor.getDepositOwner
 
 #### Defined in
 
-[src/lib/ethereum/l1-bitcoin-depositor.ts:116](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L116)
+[src/lib/ethereum/l1-bitcoin-depositor.ts:117](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L117)
 
 ___
 
@@ -244,7 +245,7 @@ L1BitcoinDepositor.getDepositState
 
 #### Defined in
 
-[src/lib/ethereum/l1-bitcoin-depositor.ts:132](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L132)
+[src/lib/ethereum/l1-bitcoin-depositor.ts:133](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L133)
 
 ___
 
@@ -307,7 +308,7 @@ L1BitcoinDepositor.initializeDeposit
 
 #### Defined in
 
-[src/lib/ethereum/l1-bitcoin-depositor.ts:155](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L155)
+[src/lib/ethereum/l1-bitcoin-depositor.ts:164](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L164)
 
 ___
 
@@ -333,4 +334,26 @@ L1BitcoinDepositor.setDepositOwner
 
 #### Defined in
 
-[src/lib/ethereum/l1-bitcoin-depositor.ts:124](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L124)
+[src/lib/ethereum/l1-bitcoin-depositor.ts:125](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L125)
+
+___
+
+### supportsTaprootDeposits
+
+▸ **supportsTaprootDeposits**(): `boolean`
+
+#### Returns
+
+`boolean`
+
+False because the deployed contract uses the legacy reveal tuple.
+
+**`See`**
+
+#### Implementation of
+
+L1BitcoinDepositor.supportsTaprootDeposits
+
+#### Defined in
+
+[src/lib/ethereum/l1-bitcoin-depositor.ts:156](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L156)

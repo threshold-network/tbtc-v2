@@ -109,6 +109,7 @@
 - [StarkNetTBTCTokenConfig](interfaces/StarkNetTBTCTokenConfig.md)
 - [TBTCToken](interfaces/TBTCToken.md)
 - [TBTCVault](interfaces/TBTCVault.md)
+- [TaprootDepositorCapability](interfaces/TaprootDepositorCapability.md)
 - [ValidRedemptionWallet](interfaces/ValidRedemptionWallet.md)
 - [Wallet](interfaces/Wallet.md)
 - [WalletRegistry](interfaces/WalletRegistry.md)
@@ -270,6 +271,7 @@
 - [amountToSatoshi](README.md#amounttosatoshi)
 - [applyP2TRWatchtowerChallengeEvent](README.md#applyp2trwatchtowerchallengeevent)
 - [assembleBitcoinSpvProof](README.md#assemblebitcoinspvproof)
+- [assertTaprootDepositSupported](README.md#asserttaprootdepositsupported)
 - [backoffRetrier](README.md#backoffretrier)
 - [buildP2TRSignatureFraudBridgeChallengePayload](README.md#buildp2trsignaturefraudbridgechallengepayload)
 - [chainIdFromSigner](README.md#chainidfromsigner)
@@ -318,6 +320,7 @@
 - [skipRetryWhenMatched](README.md#skipretrywhenmatched)
 - [stripWitnessesFromBitcoinRawTransaction](README.md#stripwitnessesfrombitcoinrawtransaction)
 - [summarizeP2TRWatchtowerChallengeRecords](README.md#summarizep2trwatchtowerchallengerecords)
+- [supportsTaprootDeposits](README.md#supportstaprootdeposits)
 - [toBitcoinJsLibNetwork](README.md#tobitcoinjslibnetwork)
 - [validateBitcoinHeadersChain](README.md#validatebitcoinheaderschain)
 - [validateBitcoinSpvProof](README.md#validatebitcoinspvproof)
@@ -385,7 +388,7 @@ Use CrossChainInterfaces instead
 
 #### Defined in
 
-[src/lib/contracts/cross-chain.ts:252](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L252)
+[src/lib/contracts/cross-chain.ts:253](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L253)
 
 ___
 
@@ -402,7 +405,7 @@ Mode of operation for the cross-chain depositor proxy:
 
 #### Defined in
 
-[src/services/deposits/cross-chain.ts:21](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L21)
+[src/services/deposits/cross-chain.ts:23](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/cross-chain.ts#L23)
 
 ___
 
@@ -416,7 +419,7 @@ Use ExtraDataEncoder instead
 
 #### Defined in
 
-[src/lib/contracts/cross-chain.ts:272](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L272)
+[src/lib/contracts/cross-chain.ts:273](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L273)
 
 ___
 
@@ -429,7 +432,7 @@ between TBTC L1 ledger chain and a specific supported destination chain.
 
 #### Defined in
 
-[src/lib/contracts/cross-chain.ts:13](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L13)
+[src/lib/contracts/cross-chain.ts:14](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L14)
 
 ___
 
@@ -483,7 +486,7 @@ Aggregates destination chain-specific TBTC cross-chain contracts.
 
 #### Defined in
 
-[src/lib/contracts/cross-chain.ts:19](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L19)
+[src/lib/contracts/cross-chain.ts:20](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L20)
 
 ___
 
@@ -624,7 +627,7 @@ specific to the given L2 chain, deployed on the L1 chain.
 
 #### Defined in
 
-[src/lib/contracts/cross-chain.ts:163](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L163)
+[src/lib/contracts/cross-chain.ts:164](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L164)
 
 ___
 
@@ -643,7 +646,7 @@ Aggregates L1-specific TBTC cross-chain contracts.
 
 #### Defined in
 
-[src/lib/contracts/cross-chain.ts:28](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L28)
+[src/lib/contracts/cross-chain.ts:29](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L29)
 
 ___
 
@@ -657,7 +660,7 @@ Use BitcoinDepositor instead
 
 #### Defined in
 
-[src/lib/contracts/cross-chain.ts:267](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L267)
+[src/lib/contracts/cross-chain.ts:268](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L268)
 
 ___
 
@@ -685,7 +688,7 @@ Use DestinationChainInterfaces instead
 
 #### Defined in
 
-[src/lib/contracts/cross-chain.ts:257](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L257)
+[src/lib/contracts/cross-chain.ts:258](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L258)
 
 ___
 
@@ -699,7 +702,7 @@ Use DestinationChainTBTCToken instead
 
 #### Defined in
 
-[src/lib/contracts/cross-chain.ts:262](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L262)
+[src/lib/contracts/cross-chain.ts:263](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L263)
 
 ___
 
@@ -1893,7 +1896,7 @@ Use StarkNetBitcoinDepositorConfig instead
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:67](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L67)
+[src/lib/starknet/starknet-depositor.ts:68](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L68)
 
 ___
 
@@ -1970,7 +1973,7 @@ Use ArbitrumExtraDataEncoder instead
 
 #### Defined in
 
-[src/lib/arbitrum/l2-bitcoin-depositor.ts:159](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L159)
+[src/lib/arbitrum/l2-bitcoin-depositor.ts:170](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L170)
 
 ___
 
@@ -1984,7 +1987,7 @@ Use ArbitrumBitcoinDepositor instead
 
 #### Defined in
 
-[src/lib/arbitrum/l2-bitcoin-depositor.ts:154](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L154)
+[src/lib/arbitrum/l2-bitcoin-depositor.ts:165](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/arbitrum/l2-bitcoin-depositor.ts#L165)
 
 ___
 
@@ -2012,7 +2015,7 @@ Use BaseBitcoinDepositor instead
 
 #### Defined in
 
-[src/lib/base/l2-bitcoin-depositor.ts:124](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L124)
+[src/lib/base/l2-bitcoin-depositor.ts:135](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L135)
 
 ___
 
@@ -2279,7 +2282,7 @@ Use EthereumExtraDataEncoder instead
 
 #### Defined in
 
-[src/lib/ethereum/l1-bitcoin-depositor.ts:221](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L221)
+[src/lib/ethereum/l1-bitcoin-depositor.ts:232](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L232)
 
 ___
 
@@ -2545,7 +2548,7 @@ Use StarkNetBitcoinDepositor instead
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:527](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L527)
+[src/lib/starknet/starknet-depositor.ts:538](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L538)
 
 ___
 
@@ -2665,6 +2668,30 @@ Bitcoin transaction along with the inclusion proof.
 #### Defined in
 
 [src/lib/bitcoin/spv.ts:75](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/spv.ts#L75)
+
+___
+
+### assertTaprootDepositSupported
+
+▸ **assertTaprootDepositSupported**(`depositor`, `deposit`): `void`
+
+Rejects a Taproot receipt when the target deposit handler has not explicitly
+declared end-to-end Taproot support.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `depositor` | [`TaprootDepositorCapability`](interfaces/TaprootDepositorCapability.md) | Deposit handler whose capability should be checked. |
+| `deposit` | [`DepositReceipt`](interfaces/DepositReceipt.md) | Deposit receipt about to be revealed. |
+
+#### Returns
+
+`void`
+
+#### Defined in
+
+[src/lib/contracts/depositor-proxy.ts:38](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/depositor-proxy.ts#L38)
 
 ___
 
@@ -3953,6 +3980,31 @@ ___
 #### Defined in
 
 [src/services/maintenance/p2tr-signature-fraud.ts:1413](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L1413)
+
+___
+
+### supportsTaprootDeposits
+
+▸ **supportsTaprootDeposits**(`depositor`): `boolean`
+
+Checks whether a deposit handler explicitly supports Taproot deposits.
+Missing capability declarations fail closed for backward compatibility.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `depositor` | [`TaprootDepositorCapability`](interfaces/TaprootDepositorCapability.md) | Deposit handler whose capability should be checked. |
+
+#### Returns
+
+`boolean`
+
+True only when Taproot support is explicitly declared.
+
+#### Defined in
+
+[src/lib/contracts/depositor-proxy.ts:25](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/depositor-proxy.ts#L25)
 
 ___
 

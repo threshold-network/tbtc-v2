@@ -31,6 +31,7 @@ export class MockBitcoinDepositor implements BitcoinDepositor {
   readonly #encoder: CrossChainExtraDataEncoder
   #depositOwner: ChainIdentifier | undefined
   public readonly initializeDepositCalls: InitializeDepositCall[] = []
+  public taprootDepositsSupported = false
 
   constructor(
     chainIdentifier: ChainIdentifier,
@@ -46,6 +47,10 @@ export class MockBitcoinDepositor implements BitcoinDepositor {
 
   getChainIdentifier(): ChainIdentifier {
     return this.#chainIdentifier
+  }
+
+  supportsTaprootDeposits(): boolean {
+    return this.taprootDepositsSupported
   }
 
   getDepositOwner(): ChainIdentifier | undefined {
@@ -77,6 +82,7 @@ export class MockL1BitcoinDepositor implements L1BitcoinDepositor {
   readonly #chainIdentifier: ChainIdentifier
   readonly #encoder: CrossChainExtraDataEncoder
   public readonly initializeDepositCalls: InitializeDepositCall[] = []
+  public taprootDepositsSupported = false
 
   constructor(
     chainIdentifier: ChainIdentifier,
@@ -104,6 +110,10 @@ export class MockL1BitcoinDepositor implements L1BitcoinDepositor {
 
   getChainIdentifier(): ChainIdentifier {
     return this.#chainIdentifier
+  }
+
+  supportsTaprootDeposits(): boolean {
+    return this.taprootDepositsSupported
   }
 
   initializeDeposit(

@@ -2,6 +2,7 @@ import {
   BitcoinDepositor,
   ChainIdentifier,
   ExtraDataEncoder,
+  assertTaprootDepositSupported,
 } from "../contracts"
 import { BitcoinRawTxVectors } from "../bitcoin"
 import { DepositReceipt } from "../contracts/bridge"
@@ -197,6 +198,14 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
   }
 
   /**
+   * @see {BitcoinDepositor#supportsTaprootDeposits}
+   * @returns False until the relayer and L1 depositor support Taproot reveals.
+   */
+  supportsTaprootDeposits(): boolean {
+    return false
+  }
+
+  /**
    * Initializes a cross-chain deposit by calling the external relayer service.
    *
    * This method calls the external service to trigger the deposit transaction
@@ -217,6 +226,8 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
     deposit: DepositReceipt,
     vault?: ChainIdentifier
   ): Promise<Hex | TransactionReceipt> {
+    assertTaprootDepositSupported(this, deposit)
+
     // Check if deposit owner is set
     if (!this.#depositOwner) {
       throw new Error(
