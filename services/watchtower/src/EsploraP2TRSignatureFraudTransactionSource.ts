@@ -23,8 +23,16 @@ export type P2TRTaprootDepositRevealSource = Pick<
   "deposits" | "getTaprootDepositRevealedEvents"
 >
 
+export type P2TRDepositScanFailure = {
+  stage: "reveal-history" | "deposit-request" | "outspend"
+  fundingTxid?: string
+  fundingOutputIndex?: number
+  error: string
+}
+
 export type EsploraP2TRSignatureFraudTransactionSourceOptions = {
   taprootDepositRevealSource: P2TRTaprootDepositRevealSource
+  onDepositScanFailure: (failure: P2TRDepositScanFailure) => void
   fetchFn?: P2TREsploraFetch
   maxAttempts?: number
   requestTimeoutMs?: number
@@ -71,6 +79,9 @@ export class EsploraP2TRSignatureFraudTransactionSource
   private readonly walletAddresses: string[]
   private readonly registeredWalletIDs: Set<string>
   private readonly taprootDepositRevealSource: P2TRTaprootDepositRevealSource
+  private readonly onDepositScanFailure: (
+    failure: P2TRDepositScanFailure
+  ) => void
   private depositSpendScan?: Promise<EsploraTransactionCandidate[]>
 
   constructor(
@@ -96,6 +107,12 @@ export class EsploraP2TRSignatureFraudTransactionSource
     }
 
     this.taprootDepositRevealSource = options.taprootDepositRevealSource
+    if (typeof options.onDepositScanFailure !== "function") {
+      throw new Error(
+        "Esplora P2TR transaction source requires a deposit scan failure handler"
+      )
+    }
+    this.onDepositScanFailure = options.onDepositScanFailure
     this.fetchFn = options.fetchFn ?? fetch
     this.maxAttempts = parsePositiveIntegerOption(
       options.maxAttempts,
@@ -205,19 +222,33 @@ export class EsploraP2TRSignatureFraudTransactionSource
   private async scanDepositSpendTransactions(): Promise<
     EsploraTransactionCandidate[]
   > {
-    const depositEvents =
-      await this.taprootDepositRevealSource.getTaprootDepositRevealedEvents()
-    const bindings = await Promise.all(
-      depositEvents
-        .filter(({ walletXOnlyPublicKey }) =>
-          this.registeredWalletIDs.has(
-            normalizeBytes32Hex(
-              walletXOnlyPublicKey.toString(),
-              "revealed deposit wallet ID"
-            )
+    let depositEvents: Awaited<
+      ReturnType<
+        P2TRTaprootDepositRevealSource["getTaprootDepositRevealedEvents"]
+      >
+    >
+    try {
+      depositEvents =
+        await this.taprootDepositRevealSource.getTaprootDepositRevealedEvents()
+    } catch (error) {
+      this.reportDepositScanFailure({
+        stage: "reveal-history",
+        error: describeRequestError(error),
+      })
+      return []
+    }
+
+    const bindingResults = await Promise.allSettled(
+      depositEvents.map(
+        async (event): Promise<P2TRWalletInputKeyBinding | undefined> => {
+          const walletID = normalizeBytes32Hex(
+            event.walletXOnlyPublicKey.toString(),
+            "revealed deposit wallet ID"
           )
-        )
-        .map(async (event): Promise<P2TRWalletInputKeyBinding> => {
+          if (!this.registeredWalletIDs.has(walletID)) {
+            return undefined
+          }
+
           const vout = readSafeInteger(
             event.fundingOutputIndex,
             "revealed deposit funding output index",
@@ -247,28 +278,56 @@ export class EsploraP2TRSignatureFraudTransactionSource
             txid: normalizeTxid(event.fundingTxHash.toString()),
             vout,
             outputKey,
-            walletID: normalizeBytes32Hex(
-              event.walletXOnlyPublicKey.toString(),
-              "revealed deposit wallet ID"
-            ),
+            walletID,
           }
-        })
+        }
+      )
     )
+
+    const bindings: P2TRWalletInputKeyBinding[] = []
+    bindingResults.forEach((result, index) => {
+      if (result.status === "fulfilled") {
+        if (result.value !== undefined) bindings.push(result.value)
+        return
+      }
+
+      const event = depositEvents[index]
+      this.reportDepositScanFailure({
+        stage: "deposit-request",
+        fundingTxid: event.fundingTxHash.toString(),
+        fundingOutputIndex: Number(event.fundingOutputIndex),
+        error: describeRequestError(result.reason),
+      })
+    })
+
     const uniqueBindings = new Map<string, P2TRWalletInputKeyBinding>()
     for (const binding of bindings) {
       uniqueBindings.set(depositBindingKey(binding), binding)
     }
 
-    const candidates = await Promise.all(
-      [...uniqueBindings.values()].map(async (binding) => {
+    const uniqueBindingValues = [...uniqueBindings.values()]
+    const candidateResults = await Promise.allSettled(
+      uniqueBindingValues.map(async (binding) => {
         const summary = await this.readDepositOutspend(binding)
         return summary === undefined ? undefined : { summary, binding }
       })
     )
     const byTxid = new Map<string, EsploraTransactionCandidate>()
 
-    for (const candidate of candidates) {
-      if (candidate === undefined) continue
+    candidateResults.forEach((result, index) => {
+      if (result.status === "rejected") {
+        const binding = uniqueBindingValues[index]
+        this.reportDepositScanFailure({
+          stage: "outspend",
+          fundingTxid: String(binding.txid),
+          fundingOutputIndex: binding.vout,
+          error: describeRequestError(result.reason),
+        })
+        return
+      }
+
+      const candidate = result.value
+      if (candidate === undefined) return
 
       const existing = byTxid.get(candidate.summary.txid)
       if (existing === undefined) {
@@ -279,9 +338,17 @@ export class EsploraP2TRSignatureFraudTransactionSource
       } else {
         existing.walletInputKeyBindings.push(candidate.binding)
       }
-    }
+    })
 
     return [...byTxid.values()]
+  }
+
+  private reportDepositScanFailure(failure: P2TRDepositScanFailure): void {
+    try {
+      this.onDepositScanFailure(failure)
+    } catch {
+      // Failure reporting must never suppress the remaining transaction scan.
+    }
   }
 
   private async readDepositOutspend(

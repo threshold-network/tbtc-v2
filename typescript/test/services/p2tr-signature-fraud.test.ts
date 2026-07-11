@@ -3649,6 +3649,74 @@ describe("P2TR signature-fraud witness parsing", () => {
         [{ ...binding, outputKey: "43".repeat(32) }]
       )
     ).to.deep.equal([])
+
+    expectWitnessError(
+      () =>
+        extractP2TRWalletInputWitnessCandidates(
+          rawTransaction,
+          inputPrevouts,
+          [vector.walletIDHex, "44".repeat(32)],
+          [binding, { ...binding, walletID: "44".repeat(32) }]
+        ),
+      "invalid-observation-payload"
+    )
+  })
+
+  it("validates deposit-specific observations against their bound wallet", () => {
+    const vector = vectorCorpus.cases[0]
+    const rawTransaction = withInputWitness(
+      vector.unsignedTransactionHex,
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    const depositOutputKey = "42".repeat(32)
+    const inputPrevouts = toObservationPrevouts(vector).map(
+      (prevout, index) => ({
+        ...prevout,
+        scriptPubKey:
+          index === vector.signedInputIndex
+            ? `5120${depositOutputKey}`
+            : prevout.scriptPubKey,
+      })
+    )
+    const signedPrevout = vector.prevouts[vector.signedInputIndex]
+    const [observation] = extractP2TRSignatureFraudWitnessObservations(
+      rawTransaction,
+      inputPrevouts,
+      [vector.walletIDHex],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      [
+        {
+          txid: signedPrevout.txidHex,
+          vout: signedPrevout.vout,
+          outputKey: depositOutputKey,
+          walletID: vector.walletIDHex,
+        },
+      ]
+    )
+
+    expect(() =>
+      validateP2TRSignatureFraudWitnessObservationConsistency(observation)
+    ).not.to.throw()
+    expectWitnessError(
+      () =>
+        validateP2TRSignatureFraudWitnessObservationConsistency({
+          ...observation,
+          walletID: Hex.from("44".repeat(32)),
+        }),
+      "invalid-watchtower-state"
+    )
+    expectWitnessError(
+      () =>
+        validateP2TRSignatureFraudWitnessObservationConsistency({
+          ...observation,
+          scriptPubKey: Hex.from(`5120${"43".repeat(32)}`),
+        }),
+      "invalid-watchtower-state"
+    )
   })
 
   it("discovers multiple registered wallet inputs in the same transaction", () => {
