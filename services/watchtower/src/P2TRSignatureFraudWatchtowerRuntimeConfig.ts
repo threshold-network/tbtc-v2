@@ -46,6 +46,8 @@ export const P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV = {
   allowFileBackedSubmission:
     "P2TR_SIGNATURE_FRAUD_WATCHTOWER_ALLOW_FILE_BACKED_SUBMISSION",
   continueOnError: "P2TR_SIGNATURE_FRAUD_WATCHTOWER_CONTINUE_ON_ERROR",
+  depositScanConcurrency:
+    "P2TR_SIGNATURE_FRAUD_WATCHTOWER_DEPOSIT_SCAN_CONCURRENCY",
   esploraBaseUrl: "P2TR_SIGNATURE_FRAUD_WATCHTOWER_ESPLORA_BASE_URL",
   esploraBitcoinNetwork:
     "P2TR_SIGNATURE_FRAUD_WATCHTOWER_ESPLORA_BITCOIN_NETWORK",
@@ -89,7 +91,7 @@ export type P2TRSignatureFraudWatchtowerBridgeLifecycleRuntimeConfig = Omit<
 
 export type P2TRSignatureFraudWatchtowerTransactionSourceRuntimeConfig = Omit<
   EsploraP2TRSignatureFraudTransactionSourceOptions,
-  "fetchFn"
+  "fetchFn" | "taprootDepositRevealSource" | "onDepositScanFailure"
 > & {
   esploraBaseUrl?: string
   bitcoinNetwork?: BitcoinNetwork
@@ -347,11 +349,16 @@ function parseTransactionSourceRuntimeConfig(
     env,
     P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.esploraConfirmedPageLimit
   )
+  const depositScanConcurrency = parseOptionalPositiveIntegerEnv(
+    env,
+    P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.depositScanConcurrency
+  )
   const configuredOptions = [
     maxAttempts,
     requestTimeoutMs,
     retryDelayMs,
     confirmedPageLimit,
+    depositScanConcurrency,
   ]
 
   if (
@@ -376,6 +383,7 @@ function parseTransactionSourceRuntimeConfig(
     requestTimeoutMs,
     retryDelayMs,
     confirmedPageLimit,
+    depositScanConcurrency,
   }
 }
 

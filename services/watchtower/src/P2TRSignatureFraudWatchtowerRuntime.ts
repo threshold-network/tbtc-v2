@@ -8,7 +8,11 @@ import { EsploraP2TRSignatureFraudTransactionSource } from "./EsploraP2TRSignatu
 import { FileBackedP2TRWatchtowerChallengeRecordPersistence } from "./FileBackedP2TRWatchtowerChallengeRecordPersistence.js"
 import { FileBackedP2TRBridgeLifecycleScanCursorStore } from "./FileBackedP2TRBridgeLifecycleScanCursorStore.js"
 import type { P2TREthersBridgeLifecycleContract } from "./EthersP2TRSignatureFraudBridgeLifecycleEventSource.js"
-import type { P2TREsploraFetch } from "./EsploraP2TRSignatureFraudTransactionSource.js"
+import type {
+  P2TRDepositScanFailureHandler,
+  P2TREsploraFetch,
+  P2TRTaprootDepositRevealSource,
+} from "./EsploraP2TRSignatureFraudTransactionSource.js"
 import type { P2TRSignatureFraudWatchtowerLoopOptions } from "./P2TRSignatureFraudWatchtowerLoop.js"
 import { P2TRSignatureFraudWatchtowerService } from "./P2TRSignatureFraudWatchtowerService.js"
 import type {
@@ -31,6 +35,8 @@ export type P2TRSignatureFraudWatchtowerRuntime = {
 }
 
 export type P2TRSignatureFraudWatchtowerEsploraRuntimeOptions = {
+  taprootDepositRevealSource: P2TRTaprootDepositRevealSource
+  onDepositScanFailure: P2TRDepositScanFailureHandler
   fetchFn?: P2TREsploraFetch
 }
 
@@ -103,7 +109,7 @@ export function createFileBackedP2TRBridgeLifecycleEventSource(
 
 export function createEsploraP2TRTransactionSourceFromRuntimeConfig(
   config: P2TRSignatureFraudWatchtowerRuntimeConfig,
-  options: P2TRSignatureFraudWatchtowerEsploraRuntimeOptions = {}
+  options: P2TRSignatureFraudWatchtowerEsploraRuntimeOptions
 ): EsploraP2TRSignatureFraudTransactionSource {
   const { esploraBaseUrl, bitcoinNetwork, ...sourceOptions } =
     config.transactionSource
@@ -120,6 +126,8 @@ export function createEsploraP2TRTransactionSourceFromRuntimeConfig(
     config.service.registeredWalletIDs,
     {
       ...sourceOptions,
+      taprootDepositRevealSource: options.taprootDepositRevealSource,
+      onDepositScanFailure: options.onDepositScanFailure,
       fetchFn: options.fetchFn,
     }
   )

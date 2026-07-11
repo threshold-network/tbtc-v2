@@ -3598,6 +3598,246 @@ describe("P2TR signature-fraud witness parsing", () => {
     ).to.deep.equal([])
   })
 
+  it("binds a revealed deposit output key to its registered wallet and exact outpoint", () => {
+    const vector = vectorCorpus.cases[0]
+    const rawTransaction = withInputWitness(
+      vector.unsignedTransactionHex,
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    const depositOutputKey = "42".repeat(32)
+    const inputPrevouts = vector.prevouts.map((prevout, index) => ({
+      scriptPubKey:
+        index === vector.signedInputIndex
+          ? `5120${depositOutputKey}`
+          : prevout.scriptPubKeyHex,
+    }))
+    const signedPrevout = vector.prevouts[vector.signedInputIndex]
+    const binding = {
+      txid: signedPrevout.txidHex,
+      vout: signedPrevout.vout,
+      outputKey: depositOutputKey,
+      walletID: vector.walletIDHex,
+    }
+
+    const candidates = extractP2TRWalletInputWitnessCandidates(
+      rawTransaction,
+      inputPrevouts,
+      [vector.walletIDHex],
+      [binding]
+    )
+
+    expect(candidates).to.have.length(1)
+    expect(candidates[0].walletID.toString()).to.equal(vector.walletIDHex)
+    expect(candidates[0].scriptPubKey.toString()).to.equal(
+      `5120${depositOutputKey}`
+    )
+
+    expect(
+      extractP2TRWalletInputWitnessCandidates(
+        rawTransaction,
+        inputPrevouts,
+        [vector.walletIDHex],
+        [{ ...binding, vout: binding.vout + 1 }]
+      )
+    ).to.deep.equal([])
+    expect(
+      extractP2TRWalletInputWitnessCandidates(
+        rawTransaction,
+        inputPrevouts,
+        [vector.walletIDHex],
+        [{ ...binding, outputKey: "43".repeat(32) }]
+      )
+    ).to.deep.equal([])
+
+    expectWitnessError(
+      () =>
+        extractP2TRWalletInputWitnessCandidates(
+          rawTransaction,
+          inputPrevouts,
+          [vector.walletIDHex, "44".repeat(32)],
+          [binding, { ...binding, walletID: "44".repeat(32) }]
+        ),
+      "invalid-observation-payload"
+    )
+  })
+
+  it("ignores script-path refunds of exactly bound Taproot deposits", () => {
+    const vector = vectorCorpus.cases[0]
+    const transaction = Transaction.fromHex(vector.unsignedTransactionHex)
+    transaction.ins[vector.signedInputIndex].witness = [
+      Buffer.from(vector.witnessSignatureHex, "hex"),
+      Buffer.from("51", "hex"),
+      Buffer.from(`c0${"00".repeat(32)}`, "hex"),
+    ]
+    const depositOutputKey = "42".repeat(32)
+    const inputPrevouts = vector.prevouts.map((prevout, index) => ({
+      scriptPubKey:
+        index === vector.signedInputIndex
+          ? `5120${depositOutputKey}`
+          : prevout.scriptPubKeyHex,
+    }))
+    const signedPrevout = vector.prevouts[vector.signedInputIndex]
+
+    expect(
+      extractP2TRWalletInputWitnessCandidates(
+        { transactionHex: transaction.toHex() },
+        inputPrevouts,
+        [vector.walletIDHex],
+        [
+          {
+            txid: signedPrevout.txidHex,
+            vout: signedPrevout.vout,
+            outputKey: depositOutputKey,
+            walletID: vector.walletIDHex,
+          },
+        ]
+      )
+    ).to.deep.equal([])
+  })
+
+  it("keeps wallet key-path observations beside a bound deposit refund", () => {
+    const vector = vectorCorpus.cases.find(
+      (candidate) =>
+        candidate.id ===
+        "bip341-keypath-sighash-default-multi-input-multi-output"
+    )
+
+    if (!vector) {
+      throw new Error("Missing multi-input P2TR signature-fraud vector")
+    }
+
+    const transaction = Transaction.fromHex(vector.unsignedTransactionHex)
+    transaction.ins[0].witness = [
+      Buffer.from(vector.witnessSignatureHex, "hex"),
+      Buffer.from("51", "hex"),
+      Buffer.from(`c0${"00".repeat(32)}`, "hex"),
+    ]
+    transaction.ins[1].witness = [
+      Buffer.from(vector.witnessSignatureHex, "hex"),
+    ]
+    const depositOutputKey = "42".repeat(32)
+    const inputPrevouts = toObservationPrevouts(vector).map(
+      (prevout, index) => ({
+        ...prevout,
+        scriptPubKey:
+          index === 0 ? `5120${depositOutputKey}` : prevout.scriptPubKey,
+      })
+    )
+    const depositPrevout = vector.prevouts[0]
+    const observations = extractP2TRSignatureFraudWitnessObservations(
+      { transactionHex: transaction.toHex() },
+      inputPrevouts,
+      [vector.walletIDHex],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      [
+        {
+          txid: depositPrevout.txidHex,
+          vout: depositPrevout.vout,
+          outputKey: depositOutputKey,
+          walletID: vector.walletIDHex,
+        },
+      ]
+    )
+
+    expect(observations.map(({ inputIndex }) => inputIndex)).to.deep.equal([1])
+  })
+
+  it("rejects annexed key-path witnesses for bound Taproot deposits", () => {
+    const vector = vectorCorpus.cases[0]
+    const transaction = Transaction.fromHex(vector.unsignedTransactionHex)
+    transaction.ins[vector.signedInputIndex].witness = [
+      Buffer.from(vector.witnessSignatureHex, "hex"),
+      Buffer.from("50", "hex"),
+    ]
+    const depositOutputKey = "42".repeat(32)
+    const inputPrevouts = vector.prevouts.map((prevout, index) => ({
+      scriptPubKey:
+        index === vector.signedInputIndex
+          ? `5120${depositOutputKey}`
+          : prevout.scriptPubKeyHex,
+    }))
+    const signedPrevout = vector.prevouts[vector.signedInputIndex]
+
+    expectWitnessError(
+      () =>
+        extractP2TRWalletInputWitnessCandidates(
+          { transactionHex: transaction.toHex() },
+          inputPrevouts,
+          [vector.walletIDHex],
+          [
+            {
+              txid: signedPrevout.txidHex,
+              vout: signedPrevout.vout,
+              outputKey: depositOutputKey,
+              walletID: vector.walletIDHex,
+            },
+          ]
+        ),
+      "unsupported-witness-form"
+    )
+  })
+
+  it("validates deposit-specific observations against their bound wallet", () => {
+    const vector = vectorCorpus.cases[0]
+    const rawTransaction = withInputWitness(
+      vector.unsignedTransactionHex,
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    const depositOutputKey = "42".repeat(32)
+    const inputPrevouts = toObservationPrevouts(vector).map(
+      (prevout, index) => ({
+        ...prevout,
+        scriptPubKey:
+          index === vector.signedInputIndex
+            ? `5120${depositOutputKey}`
+            : prevout.scriptPubKey,
+      })
+    )
+    const signedPrevout = vector.prevouts[vector.signedInputIndex]
+    const [observation] = extractP2TRSignatureFraudWitnessObservations(
+      rawTransaction,
+      inputPrevouts,
+      [vector.walletIDHex],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      [
+        {
+          txid: signedPrevout.txidHex,
+          vout: signedPrevout.vout,
+          outputKey: depositOutputKey,
+          walletID: vector.walletIDHex,
+        },
+      ]
+    )
+
+    expect(() =>
+      validateP2TRSignatureFraudWitnessObservationConsistency(observation)
+    ).not.to.throw()
+    expectWitnessError(
+      () =>
+        validateP2TRSignatureFraudWitnessObservationConsistency({
+          ...observation,
+          walletID: Hex.from("44".repeat(32)),
+        }),
+      "invalid-watchtower-state"
+    )
+    expectWitnessError(
+      () =>
+        validateP2TRSignatureFraudWitnessObservationConsistency({
+          ...observation,
+          scriptPubKey: Hex.from(`5120${"43".repeat(32)}`),
+        }),
+      "invalid-watchtower-state"
+    )
+  })
+
   it("discovers multiple registered wallet inputs in the same transaction", () => {
     const vector = vectorCorpus.cases.find(
       (candidate) =>

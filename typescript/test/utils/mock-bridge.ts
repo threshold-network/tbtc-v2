@@ -131,6 +131,13 @@ export class MockBridge implements Bridge {
     this._deposits = value
   }
 
+  async taprootDepositOutputKeyCommitment(
+    _depositTxHash: BitcoinTxHash,
+    _depositOutputIndex: number
+  ): Promise<Hex> {
+    return Hex.from("00".repeat(32))
+  }
+
   setActiveWalletPublicKey(activeWalletPublicKey: Hex) {
     this._activeWalletID = undefined
     this._activeWalletPublicKey = activeWalletPublicKey

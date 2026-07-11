@@ -25,7 +25,10 @@ export {
 } from "./P2TRSignatureFraudWatchtowerRuntime.js"
 export type {
   EsploraP2TRSignatureFraudTransactionSourceOptions,
+  P2TRDepositScanFailure,
+  P2TRDepositScanFailureHandler,
   P2TREsploraFetch,
+  P2TRTaprootDepositRevealSource,
 } from "./EsploraP2TRSignatureFraudTransactionSource.js"
 export type {
   EthersP2TRSignatureFraudBridgeLifecycleEventSourceOptions,
