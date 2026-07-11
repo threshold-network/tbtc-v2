@@ -77,6 +77,19 @@ export interface Bridge {
   ): Promise<DepositRequest>
 
   /**
+   * Gets the wallet/output-key commitment recorded for a Taproot deposit.
+   * A zero value means the outpoint has no Taproot deposit commitment.
+   * @param depositTxHash The revealed deposit transaction's hash.
+   * @param depositOutputIndex Index of the deposit transaction output that
+   *        funds the revealed deposit.
+   * @returns The 32-byte Taproot deposit output-key commitment.
+   */
+  taprootDepositOutputKeyCommitment(
+    depositTxHash: BitcoinTxHash,
+    depositOutputIndex: number
+  ): Promise<Hex>
+
+  /**
    * Requests a redemption from the on-chain contract.
    * @param walletPublicKey - The Bitcoin public key of the wallet. Must be in the
    *        compressed form (33 bytes long with 02 or 03 prefix).
@@ -377,6 +390,11 @@ export interface DepositRequest {
    * Denominated in satoshi.
    */
   treasuryFee: BigNumber
+
+  /**
+   * Optional 32-byte extra data committed by the deposit script.
+   */
+  extraData?: Hex
 }
 
 /**

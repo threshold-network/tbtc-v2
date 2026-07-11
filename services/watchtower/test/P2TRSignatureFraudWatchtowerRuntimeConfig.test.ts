@@ -78,6 +78,7 @@ test("loads required watchtower runtime config with safe defaults", () => {
     requestTimeoutMs: undefined,
     retryDelayMs: undefined,
     confirmedPageLimit: undefined,
+    depositScanConcurrency: undefined,
   })
   assert.deepEqual(config.loop, {
     pollIntervalMs: DEFAULT_P2TR_SIGNATURE_FRAUD_WATCHTOWER_POLL_INTERVAL_MS,
@@ -115,6 +116,7 @@ test("loads explicit watchtower runtime config values", () => {
     [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.esploraRequestTimeoutMs]: "6000",
     [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.esploraRetryDelayMs]: "0",
     [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.esploraConfirmedPageLimit]: "3",
+    [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.depositScanConcurrency]: "2",
     [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.pollIntervalMs]: "45000",
     [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.continueOnError]: "true",
     [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submitChallenges]: "true",
@@ -157,6 +159,7 @@ test("loads explicit watchtower runtime config values", () => {
     requestTimeoutMs: 6000,
     retryDelayMs: 0,
     confirmedPageLimit: 3,
+    depositScanConcurrency: 2,
   })
   assert.equal(config.service.maxSubmissionAttempts, 3)
   assert.equal(config.service.submitChallenges, true)
@@ -542,4 +545,29 @@ test("rejects unsafe watchtower runtime config before service startup", () => {
       }),
     /Esplora transaction source options require base URL and Bitcoin network/
   )
+
+  assert.throws(
+    () =>
+      loadP2TRSignatureFraudWatchtowerRuntimeConfig({
+        ...baseEnv(),
+        [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.depositScanConcurrency]: "2",
+      }),
+    /Esplora transaction source options require base URL and Bitcoin network/
+  )
+
+  for (const depositScanConcurrency of ["0", "1.5"]) {
+    assert.throws(
+      () =>
+        loadP2TRSignatureFraudWatchtowerRuntimeConfig({
+          ...baseEnv(),
+          [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.esploraBaseUrl]:
+            "https://esplora.test",
+          [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.esploraBitcoinNetwork]:
+            "testnet",
+          [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.depositScanConcurrency]:
+            depositScanConcurrency,
+        }),
+      /DEPOSIT_SCAN_CONCURRENCY must be a positive integer/
+    )
+  }
 })
