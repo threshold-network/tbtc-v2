@@ -185,6 +185,7 @@ export class EsploraP2TRSignatureFraudTransactionSource
       )
     )
 
+    // Fail fast on missing block metadata; only raw-transaction fetch failures are isolated.
     const confirmedTransactions = transactions.map(
       ({ txid, status, walletInputKeyBindings }) => ({
         txid,
