@@ -53,6 +53,13 @@ contract TestBitcoinTx {
         self.walletPubKeyHashByWalletID[walletID] = walletPubKeyHash;
     }
 
+    function setWalletIDForWalletPubKeyHash(
+        bytes20 walletPubKeyHash,
+        bytes32 walletID
+    ) external {
+        self.walletIDByWalletPubKeyHash[walletPubKeyHash] = walletID;
+    }
+
     function deriveWalletPubKeyHashFromXOnly(bytes32 xOnlyKey)
         external
         view

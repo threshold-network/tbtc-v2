@@ -225,6 +225,9 @@ library Redemption {
         uint256 outputStartingIndex;
         // The number of outputs in the transaction.
         uint256 outputsCount;
+        // True if the wallet uses the FROST signing scheme and can spend only
+        // P2TR change outputs.
+        bool isFrostWallet;
         // P2PKH script for the wallet. Needed to determine the change output.
         bytes32 walletP2PKHScriptKeccak;
         // P2WPKH script for the wallet. Needed to determine the change output.
@@ -828,7 +831,8 @@ library Redemption {
 
         bytes32 walletP2TRScriptKeccak;
         bytes32 walletID = self.walletIDByWalletPubKeyHash[walletPubKeyHash];
-        if (walletID != bytes32(0)) {
+        bool isFrostWallet = walletID != bytes32(0);
+        if (isFrostWallet) {
             // FROST wallets store their x-only Taproot output key as the
             // canonical wallet ID. That key is not derivable from the
             // 20-byte compatibility wallet public key hash, so use the
@@ -846,6 +850,7 @@ library Redemption {
                 RedemptionTxOutputsProcessingInfo(
                     outputStartingIndex,
                     outputsCount,
+                    isFrostWallet,
                     walletP2PKHScriptKeccak,
                     walletP2WPKHScriptKeccak,
                     walletP2TRScriptKeccak
@@ -866,8 +871,8 @@ library Redemption {
     ///        HASH160 over the compressed ECDSA public key) of the wallet which
     ///        performed the redemption transaction.
     /// @param processInfo RedemptionTxOutputsProcessingInfo identifying output
-    ///        starting index, the number of outputs and possible wallet change
-    ///        P2PKH and P2WPKH scripts.
+    ///        starting index, the number of outputs, the wallet scheme, and
+    ///        possible wallet change P2PKH, P2WPKH, and P2TR scripts.
     function processRedemptionTxOutputs(
         BridgeState.Storage storage self,
         bytes memory redemptionTxOutputVector,
@@ -911,9 +916,14 @@ library Redemption {
 
             if (
                 resultInfo.changeValue == 0 &&
-                (outputScriptHash == processInfo.walletP2PKHScriptKeccak ||
-                    outputScriptHash == processInfo.walletP2WPKHScriptKeccak ||
-                    outputScriptHash == processInfo.walletP2TRScriptKeccak) &&
+                (
+                    processInfo.isFrostWallet
+                        ? outputScriptHash == processInfo.walletP2TRScriptKeccak
+                        : outputScriptHash ==
+                            processInfo.walletP2PKHScriptKeccak ||
+                            outputScriptHash ==
+                            processInfo.walletP2WPKHScriptKeccak
+                ) &&
                 outputValue > 0
             ) {
                 // If we entered here, that means the change output with a
