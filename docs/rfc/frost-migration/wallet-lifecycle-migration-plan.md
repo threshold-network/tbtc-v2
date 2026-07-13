@@ -95,37 +95,35 @@ The authoritative source is the generated storage snapshot, not this
 table. Any future storage-layout doc update must be checked against
 `solidity/test/formal/Bridge.storage-layout.json`.
 
-## Cutover playbook recap (from `Bridge.migrateLegacyFraudChallenges` NatSpec)
+## Legacy fraud challenge cutover
 
-The migration helper for legacy fraud challenges is intentionally
-stubbed in #435 to save ~1.1 KiB of Bridge bytecode. Acceptable only
-under this per-chain operational contract:
+The proxy upgrade atomically removes the permissionless legacy submission
+entrypoint, but a valid historical signature can still be submitted in the
+last pre-upgrade block. The current Bridge therefore retains a governance-only
+`migrateLegacyFraudChallenges` body in the externally linked `Fraud` library.
+The quiet period and off-chain audit remain useful operational checks, but they
+are not relied upon as the security boundary.
 
-1. **Off-chain audit** — enumerate every `FraudChallengeSubmitted` and
-   `P2TRSignatureFraudChallengeSubmitted` event on the target chain;
-   confirm count == 0 OR every emitted submission has a matching
-   `Defeated` / `DefeatTimedOut`. Capture proof in the deployment /
-   governance record.
-2. **Pre-upgrade quiet period** during the governance delay window:
-   no new wallets enabled; maintainers hold off any fraud-eligible
-   signing.
-3. **Atomic cutover** — the same governance proposal that sets the
-   routers (`setEcdsaFraudRouter` + `setP2TRFraudRouter`) activates
-   the upgrade. No in-between window where Bridge accepts fraud
-   calls but routers are not wired.
+After both router addresses are configured, governance must enumerate any
+unresolved legacy records from submission and resolution events, classify each
+key as ECDSA (`routerKind = 0`) or P2TR (`routerKind = 1`), and migrate them in
+batches. Each batch:
 
-If any chain can't satisfy (1) or (2), the migration body MUST be
-added back via a focused upgrade BEFORE the router upgrade activates
-on that chain. Bridge is upgradeable; the function signature, event,
-and `IEcdsaFraudRouterMigration` interface stay in place so the
-follow-up upgrade is a body swap, not an ABI change.
+1. accepts only existing, unresolved records and a configured router;
+2. copies the records and sums their exact escrow;
+3. deletes them from Bridge storage before calling the router; and
+4. transfers the aggregate ETH with the records.
 
-**Chains in scope** at the time of #435: Ethereum L1 (mainnet +
-Sepolia per `contracts/tbtc-v2/deployments/`); no L2/sidechain Bridge
-deployments. Mainnet has never seen an opened fraud challenge;
-Sepolia has never seen one either. Both chains satisfy step (1) with
-count = 0. Release-checklist item: snapshot the audit proof into the
-deployment record before the router upgrade is queued.
+The router call is part of the same transaction. A duplicate, resolved record,
+wrong router classification, or receiver failure reverts the deletion and ETH
+movement. Resolved records are intentionally not migrated because their escrow
+has already been paid or routed. Deployment must link the current `Fraud`
+library bytecode; a historical address does not contain the migration selector.
+
+The release record should still include the event-derived challenge inventory,
+the router classification for every unresolved key, the migration transaction
+receipts, and confirmation that both routers report the expected open challenge
+counts afterward.
 
 ## Phase B-1 design
 
