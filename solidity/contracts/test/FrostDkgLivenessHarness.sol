@@ -35,9 +35,7 @@ contract FrostDkgLivenessHarness {
         dkg.submitResult(result);
     }
 
-    function challengeResult(
-        FrostDkg.Result calldata result
-    )
+    function challengeResult(FrostDkg.Result calldata result)
         external
         returns (bytes32 maliciousResultHash, uint32 maliciousSubmitter)
     {
