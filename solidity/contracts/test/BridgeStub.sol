@@ -364,8 +364,15 @@ contract BridgeStub is Bridge {
         /* solhint-disable-next-line not-rely-on-time */
         wallet.createdAt = uint32(block.timestamp);
 
-        self.activeWalletPubKeyHash = walletPubKeyHash;
-        self.activeWalletID = walletID;
+        bytes20 activeWalletPubKeyHash = self.activeWalletPubKeyHash;
+        if (
+            activeWalletPubKeyHash == bytes20(0) ||
+            self.registeredWallets[activeWalletPubKeyHash].ecdsaWalletID !=
+            bytes32(0)
+        ) {
+            self.activeWalletPubKeyHash = walletPubKeyHash;
+            self.activeWalletID = walletID;
+        }
         self.walletPubKeyHashByWalletID[walletID] = walletPubKeyHash;
 
         self.liveWalletsCount++;
