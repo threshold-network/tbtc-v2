@@ -224,11 +224,12 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
       it("should resolve existing libraries via deployments.get()", async () => {
         await func(mockHre)
 
-        // Fraud is no longer linked into Bridge — moved to
-        // EcdsaFraudRouter sidecar by round-1 of the FROST extraction.
-        // Round 19 dropped the `get("Fraud")` call from the deploy script;
-        // updating the expected list here to match.
-        const expectedLibraries = ["DepositSweep", "Wallets", "MovingFunds"]
+        const expectedLibraries = [
+          "DepositSweep",
+          "Wallets",
+          "Fraud",
+          "MovingFunds",
+        ]
         const getNames = getCalls.map((c) => c.name)
 
         expectedLibraries.forEach((lib) => {
@@ -256,7 +257,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         expect(directBridgeCall).to.be.undefined
       })
 
-      it("should define all 5 required libraries for Bridge implementation deployment", async () => {
+      it("should define all 6 required libraries for Bridge implementation deployment", async () => {
         await func(mockHre)
 
         const bridgeCall = deployCalls.find(
@@ -267,19 +268,16 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         const { libraries } = bridgeCall!.options
         expect(libraries).to.not.be.undefined
 
-        // 5 libraries, not 6: Fraud was extracted to the
-        // EcdsaFraudRouter sidecar by round-1 of the FROST extraction
-        // (06_deploy_bridge.ts and 85_deploy_tip109_governance_upgrade.ts
-        // updated in round 19 to drop the Fraud library link).
         const expectedLibKeys = [
           "Deposit",
           "DepositSweep",
           "Redemption",
           "Wallets",
+          "Fraud",
           "MovingFunds",
         ]
         const actualKeys = Object.keys(libraries)
-        expect(actualKeys).to.have.lengthOf(5)
+        expect(actualKeys).to.have.lengthOf(6)
 
         expectedLibKeys.forEach((key) => {
           expect(libraries).to.have.property(key)
@@ -291,6 +289,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         expect(libraries.DepositSweep).to.equal(DEPOSIT_SWEEP_ADDRESS)
         expect(libraries.Redemption).to.equal(REDEMPTION_ADDRESS)
         expect(libraries.Wallets).to.equal(WALLETS_ADDRESS)
+        expect(libraries.Fraud).to.equal(FRAUD_ADDRESS)
         expect(libraries.MovingFunds).to.equal(MOVING_FUNDS_ADDRESS)
       })
 
@@ -739,20 +738,18 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
       })
     })
 
-    it("should have libraries with all 5 entries", () => {
-      // 5 libraries after FROST extraction: Fraud moved to
-      // EcdsaFraudRouter sidecar (round 1 strip + round 19 deploy
-      // script update).
+    it("should have libraries with all 6 entries", () => {
       expect(summary).to.not.be.null
       const libs = summary.libraries
 
-      expect(Object.keys(libs)).to.have.lengthOf(5)
+      expect(Object.keys(libs)).to.have.lengthOf(6)
 
       const requiredKeys = [
         "Deposit",
         "DepositSweep",
         "Redemption",
         "Wallets",
+        "Fraud",
         "MovingFunds",
       ]
 
