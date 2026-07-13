@@ -1254,6 +1254,59 @@ describe("Bridge - P2TR signature fraud", () => {
     expect(await frostWalletRegistry.closeWalletCalled()).to.equal(true)
   })
 
+  it("keeps the challenge active while refunding a contract challenger", async () => {
+    const payload = vectorPayload(vector)
+    const walletPubKeyHash = await registerClosingFrostWallet(
+      vector,
+      Math.floor(fraudChallengeDefeatTimeout / 2)
+    )
+    const ReentrantChallengerFactory = await ethers.getContractFactory(
+      "ReentrantP2TRFraudChallenger"
+    )
+    const reentrantChallenger = await ReentrantChallengerFactory.deploy(
+      p2trFraudRouter.address,
+      bridge.address,
+      walletPubKeyHash
+    )
+    await reentrantChallenger.deployed()
+
+    const challengeKey = await buildBridgeChallengeKey(
+      bridge.address,
+      hex(vector.expectedBridgeChallengeIdentityHex)
+    )
+    await reentrantChallenger.submitFraudChallenge(encodePayload(payload), {
+      value: fraudChallengeDepositAmount,
+    })
+    await expectChallengeCounters(walletPubKeyHash, 1, 0, 1)
+    await increaseTime(fraudChallengeDefeatTimeout)
+
+    const tx = await p2trFraudRouter
+      .connect(thirdParty)
+      .processP2TRSignatureFraudChallenge(
+        p2trFraudAction.Timeout,
+        encodePayload(payload),
+        [1, 2, 3]
+      )
+
+    await expect(tx)
+      .to.emit(reentrantChallenger, "ReentrantClosureAttempt")
+      .withArgs(
+        false,
+        ethers.utils.id("P2TRFraudChallengePending()").slice(0, 10)
+      )
+    expect(
+      await ethers.provider.getBalance(reentrantChallenger.address)
+    ).to.equal(fraudChallengeDepositAmount)
+    expect((await p2trFraudRouter.fraudChallenges(challengeKey)).resolved).to.be
+      .true
+    await expectChallengeCounters(walletPubKeyHash, 0, 0, 0)
+    expect((await bridge.wallets(walletPubKeyHash)).state).to.equal(
+      walletState.Terminated
+    )
+    expect(await frostWalletRegistry.seizeCalled()).to.equal(true)
+    expect(await frostWalletRegistry.closeWalletCalled()).to.equal(true)
+  })
+
   it("allows FROST wallet closure after its P2TR challenge is defeated", async () => {
     const payload = vectorPayload(vector)
     const remainingClosingTime = Math.floor(fraudChallengeDefeatTimeout / 2)
