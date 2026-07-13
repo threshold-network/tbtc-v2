@@ -1903,14 +1903,24 @@ contract Bridge is
         return self.liveWalletsCount;
     }
 
-    // fraudChallenges getter: moved off Bridge -- ECDSA challenges
-    // live on EcdsaFraudRouter, P2TR challenges live on
-    // P2TRSignatureFraudRouter. The legacy
-    // `BridgeState.fraudChallenges` mapping remains in storage to
-    // support one-time migration of pre-cutover entries via
-    // migrateLegacyFraudChallenges (routerKind 0 = ECDSA, 1 = P2TR),
-    // but no read accessor is exposed -- consumers should call the
-    // routers' `fraudChallenges` views directly.
+    /// @notice Returns whether a fraud challenge key is reserved by a
+    ///         pre-cutover record still held in Bridge storage.
+    /// @dev Both unresolved and resolved records reserve their key. This keeps
+    ///      the extracted routers from accepting public evidence under the
+    ///      same key before an unresolved record and its escrow are migrated,
+    ///      or replaying evidence that the legacy Bridge already resolved.
+    ///      During migration, Bridge deletes the legacy record and seeds the
+    ///      router record atomically, so the key is never available between
+    ///      those state transitions. This selector must remain callable while
+    ///      the immutable fraud routers accept submissions; removing it would
+    ///      fail closed and reject every future challenge.
+    function legacyFraudChallengeExists(uint256 challengeKey)
+        external
+        view
+        returns (bool)
+    {
+        return self.fraudChallenges[challengeKey].reportedAt != 0;
+    }
 
     /// @notice Collection of all moved funds sweep requests indexed by
     ///         `keccak256(movingFundsTxHash | movingFundsOutputIndex)`.
