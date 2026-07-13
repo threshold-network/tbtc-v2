@@ -23,7 +23,7 @@ interface ILegacyTBTCVault {
 
     function tbtcToken() external view returns (address);
 
-    function initiateUpgrade(address newVault) external;
+    function initiateUpgrade(address newVault_) external;
 
     function finalizeUpgrade() external;
 }
@@ -70,8 +70,8 @@ interface ILegacyTBTCVaultMigrationCoordinator {
     ///         optimistic minting is paused, both read fail-closed.
     function migrationLocked() external view returns (bool);
 
-    /// @notice Initiates the legacy vault upgrade towards `successorVault`.
-    function initiateUpgrade(address successorVault) external;
+    /// @notice Initiates the legacy vault upgrade towards the successor vault.
+    function initiateUpgrade(address successorVault_) external;
 
     /// @notice Finalizes the legacy vault upgrade after the Bridge has recorded
     ///         the retirement attestation and untrusted the legacy vault.

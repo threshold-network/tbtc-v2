@@ -461,6 +461,7 @@ contract BridgeGovernance is Ownable {
         // 5. Make the successor the canonical migration-debt vault.
         bridge.setMigrationDebtVault(successorVault);
 
+        // slither-disable-next-line reentrancy-events
         emit LegacyVaultMigrationFinalized(
             coordinator,
             legacyVault,

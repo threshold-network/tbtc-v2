@@ -295,10 +295,7 @@ contract MockOrchestrationBridge {
     }
 
     function _maybeRevert(Step step) private view {
-        require(
-            revertMask & (1 << uint256(step)) == 0,
-            "Bridge step reverted"
-        );
+        require(revertMask & (1 << uint256(step)) == 0, "Bridge step reverted");
     }
 
     function callOrderLength() external view returns (uint256) {

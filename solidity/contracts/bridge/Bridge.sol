@@ -58,6 +58,10 @@ import "../bank/Bank.sol";
 /// @dev Bridge is an upgradeable component of the Bank. The order of
 ///      functionalities in this contract is: deposit, sweep, redemption,
 ///      moving funds, wallet lifecycle, frauds, parameters.
+// `ILegacyRetirementBridge` is a consumer-side view interface the migration
+// coordinator uses to read the Bridge; the Bridge intentionally does not depend
+// on that coordinator-side file, so it is not inherited here.
+// slither-disable-next-line missing-inheritance
 contract Bridge is
     Governable,
     EcdsaWalletOwner,

@@ -127,6 +127,7 @@ contract LegacyTBTCVaultMigrationCoordinator is
             "Legacy upgrade initiation failed"
         );
 
+        // slither-disable-next-line reentrancy-events
         emit LegacyVaultUpgradeInitiated(legacyVault, successor);
     }
 
@@ -168,6 +169,12 @@ contract LegacyTBTCVaultMigrationCoordinator is
         // owner can be asserted. The legacy vault is TBTC owner until the call.
         address tbtcToken = ILegacyTBTCVault(legacyVault).tbtcToken();
 
+        // Set the terminal flag before the state-changing external call
+        // (checks-effects-interactions): together with the `require(!finalized)`
+        // guard above and the `onlyController` modifier this makes re-entry into
+        // finalization impossible. A revert in any step below rolls the flag back.
+        finalized = true;
+
         ILegacyTBTCVault(legacyVault).finalizeUpgrade();
 
         require(
@@ -179,8 +186,7 @@ contract LegacyTBTCVaultMigrationCoordinator is
             "TBTC ownership did not move to the successor"
         );
 
-        finalized = true;
-
+        // slither-disable-next-line reentrancy-events
         emit LegacyVaultUpgradeFinalized(legacyVault, successor);
     }
 
