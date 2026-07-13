@@ -10,6 +10,16 @@ historical-record cleanup — reconciles the RFC text with the
 deltas that landed during implementation review, so future
 readers cite a consistent design.
 
+> **Security-continuity correction (2026-07-13):** The current canonical
+> upgrade retains `__ecdsaWalletCreatedCallback` with its exact legacy selector
+> and registry authentication. The deployed contracts do not expose the pause
+> and scheme-setter sequence described by the v7 historical reconciliation, so
+> the callback must remain available for a DKG initiated immediately before the
+> proxy upgrade. It is not gated by `ecdsaRetired`; new requests nevertheless
+> remain FROST-only because the post-upgrade request path has no ECDSA dispatch.
+> References below to structural callback removal describe the superseded v7
+> implementation, not the current activation procedure.
+
 ## Revision history
 
 ### v7 — 2026-05-24 (post-implementation reconciliation)

@@ -452,13 +452,10 @@ describe("Bridge - FROST Wallet Registration", () => {
   describe("ECDSA-ID-non-zero guard (via test-stub helper)", () => {
     // The ECDSA wallet creation path now reserves bytes32(0) as
     // the on-chain marker for FROST wallets. Before D-2 the
-    // Bridge enforced this at the registration boundary via
-    // `__ecdsaWalletCreatedCallback`; D-2 removed that
-    // callback entirely (no new ECDSA wallets ever again), so
-    // this test now validates the same guard via the
-    // `BridgeStub.__ecdsaWalletCreatedCallbackForTest` helper
-    // — which mirrors the `Wallets.registerNewWallet` body
-    // including the `EcdsaWalletIdIsZero` custom error.
+    // Bridge enforces this at the authenticated production
+    // `__ecdsaWalletCreatedCallback`. This isolated boundary test uses the
+    // BridgeStub helper to bypass registry authentication while preserving the
+    // `Wallets.registerNewWallet` body and `EcdsaWalletIdIsZero` error.
     it("should revert with EcdsaWalletIdIsZero", async () =>
       expectCustomError(
         bridge.__ecdsaWalletCreatedCallbackForTest(
