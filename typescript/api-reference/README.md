@@ -831,12 +831,12 @@ ___
 | Name | Type |
 | :------ | :------ |
 | `annex?` | [`Hex`](classes/Hex.md) \| `Buffer` \| `string` |
-| `inputPrevouts` | [`P2TRWalletInputObservationPrevout`](README.md#p2trwalletinputobservationprevout)[] |
+| `inputPrevouts?` | [`P2TRWalletInputObservationPrevout`](README.md#p2trwalletinputobservationprevout)[] |
 | `sighash` | [`Hex`](classes/Hex.md) \| `Buffer` \| `string` |
 | `sighashType` | [`P2TRSupportedSighashType`](README.md#p2trsupportedsighashtype) |
 | `signature` | [`Hex`](classes/Hex.md) \| `Buffer` \| `string` |
-| `signedInputIndex` | `number` |
-| `unsignedTransaction` | [`BitcoinRawTx`](interfaces/BitcoinRawTx.md) |
+| `signedInputIndex?` | `number` |
+| `unsignedTransaction?` | [`BitcoinRawTx`](interfaces/BitcoinRawTx.md) |
 | `walletID` | [`Hex`](classes/Hex.md) \| `Buffer` \| `string` |
 
 #### Defined in
@@ -2378,7 +2378,7 @@ ___
 
 ### P2TR\_SIGNATURE\_FRAUD\_BRIDGE\_CHALLENGE\_ID\_DOMAIN
 
-• `Const` **P2TR\_SIGNATURE\_FRAUD\_BRIDGE\_CHALLENGE\_ID\_DOMAIN**: ``"tbtc-p2tr-signature-fraud-bridge-challenge-v0"``
+• `Const` **P2TR\_SIGNATURE\_FRAUD\_BRIDGE\_CHALLENGE\_ID\_DOMAIN**: ``"tbtc-p2tr-signature-fraud-bridge-challenge-v1"``
 
 #### Defined in
 
@@ -2847,14 +2847,10 @@ ___
 
 ▸ **computeP2TRSignatureFraudBridgeChallengeIdentity**(`challenge`): [`Hex`](classes/Hex.md)
 
-Computes the Bridge-facing challenge identity from the structured Taproot
-payload fields the Bridge verifier can reconstruct and validate.
-
-Unlike the draft vector identity, this identity does not rely on a raw
-unsigned transaction blob that the Bridge does not parse. It commits to the
-transaction version, locktime, input outpoints/sequences, prevout values and
-scripts, outputs, signed input, reconstructed BIP-341 sighash, and the
-BIP-340 signature.
+Computes the canonical Bridge-facing identity of a signed Taproot
+authorization. The BIP-341 sighash commits exactly the transaction fields
+selected by the witness sighash mode; fields outside that cryptographic
+commitment cannot create separate challenge, deposit, or reward records.
 
  Bridge integration identity for the P2TR signature-fraud path.
 
@@ -2862,14 +2858,14 @@ BIP-340 signature.
 
 | Name | Type | Description |
 | :------ | :------ | :------ |
-| `challenge` | [`P2TRSignatureFraudBridgeChallengeIdentity`](README.md#p2trsignaturefraudbridgechallengeidentity) | Structured Bridge challenge payload: version, locktime, input outpoints/sequences, prevouts, outputs, signed input index, reconstructed BIP-341 sighash, and BIP-340 signature. |
+| `challenge` | [`P2TRSignatureFraudBridgeChallengeIdentity`](README.md#p2trsignaturefraudbridgechallengeidentity) | Wallet, reconstructed BIP-341 sighash, BIP-340 signature, and parsed witness sighash type. |
 
 #### Returns
 
 [`Hex`](classes/Hex.md)
 
-32-byte Bridge challenge identity (keccak256 over the canonical
-         ABI-encoded payload).
+32-byte Bridge challenge identity (SHA-256 over the canonical
+         signed-authorization tuple).
 
 #### Defined in
 

@@ -147,15 +147,23 @@ Minimum payload fields:
 
 Seeded challenge-key direction:
 
-- The Bridge challenge identity is separated from the draft raw-transaction
-  vector identity. It commits to `walletID`, reconstructed BIP-341 sighash,
-  64-byte BIP-340 signature, sighash type, signed input index, transaction
-  version and locktime, all input outpoints and sequences, all prevout values
-  and scriptPubKeys, and all outputs.
+- The version-1 Bridge challenge identity is separated from the draft
+  raw-transaction vector identity. It commits to the canonical signed
+  authorization tuple: `walletID`, reconstructed BIP-341 sighash, 64-byte
+  BIP-340 signature, and parsed sighash type. The reconstructed sighash already
+  commits exactly the transaction fields selected by that BIP-341 mode. Fields
+  deliberately left unsigned by flexible modes such as `SIGHASH_NONE`,
+  `SIGHASH_SINGLE`, or `ANYONECANPAY` must not add identity entropy, because
+  one valid signature must fund at most one challenge/deposit/reward record.
 - The Bridge challenge key is then domain-separated with chain ID and Bridge
   contract address. This keeps the same Bitcoin witness evidence from colliding
   across deployments while avoiding reliance on an opaque raw transaction blob
   that the Bridge does not parse.
+- This version-1 namespace is introduced before P2TR/FROST production
+  activation, so the deployment plan assumes there are no open version-0 P2TR
+  challenge records. If that assumption changes, activation requires an
+  explicit version-0-to-version-1 record migration or cutover; the two identity
+  namespaces must not be mixed for live challenges.
 
 Payload decisions that must be frozen before implementation:
 
@@ -169,9 +177,9 @@ Payload decisions that must be frozen before implementation:
 - Annex and script-path witnesses must be fail-closed unless the supported
   spend policy and vector corpus are explicitly expanded.
 - The production challenge key must remain separated from the draft vector
-  identity and use the structured Bridge challenge identity plus chain/Bridge
-  domain. Any change to those identity fields must update the Node, Rust, and
-  Solidity vector gates before Bridge integration.
+  identity and use the canonical signed-authorization identity plus
+  chain/Bridge domain. Any change to that tuple or either identity domain must
+  update the Node, Rust, and Solidity vector gates before Bridge integration.
 - Maximum transaction byte length, input count, output count, scriptPubKey
   length, witness signature length, and payload byte length must be configured
   and gas-measured before integration.
@@ -261,7 +269,7 @@ preserve pre-confirmation signature accountability.
 | Wallet input discovery           | Detect spends of registered P2TR wallet outputs by matching the key-path witness to the canonical x-only `walletID` and resolving any compatibility alias needed by Bridge accounting.                                                                                                                                                                                  | Tests cover registered wallets, unrelated P2TR spends, unknown wallet IDs, legacy wallets, and multiple wallet inputs in the same transaction.                                                                                                                          |
 | Witness-form filtering           | Accept only frozen key-path forms and sighash encodings; reject script-path witnesses, annexes, missing signatures, malformed signature lengths, and unsupported sighash bytes before submission.                                                                                                                                                                       | Parser tests prove `SIGHASH_DEFAULT` without a witness sighash byte, explicit `SIGHASH_ALL`, and every unsupported form's fail-closed result.                                                                                                                           |
 | Payload reconstruction           | Persist the raw transaction commitment, signed input index, full prevout map, output set, locktime/version, signature, selected sighash type, and reconstructed BIP-341 sighash.                                                                                                                                                                                        | Cross-language vectors prove the watchtower payload reconstructs the same sighash as the Bridge verifier for each supported spend type.                                                                                                                                 |
-| Challenge identity               | Derive one deterministic idempotency key from the final production challenge-key inputs, including chain/Bridge domain once frozen. The key must not rely on caller-provided metadata that Bridge does not verify.                                                                                                                                                      | Duplicate observations of the same witness produce one challenge attempt, while changed wallet ID, chain/Bridge domain, signature, sighash, input index, raw transaction, or prevout map commitments produce distinct or rejected records according to the frozen spec. |
+| Challenge identity               | Derive one deterministic idempotency key from the canonical signed-authorization tuple (`walletID`, reconstructed BIP-341 sighash, 64-byte signature, and parsed sighash type), then bind it to the frozen chain/Bridge domain. Caller-provided representation fields outside the signature commitment must not fork identity. | Duplicate observations of the same signed authorization produce one challenge attempt even if a flexible sighash permits different unsigned transaction fields. A changed wallet, chain/Bridge domain, signature, sighash, or parsed sighash type produces a distinct key; malformed or internally inconsistent payloads are rejected. |
 | Submission idempotency           | Store pending, accepted, rejected, defeated, timed out, slashed, and rewarded states under the challenge identity. Retries must not fork state, double-submit deposits, or leave retry-limit failures invisible to operators.                                                                                                                                           | Tests cover duplicate mempool events, duplicate confirmed events, RPC retry after unknown transaction status, Bridge duplicate rejection, retry-limit operator alerts, and operator restart with persisted state.                                                       |
 | Reorg and mempool churn          | Handle mempool eviction, rebroadcast, confirmation, and reorg without losing the original signature evidence or creating conflicting challenge records.                                                                                                                                                                                                                 | Tests simulate mempool-only evidence, confirmed evidence, eviction/reappearance, one-block reorg, and replacement by a transaction whose signature or prevout map differs.                                                                                              |
 | Honest-spend correlation         | Correlate Bridge proof events for deposit sweep, moving funds, moved-funds sweep, redemption, and any approved closing/heartbeat rule with the matching challenge identity. Bridge lifecycle events that include wallet ID, Bridge challenge identity, or sighash evidence must match the persisted observation before the watchtower accepts the lifecycle transition. | Tests prove an honest spend defeats only the matching challenge and that wrong spend type, wrong output set, wrong prevout map, wrong wallet, or mismatched Bridge-emitted lifecycle evidence cannot defeat.                                                            |

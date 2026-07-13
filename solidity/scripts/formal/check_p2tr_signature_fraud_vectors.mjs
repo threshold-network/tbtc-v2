@@ -19,7 +19,7 @@ const DRAFT_CHALLENGE_ID_DOMAIN = Buffer.from(
   "utf8"
 )
 const BRIDGE_CHALLENGE_ID_DOMAIN = Buffer.from(
-  "tbtc-p2tr-signature-fraud-bridge-challenge-v0",
+  "tbtc-p2tr-signature-fraud-bridge-challenge-v1",
   "utf8"
 )
 const SIGHASH_DEFAULT = 0
@@ -522,59 +522,19 @@ const deriveDraftChallengeIdentity = (vector, sighash, signature) => {
 }
 
 const deriveBridgeChallengeIdentity = (vector, sighash, signature) => {
-  const tx = parseTransaction(vector.unsignedTransactionHex)
   const walletID = hexToBuffer(
     vector.walletIDHex,
     32,
     `vector ${vector.id}: walletIDHex`
   )
-  const prevouts = vector.prevouts ?? []
-  if (prevouts.length !== tx.inputs.length) {
-    fail(`vector ${vector.id}: prevouts length must match transaction inputs`)
-  }
 
-  const preimage = [
+  return sha256(
     BRIDGE_CHALLENGE_ID_DOMAIN,
     walletID,
     sighash,
     signature,
-    Buffer.from([vector.sighashType]),
-    uint32LE(vector.signedInputIndex),
-    tx.version,
-    tx.locktime,
-    encodeCompactSize(tx.inputs.length),
-  ]
-
-  for (const input of tx.inputs) {
-    preimage.push(
-      input.outpoint.subarray(0, 32),
-      input.outpoint.subarray(32, 36),
-      input.sequence
-    )
-  }
-
-  preimage.push(encodeCompactSize(prevouts.length))
-
-  for (const [index, prevout] of prevouts.entries()) {
-    preimage.push(
-      uint64LE(prevout.valueSats),
-      bytesWithCompactSize(
-        hexToBuffer(
-          prevout.scriptPubKeyHex,
-          undefined,
-          `vector ${vector.id}: prevout ${index} scriptPubKeyHex`
-        )
-      )
-    )
-  }
-
-  preimage.push(encodeCompactSize(tx.outputs.length))
-
-  for (const output of tx.outputs) {
-    preimage.push(output.raw)
-  }
-
-  return sha256(Buffer.concat(preimage))
+    Buffer.from([vector.sighashType])
+  )
 }
 
 const vectors = JSON.parse(fs.readFileSync(vectorsPath, "utf8"))

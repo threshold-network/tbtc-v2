@@ -63,6 +63,10 @@ const vectorCorpusPath = path.resolve(
   __dirname,
   "../../../docs/test-vectors/p2tr-signature-fraud-v0.json"
 )
+const fullSighashVectorCorpusPath = path.resolve(
+  __dirname,
+  "../../../docs/test-vectors/p2tr-signature-fraud-full-sighash-v0.json"
+)
 
 const p2trFraudAction = {
   Submit: 0,
@@ -210,10 +214,10 @@ const parseUnsignedTransaction = (
   return { version, locktime, inputs, outputs }
 }
 
-const loadVectorCorpus = (): SignatureFraudVectorCorpus =>
-  JSON.parse(
-    fs.readFileSync(vectorCorpusPath, "utf8")
-  ) as SignatureFraudVectorCorpus
+const loadVectorCorpus = (
+  corpusPath = vectorCorpusPath
+): SignatureFraudVectorCorpus =>
+  JSON.parse(fs.readFileSync(corpusPath, "utf8")) as SignatureFraudVectorCorpus
 
 const vectorPayload = (
   vector: SignatureFraudVector,
@@ -335,6 +339,9 @@ describe("Bridge - P2TR signature fraud", () => {
   const distinctWalletVector = vectorCorpus.cases.find(
     ({ walletIDHex }) => walletIDHex !== vector.walletIDHex
   )
+  const sighashNoneVector = loadVectorCorpus(
+    fullSighashVectorCorpusPath
+  ).cases.find(({ id }) => id === "bip341-keypath-none-multi")!
   if (!distinctWalletVector) {
     throw new Error("P2TR fraud vector corpus needs two distinct wallets")
   }
@@ -755,6 +762,32 @@ describe("Bridge - P2TR signature fraud", () => {
     ).to.be.revertedWith("Fraud challenge already exists")
   })
 
+  it("rejects an equivalent SIGHASH_NONE representation as a duplicate", async () => {
+    const payload = vectorPayload(sighashNoneVector)
+    const equivalentPayload = {
+      ...payload,
+      // SIGHASH_NONE leaves every output unauthenticated. A caller can change
+      // this representation while preserving the exact wallet signature.
+      outputs: payload.outputs.map((output, index) =>
+        index === 0 ? { ...output, valueSats: output.valueSats.add(1) } : output
+      ),
+    }
+
+    await registerP2TRWallet(payload.walletID)
+    await submitChallenge(payload, sighashNoneVector)
+
+    await expect(
+      p2trFraudRouter
+        .connect(thirdParty)
+        .processP2TRSignatureFraudChallenge(
+          p2trFraudAction.Submit,
+          encodePayload(equivalentPayload),
+          [],
+          { value: fraudChallengeDepositAmount }
+        )
+    ).to.be.revertedWith("Fraud challenge already exists")
+  })
+
   it("rejects P2TR challenges for unknown wallets before storage", async () => {
     const payload = vectorPayload(vector)
     const bridgeChallengeIdentity = hex(
@@ -955,19 +988,12 @@ describe("Bridge - P2TR signature fraud", () => {
     })
   }
 
-  // The shape caps accept up to 512 inputs/outputs. The challenge-identity
-  // encoder (encodeBridgeChallengeTransactionPayload) and the BIP-341 sighash
-  // reconstruction must build that payload in LINEAR time -- a quadratic encoder
-  // lets a maximum-size but valid protocol shape pass the shape check yet run out
-  // of gas before the challenge is recorded. Submitting at the cap must still
-  // reach (and fail) signature verification rather than exhausting gas.
   // The shape caps accept up to 128 inputs/outputs (see P2TRSignatureFraudRouter
   // for why 128 and not higher). A maximum-size but valid shape must reconstruct
-  // on-chain within the block gas limit: the linearized challenge-identity encoder
-  // and BIP-341 sighash reconstruction make 128 in/out reach signature
-  // verification with margin (empirically ~192 is the edge, 256+ runs out of gas),
-  // whereas a quadratic encoder -- or a higher cap -- would exhaust gas before the
-  // challenge is recorded.
+  // on-chain within the block gas limit: the linear BIP-341 sighash
+  // reconstruction makes 128 in/out reach signature verification with margin
+  // (empirically ~192 is the edge, 256+ runs out of gas), whereas a higher cap
+  // would exhaust gas before the challenge is recorded.
   it("builds the challenge identity for a maximum-size (128 in/out) shape within gas", async () => {
     const base = vectorPayload(vector)
     await registerP2TRWallet(base.walletID)

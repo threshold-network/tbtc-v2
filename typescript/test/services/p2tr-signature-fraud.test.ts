@@ -195,7 +195,7 @@ const createDraftApprovedP2TRWatchtower = (
   )
 
 const expectedVector0BridgeChallengeKey =
-  "5b9c84557643f90b47ab9bcc49ff7dba8cfe283f1c37524a1e1db4316b34252f"
+  "dfc3a7c7a3717d106b1ee3cd7e10f744e4487a9061aadc4fa0204daf45b09d0a"
 
 const computeBridgeChallengeIdentity = (vector: SignatureFraudVector): Hex => {
   const parsedWitness = parseP2TRKeyPathWitnessSignature(
@@ -577,7 +577,7 @@ describe("P2TR signature-fraud witness parsing", () => {
     })
   })
 
-  it("computes Bridge challenge identities from structured verifier payloads", () => {
+  it("computes canonical Bridge identities from signed Taproot authorizations", () => {
     vectorCorpus.cases.forEach((vector) => {
       const identity = computeBridgeChallengeIdentity(vector)
       const mutatedIdentity = computeP2TRSignatureFraudBridgeChallengeIdentity({
@@ -605,9 +605,20 @@ describe("P2TR signature-fraud witness parsing", () => {
       expect(identity.toString(), vector.id).to.equal(
         vector.expectedBridgeChallengeIdentityHex
       )
-      expect(mutatedIdentity.toString(), vector.id).to.not.equal(
+      expect(mutatedIdentity.toString(), vector.id).to.equal(
         identity.toString()
       )
+
+      expect(
+        computeP2TRSignatureFraudBridgeChallengeIdentity({
+          walletID: vector.walletIDHex,
+          sighash: `0x${"00".repeat(32)}`,
+          signature: vector.bip340SignatureHex,
+          sighashType: vector.sighashType as
+            | typeof P2TR_SIGHASH_DEFAULT
+            | typeof P2TR_SIGHASH_ALL,
+        }).toString()
+      ).to.not.equal(identity.toString())
     })
   })
 
