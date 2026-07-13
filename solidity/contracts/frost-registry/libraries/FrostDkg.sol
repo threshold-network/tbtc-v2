@@ -70,8 +70,8 @@ library FrostDkg {
         // Seed used to start DKG.
         uint256 seed;
         // Time in blocks that should be added to result submission eligibility
-        // delay calculation. It is used in case of a challenge to adjust
-        // DKG timeout calculation.
+        // delay calculation. Retained for storage and in-flight DKG
+        // compatibility; new challenges do not increase this value.
         uint256 resultSubmissionStartBlockOffset;
         // Hash of submitted DKG result.
         bytes32 submittedResultHash;
@@ -87,10 +87,14 @@ library FrostDkg {
         // without needing a stored field. (Optimization noted
         // during PR #441 review.)
         address bridge;
+        // Start block of the DKG in which an operator's result was successfully
+        // challenged. Entries do not need to be iterated or deleted when a DKG
+        // completes because every challenged round has a distinct start block.
+        mapping(uint32 => uint256) challengedSubmitterDkgStartBlocks;
         // Reserved storage space in case we need to add more variables.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
-        uint256[37] __gap;
+        uint256[36] __gap;
     }
 
     /// @notice DKG result.
@@ -188,6 +192,9 @@ library FrostDkg {
 
     event DkgSeedTimedOut();
 
+    error InvalidGroupMembers();
+    error SubmitterChallengedForCurrentDkg();
+
     /// @notice Initializes SortitionPool, FrostDkgValidator, and the
     ///         `bridge` digest-binding address. Can be performed
     ///         only once.
@@ -270,8 +277,8 @@ library FrostDkg {
     }
 
     /// @notice Allows to submit a DKG result. The submitted result does not go
-    ///         through a validation and before it gets accepted, it needs to
-    ///         wait through the challenge period during which everyone has
+    ///         through full validation and before it gets accepted, it needs
+    ///         to wait through the challenge period during which everyone has
     ///         a chance to challenge the result as invalid one. Submitter of
     ///         the result needs to be in the sortition pool and if the result
     ///         gets challenged, the submitter will get slashed.
@@ -291,12 +298,23 @@ library FrostDkg {
             sortitionPool.isOperatorInPool(msg.sender),
             "Submitter not in the sortition pool"
         );
+
+        // The caller-authored members array must be the exact group selected
+        // for this seed before it can lock the DKG in the challenge state.
+        if (!self.dkgValidator.validateGroupMembers(result, self.seed)) {
+            revert InvalidGroupMembers();
+        }
+
+        uint32 submitter = result.members[result.submitterMemberIndex - 1];
         require(
-            sortitionPool.getIDOperator(
-                result.members[result.submitterMemberIndex - 1]
-            ) == msg.sender,
+            sortitionPool.getIDOperator(submitter) == msg.sender,
             "Unexpected submitter index"
         );
+        if (
+            self.challengedSubmitterDkgStartBlocks[submitter] == self.startBlock
+        ) {
+            revert SubmitterChallengedForCurrentDkg();
+        }
 
         self.submittedResultHash = keccak256(abi.encode(result));
         self.submittedResultBlock = block.number;
@@ -315,9 +333,8 @@ library FrostDkg {
     /// @notice Checks if DKG timed out. The DKG timeout period includes time required
     ///         for off-chain protocol execution and time for the result publication.
     ///         After this time a result cannot be submitted and DKG can be notified
-    ///         about the timeout. DKG period is adjusted by result submission
-    ///         offset that include blocks that were mined while invalid result
-    ///         has been registered until it got challenged.
+    ///         about the timeout. A compatibility offset may already exist for a
+    ///         DKG started before an upgrade, but challenges never increase it.
     /// @return True if DKG timed out, false otherwise.
     function hasDkgTimedOut(Data storage self) internal view returns (bool) {
         return
@@ -477,9 +494,12 @@ library FrostDkg {
         maliciousResultHash = self.submittedResultHash;
         maliciousSubmitter = result.members[result.submitterMemberIndex - 1];
 
-        // Adjust DKG result submission block start, so submission stage starts
-        // from the beginning.
-        self.resultSubmissionStartBlockOffset = block.number - self.startBlock;
+        // Prevent the identified submitter from reacquiring the challenge-state
+        // lock in this DKG. Other selected members may still submit before the
+        // original fixed deadline.
+        self.challengedSubmitterDkgStartBlocks[
+            maliciousSubmitter
+        ] = self.startBlock;
 
         submittedResultCleanup(self);
 
