@@ -10,14 +10,30 @@ describe("active Bridge upgrade scripts", () => {
     "85_deploy_tip109_governance_upgrade.ts",
     "86_deploy_tip109_hotfix.ts",
   ]
+  const bridgeLibraries = [
+    "Deposit",
+    "DepositSweep",
+    "Redemption",
+    "Wallets",
+    "Fraud",
+    "MovingFunds",
+  ]
 
   scripts.forEach((script) => {
-    it(`${script} deploys current Fraud bytecode before linking Bridge`, () => {
+    it(`${script} deploys every current library before linking Bridge`, () => {
       const source = fs.readFileSync(path.join(deployDirectory, script), "utf8")
 
-      expect(source).not.to.match(/get\("Fraud"\)/)
-      expect(source).to.match(/deploy\("Fraud(?:TIP109Hotfix)?"/)
-      expect(source).to.match(/Fraud:\s*Fraud\.address/)
+      bridgeLibraries.forEach((library) => {
+        const deploymentName = script.startsWith("86_")
+          ? `${library}TIP109Hotfix`
+          : library
+
+        expect(source).not.to.match(new RegExp(`get\\("${library}"\\)`))
+        expect(source).to.match(new RegExp(`deploy\\("${deploymentName}"`))
+        expect(source).to.match(
+          new RegExp(`${library}:\\s*${library}\\.address`)
+        )
+      })
     })
   })
 })
