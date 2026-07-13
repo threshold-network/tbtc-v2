@@ -236,7 +236,7 @@ describe("EcdsaFraudRouter", () => {
         ],
         { value: fraudChallengeDepositAmount }
       )
-    ).to.be.revertedWith("Unresolved challenge not reported")
+    ).to.be.revertedWith("Challenge not reported")
   })
 
   it("rejects FROST wallets even when they are not the active wallet", async () => {

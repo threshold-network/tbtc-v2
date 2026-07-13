@@ -221,16 +221,10 @@ contract EcdsaFraudRouter {
                 fraudChallenges[challengeKeys[i]].reportedAt == 0,
                 "Challenge already migrated"
             );
-            if (!data[i].resolved) {
-                require(
-                    data[i].reportedAt > 0,
-                    "Unresolved challenge not reported"
-                );
-            }
+            require(data[i].reportedAt > 0, "Challenge not reported");
+            require(!data[i].resolved, "Challenge already resolved");
             fraudChallenges[challengeKeys[i]] = data[i];
-            if (!data[i].resolved) {
-                openFraudChallengeCount++;
-            }
+            openFraudChallengeCount++;
             totalDeposit += data[i].depositAmount;
             emit FraudChallengeMigratedFromBridge(
                 challengeKeys[i],
