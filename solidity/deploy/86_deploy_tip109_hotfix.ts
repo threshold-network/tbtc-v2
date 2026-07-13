@@ -24,23 +24,79 @@ const BRIDGE_GOVERNANCE_ABI = [
   "function transferOwnership(address newOwner)",
   "function setVaultStatus(address vault, bool isTrusted)",
   "function setMigrationDebtVault(address vault)",
+  "function initiateLegacyVaultUpgrade(address coordinator, address successorVault)",
+  "function finalizeLegacyVaultMigration(address coordinator, uint256 snapshotBlockNumber, bytes32 snapshotBlockHash, bytes32 evidenceHash)",
 ]
 
 const TBTC_VAULT_ABI = [
   "function initiateUpgrade(address newVault)",
   "function finalizeUpgrade()",
   "function transferOwnership(address newOwner)",
+  "function pauseOptimisticMinting()",
 ]
 
-// Read-only ABI for reconstructing the legacy TBTCVault's outstanding
-// optimistic minting debt. The legacy mainnet vault predates the aggregate
-// `hasOutstandingOptimisticMintingDebt()` selector and exposes only the
-// per-depositor mapping, so the runbook derives the aggregate by scanning
-// `OptimisticMintingFinalized` events for candidate depositors and reading the
-// live per-depositor balance for each.
-const TBTC_VAULT_OM_ABI = [
+// Exact mainnet identity of the legacy optimistic-minting TBTCVault, mirroring
+// the Bridge constants. The pinned optimistic-minting scan hard-codes its
+// deployment block on chain 1.
+const LEGACY_MAINNET_TBTC_VAULT = "0x9C070027cdC9dc8F82416B2e5314E11DFb4FE3CD"
+const LEGACY_MAINNET_TBTC_VAULT_DEPLOYMENT_BLOCK = 16472741
+// keccak256 of the immutable legacy TBTCVault's on-chain runtime code, mirroring
+// the Bridge's `LEGACY_MAINNET_TBTC_VAULT_CODE_HASH` constant. Used by the
+// Phase-I preflight (runbook section 7 step 1) to abort — before any deployment
+// or action generation — if the resolved legacy vault is not the exact audited
+// mainnet bytecode. The post-deployment check re-derives the same value from the
+// freshly compiled Bridge implementation as an independent second binding check.
+const LEGACY_MAINNET_TBTC_VAULT_CODE_HASH =
+  "0x549c4b627e40d0e38e6d874c56066ad033004f3f5e26ffba9b15806064f6f0df"
+// Domain tag bound into the retirement evidence digest.
+const OM_RETIREMENT_DOMAIN = utils.keccak256(
+  utils.toUtf8Bytes("TBTC_LEGACY_OM_RETIREMENT_V1")
+)
+// Confirmations behind chain head used to pin a finalized snapshot block.
+const SNAPSHOT_CONFIRMATIONS = 64
+// Legacy vault's 24-hour upgrade governance delay.
+const LEGACY_UPGRADE_DELAY_SECONDS = 86400
+
+// Read ABI for the pinned optimistic-minting retirement scan: the Bridge
+// per-deposit request, the legacy vault's pause/owner/upgrade state, the
+// coordinator lock, the residual per-depositor debt mapping, and the
+// finalization event.
+const LEGACY_OM_SCAN_ABI = [
+  "function deposits(uint256 depositKey) view returns (tuple(address depositor, uint64 amount, uint32 revealedAt, address vault, uint64 treasuryFee, uint32 sweptAt, bytes32 extraData))",
+  "function isOptimisticMintingPaused() view returns (bool)",
+  "function owner() view returns (address)",
+  "function newVault() view returns (address)",
+  "function upgradeInitiatedTimestamp() view returns (uint256)",
+  "function migrationLocked() view returns (bool)",
   "function optimisticMintingDebt(address depositor) view returns (uint256)",
   "event OptimisticMintingFinalized(address indexed minter, uint256 indexed depositKey, address indexed depositor, uint256 optimisticMintingDebt)",
+]
+
+const COORDINATOR_ABI = [
+  "function controller() view returns (address)",
+  "function legacyVault() view returns (address)",
+  "function bridge() view returns (address)",
+]
+
+// Retirement-time reads used to gate cutover generation. The two legacy
+// constants are read from the freshly compiled Bridge implementation so the
+// generated cutover is bound to the exact legacy address and runtime code hash
+// the on-chain guard enforces; the trust/pointer/owner getters are read live at
+// the chain head immediately before generation (spec section 7 step 12).
+const RETIREMENT_STATE_ABI = [
+  "function LEGACY_MAINNET_TBTC_VAULT() view returns (address)",
+  "function LEGACY_MAINNET_TBTC_VAULT_CODE_HASH() view returns (bytes32)",
+  "function isVaultTrusted(address vault) view returns (bool)",
+  "function migrationDebtVault() view returns (address)",
+  "function owner() view returns (address)",
+]
+
+// Canonical Multicall3 deployment, present on mainnet long before the legacy
+// vault's deployment block. The pinned scan batches its per-deposit and
+// per-depositor reads through it with all-or-nothing decoding.
+const MULTICALL3_ADDRESS = "0xcA11bde05977b3631167028862bE2a173976CA11"
+const MULTICALL3_ABI = [
+  "function aggregate3(tuple(address target, bool allowFailure, bytes callData)[] calls) view returns (tuple(bool success, bytes returnData)[] returnData)",
 ]
 
 const BRIDGE_EVENT_ABI = [
@@ -53,9 +109,542 @@ const BRIDGE_EVENT_ABI = [
 const proxyAdminInterface = new utils.Interface(PROXY_ADMIN_ABI)
 const bridgeGovernanceInterface = new utils.Interface(BRIDGE_GOVERNANCE_ABI)
 const tbtcVaultInterface = new utils.Interface(TBTC_VAULT_ABI)
-const tbtcVaultOmInterface = new utils.Interface(TBTC_VAULT_OM_ABI)
 const bridgeEventInterface = new utils.Interface(BRIDGE_EVENT_ABI)
+const legacyOmScanInterface = new utils.Interface(LEGACY_OM_SCAN_ABI)
+const coordinatorInterface = new utils.Interface(COORDINATOR_ABI)
+const retirementStateInterface = new utils.Interface(RETIREMENT_STATE_ABI)
+const multicall3Interface = new utils.Interface(MULTICALL3_ABI)
 const FRAUD_LOG_SCAN_CHUNK_SIZE = 100000
+// Bounded batch size for Multicall3 aggregate reads: keeps each aggregate call's
+// calldata/returndata within RPC limits while collapsing thousands of scan reads
+// into a few round-trips.
+const MULTICALL_BATCH_SIZE = 500
+
+/**
+ * Deterministically derives the retirement evidence digest that the Council
+ * signs and the Bridge records via the attestation. The digest is a pure
+ * function of the scan inputs — chain, addresses, block range, finalized-event
+ * count, and the ascending set of finalized deposit keys — so two independent
+ * archive providers producing the same complete set produce the same digest.
+ * The trailing `uint256(0)` is the unswept finalized-deposit count, which the
+ * scan enforces to be zero before generating a cutover.
+ */
+export function computeEvidenceDigest(params: {
+  chainId: number
+  legacyVault: string
+  bridge: string
+  fromBlock: number
+  snapshotBlockNumber: number
+  snapshotBlockHash: string
+  finalizedEventCount: number
+  depositKeys: BigNumber[]
+}): { depositSetHash: string; evidenceHash: string } {
+  const sortedKeys = [...params.depositKeys].sort((left, right) => {
+    if (left.lt(right)) {
+      return -1
+    }
+    return left.gt(right) ? 1 : 0
+  })
+  const depositSetHash = utils.keccak256(
+    utils.hexConcat(
+      sortedKeys.map((key) => utils.hexZeroPad(key.toHexString(), 32))
+    )
+  )
+  const evidenceHash = utils.keccak256(
+    utils.defaultAbiCoder.encode(
+      [
+        "bytes32",
+        "uint256",
+        "address",
+        "address",
+        "uint256",
+        "uint256",
+        "bytes32",
+        "uint256",
+        "bytes32",
+        "uint256",
+      ],
+      [
+        OM_RETIREMENT_DOMAIN,
+        params.chainId,
+        params.legacyVault,
+        params.bridge,
+        params.fromBlock,
+        params.snapshotBlockNumber,
+        params.snapshotBlockHash,
+        params.finalizedEventCount,
+        depositSetHash,
+        0,
+      ]
+    )
+  )
+  return { depositSetHash, evidenceHash }
+}
+
+interface PendingOptimisticMint {
+  depositKey: string
+  depositor: string
+  amount: string
+  revealedAt: number
+  fundingEvent: {
+    blockNumber: number
+    transactionHash: string
+    logIndex: number
+  }
+}
+
+interface OptimisticMintScanResult {
+  fromBlock: number
+  snapshotBlockNumber: number
+  snapshotBlockHash: string
+  finalizedEventCount: number
+  finalizedDepositKeys: string[]
+  pending: PendingOptimisticMint[]
+  residualDebtorCount: number
+  residualDebtTotal: string
+  depositSetHash: string
+  evidenceHash: string
+}
+
+async function getOptimisticMintingFinalizedLogs(
+  provider: providers.Provider,
+  vaultAddress: string,
+  fromBlock: number,
+  toBlock: number
+): Promise<providers.Log[]> {
+  const topics = [
+    legacyOmScanInterface.getEventTopic("OptimisticMintingFinalized"),
+  ]
+  const logs: providers.Log[] = []
+  for (let startBlock = fromBlock; startBlock <= toBlock; ) {
+    const endBlock = Math.min(
+      startBlock + FRAUD_LOG_SCAN_CHUNK_SIZE - 1,
+      toBlock
+    )
+    // eslint-disable-next-line no-await-in-loop
+    const chunk = await provider.getLogs({
+      address: vaultAddress,
+      topics,
+      fromBlock: startBlock,
+      toBlock: endBlock,
+    })
+    logs.push(...chunk)
+    startBlock = endBlock + 1
+  }
+  return logs.sort((left, right) => {
+    if (left.blockNumber !== right.blockNumber) {
+      return left.blockNumber - right.blockNumber
+    }
+    if (left.transactionIndex !== right.transactionIndex) {
+      return left.transactionIndex - right.transactionIndex
+    }
+    return left.logIndex - right.logIndex
+  })
+}
+
+async function readAtBlock(
+  provider: providers.Provider,
+  to: string,
+  data: string,
+  blockTag: number
+): Promise<string> {
+  return provider.call({ to, data }, blockTag)
+}
+
+/**
+ * Reads a batch of static calls pinned to a single block through Multicall3, in
+ * bounded chunks, with all-or-nothing decoding. `allowFailure` is false, so
+ * Multicall3 reverts the whole aggregate if any subcall fails; a returned result
+ * therefore already implies every subcall succeeded. Each entry is nonetheless
+ * re-checked for success and nonempty data, and any failure aborts the scan.
+ * Collapsing thousands of per-deposit/per-depositor reads into a handful of
+ * batched round-trips is the spec's (section 3.3) required scan hardening.
+ */
+async function batchReadAtBlock(
+  provider: providers.Provider,
+  calls: { target: string; callData: string }[],
+  blockTag: number
+): Promise<string[]> {
+  const results: string[] = []
+  for (let start = 0; start < calls.length; start += MULTICALL_BATCH_SIZE) {
+    const chunk = calls.slice(start, start + MULTICALL_BATCH_SIZE)
+    const aggregateCalldata = multicall3Interface.encodeFunctionData(
+      "aggregate3",
+      [
+        chunk.map((call) => ({
+          target: call.target,
+          allowFailure: false,
+          callData: call.callData,
+        })),
+      ]
+    )
+    // eslint-disable-next-line no-await-in-loop
+    const raw = await provider.call(
+      { to: MULTICALL3_ADDRESS, data: aggregateCalldata },
+      blockTag
+    )
+    const [decoded] = multicall3Interface.decodeFunctionResult(
+      "aggregate3",
+      raw
+    )
+    decoded.forEach((entry: { success: boolean; returnData: string }) => {
+      if (!entry.success || entry.returnData === "0x") {
+        throw new Error(
+          "Multicall3 subcall failed or returned empty data during the pinned scan"
+        )
+      }
+      results.push(entry.returnData)
+    })
+  }
+  return results
+}
+
+/**
+ * Aborts unless the just-deployed coordinator's on-chain runtime bytecode matches
+ * the compiled artifact. The coordinator embeds three immutable addresses in its
+ * runtime, so the immutable byte ranges (from the build-info
+ * `immutableReferences`) are masked to zero in both the on-chain code and the
+ * compiled `deployedBytecode` before comparison; the immutables themselves are
+ * separately validated by the binding reads. This is defense against a
+ * coordinator that reports correct bindings but was deployed from different or
+ * tampered bytecode (spec section 3.3: verify runtime code, not merely bindings).
+ */
+async function assertCoordinatorRuntimeMatchesArtifact(
+  hre: HardhatRuntimeEnvironment,
+  provider: providers.Provider,
+  coordinatorAddress: string
+): Promise<void> {
+  const sourceName = "contracts/vault/LegacyTBTCVaultMigrationCoordinator.sol"
+  const contractName = "LegacyTBTCVaultMigrationCoordinator"
+  const buildInfo = await hre.artifacts.getBuildInfo(
+    `${sourceName}:${contractName}`
+  )
+  const compiled = (buildInfo as any)?.output?.contracts?.[sourceName]?.[
+    contractName
+  ]
+  const deployedBytecode = compiled?.evm?.deployedBytecode
+  if (!deployedBytecode || typeof deployedBytecode.object !== "string") {
+    throw new Error(
+      "Coordinator compiled deployedBytecode not found for runtime verification"
+    )
+  }
+  const expectedHex = deployedBytecode.object.startsWith("0x")
+    ? deployedBytecode.object
+    : `0x${deployedBytecode.object}`
+  const immutableReferences = deployedBytecode.immutableReferences ?? {}
+  const onchainHex = await provider.getCode(coordinatorAddress)
+
+  const expectedBytes = utils.arrayify(expectedHex)
+  const onchainBytes = utils.arrayify(onchainHex)
+  if (onchainBytes.length !== expectedBytes.length) {
+    throw new Error(
+      `Coordinator runtime bytecode length ${onchainBytes.length} does not ` +
+        `match the compiled artifact length ${expectedBytes.length}`
+    )
+  }
+  const maskImmutables = (bytes: Uint8Array): string => {
+    const copy = Uint8Array.from(bytes)
+    ;(
+      Object.values(immutableReferences) as Array<
+        Array<{ start: number; length: number }>
+      >
+    ).forEach((refs) => {
+      refs.forEach(({ start, length }) => {
+        for (let i = 0; i < length && start + i < copy.length; i += 1) {
+          copy[start + i] = 0
+        }
+      })
+    })
+    return utils.hexlify(copy)
+  }
+  if (maskImmutables(onchainBytes) !== maskImmutables(expectedBytes)) {
+    throw new Error(
+      "Coordinator runtime bytecode does not match the compiled artifact"
+    )
+  }
+}
+
+/**
+ * Runs the pinned, all-or-nothing scan that proves the dangerous set
+ *
+ *   P = { depositKey | legacy emitted OptimisticMintingFinalized AND
+ *         Bridge.deposits(depositKey).sweptAt == 0 }
+ *
+ * is empty before the legacy vault is retired. Every event query and every
+ * per-deposit state read is pinned to the same finalized snapshot block; any
+ * subcall failure or data-integrity mismatch aborts the scan. A nonzero residual
+ * `optimisticMintingDebt` for a fully-swept depositor is reported informationally
+ * and never gates the migration.
+ */
+export async function scanPendingOptimisticMints(
+  provider: providers.Provider,
+  params: {
+    chainId: number
+    legacyVault: string
+    bridge: string
+    coordinator: string
+    successorVault: string
+    fromBlockOverride?: number
+    snapshotBlockNumberOverride?: number
+    requireLockedState: boolean
+  }
+): Promise<OptimisticMintScanResult> {
+  // 1. Enforce the hard-coded legacy deployment origin on mainnet; reject any
+  //    override that would start the scan later and miss finalized mints.
+  const isKnownMainnetLegacy =
+    params.chainId === 1 &&
+    params.legacyVault.toLowerCase() === LEGACY_MAINNET_TBTC_VAULT.toLowerCase()
+  let fromBlock = LEGACY_MAINNET_TBTC_VAULT_DEPLOYMENT_BLOCK
+  if (isKnownMainnetLegacy) {
+    if (
+      params.fromBlockOverride !== undefined &&
+      params.fromBlockOverride > LEGACY_MAINNET_TBTC_VAULT_DEPLOYMENT_BLOCK
+    ) {
+      throw new Error(
+        `Refusing scan: from-block override ${params.fromBlockOverride} starts ` +
+          "after the enforced legacy deployment block " +
+          `${LEGACY_MAINNET_TBTC_VAULT_DEPLOYMENT_BLOCK}`
+      )
+    }
+  } else if (params.fromBlockOverride !== undefined) {
+    fromBlock = params.fromBlockOverride
+  }
+
+  // 2. Pin a finalized snapshot block and record its hash. Any override MUST be
+  //    at or behind the finality boundary. An unfinalized snapshot can be
+  //    orphaned by a shallow reorg, which would let the Council attest
+  //    zero-pending evidence bound to a block hash that is no longer on the
+  //    canonical chain: a later sweep would then take the untrusted-legacy Bank
+  //    credit branch without optimistic-debt repayment and reopen the
+  //    double-mint window. This throws before any evidence digest, summary JSON,
+  //    or cutover calldata is produced.
+  const latest = await provider.getBlockNumber()
+  const finalityBoundary = latest - SNAPSHOT_CONFIRMATIONS
+  const snapshotBlockNumber =
+    params.snapshotBlockNumberOverride ?? finalityBoundary
+  if (snapshotBlockNumber > finalityBoundary) {
+    throw new Error(
+      `Refusing scan: snapshot block ${snapshotBlockNumber} is newer than the ` +
+        `finalized boundary ${finalityBoundary} (latest ${latest} - ` +
+        `${SNAPSHOT_CONFIRMATIONS} confirmations). An unfinalized snapshot can ` +
+        "be orphaned by a reorg and invalidate the retirement evidence."
+    )
+  }
+  const snapshotBlock = await provider.getBlock(snapshotBlockNumber)
+  if (!snapshotBlock || !snapshotBlock.hash) {
+    throw new Error(`Snapshot block ${snapshotBlockNumber} is not available`)
+  }
+  const snapshotBlockHash = snapshotBlock.hash
+
+  // 3-4. Collect every finalized deposit key through the snapshot; duplicates
+  //      are a data-integrity error.
+  const logs = await getOptimisticMintingFinalizedLogs(
+    provider,
+    params.legacyVault,
+    fromBlock,
+    snapshotBlockNumber
+  )
+  const depositKeys: BigNumber[] = []
+  const depositorByKey = new Map<string, string>()
+  const eventByKey = new Map<string, providers.Log>()
+  // eslint-disable-next-line no-restricted-syntax
+  for (const log of logs) {
+    const parsed = legacyOmScanInterface.parseLog(log)
+    const key = BigNumber.from(parsed.args.depositKey)
+    const keyHex = key.toHexString()
+    if (depositorByKey.has(keyHex)) {
+      throw new Error(`Duplicate finalized deposit key ${keyHex}`)
+    }
+    depositKeys.push(key)
+    depositorByKey.set(keyHex, utils.getAddress(String(parsed.args.depositor)))
+    eventByKey.set(keyHex, log)
+  }
+
+  // 5-7. Read every deposit at the snapshot block through bounded, all-or-nothing
+  //      Multicall3 batches; validate integrity; collect the unswept finalized
+  //      set P. A short or failed subcall aborts the whole scan.
+  const depositRaws = await batchReadAtBlock(
+    provider,
+    depositKeys.map((key) => ({
+      target: params.bridge,
+      callData: legacyOmScanInterface.encodeFunctionData("deposits", [key]),
+    })),
+    snapshotBlockNumber
+  )
+  const pending: PendingOptimisticMint[] = []
+  depositKeys.forEach((key, index) => {
+    const keyHex = key.toHexString()
+    const [request] = legacyOmScanInterface.decodeFunctionResult(
+      "deposits",
+      depositRaws[index]
+    )
+    if (Number(request.revealedAt) === 0) {
+      throw new Error(`Deposit ${keyHex} has no reveal at the snapshot block`)
+    }
+    if (
+      utils.getAddress(request.vault) !== utils.getAddress(params.legacyVault)
+    ) {
+      throw new Error(
+        `Deposit ${keyHex} is routed to ${request.vault}, not the legacy vault`
+      )
+    }
+    if (utils.getAddress(request.depositor) !== depositorByKey.get(keyHex)) {
+      throw new Error(`Deposit ${keyHex} depositor mismatch vs the event`)
+    }
+    if (Number(request.sweptAt) === 0) {
+      const event = eventByKey.get(keyHex) as providers.Log
+      pending.push({
+        depositKey: keyHex,
+        depositor: depositorByKey.get(keyHex) as string,
+        amount: BigNumber.from(request.amount).toString(),
+        revealedAt: Number(request.revealedAt),
+        fundingEvent: {
+          blockNumber: event.blockNumber,
+          transactionHash: event.transactionHash,
+          logIndex: event.logIndex,
+        },
+      })
+    }
+  })
+
+  // 8. Require the freeze state at the snapshot block. Skipped for the
+  //    informational preparation-phase scan (before ownership has moved).
+  if (params.requireLockedState) {
+    const [paused] = legacyOmScanInterface.decodeFunctionResult(
+      "isOptimisticMintingPaused",
+      await readAtBlock(
+        provider,
+        params.legacyVault,
+        legacyOmScanInterface.encodeFunctionData("isOptimisticMintingPaused"),
+        snapshotBlockNumber
+      )
+    )
+    if (!paused) {
+      throw new Error("Legacy vault is not paused at the snapshot block")
+    }
+
+    const [legacyOwner] = legacyOmScanInterface.decodeFunctionResult(
+      "owner",
+      await readAtBlock(
+        provider,
+        params.legacyVault,
+        legacyOmScanInterface.encodeFunctionData("owner"),
+        snapshotBlockNumber
+      )
+    )
+    if (
+      utils.getAddress(legacyOwner) !== utils.getAddress(params.coordinator)
+    ) {
+      throw new Error(
+        "Legacy vault is not owned by the coordinator at the snapshot block"
+      )
+    }
+
+    const [locked] = legacyOmScanInterface.decodeFunctionResult(
+      "migrationLocked",
+      await readAtBlock(
+        provider,
+        params.coordinator,
+        legacyOmScanInterface.encodeFunctionData("migrationLocked"),
+        snapshotBlockNumber
+      )
+    )
+    if (!locked) {
+      throw new Error(
+        "Coordinator is not migration-locked at the snapshot block"
+      )
+    }
+
+    const [pendingNewVault] = legacyOmScanInterface.decodeFunctionResult(
+      "newVault",
+      await readAtBlock(
+        provider,
+        params.legacyVault,
+        legacyOmScanInterface.encodeFunctionData("newVault"),
+        snapshotBlockNumber
+      )
+    )
+    if (
+      utils.getAddress(pendingNewVault) !==
+      utils.getAddress(params.successorVault)
+    ) {
+      throw new Error(
+        "Legacy vault newVault does not match the successor at the snapshot block"
+      )
+    }
+
+    const [initiatedAt] = legacyOmScanInterface.decodeFunctionResult(
+      "upgradeInitiatedTimestamp",
+      await readAtBlock(
+        provider,
+        params.legacyVault,
+        legacyOmScanInterface.encodeFunctionData("upgradeInitiatedTimestamp"),
+        snapshotBlockNumber
+      )
+    )
+    if (
+      BigNumber.from(initiatedAt).eq(0) ||
+      snapshotBlock.timestamp - Number(initiatedAt) <
+        LEGACY_UPGRADE_DELAY_SECONDS
+    ) {
+      throw new Error(
+        "Legacy upgrade 24-hour delay has not elapsed at the snapshot block"
+      )
+    }
+  }
+
+  // 9. Read residual per-depositor debt at the SAME snapshot block through the
+  //    same bounded, all-or-nothing Multicall3 batching. Purely informational;
+  //    never gates the migration.
+  const distinctDepositors = [...new Set(depositorByKey.values())]
+  const debtRaws = await batchReadAtBlock(
+    provider,
+    distinctDepositors.map((depositor) => ({
+      target: params.legacyVault,
+      callData: legacyOmScanInterface.encodeFunctionData(
+        "optimisticMintingDebt",
+        [depositor]
+      ),
+    })),
+    snapshotBlockNumber
+  )
+  let residualDebtorCount = 0
+  let residualDebtTotal = BigNumber.from(0)
+  debtRaws.forEach((raw) => {
+    const [debt] = legacyOmScanInterface.decodeFunctionResult(
+      "optimisticMintingDebt",
+      raw
+    )
+    if (BigNumber.from(debt).gt(0)) {
+      residualDebtorCount += 1
+      residualDebtTotal = residualDebtTotal.add(debt)
+    }
+  })
+
+  const { depositSetHash, evidenceHash } = computeEvidenceDigest({
+    chainId: params.chainId,
+    legacyVault: params.legacyVault,
+    bridge: params.bridge,
+    fromBlock,
+    snapshotBlockNumber,
+    snapshotBlockHash,
+    finalizedEventCount: depositKeys.length,
+    depositKeys,
+  })
+
+  return {
+    fromBlock,
+    snapshotBlockNumber,
+    snapshotBlockHash,
+    finalizedEventCount: depositKeys.length,
+    finalizedDepositKeys: depositKeys.map((key) => key.toHexString()),
+    pending,
+    residualDebtorCount,
+    residualDebtTotal: residualDebtTotal.toString(),
+    depositSetHash,
+    evidenceHash,
+  }
+}
 
 function encodeUpgrade(proxy: string, newImpl: string): string {
   return proxyAdminInterface.encodeFunctionData("upgrade", [proxy, newImpl])
@@ -99,29 +688,34 @@ function encodeTransferOwnership(newOwner: string): string {
   ])
 }
 
-function encodeSetVaultStatus(vault: string, isTrusted: boolean): string {
-  return bridgeGovernanceInterface.encodeFunctionData("setVaultStatus", [
-    vault,
-    isTrusted,
-  ])
-}
-
-function encodeSetMigrationDebtVault(vault: string): string {
-  return bridgeGovernanceInterface.encodeFunctionData("setMigrationDebtVault", [
-    vault,
-  ])
-}
-
-function encodeInitiateVaultUpgrade(newVault: string): string {
-  return tbtcVaultInterface.encodeFunctionData("initiateUpgrade", [newVault])
-}
-
-function encodeFinalizeVaultUpgrade(): string {
-  return tbtcVaultInterface.encodeFunctionData("finalizeUpgrade", [])
-}
-
 function encodeTransferVaultOwnership(newOwner: string): string {
   return tbtcVaultInterface.encodeFunctionData("transferOwnership", [newOwner])
+}
+
+function encodePauseOptimisticMinting(): string {
+  return tbtcVaultInterface.encodeFunctionData("pauseOptimisticMinting", [])
+}
+
+function encodeInitiateLegacyVaultUpgrade(
+  coordinator: string,
+  successorVault: string
+): string {
+  return bridgeGovernanceInterface.encodeFunctionData(
+    "initiateLegacyVaultUpgrade",
+    [coordinator, successorVault]
+  )
+}
+
+function encodeFinalizeLegacyVaultMigration(
+  coordinator: string,
+  snapshotBlockNumber: number,
+  snapshotBlockHash: string,
+  evidenceHash: string
+): string {
+  return bridgeGovernanceInterface.encodeFunctionData(
+    "finalizeLegacyVaultMigration",
+    [coordinator, snapshotBlockNumber, snapshotBlockHash, evidenceHash]
+  )
 }
 
 async function getFraudChallengeLogs(
@@ -167,77 +761,6 @@ async function getFraudChallengeLogs(
     }
     return left.logIndex - right.logIndex
   })
-}
-
-/**
- * Reconstructs the set of depositors that still carry nonzero optimistic
- * minting debt on the given (legacy) TBTCVault. The legacy mainnet vault is an
- * immutable, non-proxy contract that predates the aggregate
- * `hasOutstandingOptimisticMintingDebt()` selector and exposes only the
- * per-depositor `optimisticMintingDebt(address)` mapping. The aggregate signal
- * is rebuilt in two steps: scan `OptimisticMintingFinalized` events to
- * enumerate every depositor ever assigned optimistic minting debt, then read
- * the live per-depositor balance for each and keep the ones that are still
- * nonzero. Repaid debt is captured implicitly because the mapping read
- * reflects current on-chain state; the event scan only bounds the candidate
- * depositor set.
- */
-async function computeOutstandingOptimisticMintingDebt(
-  provider: providers.Provider,
-  vaultAddress: string,
-  fromBlock: number,
-  toBlock: number
-): Promise<{ depositor: string; debt: BigNumber }[]> {
-  const topics = [
-    tbtcVaultOmInterface.getEventTopic("OptimisticMintingFinalized"),
-  ]
-
-  const logs: providers.Log[] = []
-
-  for (let startBlock = fromBlock; startBlock <= toBlock; ) {
-    const endBlock = Math.min(
-      startBlock + FRAUD_LOG_SCAN_CHUNK_SIZE - 1,
-      toBlock
-    )
-
-    // eslint-disable-next-line no-await-in-loop
-    const chunk = await provider.getLogs({
-      address: vaultAddress,
-      topics,
-      fromBlock: startBlock,
-      toBlock: endBlock,
-    })
-    logs.push(...chunk)
-
-    startBlock = endBlock + 1
-  }
-
-  const depositors = new Set<string>()
-  // eslint-disable-next-line no-restricted-syntax
-  for (const log of logs) {
-    const parsed = tbtcVaultOmInterface.parseLog(log)
-    depositors.add(utils.getAddress(String(parsed.args.depositor)))
-  }
-
-  const outstanding: { depositor: string; debt: BigNumber }[] = []
-  // eslint-disable-next-line no-restricted-syntax
-  for (const depositor of depositors) {
-    const callData = tbtcVaultOmInterface.encodeFunctionData(
-      "optimisticMintingDebt",
-      [depositor]
-    )
-    // eslint-disable-next-line no-await-in-loop
-    const raw = await provider.call({ to: vaultAddress, data: callData })
-    const [debt] = tbtcVaultOmInterface.decodeFunctionResult(
-      "optimisticMintingDebt",
-      raw
-    ) as [BigNumber]
-    if (debt.gt(0)) {
-      outstanding.push({ depositor, debt })
-    }
-  }
-
-  return outstanding
 }
 
 async function computeOpenFraudChallengeEscrow(
@@ -449,6 +972,50 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log(`Network: ${hre.network.name}`)
   console.log(`Deployer: ${deployer}`)
 
+  // --- Phase-I preflight: chain and exact legacy-vault identity ---
+  // Runbook section 7 step 1 mandates aborting on any chain/identity mismatch
+  // BEFORE deploying anything or emitting any executable migration action. This
+  // preflight runs in BOTH the default (preparation) and cutover modes. On any
+  // mismatch it throws immediately, so no contract is deployed, no preparation
+  // or cutover calldata is constructed, and no summary JSON is written. The
+  // post-deployment Bridge-implementation-constant comparison further below is
+  // retained as an independent SECOND binding check: it re-derives the same
+  // identity from the freshly compiled implementation, so the generated cutover
+  // is bound to the on-chain guard's exact constants as well.
+  const preflightChainId = Number(await hre.getChainId())
+  if (preflightChainId !== 1) {
+    throw new Error(
+      `Refusing TIP-109 legacy-retirement deployment: chain ${preflightChainId} ` +
+        "is not Ethereum mainnet (1). This script deploys and prepares the " +
+        "legacy-vault optimistic-minting retirement and may only run against " +
+        "mainnet or a mainnet fork with chain id 1."
+    )
+  }
+  const legacyVaultDeployment = await get("TBTCVault")
+  if (
+    utils.getAddress(legacyVaultDeployment.address) !==
+    utils.getAddress(LEGACY_MAINNET_TBTC_VAULT)
+  ) {
+    throw new Error(
+      "Refusing TIP-109 legacy-retirement deployment: resolved TBTCVault " +
+        `${legacyVaultDeployment.address} is not the exact legacy vault ` +
+        `${LEGACY_MAINNET_TBTC_VAULT}.`
+    )
+  }
+  const legacyRuntimeCodeHash = utils.keccak256(
+    await ethers.provider.getCode(legacyVaultDeployment.address)
+  )
+  if (legacyRuntimeCodeHash !== LEGACY_MAINNET_TBTC_VAULT_CODE_HASH) {
+    throw new Error(
+      "Refusing TIP-109 legacy-retirement deployment: legacy vault runtime " +
+        `code hash ${legacyRuntimeCodeHash} does not match the expected ` +
+        `mainnet code hash ${LEGACY_MAINNET_TBTC_VAULT_CODE_HASH}.`
+    )
+  }
+  console.log(
+    "  Preflight passed: chain 1, exact legacy vault address and runtime code hash"
+  )
+
   // --- Step 1: Deploy updated deposit libraries ---
   // The Bridge implementation must link to the versions compiled from this
   // tree. Reusing old mainnet deployments would bypass migration-debt logic.
@@ -481,6 +1048,17 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     skipIfAlreadyDeployed: false,
   })
 
+  // --- Step 3b: Deploy new VaultManagement library ---
+  // The vault trust list, canonical migration-debt vault management, and the
+  // legacy-vault optimistic-minting retirement guard/attestation live in this
+  // external library so the Bridge stays within the EIP-170 size limit.
+  console.log("\n--- Deploying new VaultManagement library ---")
+  const VaultManagement = await deploy("VaultManagementTIP109Hotfix", {
+    ...deployOptions,
+    contract: "VaultManagement",
+    skipIfAlreadyDeployed: false,
+  })
+
   // --- Step 4: Resolve unchanged existing libraries ---
   console.log("\n--- Resolving existing libraries ---")
   const Wallets = await get("Wallets")
@@ -496,6 +1074,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     Wallets: Wallets.address,
     Fraud: Fraud.address,
     MovingFunds: MovingFunds.address,
+    VaultManagement: VaultManagement.address,
   }
 
   const bridgeImpl = await deploy("BridgeTIP109HotfixImplementation", {
@@ -572,7 +1151,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log("\n--- Deploying new migration-debt TBTCVault ---")
   const Bank = await get("Bank")
   const TBTCToken = await get("TBTC")
-  const TBTCVault = await get("TBTCVault")
+  // Reuse the deployment resolved and identity-checked by the Phase-I preflight.
+  const TBTCVault = legacyVaultDeployment
   const newTBTCVault = await deploy("TBTCVaultTIP109Hotfix", {
     ...deployOptions,
     contract: "TBTCVault",
@@ -580,6 +1160,66 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     args: [Bank.address, TBTCToken.address, Bridge.address],
   })
   console.log(`  New TBTCVault: ${newTBTCVault.address}`)
+
+  // --- Deploy the legacy-vault migration coordinator (finding TOB-19) ---
+  // Controlled by the new BridgeGovernance, it becomes (after preparation) the
+  // sole owner of the immutable legacy TBTCVault and the only path able to
+  // retire it. Its three bindings are immutable and are verified on-chain before
+  // any migration action is produced.
+  console.log("\n--- Deploying LegacyTBTCVaultMigrationCoordinator ---")
+  const coordinator = await deploy(
+    "LegacyTBTCVaultMigrationCoordinatorTIP109Hotfix",
+    {
+      ...deployOptions,
+      contract: "LegacyTBTCVaultMigrationCoordinator",
+      skipIfAlreadyDeployed: false,
+      args: [newBridgeGovernance.address, TBTCVault.address, Bridge.address],
+    }
+  )
+  console.log(`  Coordinator: ${coordinator.address}`)
+
+  const coordinatorCode = await ethers.provider.getCode(coordinator.address)
+  if (coordinatorCode === "0x" || coordinatorCode === "0x0") {
+    throw new Error("Coordinator deployment has no runtime code")
+  }
+  const readCoordinatorBinding = async (fn: string): Promise<string> => {
+    const raw = await ethers.provider.call({
+      to: coordinator.address,
+      data: coordinatorInterface.encodeFunctionData(fn),
+    })
+    return coordinatorInterface.decodeFunctionResult(fn, raw)[0] as string
+  }
+  const [boundController, boundLegacy, boundBridge] = await Promise.all([
+    readCoordinatorBinding("controller"),
+    readCoordinatorBinding("legacyVault"),
+    readCoordinatorBinding("bridge"),
+  ])
+  if (
+    utils.getAddress(boundController) !==
+      utils.getAddress(newBridgeGovernance.address) ||
+    utils.getAddress(boundLegacy) !== utils.getAddress(TBTCVault.address) ||
+    utils.getAddress(boundBridge) !== utils.getAddress(Bridge.address)
+  ) {
+    throw new Error(
+      "Coordinator immutable bindings do not match the expected addresses"
+    )
+  }
+  console.log(
+    "  Coordinator bindings verified: controller=new BridgeGovernance, " +
+      "legacyVault=existing TBTCVault, bridge=Bridge proxy"
+  )
+
+  // Verify the coordinator's RUNTIME bytecode, not merely its three bindings, so
+  // a coordinator that reports correct bindings but was deployed from different
+  // or tampered bytecode is rejected before any migration action is produced.
+  await assertCoordinatorRuntimeMatchesArtifact(
+    hre,
+    ethers.provider,
+    coordinator.address
+  )
+  console.log(
+    "  Coordinator runtime bytecode verified against the compiled artifact"
+  )
 
   const bridgeArtifact = artifacts.readArtifactSync("Bridge")
   await save("Bridge", {
@@ -781,108 +1421,248 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       `wallet(s) (scanned blocks ${walletRegistrationScanFromBlock}..${latestBlock})`
   )
 
-  // --- Migration-debt TBTCVault activation calldata (finding TOB-17) ---
-  // Complete the non-proxy TBTCVault rotation, then trust the new vault and
-  // set it as the Bridge's canonical migration debt vault so migration reveals
-  // can be activated. `setMigrationDebtVault` requires the vault to be trusted
-  // and to expose the migration-debt interface, so the ordering below matters.
-  const initiateVaultUpgradeCalldata = encodeInitiateVaultUpgrade(
-    newTBTCVault.address
-  )
-  const finalizeVaultUpgradeCalldata = encodeFinalizeVaultUpgrade()
-  const trustNewVaultCalldata = encodeSetVaultStatus(newTBTCVault.address, true)
-  const setMigrationDebtVaultCalldata = encodeSetMigrationDebtVault(
-    newTBTCVault.address
-  )
-
-  // The new TBTCVault is deployed by the deployer EOA, so OpenZeppelin Ownable
-  // sets the deployer as its owner. `finalizeUpgrade` moves TBTC ownership and
-  // the full Bank balance to this vault, making it canonical, so its owner-only
-  // surface (addMinter, setAccountControlRedemptionNotifier,
-  // activateAccountControlReconciliation, setMigrationRevealer, and the
-  // migration-debt operations) must be handed to governance. Transfer its
-  // ownership to the Council Safe, matching the new BridgeGovernance handoff and
-  // the existing standalone TBTCVault ownership-transfer convention, and run it
-  // before finalizeUpgrade so the canonical vault is governance-owned the moment
-  // TBTC ownership and the Bank balance move to it.
+  // --- Legacy vault retirement: preparation calldata (finding TOB-17) ---
+  // The legacy TBTCVault is immutable and predates both the finalizeUpgrade
+  // optimistic-minting guard and the aggregate optimistic-minting-debt selector.
+  // Retirement therefore runs through the dedicated coordinator: the Council
+  // pauses optimistic minting (if not already paused), hands the legacy vault to
+  // the coordinator, and initiates the upgrade through the new BridgeGovernance.
+  // Only the single atomic cutover — generated below strictly after the pinned
+  // scan proves the dangerous set empty — untrusts and finalizes the legacy
+  // vault. The new TBTCVault's ownership is handed to the Council first so the
+  // canonical vault is governance-owned the moment the cutover moves TBTC
+  // ownership and the Bank balance to it.
   const transferNewVaultOwnershipCalldata =
     encodeTransferVaultOwnership(councilSafeAddress)
+  const pauseLegacyOptimisticMintingCalldata = encodePauseOptimisticMinting()
+  const transferLegacyVaultOwnershipCalldata = encodeTransferVaultOwnership(
+    coordinator.address
+  )
+  const initiateLegacyVaultUpgradeCalldata = encodeInitiateLegacyVaultUpgrade(
+    coordinator.address,
+    newTBTCVault.address
+  )
 
-  // --- Legacy TBTCVault outstanding optimistic minting debt precondition ---
-  // The finalizeUpgrade guard that blocks finalization while optimistic minting
-  // debt is outstanding lives in the NEW TBTCVault bytecode, but the runbook
-  // runs finalizeUpgrade against the LEGACY vault, whose immutable, non-proxy
-  // bytecode predates that guard and never runs it. The legacy vault also
-  // predates the aggregate optimistic-minting-debt selector, so the runbook
-  // reconstructs the aggregate from the per-depositor mapping and gates the
-  // finalize action on zero outstanding debt. This is a reference snapshot
-  // only: the operator MUST recompute it immediately before executing
-  // finalizeUpgrade, because new optimistic mints can finalize on the legacy
-  // vault during the 24h vault governance delay.
-  const legacyVaultOmEventFromBlock = Number(
-    process.env.TBTCVAULT_OM_EVENT_FROM_BLOCK ||
-      TBTCVault.receipt?.blockNumber ||
-      0
-  )
-  const legacyOutstandingOmDebt = await computeOutstandingOptimisticMintingDebt(
-    ethers.provider,
-    TBTCVault.address,
-    legacyVaultOmEventFromBlock,
-    latestBlock
-  )
-  const legacyOutstandingOmDebtors = legacyOutstandingOmDebt.map((entry) => ({
-    depositor: entry.depositor,
-    debt: entry.debt.toString(),
-  }))
-  console.log("\n--- Legacy TBTCVault outstanding optimistic minting debt ---")
-  console.log(
-    `  ${legacyOutstandingOmDebt.length} depositor(s) with nonzero debt at ` +
-      `block ${latestBlock} (scanned from block ${legacyVaultOmEventFromBlock})`
-  )
-  if (legacyOutstandingOmDebt.length > 0) {
+  // --- Cutover generation (finding TOB-17) ---
+  // The executable cutover calldata is produced only in an explicit cutover
+  // mode, after preparation has moved the legacy vault to the coordinator and
+  // the 24h delay has elapsed, and only when the pinned scan proves the
+  // dangerous set P empty and every live retirement assertion holds. In cutover
+  // mode any failed precondition throws, which prevents the summary JSON from
+  // being written.
+  const chainIdNumber = Number(await hre.getChainId())
+  const cutoverMode = process.env.GENERATE_TBTC_VAULT_CUTOVER === "true"
+  const scanFromBlockOverride = process.env.TBTCVAULT_OM_EVENT_FROM_BLOCK
+    ? Number(process.env.TBTCVAULT_OM_EVENT_FROM_BLOCK)
+    : undefined
+  const scanSnapshotOverride = process.env.TBTCVAULT_OM_SNAPSHOT_BLOCK
+    ? Number(process.env.TBTCVAULT_OM_SNAPSHOT_BLOCK)
+    : undefined
+
+  let cutoverAction: Record<string, unknown>
+  let scanResult: OptimisticMintScanResult | undefined
+
+  if (cutoverMode) {
     console.log(
-      "  BLOCKING: the legacy TBTCVault still carries outstanding optimistic " +
-        "minting debt. finalizeUpgrade would strand that debt on the legacy " +
-        "vault and re-open the double-mint footgun. Do NOT execute the " +
-        "finalizeUpgrade action until every listed depositor's " +
-        "optimisticMintingDebt reads zero."
+      "\n--- Cutover mode: running the pinned optimistic-minting scan ---"
     )
-    // eslint-disable-next-line no-restricted-syntax
-    for (const entry of legacyOutstandingOmDebtors) {
-      console.log(`    depositor ${entry.depositor}: ${entry.debt}`)
+    scanResult = await scanPendingOptimisticMints(ethers.provider, {
+      chainId: chainIdNumber,
+      legacyVault: TBTCVault.address,
+      bridge: Bridge.address,
+      coordinator: coordinator.address,
+      successorVault: newTBTCVault.address,
+      fromBlockOverride: scanFromBlockOverride,
+      snapshotBlockNumberOverride: scanSnapshotOverride,
+      requireLockedState: true,
+    })
+
+    if (scanResult.pending.length > 0) {
+      console.log(
+        `  BLOCKING: ${scanResult.pending.length} unswept finalized optimistic ` +
+          "mint(s) remain. Do NOT attest, untrust, or finalize. Keep the legacy " +
+          "vault trusted and let its Bitcoin wallet sweep these deposits."
+      )
+      // eslint-disable-next-line no-restricted-syntax
+      for (const entry of scanResult.pending) {
+        console.log(
+          `    key ${entry.depositKey} depositor ${entry.depositor} ` +
+            `amount ${entry.amount} revealedAt ${entry.revealedAt} ` +
+            `funded ${entry.fundingEvent.blockNumber}:${entry.fundingEvent.logIndex}`
+        )
+      }
+      throw new Error(
+        `Refusing cutover: ${scanResult.pending.length} unswept finalized ` +
+          "optimistic mint(s) remain in the dangerous set P"
+      )
+    }
+
+    console.log(
+      `  Scan clean: ${scanResult.finalizedEventCount} finalized mint(s), 0 ` +
+        `pending; snapshot block ${scanResult.snapshotBlockNumber} ` +
+        `(${scanResult.snapshotBlockHash})`
+    )
+    console.log(
+      "  Residual (informational, not a gate): " +
+        `${scanResult.residualDebtorCount} debtor(s), ` +
+        `${scanResult.residualDebtTotal} wei`
+    )
+    console.log(`  Evidence hash: ${scanResult.evidenceHash}`)
+
+    // --- Immediate live/identity assertions (spec sections 3.3 and 7) ---
+    // Executable cutover calldata is produced only for the real mainnet
+    // migration and only when every live precondition holds. Any failure throws
+    // before the cutover calldata or the summary JSON is produced.
+
+    // 1. Chain: cutover is only ever generated on Ethereum mainnet (or a mainnet
+    //    fork with chain id 1).
+    if (chainIdNumber !== 1) {
+      throw new Error(
+        `Refusing cutover: chain ${chainIdNumber} is not Ethereum mainnet (1). ` +
+          "The executable legacy-retirement cutover may only be generated " +
+          "against mainnet or a mainnet fork."
+      )
+    }
+
+    // 2. Legacy identity: the vault about to be retired must be exactly the
+    //    address and runtime code hash the freshly compiled Bridge
+    //    implementation recognizes. Reading the constants from that
+    //    implementation binds the generated cutover to the on-chain guard.
+    const readImplConstant = async (fn: string): Promise<string> =>
+      retirementStateInterface.decodeFunctionResult(
+        fn,
+        await ethers.provider.call({
+          to: bridgeImpl.address,
+          data: retirementStateInterface.encodeFunctionData(fn),
+        })
+      )[0] as string
+    const implKnownLegacy = await readImplConstant("LEGACY_MAINNET_TBTC_VAULT")
+    if (
+      utils.getAddress(TBTCVault.address) !== utils.getAddress(implKnownLegacy)
+    ) {
+      throw new Error(
+        `Refusing cutover: legacy vault ${TBTCVault.address} does not match the ` +
+          `Bridge implementation's known legacy vault ${implKnownLegacy}`
+      )
+    }
+    const implKnownCodeHash = await readImplConstant(
+      "LEGACY_MAINNET_TBTC_VAULT_CODE_HASH"
+    )
+    const legacyCodeHash = utils.keccak256(
+      await ethers.provider.getCode(TBTCVault.address)
+    )
+    if (legacyCodeHash !== implKnownCodeHash) {
+      throw new Error(
+        `Refusing cutover: legacy vault code hash ${legacyCodeHash} does not ` +
+          `match the Bridge implementation's known code hash ${implKnownCodeHash}`
+      )
+    }
+
+    // 3. Live state, read at the chain head (the proxy is already upgraded by
+    //    cutover time, so the new getters resolve): the successor vault is
+    //    Council-owned; the legacy vault is still trusted; the successor vault is
+    //    not yet trusted; and no canonical migration-debt vault is set on this
+    //    mainnet migration.
+    const readLive = async (
+      to: string,
+      fn: string,
+      fnArgs: unknown[] = []
+    ): Promise<unknown> =>
+      retirementStateInterface.decodeFunctionResult(
+        fn,
+        await ethers.provider.call({
+          to,
+          data: retirementStateInterface.encodeFunctionData(fn, fnArgs),
+        })
+      )[0]
+
+    const successorOwner = (await readLive(
+      newTBTCVault.address,
+      "owner"
+    )) as string
+    if (
+      utils.getAddress(successorOwner) !== utils.getAddress(councilSafeAddress)
+    ) {
+      throw new Error(
+        `Refusing cutover: successor vault owner ${successorOwner} is not the ` +
+          `Council Safe ${councilSafeAddress}`
+      )
+    }
+    const legacyTrusted = (await readLive(Bridge.address, "isVaultTrusted", [
+      TBTCVault.address,
+    ])) as boolean
+    if (!legacyTrusted) {
+      throw new Error(
+        "Refusing cutover: the legacy vault is not currently trusted by the Bridge"
+      )
+    }
+    const successorTrusted = (await readLive(Bridge.address, "isVaultTrusted", [
+      newTBTCVault.address,
+    ])) as boolean
+    if (successorTrusted) {
+      throw new Error(
+        "Refusing cutover: the successor vault is already trusted by the Bridge"
+      )
+    }
+    const canonicalDebtVault = (await readLive(
+      Bridge.address,
+      "migrationDebtVault"
+    )) as string
+    if (canonicalDebtVault !== ethers.constants.AddressZero) {
+      throw new Error(
+        `Refusing cutover: Bridge.migrationDebtVault() is ${canonicalDebtVault}, ` +
+          "expected the zero address on this mainnet migration"
+      )
+    }
+    console.log(
+      "  Live assertions passed: successor Council-owned, legacy trusted, " +
+        "successor untrusted, canonical migration-debt vault zero"
+    )
+
+    cutoverAction = {
+      target: newBridgeGovernance.address,
+      data: encodeFinalizeLegacyVaultMigration(
+        coordinator.address,
+        scanResult.snapshotBlockNumber,
+        scanResult.snapshotBlockHash,
+        scanResult.evidenceHash
+      ),
+      value: 0,
+      function: "finalizeLegacyVaultMigration(address,uint256,bytes32,bytes32)",
+      coordinator: coordinator.address,
+      snapshotBlockNumber: scanResult.snapshotBlockNumber,
+      snapshotBlockHash: scanResult.snapshotBlockHash,
+      evidenceHash: scanResult.evidenceHash,
+      description:
+        "Council Safe (via new BridgeGovernance): the single atomic legacy " +
+        "vault retirement cutover. Attests the residual-only state, untrusts " +
+        "the legacy vault, finalizes the immutable legacy upgrade through the " +
+        "coordinator, trusts the successor, and makes it the canonical " +
+        "migration-debt vault. Any failed assertion rolls back the whole cutover.",
+    }
+  } else {
+    console.log(
+      "\n--- Preparation-only run: no executable cutover calldata generated ---"
+    )
+    console.log(
+      "  Rerun with GENERATE_TBTC_VAULT_CUTOVER=true after preparation and the " +
+        "24h delay to run the pinned scan and produce the cutover calldata."
+    )
+    cutoverAction = {
+      target: newBridgeGovernance.address,
+      function: "finalizeLegacyVaultMigration(address,uint256,bytes32,bytes32)",
+      coordinator: coordinator.address,
+      value: 0,
+      requiresCutoverMode: true,
+      // Executable calldata is intentionally absent: preparation must complete
+      // and the pinned scan must prove P empty before it can be produced.
+      description:
+        "NOT executable. Rerun this script with GENERATE_TBTC_VAULT_CUTOVER=true " +
+        "after preparation completes and the 24h delay elapses; the pinned scan " +
+        "then produces the finalizeLegacyVaultMigration calldata only when the " +
+        "dangerous set is empty.",
     }
   }
-  console.log(
-    "  Bridge untrust/rotation guard note: the Bridge optimistic-minting-debt " +
-      "check is a fail-open staticcall and does NOT fire for the legacy vault " +
-      "(the selector is absent). Before untrusting the legacy vault or " +
-      "rotating the canonical migration debt pointer away from it, manually " +
-      "verify this debt set is empty using the same scan."
-  )
-
-  console.log("\n  TBTCVault Owner Action [A]: initiateUpgrade(newTBTCVault)")
-  console.log(`    Target: existing TBTCVault (${TBTCVault.address})`)
-  console.log(`    New TBTCVault: ${newTBTCVault.address}`)
-  console.log(
-    "    Then, after the 24h vault governance delay, call finalizeUpgrade() " +
-      "on the existing TBTCVault."
-  )
-  console.log(
-    "\n  Deployer Action: transfer new TBTCVault ownership to the Council Safe"
-  )
-  console.log(`    Target: new TBTCVault (${newTBTCVault.address})`)
-  console.log(`    New owner: Council Safe (${KNOWN_COUNCIL_SAFE})`)
-  console.log(
-    "    Run before finalizeUpgrade so the canonical vault is governance-owned " +
-      "the moment TBTC ownership and the Bank balance move to it."
-  )
-  console.log(
-    "\n  Council Safe Action [C]: trust and activate the new TBTCVault"
-  )
-  console.log(
-    `    Via new BridgeGovernance (${newBridgeGovernance.address}): ` +
-      "setVaultStatus(newTBTCVault, true) then setMigrationDebtVault(newTBTCVault)"
-  )
 
   // --- Step 9: Save deployment summary JSON ---
   const chainId = await hre.getChainId()
@@ -901,10 +1681,12 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       DepositSweepTIP109Hotfix: DepositSweep.address,
       RedemptionTIP109Hotfix: Redemption.address,
       FraudTIP109Hotfix: Fraud.address,
+      VaultManagementTIP109Hotfix: VaultManagement.address,
       BridgeTIP109HotfixImplementation: bridgeImpl.address,
       RebateStakingTIP109HotfixImplementation: rebateImpl.address,
       BridgeGovernanceTIP109Hotfix: newBridgeGovernance.address,
       TBTCVaultTIP109Hotfix: newTBTCVault.address,
+      LegacyTBTCVaultMigrationCoordinatorTIP109Hotfix: coordinator.address,
     },
     reusedContracts: {
       Wallets: Wallets.address,
@@ -921,108 +1703,75 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       Bank: Bank.address,
       TBTC: TBTCToken.address,
     },
-    // Complete the non-proxy TBTCVault rotation, then trust and activate the
-    // new migration-debt vault. `initiateUpgrade`/`finalizeUpgrade` are run by
-    // the TBTCVault owner; the trust/activate steps go through the new
-    // BridgeGovernance (after governance has been transferred to it). Ordering
-    // is required: finalizeUpgrade only after the 24h vault delay, and
-    // setMigrationDebtVault only after setVaultStatus trusts the new vault.
-    tbtcVaultMigrationActions: [
-      {
-        target: TBTCVault.address,
-        data: initiateVaultUpgradeCalldata,
-        value: 0,
-        description:
-          "TBTCVault owner: initiate the upgrade to the new migration-debt " +
-          "TBTCVault",
-      },
-      {
-        target: newTBTCVault.address,
-        data: transferNewVaultOwnershipCalldata,
-        value: 0,
-        description:
-          "Deployer: transfer ownership of the new TBTCVault to the Council " +
-          "Safe. Run before finalizeUpgrade so the canonical vault's owner-only " +
-          "functions (addMinter, setAccountControlRedemptionNotifier, " +
-          "activateAccountControlReconciliation, setMigrationRevealer, and the " +
-          "migration-debt operations) are governance-controlled the moment TBTC " +
-          "ownership and the Bank balance move to it",
-      },
-      {
-        target: TBTCVault.address,
-        data: finalizeVaultUpgradeCalldata,
-        value: 0,
-        governanceDelaySeconds: "86400",
-        // HARD PRECONDITION: the legacy TBTCVault is immutable and predates the
-        // finalizeUpgrade optimistic-minting-debt guard, so nothing on-chain
-        // blocks a finalize that strands outstanding optimistic minting debt.
-        // The operator MUST recompute the outstanding-debt set immediately
-        // before execution (the legacy vault can finalize new optimistic mints
-        // during the 24h delay) and MUST NOT execute this action while any
-        // depositor still reports nonzero optimisticMintingDebt.
-        requiresRecomputation: true,
-        precondition:
-          "Legacy TBTCVault must have zero outstanding optimistic minting " +
-          "debt. Recompute by scanning OptimisticMintingFinalized events on " +
-          "the legacy TBTCVault, then read optimisticMintingDebt(depositor) " +
-          "for every emitted depositor; all must read zero before finalizing.",
-        omDebtScan: {
-          fromBlock: legacyVaultOmEventFromBlock,
-          referenceToBlock: latestBlock,
-          referenceOutstandingDepositorCount: legacyOutstandingOmDebt.length,
-          referenceOutstandingDepositors: legacyOutstandingOmDebtors,
+    // --- Legacy vault retirement (finding TOB-17) ---
+    // Two phases. Preparation freezes the legacy vault under the coordinator and
+    // starts its 24h delay; NO preparation action untrusts or finalizes it, and
+    // no action targets the legacy vault's `finalizeUpgrade`. The single cutover
+    // action is executable only when this script is rerun in cutover mode
+    // (GENERATE_TBTC_VAULT_CUTOVER=true) after the delay and the pinned scan
+    // proves the dangerous set P empty.
+    legacyVaultMigration: {
+      coordinator: coordinator.address,
+      legacyVault: TBTCVault.address,
+      successorVault: newTBTCVault.address,
+      preparationActions: [
+        {
+          target: newTBTCVault.address,
+          data: transferNewVaultOwnershipCalldata,
+          value: 0,
+          description:
+            "Deployer: transfer ownership of the new TBTCVault to the Council " +
+            "Safe, so the canonical vault is governance-owned the moment the " +
+            "cutover moves TBTC ownership and the Bank balance to it.",
         },
-        description:
-          "TBTCVault owner: after the 24h vault governance delay, finalize " +
-          "the upgrade, transferring TBTC ownership and Bank balance to the " +
-          "new vault. BLOCKED until the legacy vault's outstanding optimistic " +
-          "minting debt is zero (see precondition).",
-      },
-      {
-        target: newBridgeGovernance.address,
-        data: trustNewVaultCalldata,
-        value: 0,
-        description:
-          "Council Safe (via new BridgeGovernance): trust the new TBTCVault",
-      },
-      {
-        target: newBridgeGovernance.address,
-        data: setMigrationDebtVaultCalldata,
-        value: 0,
-        description:
-          "Council Safe (via new BridgeGovernance): set the new TBTCVault as " +
-          "the canonical Bridge migration debt vault",
-      },
-    ],
-    // The Bridge optimistic-minting-debt untrust/rotation guard uses a
-    // fail-open staticcall against `hasOutstandingOptimisticMintingDebt()`. The
-    // legacy TBTCVault predates that selector, so the guard is a no-op for it:
-    // untrusting or rotating away from the legacy vault while it still holds
-    // optimistic minting debt would be silently allowed and re-open the
-    // double-mint footgun. Before ever untrusting the legacy vault or rotating
-    // the canonical migration debt pointer away from it, governance MUST
-    // manually verify the legacy vault has zero outstanding optimistic minting
-    // debt using the per-depositor scan below. A correctly executed
-    // finalizeUpgrade precondition already drives the legacy vault to zero
-    // debt, and finalizeUpgrade removes its TBTC mint authority, so it cannot
-    // accrue new optimistic minting debt afterward.
-    legacyVaultUntrustPrecondition: {
-      vault: TBTCVault.address,
-      guard:
-        "Bridge.setVaultStatus / rotateMigrationDebtVault fail-open " +
-        "optimistic-minting-debt check does not fire for the legacy vault",
-      requirement:
-        "Manually verify zero outstanding optimistic minting debt on the " +
-        "legacy TBTCVault (scan OptimisticMintingFinalized events, then read " +
-        "optimisticMintingDebt(depositor) for each emitted depositor) before " +
-        "untrusting it or rotating the canonical migration debt vault away " +
-        "from it.",
-      omDebtScan: {
-        fromBlock: legacyVaultOmEventFromBlock,
-        referenceToBlock: latestBlock,
-        referenceOutstandingDepositorCount: legacyOutstandingOmDebt.length,
-        referenceOutstandingDepositors: legacyOutstandingOmDebtors,
-      },
+        {
+          target: TBTCVault.address,
+          data: pauseLegacyOptimisticMintingCalldata,
+          value: 0,
+          precondition:
+            "Only if legacy.isOptimisticMintingPaused() == false. " +
+            "pauseOptimisticMinting() reverts when already paused, and the " +
+            "legacy vault is currently paused, so this action is typically " +
+            "skipped after verifying the paused state.",
+          description:
+            "Council Safe: pause legacy optimistic minting if not already paused.",
+        },
+        {
+          target: TBTCVault.address,
+          data: transferLegacyVaultOwnershipCalldata,
+          value: 0,
+          description:
+            "Council Safe: transfer legacy TBTCVault ownership to the " +
+            "coordinator. After this, no minter can create new finalized " +
+            "optimistic debt and no direct Safe finalization is possible.",
+        },
+        {
+          target: newBridgeGovernance.address,
+          data: initiateLegacyVaultUpgradeCalldata,
+          value: 0,
+          governanceDelaySeconds: "86400",
+          description:
+            "Council Safe (via new BridgeGovernance): initiate the legacy vault " +
+            "upgrade through the coordinator, then wait at least 24 hours.",
+        },
+      ],
+      cutoverAction,
+      // Present only in cutover mode; the digest inputs the Council verifies
+      // against a second independent archive provider before signing.
+      scan: scanResult
+        ? {
+            chainId: chainIdNumber,
+            fromBlock: scanResult.fromBlock,
+            snapshotBlockNumber: scanResult.snapshotBlockNumber,
+            snapshotBlockHash: scanResult.snapshotBlockHash,
+            finalizedEventCount: scanResult.finalizedEventCount,
+            depositSetHash: scanResult.depositSetHash,
+            evidenceHash: scanResult.evidenceHash,
+            unsweptFinalizedCount: scanResult.pending.length,
+            residualDebtorCount: scanResult.residualDebtorCount,
+            residualDebtTotalWei: scanResult.residualDebtTotal,
+          }
+        : undefined,
     },
     // The Council Safe must run these BridgeGovernance actions, in order,
     // before the post-upgrade seed action. Without them the seed call reverts
@@ -1233,57 +1982,60 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     `        Reference-only snapshot (NOT executable): ${preUpgradeWalletRegistrationOrder.length} wallet(s)`
   )
   console.log(
-    "\n  STEP 4 - TBTCVault migration (non-proxy vault rotation + activation):"
+    "\n  STEP 4 - Legacy vault retirement (preparation, then one atomic cutover):"
   )
-  console.log("    [E] initiateUpgrade(newTBTCVault) on the existing TBTCVault")
-  console.log(`        To (existing TBTCVault owner): ${TBTCVault.address}`)
-  console.log(`        New TBTCVault: ${newTBTCVault.address}`)
+  console.log(`        Coordinator: ${coordinator.address}`)
   console.log(
-    "    [F] transferOwnership(CouncilSafe) on the new TBTCVault (deployer)"
+    "    [E] transferOwnership(CouncilSafe) on the new TBTCVault (deployer)"
   )
   console.log(`        To: ${newTBTCVault.address}`)
   console.log(`        New owner: Council Safe (${KNOWN_COUNCIL_SAFE})`)
   console.log(
-    "        Run [F] before [G] so the canonical vault is governance-owned the"
+    "    [F] pauseOptimisticMinting() on the legacy TBTCVault, ONLY if not"
   )
-  console.log("        moment TBTC ownership and the Bank balance move to it.")
+  console.log(`        already paused (Council Safe). To: ${TBTCVault.address}`)
   console.log(
-    "    [G] finalizeUpgrade() on the existing TBTCVault, after the 24h vault"
+    "    [G] transferOwnership(coordinator) on the legacy TBTCVault (Council"
   )
+  console.log(`        Safe). To: ${TBTCVault.address}`)
   console.log(
-    "        governance delay (existing TBTCVault owner). Transfers TBTC"
+    "        After [G] the legacy vault is frozen: no new finalized optimistic"
   )
-  console.log("        ownership and the Bank balance to the new TBTCVault.")
+  console.log("        debt, and no direct Safe finalization is possible.")
   console.log(
-    "    [H] setVaultStatus(newTBTCVault, true) on the NEW BridgeGovernance"
-  )
-  console.log(`        To: ${newBridgeGovernance.address}`)
-  console.log(
-    "    [I] setMigrationDebtVault(newTBTCVault) on the NEW BridgeGovernance"
-  )
-  console.log(`        To: ${newBridgeGovernance.address}`)
-  console.log(
-    "        Run [H] and [I] only after STEP 1 (governance transferred to the"
+    "    [H] initiateLegacyVaultUpgrade(coordinator, newTBTCVault) on the NEW"
   )
   console.log(
-    "        new BridgeGovernance) and STEP 2 (Bridge upgraded); [I] needs the"
+    `        BridgeGovernance (Council Safe). To: ${newBridgeGovernance.address}`
+  )
+  console.log("        Then wait at least 24 hours.")
+  console.log(
+    "    [I] CUTOVER: finalizeLegacyVaultMigration(coordinator, B, blockHash,"
   )
   console.log(
-    "        vault trusted by [H] and the upgraded Bridge's setMigrationDebtVault."
+    "        evidenceHash) on the NEW BridgeGovernance (Council Safe)."
   )
   console.log(
-    "    NOTE: setMigrationRevealer(revealer, true) is NOT emitted here. It is a"
+    "        Generated ONLY by rerunning this script with " +
+      "GENERATE_TBTC_VAULT_CUTOVER=true"
   )
   console.log(
-    "        post-activation owner action on the NEW TBTCVault (now Council-"
+    "        after [H] + the 24h delay, and only when the pinned scan proves the"
   )
   console.log(
-    "        owned): call it for each migration revealer once [I] has set the"
+    "        dangerous set empty. It atomically attests, untrusts the legacy"
   )
   console.log(
-    "        canonical migration debt vault. It requires a revealer address not"
+    "        vault, finalizes through the coordinator, trusts the successor, and"
   )
-  console.log("        known at deploy time, so it is intentionally omitted.")
+  console.log("        sets it as the canonical migration-debt vault.")
+  console.log(
+    "    NOTE: setMigrationRevealer(revealer, true) is a post-cutover owner"
+  )
+  console.log(
+    "        action on the new Council-owned TBTCVault; it needs a revealer"
+  )
+  console.log("        address not known at deploy time and is omitted here.")
   console.log("=".repeat(80))
 
   // --- Step 10: Verify contracts on Etherscan (v2 API) ---
@@ -1342,6 +2094,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
             label: "Fraud",
           },
           {
+            address: VaultManagement.address,
+            name: "contracts/bridge/VaultManagement.sol:VaultManagement",
+            label: "VaultManagement",
+          },
+          {
             address: bridgeImpl.address,
             name: "contracts/bridge/Bridge.sol:Bridge",
             label: "Bridge",
@@ -1350,6 +2107,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
             address: rebateImpl.address,
             name: "contracts/bridge/RebateStaking.sol:RebateStaking",
             label: "RebateStaking",
+          },
+          {
+            address: coordinator.address,
+            name: "contracts/vault/LegacyTBTCVaultMigrationCoordinator.sol:LegacyTBTCVaultMigrationCoordinator",
+            label: "LegacyTBTCVaultMigrationCoordinator",
           },
         ]
 
