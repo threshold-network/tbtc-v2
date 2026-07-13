@@ -393,7 +393,13 @@ library BitcoinTx {
         ) = extractWalletScriptKey(output);
 
         if (scriptType != WalletScriptType.P2TR) {
-            return bytes20(walletKey);
+            walletPubKeyHash = bytes20(walletKey);
+            require(
+                self.walletIDByWalletPubKeyHash[walletPubKeyHash] == bytes32(0),
+                "FROST wallet output must be P2TR"
+            );
+
+            return walletPubKeyHash;
         }
 
         walletPubKeyHash = self.walletPubKeyHashByWalletID[walletKey];
