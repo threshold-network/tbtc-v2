@@ -84,7 +84,7 @@ export type P2TRSignatureFraudWatchtowerRuntimeEnv = Record<
 
 export type P2TRSignatureFraudWatchtowerBridgeLifecycleRuntimeConfig = Omit<
   EthersP2TRSignatureFraudBridgeLifecycleEventSourceOptions,
-  "scanCursorStore"
+  "canonicalLogVerifier" | "scanCursorStore" | "sourceTrustDomainID"
 > & {
   scanCursorFilePath?: string
 }

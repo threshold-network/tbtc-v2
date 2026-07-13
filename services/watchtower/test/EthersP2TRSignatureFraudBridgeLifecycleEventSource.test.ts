@@ -2,9 +2,13 @@ import assert from "assert/strict"
 import test from "node:test"
 
 import {
-  EthersP2TRSignatureFraudBridgeLifecycleEventSource,
+  EthersP2TRCanonicalBridgeLifecycleLogVerifier,
+  EthersP2TRSignatureFraudBridgeLifecycleEventSource as VerifiedEthersP2TRSignatureFraudBridgeLifecycleEventSource,
   P2TRBridgeLifecycleScanCursor,
   P2TRBridgeLifecycleScanCursorStore,
+  P2TRCanonicalBridgeLifecycleEventLog,
+  P2TRCanonicalBridgeLifecycleLogVerifier,
+  EthersP2TRSignatureFraudBridgeLifecycleEventSourceOptions,
   P2TREthersBridgeLifecycleContract,
   P2TREthersBridgeLifecycleEventLog,
 } from "../src/index.js"
@@ -13,6 +17,61 @@ const defeatedFilter = { event: "defeated" }
 const timedOutFilter = { event: "timed-out" }
 const movingFundsCompletedFilter = { event: "moving-funds-completed" }
 const redemptionsCompletedFilter = { event: "redemptions-completed" }
+
+type TestLifecycleSourceOptions = Omit<
+  EthersP2TRSignatureFraudBridgeLifecycleEventSourceOptions,
+  "canonicalLogVerifier" | "sourceTrustDomainID"
+>
+
+class EthersP2TRSignatureFraudBridgeLifecycleEventSource {
+  private readonly source: VerifiedEthersP2TRSignatureFraudBridgeLifecycleEventSource
+
+  constructor(
+    p2trSignatureFraudRouter: P2TREthersBridgeLifecycleContract,
+    bridgeOrOptions:
+      | P2TREthersBridgeLifecycleContract
+      | TestLifecycleSourceOptions = {},
+    maybeOptions: TestLifecycleSourceOptions = {}
+  ) {
+    const hasSeparateBridge = isBridgeLifecycleContract(bridgeOrOptions)
+    const bridge = hasSeparateBridge
+      ? bridgeOrOptions
+      : p2trSignatureFraudRouter
+    const options = hasSeparateBridge ? maybeOptions : bridgeOrOptions
+    const verifiedOptions = {
+      ...options,
+      sourceTrustDomainID: "indexer.test",
+      canonicalLogVerifier: acceptingCanonicalVerifier(bridge),
+    }
+
+    this.source = hasSeparateBridge
+      ? new VerifiedEthersP2TRSignatureFraudBridgeLifecycleEventSource(
+          p2trSignatureFraudRouter,
+          bridge,
+          verifiedOptions
+        )
+      : new VerifiedEthersP2TRSignatureFraudBridgeLifecycleEventSource(
+          p2trSignatureFraudRouter,
+          verifiedOptions
+        )
+  }
+
+  get p2trSignatureFraudWatchtowerStoreProfile() {
+    return this.source.p2trSignatureFraudWatchtowerStoreProfile
+  }
+
+  get p2trSignatureFraudWatchtowerTransactionalStoreID() {
+    return this.source.p2trSignatureFraudWatchtowerTransactionalStoreID
+  }
+
+  listBridgeLifecycleEvents() {
+    return this.source.listBridgeLifecycleEvents()
+  }
+
+  commitBridgeLifecycleScan() {
+    return this.source.commitBridgeLifecycleScan()
+  }
+}
 
 const expectedLifecycleQueries = (
   fromBlock?: number | string,
@@ -27,6 +86,164 @@ const expectedLifecycleQueries = (
   { filter: movingFundsCompletedFilter, fromBlock, toBlock },
   { filter: redemptionsCompletedFilter, fromBlock, toBlock },
 ]
+
+test("requires a canonical verifier from a different trust domain", () => {
+  const contract = new FakeBridgeLifecycleContract({})
+
+  assert.throws(
+    () =>
+      new VerifiedEthersP2TRSignatureFraudBridgeLifecycleEventSource(
+        contract,
+        undefined as never
+      ),
+    /requires independent canonical verification options/
+  )
+  assert.throws(
+    () =>
+      new VerifiedEthersP2TRSignatureFraudBridgeLifecycleEventSource(contract, {
+        sourceTrustDomainID: "shared.example",
+        canonicalLogVerifier: {
+          ...acceptingCanonicalVerifier(contract),
+          trustDomainID: "shared.example",
+        },
+      }),
+    /must use different trust domains/
+  )
+})
+
+test("rejects an unverified lifecycle log without advancing the cursor", async () => {
+  const cursorStore = new FakeBridgeLifecycleScanCursorStore({
+    lastScannedBlock: 49,
+  })
+  const contract = new FakeBridgeLifecycleContract(
+    {
+      defeated: [
+        {
+          args: { challengeKey: 1n },
+          transactionHash: txHash("aa"),
+          blockNumber: 60,
+          logIndex: 0,
+        },
+      ],
+    },
+    100
+  )
+  const source = new VerifiedEthersP2TRSignatureFraudBridgeLifecycleEventSource(
+    contract,
+    {
+      sourceTrustDomainID: "indexer.example",
+      canonicalLogVerifier: {
+        trustDomainID: "canonical.example",
+        async getBlockNumber() {
+          return 100
+        },
+        async getCanonicalBlockHash() {
+          return txHash("88")
+        },
+        async verifyLifecycleLog() {
+          return false
+        },
+      },
+      confirmationDepth: 12,
+      maxBlockRange: 100,
+      scanCursorStore: cursorStore,
+    }
+  )
+
+  await assert.rejects(
+    source.listBridgeLifecycleEvents(),
+    /log is not independently canonical/
+  )
+  await source.commitBridgeLifecycleScan()
+  assert.equal(cursorStore.savedCursor, undefined)
+})
+
+test("bounds cursor progress by the independent canonical head", async () => {
+  const cursorStore = new FakeBridgeLifecycleScanCursorStore({
+    lastScannedBlock: 49,
+  })
+  const contract = new FakeBridgeLifecycleContract({}, 1_000)
+  const source = new VerifiedEthersP2TRSignatureFraudBridgeLifecycleEventSource(
+    contract,
+    {
+      sourceTrustDomainID: "indexer.example",
+      canonicalLogVerifier: {
+        trustDomainID: "canonical.example",
+        async getBlockNumber() {
+          return 100
+        },
+        async getCanonicalBlockHash() {
+          return txHash("88")
+        },
+        async verifyLifecycleLog() {
+          return true
+        },
+      },
+      confirmationDepth: 12,
+      maxBlockRange: 100,
+      scanCursorStore: cursorStore,
+    }
+  )
+
+  await source.listBridgeLifecycleEvents()
+  assert.deepEqual(contract.queries, expectedLifecycleQueries(50, 88))
+  await source.commitBridgeLifecycleScan()
+  assert.deepEqual(cursorStore.savedCursor, { lastScannedBlock: 88 })
+})
+
+test("verifies exact receipt log membership through an independent provider", async () => {
+  const emitter = `0x${"42".repeat(20)}`
+  const canonicalLog: P2TRCanonicalBridgeLifecycleEventLog = {
+    address: emitter,
+    blockHash: txHash("88"),
+    blockNumber: 60,
+    data: "0x1234",
+    logIndex: 2,
+    removed: false,
+    topics: [txHash("01"), txHash("02")],
+    transactionHash: txHash("aa"),
+  }
+  let receiptLogs: P2TREthersBridgeLifecycleEventLog[] = [canonicalLog]
+  const verifier = new EthersP2TRCanonicalBridgeLifecycleLogVerifier(
+    "canonical.example",
+    {
+      async getBlockNumber() {
+        return 100
+      },
+      async getBlock() {
+        return { hash: canonicalLog.blockHash }
+      },
+      async getTransactionReceipt() {
+        return {
+          status: 1,
+          blockHash: canonicalLog.blockHash,
+          blockNumber: canonicalLog.blockNumber,
+          transactionHash: canonicalLog.transactionHash,
+          logs: receiptLogs,
+        }
+      },
+    }
+  )
+
+  assert.equal(
+    await verifier.verifyLifecycleLog({
+      eventName: "P2TRSignatureFraudChallengeDefeated",
+      expectedEmitter: emitter,
+      log: canonicalLog,
+    }),
+    true
+  )
+
+  receiptLogs = [{ ...canonicalLog, data: "0xabcd" }]
+  assert.equal(
+    await verifier.verifyLifecycleLog({
+      eventName: "P2TRSignatureFraudChallengeDefeated",
+      expectedEmitter: emitter,
+      log: canonicalLog,
+    }),
+    false
+  )
+})
 
 test("maps Bridge defeat and timeout logs to watchtower lifecycle events", async () => {
   const contract = new FakeBridgeLifecycleContract({
@@ -797,6 +1014,7 @@ const allFakeBridgeLifecycleFilters: FakeBridgeLifecycleFilter[] = [
 ]
 
 class FakeBridgeLifecycleContract implements P2TREthersBridgeLifecycleContract {
+  readonly address = `0x${"42".repeat(20)}`
   readonly provider?: {
     getBlockNumber(): Promise<number>
     getBlock(blockNumber: number): Promise<{ hash: string } | undefined>
@@ -847,19 +1065,27 @@ class FakeBridgeLifecycleContract implements P2TREthersBridgeLifecycleContract {
     this.queries.push({ filter, fromBlock, toBlock })
 
     if (filter === defeatedFilter) {
-      return this.logs.defeated ?? []
+      return (this.logs.defeated ?? []).map((log) =>
+        canonicalLogFixture(log, this.address)
+      )
     }
 
     if (filter === timedOutFilter) {
-      return this.logs.timedOut ?? []
+      return (this.logs.timedOut ?? []).map((log) =>
+        canonicalLogFixture(log, this.address)
+      )
     }
 
     if (filter === movingFundsCompletedFilter) {
-      return this.logs.movingFundsCompleted ?? []
+      return (this.logs.movingFundsCompleted ?? []).map((log) =>
+        canonicalLogFixture(log, this.address)
+      )
     }
 
     if (filter === redemptionsCompletedFilter) {
-      return this.logs.redemptionsCompleted ?? []
+      return (this.logs.redemptionsCompleted ?? []).map((log) =>
+        canonicalLogFixture(log, this.address)
+      )
     }
 
     throw new Error("unknown filter")
@@ -867,6 +1093,51 @@ class FakeBridgeLifecycleContract implements P2TREthersBridgeLifecycleContract {
 
   setBlockHash(blockNumber: number, blockHash: string): void {
     this.blockHashes[blockNumber] = blockHash
+  }
+}
+
+function isBridgeLifecycleContract(
+  value: P2TREthersBridgeLifecycleContract | TestLifecycleSourceOptions
+): value is P2TREthersBridgeLifecycleContract {
+  return (
+    typeof (value as P2TREthersBridgeLifecycleContract).queryFilter ===
+    "function"
+  )
+}
+
+function acceptingCanonicalVerifier(
+  contract: P2TREthersBridgeLifecycleContract
+): P2TRCanonicalBridgeLifecycleLogVerifier {
+  return {
+    trustDomainID: "canonical.test",
+    async getBlockNumber() {
+      return contract.provider === undefined
+        ? Number.MAX_SAFE_INTEGER
+        : contract.provider.getBlockNumber()
+    },
+    async getCanonicalBlockHash(blockNumber) {
+      const block = await contract.provider?.getBlock?.(blockNumber)
+      return block?.hash ?? txHash("99")
+    },
+    async verifyLifecycleLog() {
+      return true
+    },
+  }
+}
+
+function canonicalLogFixture(
+  log: P2TREthersBridgeLifecycleEventLog,
+  address: string
+): P2TREthersBridgeLifecycleEventLog {
+  return {
+    address,
+    blockHash: txHash("99"),
+    blockNumber: 0,
+    data: "0x",
+    logIndex: 0,
+    removed: false,
+    topics: [txHash("01")],
+    ...log,
   }
 }
 
