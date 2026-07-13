@@ -4,7 +4,10 @@ export {
   EsploraP2TRSignatureFraudTransactionSource,
   deriveP2TRWalletAddress,
 } from "./EsploraP2TRSignatureFraudTransactionSource.js"
-export { EthersP2TRSignatureFraudBridgeLifecycleEventSource } from "./EthersP2TRSignatureFraudBridgeLifecycleEventSource.js"
+export {
+  EthersP2TRCanonicalBridgeLifecycleLogVerifier,
+  EthersP2TRSignatureFraudBridgeLifecycleEventSource,
+} from "./EthersP2TRSignatureFraudBridgeLifecycleEventSource.js"
 export {
   P2TRSignatureFraudWatchtowerService,
   buildP2TRSignatureFraudWatchtowerCycleMetrics,
@@ -32,8 +35,13 @@ export type {
 } from "./EsploraP2TRSignatureFraudTransactionSource.js"
 export type {
   EthersP2TRSignatureFraudBridgeLifecycleEventSourceOptions,
+  P2TRCanonicalBridgeLifecycleEventLog,
+  P2TRCanonicalBridgeLifecycleLogVerification,
+  P2TRCanonicalBridgeLifecycleLogVerifier,
   P2TRBridgeLifecycleScanCursor,
   P2TRBridgeLifecycleScanCursorStore,
+  P2TREthersCanonicalBridgeLifecycleProvider,
+  P2TREthersCanonicalBridgeLifecycleReceipt,
   P2TREthersBridgeLifecycleContract,
   P2TREthersBridgeLifecycleEventLog,
   P2TREthersBridgeLifecycleProvider,

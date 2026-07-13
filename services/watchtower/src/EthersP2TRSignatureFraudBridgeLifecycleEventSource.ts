@@ -8,8 +8,13 @@ import type { P2TRSignatureFraudWatchtowerStoreProfileProvider } from "./types.j
 export type P2TREthersBridgeLifecycleEventLog = {
   args?: Record<string, unknown> | readonly unknown[]
   transactionHash: string
+  address?: string
+  blockHash?: string
   blockNumber?: number
+  data?: string
   logIndex?: number
+  removed?: boolean
+  topics?: readonly string[]
 }
 
 export type P2TREthersBridgeLifecycleBlock = {
@@ -24,6 +29,7 @@ export type P2TREthersBridgeLifecycleProvider = {
 }
 
 export type P2TREthersBridgeLifecycleContract = {
+  address?: string
   provider?: P2TREthersBridgeLifecycleProvider
   filters: Record<string, () => unknown>
   queryFilter(
@@ -31,6 +37,147 @@ export type P2TREthersBridgeLifecycleContract = {
     fromBlock?: number | string,
     toBlock?: number | string
   ): Promise<P2TREthersBridgeLifecycleEventLog[]>
+}
+
+export type P2TRCanonicalBridgeLifecycleEventLog =
+  P2TREthersBridgeLifecycleEventLog & {
+    address: string
+    blockHash: string
+    blockNumber: number
+    data: string
+    logIndex: number
+    removed: false
+    topics: readonly string[]
+  }
+
+export type P2TRCanonicalBridgeLifecycleLogVerification = {
+  eventName: string
+  expectedEmitter: string
+  log: P2TRCanonicalBridgeLifecycleEventLog
+}
+
+/**
+ * Canonical lifecycle verification must be backed by an Ethereum view that is
+ * operationally independent from the provider used by `queryFilter`.
+ * `verifyLifecycleLog` is expected to check a successful canonical receipt and
+ * exact emitter/topics/data/transaction/log-index membership.
+ */
+export type P2TRCanonicalBridgeLifecycleLogVerifier = {
+  readonly trustDomainID: string
+  getBlockNumber(): Promise<number>
+  getCanonicalBlockHash(blockNumber: number): Promise<string>
+  verifyLifecycleLog(
+    verification: P2TRCanonicalBridgeLifecycleLogVerification
+  ): Promise<boolean>
+}
+
+export type P2TREthersCanonicalBridgeLifecycleReceipt = {
+  status?: number
+  blockHash: string
+  blockNumber: number
+  transactionHash: string
+  logs: P2TREthersBridgeLifecycleEventLog[]
+}
+
+export type P2TREthersCanonicalBridgeLifecycleProvider = {
+  getBlockNumber(): Promise<number>
+  getBlock(
+    blockNumber: number
+  ): Promise<P2TREthersBridgeLifecycleBlock | null | undefined>
+  getTransactionReceipt(
+    transactionHash: string
+  ): Promise<P2TREthersCanonicalBridgeLifecycleReceipt | null | undefined>
+}
+
+/**
+ * Receipt-membership verifier for an independently configured Ethers provider.
+ * The caller is responsible for assigning a trust-domain ID that reflects the
+ * provider's real operational failure domain, not merely a different URL.
+ */
+export class EthersP2TRCanonicalBridgeLifecycleLogVerifier
+  implements P2TRCanonicalBridgeLifecycleLogVerifier
+{
+  readonly trustDomainID: string
+
+  constructor(
+    trustDomainID: string,
+    private readonly provider: P2TREthersCanonicalBridgeLifecycleProvider
+  ) {
+    this.trustDomainID = normalizeTrustDomainID(
+      trustDomainID,
+      "Bridge lifecycle canonical verifier trust-domain ID"
+    )
+    if (
+      provider === undefined ||
+      typeof provider.getBlockNumber !== "function" ||
+      typeof provider.getBlock !== "function" ||
+      typeof provider.getTransactionReceipt !== "function"
+    ) {
+      throw new Error(
+        "Bridge lifecycle canonical verifier requires an Ethers provider"
+      )
+    }
+  }
+
+  async getBlockNumber(): Promise<number> {
+    const blockNumber = await this.provider.getBlockNumber()
+    validateBlockHead(blockNumber, "Bridge lifecycle canonical verifier head")
+    return blockNumber
+  }
+
+  async getCanonicalBlockHash(blockNumber: number): Promise<string> {
+    const block = await this.provider.getBlock(blockNumber)
+    if (
+      block === undefined ||
+      block === null ||
+      typeof block.hash !== "string"
+    ) {
+      throw new Error(
+        `Bridge lifecycle canonical block ${blockNumber} hash is unavailable`
+      )
+    }
+
+    return normalizeFixedBytes32(
+      block.hash,
+      `Bridge lifecycle canonical block ${blockNumber} hash`
+    )
+  }
+
+  async verifyLifecycleLog({
+    expectedEmitter,
+    log,
+  }: P2TRCanonicalBridgeLifecycleLogVerification): Promise<boolean> {
+    const receipt = await this.provider.getTransactionReceipt(
+      log.transactionHash
+    )
+    if (receipt === undefined || receipt === null || receipt.status !== 1) {
+      return false
+    }
+
+    try {
+      if (
+        normalizeFixedBytes32(
+          receipt.transactionHash,
+          "Bridge lifecycle canonical receipt transaction hash"
+        ) !== log.transactionHash ||
+        receipt.blockNumber !== log.blockNumber ||
+        normalizeFixedBytes32(
+          receipt.blockHash,
+          "Bridge lifecycle canonical receipt block hash"
+        ) !== log.blockHash ||
+        (await this.getCanonicalBlockHash(log.blockNumber)) !== log.blockHash ||
+        !Array.isArray(receipt.logs)
+      ) {
+        return false
+      }
+
+      return receipt.logs.some((receiptLog) =>
+        canonicalReceiptLogMatches(receiptLog, expectedEmitter, log)
+      )
+    } catch {
+      return false
+    }
+  }
 }
 
 export type P2TRTimedOutBridgeEventStatus = "slashed" | "rewarded"
@@ -52,6 +199,8 @@ export type P2TRBridgeLifecycleScanCursorStore = {
 }
 
 export type EthersP2TRSignatureFraudBridgeLifecycleEventSourceOptions = {
+  sourceTrustDomainID: string
+  canonicalLogVerifier: P2TRCanonicalBridgeLifecycleLogVerifier
   fromBlock?: number | string
   toBlock?: number | string
   confirmationDepth?: number
@@ -74,7 +223,7 @@ type P2TRResolvedBridgeLifecycleBlockRange =
       cursorBlockHash?: string
     }
 
-type TaggedP2TRBridgeLifecycleLog = P2TREthersBridgeLifecycleEventLog & {
+type TaggedP2TRBridgeLifecycleLog = P2TRCanonicalBridgeLifecycleEventLog & {
   lifecycleType:
     | "defeated"
     | "timed-out"
@@ -104,20 +253,20 @@ export class EthersP2TRSignatureFraudBridgeLifecycleEventSource
   constructor(
     p2trSignatureFraudRouter: P2TREthersBridgeLifecycleContract,
     bridge: P2TREthersBridgeLifecycleContract,
-    options?: EthersP2TRSignatureFraudBridgeLifecycleEventSourceOptions
+    options: EthersP2TRSignatureFraudBridgeLifecycleEventSourceOptions
   )
 
   constructor(
     p2trSignatureFraudRouter: P2TREthersBridgeLifecycleContract,
-    options?: EthersP2TRSignatureFraudBridgeLifecycleEventSourceOptions
+    options: EthersP2TRSignatureFraudBridgeLifecycleEventSourceOptions
   )
 
   constructor(
     private readonly p2trSignatureFraudRouter: P2TREthersBridgeLifecycleContract,
     bridgeOrOptions:
       | P2TREthersBridgeLifecycleContract
-      | EthersP2TRSignatureFraudBridgeLifecycleEventSourceOptions = {},
-    maybeOptions: EthersP2TRSignatureFraudBridgeLifecycleEventSourceOptions = {}
+      | EthersP2TRSignatureFraudBridgeLifecycleEventSourceOptions,
+    maybeOptions?: EthersP2TRSignatureFraudBridgeLifecycleEventSourceOptions
   ) {
     const hasSeparateBridgeContract =
       isP2TREthersBridgeLifecycleContract(bridgeOrOptions)
@@ -125,12 +274,19 @@ export class EthersP2TRSignatureFraudBridgeLifecycleEventSource
     this.bridge = hasSeparateBridgeContract
       ? bridgeOrOptions
       : p2trSignatureFraudRouter
-    this.options = hasSeparateBridgeContract ? maybeOptions : bridgeOrOptions
+    this.options = hasSeparateBridgeContract
+      ? requireLifecycleSourceOptions(maybeOptions)
+      : requireLifecycleSourceOptions(
+          bridgeOrOptions as
+            | EthersP2TRSignatureFraudBridgeLifecycleEventSourceOptions
+            | undefined
+        )
 
     this.p2trSignatureFraudWatchtowerStoreProfile =
       this.options.scanCursorStore?.p2trSignatureFraudWatchtowerStoreProfile
     this.p2trSignatureFraudWatchtowerTransactionalStoreID =
       this.options.scanCursorStore?.p2trSignatureFraudWatchtowerTransactionalStoreID
+    validateCanonicalVerificationOptions(this.options)
     validateBlockRangeOptions(this.options)
   }
 
@@ -145,7 +301,7 @@ export class EthersP2TRSignatureFraudBridgeLifecycleEventSource
       this.options
     )
 
-    if (blockRange.isEmpty) {
+    if (blockRange.isEmpty === true) {
       return []
     }
 
@@ -212,24 +368,35 @@ export class EthersP2TRSignatureFraudBridgeLifecycleEventSource
     const cursor: P2TRBridgeLifecycleScanCursor = {
       lastScannedBlock: pendingCursorBlock,
     }
+    const currentCanonicalBlockHash = await resolveCanonicalBridgeBlockHash(
+      this.options.canonicalLogVerifier,
+      pendingCursorBlock,
+      "Bridge lifecycle canonical cursor commit block"
+    )
+
+    if (
+      pendingCursorBlockHash === undefined ||
+      currentCanonicalBlockHash !== pendingCursorBlockHash
+    ) {
+      throw new Error(
+        "Bridge lifecycle canonical cursor commit block hash changed after scan"
+      )
+    }
 
     if (this.options.requireCursorBlockHash === true) {
-      const currentCursorBlockHash = await resolveBridgeBlockHash(
+      const sourceCursorBlockHash = await resolveBridgeBlockHash(
         this.bridge,
         pendingCursorBlock,
-        "Bridge lifecycle cursor commit block"
+        "Bridge lifecycle source cursor commit block"
       )
 
-      if (
-        pendingCursorBlockHash !== undefined &&
-        currentCursorBlockHash !== pendingCursorBlockHash
-      ) {
+      if (sourceCursorBlockHash !== currentCanonicalBlockHash) {
         throw new Error(
-          "Bridge lifecycle cursor commit block hash changed after scan"
+          "Bridge lifecycle source cursor commit block hash does not match the independent canonical view"
         )
       }
 
-      cursor.lastScannedBlockHash = currentCursorBlockHash
+      cursor.lastScannedBlockHash = currentCanonicalBlockHash
     }
 
     await this.options.scanCursorStore.saveBridgeLifecycleScanCursor(cursor)
@@ -260,12 +427,33 @@ export class EthersP2TRSignatureFraudBridgeLifecycleEventSource
       blockRange.fromBlock,
       blockRange.toBlock
     )
+    const expectedEmitter = normalizeEthereumAddress(
+      contract.address,
+      `${contractName} contract address`
+    )
 
-    return logs.map((log) => {
-      validateLifecycleLogMetadata(log)
+    return Promise.all(
+      logs.map(async (log) => {
+        const canonicalLog = normalizeCanonicalLifecycleLog(
+          log,
+          expectedEmitter
+        )
+        const isCanonical =
+          await this.options.canonicalLogVerifier.verifyLifecycleLog({
+            eventName,
+            expectedEmitter,
+            log: canonicalLog,
+          })
 
-      return { ...log, lifecycleType }
-    })
+        if (!isCanonical) {
+          throw new Error(
+            `${contractName} ${eventName} log is not independently canonical`
+          )
+        }
+
+        return { ...canonicalLog, lifecycleType }
+      })
+    )
   }
 
   private toWatchtowerEvents(
@@ -382,6 +570,7 @@ async function resolveBridgeLifecycleBlockRange(
       ? undefined
       : await resolveCursorFromBlock(
           bridge,
+          options.canonicalLogVerifier,
           options.scanCursorStore,
           options.cursorOverlapBlocks ?? 0,
           options.requireCursorBlockHash ?? false
@@ -390,7 +579,11 @@ async function resolveBridgeLifecycleBlockRange(
     options.toBlock ??
     (options.confirmationDepth === undefined
       ? undefined
-      : await resolveConfirmedToBlock(bridge, options.confirmationDepth))
+      : await resolveConfirmedToBlock(
+          bridge,
+          options.canonicalLogVerifier,
+          options.confirmationDepth
+        ))
 
   if (toBlock !== undefined && typeof toBlock === "number" && toBlock < 0) {
     return { isEmpty: true }
@@ -421,13 +614,31 @@ async function resolveBridgeLifecycleBlockRange(
 
   const cursorBlock = typeof toBlock === "number" ? toBlock : undefined
   const cursorBlockHash =
-    options.requireCursorBlockHash === true && cursorBlock !== undefined
-      ? await resolveBridgeBlockHash(
-          bridge,
+    options.scanCursorStore !== undefined && cursorBlock !== undefined
+      ? await resolveCanonicalBridgeBlockHash(
+          options.canonicalLogVerifier,
           cursorBlock,
-          "Bridge lifecycle cursor scan boundary block"
+          "Bridge lifecycle canonical cursor scan boundary block"
         )
       : undefined
+
+  if (
+    options.requireCursorBlockHash === true &&
+    cursorBlock !== undefined &&
+    cursorBlockHash !== undefined
+  ) {
+    const sourceCursorBlockHash = await resolveBridgeBlockHash(
+      bridge,
+      cursorBlock,
+      "Bridge lifecycle source cursor scan boundary block"
+    )
+
+    if (sourceCursorBlockHash !== cursorBlockHash) {
+      throw new Error(
+        "Bridge lifecycle source cursor scan boundary block hash does not match the independent canonical view"
+      )
+    }
+  }
 
   return {
     isEmpty: false,
@@ -440,6 +651,7 @@ async function resolveBridgeLifecycleBlockRange(
 
 async function resolveConfirmedToBlock(
   bridge: P2TREthersBridgeLifecycleContract,
+  canonicalLogVerifier: P2TRCanonicalBridgeLifecycleLogVerifier,
   confirmationDepth: number
 ): Promise<number> {
   if (bridge.provider === undefined) {
@@ -448,11 +660,19 @@ async function resolveConfirmedToBlock(
     )
   }
 
-  return (await bridge.provider.getBlockNumber()) - confirmationDepth
+  const [sourceHead, canonicalHead] = await Promise.all([
+    bridge.provider.getBlockNumber(),
+    canonicalLogVerifier.getBlockNumber(),
+  ])
+  validateBlockHead(sourceHead, "Bridge lifecycle source head")
+  validateBlockHead(canonicalHead, "Bridge lifecycle canonical verifier head")
+
+  return Math.min(sourceHead, canonicalHead) - confirmationDepth
 }
 
 async function resolveCursorFromBlock(
   bridge: P2TREthersBridgeLifecycleContract,
+  canonicalLogVerifier: P2TRCanonicalBridgeLifecycleLogVerifier,
   cursorStore: P2TRBridgeLifecycleScanCursorStore,
   cursorOverlapBlocks: number,
   requireCursorBlockHash: boolean
@@ -470,13 +690,19 @@ async function resolveCursorFromBlock(
     throw new Error("Bridge lifecycle scan cursor must be non-negative")
   }
 
-  await validateCursorBlockHash(bridge, cursor, requireCursorBlockHash)
+  await validateCursorBlockHash(
+    bridge,
+    canonicalLogVerifier,
+    cursor,
+    requireCursorBlockHash
+  )
 
   return Math.max(0, cursor.lastScannedBlock + 1 - cursorOverlapBlocks)
 }
 
 async function validateCursorBlockHash(
   bridge: P2TREthersBridgeLifecycleContract,
+  canonicalLogVerifier: P2TRCanonicalBridgeLifecycleLogVerifier,
   cursor: P2TRBridgeLifecycleScanCursor,
   requireCursorBlockHash: boolean
 ): Promise<void> {
@@ -492,14 +718,28 @@ async function validateCursorBlockHash(
     cursor.lastScannedBlockHash,
     "Bridge lifecycle scan cursor block hash"
   )
-  const currentBlockHash = await resolveBridgeBlockHash(
-    bridge,
+  const currentBlockHash = await resolveCanonicalBridgeBlockHash(
+    canonicalLogVerifier,
     cursor.lastScannedBlock,
-    "Bridge lifecycle scan cursor block"
+    "Bridge lifecycle canonical scan cursor block"
   )
 
   if (currentBlockHash !== expectedBlockHash) {
     throw new Error("Bridge lifecycle scan cursor block hash mismatch")
+  }
+
+  if (requireCursorBlockHash) {
+    const sourceBlockHash = await resolveBridgeBlockHash(
+      bridge,
+      cursor.lastScannedBlock,
+      "Bridge lifecycle source scan cursor block"
+    )
+
+    if (sourceBlockHash !== currentBlockHash) {
+      throw new Error(
+        "Bridge lifecycle source scan cursor block hash does not match the independent canonical view"
+      )
+    }
   }
 }
 
@@ -515,6 +755,74 @@ async function resolveBridgeBlockHash(
   }
 
   return normalizeFixedBytes32(block.hash, `${label} hash`)
+}
+
+async function resolveCanonicalBridgeBlockHash(
+  verifier: P2TRCanonicalBridgeLifecycleLogVerifier,
+  blockNumber: number,
+  label: string
+): Promise<string> {
+  return normalizeFixedBytes32(
+    await verifier.getCanonicalBlockHash(blockNumber),
+    `${label} hash`
+  )
+}
+
+function validateBlockHead(blockNumber: number, label: string): void {
+  if (!Number.isInteger(blockNumber) || blockNumber < 0) {
+    throw new Error(`${label} must be a non-negative integer`)
+  }
+}
+
+function requireLifecycleSourceOptions(
+  options: EthersP2TRSignatureFraudBridgeLifecycleEventSourceOptions | undefined
+): EthersP2TRSignatureFraudBridgeLifecycleEventSourceOptions {
+  if (options === undefined) {
+    throw new Error(
+      "Bridge lifecycle event source requires independent canonical verification options"
+    )
+  }
+
+  return options
+}
+
+function validateCanonicalVerificationOptions(
+  options: EthersP2TRSignatureFraudBridgeLifecycleEventSourceOptions
+): void {
+  const sourceTrustDomainID = normalizeTrustDomainID(
+    options.sourceTrustDomainID,
+    "Bridge lifecycle source trust-domain ID"
+  )
+  const verifier = options.canonicalLogVerifier
+
+  if (
+    verifier === undefined ||
+    typeof verifier.verifyLifecycleLog !== "function" ||
+    typeof verifier.getBlockNumber !== "function" ||
+    typeof verifier.getCanonicalBlockHash !== "function"
+  ) {
+    throw new Error(
+      "Bridge lifecycle event source requires an independent canonical-log verifier"
+    )
+  }
+
+  const verifierTrustDomainID = normalizeTrustDomainID(
+    verifier.trustDomainID,
+    "Bridge lifecycle canonical verifier trust-domain ID"
+  )
+  if (sourceTrustDomainID === verifierTrustDomainID) {
+    throw new Error(
+      "Bridge lifecycle source and canonical verifier must use different trust domains"
+    )
+  }
+}
+
+function normalizeTrustDomainID(value: string, label: string): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error(`${label} must be non-empty`)
+  }
+
+  return value.trim()
 }
 
 function validateBlockRangeOptions(
@@ -635,27 +943,123 @@ function compareP2TRBridgeLifecycleLogs(
   return left.lifecycleType.localeCompare(right.lifecycleType)
 }
 
-function validateLifecycleLogMetadata(
-  log: P2TREthersBridgeLifecycleEventLog
-): void {
-  validateOptionalLogPosition(
+function normalizeCanonicalLifecycleLog(
+  log: P2TREthersBridgeLifecycleEventLog,
+  expectedEmitter: string
+): P2TRCanonicalBridgeLifecycleEventLog {
+  const blockNumber = requireLogPosition(
     log.blockNumber,
     "Bridge lifecycle event block number"
   )
-  validateOptionalLogPosition(log.logIndex, "Bridge lifecycle event log index")
+  const logIndex = requireLogPosition(
+    log.logIndex,
+    "Bridge lifecycle event log index"
+  )
+  const address = normalizeEthereumAddress(
+    log.address,
+    "Bridge lifecycle event emitter"
+  )
+  if (address !== expectedEmitter) {
+    throw new Error(
+      "Bridge lifecycle event emitter does not match the queried contract"
+    )
+  }
+  if (log.removed === true) {
+    throw new Error("Bridge lifecycle event was removed from the source view")
+  }
+  if (!Array.isArray(log.topics) || log.topics.length === 0) {
+    throw new Error("Bridge lifecycle event topics are required")
+  }
+
+  return {
+    ...log,
+    address,
+    blockHash: normalizeFixedBytes32(
+      requireString(log.blockHash, "Bridge lifecycle event block hash"),
+      "Bridge lifecycle event block hash"
+    ),
+    blockNumber,
+    data: normalizeHexData(log.data, "Bridge lifecycle event data"),
+    logIndex,
+    removed: false,
+    topics: log.topics.map((topic, index) =>
+      normalizeFixedBytes32(
+        requireString(topic, `Bridge lifecycle event topic[${index}]`),
+        `Bridge lifecycle event topic[${index}]`
+      )
+    ),
+    transactionHash: normalizeFixedBytes32(
+      log.transactionHash,
+      "Bridge lifecycle transaction hash"
+    ),
+  }
 }
 
-function validateOptionalLogPosition(
-  value: number | undefined,
-  label: string
-): void {
-  if (value === undefined) {
-    return
-  }
+function canonicalReceiptLogMatches(
+  receiptLog: P2TREthersBridgeLifecycleEventLog,
+  expectedEmitter: string,
+  sourceLog: P2TRCanonicalBridgeLifecycleEventLog
+): boolean {
+  try {
+    const canonicalReceiptLog = normalizeCanonicalLifecycleLog(
+      receiptLog,
+      expectedEmitter
+    )
 
-  if (!Number.isInteger(value) || value < 0) {
+    return (
+      canonicalReceiptLog.address === sourceLog.address &&
+      canonicalReceiptLog.blockHash === sourceLog.blockHash &&
+      canonicalReceiptLog.blockNumber === sourceLog.blockNumber &&
+      canonicalReceiptLog.data === sourceLog.data &&
+      canonicalReceiptLog.logIndex === sourceLog.logIndex &&
+      canonicalReceiptLog.transactionHash === sourceLog.transactionHash &&
+      canonicalReceiptLog.topics.length === sourceLog.topics.length &&
+      canonicalReceiptLog.topics.every(
+        (topic, index) => topic === sourceLog.topics[index]
+      )
+    )
+  } catch {
+    return false
+  }
+}
+
+function requireLogPosition(value: number | undefined, label: string): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
     throw new Error(`${label} must be a non-negative integer`)
   }
+
+  return value
+}
+
+function normalizeEthereumAddress(
+  value: string | undefined,
+  label: string
+): string {
+  const hex = stripHexPrefix(requireString(value, label), label)
+
+  if (hex.length !== 40) {
+    throw new Error(`${label} must be 20 bytes`)
+  }
+
+  return `0x${hex}`
+}
+
+function normalizeHexData(value: string | undefined, label: string): string {
+  const hex = stripHexPrefix(requireString(value, label), label)
+
+  if (hex.length % 2 !== 0) {
+    throw new Error(`${label} must contain whole bytes`)
+  }
+
+  return `0x${hex}`
+}
+
+function requireString(value: unknown, label: string): string {
+  if (typeof value !== "string") {
+    throw new Error(`${label} is required`)
+  }
+
+  return value
 }
 
 function extractChallengeKey(log: P2TREthersBridgeLifecycleEventLog): unknown {

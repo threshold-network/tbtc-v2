@@ -535,10 +535,16 @@ test("wires file-backed Bridge lifecycle source config into an Ethers source", a
   }[] = []
 
   try {
+    const bridgeAddress = `0x${"44".repeat(20)}`
+    const lifecycleBlockHash = `0x${"77".repeat(32)}`
     const bridge: P2TREthersBridgeLifecycleContract = {
+      address: bridgeAddress,
       provider: {
         async getBlockNumber() {
           return 150
+        },
+        async getBlock() {
+          return { hash: lifecycleBlockHash }
         },
       },
       filters: {
@@ -563,8 +569,13 @@ test("wires file-backed Bridge lifecycle source config into an Ethers source", a
               sighash: `0x${"33".repeat(32)}`,
             },
             transactionHash: `0x${"66".repeat(32)}`,
+            address: bridgeAddress,
+            blockHash: lifecycleBlockHash,
             blockNumber: 138,
+            data: "0x",
             logIndex: 0,
+            removed: false,
+            topics: [`0x${"55".repeat(32)}`],
           },
         ]
       },
@@ -578,6 +589,21 @@ test("wires file-backed Bridge lifecycle source config into an Ethers source", a
         confirmationDepth: 12,
         maxBlockRange: 200,
         cursorOverlapBlocks: 6,
+      },
+      {
+        sourceTrustDomainID: "indexer.test",
+        canonicalLogVerifier: {
+          trustDomainID: "canonical.test",
+          async getBlockNumber() {
+            return 150
+          },
+          async getCanonicalBlockHash() {
+            return lifecycleBlockHash
+          },
+          async verifyLifecycleLog() {
+            return true
+          },
+        },
       }
     )
 
@@ -769,6 +795,96 @@ test("replays stored rejected challenges during a service cycle after restart", 
     const [storedRecord] = await persistence.loadChallengeRecords()
     assert.equal(storedRecord.status, "submitted")
     assert.equal(storedRecord.challengeTxHash, "ab".repeat(32))
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test("keeps rejected challenges replayable when lifecycle verification fails", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "p2tr-watchtower-"))
+  const statePath = join(directory, "records.json")
+
+  try {
+    const vector = loadFirstSignatureFraudVector()
+    const [observation] = extractP2TRSignatureFraudWitnessObservations(
+      withInputWitness(
+        vector.unsignedTransactionHex,
+        vector.signedInputIndex,
+        vector.witnessSignatureHex
+      ),
+      vector.prevouts.map((prevout) => ({
+        txid: prevout.txidHex,
+        vout: prevout.vout,
+        valueSats: prevout.valueSats,
+        scriptPubKey: prevout.scriptPubKeyHex,
+      })),
+      [vector.walletIDHex],
+      undefined,
+      () => P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
+      draftPayloadBounds,
+      draftBridgeChallengeDomain
+    )
+    const persistence = new FileBackedP2TRWatchtowerChallengeRecordPersistence(
+      statePath
+    )
+    await persistence.saveChallengeRecords([
+      serializeP2TRWatchtowerChallengeRecord({
+        ...createP2TRWatchtowerChallengeRecord(observation.observationID),
+        observation: {
+          ...observation,
+          spendType: P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
+        },
+        status: "rejected",
+        submissionAttempts: 1,
+        lastError: "temporary submitter outage",
+      }),
+    ])
+
+    let submissionCount = 0
+    const service = new P2TRSignatureFraudWatchtowerService(
+      {
+        registeredWalletIDs: [vector.walletIDHex],
+        submitChallenges: true,
+        ...draftSingleProcessRehearsalSubmission,
+        maxSubmissionAttempts: 5,
+        submissionAttemptLimitAlert: draftSubmissionAttemptLimitAlert,
+        submissionPolicy: draftRedemptionSubmissionPolicy,
+        payloadBounds: draftPayloadBounds,
+        bridgeChallengeDomain: draftBridgeChallengeDomain,
+        spendTypeClassifier: () => P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
+      },
+      {
+        bitcoinClient: {} as BitcoinClient,
+        challengeSubmitter: {
+          p2trSignatureFraudWatchtowerIdempotentSubmissions: true,
+          async submitSignatureFraudChallenge() {
+            submissionCount++
+            throw new Error("temporary submitter outage")
+          },
+        },
+        transactionSource: emptyTransactionSource,
+        bridgeLifecycleEventSource: {
+          async listBridgeLifecycleEvents() {
+            throw new Error(
+              "P2TR signature fraud router log is not independently canonical"
+            )
+          },
+        },
+        persistence,
+      }
+    )
+
+    const firstReport = await service.processCycle()
+    const secondReport = await service.processCycle()
+
+    assert.equal(firstReport.metrics.replayedRecords, 1)
+    assert.equal(secondReport.metrics.replayedRecords, 1)
+    assert.equal(firstReport.metrics.sourceFailures, 1)
+    assert.equal(secondReport.metrics.sourceFailures, 1)
+    assert.equal(submissionCount, 2)
+    const [storedRecord] = await persistence.loadChallengeRecords()
+    assert.equal(storedRecord.status, "rejected")
+    assert.equal(storedRecord.submissionAttempts, 3)
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
