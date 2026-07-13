@@ -11,8 +11,9 @@ import {
   toBitcoinJsLibNetwork,
 } from "../../lib/bitcoin"
 import { BigNumber } from "ethers"
-import { Psbt, Transaction } from "bitcoinjs-lib"
+import { Psbt } from "bitcoinjs-lib"
 import { Hex } from "../../lib/utils"
+import { resolveBitcoinUtxo, validateTransactionFee } from "./utxo"
 
 /**
  * Component allowing to craft and submit the Bitcoin funding transaction using
@@ -85,9 +86,8 @@ export class DepositFunding {
     let skippedUnsupportedUtxos = 0
 
     for (const utxo of inputUtxos) {
-      const previousOutput = Transaction.fromHex(utxo.transactionHex).outs[
-        utxo.outputIndex
-      ]
+      const { output: previousOutput, value: authoritativeValue } =
+        resolveBitcoinUtxo(utxo)
       const previousOutputValue = previousOutput.value
       const previousOutputScript = previousOutput.script
 
@@ -101,7 +101,7 @@ export class DepositFunding {
           },
         })
 
-        totalInputValue = totalInputValue.add(utxo.value)
+        totalInputValue = totalInputValue.add(authoritativeValue)
         if (totalInputValue.gte(totalExpenses)) {
           break
         }
@@ -114,7 +114,7 @@ export class DepositFunding {
           nonWitnessUtxo: Buffer.from(utxo.transactionHex, "hex"),
         })
 
-        totalInputValue = totalInputValue.add(utxo.value)
+        totalInputValue = totalInputValue.add(authoritativeValue)
         if (totalInputValue.gte(totalExpenses)) {
           break
         }
@@ -158,6 +158,7 @@ export class DepositFunding {
     psbt.finalizeAllInputs()
 
     const transaction = psbt.extractTransaction()
+    validateTransactionFee(transaction, totalInputValue, fee)
     const transactionHash = BitcoinTxHash.from(transaction.getId())
 
     return {
