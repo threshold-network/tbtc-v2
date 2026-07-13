@@ -102,10 +102,10 @@ ___
 
 ### depositRefundLocktimeDuration
 
-• `Private` `Readonly` **depositRefundLocktimeDuration**: ``23328000``
+• `Private` `Readonly` **depositRefundLocktimeDuration**: ``15552000``
 
 Deposit refund locktime duration in seconds.
-This is 9 month in seconds assuming 1 month = 30 days
+This is 180 days (6 months assuming 1 month = 30 days).
 
 #### Defined in
 

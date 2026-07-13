@@ -24,9 +24,9 @@ import { CrossChainDepositor } from "./cross-chain"
 export class DepositsService {
   /**
    * Deposit refund locktime duration in seconds.
-   * This is 9 month in seconds assuming 1 month = 30 days
+   * This is 180 days (6 months assuming 1 month = 30 days).
    */
-  private readonly depositRefundLocktimeDuration = 23328000
+  private readonly depositRefundLocktimeDuration = 15552000
   /**
    * Handle to tBTC contracts.
    */
