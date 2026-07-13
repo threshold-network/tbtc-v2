@@ -210,8 +210,11 @@ function buildVerificationChecks(addresses: {
   rebateStakingProxy: string
   rebateImpl: string
   depositLib: string
+  depositSweepLib: string
   redemptionLib: string
+  walletsLib: string
   fraudLib: string
+  movingFundsLib: string
 }): VerificationCheck[] {
   return [
     {
@@ -224,11 +227,14 @@ function buildVerificationChecks(addresses: {
       command: `cast code ${addresses.bridgeImpl}`,
       expectedResult:
         "Bytecode should contain embedded library address fragments: " +
-        `${addresses.depositLib.slice(2).toLowerCase()} (Deposit) and ` +
-        `${addresses.redemptionLib.slice(2).toLowerCase()} (Redemption) and ` +
-        `${addresses.fraudLib.slice(2).toLowerCase()} (Fraud)`,
+        `${addresses.depositLib.slice(2).toLowerCase()} (Deposit), ` +
+        `${addresses.depositSweepLib.slice(2).toLowerCase()} (DepositSweep), ` +
+        `${addresses.redemptionLib.slice(2).toLowerCase()} (Redemption), ` +
+        `${addresses.walletsLib.slice(2).toLowerCase()} (Wallets), ` +
+        `${addresses.fraudLib.slice(2).toLowerCase()} (Fraud), and ` +
+        `${addresses.movingFundsLib.slice(2).toLowerCase()} (MovingFunds)`,
       description:
-        "Bridge implementation bytecode should contain embedded addresses of new Deposit, Redemption, and Fraud libraries",
+        "Bridge implementation bytecode should contain embedded addresses of all six current Bridge libraries",
     },
     {
       command: `cast call ${addresses.bridgeProxy} "deposits(uint256)(bytes32,uint32,uint64,uint32,address,uint32)" <sample_deposit_key>`,
@@ -310,27 +316,19 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log(`Network: ${hre.network.name}`)
   console.log(`Deployer: ${deployer}`)
 
-  // --- Step 1: Deploy new library versions ---
-  // Deposit has rebate integration changes; Redemption has the balanceOwner
-  // fix; Fraud contains the legacy challenge migration entrypoint. All three
-  // require deployments from the current source before linking Bridge.
-  console.log("\n--- Deploying updated libraries ---")
+  // --- Step 1: Deploy current Bridge library versions ---
+  // The implementation is compiled from the current checkout, so every
+  // external library must be deployed from the same source before linking.
+  console.log("\n--- Deploying current Bridge libraries ---")
   const Deposit = await deploy("Deposit", deployOptions)
+  const DepositSweep = await deploy("DepositSweep", deployOptions)
   const Redemption = await deploy("Redemption", deployOptions)
+  const Wallets = await deploy("Wallets", {
+    contract: "contracts/bridge/Wallets.sol:Wallets",
+    ...deployOptions,
+  })
   const Fraud = await deploy("Fraud", deployOptions)
-
-  // --- Step 2: Resolve unchanged existing libraries ---
-  // These libraries have NOT changed since last deployment and are reused
-  // from existing deployment artifacts.
-  console.log("\n--- Resolving existing libraries ---")
-  const DepositSweep = await get("DepositSweep")
-  const Wallets = await get("Wallets")
-  const MovingFunds = await get("MovingFunds")
-
-  console.log("Existing library addresses:")
-  console.log(`  DepositSweep: ${DepositSweep.address}`)
-  console.log(`  Wallets:      ${Wallets.address}`)
-  console.log(`  MovingFunds:  ${MovingFunds.address}`)
+  const MovingFunds = await deploy("MovingFunds", deployOptions)
 
   // --- Step 3: Deploy Bridge implementation ---
   // Uses a distinct artifact name to avoid overwriting the existing Bridge
@@ -368,8 +366,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log(`\n${"-".repeat(80)}`)
   console.log("Deployed contract addresses:")
   console.log(`  Deposit library:              ${Deposit.address}`)
+  console.log(`  DepositSweep library:         ${DepositSweep.address}`)
   console.log(`  Redemption library:           ${Redemption.address}`)
+  console.log(`  Wallets library:              ${Wallets.address}`)
   console.log(`  Fraud library:                ${Fraud.address}`)
+  console.log(`  MovingFunds library:          ${MovingFunds.address}`)
   console.log(`  Bridge implementation:        ${bridgeImpl.address}`)
   console.log(`  RebateStaking implementation: ${rebateImpl.address}`)
   console.log("-".repeat(80))
@@ -481,8 +482,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     chainId,
     deployedContracts: {
       Deposit: Deposit.address,
+      DepositSweep: DepositSweep.address,
       Redemption: Redemption.address,
+      Wallets: Wallets.address,
       Fraud: Fraud.address,
+      MovingFunds: MovingFunds.address,
       BridgeTIP109Implementation: bridgeImpl.address,
       RebateStakingTIP109Implementation: rebateImpl.address,
     },
@@ -534,8 +538,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       rebateStakingProxy: RebateStaking.address,
       rebateImpl: rebateImpl.address,
       depositLib: Deposit.address,
+      depositSweepLib: DepositSweep.address,
       redemptionLib: Redemption.address,
+      walletsLib: Wallets.address,
       fraudLib: Fraud.address,
+      movingFundsLib: MovingFunds.address,
     }),
   }
 
@@ -636,14 +643,29 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
             label: "Deposit",
           },
           {
+            address: DepositSweep.address,
+            name: "contracts/bridge/DepositSweep.sol:DepositSweep",
+            label: "DepositSweep",
+          },
+          {
             address: Redemption.address,
             name: "contracts/bridge/Redemption.sol:Redemption",
             label: "Redemption",
           },
           {
+            address: Wallets.address,
+            name: "contracts/bridge/Wallets.sol:Wallets",
+            label: "Wallets",
+          },
+          {
             address: Fraud.address,
             name: "contracts/bridge/Fraud.sol:Fraud",
             label: "Fraud",
+          },
+          {
+            address: MovingFunds.address,
+            name: "contracts/bridge/MovingFunds.sol:MovingFunds",
+            label: "MovingFunds",
           },
           {
             address: bridgeImpl.address,
