@@ -440,7 +440,6 @@ contract P2TRSignatureFraudRouter {
         );
 
         challenge.resolved = true;
-        _decrementOpenFraudChallengeCount(context.challengeKey);
 
         // The return value is intentionally ignored: a reverting
         // challenger fallback self-griefs the refund but must not block
@@ -457,6 +456,10 @@ contract P2TRSignatureFraudRouter {
             walletMembersIDs,
             challenge.challenger
         );
+
+        // Keep the per-wallet counter as the graceful-closure lock across
+        // the untrusted refund and Bridge slashing callbacks.
+        _decrementOpenFraudChallengeCount(context.challengeKey);
 
         emit P2TRSignatureFraudChallengeDefeatTimedOut(
             payload.walletID,
