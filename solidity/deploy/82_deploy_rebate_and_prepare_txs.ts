@@ -5,7 +5,7 @@ import path from "path"
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { ethers, helpers, deployments, getNamedAccounts } = hre
-  const { get, deploy } = deployments
+  const { deploy } = deployments
   const { deployer } = await getNamedAccounts()
 
   console.log("\n========== REBATE DEPLOYMENT STARTING ==========")
@@ -104,34 +104,40 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     console.log("✓ RebateStaking deployed at:", rebateStaking.address)
   }
 
-  // Step 2: Use existing libraries for Bridge
-  console.log("\nStep 2: Using existing libraries...")
-
-  const Deposit = await get("Deposit")
-  const Redemption = await get("Redemption")
-
-  console.log("✓ Using existing Deposit library at:", Deposit.address)
-  console.log("✓ Using existing Redemption library at:", Redemption.address)
-
-  // Step 3: Resolve existing libraries and deploy the current Fraud library.
-  // Fraud contains the legacy challenge migration entrypoint used by the
-  // current Bridge implementation. Linking a historical deployment would
-  // leave that selector unavailable.
-  console.log("\nStep 3: Collecting Bridge libraries...")
-
-  const DepositSweep = await get("DepositSweep")
-  const Wallets = await get("Wallets")
-  const Fraud = await deploy("Fraud", {
+  const libraryDeployOptions = {
     from: deployer,
     log: true,
     waitConfirmations: 1,
-  })
-  const MovingFunds = await get("MovingFunds")
+  }
 
-  console.log("✓ Using existing DepositSweep at:", DepositSweep.address)
-  console.log("✓ Using existing Wallets at:", Wallets.address)
+  // Step 2: Deploy the current Deposit and Redemption libraries.
+  // This script builds Bridge from the checked-out source, so every linked
+  // library must come from that same source tree.
+  console.log("\nStep 2: Deploying current Bridge libraries...")
+
+  const Deposit = await deploy("Deposit", libraryDeployOptions)
+  const Redemption = await deploy("Redemption", libraryDeployOptions)
+
+  console.log("✓ Using current Deposit library at:", Deposit.address)
+  console.log("✓ Using current Redemption library at:", Redemption.address)
+
+  // Step 3: Deploy the remaining current Bridge libraries. Wallets uses a
+  // fully-qualified contract name to avoid the Wallets interface/library name
+  // collision. Fraud contains the legacy challenge migration entrypoint.
+  console.log("\nStep 3: Deploying remaining current Bridge libraries...")
+
+  const DepositSweep = await deploy("DepositSweep", libraryDeployOptions)
+  const Wallets = await deploy("Wallets", {
+    contract: "contracts/bridge/Wallets.sol:Wallets",
+    ...libraryDeployOptions,
+  })
+  const Fraud = await deploy("Fraud", libraryDeployOptions)
+  const MovingFunds = await deploy("MovingFunds", libraryDeployOptions)
+
+  console.log("✓ Using current DepositSweep at:", DepositSweep.address)
+  console.log("✓ Using current Wallets at:", Wallets.address)
   console.log("✓ Using current Fraud at:", Fraud.address)
-  console.log("✓ Using existing MovingFunds at:", MovingFunds.address)
+  console.log("✓ Using current MovingFunds at:", MovingFunds.address)
 
   // Step 4: Deploy Bridge implementation
   console.log("\nStep 4: Deploying Bridge implementation...")
@@ -253,8 +259,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     deployedContracts: {
       rebateStaking: rebateStaking.address,
       depositLibrary: Deposit.address,
+      depositSweepLibrary: DepositSweep.address,
       redemptionLibrary: Redemption.address,
+      walletsLibrary: Wallets.address,
       fraudLibrary: Fraud.address,
+      movingFundsLibrary: MovingFunds.address,
       bridgeImplementation: bridgeImplementation.address,
     },
     existingContracts: {
@@ -315,8 +324,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log("\nDEPLOYED CONTRACTS:")
   console.log("  RebateStaking:         ", rebateStaking.address)
   console.log("  Deposit Library:       ", Deposit.address)
+  console.log("  DepositSweep Library:  ", DepositSweep.address)
   console.log("  Redemption Library:    ", Redemption.address)
+  console.log("  Wallets Library:       ", Wallets.address)
   console.log("  Fraud Library:         ", Fraud.address)
+  console.log("  MovingFunds Library:   ", MovingFunds.address)
   console.log("  Bridge Implementation: ", bridgeImplementation.address)
 
   console.log("\n================================================")
@@ -354,8 +366,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     console.log("Verifying contracts on Etherscan...")
 
     await helpers.etherscan.verify(Deposit)
+    await helpers.etherscan.verify(DepositSweep)
     await helpers.etherscan.verify(Redemption)
+    await helpers.etherscan.verify(Wallets)
     await helpers.etherscan.verify(Fraud)
+    await helpers.etherscan.verify(MovingFunds)
 
     await hre.run("verify", {
       address: rebateProxyDeployment.address,
@@ -387,8 +402,33 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // Verify on Tenderly if applicable
   if (hre.network.tags.tenderly) {
     await hre.tenderly.verify({
+      name: "Deposit",
+      address: Deposit.address,
+    })
+
+    await hre.tenderly.verify({
+      name: "DepositSweep",
+      address: DepositSweep.address,
+    })
+
+    await hre.tenderly.verify({
+      name: "Redemption",
+      address: Redemption.address,
+    })
+
+    await hre.tenderly.verify({
+      name: "Wallets",
+      address: Wallets.address,
+    })
+
+    await hre.tenderly.verify({
       name: "Fraud",
       address: Fraud.address,
+    })
+
+    await hre.tenderly.verify({
+      name: "MovingFunds",
+      address: MovingFunds.address,
     })
 
     await hre.tenderly.verify({
@@ -406,5 +446,6 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 export default func
 
 func.tags = ["DeployRebateAndPrepareTxs"]
-// Dependencies removed to avoid redeploying existing mainnet contracts
+// Dependencies remain removed so standalone live-network execution does not
+// rerun the full Bridge deployment chain.
 // func.dependencies = ["Bridge", "BridgeGovernance"]

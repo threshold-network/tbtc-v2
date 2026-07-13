@@ -35,16 +35,16 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
   // Address maps shared by all mock HRE instances.
   const deployAddressMap: Record<string, string> = {
     Deposit: DEPOSIT_ADDRESS,
+    DepositSweep: DEPOSIT_SWEEP_ADDRESS,
     Redemption: REDEMPTION_ADDRESS,
+    Wallets: WALLETS_ADDRESS,
     Fraud: FRAUD_ADDRESS,
+    MovingFunds: MOVING_FUNDS_ADDRESS,
     BridgeTIP109Implementation: BRIDGE_IMPL_ADDRESS,
     RebateStakingTIP109Implementation: REBATE_IMPL_ADDRESS,
   }
 
   const getAddressMap: Record<string, string> = {
-    DepositSweep: DEPOSIT_SWEEP_ADDRESS,
-    Wallets: WALLETS_ADDRESS,
-    MovingFunds: MOVING_FUNDS_ADDRESS,
     Bridge: BRIDGE_PROXY_ADDRESS,
     RebateStaking: REBATE_STAKING_PROXY_ADDRESS,
     BridgeGovernance: BRIDGE_GOV_ADDRESS,
@@ -211,6 +211,18 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         expect(depositCall!.options.waitConfirmations).to.equal(1)
       })
 
+      it("should deploy DepositSweep library with correct options", async () => {
+        await func(mockHre)
+
+        const depositSweepCall = deployCalls.find(
+          (c) => c.name === "DepositSweep"
+        )
+        expect(depositSweepCall).to.not.be.undefined
+        expect(depositSweepCall!.options.from).to.equal(DEPLOYER_ADDRESS)
+        expect(depositSweepCall!.options.log).to.be.true
+        expect(depositSweepCall!.options.waitConfirmations).to.equal(1)
+      })
+
       it("should deploy Redemption library with correct options", async () => {
         await func(mockHre)
 
@@ -219,6 +231,19 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         expect(redemptionCall!.options.from).to.equal(DEPLOYER_ADDRESS)
         expect(redemptionCall!.options.log).to.be.true
         expect(redemptionCall!.options.waitConfirmations).to.equal(1)
+      })
+
+      it("should deploy local Wallets library with correct options", async () => {
+        await func(mockHre)
+
+        const walletsCall = deployCalls.find((c) => c.name === "Wallets")
+        expect(walletsCall).to.not.be.undefined
+        expect(walletsCall!.options.contract).to.equal(
+          "contracts/bridge/Wallets.sol:Wallets"
+        )
+        expect(walletsCall!.options.from).to.equal(DEPLOYER_ADDRESS)
+        expect(walletsCall!.options.log).to.be.true
+        expect(walletsCall!.options.waitConfirmations).to.equal(1)
       })
 
       it("should deploy Fraud library with correct options", async () => {
@@ -231,22 +256,41 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         expect(fraudCall!.options.waitConfirmations).to.equal(1)
       })
 
-      it("should resolve existing libraries via deployments.get()", async () => {
+      it("should deploy MovingFunds library with correct options", async () => {
         await func(mockHre)
 
-        const expectedLibraries = ["DepositSweep", "Wallets", "MovingFunds"]
+        const movingFundsCall = deployCalls.find(
+          (c) => c.name === "MovingFunds"
+        )
+        expect(movingFundsCall).to.not.be.undefined
+        expect(movingFundsCall!.options.from).to.equal(DEPLOYER_ADDRESS)
+        expect(movingFundsCall!.options.log).to.be.true
+        expect(movingFundsCall!.options.waitConfirmations).to.equal(1)
+      })
+
+      it("should never resolve Bridge libraries via deployments.get()", async () => {
+        await func(mockHre)
+
+        const bridgeLibraries = [
+          "Deposit",
+          "DepositSweep",
+          "Redemption",
+          "Wallets",
+          "Fraud",
+          "MovingFunds",
+        ]
         const getNames = getCalls.map((c) => c.name)
 
-        expectedLibraries.forEach((lib) => {
-          expect(getNames).to.include(
-            lib,
-            `Expected deployments.get() to be called with "${lib}"`
+        bridgeLibraries.forEach((library) => {
+          expect(getNames).to.not.include(
+            library,
+            `${library} must be deployed from current source`
           )
         })
-        expect(getNames).to.not.include(
-          "Fraud",
-          "Fraud must be deployed from current source, not resolved as an existing library"
-        )
+
+        expect(getNames).to.include("Bridge")
+        expect(getNames).to.include("RebateStaking")
+        expect(getNames).to.include("BridgeGovernance")
       })
 
       it("should deploy Bridge implementation with distinct artifact name", async () => {
@@ -345,13 +389,28 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
           ethers.constants.AddressZero
         )
 
+        const depositSweepArtifact = await deployments.get("DepositSweep")
+        expect(depositSweepArtifact.address).to.not.equal(
+          ethers.constants.AddressZero
+        )
+
         const redemptionArtifact = await deployments.get("Redemption")
         expect(redemptionArtifact.address).to.not.equal(
           ethers.constants.AddressZero
         )
 
+        const walletsArtifact = await deployments.get("Wallets")
+        expect(walletsArtifact.address).to.not.equal(
+          ethers.constants.AddressZero
+        )
+
         const fraudArtifact = await deployments.get("Fraud")
         expect(fraudArtifact.address).to.not.equal(ethers.constants.AddressZero)
+
+        const movingFundsArtifact = await deployments.get("MovingFunds")
+        expect(movingFundsArtifact.address).to.not.equal(
+          ethers.constants.AddressZero
+        )
 
         const bridgeImplArtifact = await deployments.get(
           "BridgeTIP109Implementation"
@@ -382,8 +441,11 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
 
           // Verify that deployed addresses appear in the console output
           const depositArtifact = await deployments.get("Deposit")
+          const depositSweepArtifact = await deployments.get("DepositSweep")
           const redemptionArtifact = await deployments.get("Redemption")
+          const walletsArtifact = await deployments.get("Wallets")
           const fraudArtifact = await deployments.get("Fraud")
+          const movingFundsArtifact = await deployments.get("MovingFunds")
           const bridgeImplArtifact = await deployments.get(
             "BridgeTIP109Implementation"
           )
@@ -392,8 +454,11 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
           )
 
           expect(allOutput).to.include(depositArtifact.address)
+          expect(allOutput).to.include(depositSweepArtifact.address)
           expect(allOutput).to.include(redemptionArtifact.address)
+          expect(allOutput).to.include(walletsArtifact.address)
           expect(allOutput).to.include(fraudArtifact.address)
+          expect(allOutput).to.include(movingFundsArtifact.address)
           expect(allOutput).to.include(bridgeImplArtifact.address)
           expect(allOutput).to.include(rebateImplArtifact.address)
         } finally {
@@ -714,14 +779,17 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
       )
     })
 
-    it("should have deployedContracts with all 5 entries", () => {
+    it("should have deployedContracts with all 8 entries", () => {
       expect(summary).to.not.be.null
       const dc = summary.deployedContracts
 
       const requiredKeys = [
         "Deposit",
+        "DepositSweep",
         "Redemption",
+        "Wallets",
         "Fraud",
+        "MovingFunds",
         "BridgeTIP109Implementation",
         "RebateStakingTIP109Implementation",
       ]
@@ -910,7 +978,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         expect(combined).to.include("56")
       })
 
-      it("should have a bytecode linkage check referencing Deposit, Redemption, and Fraud addresses", () => {
+      it("should have a bytecode linkage check referencing all six library addresses", () => {
         expect(summary).to.not.be.null
 
         const bytecodeCheck = summary.verificationChecks.find(
@@ -928,10 +996,19 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
           DEPOSIT_ADDRESS.toLowerCase().slice(2)
         )
         expect(combined.toLowerCase()).to.include(
+          DEPOSIT_SWEEP_ADDRESS.toLowerCase().slice(2)
+        )
+        expect(combined.toLowerCase()).to.include(
           REDEMPTION_ADDRESS.toLowerCase().slice(2)
         )
         expect(combined.toLowerCase()).to.include(
+          WALLETS_ADDRESS.toLowerCase().slice(2)
+        )
+        expect(combined.toLowerCase()).to.include(
           FRAUD_ADDRESS.toLowerCase().slice(2)
+        )
+        expect(combined.toLowerCase()).to.include(
+          MOVING_FUNDS_ADDRESS.toLowerCase().slice(2)
         )
       })
     })
