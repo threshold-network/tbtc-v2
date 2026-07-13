@@ -232,9 +232,11 @@ library FrostDkg {
     /// @notice Determines the current state of group creation. It doesn't take
     ///         timeouts into consideration. The timeouts should be tracked and
     ///         notified separately.
-    function currentState(
-        Data storage self
-    ) internal view returns (State state) {
+    function currentState(Data storage self)
+        internal
+        view
+        returns (State state)
+    {
         state = State.IDLE;
 
         if (self.sortitionPool.isLocked()) {
@@ -372,10 +374,10 @@ library FrostDkg {
     /// @param result Result to approve. Must match the submitted result stored
     ///        during `submitResult`.
     /// @return misbehavedMembers Identifiers of members who misbehaved during DKG.
-    function approveResult(
-        Data storage self,
-        Result calldata result
-    ) internal returns (uint32[] memory misbehavedMembers) {
+    function approveResult(Data storage self, Result calldata result)
+        internal
+        returns (uint32[] memory misbehavedMembers)
+    {
         require(
             currentState(self) == State.CHALLENGE,
             "Current state is not CHALLENGE"
@@ -433,10 +435,7 @@ library FrostDkg {
     ///        stored during `submitResult`.
     /// @return maliciousResultHash Hash of the malicious result.
     /// @return maliciousSubmitter Identifier of the malicious submitter.
-    function challengeResult(
-        Data storage self,
-        Result calldata result
-    )
+    function challengeResult(Data storage self, Result calldata result)
         internal
         returns (bytes32 maliciousResultHash, uint32 maliciousSubmitter)
     {
@@ -528,10 +527,11 @@ library FrostDkg {
     /// @param result DKG result.
     /// @return True if the result is valid. If the result is invalid it returns
     ///         false and an error message.
-    function isResultValid(
-        Data storage self,
-        Result calldata result
-    ) internal view returns (bool, string memory) {
+    function isResultValid(Data storage self, Result calldata result)
+        internal
+        view
+        returns (bool, string memory)
+    {
         require(self.startBlock > 0, "DKG has not been started");
 
         return
@@ -545,10 +545,9 @@ library FrostDkg {
     }
 
     /// @notice Set setSeedTimeout parameter.
-    function setSeedTimeout(
-        Data storage self,
-        uint256 newSeedTimeout
-    ) internal {
+    function setSeedTimeout(Data storage self, uint256 newSeedTimeout)
+        internal
+    {
         require(currentState(self) == State.IDLE, "Current state is not IDLE");
 
         require(newSeedTimeout > 0, "New value should be greater than zero");
