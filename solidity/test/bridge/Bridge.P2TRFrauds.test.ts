@@ -3,14 +3,16 @@
 import fs from "fs"
 import path from "path"
 
-import { BigNumber, ContractTransaction } from "ethers"
+import { BigNumber, ContractTransaction, Signer } from "ethers"
 import { ethers, helpers, waffle } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import chai, { expect } from "chai"
 import { FakeContract, smock } from "@defi-wonderland/smock"
 import type {
   Bridge,
+  BridgeLifecycleRouter,
   BridgeStub,
+  FrostWalletRegistryStub,
   IWalletRegistry,
   P2TRSignatureFraudRouter,
 } from "../../typechain"
@@ -78,6 +80,43 @@ const payloadType =
   "tuple(bytes32 walletID,uint32 version,uint32 locktime,tuple(bytes32 txid,uint32 vout,uint32 sequence)[] inputs,tuple(uint64 valueSats,bytes scriptPubKey)[] prevouts,tuple(uint64 valueSats,bytes scriptPubKey)[] outputs,uint32 signedInputIndex,bytes witnessSignature,bytes annex)"
 
 const hex = (value: string): string => `0x${value}`
+
+async function expectCustomError(
+  promise: Promise<unknown>,
+  errorName: string
+): Promise<void> {
+  const expectedSelector = ethers.utils.id(`${errorName}()`).slice(0, 10)
+
+  try {
+    await promise
+  } catch (err) {
+    const errAny = err as {
+      data?: string
+      message?: string
+      error?: { data?: string }
+    }
+    const revertData = errAny.data || errAny.error?.data || ""
+    const errMsg = errAny.message || String(err)
+
+    if (
+      (revertData &&
+        revertData.toLowerCase().startsWith(expectedSelector.toLowerCase())) ||
+      errMsg.toLowerCase().includes(expectedSelector.toLowerCase()) ||
+      errMsg.includes(errorName)
+    ) {
+      return
+    }
+
+    throw new Error(
+      `expected revert with custom error ${errorName} ` +
+        `(selector ${expectedSelector}), got: ${errMsg}`
+    )
+  }
+
+  throw new Error(
+    `expected revert with custom error ${errorName} but tx succeeded`
+  )
+}
 
 const mutateLastByte = (value: string): string => {
   const replacement = value.endsWith("00") ? "01" : "00"
@@ -304,6 +343,9 @@ describe("Bridge - P2TR signature fraud", () => {
   let treasury: SignerWithAddress
   let walletRegistry: FakeContract<IWalletRegistry>
   let bridge: Bridge & BridgeStub
+  let bridgeSigner: Signer
+  let frostWalletRegistry: FrostWalletRegistryStub
+  let lifecycleRouter: BridgeLifecycleRouter
   let p2trFraudRouter: P2TRSignatureFraudRouter
   let fraudChallengeDepositAmount: BigNumber
   let fraudChallengeDefeatTimeout: number
@@ -317,6 +359,32 @@ describe("Bridge - P2TR signature fraud", () => {
     walletRegistry = fixture.walletRegistry
     bridge = fixture.bridge
     p2trFraudRouter = fixture.p2trFraudRouter
+
+    const FrostWalletRegistryStubFactory = await ethers.getContractFactory(
+      "FrostWalletRegistryStub"
+    )
+    frostWalletRegistry =
+      (await FrostWalletRegistryStubFactory.deploy()) as FrostWalletRegistryStub
+    await frostWalletRegistry.deployed()
+
+    const BridgeLifecycleRouterFactory = await ethers.getContractFactory(
+      "BridgeLifecycleRouter"
+    )
+    lifecycleRouter = (await BridgeLifecycleRouterFactory.deploy(
+      bridge.address
+    )) as BridgeLifecycleRouter
+    await lifecycleRouter.deployed()
+
+    await bridge.resetFrostWalletRegistryForTest(frostWalletRegistry.address)
+    await bridge.resetLifecycleRouterForTest(lifecycleRouter.address)
+    await frostWalletRegistry.setLifecycleOwner(lifecycleRouter.address)
+
+    await ethers.provider.send("hardhat_impersonateAccount", [bridge.address])
+    await ethers.provider.send("hardhat_setBalance", [
+      bridge.address,
+      ethers.utils.hexValue(ethers.utils.parseEther("100")),
+    ])
+    bridgeSigner = await ethers.getSigner(bridge.address)
 
     const fraudParameters = await bridge.fraudParameters()
     fraudChallengeDepositAmount = fraudParameters.fraudChallengeDepositAmount
@@ -359,6 +427,36 @@ describe("Bridge - P2TR signature fraud", () => {
     return walletPubKeyHash
   }
 
+  const registerClosingFrostWallet = async (
+    challengeVector: SignatureFraudVector,
+    remainingClosingTime: number
+  ): Promise<string> => {
+    const walletID = hex(challengeVector.walletIDHex)
+
+    await frostWalletRegistry.callBridgeFrostWalletCreatedCallback(
+      bridge.address,
+      walletID
+    )
+
+    const walletPubKeyHash = await bridge.walletPubKeyHashForWalletID(walletID)
+    const { walletClosingPeriod } = await bridge.walletParameters()
+    const now = await lastBlockTime()
+
+    await bridge.setWallet(walletPubKeyHash, {
+      ecdsaWalletID: ethers.constants.HashZero,
+      mainUtxoHash: ethers.constants.HashZero,
+      pendingRedemptionsValue: 0,
+      createdAt: now,
+      movingFundsRequestedAt: 0,
+      closingStartedAt: now - walletClosingPeriod + remainingClosingTime,
+      pendingMovedFundsSweepRequestsCount: 0,
+      state: walletState.Closing,
+      movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+    })
+
+    return walletPubKeyHash
+  }
+
   const submitChallenge = async (
     payload = vectorPayload(vector),
     challengeVector = vector
@@ -386,6 +484,26 @@ describe("Bridge - P2TR signature fraud", () => {
     return { tx, bridgeChallengeIdentity, challengeKey }
   }
 
+  const expectChallengeCounters = async (
+    walletPubKeyHash: string,
+    expectedWalletCount: number,
+    expectedUnattributedCount: number,
+    expectedTotalCount: number
+  ): Promise<void> => {
+    expect(
+      await p2trFraudRouter.openFraudChallengeCountByWallet(walletPubKeyHash)
+    ).to.equal(expectedWalletCount)
+    expect(
+      await p2trFraudRouter.unattributedOpenFraudChallengeCount()
+    ).to.equal(expectedUnattributedCount)
+    expect(await p2trFraudRouter.openFraudChallengeCount()).to.equal(
+      expectedTotalCount
+    )
+    expect(
+      await p2trFraudRouter.hasOpenFraudChallengeForWallet(walletPubKeyHash)
+    ).to.equal(expectedWalletCount > 0 || expectedUnattributedCount > 0)
+  }
+
   it("submits and stores a P2TR signature-fraud challenge", async () => {
     const payload = vectorPayload(vector)
     const walletPubKeyHash = await registerP2TRWallet(payload.walletID)
@@ -404,6 +522,7 @@ describe("Bridge - P2TR signature fraud", () => {
     expect(fraudChallenge.depositAmount).to.equal(fraudChallengeDepositAmount)
     expect(fraudChallenge.reportedAt).to.equal(await lastBlockTime())
     expect(fraudChallenge.resolved).to.equal(false)
+    await expectChallengeCounters(walletPubKeyHash, 1, 0, 1)
 
     const event = await findP2TREvent(
       tx,
@@ -989,6 +1108,7 @@ describe("Bridge - P2TR signature fraud", () => {
 
       expect((await p2trFraudRouter.fraudChallenges(challengeKey)).resolved).to
         .be.true
+      await expectChallengeCounters(walletPubKeyHash, 0, 0, 0)
 
       const event = await findP2TREvent(
         tx,
@@ -1094,6 +1214,159 @@ describe("Bridge - P2TR signature fraud", () => {
     })
   }
 
+  it("blocks FROST wallet closure until its P2TR challenge times out", async () => {
+    const payload = vectorPayload(vector)
+    const remainingClosingTime = Math.floor(fraudChallengeDefeatTimeout / 2)
+    const walletPubKeyHash = await registerClosingFrostWallet(
+      vector,
+      remainingClosingTime
+    )
+    const { challengeKey } = await submitChallenge(payload)
+    await expectChallengeCounters(walletPubKeyHash, 1, 0, 1)
+
+    await increaseTime(remainingClosingTime)
+
+    await expectCustomError(
+      bridge.notifyWalletClosingPeriodElapsed(walletPubKeyHash),
+      "P2TRFraudChallengePending"
+    )
+    expect((await bridge.wallets(walletPubKeyHash)).state).to.equal(
+      walletState.Closing
+    )
+    expect(await frostWalletRegistry.closeWalletCalled()).to.equal(false)
+
+    await increaseTime(fraudChallengeDefeatTimeout - remainingClosingTime)
+    await p2trFraudRouter
+      .connect(thirdParty)
+      .processP2TRSignatureFraudChallenge(
+        p2trFraudAction.Timeout,
+        encodePayload(payload),
+        [1, 2, 3]
+      )
+
+    expect((await p2trFraudRouter.fraudChallenges(challengeKey)).resolved).to.be
+      .true
+    await expectChallengeCounters(walletPubKeyHash, 0, 0, 0)
+    expect((await bridge.wallets(walletPubKeyHash)).state).to.equal(
+      walletState.Terminated
+    )
+    expect(await frostWalletRegistry.seizeCalled()).to.equal(true)
+    expect(await frostWalletRegistry.closeWalletCalled()).to.equal(true)
+  })
+
+  it("allows FROST wallet closure after its P2TR challenge is defeated", async () => {
+    const payload = vectorPayload(vector)
+    const remainingClosingTime = Math.floor(fraudChallengeDefeatTimeout / 2)
+    const walletPubKeyHash = await registerClosingFrostWallet(
+      vector,
+      remainingClosingTime
+    )
+    await submitChallenge(payload)
+
+    await bridge.setSpentMainUtxos([signedInputUtxo(payload)])
+    await p2trFraudRouter
+      .connect(thirdParty)
+      .processP2TRSignatureFraudChallenge(
+        p2trFraudAction.Defeat,
+        encodePayload(payload),
+        []
+      )
+    await expectChallengeCounters(walletPubKeyHash, 0, 0, 0)
+    await increaseTime(remainingClosingTime)
+
+    await bridge.notifyWalletClosingPeriodElapsed(walletPubKeyHash)
+
+    expect((await bridge.wallets(walletPubKeyHash)).state).to.equal(
+      walletState.Closed
+    )
+    expect(await frostWalletRegistry.closeWalletCalled()).to.equal(true)
+    expect(await frostWalletRegistry.lastClosedWalletID()).to.equal(
+      payload.walletID
+    )
+  })
+
+  it("allows an unrelated FROST wallet to close while a P2TR challenge is open", async () => {
+    const payload = vectorPayload(vector)
+    const challengedWalletPubKeyHash = await registerClosingFrostWallet(
+      vector,
+      Math.floor(fraudChallengeDefeatTimeout / 2)
+    )
+    await submitChallenge(payload)
+    await expectChallengeCounters(challengedWalletPubKeyHash, 1, 0, 1)
+
+    const unrelatedWalletPubKeyHash = await registerClosingFrostWallet(
+      distinctWalletVector,
+      0
+    )
+    await expectChallengeCounters(unrelatedWalletPubKeyHash, 0, 0, 1)
+    await bridge.notifyWalletClosingPeriodElapsed(unrelatedWalletPubKeyHash)
+
+    expect((await bridge.wallets(unrelatedWalletPubKeyHash)).state).to.equal(
+      walletState.Closed
+    )
+    expect((await bridge.wallets(challengedWalletPubKeyHash)).state).to.equal(
+      walletState.Closing
+    )
+    expect(await frostWalletRegistry.lastClosedWalletID()).to.equal(
+      hex(distinctWalletVector.walletIDHex)
+    )
+  })
+
+  it("blocks graceful closure for unattributed migrated challenges without blocking fraud termination", async () => {
+    const payload = vectorPayload(vector)
+    const walletPubKeyHash = await registerClosingFrostWallet(vector, 0)
+    const challengeKey = await buildBridgeChallengeKey(
+      bridge.address,
+      hex(vector.expectedBridgeChallengeIdentityHex)
+    )
+    const secondChallengeKey = challengeKey.add(1)
+    const migratedChallenge = {
+      challenger: await thirdParty.getAddress(),
+      depositAmount: fraudChallengeDepositAmount,
+      reportedAt: (await lastBlockTime()) - fraudChallengeDefeatTimeout,
+      resolved: false,
+    }
+
+    await p2trFraudRouter
+      .connect(bridgeSigner)
+      .acceptMigration(
+        [challengeKey, secondChallengeKey],
+        [migratedChallenge, migratedChallenge],
+        { value: fraudChallengeDepositAmount.mul(2) }
+      )
+
+    await expectChallengeCounters(walletPubKeyHash, 0, 2, 2)
+    expect(
+      await p2trFraudRouter.hasOpenFraudChallengeForWallet(
+        p2trWalletPubKeyHash(hex(distinctWalletVector.walletIDHex))
+      )
+    ).to.equal(true)
+    await expectCustomError(
+      bridge.notifyWalletClosingPeriodElapsed(walletPubKeyHash),
+      "P2TRFraudChallengePending"
+    )
+    expect((await bridge.wallets(walletPubKeyHash)).state).to.equal(
+      walletState.Closing
+    )
+
+    await p2trFraudRouter
+      .connect(thirdParty)
+      .processP2TRSignatureFraudChallenge(
+        p2trFraudAction.Timeout,
+        encodePayload(payload),
+        [1, 2, 3]
+      )
+
+    expect((await p2trFraudRouter.fraudChallenges(challengeKey)).resolved).to.be
+      .true
+    await expectChallengeCounters(walletPubKeyHash, 0, 1, 1)
+    expect((await bridge.wallets(walletPubKeyHash)).state).to.equal(
+      walletState.Terminated
+    )
+    expect(await frostWalletRegistry.seizeCalled()).to.equal(true)
+    expect(await frostWalletRegistry.closeWalletCalled()).to.equal(true)
+  })
+
   it("resolves timeout, refunds deposit, and slashes the P2TR wallet alias", async () => {
     const payload = vectorPayload(vector)
     const walletPubKeyHash = await registerP2TRWallet(payload.walletID)
@@ -1120,6 +1393,7 @@ describe("Bridge - P2TR signature fraud", () => {
     await expectBalanceDelta(tx, thirdParty, fraudChallengeDepositAmount)
     expect((await p2trFraudRouter.fraudChallenges(challengeKey)).resolved).to.be
       .true
+    await expectChallengeCounters(walletPubKeyHash, 0, 0, 0)
     expect((await bridge.wallets(walletPubKeyHash)).state).to.equal(
       walletState.Terminated
     )
