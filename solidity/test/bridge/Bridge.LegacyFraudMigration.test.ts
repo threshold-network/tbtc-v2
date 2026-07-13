@@ -1,5 +1,6 @@
 import { ethers, helpers, waffle } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import type { BigNumberish } from "ethers"
 import { expect } from "chai"
 import type {
   Bridge,
@@ -9,6 +10,11 @@ import type {
   P2TRSignatureFraudRouter,
 } from "../../typechain"
 import bridgeFixture from "../fixtures/bridge"
+import {
+  nonWitnessSignSingleInputTx,
+  wallet as fraudWallet,
+} from "../data/fraud"
+import { constants, walletState } from "../fixtures"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
@@ -43,7 +49,7 @@ describe("Bridge - legacy fraud challenge migration", () => {
   })
 
   async function seedChallenge(
-    challengeKey: number,
+    challengeKey: BigNumberish,
     depositAmount: ReturnType<typeof ethers.utils.parseEther>,
     resolved = false,
     reportedAt = 1_700_000_000
@@ -105,6 +111,140 @@ describe("Bridge - legacy fraud challenge migration", () => {
       expect(migrated.reportedAt).to.equal(1_700_000_000)
       expect(migrated.resolved).to.equal(false)
     }
+  })
+
+  it("blocks public evidence from pre-seeding an ECDSA migration key", async () => {
+    const data = nonWitnessSignSingleInputTx
+    const key = ethers.BigNumber.from(
+      ethers.utils.solidityKeccak256(
+        ["bytes", "bytes32"],
+        [fraudWallet.publicKey, data.sighash]
+      )
+    )
+
+    await bridge.setWallet(fraudWallet.pubKeyHash160, {
+      ecdsaWalletID: fraudWallet.ecdsaWalletID,
+      mainUtxoHash: ethers.constants.HashZero,
+      pendingRedemptionsValue: 0,
+      createdAt: 1_700_000_000,
+      movingFundsRequestedAt: 0,
+      closingStartedAt: 0,
+      pendingMovedFundsSweepRequestsCount: 0,
+      state: walletState.Live,
+      movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+    })
+    await seedChallenge(key, constants.fraudChallengeDepositAmount)
+
+    await expect(
+      ecdsaFraudRouter
+        .connect(deployer)
+        .submitFraudChallenge(
+          fraudWallet.publicKey,
+          data.preimageSha256,
+          data.signature,
+          { value: constants.fraudChallengeDepositAmount }
+        )
+    ).to.be.revertedWith("Legacy fraud challenge exists")
+
+    expect(await ecdsaFraudRouter.openFraudChallengeCount()).to.equal(0)
+    expect((await ecdsaFraudRouter.fraudChallenges(key)).reportedAt).to.equal(0)
+    expect(await ethers.provider.getBalance(ecdsaFraudRouter.address)).to.equal(
+      0
+    )
+    expect(await bridge.legacyFraudChallengeExists(key)).to.equal(true)
+
+    await bridgeGovernance
+      .connect(governance)
+      .migrateLegacyFraudChallenges(0, [key])
+
+    const migrated = await ecdsaFraudRouter.fraudChallenges(key)
+    expect(migrated.challenger).to.equal(thirdParty.address)
+    expect(migrated.depositAmount).to.equal(
+      constants.fraudChallengeDepositAmount
+    )
+    expect(await bridge.legacyFraudChallengeExists(key)).to.equal(false)
+  })
+
+  it("allows a fresh ECDSA key while a different legacy key awaits migration", async () => {
+    const data = nonWitnessSignSingleInputTx
+
+    await bridge.setWallet(fraudWallet.pubKeyHash160, {
+      ecdsaWalletID: fraudWallet.ecdsaWalletID,
+      mainUtxoHash: ethers.constants.HashZero,
+      pendingRedemptionsValue: 0,
+      createdAt: 1_700_000_000,
+      movingFundsRequestedAt: 0,
+      closingStartedAt: 0,
+      pendingMovedFundsSweepRequestsCount: 0,
+      state: walletState.Live,
+      movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+    })
+    await seedChallenge(
+      ethers.constants.MaxUint256,
+      ethers.utils.parseEther("0.1")
+    )
+
+    await ecdsaFraudRouter
+      .connect(deployer)
+      .submitFraudChallenge(
+        fraudWallet.publicKey,
+        data.preimageSha256,
+        data.signature,
+        { value: constants.fraudChallengeDepositAmount }
+      )
+
+    expect(
+      (
+        await ecdsaFraudRouter.fraudChallenges(
+          ethers.BigNumber.from(
+            ethers.utils.solidityKeccak256(
+              ["bytes", "bytes32"],
+              [fraudWallet.publicKey, data.sighash]
+            )
+          )
+        )
+      ).challenger
+    ).to.equal(deployer.address)
+    expect(
+      (await bridge.legacyFraudChallengeForTest(ethers.constants.MaxUint256))
+        .reportedAt
+    ).to.equal(1_700_000_000)
+  })
+
+  it("keeps a resolved legacy ECDSA key reserved against replay", async () => {
+    const data = nonWitnessSignSingleInputTx
+    const key = ethers.BigNumber.from(
+      ethers.utils.solidityKeccak256(
+        ["bytes", "bytes32"],
+        [fraudWallet.publicKey, data.sighash]
+      )
+    )
+
+    await bridge.setWallet(fraudWallet.pubKeyHash160, {
+      ecdsaWalletID: fraudWallet.ecdsaWalletID,
+      mainUtxoHash: ethers.constants.HashZero,
+      pendingRedemptionsValue: 0,
+      createdAt: 1_700_000_000,
+      movingFundsRequestedAt: 0,
+      closingStartedAt: 0,
+      pendingMovedFundsSweepRequestsCount: 0,
+      state: walletState.Live,
+      movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+    })
+    await seedChallenge(key, constants.fraudChallengeDepositAmount, true)
+
+    expect(await bridge.legacyFraudChallengeExists(key)).to.equal(true)
+    await expect(
+      ecdsaFraudRouter
+        .connect(deployer)
+        .submitFraudChallenge(
+          fraudWallet.publicKey,
+          data.preimageSha256,
+          data.signature,
+          { value: constants.fraudChallengeDepositAmount }
+        )
+    ).to.be.revertedWith("Legacy fraud challenge exists")
+    expect(await ecdsaFraudRouter.openFraudChallengeCount()).to.equal(0)
   })
 
   it("routes P2TR records only to the P2TR router", async () => {

@@ -65,6 +65,11 @@ interface IBridgeForFraud {
         view
         returns (MovingFunds.MovedFundsSweepRequest memory);
 
+    function legacyFraudChallengeExists(uint256 challengeKey)
+        external
+        view
+        returns (bool);
+
     /// @notice Privileged callback the router invokes from the timeout
     ///         path. Bridge gates this with `onlyEcdsaFraudRouter`.
     function slashWalletForFraud(
@@ -304,6 +309,10 @@ contract EcdsaFraudRouter {
 
         Fraud.FraudChallenge storage challenge = fraudChallenges[challengeKey];
         require(challenge.reportedAt == 0, "Fraud challenge already exists");
+        require(
+            !b.legacyFraudChallengeExists(challengeKey),
+            "Legacy fraud challenge exists"
+        );
 
         challenge.challenger = msg.sender;
         challenge.depositAmount = msg.value;
