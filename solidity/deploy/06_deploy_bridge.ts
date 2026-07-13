@@ -36,6 +36,7 @@ const func: DeployFunction = async function deployBridge(
   })
   const Fraud = await deploy("Fraud", deployOptions)
   const MovingFunds = await deploy("MovingFunds", deployOptions)
+  const VaultManagement = await deploy("VaultManagement", deployOptions)
 
   const [bridge, proxyDeployment] = await helpers.upgrades.deployProxy(
     "Bridge",
@@ -59,6 +60,7 @@ const func: DeployFunction = async function deployBridge(
           Wallets: Wallets.address,
           Fraud: Fraud.address,
           MovingFunds: MovingFunds.address,
+          VaultManagement: VaultManagement.address,
         },
       },
       proxyOpts: {
@@ -79,6 +81,7 @@ const func: DeployFunction = async function deployBridge(
     await helpers.etherscan.verify(Wallets)
     await helpers.etherscan.verify(Fraud)
     await helpers.etherscan.verify(MovingFunds)
+    await helpers.etherscan.verify(VaultManagement)
 
     // We use `verify` instead of `verify:verify` as the `verify` task is defined
     // in "@openzeppelin/hardhat-upgrades" to perform Etherscan verification

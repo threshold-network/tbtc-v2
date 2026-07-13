@@ -32,10 +32,10 @@ import "./EcdsaLib.sol";
 import "./Wallets.sol";
 import "./Fraud.sol";
 import "./MovingFunds.sol";
+import "./VaultManagement.sol";
 
 import "../bank/IReceiveBalanceApproval.sol";
 import "../bank/Bank.sol";
-import "../vault/ITBTCVaultMigrationDebt.sol";
 
 /// @title Bitcoin Bridge
 /// @notice Bridge manages BTC deposit and redemption flow and is increasing and
@@ -71,6 +71,14 @@ contract Bridge is
     error ReimbursementPoolAddressZero();
     error TreasuryAddressZero();
     error CallerNotBank();
+    // The vault trust-list, canonical migration-debt vault, and legacy-vault
+    // retirement errors below are thrown by the linked `VaultManagement`
+    // library under delegatecall. They are redeclared here so they appear in the
+    // Bridge ABI: a `revert` in an external library propagates the raw selector,
+    // and consumers decoding a Bridge revert must find the definition on the
+    // Bridge ABI. The identical library declarations produce the same selector.
+    // Pure `error` declarations add no runtime code, so the Bridge deployed size
+    // is unchanged. Mirrors the event redeclaration below.
     error VaultIsCanonicalMigrationDebtVault(address vault);
     error VaultHasOutstandingMigrationDebt(address vault);
     error VaultHasOutstandingOptimisticMintingDebt(address vault);
@@ -82,6 +90,19 @@ contract Bridge is
     error MigrationDebtVaultUnreachable(address vault);
     error PreviousMigrationDebtVaultHasDebt(address vault);
     error PreviousMigrationDebtVaultHasOptimisticDebt(address vault);
+    error UnsupportedLegacyVault(address vault);
+    error LegacyVaultCodeHashMismatch(address vault, bytes32 actualCodeHash);
+    error LegacyVaultOptimisticMintingDebtAttestationMissing(address vault);
+    error LegacyVaultOptimisticMintingNotPaused(address vault);
+    error LegacyVaultMigrationCoordinatorInvalid(
+        address vault,
+        address coordinator
+    );
+    error LegacyVaultEvidenceInvalid();
+    error LegacyVaultAttestationCannotBeRevoked(address vault);
+    error LegacyVaultAlreadyRetired(address vault);
+    error LegacyVaultImplementsOptimisticMintingDebtInterface(address vault);
+    error LegacyVaultNotTrusted(address vault);
     error EthRescueRecipientZero();
     error EthRescueAmountZero();
     error EthRescueInsufficientBalance(uint256 requested, uint256 available);
@@ -97,8 +118,25 @@ contract Bridge is
     using MovingFunds for BridgeState.Storage;
     using Wallets for BridgeState.Storage;
     using Fraud for BridgeState.Storage;
+    using VaultManagement for BridgeState.Storage;
 
     BridgeState.Storage internal self;
+
+    /// @notice The exact mainnet legacy `TBTCVault` recognized by the
+    ///         optimistic-minting retirement guard. Its ownership is (or will be)
+    ///         transferred to a dedicated migration coordinator, and it predates
+    ///         the aggregate optimistic-minting-debt selector, so untrusting or
+    ///         rotating away from it is fail-closed unless a governance
+    ///         attestation binds it to that locked coordinator.
+    address public constant LEGACY_MAINNET_TBTC_VAULT =
+        0x9C070027cdC9dc8F82416B2e5314E11DFb4FE3CD;
+    /// @notice The exact runtime code hash of `LEGACY_MAINNET_TBTC_VAULT`. The
+    ///         retirement override applies only when both the address and this
+    ///         code hash match, so it can never apply to different bytecode at
+    ///         the same address on another chain, nor become a general bytecode
+    ///         allowlist.
+    bytes32 public constant LEGACY_MAINNET_TBTC_VAULT_CODE_HASH =
+        0x549c4b627e40d0e38e6d874c56066ad033004f3f5e26ffba9b15806064f6f0df;
 
     event DepositRevealed(
         bytes32 fundingTxHash,
@@ -211,6 +249,18 @@ contract Bridge is
 
     event CovenantSpendAuthorizationUpdated(
         address indexed covenantSpendAuthorization
+    );
+
+    // Declared here so it appears in the Bridge ABI. It is emitted by the
+    // `VaultManagement` library under delegatecall, which attributes the log to
+    // this Bridge; the identical library declaration produces the same topic.
+    // See `setLegacyVaultOptimisticMintingDebtAttestation`.
+    event LegacyVaultOptimisticMintingDebtAttestationUpdated(
+        address indexed vault,
+        address indexed coordinator,
+        uint256 snapshotBlockNumber,
+        bytes32 snapshotBlockHash,
+        bytes32 evidenceHash
     );
 
     event EthRescued(address indexed recipient, uint256 amount);
@@ -1309,7 +1359,7 @@ contract Bridge is
     ///      transactions executed by ECDSA wallet with  deposits routed to
     ///      them.
     ///
-    ///      When untrusting a vault (`isTrusted == false`), two guards apply:
+    ///      When untrusting a vault (`isTrusted == false`), three guards apply:
     ///      1. The current canonical migration debt vault cannot be untrusted
     ///         directly (must rotate or clear the canonical pointer first).
     ///      2. Any vault implementing `ITBTCVaultMigrationDebt` that still
@@ -1317,8 +1367,17 @@ contract Bridge is
     ///         cannot be untrusted. This prevents a two-step bypass where
     ///         governance changes the canonical pointer away from a vault
     ///         and then untrusts it while migration debt remains in-flight.
-    ///         The second guard uses a fail-open staticcall: vaults that do
-    ///         not implement the interface are unaffected.
+    ///         This guard uses a fail-open staticcall: vaults that do not
+    ///         implement the interface are unaffected.
+    ///      3. A vault with outstanding optimistic minting debt cannot be
+    ///         untrusted (the `VaultManagement` untrust/rotation truth table).
+    ///         A decodable `true` blocks any vault; a
+    ///         failed/malformed response stays fail-open for every vault except
+    ///         the exact known legacy deployment, which is fail-closed unless a
+    ///         governance retirement attestation binds it to its locked
+    ///         migration coordinator.
+    ///      When trusting a vault (`isTrusted == true`), re-trusting the exact
+    ///      known legacy vault after it has been attested and retired reverts.
     /// @param vault The address of the vault.
     /// @param isTrusted flag indicating whether the vault is trusted or not.
     /// @dev Can only be called by the Governance.
@@ -1326,27 +1385,13 @@ contract Bridge is
         external
         onlyGovernance
     {
-        if (!isTrusted && self.migrationDebtVault == vault) {
-            revert VaultIsCanonicalMigrationDebtVault(vault);
-        }
-
-        if (!isTrusted) {
-            if (_hasOutstandingMigrationDebt(vault)) {
-                revert VaultHasOutstandingMigrationDebt(vault);
-            }
-            // Untrusting a vault that still has in-flight optimistic minting
-            // debt would silently reroute the depositor's later sweep through
-            // `Bank.increaseBalances`, bypassing the vault's optimistic-debt
-            // repayment callback and enabling a second mint for the same
-            // satoshis. The staticcall is fail-open: vaults that predate the
-            // interface are unaffected.
-            if (_hasOutstandingOptimisticMintingDebt(vault)) {
-                revert VaultHasOutstandingOptimisticMintingDebt(vault);
-            }
-        }
-
-        self.isVaultTrusted[vault] = isTrusted;
-        emit VaultStatusUpdated(vault, isTrusted);
+        self.setVaultStatus(
+            vault,
+            isTrusted,
+            governance,
+            LEGACY_MAINNET_TBTC_VAULT,
+            LEGACY_MAINNET_TBTC_VAULT_CODE_HASH
+        );
     }
 
     /// @notice Sets canonical migration debt vault used by reveal guard.
@@ -1373,31 +1418,7 @@ contract Bridge is
     ///      governance must first use the emergency-disable lane (`vault == 0`),
     ///      which intentionally skips this outgoing strict check.
     function setMigrationDebtVault(address vault) external onlyGovernance {
-        if (vault != address(0) && !self.isVaultTrusted[vault]) {
-            revert VaultNotTrusted(vault);
-        }
-
-        if (vault != address(0)) {
-            if (!_isMigrationDebtVaultConforming(vault)) {
-                revert MigrationDebtVaultInterfaceMissing(vault);
-            }
-        }
-
-        address previousVault = self.migrationDebtVault;
-        if (vault != address(0) && previousVault != address(0)) {
-            (bool ok, bool hasDebt) = _getOutstandingMigrationDebt(
-                previousVault
-            );
-            if (!ok) {
-                revert MigrationDebtVaultUnreachable(previousVault);
-            }
-            if (hasDebt) {
-                revert PreviousMigrationDebtVaultHasDebt(previousVault);
-            }
-        }
-
-        self.migrationDebtVault = vault;
-        emit MigrationDebtVaultUpdated(vault);
+        self.setMigrationDebtVault(vault);
     }
 
     /// @notice Atomically rotates canonical migration debt vault and untrusts
@@ -1416,46 +1437,13 @@ contract Bridge is
         external
         onlyGovernance
     {
-        if (previousVault == address(0)) {
-            revert PreviousMigrationDebtVaultIsZero();
-        }
-        if (previousVault != self.migrationDebtVault) {
-            revert PreviousMigrationDebtVaultMismatch(
-                self.migrationDebtVault,
-                previousVault
-            );
-        }
-        if (newVault == previousVault) {
-            revert MigrationDebtVaultUnchanged(newVault);
-        }
-        if (newVault != address(0) && !self.isVaultTrusted[newVault]) {
-            revert VaultNotTrusted(newVault);
-        }
-
-        if (newVault != address(0)) {
-            if (!_isMigrationDebtVaultConforming(newVault)) {
-                revert MigrationDebtVaultInterfaceMissing(newVault);
-            }
-        }
-
-        if (_hasOutstandingMigrationDebt(previousVault)) {
-            revert PreviousMigrationDebtVaultHasDebt(previousVault);
-        }
-
-        // The rotation atomically untrusts the previous vault. Blocking it
-        // while the previous vault still has outstanding optimistic minting
-        // debt closes the same sweep-rerouting bypass guarded in
-        // `setVaultStatus`. Fail-open staticcall: vaults that do not
-        // implement the interface are unaffected.
-        if (_hasOutstandingOptimisticMintingDebt(previousVault)) {
-            revert PreviousMigrationDebtVaultHasOptimisticDebt(previousVault);
-        }
-
-        self.migrationDebtVault = newVault;
-        emit MigrationDebtVaultUpdated(newVault);
-
-        self.isVaultTrusted[previousVault] = false;
-        emit VaultStatusUpdated(previousVault, false);
+        self.rotateMigrationDebtVault(
+            newVault,
+            previousVault,
+            governance,
+            LEGACY_MAINNET_TBTC_VAULT,
+            LEGACY_MAINNET_TBTC_VAULT_CODE_HASH
+        );
     }
 
     /// @notice Sets the covenant spend authorization registry consulted by
@@ -1490,130 +1478,63 @@ contract Bridge is
         emit CovenantSpendAuthorizationUpdated(covenantSpendAuthorization);
     }
 
-    /// @notice Queries whether a vault answers every migration debt selector
-    ///         consumed by Bridge reveal and vault-management paths.
-    /// @param vault The address to query.
-    /// @return True if the vault exposes the staticcall selectors consumed by
-    ///         production Bridge code: `hasOutstandingMigrationDebt`,
-    ///         `isMigrationRevealer`, and `canRevealMigration`.
-    /// @dev Mutation selectors on `ITBTCVaultMigrationDebt` are consumed by the
-    ///      vault/operator workflow, not by the Bridge. The sweep completion
-    ///      callbacks use `ITBTCVaultMigrationSweepHook` and intentionally
-    ///      remain fail-open, so they are outside this strict canonical-vault
-    ///      conformance probe.
-    function _isMigrationDebtVaultConforming(address vault)
-        private
-        view
-        returns (bool)
-    {
-        (bool ok, ) = _getOutstandingMigrationDebt(vault);
-        if (!ok) {
-            return false;
-        }
-
-        (ok, ) = _migrationDebtVaultStaticcall(
-            vault,
-            ITBTCVaultMigrationDebt.isMigrationRevealer.selector,
-            address(0),
-            36
-        );
-        if (!ok) {
-            return false;
-        }
-
-        (ok, ) = _migrationDebtVaultStaticcall(
-            vault,
-            ITBTCVaultMigrationDebt.canRevealMigration.selector,
-            address(0),
-            36
-        );
-
-        return ok;
-    }
-
-    /// @notice Queries whether a vault answers the migration debt interface
-    ///         and whether it reports outstanding debt.
-    /// @param vault The address to query.
-    /// @return ok True if the staticcall succeeds with a decodable bool.
-    /// @return hasDebt True if the vault reports outstanding debt.
-    function _getOutstandingMigrationDebt(address vault)
-        private
-        view
-        returns (bool ok, bool hasDebt)
-    {
-        return
-            _migrationDebtVaultStaticcall(
-                vault,
-                ITBTCVaultMigrationDebt.hasOutstandingMigrationDebt.selector,
-                address(0),
-                4
-            );
-    }
-
-    function _migrationDebtVaultStaticcall(
+    /// @notice Records or revokes a legacy-vault optimistic-minting retirement
+    ///         attestation, binding the exact known legacy `TBTCVault` to the
+    ///         dedicated migration coordinator that owns it.
+    /// @param vault The legacy vault. Must equal `LEGACY_MAINNET_TBTC_VAULT`.
+    /// @param coordinator The migration coordinator to bind, or `address(0)` to
+    ///        revoke.
+    /// @param snapshotBlockNumber The evidence snapshot block (zero for
+    ///        revocation).
+    /// @param snapshotBlockHash The evidence snapshot block hash (zero for
+    ///        revocation).
+    /// @param evidenceHash The deterministic evidence digest (zero for
+    ///        revocation).
+    /// @dev Can only be called by the Governance. For `coordinator != 0` the
+    ///      call reverts unless, all validated fail-closed at execution: the
+    ///      vault is the exact known legacy address with the matching runtime
+    ///      code hash; the vault is currently trusted; the aggregate
+    ///      optimistic-debt selector is undecodable (a conforming vault may never
+    ///      use this override); the snapshot/evidence arguments are well-formed;
+    ///      the vault reports paused optimistic minting; the vault is owned by
+    ///      the coordinator; and the coordinator is bound to this vault, this
+    ///      Bridge, and the current governance, and reports `migrationLocked()`.
+    ///      The `coordinator == 0` revocation form requires the same known vault
+    ///      and code hash, that the vault is still trusted (so the attestation
+    ///      cannot be removed between retirement and coordinator finalization),
+    ///      and that every snapshot/evidence argument is zero. The heavy
+    ///      validation lives in `VaultManagement` to keep the Bridge within the
+    ///      EIP-170 deployed-bytecode limit.
+    function setLegacyVaultOptimisticMintingDebtAttestation(
         address vault,
-        bytes4 selector,
-        address revealer,
-        uint256 inputSize
-    ) private view returns (bool ok, bool value) {
-        // solhint-disable-next-line no-inline-assembly
-        assembly {
-            let ptr := mload(0x40)
-            mstore(ptr, selector)
-            mstore(add(ptr, 0x04), revealer)
-
-            let success := staticcall(gas(), vault, ptr, inputSize, ptr, 0x20)
-            let word := mload(ptr)
-            ok := and(
-                and(success, gt(returndatasize(), 0x1f)),
-                or(iszero(word), eq(word, 1))
-            )
-            value := and(ok, eq(word, 1))
-        }
-    }
-
-    /// @notice Queries whether a vault has outstanding migration debt using
-    ///         a fail-open staticcall to `ITBTCVaultMigrationDebt`.
-    /// @param vault The address to query.
-    /// @return True if the vault implements the migration debt interface and
-    ///         reports outstanding debt. Returns false when the staticcall
-    ///         fails (vault does not implement the interface) or when the
-    ///         vault reports no outstanding debt. This fail-open behaviour
-    ///         ensures backwards compatibility with vaults that predate the
-    ///         migration debt interface.
-    function _hasOutstandingMigrationDebt(address vault)
-        private
-        view
-        returns (bool)
-    {
-        (, bool hasDebt) = _getOutstandingMigrationDebt(vault);
-        return hasDebt;
-    }
-
-    /// @notice Queries whether a vault has outstanding optimistic minting debt
-    ///         using a fail-open staticcall to `ITBTCVaultMigrationDebt`.
-    /// @param vault The address to query.
-    /// @return True if the vault implements the interface and reports
-    ///         outstanding optimistic minting debt. Returns false when the
-    ///         staticcall fails (vault does not implement the interface) or
-    ///         when the vault reports no outstanding optimistic debt. This
-    ///         fail-open behaviour matches `_hasOutstandingMigrationDebt` and
-    ///         preserves backwards compatibility with vaults that predate the
-    ///         optimistic-minting-debt query.
-    function _hasOutstandingOptimisticMintingDebt(address vault)
-        private
-        view
-        returns (bool)
-    {
-        (, bool hasDebt) = _migrationDebtVaultStaticcall(
+        address coordinator,
+        uint256 snapshotBlockNumber,
+        bytes32 snapshotBlockHash,
+        bytes32 evidenceHash
+    ) external onlyGovernance {
+        self.setAttestation(
+            governance,
             vault,
-            ITBTCVaultMigrationDebt
-                .hasOutstandingOptimisticMintingDebt
-                .selector,
-            address(0),
-            4
+            coordinator,
+            snapshotBlockNumber,
+            snapshotBlockHash,
+            evidenceHash,
+            LEGACY_MAINNET_TBTC_VAULT,
+            LEGACY_MAINNET_TBTC_VAULT_CODE_HASH
         );
-        return hasDebt;
+    }
+
+    /// @notice Returns the migration coordinator bound to `vault` by a
+    ///         legacy-vault optimistic-minting retirement attestation, or zero
+    ///         when no attestation exists.
+    /// @param vault The vault to query.
+    /// @return The bound migration coordinator, or `address(0)`.
+    function legacyVaultOptimisticMintingDebtCoordinator(address vault)
+        external
+        view
+        returns (address)
+    {
+        return self.legacyVaultOptimisticMintingDebtCoordinator[vault];
     }
 
     /// @notice Allows the Governance to mark the given address as trusted

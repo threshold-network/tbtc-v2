@@ -400,6 +400,24 @@ library BridgeState {
         ///         that slot); those bytes were previously zero, so on upgrade
         ///         it reads as `address(0)` and no existing field is disturbed.
         address covenantSpendAuthorization;
+        /// @notice Per-legacy-vault attestation binding a retired
+        ///         optimistic-minting legacy `TBTCVault` to the dedicated
+        ///         migration coordinator that owns it. A nonzero value is both
+        ///         governance's explicit, emitted assertion that every finalized
+        ///         optimistic mint for that legacy vault was already swept at the
+        ///         attested evidence snapshot, and the only coordinator allowed
+        ///         to retire that vault. The zero default makes the exact known
+        ///         mainnet legacy vault fail closed for untrust/rotation as soon
+        ///         as the new Bridge implementation is active; governance must
+        ///         take the explicit attestation transition to unlock retirement.
+        ///         No initializer writes this mapping. A mapping root always
+        ///         starts a fresh slot, so it is appended after
+        ///         `covenantSpendAuthorization` at relative slot 80 (absolute
+        ///         Bridge proxy slot 131); its keyed values live at
+        ///         `keccak256(abi.encode(vault, uint256(131)))` and cannot
+        ///         collide with the packed slot-130 fields. The reserved
+        ///         `__gap` above is left untouched.
+        mapping(address => address) legacyVaultOptimisticMintingDebtCoordinator;
     }
 
     event DepositParametersUpdated(

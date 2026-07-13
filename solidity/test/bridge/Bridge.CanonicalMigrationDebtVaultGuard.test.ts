@@ -88,6 +88,20 @@ async function expectBridgeVaultGuardError(
   }
 }
 
+// The harness links and delegates to the same `VaultManagement` library the
+// production Bridge uses, so its guard truth table cannot diverge. Deploy the
+// library and link it into the harness factory.
+async function deployVaultStatusHarness(): Promise<BridgeVaultStatusHarness> {
+  const vaultManagement = await (
+    await ethers.getContractFactory("VaultManagement")
+  ).deploy()
+  const HarnessFactory = await ethers.getContractFactory(
+    "BridgeVaultStatusHarness",
+    { libraries: { VaultManagement: vaultManagement.address } }
+  )
+  return (await HarnessFactory.deploy()) as BridgeVaultStatusHarness
+}
+
 describe("Bridge - Canonical migration debt vault guard", () => {
   let harness: BridgeVaultStatusHarness
   let vault: MockMigrationDebtVault
@@ -95,10 +109,7 @@ describe("Bridge - Canonical migration debt vault guard", () => {
   let partialVault: MockPartialMigrationDebtVault
 
   beforeEach(async () => {
-    const HarnessFactory = await ethers.getContractFactory(
-      "BridgeVaultStatusHarness"
-    )
-    harness = await HarnessFactory.deploy()
+    harness = await deployVaultStatusHarness()
 
     const MockVaultFactory = await ethers.getContractFactory(
       "MockMigrationDebtVault"
@@ -422,10 +433,7 @@ describe("setMigrationDebtVault outgoing-debt guard - fail-closed", () => {
   let revertingVault: MockRevertingMigrationDebtVault
 
   beforeEach(async () => {
-    const HarnessFactory = await ethers.getContractFactory(
-      "BridgeVaultStatusHarness"
-    )
-    harness = await HarnessFactory.deploy()
+    harness = await deployVaultStatusHarness()
 
     const MockVaultFactory = await ethers.getContractFactory(
       "MockMigrationDebtVault"
@@ -506,10 +514,7 @@ describe("Bridge - Migration debt drain guard", () => {
   beforeEach(async () => {
     const [, revealer] = await ethers.getSigners()
 
-    const HarnessFactory = await ethers.getContractFactory(
-      "BridgeVaultStatusHarness"
-    )
-    harness = await HarnessFactory.deploy()
+    harness = await deployVaultStatusHarness()
 
     const MockVaultFactory = await ethers.getContractFactory(
       "MockMigrationDebtVault"

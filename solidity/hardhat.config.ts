@@ -70,7 +70,12 @@ const config: HardhatUserConfig = {
       // Bridge sits near the EIP-170 24,576-byte deployed-bytecode limit.
       // A reduced optimizer-runs setting trades a small amount of runtime
       // gas efficiency for deployment-size headroom. Lowered further to make
-      // room for the wallet-registration-order backfill governance entry point.
+      // room for the wallet-registration-order backfill governance entry point
+      // and the legacy-vault optimistic-minting retirement guard/attestation.
+      // The heavy vault-management and legacy-retirement logic is offloaded to
+      // the `VaultManagement` external library; this override only needs to
+      // absorb the Bridge-side delegatecall dispatch stubs, constants, and
+      // accessors.
       "contracts/bridge/Bridge.sol": {
         version: "0.8.17",
         settings: {

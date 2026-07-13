@@ -58,3 +58,34 @@
   commitments after the upgrade. The seed prepends the supplied pre-upgrade
   wallets and de-duplicates any that also registered post-upgrade, so it does
   not require an empty order.
+
+## covenantSpendAuthorization slot
+
+- `covenantSpendAuthorization` (an `address`) was appended after
+  `walletRegistrationOrderSeeded`. It does **not** consume a fresh absolute slot:
+  its 20 bytes pack into the same slot 130 as `fraudChallengeEscrowSeeded`
+  (offset 0) and `walletRegistrationOrderSeeded` (offset 1), occupying offset 2
+  (bytes 2–21 of the slot). On upgrade those bytes were previously zero, so it
+  reads as `address(0)` and no existing field moves. `Bridge.self` starts at
+  absolute slot 51, so this field's relative slot 79 maps to absolute slot 130.
+
+## legacyVaultOptimisticMintingDebtCoordinator slot
+
+- `mapping(address => address) legacyVaultOptimisticMintingDebtCoordinator` was
+  appended after `covenantSpendAuthorization`, before nothing (it is the last
+  field). A mapping root always starts a fresh slot, so it occupies relative
+  slot 80 in `BridgeState.Storage`, absolute Bridge proxy slot 131. Its keyed
+  values live at `keccak256(abi.encode(vault, uint256(131)))`; the mapping root
+  slot 131 stores no packed data and cannot collide with the packed slot-130
+  fields.
+- `__gap` (`uint256[45]`, absolute slots 84–128) is unchanged and MUST NOT be
+  resized or moved. No pre-existing field moves. Live slots 130 and 131 were both
+  observed as zero on the deployed Bridge before the upgrade.
+- The zero default makes the exact known mainnet legacy `TBTCVault` fail closed
+  for untrust/rotation as soon as the new implementation is active; governance
+  unlocks retirement only via the explicit
+  `setLegacyVaultOptimisticMintingDebtAttestation` transition, which binds the
+  vault to its dedicated, locked migration coordinator.
+- This change is intentional and must be reflected in any future storage-layout
+  diff review before proxy upgrades. The compiler-derived layout is asserted by
+  `test/bridge/BridgeState.StorageLayout.test.ts`.
