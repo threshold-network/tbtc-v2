@@ -321,29 +321,26 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log("\n--- Resolving existing libraries ---")
   const DepositSweep = await get("DepositSweep")
   const Wallets = await get("Wallets")
-  // Fraud library is no longer linked into Bridge — the ECDSA fraud
-  // lifecycle moved to the EcdsaFraudRouter sidecar in the FROST
-  // extraction (round-1 strip removed the Fraud library deployment from
-  // 06_deploy_bridge.ts). No "Fraud" deployment artifact exists; the
-  // Bridge implementation links 5 libraries, not 6.
+  const Fraud = await get("Fraud")
   const MovingFunds = await get("MovingFunds")
 
   console.log("Existing library addresses:")
   console.log(`  DepositSweep: ${DepositSweep.address}`)
   console.log(`  Wallets:      ${Wallets.address}`)
+  console.log(`  Fraud:        ${Fraud.address}`)
   console.log(`  MovingFunds:  ${MovingFunds.address}`)
 
   // --- Step 3: Deploy Bridge implementation ---
   // Uses a distinct artifact name to avoid overwriting the existing Bridge
   // proxy artifact managed by hardhat-deploy. The Bridge contract links
-  // 5 libraries at deployment time (Fraud moved to EcdsaFraudRouter
-  // sidecar — see round-1 covenant-debt strip on PR #971).
+  // all 6 libraries required by the current implementation.
   console.log("\n--- Deploying Bridge implementation ---")
   const bridgeLibraries = {
     Deposit: Deposit.address,
     DepositSweep: DepositSweep.address,
     Redemption: Redemption.address,
     Wallets: Wallets.address,
+    Fraud: Fraud.address,
     MovingFunds: MovingFunds.address,
   }
 
