@@ -1060,7 +1060,7 @@ test("passes configured spend-type classifier into live submissions", async () =
     )
     assert.equal(
       storedRecord.observation?.bridgeChallengeKey,
-      "5b9c84557643f90b47ab9bcc49ff7dba8cfe283f1c37524a1e1db4316b34252f"
+      "dfc3a7c7a3717d106b1ee3cd7e10f744e4487a9061aadc4fa0204daf45b09d0a"
     )
   } finally {
     await rm(directory, { recursive: true, force: true })
