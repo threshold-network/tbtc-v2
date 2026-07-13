@@ -72,8 +72,17 @@ describe("FrostDkg liveness security", () => {
   })
 
   beforeEach(async () => {
-    ;[, maliciousSelected, honestSelected, nonSelected, challenger] =
-      await ethers.getSigners()
+    const [
+      ,
+      maliciousSigner,
+      honestSigner,
+      nonSelectedSigner,
+      challengeSigner,
+    ] = await ethers.getSigners()
+    maliciousSelected = maliciousSigner
+    honestSelected = honestSigner
+    nonSelected = nonSelectedSigner
+    challenger = challengeSigner
 
     pool = await smock.fake(
       "@keep-network/sortition-pools/contracts/SortitionPool.sol:SortitionPool"
@@ -239,10 +248,10 @@ describe("FrostDkg liveness security", () => {
     )
     expect(buildInfo).to.not.equal(undefined)
 
-    const storageLayout =
+    const { storageLayout } =
       buildInfo!.output.contracts[
         "contracts/frost-registry/FrostWalletRegistry.sol"
-      ].FrostWalletRegistry.storageLayout
+      ].FrostWalletRegistry
     const dkgStorage = storageLayout.storage.find(
       (entry: { label: string }) => entry.label === "dkg"
     )
