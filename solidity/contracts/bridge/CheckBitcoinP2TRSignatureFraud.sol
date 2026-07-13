@@ -135,30 +135,24 @@ library CheckBitcoinP2TRSignatureFraud {
             );
     }
 
-    /// @notice Computes the Bridge-facing challenge identity from the
-    ///         structured Taproot payload fields verified by this helper.
-    /// @dev This identity avoids committing to an opaque raw transaction blob.
-    ///      It commits to the fields the Bridge verifier reconstructs: version,
-    ///      locktime, input outpoints and sequences, prevout values and scripts,
-    ///      outputs, signed input index, BIP-341 sighash, and BIP-340
-    ///      signature.
+    /// @notice Computes the canonical Bridge-facing challenge identity for a
+    ///         signed Taproot authorization.
+    /// @dev The BIP-341 sighash already commits exactly the fields selected by
+    ///      the witness sighash mode. Unsigned payload fields must not add
+    ///      identity entropy: flexible modes deliberately leave some of them
+    ///      mutable, and binding them here would let one signature create
+    ///      multiple challenge, deposit, and reward records.
     function computeBridgeChallengeIdentity(
         BridgeChallengeIdentityPayload memory payload
     ) internal pure returns (bytes32) {
         (bytes memory signature, uint8 sighashType) = P2TRSignatureFraud
             .parseWitnessSignature(payload.witnessSignature);
-        bytes
-            memory transactionPayload = encodeBridgeChallengeTransactionPayload(
-                payload
-            );
-
         return
             computeBridgeChallengeIdentityForPayload(
                 payload.walletID,
                 computeBridgeChallengeIdentitySighash(payload),
                 signature,
-                sighashType,
-                transactionPayload
+                sighashType
             );
     }
 
@@ -184,8 +178,7 @@ library CheckBitcoinP2TRSignatureFraud {
         bytes32 walletID,
         bytes32 sighash,
         bytes memory signature,
-        uint8 sighashType,
-        bytes memory transactionPayload
+        uint8 sighashType
     ) internal pure returns (bytes32) {
         return
             sha256(
@@ -194,84 +187,9 @@ library CheckBitcoinP2TRSignatureFraud {
                     walletID,
                     sighash,
                     signature,
-                    bytes1(sighashType),
-                    transactionPayload
+                    bytes1(sighashType)
                 )
             );
-    }
-
-    function encodeBridgeChallengeTransactionPayload(
-        BridgeChallengeIdentityPayload memory payload
-    ) internal pure returns (bytes memory) {
-        // Collect every fixed-format field as a separate part and concatenate
-        // once -- each byte is copied exactly once (O(n)). Appending into a
-        // growing `abi.encodePacked` buffer per element would be O(n^2) in the
-        // input/output count, so large but valid protocol-shaped evidence
-        // (redemption batches, moving-funds fan-out, multi-input sweeps) that the
-        // raised shape caps now accept could run out of gas building the
-        // challenge identity before the challenge is recorded. The concatenation
-        // order for the transaction fields is byte-identical to the prior
-        // incremental encoding; an annex, when present, is committed as a
-        // length-prefixed trailer so an annex-free payload stays byte-identical
-        // to the pre-annex encoding. The encoding reads the struct pointer
-        // directly (rather than unpacking every field into locals) to keep this
-        // routine's stack shallow enough for the legacy code generator.
-        bool annexPresent = payload.annex.length > 0;
-        bytes[] memory parts = new bytes[](
-            3 +
-                payload.inputs.length +
-                payload.prevouts.length +
-                payload.outputs.length +
-                (annexPresent ? 1 : 0)
-        );
-        uint256 next = 0;
-
-        parts[next++] = abi.encodePacked(
-            P2TRSignatureFraud.uint32LE(payload.signedInputIndex),
-            P2TRSignatureFraud.uint32LE(payload.version),
-            P2TRSignatureFraud.uint32LE(payload.locktime),
-            P2TRSignatureFraud.encodeCompactSize(payload.inputs.length)
-        );
-
-        for (uint256 i = 0; i < payload.inputs.length; i++) {
-            parts[next++] = abi.encodePacked(
-                payload.inputs[i].txid,
-                P2TRSignatureFraud.uint32LE(payload.inputs[i].vout),
-                P2TRSignatureFraud.uint32LE(payload.inputs[i].sequence)
-            );
-        }
-
-        parts[next++] = P2TRSignatureFraud.encodeCompactSize(
-            payload.prevouts.length
-        );
-        for (uint256 i = 0; i < payload.prevouts.length; i++) {
-            parts[next++] = abi.encodePacked(
-                P2TRSignatureFraud.uint64LE(payload.prevouts[i].valueSats),
-                P2TRSignatureFraud.bytesWithCompactSize(
-                    payload.prevouts[i].scriptPubKey
-                )
-            );
-        }
-
-        parts[next++] = P2TRSignatureFraud.encodeCompactSize(
-            payload.outputs.length
-        );
-        for (uint256 i = 0; i < payload.outputs.length; i++) {
-            parts[next++] = abi.encodePacked(
-                P2TRSignatureFraud.uint64LE(payload.outputs[i].valueSats),
-                P2TRSignatureFraud.bytesWithCompactSize(
-                    payload.outputs[i].scriptPubKey
-                )
-            );
-        }
-
-        if (annexPresent) {
-            parts[next++] = P2TRSignatureFraud.bytesWithCompactSize(
-                payload.annex
-            );
-        }
-
-        return CheckBitcoinBIP341Sighash.concat(parts);
     }
 
     /// @notice Validates bounded Taproot signature-fraud payload shape.

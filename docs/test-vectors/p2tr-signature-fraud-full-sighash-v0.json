@@ -53,7 +53,7 @@
       "bip340SignatureHex": "bd9b6cb8de6956ed31aebb10f241b6fa7a37675728e7ae645456a3f07ccd5a306073380949e71abd7f3ee673497e71242216c9f84a64a91f32b5af202be47ab1",
       "witnessSignatureHex": "bd9b6cb8de6956ed31aebb10f241b6fa7a37675728e7ae645456a3f07ccd5a306073380949e71abd7f3ee673497e71242216c9f84a64a91f32b5af202be47ab1",
       "tamperedBip340SignatureHex": "bd9b6cb8de6956ed31aebb10f241b6fa7a37675728e7ae645456a3f07ccd5a306073380949e71abd7f3ee673497e71242216c9f84a64a91f32b5af202be47ab0",
-      "expectedBridgeChallengeIdentityHex": "aad57c4eefea8611df1630bd683b42a29d522275e46dc26ffb2f6f28dcc1f006"
+      "expectedBridgeChallengeIdentityHex": "7b5b561e05029e8395f24bea3008aeed07cfdb3a9e4311151baef295961b7cf7"
     },
     {
       "id": "bip341-keypath-all-multi",
@@ -100,7 +100,7 @@
       "bip340SignatureHex": "a3cec5b7a2ec95ba2797ec29da035edc6f8f717c16a3ab2ec8c4d36a58724bfea92a48995e7afb69d72db7ed990f6a73d5195471439e015ecc30affdbf4c9c5b",
       "witnessSignatureHex": "a3cec5b7a2ec95ba2797ec29da035edc6f8f717c16a3ab2ec8c4d36a58724bfea92a48995e7afb69d72db7ed990f6a73d5195471439e015ecc30affdbf4c9c5b01",
       "tamperedBip340SignatureHex": "a3cec5b7a2ec95ba2797ec29da035edc6f8f717c16a3ab2ec8c4d36a58724bfea92a48995e7afb69d72db7ed990f6a73d5195471439e015ecc30affdbf4c9c5a",
-      "expectedBridgeChallengeIdentityHex": "3075ea093d2d3c80166194bb313ba1b18081925eb5077f9b3856611ddf52e8d9"
+      "expectedBridgeChallengeIdentityHex": "f45702bb355d652c845c32313321069fdabdbc25a2ca20ef3b87e6d61672d608"
     },
     {
       "id": "bip341-keypath-none-multi",
@@ -147,7 +147,7 @@
       "bip340SignatureHex": "a4a9bae9759e1e4f544edc45b48b51c1753a44eac3898e818cc790c81db3d3bdf8e5b6e6b44ba0f10210a13a9a2a84d1ad77710fc7fdc6a2bc5488356e84efe4",
       "witnessSignatureHex": "a4a9bae9759e1e4f544edc45b48b51c1753a44eac3898e818cc790c81db3d3bdf8e5b6e6b44ba0f10210a13a9a2a84d1ad77710fc7fdc6a2bc5488356e84efe402",
       "tamperedBip340SignatureHex": "a4a9bae9759e1e4f544edc45b48b51c1753a44eac3898e818cc790c81db3d3bdf8e5b6e6b44ba0f10210a13a9a2a84d1ad77710fc7fdc6a2bc5488356e84efe5",
-      "expectedBridgeChallengeIdentityHex": "2c81f7647427357308c45c2de25d6d3d511c5ba43f3db0ee026c5bde6c8b5181"
+      "expectedBridgeChallengeIdentityHex": "f1be47ca90d369fb323c39d508d73a89e1aee8f963e9f958016d078ce51aa77e"
     },
     {
       "id": "bip341-keypath-single-multi",
@@ -194,7 +194,7 @@
       "bip340SignatureHex": "c3e30aa949d5af2f3f1ff74b8b8f26bde587b74523b63afb2f794b8bbbd0f412ce82584e25333836ee777ae8cff879374f497d7166aa5dfa4aebfaf8b454019c",
       "witnessSignatureHex": "c3e30aa949d5af2f3f1ff74b8b8f26bde587b74523b63afb2f794b8bbbd0f412ce82584e25333836ee777ae8cff879374f497d7166aa5dfa4aebfaf8b454019c03",
       "tamperedBip340SignatureHex": "c3e30aa949d5af2f3f1ff74b8b8f26bde587b74523b63afb2f794b8bbbd0f412ce82584e25333836ee777ae8cff879374f497d7166aa5dfa4aebfaf8b454019d",
-      "expectedBridgeChallengeIdentityHex": "3d30be6f7adfa6fc88255c24926e8997bdfa1b8557020d59776d370d38829317"
+      "expectedBridgeChallengeIdentityHex": "a35e6391cb076b2af5bba2f2be19567a4081ef5ee7d9155622233a3cfd59bb68"
     },
     {
       "id": "bip341-keypath-anyonecanpay-all-multi",
@@ -241,7 +241,7 @@
       "bip340SignatureHex": "851f0e667582b516a095b44368f3b891900d3387cc9fb33f944f8e001198e896bdc82549420b0af98fcfafafb30090a75ffcf2dd750e3ca3228fa89fa9314584",
       "witnessSignatureHex": "851f0e667582b516a095b44368f3b891900d3387cc9fb33f944f8e001198e896bdc82549420b0af98fcfafafb30090a75ffcf2dd750e3ca3228fa89fa931458481",
       "tamperedBip340SignatureHex": "851f0e667582b516a095b44368f3b891900d3387cc9fb33f944f8e001198e896bdc82549420b0af98fcfafafb30090a75ffcf2dd750e3ca3228fa89fa9314585",
-      "expectedBridgeChallengeIdentityHex": "610d0c6b4e3af9aa91d4f589e20a54dabaeee31309937ef83a7c07e17826bf51"
+      "expectedBridgeChallengeIdentityHex": "b7f7122d449a31dad28438cf3d20e9afd7360d5c52aaedc9341f077d05e0dffc"
     },
     {
       "id": "bip341-keypath-anyonecanpay-none-multi",
@@ -288,7 +288,7 @@
       "bip340SignatureHex": "04e1c85bbf81e973e865e6ce368c996ac0876936212bc9ae62b88d8120edfc84a1956068ee1d97019cf0039a6732fee019150210acb69fc808af0ecdd4f78bfe",
       "witnessSignatureHex": "04e1c85bbf81e973e865e6ce368c996ac0876936212bc9ae62b88d8120edfc84a1956068ee1d97019cf0039a6732fee019150210acb69fc808af0ecdd4f78bfe82",
       "tamperedBip340SignatureHex": "04e1c85bbf81e973e865e6ce368c996ac0876936212bc9ae62b88d8120edfc84a1956068ee1d97019cf0039a6732fee019150210acb69fc808af0ecdd4f78bff",
-      "expectedBridgeChallengeIdentityHex": "018aa8e1d34fb886c646a11f2a00fce99602e72a192981031450130b7fea5fe7"
+      "expectedBridgeChallengeIdentityHex": "da478a4a9db99c59a5491b423583c9e3818426ccd86e6e5baa63145e6081dcbc"
     },
     {
       "id": "bip341-keypath-anyonecanpay-single-multi",
@@ -335,7 +335,7 @@
       "bip340SignatureHex": "e4819c12efd20422a6c1d1abed104f2bf0d70d480a3e376e6fc12bfa58b832de2f65361ee7386c56cf1d447e5b610d753515f1c4fdcd83d59b0709c059ad1663",
       "witnessSignatureHex": "e4819c12efd20422a6c1d1abed104f2bf0d70d480a3e376e6fc12bfa58b832de2f65361ee7386c56cf1d447e5b610d753515f1c4fdcd83d59b0709c059ad166383",
       "tamperedBip340SignatureHex": "e4819c12efd20422a6c1d1abed104f2bf0d70d480a3e376e6fc12bfa58b832de2f65361ee7386c56cf1d447e5b610d753515f1c4fdcd83d59b0709c059ad1662",
-      "expectedBridgeChallengeIdentityHex": "c1f64884112219d681b39047e2d8b33fa87b0525b47fb9791332b8a5f64bc6cc"
+      "expectedBridgeChallengeIdentityHex": "f5d91c4114db9b9782cbe113702e2d133444e59a8758de4f59ad635945b556a2"
     },
     {
       "id": "bip341-keypath-default-with-annex",
@@ -382,7 +382,7 @@
       "bip340SignatureHex": "d74b2e98df3ad6b698c88e14595b88dd4b239a49c24f4e20bbae41e424d8ea94a5cb70159709ddb4cf4a16bf216342cd38a37b593f5b046400023cf2e7b95458",
       "witnessSignatureHex": "d74b2e98df3ad6b698c88e14595b88dd4b239a49c24f4e20bbae41e424d8ea94a5cb70159709ddb4cf4a16bf216342cd38a37b593f5b046400023cf2e7b95458",
       "tamperedBip340SignatureHex": "d74b2e98df3ad6b698c88e14595b88dd4b239a49c24f4e20bbae41e424d8ea94a5cb70159709ddb4cf4a16bf216342cd38a37b593f5b046400023cf2e7b95459",
-      "expectedBridgeChallengeIdentityHex": "da21a77b70a45275017e99a74526f0bb6ea1bab8a4b4a8dc9938f9608bd3dd49"
+      "expectedBridgeChallengeIdentityHex": "d24032048a157bd2f3841015a3d1a2b59062fa9c5fb63fb398f37d291f36e2ea"
     },
     {
       "id": "bip341-keypath-single-with-annex",
@@ -429,7 +429,7 @@
       "bip340SignatureHex": "83bf651ae149001f6f626cc4d1d3194d47066c8d50f94509809eab7ed1e86cb397e137f83216237585a884df2d3873f2568574d5a605ed2b5e1abc0e22e13ed0",
       "witnessSignatureHex": "83bf651ae149001f6f626cc4d1d3194d47066c8d50f94509809eab7ed1e86cb397e137f83216237585a884df2d3873f2568574d5a605ed2b5e1abc0e22e13ed003",
       "tamperedBip340SignatureHex": "83bf651ae149001f6f626cc4d1d3194d47066c8d50f94509809eab7ed1e86cb397e137f83216237585a884df2d3873f2568574d5a605ed2b5e1abc0e22e13ed1",
-      "expectedBridgeChallengeIdentityHex": "45e933d6a81e98e8fc7a991add5a6acc5c10cca8650b85b3fed2fafd06606f33"
+      "expectedBridgeChallengeIdentityHex": "813aa3ab40714e2e16fb281cac3f263b534366be8ac1aa7d712ce523629f26ef"
     }
   ]
 }

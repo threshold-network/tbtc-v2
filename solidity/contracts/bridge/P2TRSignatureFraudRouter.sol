@@ -157,9 +157,9 @@ contract P2TRSignatureFraudRouter {
     // moving-funds fan-out (one output per live target wallet, normally well below
     // 128). They are NOT sized to the largest conceivable transaction: a
     // signature-fraud challenge reconstructs the whole transaction on-chain, and
-    // even with the O(n) BIP-341 sighash and challenge-identity encoders a
-    // ~512-in/out challenge exceeds the block gas limit (empirically ~192 in/out
-    // is the edge; 256+ runs out of gas). 128 leaves margin under that ceiling.
+    // even with linear-time BIP-341 sighash reconstruction a ~512-in/out
+    // challenge exceeds the block gas limit (empirically ~192 in/out is the edge;
+    // 256+ runs out of gas). 128 leaves margin under that ceiling.
     //
     // RESIDUAL (documented, accepted): a malicious wallet could sign a transaction
     // with more than 128 outputs to make that (fraudulent) signature
@@ -620,8 +620,6 @@ contract P2TRSignatureFraudRouter {
     ) internal pure returns (bytes32 bridgeChallengeIdentity, bytes32 sighash) {
         (bytes memory signature, uint8 sighashType) = P2TRSignatureFraud
             .parseWitnessSignature(payload.witnessSignature);
-        bytes memory transactionPayload = CheckBitcoinP2TRSignatureFraud
-            .encodeBridgeChallengeTransactionPayload(payload);
         sighash = CheckBitcoinP2TRSignatureFraud
             .computeBridgeChallengeIdentitySighash(payload);
         bridgeChallengeIdentity = CheckBitcoinP2TRSignatureFraud
@@ -629,8 +627,7 @@ contract P2TRSignatureFraudRouter {
                 payload.walletID,
                 sighash,
                 signature,
-                sighashType,
-                transactionPayload
+                sighashType
             );
     }
 

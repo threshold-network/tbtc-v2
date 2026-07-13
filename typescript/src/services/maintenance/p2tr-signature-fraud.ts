@@ -128,12 +128,13 @@ export type P2TRSignatureFraudBridgeChallengeIdentity = {
   sighash: Hex | Buffer | string
   signature: Hex | Buffer | string
   sighashType: P2TRSupportedSighashType
-  signedInputIndex: number
-  unsignedTransaction: BitcoinRawTx
-  inputPrevouts: P2TRWalletInputObservationPrevout[]
-  // Witness annex bytes (including the mandatory 0x50 prefix), or omitted/empty
-  // for an annex-free spend. When present it is committed as a length-prefixed
-  // trailer so the identity binds the exact annex the sighash commits to.
+  /** @deprecated The canonical identity is derived from `sighash`; ignored. */
+  signedInputIndex?: number
+  /** @deprecated The canonical identity is derived from `sighash`; ignored. */
+  unsignedTransaction?: BitcoinRawTx
+  /** @deprecated The canonical identity is derived from `sighash`; ignored. */
+  inputPrevouts?: P2TRWalletInputObservationPrevout[]
+  /** @deprecated The canonical identity is derived from `sighash`; ignored. */
   annex?: Hex | Buffer | string
 }
 
@@ -538,7 +539,7 @@ export const P2TR_SIGNATURE_FRAUD_DRAFT_CHALLENGE_ID_DOMAIN =
   "tbtc-p2tr-signature-fraud-challenge-v0"
 
 export const P2TR_SIGNATURE_FRAUD_BRIDGE_CHALLENGE_ID_DOMAIN =
-  "tbtc-p2tr-signature-fraud-bridge-challenge-v0"
+  "tbtc-p2tr-signature-fraud-bridge-challenge-v1"
 
 export const P2TR_SIGNATURE_FRAUD_BRIDGE_CHALLENGE_KEY_DOMAIN =
   "tbtc-p2tr-signature-fraud-bridge-key-v0"
@@ -2740,21 +2741,16 @@ export const computeP2TRWalletInputWitnessObservationID = (
 }
 
 /**
- * Computes the Bridge-facing challenge identity from the structured Taproot
- * payload fields the Bridge verifier can reconstruct and validate.
- *
- * Unlike the draft vector identity, this identity does not rely on a raw
- * unsigned transaction blob that the Bridge does not parse. It commits to the
- * transaction version, locktime, input outpoints/sequences, prevout values and
- * scripts, outputs, signed input, reconstructed BIP-341 sighash, and the
- * BIP-340 signature.
+ * Computes the canonical Bridge-facing identity of a signed Taproot
+ * authorization. The BIP-341 sighash commits exactly the transaction fields
+ * selected by the witness sighash mode; fields outside that cryptographic
+ * commitment cannot create separate challenge, deposit, or reward records.
  *
  * @experimental Bridge integration identity for the P2TR signature-fraud path.
- * @param challenge Structured Bridge challenge payload: version, locktime,
- *        input outpoints/sequences, prevouts, outputs, signed input index,
- *        reconstructed BIP-341 sighash, and BIP-340 signature.
- * @returns 32-byte Bridge challenge identity (keccak256 over the canonical
- *          ABI-encoded payload).
+ * @param challenge Wallet, reconstructed BIP-341 sighash, BIP-340 signature,
+ *        and parsed witness sighash type.
+ * @returns 32-byte Bridge challenge identity (SHA-256 over the canonical
+ *          signed-authorization tuple).
  */
 export const computeP2TRSignatureFraudBridgeChallengeIdentity = (
   challenge: P2TRSignatureFraudBridgeChallengeIdentity
@@ -2774,80 +2770,12 @@ export const computeP2TRSignatureFraudBridgeChallengeIdentity = (
     )
   }
 
-  const transaction = Transaction.fromHex(
-    challenge.unsignedTransaction.transactionHex
-  )
-
-  if (
-    !Number.isInteger(challenge.signedInputIndex) ||
-    challenge.signedInputIndex < 0 ||
-    challenge.signedInputIndex >= transaction.ins.length
-  ) {
-    throw new P2TRWitnessSignatureError(
-      "invalid-input-index",
-      "Input index is outside the transaction input vector"
-    )
-  }
-
-  if (challenge.inputPrevouts.length !== transaction.ins.length) {
-    throw new P2TRWitnessSignatureError(
-      "invalid-prevout-map",
-      "Input prevout map length must match the transaction input vector"
-    )
-  }
-
-  const annexBuffer =
-    challenge.annex === undefined ? Buffer.alloc(0) : toBuffer(challenge.annex)
-  if (annexBuffer.length > 0 && annexBuffer[0] !== 0x50) {
-    throw new P2TRWitnessSignatureError(
-      "invalid-observation-payload",
-      "Witness annex must start with the 0x50 prefix byte"
-    )
-  }
-
-  const inputParts = transaction.ins.flatMap((input) => {
-    const inputTxid = Hex.from(input.hash)
-
-    return [
-      inputTxid.toBuffer(),
-      uint32LE(input.index, "Input output index"),
-      uint32LE(input.sequence, "Input sequence"),
-    ]
-  })
-
-  const prevoutParts = challenge.inputPrevouts.flatMap((prevout) => [
-    uint64LE(prevout.valueSats, "Prevout value"),
-    bytesWithCompactSize(toBuffer(prevout.scriptPubKey)),
-  ])
-
-  const outputParts = transaction.outs.flatMap((output) => [
-    uint64LE(output.value, "Output value"),
-    bytesWithCompactSize(Buffer.from(output.script)),
-  ])
-
-  // An annex, when present, is committed as a length-prefixed trailer after the
-  // outputs so an annex-free payload stays byte-identical to the pre-annex
-  // encoding. Byte-for-byte identical to the Solidity
-  // `encodeBridgeChallengeTransactionPayload` trailer.
-  const annexParts =
-    annexBuffer.length > 0 ? [bytesWithCompactSize(annexBuffer)] : []
-
   const preimageParts = [
     Buffer.from(P2TR_SIGNATURE_FRAUD_BRIDGE_CHALLENGE_ID_DOMAIN, "utf8"),
     toBytes32Hex(challenge.walletID, "Wallet ID").toBuffer(),
     toBytes32Hex(challenge.sighash, "BIP-341 sighash").toBuffer(),
     signature,
     Buffer.from([challenge.sighashType]),
-    uint32LE(challenge.signedInputIndex, "Signed input index"),
-    uint32LE(transaction.version, "Transaction version"),
-    uint32LE(transaction.locktime, "Transaction locktime"),
-    encodeCompactSize(transaction.ins.length),
-    ...inputParts,
-    encodeCompactSize(challenge.inputPrevouts.length),
-    ...prevoutParts,
-    encodeCompactSize(transaction.outs.length),
-    ...outputParts,
-    ...annexParts,
   ]
 
   return Hex.from(utils.sha256(Buffer.concat(preimageParts)))
