@@ -69,9 +69,9 @@ library FrostDkg {
         uint256 startBlock;
         // Seed used to start DKG.
         uint256 seed;
-        // Time in blocks that should be added to result submission eligibility
-        // delay calculation. Retained for storage and in-flight DKG
-        // compatibility; new challenges do not increase this value.
+        // Time in blocks added to the original result submission deadline. After
+        // a successful challenge it is set to the elapsed time since DKG start,
+        // giving the remaining selected members a full submission window.
         uint256 resultSubmissionStartBlockOffset;
         // Hash of submitted DKG result.
         bytes32 submittedResultHash;
@@ -333,8 +333,10 @@ library FrostDkg {
     /// @notice Checks if DKG timed out. The DKG timeout period includes time required
     ///         for off-chain protocol execution and time for the result publication.
     ///         After this time a result cannot be submitted and DKG can be notified
-    ///         about the timeout. A compatibility offset may already exist for a
-    ///         DKG started before an upgrade, but challenges never increase it.
+    ///         about the timeout. A successful challenge rebases the submission
+    ///         deadline to give the remaining selected members a full retry window.
+    ///         Retries remain bounded because every challenged submitter is
+    ///         quarantined for the current DKG.
     /// @return True if DKG timed out, false otherwise.
     function hasDkgTimedOut(Data storage self) internal view returns (bool) {
         return
@@ -495,10 +497,15 @@ library FrostDkg {
         maliciousSubmitter = result.members[result.submitterMemberIndex - 1];
 
         // Prevent the identified submitter from reacquiring the challenge-state
-        // lock in this DKG. Other selected members may still submit before the
-        // original fixed deadline.
+        // lock in this DKG, including through another selected member index.
         self.challengedSubmitterDkgStartBlocks[maliciousSubmitter] = self
             .startBlock;
+
+        // Give the remaining selected members a full result-submission window,
+        // including when this challenge lands after the previous deadline.
+        // Extensions remain finite because the challenged submitter cannot submit
+        // again in this DKG and there are at most `groupSize` selected IDs.
+        self.resultSubmissionStartBlockOffset = block.number - self.startBlock;
 
         submittedResultCleanup(self);
 

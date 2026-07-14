@@ -158,6 +158,45 @@ describe("FrostDkg liveness security", () => {
     expect(await harness.state()).to.equal(CHALLENGE)
   })
 
+  it("preserves a full retry window after a result is challenged beyond the original deadline", async () => {
+    const originalDeadline = await harness.resultSubmissionDeadline()
+    const originalDeadlineBlock = originalDeadline.toNumber()
+    const currentBlock = await ethers.provider.getBlockNumber()
+    const blocksBeforeDeadline = originalDeadlineBlock - currentBlock - 1
+    if (blocksBeforeDeadline > 0) {
+      await hre.network.provider.send("hardhat_mine", [
+        `0x${blocksBeforeDeadline.toString(16)}`,
+      ])
+    }
+
+    const maliciousResult = resultFor(1, selectedMembers)
+    const submissionReceipt = await (
+      await harness.connect(maliciousSelected).submitResult(maliciousResult)
+    ).wait()
+    expect(submissionReceipt.blockNumber).to.equal(originalDeadlineBlock)
+
+    const challengeReceipt = await (
+      await harness.connect(challenger).challengeResult(maliciousResult)
+    ).wait()
+    expect(challengeReceipt.blockNumber).to.equal(originalDeadlineBlock + 1)
+
+    const retryDeadline = await harness.resultSubmissionDeadline()
+    expect(retryDeadline).to.equal(
+      challengeReceipt.blockNumber + SUBMISSION_TIMEOUT
+    )
+    expect(await harness.hasDkgTimedOut()).to.equal(false)
+
+    await expectCustomError(
+      harness.connect(maliciousSelected).submitResult(maliciousResult),
+      "SubmitterChallengedForCurrentDkg"
+    )
+
+    const honestResult = resultFor(2, selectedMembers)
+    await expect(harness.connect(honestSelected).submitResult(honestResult)).to
+      .not.be.reverted
+    expect(await harness.state()).to.equal(CHALLENGE)
+  })
+
   it("blocks a challenged operator through another selected member index", async () => {
     const duplicatedMembers = [...selectedMembers]
     duplicatedMembers[1] = MALICIOUS_SELECTED_ID
@@ -203,18 +242,25 @@ describe("FrostDkg liveness security", () => {
     expect(await harness.state()).to.equal(CHALLENGE)
   })
 
-  it("keeps the original deadline and unlocks immediately after the exact timeout boundary", async () => {
-    const originalDeadline = await harness.resultSubmissionDeadline()
+  it("expires immediately after the bounded post-challenge retry window", async () => {
     const maliciousResult = resultFor(1, selectedMembers)
 
     await harness.connect(maliciousSelected).submitResult(maliciousResult)
-    await harness.connect(challenger).challengeResult(maliciousResult)
+    const challengeReceipt = await (
+      await harness.connect(challenger).challengeResult(maliciousResult)
+    ).wait()
 
-    expect(await harness.resultSubmissionStartBlockOffset()).to.equal(0)
-    expect(await harness.resultSubmissionDeadline()).to.equal(originalDeadline)
+    const startBlock = await harness.startBlock()
+    expect(await harness.resultSubmissionStartBlockOffset()).to.equal(
+      challengeReceipt.blockNumber - startBlock.toNumber()
+    )
+    const retryDeadline = await harness.resultSubmissionDeadline()
+    expect(retryDeadline).to.equal(
+      challengeReceipt.blockNumber + SUBMISSION_TIMEOUT
+    )
 
     const currentBlock = await ethers.provider.getBlockNumber()
-    const blocksToDeadline = originalDeadline.toNumber() - currentBlock
+    const blocksToDeadline = retryDeadline.toNumber() - currentBlock
     if (blocksToDeadline > 0) {
       await hre.network.provider.send("hardhat_mine", [
         `0x${blocksToDeadline.toString(16)}`,
@@ -222,7 +268,7 @@ describe("FrostDkg liveness security", () => {
     }
 
     expect(await ethers.provider.getBlockNumber()).to.equal(
-      originalDeadline.toNumber()
+      retryDeadline.toNumber()
     )
     expect(await harness.hasDkgTimedOut()).to.equal(false)
 
