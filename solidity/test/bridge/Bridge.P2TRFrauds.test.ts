@@ -10,6 +10,7 @@ import chai, { expect } from "chai"
 import { FakeContract, smock } from "@defi-wonderland/smock"
 import type {
   Bridge,
+  BridgeGovernance,
   BridgeLifecycleRouter,
   BridgeStub,
   FrostWalletRegistryStub,
@@ -347,9 +348,11 @@ describe("Bridge - P2TR signature fraud", () => {
   }
 
   let thirdParty: SignerWithAddress
+  let governance: SignerWithAddress
   let treasury: SignerWithAddress
   let walletRegistry: FakeContract<IWalletRegistry>
   let bridge: Bridge & BridgeStub
+  let bridgeGovernance: BridgeGovernance
   let bridgeSigner: Signer
   let frostWalletRegistry: FrostWalletRegistryStub
   let lifecycleRouter: BridgeLifecycleRouter
@@ -362,9 +365,11 @@ describe("Bridge - P2TR signature fraud", () => {
   before(async () => {
     const fixture = await waffle.loadFixture(bridgeFixture)
     thirdParty = fixture.thirdParty
+    governance = fixture.governance
     treasury = fixture.treasury
     walletRegistry = fixture.walletRegistry
     bridge = fixture.bridge
+    bridgeGovernance = fixture.bridgeGovernance
     p2trFraudRouter = fixture.p2trFraudRouter
 
     const FrostWalletRegistryStubFactory = await ethers.getContractFactory(
@@ -786,6 +791,61 @@ describe("Bridge - P2TR signature fraud", () => {
           { value: fraudChallengeDepositAmount }
         )
     ).to.be.revertedWith("Fraud challenge already exists")
+  })
+
+  it("blocks public evidence from pre-seeding a legacy P2TR migration key", async () => {
+    const payload = vectorPayload(vector)
+    await registerP2TRWallet(payload.walletID)
+    const challengeKey = await buildBridgeChallengeKey(
+      bridge.address,
+      hex(vector.expectedBridgeChallengeIdentityHex)
+    )
+    await bridge.setLegacyFraudChallengeForTest(
+      challengeKey,
+      {
+        challenger: treasury.address,
+        depositAmount: fraudChallengeDepositAmount,
+        reportedAt: 1_700_000_000,
+        resolved: false,
+      },
+      { value: fraudChallengeDepositAmount }
+    )
+
+    await expect(
+      p2trFraudRouter
+        .connect(thirdParty)
+        .processP2TRSignatureFraudChallenge(
+          p2trFraudAction.Submit,
+          encodePayload(payload),
+          [],
+          { value: fraudChallengeDepositAmount }
+        )
+    ).to.be.revertedWith("Legacy fraud challenge exists")
+
+    expect(
+      (await p2trFraudRouter.fraudChallenges(challengeKey)).reportedAt
+    ).to.equal(0)
+    expect(await p2trFraudRouter.openFraudChallengeCount()).to.equal(0)
+    expect(await ethers.provider.getBalance(p2trFraudRouter.address)).to.equal(
+      0
+    )
+    expect(
+      (await bridge.legacyFraudChallengeForTest(challengeKey)).challenger
+    ).to.equal(treasury.address)
+
+    await bridgeGovernance
+      .connect(governance)
+      .migrateLegacyFraudChallenges(1, [challengeKey])
+
+    const migrated = await p2trFraudRouter.fraudChallenges(challengeKey)
+    expect(migrated.challenger).to.equal(treasury.address)
+    expect(migrated.depositAmount).to.equal(fraudChallengeDepositAmount)
+    expect(
+      (await bridge.legacyFraudChallengeForTest(challengeKey)).reportedAt
+    ).to.equal(0)
+    expect(await bridge.legacyFraudChallengeExists(challengeKey)).to.equal(
+      false
+    )
   })
 
   it("rejects P2TR challenges for unknown wallets before storage", async () => {
