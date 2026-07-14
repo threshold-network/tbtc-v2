@@ -334,8 +334,13 @@ Current draft corpus:
   embedding service provides the Bridge domain. Domainless observation mode
   instead derives a raw-evidence observation ID. Same-key record transitions
   are serialized within a store instance, and the observation selected for
-  submission is bound atomically to its in-flight state. The SDK also defines a
-  serializable challenge-record store boundary and seeds a pure off-chain
+  submission is bound atomically to its in-flight state. Confirmed flexible-
+  sighash replacements add fixed-size Bitcoin transaction-hash/spend-type
+  proof aliases without replacing that payload, while mempool-only variants do
+  not grow the durable alias history. Legacy confirmed scalar metadata is
+  imported into alias mode only when its transaction hash matches the stored
+  raw transaction. The SDK also defines a serializable challenge-record store
+  boundary and seeds a pure off-chain
   lifecycle reducer for observed, submitting, submitted, rejected,
   defeat-eligible, defeated, timeout-eligible, slashed, and rewarded challenge
   records, plus a store-backed ingest primitive for mempool and confirmed
@@ -367,7 +372,8 @@ Current draft corpus:
   are identical in domain-bound mode. Key-only events are resolved through the
   durable record source and fail closed on unknown keys. Honest-spend proof
   events can instead target the Bitcoin transaction hash plus approved spend
-  type; the resolver
+  type; the resolver matches persisted confirmed proof aliases so a canonical
+  record remains correlatable after flexible-sighash replacement. The resolver
   ignores transaction hashes that do not belong to any stored challenge and
   fails closed on duplicate records, wrong spend type for a stored transaction,
   or fail-closed spend-type matches. It also exposes an integrated source cycle

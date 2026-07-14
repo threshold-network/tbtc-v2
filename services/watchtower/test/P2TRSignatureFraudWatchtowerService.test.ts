@@ -12,6 +12,7 @@ import {
   createP2TRWatchtowerChallengeRecord,
   extractP2TRSignatureFraudWitnessObservations,
   P2TR_SIGNATURE_FRAUD_SPEND_TYPE_HEARTBEAT,
+  P2TR_SIGNATURE_FRAUD_SPEND_TYPE_MOVING_FUNDS,
   P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
   P2TR_SIGNATURE_FRAUD_SPEND_TYPE_UNCLASSIFIED,
   P2TR_SIGNATURE_FRAUD_SPEND_TYPE_WALLET_CLOSING,
@@ -49,6 +50,7 @@ import type {
 } from "../src/index.js"
 
 type SignatureFraudVector = {
+  id?: string
   walletIDHex: string
   unsignedTransactionHex: string
   signedInputIndex: number
@@ -1062,6 +1064,149 @@ test("passes configured spend-type classifier into live submissions", async () =
       storedRecord.observation?.bridgeChallengeKey,
       "dfc3a7c7a3717d106b1ee3cd7e10f744e4487a9061aadc4fa0204daf45b09d0a"
     )
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test("reconciles honest-spend proofs for classified flexible-sighash replacements", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "p2tr-watchtower-"))
+  const statePath = join(directory, "records.json")
+
+  try {
+    const vector = loadFlexibleSignatureFraudVector()
+    const originalRawTransaction = withInputWitness(
+      vector.unsignedTransactionHex,
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    const replacementTransaction = Transaction.fromHex(
+      vector.unsignedTransactionHex
+    )
+    replacementTransaction.outs[0].value--
+    const replacementRawTransaction = withInputWitness(
+      replacementTransaction.toHex(),
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    const effectivePrevouts = vector.prevouts.map((prevout, inputIndex) =>
+      inputIndex === vector.signedInputIndex
+        ? prevout
+        : { ...prevout, scriptPubKeyHex: "51" }
+    )
+    const bitcoinClient = {
+      async getRawTransaction(txid: string) {
+        const prevout = effectivePrevouts.find(
+          (candidate) => candidate.txidHex === txid.toString()
+        )
+
+        if (prevout === undefined) {
+          throw new Error(`unexpected prevout lookup: ${txid.toString()}`)
+        }
+
+        return rawPreviousTransactionForPrevout(prevout)
+      },
+    } as unknown as BitcoinClient
+    const originalBitcoinTxHash = `0x${"11".repeat(32)}`
+    const replacementBitcoinTxHash = `0x${"22".repeat(32)}`
+    let mempoolTransactions: P2TRWatchtowerMempoolTransaction[] = [
+      {
+        rawTransaction: originalRawTransaction,
+        bitcoinTxHash: originalBitcoinTxHash,
+      },
+    ]
+    let confirmedTransactions: P2TRWatchtowerConfirmedTransaction[] = []
+    let lifecycleEvents: P2TRSignatureFraudWatchtowerBridgeLifecycleEvent[] = []
+    let committedBridgeLifecycleScan = false
+    const persistence = new FileBackedP2TRWatchtowerChallengeRecordPersistence(
+      statePath
+    )
+    const submitter = new FakeSubmitter()
+    const service = new P2TRSignatureFraudWatchtowerService(
+      {
+        registeredWalletIDs: [vector.walletIDHex],
+        submitChallenges: true,
+        ...draftSingleProcessRehearsalSubmission,
+        submissionPolicy: {
+          allowedSpendTypes: [
+            P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
+            P2TR_SIGNATURE_FRAUD_SPEND_TYPE_MOVING_FUNDS,
+          ],
+        },
+        maxSubmissionAttempts: 3,
+        submissionAttemptLimitAlert: draftSubmissionAttemptLimitAlert,
+        bridgeChallengeDomain: draftBridgeChallengeDomain,
+        payloadBounds: {
+          maxRawTransactionBytes: 10000,
+          maxInputs: 3,
+          maxOutputs: 3,
+          maxScriptPubKeyBytes: 34,
+        },
+        spendTypeClassifier: ({ unsignedTransaction }) =>
+          unsignedTransaction.transactionHex === vector.unsignedTransactionHex
+            ? P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION
+            : P2TR_SIGNATURE_FRAUD_SPEND_TYPE_MOVING_FUNDS,
+      },
+      {
+        bitcoinClient,
+        challengeSubmitter: submitter,
+        transactionSource: {
+          async listMempoolTransactions() {
+            return mempoolTransactions
+          },
+          async listConfirmedTransactions() {
+            return confirmedTransactions
+          },
+        },
+        bridgeLifecycleEventSource: {
+          async listBridgeLifecycleEvents() {
+            return lifecycleEvents
+          },
+          async commitBridgeLifecycleScan() {
+            committedBridgeLifecycleScan = true
+          },
+        },
+        persistence,
+      }
+    )
+
+    await service.processCycle()
+    assert.equal(submitter.submissionCount, 1)
+
+    mempoolTransactions = []
+    confirmedTransactions = [
+      {
+        rawTransaction: replacementRawTransaction,
+        bitcoinTxHash: replacementBitcoinTxHash,
+        bitcoinBlockHash: `0x${"33".repeat(32)}`,
+        bitcoinBlockHeight: 144,
+      },
+    ]
+    lifecycleEvents = [
+      {
+        type: "honest-spend-proven",
+        bitcoinTxHash: replacementBitcoinTxHash,
+        spendType: P2TR_SIGNATURE_FRAUD_SPEND_TYPE_MOVING_FUNDS,
+      },
+    ]
+    committedBridgeLifecycleScan = false
+
+    const report = await service.processCycle()
+    const storedRecords = await persistence.loadChallengeRecords()
+    const [storedRecord] = storedRecords
+
+    assert.equal(report.result.confirmed.failures.length, 0)
+    assert.equal(
+      report.result.confirmed.submissions[0].observation.spendType,
+      P2TR_SIGNATURE_FRAUD_SPEND_TYPE_MOVING_FUNDS
+    )
+    assert.equal(report.result.bridgeLifecycle.records.length, 1)
+    assert.equal(report.result.bridgeLifecycle.failures.length, 0)
+    assert.equal(report.result.bridgeLifecycle.ignored.length, 0)
+    assert.equal(storedRecords.length, 1)
+    assert.equal(storedRecord.status, "defeat-eligible")
+    assert.equal(committedBridgeLifecycleScan, true)
+    assert.equal(submitter.submissionCount, 1)
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
@@ -2611,6 +2756,24 @@ function rawPreviousTransactionForPrevout(
 }
 
 function loadFirstSignatureFraudVector(): SignatureFraudVector {
+  return loadSignatureFraudVectors("p2tr-signature-fraud-v0.json")[0]
+}
+
+function loadFlexibleSignatureFraudVector(): SignatureFraudVector {
+  const vector = loadSignatureFraudVectors(
+    "p2tr-signature-fraud-full-sighash-v0.json"
+  ).find(
+    (candidate) => candidate.id === "bip341-keypath-anyonecanpay-none-multi"
+  )
+
+  if (vector === undefined) {
+    throw new Error("Missing ANYONECANPAY|NONE P2TR signature-fraud vector")
+  }
+
+  return vector
+}
+
+function loadSignatureFraudVectors(fileName: string): SignatureFraudVector[] {
   return JSON.parse(
     readFileSync(
       join(
@@ -2619,9 +2782,10 @@ function loadFirstSignatureFraudVector(): SignatureFraudVector {
         // "../../../docs" would escape the repo. From the test directory the
         // three "../" segments reach the repo-root docs/ directory.
         dirname(fileURLToPath(import.meta.url)),
-        "../../../docs/test-vectors/p2tr-signature-fraud-v0.json"
+        "../../../docs/test-vectors",
+        fileName
       ),
       "utf8"
     )
-  ).cases[0] as SignatureFraudVector
+  ).cases as SignatureFraudVector[]
 }
