@@ -7,6 +7,7 @@ import { fileURLToPath } from "url"
 import test from "node:test"
 
 import {
+  applyP2TRWatchtowerChallengeEvent,
   BitcoinClient,
   BitcoinRawTx,
   createP2TRWatchtowerChallengeRecord,
@@ -1207,6 +1208,94 @@ test("reconciles honest-spend proofs for classified flexible-sighash replacement
     assert.equal(storedRecord.status, "defeat-eligible")
     assert.equal(committedBridgeLifecycleScan, true)
     assert.equal(submitter.submissionCount, 1)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test("reconciles honest-spend proofs after metadata-only confirmations", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "p2tr-watchtower-"))
+  const statePath = join(directory, "records.json")
+
+  try {
+    const vector = loadFirstSignatureFraudVector()
+    const rawTransaction = withInputWitness(
+      vector.unsignedTransactionHex,
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    const [observation] = extractP2TRSignatureFraudWitnessObservations(
+      rawTransaction,
+      vector.prevouts.map((prevout) => ({
+        txid: prevout.txidHex,
+        vout: prevout.vout,
+        valueSats: prevout.valueSats,
+        scriptPubKey: prevout.scriptPubKeyHex,
+      })),
+      [vector.walletIDHex],
+      undefined,
+      () => P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
+      draftPayloadBounds,
+      draftBridgeChallengeDomain
+    )
+    const bitcoinTxHash = Transaction.fromHex(
+      rawTransaction.transactionHex
+    ).getId()
+    const mempoolRecord = applyP2TRWatchtowerChallengeEvent(
+      createP2TRWatchtowerChallengeRecord(observation.observationID),
+      {
+        type: "mempool-observed",
+        observationID: observation.observationID,
+        observation,
+        bitcoinTxHash,
+      }
+    )
+    const confirmedRecord = applyP2TRWatchtowerChallengeEvent(mempoolRecord, {
+      type: "bitcoin-confirmed",
+      observationID: observation.observationID,
+      bitcoinTxHash,
+      bitcoinBlockHash: "33".repeat(32),
+      bitcoinBlockHeight: 144,
+    })
+    const persistence = new FileBackedP2TRWatchtowerChallengeRecordPersistence(
+      statePath
+    )
+    await persistence.saveChallengeRecords([
+      serializeP2TRWatchtowerChallengeRecord(confirmedRecord),
+    ])
+
+    let committedBridgeLifecycleScan = false
+    const service = new P2TRSignatureFraudWatchtowerService(
+      { registeredWalletIDs: [vector.walletIDHex] },
+      {
+        bitcoinClient: {} as BitcoinClient,
+        challengeSubmitter: new FakeSubmitter(),
+        transactionSource: emptyTransactionSource,
+        bridgeLifecycleEventSource: {
+          async listBridgeLifecycleEvents() {
+            return [
+              {
+                type: "honest-spend-proven" as const,
+                bitcoinTxHash,
+                spendType: P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
+              },
+            ]
+          },
+          async commitBridgeLifecycleScan() {
+            committedBridgeLifecycleScan = true
+          },
+        },
+        persistence,
+      }
+    )
+
+    const report = await service.processCycle()
+    const [storedRecord] = await persistence.loadChallengeRecords()
+
+    assert.equal(report.result.bridgeLifecycle.records.length, 1)
+    assert.equal(report.result.bridgeLifecycle.failures.length, 0)
+    assert.equal(storedRecord.status, "defeat-eligible")
+    assert.equal(committedBridgeLifecycleScan, true)
   } finally {
     await rm(directory, { recursive: true, force: true })
   }

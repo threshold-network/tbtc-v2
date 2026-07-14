@@ -339,7 +339,10 @@ Current draft corpus:
   proof aliases without replacing that payload, while mempool-only variants do
   not grow the durable alias history. Legacy confirmed scalar metadata is
   imported into alias mode only when its transaction hash matches the stored
-  raw transaction. The SDK also defines a serializable challenge-record store
+  raw transaction. Metadata-only confirmations similarly derive an alias from
+  the stored observation only when its raw transaction hashes to the confirmed
+  transaction ID; mismatches add no alias and remain fail-closed. The SDK also
+  defines a serializable challenge-record store
   boundary and seeds a pure off-chain
   lifecycle reducer for observed, submitting, submitted, rejected,
   defeat-eligible, defeated, timeout-eligible, slashed, and rewarded challenge

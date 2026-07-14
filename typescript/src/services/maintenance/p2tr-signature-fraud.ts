@@ -1983,6 +1983,14 @@ const applyP2TRWatchtowerObservationPayload = (
   }
 }
 
+const p2trWatchtowerObservationMatchesBitcoinTxHash = (
+  observation: P2TRSignatureFraudWitnessObservation,
+  bitcoinTxHash: Hex
+): boolean =>
+  BitcoinTxHash.from(
+    Transaction.fromHex(observation.rawTransaction.transactionHex).getId()
+  ).equals(bitcoinTxHash)
+
 const initializeP2TRWatchtowerBitcoinProofAliases = (
   record: P2TRWatchtowerChallengeRecord
 ): P2TRWatchtowerChallengeRecord => {
@@ -1995,13 +2003,12 @@ const initializeP2TRWatchtowerBitcoinProofAliases = (
     record.bitcoinTxHash !== undefined &&
     record.observation !== undefined
   ) {
-    const observationBitcoinTxHash = BitcoinTxHash.from(
-      Transaction.fromHex(
-        record.observation.rawTransaction.transactionHex
-      ).getId()
-    )
-
-    if (record.bitcoinTxHash.equals(observationBitcoinTxHash)) {
+    if (
+      p2trWatchtowerObservationMatchesBitcoinTxHash(
+        record.observation,
+        record.bitcoinTxHash
+      )
+    ) {
       return {
         ...record,
         bitcoinProofAliases: [
@@ -2030,16 +2037,25 @@ const appendP2TRWatchtowerConfirmedBitcoinProofAlias = (
     initializeP2TRWatchtowerBitcoinProofAliases(record),
     event
   )
-  if (event.observation === undefined) {
-    return initializedRecord
-  }
-
   const bitcoinTxHash = toBytes32Hex(
     event.bitcoinTxHash,
     "Bitcoin proof alias transaction hash"
   )
+  const proofObservation =
+    event.observation ??
+    (initializedRecord.observation !== undefined &&
+    p2trWatchtowerObservationMatchesBitcoinTxHash(
+      initializedRecord.observation,
+      bitcoinTxHash
+    )
+      ? initializedRecord.observation
+      : undefined)
+  if (proofObservation === undefined) {
+    return initializedRecord
+  }
+
   const spendType = requireP2TRSignatureFraudSpendType(
-    event.observation.spendType
+    proofObservation.spendType
   )
   const aliases = initializedRecord.bitcoinProofAliases ?? []
   const existingAlias = aliases.find((alias) =>
