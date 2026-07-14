@@ -375,6 +375,44 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
       expect(conflict.statusVerified).to.be.false
     })
 
+    it("should treat a status endpoint success:false response as unverifiable", async () => {
+      axios.post = sinon.stub().rejects(build409Error("654"))
+      axios.get = sinon.stub().resolves({
+        data: {
+          success: false,
+        },
+      })
+
+      const conflict = await expectConflictError(
+        depositor.initializeDeposit(mockDepositTx, 0, mockReceipt)
+      )
+
+      expect(conflict.depositId).to.equal("654")
+      expect(conflict.status).to.be.undefined
+      expect(conflict.statusVerified).to.be.false
+      expect((axios.get as sinon.SinonStub).callCount).to.equal(1)
+    })
+
+    it("should treat an unrecognized numeric status as unverifiable", async () => {
+      axios.post = sinon.stub().rejects(build409Error("321"))
+      axios.get = sinon.stub().resolves({
+        data: {
+          success: true,
+          depositId: "321",
+          status: 99,
+        },
+      })
+
+      const conflict = await expectConflictError(
+        depositor.initializeDeposit(mockDepositTx, 0, mockReceipt)
+      )
+
+      expect(conflict.depositId).to.equal("321")
+      expect(conflict.status).to.be.undefined
+      expect(conflict.statusVerified).to.be.false
+      expect((axios.get as sinon.SinonStub).callCount).to.equal(1)
+    })
+
     it("should reject a verified INITIALIZED status without receipt data as an unverified conflict", async () => {
       axios.post = sinon.stub().rejects(build409Error("77"))
       axios.get = sinon.stub().resolves({
