@@ -17,6 +17,16 @@ const defeatedFilter = { event: "defeated" }
 const timedOutFilter = { event: "timed-out" }
 const movingFundsCompletedFilter = { event: "moving-funds-completed" }
 const redemptionsCompletedFilter = { event: "redemptions-completed" }
+const challengeSubmittedEventTopic =
+  "0xdbf5fc7022aea04bb2f6b24831d36f88767a274b662858025f1e490c127ff876"
+const challengeDefeatedEventTopic =
+  "0x1c09e160fcfdba6315144c05e93357f8a6f0db7517253b7ce4854c3b6d3bafac"
+const challengeDefeatTimedOutEventTopic =
+  "0x798f765e06fb1f2a5b39a4ffddc27396be8ba8e51b59b1d08d82c95922e5b331"
+const movingFundsCompletedEventTopic =
+  "0xc635af1892551655b9dbb3256a0eed3e35baf4fcc5392b80e6a907b6f44a2838"
+const redemptionsCompletedEventTopic =
+  "0xa45596c10f758d32ec8cca64a0fbfe776052b08fdb3f026e0a87f52118bf8fbe"
 
 type TestLifecycleSourceOptions = Omit<
   EthersP2TRSignatureFraudBridgeLifecycleEventSourceOptions,
@@ -276,7 +286,7 @@ test("verifies exact receipt log membership through an independent provider", as
     data: "0x1234",
     logIndex: 2,
     removed: false,
-    topics: [txHash("01"), txHash("02")],
+    topics: [challengeDefeatedEventTopic, txHash("02")],
     transactionHash: txHash("aa"),
   }
   let receiptLogs: P2TREthersBridgeLifecycleEventLog[] = [canonicalLog]
@@ -318,6 +328,124 @@ test("verifies exact receipt log membership through an independent provider", as
       log: canonicalLog,
     }),
     false
+  )
+})
+
+test("accepts each supported canonical lifecycle event signature", async () => {
+  const emitter = `0x${"42".repeat(20)}`
+  const eventSignatures = [
+    ["P2TRSignatureFraudChallengeDefeated", challengeDefeatedEventTopic],
+    [
+      "P2TRSignatureFraudChallengeDefeatTimedOut",
+      challengeDefeatTimedOutEventTopic,
+    ],
+    ["MovingFundsCompleted", movingFundsCompletedEventTopic],
+    ["RedemptionsCompleted", redemptionsCompletedEventTopic],
+  ] as const
+
+  for (const [eventName, eventTopic] of eventSignatures) {
+    const canonicalLog: P2TRCanonicalBridgeLifecycleEventLog = {
+      address: emitter,
+      blockHash: txHash("88"),
+      blockNumber: 60,
+      data: "0x",
+      logIndex: 2,
+      removed: false,
+      topics: [eventTopic],
+      transactionHash: txHash("aa"),
+    }
+    const verifier = new EthersP2TRCanonicalBridgeLifecycleLogVerifier(
+      "canonical.example",
+      {
+        async getBlockNumber() {
+          return 100
+        },
+        async getBlock() {
+          return { hash: canonicalLog.blockHash }
+        },
+        async getTransactionReceipt() {
+          return {
+            status: 1,
+            blockHash: canonicalLog.blockHash,
+            blockNumber: canonicalLog.blockNumber,
+            transactionHash: canonicalLog.transactionHash,
+            logs: [canonicalLog],
+          }
+        },
+      }
+    )
+
+    assert.equal(
+      await verifier.verifyLifecycleLog({
+        eventName,
+        expectedEmitter: emitter,
+        log: canonicalLog,
+      }),
+      true,
+      eventName
+    )
+  }
+})
+
+test("rejects a submitted event returned by a defeated-event query", async () => {
+  const sourceForEventTopic = (eventTopic: string) => {
+    const canonicalLog: P2TRCanonicalBridgeLifecycleEventLog = {
+      args: { challengeKey: 1n },
+      address: `0x${"42".repeat(20)}`,
+      blockHash: txHash("88"),
+      blockNumber: 60,
+      data: "0x",
+      logIndex: 2,
+      removed: false,
+      topics: [eventTopic],
+      transactionHash: txHash("aa"),
+    }
+    const contract = new FakeBridgeLifecycleContract({
+      defeated: [canonicalLog],
+    })
+    const canonicalLogVerifier =
+      new EthersP2TRCanonicalBridgeLifecycleLogVerifier("canonical.example", {
+        async getBlockNumber() {
+          return 100
+        },
+        async getBlock() {
+          return { hash: canonicalLog.blockHash }
+        },
+        async getTransactionReceipt() {
+          return {
+            status: 1,
+            blockHash: canonicalLog.blockHash,
+            blockNumber: canonicalLog.blockNumber,
+            transactionHash: canonicalLog.transactionHash,
+            logs: [canonicalLog],
+          }
+        },
+      })
+
+    return new VerifiedEthersP2TRSignatureFraudBridgeLifecycleEventSource(
+      contract,
+      {
+        sourceTrustDomainID: "indexer.example",
+        canonicalLogVerifier,
+        fromBlock: 50,
+        toBlock: 88,
+      }
+    )
+  }
+
+  assert.deepEqual(
+    (
+      await sourceForEventTopic(
+        challengeDefeatedEventTopic
+      ).listBridgeLifecycleEvents()
+    ).map((event) => event.type),
+    ["defeated"]
+  )
+  await assert.rejects(
+    sourceForEventTopic(
+      challengeSubmittedEventTopic
+    ).listBridgeLifecycleEvents(),
+    /P2TRSignatureFraudChallengeDefeated log is not independently canonical/
   )
 })
 
