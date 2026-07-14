@@ -53,11 +53,62 @@ interface RelayerRevealResponse {
 }
 
 /**
+ * Status of a deposit as reported by the relayer's deposit-status endpoint.
+ * Mirrors the relayer's own DepositStatus enum.
+ */
+export enum RelayerDepositStatus {
+  // eslint-disable-next-line no-unused-vars
+  QUEUED = 0,
+  // eslint-disable-next-line no-unused-vars
+  INITIALIZED = 1,
+  // eslint-disable-next-line no-unused-vars
+  FINALIZED = 2,
+}
+
+/**
+ * Relayer response for the deposit-status endpoint.
+ */
+interface RelayerDepositStatusResponse {
+  success: boolean
+  depositId?: string
+  status?: RelayerDepositStatus
+  message?: string
+  error?: string
+  receipt?: {
+    transactionHash: string
+    blockNumber?: number
+    status?: number
+  }
+}
+
+/**
+ * Thrown when the relayer reports that a deposit reveal already exists
+ * (HTTP 409) instead of confirming a new, successful initialization.
+ *
+ * A 409 alone is not proof that L1 initialization succeeded, so it is never
+ * converted into a fabricated Hex or TransactionReceipt. This error
+ * preserves whatever deposit ID and verified status could be recovered from
+ * the relayer so the caller can poll the relayer or otherwise recover.
+ */
+export class RelayerDepositConflictError extends Error {
+  constructor(
+    message: string,
+    public readonly depositId: string | undefined,
+    public readonly status: RelayerDepositStatus | undefined,
+    public readonly statusVerified: boolean
+  ) {
+    super(message)
+    this.name = "RelayerDepositConflictError"
+  }
+}
+
+/**
  * Configuration for StarkNetBitcoinDepositor
  */
 export interface StarkNetBitcoinDepositorConfig {
   chainId: string
   relayerUrl?: string
+  relayerStatusUrl?: string
   defaultVault?: string
 }
 
@@ -98,9 +149,9 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
       throw new Error("Provider is required for StarkNet depositor")
     }
 
-    // Set default relayer URL based on chainId if not provided
+    // Set default relayer URLs based on chainId if not provided
     const enhancedConfig = { ...config }
-    if (!enhancedConfig.relayerUrl) {
+    if (!enhancedConfig.relayerUrl || !enhancedConfig.relayerStatusUrl) {
       // Check if we're in development mode
       const isDevelopment =
         typeof window !== "undefined" &&
@@ -115,14 +166,20 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
         "0x534e5f4d41494e": "StarknetMainnet", // SN_MAIN
       }
 
-      const chainName = chainNameMap[config.chainId] || "StarknetTestnet"
+      const relayerChainName = chainNameMap[config.chainId] || "StarknetTestnet"
 
-      if (isDevelopment) {
-        // Use local relayer for development with chain-specific endpoint
-        enhancedConfig.relayerUrl = `http://localhost:3001/api/${chainName}/reveal`
-      } else {
-        // Production URLs with chain-specific endpoint
-        enhancedConfig.relayerUrl = `https://tbtc-crosschain-relayer-swmku.ondigitalocean.app/api/${chainName}/reveal`
+      const relayerBaseUrl = isDevelopment
+        ? `http://localhost:3001/api/${relayerChainName}`
+        : `https://tbtc-crosschain-relayer-swmku.ondigitalocean.app/api/${relayerChainName}`
+
+      if (!enhancedConfig.relayerUrl) {
+        enhancedConfig.relayerUrl = `${relayerBaseUrl}/reveal`
+      }
+      // Deposit-status endpoint, sibling of the reveal endpoint above. Used
+      // to verify the real outcome of a deposit the relayer reports as a
+      // conflict (HTTP 409) instead of trusting the conflict response alone.
+      if (!enhancedConfig.relayerStatusUrl) {
+        enhancedConfig.relayerStatusUrl = `${relayerBaseUrl}/deposit`
       }
     }
 
@@ -203,12 +260,23 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
    * via a relayer off-chain process. It returns the transaction hash as a Hex
    * or a full transaction receipt.
    *
+   * If the relayer reports that the deposit already exists (HTTP 409), this
+   * method verifies the deposit's real status through the relayer's
+   * deposit-status endpoint before deciding how to respond. It only ever
+   * returns a value here when the SDK can produce a real, verified
+   * successful result; otherwise it throws a RelayerDepositConflictError
+   * carrying the deposit ID and any verified status so the caller can poll
+   * or otherwise recover.
+   *
    * @param depositTx - The Bitcoin transaction data
    * @param depositOutputIndex - The output index of the deposit
    * @param deposit - The deposit receipt containing all deposit parameters
    * @param vault - Optional vault address
    * @returns The transaction hash or full transaction receipt from the relayer response
    * @throws Error if deposit owner not set or relayer returns unexpected response
+   * @throws RelayerDepositConflictError if the relayer reports the deposit
+   *         already exists and its successful initialization cannot be
+   *         verified
    */
   // eslint-disable-next-line valid-jsdoc
   async initializeDeposit(
@@ -339,27 +407,12 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
       } catch (error: any) {
         lastError = error
 
-        // Special handling for 409 Conflict - deposit already exists
+        // A 409 means the relayer already has a record of this deposit.
+        // That alone is not proof L1 initialization succeeded, so it can
+        // never be converted into a fabricated Hex or TransactionReceipt.
+        // Verify the deposit's real status before deciding how to respond.
         if (error.response?.status === 409) {
-          console.log(
-            "Deposit already exists, checking response data:",
-            error.response.data
-          )
-
-          // If the relayer returns deposit info in the error response, use it
-          const errorData = error.response.data
-          if (errorData?.depositId && errorData?.success === false) {
-            // The deposit ID is a decimal string, convert it to hex
-            try {
-              const depositIdBigInt = BigInt(errorData.depositId)
-              const depositIdHex = "0x" + depositIdBigInt.toString(16)
-              console.log("Converted deposit ID to hex:", depositIdHex)
-              return Hex.from(depositIdHex)
-            } catch (conversionError) {
-              console.error("Failed to convert deposit ID:", conversionError)
-              // Continue with normal error handling
-            }
-          }
+          return await this.handleDepositConflict(error)
         }
 
         // Check if error is retryable and we have retries left
@@ -388,6 +441,160 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
     const formattedError = this.formatRelayerError(lastError)
     console.error("StarkNet depositor throwing error:", formattedError)
     throw new Error(formattedError)
+  }
+
+  /**
+   * Handles a 409 Conflict response from the relayer, which means the
+   * relayer already has a record of this deposit. Since that alone is not
+   * proof that L1 initialization succeeded, this verifies the deposit's
+   * real status through the relayer's deposit-status endpoint before ever
+   * returning a success value. When the outcome cannot be verified as a
+   * successful, complete initialization, it throws a
+   * RelayerDepositConflictError carrying whatever deposit ID and status
+   * could be recovered, so the caller can poll or otherwise recover.
+   * @param error The Axios error produced by the 409 response
+   * @returns A verified successful initialization result, if one exists
+   * @throws RelayerDepositConflictError if the deposit cannot be verified
+   *         as successfully initialized
+   */
+  // eslint-disable-next-line valid-jsdoc
+  private async handleDepositConflict(
+    error: any
+  ): Promise<Hex | TransactionReceipt> {
+    const errorData = error.response?.data
+    const depositId: string | undefined =
+      typeof errorData?.depositId === "string" && errorData.depositId.length > 0
+        ? errorData.depositId
+        : undefined
+
+    console.warn(
+      "Relayer reported a deposit conflict (409); verifying its status " +
+        "before treating it as an outcome:",
+      { depositId }
+    )
+
+    let status: RelayerDepositStatus | undefined
+    let statusVerified = false
+    let statusReceipt: RelayerDepositStatusResponse["receipt"]
+
+    if (depositId) {
+      try {
+        const statusResponse = await this.queryRelayerDepositStatus(depositId)
+        if (
+          statusResponse &&
+          typeof statusResponse.status === "number" &&
+          RelayerDepositStatus[statusResponse.status] !== undefined
+        ) {
+          status = statusResponse.status
+          statusVerified = true
+          statusReceipt = statusResponse.receipt
+        }
+      } catch (statusError) {
+        console.warn(
+          "Failed to verify deposit status with the relayer:",
+          statusError
+        )
+      }
+    }
+
+    // Only ever return success once the relayer has verifiably confirmed
+    // the deposit reached a terminal state AND supplied the receipt data
+    // the documented return type requires. The relayer's deposit-status
+    // endpoint does not currently return receipt data, so this remains
+    // defensive for if/when it does.
+    if (
+      statusVerified &&
+      (status === RelayerDepositStatus.INITIALIZED ||
+        status === RelayerDepositStatus.FINALIZED) &&
+      statusReceipt &&
+      statusReceipt.transactionHash
+    ) {
+      return statusReceipt as TransactionReceipt
+    }
+
+    throw new RelayerDepositConflictError(
+      this.formatConflictMessage(depositId, status, statusVerified),
+      depositId,
+      status,
+      statusVerified
+    )
+  }
+
+  /**
+   * Queries the relayer's deposit-status endpoint for the current status of
+   * a previously-revealed deposit.
+   * @param depositId Canonical decimal deposit ID as reported by the relayer
+   * @returns The parsed status response, or undefined if the relayer did
+   *          not confirm a recognized status for the deposit
+   */
+  private async queryRelayerDepositStatus(
+    depositId: string
+  ): Promise<RelayerDepositStatusResponse | undefined> {
+    if (!this.#config.relayerStatusUrl) {
+      return undefined
+    }
+
+    const statusUrl = `${this.#config.relayerStatusUrl}/${encodeURIComponent(
+      depositId
+    )}`
+
+    const response = await axios.get<RelayerDepositStatusResponse>(statusUrl, {
+      timeout: 15000,
+      headers: {
+        "Content-Type": "application/json",
+      },
+    })
+
+    if (!response.data?.success) {
+      return undefined
+    }
+
+    return response.data
+  }
+
+  /**
+   * Builds a human-readable message describing an unresolved deposit
+   * conflict, tailored to whatever status information could be verified.
+   * @param depositId Canonical decimal deposit ID, if known
+   * @param status Verified relayer status, if known
+   * @param statusVerified Whether status reflects a verified relayer response
+   * @returns A descriptive error message
+   */
+  private formatConflictMessage(
+    depositId: string | undefined,
+    status: RelayerDepositStatus | undefined,
+    statusVerified: boolean
+  ): string {
+    const idSuffix = depositId ? ` (ID: ${depositId})` : ""
+
+    if (statusVerified && status === RelayerDepositStatus.QUEUED) {
+      return (
+        `This deposit${idSuffix} is already queued at the relayer but has ` +
+        "not yet been initialized on L1. It has not failed - check its " +
+        "status again shortly or use the deposit ID to recover."
+      )
+    }
+
+    if (
+      statusVerified &&
+      (status === RelayerDepositStatus.INITIALIZED ||
+        status === RelayerDepositStatus.FINALIZED)
+    ) {
+      const statusName = RelayerDepositStatus[status]
+      return (
+        `This deposit${idSuffix} has already been ${statusName.toLowerCase()} ` +
+        "at the relayer, but the SDK could not obtain a verified " +
+        "transaction receipt for it. Check the deposit status " +
+        "independently before retrying."
+      )
+    }
+
+    return (
+      `The relayer reports this deposit${idSuffix} already exists, but ` +
+      "its status could not be verified. This may indicate a prior " +
+      "request partially succeeded; check the deposit status " +
+      "independently before retrying."
+    )
   }
 
   /**
@@ -468,13 +675,9 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
           return "Relayer request failed: Not Found"
         }
 
-        if (status === 409) {
-          // Deposit already exists - this might be okay, return the deposit ID if available
-          const depositId = data?.depositId
-          return `This deposit has already been initialized${
-            depositId ? ` (ID: ${depositId})` : ""
-          }. You can check the transaction status on Etherscan or wait for the bridging to complete (15-30 minutes).`
-        }
+        // 409 (Conflict) is handled separately in handleDepositConflict,
+        // which verifies deposit status before ever resolving or throwing,
+        // so it never reaches this generic formatter.
 
         if (status >= 502 && status < 600) {
           return `Network error: ${error.message}`

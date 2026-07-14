@@ -3,6 +3,9 @@ import sinon from "sinon"
 import {
   StarkNetDepositor,
   StarkNetDepositorConfig,
+  StarkNetBitcoinDepositor,
+  RelayerDepositConflictError,
+  RelayerDepositStatus,
 } from "../../../src/lib/starknet/starknet-depositor"
 import { StarkNetAddress } from "../../../src/lib/starknet/address"
 import {
@@ -189,6 +192,267 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
       }
 
       expect((axios.post as sinon.SinonStub).callCount).to.equal(1) // No retries
+    })
+
+    it("should not retry on 401 Unauthorized", async () => {
+      // Arrange
+      const mockProvider = createMockProvider()
+      const config: StarkNetDepositorConfig = {
+        chainId: "0x534e5f4d41494e",
+        relayerUrl: "http://test-relayer.local/api/reveal",
+      }
+      const depositor = new StarkNetDepositor(config, "StarkNet", mockProvider)
+      depositor.setDepositOwner(StarkNetAddress.from("0x123456"))
+
+      const mockDepositTx = createMockDepositTx()
+      const mockReceipt = createMockDeposit()
+      mockReceipt.extraData = Hex.from("0x" + "00".repeat(31) + "01")
+
+      const error: any = new Error("Request failed with status code 401")
+      error.response = {
+        status: 401,
+        data: { error: "Unauthorized" },
+      }
+      error.isAxiosError = true
+      axios.post = sinon.stub().rejects(error)
+
+      // Act & Assert
+      try {
+        await depositor.initializeDeposit(mockDepositTx, 0, mockReceipt)
+        expect.fail("Should have thrown an error")
+      } catch (err) {
+        expect((err as Error).message).to.equal(
+          "Relayer request failed: Unauthorized"
+        )
+      }
+
+      expect((axios.post as sinon.SinonStub).callCount).to.equal(1) // No retries
+    })
+  })
+
+  describe("deposit conflict handling (409)", () => {
+    let originalGet: any
+    let depositor: StarkNetBitcoinDepositor
+    let mockDepositTx: ReturnType<typeof createMockDepositTx>
+    let mockReceipt: ReturnType<typeof createMockDeposit>
+
+    beforeEach(() => {
+      originalGet = axios.get
+
+      const mockProvider = createMockProvider()
+      const config: StarkNetDepositorConfig = {
+        chainId: "0x534e5f4d41494e",
+        relayerUrl: "http://test-relayer.local/api/StarknetMainnet/reveal",
+      }
+      depositor = new StarkNetDepositor(config, "StarkNet", mockProvider)
+      depositor.setDepositOwner(StarkNetAddress.from("0x123456"))
+
+      mockDepositTx = createMockDepositTx()
+      mockReceipt = createMockDeposit()
+      mockReceipt.extraData = Hex.from("0x" + "00".repeat(31) + "01")
+    })
+
+    afterEach(() => {
+      axios.get = originalGet
+    })
+
+    // Builds the Axios rejection the relayer produces on a 409 Conflict,
+    // matching the real relayer's { success: false, error, depositId } body.
+    function build409Error(depositId: unknown): any {
+      const error: any = new Error("Request failed with status code 409")
+      error.isAxiosError = true
+      error.response = {
+        status: 409,
+        data: {
+          success: false,
+          error: "Deposit already exists",
+          depositId,
+        },
+      }
+      return error
+    }
+
+    async function expectConflictError(
+      act: Promise<Hex | TransactionReceipt>
+    ): Promise<RelayerDepositConflictError> {
+      try {
+        await act
+        expect.fail("Should have thrown RelayerDepositConflictError")
+      } catch (err) {
+        expect(err).to.be.instanceOf(RelayerDepositConflictError)
+        return err as RelayerDepositConflictError
+      }
+      // Unreachable: expect.fail always throws. Satisfies the return type.
+      throw new Error("unreachable")
+    }
+
+    it("should reject a direct 409 with a verified QUEUED status as unverified and recoverable", async () => {
+      axios.post = sinon.stub().rejects(build409Error("123456789"))
+      axios.get = sinon.stub().resolves({
+        data: {
+          success: true,
+          depositId: "123456789",
+          status: RelayerDepositStatus.QUEUED,
+        },
+      })
+
+      const conflict = await expectConflictError(
+        depositor.initializeDeposit(mockDepositTx, 0, mockReceipt)
+      )
+
+      expect(conflict.depositId).to.equal("123456789")
+      expect(conflict.status).to.equal(RelayerDepositStatus.QUEUED)
+      expect(conflict.statusVerified).to.be.true
+      expect((axios.post as sinon.SinonStub).callCount).to.equal(1)
+      expect((axios.get as sinon.SinonStub).callCount).to.equal(1)
+    })
+
+    it("should reject a 500-then-409 sequence with verified QUEUED status as unverified and recoverable", async () => {
+      const setTimeoutStub = sinon
+        .stub(global, "setTimeout")
+        .callsFake((fn: any) => {
+          fn()
+          return {} as any
+        })
+
+      let callCount = 0
+      axios.post = sinon.stub().callsFake(() => {
+        callCount++
+        if (callCount === 1) {
+          const error: any = new Error("Internal Server Error")
+          error.isAxiosError = true
+          error.response = { status: 500, data: { error: "boom" } }
+          return Promise.reject(error)
+        }
+        return Promise.reject(build409Error("42"))
+      })
+      axios.get = sinon.stub().resolves({
+        data: {
+          success: true,
+          depositId: "42",
+          status: RelayerDepositStatus.QUEUED,
+        },
+      })
+
+      const conflict = await expectConflictError(
+        depositor.initializeDeposit(mockDepositTx, 0, mockReceipt)
+      )
+
+      expect(conflict.depositId).to.equal("42")
+      expect(conflict.status).to.equal(RelayerDepositStatus.QUEUED)
+      expect(conflict.statusVerified).to.be.true
+      // One 500 attempt, one 409 attempt - the conflict short-circuits
+      // further retries.
+      expect(callCount).to.equal(2)
+
+      setTimeoutStub.restore()
+    })
+
+    it("should treat a malformed (non-string) deposit ID as unverifiable without crashing", async () => {
+      axios.post = sinon.stub().rejects(build409Error(123456789))
+      axios.get = sinon.stub()
+
+      const conflict = await expectConflictError(
+        depositor.initializeDeposit(mockDepositTx, 0, mockReceipt)
+      )
+
+      expect(conflict.depositId).to.be.undefined
+      expect(conflict.status).to.be.undefined
+      expect(conflict.statusVerified).to.be.false
+      expect((axios.get as sinon.SinonStub).called).to.be.false
+    })
+
+    it("should treat a failed status query as unverifiable and remain recoverable", async () => {
+      axios.post = sinon.stub().rejects(build409Error("999"))
+      axios.get = sinon.stub().rejects(new Error("Network Error"))
+
+      const conflict = await expectConflictError(
+        depositor.initializeDeposit(mockDepositTx, 0, mockReceipt)
+      )
+
+      expect(conflict.depositId).to.equal("999")
+      expect(conflict.status).to.be.undefined
+      expect(conflict.statusVerified).to.be.false
+    })
+
+    it("should reject a verified INITIALIZED status without receipt data as an unverified conflict", async () => {
+      axios.post = sinon.stub().rejects(build409Error("77"))
+      axios.get = sinon.stub().resolves({
+        data: {
+          success: true,
+          depositId: "77",
+          status: RelayerDepositStatus.INITIALIZED,
+        },
+      })
+
+      const conflict = await expectConflictError(
+        depositor.initializeDeposit(mockDepositTx, 0, mockReceipt)
+      )
+
+      expect(conflict.status).to.equal(RelayerDepositStatus.INITIALIZED)
+      expect(conflict.statusVerified).to.be.true
+    })
+
+    it("should reject a verified FINALIZED status without receipt data as an unverified conflict", async () => {
+      axios.post = sinon.stub().rejects(build409Error("88"))
+      axios.get = sinon.stub().resolves({
+        data: {
+          success: true,
+          depositId: "88",
+          status: RelayerDepositStatus.FINALIZED,
+        },
+      })
+
+      const conflict = await expectConflictError(
+        depositor.initializeDeposit(mockDepositTx, 0, mockReceipt)
+      )
+
+      expect(conflict.status).to.equal(RelayerDepositStatus.FINALIZED)
+      expect(conflict.statusVerified).to.be.true
+    })
+
+    it("should return a verified success when the relayer confirms INITIALIZED status with receipt data", async () => {
+      axios.post = sinon.stub().rejects(build409Error("55"))
+      axios.get = sinon.stub().resolves({
+        data: {
+          success: true,
+          depositId: "55",
+          status: RelayerDepositStatus.INITIALIZED,
+          receipt: { transactionHash: "0xverified123" },
+        },
+      })
+
+      const result = await depositor.initializeDeposit(
+        mockDepositTx,
+        0,
+        mockReceipt
+      )
+
+      expect(result).to.not.be.instanceOf(Hex)
+      expect((result as TransactionReceipt).transactionHash).to.equal(
+        "0xverified123"
+      )
+    })
+
+    it("should still resolve ordinary (non-conflict) success responses without querying status", async () => {
+      axios.post = sinon.stub().resolves({
+        data: {
+          success: true,
+          receipt: { transactionHash: "0xnormal456" },
+        },
+      })
+      axios.get = sinon.stub()
+
+      const result = await depositor.initializeDeposit(
+        mockDepositTx,
+        0,
+        mockReceipt
+      )
+
+      expect((result as TransactionReceipt).transactionHash).to.equal(
+        "0xnormal456"
+      )
+      expect((axios.get as sinon.SinonStub).called).to.be.false
     })
   })
 
