@@ -8,6 +8,7 @@ Configuration for StarkNetBitcoinDepositor
 
 - [chainId](StarkNetBitcoinDepositorConfig.md#chainid)
 - [defaultVault](StarkNetBitcoinDepositorConfig.md#defaultvault)
+- [relayerStatusUrl](StarkNetBitcoinDepositorConfig.md#relayerstatusurl)
 - [relayerUrl](StarkNetBitcoinDepositorConfig.md#relayerurl)
 
 ## Properties
@@ -18,7 +19,7 @@ Configuration for StarkNetBitcoinDepositor
 
 #### Defined in
 
-[lib/starknet/starknet-depositor.ts:59](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L59)
+[src/lib/starknet/starknet-depositor.ts:109](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L109)
 
 ___
 
@@ -28,7 +29,17 @@ ___
 
 #### Defined in
 
-[lib/starknet/starknet-depositor.ts:61](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L61)
+[src/lib/starknet/starknet-depositor.ts:112](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L112)
+
+___
+
+### relayerStatusUrl
+
+• `Optional` **relayerStatusUrl**: `string`
+
+#### Defined in
+
+[src/lib/starknet/starknet-depositor.ts:111](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L111)
 
 ___
 
@@ -38,4 +49,4 @@ ___
 
 #### Defined in
 
-[lib/starknet/starknet-depositor.ts:60](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L60)
+[src/lib/starknet/starknet-depositor.ts:110](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L110)

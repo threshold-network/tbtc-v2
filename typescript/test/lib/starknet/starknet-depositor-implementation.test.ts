@@ -449,7 +449,11 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
       expect(conflict.statusVerified).to.be.true
     })
 
-    it("should return a verified success when the relayer confirms INITIALIZED status with receipt data", async () => {
+    it("should reject a verified INITIALIZED status as a conflict even when a partial receipt-shaped object is present", async () => {
+      // A relayer status response can include a `receipt` shape, but it only
+      // ever contains `transactionHash` (+ optional `blockNumber`/`status`),
+      // never the full ethers TransactionReceipt (`to`, `from`, `gasUsed`,
+      // `logs`, `blockHash`, etc.). It must never be cast to a full receipt.
       axios.post = sinon.stub().rejects(build409Error("55"))
       axios.get = sinon.stub().resolves({
         data: {
@@ -460,16 +464,60 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
         },
       })
 
-      const result = await depositor.initializeDeposit(
-        mockDepositTx,
-        0,
-        mockReceipt
+      const conflict = await expectConflictError(
+        depositor.initializeDeposit(mockDepositTx, 0, mockReceipt)
       )
 
-      expect(result).to.not.be.instanceOf(Hex)
-      expect((result as TransactionReceipt).transactionHash).to.equal(
-        "0xverified123"
+      expect(conflict.depositId).to.equal("55")
+      expect(conflict.status).to.equal(RelayerDepositStatus.INITIALIZED)
+      expect(conflict.statusVerified).to.be.true
+    })
+
+    it("should treat a non-canonical deposit ID as unverifiable without querying the relayer", async () => {
+      const malformedIds = [
+        " 123", // leading whitespace
+        "123 ", // trailing whitespace
+        "0x1a2b3c", // hex
+        "-123", // signed (negative)
+        "+123", // signed (positive)
+        "12.3", // not an integer
+        "0123", // leading zero
+        "not-a-deposit-id", // arbitrary text
+      ]
+
+      for (const malformedId of malformedIds) {
+        axios.post = sinon.stub().rejects(build409Error(malformedId))
+        axios.get = sinon.stub()
+
+        const conflict = await expectConflictError(
+          depositor.initializeDeposit(mockDepositTx, 0, mockReceipt)
+        )
+
+        expect(conflict.depositId, malformedId).to.be.undefined
+        expect(conflict.status, malformedId).to.be.undefined
+        expect(conflict.statusVerified, malformedId).to.be.false
+        expect((axios.get as sinon.SinonStub).called, malformedId).to.be.false
+      }
+    })
+
+    it("should treat a status response reporting a different deposit ID as unverifiable", async () => {
+      axios.post = sinon.stub().rejects(build409Error("246"))
+      axios.get = sinon.stub().resolves({
+        data: {
+          success: true,
+          depositId: "999999",
+          status: RelayerDepositStatus.FINALIZED,
+        },
+      })
+
+      const conflict = await expectConflictError(
+        depositor.initializeDeposit(mockDepositTx, 0, mockReceipt)
       )
+
+      expect(conflict.depositId).to.equal("246")
+      expect(conflict.status).to.be.undefined
+      expect(conflict.statusVerified).to.be.false
+      expect((axios.get as sinon.SinonStub).callCount).to.equal(1)
     })
 
     it("should still resolve ordinary (non-conflict) success responses without querying status", async () => {

@@ -52,7 +52,7 @@ Service exposing features related to tBTC v2 redemptions.
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:47](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L47)
+[src/services/redemptions/redemptions-service.ts:47](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L47)
 
 ## Properties
 
@@ -78,7 +78,7 @@ Gets cross-chain contracts for the given supported L2 chain.
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:45](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L45)
+[src/services/redemptions/redemptions-service.ts:45](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L45)
 
 ___
 
@@ -90,7 +90,7 @@ Bitcoin client handle.
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:38](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L38)
+[src/services/redemptions/redemptions-service.ts:38](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L38)
 
 ___
 
@@ -102,7 +102,7 @@ Handle to tBTC contracts.
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:34](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L34)
+[src/services/redemptions/redemptions-service.ts:34](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L34)
 
 ## Methods
 
@@ -133,7 +133,7 @@ An array of subarrays, where each subarray has a maximum length of `chunkSize`.
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:580](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L580)
+[src/services/redemptions/redemptions-service.ts:580](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L580)
 
 ___
 
@@ -160,7 +160,7 @@ Object containing:
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:315](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L315)
+[src/services/redemptions/redemptions-service.ts:315](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L315)
 
 ___
 
@@ -195,7 +195,7 @@ Throws an error if no valid redemption wallet exists for the given
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:359](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L359)
+[src/services/redemptions/redemptions-service.ts:359](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L359)
 
 ___
 
@@ -222,7 +222,7 @@ Promise holding the wallet main UTXO or undefined value.
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:599](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L599)
+[src/services/redemptions/redemptions-service.ts:599](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L599)
 
 ___
 
@@ -241,7 +241,7 @@ Array of wallet events.
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:753](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L753)
+[src/services/redemptions/redemptions-service.ts:753](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L753)
 
 ___
 
@@ -268,7 +268,7 @@ Promise with the wallet details needed to request a redemption.
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:439](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L439)
+[src/services/redemptions/redemptions-service.ts:439](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L439)
 
 ___
 
@@ -288,7 +288,7 @@ ___
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:840](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L840)
+[src/services/redemptions/redemptions-service.ts:840](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L840)
 
 ___
 
@@ -312,7 +312,7 @@ The output script of the given Bitcoin address.
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:778](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L778)
+[src/services/redemptions/redemptions-service.ts:778](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L778)
 
 ___
 
@@ -343,7 +343,7 @@ Throws an error if no redemption request exists for the given
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:711](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L711)
+[src/services/redemptions/redemptions-service.ts:711](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L711)
 
 ___
 
@@ -379,7 +379,7 @@ Throws an error if no wallet with sufficient funds can be found.
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:244](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L244)
+[src/services/redemptions/redemptions-service.ts:244](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L244)
 
 ___
 
@@ -409,7 +409,7 @@ Object containing:
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:200](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L200)
+[src/services/redemptions/redemptions-service.ts:200](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L200)
 
 ___
 
@@ -438,7 +438,7 @@ Object containing:
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:84](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L84)
+[src/services/redemptions/redemptions-service.ts:84](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L84)
 
 ___
 
@@ -470,7 +470,7 @@ Object containing:
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:156](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L156)
+[src/services/redemptions/redemptions-service.ts:156](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L156)
 
 ___
 
@@ -496,7 +496,7 @@ The resolved output script as a Hex object.
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:808](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L808)
+[src/services/redemptions/redemptions-service.ts:808](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L808)
 
 ___
 
@@ -520,4 +520,4 @@ once the loader is ready.
 
 #### Defined in
 
-[services/redemptions/redemptions-service.ts:65](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L65)
+[src/services/redemptions/redemptions-service.ts:65](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/redemptions/redemptions-service.ts#L65)
