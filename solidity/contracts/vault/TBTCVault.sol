@@ -47,10 +47,12 @@ contract TBTCVault is IVault, Ownable, ReentrancyGuard, TBTCOptimisticMinting {
     uint256 public upgradeInitiatedTimestamp;
 
     /// @notice Optional Account Control redemption notifier. When set, every
-    ///         legacy redemption reconciles AC minted exposure through it
-    ///         before the redemption completes, and reverts if the AC
-    ///         accounting update cannot be made. When unset (the default), the
-    ///         legacy redemption path behaves exactly as before.
+    ///         `unmintAndRedeem` redemption reconciles AC minted exposure
+    ///         through it before the redemption completes, and reverts if the
+    ///         AC accounting update cannot be made. Plain `unmint` never calls
+    ///         the notifier, regardless of this setting — see
+    ///         `accountControlReconciliationRequired`. When unset (the
+    ///         default), the `unmintAndRedeem` path behaves exactly as before.
     IAccountControlRedemptionNotifier public accountControlRedemptionNotifier;
 
     /// @notice When true, a legacy redemption may not proceed unless an Account
@@ -99,18 +101,23 @@ contract TBTCVault is IVault, Ownable, ReentrancyGuard, TBTCOptimisticMinting {
     }
 
     /// @notice Sets the Account Control redemption notifier used to reconcile
-    ///         AC minted exposure on legacy redemptions. Set to the zero
-    ///         address to disable reconciliation (the default).
+    ///         AC minted exposure on `unmintAndRedeem` redemptions. Set to the
+    ///         zero address to disable reconciliation (the default).
     /// @param notifier Address of the notifier, or the zero address to disable.
     /// @dev Only the owner can call. The notifier is a trusted, fail-closed
-    ///      protocol dependency called before every legacy burn. Any notifier
-    ///      call failure — including a reverting implementation or an address
-    ///      with no code — blocks `unmint`, `unmintAndRedeem`, and
-    ///      `receiveApproval`. This is intentional: continuing would burn TBTC
-    ///      without reconciling AC minted exposure. Governance must validate,
-    ///      monitor, and replace the notifier if it becomes unavailable;
-    ///      disabling reconciliation is an explicit emergency acceptance of
-    ///      accounting divergence, not the normal recovery path.
+    ///      protocol dependency called before every burn routed through
+    ///      `unmintAndRedeem` or `receiveApproval` with redemption data. Any
+    ///      notifier call failure — including a reverting implementation or an
+    ///      address with no code — blocks those two entry points. This is
+    ///      intentional: continuing would burn TBTC without reconciling AC
+    ///      minted exposure. Plain `unmint` (and `receiveApproval` without
+    ///      redemption data) never calls the notifier at all — once
+    ///      `accountControlReconciliationRequired` is set, that path is
+    ///      blocked outright regardless of notifier health, not conditioned on
+    ///      a notifier call failing. Governance must validate, monitor, and
+    ///      replace the notifier if it becomes unavailable; disabling
+    ///      reconciliation is an explicit emergency acceptance of accounting
+    ///      divergence, not the normal recovery path.
     function setAccountControlRedemptionNotifier(address notifier)
         external
         onlyOwner
@@ -145,12 +152,13 @@ contract TBTCVault is IVault, Ownable, ReentrancyGuard, TBTCOptimisticMinting {
         emit AccountControlReconciliationRequirementUpdated(required);
     }
 
-    /// @notice Activates Account Control reconciliation for legacy redemptions
-    ///         in a single, safe step: wires the redemption notifier and marks
-    ///         reconciliation as required. After this call every legacy
-    ///         redemption reconciles AC minted exposure (or reverts), so
-    ///         AC-origin supply can never be redeemed through the legacy path
-    ///         without reconciliation.
+    /// @notice Activates Account Control reconciliation for `unmintAndRedeem`
+    ///         redemptions in a single, safe step: wires the redemption
+    ///         notifier and marks reconciliation as required. After this call
+    ///         every `unmintAndRedeem` redemption reconciles AC minted
+    ///         exposure (or reverts), and plain `unmint` is blocked outright,
+    ///         so AC-origin supply can never be redeemed through the legacy
+    ///         path without reconciliation.
     /// @param notifier Address of the Account Control redemption notifier. Must
     ///        be nonzero.
     /// @dev Only the owner can call. This is the activation entry point an
@@ -160,10 +168,11 @@ contract TBTCVault is IVault, Ownable, ReentrancyGuard, TBTCOptimisticMinting {
     ///      unchanged) is closed. Requiring a nonzero notifier makes activation
     ///      atomic and correct-by-construction: unlike calling the two setters
     ///      separately, it cannot leave the vault in the inconsistent
-    ///      "required but no notifier" state that reverts every legacy
-    ///      redemption. Once active, unsetting the notifier later keeps the
-    ///      requirement on, so redemptions revert rather than silently bypassing
-    ///      AC accounting.
+    ///      "required but no notifier" state that reverts every
+    ///      `unmintAndRedeem` redemption. Once active, unsetting the notifier
+    ///      later keeps the requirement on, so those redemptions revert rather
+    ///      than silently bypassing AC accounting, while plain `unmint` stays
+    ///      blocked regardless.
     function activateAccountControlReconciliation(address notifier)
         external
         onlyOwner

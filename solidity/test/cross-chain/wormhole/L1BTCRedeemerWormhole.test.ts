@@ -127,6 +127,8 @@ describe("L1BTCRedeemerWormhole (using Mock)", () => {
 
     // Set the tbtcToken on the MockTBTCVault
     await _tbtcVault.setTbtcToken(_tbtcToken.address)
+    // `unmintAndRedeem` forwards the redemption request to the Bridge mock.
+    await _tbtcVault.setBridge(_bridge.address)
 
     const _wormholeTokenBridge = await smock.fake<IWormholeTokenBridge>(
       "IWormholeTokenBridge"

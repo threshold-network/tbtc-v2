@@ -58,6 +58,7 @@ describe("AbstractBTCRedeemer", () => {
     )
     tbtcVault = (await MockTBTCVaultFactory.deploy()) as MockTBTCVault
     await tbtcVault.setTbtcToken(tbtcToken.address)
+    await tbtcVault.setBridge(bridge.address)
 
     const TestBTCRedeemerFactory = await ethers.getContractFactory(
       "TestBTCRedeemer"
@@ -296,13 +297,16 @@ describe("AbstractBTCRedeemer", () => {
           .withArgs(fixture.expectedRedemptionKey, expectedTbtcAmount)
       })
 
-      it("should increase bank allowance for the bridge", async () => {
-        // The allowance is made from redeemer to bridge by _requestRedemption
-        const allowance = await bank.getAllowance(
-          redeemer.address,
-          bridge.address
+      it("should transfer the unminted tBTC into the vault", async () => {
+        // _requestRedemption now unmints via `unmintAndRedeem`, which pulls
+        // tBTC directly into the vault instead of routing a separate Bank
+        // allowance to the bridge.
+        const expectedUnmintedTbtc = fixture.amountToRedeemSat.mul(
+          BigNumber.from(10).pow(10)
         )
-        expect(allowance).to.equal(fixture.amountToRedeemSat)
+        expect(await tbtcToken.balanceOf(tbtcVault.address)).to.equal(
+          expectedUnmintedTbtc
+        )
       })
     })
   })

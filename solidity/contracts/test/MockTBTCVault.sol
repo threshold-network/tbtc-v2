@@ -2,6 +2,8 @@
 pragma solidity 0.8.17;
 
 import "../integrator/ITBTCVault.sol";
+import "../integrator/IBridge.sol";
+import "../integrator/BitcoinTx.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract MockTBTCVault is ITBTCVault {
@@ -11,7 +13,10 @@ contract MockTBTCVault is ITBTCVault {
         uint32 revealedAt;
     }
 
+    uint256 private constant SATOSHI_MULTIPLIER = 10**10;
+
     address public override tbtcToken;
+    address public bridge;
     uint32 public override optimisticMintingFeeDivisor = 1000; // 0.1% fee
     mapping(uint256 => DepositInfo) private deposits;
 
@@ -25,6 +30,10 @@ contract MockTBTCVault is ITBTCVault {
 
     function setTbtcToken(address _tbtcToken) external {
         tbtcToken = _tbtcToken;
+    }
+
+    function setBridge(address _bridge) external {
+        bridge = _bridge;
     }
 
     function setOptimisticMintingFeeDivisor(uint32 _divisor) external {
@@ -70,5 +79,41 @@ contract MockTBTCVault is ITBTCVault {
         IERC20(tbtcToken).transferFrom(msg.sender, address(this), amount);
         totalUnminted += amount;
         emit Unminted(amount);
+    }
+
+    function unmintAndRedeem(uint256 amount, bytes calldata redemptionData)
+        external
+        override
+    {
+        // Transfer tBTC tokens from the caller to this vault, mirroring
+        // `unmint`, then forward the decoded redemption request to the
+        // Bridge mock, mirroring how `TBTCVault.unmintAndRedeem` forwards it
+        // via `Bank.approveBalanceAndCall`.
+        IERC20(tbtcToken).transferFrom(msg.sender, address(this), amount);
+        totalUnminted += amount;
+        emit Unminted(amount);
+
+        (
+            ,
+            bytes20 walletPubKeyHash,
+            bytes32 mainUtxoTxHash,
+            uint32 mainUtxoTxOutputIndex,
+            uint64 mainUtxoTxOutputValue,
+            bytes memory redeemerOutputScript
+        ) = abi.decode(
+                redemptionData,
+                (address, bytes20, bytes32, uint32, uint64, bytes)
+            );
+
+        IBridge(bridge).requestRedemption(
+            walletPubKeyHash,
+            BitcoinTx.UTXO(
+                mainUtxoTxHash,
+                mainUtxoTxOutputIndex,
+                mainUtxoTxOutputValue
+            ),
+            redeemerOutputScript,
+            uint64(amount / SATOSHI_MULTIPLIER)
+        );
     }
 }

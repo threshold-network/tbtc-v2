@@ -308,6 +308,11 @@ contract MockTBTCVault is ITBTCVault {
         emit Unminted(amount);
     }
 
+    function unmintAndRedeem(uint256 amount, bytes calldata) external override {
+        totalUnminted += amount;
+        emit Unminted(amount);
+    }
+
     function tbtcToken() external view returns (address) {
         revert("Not implemented");
     }

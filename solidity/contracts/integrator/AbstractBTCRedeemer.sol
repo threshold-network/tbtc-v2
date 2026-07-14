@@ -159,9 +159,8 @@ abstract contract AbstractBTCRedeemer is OwnableUpgradeable {
     /// @return tbtcAmount The net amount of Bitcoin (in tBTC token decimals precision)
     ///         expected to be received by the redeemer after fees.
     /// @dev Requirements:
-    ///      - This contract (AbstractBTCRedeemer instance) must have `amount` in its Bank balance.
-    ///      - This contract must have approved the `thresholdBridge` to spend `amount` of its Bank balance.
-    ///      - All requirements from {Bridge#requestRedemption} must be met.
+    ///      - This contract (AbstractBTCRedeemer instance) must hold at least `amount` of tBTC.
+    ///      - All requirements from {TBTCVault-unmintAndRedeem} must be met.
     // slither-disable-next-line dead-code
     function _requestRedemption(
         bytes20 walletPubKeyHash,
@@ -173,31 +172,26 @@ abstract contract AbstractBTCRedeemer is OwnableUpgradeable {
         // this contract to proceed with unminting.
         tbtcToken.safeApprove(address(tbtcVault), 0);
         tbtcToken.safeApprove(address(tbtcVault), amount);
-        // Unmint tBTC tokens. This burns the ERC-20 tokens and credits this
-        // contract's balance in the Bank with the corresponding value in satoshis.
-        tbtcVault.unmint(amount);
 
-        // Convert the tBTC token amount (1e18 precision) to satoshis
-        // (1e8 precision) for Bridge operations.
-        uint64 amountInSatoshis = uint64(amount / SATOSHI_MULTIPLIER);
-
-        // This contract (as balanceOwner) approves the Bridge to spend its Bank balance.
-        // The amount for Bank allowance is in satoshi units (which is what `amount` already is).
-        bank.increaseBalanceAllowance(
-            address(thresholdBridge),
-            amountInSatoshis
-        );
-
-        // This contract calls the Bridge. The Bridge will see `msg.sender` (this contract) as the `balanceOwner`.
-        // The Bridge's internal Redemption logic will then call `bank.transferBalanceFrom(address(this), address(bridge_or_redemption_contract), amount)`.
-        // The actual `balanceOwner` parameter for Bridge.requestRedemption might be `address(this)` if the Bridge function signature supports it,
-        // or it might be implicitly msg.sender for the Bridge. Assuming msg.sender is balanceOwner for the Bridge call.
-        thresholdBridge.requestRedemption(
+        // Redemption data in the format expected by the Bridge's
+        // `receiveBalanceApproval`, reached through `unmintAndRedeem`'s
+        // `Bank.approveBalanceAndCall`. This contract is recorded as the
+        // Bridge-side redeemer, same as the direct `requestRedemption` call
+        // this replaces.
+        bytes memory redemptionData = abi.encode(
+            address(this),
             walletPubKeyHash,
-            mainUtxo,
-            redemptionOutputScript,
-            amountInSatoshis
+            mainUtxo.txHash,
+            mainUtxo.txOutputIndex,
+            mainUtxo.txOutputValue,
+            redemptionOutputScript
         );
+
+        // Unmints tBTC and atomically requests the Bridge redemption in a
+        // single call: this burns the ERC-20 tokens, reconciles Account
+        // Control minted exposure when required, and moves the vault's own
+        // Bank balance into the Bridge redemption request.
+        tbtcVault.unmintAndRedeem(amount, redemptionData);
 
         redemptionKey = _getRedemptionKey(
             walletPubKeyHash,
