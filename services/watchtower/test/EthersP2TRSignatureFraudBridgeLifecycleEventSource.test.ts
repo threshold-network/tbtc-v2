@@ -191,6 +191,82 @@ test("bounds cursor progress by the independent canonical head", async () => {
   assert.deepEqual(cursorStore.savedCursor, { lastScannedBlock: 88 })
 })
 
+test("rejects independently canonical logs above the resolved confirmation bound", async () => {
+  const contract = new FakeBridgeLifecycleContract(
+    {
+      defeated: [
+        {
+          args: { challengeKey: 1n },
+          transactionHash: txHash("aa"),
+          blockNumber: 95,
+        },
+      ],
+    },
+    100
+  )
+  const source = new EthersP2TRSignatureFraudBridgeLifecycleEventSource(
+    contract,
+    { confirmationDepth: 12 }
+  )
+
+  await assert.rejects(
+    source.listBridgeLifecycleEvents(),
+    /outside the resolved block range/
+  )
+  assert.deepEqual(contract.queries, expectedLifecycleQueries(undefined, 88))
+})
+
+test("rejects independently canonical logs below a numeric lower bound", async () => {
+  const contract = new FakeBridgeLifecycleContract({
+    defeated: [
+      {
+        args: { challengeKey: 1n },
+        transactionHash: txHash("aa"),
+        blockNumber: 49,
+      },
+    ],
+  })
+  const source = new EthersP2TRSignatureFraudBridgeLifecycleEventSource(
+    contract,
+    { fromBlock: 50, toBlock: 88 }
+  )
+
+  await assert.rejects(
+    source.listBridgeLifecycleEvents(),
+    /outside the resolved block range/
+  )
+  assert.deepEqual(contract.queries, expectedLifecycleQueries(50, 88))
+})
+
+test("accepts independently canonical logs on inclusive numeric range boundaries", async () => {
+  const contract = new FakeBridgeLifecycleContract({
+    defeated: [
+      {
+        args: { challengeKey: 1n },
+        transactionHash: txHash("aa"),
+        blockNumber: 50,
+      },
+      {
+        args: { challengeKey: 2n },
+        transactionHash: txHash("bb"),
+        blockNumber: 88,
+      },
+    ],
+  })
+  const source = new EthersP2TRSignatureFraudBridgeLifecycleEventSource(
+    contract,
+    { fromBlock: 50, toBlock: 88 }
+  )
+
+  const events = await source.listBridgeLifecycleEvents()
+
+  assert.deepEqual(
+    events.map((event) => event.type),
+    ["defeated", "defeated"]
+  )
+  assert.deepEqual(contract.queries, expectedLifecycleQueries(50, 88))
+})
+
 test("verifies exact receipt log membership through an independent provider", async () => {
   const emitter = `0x${"42".repeat(20)}`
   const canonicalLog: P2TRCanonicalBridgeLifecycleEventLog = {
@@ -256,7 +332,7 @@ test("maps Bridge defeat and timeout logs to watchtower lifecycle events", async
           sighash: sighash(),
         },
         transactionHash: txHash("aa"),
-        blockNumber: 11,
+        blockNumber: 111,
         logIndex: 1,
       },
     ],
@@ -270,7 +346,7 @@ test("maps Bridge defeat and timeout logs to watchtower lifecycle events", async
           sighash(),
         ],
         transactionHash: txHash("bb"),
-        blockNumber: 10,
+        blockNumber: 110,
         logIndex: 3,
       },
     ],
@@ -466,6 +542,7 @@ test("derives a confirmed toBlock from provider head and confirmation depth", as
         {
           args: { challengeKey: 4n },
           transactionHash: txHash("ee"),
+          blockNumber: 120,
         },
       ],
     },
@@ -512,6 +589,7 @@ test("uses and commits a durable Bridge lifecycle scan cursor", async () => {
         {
           args: { challengeKey: 6n },
           transactionHash: txHash("12"),
+          blockNumber: 130,
         },
       ],
     },
@@ -542,6 +620,7 @@ test("advances cursor-backed Bridge lifecycle scans one bounded window at a time
         {
           args: { challengeKey: 7n },
           transactionHash: txHash("13"),
+          blockNumber: 140,
         },
       ],
     },
@@ -571,6 +650,7 @@ test("clears pending Bridge lifecycle scan cursors before empty scans", async ()
         {
           args: { challengeKey: 7n },
           transactionHash: txHash("13"),
+          blockNumber: 130,
         },
       ],
     },
@@ -601,6 +681,7 @@ test("applies a Bridge lifecycle cursor overlap for reorg replay", async () => {
         {
           args: { challengeKey: 8n },
           transactionHash: txHash("13"),
+          blockNumber: 120,
         },
       ],
     },
@@ -636,6 +717,7 @@ test("validates and commits Bridge lifecycle cursor block hashes when required",
         {
           args: { challengeKey: 9n },
           transactionHash: txHash("14"),
+          blockNumber: 130,
         },
       ],
     },
@@ -678,6 +760,7 @@ test("rejects Bridge lifecycle cursor commits when the scan boundary hash change
         {
           args: { challengeKey: 9n },
           transactionHash: txHash("14"),
+          blockNumber: 130,
         },
       ],
     },

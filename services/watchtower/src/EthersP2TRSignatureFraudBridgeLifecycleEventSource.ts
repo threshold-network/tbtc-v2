@@ -438,6 +438,7 @@ export class EthersP2TRSignatureFraudBridgeLifecycleEventSource
           log,
           expectedEmitter
         )
+        validateCanonicalLifecycleLogBlockRange(canonicalLog, blockRange)
         const isCanonical =
           await this.options.canonicalLogVerifier.verifyLifecycleLog({
             eventName,
@@ -992,6 +993,22 @@ function normalizeCanonicalLifecycleLog(
       log.transactionHash,
       "Bridge lifecycle transaction hash"
     ),
+  }
+}
+
+function validateCanonicalLifecycleLogBlockRange(
+  log: P2TRCanonicalBridgeLifecycleEventLog,
+  blockRange: Extract<P2TRResolvedBridgeLifecycleBlockRange, { isEmpty: false }>
+): void {
+  if (
+    (typeof blockRange.fromBlock === "number" &&
+      log.blockNumber < blockRange.fromBlock) ||
+    (typeof blockRange.toBlock === "number" &&
+      log.blockNumber > blockRange.toBlock)
+  ) {
+    throw new Error(
+      `Bridge lifecycle event block ${log.blockNumber} is outside the resolved block range`
+    )
   }
 }
 
