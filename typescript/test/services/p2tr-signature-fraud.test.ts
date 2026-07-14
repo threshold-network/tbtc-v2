@@ -3410,6 +3410,103 @@ describe("P2TR signature-fraud witness parsing", () => {
     ])
   })
 
+  it("records metadata-only confirmations when the stored observation matches", async () => {
+    const vector = vectorCorpus.cases[0]
+    const rawTransaction = withInputWitness(
+      vector.unsignedTransactionHex,
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    const [observation] = extractP2TRSignatureFraudWitnessObservations(
+      rawTransaction,
+      toObservationPrevouts(vector),
+      [vector.walletIDHex],
+      undefined,
+      draftApprovedSpendTypeClassifier,
+      undefined,
+      bridgeChallengeDomain
+    )
+    const bitcoinTxHash = Hex.from(
+      Transaction.fromHex(rawTransaction.transactionHex).getId()
+    )
+    const observedRecord = applyP2TRWatchtowerChallengeEvent(
+      createP2TRWatchtowerChallengeRecord(observation.observationID),
+      {
+        type: "observed",
+        observationID: observation.observationID,
+        observation,
+      }
+    )
+    const mempoolRecord = applyP2TRWatchtowerChallengeEvent(
+      createP2TRWatchtowerChallengeRecord(observation.observationID),
+      {
+        type: "mempool-observed",
+        observationID: observation.observationID,
+        observation,
+        bitcoinTxHash,
+      }
+    )
+    const reloadedMempoolRecord = deserializeP2TRWatchtowerChallengeRecord(
+      serializeP2TRWatchtowerChallengeRecord(mempoolRecord)
+    )
+
+    for (const [source, record] of [
+      ["observed", observedRecord],
+      ["reloaded mempool", reloadedMempoolRecord],
+    ] as const) {
+      const confirmedRecord = applyP2TRWatchtowerChallengeEvent(record, {
+        type: "bitcoin-confirmed",
+        observationID: observation.observationID,
+        bitcoinTxHash,
+        bitcoinBlockHash: txHash("a"),
+        bitcoinBlockHeight: 143,
+      })
+      const store = new InMemoryP2TRWatchtowerChallengeStore([confirmedRecord])
+      const proofObservationID =
+        await resolveP2TRWatchtowerObservationIDForBitcoinTxHashAndSpendType(
+          store,
+          bitcoinTxHash,
+          P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION
+        )
+
+      expect(confirmedRecord.bitcoinProofAliases, source).to.deep.equal([
+        {
+          bitcoinTxHash,
+          spendType: P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
+        },
+      ])
+      expect(proofObservationID.toString(), source).to.equal(
+        observation.observationID.toString()
+      )
+    }
+
+    const mismatchedBitcoinTxHash = Hex.from(txHash("b"))
+    const mismatchedRecord = applyP2TRWatchtowerChallengeEvent(
+      reloadedMempoolRecord,
+      {
+        type: "bitcoin-confirmed",
+        observationID: observation.observationID,
+        bitcoinTxHash: mismatchedBitcoinTxHash,
+        bitcoinBlockHash: txHash("c"),
+        bitcoinBlockHeight: 144,
+      }
+    )
+    const mismatchedStore = new InMemoryP2TRWatchtowerChallengeStore([
+      mismatchedRecord,
+    ])
+
+    expect(mismatchedRecord.bitcoinProofAliases).to.deep.equal([])
+    await expectWitnessRejection(
+      () =>
+        resolveP2TRWatchtowerObservationIDForBitcoinTxHashAndSpendType(
+          mismatchedStore,
+          mismatchedBitcoinTxHash,
+          P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION
+        ),
+      "invalid-watchtower-state"
+    )
+  })
+
   it("migrates only provable legacy confirmed proof metadata before replacements", async () => {
     const vector = loadFullSighashVectorCorpus().cases.find(
       (candidate) => candidate.id === "bip341-keypath-anyonecanpay-none-multi"
