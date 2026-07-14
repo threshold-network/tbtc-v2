@@ -60,7 +60,8 @@ export type P2TRCanonicalBridgeLifecycleLogVerification = {
  * Canonical lifecycle verification must be backed by an Ethereum view that is
  * operationally independent from the provider used by `queryFilter`.
  * `verifyLifecycleLog` is expected to check a successful canonical receipt and
- * exact emitter/topics/data/transaction/log-index membership.
+ * exact requested event signature, emitter/topics/data/transaction/log-index
+ * membership.
  */
 export type P2TRCanonicalBridgeLifecycleLogVerifier = {
   readonly trustDomainID: string
@@ -144,9 +145,14 @@ export class EthersP2TRCanonicalBridgeLifecycleLogVerifier
   }
 
   async verifyLifecycleLog({
+    eventName,
     expectedEmitter,
     log,
   }: P2TRCanonicalBridgeLifecycleLogVerification): Promise<boolean> {
+    if (!canonicalLifecycleEventTopicMatches(eventName, log)) {
+      return false
+    }
+
     const receipt = await this.provider.getTransactionReceipt(
       log.transactionHash
     )
@@ -235,6 +241,38 @@ const P2TR_DEFEATED_EVENT = "P2TRSignatureFraudChallengeDefeated"
 const P2TR_DEFEAT_TIMED_OUT_EVENT = "P2TRSignatureFraudChallengeDefeatTimedOut"
 const MOVING_FUNDS_COMPLETED_EVENT = "MovingFundsCompleted"
 const REDEMPTIONS_COMPLETED_EVENT = "RedemptionsCompleted"
+
+const CANONICAL_LIFECYCLE_EVENT_TOPICS: Readonly<Record<string, string>> = {
+  [P2TR_DEFEATED_EVENT]:
+    "0x1c09e160fcfdba6315144c05e93357f8a6f0db7517253b7ce4854c3b6d3bafac",
+  [P2TR_DEFEAT_TIMED_OUT_EVENT]:
+    "0x798f765e06fb1f2a5b39a4ffddc27396be8ba8e51b59b1d08d82c95922e5b331",
+  [MOVING_FUNDS_COMPLETED_EVENT]:
+    "0xc635af1892551655b9dbb3256a0eed3e35baf4fcc5392b80e6a907b6f44a2838",
+  [REDEMPTIONS_COMPLETED_EVENT]:
+    "0xa45596c10f758d32ec8cca64a0fbfe776052b08fdb3f026e0a87f52118bf8fbe",
+}
+
+function canonicalLifecycleEventTopicMatches(
+  eventName: string,
+  log: P2TRCanonicalBridgeLifecycleEventLog
+): boolean {
+  const expectedTopic = CANONICAL_LIFECYCLE_EVENT_TOPICS[eventName]
+  if (expectedTopic === undefined) {
+    return false
+  }
+
+  try {
+    return (
+      normalizeFixedBytes32(
+        log.topics[0],
+        "Bridge lifecycle canonical event signature topic"
+      ) === expectedTopic
+    )
+  } catch {
+    return false
+  }
+}
 
 export class EthersP2TRSignatureFraudBridgeLifecycleEventSource
   implements P2TRSignatureFraudWatchtowerBridgeLifecycleEventSource
