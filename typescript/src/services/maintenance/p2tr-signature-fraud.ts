@@ -2041,6 +2041,19 @@ const appendP2TRWatchtowerConfirmedBitcoinProofAlias = (
     event.bitcoinTxHash,
     "Bitcoin proof alias transaction hash"
   )
+  if (
+    event.observation !== undefined &&
+    !p2trWatchtowerObservationMatchesBitcoinTxHash(
+      event.observation,
+      bitcoinTxHash
+    )
+  ) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Confirmed watchtower observation raw transaction does not match its Bitcoin transaction hash"
+    )
+  }
+
   const proofObservation =
     event.observation ??
     (initializedRecord.observation !== undefined &&

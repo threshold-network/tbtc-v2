@@ -1108,8 +1108,12 @@ test("reconciles honest-spend proofs for classified flexible-sighash replacement
         return rawPreviousTransactionForPrevout(prevout)
       },
     } as unknown as BitcoinClient
-    const originalBitcoinTxHash = `0x${"11".repeat(32)}`
-    const replacementBitcoinTxHash = `0x${"22".repeat(32)}`
+    const originalBitcoinTxHash = Transaction.fromHex(
+      originalRawTransaction.transactionHex
+    ).getId()
+    const replacementBitcoinTxHash = Transaction.fromHex(
+      replacementRawTransaction.transactionHex
+    ).getId()
     let mempoolTransactions: P2TRWatchtowerMempoolTransaction[] = [
       {
         rawTransaction: originalRawTransaction,
