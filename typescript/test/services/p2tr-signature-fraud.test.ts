@@ -1301,6 +1301,9 @@ describe("P2TR signature-fraud witness parsing", () => {
       vector.signedInputIndex,
       vector.witnessSignatureHex
     )
+    const bitcoinTxHash = Transaction.fromHex(
+      rawTransaction.transactionHex
+    ).getId()
     const store = new InMemoryP2TRWatchtowerChallengeStore()
     const watchtower = new P2TRSignatureFraudWatchtower(store, [
       vector.walletIDHex,
@@ -1309,12 +1312,12 @@ describe("P2TR signature-fraud witness parsing", () => {
     const mempoolResults = await watchtower.observeMempoolTransaction(
       rawTransaction,
       toObservationPrevouts(vector),
-      txHash("c")
+      bitcoinTxHash
     )
     const confirmedResults = await watchtower.observeConfirmedTransaction(
       rawTransaction,
       toObservationPrevouts(vector),
-      txHash("c"),
+      bitcoinTxHash,
       txHash("d"),
       789
     )
@@ -1342,6 +1345,9 @@ describe("P2TR signature-fraud witness parsing", () => {
       vector.signedInputIndex,
       vector.witnessSignatureHex
     )
+    const bitcoinTxHash = Transaction.fromHex(
+      rawTransaction.transactionHex
+    ).getId()
     const bitcoinClient = {
       getRawTransaction: async () =>
         rawPreviousTransactionForPrevout(vector.prevouts[0]),
@@ -1355,7 +1361,7 @@ describe("P2TR signature-fraud witness parsing", () => {
       await watchtower.observeConfirmedTransactionWithResolvedPrevouts(
         rawTransaction,
         bitcoinClient,
-        txHash("1"),
+        bitcoinTxHash,
         txHash("2"),
         790
       )
@@ -1415,6 +1421,9 @@ describe("P2TR signature-fraud witness parsing", () => {
       vector.signedInputIndex,
       vector.witnessSignatureHex
     )
+    const bitcoinTxHash = Transaction.fromHex(
+      rawTransaction.transactionHex
+    ).getId()
     const store = new InMemoryP2TRWatchtowerChallengeStore()
     const watchtower = new P2TRSignatureFraudWatchtower(store, [
       vector.walletIDHex,
@@ -1422,7 +1431,7 @@ describe("P2TR signature-fraud witness parsing", () => {
     const [observed] = await watchtower.observeConfirmedTransaction(
       rawTransaction,
       toObservationPrevouts(vector),
-      txHash("3"),
+      bitcoinTxHash,
       txHash("4"),
       791
     )
@@ -1450,6 +1459,9 @@ describe("P2TR signature-fraud witness parsing", () => {
       vector.signedInputIndex,
       vector.witnessSignatureHex
     )
+    const bitcoinTxHash = Transaction.fromHex(
+      originalRawTransaction.transactionHex
+    ).getId()
     const replacementWitnessSignature = `${vector.witnessSignatureHex.slice(
       0,
       -2
@@ -1473,7 +1485,7 @@ describe("P2TR signature-fraud witness parsing", () => {
     const [original] = await watchtower.observeConfirmedTransaction(
       originalRawTransaction,
       toObservationPrevouts(vector),
-      txHash("3"),
+      bitcoinTxHash,
       txHash("4"),
       791
     )
@@ -1483,12 +1495,12 @@ describe("P2TR signature-fraud witness parsing", () => {
     const [signatureReplacement] = await watchtower.observeMempoolTransaction(
       signatureReplacementRawTransaction,
       toObservationPrevouts(vector),
-      txHash("3")
+      bitcoinTxHash
     )
     const [prevoutReplacement] = await watchtower.observeMempoolTransaction(
       originalRawTransaction,
       prevoutReplacementPrevouts,
-      txHash("3")
+      bitcoinTxHash
     )
     const records = await store.listChallengeRecords()
     const recordIDs = records.map((record) => record.observationID.toString())
@@ -2442,6 +2454,9 @@ describe("P2TR signature-fraud witness parsing", () => {
       vector.signedInputIndex,
       vector.witnessSignatureHex
     )
+    const bitcoinTxHash = Transaction.fromHex(
+      rawTransaction.transactionHex
+    ).getId()
     const bitcoinClient = {
       getRawTransaction: async () =>
         rawPreviousTransactionForPrevout(vector.prevouts[0]),
@@ -2463,14 +2478,14 @@ describe("P2TR signature-fraud witness parsing", () => {
 
     const processed = await runner.processConfirmedTransaction(
       rawTransaction,
-      txHash("a"),
+      bitcoinTxHash,
       txHash("b"),
       792
     )
     const batch = await runner.processConfirmedTransactions([
       {
         rawTransaction,
-        bitcoinTxHash: txHash("a"),
+        bitcoinTxHash,
         bitcoinBlockHash: txHash("b"),
         bitcoinBlockHeight: 792,
       },
@@ -2520,6 +2535,9 @@ describe("P2TR signature-fraud witness parsing", () => {
       vector.signedInputIndex,
       vector.witnessSignatureHex
     )
+    const bitcoinTxHash = Transaction.fromHex(
+      rawTransaction.transactionHex
+    ).getId()
     const malformedTransaction = Transaction.fromHex(
       vector.unsignedTransactionHex
     )
@@ -2580,7 +2598,7 @@ describe("P2TR signature-fraud witness parsing", () => {
       await confirmedRunner.processConfirmedTransactionsSettled([
         {
           rawTransaction,
-          bitcoinTxHash: txHash("4"),
+          bitcoinTxHash,
           bitcoinBlockHash: txHash("5"),
           bitcoinBlockHeight: 793,
         },
@@ -3281,8 +3299,12 @@ describe("P2TR signature-fraud witness parsing", () => {
       undefined,
       bridgeChallengeDomain
     )
-    const originalBitcoinTxHash = txHash("6")
-    const replacementBitcoinTxHash = txHash("8")
+    const originalBitcoinTxHash = Transaction.fromHex(
+      originalRawTransaction.transactionHex
+    ).getId()
+    const replacementBitcoinTxHash = Transaction.fromHex(
+      replacementRawTransaction.transactionHex
+    ).getId()
     const [original] = await watchtower.observeConfirmedTransaction(
       originalRawTransaction,
       inputPrevouts,
@@ -3502,6 +3524,71 @@ describe("P2TR signature-fraud witness parsing", () => {
           mismatchedStore,
           mismatchedBitcoinTxHash,
           P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION
+        ),
+      "invalid-watchtower-state"
+    )
+  })
+
+  it("rejects confirmed proof aliases whose payload transaction hash does not match", async () => {
+    const vector = vectorCorpus.cases[0]
+    const rawTransaction = withInputWitness(
+      vector.unsignedTransactionHex,
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    const [observation] = extractP2TRSignatureFraudWitnessObservations(
+      rawTransaction,
+      toObservationPrevouts(vector),
+      [vector.walletIDHex],
+      undefined,
+      draftApprovedSpendTypeClassifier,
+      undefined,
+      bridgeChallengeDomain
+    )
+    const bitcoinTxHash = Hex.from(
+      Transaction.fromHex(rawTransaction.transactionHex).getId()
+    )
+    const confirmedRecord = applyP2TRWatchtowerChallengeEvent(
+      createP2TRWatchtowerChallengeRecord(observation.observationID),
+      {
+        type: "bitcoin-confirmed",
+        observationID: observation.observationID,
+        observation,
+        bitcoinTxHash,
+        bitcoinBlockHash: txHash("a"),
+        bitcoinBlockHeight: 143,
+      }
+    )
+    const store = new InMemoryP2TRWatchtowerChallengeStore([confirmedRecord])
+    const proofObservationID =
+      await resolveP2TRWatchtowerObservationIDForBitcoinTxHashAndSpendType(
+        store,
+        bitcoinTxHash,
+        P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION
+      )
+
+    expect(confirmedRecord.bitcoinProofAliases).to.deep.equal([
+      {
+        bitcoinTxHash,
+        spendType: P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
+      },
+    ])
+    expect(proofObservationID.toString()).to.equal(
+      observation.observationID.toString()
+    )
+
+    expectWitnessError(
+      () =>
+        applyP2TRWatchtowerChallengeEvent(
+          createP2TRWatchtowerChallengeRecord(observation.observationID),
+          {
+            type: "bitcoin-confirmed",
+            observationID: observation.observationID,
+            observation,
+            bitcoinTxHash: txHash("b"),
+            bitcoinBlockHash: txHash("c"),
+            bitcoinBlockHeight: 144,
+          }
         ),
       "invalid-watchtower-state"
     )
@@ -3738,12 +3825,26 @@ describe("P2TR signature-fraud witness parsing", () => {
   })
 
   it("deduplicates confirmed proof aliases and rejects classification conflicts", () => {
-    const observationID = Hex.from(txHash("d"))
-    const bitcoinTxHash = Hex.from(txHash("e"))
-    const redemptionObservation = {
-      observationID,
-      spendType: P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
-    } as P2TRSignatureFraudWitnessObservation
+    const vector = vectorCorpus.cases[0]
+    const rawTransaction = withInputWitness(
+      vector.unsignedTransactionHex,
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    const [redemptionObservation] =
+      extractP2TRSignatureFraudWitnessObservations(
+        rawTransaction,
+        toObservationPrevouts(vector),
+        [vector.walletIDHex],
+        undefined,
+        draftApprovedSpendTypeClassifier,
+        undefined,
+        bridgeChallengeDomain
+      )
+    const observationID = redemptionObservation.observationID
+    const bitcoinTxHash = Hex.from(
+      Transaction.fromHex(rawTransaction.transactionHex).getId()
+    )
     const movingFundsObservation: P2TRSignatureFraudWitnessObservation = {
       ...redemptionObservation,
       spendType: P2TR_SIGNATURE_FRAUD_SPEND_TYPE_MOVING_FUNDS,
@@ -4002,12 +4103,14 @@ describe("P2TR signature-fraud witness parsing", () => {
       throw new Error("Missing moving-funds flow-shaped vector")
     }
 
-    const bitcoinTxHash = txHash("a")
     const rawTransaction = withInputWitness(
       vector.unsignedTransactionHex,
       vector.signedInputIndex,
       vector.witnessSignatureHex
     )
+    const bitcoinTxHash = Transaction.fromHex(
+      rawTransaction.transactionHex
+    ).getId()
     const classifier = createP2TRSignatureFraudSpendTypeClassifier(
       flowVectors.map((candidate) => ({
         spendType: candidate.flowMetadata!.spendType,
@@ -5274,6 +5377,9 @@ describe("P2TR signature-fraud witness parsing", () => {
       vector.signedInputIndex,
       vector.witnessSignatureHex
     )
+    const bitcoinTxHash = Transaction.fromHex(
+      rawTransaction.transactionHex
+    ).getId()
     const [observation] = extractP2TRSignatureFraudWitnessObservations(
       rawTransaction,
       toObservationPrevouts(vector),
@@ -5286,7 +5392,7 @@ describe("P2TR signature-fraud witness parsing", () => {
       type: "mempool-observed",
       observationID,
       observation,
-      bitcoinTxHash: txHash("8"),
+      bitcoinTxHash,
     })
     const submitting = await recordP2TRWatchtowerChallengeEvent(store, {
       type: "submission-started",
@@ -5301,7 +5407,7 @@ describe("P2TR signature-fraud witness parsing", () => {
     const confirmed = await recordP2TRWatchtowerChallengeEvent(restartedStore, {
       type: "bitcoin-confirmed",
       observationID,
-      bitcoinTxHash: txHash("8"),
+      bitcoinTxHash,
       bitcoinBlockHash: txHash("9"),
       bitcoinBlockHeight: 456,
     })
