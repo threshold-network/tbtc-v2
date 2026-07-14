@@ -567,6 +567,16 @@ export type P2TRWatchtowerOperatorAlertStatus =
   | "acknowledged"
   | "cleared"
 
+export type P2TRWatchtowerBitcoinProofAlias = {
+  bitcoinTxHash: Hex
+  spendType: P2TRSignatureFraudSpendType
+}
+
+export type P2TRWatchtowerBitcoinProofAliasJSON = {
+  bitcoinTxHash: string
+  spendType: P2TRSignatureFraudSpendType
+}
+
 export type P2TRWatchtowerChallengeRecord = {
   observationID: Hex
   observation?: P2TRSignatureFraudWitnessObservation
@@ -574,6 +584,7 @@ export type P2TRWatchtowerChallengeRecord = {
   submissionAttempts: number
   bitcoinStatus?: P2TRWatchtowerBitcoinStatus
   bitcoinTxHash?: Hex
+  bitcoinProofAliases?: P2TRWatchtowerBitcoinProofAlias[]
   bitcoinBlockHash?: Hex
   bitcoinBlockHeight?: number
   challengeTxHash?: Hex
@@ -594,6 +605,7 @@ export type P2TRWatchtowerChallengeRecordJSON = {
   submissionAttempts: number
   bitcoinStatus?: P2TRWatchtowerBitcoinStatus
   bitcoinTxHash?: string
+  bitcoinProofAliases?: P2TRWatchtowerBitcoinProofAliasJSON[]
   bitcoinBlockHash?: string
   bitcoinBlockHeight?: number
   challengeTxHash?: string
@@ -1226,6 +1238,79 @@ export const deserializeP2TRSignatureFraudWitnessObservation = (
   }
 }
 
+const serializeP2TRWatchtowerBitcoinProofAlias = (
+  alias: P2TRWatchtowerBitcoinProofAlias
+): P2TRWatchtowerBitcoinProofAliasJSON => ({
+  bitcoinTxHash: toBytes32Hex(
+    alias.bitcoinTxHash,
+    "Bitcoin proof alias transaction hash"
+  ).toString(),
+  spendType: requireP2TRSignatureFraudSpendType(alias.spendType),
+})
+
+const deserializeP2TRWatchtowerBitcoinProofAliases = (
+  aliases: P2TRWatchtowerBitcoinProofAliasJSON[] | undefined
+): P2TRWatchtowerBitcoinProofAlias[] | undefined => {
+  if (aliases === undefined) {
+    return undefined
+  }
+
+  if (!Array.isArray(aliases)) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Watchtower Bitcoin proof aliases must be an array"
+    )
+  }
+
+  const result: P2TRWatchtowerBitcoinProofAlias[] = []
+  const spendTypesByTransactionHash = new Map<
+    string,
+    P2TRSignatureFraudSpendType
+  >()
+
+  for (const alias of aliases) {
+    if (
+      alias === undefined ||
+      alias === null ||
+      typeof alias !== "object" ||
+      Array.isArray(alias)
+    ) {
+      throw new P2TRWitnessSignatureError(
+        "invalid-watchtower-state",
+        "Watchtower Bitcoin proof alias must be an object"
+      )
+    }
+
+    const bitcoinTxHash = toBytes32Hex(
+      alias.bitcoinTxHash,
+      "Bitcoin proof alias transaction hash"
+    )
+    if (alias.spendType === undefined) {
+      throw new P2TRWitnessSignatureError(
+        "invalid-watchtower-state",
+        "Watchtower Bitcoin proof alias spend type is required"
+      )
+    }
+    const spendType = requireP2TRSignatureFraudSpendType(alias.spendType)
+    const transactionHash = bitcoinTxHash.toString()
+    const existingSpendType = spendTypesByTransactionHash.get(transactionHash)
+
+    if (existingSpendType !== undefined) {
+      throw new P2TRWitnessSignatureError(
+        "invalid-watchtower-state",
+        existingSpendType === spendType
+          ? "Watchtower Bitcoin proof aliases contain a duplicate transaction hash"
+          : "Watchtower Bitcoin proof aliases conflict for a transaction hash"
+      )
+    }
+
+    spendTypesByTransactionHash.set(transactionHash, spendType)
+    result.push({ bitcoinTxHash, spendType })
+  }
+
+  return result
+}
+
 export const serializeP2TRWatchtowerChallengeRecord = (
   record: P2TRWatchtowerChallengeRecord
 ): P2TRWatchtowerChallengeRecordJSON => ({
@@ -1238,6 +1323,9 @@ export const serializeP2TRWatchtowerChallengeRecord = (
   submissionAttempts: record.submissionAttempts,
   bitcoinStatus: record.bitcoinStatus,
   bitcoinTxHash: record.bitcoinTxHash?.toString(),
+  bitcoinProofAliases: record.bitcoinProofAliases?.map(
+    serializeP2TRWatchtowerBitcoinProofAlias
+  ),
   bitcoinBlockHash: record.bitcoinBlockHash?.toString(),
   bitcoinBlockHeight: record.bitcoinBlockHeight,
   challengeTxHash: record.challengeTxHash?.toString(),
@@ -1372,6 +1460,9 @@ export const deserializeP2TRWatchtowerChallengeRecord = (
     submissionAttempts: record.submissionAttempts,
     bitcoinStatus: record.bitcoinStatus,
     bitcoinTxHash: optionalBytes32Hex(record.bitcoinTxHash, "Bitcoin tx hash"),
+    bitcoinProofAliases: deserializeP2TRWatchtowerBitcoinProofAliases(
+      record.bitcoinProofAliases
+    ),
     bitcoinBlockHash: optionalBytes32Hex(
       record.bitcoinBlockHash,
       "Bitcoin block hash"
@@ -1529,18 +1620,30 @@ const resolveOptionalP2TRWatchtowerObservationIDForBitcoinTxHashAndSpendType =
 
     const recordsForBitcoinTxHash = (
       await recordSource.listChallengeRecords()
-    ).filter(
-      (record) =>
+    ).filter((record) => {
+      const isCurrentBitcoinTxHash =
         record.bitcoinTxHash !== undefined &&
         record.bitcoinTxHash.equals(resolvedBitcoinTxHash)
-    )
+      const isAliasedBitcoinTxHash = record.bitcoinProofAliases?.some((alias) =>
+        alias.bitcoinTxHash.equals(resolvedBitcoinTxHash)
+      )
+
+      return isCurrentBitcoinTxHash || isAliasedBitcoinTxHash === true
+    })
 
     if (recordsForBitcoinTxHash.length === 0) {
       return undefined
     }
 
-    const matchingRecords = recordsForBitcoinTxHash.filter(
-      (record) => record.observation?.spendType === resolvedSpendType
+    const matchingRecords = recordsForBitcoinTxHash.filter((record) =>
+      record.bitcoinProofAliases === undefined
+        ? record.bitcoinTxHash?.equals(resolvedBitcoinTxHash) === true &&
+          record.observation?.spendType === resolvedSpendType
+        : record.bitcoinProofAliases.some(
+            (alias) =>
+              alias.bitcoinTxHash.equals(resolvedBitcoinTxHash) &&
+              alias.spendType === resolvedSpendType
+          )
     )
 
     if (matchingRecords.length === 0) {
@@ -1880,6 +1983,86 @@ const applyP2TRWatchtowerObservationPayload = (
   }
 }
 
+const initializeP2TRWatchtowerBitcoinProofAliases = (
+  record: P2TRWatchtowerChallengeRecord
+): P2TRWatchtowerChallengeRecord => {
+  if (record.bitcoinProofAliases !== undefined) {
+    return record
+  }
+
+  if (
+    record.bitcoinStatus === "confirmed" &&
+    record.bitcoinTxHash !== undefined &&
+    record.observation !== undefined
+  ) {
+    const observationBitcoinTxHash = BitcoinTxHash.from(
+      Transaction.fromHex(
+        record.observation.rawTransaction.transactionHex
+      ).getId()
+    )
+
+    if (record.bitcoinTxHash.equals(observationBitcoinTxHash)) {
+      return {
+        ...record,
+        bitcoinProofAliases: [
+          {
+            bitcoinTxHash: toBytes32Hex(
+              record.bitcoinTxHash,
+              "Bitcoin proof alias transaction hash"
+            ),
+            spendType: requireP2TRSignatureFraudSpendType(
+              record.observation.spendType
+            ),
+          },
+        ],
+      }
+    }
+  }
+
+  return { ...record, bitcoinProofAliases: [] }
+}
+
+const appendP2TRWatchtowerConfirmedBitcoinProofAlias = (
+  record: P2TRWatchtowerChallengeRecord,
+  event: Extract<P2TRWatchtowerChallengeEvent, { type: "bitcoin-confirmed" }>
+): P2TRWatchtowerChallengeRecord => {
+  const initializedRecord = applyP2TRWatchtowerObservationPayload(
+    initializeP2TRWatchtowerBitcoinProofAliases(record),
+    event
+  )
+  if (event.observation === undefined) {
+    return initializedRecord
+  }
+
+  const bitcoinTxHash = toBytes32Hex(
+    event.bitcoinTxHash,
+    "Bitcoin proof alias transaction hash"
+  )
+  const spendType = requireP2TRSignatureFraudSpendType(
+    event.observation.spendType
+  )
+  const aliases = initializedRecord.bitcoinProofAliases ?? []
+  const existingAlias = aliases.find((alias) =>
+    alias.bitcoinTxHash.equals(bitcoinTxHash)
+  )
+
+  if (existingAlias !== undefined) {
+    if (existingAlias.spendType !== spendType) {
+      throw new P2TRWitnessSignatureError(
+        "invalid-watchtower-state",
+        "Watchtower Bitcoin proof aliases conflict for a transaction hash"
+      )
+    }
+
+    return initializedRecord
+  }
+
+  return {
+    ...initializedRecord,
+    bitcoinProofAliases: [...aliases, { bitcoinTxHash, spendType }],
+  }
+}
+
 const clearResolvedP2TRWatchtowerOperatorAlert = (
   record: P2TRWatchtowerChallengeRecord
 ): P2TRWatchtowerChallengeRecord => {
@@ -1909,7 +2092,12 @@ export const applyP2TRWatchtowerChallengeEvent = (
   }
 
   if (event.type === "observed") {
-    return applyP2TRWatchtowerObservationPayload(record, event)
+    return applyP2TRWatchtowerObservationPayload(
+      event.observation === undefined
+        ? record
+        : initializeP2TRWatchtowerBitcoinProofAliases(record),
+      event
+    )
   }
 
   if (
@@ -1937,7 +2125,9 @@ export const applyP2TRWatchtowerChallengeEvent = (
   switch (event.type) {
     case "submission-started": {
       const submittingRecord = applyP2TRWatchtowerObservationPayload(
-        record,
+        event.observation === undefined
+          ? record
+          : initializeP2TRWatchtowerBitcoinProofAliases(record),
         event
       )
       return {
@@ -1973,7 +2163,10 @@ export const applyP2TRWatchtowerChallengeEvent = (
       }
 
     case "mempool-observed": {
-      const mempoolRecord = applyP2TRWatchtowerObservationPayload(record, event)
+      const mempoolRecord = applyP2TRWatchtowerObservationPayload(
+        initializeP2TRWatchtowerBitcoinProofAliases(record),
+        event
+      )
       return {
         ...mempoolRecord,
         bitcoinStatus: "mempool",
@@ -1983,13 +2176,15 @@ export const applyP2TRWatchtowerChallengeEvent = (
       }
     }
 
-    case "mempool-evicted":
+    case "mempool-evicted": {
+      const evictedRecord = initializeP2TRWatchtowerBitcoinProofAliases(record)
       return {
-        ...record,
+        ...evictedRecord,
         bitcoinStatus: "evicted",
         bitcoinBlockHash: undefined,
         bitcoinBlockHeight: undefined,
       }
+    }
 
     case "bitcoin-confirmed": {
       if (
@@ -2002,7 +2197,7 @@ export const applyP2TRWatchtowerChallengeEvent = (
         )
       }
 
-      const confirmedRecord = applyP2TRWatchtowerObservationPayload(
+      const confirmedRecord = appendP2TRWatchtowerConfirmedBitcoinProofAlias(
         record,
         event
       )
@@ -2015,13 +2210,15 @@ export const applyP2TRWatchtowerChallengeEvent = (
       }
     }
 
-    case "bitcoin-reorged":
+    case "bitcoin-reorged": {
+      const reorgedRecord = initializeP2TRWatchtowerBitcoinProofAliases(record)
       return {
-        ...record,
+        ...reorgedRecord,
         bitcoinStatus: "reorged",
         bitcoinBlockHash: undefined,
         bitcoinBlockHeight: undefined,
       }
+    }
 
     case "submission-accepted":
       if (
