@@ -328,12 +328,14 @@ Current draft corpus:
   scriptPubKey byte lengths before observation storage, computes the shared
   draft challenge identity locked by the Node/Rust/Solidity vector harnesses,
   computes a structured Bridge challenge identity from the same fields a Bridge
-  verifier can reconstruct, derives a domain-separated Bridge challenge-key
-  seed from chain ID, Bridge address, and that Bridge identity, stores that key
-  alongside observations when an embedding service provides the Bridge domain,
-  derives a draft
-  off-chain observation ID for duplicate watchtower observations, and defines a
-  serializable challenge-record store boundary. It also seeds a pure off-chain
+  verifier can reconstruct, derives a domain-separated Bridge challenge key
+  from chain ID, Bridge address, and that Bridge identity, and uses that key as
+  the durable observation, record, and submission-idempotency key when an
+  embedding service provides the Bridge domain. Domainless observation mode
+  instead derives a raw-evidence observation ID. Same-key record transitions
+  are serialized within a store instance, and the observation selected for
+  submission is bound atomically to its in-flight state. The SDK also defines a
+  serializable challenge-record store boundary and seeds a pure off-chain
   lifecycle reducer for observed, submitting, submitted, rejected,
   defeat-eligible, defeated, timeout-eligible, slashed, and rewarded challenge
   records, plus a store-backed ingest primitive for mempool and confirmed
@@ -361,10 +363,11 @@ Current draft corpus:
   defeated, timeout-eligible, slashed, and rewarded events, reporting per-event
   failures and source failures while refreshing summaries and unresolved alerts
   from the same durable record source. Challenge-resolution events can target
-  either the off-chain observation ID or the stored Bridge challenge key;
-  key-only events are resolved through the durable record source and fail
-  closed on unknown or ambiguous keys. Honest-spend proof events can instead
-  target the Bitcoin transaction hash plus approved spend type; the resolver
+  either the observation ID or the stored Bridge challenge key; those values
+  are identical in domain-bound mode. Key-only events are resolved through the
+  durable record source and fail closed on unknown keys. Honest-spend proof
+  events can instead target the Bitcoin transaction hash plus approved spend
+  type; the resolver
   ignores transaction hashes that do not belong to any stored challenge and
   fails closed on duplicate records, wrong spend type for a stored transaction,
   or fail-closed spend-type matches. It also exposes an integrated source cycle
@@ -794,10 +797,11 @@ fraud-run evidence, and owner approvals are recorded.
      structured payload through `processP2TRSignatureFraudChallenge`, stores the
      challenge under the domain-separated Bridge challenge key, defeats the
      challenge using already-proven honest-spend state, and executes the
-     timeout/slashing path. The SDK/watchtower can store Bridge challenge keys
-     derived from that structured identity, resolve off-chain lifecycle events
-     by those keys, validate cursor-backed lifecycle scans against optional
-     block-hash cursor boundaries, ABI-encode Bridge challenge payloads, and
+     timeout/slashing path. The SDK/watchtower can store domain-bound challenge
+     records under Bridge challenge keys derived from that structured identity,
+     resolve off-chain lifecycle events by those keys, validate cursor-backed
+     lifecycle scans against optional block-hash cursor boundaries, ABI-encode
+     Bridge challenge payloads, and
      submit them through an Ethers-compatible Bridge adapter with confirmation
      waiting and rejected/retry handling. Final payload limit values,
      spend-type classification, gas/DoS review, production Bridge/source

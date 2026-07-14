@@ -668,6 +668,7 @@ export type P2TRWatchtowerChallengeEvent =
   | {
       type: "submission-started"
       observationID: Hex | Buffer | string
+      observation?: P2TRSignatureFraudWitnessObservation
     }
   | {
       type: "submission-broadcast"
@@ -1064,6 +1065,7 @@ const isP2TRWatchtowerSubmissionEvent = (
   event: P2TRWatchtowerChallengeEvent
 ): boolean =>
   event.type === "submission-started" ||
+  event.type === "submission-broadcast" ||
   event.type === "submission-accepted" ||
   event.type === "submission-rejected"
 
@@ -1265,6 +1267,16 @@ export const deserializeP2TRWatchtowerChallengeRecord = (
     throw new P2TRWitnessSignatureError(
       "invalid-watchtower-state",
       "Serialized watchtower observation ID does not match record"
+    )
+  }
+
+  if (
+    observation?.bridgeChallengeKey !== undefined &&
+    !observation.bridgeChallengeKey.equals(observationID)
+  ) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Serialized watchtower record is not keyed by its Bridge challenge key"
     )
   }
 
@@ -1850,6 +1862,18 @@ const applyP2TRWatchtowerObservationPayload = (
     )
   }
 
+  if (
+    record.observation !== undefined &&
+    (record.status === "submitting" ||
+      record.status === "broadcast-pending" ||
+      isSubmissionClosedWatchtowerStatus(record.status))
+  ) {
+    // Keep the exact representation used for an in-flight or accepted Bridge
+    // challenge. Flexible-sighash replacements share the canonical record but
+    // must not replace the payload already associated with its transaction.
+    return record
+  }
+
   return {
     ...record,
     observation: event.observation,
@@ -1911,13 +1935,18 @@ export const applyP2TRWatchtowerChallengeEvent = (
   }
 
   switch (event.type) {
-    case "submission-started":
+    case "submission-started": {
+      const submittingRecord = applyP2TRWatchtowerObservationPayload(
+        record,
+        event
+      )
       return {
-        ...record,
+        ...submittingRecord,
         status: "submitting",
-        submissionAttempts: record.submissionAttempts + 1,
+        submissionAttempts: submittingRecord.submissionAttempts + 1,
         lastError: undefined,
       }
+    }
 
     case "submission-broadcast":
       if (record.status === "broadcast-pending") {
@@ -2117,26 +2146,57 @@ export const applyP2TRWatchtowerChallengeEvent = (
   )
 }
 
+const p2trWatchtowerChallengeMutationQueues = new WeakMap<
+  P2TRWatchtowerChallengeStore,
+  Map<string, Promise<void>>
+>()
+
 export const recordP2TRWatchtowerChallengeEvent = async (
   store: P2TRWatchtowerChallengeStore,
   event: P2TRWatchtowerChallengeEvent
 ): Promise<P2TRWatchtowerChallengeRecord> => {
   const observationID = toBytes32Hex(event.observationID, "Observation ID")
-  const existingRecord = await store.getChallengeRecord(observationID)
-
-  if (!existingRecord && !isP2TRWatchtowerObservationEvent(event)) {
-    throw new P2TRWitnessSignatureError(
-      "invalid-watchtower-state",
-      "Watchtower challenge record must exist before non-observation events"
-    )
+  const mutationKey = observationID.toString()
+  let mutationQueue = p2trWatchtowerChallengeMutationQueues.get(store)
+  if (mutationQueue === undefined) {
+    mutationQueue = new Map<string, Promise<void>>()
+    p2trWatchtowerChallengeMutationQueues.set(store, mutationQueue)
   }
 
-  const initialRecord =
-    existingRecord ?? createP2TRWatchtowerChallengeRecord(observationID)
-  const updatedRecord = applyP2TRWatchtowerChallengeEvent(initialRecord, event)
-  await store.saveChallengeRecord(updatedRecord)
+  const previousMutation = mutationQueue.get(mutationKey) ?? Promise.resolve()
+  const mutation = previousMutation.then(async () => {
+    const existingRecord = await store.getChallengeRecord(observationID)
 
-  return updatedRecord
+    if (!existingRecord && !isP2TRWatchtowerObservationEvent(event)) {
+      throw new P2TRWitnessSignatureError(
+        "invalid-watchtower-state",
+        "Watchtower challenge record must exist before non-observation events"
+      )
+    }
+
+    const initialRecord =
+      existingRecord ?? createP2TRWatchtowerChallengeRecord(observationID)
+    const updatedRecord = applyP2TRWatchtowerChallengeEvent(
+      initialRecord,
+      event
+    )
+    await store.saveChallengeRecord(updatedRecord)
+
+    return updatedRecord
+  })
+  const mutationTail = mutation.then(
+    () => undefined,
+    () => undefined
+  )
+  mutationQueue.set(mutationKey, mutationTail)
+
+  try {
+    return await mutation
+  } finally {
+    if (mutationQueue.get(mutationKey) === mutationTail) {
+      mutationQueue.delete(mutationKey)
+    }
+  }
 }
 
 /**
@@ -2664,13 +2724,15 @@ const p2trWalletInputKeyBindingMapKey = (
   ).toString()}`
 
 /**
- * Computes a deterministic off-chain observation ID for watchtower
- * deduplication.
+ * Computes a deterministic raw-evidence observation ID for domainless
+ * watchtower operation.
  *
  * This ID is intentionally separate from the future production Bridge
  * challenge key. It commits to the observed wallet input, witness signature,
  * raw transaction, prevout map, and optional Bridge/domain identifier so
  * duplicate mempool/confirmed observations can be collapsed before submission.
+ * When a Bridge challenge domain is configured, the watchtower instead uses
+ * the domain-bound Bridge challenge key for record and submission idempotency.
  *
  * @experimental This is an idempotency primitive for the draft P2TR
  *               signature-fraud watchtower path. It is not a production
@@ -3142,6 +3204,13 @@ export const extractP2TRSignatureFraudWitnessObservations = (
         unsignedTransaction,
         inputPrevouts,
       })
+    const bridgeChallengeKey =
+      bridgeChallengeDomain === undefined
+        ? undefined
+        : computeP2TRSignatureFraudBridgeChallengeKey({
+            ...bridgeChallengeDomain,
+            bridgeChallengeIdentity,
+          })
 
     return {
       ...candidate,
@@ -3152,21 +3221,17 @@ export const extractP2TRSignatureFraudWitnessObservations = (
       sighash,
       draftChallengeIdentity,
       bridgeChallengeIdentity,
-      bridgeChallengeKey:
-        bridgeChallengeDomain === undefined
-          ? undefined
-          : computeP2TRSignatureFraudBridgeChallengeKey({
-              ...bridgeChallengeDomain,
-              bridgeChallengeIdentity,
-            }),
-      observationID: computeP2TRWalletInputWitnessObservationID({
-        rawTransaction,
-        inputIndex: candidate.inputIndex,
-        walletID: candidate.walletID,
-        witnessSignature: candidate.witnessSignature,
-        inputPrevouts,
-        bridgeIdentifier,
-      }),
+      bridgeChallengeKey,
+      observationID:
+        bridgeChallengeKey ??
+        computeP2TRWalletInputWitnessObservationID({
+          rawTransaction,
+          inputIndex: candidate.inputIndex,
+          walletID: candidate.walletID,
+          witnessSignature: candidate.witnessSignature,
+          inputPrevouts,
+          bridgeIdentifier,
+        }),
     }
   })
 }
@@ -3194,7 +3259,7 @@ export const validateP2TRSignatureFraudWitnessObservationConsistency = (
             walletID: observation.walletID,
           },
         ]
-  const expectedObservation = extractP2TRSignatureFraudWitnessObservations(
+  const expectedObservations = extractP2TRSignatureFraudWitnessObservations(
     observation.rawTransaction,
     observation.inputPrevouts,
     [observation.walletID],
@@ -3203,7 +3268,17 @@ export const validateP2TRSignatureFraudWitnessObservationConsistency = (
     context.payloadBounds,
     context.bridgeChallengeDomain,
     walletInputKeyBindings
-  ).find((expected) => expected.observationID.equals(observationID))
+  )
+  const expectedObservation =
+    expectedObservations.find((expected) =>
+      expected.observationID.equals(observationID)
+    ) ??
+    expectedObservations.find(
+      (expected) =>
+        expected.inputIndex === observation.inputIndex &&
+        expected.walletID.equals(observation.walletID) &&
+        expected.witnessSignature.equals(observation.witnessSignature)
+    )
 
   if (expectedObservation === undefined) {
     throw new P2TRWitnessSignatureError(
@@ -3227,6 +3302,10 @@ export const validateP2TRSignatureFraudWitnessObservationConsistency = (
 
 export class P2TRSignatureFraudWatchtower {
   private readonly registeredWalletIDs: Hex[]
+  private readonly inFlightSubmissions = new Map<
+    string,
+    Promise<P2TRWatchtowerChallengeRecord>
+  >()
 
   constructor(
     private readonly store: P2TRWatchtowerChallengeStore,
@@ -3458,6 +3537,33 @@ export class P2TRSignatureFraudWatchtower {
       bridgeChallengeDomain: this.bridgeChallengeDomain,
     })
 
+    const submissionKey = observation.observationID.toString()
+    const inFlightSubmission = this.inFlightSubmissions.get(submissionKey)
+    if (inFlightSubmission !== undefined) {
+      return inFlightSubmission
+    }
+
+    const submission = this.submitChallengeOnce(
+      observation,
+      submitter,
+      submissionPolicy
+    )
+    this.inFlightSubmissions.set(submissionKey, submission)
+
+    try {
+      return await submission
+    } finally {
+      if (this.inFlightSubmissions.get(submissionKey) === submission) {
+        this.inFlightSubmissions.delete(submissionKey)
+      }
+    }
+  }
+
+  private async submitChallengeOnce(
+    observation: P2TRSignatureFraudWitnessObservation,
+    submitter: P2TRSignatureFraudChallengeSubmitter,
+    submissionPolicy: P2TRSignatureFraudChallengeSubmissionPolicy
+  ): Promise<P2TRWatchtowerChallengeRecord> {
     const observedRecord = await recordP2TRWatchtowerChallengeEvent(
       this.store,
       {
@@ -3484,10 +3590,19 @@ export class P2TRSignatureFraudWatchtower {
       )
     }
 
-    await recordP2TRWatchtowerChallengeEventWithRetry(this.store, {
-      type: "submission-started",
-      observationID: observation.observationID,
-    })
+    const submissionStartedRecord =
+      await recordP2TRWatchtowerChallengeEventWithRetry(this.store, {
+        type: "submission-started",
+        observationID: observation.observationID,
+        observation,
+      })
+
+    if (submissionStartedRecord.status !== "submitting") {
+      return submissionStartedRecord
+    }
+
+    const submissionObservation =
+      submissionStartedRecord.observation ?? observation
 
     // Once the challenge transaction is broadcast it is irreversible, so the
     // record must never be left in a replayable state (which would re-broadcast a
@@ -3498,7 +3613,7 @@ export class P2TRSignatureFraudWatchtower {
     let broadcastRecord: P2TRWatchtowerChallengeRecord | undefined
     try {
       const challengeTxHash = await submitter.submitSignatureFraudChallenge(
-        observation,
+        submissionObservation,
         {
           onBroadcast: async (txHash) => {
             broadcastAttempted = true

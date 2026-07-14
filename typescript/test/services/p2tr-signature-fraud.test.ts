@@ -38,6 +38,7 @@ import {
   P2TRSignatureFraudChallengeSubmissionPolicy,
   P2TRSignatureFraudSpendType,
   P2TRSignatureFraudSpendTypeClassifier,
+  P2TRSignatureFraudWitnessObservation,
   P2TRSignatureFraudWatchtower,
   P2TRSignatureFraudWatchtowerRunner,
   P2TRWatchtowerChallengeRecord,
@@ -108,11 +109,20 @@ const vectorCorpusPath = path.resolve(
   __dirname,
   "../../../docs/test-vectors/p2tr-signature-fraud-v0.json"
 )
+const fullSighashVectorCorpusPath = path.resolve(
+  __dirname,
+  "../../../docs/test-vectors/p2tr-signature-fraud-full-sighash-v0.json"
+)
 
 const loadVectorCorpus = (): SignatureFraudVectorCorpus =>
   JSON.parse(
     fs.readFileSync(vectorCorpusPath, "utf8")
   ) as SignatureFraudVectorCorpus
+
+const loadFullSighashVectorCorpus = (): { cases: SignatureFraudVector[] } =>
+  JSON.parse(fs.readFileSync(fullSighashVectorCorpusPath, "utf8")) as {
+    cases: SignatureFraudVector[]
+  }
 
 const withInputWitness = (
   unsignedTransactionHex: string,
@@ -337,18 +347,69 @@ class BlockingP2TRWatchtowerChallengeRecordPersistence extends InMemoryP2TRWatch
   }
 }
 
+type P2TRWatchtowerSaveBlock = {
+  started: Promise<void>
+  unblock(): void
+}
+
+class BlockingP2TRWatchtowerChallengeStore extends InMemoryP2TRWatchtowerChallengeStore {
+  getCalls = 0
+  private nextSaveBlock?: {
+    resolveStarted(): void
+    released: Promise<void>
+  }
+
+  async getChallengeRecord(
+    observationID: Hex
+  ): Promise<P2TRWatchtowerChallengeRecord | undefined> {
+    this.getCalls++
+    return super.getChallengeRecord(observationID)
+  }
+
+  async saveChallengeRecord(
+    record: P2TRWatchtowerChallengeRecord
+  ): Promise<void> {
+    const saveBlock = this.nextSaveBlock
+    if (saveBlock !== undefined) {
+      this.nextSaveBlock = undefined
+      saveBlock.resolveStarted()
+      await saveBlock.released
+    }
+
+    await super.saveChallengeRecord(record)
+  }
+
+  blockNextSave(): P2TRWatchtowerSaveBlock {
+    let resolveStarted!: () => void
+    let release!: () => void
+    const started = new Promise<void>((resolve) => {
+      resolveStarted = resolve
+    })
+    const released = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    this.nextSaveBlock = { resolveStarted, released }
+
+    return { started, unblock: release }
+  }
+}
+
 class FakeP2TRSignatureFraudChallengeSubmitter
   implements P2TRSignatureFraudChallengeSubmitter
 {
   submissionCount = 0
+  readonly submittedObservations: P2TRSignatureFraudWitnessObservation[] = []
   private readonly result: Hex | Buffer | string | Error
 
   constructor(result: Hex | Buffer | string | Error = txHash("a")) {
     this.result = result
   }
 
-  async submitSignatureFraudChallenge(): Promise<Hex | Buffer | string> {
+  async submitSignatureFraudChallenge(
+    observation: P2TRSignatureFraudWitnessObservation
+  ): Promise<Hex | Buffer | string> {
     this.submissionCount++
+    this.submittedObservations.push(observation)
 
     if (this.result instanceof Error) {
       throw this.result
@@ -3037,6 +3098,347 @@ describe("P2TR signature-fraud witness parsing", () => {
     expect(cycle.summary.byStatus["timeout-eligible"]).to.equal(1)
   })
 
+  it("deduplicates flexible-sighash replacements by canonical Bridge key", async () => {
+    const vector = loadFullSighashVectorCorpus().cases.find(
+      (candidate) => candidate.id === "bip341-keypath-anyonecanpay-none-multi"
+    )
+    if (vector === undefined) {
+      throw new Error("Missing ANYONECANPAY|NONE P2TR signature-fraud vector")
+    }
+
+    const originalRawTransaction = withInputWitness(
+      vector.unsignedTransactionHex,
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    const replacementTransaction = Transaction.fromHex(
+      vector.unsignedTransactionHex
+    )
+    replacementTransaction.outs[0].value--
+    const replacementRawTransaction = withInputWitness(
+      replacementTransaction.toHex(),
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    const inputPrevouts = toObservationPrevouts(vector).map(
+      (prevout, inputIndex) =>
+        inputIndex === vector.signedInputIndex
+          ? prevout
+          : { ...prevout, scriptPubKey: "51" }
+    )
+    const persistence = new InMemoryP2TRWatchtowerChallengeRecordPersistence()
+    const store = new P2TRWatchtowerSerializedChallengeStore(persistence)
+    const watchtower = createDraftApprovedP2TRWatchtower(
+      store,
+      [vector.walletIDHex],
+      bridgeChallengeDomain
+    )
+    const submitter = new FakeP2TRSignatureFraudChallengeSubmitter(txHash("7"))
+
+    const [[original], [replacement]] = await Promise.all([
+      watchtower.observeMempoolTransaction(
+        originalRawTransaction,
+        inputPrevouts,
+        txHash("6")
+      ),
+      watchtower.observeMempoolTransaction(
+        replacementRawTransaction,
+        inputPrevouts,
+        txHash("8")
+      ),
+    ])
+    const [originalSubmission, replacementSubmission] = await Promise.all([
+      watchtower.submitChallenge(
+        original.observation,
+        submitter,
+        draftApprovedSubmissionPolicy
+      ),
+      watchtower.submitChallenge(
+        replacement.observation,
+        submitter,
+        draftApprovedSubmissionPolicy
+      ),
+    ])
+    const [reobservedReplacement] = await watchtower.observeMempoolTransaction(
+      replacementRawTransaction,
+      inputPrevouts,
+      txHash("8")
+    )
+    const replayedReplacementSubmission = await watchtower.submitChallenge(
+      reobservedReplacement.observation,
+      submitter,
+      draftApprovedSubmissionPolicy
+    )
+
+    const bridgeChallengeKey = original.observation.bridgeChallengeKey
+    if (bridgeChallengeKey === undefined) {
+      throw new Error("Expected Bridge challenge key")
+    }
+
+    const reloadedStore = new P2TRWatchtowerSerializedChallengeStore(
+      persistence
+    )
+    const lifecycle = await new P2TRSignatureFraudWatchtowerRunner(
+      createDraftApprovedP2TRWatchtower(
+        reloadedStore,
+        [vector.walletIDHex],
+        bridgeChallengeDomain
+      ),
+      {} as BitcoinClient,
+      new FakeP2TRSignatureFraudChallengeSubmitter()
+    ).processBridgeLifecycleEventsSettled(
+      [
+        { type: "timeout-eligible", bridgeChallengeKey },
+        { type: "defeated", bridgeChallengeKey, defeatTxHash: txHash("9") },
+      ],
+      reloadedStore
+    )
+    const records = await reloadedStore.listChallengeRecords()
+    const finalRecord = await reloadedStore.getChallengeRecord(
+      bridgeChallengeKey
+    )
+
+    expect(originalRawTransaction.transactionHex).to.not.equal(
+      replacementRawTransaction.transactionHex
+    )
+    expect(original.observation.sighash.toString()).to.equal(
+      replacement.observation.sighash.toString()
+    )
+    expect(original.observation.bridgeChallengeIdentity.toString()).to.equal(
+      replacement.observation.bridgeChallengeIdentity.toString()
+    )
+    expect(original.observation.bridgeChallengeKey?.toString()).to.equal(
+      replacement.observation.bridgeChallengeKey?.toString()
+    )
+    expect(original.observation.observationID.toString()).to.equal(
+      bridgeChallengeKey.toString()
+    )
+    expect(replacement.observation.observationID.toString()).to.equal(
+      bridgeChallengeKey.toString()
+    )
+    expect(originalSubmission.status).to.equal("submitted")
+    expect(replacementSubmission.status).to.equal("submitted")
+    expect(replayedReplacementSubmission.status).to.equal("submitted")
+    expect(submitter.submissionCount).to.equal(1)
+    expect(records).to.have.lengthOf(1)
+    expect(persistence.records).to.have.lengthOf(1)
+    expect(lifecycle.failures).to.deep.equal([])
+    expect(lifecycle.records).to.have.lengthOf(2)
+    expect(finalRecord?.status).to.equal("defeated")
+    expect(finalRecord?.defeatTxHash?.toString()).to.equal(txHash("9"))
+    expect(finalRecord?.observation?.rawTransaction.transactionHex).to.equal(
+      originalRawTransaction.transactionHex
+    )
+  })
+
+  it("serializes same-key replacement observations with submission lifecycle updates", async () => {
+    const vector = loadFullSighashVectorCorpus().cases.find(
+      (candidate) => candidate.id === "bip341-keypath-anyonecanpay-none-multi"
+    )
+    if (vector === undefined) {
+      throw new Error("Missing ANYONECANPAY|NONE P2TR signature-fraud vector")
+    }
+
+    const originalRawTransaction = withInputWitness(
+      vector.unsignedTransactionHex,
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    const replacementTransaction = Transaction.fromHex(
+      vector.unsignedTransactionHex
+    )
+    replacementTransaction.outs[0].value--
+    const replacementRawTransaction = withInputWitness(
+      replacementTransaction.toHex(),
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    const inputPrevouts = toObservationPrevouts(vector).map(
+      (prevout, inputIndex) =>
+        inputIndex === vector.signedInputIndex
+          ? prevout
+          : { ...prevout, scriptPubKey: "51" }
+    )
+    const store = new BlockingP2TRWatchtowerChallengeStore()
+    const watchtower = createDraftApprovedP2TRWatchtower(
+      store,
+      [vector.walletIDHex],
+      bridgeChallengeDomain
+    )
+    const submitter = new FakeP2TRSignatureFraudChallengeSubmitter(txHash("7"))
+    const [original] = await watchtower.observeMempoolTransaction(
+      originalRawTransaction,
+      inputPrevouts,
+      txHash("6")
+    )
+
+    const replacementSave = store.blockNextSave()
+    const replacementObservation = watchtower.observeMempoolTransaction(
+      replacementRawTransaction,
+      inputPrevouts,
+      txHash("8")
+    )
+    await replacementSave.started
+    const getCallsBeforeSubmission = store.getCalls
+    const submission = watchtower.submitChallenge(
+      original.observation,
+      submitter,
+      draftApprovedSubmissionPolicy
+    )
+    const getCallsWhileReplacementSaveBlocked = store.getCalls
+    const submissionsWhileReplacementSaveBlocked = submitter.submissionCount
+    replacementSave.unblock()
+
+    const [[replacement], submitted] = await Promise.all([
+      replacementObservation,
+      submission,
+    ])
+    const finalRecord = await store.getChallengeRecord(
+      original.observation.observationID
+    )
+
+    expect(replacement.observation.observationID.toString()).to.equal(
+      original.observation.observationID.toString()
+    )
+    expect(getCallsWhileReplacementSaveBlocked).to.equal(
+      getCallsBeforeSubmission
+    )
+    expect(submissionsWhileReplacementSaveBlocked).to.equal(0)
+    expect(submitted.status).to.equal("submitted")
+    expect(finalRecord?.status).to.equal("submitted")
+    expect(finalRecord?.submissionAttempts).to.equal(1)
+    expect(finalRecord?.challengeTxHash?.toString()).to.equal(txHash("7"))
+    expect(submitter.submissionCount).to.equal(1)
+  })
+
+  it("does not submit when lifecycle closure wins before submission start", async () => {
+    const vector = vectorCorpus.cases[0]
+    const rawTransaction = withInputWitness(
+      vector.unsignedTransactionHex,
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    const store = new BlockingP2TRWatchtowerChallengeStore()
+    const watchtower = createDraftApprovedP2TRWatchtower(
+      store,
+      [vector.walletIDHex],
+      bridgeChallengeDomain
+    )
+    const submitter = new FakeP2TRSignatureFraudChallengeSubmitter(txHash("7"))
+    const [observed] = await watchtower.observeMempoolTransaction(
+      rawTransaction,
+      toObservationPrevouts(vector),
+      txHash("6")
+    )
+
+    const observedSave = store.blockNextSave()
+    const submission = watchtower.submitChallenge(
+      observed.observation,
+      submitter,
+      draftApprovedSubmissionPolicy
+    )
+    await observedSave.started
+    const closure = watchtower.markChallengeTimeoutEligible(
+      observed.observation.observationID
+    )
+    observedSave.unblock()
+
+    const [submissionRecord, closureRecord] = await Promise.all([
+      submission,
+      closure,
+    ])
+    const finalRecord = await store.getChallengeRecord(
+      observed.observation.observationID
+    )
+
+    expect(closureRecord.status).to.equal("timeout-eligible")
+    expect(submissionRecord.status).to.equal("timeout-eligible")
+    expect(finalRecord?.status).to.equal("timeout-eligible")
+    expect(finalRecord?.submissionAttempts).to.equal(0)
+    expect(submitter.submissionCount).to.equal(0)
+  })
+
+  it("atomically stores the flexible-sighash payload selected for submission", async () => {
+    const vector = loadFullSighashVectorCorpus().cases.find(
+      (candidate) => candidate.id === "bip341-keypath-anyonecanpay-none-multi"
+    )
+    if (vector === undefined) {
+      throw new Error("Missing ANYONECANPAY|NONE P2TR signature-fraud vector")
+    }
+
+    const originalRawTransaction = withInputWitness(
+      vector.unsignedTransactionHex,
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    const replacementTransaction = Transaction.fromHex(
+      vector.unsignedTransactionHex
+    )
+    replacementTransaction.outs[0].value--
+    const replacementRawTransaction = withInputWitness(
+      replacementTransaction.toHex(),
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    const inputPrevouts = toObservationPrevouts(vector).map(
+      (prevout, inputIndex) =>
+        inputIndex === vector.signedInputIndex
+          ? prevout
+          : { ...prevout, scriptPubKey: "51" }
+    )
+    const store = new BlockingP2TRWatchtowerChallengeStore()
+    const watchtower = createDraftApprovedP2TRWatchtower(
+      store,
+      [vector.walletIDHex],
+      bridgeChallengeDomain
+    )
+    const submitter = new FakeP2TRSignatureFraudChallengeSubmitter(txHash("7"))
+    const [original] = await watchtower.observeMempoolTransaction(
+      originalRawTransaction,
+      inputPrevouts,
+      txHash("6")
+    )
+
+    const submissionObservationSave = store.blockNextSave()
+    const submission = watchtower.submitChallenge(
+      original.observation,
+      submitter,
+      draftApprovedSubmissionPolicy
+    )
+    await submissionObservationSave.started
+    const replacementObservation = watchtower.observeMempoolTransaction(
+      replacementRawTransaction,
+      inputPrevouts,
+      txHash("8")
+    )
+    submissionObservationSave.unblock()
+
+    const [submitted, [replacement]] = await Promise.all([
+      submission,
+      replacementObservation,
+    ])
+    const finalRecord = await store.getChallengeRecord(
+      original.observation.observationID
+    )
+    const submittedObservation = submitter.submittedObservations[0]
+
+    expect(replacement.observation.observationID.toString()).to.equal(
+      original.observation.observationID.toString()
+    )
+    expect(replacementRawTransaction.transactionHex).to.not.equal(
+      originalRawTransaction.transactionHex
+    )
+    expect(submitter.submissionCount).to.equal(1)
+    expect(submitted.status).to.equal("submitted")
+    expect(finalRecord?.status).to.equal("submitted")
+    expect(finalRecord?.observation?.rawTransaction.transactionHex).to.equal(
+      submittedObservation.rawTransaction.transactionHex
+    )
+    expect(submittedObservation.rawTransaction.transactionHex).to.equal(
+      originalRawTransaction.transactionHex
+    )
+  })
+
   it("resolves honest spend proof events by Bitcoin tx hash and spend type", async () => {
     const flowVectors = vectorCorpus.cases.filter(
       (vector) => vector.flowMetadata !== undefined
@@ -4196,6 +4598,14 @@ describe("P2TR signature-fraud witness parsing", () => {
         observationID,
       }
     )
+    const broadcastAfterTimeout = applyP2TRWatchtowerChallengeEvent(
+      timeoutEligible,
+      {
+        type: "submission-broadcast",
+        observationID,
+        challengeTxHash: txHash("3"),
+      }
+    )
     const alertRaised = applyP2TRWatchtowerChallengeEvent(timeoutEligible, {
       type: "operator-alert-raised",
       observationID,
@@ -4225,6 +4635,7 @@ describe("P2TR signature-fraud witness parsing", () => {
     expect(timeoutEligible.status).to.equal("timeout-eligible")
     expect(timeoutEligible.operatorAlertStatus).to.be.undefined
     expect(submissionAfterTimeout).to.deep.equal(timeoutEligible)
+    expect(broadcastAfterTimeout).to.deep.equal(timeoutEligible)
     expect(alertRaised.operatorAlertStatus).to.equal("open")
     expect(slashed.status).to.equal("slashed")
     expect(slashed.operatorAlertStatus).to.equal("cleared")
