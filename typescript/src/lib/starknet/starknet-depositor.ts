@@ -118,6 +118,68 @@ export interface StarkNetBitcoinDepositorConfig {
 export type StarkNetDepositorConfig = StarkNetBitcoinDepositorConfig
 
 /**
+ * Maps StarkNet chain IDs to the chain name segment used in relayer URLs
+ * (PascalCase, matching the relayer's route naming).
+ */
+const STARKNET_RELAYER_CHAIN_NAMES: Record<string, string> = {
+  "0x534e5f474f45524c49": "StarknetTestnet", // SN_GOERLI
+  "0x534e5f5345504f4c4941": "StarknetTestnet", // SN_SEPOLIA - mapped to StarknetTestnet in relayer
+  "0x534e5f4d41494e": "StarknetMainnet", // SN_MAIN
+}
+
+const LOCAL_RELAYER_URL_BASE = "http://localhost:3001"
+const PRODUCTION_RELAYER_URL_BASE =
+  "https://tbtc-crosschain-relayer-swmku.ondigitalocean.app"
+
+/**
+ * Determines whether code is currently running in a browser whose location
+ * is localhost or 127.0.0.1.
+ * @returns True only for a local-development browser origin. Always false
+ *          when `window` is undefined (Node/SSR), so server-side execution
+ *          deterministically resolves to the production relayer instead of
+ *          depending on a real browser context.
+ */
+function isLocalhostBrowserOrigin(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.location !== "undefined" &&
+    (window.location.hostname === "localhost" ||
+      window.location.hostname === "127.0.0.1")
+  )
+}
+
+/**
+ * Resolves the default relayer reveal URL for a StarkNet chain when no
+ * explicit relayerUrl override is configured.
+ * @param chainId The StarkNet chain ID.
+ * @returns The relayer reveal URL for the given chain.
+ */
+function getDefaultStarkNetRelayerUrl(chainId: string): string {
+  const chainName = STARKNET_RELAYER_CHAIN_NAMES[chainId] || "StarknetTestnet"
+  const baseUrl = isLocalhostBrowserOrigin()
+    ? LOCAL_RELAYER_URL_BASE
+    : PRODUCTION_RELAYER_URL_BASE
+  return `${baseUrl}/api/${chainName}/reveal`
+}
+
+/**
+ * Resolves the default relayer deposit-status URL for a StarkNet chain when
+ * no explicit relayerStatusUrl override is configured. Sibling of
+ * {@link getDefaultStarkNetRelayerUrl}, sharing the same environment/chain
+ * resolution so local vs. production and chain-name mapping never drift
+ * between the two endpoints.
+ * @param chainId The StarkNet chain ID.
+ * @returns The relayer deposit-status URL for the given chain.
+ */
+function getDefaultStarkNetRelayerStatusUrl(chainId: string): string {
+  const chainName = STARKNET_RELAYER_CHAIN_NAMES[chainId] || "StarknetTestnet"
+  const baseUrl = isLocalhostBrowserOrigin()
+    ? LOCAL_RELAYER_URL_BASE
+    : PRODUCTION_RELAYER_URL_BASE
+  return `${baseUrl}/api/${chainName}/deposit`
+}
+
+/**
  * Full implementation of the BitcoinDepositor interface for StarkNet.
  * This implementation uses a StarkNet provider for operations and supports
  * deposit initialization through the relayer endpoint.
@@ -149,38 +211,19 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
       throw new Error("Provider is required for StarkNet depositor")
     }
 
-    // Set default relayer URLs based on chainId if not provided
+    // Set default relayer URLs based on chainId and environment if not
+    // explicitly provided. Explicit config values always win.
     const enhancedConfig = { ...config }
-    if (!enhancedConfig.relayerUrl || !enhancedConfig.relayerStatusUrl) {
-      // Check if we're in development mode
-      const isDevelopment =
-        typeof window !== "undefined" &&
-        (window.location.hostname === "localhost" ||
-          window.location.hostname === "127.0.0.1") &&
-        false
-
-      // Determine chain name for URL (using PascalCase to match relayer chainName)
-      const chainNameMap: Record<string, string> = {
-        "0x534e5f474f45524c49": "StarknetTestnet", // SN_GOERLI
-        "0x534e5f5345504f4c4941": "StarknetTestnet", // SN_SEPOLIA - mapped to StarknetTestnet in relayer
-        "0x534e5f4d41494e": "StarknetMainnet", // SN_MAIN
-      }
-
-      const relayerChainName = chainNameMap[config.chainId] || "StarknetTestnet"
-
-      const relayerBaseUrl = isDevelopment
-        ? `http://localhost:3001/api/${relayerChainName}`
-        : `https://tbtc-crosschain-relayer-swmku.ondigitalocean.app/api/${relayerChainName}`
-
-      if (!enhancedConfig.relayerUrl) {
-        enhancedConfig.relayerUrl = `${relayerBaseUrl}/reveal`
-      }
-      // Deposit-status endpoint, sibling of the reveal endpoint above. Used
-      // to verify the real outcome of a deposit the relayer reports as a
-      // conflict (HTTP 409) instead of trusting the conflict response alone.
-      if (!enhancedConfig.relayerStatusUrl) {
-        enhancedConfig.relayerStatusUrl = `${relayerBaseUrl}/deposit`
-      }
+    if (!enhancedConfig.relayerUrl) {
+      enhancedConfig.relayerUrl = getDefaultStarkNetRelayerUrl(config.chainId)
+    }
+    // Deposit-status endpoint, sibling of the reveal endpoint above. Used
+    // to verify the real outcome of a deposit the relayer reports as a
+    // conflict (HTTP 409) instead of trusting the conflict response alone.
+    if (!enhancedConfig.relayerStatusUrl) {
+      enhancedConfig.relayerStatusUrl = getDefaultStarkNetRelayerStatusUrl(
+        config.chainId
+      )
     }
 
     this.#config = Object.freeze(enhancedConfig)

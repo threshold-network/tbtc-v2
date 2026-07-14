@@ -3,3 +3,12 @@
 
 /external/
 /typechain/
+
+# Yarn Berry (nodeLinker: node-modules) — ignore local state, keep repo-managed dirs
+.yarn/*
+!.yarn/releases
+!.yarn/plugins
+!.yarn/sdks
+!.yarn/versions
+!.yarn/patches
+.pnp.*

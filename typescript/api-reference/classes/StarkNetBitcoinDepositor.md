@@ -65,7 +65,7 @@ Error if provider is not provided
 
 #### Defined in
 
-[lib/starknet/starknet-depositor.ts:92](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L92)
+[lib/starknet/starknet-depositor.ts:137](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L137)
 
 ## Properties
 
@@ -75,7 +75,7 @@ Error if provider is not provided
 
 #### Defined in
 
-[lib/starknet/starknet-depositor.ts:81](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L81)
+[lib/starknet/starknet-depositor.ts:126](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L126)
 
 ___
 
@@ -85,7 +85,7 @@ ___
 
 #### Defined in
 
-[lib/starknet/starknet-depositor.ts:80](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L80)
+[lib/starknet/starknet-depositor.ts:125](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L125)
 
 ___
 
@@ -95,7 +95,7 @@ ___
 
 #### Defined in
 
-[lib/starknet/starknet-depositor.ts:83](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L83)
+[lib/starknet/starknet-depositor.ts:128](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L128)
 
 ___
 
@@ -105,7 +105,7 @@ ___
 
 #### Defined in
 
-[lib/starknet/starknet-depositor.ts:79](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L79)
+[lib/starknet/starknet-depositor.ts:124](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L124)
 
 ___
 
@@ -115,7 +115,7 @@ ___
 
 #### Defined in
 
-[lib/starknet/starknet-depositor.ts:82](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L82)
+[lib/starknet/starknet-depositor.ts:127](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L127)
 
 ## Methods
 
@@ -137,7 +137,7 @@ The StarkNetExtraDataEncoder instance.
 
 #### Defined in
 
-[lib/starknet/starknet-depositor.ts:195](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L195)
+[lib/starknet/starknet-depositor.ts:219](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L219)
 
 ___
 
@@ -161,7 +161,7 @@ Formatted error message
 
 #### Defined in
 
-[lib/starknet/starknet-depositor.ts:426](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L426)
+[lib/starknet/starknet-depositor.ts:450](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L450)
 
 ___
 
@@ -189,7 +189,7 @@ Error if the address is invalid
 
 #### Defined in
 
-[lib/starknet/starknet-depositor.ts:500](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L500)
+[lib/starknet/starknet-depositor.ts:524](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L524)
 
 ___
 
@@ -213,7 +213,7 @@ Always throws since StarkNet deposits are handled via L1.
 
 #### Defined in
 
-[lib/starknet/starknet-depositor.ts:155](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L155)
+[lib/starknet/starknet-depositor.ts:179](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L179)
 
 ___
 
@@ -231,7 +231,7 @@ The chain name (e.g., "StarkNet")
 
 #### Defined in
 
-[lib/starknet/starknet-depositor.ts:138](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L138)
+[lib/starknet/starknet-depositor.ts:162](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L162)
 
 ___
 
@@ -253,7 +253,7 @@ The StarkNet address set as deposit owner, or undefined if not set.
 
 #### Defined in
 
-[lib/starknet/starknet-depositor.ts:166](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L166)
+[lib/starknet/starknet-depositor.ts:190](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L190)
 
 ___
 
@@ -271,7 +271,7 @@ The StarkNet provider instance
 
 #### Defined in
 
-[lib/starknet/starknet-depositor.ts:146](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L146)
+[lib/starknet/starknet-depositor.ts:170](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L170)
 
 ___
 
@@ -310,7 +310,7 @@ Error if deposit owner not set or relayer returns unexpected response
 
 #### Defined in
 
-[lib/starknet/starknet-depositor.ts:214](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L214)
+[lib/starknet/starknet-depositor.ts:238](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L238)
 
 ___
 
@@ -334,7 +334,7 @@ True if the error is retryable
 
 #### Defined in
 
-[lib/starknet/starknet-depositor.ts:398](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L398)
+[lib/starknet/starknet-depositor.ts:422](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L422)
 
 ___
 
@@ -364,4 +364,4 @@ Error if the deposit owner is not a StarkNetAddress and not undefined/null.
 
 #### Defined in
 
-[lib/starknet/starknet-depositor.ts:176](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L176)
+[lib/starknet/starknet-depositor.ts:200](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L200)
