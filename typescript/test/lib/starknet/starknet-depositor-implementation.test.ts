@@ -256,4 +256,97 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
       expect(capturedUrl).to.equal("http://custom.local/api")
     })
   })
+
+  describe("relayer URL environment detection", () => {
+    let originalWindow: any
+    const hasOwnWindow = Object.prototype.hasOwnProperty.call(global, "window")
+
+    beforeEach(() => {
+      originalWindow = (global as any).window
+    })
+
+    afterEach(() => {
+      if (hasOwnWindow) {
+        ;(global as any).window = originalWindow
+      } else {
+        delete (global as any).window
+      }
+    })
+
+    async function captureRelayerUrl(
+      config: StarkNetDepositorConfig
+    ): Promise<string> {
+      const mockProvider = createMockProvider()
+      const depositor = new StarkNetDepositor(config, "StarkNet", mockProvider)
+      depositor.setDepositOwner(StarkNetAddress.from("0x123"))
+
+      const mockDepositTx = createMockDepositTx()
+      const mockReceipt = createMockDeposit()
+
+      let capturedUrl = ""
+      axios.post = sinon.stub().callsFake((url: string) => {
+        capturedUrl = url
+        return Promise.resolve({
+          data: {
+            success: true,
+            receipt: { transactionHash: "0x" + "1".repeat(64) },
+          },
+        })
+      })
+
+      await depositor.initializeDeposit(mockDepositTx, 0, mockReceipt)
+      return capturedUrl
+    }
+
+    it("should use the local relayer URL for a localhost mainnet origin", async () => {
+      ;(global as any).window = { location: { hostname: "localhost" } }
+
+      const url = await captureRelayerUrl({ chainId: "0x534e5f4d41494e" })
+
+      expect(url).to.equal("http://localhost:3001/api/StarknetMainnet/reveal")
+    })
+
+    it("should use the local relayer URL for a 127.0.0.1 testnet origin", async () => {
+      ;(global as any).window = { location: { hostname: "127.0.0.1" } }
+
+      const url = await captureRelayerUrl({
+        chainId: "0x534e5f5345504f4c4941", // SN_SEPOLIA
+      })
+
+      expect(url).to.equal("http://localhost:3001/api/StarknetTestnet/reveal")
+    })
+
+    it("should use the production relayer URL for a non-local browser origin", async () => {
+      ;(global as any).window = { location: { hostname: "app.example.com" } }
+
+      const url = await captureRelayerUrl({ chainId: "0x534e5f4d41494e" })
+
+      expect(url).to.equal(
+        "https://tbtc-crosschain-relayer-swmku.ondigitalocean.app/api/StarknetMainnet/reveal"
+      )
+    })
+
+    it("should use the production relayer URL when window is undefined (Node/SSR)", async () => {
+      delete (global as any).window
+
+      const url = await captureRelayerUrl({
+        chainId: "0x534e5f5345504f4c4941", // SN_SEPOLIA
+      })
+
+      expect(url).to.equal(
+        "https://tbtc-crosschain-relayer-swmku.ondigitalocean.app/api/StarknetTestnet/reveal"
+      )
+    })
+
+    it("should let an explicit relayerUrl override localhost detection", async () => {
+      ;(global as any).window = { location: { hostname: "localhost" } }
+
+      const url = await captureRelayerUrl({
+        chainId: "0x534e5f4d41494e",
+        relayerUrl: "http://custom.local/api",
+      })
+
+      expect(url).to.equal("http://custom.local/api")
+    })
+  })
 })
