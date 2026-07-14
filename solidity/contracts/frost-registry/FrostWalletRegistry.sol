@@ -441,10 +441,14 @@ contract FrostWalletRegistry is
         dkg.setResultSubmissionTimeout(536);
         dkg.setSubmitterPrecedencePeriodLength(20);
 
-        // Gas parameters were adjusted based on Ethereum state in April 2022.
-        // If the cost of EVM opcodes change over time, these parameters will
-        // have to be updated.
-        _dkgResultSubmissionGas = 290_000;
+        // DKG result submission recreates the 100-member group selected for the
+        // current seed. The reimbursement includes headroom over the measured
+        // cost of that validation against a populated sortition pool.
+        _dkgResultSubmissionGas = 1_500_000;
+
+        // The remaining gas parameters were adjusted based on Ethereum state in
+        // April 2022. If the cost of EVM opcodes changes over time, these
+        // parameters will have to be updated.
         _dkgResultApprovalGasOffset = 72_000;
         _notifyOperatorInactivityGasOffset = 93_000;
         _notifySeedTimeoutGasOffset = 7_250;
