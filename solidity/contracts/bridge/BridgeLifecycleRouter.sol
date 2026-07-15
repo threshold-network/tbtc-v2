@@ -3,12 +3,27 @@
 pragma solidity 0.8.17;
 
 import "./IBridgeLifecycleRouter.sol";
+import "./Wallets.sol";
 
 interface IBridgeFrostLifecycleContext {
     function frostLifecycleContext(bytes20 walletPubKeyHash)
         external
         view
         returns (address frostRegistry, bytes32 walletID);
+
+    function p2trFraudRouter() external view returns (address);
+
+    function wallets(bytes20 walletPubKeyHash)
+        external
+        view
+        returns (Wallets.Wallet memory);
+}
+
+interface IP2TRFraudChallengeCounter {
+    function hasOpenFraudChallengeForWallet(bytes20 walletPubKeyHash)
+        external
+        view
+        returns (bool);
 }
 
 interface IFrostWalletLifecycleRegistry {
@@ -41,6 +56,7 @@ contract BridgeLifecycleRouter is IBridgeLifecycleRouter {
     error FrostWalletRegistryNotSet();
     error FrostWalletIdIsZero();
     error LifecycleOwnerMismatch();
+    error P2TRFraudChallengePending();
 
     address public immutable bridge;
 
@@ -63,6 +79,23 @@ contract BridgeLifecycleRouter is IBridgeLifecycleRouter {
         (IFrostWalletLifecycleRegistry registry, bytes32 walletID) = context(
             walletPubKeyHash
         );
+
+        IBridgeFrostLifecycleContext bridgeContext = IBridgeFrostLifecycleContext(
+                bridge
+            );
+        if (
+            bridgeContext.wallets(walletPubKeyHash).state ==
+            Wallets.WalletState.Closed
+        ) {
+            address p2trRouter = bridgeContext.p2trFraudRouter();
+            if (
+                p2trRouter != address(0) &&
+                IP2TRFraudChallengeCounter(p2trRouter)
+                    .hasOpenFraudChallengeForWallet(walletPubKeyHash)
+            ) {
+                revert P2TRFraudChallengePending();
+            }
+        }
 
         registry.closeWallet(walletID);
     }
