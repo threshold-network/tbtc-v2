@@ -232,8 +232,18 @@ contract CoreLogicTests is Test, TestSetup, GasReporter {
         uint256 insufficientFee = INITIAL_MESSAGE_FEE - 1;
         vm.deal(address(this), insufficientFee);
 
-        vm.expectRevert("Insufficient L1->L2 message fee");
+        vm.expectRevert("Incorrect L1->L2 message fee");
         depositor.finalizeDeposit{value: insufficientFee}(DEPOSIT_KEY_BYTES32);
+    }
+
+    function test_FinalizeDeposit_RevertExcessiveFee() public {
+        _setupValidDepositForFinalization();
+
+        uint256 excessiveFee = INITIAL_MESSAGE_FEE + 1;
+        vm.deal(address(this), excessiveFee);
+
+        vm.expectRevert("Incorrect L1->L2 message fee");
+        depositor.finalizeDeposit{value: excessiveFee}(DEPOSIT_KEY_BYTES32);
     }
 
     function test_FinalizeDeposit_EmitsTBTCBridgedEvent() public {
