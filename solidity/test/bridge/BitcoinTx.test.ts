@@ -147,6 +147,40 @@ describe("BitcoinTx", () => {
       )
     })
 
+    it("rejects P2PKH output locking to a FROST wallet compatibility key", async () => {
+      const frostWalletPubKeyHash =
+        await bitcoinTx.deriveWalletPubKeyHashFromXOnly(xOnlyKey)
+      await bitcoinTx.setWalletIDForWalletPubKeyHash(
+        frostWalletPubKeyHash,
+        xOnlyKey
+      )
+
+      const frostP2PKHOutput =
+        `0x00000000000000001976a914${frostWalletPubKeyHash.substring(2)}` +
+        "88ac"
+
+      await expect(
+        bitcoinTx.extractWalletPubKeyHash(frostP2PKHOutput)
+      ).to.be.revertedWith("FROST wallet output must be P2TR")
+    })
+
+    it("rejects P2WPKH output locking to a FROST wallet compatibility key", async () => {
+      const frostWalletPubKeyHash =
+        await bitcoinTx.deriveWalletPubKeyHashFromXOnly(xOnlyKey)
+      await bitcoinTx.setWalletIDForWalletPubKeyHash(
+        frostWalletPubKeyHash,
+        xOnlyKey
+      )
+
+      const frostP2WPKHOutput = `0x0000000000000000160014${frostWalletPubKeyHash.substring(
+        2
+      )}`
+
+      await expect(
+        bitcoinTx.extractWalletPubKeyHash(frostP2WPKHOutput)
+      ).to.be.revertedWith("FROST wallet output must be P2TR")
+    })
+
     it("rejects P2TR output when extracting wallet public key hash", async () => {
       await expect(bitcoinTx.extractPubKeyHash(p2trOutput)).to.be.revertedWith(
         "P2TR wallet outputs are not enabled"
@@ -166,6 +200,10 @@ describe("BitcoinTx", () => {
       await bitcoinTx.setWalletPubKeyHashForWalletID(
         xOnlyKey,
         mappedWalletPubKeyHash
+      )
+      await bitcoinTx.setWalletIDForWalletPubKeyHash(
+        mappedWalletPubKeyHash,
+        xOnlyKey
       )
 
       expect(await bitcoinTx.extractWalletPubKeyHash(p2trOutput)).to.eq(
