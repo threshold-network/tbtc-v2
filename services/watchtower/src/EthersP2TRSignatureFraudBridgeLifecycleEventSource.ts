@@ -6,6 +6,11 @@ import type {
 import type { P2TRSignatureFraudWatchtowerStoreProfileProvider } from "./types.js"
 
 export type P2TREthersBridgeLifecycleEventLog = {
+  /**
+   * Retained for Ethers adapter compatibility. Lifecycle mapping ignores this
+   * decoded view and derives every argument from independently verified raw
+   * topics and data.
+   */
   args?: Record<string, unknown> | readonly unknown[]
   transactionHash: string
   address?: string
@@ -505,18 +510,16 @@ export class EthersP2TRSignatureFraudBridgeLifecycleEventSource
 
     switch (log.lifecycleType) {
       case "defeated": {
-        const bridgeChallengeKey = normalizeUint256Bytes32(
-          extractChallengeKey(log),
-          "Bridge challenge key"
+        const lifecycleArguments = decodeCanonicalChallengeLifecycleArguments(
+          log,
+          P2TR_DEFEATED_EVENT
         )
-        const eventEvidence = extractBridgeLifecycleEventEvidence(log)
 
         return [
           {
             type: "defeated",
-            bridgeChallengeKey,
             defeatTxHash: transactionHash,
-            ...eventEvidence,
+            ...lifecycleArguments,
           },
         ]
       }
@@ -525,11 +528,9 @@ export class EthersP2TRSignatureFraudBridgeLifecycleEventSource
         return [
           {
             type: "honest-spend-proven",
-            bitcoinTxHash: extractCompletedProofBitcoinTxHash(
+            bitcoinTxHash: decodeCanonicalCompletedProofBitcoinTxHash(
               log,
-              "movingFundsTxHash",
-              1,
-              "moving-funds transaction hash"
+              MOVING_FUNDS_COMPLETED_EVENT
             ),
             spendType: "moving-funds",
           },
@@ -539,36 +540,31 @@ export class EthersP2TRSignatureFraudBridgeLifecycleEventSource
         return [
           {
             type: "honest-spend-proven",
-            bitcoinTxHash: extractCompletedProofBitcoinTxHash(
+            bitcoinTxHash: decodeCanonicalCompletedProofBitcoinTxHash(
               log,
-              "redemptionTxHash",
-              1,
-              "redemption transaction hash"
+              REDEMPTIONS_COMPLETED_EVENT
             ),
             spendType: "redemption",
           },
         ]
 
       case "timed-out": {
-        const bridgeChallengeKey = normalizeUint256Bytes32(
-          extractChallengeKey(log),
-          "Bridge challenge key"
+        const lifecycleArguments = decodeCanonicalChallengeLifecycleArguments(
+          log,
+          P2TR_DEFEAT_TIMED_OUT_EVENT
         )
-        const eventEvidence = extractBridgeLifecycleEventEvidence(log)
 
         return timedOutBridgeEventStatuses(this.options).map((status) =>
           status === "slashed"
             ? {
                 type: "slashed",
-                bridgeChallengeKey,
                 slashingTxHash: transactionHash,
-                ...eventEvidence,
+                ...lifecycleArguments,
               }
             : {
                 type: "rewarded",
-                bridgeChallengeKey,
                 rewardTxHash: transactionHash,
-                ...eventEvidence,
+                ...lifecycleArguments,
               }
         )
       }
@@ -1011,7 +1007,6 @@ function normalizeCanonicalLifecycleLog(
   }
 
   return {
-    ...log,
     address,
     blockHash: normalizeFixedBytes32(
       requireString(log.blockHash, "Bridge lifecycle event block hash"),
@@ -1117,49 +1112,21 @@ function requireString(value: unknown, label: string): string {
   return value
 }
 
-function extractChallengeKey(log: P2TREthersBridgeLifecycleEventLog): unknown {
-  const args = log.args
-
-  if (args === undefined) {
-    throw new Error("Bridge lifecycle event is missing args")
-  }
-
-  const namedChallengeKey = (args as Record<string, unknown>).challengeKey
-  if (namedChallengeKey !== undefined) {
-    return namedChallengeKey
-  }
-
-  const indexedChallengeKey = (args as readonly unknown[])[3]
-  if (indexedChallengeKey !== undefined) {
-    return indexedChallengeKey
-  }
-
-  throw new Error("Bridge lifecycle event is missing challengeKey")
-}
-
-function extractCompletedProofBitcoinTxHash(
-  log: P2TREthersBridgeLifecycleEventLog,
-  namedField: "movingFundsTxHash" | "redemptionTxHash",
-  indexedField: number,
-  label: string
+function decodeCanonicalCompletedProofBitcoinTxHash(
+  log: P2TRCanonicalBridgeLifecycleEventLog,
+  eventName:
+    | typeof MOVING_FUNDS_COMPLETED_EVENT
+    | typeof REDEMPTIONS_COMPLETED_EVENT
 ): string {
-  const args = log.args
-
-  if (args === undefined) {
-    throw new Error(`Bridge proof event is missing ${label}`)
-  }
-
-  const namedValue = (args as Record<string, unknown>)[namedField]
-  const indexedValue = (args as readonly unknown[])[indexedField]
-  const value = namedValue ?? indexedValue
-
-  if (value === undefined) {
-    throw new Error(`Bridge proof event is missing ${label}`)
-  }
-
-  const internalOrderHash = normalizeFixedBytes32(
-    normalizeIntegerHex(value, `Bridge proof event ${label}`),
-    `Bridge proof event ${label}`
+  const [internalOrderHash] = decodeCanonicalLifecycleEventDataWords(
+    log,
+    eventName,
+    2,
+    1
+  )
+  validateCanonicalIndexedBytes20(
+    log.topics[1],
+    `Bridge ${eventName} wallet public key hash`
   )
 
   // The Bridge stores/emits Bitcoin tx hashes in the Bitcoin INTERNAL (protocol,
@@ -1177,59 +1144,85 @@ function extractCompletedProofBitcoinTxHash(
   return BitcoinTxHash.from(internalOrderHash).reverse().toPrefixedString()
 }
 
-function extractBridgeLifecycleEventEvidence(
-  log: P2TREthersBridgeLifecycleEventLog
+function decodeCanonicalChallengeLifecycleArguments(
+  log: P2TRCanonicalBridgeLifecycleEventLog,
+  eventName: typeof P2TR_DEFEATED_EVENT | typeof P2TR_DEFEAT_TIMED_OUT_EVENT
 ): {
-  walletID?: string
-  bridgeChallengeIdentity?: string
-  sighash?: string
+  bridgeChallengeKey: string
+  walletID: string
+  bridgeChallengeIdentity: string
+  sighash: string
 } {
+  const [bridgeChallengeKey, sighash] = decodeCanonicalLifecycleEventDataWords(
+    log,
+    eventName,
+    4,
+    2
+  )
+  const walletID = normalizeFixedBytes32(
+    log.topics[1],
+    `Bridge ${eventName} wallet ID`
+  )
+  validateCanonicalIndexedBytes20(
+    log.topics[2],
+    `Bridge ${eventName} wallet public key hash`
+  )
+  const bridgeChallengeIdentity = normalizeFixedBytes32(
+    log.topics[3],
+    `Bridge ${eventName} challenge identity`
+  )
+
   return {
-    ...extractOptionalFixedBytes32LogArg(log, "walletID", 0, "wallet ID"),
-    ...extractOptionalFixedBytes32LogArg(
-      log,
-      "bridgeChallengeIdentity",
-      2,
-      "Bridge challenge identity"
-    ),
-    ...extractOptionalFixedBytes32LogArg(log, "sighash", 4, "sighash"),
+    bridgeChallengeKey,
+    walletID,
+    bridgeChallengeIdentity,
+    sighash,
   }
 }
 
-function extractOptionalFixedBytes32LogArg(
-  log: P2TREthersBridgeLifecycleEventLog,
-  namedField: "walletID" | "bridgeChallengeIdentity" | "sighash",
-  indexedField: number,
-  label: string
-): Partial<Record<"walletID" | "bridgeChallengeIdentity" | "sighash", string>> {
-  const args = log.args
-
-  if (args === undefined) {
-    return {}
+function decodeCanonicalLifecycleEventDataWords(
+  log: P2TRCanonicalBridgeLifecycleEventLog,
+  eventName: string,
+  expectedTopicCount: number,
+  expectedDataWordCount: number
+): string[] {
+  if (!canonicalLifecycleEventTopicMatches(eventName, log)) {
+    throw new Error(
+      `Bridge ${eventName} event signature topic does not match the requested event`
+    )
   }
 
-  const namedValue = (args as Record<string, unknown>)[namedField]
-  const indexedValue = (args as readonly unknown[])[indexedField]
-  const value = namedValue ?? indexedValue
+  if (log.topics.length !== expectedTopicCount) {
+    throw new Error(
+      `Bridge ${eventName} event must contain exactly ${expectedTopicCount} topics`
+    )
+  }
 
-  return value === undefined
-    ? {}
-    : {
-        [namedField]: normalizeFixedBytes32(
-          normalizeIntegerHex(value, `Bridge lifecycle event ${label}`),
-          `Bridge lifecycle event ${label}`
-        ),
-      }
+  const data = stripHexPrefix(
+    log.data,
+    `Bridge ${eventName} canonical event data`
+  )
+  const expectedHexLength = expectedDataWordCount * 64
+
+  if (data.length !== expectedHexLength) {
+    throw new Error(
+      `Bridge ${eventName} event data must contain exactly ${expectedDataWordCount} ABI words`
+    )
+  }
+
+  return Array.from({ length: expectedDataWordCount }, (_, index) =>
+    normalizeFixedBytes32(
+      `0x${data.slice(index * 64, (index + 1) * 64)}`,
+      `Bridge ${eventName} event data word[${index}]`
+    )
+  )
 }
 
-function normalizeUint256Bytes32(value: unknown, label: string): string {
-  const hex = normalizeIntegerHex(value, label)
-
-  if (hex.length > 64) {
-    throw new Error(`${label} exceeds 32 bytes`)
+function validateCanonicalIndexedBytes20(value: string, label: string): void {
+  const topic = normalizeFixedBytes32(value, label)
+  if (topic.slice(42) !== "0".repeat(24)) {
+    throw new Error(`${label} must be right-padded to 32 bytes`)
   }
-
-  return `0x${hex.padStart(64, "0")}`
 }
 
 function normalizeFixedBytes32(value: string, label: string): string {
@@ -1240,31 +1233,6 @@ function normalizeFixedBytes32(value: string, label: string): string {
   }
 
   return `0x${hex}`
-}
-
-function normalizeIntegerHex(value: unknown, label: string): string {
-  if (typeof value === "string") {
-    return stripHexPrefix(value, label)
-  }
-
-  if (typeof value === "number" || typeof value === "bigint") {
-    if (value < 0) {
-      throw new Error(`${label} must not be negative`)
-    }
-
-    return BigInt(value).toString(16)
-  }
-
-  if (
-    typeof value === "object" &&
-    value !== null &&
-    "toHexString" in value &&
-    typeof value.toHexString === "function"
-  ) {
-    return stripHexPrefix(value.toHexString(), label)
-  }
-
-  throw new Error(`${label} must be a hex string or integer-like value`)
 }
 
 function stripHexPrefix(value: string, label: string): string {

@@ -394,10 +394,15 @@ test("rejects a submitted event returned by a defeated-event query", async () =>
       address: `0x${"42".repeat(20)}`,
       blockHash: txHash("88"),
       blockNumber: 60,
-      data: "0x",
+      data: `0x${"0".repeat(63)}1${sighash().slice(2)}`,
       logIndex: 2,
       removed: false,
-      topics: [eventTopic],
+      topics: [
+        eventTopic,
+        walletID(),
+        encodeIndexedBytes20Topic(walletPubKeyHash()),
+        bridgeChallengeIdentity(),
+      ],
       transactionHash: txHash("aa"),
     }
     const contract = new FakeBridgeLifecycleContract({
@@ -447,6 +452,146 @@ test("rejects a submitted event returned by a defeated-event query", async () =>
     ).listBridgeLifecycleEvents(),
     /P2TRSignatureFraudChallengeDefeated log is not independently canonical/
   )
+})
+
+test("maps lifecycle arguments from independently verified log data", async () => {
+  const emitter = `0x${"42".repeat(20)}`
+  const canonicalChallengeKey = `0x${"0".repeat(63)}2`
+  const canonicalLog: P2TRCanonicalBridgeLifecycleEventLog = {
+    args: {
+      walletID: txHash("aa"),
+      bridgeChallengeIdentity: txHash("bb"),
+      challengeKey: 999n,
+      sighash: txHash("cc"),
+    },
+    address: emitter,
+    blockHash: txHash("88"),
+    blockNumber: 60,
+    data: `${canonicalChallengeKey}${sighash().slice(2)}`,
+    logIndex: 2,
+    removed: false,
+    topics: [
+      challengeDefeatedEventTopic,
+      walletID(),
+      `${walletPubKeyHash()}${"0".repeat(24)}`,
+      bridgeChallengeIdentity(),
+    ],
+    transactionHash: txHash("dd"),
+  }
+  const receiptLog = { ...canonicalLog, args: undefined }
+  const contract = new FakeBridgeLifecycleContract({
+    defeated: [canonicalLog],
+  })
+  const canonicalLogVerifier =
+    new EthersP2TRCanonicalBridgeLifecycleLogVerifier("canonical.example", {
+      async getBlockNumber() {
+        return 100
+      },
+      async getBlock() {
+        return { hash: canonicalLog.blockHash }
+      },
+      async getTransactionReceipt() {
+        return {
+          status: 1,
+          blockHash: canonicalLog.blockHash,
+          blockNumber: canonicalLog.blockNumber,
+          transactionHash: canonicalLog.transactionHash,
+          logs: [receiptLog],
+        }
+      },
+    })
+  const source = new VerifiedEthersP2TRSignatureFraudBridgeLifecycleEventSource(
+    contract,
+    {
+      sourceTrustDomainID: "indexer.example",
+      canonicalLogVerifier,
+      fromBlock: 50,
+      toBlock: 88,
+    }
+  )
+
+  assert.deepEqual(await source.listBridgeLifecycleEvents(), [
+    {
+      type: "defeated",
+      bridgeChallengeKey: canonicalChallengeKey,
+      defeatTxHash: canonicalLog.transactionHash,
+      walletID: walletID(),
+      bridgeChallengeIdentity: bridgeChallengeIdentity(),
+      sighash: sighash(),
+    },
+  ])
+})
+
+test("maps completed proof hashes from verified data with or without adapter args", async () => {
+  const canonicalProofDataHash =
+    "0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+  const expectedDisplayOrderHash =
+    "0x1f1e1d1c1b1a191817161514131211100f0e0d0c0b0a09080706050403020100"
+
+  const sourceForArgs = (args: P2TREthersBridgeLifecycleEventLog["args"]) => {
+    const canonicalLog: P2TRCanonicalBridgeLifecycleEventLog = {
+      args,
+      address: `0x${"42".repeat(20)}`,
+      blockHash: txHash("88"),
+      blockNumber: 60,
+      data: canonicalProofDataHash,
+      logIndex: 2,
+      removed: false,
+      topics: [
+        movingFundsCompletedEventTopic,
+        encodeIndexedBytes20Topic(walletPubKeyHash()),
+      ],
+      transactionHash: txHash("dd"),
+    }
+    const receiptLog = { ...canonicalLog, args: undefined }
+    const contract = new FakeBridgeLifecycleContract({
+      movingFundsCompleted: [canonicalLog],
+    })
+    const canonicalLogVerifier =
+      new EthersP2TRCanonicalBridgeLifecycleLogVerifier("canonical.example", {
+        async getBlockNumber() {
+          return 100
+        },
+        async getBlock() {
+          return { hash: canonicalLog.blockHash }
+        },
+        async getTransactionReceipt() {
+          return {
+            status: 1,
+            blockHash: canonicalLog.blockHash,
+            blockNumber: canonicalLog.blockNumber,
+            transactionHash: canonicalLog.transactionHash,
+            logs: [receiptLog],
+          }
+        },
+      })
+
+    return new VerifiedEthersP2TRSignatureFraudBridgeLifecycleEventSource(
+      contract,
+      {
+        sourceTrustDomainID: "indexer.example",
+        canonicalLogVerifier,
+        fromBlock: 50,
+        toBlock: 88,
+      }
+    )
+  }
+
+  const adapterArgs: P2TREthersBridgeLifecycleEventLog["args"][] = [
+    { movingFundsTxHash: txHash("cc") },
+    [walletPubKeyHash(), txHash("cc")],
+    undefined,
+  ]
+
+  for (const args of adapterArgs) {
+    assert.deepEqual(await sourceForArgs(args).listBridgeLifecycleEvents(), [
+      {
+        type: "honest-spend-proven",
+        bitcoinTxHash: expectedDisplayOrderHash,
+        spendType: "moving-funds",
+      },
+    ])
+  }
 })
 
 test("maps Bridge defeat and timeout logs to watchtower lifecycle events", async () => {
@@ -659,6 +804,9 @@ test("can map Bridge timeout logs to a single status when configured", async () 
       type: "rewarded",
       bridgeChallengeKey: `0x${"0".repeat(63)}3`,
       rewardTxHash: txHash("cc"),
+      walletID: walletID(),
+      bridgeChallengeIdentity: bridgeChallengeIdentity(),
+      sighash: sighash(),
     },
   ])
 })
@@ -1117,7 +1265,7 @@ test("rejects malformed Bridge lifecycle logs before mutating watchtower state",
 
   await assert.rejects(
     source.listBridgeLifecycleEvents(),
-    /missing challengeKey/
+    /event data must contain exactly 2 ABI words/
   )
 
   await assert.rejects(
@@ -1165,7 +1313,7 @@ test("rejects malformed Bridge lifecycle logs before mutating watchtower state",
         ],
       })
     ).listBridgeLifecycleEvents(),
-    /event wallet ID must be 32 bytes/
+    /event topic\[1\] must be 32 bytes/
   )
 
   await assert.rejects(
@@ -1179,7 +1327,7 @@ test("rejects malformed Bridge lifecycle logs before mutating watchtower state",
         ],
       })
     ).listBridgeLifecycleEvents(),
-    /missing moving-funds transaction hash/
+    /event data must contain exactly 1 ABI words/
   )
 
   await assert.rejects(
@@ -1193,7 +1341,51 @@ test("rejects malformed Bridge lifecycle logs before mutating watchtower state",
         ],
       })
     ).listBridgeLifecycleEvents(),
-    /redemption transaction hash.*32 bytes/
+    /event data must contain exactly 1 ABI words/
+  )
+
+  const validChallengeData = `0x${"0".repeat(63)}1${sighash().slice(2)}`
+  await assert.rejects(
+    new EthersP2TRSignatureFraudBridgeLifecycleEventSource(
+      new FakeBridgeLifecycleContract({
+        defeated: [
+          {
+            args: { challengeKey: 1n },
+            data: validChallengeData,
+            topics: [
+              challengeDefeatedEventTopic,
+              walletID(),
+              encodeIndexedBytes20Topic(walletPubKeyHash()),
+              bridgeChallengeIdentity(),
+              txHash("55"),
+            ],
+            transactionHash: txHash("f2"),
+          },
+        ],
+      })
+    ).listBridgeLifecycleEvents(),
+    /event must contain exactly 4 topics/
+  )
+
+  await assert.rejects(
+    new EthersP2TRSignatureFraudBridgeLifecycleEventSource(
+      new FakeBridgeLifecycleContract({
+        defeated: [
+          {
+            args: { challengeKey: 1n },
+            data: validChallengeData,
+            topics: [
+              challengeDefeatedEventTopic,
+              walletID(),
+              `0x${"0".repeat(24)}${walletPubKeyHash().slice(2)}`,
+              bridgeChallengeIdentity(),
+            ],
+            transactionHash: txHash("f3"),
+          },
+        ],
+      })
+    ).listBridgeLifecycleEvents(),
+    /wallet public key hash must be right-padded to 32 bytes/
   )
 })
 
@@ -1277,25 +1469,25 @@ class FakeBridgeLifecycleContract implements P2TREthersBridgeLifecycleContract {
 
     if (filter === defeatedFilter) {
       return (this.logs.defeated ?? []).map((log) =>
-        canonicalLogFixture(log, this.address)
+        canonicalLogFixture(log, this.address, "defeated")
       )
     }
 
     if (filter === timedOutFilter) {
       return (this.logs.timedOut ?? []).map((log) =>
-        canonicalLogFixture(log, this.address)
+        canonicalLogFixture(log, this.address, "timedOut")
       )
     }
 
     if (filter === movingFundsCompletedFilter) {
       return (this.logs.movingFundsCompleted ?? []).map((log) =>
-        canonicalLogFixture(log, this.address)
+        canonicalLogFixture(log, this.address, "movingFundsCompleted")
       )
     }
 
     if (filter === redemptionsCompletedFilter) {
       return (this.logs.redemptionsCompleted ?? []).map((log) =>
-        canonicalLogFixture(log, this.address)
+        canonicalLogFixture(log, this.address, "redemptionsCompleted")
       )
     }
 
@@ -1338,18 +1530,130 @@ function acceptingCanonicalVerifier(
 
 function canonicalLogFixture(
   log: P2TREthersBridgeLifecycleEventLog,
-  address: string
+  address: string,
+  event: FakeBridgeLifecycleFilter
 ): P2TREthersBridgeLifecycleEventLog {
+  const rawEvent =
+    event === "defeated" || event === "timedOut"
+      ? challengeLifecycleRawEventFixture(log.args, event)
+      : completedProofRawEventFixture(log.args, event)
+
   return {
     address,
     blockHash: txHash("99"),
     blockNumber: 0,
-    data: "0x",
     logIndex: 0,
     removed: false,
-    topics: [txHash("01")],
+    ...rawEvent,
     ...log,
   }
+}
+
+function challengeLifecycleRawEventFixture(
+  args: P2TREthersBridgeLifecycleEventLog["args"],
+  event: "defeated" | "timedOut"
+): Pick<P2TREthersBridgeLifecycleEventLog, "data" | "topics"> {
+  const challengeKey = testLogArg(args, "challengeKey", 3)
+  const eventSighash = testLogArg(args, "sighash", 4) ?? sighash()
+  const encodedChallengeKey =
+    challengeKey === undefined ? undefined : encodeUint256Word(challengeKey)
+  const data =
+    encodedChallengeKey === undefined
+      ? "0x"
+      : `0x${encodedChallengeKey}${encodeFixedBytesWord(eventSighash)}`
+
+  return {
+    data,
+    topics: [
+      event === "defeated"
+        ? challengeDefeatedEventTopic
+        : challengeDefeatTimedOutEventTopic,
+      String(testLogArg(args, "walletID", 0) ?? walletID()),
+      encodeIndexedBytes20Topic(
+        testLogArg(args, "walletPubKeyHash", 1) ?? walletPubKeyHash()
+      ),
+      String(
+        testLogArg(args, "bridgeChallengeIdentity", 2) ??
+          bridgeChallengeIdentity()
+      ),
+    ],
+  }
+}
+
+function completedProofRawEventFixture(
+  args: P2TREthersBridgeLifecycleEventLog["args"],
+  event: "movingFundsCompleted" | "redemptionsCompleted"
+): Pick<P2TREthersBridgeLifecycleEventLog, "data" | "topics"> {
+  const namedField =
+    event === "movingFundsCompleted" ? "movingFundsTxHash" : "redemptionTxHash"
+  const bitcoinTxHash = testLogArg(args, namedField, 1)
+
+  return {
+    data:
+      bitcoinTxHash === undefined
+        ? "0x"
+        : `0x${encodeFixedBytesWord(bitcoinTxHash)}`,
+    topics: [
+      event === "movingFundsCompleted"
+        ? movingFundsCompletedEventTopic
+        : redemptionsCompletedEventTopic,
+      encodeIndexedBytes20Topic(
+        testLogArg(args, "walletPubKeyHash", 0) ?? walletPubKeyHash()
+      ),
+    ],
+  }
+}
+
+function testLogArg(
+  args: P2TREthersBridgeLifecycleEventLog["args"],
+  namedField: string,
+  indexedField: number
+): unknown {
+  if (args === undefined) {
+    return undefined
+  }
+
+  return (
+    (args as Record<string, unknown>)[namedField] ??
+    (args as readonly unknown[])[indexedField]
+  )
+}
+
+function encodeUint256Word(value: unknown): string {
+  let hex: string
+
+  if (typeof value === "string") {
+    hex = value.replace(/^(0x|0X)/, "")
+  } else if (typeof value === "number" || typeof value === "bigint") {
+    hex = BigInt(value).toString(16)
+  } else if (
+    typeof value === "object" &&
+    value !== null &&
+    "toHexString" in value &&
+    typeof value.toHexString === "function"
+  ) {
+    hex = value.toHexString().replace(/^(0x|0X)/, "")
+  } else {
+    throw new Error("unsupported test uint256 value")
+  }
+
+  return hex.padStart(64, "0")
+}
+
+function encodeFixedBytesWord(value: unknown): string {
+  if (typeof value !== "string") {
+    throw new Error("unsupported test fixed-bytes value")
+  }
+
+  return value.replace(/^(0x|0X)/, "")
+}
+
+function encodeIndexedBytes20Topic(value: unknown): string {
+  if (typeof value !== "string") {
+    throw new Error("unsupported test bytes20 value")
+  }
+
+  return `0x${value.replace(/^(0x|0X)/, "")}${"0".repeat(24)}`
 }
 
 function buildFakeBridgeLifecycleFilters(
