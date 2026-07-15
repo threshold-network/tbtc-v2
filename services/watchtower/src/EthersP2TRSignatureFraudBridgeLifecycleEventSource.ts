@@ -212,6 +212,7 @@ export type P2TRBridgeLifecycleScanCursorStore = {
 export type EthersP2TRSignatureFraudBridgeLifecycleEventSourceOptions = {
   sourceTrustDomainID: string
   canonicalLogVerifier: P2TRCanonicalBridgeLifecycleLogVerifier
+  canonicalLogVerificationConcurrency?: number
   fromBlock?: number | string
   toBlock?: number | string
   confirmationDepth?: number
@@ -246,6 +247,7 @@ const P2TR_DEFEATED_EVENT = "P2TRSignatureFraudChallengeDefeated"
 const P2TR_DEFEAT_TIMED_OUT_EVENT = "P2TRSignatureFraudChallengeDefeatTimedOut"
 const MOVING_FUNDS_COMPLETED_EVENT = "MovingFundsCompleted"
 const REDEMPTIONS_COMPLETED_EVENT = "RedemptionsCompleted"
+const DEFAULT_CANONICAL_LOG_VERIFICATION_CONCURRENCY = 8
 
 const CANONICAL_LIFECYCLE_EVENT_TOPICS: Readonly<Record<string, string>> = {
   [P2TR_DEFEATED_EVENT]:
@@ -292,6 +294,7 @@ export class EthersP2TRSignatureFraudBridgeLifecycleEventSource
   private pendingCursorBlockHash?: string
   private readonly bridge: P2TREthersBridgeLifecycleContract
   private readonly options: EthersP2TRSignatureFraudBridgeLifecycleEventSourceOptions
+  private readonly canonicalLogVerificationTaskQueue: BoundedTaskQueue
 
   constructor(
     p2trSignatureFraudRouter: P2TREthersBridgeLifecycleContract,
@@ -324,6 +327,12 @@ export class EthersP2TRSignatureFraudBridgeLifecycleEventSource
             | EthersP2TRSignatureFraudBridgeLifecycleEventSourceOptions
             | undefined
         )
+
+    this.canonicalLogVerificationTaskQueue = new BoundedTaskQueue(
+      resolveCanonicalLogVerificationConcurrency(
+        this.options.canonicalLogVerificationConcurrency
+      )
+    )
 
     this.p2trSignatureFraudWatchtowerStoreProfile =
       this.options.scanCursorStore?.p2trSignatureFraudWatchtowerStoreProfile
@@ -482,12 +491,14 @@ export class EthersP2TRSignatureFraudBridgeLifecycleEventSource
           expectedEmitter
         )
         validateCanonicalLifecycleLogBlockRange(canonicalLog, blockRange)
-        const isCanonical =
-          await this.options.canonicalLogVerifier.verifyLifecycleLog({
-            eventName,
-            expectedEmitter,
-            log: canonicalLog,
-          })
+        const isCanonical = await this.canonicalLogVerificationTaskQueue.run(
+          () =>
+            this.options.canonicalLogVerifier.verifyLifecycleLog({
+              eventName,
+              expectedEmitter,
+              log: canonicalLog,
+            })
+        )
 
         if (!isCanonical) {
           throw new Error(
@@ -570,6 +581,57 @@ export class EthersP2TRSignatureFraudBridgeLifecycleEventSource
       }
     }
   }
+}
+
+class BoundedTaskQueue {
+  private activeTasks = 0
+  private readonly waitingTasks: Array<() => void> = []
+
+  constructor(private readonly concurrency: number) {}
+
+  async run<T>(task: () => Promise<T>): Promise<T> {
+    await this.acquire()
+    try {
+      return await task()
+    } finally {
+      this.release()
+    }
+  }
+
+  private acquire(): Promise<void> {
+    if (this.activeTasks < this.concurrency) {
+      this.activeTasks++
+      return Promise.resolve()
+    }
+
+    return new Promise((resolve) => {
+      this.waitingTasks.push(() => {
+        this.activeTasks++
+        resolve()
+      })
+    })
+  }
+
+  private release(): void {
+    this.activeTasks--
+    this.waitingTasks.shift()?.()
+  }
+}
+
+function resolveCanonicalLogVerificationConcurrency(
+  value: number | undefined
+): number {
+  if (value === undefined) {
+    return DEFAULT_CANONICAL_LOG_VERIFICATION_CONCURRENCY
+  }
+
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(
+      "Bridge lifecycle canonical log verification concurrency must be a positive integer"
+    )
+  }
+
+  return value
 }
 
 function isP2TREthersBridgeLifecycleContract(
