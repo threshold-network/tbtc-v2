@@ -23,7 +23,7 @@ import {
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
 // Wormhole Chain IDs for testing
-const WORMHOLE_CHAIN_SEI = 32
+const WORMHOLE_CHAIN_DESTINATION = 32
 const WORMHOLE_CHAIN_BASE = 30
 const WORMHOLE_CHAIN_ARBITRUM = 23
 
@@ -87,7 +87,10 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
     underlyingNttManager = await MockNttManagerFactory.deploy()
 
     // Set up mock NTT manager to support our test chains
-    await nttManagerWithExecutor.setSupportedChain(WORMHOLE_CHAIN_SEI, true)
+    await nttManagerWithExecutor.setSupportedChain(
+      WORMHOLE_CHAIN_DESTINATION,
+      true
+    )
     await nttManagerWithExecutor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
     await nttManagerWithExecutor.setSupportedChain(
       WORMHOLE_CHAIN_ARBITRUM,
@@ -113,10 +116,10 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
     depositor = L1BTCDepositorFactory.attach(proxy.address)
 
     // Set up basic configuration
-    await depositor.setSupportedChain(WORMHOLE_CHAIN_SEI, true)
+    await depositor.setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
     await depositor.setSupportedChain(WORMHOLE_CHAIN_BASE, true)
     await depositor.setSupportedChain(WORMHOLE_CHAIN_ARBITRUM, true)
-    await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
+    await depositor.setDefaultSupportedChain(WORMHOLE_CHAIN_DESTINATION)
   })
 
   beforeEach(async () => {
@@ -632,13 +635,13 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
     it("should revert chain-specific quote without executor parameters", async () => {
       await expect(
-        depositor["quoteFinalizeDeposit(uint16)"](WORMHOLE_CHAIN_SEI)
+        depositor["quoteFinalizeDeposit(uint16)"](WORMHOLE_CHAIN_DESTINATION)
       ).to.be.revertedWith("Executor parameters not set")
     })
 
     it("should revert for all supported chains without parameters", async () => {
       const chains = [
-        WORMHOLE_CHAIN_SEI,
+        WORMHOLE_CHAIN_DESTINATION,
         WORMHOLE_CHAIN_BASE,
         WORMHOLE_CHAIN_ARBITRUM,
       ]
@@ -656,14 +659,15 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       // Test that quote functions exist and are callable (even if they revert due to missing params)
       await expect(depositor["quoteFinalizeDeposit()"]()).to.be.reverted
       await expect(
-        depositor["quoteFinalizeDeposit(uint16)"](WORMHOLE_CHAIN_SEI)
+        depositor["quoteFinalizeDeposit(uint16)"](WORMHOLE_CHAIN_DESTINATION)
       ).to.be.reverted
     })
   })
 
   describe("Chain Configuration", () => {
     it("should have supported chains configured", async () => {
-      expect(await depositor.supportedChains(WORMHOLE_CHAIN_SEI)).to.be.true
+      expect(await depositor.supportedChains(WORMHOLE_CHAIN_DESTINATION)).to.be
+        .true
       expect(await depositor.supportedChains(WORMHOLE_CHAIN_BASE)).to.be.true
       expect(await depositor.supportedChains(WORMHOLE_CHAIN_ARBITRUM)).to.be
         .true
@@ -671,7 +675,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
     it("should have default supported chain set", async () => {
       expect(await depositor.defaultSupportedChain()).to.equal(
-        WORMHOLE_CHAIN_SEI
+        WORMHOLE_CHAIN_DESTINATION
       )
     })
 
@@ -726,7 +730,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       await expect(
         nttManagerWithExecutor.quoteDeliveryPrice(
           underlyingNttManager.address,
-          WORMHOLE_CHAIN_SEI,
+          WORMHOLE_CHAIN_DESTINATION,
           "0x",
           executorArgs,
           FEE_ARGS_ZERO
@@ -737,9 +741,9 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
     it("should get different quotes for different chains", async () => {
       const executorArgs = createExecutorArgs()
 
-      const seiCost = await nttManagerWithExecutor.quoteDeliveryPrice(
+      const destinationCost = await nttManagerWithExecutor.quoteDeliveryPrice(
         underlyingNttManager.address,
-        WORMHOLE_CHAIN_SEI,
+        WORMHOLE_CHAIN_DESTINATION,
         "0x",
         executorArgs,
         FEE_ARGS_ZERO
@@ -754,11 +758,11 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       )
 
       // Mock returns different costs for different chains
-      expect(seiCost).to.not.equal(baseCost)
+      expect(destinationCost).to.not.equal(baseCost)
 
-      // SEI should be more expensive (mock logic)
-      expect(seiCost).to.be.gt(baseCost)
-      expect(seiCost.sub(baseCost)).to.equal("2000000000000000") // 0.002 ETH premium
+      // Sample destination should be more expensive (mock logic)
+      expect(destinationCost).to.be.gt(baseCost)
+      expect(destinationCost.sub(baseCost)).to.equal("2000000000000000") // 0.002 ETH premium
     })
 
     it("should reject quote for unsupported chain in mock", async () => {
@@ -798,7 +802,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       // Call the new quote function
       const [nttDeliveryPrice, executorCost, totalCost] = await depositor
         .connect(user)
-        .quoteFinalizedDeposit(WORMHOLE_CHAIN_SEI)
+        .quoteFinalizedDeposit(WORMHOLE_CHAIN_DESTINATION)
 
       // Verify the breakdown
       expect(nttDeliveryPrice).to.be.gt(0) // NTT delivery price should be positive
@@ -832,30 +836,33 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       await depositor.connect(user).setExecutorParameters(executorArgs, feeArgs)
 
       // Get quotes for different chains
-      const [seiNttPrice, seiExecutorCost, seiTotal] = await depositor
-        .connect(user)
-        .quoteFinalizedDeposit(WORMHOLE_CHAIN_SEI)
+      const [destinationNttPrice, destinationExecutorCost, destinationTotal] =
+        await depositor
+          .connect(user)
+          .quoteFinalizedDeposit(WORMHOLE_CHAIN_DESTINATION)
 
       const [baseNttPrice, baseExecutorCost, baseTotal] = await depositor
         .connect(user)
         .quoteFinalizedDeposit(WORMHOLE_CHAIN_BASE)
 
       // Executor cost should be the same (from stored parameters)
-      expect(seiExecutorCost).to.equal(baseExecutorCost)
-      expect(seiExecutorCost).to.equal(ethers.utils.parseEther("0.005"))
+      expect(destinationExecutorCost).to.equal(baseExecutorCost)
+      expect(destinationExecutorCost).to.equal(ethers.utils.parseEther("0.005"))
 
       // NTT prices might be different for different chains
-      expect(seiNttPrice).to.be.gt(0)
+      expect(destinationNttPrice).to.be.gt(0)
       expect(baseNttPrice).to.be.gt(0)
 
       // Total costs should be calculated correctly
-      expect(seiTotal).to.equal(seiNttPrice.add(seiExecutorCost))
+      expect(destinationTotal).to.equal(
+        destinationNttPrice.add(destinationExecutorCost)
+      )
       expect(baseTotal).to.equal(baseNttPrice.add(baseExecutorCost))
 
       console.log(
-        `Sei chain - NTT: ${ethers.utils.formatEther(
-          seiNttPrice
-        )} ETH, Total: ${ethers.utils.formatEther(seiTotal)} ETH`
+        `Destination chain - NTT: ${ethers.utils.formatEther(
+          destinationNttPrice
+        )} ETH, Total: ${ethers.utils.formatEther(destinationTotal)} ETH`
       )
       console.log(
         `Base chain - NTT: ${ethers.utils.formatEther(
@@ -868,7 +875,9 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       const [, , user] = await ethers.getSigners()
 
       await expect(
-        depositor.connect(user).quoteFinalizedDeposit(WORMHOLE_CHAIN_SEI)
+        depositor
+          .connect(user)
+          .quoteFinalizedDeposit(WORMHOLE_CHAIN_DESTINATION)
       ).to.be.revertedWith("Executor parameters not set")
     })
 
@@ -914,7 +923,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
       const [nttDeliveryPrice, executorCost, totalCost] = await depositor
         .connect(user)
-        .quoteFinalizedDeposit(WORMHOLE_CHAIN_SEI)
+        .quoteFinalizedDeposit(WORMHOLE_CHAIN_DESTINATION)
 
       expect(executorCost).to.equal(0)
       expect(totalCost).to.equal(nttDeliveryPrice) // Should equal NTT price when executor cost is 0
@@ -948,7 +957,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
       const [nttDeliveryPrice, executorCost, totalCost] = await depositor
         .connect(user)
-        .quoteFinalizedDeposit(WORMHOLE_CHAIN_SEI)
+        .quoteFinalizedDeposit(WORMHOLE_CHAIN_DESTINATION)
 
       expect(executorCost).to.equal(highExecutorCost)
       expect(totalCost).to.equal(nttDeliveryPrice.add(highExecutorCost))
@@ -1003,11 +1012,11 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       // Get quotes for both users
       const [user1Ntt, user1Executor, user1Total] = await depositor
         .connect(user1)
-        .quoteFinalizedDeposit(WORMHOLE_CHAIN_SEI)
+        .quoteFinalizedDeposit(WORMHOLE_CHAIN_DESTINATION)
 
       const [user2Ntt, user2Executor, user2Total] = await depositor
         .connect(user2)
-        .quoteFinalizedDeposit(WORMHOLE_CHAIN_SEI)
+        .quoteFinalizedDeposit(WORMHOLE_CHAIN_DESTINATION)
 
       // NTT prices should be the same (same chain, same underlying manager)
       expect(user1Ntt).to.equal(user2Ntt)
@@ -1058,7 +1067,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       // Simulate frontend getting cost breakdown
       const [nttDeliveryPrice, executorCost, totalCost] = await depositor
         .connect(user)
-        .quoteFinalizedDeposit(WORMHOLE_CHAIN_SEI)
+        .quoteFinalizedDeposit(WORMHOLE_CHAIN_DESTINATION)
 
       // Simulate frontend validation
       const userEthBalance = ethers.utils.parseEther("0.1") // User has 0.1 ETH
@@ -1107,7 +1116,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       // Get cost breakdown
       const [nttDeliveryPrice, executorCost, totalCost] = await depositor
         .connect(user)
-        .quoteFinalizedDeposit(WORMHOLE_CHAIN_SEI)
+        .quoteFinalizedDeposit(WORMHOLE_CHAIN_DESTINATION)
 
       // Simulate user with insufficient balance
       const userEthBalance = ethers.utils.parseEther("0.1") // User only has 0.1 ETH
