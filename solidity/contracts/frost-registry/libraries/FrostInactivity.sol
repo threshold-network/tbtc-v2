@@ -19,6 +19,7 @@ import "@openzeppelin/contracts-upgradeable/utils/cryptography/ECDSAUpgradeable.
 import "@keep-network/random-beacon/contracts/libraries/BytesLib.sol";
 import "@keep-network/sortition-pools/contracts/SortitionPool.sol";
 
+import "../api/IFrostWalletOwner.sol";
 import "./FrostRegistryWallets.sol";
 
 library FrostInactivity {
@@ -65,6 +66,50 @@ library FrostInactivity {
     ///         supporting the inactivity claim.
     uint256 public constant signatureByteSize = 65;
 
+    event InactivityClaimed(
+        bytes32 indexed walletID,
+        uint256 nonce,
+        address notifier
+    );
+
+    /// @notice Verifies and finalizes an inactivity claim. The nonce is
+    ///         consumed before any external effect, so a failed wallet-owner
+    ///         callback reverts atomically and leaves the claim retryable.
+    /// @dev Kept in the already-linked inactivity library to preserve the
+    ///      registry implementation's EIP-170 deployment-size budget.
+    function processClaim(
+        mapping(bytes32 => uint256) storage inactivityClaimNonce,
+        SortitionPool sortitionPool,
+        IFrostWalletOwner walletOwner,
+        Claim calldata claim,
+        bytes32 xOnlyOutputKey,
+        uint256 nonce,
+        uint32[] calldata groupMembers,
+        uint256 rewardsBanDuration
+    ) external {
+        uint32[] memory ineligibleOperators = _verifyClaim(
+            sortitionPool,
+            claim,
+            xOnlyOutputKey,
+            nonce,
+            groupMembers
+        );
+
+        inactivityClaimNonce[claim.walletID]++;
+
+        emit InactivityClaimed(claim.walletID, nonce, msg.sender);
+
+        sortitionPool.setRewardIneligibility(
+            ineligibleOperators,
+            // solhint-disable-next-line not-rely-on-time
+            block.timestamp + rewardsBanDuration
+        );
+
+        if (claim.heartbeatFailed) {
+            walletOwner.__frostWalletHeartbeatFailedCallback(xOnlyOutputKey);
+        }
+    }
+
     /// @notice Verifies the inactivity claim according to the rules defined in
     ///         `Claim` struct documentation. Reverts if verification fails.
     /// @dev Wallet signing group members hash is validated upstream in
@@ -85,6 +130,23 @@ library FrostInactivity {
         uint256 nonce,
         uint32[] calldata groupMembers
     ) external view returns (uint32[] memory inactiveMembers) {
+        return
+            _verifyClaim(
+                sortitionPool,
+                claim,
+                xOnlyOutputKey,
+                nonce,
+                groupMembers
+            );
+    }
+
+    function _verifyClaim(
+        SortitionPool sortitionPool,
+        Claim calldata claim,
+        bytes32 xOnlyOutputKey,
+        uint256 nonce,
+        uint32[] calldata groupMembers
+    ) internal view returns (uint32[] memory inactiveMembers) {
         // Validate inactive members indices. Maximum indices count is equal to
         // the group size and is not limited deliberately to leave a theoretical
         // possibility to accuse more members than `groupSize - groupThreshold`.

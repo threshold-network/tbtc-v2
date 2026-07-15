@@ -449,6 +449,127 @@ describe("Bridge - FROST Wallet Registration", () => {
     })
   })
 
+  describe("__frostWalletHeartbeatFailedCallback", () => {
+    let frostWalletPubKeyHash: string
+
+    beforeEach(async () => {
+      await createSnapshot()
+      await bridge.resetFrostWalletRegistryForTest(frostRegistry.address)
+      await bridge.resetLifecycleRouterForTest(thirdParty.address)
+      await frostRegistry.setLifecycleOwner(thirdParty.address)
+      await frostRegistry.callBridgeFrostWalletCreatedCallback(
+        bridge.address,
+        frostXOnlyOutputKey
+      )
+      frostWalletPubKeyHash = await bridge.walletPubKeyHashForWalletID(
+        frostXOnlyOutputKey
+      )
+    })
+
+    afterEach(async () => {
+      await restoreSnapshot()
+    })
+
+    it("rejects a caller other than the configured FROST registry", async () => {
+      await expectCustomError(
+        bridge
+          .connect(thirdParty)
+          .__frostWalletHeartbeatFailedCallback(frostXOnlyOutputKey),
+        "CallerIsNotFrostWalletRegistry"
+      )
+
+      expect((await bridge.wallets(frostWalletPubKeyHash)).state).to.equal(
+        walletState.Live
+      )
+    })
+
+    it("rejects an x-only key that is not the wallet's canonical reverse mapping", async () => {
+      await bridge.setWalletIDForWalletPubKeyHash(
+        frostWalletPubKeyHash,
+        ethers.constants.HashZero
+      )
+
+      await expectCustomError(
+        frostRegistry.callBridgeFrostWalletHeartbeatFailedCallback(
+          bridge.address,
+          frostXOnlyOutputKey
+        ),
+        "FrostWalletIdMissing"
+      )
+
+      expect((await bridge.wallets(frostWalletPubKeyHash)).state).to.equal(
+        walletState.Live
+      )
+      expect(await bridge.activeWalletID()).to.equal(frostXOnlyOutputKey)
+    })
+
+    it("moves a funded Live wallet and atomically clears both active identifiers", async () => {
+      await bridge.setWalletMainUtxo(frostWalletPubKeyHash, {
+        txHash:
+          "0xc9e58780c6c289c25ae1fe293f85a4db4d0af4f305172f2a1868ddd917458bdf",
+        txOutputIndex: 0,
+        txOutputValue: 1,
+      })
+
+      const tx =
+        await frostRegistry.callBridgeFrostWalletHeartbeatFailedCallback(
+          bridge.address,
+          frostXOnlyOutputKey
+        )
+
+      const wallet = await bridge.wallets(frostWalletPubKeyHash)
+      expect(wallet.state).to.equal(walletState.MovingFunds)
+      expect(wallet.movingFundsRequestedAt).to.equal(await lastBlockTime())
+      await expect(tx)
+        .to.emit(bridge, "WalletMovingFunds")
+        .withArgs(ethers.constants.HashZero, frostWalletPubKeyHash)
+      expect(await bridge.activeWalletPubKeyHash()).to.equal(
+        "0x0000000000000000000000000000000000000000"
+      )
+      expect(await bridge.activeWalletID()).to.equal(ethers.constants.HashZero)
+      expect(await bridge.liveWalletsCount()).to.equal(0)
+    })
+
+    it("begins closing an empty Live wallet and atomically clears both active identifiers", async () => {
+      const tx =
+        await frostRegistry.callBridgeFrostWalletHeartbeatFailedCallback(
+          bridge.address,
+          frostXOnlyOutputKey
+        )
+
+      const wallet = await bridge.wallets(frostWalletPubKeyHash)
+      expect(wallet.state).to.equal(walletState.Closing)
+      expect(wallet.closingStartedAt).to.equal(await lastBlockTime())
+      await expect(tx)
+        .to.emit(bridge, "WalletClosing")
+        .withArgs(ethers.constants.HashZero, frostWalletPubKeyHash)
+      expect(await bridge.activeWalletPubKeyHash()).to.equal(
+        "0x0000000000000000000000000000000000000000"
+      )
+      expect(await bridge.activeWalletID()).to.equal(ethers.constants.HashZero)
+      expect(await bridge.liveWalletsCount()).to.equal(0)
+    })
+
+    it("rejects replay after the wallet has left Live without changing accounting again", async () => {
+      await frostRegistry.callBridgeFrostWalletHeartbeatFailedCallback(
+        bridge.address,
+        frostXOnlyOutputKey
+      )
+
+      await expect(
+        frostRegistry.callBridgeFrostWalletHeartbeatFailedCallback(
+          bridge.address,
+          frostXOnlyOutputKey
+        )
+      ).to.be.revertedWith("Wallet must be in Live state")
+
+      expect((await bridge.wallets(frostWalletPubKeyHash)).state).to.equal(
+        walletState.Closing
+      )
+      expect(await bridge.liveWalletsCount()).to.equal(0)
+    })
+  })
+
   describe("late ECDSA callback after FROST activation", () => {
     let frostWalletPubKeyHash: string
     let lateEcdsaCallbackTx: ContractTransaction

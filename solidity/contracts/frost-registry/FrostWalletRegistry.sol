@@ -1113,31 +1113,16 @@ contract FrostWalletRegistry is
             "Invalid group members"
         );
 
-        uint32[] memory ineligibleOperators = Inactivity.verifyClaim(
+        Inactivity.processClaim(
+            inactivityClaimNonce,
             sortitionPool,
+            walletOwner,
             claim,
             xOnlyOutputKey,
             nonce,
-            groupMembers
+            groupMembers,
+            _sortitionPoolRewardsBanDuration
         );
-
-        inactivityClaimNonce[walletID]++;
-
-        emit InactivityClaimed(walletID, nonce, msg.sender);
-
-        sortitionPool.setRewardIneligibility(
-            ineligibleOperators,
-            // solhint-disable-next-line not-rely-on-time
-            block.timestamp + _sortitionPoolRewardsBanDuration
-        );
-
-        // RFC v4 §"Non-goals": the FROST registry does not
-        // participate in heartbeat-failure reporting in this phase
-        // (IFrostWalletOwner does not declare a heartbeat-failed
-        // callback). A wallet-wide heartbeat-failure flag can still
-        // be carried on the inactivity claim for off-chain
-        // diagnostics; the on-chain effect is limited to the
-        // sortition-pool reward ineligibility set above.
 
         reimbursementPool.refund(
             (gasStart - gasleft()) + _notifyOperatorInactivityGasOffset,

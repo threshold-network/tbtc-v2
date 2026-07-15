@@ -162,6 +162,19 @@ contract EcdsaFraudRouter {
     ///         governance can assert this value is zero on-chain.
     uint256 public openFraudChallengeCount;
 
+    /// @notice Number of unresolved, directly submitted challenges for each
+    ///         wallet. This is the per-wallet graceful-closure lock.
+    mapping(bytes20 => uint256) public openFraudChallengeCountByWallet;
+
+    /// @notice Number of unresolved migrated challenges whose legacy records
+    ///         do not carry a wallet identity. While non-zero, graceful
+    ///         closure is conservatively locked for every ECDSA wallet.
+    uint256 public unattributedOpenFraudChallengeCount;
+
+    /// @dev Wallet identity for directly submitted challenges. A zero value
+    ///      marks an unattributed challenge migrated from Bridge storage.
+    mapping(uint256 => bytes20) internal fraudChallengeWalletPubKeyHash;
+
     event FraudChallengeSubmitted(
         bytes20 indexed walletPubKeyHash,
         bytes32 sighash,
@@ -230,6 +243,7 @@ contract EcdsaFraudRouter {
             require(!data[i].resolved, "Challenge already resolved");
             fraudChallenges[challengeKeys[i]] = data[i];
             openFraudChallengeCount++;
+            unattributedOpenFraudChallengeCount++;
             totalDeposit += data[i].depositAmount;
             emit FraudChallengeMigratedFromBridge(
                 challengeKeys[i],
@@ -319,7 +333,9 @@ contract EcdsaFraudRouter {
         /* solhint-disable-next-line not-rely-on-time */
         challenge.reportedAt = uint32(block.timestamp);
         challenge.resolved = false;
+        fraudChallengeWalletPubKeyHash[challengeKey] = walletPubKeyHash;
         openFraudChallengeCount++;
+        openFraudChallengeCountByWallet[walletPubKeyHash]++;
 
         // slither-disable-next-line reentrancy-events
         emit FraudChallengeSubmitted(
@@ -370,7 +386,12 @@ contract EcdsaFraudRouter {
             "Spent UTXO not found among correctly spent UTXOs"
         );
 
-        _resolveFraudChallenge(walletPublicKey, challenge, sighash);
+        _resolveFraudChallenge(
+            challengeKey,
+            walletPublicKey,
+            challenge,
+            sighash
+        );
     }
 
     /// @notice Defeats a pending ECDSA fraud challenge by proving the
@@ -399,34 +420,12 @@ contract EcdsaFraudRouter {
             "Not a valid heartbeat message"
         );
 
-        _resolveFraudChallenge(walletPublicKey, challenge, sighash);
-    }
-
-    /// @dev Marks the challenge resolved and forwards the escrowed
-    ///      deposit to Bridge's treasury. Mirrors the prior
-    ///      Fraud.resolveFraudChallenge helper.
-    function _resolveFraudChallenge(
-        bytes calldata walletPublicKey,
-        Fraud.FraudChallenge storage challenge,
-        bytes32 sighash
-    ) internal {
-        challenge.resolved = true;
-        openFraudChallengeCount--;
-
-        address treasury = IBridgeForFraud(bridge).treasury();
-        /* solhint-disable avoid-low-level-calls */
-        // slither-disable-next-line low-level-calls,unchecked-lowlevel,arbitrary-send-eth
-        treasury.call{gas: 100000, value: challenge.depositAmount}("");
-        /* solhint-enable avoid-low-level-calls */
-
-        bytes memory compressedWalletPublicKey = EcdsaLib.compressPublicKey(
-            walletPublicKey.slice32(0),
-            walletPublicKey.slice32(32)
+        _resolveFraudChallenge(
+            challengeKey,
+            walletPublicKey,
+            challenge,
+            sighash
         );
-        bytes20 walletPubKeyHash = compressedWalletPublicKey.hash160View();
-
-        // slither-disable-next-line reentrancy-events
-        emit FraudChallengeDefeated(walletPubKeyHash, sighash);
     }
 
     /// @notice Notifies that an open fraud challenge passed its defeat
@@ -464,7 +463,6 @@ contract EcdsaFraudRouter {
         );
 
         challenge.resolved = true;
-        openFraudChallengeCount--;
 
         // Refund the challenger from the router's escrowed deposit.
         // The return value is intentionally ignored: a reverting
@@ -491,8 +489,64 @@ contract EcdsaFraudRouter {
             challenge.challenger
         );
 
+        // Keep the per-wallet counter as the graceful-closure lock across
+        // the untrusted refund and Bridge slashing callbacks.
+        _decrementOpenFraudChallengeCount(challengeKey);
+
         // slither-disable-next-line reentrancy-events
         emit FraudChallengeDefeatTimedOut(walletPubKeyHash, sighash);
+    }
+
+    /// @notice Returns whether graceful closure of the given wallet must wait
+    ///         for an unresolved direct or unattributed migrated challenge.
+    function hasOpenFraudChallengeForWallet(bytes20 walletPubKeyHash)
+        external
+        view
+        returns (bool)
+    {
+        return
+            openFraudChallengeCountByWallet[walletPubKeyHash] > 0 ||
+            unattributedOpenFraudChallengeCount > 0;
+    }
+
+    /// @dev Marks the challenge resolved and forwards the escrowed
+    ///      deposit to Bridge's treasury. Mirrors the prior
+    ///      Fraud.resolveFraudChallenge helper.
+    function _resolveFraudChallenge(
+        uint256 challengeKey,
+        bytes calldata walletPublicKey,
+        Fraud.FraudChallenge storage challenge,
+        bytes32 sighash
+    ) internal {
+        challenge.resolved = true;
+        _decrementOpenFraudChallengeCount(challengeKey);
+
+        address treasury = IBridgeForFraud(bridge).treasury();
+        /* solhint-disable avoid-low-level-calls */
+        // slither-disable-next-line low-level-calls,unchecked-lowlevel,arbitrary-send-eth
+        treasury.call{gas: 100000, value: challenge.depositAmount}("");
+        /* solhint-enable avoid-low-level-calls */
+
+        bytes memory compressedWalletPublicKey = EcdsaLib.compressPublicKey(
+            walletPublicKey.slice32(0),
+            walletPublicKey.slice32(32)
+        );
+        bytes20 walletPubKeyHash = compressedWalletPublicKey.hash160View();
+
+        // slither-disable-next-line reentrancy-events
+        emit FraudChallengeDefeated(walletPubKeyHash, sighash);
+    }
+
+    function _decrementOpenFraudChallengeCount(uint256 challengeKey) internal {
+        bytes20 walletPubKeyHash = fraudChallengeWalletPubKeyHash[challengeKey];
+
+        openFraudChallengeCount--;
+        if (walletPubKeyHash == bytes20(0)) {
+            unattributedOpenFraudChallengeCount--;
+        } else {
+            openFraudChallengeCountByWallet[walletPubKeyHash]--;
+            delete fraudChallengeWalletPubKeyHash[challengeKey];
+        }
     }
 
     // P2TR signature-fraud lives in its own sidecar

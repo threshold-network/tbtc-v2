@@ -404,6 +404,15 @@ library BitcoinTx {
 
         walletPubKeyHash = self.walletPubKeyHashByWalletID[walletKey];
         require(walletPubKeyHash != bytes20(0), "Unknown wallet ID");
+        require(
+            self.registeredWallets[walletPubKeyHash].ecdsaWalletID ==
+                bytes32(0),
+            "ECDSA wallet output must be legacy"
+        );
+        require(
+            self.walletIDByWalletPubKeyHash[walletPubKeyHash] == walletKey,
+            "P2TR wallet ID mismatch"
+        );
 
         return walletPubKeyHash;
     }
