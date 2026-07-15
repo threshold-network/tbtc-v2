@@ -426,11 +426,15 @@ Current draft corpus:
   Bridge address variables; it still defaults to observation-only operation
   with unclassified and unfrozen-bound evidence unless challenge submission,
   classification, payload-bound approval, Bridge-domain approval, and
-  spend-type approval are explicitly wired. Before a stored observation reaches
-  a challenge submitter, the SDK/watchtower reconstructs the witness-derived
-  observation under the configured Bridge identifier, spend-type classifier,
-  payload bounds, and Bridge challenge domain; mismatches fail closed as invalid
-  watchtower state. Submission startup now also fails closed unless explicit
+  spend-type approval are explicitly wired. Immediately before a stored
+  observation reaches a challenge submitter, the SDK/watchtower reconstructs
+  the exact payload selected from durable state under the configured Bridge
+  identifier, spend-type classifier, payload bounds, and Bridge challenge
+  domain, then checks that payload against the current submission policy. A
+  same-key replacement cannot authorize a different frozen payload, and the
+  incoming observation remains independently policy-gated so neither
+  representation can authorize the other. Consistency mismatches fail closed as
+  invalid watchtower state. Submission startup now also fails closed unless explicit
   raw-transaction, input-count, output-count, and scriptPubKey byte bounds are
   configured, an approved spend-type classifier is installed, and the submission
   policy rejects `unclassified`, `wallet-closing`, or `heartbeat` spend types.
