@@ -34,6 +34,7 @@ import {
   MultipleDepositsWithMainUtxo,
   NO_MAIN_UTXO,
   SingleP2SHDeposit,
+  SingleP2SHDepositWalletID,
   SingleP2WSHDeposit,
   DepositSweepTestData,
 } from "../data/deposit-sweep"
@@ -236,7 +237,7 @@ describe("MaintainerProxy", () => {
       const { walletPubKeyHash } = data.deposits[0].reveal
 
       await bridge.setWallet(walletPubKeyHash, {
-        ecdsaWalletID: ethers.constants.HashZero,
+        ecdsaWalletID: SingleP2SHDepositWalletID,
         mainUtxoHash: ethers.constants.HashZero,
         pendingRedemptionsValue: 0,
         createdAt: await lastBlockTime(),

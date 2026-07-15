@@ -16,7 +16,11 @@ import {
   TBTC,
   IRelay,
 } from "../../typechain"
-import { DepositSweepTestData, SingleP2SHDeposit } from "../data/deposit-sweep"
+import {
+  DepositSweepTestData,
+  SingleP2SHDeposit,
+  SingleP2SHDepositWalletID,
+} from "../data/deposit-sweep"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { increaseTime, lastBlockTime } = helpers.time
@@ -124,7 +128,7 @@ describe("TBTCVault - OptimisticMinting", () => {
     // not want to execute the entire DKG in the setup for this test.
     const { walletPubKeyHash } = depositRevealInfo
     await bridge.setWallet(walletPubKeyHash, {
-      ecdsaWalletID: ethers.constants.HashZero,
+      ecdsaWalletID: SingleP2SHDepositWalletID,
       mainUtxoHash: ethers.constants.HashZero,
       pendingRedemptionsValue: 0,
       createdAt: await lastBlockTime(),
