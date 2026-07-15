@@ -1,13 +1,12 @@
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
 
-/// Phase C-2.1a upgrade script — deploys a fresh `Wallets`
-/// library (the only one with FROST-related code changes this
-/// cycle) and re-links Bridge to the new address.
+/// Phase C-2.1a upgrade script — deploys fresh `Wallets` and
+/// `Fraud` libraries and re-links Bridge to the new addresses.
 ///
 /// Why a dedicated script: the standard `80_upgrade_bridge_v2.ts`
 /// pattern explicitly REUSES the pre-existing library
-/// deployments via `deployments.get("Wallets")`. C-2.1a's only
+/// deployments via `deployments.get("Wallets")`. C-2.1a's Wallets
 /// behavior change is the `self.ecdsaWalletCount += 1` increment
 /// in `Wallets.registerNewWallet` — that lives in the `Wallets`
 /// library's bytecode, NOT in Bridge's. Reusing the old library
@@ -15,9 +14,11 @@ import { DeployFunction } from "hardhat-deploy/types"
 /// library code; the counter would stay 0 forever.
 /// (Codex P1 review on PR #442.)
 ///
-/// All other linked libraries (`Deposit`, `DepositSweep`,
-/// `Redemption`, `MovingFunds`) are unchanged, so this script
-/// keeps them at their existing addresses.
+/// `Fraud` also has current-cycle changes preserving the legacy
+/// fraud-challenge lifecycle across the upgrade, so it must be
+/// deployed from the current source tree. All other linked libraries
+/// (`Deposit`, `DepositSweep`, `Redemption`, `MovingFunds`) are
+/// unchanged, so this script keeps them at their existing addresses.
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { ethers, helpers, deployments, getNamedAccounts } = hre
   const { get, deploy } = deployments
@@ -45,6 +46,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     log: true,
     waitConfirmations: 1,
   })
+  const Fraud = await deploy("Fraud", {
+    from: deployer,
+    log: true,
+    waitConfirmations: 1,
+  })
 
   const [bridge, proxyDeployment] = await helpers.upgrades.upgradeProxy(
     "Bridge",
@@ -68,6 +74,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
           // Fresh Wallets address — this is what carries the
           // C-2.1a counter increment.
           Wallets: Wallets.address,
+          Fraud: Fraud.address,
           MovingFunds: MovingFunds.address,
         },
       },
@@ -79,11 +86,12 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   )
 
   console.log(
-    `C-2.1a upgrade: fresh Wallets library at ${Wallets.address} linked to Bridge ${bridge.address}`
+    `C-2.1a upgrade: fresh Wallets library at ${Wallets.address} and Fraud library at ${Fraud.address} linked to Bridge ${bridge.address}`
   )
 
   if (hre.network.tags.etherscan) {
     await helpers.etherscan.verify(Wallets)
+    await helpers.etherscan.verify(Fraud)
     await hre.run("verify", {
       address: proxyDeployment.address,
       constructorArgsParams: proxyDeployment.args,
@@ -94,6 +102,10 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     await hre.tenderly.verify({
       name: "Wallets",
       address: Wallets.address,
+    })
+    await hre.tenderly.verify({
+      name: "Fraud",
+      address: Fraud.address,
     })
     await hre.tenderly.verify({
       name: "Bridge",
@@ -114,7 +126,7 @@ func.tags = ["UpgradeBridgeC21Counter"]
 // The env-var gate avoids accidental execution during normal
 // fixture-driven deploys (e.g., a `yarn deploy` without tag
 // filtering on a development network would otherwise rerun
-// this upgrade and link a fresh Wallets library on every
+// this upgrade and link fresh libraries on every
 // invocation). It also lets the documented command actually
 // execute — the prior `func.skip = async () => true` was
 // unconditional and made the documented invocation a no-op

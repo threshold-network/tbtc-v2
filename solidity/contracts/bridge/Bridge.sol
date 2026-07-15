@@ -17,13 +17,7 @@ pragma solidity 0.8.17;
 
 import "@keep-network/random-beacon/contracts/Governable.sol";
 import "@keep-network/random-beacon/contracts/ReimbursementPool.sol";
-// D-2 dropped `IWalletOwner` inheritance: the ECDSA wallet
-// registry's `__ecdsaWalletCreatedCallback` callback path is
-// removed entirely (no new ECDSA wallets after D-2 ships). The
-// heartbeat callback is preserved as a standalone external
-// function for existing-wallet lifecycle. Import path retained
-// for the registry contract handle (used via
-// `BridgeState.Storage.ecdsaWalletRegistry`).
+import {IWalletOwner as EcdsaWalletOwner} from "@keep-network/ecdsa/contracts/api/IWalletOwner.sol";
 
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/math/SafeCastUpgradeable.sol";
@@ -44,15 +38,6 @@ import "./MovingFunds.sol";
 
 import "../bank/IReceiveBalanceApproval.sol";
 import "../bank/Bank.sol";
-
-/// @dev Minimal interface Bridge uses to migrate legacy fraud
-///      challenges into the EcdsaFraudRouter sidecar.
-interface IEcdsaFraudRouterMigration {
-    function acceptMigration(
-        uint256[] calldata challengeKeys,
-        Fraud.FraudChallenge[] calldata data
-    ) external payable;
-}
 
 /// @title Bitcoin Bridge
 /// @notice Bridge manages BTC deposit and redemption flow and is increasing and
@@ -75,7 +60,12 @@ interface IEcdsaFraudRouterMigration {
 /// @dev Bridge is an upgradeable component of the Bank. The order of
 ///      functionalities in this contract is: deposit, sweep, redemption,
 ///      moving funds, wallet lifecycle, frauds, parameters.
-contract Bridge is Governable, Initializable, IReceiveBalanceApproval {
+contract Bridge is
+    Governable,
+    EcdsaWalletOwner,
+    Initializable,
+    IReceiveBalanceApproval
+{
     // Shared custom error for the five initialize() zero-address guards.
     // Converted from individual require strings to a single 4-byte
     // selector to keep the Bridge implementation under the 24 KiB
@@ -90,11 +80,7 @@ contract Bridge is Governable, Initializable, IReceiveBalanceApproval {
     using Redemption for BridgeState.Storage;
     using MovingFunds for BridgeState.Storage;
     using Wallets for BridgeState.Storage;
-    // `using Fraud` / `using P2TRSignatureFraudLifecycle` removed --
-    // the ECDSA fraud surface now lives on EcdsaFraudRouter. The
-    // Fraud library import stays only so `BridgeState` can keep its
-    // legacy `fraudChallenges` storage mapping typed against
-    // `Fraud.FraudChallenge` for one-time migration.
+    using Fraud for BridgeState.Storage;
 
     BridgeState.Storage internal self;
 
@@ -1127,10 +1113,9 @@ contract Bridge is Governable, Initializable, IReceiveBalanceApproval {
     ///         process is performed asynchronously by the FROST
     ///         wallet registry, which notifies this contract by
     ///         calling `__frostWalletCreatedCallback` on
-    ///         completion. The ECDSA scheme branch unconditionally
-    ///         reverts in D-2; the ECDSA registry's create-side
-    ///         callback was structurally removed and any dispatch
-    ///         attempt to it would strand the registry non-IDLE.
+    ///         completion. New ECDSA dispatch was removed in D-2; the
+    ///         ECDSA callback remains only for requests already in flight at
+    ///         the proxy-upgrade block.
     /// @param activeWalletMainUtxo Data of the active wallet's main UTXO, as
     ///        currently known on the Ethereum chain.
     /// @dev Requirements:
@@ -1156,39 +1141,18 @@ contract Bridge is Governable, Initializable, IReceiveBalanceApproval {
         self.requestNewWallet(activeWalletMainUtxo);
     }
 
-    // D-2 removed `__ecdsaWalletCreatedCallback`. The ECDSA
-    // wallet registry's create-side callback into Bridge is
-    // gone; any attempt to invoke the removed selector reverts
-    // at the EVM dispatcher (no matching ABI entry).
-    //
-    // The deadlock vector (dispatch → DKG → late callback into
-    // removed selector → stuck registry → blocked FROST
-    // wallets) is structurally closed by D-2 at TWO layers:
-    //
-    //   1. CODE (load-bearing): `Wallets.requestNewWallet`
-    //      dispatches only to the FROST registry in the
-    //      canonical mirror. The ECDSA branch and scheme setter
-    //      were removed in D-2.2 slice 3, so no dispatch to the
-    //      ECDSA registry can be reached regardless of preserved
-    //      storage flag values.
-    //
-    //   2. OPERATIONS (defense-in-depth): the original D-2
-    //      source runbook called for flipping the scheme to
-    //      Frost before the proxy upgrade. In the canonical
-    //      mirror the setter is gone; FROST activation is
-    //      instead gated by the lifecycle-router/frost-registry
-    //      wiring checks in `Wallets.requestNewWallet`.
-    //
-    // The `retireEcdsa()` flag flip (governance forwarder
-    // added alongside this PR) is an OPTIONAL audit-trail
-    // step and not required for the structural retirement.
-    // See `docs/frost-migration/d2-ecdsa-hard-retirement-plan.md`
-    // §"Activation runbook" for the full sequence.
-    //
-    // Existing ECDSA wallets continue their full lifecycle
-    // (sweeps, redemptions, fraud, moving funds, closing,
-    // termination) — those paths do not depend on this
-    // callback.
+    /// @notice A callback function called by the ECDSA Wallet Registry once a
+    ///         new wallet is created.
+    /// @dev New requests are FROST-only, but this selector must remain until
+    ///      every ECDSA DKG started before the proxy upgrade has completed.
+    ///      The callback is intentionally not gated by `ecdsaRetired`.
+    function __ecdsaWalletCreatedCallback(
+        bytes32 ecdsaWalletID,
+        bytes32 publicKeyX,
+        bytes32 publicKeyY
+    ) external override {
+        self.registerNewWallet(ecdsaWalletID, publicKeyX, publicKeyY);
+    }
 
     /// @notice A callback function that is called by the FROST wallet
     ///         registry once a new FROST/Schnorr-keyed wallet is created.
@@ -1220,7 +1184,7 @@ contract Bridge is Governable, Initializable, IReceiveBalanceApproval {
         bytes32,
         bytes32 publicKeyX,
         bytes32 publicKeyY
-    ) external {
+    ) external override {
         self.notifyWalletHeartbeatFailed(publicKeyX, publicKeyY);
     }
 
@@ -1939,14 +1903,24 @@ contract Bridge is Governable, Initializable, IReceiveBalanceApproval {
         return self.liveWalletsCount;
     }
 
-    // fraudChallenges getter: moved off Bridge -- ECDSA challenges
-    // live on EcdsaFraudRouter, P2TR challenges live on
-    // P2TRSignatureFraudRouter. The legacy
-    // `BridgeState.fraudChallenges` mapping remains in storage to
-    // support one-time migration of pre-cutover entries via
-    // migrateLegacyFraudChallenges (routerKind 0 = ECDSA, 1 = P2TR),
-    // but no read accessor is exposed -- consumers should call the
-    // routers' `fraudChallenges` views directly.
+    /// @notice Returns whether a fraud challenge key is reserved by a
+    ///         pre-cutover record still held in Bridge storage.
+    /// @dev Both unresolved and resolved records reserve their key. This keeps
+    ///      the extracted routers from accepting public evidence under the
+    ///      same key before an unresolved record and its escrow are migrated,
+    ///      or replaying evidence that the legacy Bridge already resolved.
+    ///      During migration, Bridge deletes the legacy record and seeds the
+    ///      router record atomically, so the key is never available between
+    ///      those state transitions. This selector must remain callable while
+    ///      the immutable fraud routers accept submissions; removing it would
+    ///      fail closed and reject every future challenge.
+    function legacyFraudChallengeExists(uint256 challengeKey)
+        external
+        view
+        returns (bool)
+    {
+        return self.fraudChallenges[challengeKey].reportedAt != 0;
+    }
 
     /// @notice Collection of all moved funds sweep requests indexed by
     ///         `keccak256(movingFundsTxHash | movingFundsOutputIndex)`.
@@ -2364,11 +2338,9 @@ contract Bridge is Governable, Initializable, IReceiveBalanceApproval {
     ///         already blocked structurally, independent of this
     ///         flag: `requestNewWallet` dispatches only to the
     ///         FROST registry (the scheme-dispatch branch was
-    ///         removed in D-2.2 slice 3) and
-    ///         `__ecdsaWalletCreatedCallback` was removed in
-    ///         D-2.1. Because the create path is closed at the
-    ///         EVM dispatcher level, even flipping the flag back
-    ///         (e.g., via a storage poke) cannot reopen it.
+    ///         removed in D-2.2 slice 3). The retained ECDSA callback
+    ///         authenticates the legacy registry and only allows already
+    ///         initiated DKGs to complete; it cannot initiate a new request.
     ///
     ///         Off-chain consumers observe the transition via
     ///         the public `ecdsaRetired()` getter below (NOT
@@ -2514,87 +2486,21 @@ contract Bridge is Governable, Initializable, IReceiveBalanceApproval {
         );
     }
 
-    /// @notice One-time governance helper to transfer legacy ECDSA
-    ///         fraud challenges from Bridge storage to the
-    ///         EcdsaFraudRouter sidecar. Sends the aggregate escrowed
-    ///         ETH along with the challenge records.
+    /// @notice Governance helper transferring unresolved legacy fraud
+    ///         challenges and their aggregate ETH escrow to a router sidecar.
     /// @param challengeKeys Identifiers of legacy challenges (from
     ///        `BridgeState.fraudChallenges`) to migrate.
     /// @dev Requirements:
     ///      - Caller must be governance,
-    ///      - EcdsaFraudRouter must be set,
-    ///      - Each key must reference a challenge that exists in
-    ///        Bridge storage and has not already been migrated.
-    ///
-    ///      Operationally, governance is expected to drain/resolve as
-    ///      many active challenges as possible before invoking this
-    ///      helper, then run this once for any residual entries.
+    ///      - `routerKind` must be 0 (ECDSA) or 1 (P2TR),
+    ///      - The selected router must be set,
+    ///      - Every key must reference an unresolved legacy challenge.
     function migrateLegacyFraudChallenges(
         uint8 routerKind,
         uint256[] calldata challengeKeys
     ) external onlyGovernance {
-        // Deliberately stubbed in this PR. Removing the loop body
-        // saves ~1.1 KiB on Bridge, which is currently pressed
-        // against EIP-170 by the addition of the P2TR fraud router
-        // surface.
-        //
-        // The acceptable use of this stub is gated by a per-chain
-        // cutover playbook that must hold for EVERY chain the Bridge
-        // is deployed to BEFORE the upgrade that adds the router
-        // setters is queued:
-        //
-        //   1. Off-chain audit: enumerate every FraudChallengeSubmitted
-        //      and P2TRSignatureFraudChallengeSubmitted event ever
-        //      emitted on the target chain. Confirm the count is zero
-        //      OR confirm every emitted challenge has a matching
-        //      FraudChallengeDefeated / FraudChallengeDefeatTimedOut
-        //      (and the same for the P2TR pair). Snapshot the proof
-        //      into the deployment record.
-        //
-        //   2. Pre-upgrade quiet period: during the governance delay
-        //      window before this upgrade activates, governance MUST
-        //      not enable any new wallet (so no new fraud-able UTXOs
-        //      get unlocked); existing wallet maintainers MUST hold
-        //      off any fraud-eligible signing. The quiet period gives
-        //      the audit in step (1) durable validity.
-        //
-        //   3. Atomic cutover: the same governance proposal that
-        //      sets the routers (via setEcdsaFraudRouter +
-        //      setP2TRFraudRouter) is the proposal that activates
-        //      this upgrade. There is no in-between window where
-        //      Bridge accepts fraud calls but the routers are not
-        //      yet wired.
-        //
-        // If any chain cannot satisfy the audit OR the quiet period,
-        // the migration body MUST be added in a focused upgrade
-        // before the router upgrade activates on that chain. Bridge
-        // is upgradeable; the function signature, event, and
-        // `IEcdsaFraudRouterMigration` interface stay in place here
-        // so that follow-up upgrade is a body swap and not an ABI
-        // change.
-        //
-        // Chains in scope at the time of this PR: Ethereum L1
-        // (Sepolia + mainnet); no L2/sidechain Bridge deployments.
-        // Mainnet has never seen an opened fraud challenge; Sepolia
-        // has never seen one either. Both chains pass step (1) with
-        // count = 0.
-        routerKind;
-        challengeKeys;
-        // Custom error keeps the stub small at runtime; the rich
-        // diagnostic was previously a string revert that cost
-        // ~70 extra bytes in deployed bytecode. Behavior is
-        // unchanged for callers (the helper is unimplemented and
-        // governance MUST swap the body in via a focused upgrade
-        // if any chain fails the audit-or-quiet-period test in
-        // the cutover playbook above).
-        revert MigrateLegacyFraudChallengesNotImplemented();
+        self.migrateLegacyFraudChallenges(routerKind, challengeKeys);
     }
-
-    /// @notice The migrateLegacyFraudChallenges helper is
-    ///         deliberately stubbed in this PR (see the NatSpec
-    ///         block on the function itself). Custom error to
-    ///         keep the deployed bytecode small.
-    error MigrateLegacyFraudChallengesNotImplemented();
 
     /// @notice Sets the P2TRSignatureFraudRouter sidecar address.
     /// @dev Same one-time-setter pattern as `setEcdsaFraudRouter`.

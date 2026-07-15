@@ -7,15 +7,24 @@ slice 1 and slice 3 land as part of PR #971 rather than as standalone
 canonical PRs. Slice 2 and slice 4 remain deferred with their
 operational prerequisites.
 
+> **Security-continuity correction (2026-07-13):** The canonical upgrade
+> retains the authenticated ECDSA creation callback so a DKG initiated before
+> the proxy upgrade can complete afterward. New requests are still FROST-only.
+> Removing this callback is now part of the final registry-drain slice and is
+> safe only after the legacy registry is IDLE and no creation can remain in
+> flight.
+
 ## Context
 
-D-2.1 (PR #445) shipped the structural ECDSA hard retirement:
+D-2.1 (PR #445) originally shipped the structural ECDSA hard retirement:
 
-- `Bridge.__ecdsaWalletCreatedCallback` removed entirely.
+- `Bridge.__ecdsaWalletCreatedCallback` was removed, then restored by the
+  security-continuity correction above.
 - `Wallets.requestNewWallet` Ecdsa-branch reverts
   unconditionally (Codex P1 re-raise).
 - `Bridge.retireEcdsa()` + `EcdsaRetired` event added.
-- `IWalletOwner` interface inheritance dropped.
+- `IWalletOwner` interface inheritance was dropped, then restored with the
+  callback.
 
 It deferred several smaller follow-ups for EIP-170 budget +
 operational-drain reasons. D-2.2 picks those up as a series
@@ -159,12 +168,15 @@ The last ECDSA-related surface on Bridge consists of:
 - `Bridge.__ecdsaWalletHeartbeatFailedCallback` (preserved
   through D-2 because existing ECDSA wallets still need to
   report heartbeat failures via the ECDSA registry).
+- `Bridge.__ecdsaWalletCreatedCallback` (preserved to drain a DKG
+  initiated before the direct proxy upgrade).
 - `notifyWalletHeartbeatFailed` in the Wallets library.
 
 Slice 4 removes all of them. Reclaim: substantial
 (~400-600 bytes) but only safe when:
 
 - All ECDSA wallets have reached Closed/Terminated state.
+- The legacy registry is IDLE and no creation request remains in flight.
 - The ECDSA registry is no longer expected to call into
   Bridge for any purpose.
 

@@ -1854,14 +1854,9 @@ contract BridgeGovernance is Ownable {
     ///        classification is required since the legacy Bridge
     ///        mapping was shared between the two lifecycles.
     /// @param challengeKeys Legacy challenge keys to migrate.
-    /// @dev The target `Bridge.migrateLegacyFraudChallenges` helper is
-    ///      intentionally non-operational in the current Bridge
-    ///      implementation: its body is stubbed out and it always
-    ///      reverts with `MigrateLegacyFraudChallengesNotImplemented`.
-    ///      Calls through this forwarder therefore revert until a
-    ///      future Bridge upgrade swaps in the migration body. The
-    ///      forwarder is kept in place so the governance ABI stays
-    ///      stable across that upgrade (a body swap, not an ABI change).
+    /// @dev Bridge accepts only unresolved records, deletes them before the
+    ///      router call, and transfers the exact aggregate escrow. A router
+    ///      failure reverts the complete migration atomically.
     function migrateLegacyFraudChallenges(
         uint8 routerKind,
         uint256[] calldata challengeKeys
@@ -1910,15 +1905,10 @@ contract BridgeGovernance is Ownable {
     ///         getter (NOT via an event: D-2.2 dropped the
     ///         `emit EcdsaRetired()` in `Bridge.retireEcdsa()`
     ///         to fit the getter under EIP-170).
-    /// @dev The load-bearing pre-upgrade step on existing
-    ///      mainnet deployments is
-    ///      `BridgeGovernance.setNewWalletScheme(Frost)` (the
-    ///      method above, already in the deployed
-    ///      BridgeGovernance from C-2). With scheme = Frost,
-    ///      no ECDSA dispatch ever reaches the registry, so
-    ///      the deadlock vector against the removed
-    ///      `__ecdsaWalletCreatedCallback` is structurally
-    ///      closed without ever calling `retireEcdsa()`.
+    /// @dev New requests are FROST-only after the Bridge upgrade. The Bridge
+    ///      intentionally retains the authenticated ECDSA creation callback
+    ///      so a request started before that upgrade can complete even if this
+    ///      audit-trail flag has already been set.
     ///
     ///      `retireEcdsa()` is a NEW function shipping in this
     ///      PR's source. Calling it on mainnet requires

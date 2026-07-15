@@ -409,8 +409,8 @@ describe("Bridge - Wallets", () => {
       // The Bridge no longer gates FROST wallet creation on the LEGACY ECDSA
       // wallet registry's DKG state. That gate read
       // `ecdsaWalletRegistry.getWalletCreationState() == IDLE`; with ECDSA wallet
-      // creation retired (its created-callback removed), a stuck ECDSA DKG could
-      // never return to IDLE and would permanently block FROST wallet creation.
+      // creation retired, a stuck ECDSA DKG must not permanently block FROST
+      // wallet creation. The callback remains only to drain pre-upgrade DKGs.
       // The "one creation at a time" guarantee is now enforced by the FROST
       // registry itself — FrostWalletRegistry.requestNewWallet() calls
       // dkg.lockState(), which reverts ("Current state is not IDLE") unless the
@@ -420,28 +420,20 @@ describe("Bridge - Wallets", () => {
     })
   })
 
-  // D-2 removed `__ecdsaWalletCreatedCallback` from Bridge.
-  // Tests that previously exercised the callback now route
-  // through the `BridgeStub.__ecdsaWalletCreatedCallbackForTest`
-  // helper, which mirrors the body of the pre-removal callback
-  // minus the `msg.sender == ecdsaWalletRegistry` access check
-  // (no longer relevant — the production callback is gone).
-  // The "called by a third party should revert" case is no
-  // longer applicable: calling a removed selector reverts with
-  // no data at the EVM dispatcher; there is no
-  // registry-vs-third-party distinction to assert.
-  describe("__ecdsaWalletCreatedCallback (test-stub helper)", () => {
+  describe("__ecdsaWalletCreatedCallback", () => {
     context("when called with a valid ECDSA Wallet details", async () => {
       let tx: ContractTransaction
 
       before(async () => {
         await createSnapshot()
 
-        tx = await bridge.__ecdsaWalletCreatedCallbackForTest(
-          ecdsaWalletTestData.walletID,
-          ecdsaWalletTestData.publicKeyX,
-          ecdsaWalletTestData.publicKeyY
-        )
+        tx = await bridge
+          .connect(walletRegistry.wallet)
+          .__ecdsaWalletCreatedCallback(
+            ecdsaWalletTestData.walletID,
+            ecdsaWalletTestData.publicKeyX,
+            ecdsaWalletTestData.publicKeyY
+          )
       })
 
       after(async () => {
@@ -544,11 +536,13 @@ describe("Bridge - Wallets", () => {
         before(async () => {
           await createSnapshot()
 
-          tx = await bridge.__ecdsaWalletCreatedCallbackForTest(
-            registryWalletID,
-            ecdsaWalletTestData.publicKeyX,
-            ecdsaWalletTestData.publicKeyY
-          )
+          tx = await bridge
+            .connect(walletRegistry.wallet)
+            .__ecdsaWalletCreatedCallback(
+              registryWalletID,
+              ecdsaWalletTestData.publicKeyX,
+              ecdsaWalletTestData.publicKeyY
+            )
         })
 
         after(async () => {
@@ -598,11 +592,13 @@ describe("Bridge - Wallets", () => {
         before(async () => {
           await createSnapshot()
 
-          await bridge.__ecdsaWalletCreatedCallbackForTest(
-            ecdsaWalletTestData.walletID,
-            ecdsaWalletTestData.publicKeyX,
-            ecdsaWalletTestData.publicKeyY
-          )
+          await bridge
+            .connect(walletRegistry.wallet)
+            .__ecdsaWalletCreatedCallback(
+              ecdsaWalletTestData.walletID,
+              ecdsaWalletTestData.publicKeyX,
+              ecdsaWalletTestData.publicKeyY
+            )
         })
 
         after(async () => {
@@ -669,8 +665,9 @@ describe("Bridge - Wallets", () => {
             it(
               test.expectedError ? "should revert" : "should not revert",
               async () => {
-                const tx: Promise<ContractTransaction> =
-                  bridge.__ecdsaWalletCreatedCallbackForTest(
+                const tx: Promise<ContractTransaction> = bridge
+                  .connect(walletRegistry.wallet)
+                  .__ecdsaWalletCreatedCallback(
                     test.walletID,
                     test.publicKeyX,
                     test.publicKeyY
@@ -687,6 +684,20 @@ describe("Bridge - Wallets", () => {
         })
       }
     )
+
+    context("when called by a third party", () => {
+      it("should revert", async () => {
+        await expect(
+          bridge
+            .connect(thirdParty)
+            .__ecdsaWalletCreatedCallback(
+              ecdsaWalletTestData.walletID,
+              ecdsaWalletTestData.publicKeyX,
+              ecdsaWalletTestData.publicKeyY
+            )
+        ).to.be.revertedWith("Caller is not the ECDSA Wallet Registry")
+      })
+    })
   })
 
   describe("activeWalletID", () => {

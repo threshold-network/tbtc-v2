@@ -41,10 +41,9 @@ const { createSnapshot, restoreSnapshot } = helpers.snapshot
 // invariant: `requestNewWallet` reverts identically whether the
 // flag is set or not (FROST-only dispatch, unwired registry).
 //
-// ECDSA wallet creation is instead blocked structurally: the
-// scheme branch is gone (D-2.2 slice 3) and
-// `Bridge.__ecdsaWalletCreatedCallback` was removed entirely in
-// D-2 — so there is no late-callback drain path left to test.
+// New ECDSA requests are blocked structurally because the scheme
+// branch is gone. The authenticated callback remains deliberately
+// ungated so a DKG started before the proxy upgrade can still finish.
 describe("Bridge - ECDSA retirement (informational flag + D-2 setter)", () => {
   let governance: SignerWithAddress
   let thirdParty: SignerWithAddress
@@ -123,13 +122,40 @@ describe("Bridge - ECDSA retirement (informational flag + D-2 setter)", () => {
     })
   })
 
-  // D-2 removed `Bridge.__ecdsaWalletCreatedCallback`
-  // entirely — the late-callback drain test from D-1 no
-  // longer applies (there is no callback to drain). The
-  // ABI-removal regression is covered indirectly: any test
-  // attempting to call `bridge.__ecdsaWalletCreatedCallback`
-  // now hits a TypeError on the typechain proxy because the
-  // function is not in the ABI.
+  describe("legacy ECDSA creation callback continuity", () => {
+    before(async () => {
+      await createSnapshot()
+    })
+
+    after(async () => {
+      await restoreSnapshot()
+    })
+
+    it("preserves the production callback selector", async () => {
+      expect(
+        bridge.interface.getSighash(
+          "__ecdsaWalletCreatedCallback(bytes32,bytes32,bytes32)"
+        )
+      ).to.equal("0xa8fa0f42")
+    })
+
+    it("accepts a registry callback after ecdsaRetired is set", async () => {
+      await bridgeGovernance.connect(governance).retireEcdsa()
+
+      await bridge
+        .connect(walletRegistry.wallet)
+        .__ecdsaWalletCreatedCallback(
+          ecdsaWalletTestData.walletID,
+          ecdsaWalletTestData.publicKeyX,
+          ecdsaWalletTestData.publicKeyY
+        )
+
+      expect(await bridge.ecdsaRetired()).to.equal(true)
+      expect(
+        (await bridge.wallets(ecdsaWalletTestData.pubKeyHash160)).state
+      ).to.equal(1)
+    })
+  })
 
   describe("retireEcdsa (D-2 canonical setter)", () => {
     before(async () => {

@@ -5,6 +5,7 @@ pragma solidity 0.8.17;
 import "../bridge/BitcoinTx.sol";
 import "../bridge/Bridge.sol";
 import "../bridge/EcdsaLib.sol";
+import "../bridge/Fraud.sol";
 import "../bridge/MovingFunds.sol";
 import "../bridge/RebateStaking.sol";
 import "../bridge/Redemption.sol";
@@ -134,6 +135,33 @@ contract BridgeStub is Bridge {
 
     function resetLifecycleRouterForTest(address lifecycleRouter) external {
         self.lifecycleRouter = lifecycleRouter;
+    }
+
+    function resetEcdsaFraudRouterForTest(address router) external {
+        self.ecdsaFraudRouter = router;
+    }
+
+    function resetP2TRFraudRouterForTest(address router) external {
+        self.p2trFraudRouter = router;
+    }
+
+    function setLegacyFraudChallengeForTest(
+        uint256 challengeKey,
+        Fraud.FraudChallenge calldata challenge
+    ) external payable {
+        require(
+            msg.value == challenge.depositAmount,
+            "msg.value != challenge deposit"
+        );
+        self.fraudChallenges[challengeKey] = challenge;
+    }
+
+    function legacyFraudChallengeForTest(uint256 challengeKey)
+        external
+        view
+        returns (Fraud.FraudChallenge memory)
+    {
+        return self.fraudChallenges[challengeKey];
     }
 
     function setDepositDustThreshold(uint64 _depositDustThreshold) external {
@@ -299,17 +327,15 @@ contract BridgeStub is Bridge {
         self.ecdsaRetired = retired;
     }
 
-    /// @notice Test-only ECDSA wallet creation helper. Replaces
-    ///         the production `__ecdsaWalletCreatedCallback`
-    ///         that D-2 removed from Bridge. Replicates the
+    /// @notice Test-only ECDSA wallet creation helper. Replicates the
     ///         body of `Wallets.registerNewWallet` minus the
     ///         `msg.sender == ecdsaWalletRegistry` access
     ///         check so test fixtures can create ECDSA wallets
     ///         for downstream-flow testing (redemptions,
     ///         deposits, fraud, etc.) without needing to
     ///         impersonate the registry.
-    /// @dev Mainnet path is gone; this duplicated body lives
-    ///      in the test-only stub. If the library's
+    /// @dev This helper only bypasses production registry authentication.
+    ///      If the library's
     ///      `registerNewWallet` changes in a future PR, this
     ///      helper should be updated to match.
     function __ecdsaWalletCreatedCallbackForTest(
@@ -338,8 +364,15 @@ contract BridgeStub is Bridge {
         /* solhint-disable-next-line not-rely-on-time */
         wallet.createdAt = uint32(block.timestamp);
 
-        self.activeWalletPubKeyHash = walletPubKeyHash;
-        self.activeWalletID = walletID;
+        bytes20 activeWalletPubKeyHash = self.activeWalletPubKeyHash;
+        if (
+            activeWalletPubKeyHash == bytes20(0) ||
+            self.registeredWallets[activeWalletPubKeyHash].ecdsaWalletID !=
+            bytes32(0)
+        ) {
+            self.activeWalletPubKeyHash = walletPubKeyHash;
+            self.activeWalletID = walletID;
+        }
         self.walletPubKeyHashByWalletID[walletID] = walletPubKeyHash;
 
         self.liveWalletsCount++;
