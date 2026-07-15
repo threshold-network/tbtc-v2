@@ -1565,6 +1565,39 @@ describe("Bridge - Redemption", () => {
           redemptionAmount + changeValue
         )
       })
+
+      const legacyChangeScripts = [
+        {
+          type: "P2PKH",
+          script: `0x1976a914${walletPubKeyHash.substring(2)}88ac`,
+        },
+        {
+          type: "P2WPKH",
+          script: `0x160014${walletPubKeyHash.substring(2)}`,
+        },
+      ]
+
+      for (const legacyChangeScript of legacyChangeScripts) {
+        it(`should reject a ${legacyChangeScript.type} change output`, async () => {
+          const outputVector = buildOutputVector([
+            {
+              value: changeValue,
+              script: legacyChangeScript.script,
+            },
+            {
+              value: redemptionAmount,
+              script: redeemerOutputScript,
+            },
+          ])
+
+          await expect(
+            bridge.callStatic.processRedemptionTxOutputsForTest(
+              outputVector,
+              walletPubKeyHash
+            )
+          ).to.be.revertedWith("Output is a non-requested redemption")
+        })
+      }
     })
   })
 
