@@ -1049,7 +1049,9 @@ test("passes configured spend-type classifier into live submissions", async () =
 
     const report = await service.processCycle()
 
-    assert.equal(classifierCalls, 2)
+    // Classification runs during observation, incoming submission validation,
+    // and final validation of the exact payload selected from durable state.
+    assert.equal(classifierCalls, 3)
     assert.equal(submitter.submissionCount, 1)
     assert.equal(report.metrics.mempoolObservations, 1)
     assert.equal(report.metrics.mempoolSubmissions, 1)

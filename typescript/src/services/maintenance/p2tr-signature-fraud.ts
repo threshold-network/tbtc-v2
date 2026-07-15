@@ -3830,6 +3830,31 @@ export class P2TRSignatureFraudWatchtower {
     const submissionObservation =
       submissionStartedRecord.observation ?? observation
 
+    // A replayed `submitting` record may retain an older same-key payload, so
+    // revalidate and reauthorize the exact payload chosen from durable state.
+    validateP2TRSignatureFraudWitnessObservationConsistency(
+      submissionObservation,
+      {
+        bridgeIdentifier: this.bridgeIdentifier,
+        spendTypeClassifier: this.spendTypeClassifier,
+        payloadBounds: this.payloadBounds,
+        bridgeChallengeDomain: this.bridgeChallengeDomain,
+      }
+    )
+
+    if (
+      !isP2TRSignatureFraudSubmissionAllowed(
+        submissionObservation,
+        submissionPolicy
+      )
+    ) {
+      return this.raiseChallengeOperatorAlert(
+        submissionObservation.observationID,
+        "P2TR-SPEND-TYPE-NOT-APPROVED",
+        `P2TR signature-fraud spend type ${submissionObservation.spendType} is not approved for challenge submission`
+      )
+    }
+
     // Once the challenge transaction is broadcast it is irreversible, so the
     // record must never be left in a replayable state (which would re-broadcast a
     // duplicate). The submitter reports the broadcast via `onBroadcast`, which

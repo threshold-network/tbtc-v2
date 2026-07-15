@@ -4089,6 +4089,237 @@ describe("P2TR signature-fraud witness parsing", () => {
     )
   })
 
+  it("revalidates the frozen crash-recovery payload before submission", async () => {
+    const vector = loadFullSighashVectorCorpus().cases.find(
+      (candidate) => candidate.id === "bip341-keypath-anyonecanpay-none-multi"
+    )
+    if (vector === undefined) {
+      throw new Error("Missing ANYONECANPAY|NONE P2TR signature-fraud vector")
+    }
+
+    const originalRawTransaction = withInputWitness(
+      vector.unsignedTransactionHex,
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    const replacementTransaction = Transaction.fromHex(
+      vector.unsignedTransactionHex
+    )
+    replacementTransaction.outs[0].value--
+    const replacementRawTransaction = withInputWitness(
+      replacementTransaction.toHex(),
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    const inputPrevouts = toObservationPrevouts(vector).map(
+      (prevout, inputIndex) =>
+        inputIndex === vector.signedInputIndex
+          ? prevout
+          : { ...prevout, scriptPubKey: "51" }
+    )
+    const representationClassifier: P2TRSignatureFraudSpendTypeClassifier = ({
+      unsignedTransaction,
+    }) =>
+      unsignedTransaction.transactionHex === vector.unsignedTransactionHex
+        ? P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION
+        : P2TR_SIGNATURE_FRAUD_SPEND_TYPE_MOVING_FUNDS
+    const [originalObservation] = extractP2TRSignatureFraudWitnessObservations(
+      originalRawTransaction,
+      inputPrevouts,
+      [vector.walletIDHex],
+      undefined,
+      representationClassifier,
+      undefined,
+      bridgeChallengeDomain
+    )
+    const [replacementObservation] =
+      extractP2TRSignatureFraudWitnessObservations(
+        replacementRawTransaction,
+        inputPrevouts,
+        [vector.walletIDHex],
+        undefined,
+        representationClassifier,
+        undefined,
+        bridgeChallengeDomain
+      )
+    const submittingRecord = applyP2TRWatchtowerChallengeEvent(
+      applyP2TRWatchtowerChallengeEvent(
+        createP2TRWatchtowerChallengeRecord(originalObservation.observationID),
+        {
+          type: "observed",
+          observationID: originalObservation.observationID,
+          observation: originalObservation,
+        }
+      ),
+      {
+        type: "submission-started",
+        observationID: originalObservation.observationID,
+        observation: originalObservation,
+      }
+    )
+    const restoreSubmittingRecord = () =>
+      deserializeP2TRWatchtowerChallengeRecord(
+        serializeP2TRWatchtowerChallengeRecord(submittingRecord)
+      )
+    const movingFundsOnlyPolicy: P2TRSignatureFraudChallengeSubmissionPolicy = {
+      allowedSpendTypes: [P2TR_SIGNATURE_FRAUD_SPEND_TYPE_MOVING_FUNDS],
+    }
+    const redemptionOnlyPolicy: P2TRSignatureFraudChallengeSubmissionPolicy = {
+      allowedSpendTypes: [P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION],
+    }
+
+    expect(replacementObservation.observationID.toString()).to.equal(
+      originalObservation.observationID.toString()
+    )
+    expect(originalObservation.spendType).to.equal(
+      P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION
+    )
+    expect(replacementObservation.spendType).to.equal(
+      P2TR_SIGNATURE_FRAUD_SPEND_TYPE_MOVING_FUNDS
+    )
+    expect(submittingRecord.status).to.equal("submitting")
+
+    const allowedStore = new InMemoryP2TRWatchtowerChallengeStore([
+      restoreSubmittingRecord(),
+    ])
+    const allowedWatchtower = new P2TRSignatureFraudWatchtower(
+      allowedStore,
+      [vector.walletIDHex],
+      undefined,
+      representationClassifier,
+      undefined,
+      bridgeChallengeDomain
+    )
+    const allowedSubmitter = new FakeP2TRSignatureFraudChallengeSubmitter(
+      txHash("6")
+    )
+    const allowed = await allowedWatchtower.submitChallenge(
+      replacementObservation,
+      allowedSubmitter,
+      {
+        allowedSpendTypes: [
+          P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
+          P2TR_SIGNATURE_FRAUD_SPEND_TYPE_MOVING_FUNDS,
+        ],
+      }
+    )
+
+    expect(allowed.status).to.equal("submitted")
+    expect(allowed.submissionAttempts).to.equal(2)
+    expect(allowedSubmitter.submissionCount).to.equal(1)
+    expect(
+      allowedSubmitter.submittedObservations[0].rawTransaction.transactionHex
+    ).to.equal(originalRawTransaction.transactionHex)
+    expect(allowedSubmitter.submittedObservations[0].spendType).to.equal(
+      P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION
+    )
+
+    const triggerPolicyStore = new InMemoryP2TRWatchtowerChallengeStore([
+      restoreSubmittingRecord(),
+    ])
+    const triggerPolicyWatchtower = new P2TRSignatureFraudWatchtower(
+      triggerPolicyStore,
+      [vector.walletIDHex],
+      undefined,
+      representationClassifier,
+      undefined,
+      bridgeChallengeDomain
+    )
+    const triggerPolicySubmitter = new FakeP2TRSignatureFraudChallengeSubmitter(
+      txHash("7")
+    )
+    const triggerPolicyBlocked = await triggerPolicyWatchtower.submitChallenge(
+      replacementObservation,
+      triggerPolicySubmitter,
+      redemptionOnlyPolicy
+    )
+
+    expect(triggerPolicySubmitter.submissionCount).to.equal(0)
+    expect(triggerPolicyBlocked.status).to.equal("submitting")
+    expect(triggerPolicyBlocked.submissionAttempts).to.equal(1)
+    expect(triggerPolicyBlocked.operatorAlertStatus).to.equal("open")
+    expect(triggerPolicyBlocked.operatorAlertCode).to.equal(
+      "P2TR-SPEND-TYPE-NOT-APPROVED"
+    )
+    expect(triggerPolicyBlocked.operatorAlertMessage).to.contain("moving-funds")
+
+    const policyStore = new InMemoryP2TRWatchtowerChallengeStore([
+      restoreSubmittingRecord(),
+    ])
+    const policyWatchtower = new P2TRSignatureFraudWatchtower(
+      policyStore,
+      [vector.walletIDHex],
+      undefined,
+      representationClassifier,
+      undefined,
+      bridgeChallengeDomain
+    )
+    const policySubmitter = new FakeP2TRSignatureFraudChallengeSubmitter(
+      txHash("8")
+    )
+    const policyBlocked = await policyWatchtower.submitChallenge(
+      replacementObservation,
+      policySubmitter,
+      movingFundsOnlyPolicy
+    )
+
+    expect(policySubmitter.submissionCount).to.equal(0)
+    expect(policyBlocked.status).to.equal("submitting")
+    expect(policyBlocked.operatorAlertStatus).to.equal("open")
+    expect(policyBlocked.operatorAlertCode).to.equal(
+      "P2TR-SPEND-TYPE-NOT-APPROVED"
+    )
+    expect(policyBlocked.operatorAlertMessage).to.contain("redemption")
+    expect(policyBlocked.observation?.rawTransaction.transactionHex).to.equal(
+      originalRawTransaction.transactionHex
+    )
+
+    const currentClassifier: P2TRSignatureFraudSpendTypeClassifier = () =>
+      P2TR_SIGNATURE_FRAUD_SPEND_TYPE_MOVING_FUNDS
+    const [currentReplacementObservation] =
+      extractP2TRSignatureFraudWitnessObservations(
+        replacementRawTransaction,
+        inputPrevouts,
+        [vector.walletIDHex],
+        undefined,
+        currentClassifier,
+        undefined,
+        bridgeChallengeDomain
+      )
+    const consistencyStore = new InMemoryP2TRWatchtowerChallengeStore([
+      restoreSubmittingRecord(),
+    ])
+    const consistencyWatchtower = new P2TRSignatureFraudWatchtower(
+      consistencyStore,
+      [vector.walletIDHex],
+      undefined,
+      currentClassifier,
+      undefined,
+      bridgeChallengeDomain
+    )
+    const consistencySubmitter = new FakeP2TRSignatureFraudChallengeSubmitter(
+      txHash("9")
+    )
+
+    await expectWitnessRejection(
+      () =>
+        consistencyWatchtower.submitChallenge(
+          currentReplacementObservation,
+          consistencySubmitter,
+          movingFundsOnlyPolicy
+        ),
+      "invalid-watchtower-state"
+    )
+    expect(consistencySubmitter.submissionCount).to.equal(0)
+    expect(
+      (
+        await consistencyStore.getChallengeRecord(
+          originalObservation.observationID
+        )
+      )?.status
+    ).to.equal("submitting")
+  })
+
   it("resolves honest spend proof events by Bitcoin tx hash and spend type", async () => {
     const flowVectors = vectorCorpus.cases.filter(
       (vector) => vector.flowMetadata !== undefined
