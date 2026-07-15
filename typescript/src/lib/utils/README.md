@@ -29,7 +29,7 @@ const encoded = encodeDestinationReceiver(
   "0x1234567890123456789012345678901234567890"
 )
 console.log(encoded.toPrefixedString())
-// Output: "0x00000000000000000000000000000000000000000000000000000000000000281234567890123456789012345678901234567890"
+// Output: "0x2712000000000000000000001234567890123456789012345678901234567890"
 ```
 
 ### `decodeDestinationReceiver(encodedReceiver)`
@@ -48,7 +48,7 @@ Decodes destination chain ID and recipient address from encoded receiver data.
 import { decodeDestinationReceiver } from "@keep-network/tbtc-v2"
 
 const { chainId, recipient } = decodeDestinationReceiver(encoded)
-console.log(chainId) // 40
+console.log(chainId) // 10002
 console.log(recipient) // "0x1234567890123456789012345678901234567890"
 ```
 
