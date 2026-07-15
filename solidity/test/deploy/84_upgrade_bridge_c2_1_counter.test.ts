@@ -14,26 +14,26 @@ describe("Deploy Script 84: Bridge C-2.1a Counter Upgrade", () => {
   const DEPOSIT_ADDRESS = "0x3000000000000000000000000000000000000001"
   const DEPOSIT_SWEEP_ADDRESS = "0x3000000000000000000000000000000000000002"
   const REDEMPTION_ADDRESS = "0x3000000000000000000000000000000000000003"
-  const MOVING_FUNDS_ADDRESS = "0x3000000000000000000000000000000000000004"
-  const WALLETS_ADDRESS = "0x4000000000000000000000000000000000000001"
-  const FRAUD_ADDRESS = "0x4000000000000000000000000000000000000002"
-  const BRIDGE_ADDRESS = "0x5000000000000000000000000000000000000001"
-  const PROXY_ADDRESS = "0x5000000000000000000000000000000000000002"
+  const WALLETS_ADDRESS = "0x3000000000000000000000000000000000000004"
+  const MOVING_FUNDS_ADDRESS = "0x3000000000000000000000000000000000000005"
+  const FRAUD_ADDRESS = "0x3000000000000000000000000000000000000006"
+  const BRIDGE_ADDRESS = "0x4000000000000000000000000000000000000001"
+  const PROXY_ADDRESS = "0x4000000000000000000000000000000000000002"
 
-  const existingDeployments: Record<string, string> = {
+  const dependencyAddresses: Record<string, string> = {
     Bank: BANK_ADDRESS,
     LightRelay: LIGHT_RELAY_ADDRESS,
     WalletRegistry: WALLET_REGISTRY_ADDRESS,
     ReimbursementPool: REIMBURSEMENT_POOL_ADDRESS,
+  }
+
+  const libraryAddresses: Record<string, string> = {
     Deposit: DEPOSIT_ADDRESS,
     DepositSweep: DEPOSIT_SWEEP_ADDRESS,
     Redemption: REDEMPTION_ADDRESS,
-    MovingFunds: MOVING_FUNDS_ADDRESS,
-  }
-
-  const newLibraries: Record<string, string> = {
     Wallets: WALLETS_ADDRESS,
     Fraud: FRAUD_ADDRESS,
+    MovingFunds: MOVING_FUNDS_ADDRESS,
   }
 
   interface DeployCall {
@@ -42,24 +42,26 @@ describe("Deploy Script 84: Bridge C-2.1a Counter Upgrade", () => {
   }
 
   function createMockHre(networkTags: Record<string, boolean> = {}) {
-    const getCalls: string[] = []
     const deployCalls: DeployCall[] = []
+    const getCalls: string[] = []
+    const logCalls: string[] = []
     const upgradeProxyCalls: any[][] = []
     const etherscanVerifyCalls: any[] = []
     const tenderlyVerifyCalls: any[] = []
     const runCalls: Array<{ taskName: string; options: any }> = []
+    const signer = { address: DEPLOYER_ADDRESS }
 
     const mockHre: any = {
       ethers: {
         getSigner: async (address: string) => {
           expect(address).to.equal(DEPLOYER_ADDRESS)
-          return { address }
+          return signer
         },
       },
       deployments: {
         get: async (name: string) => {
           getCalls.push(name)
-          const address = existingDeployments[name]
+          const address = dependencyAddresses[name]
           if (!address) {
             throw new Error(`Unexpected deployment lookup: ${name}`)
           }
@@ -67,11 +69,14 @@ describe("Deploy Script 84: Bridge C-2.1a Counter Upgrade", () => {
         },
         deploy: async (name: string, options: any) => {
           deployCalls.push({ name, options })
-          const address = newLibraries[name]
+          const address = libraryAddresses[name]
           if (!address) {
             throw new Error(`Unexpected deployment: ${name}`)
           }
           return { address, newlyDeployed: true }
+        },
+        log: (message: string) => {
+          logCalls.push(message)
         },
       },
       getNamedAccounts: async () => ({
@@ -107,8 +112,9 @@ describe("Deploy Script 84: Bridge C-2.1a Counter Upgrade", () => {
 
     return {
       mockHre,
-      getCalls,
       deployCalls,
+      getCalls,
+      logCalls,
       upgradeProxyCalls,
       etherscanVerifyCalls,
       tenderlyVerifyCalls,
@@ -116,67 +122,71 @@ describe("Deploy Script 84: Bridge C-2.1a Counter Upgrade", () => {
     }
   }
 
-  it("reuses unchanged libraries and deploys and links current Wallets and Fraud", async () => {
-    const { mockHre, getCalls, deployCalls, upgradeProxyCalls } =
+  it("deploys and links the current version of every Bridge library", async () => {
+    const { mockHre, deployCalls, getCalls, logCalls, upgradeProxyCalls } =
       createMockHre()
-    const logCalls: string[] = []
-    const originalLog = console.log
-    console.log = (message?: any) => logCalls.push(String(message))
 
-    try {
-      await func(mockHre)
-    } finally {
-      console.log = originalLog
-    }
+    await func(mockHre)
 
     expect(getCalls).to.deep.equal([
       "Bank",
       "LightRelay",
       "WalletRegistry",
       "ReimbursementPool",
+    ])
+    expect(deployCalls.map(({ name }) => name)).to.deep.equal([
       "Deposit",
       "DepositSweep",
       "Redemption",
-      "MovingFunds",
-    ])
-    expect(deployCalls.map(({ name }) => name)).to.deep.equal([
       "Wallets",
       "Fraud",
+      "MovingFunds",
     ])
     deployCalls.forEach(({ name, options }) => {
       expect(options.from, `${name} deployer`).to.equal(DEPLOYER_ADDRESS)
       expect(options.log, `${name} logging`).to.be.true
       expect(options.waitConfirmations, `${name} confirmations`).to.equal(1)
     })
-    expect(deployCalls[0].options.contract).to.equal(
+    const walletsDeployCall = deployCalls.find(({ name }) => name === "Wallets")
+    expect(walletsDeployCall).to.not.be.undefined
+    expect(walletsDeployCall?.options.contract).to.equal(
       "contracts/bridge/Wallets.sol:Wallets"
     )
 
     expect(upgradeProxyCalls).to.have.lengthOf(1)
-    const [, , options] = upgradeProxyCalls[0]
-    expect(options.factoryOpts.libraries).to.deep.equal({
-      Deposit: DEPOSIT_ADDRESS,
-      DepositSweep: DEPOSIT_SWEEP_ADDRESS,
-      Redemption: REDEMPTION_ADDRESS,
-      Wallets: WALLETS_ADDRESS,
-      Fraud: FRAUD_ADDRESS,
-      MovingFunds: MOVING_FUNDS_ADDRESS,
+    const [proxyDeploymentName, newContractName, options] = upgradeProxyCalls[0]
+    expect(proxyDeploymentName).to.equal("Bridge")
+    expect(newContractName).to.equal("Bridge")
+    expect(options.contractName).to.equal("Bridge")
+    expect(options.initializerArgs).to.deep.equal([
+      BANK_ADDRESS,
+      LIGHT_RELAY_ADDRESS,
+      TREASURY_ADDRESS,
+      WALLET_REGISTRY_ADDRESS,
+      REIMBURSEMENT_POOL_ADDRESS,
+      6,
+    ])
+    expect(options.factoryOpts.signer).to.deep.equal({
+      address: DEPLOYER_ADDRESS,
     })
+    expect(options.factoryOpts.libraries).to.deep.equal(libraryAddresses)
+
     expect(logCalls).to.have.lengthOf(1)
-    expect(logCalls[0]).to.include(`Wallets library at ${WALLETS_ADDRESS}`)
-    expect(logCalls[0]).to.include(`Fraud library at ${FRAUD_ADDRESS}`)
+    Object.entries(libraryAddresses).forEach(([name, address]) => {
+      expect(logCalls[0]).to.include(`${name}: ${address}`)
+    })
+    expect(logCalls[0]).to.include(`Bridge: ${BRIDGE_ADDRESS}`)
   })
 
-  it("verifies both freshly deployed libraries", async () => {
+  it("verifies every deployed library on configured explorers", async () => {
     const { mockHre, etherscanVerifyCalls, tenderlyVerifyCalls, runCalls } =
       createMockHre({ etherscan: true, tenderly: true })
 
     await func(mockHre)
 
-    expect(etherscanVerifyCalls.map(({ address }) => address)).to.deep.equal([
-      WALLETS_ADDRESS,
-      FRAUD_ADDRESS,
-    ])
+    expect(etherscanVerifyCalls.map(({ address }) => address)).to.deep.equal(
+      Object.values(libraryAddresses)
+    )
     expect(runCalls).to.deep.equal([
       {
         taskName: "verify",
@@ -184,8 +194,12 @@ describe("Deploy Script 84: Bridge C-2.1a Counter Upgrade", () => {
       },
     ])
     expect(tenderlyVerifyCalls).to.deep.equal([
+      { name: "Deposit", address: DEPOSIT_ADDRESS },
+      { name: "DepositSweep", address: DEPOSIT_SWEEP_ADDRESS },
+      { name: "Redemption", address: REDEMPTION_ADDRESS },
       { name: "Wallets", address: WALLETS_ADDRESS },
       { name: "Fraud", address: FRAUD_ADDRESS },
+      { name: "MovingFunds", address: MOVING_FUNDS_ADDRESS },
       { name: "Bridge", address: BRIDGE_ADDRESS },
     ])
   })

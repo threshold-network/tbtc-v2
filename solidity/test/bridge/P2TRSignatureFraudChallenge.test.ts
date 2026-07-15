@@ -134,7 +134,7 @@ describe("P2TR signature-fraud challenge identity vectors", () => {
 
     expect(bridgeChallengeKey).to.equal(
       BigNumber.from(
-        "0x5b9c84557643f90b47ab9bcc49ff7dba8cfe283f1c37524a1e1db4316b34252f"
+        "0xdfc3a7c7a3717d106b1ee3cd7e10f744e4487a9061aadc4fa0204daf45b09d0a"
       )
     )
     expect(

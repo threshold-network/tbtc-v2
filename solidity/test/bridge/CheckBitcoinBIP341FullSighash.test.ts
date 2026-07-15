@@ -305,6 +305,53 @@ describe("CheckBitcoinBIP341Sighash (full multi-mode coverage)", () => {
     )
   })
 
+  it("canonicalizes equivalent SIGHASH_NONE payloads to one challenge identity", async () => {
+    const vector = vectorCorpus.cases.find(
+      ({ sighashType }) => sighashType === 2
+    )!
+    const tx = parseUnsignedTransaction(vector.unsignedTransactionHex)
+    const payload = {
+      walletID: hex(vector.walletIDHex),
+      version: tx.version,
+      locktime: tx.locktime,
+      inputs: toHarnessInputs(tx.inputs),
+      prevouts: toHarnessPrevouts(vector.prevouts),
+      outputs: toHarnessOutputs(tx.outputs),
+      signedInputIndex: vector.signedInputIndex,
+      witnessSignature: hex(vector.witnessSignatureHex),
+      annex: annexArg(vector),
+    }
+    const equivalentPayload = {
+      ...payload,
+      // SIGHASH_NONE does not authenticate outputs. This one-satoshi mutation
+      // therefore preserves the signed authorization and must not create a
+      // second challenge/reward identity.
+      outputs: payload.outputs.map((output, index) =>
+        index === 0
+          ? { ...output, valueSats: BigNumber.from(output.valueSats).add(1) }
+          : output
+      ),
+    }
+
+    expect(
+      await p2trHarness.checkKeyPathSignature(
+        equivalentPayload.walletID,
+        equivalentPayload.version,
+        equivalentPayload.locktime,
+        equivalentPayload.inputs,
+        equivalentPayload.prevouts,
+        equivalentPayload.outputs,
+        equivalentPayload.signedInputIndex,
+        equivalentPayload.witnessSignature,
+        equivalentPayload.annex
+      )
+    ).to.be.true
+
+    expect(
+      await p2trHarness.computeBridgeChallengeIdentity(equivalentPayload)
+    ).to.equal(await p2trHarness.computeBridgeChallengeIdentity(payload))
+  })
+
   it("rejects an explicit 0x00 sighash byte on a 65-byte signature", async () => {
     const vector = vectorCorpus.cases.find((v) => v.sighashType === 0)!
     const tx = parseUnsignedTransaction(vector.unsignedTransactionHex)

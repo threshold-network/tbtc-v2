@@ -502,7 +502,7 @@ export class EsploraP2TRSignatureFraudTransactionSource
     const transactions: EsploraTransactionSummary[] = []
     let path = `/address/${encodeURIComponent(address)}/txs/chain`
 
-    for (let page = 0; page < this.confirmedPageLimit; page++) {
+    for (let page = 0; ; page++) {
       const pageTransactions = await this.readTransactionSummaries(
         path,
         `fetch confirmed P2TR wallet transactions for ${address}`
@@ -510,6 +510,14 @@ export class EsploraP2TRSignatureFraudTransactionSource
 
       if (pageTransactions.length === 0) {
         break
+      }
+
+      if (page >= this.confirmedPageLimit) {
+        throw new Error(
+          `Confirmed P2TR wallet transaction history for ${address} is incomplete after ${
+            this.confirmedPageLimit
+          } ${this.confirmedPageLimit === 1 ? "page" : "pages"}`
+        )
       }
 
       transactions.push(...pageTransactions)
