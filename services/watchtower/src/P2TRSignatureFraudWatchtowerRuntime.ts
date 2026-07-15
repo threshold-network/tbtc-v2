@@ -7,7 +7,10 @@ import { EthersP2TRSignatureFraudBridgeLifecycleEventSource } from "./EthersP2TR
 import { EsploraP2TRSignatureFraudTransactionSource } from "./EsploraP2TRSignatureFraudTransactionSource.js"
 import { FileBackedP2TRWatchtowerChallengeRecordPersistence } from "./FileBackedP2TRWatchtowerChallengeRecordPersistence.js"
 import { FileBackedP2TRBridgeLifecycleScanCursorStore } from "./FileBackedP2TRBridgeLifecycleScanCursorStore.js"
-import type { P2TREthersBridgeLifecycleContract } from "./EthersP2TRSignatureFraudBridgeLifecycleEventSource.js"
+import type {
+  P2TRCanonicalBridgeLifecycleLogVerifier,
+  P2TREthersBridgeLifecycleContract,
+} from "./EthersP2TRSignatureFraudBridgeLifecycleEventSource.js"
 import type {
   P2TRDepositScanFailureHandler,
   P2TREsploraFetch,
@@ -88,7 +91,11 @@ export function createFileBackedP2TRSignatureFraudWatchtowerRuntime(
 export function createFileBackedP2TRBridgeLifecycleEventSource(
   p2trSignatureFraudRouter: P2TREthersBridgeLifecycleContract,
   bridge: P2TREthersBridgeLifecycleContract,
-  config: P2TRSignatureFraudWatchtowerBridgeLifecycleRuntimeConfig
+  config: P2TRSignatureFraudWatchtowerBridgeLifecycleRuntimeConfig,
+  verification: {
+    sourceTrustDomainID: string
+    canonicalLogVerifier: P2TRCanonicalBridgeLifecycleLogVerifier
+  }
 ): EthersP2TRSignatureFraudBridgeLifecycleEventSource {
   const { scanCursorFilePath, ...options } = config
 
@@ -97,6 +104,7 @@ export function createFileBackedP2TRBridgeLifecycleEventSource(
     bridge,
     {
       ...options,
+      ...verification,
       scanCursorStore:
         scanCursorFilePath === undefined
           ? undefined

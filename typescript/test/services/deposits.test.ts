@@ -47,6 +47,7 @@ import {
   depositRefundOfWitnessDepositAndWitnessRefunderAddress,
   refunderPrivateKey,
 } from "../data/deposit-refund"
+import { validateTransactionFee } from "../../src/services/deposits/utxo"
 
 chai.use(chaiAsPromised)
 import { MockDepositorProxy } from "../utils/mock-depositor-proxy"
@@ -448,6 +449,32 @@ describe("Deposits", () => {
     }
   }
 
+  describe("deposit transaction fee validation", () => {
+    const transaction = new Transaction()
+    transaction.addInput(Buffer.alloc(32), 0)
+    transaction.addOutput(Buffer.from([0x51]), 9000)
+
+    it("should accept the exact requested absolute fee", () => {
+      expect(() =>
+        validateTransactionFee(
+          transaction,
+          BigNumber.from(10000),
+          BigNumber.from(1000)
+        )
+      ).not.to.throw()
+    })
+
+    it("should reject any other absolute fee", () => {
+      expect(() =>
+        validateTransactionFee(
+          transaction,
+          BigNumber.from(10000),
+          BigNumber.from(999)
+        )
+      ).to.throw("Transaction fee does not match the requested fee")
+    })
+  })
+
   describe("DepositFunding", () => {
     describe("submitTransaction", () => {
       let bitcoinClient: MockBitcoinClient
@@ -554,6 +581,97 @@ describe("Deposits", () => {
             expect(input.index).to.be.equal(inputUtxo.outputIndex)
             expect(input.script.length).to.be.greaterThan(0)
             expect(input.witness.length).to.be.equal(0)
+          })
+
+          it("should preserve the requested absolute fee", () => {
+            const transaction = Transaction.fromHex(
+              bitcoinClient.broadcastLog[0].transactionHex
+            )
+            const previousOutput = Transaction.fromHex(inputUtxo.transactionHex)
+              .outs[inputUtxo.outputIndex]
+            const totalOutputValue = transaction.outs.reduce(
+              (sum, output) => sum.add(output.value),
+              BigNumber.from(0)
+            )
+
+            expect(
+              BigNumber.from(previousOutput.value)
+                .sub(totalOutputValue)
+                .toString()
+            ).to.be.equal("1520")
+          })
+        })
+
+        context("when P2PKH UTXO metadata is inconsistent", () => {
+          const actualValue = BigNumber.from(100000)
+          const fee = BigNumber.from(1000)
+          const amount = BigNumber.from(40000)
+          let authenticUtxo: BitcoinUtxo & BitcoinRawTx
+          let depositFunding: DepositFunding
+
+          beforeEach(() => {
+            authenticUtxo = createTestnetP2PKHUtxo(actualValue)
+            depositFunding = DepositFunding.fromScript(
+              DepositScript.fromReceipt(depositFixture.receipt, true)
+            )
+          })
+
+          const submit = async (utxo: BitcoinUtxo) => {
+            bitcoinClient.rawTransactions = new Map<string, BitcoinRawTx>([
+              [
+                utxo.transactionHash.toString(),
+                { transactionHex: authenticUtxo.transactionHex },
+              ],
+            ])
+
+            return depositFunding.submitTransaction(
+              amount,
+              [utxo],
+              fee,
+              testnetPrivateKey,
+              bitcoinClient
+            )
+          }
+
+          it("should reject understated metadata without broadcasting", async () => {
+            await expect(
+              submit({ ...authenticUtxo, value: BigNumber.from(50000) })
+            ).to.be.rejectedWith(
+              "UTXO value does not match raw previous transaction"
+            )
+
+            expect(bitcoinClient.broadcastLog).to.be.empty
+          })
+
+          it("should reject overstated metadata without broadcasting", async () => {
+            await expect(
+              submit({ ...authenticUtxo, value: BigNumber.from(150000) })
+            ).to.be.rejectedWith(
+              "UTXO value does not match raw previous transaction"
+            )
+
+            expect(bitcoinClient.broadcastLog).to.be.empty
+          })
+
+          it("should reject a raw transaction with the wrong transaction ID", async () => {
+            await expect(
+              submit({
+                ...authenticUtxo,
+                transactionHash: BitcoinTxHash.from("11".repeat(32)),
+              })
+            ).to.be.rejectedWith(
+              "Raw transaction does not match UTXO transaction hash"
+            )
+
+            expect(bitcoinClient.broadcastLog).to.be.empty
+          })
+
+          it("should reject an out-of-range output index", async () => {
+            await expect(
+              submit({ ...authenticUtxo, outputIndex: 1 })
+            ).to.be.rejectedWith("UTXO output index is out of range")
+
+            expect(bitcoinClient.broadcastLog).to.be.empty
           })
         })
 
@@ -3655,6 +3773,16 @@ describe("Deposits", () => {
                     signature
                   )
                 ).to.be.true
+
+                const totalOutputValue = refundTransaction.outs.reduce(
+                  (sum, output) => sum.add(output.value),
+                  BigNumber.from(0)
+                )
+                expect(
+                  BigNumber.from(previousOutput.value)
+                    .sub(totalOutputValue)
+                    .toString()
+                ).to.be.equal(fee.toString())
               }
 
               beforeEach(async () => {
@@ -3696,6 +3824,127 @@ describe("Deposits", () => {
                     ).getId()
                   )
                 )
+              })
+            })
+
+            context("when P2TR refund UTXO metadata is inconsistent", () => {
+              const actualValue = BigNumber.from(100000)
+              let authenticUtxo: BitcoinUtxo & BitcoinRawTx
+              let depositRefund: DepositRefund
+
+              beforeEach(async () => {
+                const refunderKeyPair = BitcoinPrivateKeyUtils.createKeyPair(
+                  refunderPrivateKey,
+                  BitcoinNetwork.Testnet
+                )
+                const refundXOnlyPublicKey = Hex.from(
+                  Buffer.from(refunderKeyPair.publicKey).subarray(1)
+                )
+                const depositReceipt: DepositReceipt = {
+                  ...taprootDepositFixture.receipt,
+                  refundPublicKeyHash:
+                    BitcoinAddressConverter.taprootOutputKeyToWalletPublicKeyHash(
+                      refundXOnlyPublicKey
+                    ),
+                  refundXOnlyPublicKey,
+                }
+                const depositScript = DepositScript.fromReceipt(
+                  depositReceipt,
+                  DepositScriptType.P2TR
+                )
+                const fundingTransaction = new Transaction()
+                fundingTransaction.version = 1
+                fundingTransaction.addInput(Buffer.alloc(32), 0)
+                fundingTransaction.addOutput(
+                  await depositScript.deriveOutputScript(
+                    BitcoinNetwork.Testnet
+                  ),
+                  actualValue.toNumber()
+                )
+
+                authenticUtxo = {
+                  transactionHash: BitcoinTxHash.from(
+                    fundingTransaction.getId()
+                  ),
+                  outputIndex: 0,
+                  value: actualValue,
+                  transactionHex: fundingTransaction.toHex(),
+                }
+                depositRefund = DepositRefund.fromScript(depositScript)
+              })
+
+              const submit = async (utxo: BitcoinUtxo) => {
+                bitcoinClient.rawTransactions = new Map<string, BitcoinRawTx>([
+                  [
+                    utxo.transactionHash.toString(),
+                    { transactionHex: authenticUtxo.transactionHex },
+                  ],
+                ])
+
+                return depositRefund.submitTransaction(
+                  bitcoinClient,
+                  fee,
+                  utxo,
+                  depositRefundOfWitnessDepositAndWitnessRefunderAddress.refunderAddress,
+                  refunderPrivateKey
+                )
+              }
+
+              it("should broadcast a matching UTXO with the requested fee", async () => {
+                await submit(authenticUtxo)
+
+                expect(bitcoinClient.broadcastLog).to.have.length(1)
+                const refundTransaction = Transaction.fromHex(
+                  bitcoinClient.broadcastLog[0].transactionHex
+                )
+                const totalOutputValue = refundTransaction.outs.reduce(
+                  (sum, output) => sum.add(output.value),
+                  BigNumber.from(0)
+                )
+                expect(actualValue.sub(totalOutputValue).toString()).to.equal(
+                  fee.toString()
+                )
+              })
+
+              it("should reject understated metadata without broadcasting", async () => {
+                await expect(
+                  submit({ ...authenticUtxo, value: BigNumber.from(2000) })
+                ).to.be.rejectedWith(
+                  "UTXO value does not match raw previous transaction"
+                )
+
+                expect(bitcoinClient.broadcastLog).to.be.empty
+              })
+
+              it("should reject overstated metadata without broadcasting", async () => {
+                await expect(
+                  submit({ ...authenticUtxo, value: BigNumber.from(150000) })
+                ).to.be.rejectedWith(
+                  "UTXO value does not match raw previous transaction"
+                )
+
+                expect(bitcoinClient.broadcastLog).to.be.empty
+              })
+
+              it("should reject a raw transaction with the wrong transaction ID", async () => {
+                await expect(
+                  submit({
+                    ...authenticUtxo,
+                    transactionHash: BitcoinTxHash.from("11".repeat(32)),
+                  })
+                ).to.be.rejectedWith(
+                  "Raw transaction does not match UTXO transaction hash"
+                )
+
+                expect(bitcoinClient.broadcastLog).to.be.empty
+              })
+
+              it("should reject an out-of-range output index", async () => {
+                await expect(
+                  submit({ ...authenticUtxo, outputIndex: 1 })
+                ).to.be.rejectedWith("UTXO output index is out of range")
+
+                expect(bitcoinClient.broadcastLog).to.be.empty
               })
             })
           }

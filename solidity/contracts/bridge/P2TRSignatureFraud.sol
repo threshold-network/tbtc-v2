@@ -11,7 +11,7 @@ pragma solidity 0.8.17;
 ///      harnesses consume the same code.
 library P2TRSignatureFraud {
     string internal constant BridgeChallengeIdentityDomain =
-        "tbtc-p2tr-signature-fraud-bridge-challenge-v0";
+        "tbtc-p2tr-signature-fraud-bridge-challenge-v1";
     string internal constant BridgeChallengeKeyDomain =
         "tbtc-p2tr-signature-fraud-bridge-key-v0";
     uint8 internal constant SighashDefault = 0;

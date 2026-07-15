@@ -259,6 +259,7 @@ test("shares raw transaction concurrency across mempool and confirmed listings",
     [addressConfirmedPath(address)]: confirmedTxids.map((txid, index) =>
       confirmedSummary(txid, blockHash, 100 + index)
     ),
+    [`${addressConfirmedPath(address)}/${confirmedTxids[2]}`]: [],
   }
   const transactionIDs = [...mempoolTxids, ...confirmedTxids]
   transactionIDs.forEach((txid) => {
@@ -475,6 +476,7 @@ test("keeps confirmed observations when a deposit spend raw transaction is unava
         [addressConfirmedPath(address)]: [
           confirmedSummary(confirmedTxid, blockHash, 123),
         ],
+        [`${addressConfirmedPath(address)}/${confirmedTxid}`]: [],
         [depositOutspendPath(fundingTxid, 2)]: {
           spent: true,
           txid: nextConfirmedTxid,
@@ -816,6 +818,7 @@ test("wires Esplora transaction source from validated runtime config", async () 
 
 test("lists paged Esplora confirmed P2TR wallet transactions with block metadata", async () => {
   const address = deriveP2TRWalletAddress(walletID, BitcoinNetwork.Testnet)
+  const requestedPaths: string[] = []
   const source = new EsploraP2TRSignatureFraudTransactionSource(
     "https://esplora.test",
     BitcoinNetwork.Testnet,
@@ -824,16 +827,20 @@ test("lists paged Esplora confirmed P2TR wallet transactions with block metadata
       taprootDepositRevealSource: emptyTaprootDepositRevealSource,
       onDepositScanFailure: ignoreDepositScanFailure,
       confirmedPageLimit: 2,
-      fetchFn: fakeFetch({
-        [addressConfirmedPath(address)]: [
-          confirmedSummary(confirmedTxid, blockHash, 123),
-        ],
-        [`${addressConfirmedPath(address)}/${confirmedTxid}`]: [
-          confirmedSummary(nextConfirmedTxid, blockHash, 124),
-        ],
-        [`/tx/${confirmedTxid}/hex`]: rawConfirmedTx,
-        [`/tx/${nextConfirmedTxid}/hex`]: rawConfirmedTx,
-      }),
+      fetchFn: fakeFetch(
+        {
+          [addressConfirmedPath(address)]: [
+            confirmedSummary(confirmedTxid, blockHash, 123),
+          ],
+          [`${addressConfirmedPath(address)}/${confirmedTxid}`]: [
+            confirmedSummary(nextConfirmedTxid, blockHash, 124),
+          ],
+          [`${addressConfirmedPath(address)}/${nextConfirmedTxid}`]: [],
+          [`/tx/${confirmedTxid}/hex`]: rawConfirmedTx,
+          [`/tx/${nextConfirmedTxid}/hex`]: rawConfirmedTx,
+        },
+        requestedPaths
+      ),
     }
   )
 
@@ -851,6 +858,52 @@ test("lists paged Esplora confirmed P2TR wallet transactions with block metadata
     transactions.map((transaction) => transaction.bitcoinBlockHeight),
     [123, 124]
   )
+  assert.ok(
+    requestedPaths.includes(
+      `${addressConfirmedPath(address)}/${nextConfirmedTxid}`
+    )
+  )
+})
+
+test("rejects a capped confirmed-history prefix instead of reporting it complete", async () => {
+  const address = deriveP2TRWalletAddress(walletID, BitcoinNetwork.Testnet)
+  const pageOneTxids = Array.from({ length: 25 }, (_, index) =>
+    (index + 1).toString(16).padStart(2, "0").repeat(32)
+  )
+  const pageTwoTxid = "f1".repeat(32)
+  const requestedPaths: string[] = []
+  const source = new EsploraP2TRSignatureFraudTransactionSource(
+    "https://esplora.test",
+    BitcoinNetwork.Testnet,
+    [walletID],
+    {
+      taprootDepositRevealSource: emptyTaprootDepositRevealSource,
+      onDepositScanFailure: ignoreDepositScanFailure,
+      confirmedPageLimit: 1,
+      fetchFn: fakeFetch(
+        {
+          [addressConfirmedPath(address)]: pageOneTxids.map((txid, index) =>
+            confirmedSummary(txid, blockHash, 100 + index)
+          ),
+          [`${addressConfirmedPath(address)}/${pageOneTxids[24]}`]: [
+            confirmedSummary(pageTwoTxid, blockHash, 125),
+          ],
+        },
+        requestedPaths
+      ),
+    }
+  )
+
+  await assert.rejects(
+    source.listConfirmedTransactions(),
+    /Confirmed P2TR wallet transaction history.*incomplete after 1 page/
+  )
+  assert.ok(
+    requestedPaths.includes(
+      `${addressConfirmedPath(address)}/${pageOneTxids[24]}`
+    )
+  )
+  assert.ok(!requestedPaths.includes(`/tx/${pageTwoTxid}/hex`))
 })
 
 test("discovers confirmed spends of revealed Taproot deposit outpoints", async () => {
@@ -912,6 +965,7 @@ test("rejects confirmed Esplora transactions without block metadata", async () =
             status: { confirmed: true },
           },
         ],
+        [`${addressConfirmedPath(address)}/${confirmedTxid}`]: [],
       }),
     }
   )

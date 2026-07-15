@@ -22,6 +22,7 @@ import {
   Stack,
 } from "bitcoinjs-lib"
 import * as secp256k1 from "@bitcoinerlab/secp256k1"
+import { resolveBitcoinUtxo, validateTransactionFee } from "./utxo"
 
 const TAPROOT_SIGHASH_DEFAULT = 0
 
@@ -129,7 +130,9 @@ export class DepositRefund {
       bitcoinNetwork
     )
 
-    const outputValue = utxo.value.sub(fee)
+    const { output: previousOutput, value: authoritativeValue } =
+      resolveBitcoinUtxo(utxo)
+    const outputValue = authoritativeValue.sub(fee)
 
     const transaction = new Transaction()
 
@@ -154,9 +157,6 @@ export class DepositRefund {
     transaction.ins[0].sequence = 0xfffffffe
 
     // Sign the input
-    const previousOutput = Transaction.fromHex(utxo.transactionHex).outs[
-      utxo.outputIndex
-    ]
     const previousOutputValue = previousOutput.value
     const previousOutputScript = Hex.from(previousOutput.script)
 
@@ -184,6 +184,7 @@ export class DepositRefund {
       throw new Error("Unsupported UTXO script type")
     }
 
+    validateTransactionFee(transaction, authoritativeValue, fee)
     const transactionHash = BitcoinTxHash.from(transaction.getId())
 
     return {
