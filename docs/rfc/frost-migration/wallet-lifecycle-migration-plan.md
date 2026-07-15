@@ -114,16 +114,29 @@ batches. Each batch:
 3. deletes them from Bridge storage before calling the router; and
 4. transfers the aggregate ETH with the records.
 
-The router call is part of the same transaction. A duplicate, resolved record,
-wrong router classification, or receiver failure reverts the deletion and ETH
-movement. Resolved records are intentionally not migrated because their escrow
-has already been paid or routed. Deployment must link the current `Fraud`
-library bytecode; a historical address does not contain the migration selector.
+The router call is part of the same transaction. A duplicate or resolved record,
+an invalid router kind, an unconfigured selected router, or receiver failure
+reverts the deletion and ETH movement. **Router classification does not.** The
+legacy record has no scheme tag, and both routers accept the same record shape,
+so `routerKind` only selects the receiver. A wrong classification succeeds,
+deletes the Bridge record, transfers its escrow, and has no supported on-chain
+rollback or reclassification path. The challenge may become unresolvable;
+routing it to the P2TR router also increments the unattributed global counter
+and can block every graceful FROST wallet closure.
 
-The release record should still include the event-derived challenge inventory,
-the router classification for every unresolved key, the migration transaction
-receipts, and confirmation that both routers report the expected open challenge
-counts afterward.
+Classification is therefore an irreversible off-chain prerequisite. Before
+submitting any batch, the deployment team must bind every unresolved key to its
+scheme-specific submission evidence, independently review the ECDSA/P2TR
+classification manifest, and confirm the governance calldata matches that
+manifest. Do not migrate an ambiguous key. Resolved records are intentionally
+not migrated because their escrow has already been paid or routed. Deployment
+must link the current `Fraud` library bytecode; a historical address does not
+contain the migration selector.
+
+The release record must include the event-derived challenge inventory, the
+approved classification manifest, the exact batch calldata, the migration
+transaction receipts, and confirmation that both routers report the expected
+open challenge counts afterward.
 
 ## Phase B-1 design
 
