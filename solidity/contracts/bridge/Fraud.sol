@@ -18,6 +18,8 @@ pragma solidity 0.8.17;
 import {BytesLib} from "@keep-network/bitcoin-spv-sol/contracts/BytesLib.sol";
 import {BTCUtils} from "@keep-network/bitcoin-spv-sol/contracts/BTCUtils.sol";
 
+import "./BridgeState.sol";
+
 /// @title Bridge fraud helpers
 /// @notice The ECDSA fraud lifecycle (submit / defeat / timeout) was
 ///         extracted out of this library into the `EcdsaFraudRouter`
@@ -57,6 +59,83 @@ library Fraud {
         // This struct doesn't contain `__gap` property as the structure is stored
         // in a mapping, mappings store values in different slots and they are
         // not contiguous with other values.
+    }
+
+    event LegacyFraudChallengeMigrated(
+        uint8 indexed routerKind,
+        uint256 indexed challengeKey,
+        address indexed challenger,
+        uint256 depositAmount
+    );
+
+    error InvalidLegacyFraudRouterKind();
+    error LegacyFraudRouterNotSet();
+    error LegacyFraudChallengeDoesNotExist();
+    error LegacyFraudChallengeAlreadyResolved();
+
+    /// @notice Moves unresolved fraud challenges and their exact ETH escrow
+    ///         from legacy Bridge storage into one of the fraud routers.
+    /// @dev This function is external so the migration loop stays in linked
+    ///      library bytecode instead of the size-constrained Bridge runtime.
+    ///      Records are deleted before the router interaction. Any router
+    ///      failure reverts the entire delegatecall, restoring both storage
+    ///      and escrow atomically.
+    function migrateLegacyFraudChallenges(
+        BridgeState.Storage storage self,
+        uint8 routerKind,
+        uint256[] calldata challengeKeys
+    ) external {
+        address router;
+
+        if (routerKind == 0) {
+            router = self.ecdsaFraudRouter;
+        } else if (routerKind == 1) {
+            router = self.p2trFraudRouter;
+        } else {
+            revert InvalidLegacyFraudRouterKind();
+        }
+
+        if (router == address(0)) {
+            revert LegacyFraudRouterNotSet();
+        }
+
+        FraudChallenge[] memory challenges = new FraudChallenge[](
+            challengeKeys.length
+        );
+        uint256 totalDeposit;
+
+        for (uint256 i = 0; i < challengeKeys.length; i++) {
+            uint256 challengeKey = challengeKeys[i];
+            FraudChallenge storage challenge = self.fraudChallenges[
+                challengeKey
+            ];
+
+            if (challenge.reportedAt == 0) {
+                revert LegacyFraudChallengeDoesNotExist();
+            }
+            if (challenge.resolved) {
+                revert LegacyFraudChallengeAlreadyResolved();
+            }
+
+            challenges[i] = challenge;
+            totalDeposit += challenge.depositAmount;
+
+            address challenger = challenge.challenger;
+            uint256 depositAmount = challenge.depositAmount;
+            delete self.fraudChallenges[challengeKey];
+
+            emit LegacyFraudChallengeMigrated(
+                routerKind,
+                challengeKey,
+                challenger,
+                depositAmount
+            );
+        }
+
+        IFraudRouterMigration(router).acceptMigration{value: totalDeposit}(
+            challengeKeys,
+            challenges
+        );
     }
 
     /// @notice Extracts the UTXO keys from the given preimage used during
@@ -202,4 +281,12 @@ library Fraud {
         uint32 sighashTypeLE = uint32(sighashTypeBytes);
         return sighashTypeLE.reverseUint32();
     }
+}
+
+/// @dev Common migration receiver implemented by both fraud router sidecars.
+interface IFraudRouterMigration {
+    function acceptMigration(
+        uint256[] calldata challengeKeys,
+        Fraud.FraudChallenge[] calldata data
+    ) external payable;
 }

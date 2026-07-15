@@ -9,6 +9,17 @@ and uses the reclaimed bytecode budget to land the canonical
 `retireEcdsa()` governance setter + supporting surface that was
 deferred from D-1.
 
+> **Security-continuity correction (2026-07-13):** The canonical FROST
+> upgrade retains `__ecdsaWalletCreatedCallback` and `IWalletOwner`
+> compatibility. The deployed Bridge/BridgeGovernance does not expose the
+> pause and scheme-setter ceremony described in the historical runbook below,
+> so a DKG can begin in the last pre-upgrade block. The retained callback is
+> authenticated by the legacy registry, is deliberately not gated by
+> `ecdsaRetired`, and can only drain a request that registry already started;
+> new post-upgrade wallet requests remain FROST-only. Treat the callback-removal
+> and activation-sequence text below as a historical record, not a deployment
+> instruction.
+
 > **NOTE (post-D-2.2 reconciliation, 2026-05-25):** Several
 > claims in the body below are stale relative to the as-shipped
 > contract after PR #447 (D-2.2 slice 1) merged:

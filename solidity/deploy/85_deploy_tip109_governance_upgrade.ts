@@ -211,6 +211,7 @@ function buildVerificationChecks(addresses: {
   rebateImpl: string
   depositLib: string
   redemptionLib: string
+  fraudLib: string
 }): VerificationCheck[] {
   return [
     {
@@ -224,9 +225,10 @@ function buildVerificationChecks(addresses: {
       expectedResult:
         "Bytecode should contain embedded library address fragments: " +
         `${addresses.depositLib.slice(2).toLowerCase()} (Deposit) and ` +
-        `${addresses.redemptionLib.slice(2).toLowerCase()} (Redemption)`,
+        `${addresses.redemptionLib.slice(2).toLowerCase()} (Redemption) and ` +
+        `${addresses.fraudLib.slice(2).toLowerCase()} (Fraud)`,
       description:
-        "Bridge implementation bytecode should contain embedded addresses of new Deposit and Redemption libraries",
+        "Bridge implementation bytecode should contain embedded addresses of new Deposit, Redemption, and Fraud libraries",
     },
     {
       command: `cast call ${addresses.bridgeProxy} "deposits(uint256)(bytes32,uint32,uint64,uint32,address,uint32)" <sample_deposit_key>`,
@@ -310,10 +312,12 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   // --- Step 1: Deploy new library versions ---
   // Deposit has rebate integration changes; Redemption has the balanceOwner
-  // fix. Both require fresh deployments.
+  // fix; Fraud contains the legacy challenge migration entrypoint. All three
+  // require deployments from the current source before linking Bridge.
   console.log("\n--- Deploying updated libraries ---")
   const Deposit = await deploy("Deposit", deployOptions)
   const Redemption = await deploy("Redemption", deployOptions)
+  const Fraud = await deploy("Fraud", deployOptions)
 
   // --- Step 2: Resolve unchanged existing libraries ---
   // These libraries have NOT changed since last deployment and are reused
@@ -321,11 +325,6 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log("\n--- Resolving existing libraries ---")
   const DepositSweep = await get("DepositSweep")
   const Wallets = await get("Wallets")
-  // Fraud library is no longer linked into Bridge — the ECDSA fraud
-  // lifecycle moved to the EcdsaFraudRouter sidecar in the FROST
-  // extraction (round-1 strip removed the Fraud library deployment from
-  // 06_deploy_bridge.ts). No "Fraud" deployment artifact exists; the
-  // Bridge implementation links 5 libraries, not 6.
   const MovingFunds = await get("MovingFunds")
 
   console.log("Existing library addresses:")
@@ -336,14 +335,14 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // --- Step 3: Deploy Bridge implementation ---
   // Uses a distinct artifact name to avoid overwriting the existing Bridge
   // proxy artifact managed by hardhat-deploy. The Bridge contract links
-  // 5 libraries at deployment time (Fraud moved to EcdsaFraudRouter
-  // sidecar — see round-1 covenant-debt strip on PR #971).
+  // all 6 libraries required by the current implementation.
   console.log("\n--- Deploying Bridge implementation ---")
   const bridgeLibraries = {
     Deposit: Deposit.address,
     DepositSweep: DepositSweep.address,
     Redemption: Redemption.address,
     Wallets: Wallets.address,
+    Fraud: Fraud.address,
     MovingFunds: MovingFunds.address,
   }
 
@@ -370,6 +369,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log("Deployed contract addresses:")
   console.log(`  Deposit library:              ${Deposit.address}`)
   console.log(`  Redemption library:           ${Redemption.address}`)
+  console.log(`  Fraud library:                ${Fraud.address}`)
   console.log(`  Bridge implementation:        ${bridgeImpl.address}`)
   console.log(`  RebateStaking implementation: ${rebateImpl.address}`)
   console.log("-".repeat(80))
@@ -482,6 +482,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     deployedContracts: {
       Deposit: Deposit.address,
       Redemption: Redemption.address,
+      Fraud: Fraud.address,
       BridgeTIP109Implementation: bridgeImpl.address,
       RebateStakingTIP109Implementation: rebateImpl.address,
     },
@@ -534,6 +535,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       rebateImpl: rebateImpl.address,
       depositLib: Deposit.address,
       redemptionLib: Redemption.address,
+      fraudLib: Fraud.address,
     }),
   }
 
@@ -637,6 +639,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
             address: Redemption.address,
             name: "contracts/bridge/Redemption.sol:Redemption",
             label: "Redemption",
+          },
+          {
+            address: Fraud.address,
+            name: "contracts/bridge/Fraud.sol:Fraud",
+            label: "Fraud",
           },
           {
             address: bridgeImpl.address,

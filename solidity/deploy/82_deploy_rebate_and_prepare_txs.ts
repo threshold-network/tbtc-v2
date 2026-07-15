@@ -5,7 +5,7 @@ import path from "path"
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { ethers, helpers, deployments, getNamedAccounts } = hre
-  const { get } = deployments
+  const { get, deploy } = deployments
   const { deployer } = await getNamedAccounts()
 
   console.log("\n========== REBATE DEPLOYMENT STARTING ==========")
@@ -13,7 +13,8 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log("Deployer:", deployer)
   console.log("=================================================\n")
 
-  // Verify we're using existing mainnet deployments - do NOT redeploy!
+  // Verify the existing mainnet infrastructure before deploying upgrade
+  // components.
   console.log("Verifying existing mainnet infrastructure...")
   try {
     const Bridge = await deployments.get("Bridge")
@@ -112,17 +113,24 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log("✓ Using existing Deposit library at:", Deposit.address)
   console.log("✓ Using existing Redemption library at:", Redemption.address)
 
-  // Step 3: Get existing libraries for Bridge upgrade
-  console.log("\nStep 3: Collecting existing libraries...")
+  // Step 3: Resolve existing libraries and deploy the current Fraud library.
+  // Fraud contains the legacy challenge migration entrypoint used by the
+  // current Bridge implementation. Linking a historical deployment would
+  // leave that selector unavailable.
+  console.log("\nStep 3: Collecting Bridge libraries...")
 
   const DepositSweep = await get("DepositSweep")
   const Wallets = await get("Wallets")
+  const Fraud = await deploy("Fraud", {
+    from: deployer,
+    log: true,
+    waitConfirmations: 1,
+  })
   const MovingFunds = await get("MovingFunds")
-  // Fraud and P2TRSignatureFraudLifecycle are no longer linked into
-  // Bridge -- ECDSA fraud surface moved to EcdsaFraudRouter sidecar.
 
   console.log("✓ Using existing DepositSweep at:", DepositSweep.address)
   console.log("✓ Using existing Wallets at:", Wallets.address)
+  console.log("✓ Using current Fraud at:", Fraud.address)
   console.log("✓ Using existing MovingFunds at:", MovingFunds.address)
 
   // Step 4: Deploy Bridge implementation
@@ -143,6 +151,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       DepositSweep: DepositSweep.address,
       Redemption: Redemption.address,
       Wallets: Wallets.address,
+      Fraud: Fraud.address,
       MovingFunds: MovingFunds.address,
     },
   })
@@ -245,6 +254,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       rebateStaking: rebateStaking.address,
       depositLibrary: Deposit.address,
       redemptionLibrary: Redemption.address,
+      fraudLibrary: Fraud.address,
       bridgeImplementation: bridgeImplementation.address,
     },
     existingContracts: {
@@ -306,6 +316,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log("  RebateStaking:         ", rebateStaking.address)
   console.log("  Deposit Library:       ", Deposit.address)
   console.log("  Redemption Library:    ", Redemption.address)
+  console.log("  Fraud Library:         ", Fraud.address)
   console.log("  Bridge Implementation: ", bridgeImplementation.address)
 
   console.log("\n================================================")
@@ -344,6 +355,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
     await helpers.etherscan.verify(Deposit)
     await helpers.etherscan.verify(Redemption)
+    await helpers.etherscan.verify(Fraud)
 
     await hre.run("verify", {
       address: rebateProxyDeployment.address,
@@ -360,6 +372,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
           DepositSweep: DepositSweep.address,
           Redemption: Redemption.address,
           Wallets: Wallets.address,
+          Fraud: Fraud.address,
           MovingFunds: MovingFunds.address,
         },
       })
@@ -373,6 +386,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   // Verify on Tenderly if applicable
   if (hre.network.tags.tenderly) {
+    await hre.tenderly.verify({
+      name: "Fraud",
+      address: Fraud.address,
+    })
+
     await hre.tenderly.verify({
       name: "RebateStaking",
       address: rebateStaking.address,

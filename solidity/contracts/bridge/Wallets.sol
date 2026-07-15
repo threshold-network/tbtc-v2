@@ -348,9 +348,21 @@ library Wallets {
         /* solhint-disable-next-line not-rely-on-time */
         wallet.createdAt = uint32(block.timestamp);
 
-        // Set the freshly created wallet as the new active wallet.
-        self.activeWalletPubKeyHash = walletPubKeyHash;
-        self.activeWalletID = walletID;
+        // A callback for an ECDSA DKG started before the FROST upgrade may
+        // arrive after a newer FROST wallet has already been registered. The
+        // callback must still succeed so the legacy registry can complete its
+        // DKG, but it must not route new deposits away from that FROST wallet.
+        // Preserve the legacy replacement behavior when there is no active
+        // wallet or the current active wallet is itself ECDSA-keyed.
+        bytes20 activeWalletPubKeyHash = self.activeWalletPubKeyHash;
+        if (
+            activeWalletPubKeyHash == bytes20(0) ||
+            self.registeredWallets[activeWalletPubKeyHash].ecdsaWalletID !=
+            bytes32(0)
+        ) {
+            self.activeWalletPubKeyHash = walletPubKeyHash;
+            self.activeWalletID = walletID;
+        }
         self.walletPubKeyHashByWalletID[walletID] = walletPubKeyHash;
 
         self.liveWalletsCount++;

@@ -437,8 +437,9 @@ library BridgeState {
         // ECDSA wallet creation is already blocked structurally,
         // because that function dispatches only to the FROST
         // registry (the scheme-dispatch branch was removed in
-        // D-2.2 slice 3) and `__ecdsaWalletCreatedCallback` was
-        // removed in D-2.1. The originally planned D-1 read-side
+        // D-2.2 slice 3). The authenticated ECDSA callback is retained
+        // solely to drain DKGs initiated before the upgrade and is
+        // deliberately not gated by this flag. The originally planned D-1 read-side
         // guard (rejecting ECDSA-routed requests) and the
         // pre-existing IDLE precheck it depended on were both
         // dropped when the scheme dispatch was removed, so no such

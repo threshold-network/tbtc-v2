@@ -429,9 +429,21 @@ describe("FrostWalletRegistry DKG edge cases (B-1.5 slice 4)", () => {
       )
     }
 
-    // Non-misbehaved operators stay eligible.
+    // Group selection samples with replacement, so an operator at an
+    // unmarked position can also occupy a marked position. Pick an operator
+    // ID that does not occur at any misbehaved position.
+    const misbehavedOperatorIdSet = new Set(
+      misbehavedOperatorIds.map((operatorId) => operatorId.toString())
+    )
+    const nonMisbehavedOperatorId = dkgResult.members.find(
+      (operatorId) => !misbehavedOperatorIdSet.has(operatorId.toString())
+    )
+    if (nonMisbehavedOperatorId === undefined) {
+      throw new Error("DKG result contains no non-misbehaved operator")
+    }
+
     const nonMisbehavedAddr = (
-      await frostSortitionPool.getIDOperators([dkgResult.members[0]])
+      await frostSortitionPool.getIDOperators([nonMisbehavedOperatorId])
     )[0]
     expect(
       await frostSortitionPool.isEligibleForRewards(nonMisbehavedAddr)

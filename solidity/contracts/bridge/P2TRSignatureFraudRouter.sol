@@ -58,6 +58,11 @@ interface IBridgeForP2TRFraud {
         view
         returns (MovingFunds.MovedFundsSweepRequest memory);
 
+    function legacyFraudChallengeExists(uint256 challengeKey)
+        external
+        view
+        returns (bool);
+
     /// @notice Privileged callback the P2TR router invokes from the
     ///         timeout path. Bridge gates this with
     ///         `onlyP2TRFraudRouter`.
@@ -248,17 +253,11 @@ contract P2TRSignatureFraudRouter {
                 fraudChallenges[challengeKeys[i]].reportedAt == 0,
                 "Challenge already migrated"
             );
-            if (!data[i].resolved) {
-                require(
-                    data[i].reportedAt > 0,
-                    "Unresolved challenge not reported"
-                );
-            }
+            require(data[i].reportedAt > 0, "Challenge not reported");
+            require(!data[i].resolved, "Challenge already resolved");
             fraudChallenges[challengeKeys[i]] = data[i];
-            if (!data[i].resolved) {
-                openFraudChallengeCount++;
-                unattributedOpenFraudChallengeCount++;
-            }
+            openFraudChallengeCount++;
+            unattributedOpenFraudChallengeCount++;
             totalDeposit += data[i].depositAmount;
             emit P2TRFraudChallengeMigratedFromBridge(
                 challengeKeys[i],
@@ -345,6 +344,10 @@ contract P2TRSignatureFraudRouter {
             context.challengeKey
         ];
         require(challenge.reportedAt == 0, "Fraud challenge already exists");
+        require(
+            !b.legacyFraudChallengeExists(context.challengeKey),
+            "Legacy fraud challenge exists"
+        );
 
         require(
             CheckBitcoinP2TRSignatureFraud.checkSignature(

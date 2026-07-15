@@ -36,6 +36,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
   const deployAddressMap: Record<string, string> = {
     Deposit: DEPOSIT_ADDRESS,
     Redemption: REDEMPTION_ADDRESS,
+    Fraud: FRAUD_ADDRESS,
     BridgeTIP109Implementation: BRIDGE_IMPL_ADDRESS,
     RebateStakingTIP109Implementation: REBATE_IMPL_ADDRESS,
   }
@@ -43,7 +44,6 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
   const getAddressMap: Record<string, string> = {
     DepositSweep: DEPOSIT_SWEEP_ADDRESS,
     Wallets: WALLETS_ADDRESS,
-    Fraud: FRAUD_ADDRESS,
     MovingFunds: MOVING_FUNDS_ADDRESS,
     Bridge: BRIDGE_PROXY_ADDRESS,
     RebateStaking: REBATE_STAKING_PROXY_ADDRESS,
@@ -221,13 +221,19 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         expect(redemptionCall!.options.waitConfirmations).to.equal(1)
       })
 
+      it("should deploy Fraud library with correct options", async () => {
+        await func(mockHre)
+
+        const fraudCall = deployCalls.find((c) => c.name === "Fraud")
+        expect(fraudCall).to.not.be.undefined
+        expect(fraudCall!.options.from).to.equal(DEPLOYER_ADDRESS)
+        expect(fraudCall!.options.log).to.be.true
+        expect(fraudCall!.options.waitConfirmations).to.equal(1)
+      })
+
       it("should resolve existing libraries via deployments.get()", async () => {
         await func(mockHre)
 
-        // Fraud is no longer linked into Bridge — moved to
-        // EcdsaFraudRouter sidecar by round-1 of the FROST extraction.
-        // Round 19 dropped the `get("Fraud")` call from the deploy script;
-        // updating the expected list here to match.
         const expectedLibraries = ["DepositSweep", "Wallets", "MovingFunds"]
         const getNames = getCalls.map((c) => c.name)
 
@@ -237,6 +243,10 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
             `Expected deployments.get() to be called with "${lib}"`
           )
         })
+        expect(getNames).to.not.include(
+          "Fraud",
+          "Fraud must be deployed from current source, not resolved as an existing library"
+        )
       })
 
       it("should deploy Bridge implementation with distinct artifact name", async () => {
@@ -256,7 +266,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         expect(directBridgeCall).to.be.undefined
       })
 
-      it("should define all 5 required libraries for Bridge implementation deployment", async () => {
+      it("should define all 6 required libraries for Bridge implementation deployment", async () => {
         await func(mockHre)
 
         const bridgeCall = deployCalls.find(
@@ -267,19 +277,16 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         const { libraries } = bridgeCall!.options
         expect(libraries).to.not.be.undefined
 
-        // 5 libraries, not 6: Fraud was extracted to the
-        // EcdsaFraudRouter sidecar by round-1 of the FROST extraction
-        // (06_deploy_bridge.ts and 85_deploy_tip109_governance_upgrade.ts
-        // updated in round 19 to drop the Fraud library link).
         const expectedLibKeys = [
           "Deposit",
           "DepositSweep",
           "Redemption",
           "Wallets",
+          "Fraud",
           "MovingFunds",
         ]
         const actualKeys = Object.keys(libraries)
-        expect(actualKeys).to.have.lengthOf(5)
+        expect(actualKeys).to.have.lengthOf(6)
 
         expectedLibKeys.forEach((key) => {
           expect(libraries).to.have.property(key)
@@ -291,6 +298,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         expect(libraries.DepositSweep).to.equal(DEPOSIT_SWEEP_ADDRESS)
         expect(libraries.Redemption).to.equal(REDEMPTION_ADDRESS)
         expect(libraries.Wallets).to.equal(WALLETS_ADDRESS)
+        expect(libraries.Fraud).to.equal(FRAUD_ADDRESS)
         expect(libraries.MovingFunds).to.equal(MOVING_FUNDS_ADDRESS)
       })
 
@@ -342,6 +350,9 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
           ethers.constants.AddressZero
         )
 
+        const fraudArtifact = await deployments.get("Fraud")
+        expect(fraudArtifact.address).to.not.equal(ethers.constants.AddressZero)
+
         const bridgeImplArtifact = await deployments.get(
           "BridgeTIP109Implementation"
         )
@@ -372,6 +383,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
           // Verify that deployed addresses appear in the console output
           const depositArtifact = await deployments.get("Deposit")
           const redemptionArtifact = await deployments.get("Redemption")
+          const fraudArtifact = await deployments.get("Fraud")
           const bridgeImplArtifact = await deployments.get(
             "BridgeTIP109Implementation"
           )
@@ -381,6 +393,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
 
           expect(allOutput).to.include(depositArtifact.address)
           expect(allOutput).to.include(redemptionArtifact.address)
+          expect(allOutput).to.include(fraudArtifact.address)
           expect(allOutput).to.include(bridgeImplArtifact.address)
           expect(allOutput).to.include(rebateImplArtifact.address)
         } finally {
@@ -701,13 +714,14 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
       )
     })
 
-    it("should have deployedContracts with all 4 entries", () => {
+    it("should have deployedContracts with all 5 entries", () => {
       expect(summary).to.not.be.null
       const dc = summary.deployedContracts
 
       const requiredKeys = [
         "Deposit",
         "Redemption",
+        "Fraud",
         "BridgeTIP109Implementation",
         "RebateStakingTIP109Implementation",
       ]
@@ -739,20 +753,18 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
       })
     })
 
-    it("should have libraries with all 5 entries", () => {
-      // 5 libraries after FROST extraction: Fraud moved to
-      // EcdsaFraudRouter sidecar (round 1 strip + round 19 deploy
-      // script update).
+    it("should have libraries with all 6 entries", () => {
       expect(summary).to.not.be.null
       const libs = summary.libraries
 
-      expect(Object.keys(libs)).to.have.lengthOf(5)
+      expect(Object.keys(libs)).to.have.lengthOf(6)
 
       const requiredKeys = [
         "Deposit",
         "DepositSweep",
         "Redemption",
         "Wallets",
+        "Fraud",
         "MovingFunds",
       ]
 
@@ -898,7 +910,7 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         expect(combined).to.include("56")
       })
 
-      it("should have a bytecode linkage check referencing Deposit and Redemption addresses", () => {
+      it("should have a bytecode linkage check referencing Deposit, Redemption, and Fraud addresses", () => {
         expect(summary).to.not.be.null
 
         const bytecodeCheck = summary.verificationChecks.find(
@@ -911,13 +923,15 @@ describe("Deploy Script 85: TIP-109 Governance Upgrade", () => {
         ).to.not.be.undefined
 
         const combined = `${bytecodeCheck.command} ${bytecodeCheck.expectedResult}`
-        // The check should reference the deployed Deposit and Redemption
-        // library addresses (from deployAddressMap in mock)
+        // The check should reference all freshly deployed library addresses.
         expect(combined.toLowerCase()).to.include(
           DEPOSIT_ADDRESS.toLowerCase().slice(2)
         )
         expect(combined.toLowerCase()).to.include(
           REDEMPTION_ADDRESS.toLowerCase().slice(2)
+        )
+        expect(combined.toLowerCase()).to.include(
+          FRAUD_ADDRESS.toLowerCase().slice(2)
         )
       })
     })

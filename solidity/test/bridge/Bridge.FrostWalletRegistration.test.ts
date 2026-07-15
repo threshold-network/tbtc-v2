@@ -449,16 +449,124 @@ describe("Bridge - FROST Wallet Registration", () => {
     })
   })
 
+  describe("late ECDSA callback after FROST activation", () => {
+    let frostWalletPubKeyHash: string
+    let lateEcdsaCallbackTx: ContractTransaction
+
+    before(async () => {
+      await createSnapshot()
+      await bridge.resetFrostWalletRegistryForTest(frostRegistry.address)
+
+      await frostRegistry.callBridgeFrostWalletCreatedCallback(
+        bridge.address,
+        frostXOnlyOutputKey
+      )
+      frostWalletPubKeyHash = await bridge.walletPubKeyHashForWalletID(
+        frostXOnlyOutputKey
+      )
+
+      lateEcdsaCallbackTx = await bridge
+        .connect(walletRegistry.wallet)
+        .__ecdsaWalletCreatedCallback(
+          ecdsaWalletTestData.walletID,
+          ecdsaWalletTestData.publicKeyX,
+          ecdsaWalletTestData.publicKeyY
+        )
+    })
+
+    after(async () => {
+      await restoreSnapshot()
+    })
+
+    it("should preserve the newer FROST wallet as active", async () => {
+      expect(await bridge.activeWalletPubKeyHash()).to.equal(
+        frostWalletPubKeyHash
+      )
+      expect(await bridge.activeWalletID()).to.equal(frostXOnlyOutputKey)
+    })
+
+    it("should still register the in-flight ECDSA wallet", async () => {
+      const wallet = await bridge.wallets(ecdsaWalletTestData.pubKeyHash160)
+      const legacyWalletID = ethers.utils.hexZeroPad(
+        ecdsaWalletTestData.pubKeyHash160,
+        32
+      )
+
+      expect(wallet.ecdsaWalletID).to.equal(ecdsaWalletTestData.walletID)
+      expect(wallet.state).to.equal(walletState.Live)
+      expect(await bridge.walletPubKeyHashForWalletID(legacyWalletID)).to.equal(
+        ecdsaWalletTestData.pubKeyHash160
+      )
+      expect(await bridge.liveWalletsCount()).to.equal(2)
+      await expect(lateEcdsaCallbackTx)
+        .to.emit(bridge, "NewWalletRegisteredV2")
+        .withArgs(
+          legacyWalletID,
+          ecdsaWalletTestData.walletID,
+          ecdsaWalletTestData.pubKeyHash160
+        )
+    })
+  })
+
+  describe("ECDSA callback with an active ECDSA wallet", () => {
+    const previousEcdsaWalletID =
+      "0x1111111111111111111111111111111111111111111111111111111111111111"
+    // Valid secp256k1 public key for private key 1.
+    const previousPublicKeyX =
+      "0x79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+    const previousPublicKeyY =
+      "0x483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8"
+    let previousWalletPubKeyHash: string
+
+    before(async () => {
+      await createSnapshot()
+
+      await bridge
+        .connect(walletRegistry.wallet)
+        .__ecdsaWalletCreatedCallback(
+          previousEcdsaWalletID,
+          previousPublicKeyX,
+          previousPublicKeyY
+        )
+      previousWalletPubKeyHash = await bridge.activeWalletPubKeyHash()
+
+      await bridge
+        .connect(walletRegistry.wallet)
+        .__ecdsaWalletCreatedCallback(
+          ecdsaWalletTestData.walletID,
+          ecdsaWalletTestData.publicKeyX,
+          ecdsaWalletTestData.publicKeyY
+        )
+    })
+
+    after(async () => {
+      await restoreSnapshot()
+    })
+
+    it("should preserve legacy ECDSA active-wallet replacement", async () => {
+      expect(
+        (await bridge.wallets(previousWalletPubKeyHash)).ecdsaWalletID
+      ).to.equal(previousEcdsaWalletID)
+      expect(await bridge.activeWalletPubKeyHash()).to.equal(
+        ecdsaWalletTestData.pubKeyHash160
+      )
+      expect(await bridge.activeWalletPubKeyHash()).to.not.equal(
+        previousWalletPubKeyHash
+      )
+      expect(await bridge.activeWalletID()).to.equal(
+        ethers.utils.hexZeroPad(ecdsaWalletTestData.pubKeyHash160, 32)
+      )
+      expect(await bridge.liveWalletsCount()).to.equal(2)
+    })
+  })
+
   describe("ECDSA-ID-non-zero guard (via test-stub helper)", () => {
     // The ECDSA wallet creation path now reserves bytes32(0) as
     // the on-chain marker for FROST wallets. Before D-2 the
-    // Bridge enforced this at the registration boundary via
-    // `__ecdsaWalletCreatedCallback`; D-2 removed that
-    // callback entirely (no new ECDSA wallets ever again), so
-    // this test now validates the same guard via the
-    // `BridgeStub.__ecdsaWalletCreatedCallbackForTest` helper
-    // — which mirrors the `Wallets.registerNewWallet` body
-    // including the `EcdsaWalletIdIsZero` custom error.
+    // Bridge enforces this at the authenticated production
+    // `__ecdsaWalletCreatedCallback`. This isolated boundary test uses the
+    // BridgeStub helper to bypass registry authentication while preserving the
+    // `Wallets.registerNewWallet` body and `EcdsaWalletIdIsZero` error.
     it("should revert with EcdsaWalletIdIsZero", async () =>
       expectCustomError(
         bridge.__ecdsaWalletCreatedCallbackForTest(

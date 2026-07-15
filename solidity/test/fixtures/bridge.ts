@@ -278,14 +278,9 @@ export default async function bridgeFixture(): Promise<{
           Redemption: (await helpers.contracts.getContract("Redemption"))
             .address,
           Wallets: (await helpers.contracts.getContract("Wallets")).address,
+          Fraud: (await helpers.contracts.getContract("Fraud")).address,
           MovingFunds: (await helpers.contracts.getContract("MovingFunds"))
             .address,
-          // Fraud / P2TRSignatureFraudLifecycle removed -- ECDSA
-          // fraud surface moved to EcdsaFraudRouter, P2TR signature-
-          // fraud surface moved to P2TRSignatureFraudRouter. The
-          // Fraud library retains only internal pure helpers (inlined)
-          // and the FraudChallenge struct for the legacy mapping; it
-          // is no longer an external library link target on Bridge.
         },
       },
       proxyOpts: {

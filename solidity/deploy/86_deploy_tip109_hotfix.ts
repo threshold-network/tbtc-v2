@@ -122,11 +122,19 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const Deposit = await get("Deposit")
   console.log(`  Deposit (existing): ${Deposit.address}`)
 
-  // --- Step 2: Deploy new Redemption library (PR #940) ---
-  console.log("\n--- Deploying new Redemption library ---")
+  // --- Step 2: Deploy new Redemption and current Fraud libraries ---
+  // Fraud contains the legacy challenge migration entrypoint used by the
+  // current Bridge implementation, so a historical deployment cannot be
+  // reused here.
+  console.log("\n--- Deploying new Redemption and Fraud libraries ---")
   const Redemption = await deploy("RedemptionTIP109Hotfix", {
     ...deployOptions,
     contract: "Redemption",
+    skipIfAlreadyDeployed: false,
+  })
+  const Fraud = await deploy("FraudTIP109Hotfix", {
+    ...deployOptions,
+    contract: "Fraud",
     skipIfAlreadyDeployed: false,
   })
 
@@ -134,11 +142,10 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log("\n--- Resolving existing libraries ---")
   const DepositSweep = await get("DepositSweep")
   const Wallets = await get("Wallets")
-  const Fraud = await get("Fraud")
   const MovingFunds = await get("MovingFunds")
 
   // --- Step 4: Deploy new Bridge implementation ---
-  // Linked to existing Deposit + new Redemption + unchanged libs.
+  // Linked to existing Deposit + new Redemption and Fraud + unchanged libs.
   console.log("\n--- Deploying Bridge implementation ---")
   const bridgeLibraries = {
     Deposit: Deposit.address,
@@ -169,6 +176,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log("Deployed contract addresses:")
   console.log(`  Deposit library (existing):    ${Deposit.address}`)
   console.log(`  Redemption library (NEW):      ${Redemption.address}`)
+  console.log(`  Fraud library (NEW):           ${Fraud.address}`)
   console.log(`  Bridge implementation (NEW):   ${bridgeImpl.address}`)
   console.log(`  RebateStaking impl (NEW):      ${rebateImpl.address}`)
   console.log("-".repeat(80))
@@ -250,6 +258,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       "zero-address redeemer guard (PR #940)",
     deployedContracts: {
       RedemptionTIP109Hotfix: Redemption.address,
+      FraudTIP109Hotfix: Fraud.address,
       BridgeTIP109HotfixImplementation: bridgeImpl.address,
       RebateStakingTIP109HotfixImplementation: rebateImpl.address,
     },
@@ -349,6 +358,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
             address: Redemption.address,
             name: "contracts/bridge/Redemption.sol:Redemption",
             label: "Redemption",
+          },
+          {
+            address: Fraud.address,
+            name: "contracts/bridge/Fraud.sol:Fraud",
+            label: "Fraud",
           },
           {
             address: bridgeImpl.address,
