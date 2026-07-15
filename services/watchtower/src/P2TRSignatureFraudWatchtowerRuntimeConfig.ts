@@ -27,6 +27,8 @@ export const P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV = {
   bridgeChallengeChainID:
     "P2TR_SIGNATURE_FRAUD_WATCHTOWER_BRIDGE_CHALLENGE_CHAIN_ID",
   bridgeIdentifier: "P2TR_SIGNATURE_FRAUD_WATCHTOWER_BRIDGE_IDENTIFIER",
+  bridgeLifecycleCanonicalLogVerificationConcurrency:
+    "P2TR_SIGNATURE_FRAUD_WATCHTOWER_BRIDGE_LIFECYCLE_VERIFICATION_CONCURRENCY",
   bridgeLifecycleConfirmationDepth:
     "P2TR_SIGNATURE_FRAUD_WATCHTOWER_BRIDGE_LIFECYCLE_CONFIRMATION_DEPTH",
   bridgeLifecycleCursorFilePath:
@@ -84,7 +86,7 @@ export type P2TRSignatureFraudWatchtowerRuntimeEnv = Record<
 
 export type P2TRSignatureFraudWatchtowerBridgeLifecycleRuntimeConfig = Omit<
   EthersP2TRSignatureFraudBridgeLifecycleEventSourceOptions,
-  "scanCursorStore"
+  "canonicalLogVerifier" | "scanCursorStore" | "sourceTrustDomainID"
 > & {
   scanCursorFilePath?: string
 }
@@ -390,6 +392,10 @@ function parseTransactionSourceRuntimeConfig(
 function parseBridgeLifecycleRuntimeConfig(
   env: P2TRSignatureFraudWatchtowerRuntimeEnv
 ): P2TRSignatureFraudWatchtowerBridgeLifecycleRuntimeConfig {
+  const canonicalLogVerificationConcurrency = parseOptionalPositiveIntegerEnv(
+    env,
+    P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.bridgeLifecycleCanonicalLogVerificationConcurrency
+  )
   const scanCursorFilePath = readOptionalEnv(
     env,
     P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.bridgeLifecycleCursorFilePath
@@ -461,6 +467,7 @@ function parseBridgeLifecycleRuntimeConfig(
   }
 
   return {
+    canonicalLogVerificationConcurrency,
     scanCursorFilePath,
     confirmationDepth,
     maxBlockRange,
