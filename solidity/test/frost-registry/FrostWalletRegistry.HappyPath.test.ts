@@ -257,6 +257,16 @@ describe("FrostWalletRegistry full-cycle DKG happy path (B-1.5 slice 3)", () => 
       groupMembers
     )
 
+    // Submission validates the declared members by recreating the selected
+    // 100-operator group. Keep its fixed approval-time reimbursement at least
+    // as large as the real populated-pool transaction cost.
+    const submitReceipt = await dkgResult.submitDkgResultTx.wait()
+    const gasParameters = await frostWalletRegistry.gasParameters()
+    expect(gasParameters.dkgResultSubmissionGas).to.equal(1_500_000)
+    expect(gasParameters.dkgResultSubmissionGas).to.be.gte(
+      submitReceipt.gasUsed
+    )
+
     expect(await frostWalletRegistry.getWalletCreationState()).to.equal(
       0 /* IDLE */,
       "DKG returned to IDLE after approval"
