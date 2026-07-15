@@ -122,6 +122,20 @@ contract P2TRSignatureFraudRouter {
     ///         before retiring the slash-on-timeout callback.
     uint256 public openFraudChallengeCount;
 
+    /// @notice Number of open P2TR fraud challenges attributed to each wallet.
+    ///         BridgeLifecycleRouter uses this counter to keep a FROST wallet
+    ///         in Closing until all of its challenges are resolved.
+    mapping(bytes20 => uint256) public openFraudChallengeCountByWallet;
+
+    /// @notice Number of open migrated challenges whose legacy records do not
+    ///         contain a wallet identity. While non-zero, every FROST wallet is
+    ///         conservatively treated as challenged during graceful closure.
+    uint256 public unattributedOpenFraudChallengeCount;
+
+    /// @dev Wallet attribution for challenges submitted directly to this
+    ///      router. A zero value identifies a migrated legacy challenge.
+    mapping(uint256 => bytes20) internal fraudChallengeWalletPubKeyHash;
+
     enum P2TRFraudAction {
         Submit,
         Defeat,
@@ -243,6 +257,7 @@ contract P2TRSignatureFraudRouter {
             fraudChallenges[challengeKeys[i]] = data[i];
             if (!data[i].resolved) {
                 openFraudChallengeCount++;
+                unattributedOpenFraudChallengeCount++;
             }
             totalDeposit += data[i].depositAmount;
             emit P2TRFraudChallengeMigratedFromBridge(
@@ -252,6 +267,18 @@ contract P2TRSignatureFraudRouter {
             );
         }
         require(msg.value == totalDeposit, "msg.value != total deposit");
+    }
+
+    /// @notice Returns whether graceful closure of the given wallet must wait
+    ///         for an unresolved local or unattributed migrated challenge.
+    function hasOpenFraudChallengeForWallet(bytes20 walletPubKeyHash)
+        external
+        view
+        returns (bool)
+    {
+        return
+            openFraudChallengeCountByWallet[walletPubKeyHash] > 0 ||
+            unattributedOpenFraudChallengeCount > 0;
     }
 
     /// @notice Processes a P2TR signature-fraud challenge lifecycle
@@ -333,7 +360,10 @@ contract P2TRSignatureFraudRouter {
         /* solhint-disable-next-line not-rely-on-time */
         challenge.reportedAt = uint32(block.timestamp);
         challenge.resolved = false;
+        fraudChallengeWalletPubKeyHash[context.challengeKey] = context
+            .walletPubKeyHash;
         openFraudChallengeCount++;
+        openFraudChallengeCountByWallet[context.walletPubKeyHash]++;
 
         emit P2TRSignatureFraudChallengeSubmitted(
             payload.walletID,
@@ -367,7 +397,7 @@ contract P2TRSignatureFraudRouter {
         );
 
         challenge.resolved = true;
-        openFraudChallengeCount--;
+        _decrementOpenFraudChallengeCount(context.challengeKey);
 
         address treasury = b.treasury();
         /* solhint-disable avoid-low-level-calls */
@@ -410,7 +440,6 @@ contract P2TRSignatureFraudRouter {
         );
 
         challenge.resolved = true;
-        openFraudChallengeCount--;
 
         // The return value is intentionally ignored: a reverting
         // challenger fallback self-griefs the refund but must not block
@@ -427,6 +456,10 @@ contract P2TRSignatureFraudRouter {
             walletMembersIDs,
             challenge.challenger
         );
+
+        // Keep the per-wallet counter as the graceful-closure lock across
+        // the untrusted refund and Bridge slashing callbacks.
+        _decrementOpenFraudChallengeCount(context.challengeKey);
 
         emit P2TRSignatureFraudChallengeDefeatTimedOut(
             payload.walletID,
@@ -493,6 +526,18 @@ contract P2TRSignatureFraudRouter {
             !challenge.resolved,
             "Fraud challenge has already been resolved"
         );
+    }
+
+    function _decrementOpenFraudChallengeCount(uint256 challengeKey) internal {
+        bytes20 walletPubKeyHash = fraudChallengeWalletPubKeyHash[challengeKey];
+
+        openFraudChallengeCount--;
+        if (walletPubKeyHash == bytes20(0)) {
+            unattributedOpenFraudChallengeCount--;
+        } else {
+            openFraudChallengeCountByWallet[walletPubKeyHash]--;
+            delete fraudChallengeWalletPubKeyHash[challengeKey];
+        }
     }
 
     function _isHonestlySpent(IBridgeForP2TRFraud b, uint256 utxoKey)
