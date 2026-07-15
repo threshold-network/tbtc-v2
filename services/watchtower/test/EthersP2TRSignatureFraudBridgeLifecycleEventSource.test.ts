@@ -168,6 +168,134 @@ test("rejects an unverified lifecycle log without advancing the cursor", async (
   assert.equal(cursorStore.savedCursor, undefined)
 })
 
+test("bounds canonical lifecycle verification across every event type without changing chain order", async () => {
+  const completionOrder = [
+    txHash("f5"),
+    txHash("e4"),
+    txHash("d3"),
+    txHash("c2"),
+    txHash("01"),
+  ]
+  const verifier = new DeferredCanonicalLogVerifier()
+  const contract = new FakeBridgeLifecycleContract({
+    defeated: [
+      {
+        args: { challengeKey: 5n },
+        transactionHash: txHash("f5"),
+        blockNumber: 14,
+        logIndex: 0,
+      },
+      {
+        args: { challengeKey: 1n },
+        transactionHash: txHash("01"),
+        blockNumber: 10,
+        logIndex: 0,
+      },
+    ],
+    timedOut: [
+      {
+        args: { challengeKey: 4n },
+        transactionHash: txHash("e4"),
+        blockNumber: 13,
+        logIndex: 0,
+      },
+    ],
+    movingFundsCompleted: [
+      {
+        args: { movingFundsTxHash: txHash("a1") },
+        transactionHash: txHash("d3"),
+        blockNumber: 12,
+        logIndex: 0,
+      },
+    ],
+    redemptionsCompleted: [
+      {
+        args: { redemptionTxHash: txHash("b1") },
+        transactionHash: txHash("c2"),
+        blockNumber: 11,
+        logIndex: 0,
+      },
+    ],
+  })
+  const source = new VerifiedEthersP2TRSignatureFraudBridgeLifecycleEventSource(
+    contract,
+    {
+      sourceTrustDomainID: "indexer.example",
+      canonicalLogVerifier: verifier,
+      canonicalLogVerificationConcurrency: 2,
+      fromBlock: 1,
+      toBlock: 20,
+      timedOutEventStatus: "slashed",
+    }
+  )
+
+  const eventsPromise = source.listBridgeLifecycleEvents()
+  for (const transactionHash of completionOrder) {
+    await verifier.release(transactionHash)
+  }
+  const events = await eventsPromise
+
+  assert.equal(verifier.maxActive, 2)
+  assert.equal(verifier.active, 0)
+  assert.deepEqual(verifier.completedTransactionHashes, completionOrder)
+  assert.deepEqual(
+    [...verifier.startedTransactionHashes].sort(),
+    [...completionOrder].sort()
+  )
+  assert.equal(new Set(verifier.startedTransactionHashes).size, 5)
+  assert.deepEqual(
+    events.map((event) =>
+      event.type === "honest-spend-proven" ? event.spendType : event.type
+    ),
+    ["defeated", "redemption", "moving-funds", "slashed", "defeated"]
+  )
+})
+
+test("bounds canonical lifecycle verification to eight calls by default", async () => {
+  const transactionHashes = Array.from({ length: 9 }, (_, index) =>
+    txHash((index + 1).toString(16).padStart(2, "0"))
+  )
+  const verifier = new DeferredCanonicalLogVerifier()
+  const contract = new FakeBridgeLifecycleContract({
+    defeated: transactionHashes.map((transactionHash, index) => ({
+      args: { challengeKey: BigInt(index + 1) },
+      transactionHash,
+      blockNumber: index + 1,
+      logIndex: 0,
+    })),
+  })
+  const source = new VerifiedEthersP2TRSignatureFraudBridgeLifecycleEventSource(
+    contract,
+    {
+      sourceTrustDomainID: "indexer.example",
+      canonicalLogVerifier: verifier,
+      fromBlock: 1,
+      toBlock: 20,
+    }
+  )
+
+  const eventsPromise = source.listBridgeLifecycleEvents()
+  for (const transactionHash of transactionHashes) {
+    await verifier.release(transactionHash)
+  }
+  const events = await eventsPromise
+
+  assert.equal(verifier.maxActive, 8)
+  assert.equal(verifier.active, 0)
+  assert.deepEqual(
+    [...verifier.startedTransactionHashes].sort(),
+    [...transactionHashes].sort()
+  )
+  assert.equal(new Set(verifier.startedTransactionHashes).size, 9)
+  assert.deepEqual(
+    events.map((event) => event.bridgeChallengeKey),
+    Array.from(
+      { length: 9 },
+      (_, index) => `0x${(index + 1).toString(16).padStart(64, "0")}`
+    )
+  )
+})
+
 test("bounds cursor progress by the independent canonical head", async () => {
   const cursorStore = new FakeBridgeLifecycleScanCursorStore({
     lastScannedBlock: 49,
@@ -1092,6 +1220,26 @@ test("rejects stale Bridge lifecycle cursor block hashes before querying logs", 
 })
 
 test("rejects unsafe Bridge lifecycle block range options", async () => {
+  const contract = new FakeBridgeLifecycleContract({})
+  for (const canonicalLogVerificationConcurrency of [
+    0,
+    1.5,
+    Number.MAX_SAFE_INTEGER + 1,
+  ]) {
+    assert.throws(
+      () =>
+        new VerifiedEthersP2TRSignatureFraudBridgeLifecycleEventSource(
+          contract,
+          {
+            sourceTrustDomainID: "indexer.example",
+            canonicalLogVerifier: acceptingCanonicalVerifier(contract),
+            canonicalLogVerificationConcurrency,
+          }
+        ),
+      /canonical log verification concurrency must be a positive integer/
+    )
+  }
+
   assert.throws(
     () =>
       new EthersP2TRSignatureFraudBridgeLifecycleEventSource(
@@ -1506,6 +1654,70 @@ function isBridgeLifecycleContract(
     typeof (value as P2TREthersBridgeLifecycleContract).queryFilter ===
     "function"
   )
+}
+
+class DeferredCanonicalLogVerifier
+  implements P2TRCanonicalBridgeLifecycleLogVerifier
+{
+  readonly trustDomainID = "canonical.example"
+  readonly startedTransactionHashes: string[] = []
+  readonly completedTransactionHashes: string[] = []
+  private readonly pending = new Map<string, (result: boolean) => void>()
+  private activeCount = 0
+  private maxActiveCount = 0
+
+  get active(): number {
+    return this.activeCount
+  }
+
+  get maxActive(): number {
+    return this.maxActiveCount
+  }
+
+  async getBlockNumber(): Promise<number> {
+    return Number.MAX_SAFE_INTEGER
+  }
+
+  async getCanonicalBlockHash(): Promise<string> {
+    return txHash("99")
+  }
+
+  verifyLifecycleLog({
+    log,
+  }: Parameters<
+    P2TRCanonicalBridgeLifecycleLogVerifier["verifyLifecycleLog"]
+  >[0]): Promise<boolean> {
+    const transactionHash = log.transactionHash
+    assert.equal(this.pending.has(transactionHash), false)
+    this.startedTransactionHashes.push(transactionHash)
+    this.activeCount++
+    this.maxActiveCount = Math.max(this.maxActiveCount, this.activeCount)
+
+    return new Promise((resolve) => {
+      this.pending.set(transactionHash, (result) => {
+        this.pending.delete(transactionHash)
+        this.completedTransactionHashes.push(transactionHash)
+        this.activeCount--
+        resolve(result)
+      })
+    })
+  }
+
+  async release(transactionHash: string, result = true): Promise<void> {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const resolve = this.pending.get(transactionHash)
+      if (resolve !== undefined) {
+        resolve(result)
+        return
+      }
+
+      await new Promise<void>((resolve) => setImmediate(resolve))
+    }
+
+    assert.fail(
+      `Canonical verification did not start for transaction ${transactionHash}`
+    )
+  }
 }
 
 function acceptingCanonicalVerifier(

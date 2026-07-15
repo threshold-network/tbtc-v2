@@ -63,6 +63,7 @@ test("loads required watchtower runtime config with safe defaults", () => {
   assert.equal(config.service.indexingStoreProfile, "single-process-rehearsal")
   assert.equal(config.service.allowSingleProcessRehearsalSubmission, false)
   assert.deepEqual(config.bridgeLifecycle, {
+    canonicalLogVerificationConcurrency: undefined,
     scanCursorFilePath: undefined,
     confirmationDepth: undefined,
     maxBlockRange: undefined,
@@ -97,6 +98,8 @@ test("loads explicit watchtower runtime config values", () => {
     [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.bridgeChallengeChainID]: "11155111",
     [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.bridgeChallengeBridgeAddress]:
       "0x1111111111111111111111111111111111111111",
+    [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.bridgeLifecycleCanonicalLogVerificationConcurrency]:
+      "2",
     [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.bridgeLifecycleCursorFilePath]:
       "/var/lib/tbtc/p2tr-bridge-lifecycle-cursor.json",
     [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.bridgeLifecycleConfirmationDepth]:
@@ -143,6 +146,7 @@ test("loads explicit watchtower runtime config values", () => {
     bridgeAddress: "0x1111111111111111111111111111111111111111",
   })
   assert.deepEqual(config.bridgeLifecycle, {
+    canonicalLogVerificationConcurrency: 2,
     scanCursorFilePath: "/var/lib/tbtc/p2tr-bridge-lifecycle-cursor.json",
     confirmationDepth: 12,
     maxBlockRange: 5000,
@@ -424,6 +428,18 @@ test("rejects unsafe watchtower runtime config before service startup", () => {
       }),
     /MAX_SUBMISSION_ATTEMPTS must be set/
   )
+
+  for (const canonicalLogVerificationConcurrency of ["0", "1.5"]) {
+    assert.throws(
+      () =>
+        loadP2TRSignatureFraudWatchtowerRuntimeConfig({
+          ...baseEnv(),
+          [P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.bridgeLifecycleCanonicalLogVerificationConcurrency]:
+            canonicalLogVerificationConcurrency,
+        }),
+      /BRIDGE_LIFECYCLE_VERIFICATION_CONCURRENCY must be a positive integer/
+    )
+  }
 
   assert.throws(
     () =>
