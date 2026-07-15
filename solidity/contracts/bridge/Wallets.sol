@@ -39,6 +39,13 @@ interface IFrostWalletRegistryRequest {
     function lifecycleOwner() external view returns (address);
 }
 
+interface IEcdsaFraudChallengeCounter {
+    function hasOpenFraudChallengeForWallet(bytes20 walletPubKeyHash)
+        external
+        view
+        returns (bool);
+}
+
 /// @title Wallet library
 /// @notice Library responsible for handling integration between Bridge
 ///         contract and ECDSA wallets.
@@ -157,6 +164,7 @@ library Wallets {
     // Live state.
     error LifecycleRouterNotSet();
     error LifecycleOwnerMismatch();
+    error EcdsaFraudChallengePending();
     // FROST wallet's canonical walletID lookup failed. Raised when the
     // scheme-aware lifecycle path is invoked for a wallet whose
     // ecdsaWalletID is zero but whose walletIDByWalletPubKeyHash entry
@@ -600,6 +608,42 @@ library Wallets {
         moveFunds(self, walletPubKeyHash);
     }
 
+    /// @notice Handles a FROST wallet heartbeat failure notification and
+    ///         triggers the wallet moving funds process.
+    /// @param xOnlyOutputKey Wallet's 32-byte x-only Taproot output key.
+    /// @dev Requirements:
+    ///      - The only authorized caller is the FROST wallet registry,
+    ///      - Wallet must be in Live state.
+    function notifyFrostWalletHeartbeatFailed(
+        BridgeState.Storage storage self,
+        bytes32 xOnlyOutputKey
+    ) external {
+        address frostWalletRegistry = self.frostWalletRegistry;
+        if (frostWalletRegistry == address(0)) {
+            revert FrostWalletRegistryNotSet();
+        }
+        if (msg.sender != frostWalletRegistry) {
+            revert CallerIsNotFrostWalletRegistry();
+        }
+
+        bytes20 walletPubKeyHash = BitcoinTx.deriveWalletPubKeyHashFromXOnly(
+            xOnlyOutputKey
+        );
+
+        if (
+            self.walletIDByWalletPubKeyHash[walletPubKeyHash] != xOnlyOutputKey
+        ) {
+            revert FrostWalletIdMissing();
+        }
+
+        require(
+            self.registeredWallets[walletPubKeyHash].state == WalletState.Live,
+            "Wallet must be in Live state"
+        );
+
+        moveFunds(self, walletPubKeyHash);
+    }
+
     /// @notice Notifies that the wallet is either old enough or has too few
     ///         satoshis left and qualifies to be closed.
     /// @param walletPubKeyHash 20-byte public key hash of the wallet.
@@ -655,7 +699,7 @@ library Wallets {
     function notifyWalletClosingPeriodElapsed(
         BridgeState.Storage storage self,
         bytes20 walletPubKeyHash
-    ) internal {
+    ) external {
         Wallet storage wallet = self.registeredWallets[walletPubKeyHash];
 
         require(
@@ -985,6 +1029,15 @@ library Wallets {
         bytes20 walletPubKeyHash
     ) internal {
         Wallet storage wallet = self.registeredWallets[walletPubKeyHash];
+
+        if (
+            wallet.ecdsaWalletID != bytes32(0) &&
+            self.ecdsaFraudRouter != address(0) &&
+            IEcdsaFraudChallengeCounter(self.ecdsaFraudRouter)
+                .hasOpenFraudChallengeForWallet(walletPubKeyHash)
+        ) {
+            revert EcdsaFraudChallengePending();
+        }
 
         wallet.state = WalletState.Closed;
 

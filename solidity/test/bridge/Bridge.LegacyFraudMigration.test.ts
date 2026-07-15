@@ -100,6 +100,19 @@ describe("Bridge - legacy fraud challenge migration", () => {
       routerBalanceBefore.add(totalDeposit)
     )
     expect(await ecdsaFraudRouter.openFraudChallengeCount()).to.equal(2)
+    expect(
+      await ecdsaFraudRouter.unattributedOpenFraudChallengeCount()
+    ).to.equal(2)
+    expect(
+      await ecdsaFraudRouter.openFraudChallengeCountByWallet(
+        fraudWallet.pubKeyHash160
+      )
+    ).to.equal(0)
+    expect(
+      await ecdsaFraudRouter.hasOpenFraudChallengeForWallet(
+        fraudWallet.pubKeyHash160
+      )
+    ).to.equal(true)
 
     for (let i = 0; i < keys.length; i++) {
       const legacy = await bridge.legacyFraudChallengeForTest(keys[i])

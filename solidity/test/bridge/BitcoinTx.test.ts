@@ -211,6 +211,43 @@ describe("BitcoinTx", () => {
       )
     })
 
+    it("rejects a legacy ECDSA wallet ID used as a P2TR output key", async () => {
+      const legacyWalletID = ethers.utils.hexZeroPad(p2pkhHash, 32)
+      const legacyWalletP2TROutput = `0x0000000000000000225120${legacyWalletID.substring(
+        2
+      )}`
+
+      await bitcoinTx.setWalletPubKeyHashForWalletID(legacyWalletID, p2pkhHash)
+      await bitcoinTx.setWalletEcdsaWalletID(
+        p2pkhHash,
+        ethers.utils.id("ecdsa-wallet")
+      )
+
+      await expect(
+        bitcoinTx.extractWalletPubKeyHash(legacyWalletP2TROutput)
+      ).to.be.revertedWith("ECDSA wallet output must be legacy")
+    })
+
+    it("rejects a P2TR reverse mapping that is not canonical", async () => {
+      const mappedWalletPubKeyHash =
+        await bitcoinTx.deriveWalletPubKeyHashFromXOnly(xOnlyKey)
+      const differentWalletID =
+        "0x4444444444444444444444444444444444444444444444444444444444444444"
+
+      await bitcoinTx.setWalletPubKeyHashForWalletID(
+        xOnlyKey,
+        mappedWalletPubKeyHash
+      )
+      await bitcoinTx.setWalletIDForWalletPubKeyHash(
+        mappedWalletPubKeyHash,
+        differentWalletID
+      )
+
+      await expect(
+        bitcoinTx.extractWalletPubKeyHash(p2trOutput)
+      ).to.be.revertedWith("P2TR wallet ID mismatch")
+    })
+
     it("extracts canonical wallet id from P2TR output", async () => {
       expect(await bitcoinTx.extractWalletID(p2trOutput)).to.eq(xOnlyKey)
     })

@@ -4,6 +4,9 @@ pragma solidity 0.8.17;
 
 interface IBridgeFrostWalletCallback {
     function __frostWalletCreatedCallback(bytes32 xOnlyOutputKey) external;
+
+    function __frostWalletHeartbeatFailedCallback(bytes32 xOnlyOutputKey)
+        external;
 }
 
 contract FrostWalletRegistryStub {
@@ -92,6 +95,15 @@ contract FrostWalletRegistryStub {
         IBridgeFrostWalletCallback(bridge).__frostWalletCreatedCallback(
             xOnlyOutputKey
         );
+    }
+
+    function callBridgeFrostWalletHeartbeatFailedCallback(
+        address bridge,
+        bytes32 xOnlyOutputKey
+    ) external {
+        IBridgeFrostWalletCallback(bridge).__frostWalletHeartbeatFailedCallback(
+                xOnlyOutputKey
+            );
     }
 
     function getLastSeizeWalletMembersIDs()

@@ -206,7 +206,7 @@ library Deposit {
     /// @dev Requirements:
     ///      - This function must be called by the same Ethereum address as the
     ///        one used in the P2(W)SH BTC deposit transaction as a depositor,
-    ///      - `reveal.walletPubKeyHash` must identify a `Live` wallet,
+    ///      - `reveal.walletPubKeyHash` must identify a `Live` ECDSA wallet,
     ///      - `reveal.vault` must be 0x0 or point to a trusted vault,
     ///      - `reveal.fundingOutputIndex` must point to the actual P2(W)SH
     ///        output of the BTC deposit transaction,
@@ -267,10 +267,17 @@ library Deposit {
         DepositRevealInfo calldata reveal,
         bytes32 extraData
     ) internal {
+        Wallets.Wallet storage wallet = self.registeredWallets[
+            reveal.walletPubKeyHash
+        ];
+
         require(
-            self.registeredWallets[reveal.walletPubKeyHash].state ==
-                Wallets.WalletState.Live,
+            wallet.state == Wallets.WalletState.Live,
             "Wallet must be in Live state"
+        );
+        require(
+            wallet.ecdsaWalletID != bytes32(0),
+            "Legacy deposit requires an ECDSA wallet"
         );
 
         require(

@@ -1173,6 +1173,19 @@ contract Bridge is
         self.registerNewFrostWallet(xOnlyOutputKey);
     }
 
+    /// @notice A callback function that is called by the FROST Wallet Registry
+    ///         once a wallet heartbeat failure is detected.
+    /// @param xOnlyOutputKey Wallet's 32-byte x-only Taproot output key.
+    /// @dev Requirements:
+    ///      - The only caller authorized to call this function is the
+    ///        registered FROST wallet registry,
+    ///      - Wallet must be in Live state.
+    function __frostWalletHeartbeatFailedCallback(bytes32 xOnlyOutputKey)
+        external
+    {
+        self.notifyFrostWalletHeartbeatFailed(xOnlyOutputKey);
+    }
+
     /// @notice A callback function that is called by the ECDSA Wallet Registry
     ///         once a wallet heartbeat failure is detected.
     /// @param publicKeyX Wallet's public key's X coordinate.

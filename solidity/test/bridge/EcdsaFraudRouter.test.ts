@@ -194,6 +194,19 @@ describe("EcdsaFraudRouter", () => {
     expect(challenge.reportedAt).to.equal(await lastBlockTime())
     expect(challenge.resolved).to.equal(false)
     expect(await ecdsaFraudRouter.openFraudChallengeCount()).to.equal(1)
+    expect(
+      await ecdsaFraudRouter.openFraudChallengeCountByWallet(
+        fraudWallet.pubKeyHash160
+      )
+    ).to.equal(1)
+    expect(
+      await ecdsaFraudRouter.hasOpenFraudChallengeForWallet(
+        fraudWallet.pubKeyHash160
+      )
+    ).to.equal(true)
+    expect(
+      await ecdsaFraudRouter.unattributedOpenFraudChallengeCount()
+    ).to.equal(0)
 
     await expect(tx)
       .to.emit(ecdsaFraudRouter, "FraudChallengeSubmitted")
@@ -273,6 +286,16 @@ describe("EcdsaFraudRouter", () => {
       (await ecdsaFraudRouter.fraudChallenges(challengeKey(data))).resolved
     ).to.equal(true)
     expect(await ecdsaFraudRouter.openFraudChallengeCount()).to.equal(0)
+    expect(
+      await ecdsaFraudRouter.openFraudChallengeCountByWallet(
+        fraudWallet.pubKeyHash160
+      )
+    ).to.equal(0)
+    expect(
+      await ecdsaFraudRouter.hasOpenFraudChallengeForWallet(
+        fraudWallet.pubKeyHash160
+      )
+    ).to.equal(false)
     await expect(tx)
       .to.emit(ecdsaFraudRouter, "FraudChallengeDefeated")
       .withArgs(fraudWallet.pubKeyHash160, data.sighash)
@@ -362,6 +385,16 @@ describe("EcdsaFraudRouter", () => {
       (await ecdsaFraudRouter.fraudChallenges(challengeKey(data))).resolved
     ).to.equal(true)
     expect(await ecdsaFraudRouter.openFraudChallengeCount()).to.equal(0)
+    expect(
+      await ecdsaFraudRouter.openFraudChallengeCountByWallet(
+        fraudWallet.pubKeyHash160
+      )
+    ).to.equal(0)
+    expect(
+      await ecdsaFraudRouter.hasOpenFraudChallengeForWallet(
+        fraudWallet.pubKeyHash160
+      )
+    ).to.equal(false)
     await expect(tx)
       .to.emit(ecdsaFraudRouter, "FraudChallengeDefeatTimedOut")
       .withArgs(fraudWallet.pubKeyHash160, data.sighash)
