@@ -572,10 +572,15 @@ test("wires file-backed Bridge lifecycle source config into an Ethers source", a
             address: bridgeAddress,
             blockHash: lifecycleBlockHash,
             blockNumber: 138,
-            data: "0x",
+            data: `0x${"0".repeat(63)}9${"33".repeat(32)}`,
             logIndex: 0,
             removed: false,
-            topics: [`0x${"55".repeat(32)}`],
+            topics: [
+              "0x798f765e06fb1f2a5b39a4ffddc27396be8ba8e51b59b1d08d82c95922e5b331",
+              `0x${"11".repeat(32)}`,
+              `0x${"aa".repeat(20)}${"0".repeat(24)}`,
+              `0x${"22".repeat(32)}`,
+            ],
           },
         ]
       },
