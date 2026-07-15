@@ -43,7 +43,7 @@
       "bip340SignatureHex": "ca8083af26f885b1dc0de3dad7b12785a314cc2eeb74c4386bdc7aeb26d520af7316342e6c0cbffee41362f1f5345d8c54b7e17c4ac034cbaf31f9c737229545",
       "witnessSignatureHex": "ca8083af26f885b1dc0de3dad7b12785a314cc2eeb74c4386bdc7aeb26d520af7316342e6c0cbffee41362f1f5345d8c54b7e17c4ac034cbaf31f9c737229545",
       "expectedDraftChallengeIdentityHex": "4a216640966a85e119963b0503d52c356b8f0d672937ae2c2bb72222834d2892",
-      "expectedBridgeChallengeIdentityHex": "35ca366c7d414fe611757529598a443683016078c3da6b7cbd602e278b7d0765",
+      "expectedBridgeChallengeIdentityHex": "e2f00f0d78cc71419e21ebbbea2608b4ac2dbde8d2927c5465ef419c9c57b37c",
       "expectedVerify": true,
       "negativeVerificationCases": [
         {
@@ -90,7 +90,7 @@
       "bip340SignatureHex": "774ae7f858a9411e5ef4246b70c65aac5649980be5c17891bbec17895da008cbc4e7182012ab0ca2f7f171bdf5d837c49f359b001555b8d39b5764a7039d602b",
       "witnessSignatureHex": "774ae7f858a9411e5ef4246b70c65aac5649980be5c17891bbec17895da008cbc4e7182012ab0ca2f7f171bdf5d837c49f359b001555b8d39b5764a7039d602b",
       "expectedDraftChallengeIdentityHex": "9c760526b55cec37ec64dda1acb4b79828ed49dc4405e85c5c57d296d87d8a92",
-      "expectedBridgeChallengeIdentityHex": "ea5c8e6011d817eb68a0c32c1932e121bf5d7192fc56c16336f694ea63aedd21",
+      "expectedBridgeChallengeIdentityHex": "d5e7d369a372331bba03fbc227cd3461ab00acaeba6813449569061c82af8c1b",
       "expectedVerify": true,
       "negativeVerificationCases": [
         {
@@ -153,7 +153,7 @@
       "bip340SignatureHex": "a470b987366ad6a5f9e7a5da7a00059ceae7a88a32e21309d8cbd2ef45cb05726d296c050d75bd7a212aee42b008a30df156bb7001be8e128c7f15805069a473",
       "witnessSignatureHex": "a470b987366ad6a5f9e7a5da7a00059ceae7a88a32e21309d8cbd2ef45cb05726d296c050d75bd7a212aee42b008a30df156bb7001be8e128c7f15805069a473",
       "expectedDraftChallengeIdentityHex": "2c8cfefbe7c6deb101322d5be2adac1ea6515280fb8fd83a11f616b14fb5c52d",
-      "expectedBridgeChallengeIdentityHex": "bd9cf3ba8341c2d728d748ff1971c4a81e985d4c54698e01652dda9621bb0d24",
+      "expectedBridgeChallengeIdentityHex": "472616fccc060f31f54628c2456011c59b234505fa052847045286cc37a0f6d5",
       "expectedVerify": true,
       "negativeVerificationCases": [
         {
@@ -296,7 +296,7 @@
       "bip340SignatureHex": "5edb4c17e5b201b76807acf8aca97ceed15ed6f71df48af4d44eca038358228b7a35ccc1043903dab814beec096f19bd34e9529604260988e9cab3d3e3689937",
       "witnessSignatureHex": "5edb4c17e5b201b76807acf8aca97ceed15ed6f71df48af4d44eca038358228b7a35ccc1043903dab814beec096f19bd34e9529604260988e9cab3d3e368993701",
       "expectedDraftChallengeIdentityHex": "991133e668bfd61c1a9d3383ec395aae1bdbe2dbef03733b9b3f1e4e8950672c",
-      "expectedBridgeChallengeIdentityHex": "45c94f0cb0537026a7e504d0d6d4bc9c8d2e875fdfab4538ea6f3fd0d9c5a289",
+      "expectedBridgeChallengeIdentityHex": "1062fc4ffbdb0ab72adb3ab49373e2ad78c1ba6dc43b3a9c81e2a7644a0986ae",
       "expectedVerify": true,
       "negativeVerificationCases": [
         {
@@ -369,7 +369,7 @@
       "bip340SignatureHex": "53da6538a659e06eade9fe7b8b1203d8b191ce577b9cbb73108264a1c706e51e66f4f6e8e39546a0fb71598f5af023040dfddea51d05bc1e38adf10f3dcdd46e",
       "witnessSignatureHex": "53da6538a659e06eade9fe7b8b1203d8b191ce577b9cbb73108264a1c706e51e66f4f6e8e39546a0fb71598f5af023040dfddea51d05bc1e38adf10f3dcdd46e",
       "expectedDraftChallengeIdentityHex": "8cdef1d24e332d1251946af6a05e675431ad35ab30f6abf8852c7c9dff34e861",
-      "expectedBridgeChallengeIdentityHex": "ab10e4df27a990932c3f5d48d3f9e3c48541e7b6b0bf4746a34bebf2f34eda5d",
+      "expectedBridgeChallengeIdentityHex": "0c34ecefba07f2443aaaa8e62812b98a4bc845b21bfa17cb9e261dd269160ef7",
       "expectedVerify": true,
       "negativeVerificationCases": [
         {
@@ -459,7 +459,7 @@
       "bip340SignatureHex": "6d3a6f20b1715c3171f886f4dca338fd1d9dfe42ba38a522cbd6f923865323e8e233df766a3dc46c2763f3d3cc09f6c270d44485ed775a9b61ec95bfd27d3f78",
       "witnessSignatureHex": "6d3a6f20b1715c3171f886f4dca338fd1d9dfe42ba38a522cbd6f923865323e8e233df766a3dc46c2763f3d3cc09f6c270d44485ed775a9b61ec95bfd27d3f7801",
       "expectedDraftChallengeIdentityHex": "2ebe51dc76ae45beb0d6dfcd7f0a8a8ed9e1e8992025e5196629526c155797ae",
-      "expectedBridgeChallengeIdentityHex": "d054052f51e337ed9f1e3de85e3bc49b8a47c44e3ada67e7806f883266a51c74",
+      "expectedBridgeChallengeIdentityHex": "7f4c36ac27339811d215ece32276e7122dc89d42b1812ad218fcd1dd72fcee59",
       "expectedVerify": true,
       "negativeVerificationCases": [
         {
