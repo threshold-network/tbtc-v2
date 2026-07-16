@@ -25,6 +25,7 @@ import "./FrostRegistryWallets.sol";
 library FrostInactivity {
     using BytesLib for bytes;
     using ECDSAUpgradeable for bytes32;
+    using FrostRegistryWallets for FrostRegistryWallets.Data;
 
     struct Claim {
         // ID of the wallet whose signing group is raising the inactivity claim.
@@ -71,6 +72,40 @@ library FrostInactivity {
         uint256 nonce,
         address notifier
     );
+
+    /// @notice Checks membership against the immutable active-or-archived
+    ///         wallet commitment.
+    /// @dev This archive-sensitive read lives in the registry's already-linked
+    ///      library to preserve implementation bytecode headroom.
+    function isWalletMember(
+        FrostRegistryWallets.Data storage wallets,
+        SortitionPool sortitionPool,
+        bytes32 walletID,
+        uint32[] calldata walletMembersIDs,
+        address operator,
+        uint256 walletMemberIndex
+    ) external view returns (bool) {
+        uint32 operatorID = sortitionPool.getOperatorID(operator);
+
+        require(operatorID != 0, "Not a sortition pool operator");
+
+        bytes32 memberIdsHash = wallets.getRetainedWalletMembersIdsHash(
+            walletID
+        );
+
+        require(
+            memberIdsHash == keccak256(abi.encode(walletMembersIDs)),
+            "Invalid wallet members identifiers"
+        );
+
+        require(
+            1 <= walletMemberIndex &&
+                walletMemberIndex <= walletMembersIDs.length,
+            "Wallet member index is out of range"
+        );
+
+        return walletMembersIDs[walletMemberIndex - 1] == operatorID;
+    }
 
     /// @notice Verifies and finalizes an inactivity claim. The nonce is
     ///         consumed before any external effect, so a failed wallet-owner

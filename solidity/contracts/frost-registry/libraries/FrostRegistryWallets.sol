@@ -53,10 +53,16 @@ library FrostRegistryWallets {
     struct Data {
         // Mapping of walletID (== xOnlyOutputKey) to wallet details.
         mapping(bytes32 => Wallet) registry;
+        // Immutable tombstones for wallets removed from the active registry.
+        // Membership commitments must remain available after lifecycle close
+        // so delayed Bitcoin proofs and recovery obligations can still bind to
+        // the wallet's original signing group. An archived wallet ID can never
+        // be registered again.
+        mapping(bytes32 => Wallet) archived;
         // Reserved storage space in case we need to add more variables.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
-        uint256[49] __gap;
+        uint256[48] __gap;
     }
 
     /// @notice Performs preliminary validation of a new FROST wallet's
@@ -87,7 +93,10 @@ library FrostRegistryWallets {
         if (bytes12(xOnlyOutputKey) == bytes12(0)) {
             revert XOnlyOutputKeyIsLegacyAlias();
         }
-        if (self.registry[xOnlyOutputKey].xOnlyOutputKey != bytes32(0)) {
+        if (
+            self.registry[xOnlyOutputKey].xOnlyOutputKey != bytes32(0) ||
+            self.archived[xOnlyOutputKey].xOnlyOutputKey != bytes32(0)
+        ) {
             revert XOnlyOutputKeyAlreadyRegistered();
         }
     }
@@ -112,9 +121,12 @@ library FrostRegistryWallets {
     /// @notice Deletes a wallet with the given ID from the registry.
     /// @dev Reverts if the wallet is not registered.
     function deleteWallet(Data storage self, bytes32 walletID) internal {
-        if (!isWalletRegistered(self, walletID)) {
+        Wallet storage wallet = self.registry[walletID];
+        if (wallet.xOnlyOutputKey == bytes32(0)) {
             revert WalletNotRegistered();
         }
+
+        self.archived[walletID] = wallet;
         delete self.registry[walletID];
     }
 
@@ -138,6 +150,22 @@ library FrostRegistryWallets {
             revert WalletNotRegistered();
         }
         return self.registry[walletID].membersIdsHash;
+    }
+
+    /// @notice Returns the members commitment for an active or archived
+    ///         wallet. Reverts if the wallet ID has never been registered.
+    function getRetainedWalletMembersIdsHash(
+        Data storage self,
+        bytes32 walletID
+    ) internal view returns (bytes32) {
+        Wallet storage wallet = self.registry[walletID];
+        if (wallet.xOnlyOutputKey == bytes32(0)) {
+            wallet = self.archived[walletID];
+        }
+        if (wallet.xOnlyOutputKey == bytes32(0)) {
+            revert WalletNotRegistered();
+        }
+        return wallet.membersIdsHash;
     }
 
     /// @notice Returns the FROST x-only output key for a registered
