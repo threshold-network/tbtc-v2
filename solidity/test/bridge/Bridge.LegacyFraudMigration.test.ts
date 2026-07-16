@@ -18,6 +18,28 @@ import { constants, walletState } from "../fixtures"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
+const expectCustomError = async (
+  promise: Promise<unknown>,
+  errorName: string
+): Promise<void> => {
+  const selector = ethers.utils.id(`${errorName}()`).slice(0, 10)
+
+  try {
+    await promise
+    expect.fail(`expected ${errorName}`)
+  } catch (error) {
+    const errorData = error as {
+      data?: string
+      error?: { data?: string }
+      message?: string
+    }
+    const data = errorData.data ?? errorData.error?.data ?? ""
+    expect(`${data} ${errorData.message ?? ""}`.toLowerCase()).to.include(
+      selector.toLowerCase()
+    )
+  }
+}
+
 describe("Bridge - legacy fraud challenge migration", () => {
   let deployer: SignerWithAddress
   let governance: SignerWithAddress
@@ -260,7 +282,7 @@ describe("Bridge - legacy fraud challenge migration", () => {
     expect(await ecdsaFraudRouter.openFraudChallengeCount()).to.equal(0)
   })
 
-  it("routes P2TR records only to the P2TR router", async () => {
+  it("routes P2TR records only to the handshake-only P2TR test stub", async () => {
     const key = 201
     const deposit = ethers.utils.parseEther("0.25")
     await seedChallenge(key, deposit)
@@ -380,7 +402,10 @@ describe("Bridge - legacy fraud challenge migration", () => {
     )
   })
 
-  for (const routerName of ["EcdsaFraudRouter", "P2TRSignatureFraudRouter"]) {
+  for (const routerName of [
+    "EcdsaFraudRouter",
+    "HandshakeOnlyCompleteP2TRSignatureFraudRouterStub",
+  ]) {
     it(`${routerName} rejects resolved migration records`, async () => {
       const factory = await ethers.getContractFactory(routerName, deployer)
       const router = await factory.deploy(thirdParty.address)
@@ -403,4 +428,20 @@ describe("Bridge - legacy fraud challenge migration", () => {
       ).to.be.revertedWith("Challenge already resolved")
     })
   }
+
+  it("keeps production BOUNDED_V1 migration dormant", async () => {
+    const factory = await ethers.getContractFactory(
+      "P2TRSignatureFraudRouter",
+      deployer
+    )
+    const router = await factory.deploy(thirdParty.address)
+    await router.deployed()
+
+    await expectCustomError(
+      router.connect(thirdParty).acceptMigration([], []),
+      "P2TRFraudEvidenceUnavailable"
+    )
+    expect(await router.openFraudChallengeCount()).to.equal(0)
+    expect(await ethers.provider.getBalance(router.address)).to.equal(0)
+  })
 })

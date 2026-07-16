@@ -36,6 +36,7 @@ type PrevoutVector = {
 
 type SignatureFraudVector = {
   id: string
+  annexHex?: string
   walletIDHex: string
   unsignedTransactionHex: string
   signedInputIndex: number
@@ -333,6 +334,7 @@ async function expectBalanceDelta(
 
 describe("Bridge - P2TR signature fraud", () => {
   const vectorCorpus = loadVectorCorpus()
+  const fullSighashVectorCorpus = loadVectorCorpus(fullSighashVectorCorpusPath)
   const vector = vectorCorpus.cases[0]
   const multiInputVector = vectorCorpus.cases.find(
     ({ id }) => id === "bip341-keypath-sighash-default-multi-input-multi-output"
@@ -340,9 +342,15 @@ describe("Bridge - P2TR signature fraud", () => {
   const distinctWalletVector = vectorCorpus.cases.find(
     ({ walletIDHex }) => walletIDHex !== vector.walletIDHex
   )
-  const sighashNoneVector = loadVectorCorpus(
-    fullSighashVectorCorpusPath
-  ).cases.find(({ id }) => id === "bip341-keypath-none-multi")!
+  const sighashNoneVector = fullSighashVectorCorpus.cases.find(
+    ({ id }) => id === "bip341-keypath-none-multi"
+  )!
+  const annexVector = fullSighashVectorCorpus.cases.find(
+    ({ id }) => id === "bip341-keypath-default-with-annex"
+  )!
+  const noAnnexVector = fullSighashVectorCorpus.cases.find(
+    ({ id }) => id === "bip341-keypath-default-multi"
+  )!
   if (!distinctWalletVector) {
     throw new Error("P2TR fraud vector corpus needs two distinct wallets")
   }
@@ -515,6 +523,49 @@ describe("Bridge - P2TR signature fraud", () => {
       await p2trFraudRouter.hasOpenFraudChallengeForWallet(walletPubKeyHash)
     ).to.equal(expectedWalletCount > 0 || expectedUnattributedCount > 0)
   }
+
+  it("keeps the production BOUNDED_V1 lifecycle and migration completely dormant", async () => {
+    const factory = await ethers.getContractFactory("P2TRSignatureFraudRouter")
+    const boundedRouter = (await factory.deploy(
+      bridge.address
+    )) as P2TRSignatureFraudRouter
+    await boundedRouter.deployed()
+
+    expect(await boundedRouter.evidenceProtocolID()).to.equal(
+      ethers.utils.keccak256(
+        ethers.utils.toUtf8Bytes(
+          "tbtc/p2tr-signature-fraud/evidence/bounded-v1"
+        )
+      )
+    )
+
+    const encodedPayload = encodePayload(vectorPayload(vector))
+    for (const action of [
+      p2trFraudAction.Submit,
+      p2trFraudAction.Defeat,
+      p2trFraudAction.Timeout,
+    ]) {
+      await expectCustomError(
+        boundedRouter
+          .connect(thirdParty)
+          .processP2TRSignatureFraudChallenge(action, encodedPayload, [], {
+            value:
+              action === p2trFraudAction.Submit
+                ? fraudChallengeDepositAmount
+                : 0,
+          }),
+        "P2TRFraudEvidenceUnavailable"
+      )
+    }
+
+    await expectCustomError(
+      boundedRouter.connect(thirdParty).acceptMigration([], []),
+      "P2TRFraudEvidenceUnavailable"
+    )
+
+    expect(await boundedRouter.openFraudChallengeCount()).to.equal(0)
+    expect(await ethers.provider.getBalance(boundedRouter.address)).to.equal(0)
+  })
 
   it("submits and stores a P2TR signature-fraud challenge", async () => {
     const payload = vectorPayload(vector)
@@ -791,6 +842,30 @@ describe("Bridge - P2TR signature fraud", () => {
           { value: fraudChallengeDepositAmount }
         )
     ).to.be.revertedWith("Fraud challenge already exists")
+  })
+
+  it("treats the same txid with different annex authorization as distinct evidence", async () => {
+    expect(annexVector.unsignedTransactionHex).to.equal(
+      noAnnexVector.unsignedTransactionHex
+    )
+
+    const noAnnexPayload = vectorPayload(noAnnexVector)
+    const annexPayload = vectorPayload(annexVector, {
+      annexHex: hex(annexVector.annexHex!),
+    })
+    const walletPubKeyHash = await registerP2TRWallet(noAnnexPayload.walletID)
+
+    const first = await submitChallenge(noAnnexPayload, noAnnexVector)
+    const second = await submitChallenge(annexPayload, annexVector)
+
+    expect(first.challengeKey).to.not.equal(second.challengeKey)
+    expect(
+      (await p2trFraudRouter.fraudChallenges(first.challengeKey)).reportedAt
+    ).to.be.greaterThan(0)
+    expect(
+      (await p2trFraudRouter.fraudChallenges(second.challengeKey)).reportedAt
+    ).to.be.greaterThan(0)
+    await expectChallengeCounters(walletPubKeyHash, 2, 0, 2)
   })
 
   it("blocks public evidence from pre-seeding a legacy P2TR migration key", async () => {
@@ -1173,58 +1248,71 @@ describe("Bridge - P2TR signature fraud", () => {
   ]
 
   for (const scenario of honestSpendDefeatScenarios) {
-    it(`defeats a P2TR challenge after the signed input is a ${scenario.name}`, async () => {
+    it(`keeps authorization-incomplete defeat fail-closed after the signed input is a ${scenario.name}`, async () => {
       const payload = vectorPayload(vector)
       const walletPubKeyHash = await registerP2TRWallet(payload.walletID)
-      const { challengeKey, bridgeChallengeIdentity } = await submitChallenge(
-        payload
-      )
+      const { challengeKey } = await submitChallenge(payload)
 
       await scenario.markHonestSpend(payload, walletPubKeyHash)
 
-      const tx = await p2trFraudRouter
-        .connect(thirdParty)
-        .processP2TRSignatureFraudChallenge(
-          p2trFraudAction.Defeat,
-          encodePayload(payload),
-          []
-        )
-
-      await expectBalanceDelta(tx, treasury, fraudChallengeDepositAmount)
-
-      expect((await p2trFraudRouter.fraudChallenges(challengeKey)).resolved).to
-        .be.true
-      await expectChallengeCounters(walletPubKeyHash, 0, 0, 0)
-
-      const event = await findP2TREvent(
-        tx,
-        p2trFraudRouter.address,
-        "P2TRSignatureFraudChallengeDefeated"
+      await expectCustomError(
+        p2trFraudRouter
+          .connect(thirdParty)
+          .processP2TRSignatureFraudChallenge(
+            p2trFraudAction.Defeat,
+            encodePayload(payload),
+            []
+          ),
+        "P2TRFraudEvidenceUnavailable"
       )
-      expect(event.args.walletID).to.equal(payload.walletID)
-      expect(event.args.walletPubKeyHash).to.equal(walletPubKeyHash)
-      expect(event.args.bridgeChallengeIdentity).to.equal(
-        bridgeChallengeIdentity
-      )
-      expect(event.args.challengeKey).to.equal(challengeKey)
-      expect(event.args.sighash).to.equal(hex(vector.expectedBip341SighashHex))
+
+      expect(
+        (await p2trFraudRouter.fraudChallenges(challengeKey)).resolved
+      ).to.equal(false)
+      await expectChallengeCounters(walletPubKeyHash, 1, 0, 1)
     })
   }
 
-  it("rejects P2TR defeat before the signed input is proven honestly spent", async () => {
-    const payload = vectorPayload(vector)
-    await registerP2TRWallet(payload.walletID)
-    await submitChallenge(payload)
+  it("keeps defeat fail-closed for a valid annex authorization", async () => {
+    const payload = vectorPayload(annexVector, {
+      annexHex: hex(annexVector.annexHex!),
+    })
+    const walletPubKeyHash = await registerP2TRWallet(payload.walletID)
+    const { challengeKey } = await submitChallenge(payload, annexVector)
 
-    await expect(
+    await bridge.setSpentMainUtxos([signedInputUtxo(payload)])
+    await expectCustomError(
       p2trFraudRouter
         .connect(thirdParty)
         .processP2TRSignatureFraudChallenge(
           p2trFraudAction.Defeat,
           encodePayload(payload),
           []
-        )
-    ).to.be.revertedWith("Spent UTXO not found among correctly spent UTXOs")
+        ),
+      "P2TRFraudEvidenceUnavailable"
+    )
+
+    expect(
+      (await p2trFraudRouter.fraudChallenges(challengeKey)).resolved
+    ).to.equal(false)
+    await expectChallengeCounters(walletPubKeyHash, 1, 0, 1)
+  })
+
+  it("rejects P2TR defeat before the signed input is proven honestly spent", async () => {
+    const payload = vectorPayload(vector)
+    await registerP2TRWallet(payload.walletID)
+    await submitChallenge(payload)
+
+    await expectCustomError(
+      p2trFraudRouter
+        .connect(thirdParty)
+        .processP2TRSignatureFraudChallenge(
+          p2trFraudAction.Defeat,
+          encodePayload(payload),
+          []
+        ),
+      "P2TRFraudEvidenceUnavailable"
+    )
   })
 
   it("rejects P2TR defeat when only a different outpoint is proven honestly spent", async () => {
@@ -1240,15 +1328,16 @@ describe("Bridge - P2TR signature fraud", () => {
       },
     ])
 
-    await expect(
+    await expectCustomError(
       p2trFraudRouter
         .connect(thirdParty)
         .processP2TRSignatureFraudChallenge(
           p2trFraudAction.Defeat,
           encodePayload(payload),
           []
-        )
-    ).to.be.revertedWith("Spent UTXO not found among correctly spent UTXOs")
+        ),
+      "P2TRFraudEvidenceUnavailable"
+    )
   })
 
   const movedFundsNonDefeatScenarios: {
@@ -1288,15 +1377,16 @@ describe("Bridge - P2TR signature fraud", () => {
 
       await scenario.markMovedFundsRequest(payload, walletPubKeyHash)
 
-      await expect(
+      await expectCustomError(
         p2trFraudRouter
           .connect(thirdParty)
           .processP2TRSignatureFraudChallenge(
             p2trFraudAction.Defeat,
             encodePayload(payload),
             []
-          )
-      ).to.be.revertedWith("Spent UTXO not found among correctly spent UTXOs")
+          ),
+        "P2TRFraudEvidenceUnavailable"
+      )
     })
   }
 
@@ -1393,35 +1483,42 @@ describe("Bridge - P2TR signature fraud", () => {
     expect(await frostWalletRegistry.closeWalletCalled()).to.equal(true)
   })
 
-  it("allows FROST wallet closure after its P2TR challenge is defeated", async () => {
+  it("does not let an outpoint-only honest-spend marker defeat a challenge", async () => {
     const payload = vectorPayload(vector)
     const remainingClosingTime = Math.floor(fraudChallengeDefeatTimeout / 2)
     const walletPubKeyHash = await registerClosingFrostWallet(
       vector,
       remainingClosingTime
     )
-    await submitChallenge(payload)
+    const { challengeKey } = await submitChallenge(payload)
 
     await bridge.setSpentMainUtxos([signedInputUtxo(payload)])
-    await p2trFraudRouter
-      .connect(thirdParty)
-      .processP2TRSignatureFraudChallenge(
-        p2trFraudAction.Defeat,
-        encodePayload(payload),
-        []
-      )
-    await expectChallengeCounters(walletPubKeyHash, 0, 0, 0)
+    await expectCustomError(
+      p2trFraudRouter
+        .connect(thirdParty)
+        .processP2TRSignatureFraudChallenge(
+          p2trFraudAction.Defeat,
+          encodePayload(payload),
+          []
+        ),
+      "P2TRFraudEvidenceUnavailable"
+    )
+    expect(
+      (await p2trFraudRouter.fraudChallenges(challengeKey)).resolved
+    ).to.equal(false)
+    await expectChallengeCounters(walletPubKeyHash, 1, 0, 1)
+
     await increaseTime(remainingClosingTime)
 
-    await bridge.notifyWalletClosingPeriodElapsed(walletPubKeyHash)
+    await expectCustomError(
+      bridge.notifyWalletClosingPeriodElapsed(walletPubKeyHash),
+      "P2TRFraudChallengePending"
+    )
 
     expect((await bridge.wallets(walletPubKeyHash)).state).to.equal(
-      walletState.Closed
+      walletState.Closing
     )
-    expect(await frostWalletRegistry.closeWalletCalled()).to.equal(true)
-    expect(await frostWalletRegistry.lastClosedWalletID()).to.equal(
-      payload.walletID
-    )
+    expect(await frostWalletRegistry.closeWalletCalled()).to.equal(false)
   })
 
   it("allows an unrelated FROST wallet to close while a P2TR challenge is open", async () => {
@@ -1625,43 +1722,6 @@ describe("Bridge - P2TR signature fraud", () => {
     expect(event.args.sighash).to.equal(hex(vector.expectedBip341SighashHex))
   })
 
-  it("rejects later P2TR timeout or defeat after an honest-spend defeat", async () => {
-    const payload = vectorPayload(vector)
-    await registerP2TRWallet(payload.walletID)
-    await submitChallenge(payload)
-
-    await bridge.setSpentMainUtxos([signedInputUtxo(payload)])
-    await p2trFraudRouter
-      .connect(thirdParty)
-      .processP2TRSignatureFraudChallenge(
-        p2trFraudAction.Defeat,
-        encodePayload(payload),
-        []
-      )
-
-    await increaseTime(fraudChallengeDefeatTimeout)
-
-    await expect(
-      p2trFraudRouter
-        .connect(thirdParty)
-        .processP2TRSignatureFraudChallenge(
-          p2trFraudAction.Timeout,
-          encodePayload(payload),
-          [1, 2, 3]
-        )
-    ).to.be.revertedWith("Fraud challenge has already been resolved")
-
-    await expect(
-      p2trFraudRouter
-        .connect(thirdParty)
-        .processP2TRSignatureFraudChallenge(
-          p2trFraudAction.Defeat,
-          encodePayload(payload),
-          []
-        )
-    ).to.be.revertedWith("Fraud challenge has already been resolved")
-  })
-
   it("rejects later P2TR defeat or repeated timeout after timeout resolution", async () => {
     const payload = vectorPayload(vector)
     await registerP2TRWallet(payload.walletID)
@@ -1678,15 +1738,16 @@ describe("Bridge - P2TR signature fraud", () => {
 
     await bridge.setSpentMainUtxos([signedInputUtxo(payload)])
 
-    await expect(
+    await expectCustomError(
       p2trFraudRouter
         .connect(thirdParty)
         .processP2TRSignatureFraudChallenge(
           p2trFraudAction.Defeat,
           encodePayload(payload),
           []
-        )
-    ).to.be.revertedWith("Fraud challenge has already been resolved")
+        ),
+      "P2TRFraudEvidenceUnavailable"
+    )
 
     await expect(
       p2trFraudRouter
@@ -1713,17 +1774,9 @@ describe("Bridge - P2TR signature fraud", () => {
         { value: fraudChallengeDepositAmount }
       )
 
-    const { challengeKey } = await submitChallenge(payload)
+    await submitChallenge(payload)
 
     await bridge.setSpentMainUtxos([signedInputUtxo(payload)])
-
-    const defeatGas = await p2trFraudRouter
-      .connect(thirdParty)
-      .estimateGas.processP2TRSignatureFraudChallenge(
-        p2trFraudAction.Defeat,
-        encodedPayload,
-        []
-      )
 
     await increaseTime(fraudChallengeDefeatTimeout)
 
@@ -1738,12 +1791,9 @@ describe("Bridge - P2TR signature fraud", () => {
     // eslint-disable-next-line no-console
     console.log(`p2tr_submitChallenge_gas=${submitGas.toString()}`)
     // eslint-disable-next-line no-console
-    console.log(`p2tr_defeatChallenge_gas=${defeatGas.toString()}`)
-    // eslint-disable-next-line no-console
     console.log(`p2tr_timeoutChallenge_gas=${timeoutGas.toString()}`)
 
     expect(submitGas.toNumber()).to.be.lessThan(6000000)
-    expect(defeatGas.toNumber()).to.be.lessThan(1000000)
     expect(timeoutGas.toNumber()).to.be.lessThan(1500000)
   })
 

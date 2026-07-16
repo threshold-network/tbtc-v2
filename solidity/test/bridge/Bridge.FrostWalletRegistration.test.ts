@@ -28,6 +28,44 @@ const { lastBlockTime } = helpers.time
 // must be structurally distinguishable from a left-padded legacy alias.
 const frostXOnlyOutputKey =
   "0xb1de1afa17e1cbb20d8a4f8e54f8a55fbf5c8d2da9e1c6c4d1f0c7b3a2e5d4c8"
+const boundedEvidenceProtocolID = ethers.utils.id(
+  "tbtc/p2tr-signature-fraud/evidence/bounded-v1"
+)
+const completeEvidenceProtocolID = ethers.utils.id(
+  "tbtc/p2tr-signature-fraud/evidence/complete-v2"
+)
+
+async function deployBoundedP2TRFraudRouter(
+  bridgeAddress: string
+): Promise<string> {
+  const factory = await ethers.getContractFactory("P2TRSignatureFraudRouter")
+  const router = await factory.deploy(bridgeAddress)
+  await router.deployed()
+  return router.address
+}
+
+async function deployEvidenceProtocolStub(
+  bridgeAddress: string,
+  protocolID: string
+): Promise<string> {
+  const factory = await ethers.getContractFactory(
+    "P2TRFraudEvidenceProtocolStub"
+  )
+  const router = await factory.deploy(bridgeAddress, protocolID)
+  await router.deployed()
+  return router.address
+}
+
+async function deployMalformedEvidenceProtocolStub(
+  bridgeAddress: string
+): Promise<string> {
+  const factory = await ethers.getContractFactory(
+    "MalformedP2TRFraudEvidenceProtocolStub"
+  )
+  const router = await factory.deploy(bridgeAddress)
+  await router.deployed()
+  return router.address
+}
 
 // Local helper: assert a transaction reverts with a specific no-arg
 // custom error. The project's test toolchain (hardhat-waffle 2.x +
@@ -70,6 +108,24 @@ async function expectCustomError(
   throw new Error(
     `expected revert with custom error ${errorName} but tx succeeded`
   )
+}
+
+async function expectFrostActivationRejectedWithoutStateChanges(
+  bridge: Bridge & BridgeStub,
+  action: () => Promise<unknown>
+): Promise<void> {
+  const activeWalletPubKeyHash = await bridge.activeWalletPubKeyHash()
+  const activeWalletID = await bridge.activeWalletID()
+  const liveWalletsCount = await bridge.liveWalletsCount()
+
+  await expectCustomError(action(), "P2TRFraudEvidenceUnavailable")
+
+  expect(await bridge.activeWalletPubKeyHash()).to.equal(activeWalletPubKeyHash)
+  expect(await bridge.activeWalletID()).to.equal(activeWalletID)
+  expect(await bridge.liveWalletsCount()).to.equal(liveWalletsCount)
+  expect(
+    await bridge.walletPubKeyHashForWalletID(frostXOnlyOutputKey)
+  ).to.equal(ethers.constants.AddressZero)
 }
 
 describe("Bridge - FROST Wallet Registration", () => {
@@ -215,6 +271,57 @@ describe("Bridge - FROST Wallet Registration", () => {
       await restoreSnapshot()
     })
 
+    it("should fail closed before DKG when the router is unset without changing state", async () => {
+      await bridge.resetP2TRFraudRouterForTest(ethers.constants.AddressZero)
+
+      await expectFrostActivationRejectedWithoutStateChanges(bridge, async () =>
+        bridge.connect(thirdParty).requestNewWallet(NO_MAIN_UTXO)
+      )
+      expect(await frostRegistry.requestNewWalletCalled()).to.equal(false)
+    })
+
+    it("should reject the bounded V1 router before DKG", async () => {
+      const routerAddress = await deployBoundedP2TRFraudRouter(bridge.address)
+      const router = await ethers.getContractAt(
+        "P2TRSignatureFraudRouter",
+        routerAddress
+      )
+      expect(await router.evidenceProtocolID()).to.equal(
+        boundedEvidenceProtocolID
+      )
+      await bridge.resetP2TRFraudRouterForTest(routerAddress)
+
+      await expectFrostActivationRejectedWithoutStateChanges(bridge, async () =>
+        bridge.connect(thirdParty).requestNewWallet(NO_MAIN_UTXO)
+      )
+      expect(await frostRegistry.requestNewWalletCalled()).to.equal(false)
+    })
+
+    it("should reject malformed protocol data before DKG", async () => {
+      await bridge.resetP2TRFraudRouterForTest(
+        await deployMalformedEvidenceProtocolStub(bridge.address)
+      )
+
+      await expectFrostActivationRejectedWithoutStateChanges(bridge, async () =>
+        bridge.connect(thirdParty).requestNewWallet(NO_MAIN_UTXO)
+      )
+      expect(await frostRegistry.requestNewWalletCalled()).to.equal(false)
+    })
+
+    it("should reject a complete protocol bound to another Bridge before DKG", async () => {
+      await bridge.resetP2TRFraudRouterForTest(
+        await deployEvidenceProtocolStub(
+          thirdParty.address,
+          completeEvidenceProtocolID
+        )
+      )
+
+      await expectFrostActivationRejectedWithoutStateChanges(bridge, async () =>
+        bridge.connect(thirdParty).requestNewWallet(NO_MAIN_UTXO)
+      )
+      expect(await frostRegistry.requestNewWalletCalled()).to.equal(false)
+    })
+
     it("should fail before DKG when lifecycle router is unset", async () => {
       await bridge.resetLifecycleRouterForTest(ethers.constants.AddressZero)
       await frostRegistry.setLifecycleOwner(thirdParty.address)
@@ -238,6 +345,14 @@ describe("Bridge - FROST Wallet Registration", () => {
 
     it("should dispatch when registry lifecycle owner matches Bridge lifecycle router", async () => {
       await frostRegistry.setLifecycleOwner(thirdParty.address)
+
+      const router = await ethers.getContractAt(
+        "P2TRSignatureFraudRouter",
+        await bridge.p2trFraudRouter()
+      )
+      expect(await router.evidenceProtocolID()).to.equal(
+        completeEvidenceProtocolID
+      )
 
       await expect(
         bridge.connect(thirdParty).requestNewWallet(NO_MAIN_UTXO)
@@ -280,6 +395,63 @@ describe("Bridge - FROST Wallet Registration", () => {
               .__frostWalletCreatedCallback(frostXOnlyOutputKey),
             "CallerIsNotFrostWalletRegistry"
           ))
+      })
+
+      context("when complete P2TR fraud evidence is unavailable", () => {
+        beforeEach(async () => {
+          await createSnapshot()
+        })
+
+        afterEach(async () => {
+          await restoreSnapshot()
+        })
+
+        const callRegistration = async () =>
+          frostRegistry.callBridgeFrostWalletCreatedCallback(
+            bridge.address,
+            frostXOnlyOutputKey
+          )
+
+        it("should reject an unset router without registering a Live wallet", async () => {
+          await bridge.resetP2TRFraudRouterForTest(ethers.constants.AddressZero)
+          await expectFrostActivationRejectedWithoutStateChanges(
+            bridge,
+            callRegistration
+          )
+        })
+
+        it("should reject bounded V1 without registering a Live wallet", async () => {
+          await bridge.resetP2TRFraudRouterForTest(
+            await deployBoundedP2TRFraudRouter(bridge.address)
+          )
+          await expectFrostActivationRejectedWithoutStateChanges(
+            bridge,
+            callRegistration
+          )
+        })
+
+        it("should reject malformed protocol data without registering a Live wallet", async () => {
+          await bridge.resetP2TRFraudRouterForTest(
+            await deployMalformedEvidenceProtocolStub(bridge.address)
+          )
+          await expectFrostActivationRejectedWithoutStateChanges(
+            bridge,
+            callRegistration
+          )
+        })
+
+        it("should reject a protocol bound to another Bridge without registering a Live wallet", async () => {
+          await bridge.resetP2TRFraudRouterForTest(
+            await deployEvidenceProtocolStub(
+              thirdParty.address,
+              completeEvidenceProtocolID
+            )
+          )
+          await expectFrostActivationRejectedWithoutStateChanges(
+            bridge,
+            callRegistration
+          )
+        })
       })
 
       context(
@@ -339,6 +511,13 @@ describe("Bridge - FROST Wallet Registration", () => {
 
         before(async () => {
           await createSnapshot()
+          const router = await ethers.getContractAt(
+            "P2TRSignatureFraudRouter",
+            await bridge.p2trFraudRouter()
+          )
+          expect(await router.evidenceProtocolID()).to.equal(
+            completeEvidenceProtocolID
+          )
           tx = await frostRegistry.callBridgeFrostWalletCreatedCallback(
             bridge.address,
             frostXOnlyOutputKey
@@ -626,6 +805,30 @@ describe("Bridge - FROST Wallet Registration", () => {
           ecdsaWalletTestData.walletID,
           ecdsaWalletTestData.pubKeyHash160
         )
+    })
+  })
+
+  describe("ECDSA registration while P2TR evidence is unavailable", () => {
+    before(async () => {
+      await createSnapshot()
+      await bridge.resetP2TRFraudRouterForTest(ethers.constants.AddressZero)
+      await bridge
+        .connect(walletRegistry.wallet)
+        .__ecdsaWalletCreatedCallback(
+          ecdsaWalletTestData.walletID,
+          ecdsaWalletTestData.publicKeyX,
+          ecdsaWalletTestData.publicKeyY
+        )
+    })
+
+    after(async () => {
+      await restoreSnapshot()
+    })
+
+    it("should preserve the legacy ECDSA callback path", async () => {
+      const wallet = await bridge.wallets(ecdsaWalletTestData.pubKeyHash160)
+      expect(wallet.ecdsaWalletID).to.equal(ecdsaWalletTestData.walletID)
+      expect(wallet.state).to.equal(walletState.Live)
     })
   })
 

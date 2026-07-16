@@ -19,11 +19,22 @@ import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
 import fs from "fs"
 import path from "path"
+import {
+  abortLiveBridgeUpgradeWithoutVettedCompleteV2,
+  isEphemeralLocalNetwork,
+} from "./45_deploy_p2tr_signature_fraud_router"
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { ethers, deployments, getNamedAccounts, upgrades } = hre
   const { get, log } = deployments
   const { deployer } = await getNamedAccounts()
+
+  if (!isEphemeralLocalNetwork(hre.network.name)) {
+    await abortLiveBridgeUpgradeWithoutVettedCompleteV2(
+      hre,
+      "84_upgrade_bridge_repair_rebate_staking_DEPRECATED"
+    )
+  }
 
   const repairTarget =
     process.env.REBATE_STAKING_REPAIR_TARGET ?? ethers.constants.AddressZero
@@ -151,4 +162,5 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 export default func
 
 func.tags = ["RepairBridgeRebateStaking"]
+func.dependencies = ["FrostCustodyNoGo"]
 func.skip = async () => process.env.REPAIR_BRIDGE_REBATE_STAKING !== "true"

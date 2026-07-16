@@ -128,9 +128,10 @@ export const fixture = deployments.createFixture(
     // the unit-test bridgeFixture). The deploy scripts at
     // deploy/44_deploy_ecdsa_fraud_router.ts and
     // deploy/45_deploy_p2tr_signature_fraud_router.ts run during
-    // deployments.fixture() above; this block calls the one-time
-    // governance setters so the routers are usable for integration
-    // tests that exercise fraud paths through MaintainerProxy.
+    // deployments.fixture() above. Production BOUNDED_V1 deliberately stays
+    // unwired; integration tests substitute a handshake-only COMPLETE_V2 stub.
+    // The stub is not evidence that a production COMPLETE_V2 implementation
+    // exists.
     const existingEcdsaFraudRouter = await bridge.ecdsaFraudRouter()
     let ecdsaFraudRouter: EcdsaFraudRouter
     if (existingEcdsaFraudRouter === ethers.constants.AddressZero) {
@@ -150,10 +151,14 @@ export const fixture = deployments.createFixture(
     const existingP2TRFraudRouter = await bridge.p2trFraudRouter()
     let p2trFraudRouter: P2TRSignatureFraudRouter
     if (existingP2TRFraudRouter === ethers.constants.AddressZero) {
-      p2trFraudRouter =
-        await helpers.contracts.getContract<P2TRSignatureFraudRouter>(
-          "P2TRSignatureFraudRouter"
-        )
+      const CompleteP2TRFraudRouterFactory = await ethers.getContractFactory(
+        "HandshakeOnlyCompleteP2TRSignatureFraudRouterStub",
+        deployer
+      )
+      p2trFraudRouter = (await CompleteP2TRFraudRouterFactory.deploy(
+        bridge.address
+      )) as P2TRSignatureFraudRouter
+      await p2trFraudRouter.deployed()
       await bridgeGovernance
         .connect(governance)
         .setP2TRFraudRouter(p2trFraudRouter.address)
