@@ -61,6 +61,7 @@ import {
   stripWitnessesFromBitcoinRawTransaction,
   summarizeP2TRWatchtowerChallengeRecords,
   validateP2TRSignatureFraudPayloadBounds,
+  validateP2TRInputPrevouts,
   validateP2TRSignatureFraudWitnessObservationConsistency,
 } from "../../src/services/maintenance/p2tr-signature-fraud"
 import { Hex } from "../../src/lib/utils"
@@ -182,6 +183,11 @@ const txHash = (nibble: string): string => nibble.repeat(64)
 
 const authenticatedBitcoinTxHash = (rawTransaction: BitcoinRawTx): string =>
   Transaction.fromHex(rawTransaction.transactionHex).getId()
+
+const authenticatedBitcoinWtxid = (rawTransaction: BitcoinRawTx): string =>
+  Buffer.from(Transaction.fromHex(rawTransaction.transactionHex).getHash(true))
+    .reverse()
+    .toString("hex")
 
 const recordSubmittedChallenge = async (
   store: P2TRWatchtowerChallengeStore,
@@ -1044,12 +1050,17 @@ describe("P2TR signature-fraud witness parsing", () => {
 
     expect(() =>
       validateP2TRSignatureFraudWitnessObservationConsistency(observation, {
+        registeredWalletIDs: [vector.walletIDHex],
+        walletInputKeyBindings: [],
         bridgeChallengeDomain,
       })
     ).not.to.throw()
     expectWitnessError(
       () =>
-        validateP2TRSignatureFraudWitnessObservationConsistency(observation),
+        validateP2TRSignatureFraudWitnessObservationConsistency(observation, {
+          registeredWalletIDs: [vector.walletIDHex],
+          walletInputKeyBindings: [],
+        }),
       "invalid-watchtower-state"
     )
     expectWitnessError(
@@ -1059,7 +1070,11 @@ describe("P2TR signature-fraud witness parsing", () => {
             ...observation,
             spendType: P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
           },
-          { bridgeChallengeDomain }
+          {
+            registeredWalletIDs: [vector.walletIDHex],
+            walletInputKeyBindings: [],
+            bridgeChallengeDomain,
+          }
         ),
       "invalid-watchtower-state"
     )
@@ -1392,32 +1407,44 @@ describe("P2TR signature-fraud witness parsing", () => {
   })
 
   it("resolves input prevout maps through the Bitcoin client", async () => {
-    const vector = vectorCorpus.cases[0]
+    const previousTransaction = new Transaction()
+    previousTransaction.addInput(Buffer.alloc(32), 0xffffffff)
+    previousTransaction.addOutput(
+      Buffer.from("5120" + "11".repeat(32), "hex"),
+      777
+    )
+    const spendingTransaction = new Transaction()
+    spendingTransaction.addInput(previousTransaction.getHash(), 0)
+    spendingTransaction.addOutput(Buffer.from("51", "hex"), 1)
     const bitcoinClient = {
-      getRawTransaction: async () =>
-        rawPreviousTransactionForPrevout(vector.prevouts[0]),
+      getRawTransaction: async () => ({
+        transactionHex: previousTransaction.toHex(),
+      }),
     } as unknown as BitcoinClient
 
     const resolvedPrevouts = await resolveP2TRInputPrevouts(
-      { transactionHex: vector.unsignedTransactionHex },
+      { transactionHex: spendingTransaction.toHex() },
       bitcoinClient
     )
 
-    expect(resolvedPrevouts).to.have.lengthOf(vector.prevouts.length)
+    expect(resolvedPrevouts).to.have.lengthOf(1)
     expect(resolvedPrevouts[0].txid.toString()).to.equal(
-      vector.prevouts[0].txidHex
+      previousTransaction.getId()
     )
-    expect(resolvedPrevouts[0].vout).to.equal(vector.prevouts[0].vout)
-    expect(resolvedPrevouts[0].valueSats).to.equal(vector.prevouts[0].valueSats)
+    expect(resolvedPrevouts[0].vout).to.equal(0)
+    expect(resolvedPrevouts[0].valueSats).to.equal(777)
     expect(resolvedPrevouts[0].scriptPubKey.toString()).to.equal(
-      vector.prevouts[0].scriptPubKeyHex
+      "5120" + "11".repeat(32)
     )
   })
 
   it("rejects missing input prevouts returned by the Bitcoin client", async () => {
-    const vector = vectorCorpus.cases[0]
     const emptyPreviousTransaction = new Transaction()
     emptyPreviousTransaction.addInput(Buffer.alloc(32), 0xffffffff)
+    emptyPreviousTransaction.addOutput(Buffer.from("51", "hex"), 1)
+    const spendingTransaction = new Transaction()
+    spendingTransaction.addInput(emptyPreviousTransaction.getHash(), 1)
+    spendingTransaction.addOutput(Buffer.from("51", "hex"), 1)
     const bitcoinClient = {
       getRawTransaction: async () => ({
         transactionHex: emptyPreviousTransaction.toHex(),
@@ -1427,9 +1454,33 @@ describe("P2TR signature-fraud witness parsing", () => {
     await expectWitnessRejection(
       () =>
         resolveP2TRInputPrevouts(
-          { transactionHex: vector.unsignedTransactionHex },
+          { transactionHex: spendingTransaction.toHex() },
           bitcoinClient
         ),
+      "invalid-prevout-map"
+    )
+  })
+
+  it("validates source-authenticated prevouts against every raw input outpoint", () => {
+    const vector = vectorCorpus.cases[0]
+    const rawTransaction = {
+      transactionHex: vector.unsignedTransactionHex,
+    }
+    const validated = validateP2TRInputPrevouts(
+      rawTransaction,
+      toObservationPrevouts(vector)
+    )
+    expect(validated).to.have.lengthOf(vector.prevouts.length)
+
+    expectWitnessError(
+      () =>
+        validateP2TRInputPrevouts(rawTransaction, [
+          {
+            ...toObservationPrevouts(vector)[0],
+            txid: txHash("f"),
+          },
+          ...toObservationPrevouts(vector).slice(1),
+        ]),
       "invalid-prevout-map"
     )
   })
@@ -1478,7 +1529,7 @@ describe("P2TR signature-fraud witness parsing", () => {
     )
   })
 
-  it("observes wallet spends after resolving prevouts through the Bitcoin client", async () => {
+  it("rejects previous transaction bytes that do not match the requested txid", async () => {
     const vector = vectorCorpus.cases[0]
     const rawTransaction = withInputWitness(
       vector.unsignedTransactionHex,
@@ -1497,23 +1548,16 @@ describe("P2TR signature-fraud witness parsing", () => {
       vector.walletIDHex,
     ])
 
-    const results =
-      await watchtower.observeConfirmedTransactionWithResolvedPrevouts(
-        rawTransaction,
-        bitcoinClient,
-        bitcoinTxHash,
-        txHash("2"),
-        790
-      )
-
-    expect(results).to.have.lengthOf(1)
-    expect(results[0].record.bitcoinStatus).to.equal("confirmed")
-    expect(results[0].record.bitcoinBlockHeight).to.equal(790)
-    expect(results[0].observation.sighash.toString()).to.equal(
-      vector.expectedBip341SighashHex
-    )
-    expect(results[0].observation.draftChallengeIdentity.toString()).to.equal(
-      vector.expectedDraftChallengeIdentityHex
+    await expectWitnessRejection(
+      () =>
+        watchtower.observeConfirmedTransactionWithResolvedPrevouts(
+          rawTransaction,
+          bitcoinClient,
+          bitcoinTxHash,
+          txHash("2"),
+          790
+        ),
+      "invalid-prevout-map"
     )
   })
 
@@ -2637,16 +2681,21 @@ describe("P2TR signature-fraud witness parsing", () => {
 
     const processed = await runner.processMempoolTransaction(
       rawTransaction,
-      authenticatedBitcoinTxHash(rawTransaction)
+      authenticatedBitcoinTxHash(rawTransaction),
+      [],
+      toObservationPrevouts(vector)
     )
     const duplicate = await runner.processMempoolTransaction(
       rawTransaction,
-      authenticatedBitcoinTxHash(rawTransaction)
+      authenticatedBitcoinTxHash(rawTransaction),
+      [],
+      toObservationPrevouts(vector)
     )
     const batch = await runner.processMempoolTransactions([
       {
         rawTransaction,
         bitcoinTxHash: authenticatedBitcoinTxHash(rawTransaction),
+        inputPrevouts: toObservationPrevouts(vector),
       },
     ])
 
@@ -2686,11 +2735,15 @@ describe("P2TR signature-fraud witness parsing", () => {
 
     const [processed] = await runner.processMempoolTransaction(
       rawTransaction,
-      authenticatedBitcoinTxHash(rawTransaction)
+      authenticatedBitcoinTxHash(rawTransaction),
+      [],
+      toObservationPrevouts(vector)
     )
     const [duplicate] = await runner.processMempoolTransaction(
       rawTransaction,
-      authenticatedBitcoinTxHash(rawTransaction)
+      authenticatedBitcoinTxHash(rawTransaction),
+      [],
+      toObservationPrevouts(vector)
     )
     const [replayed] = await runner.replayStoredChallengeRecords(store)
 
@@ -2771,7 +2824,9 @@ describe("P2TR signature-fraud witness parsing", () => {
       rawTransaction,
       bitcoinTxHash,
       txHash("b"),
-      792
+      792,
+      [],
+      toObservationPrevouts(vector)
     )
     const batch = await runner.processConfirmedTransactions([
       {
@@ -2779,6 +2834,7 @@ describe("P2TR signature-fraud witness parsing", () => {
         bitcoinTxHash,
         bitcoinBlockHash: txHash("b"),
         bitcoinBlockHeight: 792,
+        inputPrevouts: toObservationPrevouts(vector),
       },
     ])
 
@@ -2815,7 +2871,9 @@ describe("P2TR signature-fraud witness parsing", () => {
     expect(
       await runner.processMempoolTransaction(
         rawTransaction,
-        authenticatedBitcoinTxHash(rawTransaction)
+        authenticatedBitcoinTxHash(rawTransaction),
+        [],
+        toObservationPrevouts(vector)
       )
     ).to.deep.equal([])
     expect(submitter.submissionCount).to.equal(0)
@@ -2884,10 +2942,12 @@ describe("P2TR signature-fraud witness parsing", () => {
       {
         rawTransaction,
         bitcoinTxHash: authenticatedBitcoinTxHash(rawTransaction),
+        inputPrevouts: toObservationPrevouts(vector),
       },
       {
         rawTransaction: malformedRawTransaction,
         bitcoinTxHash: malformedBitcoinTxHash,
+        inputPrevouts: toObservationPrevouts(vector),
       },
     ])
     const confirmedBatch =
@@ -2897,12 +2957,14 @@ describe("P2TR signature-fraud witness parsing", () => {
           bitcoinTxHash,
           bitcoinBlockHash: txHash("5"),
           bitcoinBlockHeight: 793,
+          inputPrevouts: toObservationPrevouts(vector),
         },
         {
           rawTransaction: malformedRawTransaction,
           bitcoinTxHash: malformedBitcoinTxHash,
           bitcoinBlockHash: txHash("7"),
           bitcoinBlockHeight: 793,
+          inputPrevouts: toObservationPrevouts(vector),
         },
       ])
 
@@ -3022,11 +3084,15 @@ describe("P2TR signature-fraud witness parsing", () => {
 
     const [firstAttempt] = await runner.processMempoolTransaction(
       rawTransaction,
-      authenticatedBitcoinTxHash(rawTransaction)
+      authenticatedBitcoinTxHash(rawTransaction),
+      [],
+      toObservationPrevouts(vector)
     )
     const [duplicateObservation] = await runner.processMempoolTransaction(
       rawTransaction,
-      authenticatedBitcoinTxHash(rawTransaction)
+      authenticatedBitcoinTxHash(rawTransaction),
+      [],
+      toObservationPrevouts(vector)
     )
     const [replayed] = await runner.replayStoredChallengeRecords(store)
 
@@ -3084,11 +3150,15 @@ describe("P2TR signature-fraud witness parsing", () => {
 
     const [firstAttempt] = await runner.processMempoolTransaction(
       rawTransaction,
-      authenticatedBitcoinTxHash(rawTransaction)
+      authenticatedBitcoinTxHash(rawTransaction),
+      [],
+      toObservationPrevouts(vector)
     )
     const [duplicateObservation] = await runner.processMempoolTransaction(
       rawTransaction,
-      authenticatedBitcoinTxHash(rawTransaction)
+      authenticatedBitcoinTxHash(rawTransaction),
+      [],
+      toObservationPrevouts(vector)
     )
     const [replayed] = await runner.replayStoredChallengeRecords(store)
 
@@ -3186,6 +3256,7 @@ describe("P2TR signature-fraud witness parsing", () => {
           {
             rawTransaction,
             bitcoinTxHash: authenticatedBitcoinTxHash(rawTransaction),
+            inputPrevouts: toObservationPrevouts(vector),
           },
         ],
         listConfirmedTransactions: async () => {
@@ -3219,6 +3290,265 @@ describe("P2TR signature-fraud witness parsing", () => {
     expect(cycle.summary.unresolvedOperatorAlerts).to.equal(0)
     expect(cycle.unresolvedOperatorAlerts).to.deep.equal([])
     expect(submitter.submissionCount).to.equal(0)
+  })
+
+  it("uses canonical authenticated prevouts and dynamically registered wallets", async () => {
+    const vector = vectorCorpus.cases[0]
+    const rawTransaction = withInputWitness(
+      vector.unsignedTransactionHex,
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    let bitcoinClientReads = 0
+    const bitcoinClient = {
+      getRawTransaction: async () => {
+        bitcoinClientReads++
+        throw new Error("canonical observations must not use RPC fallback")
+      },
+    } as unknown as BitcoinClient
+    const store = new InMemoryP2TRWatchtowerChallengeStore()
+    const runner = new P2TRSignatureFraudWatchtowerRunner(
+      createDraftApprovedP2TRWatchtower(store, []),
+      bitcoinClient,
+      new FakeP2TRSignatureFraudChallengeSubmitter(),
+      {
+        submitChallenges: false,
+        submissionPolicy: draftApprovedSubmissionPolicy,
+      }
+    )
+
+    const cycle = await runner.processTransactionSourceSettled(
+      {
+        p2trSignatureFraudWatchtowerRequiresAuthenticatedPrevouts: true,
+        listMempoolTransactions: async () => [],
+        listConfirmedTransactions: async () => ({
+          transactions: [
+            {
+              rawTransaction,
+              bitcoinTxHash: authenticatedBitcoinTxHash(rawTransaction),
+              bitcoinBlockHash: txHash("e"),
+              bitcoinBlockHeight: 900,
+              canonicalBitcoinCandidateIdentity: {
+                bitcoinTxHash: authenticatedBitcoinTxHash(rawTransaction),
+                bitcoinWtxid: authenticatedBitcoinWtxid(rawTransaction),
+                bitcoinBlockHash: txHash("e"),
+              },
+              inputPrevouts: toObservationPrevouts(vector),
+            },
+          ],
+          complete: true,
+          registeredWalletIDs: [vector.walletIDHex],
+          orphanedConfirmedTransactions: [],
+        }),
+      },
+      store
+    )
+
+    expect(bitcoinClientReads).to.equal(0)
+    expect(cycle.sourceFailures).to.deep.equal([])
+    expect(cycle.confirmed.failures).to.deep.equal([])
+    expect(cycle.confirmed.submissions).to.have.lengthOf(1)
+    expect(cycle.summary.total).to.equal(1)
+    expect(
+      cycle.confirmed.submissions[0].record.bitcoinWtxid?.toString()
+    ).to.equal(authenticatedBitcoinWtxid(rawTransaction))
+
+    const afterReorg = await runner.processTransactionSourceSettled(
+      {
+        p2trSignatureFraudWatchtowerRequiresAuthenticatedPrevouts: true,
+        listMempoolTransactions: async () => [],
+        listConfirmedTransactions: async () => ({
+          transactions: [],
+          complete: true,
+          registeredWalletIDs: [vector.walletIDHex],
+          orphanedConfirmedTransactions: [
+            {
+              bitcoinTxHash: authenticatedBitcoinTxHash(rawTransaction),
+              bitcoinWtxid: authenticatedBitcoinWtxid(rawTransaction),
+              bitcoinBlockHash: txHash("e"),
+            },
+          ],
+        }),
+      },
+      store
+    )
+    expect(afterReorg.sourceFailures).to.deep.equal([])
+    expect(afterReorg.replayed).to.deep.equal([])
+    expect(afterReorg.summary.byBitcoinStatus.reorged).to.equal(1)
+    expect((await store.listChallengeRecords())[0].bitcoinStatus).to.equal(
+      "reorged"
+    )
+  })
+
+  it("fails closed when a canonical source omits authenticated prevouts", async () => {
+    const vector = vectorCorpus.cases[0]
+    const rawTransaction = withInputWitness(
+      vector.unsignedTransactionHex,
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    let bitcoinClientReads = 0
+    const store = new InMemoryP2TRWatchtowerChallengeStore()
+    const runner = new P2TRSignatureFraudWatchtowerRunner(
+      createDraftApprovedP2TRWatchtower(store, []),
+      {
+        getRawTransaction: async () => {
+          bitcoinClientReads++
+          throw new Error("canonical observations must not use RPC fallback")
+        },
+      } as unknown as BitcoinClient,
+      new FakeP2TRSignatureFraudChallengeSubmitter()
+    )
+
+    const cycle = await runner.processTransactionSourceSettled(
+      {
+        p2trSignatureFraudWatchtowerRequiresAuthenticatedPrevouts: true,
+        listMempoolTransactions: async () => [],
+        listConfirmedTransactions: async () => ({
+          transactions: [
+            {
+              rawTransaction,
+              bitcoinTxHash: authenticatedBitcoinTxHash(rawTransaction),
+              bitcoinBlockHash: txHash("e"),
+              bitcoinBlockHeight: 900,
+              canonicalBitcoinCandidateIdentity: {
+                bitcoinTxHash: authenticatedBitcoinTxHash(rawTransaction),
+                bitcoinWtxid: authenticatedBitcoinWtxid(rawTransaction),
+                bitcoinBlockHash: txHash("e"),
+              },
+            },
+          ],
+          complete: true,
+          registeredWalletIDs: [vector.walletIDHex],
+          orphanedConfirmedTransactions: [],
+        }),
+      },
+      store
+    )
+
+    expect(bitcoinClientReads).to.equal(0)
+    expect(cycle.confirmed.submissions).to.deep.equal([])
+    expect(cycle.confirmed.failures).to.have.lengthOf(1)
+    expect(cycle.confirmed.failures[0].error).to.include(
+      "omitted authenticated input prevouts"
+    )
+  })
+
+  it("clears stale wallet registrations when the canonical snapshot fails", async () => {
+    const vector = vectorCorpus.cases[0]
+    const rawTransaction = withInputWitness(
+      vector.unsignedTransactionHex,
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    const store = new InMemoryP2TRWatchtowerChallengeStore()
+    const runner = new P2TRSignatureFraudWatchtowerRunner(
+      createDraftApprovedP2TRWatchtower(store, [vector.walletIDHex]),
+      {} as BitcoinClient,
+      new FakeP2TRSignatureFraudChallengeSubmitter()
+    )
+
+    const cycle = await runner.processTransactionSourceSettled(
+      {
+        p2trSignatureFraudWatchtowerRequiresAuthenticatedPrevouts: true,
+        listMempoolTransactions: async () => [
+          {
+            rawTransaction,
+            bitcoinTxHash: authenticatedBitcoinTxHash(rawTransaction),
+            inputPrevouts: toObservationPrevouts(vector),
+          },
+        ],
+        listConfirmedTransactions: async () => {
+          throw new Error("canonical wallet snapshot unavailable")
+        },
+      },
+      store
+    )
+
+    expect(cycle.mempool.submissions).to.deep.equal([])
+    expect(cycle.sourceFailures).to.deep.include({
+      source: "confirmed",
+      error: "canonical wallet snapshot unavailable",
+    })
+    expect(cycle.summary.total).to.equal(0)
+  })
+
+  it("reconciles a canonical orphan before an integrated-cycle replacement", async () => {
+    const vector = vectorCorpus.cases[0]
+    const rawTransaction = withInputWitness(
+      vector.unsignedTransactionHex,
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    const bitcoinTxHash = authenticatedBitcoinTxHash(rawTransaction)
+    const bitcoinWtxid = authenticatedBitcoinWtxid(rawTransaction)
+    const oldBlockHash = txHash("d")
+    const replacementBlockHash = txHash("e")
+    const store = new InMemoryP2TRWatchtowerChallengeStore()
+    const watchtower = createDraftApprovedP2TRWatchtower(store, [
+      vector.walletIDHex,
+    ])
+    await watchtower.observeConfirmedTransaction(
+      rawTransaction,
+      toObservationPrevouts(vector),
+      bitcoinTxHash,
+      oldBlockHash,
+      899,
+      [],
+      bitcoinWtxid
+    )
+    const runner = new P2TRSignatureFraudWatchtowerRunner(
+      watchtower,
+      {} as BitcoinClient,
+      new FakeP2TRSignatureFraudChallengeSubmitter()
+    )
+
+    const cycle = await runner.processWatchtowerSourcesSettled(
+      {
+        p2trSignatureFraudWatchtowerRequiresAuthenticatedPrevouts: true,
+        listMempoolTransactions: async () => [],
+        listConfirmedTransactions: async () => ({
+          transactions: [
+            {
+              rawTransaction,
+              bitcoinTxHash,
+              bitcoinBlockHash: replacementBlockHash,
+              bitcoinBlockHeight: 900,
+              canonicalBitcoinCandidateIdentity: {
+                bitcoinTxHash,
+                bitcoinWtxid,
+                bitcoinBlockHash: replacementBlockHash,
+              },
+              inputPrevouts: toObservationPrevouts(vector),
+            },
+          ],
+          complete: true,
+          registeredWalletIDs: [vector.walletIDHex],
+          orphanedConfirmedTransactions: [
+            {
+              bitcoinTxHash,
+              bitcoinWtxid,
+              bitcoinBlockHash: oldBlockHash,
+            },
+          ],
+        }),
+      },
+      { listBridgeLifecycleEvents: async () => [] },
+      store
+    )
+
+    expect(cycle.sourceFailures).to.deep.equal([])
+    expect(cycle.confirmed.failures).to.deep.equal([])
+    expect(cycle.confirmed.submissions).to.have.lengthOf(1)
+    expect(cycle.replayed).to.have.lengthOf(1)
+    expect(cycle.replayed[0].record.bitcoinBlockHash?.toString()).to.equal(
+      replacementBlockHash
+    )
+    const [record] = await store.listChallengeRecords()
+    expect(record.bitcoinStatus).to.equal("confirmed")
+    expect(record.bitcoinBlockHeight).to.equal(900)
+    expect(record.bitcoinBlockHash?.toString()).to.equal(replacementBlockHash)
+    expect(record.bitcoinWtxid?.toString()).to.equal(bitcoinWtxid)
   })
 
   it("replays stored challenges during watchtower transaction source cycles", async () => {
@@ -5174,6 +5504,7 @@ describe("P2TR signature-fraud witness parsing", () => {
             bitcoinTxHash,
             bitcoinBlockHash: txHash("b"),
             bitcoinBlockHeight: 144,
+            inputPrevouts: toObservationPrevouts(vector),
           },
         ],
         complete: true,
@@ -5285,6 +5616,7 @@ describe("P2TR signature-fraud witness parsing", () => {
           {
             rawTransaction,
             bitcoinTxHash: authenticatedBitcoinTxHash(rawTransaction),
+            inputPrevouts: toObservationPrevouts(vector),
           },
         ],
         listConfirmedTransactions: async () => ({
@@ -5580,6 +5912,12 @@ describe("P2TR signature-fraud witness parsing", () => {
       })
     )
     const signedPrevout = vector.prevouts[vector.signedInputIndex]
+    const canonicalDepositBinding = {
+      txid: signedPrevout.txidHex,
+      vout: signedPrevout.vout,
+      outputKey: depositOutputKey,
+      walletID: vector.walletIDHex,
+    }
     const [observation] = extractP2TRSignatureFraudWitnessObservations(
       rawTransaction,
       inputPrevouts,
@@ -5588,33 +5926,70 @@ describe("P2TR signature-fraud witness parsing", () => {
       undefined,
       undefined,
       undefined,
-      [
-        {
-          txid: signedPrevout.txidHex,
-          vout: signedPrevout.vout,
-          outputKey: depositOutputKey,
-          walletID: vector.walletIDHex,
-        },
-      ]
+      [canonicalDepositBinding]
     )
 
     expect(() =>
-      validateP2TRSignatureFraudWitnessObservationConsistency(observation)
+      validateP2TRSignatureFraudWitnessObservationConsistency(observation, {
+        registeredWalletIDs: [vector.walletIDHex],
+        walletInputKeyBindings: [canonicalDepositBinding],
+      })
     ).not.to.throw()
     expectWitnessError(
       () =>
-        validateP2TRSignatureFraudWitnessObservationConsistency({
-          ...observation,
-          walletID: Hex.from("44".repeat(32)),
-        }),
+        validateP2TRSignatureFraudWitnessObservationConsistency(
+          {
+            ...observation,
+            walletID: Hex.from("44".repeat(32)),
+          },
+          {
+            registeredWalletIDs: [vector.walletIDHex],
+            walletInputKeyBindings: [canonicalDepositBinding],
+          }
+        ),
       "invalid-watchtower-state"
     )
     expectWitnessError(
       () =>
-        validateP2TRSignatureFraudWitnessObservationConsistency({
-          ...observation,
-          scriptPubKey: Hex.from(`5120${"43".repeat(32)}`),
-        }),
+        validateP2TRSignatureFraudWitnessObservationConsistency(
+          {
+            ...observation,
+            scriptPubKey: Hex.from(`5120${"43".repeat(32)}`),
+          },
+          {
+            registeredWalletIDs: [vector.walletIDHex],
+            walletInputKeyBindings: [canonicalDepositBinding],
+          }
+        ),
+      "invalid-watchtower-state"
+    )
+
+    const attackerWalletID = "44".repeat(32)
+    const [selfAuthenticatedObservation] =
+      extractP2TRSignatureFraudWitnessObservations(
+        rawTransaction,
+        inputPrevouts,
+        [attackerWalletID],
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        [
+          {
+            ...canonicalDepositBinding,
+            walletID: attackerWalletID,
+          },
+        ]
+      )
+    expectWitnessError(
+      () =>
+        validateP2TRSignatureFraudWitnessObservationConsistency(
+          selfAuthenticatedObservation,
+          {
+            registeredWalletIDs: [vector.walletIDHex],
+            walletInputKeyBindings: [canonicalDepositBinding],
+          }
+        ),
       "invalid-watchtower-state"
     )
   })
