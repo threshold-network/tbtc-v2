@@ -3,7 +3,7 @@ import path from "path"
 
 import { expect } from "chai"
 import { Transaction } from "bitcoinjs-lib"
-import { BigNumber, BigNumberish, constants, utils } from "ethers"
+import { BigNumber, BigNumberish, constants, utils, Wallet } from "ethers"
 
 import { BitcoinClient, BitcoinRawTx } from "../../src/lib/bitcoin"
 import {
@@ -30,6 +30,9 @@ import {
   P2TR_SIGNATURE_FRAUD_SPEND_TYPE_WALLET_CLOSING,
   P2TR_SIGNATURE_FRAUD_BRIDGE_ACTION_SUBMIT,
   P2TR_SIGNATURE_FRAUD_BRIDGE_CHALLENGE_PAYLOAD_ABI_TYPE,
+  buildP2TRSignatureFraudSubmissionIntent,
+  computeP2TRSignatureFraudSubmissionIntentID,
+  encodeP2TRSignatureFraudRouterSubmitCalldata,
   P2TR_SIGHASH_ALL,
   P2TR_SIGHASH_DEFAULT,
   buildP2TRSignatureFraudBridgeChallengePayload,
@@ -62,6 +65,7 @@ import {
   summarizeP2TRWatchtowerChallengeRecords,
   validateP2TRSignatureFraudPayloadBounds,
   validateP2TRInputPrevouts,
+  validateP2TRSignatureFraudPreparedChallengeTransaction,
   validateP2TRSignatureFraudWitnessObservationConsistency,
 } from "../../src/services/maintenance/p2tr-signature-fraud"
 import { Hex } from "../../src/lib/utils"
@@ -1833,6 +1837,170 @@ describe("P2TR signature-fraud witness parsing", () => {
     expect(rejected.status).to.equal("rejected")
     expect(rejected.submissionAttempts).to.equal(1)
     expect(rejected.lastError).to.equal("bridge rejected")
+  })
+
+  it("builds a domain-bound durable submission intent and authenticates its signed raw transaction", async () => {
+    const vector = vectorCorpus.cases[0]
+    const rawTransaction = withInputWitness(
+      vector.unsignedTransactionHex,
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    const [observation] = extractP2TRSignatureFraudWitnessObservations(
+      rawTransaction,
+      toObservationPrevouts(vector),
+      [vector.walletIDHex],
+      undefined,
+      undefined,
+      undefined,
+      bridgeChallengeDomain
+    )
+    const routerAddress = "0x2222222222222222222222222222222222222222"
+    const intent = buildP2TRSignatureFraudSubmissionIntent(observation, {
+      chainID: bridgeChallengeDomain.chainID,
+      bridgeAddress: bridgeChallengeDomain.bridgeAddress,
+      routerAddress,
+      challengeDepositAmount: 1234,
+    })
+    const expectedCalldata =
+      encodeP2TRSignatureFraudRouterSubmitCalldata(observation)
+
+    expect(intent.observationID.toString()).to.equal(
+      observation.observationID.toString()
+    )
+    expect(intent.bridgeChallengeKey.toString()).to.equal(
+      observation.bridgeChallengeKey?.toString()
+    )
+    expect(intent.calldata).to.equal(expectedCalldata)
+    expect(intent.value).to.equal("1234")
+    expect(intent.intentID.toString()).to.equal(
+      computeP2TRSignatureFraudSubmissionIntentID({
+        observationID: intent.observationID,
+        bridgeChallengeKey: intent.bridgeChallengeKey,
+        walletID: intent.walletID,
+        bridgeChallengeIdentity: intent.bridgeChallengeIdentity,
+        sighash: intent.sighash,
+        chainID: intent.chainID,
+        bridgeAddress: intent.bridgeAddress,
+        routerAddress: intent.routerAddress,
+        calldata: intent.calldata,
+        value: intent.value,
+      }).toString()
+    )
+
+    const wallet = new Wallet(`0x${"42".repeat(32)}`)
+    const signedRawTransaction = await wallet.signTransaction({
+      to: intent.routerAddress,
+      data: intent.calldata,
+      value: BigNumber.from(intent.value),
+      chainId: intent.chainID,
+      nonce: 7,
+      gasLimit: 1_000_000,
+      gasPrice: 2,
+    })
+    const parsed = utils.parseTransaction(signedRawTransaction)
+    const validated = validateP2TRSignatureFraudPreparedChallengeTransaction(
+      intent,
+      {
+        intentID: intent.intentID,
+        rawTransaction: signedRawTransaction,
+        transactionHash: Hex.from(parsed.hash!),
+        sender: wallet.address,
+        nonce: 7,
+      }
+    )
+
+    expect(validated.rawTransaction).to.equal(
+      signedRawTransaction.toLowerCase()
+    )
+    expect(validated.transactionHash.toPrefixedString()).to.equal(parsed.hash)
+    expect(validated.sender).to.equal(wallet.address)
+    expect(validated.nonce).to.equal(7)
+  })
+
+  it("rejects prepared transactions that do not exactly match the durable intent", async () => {
+    const vector = vectorCorpus.cases[0]
+    const rawTransaction = withInputWitness(
+      vector.unsignedTransactionHex,
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    const [observation] = extractP2TRSignatureFraudWitnessObservations(
+      rawTransaction,
+      toObservationPrevouts(vector),
+      [vector.walletIDHex],
+      undefined,
+      undefined,
+      undefined,
+      bridgeChallengeDomain
+    )
+    const intent = buildP2TRSignatureFraudSubmissionIntent(observation, {
+      chainID: bridgeChallengeDomain.chainID,
+      bridgeAddress: bridgeChallengeDomain.bridgeAddress,
+      routerAddress: "0x2222222222222222222222222222222222222222",
+      challengeDepositAmount: 1234,
+    })
+    const wallet = new Wallet(`0x${"43".repeat(32)}`)
+    const wrongRawTransaction = await wallet.signTransaction({
+      to: "0x3333333333333333333333333333333333333333",
+      data: intent.calldata,
+      value: BigNumber.from(intent.value),
+      chainId: intent.chainID,
+      nonce: 9,
+      gasLimit: 1_000_000,
+      gasPrice: 2,
+    })
+    const wrongParsed = utils.parseTransaction(wrongRawTransaction)
+
+    expectWitnessError(
+      () =>
+        validateP2TRSignatureFraudPreparedChallengeTransaction(intent, {
+          intentID: intent.intentID,
+          rawTransaction: wrongRawTransaction,
+          transactionHash: Hex.from(wrongParsed.hash!),
+          sender: wallet.address,
+          nonce: 9,
+        }),
+      "invalid-watchtower-state"
+    )
+
+    const correctRawTransaction = await wallet.signTransaction({
+      to: intent.routerAddress,
+      data: intent.calldata,
+      value: BigNumber.from(intent.value),
+      chainId: intent.chainID,
+      nonce: 9,
+      gasLimit: 1_000_000,
+      gasPrice: 2,
+    })
+    const correctParsed = utils.parseTransaction(correctRawTransaction)
+    expectWitnessError(
+      () =>
+        validateP2TRSignatureFraudPreparedChallengeTransaction(intent, {
+          intentID: intent.intentID,
+          rawTransaction: correctRawTransaction,
+          transactionHash: Hex.from(`0x${"11".repeat(32)}`),
+          sender: wallet.address,
+          nonce: 9,
+        }),
+      "invalid-watchtower-state"
+    )
+    expect(correctParsed.hash).to.not.equal(`0x${"11".repeat(32)}`)
+
+    expectWitnessError(
+      () =>
+        validateP2TRSignatureFraudPreparedChallengeTransaction(
+          { ...intent, value: "1235" },
+          {
+            intentID: intent.intentID,
+            rawTransaction: correctRawTransaction,
+            transactionHash: Hex.from(correctParsed.hash!),
+            sender: wallet.address,
+            nonce: 9,
+          }
+        ),
+      "invalid-watchtower-state"
+    )
   })
 
   it("submits Bridge challenges and waits for configured finality", async () => {
