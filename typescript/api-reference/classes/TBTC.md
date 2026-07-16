@@ -66,7 +66,7 @@ subpath which exports the base TBTC class.
 
 #### Defined in
 
-[src/services/tbtc.ts:40](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L40)
+[src/services/tbtc.ts:43](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L43)
 
 ## Properties
 
@@ -76,7 +76,7 @@ subpath which exports the base TBTC class.
 
 #### Defined in
 
-[src/services/tbtc.ts:35](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L35)
+[src/services/tbtc.ts:38](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L38)
 
 ___
 
@@ -86,7 +86,7 @@ ___
 
 #### Defined in
 
-[src/services/tbtc.ts:33](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L33)
+[src/services/tbtc.ts:36](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L36)
 
 ___
 
@@ -102,7 +102,7 @@ Will be removed in next major version.
 
 #### Defined in
 
-[src/services/tbtc.ts:199](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L199)
+[src/services/tbtc.ts:253](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L253)
 
 ___
 
@@ -118,7 +118,7 @@ Bitcoin client handle for low-level access.
 
 #### Defined in
 
-[src/services/tbtc-core.ts:45](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L45)
+[src/services/tbtc-core.ts:46](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L46)
 
 ___
 
@@ -134,7 +134,7 @@ Service supporting the tBTC v2 deposit flow.
 
 #### Defined in
 
-[src/services/tbtc-core.ts:28](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L28)
+[src/services/tbtc-core.ts:29](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L29)
 
 ___
 
@@ -151,7 +151,7 @@ and operators.
 
 #### Defined in
 
-[src/services/tbtc-core.ts:33](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L33)
+[src/services/tbtc-core.ts:34](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L34)
 
 ___
 
@@ -167,7 +167,7 @@ Service supporting the tBTC v2 redemption flow.
 
 #### Defined in
 
-[src/services/tbtc-core.ts:37](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L37)
+[src/services/tbtc-core.ts:38](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L38)
 
 ___
 
@@ -183,7 +183,7 @@ Handle to tBTC contracts for low-level access.
 
 #### Defined in
 
-[src/services/tbtc-core.ts:41](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L41)
+[src/services/tbtc-core.ts:42](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L42)
 
 ## Methods
 
@@ -215,7 +215,7 @@ Cross-chain contracts for the given L2 chain or
 
 #### Defined in
 
-[src/services/tbtc.ts:382](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L382)
+[src/services/tbtc.ts:436](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L436)
 
 ___
 
@@ -267,7 +267,7 @@ Throws an error if:
 
 #### Defined in
 
-[src/services/tbtc.ts:239](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L239)
+[src/services/tbtc.ts:293](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L293)
 
 ___
 
@@ -295,7 +295,7 @@ Throws an error if the provider is invalid or address cannot be extracted.
 
 #### Defined in
 
-[src/services/tbtc.ts:153](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L153)
+[src/services/tbtc.ts:207](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L207)
 
 ___
 
@@ -331,13 +331,13 @@ This function is especially useful for local development as it gives
 
 #### Defined in
 
-[src/services/tbtc-core.ts:150](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L150)
+[src/services/tbtc-core.ts:163](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L163)
 
 ___
 
 ### initializeEthereum
 
-▸ **initializeEthereum**(`ethereumSignerOrProvider`, `ethereumChainId`, `bitcoinNetwork`, `crossChainSupport?`): `Promise`\<[`TBTC`](TBTC.md)\>
+▸ **initializeEthereum**(`ethereumSignerOrProvider`, `ethereumChainId`, `bitcoinNetwork`, `crossChainSupportOrActiveWalletIdentityQuorum?`, `activeWalletIdentityQuorum?`): `Promise`\<[`TBTC`](TBTC.md)\>
 
 Initializes the tBTC v2 SDK entrypoint for the given Ethereum network and Bitcoin network.
 The initialized instance uses default Electrum servers to interact
@@ -350,7 +350,8 @@ with Bitcoin network.
 | `ethereumSignerOrProvider` | [`EthereumSigner`](../README.md#ethereumsigner) | `undefined` | Ethereum signer or provider. |
 | `ethereumChainId` | [`Ethereum`](../enums/Chains.Ethereum.md) | `undefined` | Ethereum chain ID. |
 | `bitcoinNetwork` | [`BitcoinNetwork`](../enums/BitcoinNetwork-1.md) | `undefined` | Bitcoin network. |
-| `crossChainSupport` | `boolean` | `false` | Whether to enable cross-chain support. False by default. |
+| `crossChainSupportOrActiveWalletIdentityQuorum` | `boolean` \| [`EthereumActiveWalletIdentityQuorum`](../interfaces/EthereumActiveWalletIdentityQuorum.md) | `false` | Whether to enable cross-chain support, or the wallet-identity quorum when cross-chain support is disabled. False by default. |
+| `activeWalletIdentityQuorum?` | [`EthereumActiveWalletIdentityQuorum`](../interfaces/EthereumActiveWalletIdentityQuorum.md) | `undefined` | Independent finalized-state provider required before the SDK can create deposit addresses. |
 
 #### Returns
 
@@ -369,13 +370,13 @@ Throws an error if the underlying signer's Ethereum network is
 
 #### Defined in
 
-[src/services/tbtc.ts:113](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L113)
+[src/services/tbtc.ts:154](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L154)
 
 ___
 
 ### initializeMainnet
 
-▸ **initializeMainnet**(`ethereumSignerOrProvider`, `crossChainSupport?`): `Promise`\<[`TBTC`](TBTC.md)\>
+▸ **initializeMainnet**(`ethereumSignerOrProvider`, `crossChainSupportOrActiveWalletIdentityQuorum?`, `activeWalletIdentityQuorum?`): `Promise`\<[`TBTC`](TBTC.md)\>
 
 Initializes the tBTC v2 SDK entrypoint for Ethereum and Bitcoin mainnets.
 The initialized instance uses default Electrum servers to interact
@@ -386,7 +387,8 @@ with Bitcoin mainnet
 | Name | Type | Default value | Description |
 | :------ | :------ | :------ | :------ |
 | `ethereumSignerOrProvider` | [`EthereumSigner`](../README.md#ethereumsigner) | `undefined` | Ethereum signer or provider. |
-| `crossChainSupport` | `boolean` | `false` | Whether to enable cross-chain support. False by default. |
+| `crossChainSupportOrActiveWalletIdentityQuorum` | `boolean` \| [`EthereumActiveWalletIdentityQuorum`](../interfaces/EthereumActiveWalletIdentityQuorum.md) | `false` | Whether to enable cross-chain support, or the wallet-identity quorum when cross-chain support is disabled. False by default. |
+| `activeWalletIdentityQuorum?` | [`EthereumActiveWalletIdentityQuorum`](../interfaces/EthereumActiveWalletIdentityQuorum.md) | `undefined` | Independent finalized-state provider required before the SDK can create deposit addresses. |
 
 #### Returns
 
@@ -405,13 +407,13 @@ Throws an error if the signer's Ethereum network is other than
 
 #### Defined in
 
-[src/services/tbtc.ts:59](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L59)
+[src/services/tbtc.ts:66](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L66)
 
 ___
 
 ### initializeSepolia
 
-▸ **initializeSepolia**(`ethereumSignerOrProvider`, `crossChainSupport?`): `Promise`\<[`TBTC`](TBTC.md)\>
+▸ **initializeSepolia**(`ethereumSignerOrProvider`, `crossChainSupportOrActiveWalletIdentityQuorum?`, `activeWalletIdentityQuorum?`): `Promise`\<[`TBTC`](TBTC.md)\>
 
 Initializes the tBTC v2 SDK entrypoint for Ethereum Sepolia and Bitcoin testnet4.
 The initialized instance uses default Electrum servers to interact
@@ -430,7 +432,8 @@ upgrading this SDK.
 | Name | Type | Default value | Description |
 | :------ | :------ | :------ | :------ |
 | `ethereumSignerOrProvider` | [`EthereumSigner`](../README.md#ethereumsigner) | `undefined` | Ethereum signer or provider. |
-| `crossChainSupport` | `boolean` | `false` | Whether to enable cross-chain support. False by default. |
+| `crossChainSupportOrActiveWalletIdentityQuorum` | `boolean` \| [`EthereumActiveWalletIdentityQuorum`](../interfaces/EthereumActiveWalletIdentityQuorum.md) | `false` | Whether to enable cross-chain support, or the wallet-identity quorum when cross-chain support is disabled. False by default. |
+| `activeWalletIdentityQuorum?` | [`EthereumActiveWalletIdentityQuorum`](../interfaces/EthereumActiveWalletIdentityQuorum.md) | `undefined` | Independent finalized-state provider required before the SDK can create deposit addresses. |
 
 #### Returns
 
@@ -449,4 +452,4 @@ Throws an error if the signer's Ethereum network is other than
 
 #### Defined in
 
-[src/services/tbtc.ts:89](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L89)
+[src/services/tbtc.ts:113](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L113)

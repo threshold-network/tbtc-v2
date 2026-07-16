@@ -68,6 +68,7 @@
 
 ### Interfaces
 
+- [ActiveWalletIdentity](interfaces/ActiveWalletIdentity.md)
 - [BitcoinClient](interfaces/BitcoinClient.md)
 - [BitcoinDepositor](interfaces/BitcoinDepositor.md)
 - [BitcoinHeader](interfaces/BitcoinHeader.md)
@@ -87,6 +88,9 @@
 - [DepositorProxy](interfaces/DepositorProxy.md)
 - [DestinationChainTBTCToken](interfaces/DestinationChainTBTCToken.md)
 - [ElectrumCredentials](interfaces/ElectrumCredentials.md)
+- [EthereumActiveWalletIdentityQuorum](interfaces/EthereumActiveWalletIdentityQuorum.md)
+- [EthereumBridgeConfig](interfaces/EthereumBridgeConfig.md)
+- [EthereumCanonicalActiveWalletIdentityProvider](interfaces/EthereumCanonicalActiveWalletIdentityProvider.md)
 - [EthereumContractConfig](interfaces/EthereumContractConfig.md)
 - [ExtraDataEncoder](interfaces/ExtraDataEncoder.md)
 - [L1BitcoinRedeemer](interfaces/L1BitcoinRedeemer.md)
@@ -446,7 +450,7 @@ Represents an event emitted on deposit reveal to the on-chain bridge.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:403](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L403)
+[src/lib/contracts/bridge.ts:427](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L427)
 
 ___
 
@@ -456,7 +460,7 @@ ___
 
 #### Defined in
 
-[src/services/deposits/deposit.ts:32](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L32)
+[src/services/deposits/deposit.ts:33](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L33)
 
 ___
 
@@ -466,9 +470,9 @@ ___
 
 #### Defined in
 
-[src/services/deposits/deposit.ts:23](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L23)
+[src/services/deposits/deposit.ts:24](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L24)
 
-[src/services/deposits/deposit.ts:29](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L29)
+[src/services/deposits/deposit.ts:30](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L30)
 
 ___
 
@@ -716,7 +720,7 @@ Represents an event emitted when new wallet is registered on the on-chain bridge
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:581](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L581)
+[src/lib/contracts/bridge.ts:605](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L605)
 
 ___
 
@@ -1866,7 +1870,7 @@ Represents an event emitted on redemption request.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:464](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L464)
+[src/lib/contracts/bridge.ts:488](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L488)
 
 ___
 
@@ -1984,7 +1988,7 @@ information required to build a unique P2TR deposit address on Bitcoin chain.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:309](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L309)
+[src/lib/contracts/bridge.ts:333](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L333)
 
 ___
 
@@ -1997,7 +2001,7 @@ bridge.
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:413](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L413)
+[src/lib/contracts/bridge.ts:437](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L437)
 
 ## Variables
 
@@ -2304,9 +2308,9 @@ ___
 
 #### Defined in
 
-[src/services/deposits/deposit.ts:23](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L23)
+[src/services/deposits/deposit.ts:24](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L24)
 
-[src/services/deposits/deposit.ts:29](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L29)
+[src/services/deposits/deposit.ts:30](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L30)
 
 ___
 
@@ -3578,7 +3582,7 @@ ___
 
 ### loadEthereumCoreContracts
 
-▸ **loadEthereumCoreContracts**(`signer`, `chainId`): `Promise`\<[`TBTCContracts`](README.md#tbtccontracts)\>
+▸ **loadEthereumCoreContracts**(`signer`, `chainId`, `activeWalletIdentityQuorum?`): `Promise`\<[`TBTCContracts`](README.md#tbtccontracts)\>
 
 Loads Ethereum implementation of tBTC core contracts for the given Ethereum
 chain ID and attaches the given signer there.
@@ -3589,6 +3593,7 @@ chain ID and attaches the given signer there.
 | :------ | :------ | :------ |
 | `signer` | [`EthereumSigner`](README.md#ethereumsigner) | Signer that should be attached to tBTC contracts. |
 | `chainId` | [`Ethereum`](enums/Chains.Ethereum.md) | Ethereum chain ID. |
+| `activeWalletIdentityQuorum?` | [`EthereumActiveWalletIdentityQuorum`](interfaces/EthereumActiveWalletIdentityQuorum.md) | Independent finalized-state provider required before the SDK can create a deposit address. |
 
 #### Returns
 
@@ -3603,7 +3608,7 @@ Throws an error if the signer's Ethereum chain ID is other than
 
 #### Defined in
 
-[src/lib/ethereum/index.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L74)
+[src/lib/ethereum/index.ts:76](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/index.ts#L76)
 
 ___
 
@@ -3731,7 +3736,7 @@ Packed parameters.
 
 #### Defined in
 
-[src/lib/ethereum/bridge.ts:1327](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L1327)
+[src/lib/ethereum/bridge.ts:1614](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/bridge.ts#L1614)
 
 ___
 
@@ -4177,7 +4182,7 @@ This function does not validate the depositor's identifier as its
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:321](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L321)
+[src/lib/contracts/bridge.ts:345](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L345)
 
 ___
 

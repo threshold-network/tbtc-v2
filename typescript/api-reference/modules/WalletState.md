@@ -24,4 +24,4 @@
 
 #### Defined in
 
-[src/lib/contracts/bridge.ts:514](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L514)
+[src/lib/contracts/bridge.ts:538](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L538)
