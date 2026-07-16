@@ -134,6 +134,9 @@ fi
 printf "${LOG_START}Installing yarn dependencies...${LOG_END}"
 yarn install
 
+printf "${LOG_START}Generating TypeChain bindings...${LOG_END}"
+npm run typechain
+
 # Run script
 printf "${LOG_START}Recovering BTC...${LOG_END}"
 
