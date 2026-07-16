@@ -9,6 +9,7 @@ import {CheckBitcoinSigs} from "@keep-network/bitcoin-spv-sol/contracts/CheckBit
 import "./BitcoinTx.sol";
 import "./Deposit.sol";
 import "./EcdsaLib.sol";
+import "./EcdsaFraudRouterProtocol.sol";
 import "./Fraud.sol";
 import "./Heartbeat.sol";
 import "./MovingFunds.sol";
@@ -18,6 +19,8 @@ import "./Wallets.sol";
 ///         ECDSA fraud lifecycle actions, plus the one privileged
 ///         callback used for slashing on timeout.
 interface IBridgeForFraud {
+    function ecdsaFraudRouter() external view returns (address);
+
     function wallets(bytes20 walletPubKeyHash)
         external
         view
@@ -175,6 +178,8 @@ contract EcdsaFraudRouter {
     ///      marks an unattributed challenge migrated from Bridge storage.
     mapping(uint256 => bytes20) internal fraudChallengeWalletPubKeyHash;
 
+    error EcdsaFraudRouterNotActive();
+
     event FraudChallengeSubmitted(
         bytes20 indexed walletPubKeyHash,
         bytes32 sighash,
@@ -209,6 +214,13 @@ contract EcdsaFraudRouter {
     constructor(address _bridge) {
         require(_bridge != address(0), "Bridge address cannot be zero");
         bridge = _bridge;
+    }
+
+    /// @notice Identifies the current, closure-safe ECDSA fraud lifecycle.
+    /// @dev Governance checks this exact value together with `bridge()` and an
+    ///      empty challenge count before the router can become authoritative.
+    function fraudProtocolID() external pure returns (bytes32) {
+        return EcdsaFraudRouterProtocol.CURRENT_V2;
     }
 
     /// @notice Accepts ETH for an existing fraud challenge migrated
@@ -268,6 +280,8 @@ contract EcdsaFraudRouter {
         BitcoinTx.RSVSignature calldata signature
     ) external payable {
         IBridgeForFraud b = IBridgeForFraud(bridge);
+
+        _requireActive();
 
         (uint96 depositAmount, , , ) = b.fraudParameters();
         require(
@@ -546,6 +560,12 @@ contract EcdsaFraudRouter {
         } else {
             openFraudChallengeCountByWallet[walletPubKeyHash]--;
             delete fraudChallengeWalletPubKeyHash[challengeKey];
+        }
+    }
+
+    function _requireActive() internal view {
+        if (IBridgeForFraud(bridge).ecdsaFraudRouter() != address(this)) {
+            revert EcdsaFraudRouterNotActive();
         }
     }
 
