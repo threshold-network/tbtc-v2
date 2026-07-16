@@ -6,6 +6,12 @@ export {
   deriveP2TRWalletAddress,
 } from "./EsploraP2TRSignatureFraudTransactionSource.js"
 export {
+  BitcoinCoreP2TRCanonicalBlockSource,
+  HttpP2TRBitcoinCoreRpc,
+} from "./BitcoinCoreP2TRCanonicalBlockSource.js"
+export { CanonicalBitcoinP2TRSignatureFraudTransactionSource } from "./CanonicalBitcoinP2TRSignatureFraudTransactionSource.js"
+export { PostgresP2TRCanonicalIndexStore } from "./PostgresP2TRCanonicalIndexStore.js"
+export {
   EthersP2TRCanonicalBridgeLifecycleLogVerifier,
   EthersP2TRSignatureFraudBridgeLifecycleEventSource,
 } from "./EthersP2TRSignatureFraudBridgeLifecycleEventSource.js"
@@ -35,6 +41,48 @@ export type {
   P2TREsploraFetch,
   P2TRTaprootDepositRevealSource,
 } from "./EsploraP2TRSignatureFraudTransactionSource.js"
+export type {
+  BitcoinCoreP2TRCanonicalBlockSourceOptions,
+  HttpP2TRBitcoinCoreRpcOptions,
+  P2TRBitcoinCoreFetch,
+  P2TRBitcoinCoreRpc,
+} from "./BitcoinCoreP2TRCanonicalBlockSource.js"
+export type {
+  CanonicalBitcoinP2TRSignatureFraudTransactionSourceOptions,
+  P2TRCanonicalWatchtowerConfirmedTransaction,
+  P2TRCanonicalWatchtowerConfirmedTransactionSourceResult,
+} from "./CanonicalBitcoinP2TRSignatureFraudTransactionSource.js"
+export type {
+  P2TRBitcoinChainPoint,
+  P2TRBitcoinOutpoint,
+  P2TRCanonicalBitcoinBlock,
+  P2TRCanonicalBitcoinBlockSource,
+  P2TRCanonicalBitcoinCandidate,
+  P2TRCanonicalBitcoinCandidateIdentity,
+  P2TRCanonicalBitcoinCursor,
+  P2TRCanonicalBitcoinIndexStore,
+  P2TRCanonicalBitcoinInput,
+  P2TRCanonicalBitcoinOrphanedCandidate,
+  P2TRCanonicalBitcoinOutput,
+  P2TRCanonicalBitcoinScan,
+  P2TRCanonicalBitcoinTransaction,
+  P2TRCanonicalEvidenceStore,
+  P2TRCrossSourceWatermark,
+  P2TREthereumChainPoint,
+  P2TRFrostWalletBinding,
+  P2TRTaprootDepositBinding,
+  P2TRTrackedOutpoint,
+  P2TRTrackedOutpointKind,
+  P2TRTrackedOutpointSpend,
+  P2TRUnmatchedProofEnvelope,
+} from "./P2TRCanonicalBitcoinIndex.js"
+export type {
+  P2TRPostgresClient,
+  P2TRPostgresPool,
+  P2TRPostgresQueryResult,
+  P2TRPostgresTransactionSession,
+  PostgresP2TRCanonicalIndexStoreOptions,
+} from "./PostgresP2TRCanonicalIndexStore.js"
 export type {
   P2TRConfirmedHistoryCursor,
   P2TRConfirmedHistoryCursorStore,

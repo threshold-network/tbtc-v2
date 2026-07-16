@@ -1129,7 +1129,18 @@ test("passes configured spend-type classifier into observation-only indexing wit
         challengeSubmitter: submitter,
         transactionSource: {
           async listMempoolTransactions() {
-            return [{ rawTransaction, bitcoinTxHash }]
+            return [
+              {
+                rawTransaction,
+                bitcoinTxHash,
+                inputPrevouts: vector.prevouts.map((prevout) => ({
+                  txid: prevout.txidHex,
+                  vout: prevout.vout,
+                  valueSats: prevout.valueSats,
+                  scriptPubKey: prevout.scriptPubKeyHex,
+                })),
+              },
+            ]
           },
           async listConfirmedTransactions() {
             return { transactions: [], complete: true }
@@ -1219,6 +1230,12 @@ test("reconciles honest-spend proofs for classified flexible-sighash replacement
       {
         rawTransaction: originalRawTransaction,
         bitcoinTxHash: originalBitcoinTxHash,
+        inputPrevouts: effectivePrevouts.map((prevout) => ({
+          txid: prevout.txidHex,
+          vout: prevout.vout,
+          valueSats: prevout.valueSats,
+          scriptPubKey: prevout.scriptPubKeyHex,
+        })),
       },
     ]
     let confirmedTransactions: P2TRWatchtowerConfirmedTransaction[] = []
@@ -1276,6 +1293,12 @@ test("reconciles honest-spend proofs for classified flexible-sighash replacement
         bitcoinTxHash: replacementBitcoinTxHash,
         bitcoinBlockHash: `0x${"33".repeat(32)}`,
         bitcoinBlockHeight: 144,
+        inputPrevouts: effectivePrevouts.map((prevout) => ({
+          txid: prevout.txidHex,
+          vout: prevout.vout,
+          valueSats: prevout.valueSats,
+          scriptPubKey: prevout.scriptPubKeyHex,
+        })),
       },
     ]
     lifecycleEvents = [
@@ -1452,6 +1475,15 @@ test("threads revealed-deposit key bindings from transaction sources into observ
                     walletID: vector.walletIDHex,
                   },
                 ],
+                inputPrevouts: vector.prevouts.map((prevout) => ({
+                  txid: prevout.txidHex,
+                  vout: prevout.vout,
+                  valueSats: prevout.valueSats,
+                  scriptPubKey:
+                    prevout === signedPrevout
+                      ? `5120${depositOutputKey}`
+                      : prevout.scriptPubKeyHex,
+                })),
               },
             ]
           },
@@ -2103,6 +2135,56 @@ test("wraps production indexing cycles and cursor commits in the transaction coo
   assert.equal(committedBridgeLifecycleScanInTransaction, true)
 })
 
+test("aborts a staged confirmed scan when an item fails before cursor commit", async () => {
+  let committed = 0
+  let aborted = 0
+  const transactionSource = {
+    async listMempoolTransactions() {
+      return []
+    },
+    async listConfirmedTransactions() {
+      return {
+        transactions: [
+          {
+            rawTransaction: { transactionHex: "00" },
+            bitcoinTxHash: "11".repeat(32),
+            bitcoinBlockHash: "22".repeat(32),
+            bitcoinBlockHeight: 1,
+            inputPrevouts: [],
+          },
+        ],
+        complete: true,
+      }
+    },
+    async commitConfirmedTransactionScan() {
+      committed++
+    },
+    abortConfirmedTransactionScan() {
+      aborted++
+    },
+  }
+  const service = new P2TRSignatureFraudWatchtowerService(
+    { registeredWalletIDs: [`0x${"11".repeat(32)}`] },
+    {
+      bitcoinClient: {} as BitcoinClient,
+      transactionSource,
+      bridgeLifecycleEventSource: emptyBridgeLifecycleSource,
+      persistence: {
+        async loadChallengeRecords() {
+          return []
+        },
+        async saveChallengeRecords() {},
+      },
+    }
+  )
+
+  const report = await service.processCycle()
+
+  assert.equal(report.result.confirmed.failures.length, 1)
+  assert.equal(committed, 0)
+  assert.equal(aborted, 1)
+})
+
 test("does not commit the Bridge lifecycle cursor when a transaction source fails", async () => {
   let committedBridgeLifecycleScan = false
   const transactionCoordinator: P2TRSignatureFraudWatchtowerTransactionCoordinator =
@@ -2413,6 +2495,8 @@ test("surfaces Bridge lifecycle scan cursor commit failures", async () => {
   const statePath = join(directory, "records.json")
 
   try {
+    let confirmedScanCommits = 0
+    let confirmedScanAborts = 0
     const observationID = `0x${"22".repeat(32)}`
     const persistence = new FileBackedP2TRWatchtowerChallengeRecordPersistence(
       statePath
@@ -2452,6 +2536,15 @@ test("surfaces Bridge lifecycle scan cursor commit failures", async () => {
         throw new Error("cursor store unavailable")
       },
     }
+    const transactionSource = {
+      ...emptyTransactionSource,
+      async commitConfirmedTransactionScan() {
+        confirmedScanCommits++
+      },
+      abortConfirmedTransactionScan() {
+        confirmedScanAborts++
+      },
+    }
 
     const service = new P2TRSignatureFraudWatchtowerService(
       {
@@ -2460,7 +2553,7 @@ test("surfaces Bridge lifecycle scan cursor commit failures", async () => {
       {
         bitcoinClient: {} as BitcoinClient,
         challengeSubmitter: new FakeSubmitter(),
-        transactionSource: emptyTransactionSource,
+        transactionSource,
         bridgeLifecycleEventSource,
         persistence,
         logger,
@@ -2473,6 +2566,9 @@ test("surfaces Bridge lifecycle scan cursor commit failures", async () => {
     )
 
     await assert.rejects(service.processCycle(), /cursor store unavailable/)
+
+    assert.equal(confirmedScanCommits, 1)
+    assert.equal(confirmedScanAborts, 1)
 
     const [storedRecord] = await persistence.loadChallengeRecords()
     assert.equal(storedRecord.status, "timeout-eligible")

@@ -269,6 +269,12 @@ export type P2TRSignatureFraudWatchtowerSourceFailure = {
 }
 
 export interface P2TRSignatureFraudWatchtowerTransactionSource {
+  /**
+   * When true, every returned transaction must carry an authenticated complete
+   * `inputPrevouts` vector. The runner then rejects absence instead of falling
+   * back to its independently configured `BitcoinClient`.
+   */
+  readonly p2trSignatureFraudWatchtowerRequiresAuthenticatedPrevouts?: true
   listMempoolTransactions(): Promise<P2TRWatchtowerMempoolTransaction[]>
   listConfirmedTransactions(): Promise<P2TRWatchtowerConfirmedTransactionSourceResult>
   /**
@@ -276,6 +282,8 @@ export interface P2TRSignatureFraudWatchtowerTransactionSource {
    * durably recorded. Sources without a durable cursor may omit this method.
    */
   commitConfirmedTransactionScan?(): Promise<void>
+  /** Discards a staged scan when the enclosing cycle cannot commit safely. */
+  abortConfirmedTransactionScan?(): Promise<void> | void
 }
 
 /**
@@ -286,6 +294,10 @@ export interface P2TRSignatureFraudWatchtowerTransactionSource {
 export type P2TRWatchtowerConfirmedTransactionSourceResult = {
   transactions: P2TRWatchtowerConfirmedTransaction[]
   complete: boolean
+  /** Canonical, durably indexed wallet registrations applicable to the batch. */
+  registeredWalletIDs?: (Hex | Buffer | string)[]
+  /** Previously confirmed candidates orphaned by this canonical scan. */
+  orphanedConfirmedTransactions?: P2TRWatchtowerCanonicalBitcoinCandidateIdentity[]
 }
 
 const isP2TRWatchtowerConfirmedTransactionSourceResult = (
@@ -453,12 +465,22 @@ export type P2TRWatchtowerMempoolTransaction = {
   rawTransaction: BitcoinRawTx
   bitcoinTxHash: Hex | Buffer | string
   walletInputKeyBindings?: P2TRWalletInputKeyBinding[]
+  /** Optional source-authenticated complete prevout vector. */
+  inputPrevouts?: P2TRWalletInputObservationPrevout[]
+}
+
+export type P2TRWatchtowerCanonicalBitcoinCandidateIdentity = {
+  bitcoinTxHash: Hex | Buffer | string
+  bitcoinWtxid: Hex | Buffer | string
+  bitcoinBlockHash: Hex | Buffer | string
 }
 
 export type P2TRWatchtowerConfirmedTransaction =
   P2TRWatchtowerMempoolTransaction & {
     bitcoinBlockHash: Hex | Buffer | string
     bitcoinBlockHeight: number
+    /** Full canonical identity supplied by block-driven production sources. */
+    canonicalBitcoinCandidateIdentity?: P2TRWatchtowerCanonicalBitcoinCandidateIdentity
   }
 
 /**
@@ -614,6 +636,10 @@ export type P2TRSignatureFraudSpendTypeClassifierRule = {
 }
 
 export type P2TRSignatureFraudWitnessObservationConsistencyContext = {
+  /** Canonical wallet registry snapshot, never derived from the observation. */
+  registeredWalletIDs: (Hex | Buffer | string)[]
+  /** Canonical exact-outpoint deposit bindings, never derived from the observation. */
+  walletInputKeyBindings: P2TRWalletInputKeyBinding[]
   bridgeIdentifier?: Hex | Buffer | string
   spendTypeClassifier?: P2TRSignatureFraudSpendTypeClassifier
   payloadBounds?: P2TRSignatureFraudPayloadBounds
@@ -676,6 +702,7 @@ export type P2TRWatchtowerChallengeRecord = {
   submissionAttempts: number
   bitcoinStatus?: P2TRWatchtowerBitcoinStatus
   bitcoinTxHash?: Hex
+  bitcoinWtxid?: Hex
   bitcoinProofAliases?: P2TRWatchtowerBitcoinProofAlias[]
   bitcoinBlockHash?: Hex
   bitcoinBlockHeight?: number
@@ -701,6 +728,7 @@ export type P2TRWatchtowerChallengeRecordJSON = {
   submissionAttempts: number
   bitcoinStatus?: P2TRWatchtowerBitcoinStatus
   bitcoinTxHash?: string
+  bitcoinWtxid?: string
   bitcoinProofAliases?: P2TRWatchtowerBitcoinProofAliasJSON[]
   bitcoinBlockHash?: string
   bitcoinBlockHeight?: number
@@ -770,12 +798,14 @@ export type P2TRWatchtowerChallengeEvent =
       observationID: Hex | Buffer | string
       observation?: P2TRSignatureFraudWitnessObservation
       bitcoinTxHash: Hex | Buffer | string
+      bitcoinWtxid?: Hex | Buffer | string
       bitcoinBlockHash: Hex | Buffer | string
       bitcoinBlockHeight: number
     }
   | {
       type: "bitcoin-reorged"
       observationID: Hex | Buffer | string
+      expectedCanonicalIdentity?: P2TRWatchtowerCanonicalBitcoinCandidateIdentity
     }
   | {
       type: "submission-started"
@@ -1456,6 +1486,7 @@ export const serializeP2TRWatchtowerChallengeRecord = (
   submissionAttempts: record.submissionAttempts,
   bitcoinStatus: record.bitcoinStatus,
   bitcoinTxHash: record.bitcoinTxHash?.toString(),
+  bitcoinWtxid: record.bitcoinWtxid?.toString(),
   bitcoinProofAliases: record.bitcoinProofAliases?.map(
     serializeP2TRWatchtowerBitcoinProofAlias
   ),
@@ -1643,6 +1674,10 @@ export const deserializeP2TRWatchtowerChallengeRecord = (
     submissionAttempts: record.submissionAttempts,
     bitcoinStatus: record.bitcoinStatus,
     bitcoinTxHash: optionalBytes32Hex(record.bitcoinTxHash, "Bitcoin tx hash"),
+    bitcoinWtxid: optionalBytes32Hex(
+      record.bitcoinWtxid,
+      "Bitcoin witness transaction hash"
+    ),
     bitcoinProofAliases: deserializeP2TRWatchtowerBitcoinProofAliases(
       record.bitcoinProofAliases
     ),
@@ -2195,6 +2230,62 @@ const p2trWatchtowerObservationMatchesBitcoinTxHash = (
     Transaction.fromHex(observation.rawTransaction.transactionHex).getId()
   ).equals(bitcoinTxHash)
 
+const validateCanonicalBitcoinCandidateIdentity = (
+  rawTransaction: BitcoinRawTx,
+  bitcoinTxHash: Hex | Buffer | string,
+  bitcoinBlockHash: Hex | Buffer | string,
+  identity?: P2TRWatchtowerCanonicalBitcoinCandidateIdentity,
+  required = false
+): Hex | undefined => {
+  if (identity === undefined) {
+    if (required) {
+      throw new P2TRWitnessSignatureError(
+        "invalid-watchtower-state",
+        "Canonical transaction source omitted its txid/wtxid/block identity"
+      )
+    }
+    return undefined
+  }
+
+  const expectedTxid = toBytes32Hex(bitcoinTxHash, "Bitcoin transaction hash")
+  const identityTxid = toBytes32Hex(
+    identity.bitcoinTxHash,
+    "Canonical Bitcoin candidate transaction hash"
+  )
+  const expectedBlockHash = toBytes32Hex(bitcoinBlockHash, "Bitcoin block hash")
+  const identityBlockHash = toBytes32Hex(
+    identity.bitcoinBlockHash,
+    "Canonical Bitcoin candidate block hash"
+  )
+  const transaction = Transaction.fromHex(rawTransaction.transactionHex)
+  const rawTxid = toBytes32Hex(
+    transaction.getId(),
+    "Raw Bitcoin transaction hash"
+  )
+  const rawWtxid = toBytes32Hex(
+    Buffer.from(transaction.getHash(true)).reverse(),
+    "Raw Bitcoin witness transaction hash"
+  )
+  const identityWtxid = toBytes32Hex(
+    identity.bitcoinWtxid,
+    "Canonical Bitcoin candidate witness transaction hash"
+  )
+
+  if (
+    !identityTxid.equals(expectedTxid) ||
+    !rawTxid.equals(expectedTxid) ||
+    !identityWtxid.equals(rawWtxid) ||
+    !identityBlockHash.equals(expectedBlockHash)
+  ) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Canonical Bitcoin candidate identity does not match its raw transaction and block metadata"
+    )
+  }
+
+  return identityWtxid
+}
+
 const initializeP2TRWatchtowerBitcoinProofAliases = (
   record: P2TRWatchtowerChallengeRecord
 ): P2TRWatchtowerChallengeRecord => {
@@ -2517,6 +2608,7 @@ export const applyP2TRWatchtowerChallengeEvent = (
         ...mempoolRecord,
         bitcoinStatus: "mempool",
         bitcoinTxHash,
+        bitcoinWtxid: undefined,
         bitcoinBlockHash: undefined,
         bitcoinBlockHeight: undefined,
       }
@@ -2527,6 +2619,7 @@ export const applyP2TRWatchtowerChallengeEvent = (
       return {
         ...evictedRecord,
         bitcoinStatus: "evicted",
+        bitcoinWtxid: undefined,
         bitcoinBlockHash: undefined,
         bitcoinBlockHeight: undefined,
       }
@@ -2551,6 +2644,13 @@ export const applyP2TRWatchtowerChallengeEvent = (
         ...confirmedRecord,
         bitcoinStatus: "confirmed",
         bitcoinTxHash: toHex(event.bitcoinTxHash),
+        bitcoinWtxid:
+          event.bitcoinWtxid === undefined
+            ? undefined
+            : toBytes32Hex(
+                event.bitcoinWtxid,
+                "Bitcoin witness transaction hash"
+              ),
         bitcoinBlockHash: toHex(event.bitcoinBlockHash),
         bitcoinBlockHeight: event.bitcoinBlockHeight,
       }
@@ -2558,9 +2658,36 @@ export const applyP2TRWatchtowerChallengeEvent = (
 
     case "bitcoin-reorged": {
       const reorgedRecord = initializeP2TRWatchtowerBitcoinProofAliases(record)
+      if (event.expectedCanonicalIdentity !== undefined) {
+        const expectedTxid = toBytes32Hex(
+          event.expectedCanonicalIdentity.bitcoinTxHash,
+          "Orphaned Bitcoin transaction hash"
+        )
+        const expectedWtxid = toBytes32Hex(
+          event.expectedCanonicalIdentity.bitcoinWtxid,
+          "Orphaned Bitcoin witness transaction hash"
+        )
+        const expectedBlockHash = toBytes32Hex(
+          event.expectedCanonicalIdentity.bitcoinBlockHash,
+          "Orphaned Bitcoin block hash"
+        )
+        if (
+          record.bitcoinStatus !== "confirmed" ||
+          record.bitcoinTxHash?.equals(expectedTxid) !== true ||
+          record.bitcoinBlockHash?.equals(expectedBlockHash) !== true ||
+          (record.bitcoinWtxid !== undefined &&
+            !record.bitcoinWtxid.equals(expectedWtxid))
+        ) {
+          throw new P2TRWitnessSignatureError(
+            "invalid-watchtower-state",
+            "Orphaned Bitcoin candidate does not match the record's canonical confirmation"
+          )
+        }
+      }
       return {
         ...reorgedRecord,
         bitcoinStatus: "reorged",
+        bitcoinWtxid: undefined,
         bitcoinBlockHash: undefined,
         bitcoinBlockHeight: undefined,
       }
@@ -3019,6 +3146,12 @@ export const resolveP2TRInputPrevouts = async (
       const prevoutTransaction = Transaction.fromHex(
         rawPrevoutTransaction.transactionHex
       )
+      if (prevoutTransaction.getId() !== txid.toString()) {
+        throw new P2TRWitnessSignatureError(
+          "invalid-prevout-map",
+          "Previous transaction raw bytes do not match the requested input txid"
+        )
+      }
       const prevout = prevoutTransaction.outs[input.index]
 
       if (!prevout) {
@@ -3036,6 +3169,72 @@ export const resolveP2TRInputPrevouts = async (
       }
     })
   )
+}
+
+/**
+ * Authenticates a source-provided prevout vector against the raw input
+ * outpoints before it can influence Taproot sighash reconstruction.
+ */
+export const validateP2TRInputPrevouts = (
+  rawTransaction: BitcoinRawTx,
+  inputPrevouts: P2TRWalletInputObservationPrevout[]
+): P2TRWalletInputObservationPrevout[] => {
+  const transaction = Transaction.fromHex(rawTransaction.transactionHex)
+  if (inputPrevouts.length !== transaction.ins.length) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-prevout-map",
+      "Authenticated input prevout map length must match the transaction input vector"
+    )
+  }
+
+  return transaction.ins.map((input, inputIndex) => {
+    const prevout = inputPrevouts[inputIndex]
+    if (prevout === undefined) {
+      throw new P2TRWitnessSignatureError(
+        "invalid-prevout-map",
+        "Authenticated input prevout map is sparse"
+      )
+    }
+    const expectedTxid = BitcoinTxHash.from(input.hash).reverse().toString()
+    const actualTxid = toHex(prevout.txid).toString()
+    if (actualTxid !== expectedTxid || prevout.vout !== input.index) {
+      throw new P2TRWitnessSignatureError(
+        "invalid-prevout-map",
+        "Authenticated input prevout does not match its raw transaction outpoint"
+      )
+    }
+    if (!Number.isInteger(prevout.vout) || prevout.vout < 0) {
+      throw new P2TRWitnessSignatureError(
+        "invalid-prevout-map",
+        "Authenticated input prevout index is invalid"
+      )
+    }
+    let valueSats: BigNumber
+    try {
+      valueSats = BigNumber.from(prevout.valueSats)
+    } catch {
+      throw new P2TRWitnessSignatureError(
+        "invalid-prevout-map",
+        "Authenticated input prevout value is invalid"
+      )
+    }
+    if (
+      valueSats.isNegative() ||
+      valueSats.gt(BigNumber.from("2100000000000000"))
+    ) {
+      throw new P2TRWitnessSignatureError(
+        "invalid-prevout-map",
+        "Authenticated input prevout value is outside Bitcoin's monetary range"
+      )
+    }
+
+    return {
+      txid: Hex.from(actualTxid),
+      vout: prevout.vout,
+      valueSats,
+      scriptPubKey: Hex.from(toBuffer(prevout.scriptPubKey)),
+    }
+  })
 }
 
 /**
@@ -3914,36 +4113,21 @@ export const extractP2TRSignatureFraudWitnessObservations = (
 
 export const validateP2TRSignatureFraudWitnessObservationConsistency = (
   observation: P2TRSignatureFraudWitnessObservation,
-  context: P2TRSignatureFraudWitnessObservationConsistencyContext = {}
+  context: P2TRSignatureFraudWitnessObservationConsistencyContext
 ): void => {
   const observationID = toBytes32Hex(
     observation.observationID,
     "Observation ID"
   )
-  const observedPrevout = observation.inputPrevouts[observation.inputIndex]
-  const observedOutputKey = extractP2TRWalletIDFromScriptPubKey(
-    observation.scriptPubKey
-  )
-  const walletInputKeyBindings =
-    observedPrevout === undefined || observedOutputKey === undefined
-      ? []
-      : [
-          {
-            txid: observedPrevout.txid,
-            vout: observedPrevout.vout,
-            outputKey: observedOutputKey,
-            walletID: observation.walletID,
-          },
-        ]
   const expectedObservations = extractP2TRSignatureFraudWitnessObservations(
     observation.rawTransaction,
     observation.inputPrevouts,
-    [observation.walletID],
+    context.registeredWalletIDs,
     context.bridgeIdentifier,
     context.spendTypeClassifier,
     context.payloadBounds,
     context.bridgeChallengeDomain,
-    walletInputKeyBindings
+    context.walletInputKeyBindings
   )
   const expectedObservation =
     expectedObservations.find((expected) =>
@@ -3984,7 +4168,7 @@ export const validateP2TRSignatureFraudWitnessObservationConsistency = (
  * available without activating the incomplete fraud protocol.
  */
 export class P2TRSignatureFraudWatchtower {
-  private readonly registeredWalletIDs: Hex[]
+  private registeredWalletIDs: Set<string>
 
   constructor(
     private readonly store: P2TRWatchtowerChallengeStore,
@@ -3994,8 +4178,18 @@ export class P2TRSignatureFraudWatchtower {
     private readonly payloadBounds?: P2TRSignatureFraudPayloadBounds,
     private readonly bridgeChallengeDomain?: P2TRSignatureFraudBridgeChallengeDomain
   ) {
-    this.registeredWalletIDs = registeredWalletIDs.map((walletID) =>
-      toHex(walletID)
+    this.registeredWalletIDs = new Set(
+      registeredWalletIDs.map((walletID) =>
+        toBytes32Hex(walletID, "Registered wallet ID").toString()
+      )
+    )
+  }
+
+  replaceRegisteredWalletIDs(walletIDs: (Hex | Buffer | string)[]): void {
+    this.registeredWalletIDs = new Set(
+      walletIDs.map((walletID) =>
+        toBytes32Hex(walletID, "Registered wallet ID").toString()
+      )
     )
   }
 
@@ -4008,7 +4202,7 @@ export class P2TRSignatureFraudWatchtower {
     const observations = extractP2TRSignatureFraudWitnessObservations(
       rawTransaction,
       inputPrevouts,
-      this.registeredWalletIDs,
+      [...this.registeredWalletIDs],
       this.bridgeIdentifier,
       this.spendTypeClassifier,
       this.payloadBounds,
@@ -4049,12 +4243,13 @@ export class P2TRSignatureFraudWatchtower {
     bitcoinTxHash: Hex | Buffer | string,
     bitcoinBlockHash: Hex | Buffer | string,
     bitcoinBlockHeight: number,
-    walletInputKeyBindings: P2TRWalletInputKeyBinding[] = []
+    walletInputKeyBindings: P2TRWalletInputKeyBinding[] = [],
+    bitcoinWtxid?: Hex | Buffer | string
   ): Promise<P2TRSignatureFraudWatchtowerObservationResult[]> {
     const observations = extractP2TRSignatureFraudWitnessObservations(
       rawTransaction,
       inputPrevouts,
-      this.registeredWalletIDs,
+      [...this.registeredWalletIDs],
       this.bridgeIdentifier,
       this.spendTypeClassifier,
       this.payloadBounds,
@@ -4070,6 +4265,7 @@ export class P2TRSignatureFraudWatchtower {
           observationID: observation.observationID,
           observation,
           bitcoinTxHash,
+          bitcoinWtxid,
           bitcoinBlockHash,
           bitcoinBlockHeight,
         }),
@@ -4083,7 +4279,8 @@ export class P2TRSignatureFraudWatchtower {
     bitcoinTxHash: Hex | Buffer | string,
     bitcoinBlockHash: Hex | Buffer | string,
     bitcoinBlockHeight: number,
-    walletInputKeyBindings: P2TRWalletInputKeyBinding[] = []
+    walletInputKeyBindings: P2TRWalletInputKeyBinding[] = [],
+    bitcoinWtxid?: Hex | Buffer | string
   ): Promise<P2TRSignatureFraudWatchtowerObservationResult[]> {
     return this.observeConfirmedTransaction(
       rawTransaction,
@@ -4091,7 +4288,8 @@ export class P2TRSignatureFraudWatchtower {
       bitcoinTxHash,
       bitcoinBlockHash,
       bitcoinBlockHeight,
-      walletInputKeyBindings
+      walletInputKeyBindings,
+      bitcoinWtxid
     )
   }
 
@@ -4105,11 +4303,13 @@ export class P2TRSignatureFraudWatchtower {
   }
 
   async markConfirmedTransactionReorged(
-    observationID: Hex | Buffer | string
+    observationID: Hex | Buffer | string,
+    expectedCanonicalIdentity?: P2TRWatchtowerCanonicalBitcoinCandidateIdentity
   ): Promise<P2TRWatchtowerChallengeRecord> {
     return recordP2TRWatchtowerChallengeEvent(this.store, {
       type: "bitcoin-reorged",
       observationID,
+      expectedCanonicalIdentity,
     })
   }
 
@@ -4326,15 +4526,23 @@ export class P2TRSignatureFraudWatchtowerRunner {
   async processMempoolTransaction(
     rawTransaction: BitcoinRawTx,
     bitcoinTxHash: Hex | Buffer | string,
-    walletInputKeyBindings: P2TRWalletInputKeyBinding[] = []
+    walletInputKeyBindings: P2TRWalletInputKeyBinding[] = [],
+    inputPrevouts?: P2TRWalletInputObservationPrevout[]
   ): Promise<P2TRSignatureFraudWatchtowerSubmissionResult[]> {
     return this.observationResultsWithoutSubmission(
-      await this.watchtower.observeMempoolTransactionWithResolvedPrevouts(
-        rawTransaction,
-        this.bitcoinClient,
-        bitcoinTxHash,
-        walletInputKeyBindings
-      )
+      inputPrevouts === undefined
+        ? await this.watchtower.observeMempoolTransactionWithResolvedPrevouts(
+            rawTransaction,
+            this.bitcoinClient,
+            bitcoinTxHash,
+            walletInputKeyBindings
+          )
+        : await this.watchtower.observeMempoolTransaction(
+            rawTransaction,
+            validateP2TRInputPrevouts(rawTransaction, inputPrevouts),
+            bitcoinTxHash,
+            walletInputKeyBindings
+          )
     )
   }
 
@@ -4346,7 +4554,8 @@ export class P2TRSignatureFraudWatchtowerRunner {
         this.processMempoolTransaction(
           transaction.rawTransaction,
           transaction.bitcoinTxHash,
-          transaction.walletInputKeyBindings
+          transaction.walletInputKeyBindings,
+          transaction.inputPrevouts
         )
       )
     )
@@ -4363,7 +4572,8 @@ export class P2TRSignatureFraudWatchtowerRunner {
       this.processMempoolTransaction(
         transaction.rawTransaction,
         transaction.bitcoinTxHash,
-        transaction.walletInputKeyBindings
+        transaction.walletInputKeyBindings,
+        transaction.inputPrevouts
       )
     )
   }
@@ -4373,17 +4583,36 @@ export class P2TRSignatureFraudWatchtowerRunner {
     bitcoinTxHash: Hex | Buffer | string,
     bitcoinBlockHash: Hex | Buffer | string,
     bitcoinBlockHeight: number,
-    walletInputKeyBindings: P2TRWalletInputKeyBinding[] = []
+    walletInputKeyBindings: P2TRWalletInputKeyBinding[] = [],
+    inputPrevouts?: P2TRWalletInputObservationPrevout[],
+    canonicalBitcoinCandidateIdentity?: P2TRWatchtowerCanonicalBitcoinCandidateIdentity
   ): Promise<P2TRSignatureFraudWatchtowerSubmissionResult[]> {
+    const bitcoinWtxid = validateCanonicalBitcoinCandidateIdentity(
+      rawTransaction,
+      bitcoinTxHash,
+      bitcoinBlockHash,
+      canonicalBitcoinCandidateIdentity
+    )
     return this.observationResultsWithoutSubmission(
-      await this.watchtower.observeConfirmedTransactionWithResolvedPrevouts(
-        rawTransaction,
-        this.bitcoinClient,
-        bitcoinTxHash,
-        bitcoinBlockHash,
-        bitcoinBlockHeight,
-        walletInputKeyBindings
-      )
+      inputPrevouts === undefined
+        ? await this.watchtower.observeConfirmedTransactionWithResolvedPrevouts(
+            rawTransaction,
+            this.bitcoinClient,
+            bitcoinTxHash,
+            bitcoinBlockHash,
+            bitcoinBlockHeight,
+            walletInputKeyBindings,
+            bitcoinWtxid
+          )
+        : await this.watchtower.observeConfirmedTransaction(
+            rawTransaction,
+            validateP2TRInputPrevouts(rawTransaction, inputPrevouts),
+            bitcoinTxHash,
+            bitcoinBlockHash,
+            bitcoinBlockHeight,
+            walletInputKeyBindings,
+            bitcoinWtxid
+          )
     )
   }
 
@@ -4397,7 +4626,9 @@ export class P2TRSignatureFraudWatchtowerRunner {
           transaction.bitcoinTxHash,
           transaction.bitcoinBlockHash,
           transaction.bitcoinBlockHeight,
-          transaction.walletInputKeyBindings
+          transaction.walletInputKeyBindings,
+          transaction.inputPrevouts,
+          transaction.canonicalBitcoinCandidateIdentity
         )
       )
     )
@@ -4416,43 +4647,97 @@ export class P2TRSignatureFraudWatchtowerRunner {
         transaction.bitcoinTxHash,
         transaction.bitcoinBlockHash,
         transaction.bitcoinBlockHeight,
-        transaction.walletInputKeyBindings
+        transaction.walletInputKeyBindings,
+        transaction.inputPrevouts,
+        transaction.canonicalBitcoinCandidateIdentity
       )
     )
   }
 
   private async observeMempoolTransactionsSettled(
-    transactions: P2TRWatchtowerMempoolTransaction[]
+    transactions: P2TRWatchtowerMempoolTransaction[],
+    requireAuthenticatedPrevouts = false
   ): Promise<
     P2TRSignatureFraudWatchtowerBatchResult<P2TRWatchtowerMempoolTransaction>
   > {
     return this.processTransactionsSettled(transactions, async (transaction) =>
       this.observationResultsWithoutSubmission(
-        await this.watchtower.observeMempoolTransactionWithResolvedPrevouts(
-          transaction.rawTransaction,
-          this.bitcoinClient,
-          transaction.bitcoinTxHash,
-          transaction.walletInputKeyBindings
-        )
+        transaction.inputPrevouts === undefined
+          ? requireAuthenticatedPrevouts
+            ? (() => {
+                throw new P2TRWitnessSignatureError(
+                  "invalid-prevout-map",
+                  "Canonical transaction source omitted authenticated input prevouts"
+                )
+              })()
+            : await this.watchtower.observeMempoolTransactionWithResolvedPrevouts(
+                transaction.rawTransaction,
+                this.bitcoinClient,
+                transaction.bitcoinTxHash,
+                transaction.walletInputKeyBindings
+              )
+          : await this.watchtower.observeMempoolTransaction(
+              transaction.rawTransaction,
+              validateP2TRInputPrevouts(
+                transaction.rawTransaction,
+                transaction.inputPrevouts
+              ),
+              transaction.bitcoinTxHash,
+              transaction.walletInputKeyBindings
+            )
       )
     )
   }
 
   private async observeConfirmedTransactionsSettled(
-    transactions: P2TRWatchtowerConfirmedTransaction[]
+    transactions: P2TRWatchtowerConfirmedTransaction[],
+    requireAuthenticatedPrevouts = false
   ): Promise<
     P2TRSignatureFraudWatchtowerBatchResult<P2TRWatchtowerConfirmedTransaction>
   > {
     return this.processTransactionsSettled(transactions, async (transaction) =>
       this.observationResultsWithoutSubmission(
-        await this.watchtower.observeConfirmedTransactionWithResolvedPrevouts(
-          transaction.rawTransaction,
-          this.bitcoinClient,
-          transaction.bitcoinTxHash,
-          transaction.bitcoinBlockHash,
-          transaction.bitcoinBlockHeight,
-          transaction.walletInputKeyBindings
-        )
+        transaction.inputPrevouts === undefined
+          ? requireAuthenticatedPrevouts
+            ? (() => {
+                throw new P2TRWitnessSignatureError(
+                  "invalid-prevout-map",
+                  "Canonical transaction source omitted authenticated input prevouts"
+                )
+              })()
+            : await this.watchtower.observeConfirmedTransactionWithResolvedPrevouts(
+                transaction.rawTransaction,
+                this.bitcoinClient,
+                transaction.bitcoinTxHash,
+                transaction.bitcoinBlockHash,
+                transaction.bitcoinBlockHeight,
+                transaction.walletInputKeyBindings,
+                validateCanonicalBitcoinCandidateIdentity(
+                  transaction.rawTransaction,
+                  transaction.bitcoinTxHash,
+                  transaction.bitcoinBlockHash,
+                  transaction.canonicalBitcoinCandidateIdentity,
+                  requireAuthenticatedPrevouts
+                )
+              )
+          : await this.watchtower.observeConfirmedTransaction(
+              transaction.rawTransaction,
+              validateP2TRInputPrevouts(
+                transaction.rawTransaction,
+                transaction.inputPrevouts
+              ),
+              transaction.bitcoinTxHash,
+              transaction.bitcoinBlockHash,
+              transaction.bitcoinBlockHeight,
+              transaction.walletInputKeyBindings,
+              validateCanonicalBitcoinCandidateIdentity(
+                transaction.rawTransaction,
+                transaction.bitcoinTxHash,
+                transaction.bitcoinBlockHash,
+                transaction.canonicalBitcoinCandidateIdentity,
+                requireAuthenticatedPrevouts
+              )
+            )
       )
     )
   }
@@ -4476,7 +4761,9 @@ export class P2TRSignatureFraudWatchtowerRunner {
         .filter(
           (record) =>
             record.observation !== undefined &&
-            isReplayableWatchtowerStatus(record.status)
+            isReplayableWatchtowerStatus(record.status) &&
+            record.bitcoinStatus !== "reorged" &&
+            record.bitcoinStatus !== "evicted"
         )
         .map(async (record) => ({
           observation:
@@ -4563,16 +4850,132 @@ export class P2TRSignatureFraudWatchtowerRunner {
     )
   }
 
+  private registerCanonicalSourceWalletIDs(
+    transactionSource: P2TRSignatureFraudWatchtowerTransactionSource,
+    result: PromiseSettledResult<P2TRWatchtowerConfirmedTransactionSourceResult>
+  ): PromiseSettledResult<P2TRWatchtowerConfirmedTransactionSourceResult> {
+    if (
+      transactionSource.p2trSignatureFraudWatchtowerRequiresAuthenticatedPrevouts !==
+      true
+    ) {
+      return result
+    }
+    if (
+      result.status === "rejected" ||
+      !isP2TRWatchtowerConfirmedTransactionSourceResult(result.value)
+    ) {
+      this.watchtower.replaceRegisteredWalletIDs([])
+      return result
+    }
+    try {
+      if (!Array.isArray(result.value.registeredWalletIDs)) {
+        throw new P2TRWitnessSignatureError(
+          "invalid-watchtower-state",
+          "Canonical transaction source omitted its durable wallet registry"
+        )
+      }
+      this.watchtower.replaceRegisteredWalletIDs(
+        result.value.registeredWalletIDs
+      )
+      return result
+    } catch (error) {
+      this.watchtower.replaceRegisteredWalletIDs([])
+      return { status: "rejected", reason: error }
+    }
+  }
+
+  private async reconcileCanonicalSourceOrphans(
+    transactionSource: P2TRSignatureFraudWatchtowerTransactionSource,
+    result: PromiseSettledResult<P2TRWatchtowerConfirmedTransactionSourceResult>,
+    records: P2TRWatchtowerChallengeRecord[]
+  ): Promise<
+    PromiseSettledResult<P2TRWatchtowerConfirmedTransactionSourceResult>
+  > {
+    if (
+      transactionSource.p2trSignatureFraudWatchtowerRequiresAuthenticatedPrevouts !==
+        true ||
+      result.status === "rejected" ||
+      !isP2TRWatchtowerConfirmedTransactionSourceResult(result.value)
+    ) {
+      return result
+    }
+
+    try {
+      if (!Array.isArray(result.value.orphanedConfirmedTransactions)) {
+        throw new P2TRWitnessSignatureError(
+          "invalid-watchtower-state",
+          "Canonical transaction source omitted its orphaned candidate set"
+        )
+      }
+      const seen = new Set<string>()
+      for (const identity of result.value.orphanedConfirmedTransactions) {
+        const bitcoinTxHash = toBytes32Hex(
+          identity.bitcoinTxHash,
+          "Orphaned Bitcoin transaction hash"
+        )
+        const bitcoinWtxid = toBytes32Hex(
+          identity.bitcoinWtxid,
+          "Orphaned Bitcoin witness transaction hash"
+        )
+        const bitcoinBlockHash = toBytes32Hex(
+          identity.bitcoinBlockHash,
+          "Orphaned Bitcoin block hash"
+        )
+        const identityKey = `${bitcoinBlockHash}:${bitcoinTxHash}:${bitcoinWtxid}`
+        if (seen.has(identityKey)) {
+          throw new P2TRWitnessSignatureError(
+            "invalid-watchtower-state",
+            "Canonical transaction source returned a duplicate orphaned candidate"
+          )
+        }
+        seen.add(identityKey)
+
+        const matchingRecords = records.filter(
+          (record) =>
+            record.bitcoinStatus === "confirmed" &&
+            record.bitcoinTxHash?.equals(bitcoinTxHash) === true &&
+            record.bitcoinBlockHash?.equals(bitcoinBlockHash) === true &&
+            (record.bitcoinWtxid === undefined ||
+              record.bitcoinWtxid.equals(bitcoinWtxid))
+        )
+        for (const record of matchingRecords) {
+          await this.watchtower.markConfirmedTransactionReorged(
+            record.observationID,
+            {
+              bitcoinTxHash,
+              bitcoinWtxid,
+              bitcoinBlockHash,
+            }
+          )
+        }
+      }
+      return result
+    } catch (error) {
+      return { status: "rejected", reason: error }
+    }
+  }
+
   async processTransactionSourceSettled(
     transactionSource: P2TRSignatureFraudWatchtowerTransactionSource,
     recordSource: P2TRWatchtowerChallengeRecordSource
   ): Promise<P2TRSignatureFraudWatchtowerCycleResult> {
     const cycleStartRecords = await recordSource.listChallengeRecords()
-    const [mempoolTransactions, confirmedTransactions] =
+    const cycleStartRecordIDs = new Set(
+      cycleStartRecords.map((record) => record.observationID.toString())
+    )
+    const [mempoolTransactions, listedConfirmedTransactions] =
       await Promise.allSettled([
         transactionSource.listMempoolTransactions(),
         transactionSource.listConfirmedTransactions(),
       ])
+    const confirmedTransactions = await this.reconcileCanonicalSourceOrphans(
+      transactionSource,
+      this.registerCanonicalSourceWalletIDs(
+        transactionSource,
+        listedConfirmedTransactions
+      ),
+      cycleStartRecords
+    )
     const sourceFailures: P2TRSignatureFraudWatchtowerSourceFailure[] = []
     const confirmedSourceComplete =
       confirmedTransactions.status === "fulfilled" &&
@@ -4585,15 +4988,31 @@ export class P2TRSignatureFraudWatchtowerRunner {
       "mempool",
       mempoolTransactions,
       sourceFailures,
-      (transactions) => this.observeMempoolTransactionsSettled(transactions)
+      (transactions) =>
+        this.observeMempoolTransactionsSettled(
+          transactions,
+          transactionSource.p2trSignatureFraudWatchtowerRequiresAuthenticatedPrevouts ===
+            true
+        )
     )
     const observedConfirmed = await this.processConfirmedSourceResult(
       "confirmed",
       confirmedTransactions,
       sourceFailures,
-      (transactions) => this.observeConfirmedTransactionsSettled(transactions)
+      (transactions) =>
+        this.observeConfirmedTransactionsSettled(
+          transactions,
+          transactionSource.p2trSignatureFraudWatchtowerRequiresAuthenticatedPrevouts ===
+            true
+        )
     )
-    const replayed = await this.replayStoredChallenges(cycleStartRecords)
+    const replayed = await this.replayStoredChallenges(
+      (
+        await recordSource.listChallengeRecords()
+      ).filter((record) =>
+        cycleStartRecordIDs.has(record.observationID.toString())
+      )
+    )
 
     return {
       replayed,
@@ -4748,17 +5167,27 @@ export class P2TRSignatureFraudWatchtowerRunner {
     bridgeLifecycleEventSource: P2TRSignatureFraudWatchtowerBridgeLifecycleEventSource,
     recordSource: P2TRWatchtowerChallengeRecordSource
   ): Promise<P2TRSignatureFraudWatchtowerIntegratedCycleResult> {
+    const cycleStartRecords = await recordSource.listChallengeRecords()
     const cycleStartRecordIDs = new Set(
-      (await recordSource.listChallengeRecords()).map((record) =>
-        record.observationID.toString()
-      )
+      cycleStartRecords.map((record) => record.observationID.toString())
     )
-    const [mempoolTransactions, confirmedTransactions, bridgeLifecycleEvents] =
-      await Promise.allSettled([
-        transactionSource.listMempoolTransactions(),
-        transactionSource.listConfirmedTransactions(),
-        bridgeLifecycleEventSource.listBridgeLifecycleEvents(),
-      ])
+    const [
+      mempoolTransactions,
+      listedConfirmedTransactions,
+      bridgeLifecycleEvents,
+    ] = await Promise.allSettled([
+      transactionSource.listMempoolTransactions(),
+      transactionSource.listConfirmedTransactions(),
+      bridgeLifecycleEventSource.listBridgeLifecycleEvents(),
+    ])
+    const confirmedTransactions = await this.reconcileCanonicalSourceOrphans(
+      transactionSource,
+      this.registerCanonicalSourceWalletIDs(
+        transactionSource,
+        listedConfirmedTransactions
+      ),
+      cycleStartRecords
+    )
     const transactionSourceFailures: P2TRSignatureFraudWatchtowerSourceFailure[] =
       []
     const bridgeLifecycleSourceFailures: P2TRSignatureFraudWatchtowerBridgeLifecycleSourceFailure[] =
@@ -4768,13 +5197,23 @@ export class P2TRSignatureFraudWatchtowerRunner {
       "mempool",
       mempoolTransactions,
       transactionSourceFailures,
-      (transactions) => this.observeMempoolTransactionsSettled(transactions)
+      (transactions) =>
+        this.observeMempoolTransactionsSettled(
+          transactions,
+          transactionSource.p2trSignatureFraudWatchtowerRequiresAuthenticatedPrevouts ===
+            true
+        )
     )
     const observedConfirmed = await this.processConfirmedSourceResult(
       "confirmed",
       confirmedTransactions,
       transactionSourceFailures,
-      (transactions) => this.observeConfirmedTransactionsSettled(transactions)
+      (transactions) =>
+        this.observeConfirmedTransactionsSettled(
+          transactions,
+          transactionSource.p2trSignatureFraudWatchtowerRequiresAuthenticatedPrevouts ===
+            true
+        )
     )
     const bridgeLifecycle = await this.processBridgeLifecycleSourceResult(
       bridgeLifecycleEvents,

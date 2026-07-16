@@ -6,16 +6,14 @@ signature-fraud challenge path.
 > **Current safety state:** automatic/watchtower challenge submission is hard
 > disabled while the FROST fraud layer remains bounded/no-go. Every service,
 > runtime, and SDK runner entry point rejects `submitChallenges: true`, and
-> submission metrics remain zero. COMPLETE_V2 activation needs a separately
-> reviewed durable broadcast outbox and canonical independent reconciler. The
-> bundled Esplora observer is also rehearsal-only and never certifies the
-> confirmed view complete, even when its current result is empty. Wallet-history
-> and sequential outspend polling are not a canonical Bitcoin change feed and
-> cannot certify point-in-time coverage; the source can also stop at its finite
-> inventory limit.
-> Production activation additionally requires a keyed deposit database, a
-> canonical Bitcoin block/change-feed cursor, bounded new-block input matching,
-> block-hash rollback, and a durable unmatched Ethereum-proof backlog.
+> submission metrics remain zero. This package now contains a canonical Bitcoin
+> indexing tranche, but no bundled production runtime composes it with the
+> required Ethereum lifecycle index, transactional challenge persistence,
+> broadcast outbox, or independent reconciliation. COMPLETE_V2 activation also
+> requires a fresh or explicitly migrated ECDSA fraud router and a separately
+> reviewed deployment manifest. The bundled Esplora observer remains
+> rehearsal-only and never certifies the confirmed view complete, even when its
+> current result is empty.
 
 The package wraps the SDK watchtower runner with process-level boundaries that an operator service needs:
 
@@ -41,7 +39,81 @@ A production deployment must provide these adapters:
 - `P2TRSignatureFraudChallengeSubmitter`: retained as a low-level/manual SDK adapter boundary; the watchtower service does not invoke it while bounded/no-go is active.
 - `P2TRWatchtowerChallengeRecordPersistence`: stores serialized challenge records durably.
 
-`EsploraP2TRSignatureFraudTransactionSource` is limited to observation-mode rehearsals and single-process deployments. It derives Bech32m P2TR wallet addresses from canonical x-only wallet IDs and advances confirmed wallet history in bounded, explicitly acknowledged cursor batches. Taproot deposit reveals are independently compared over block-hash-pinned, finalized ranges; dense ranges shrink until they fit the configured event bound, while a single block above that bound fails closed. Derived deposit bindings and the rotating outspend sweep are persisted only after the caller durably processes the confirmed batch. The binding inventory and each outspend batch have explicit finite limits, so capacity exhaustion fails closed instead of allocating unbounded lifetime state. The adapter unconditionally returns `complete: false`: neither an empty Esplora wallet-history response nor sequential outspend calls provide an independently authenticated Bitcoin snapshot. The service can commit acknowledged Bitcoin catch-up state, but it will not let this adapter authorize Ethereum lifecycle-cursor advancement. This is an intentional liveness halt, not a production completeness mechanism. The source must not be used to activate automated challenges. Only a future canonical Bitcoin block/change-feed implementation with the durable unmatched-proof design listed above may return `complete: true`.
+## Canonical Bitcoin Index Tranche
+
+`BitcoinCoreP2TRCanonicalBlockSource`,
+`CanonicalBitcoinP2TRSignatureFraudTransactionSource`, and
+`PostgresP2TRCanonicalIndexStore` implement the production-shaped Bitcoin side
+of the activation boundary. Apply `migrations/001_p2tr_canonical_index.sql` to a
+PostgreSQL 16 database before constructing the store. The Bitcoin Core source
+requires Core 23 or newer, an unpruned and fully synchronized node, synchronized
+`txindex`, and bounded RPC response and concurrency settings. It authenticates
+raw block hashes, each header's declared proof-of-work target, merkle and witness
+commitments, transaction identity, and every non-coinbase prevout against raw
+`txindex` bytes before the source can mark a scan complete.
+
+The configured Core node's `getblockhash` chain is the source's canonical-chain
+trust boundary. The raw checks do not independently validate network difficulty
+transitions, choose the greatest-work chain, or protect against a consistently
+malicious node. Automatic activation must therefore compose an independent
+Bitcoin verifier/provider in a distinct operational trust domain and pin its
+agreement policy in the activation manifest. This tranche has no such adapter;
+the hard submission no-go is the fail-closed boundary when that independent
+agreement is absent.
+
+The canonical transaction source advances a hash-pinned cursor over bounded
+block windows, rechecks its range before commit, finds a bounded common ancestor
+on reorganization, and emits exact `(block hash, txid, wtxid)` orphan identities.
+It loads the durable FROST wallet inventory on every cycle, so an empty initial
+inventory is valid and registrations or removals become visible without a
+restart. Taproot deposit reveals can arrive before their funding output; the
+store retains them in a bounded backlog and backfills a matching spend after the
+Bitcoin journal reaches that output. Candidate delivery is acknowledged only by
+the enclosing watchtower transaction. An aborted or failed cycle discards its
+staged scan.
+
+The PostgreSQL store retains raw canonical blocks, transactions, inputs,
+outputs, tracked wallet/deposit outpoints, candidate identity, unmatched proof
+backlog, and the cross-source watermark. `rollbackEthereumEvidenceTo` removes
+hash-orphaned wallet and deposit registrations, strips their exact key bindings
+from candidates, and invalidates orphaned proof and watermark state. All
+recovery, rollback, pagination, mutation, and backlog operations have configured
+bounds and fail closed when a bound is exceeded.
+
+Production adapters that share this state must be created through
+`createP2TRSignatureFraudWatchtowerTransactionalAdapter`. Its query-only session
+is usable only inside the store's serializable transaction, and the watchtower
+rejects participants not owned by that coordinator. This is the extension point
+for the transactional challenge-record store, Ethereum lifecycle index, and
+broadcast outbox; those concrete adapters are deliberately not supplied by this
+tranche.
+
+This tranche does **not** make activation safe. Before automatic challenge
+submission can be reviewed for enablement, a later stack must add and test all
+of the following in one production composition:
+
+- PostgreSQL-backed `P2TRWatchtowerChallengeRecordPersistence` and a canonical,
+  hash-pinned Bridge lifecycle cursor/raw-log envelope adapter;
+- lifecycle reorganization handling that calls `rollbackEthereumEvidenceTo` in
+  the same serializable transaction and transitions any stale challenge record;
+- deposit-key derivation from
+  `Bridge.taprootDepositOutputKey(depositKey)` at the pinned finalized Ethereum
+  block, never from caller-decoded event arguments;
+- a durable transactional broadcast outbox with idempotent dispatch and an
+  independently operated reconciler that proves submitted, mined, replaced,
+  defeated, timed-out, and orphaned outcomes;
+- an independent Bitcoin header/chain verifier or provider, in a distinct trust
+  domain from the indexing Core node, that checks the pinned range and
+  cumulative-work selection before a challenge can leave the outbox;
+- a fresh or explicitly migrated ECDSA fraud router, plus an activation manifest
+  that pins contract addresses, chain checkpoints, database schema, Bitcoin
+  network/genesis, Core policy, and rollback limits.
+
+Until that composition receives a fresh security review, keep
+`submitChallenges` and
+`P2TR_SIGNATURE_FRAUD_WATCHTOWER_SUBMIT_CHALLENGES` false.
+
+`EsploraP2TRSignatureFraudTransactionSource` is limited to observation-mode rehearsals and single-process deployments. It derives Bech32m P2TR wallet addresses from canonical x-only wallet IDs and advances confirmed wallet history in bounded, explicitly acknowledged cursor batches. Taproot deposit reveals are independently compared over block-hash-pinned, finalized ranges; dense ranges shrink until they fit the configured event bound, while a single block above that bound fails closed. Derived deposit bindings and the rotating outspend sweep are persisted only after the caller durably processes the confirmed batch. The binding inventory and each outspend batch have explicit finite limits, so capacity exhaustion fails closed instead of allocating unbounded lifetime state. The adapter unconditionally returns `complete: false`: neither an empty Esplora wallet-history response nor sequential outspend calls provide an independently authenticated Bitcoin snapshot. The service can commit acknowledged Bitcoin catch-up state, but it will not let this adapter authorize Ethereum lifecycle-cursor advancement. This is an intentional liveness halt, not a production completeness mechanism. The source must not be used to activate automated challenges. Only the authenticated canonical Bitcoin source described above may return `complete: true`, and its result still cannot enable submission until all remaining activation components are composed and reviewed.
 
 Commitment/deposit reads, outspend lookups, and raw-transaction materialization use bounded work queues; provider disagreement, range reorganization, a failed binding/outspend/raw read, or an unacknowledged/incomplete history batch prevents durable cursor advancement. Construction requires an `onDepositScanFailure` callback for structured operator reporting. The source does not resolve prevouts; deployments must still provide a `BitcoinClient`.
 
