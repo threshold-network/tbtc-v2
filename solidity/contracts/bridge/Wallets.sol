@@ -225,7 +225,365 @@ library Wallets {
 
         self.liveWalletsCount++;
 
+        // Record the registration order so moving-funds target selection can be
+        // reconstructed deterministically on-chain. This mirrors the ordering
+        // of the `NewWalletRegistered` events consumed off-chain. Wallets are
+        // registered at most once (the `Unknown` state guard above), so the
+        // list never contains duplicates.
+        self.walletRegistrationOrder.push(walletPubKeyHash);
+
         emit NewWalletRegistered(ecdsaWalletID, walletPubKeyHash);
+    }
+
+    /// @notice Backfills `walletRegistrationOrder` with the wallets that were
+    ///         registered before the upgrade that introduced the on-chain
+    ///         order, so the deterministic moving-funds target-wallet selection
+    ///         can be reconstructed for them too.
+    /// @param preUpgradeWallets Pre-upgrade wallet public key hashes, ordered
+    ///        oldest registration first, matching the `NewWalletRegistered`
+    ///        event history consumed off-chain.
+    /// @dev Requirements:
+    ///      - Callable only once (guarded by `walletRegistrationOrderSeeded`).
+    ///      Access control is enforced by the calling Bridge function, which
+    ///      restricts this to governance. After this runs the order is
+    ///      authoritative and `submitMovingFundsCommitment` enforces the
+    ///      deterministic selection with no fallback.
+    ///
+    ///      Wallet registration (`registerNewWallet`) is driven by
+    ///      permissionless DKG completion and is not gated on this backfill, so
+    ///      a wallet can register between the Bridge upgrade and this call. Any
+    ///      wallets already present were therefore appended after the upgrade
+    ///      (the order was empty at upgrade time) and are strictly newer than
+    ///      every pre-upgrade wallet. Rather than requiring an empty order —
+    ///      which a single in-window registration would make permanently
+    ///      unsatisfiable, bricking the seed — this reconstructs the order with
+    ///      the pre-upgrade wallets first (oldest) followed by the post-upgrade
+    ///      ones (newer), preserving the global oldest-first registration order.
+    ///      Any supplied wallet already captured in the on-chain snapshot (an
+    ///      in-window registration that the off-chain event scan also picked
+    ///      up) is recorded once, at its post-upgrade position, so the rebuilt
+    ///      order stays duplicate-free and the deterministic target-wallet
+    ///      selection stays matchable.
+    function seedWalletRegistrationOrder(
+        BridgeState.Storage storage self,
+        bytes20[] calldata preUpgradeWallets
+    ) external {
+        _seedWalletRegistrationOrder(self, preUpgradeWallets);
+    }
+
+    /// @notice Internal body of `seedWalletRegistrationOrder`. Extracted so the
+    ///         Stage-3 combined reinitializer path (`migrateV6Stage3Combined`)
+    ///         can reuse the exact backfill logic without an external
+    ///         self-delegatecall, and so the wallet-order backfill lives in a
+    ///         single place.
+    /// @param self Bridge storage.
+    /// @param preUpgradeWallets Pre-upgrade wallet public key hashes, ordered
+    ///        oldest registration first.
+    function _seedWalletRegistrationOrder(
+        BridgeState.Storage storage self,
+        bytes20[] calldata preUpgradeWallets
+    ) internal {
+        require(
+            !self.walletRegistrationOrderSeeded,
+            "Wallet registration order already seeded"
+        );
+
+        // Snapshot any wallets that registered post-upgrade before this
+        // backfill, then rebuild the order with the pre-upgrade wallets ahead
+        // of them so the oldest-first ordering the reconstruction relies on is
+        // preserved regardless of the upgrade-to-seed timing.
+        //
+        // A wallet that registers in the window between the upgrade and this
+        // backfill is captured in the on-chain snapshot below. The off-chain
+        // routine that builds `preUpgradeWallets` scans the registration event
+        // history to the chain head, so that same wallet can also appear in the
+        // supplied list. Skip any supplied entry already present in the snapshot
+        // so it is recorded exactly once, at its true post-upgrade position.
+        // Otherwise the order would hold a duplicate and the deterministic
+        // target-wallet reconstruction would emit it twice, making the
+        // strictly-ascending commitment permanently unmatchable and bricking
+        // moving-funds commitments.
+        bytes20[] memory postUpgradeWallets = self.walletRegistrationOrder;
+        delete self.walletRegistrationOrder;
+
+        for (uint256 i = 0; i < preUpgradeWallets.length; i++) {
+            bytes20 preUpgradeWallet = preUpgradeWallets[i];
+
+            bool alreadyTracked = false;
+            for (uint256 k = 0; k < postUpgradeWallets.length; k++) {
+                if (postUpgradeWallets[k] == preUpgradeWallet) {
+                    alreadyTracked = true;
+                    break;
+                }
+            }
+            if (alreadyTracked) {
+                continue;
+            }
+
+            self.walletRegistrationOrder.push(preUpgradeWallet);
+        }
+        for (uint256 j = 0; j < postUpgradeWallets.length; j++) {
+            self.walletRegistrationOrder.push(postUpgradeWallets[j]);
+        }
+
+        self.walletRegistrationOrderSeeded = true;
+    }
+
+    /// @notice Validates and applies the storage migration for the
+    ///         combined Sepolia Stage-3 Bridge upgrade, on behalf of
+    ///         `Bridge.initializeV6_Stage3Combined`. Runs under delegatecall from
+    ///         the Bridge's version-6 reinitializer, so `self`, `address(this)`
+    ///         (the Bridge's ETH balance), and every storage field are the live
+    ///         Bridge's. The heavy validation lives here rather than on the
+    ///         Bridge only to keep the Bridge within the EIP-170 deployed-
+    ///         bytecode limit — it removes none of the migration checks. The
+    ///         covenant registry is validated AND assigned here, through the
+    ///         shared `_setCovenantSpendAuthorization` helper; the
+    ///         `CovenantSpendAuthorizationUpdated` event is redeclared in this
+    ///         library identically, so under delegatecall it is still attributed
+    ///         to the Bridge.
+    /// @param self Bridge storage.
+    /// @param expectedMintingController Controller the caller asserts already
+    ///        occupies absolute slot 81 (the live account-control controller).
+    ///        Asserted, never written.
+    /// @param covenantRegistry Deployed `CovenantSpendAuthorization` registry.
+    ///        Validated (nonzero, has code, not already set) and then assigned
+    ///        here via the shared covenant setter helper.
+    /// @param preUpgradeOpenFraudChallengeEscrow Event-derived minimum amount
+    ///        of open fraud-challenge deposits the Bridge's ETH balance must
+    ///        hold; the live balance may exceed it and is what gets seeded.
+    /// @param preUpgradeWallets Pre-upgrade wallet public key hashes, oldest
+    ///        registration first; the last element must equal the active wallet.
+    function migrateV6Stage3Combined(
+        BridgeState.Storage storage self,
+        address expectedMintingController,
+        address covenantRegistry,
+        uint256 preUpgradeOpenFraudChallengeEscrow,
+        bytes20[] calldata preUpgradeWallets
+    ) external {
+        // The controller must already live at slot 81. This is an
+        // assertion, not an assignment: it proves the reconstructed storage
+        // layout kept `mintingController` at absolute slot 81 across the upgrade.
+        require(
+            expectedMintingController != address(0),
+            "Expected minting controller is zero"
+        );
+        require(
+            self.mintingController == expectedMintingController,
+            "Minting controller slot mismatch"
+        );
+
+        // The covenant registry must be a real deployed contract; a
+        // zero or codeless address would leave the covenant defeat path silently
+        // disabled after an upgrade that is meant to enable it.
+        require(covenantRegistry != address(0), "Covenant registry is zero");
+        require(
+            covenantRegistry.code.length > 0,
+            "Covenant registry has no code"
+        );
+
+        // Direct detector for the raw-PR slot collision: had the
+        // combined implementation reused relative slot 30 for
+        // `migrationDebtVault`, the live controller value would be read here as a
+        // nonzero migration-debt vault. At the correct layout this reads zero.
+        require(
+            self.migrationDebtVault == address(0),
+            "Migration debt vault slot not clean"
+        );
+
+        // The migration targets must all be untouched; this
+        // reinitializer is the single writer of these fields on Sepolia.
+        require(self.openFraudChallengeEscrow == 0, "Fraud escrow already set");
+        require(
+            !self.fraudChallengeEscrowSeeded,
+            "Fraud escrow already seeded"
+        );
+        require(
+            !self.walletRegistrationOrderSeeded,
+            "Wallet order already seeded"
+        );
+        require(
+            self.covenantSpendAuthorization == address(0),
+            "Covenant registry already set"
+        );
+        require(
+            self.walletRegistrationOrder.length == 0,
+            "Wallet order not empty"
+        );
+
+        // The Bridge holds ETH only as open fraud-challenge escrow, but an
+        // unprivileged party can force extra ETH into it (e.g. via
+        // SELFDESTRUCT) without producing the events this sum is derived from.
+        // A lower-bound check still catches a stale scan whose sum exceeds the
+        // live balance (e.g. a resolution that landed between the off-chain
+        // scan and this upgrade), while seeding the captured live balance below
+        // — rather than the supplied sum — safely covers a post-scan
+        // submission or unclassifiable forced ETH instead of letting either
+        // give a permanent veto over this upgrade. `address(this)` is the
+        // Bridge under delegatecall.
+        uint256 bridgeBalance = address(this).balance;
+        require(
+            bridgeBalance >= preUpgradeOpenFraudChallengeEscrow,
+            "Bridge balance < open escrow"
+        );
+
+        // Race guard on the event-derived wallet list: a wallet that
+        // registers between the off-chain scan and this upgrade would change the
+        // active wallet. Binding the list's tail to the current active wallet (or
+        // requiring no active wallet for an empty list) forces a stale scan to
+        // revert instead of seeding an incomplete registration order.
+        if (preUpgradeWallets.length == 0) {
+            require(
+                self.activeWalletPubKeyHash == bytes20(0),
+                "Active wallet without wallet list"
+            );
+        } else {
+            require(
+                preUpgradeWallets[preUpgradeWallets.length - 1] ==
+                    self.activeWalletPubKeyHash,
+                "Wallet list tail != active wallet"
+            );
+        }
+
+        // Seed the fraud-challenge escrow accounting from the captured
+        // live balance (not the supplied lower bound) and mark it seeded so
+        // `submitFraudChallenge` and `recoverETH` become usable.
+        self.openFraudChallengeEscrow = bridgeBalance;
+        self.fraudChallengeEscrowSeeded = true;
+
+        // Backfill the wallet registration order so moving-funds
+        // target selection can reconstruct the pre-upgrade wallet set. This also
+        // sets `walletRegistrationOrderSeeded`.
+        _seedWalletRegistrationOrder(self, preUpgradeWallets);
+
+        // Wire the covenant registry last, after every check
+        // passed, through the shared helper. Emitting
+        // `CovenantSpendAuthorizationUpdated` from this library (the event is
+        // redeclared below, identical to the Bridge's, so it carries the same
+        // topic and is attributed to the Bridge under delegatecall) lets the
+        // Bridge reinitializer stay a single delegated call, keeping the Bridge
+        // within EIP-170. The registry was validated (nonzero, deployed, not
+        // already set) above.
+        _setCovenantSpendAuthorization(self, covenantRegistry);
+    }
+
+    /// @notice Shared covenant-registry assignment helper (the
+    ///         section-3.4 shared setter, hosted in this library so the Bridge
+    ///         stays within EIP-170). Writes storage and emits the
+    ///         Bridge-attributed update event. Called by both the Bridge's
+    ///         governance-only `setCovenantSpendAuthorization` (via the external
+    ///         wrapper below) and the Stage-3 reinitializer path
+    ///         (`migrateV6Stage3Combined`), so the covenant write logic lives in
+    ///         exactly one place.
+    /// @param self Bridge storage.
+    /// @param registry Registry address, or zero to disable the covenant path.
+    function _setCovenantSpendAuthorization(
+        BridgeState.Storage storage self,
+        address registry
+    ) internal {
+        self.covenantSpendAuthorization = registry;
+        emit CovenantSpendAuthorizationUpdated(registry);
+    }
+
+    /// @notice External entry point for the shared covenant-registry
+    ///         assignment helper, delegated to by the Bridge's governance-only
+    ///         `setCovenantSpendAuthorization`. Zero is permitted. The
+    ///         governance guard stays on the Bridge stub; this function carries
+    ///         no guard and is reachable only through that guarded stub (external
+    ///         library functions cannot be invoked directly).
+    /// @param self Bridge storage.
+    /// @param registry Registry address, or zero to disable the covenant path.
+    function setCovenantSpendAuthorization(
+        BridgeState.Storage storage self,
+        address registry
+    ) external {
+        _setCovenantSpendAuthorization(self, registry);
+    }
+
+    /// @notice Execution body for
+    ///         `Bridge.setMintingController`. Sets the account-control minting
+    ///         controller (zero permitted) and emits `MintingControllerSet` with
+    ///         the new address only. The governance guard stays on the Bridge
+    ///         stub; hosted here only to keep the Bridge within EIP-170.
+    /// @param self Bridge storage.
+    /// @param _mintingController New controller address.
+    function setMintingController(
+        BridgeState.Storage storage self,
+        address _mintingController
+    ) external {
+        self.mintingController = _mintingController;
+        emit MintingControllerSet(_mintingController);
+    }
+
+    // ===================================================================
+    // Account-control minting-controller execution bodies.
+    // -------------------------------------------------------------------
+    // The Bridge exposes `controllerIncreaseBalance` (selector 0xa5f7eaf8) and
+    // `controllerIncreaseBalances` (selector 0x5182a65f) with the exact
+    // reconstructed live behavior; their bodies are hosted here, and the Bridge
+    // forwards to them under delegatecall, ONLY so the Bridge stays within the
+    // EIP-170 deployed-bytecode limit after also carrying the reviewed PR
+    // covenant/migration surface. Delegatecall preserves `msg.sender` and
+    // `address(this)`, so the controller authorization check and the
+    // `Bank.increaseBalance(s)` call (whose `onlyBridge` guard sees the Bridge as
+    // caller) behave exactly as an inline implementation would. The events are
+    // redeclared here (identical to the Bridge's) so the emit topics match and
+    // are attributed to the Bridge.
+    // ===================================================================
+
+    event MintingControllerSet(address mintingController);
+    event ControllerBalanceIncreased(
+        address indexed controller,
+        address indexed recipient,
+        uint256 amount
+    );
+    event ControllerBalancesIncreased(
+        address indexed controller,
+        address[] recipients,
+        uint256[] amounts
+    );
+    // Redeclared identically to the Bridge so the covenant event emitted by
+    // `migrateV6Stage3Combined` carries the Bridge's topic.
+    event CovenantSpendAuthorizationUpdated(
+        address indexed covenantSpendAuthorization
+    );
+
+    /// @notice Execution body for
+    ///         `Bridge.controllerIncreaseBalance`. Only the configured
+    ///         `mintingController` may call. The controller event is emitted
+    ///         before the Bank call, matching the live bytecode; a Bank revert
+    ///         rolls the log back. The amount is already a Bank amount — no
+    ///         satoshi/decimal conversion happens here.
+    function controllerIncreaseBalance(
+        BridgeState.Storage storage self,
+        address recipient,
+        uint256 amount
+    ) external {
+        require(
+            msg.sender == self.mintingController,
+            "Caller is not the authorized controller"
+        );
+        emit ControllerBalanceIncreased(msg.sender, recipient, amount);
+        self.bank.increaseBalance(recipient, amount);
+    }
+
+    /// @notice Execution body for
+    ///         `Bridge.controllerIncreaseBalances`. Only the configured
+    ///         `mintingController` may call. Array-length validation is delegated
+    ///         to `Bank.increaseBalances` (its "Arrays must have the same length"
+    ///         revert), matching the live bytecode. The batch event is emitted
+    ///         before the Bank call.
+    function controllerIncreaseBalances(
+        BridgeState.Storage storage self,
+        address[] calldata recipients,
+        uint256[] calldata amounts
+    ) external {
+        require(
+            msg.sender == self.mintingController,
+            "Caller is not the authorized controller"
+        );
+        emit ControllerBalancesIncreased(msg.sender, recipients, amounts);
+        self.bank.increaseBalances(recipients, amounts);
     }
 
     /// @notice Handles a notification about a wallet redemption timeout.
@@ -489,8 +847,23 @@ library Wallets {
     ///        supposed to sweep funds.
     /// @param walletMembersIDs Identifiers of the wallet signing group members.
     /// @dev Requirements:
-    ///      - The wallet must be in the `Live`, `MovingFunds`,
-    ///        or `Terminated` state.
+    ///      - The wallet must be in the `Live`, `MovingFunds`, `Closing`,
+    ///        `Closed`, or `Terminated` state.
+    ///
+    ///      A moved-funds sweep request is committed and registered against a
+    ///      target wallet while that wallet is `Live`, but the target can move
+    ///      to `Closing` or `Closed` before the sweep completes. Accepting
+    ///      those states here lets the timeout clear the otherwise-stuck sweep
+    ///      request instead of reverting. Only `Live` and `MovingFunds` wallets
+    ///      can still submit the sweep proof (see
+    ///      `MovingFunds.resolveMovedFundsSweepingWallet`), so only they are
+    ///      slashed and terminated for missing it. A `Closing` wallet cannot
+    ///      submit the proof — the transition to `Closing` is permissionless
+    ///      (`notifyWalletCloseable`) and can be forced on a target before its
+    ///      sweep window elapses — so slashing it would punish an action it
+    ///      structurally cannot perform. Like `Closed` and `Terminated`, a
+    ///      `Closing` wallet therefore has its request simply cleared by the
+    ///      caller without slashing.
     function notifyWalletMovedFundsSweepTimeout(
         BridgeState.Storage storage self,
         bytes20 walletPubKeyHash,
@@ -502,8 +875,10 @@ library Wallets {
         require(
             walletState == WalletState.Live ||
                 walletState == WalletState.MovingFunds ||
+                walletState == WalletState.Closing ||
+                walletState == WalletState.Closed ||
                 walletState == WalletState.Terminated,
-            "Wallet must be in Live or MovingFunds or Terminated state"
+            "Wallet must be in Live or MovingFunds or Closing or Closed or Terminated state"
         );
 
         if (
@@ -525,15 +900,32 @@ library Wallets {
     /// @notice Called when a wallet which was challenged for a fraud did not
     ///         defeat the challenge before the timeout. Slashes and terminates
     ///         the wallet who failed to defeat the challenge. If the wallet is
-    ///         already terminated, it does nothing.
+    ///         already terminated or closed, it does nothing beyond letting the
+    ///         challenger recover their ETH deposit.
     /// @param walletPubKeyHash 20-byte public key hash of the wallet which was
     ///        supposed to sweep funds.
     /// @param walletMembersIDs Identifiers of the wallet signing group members.
     /// @param challenger Address of the party which submitted the fraud
     ///        challenge.
     /// @dev Requirements:
-    ///      - The wallet must be in the `Live`, `MovingFunds`, `Closing`
-    ///        or `Terminated` state.
+    ///      - The wallet must be in the `Live`, `MovingFunds`, `Closing`,
+    ///        `Closed`, or `Terminated` state.
+    ///
+    ///      `Live`, `MovingFunds`, and `Closing` wallets still hold their ECDSA
+    ///      registry metadata, so they are slashed and terminated. `Terminated`
+    ///      and `Closed` wallets have already had that registry entry deleted
+    ///      (by `terminateWallet` and `finalizeWalletClosing` respectively), so
+    ///      seizing is impossible; the timeout still resolves the challenge and
+    ///      refunds the challenger without slashing.
+    ///
+    ///      Accepting `Closed` is the backstop for fraud challenges opened
+    ///      before `submitFraudChallenge` began counting them per wallet. An
+    ///      uncounted challenge leaves `walletPendingFraudChallenges` at zero,
+    ///      so `finalizeWalletClosing` cannot see it and the wallet can reach
+    ///      `Closed` while the challenge is still maturing. Counted
+    ///      (post-upgrade) challenges keep the wallet in `Closing`, where
+    ///      slashing still applies, so this branch only runs for those
+    ///      uncounted pre-upgrade challenges.
     function notifyWalletFraudChallengeDefeatTimeout(
         BridgeState.Storage storage self,
         bytes20 walletPubKeyHash,
@@ -557,16 +949,20 @@ library Wallets {
             );
 
             terminateWallet(self, walletPubKeyHash);
-        } else if (walletState == Wallets.WalletState.Terminated) {
-            // This is a special case when the wallet was already terminated
-            // due to a previous deliberate protocol violation. In that
-            // case, this function should be still callable for other fraud
-            // challenges timeouts in order to let the challenger unlock its
-            // ETH deposit back. However, the wallet termination logic is
-            // not called and the challenger is not rewarded.
+        } else if (
+            walletState == Wallets.WalletState.Terminated ||
+            walletState == Wallets.WalletState.Closed
+        ) {
+            // The wallet was already terminated (due to a previous deliberate
+            // protocol violation) or closed (its closing period elapsed with no
+            // counted fraud challenges). Its ECDSA registry entry is already
+            // gone, so it cannot be seized here. This function must still be
+            // callable so the challenger can unlock its ETH deposit back; the
+            // wallet termination logic is not called and the challenger is not
+            // rewarded.
         } else {
             revert(
-                "Wallet must be in Live or MovingFunds or Closing or Terminated state"
+                "Wallet must be in Live or MovingFunds or Closing or Closed or Terminated state"
             );
         }
     }
@@ -638,6 +1034,24 @@ library Wallets {
         bytes20 walletPubKeyHash
     ) internal {
         Wallet storage wallet = self.registeredWallets[walletPubKeyHash];
+
+        // Do not close a wallet while a counted fraud challenge against it can
+        // still mature. Keeping the wallet in `Closing` preserves the ECDSA
+        // registry metadata that `notifyWalletFraudChallengeDefeatTimeout`
+        // needs to slash the operators; once the wallet is `Closed` that
+        // metadata is gone and the timeout path can only refund the challenger.
+        // The wallet stays in `Closing` until every counted challenge is
+        // defeated or timed out, both reachable in the `Closing` state.
+        //
+        // This counter only covers challenges opened after `submitFraudChallenge`
+        // began tracking them per wallet. Fraud challenges opened before that
+        // are not counted, so they cannot block closing here; the fraud-challenge
+        // timeout path accepts `Closed` wallets as a refund-only backstop for
+        // exactly that pre-upgrade case.
+        require(
+            self.walletPendingFraudChallenges[walletPubKeyHash] == 0,
+            "Wallet has unresolved fraud challenges"
+        );
 
         wallet.state = WalletState.Closed;
 

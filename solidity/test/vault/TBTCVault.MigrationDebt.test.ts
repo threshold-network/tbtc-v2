@@ -240,7 +240,7 @@ describe("TBTCVault - MigrationDebt", () => {
     )
   })
 
-  it("retains pending migration completion until notifier and reserve are configured", async () => {
+  it("does not queue a migration completion when no reserve is configured at repayment", async () => {
     const sweepSats = 3
     const sweepTxHash = ethers.utils.keccak256(
       ethers.utils.toUtf8Bytes("migration-sweep-delayed-config")
@@ -252,6 +252,8 @@ describe("TBTCVault - MigrationDebt", () => {
       SATOSHI_MULTIPLIER.mul(sweepSats)
     )
 
+    // Debt is fully repaid while no reserve is configured for the revealer, so
+    // no pending completion is queued and there is nothing to deliver later.
     await bank.increaseBalanceAndCall(
       vault.address,
       [revealer.address],
@@ -264,6 +266,8 @@ describe("TBTCVault - MigrationDebt", () => {
     )
     expect(await notifier.notificationCount()).to.equal(0)
 
+    // Configuring the notifier and reserve after the repayment must not replay
+    // an already-elapsed completion that was never queued.
     await vault.setMigrationSweepNotifier(notifier.address)
     await vault.setMigrationSweepReserve(revealer.address, reserve.address)
     await vault.notifyPendingMigrationSweepForRevealer(
@@ -271,9 +275,80 @@ describe("TBTCVault - MigrationDebt", () => {
       revealer.address
     )
 
+    expect(await notifier.notificationCount()).to.equal(0)
+  })
+
+  it("does not complete a migration sweep for a regular-deposit (zero-address) revealer slot", async () => {
+    const sweepTxHash = ethers.utils.keccak256(
+      ethers.utils.toUtf8Bytes("regular-deposit-sweep")
+    )
+
+    await vault.setMigrationSweepNotifier(notifier.address)
+    await vault.setMigrationRevealer(revealer.address, true)
+    await vault.setMigrationSweepReserve(revealer.address, reserve.address)
+    await vault.registerMigrationDebt(
+      revealer.address,
+      SATOSHI_MULTIPLIER.mul(3)
+    )
+
+    // A regular deposit by the revealer repays their migration debt, setting
+    // the pending completion flag.
+    await bank.increaseBalanceAndCall(vault.address, [revealer.address], [3])
+
+    // DepositSweep populates the migration revealer slot only for
+    // migration-tagged deposits, leaving regular-deposit slots as the zero
+    // address. A regular sweep therefore drives the callback with a zero
+    // address, which must not send a migration completion notification.
+    await vault.notifyPendingMigrationSweep(sweepTxHash, [
+      ethers.constants.AddressZero,
+    ])
+    expect(await notifier.notificationCount()).to.equal(0)
+
+    // The genuine migration revealer address still completes the sweep.
+    await vault.notifyPendingMigrationSweep(sweepTxHash, [revealer.address])
     expect(await notifier.notificationCount()).to.equal(1)
     expect(await notifier.lastReserve()).to.equal(reserve.address)
-    expect(await notifier.lastCompletionRef()).to.equal(sweepTxHash)
+  })
+
+  it("does not queue a migration completion when a notifier is set but no reserve is configured", async () => {
+    const sweepSats = 6
+    const sweepTxHash = ethers.utils.keccak256(
+      ethers.utils.toUtf8Bytes("migration-sweep-no-reserve")
+    )
+
+    // Notifier configured, but the revealer has no per-revealer reserve set.
+    await vault.setMigrationSweepNotifier(notifier.address)
+    await vault.setMigrationRevealer(revealer.address, true)
+    await vault.registerMigrationDebt(
+      revealer.address,
+      SATOSHI_MULTIPLIER.mul(sweepSats)
+    )
+
+    await bank.increaseBalanceAndCall(
+      vault.address,
+      [revealer.address],
+      [sweepSats]
+    )
+
+    // Repaying the debt with no reserve configured does not queue a pending
+    // completion, so notifying delivers nothing and there is no queued flag to
+    // clear.
+    await expect(
+      vault.notifyPendingMigrationSweepForRevealer(
+        sweepTxHash,
+        revealer.address
+      )
+    ).to.not.emit(vault, "MigrationSweepCompletionPendingCleared")
+    expect(await notifier.notificationCount()).to.equal(0)
+
+    // Configuring a reserve afterwards must not replay a completion that was
+    // never queued.
+    await vault.setMigrationSweepReserve(revealer.address, reserve.address)
+    await vault.notifyPendingMigrationSweepForRevealer(
+      sweepTxHash,
+      revealer.address
+    )
+    expect(await notifier.notificationCount()).to.equal(0)
   })
 
   it("clears pending migration completion when reserve mapping is cleared", async () => {
@@ -476,6 +551,10 @@ describe("TBTCVault - MigrationDebt", () => {
     const sweepSats = 5
 
     await vault.setMigrationRevealer(revealer.address, true)
+    // A reserve is configured before repayment so the full repayment queues a
+    // pending sweep completion (a completion is only queued when a reserve is
+    // set to receive it).
+    await vault.setMigrationSweepReserve(revealer.address, reserve.address)
     await vault.registerMigrationDebt(
       revealer.address,
       SATOSHI_MULTIPLIER.mul(sweepSats)

@@ -31,4 +31,8 @@ interface ITBTCVault {
 
     /// @dev See {TBTCVault#unmint}
     function unmint(uint256 amount) external;
+
+    /// @dev See {TBTCVault#unmintAndRedeem}
+    function unmintAndRedeem(uint256 amount, bytes calldata redemptionData)
+        external;
 }

@@ -325,20 +325,69 @@ library BridgeState {
         // governance wiring; changing it afterwards requires a dedicated
         // upgrade path of the Bridge implementation.
         address rebateStaking;
+        // Address of the account-control minting controller
+        // authorized to increase Bank balances through this Bridge
+        // (`controllerIncreaseBalance`/`controllerIncreaseBalances`). Its exact
+        // storage location is not a design choice: the live Sepolia Bridge
+        // implementation `0xa14a9607…` executes `SLOAD 0x51` (absolute slot 81)
+        // for both `mintingController()` and `getMintingController()`, and the
+        // live proxy slot 81 holds the deployed controller
+        // `0x1433e4f7…`. Because `Bridge.self` begins at absolute slot 51, this
+        // field must occupy relative slot 30 (absolute 81) and therefore must be
+        // declared here, immediately after `rebateStaking` and BEFORE
+        // `migrationDebtVault`. A layout that instead placed `migrationDebtVault`
+        // at relative slot 30 (the pre-reconstruction ordering) would reinterpret
+        // the live controller as the migration-debt vault and delete the
+        // controller getters — the collision this ordering exists to prevent.
+        // Upgrade note: this reconstructed field consumed one reserved slot,
+        // reducing `__gap` from 45 to 44 for storage-layout compatibility while
+        // keeping every post-gap field (absolute slots 129-131) unmoved.
+        address mintingController;
         // Canonical migration debt vault used by non-migration reveal guard.
         // Optional and set through governance to enable global migration
         // revealer isolation checks.
         // Upgrade note: this field consumed one reserved slot, reducing
         // `__gap` from 48 to 47 for storage-layout compatibility.
         address migrationDebtVault;
+        // Number of fraud challenges submitted against each wallet that have
+        // not yet been resolved (neither defeated nor timed out), keyed by the
+        // 20-byte wallet public key hash. Incremented in
+        // `Fraud.submitFraudChallenge` and decremented when a challenge is
+        // resolved. Used to keep a wallet in the `Closing` state while a
+        // challenge can still mature, so the fraud-challenge timeout path
+        // (which does not accept `Closed` wallets) stays reachable.
+        // Upgrade note: this field consumed one reserved slot, reducing
+        // `__gap` from 47 to 46 for storage-layout compatibility.
+        mapping(bytes20 => uint32) walletPendingFraudChallenges;
+        // Ordered list of every wallet's 20-byte public key hash appended in
+        // registration order by `Wallets.registerNewWallet`. It mirrors the
+        // off-chain `NewWalletRegistered` event ordering so the Bridge can
+        // deterministically reconstruct the canonical moving-funds target
+        // wallet set (the newest Live wallets) inside
+        // `MovingFunds.submitMovingFundsCommitment`, instead of accepting any
+        // valid sorted subset. Append-only: entries are never removed, and a
+        // wallet's current eligibility is read live from `registeredWallets`.
+        // Wallets registered before the upgrade that introduced this list are
+        // absent from it; until enough Live wallets are recorded to reconstruct
+        // the canonical target set, `submitMovingFundsCommitment` rejects the
+        // commitment rather than accepting an arbitrary subset. See that
+        // function for details.
+        // Upgrade note: this field consumed one reserved slot, reducing
+        // `__gap` from 46 to 45 for storage-layout compatibility.
+        bytes20[] walletRegistrationOrder;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
         // planned upgrades of the Bridge contract. If more entires are added to
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
+        // Shrunk from 45 to 44 slots to make room for the
+        // reconstructed `mintingController` field above without shifting any
+        // post-gap field. This keeps `openFraudChallengeEscrow` at absolute slot
+        // 129, the packed seed/registry slot at 130, and the legacy-vault
+        // coordinator mapping at 131.
         // slither-disable-next-line unused-state
-        uint256[47] __gap;
+        uint256[44] __gap;
         /// @notice Sum of `depositAmount` across currently-open fraud
         ///         challenges, used to keep `recoverETH` scoped to
         ///         non-escrowed ETH.
@@ -346,6 +395,52 @@ library BridgeState {
         /// @notice True once governance has accounted for pre-upgrade open
         ///         fraud challenges in `openFraudChallengeEscrow`.
         bool fraudChallengeEscrowSeeded;
+        /// @notice True once governance has backfilled `walletRegistrationOrder`
+        ///         with the wallets that were registered before the upgrade
+        ///         that introduced the on-chain order. Until this is set, the
+        ///         order cannot reconstruct the canonical target-wallet set for
+        ///         those wallets, so `MovingFunds.submitMovingFundsCommitment`
+        ///         rejects the commitment; backfilling it is a required
+        ///         precondition for resuming moving-funds commitments after the
+        ///         upgrade. Once set, the order is authoritative and the
+        ///         deterministic target-wallet selection is enforced. Packs into
+        ///         the slot shared with `fraudChallengeEscrowSeeded`; both
+        ///         default to false on a fresh upgrade.
+        bool walletRegistrationOrderSeeded;
+        /// @notice Address of the covenant spend authorization registry
+        ///         (`CovenantSpendAuthorization`). It attests, through the
+        ///         account-control covenant proof flow, that a covenant active
+        ///         UTXO may be spent by a given wallet, so
+        ///         `Fraud.defeatFraudChallengeWithCovenantSpend` can recognize
+        ///         a covenant migration signature as an honest spend. Optional
+        ///         and set through governance; while unset (zero), the covenant
+        ///         spend defeat path is unavailable and the covenant signer is
+        ///         expected to stay fail-closed. Appended after `__gap` like the
+        ///         fraud-escrow and registration-order fields, leaving the
+        ///         reserved gap untouched. This 20-byte address packs into the
+        ///         same slot as `fraudChallengeEscrowSeeded` and
+        ///         `walletRegistrationOrderSeeded` (it occupies bytes 2-21 of
+        ///         that slot); those bytes were previously zero, so on upgrade
+        ///         it reads as `address(0)` and no existing field is disturbed.
+        address covenantSpendAuthorization;
+        /// @notice Per-legacy-vault attestation binding a retired
+        ///         optimistic-minting legacy `TBTCVault` to the dedicated
+        ///         migration coordinator that owns it. A nonzero value is both
+        ///         governance's explicit, emitted assertion that every finalized
+        ///         optimistic mint for that legacy vault was already swept at the
+        ///         attested evidence snapshot, and the only coordinator allowed
+        ///         to retire that vault. The zero default makes the exact known
+        ///         mainnet legacy vault fail closed for untrust/rotation as soon
+        ///         as the new Bridge implementation is active; governance must
+        ///         take the explicit attestation transition to unlock retirement.
+        ///         No initializer writes this mapping. A mapping root always
+        ///         starts a fresh slot, so it is appended after
+        ///         `covenantSpendAuthorization` at relative slot 80 (absolute
+        ///         Bridge proxy slot 131); its keyed values live at
+        ///         `keccak256(abi.encode(vault, uint256(131)))` and cannot
+        ///         collide with the packed slot-130 fields. The reserved
+        ///         `__gap` above is left untouched.
+        mapping(address => address) legacyVaultOptimisticMintingDebtCoordinator;
     }
 
     event DepositParametersUpdated(

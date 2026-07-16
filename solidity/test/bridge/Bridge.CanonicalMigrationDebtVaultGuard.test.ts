@@ -21,7 +21,9 @@ const bridgeVaultGuardErrorsInterface = new ethers.utils.Interface([
   "error MigrationDebtVaultInterfaceMissing(address vault)",
   "error MigrationDebtVaultUnreachable(address vault)",
   "error PreviousMigrationDebtVaultHasDebt(address vault)",
+  "error PreviousMigrationDebtVaultHasOptimisticDebt(address vault)",
   "error VaultHasOutstandingMigrationDebt(address vault)",
+  "error VaultHasOutstandingOptimisticMintingDebt(address vault)",
   "error VaultIsCanonicalMigrationDebtVault(address vault)",
 ])
 
@@ -29,7 +31,9 @@ type BridgeVaultGuardError =
   | "MigrationDebtVaultInterfaceMissing"
   | "MigrationDebtVaultUnreachable"
   | "PreviousMigrationDebtVaultHasDebt"
+  | "PreviousMigrationDebtVaultHasOptimisticDebt"
   | "VaultHasOutstandingMigrationDebt"
+  | "VaultHasOutstandingOptimisticMintingDebt"
   | "VaultIsCanonicalMigrationDebtVault"
 
 function getRevertData(error: unknown): string[] {
@@ -84,6 +88,20 @@ async function expectBridgeVaultGuardError(
   }
 }
 
+// The harness links and delegates to the same `VaultManagement` library the
+// production Bridge uses, so its guard truth table cannot diverge. Deploy the
+// library and link it into the harness factory.
+async function deployVaultStatusHarness(): Promise<BridgeVaultStatusHarness> {
+  const vaultManagement = await (
+    await ethers.getContractFactory("VaultManagement")
+  ).deploy()
+  const HarnessFactory = await ethers.getContractFactory(
+    "BridgeVaultStatusHarness",
+    { libraries: { VaultManagement: vaultManagement.address } }
+  )
+  return (await HarnessFactory.deploy()) as BridgeVaultStatusHarness
+}
+
 describe("Bridge - Canonical migration debt vault guard", () => {
   let harness: BridgeVaultStatusHarness
   let vault: MockMigrationDebtVault
@@ -91,10 +109,7 @@ describe("Bridge - Canonical migration debt vault guard", () => {
   let partialVault: MockPartialMigrationDebtVault
 
   beforeEach(async () => {
-    const HarnessFactory = await ethers.getContractFactory(
-      "BridgeVaultStatusHarness"
-    )
-    harness = await HarnessFactory.deploy()
+    harness = await deployVaultStatusHarness()
 
     const MockVaultFactory = await ethers.getContractFactory(
       "MockMigrationDebtVault"
@@ -204,6 +219,79 @@ describe("Bridge - Canonical migration debt vault guard", () => {
     expect(await harness.migrationDebtVault()).to.equal(
       ethers.constants.AddressZero
     )
+  })
+
+  it("reverts when untrusting a vault with outstanding optimistic minting debt", async () => {
+    await harness.setVaultStatus(vault.address, true)
+    await vault.setHasOutstandingOptimisticMintingDebt(true)
+
+    await expectBridgeVaultGuardError(
+      harness.setVaultStatus(vault.address, false),
+      "VaultHasOutstandingOptimisticMintingDebt",
+      vault.address
+    )
+    expect(await harness.isVaultTrusted(vault.address)).to.equal(true)
+  })
+
+  it("allows untrusting a vault once optimistic minting debt is cleared", async () => {
+    await harness.setVaultStatus(vault.address, true)
+    await vault.setHasOutstandingOptimisticMintingDebt(true)
+    await vault.setHasOutstandingOptimisticMintingDebt(false)
+
+    await expect(harness.setVaultStatus(vault.address, false))
+      .to.emit(harness, "VaultStatusUpdated")
+      .withArgs(vault.address, false)
+    expect(await harness.isVaultTrusted(vault.address)).to.equal(false)
+  })
+
+  it("reverts rotating away from a vault with outstanding optimistic minting debt", async () => {
+    await harness.setVaultStatus(vault.address, true)
+    await harness.setVaultStatus(rotatedVault.address, true)
+    await harness.setMigrationDebtVault(vault.address)
+    await vault.setHasOutstandingOptimisticMintingDebt(true)
+
+    await expectBridgeVaultGuardError(
+      harness.rotateMigrationDebtVault(rotatedVault.address, vault.address),
+      "PreviousMigrationDebtVaultHasOptimisticDebt",
+      vault.address
+    )
+    expect(await harness.migrationDebtVault()).to.equal(vault.address)
+    expect(await harness.isVaultTrusted(vault.address)).to.equal(true)
+  })
+
+  it("allows rotation once the previous vault optimistic minting debt is cleared", async () => {
+    await harness.setVaultStatus(vault.address, true)
+    await harness.setVaultStatus(rotatedVault.address, true)
+    await harness.setMigrationDebtVault(vault.address)
+    await vault.setHasOutstandingOptimisticMintingDebt(true)
+    await vault.setHasOutstandingOptimisticMintingDebt(false)
+
+    await expect(
+      harness.rotateMigrationDebtVault(rotatedVault.address, vault.address)
+    )
+      .to.emit(harness, "MigrationDebtVaultUpdated")
+      .withArgs(rotatedVault.address)
+      .and.to.emit(harness, "VaultStatusUpdated")
+      .withArgs(vault.address, false)
+    expect(await harness.migrationDebtVault()).to.equal(rotatedVault.address)
+    expect(await harness.isVaultTrusted(vault.address)).to.equal(false)
+  })
+
+  it("treats a vault that reverts on the optimistic-debt staticcall as having no debt (fail-open untrust)", async () => {
+    const MockRevertingVaultFactory = await ethers.getContractFactory(
+      "MockRevertingMigrationDebtVault"
+    )
+    const revertingVault = await MockRevertingVaultFactory.deploy()
+
+    await harness.setVaultStatus(revertingVault.address, true)
+    // Vault would report optimistic debt, but its staticcall reverts.
+    await revertingVault.setHasOutstandingOptimisticMintingDebt(true)
+    await revertingVault.setReverting(true)
+
+    await expect(harness.setVaultStatus(revertingVault.address, false))
+      .to.emit(harness, "VaultStatusUpdated")
+      .withArgs(revertingVault.address, false)
+    expect(await harness.isVaultTrusted(revertingVault.address)).to.equal(false)
   })
 })
 
@@ -345,10 +433,7 @@ describe("setMigrationDebtVault outgoing-debt guard - fail-closed", () => {
   let revertingVault: MockRevertingMigrationDebtVault
 
   beforeEach(async () => {
-    const HarnessFactory = await ethers.getContractFactory(
-      "BridgeVaultStatusHarness"
-    )
-    harness = await HarnessFactory.deploy()
+    harness = await deployVaultStatusHarness()
 
     const MockVaultFactory = await ethers.getContractFactory(
       "MockMigrationDebtVault"
@@ -429,10 +514,7 @@ describe("Bridge - Migration debt drain guard", () => {
   beforeEach(async () => {
     const [, revealer] = await ethers.getSigners()
 
-    const HarnessFactory = await ethers.getContractFactory(
-      "BridgeVaultStatusHarness"
-    )
-    harness = await HarnessFactory.deploy()
+    harness = await deployVaultStatusHarness()
 
     const MockVaultFactory = await ethers.getContractFactory(
       "MockMigrationDebtVault"

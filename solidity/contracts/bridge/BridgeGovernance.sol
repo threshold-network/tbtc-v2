@@ -19,6 +19,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "./BridgeGovernanceParameters.sol";
 
 import "./Bridge.sol";
+import "../vault/ILegacyTBTCVaultMigrationCoordinator.sol";
 
 /// @title Bridge Governance
 /// @notice Owns the `Bridge` contract and is responsible for updating
@@ -63,6 +64,17 @@ contract BridgeGovernance is Ownable {
     event BridgeGovernanceTransferStarted(
         address newBridgeGovernance,
         uint256 timestamp
+    );
+
+    /// @notice Emitted after the atomic legacy-vault migration cutover records
+    ///         the retirement attestation, untrusts the legacy vault, finalizes
+    ///         the immutable legacy upgrade through the coordinator, trusts the
+    ///         successor, and makes it the canonical migration-debt vault.
+    event LegacyVaultMigrationFinalized(
+        address indexed coordinator,
+        address indexed legacyVault,
+        address indexed successorVault,
+        bytes32 evidenceHash
     );
 
     event DepositDustThresholdUpdateStarted(
@@ -334,6 +346,143 @@ contract BridgeGovernance is Ownable {
         bridge.rotateMigrationDebtVault(newVault, previousVault);
     }
 
+    /// @notice Sets the covenant spend authorization registry consulted by the
+    ///         Bridge when defeating a covenant-spend fraud challenge.
+    /// @param covenantSpendAuthorization Address of the
+    ///        `CovenantSpendAuthorization` registry, or zero to disable the
+    ///        covenant spend defeat path.
+    function setCovenantSpendAuthorization(address covenantSpendAuthorization)
+        external
+        onlyOwner
+    {
+        bridge.setCovenantSpendAuthorization(covenantSpendAuthorization);
+    }
+
+    /// @notice Sets the account-control minting controller
+    ///         on the Bridge. Restores ABI/source consistency with the live
+    ///         controller-mint deployment, whose Bridge exposes
+    ///         `setMintingController(address)` and whose governance forwards to
+    ///         it. Zero is permitted (disables the controller).
+    /// @param _mintingController New minting controller address.
+    function setMintingController(address _mintingController)
+        external
+        onlyOwner
+    {
+        bridge.setMintingController(_mintingController);
+    }
+
+    /// @notice Records or revokes a legacy-vault optimistic-minting retirement
+    ///         attestation on the Bridge. Forwards the identical five arguments
+    ///         to `Bridge.setLegacyVaultOptimisticMintingDebtAttestation`, which
+    ///         performs all fail-closed validation.
+    /// @param vault The legacy vault the attestation is for.
+    /// @param coordinator The migration coordinator to bind, or zero to revoke.
+    /// @param snapshotBlockNumber The evidence snapshot block (zero to revoke).
+    /// @param snapshotBlockHash The evidence snapshot block hash (zero to revoke).
+    /// @param evidenceHash The deterministic evidence digest (zero to revoke).
+    function setLegacyVaultOptimisticMintingDebtAttestation(
+        address vault,
+        address coordinator,
+        uint256 snapshotBlockNumber,
+        bytes32 snapshotBlockHash,
+        bytes32 evidenceHash
+    ) external onlyOwner {
+        bridge.setLegacyVaultOptimisticMintingDebtAttestation(
+            vault,
+            coordinator,
+            snapshotBlockNumber,
+            snapshotBlockHash,
+            evidenceHash
+        );
+    }
+
+    /// @notice Initiates the legacy vault upgrade through its dedicated migration
+    ///         coordinator, resetting the legacy 24-hour delay.
+    /// @param coordinator The migration coordinator that owns the legacy vault.
+    /// @param successorVault The successor vault to upgrade the legacy vault to.
+    /// @dev Validates that this contract is the coordinator's controller and that
+    ///      the coordinator is bound to this contract's Bridge before delegating
+    ///      to `coordinator.initiateUpgrade`. May be re-run before finalization
+    ///      with a different governance-owned successor to roll a bad successor
+    ///      back without restoring unpause authority.
+    function initiateLegacyVaultUpgrade(
+        address coordinator,
+        address successorVault
+    ) external onlyOwner {
+        ILegacyTBTCVaultMigrationCoordinator migrationCoordinator = ILegacyTBTCVaultMigrationCoordinator(
+                coordinator
+            );
+        require(
+            migrationCoordinator.controller() == address(this),
+            "Coordinator controller must be this governance"
+        );
+        require(
+            migrationCoordinator.bridge() == address(bridge),
+            "Coordinator bridge mismatch"
+        );
+
+        migrationCoordinator.initiateUpgrade(successorVault);
+    }
+
+    /// @notice Atomically finalizes the legacy vault migration cutover.
+    /// @param coordinator The migration coordinator that owns the legacy vault.
+    /// @param snapshotBlockNumber The evidence snapshot block.
+    /// @param snapshotBlockHash The evidence snapshot block hash.
+    /// @param evidenceHash The deterministic evidence digest.
+    /// @dev Performs, in one transaction and with no revert suppression:
+    ///      records the retirement attestation binding this coordinator; untrusts
+    ///      the legacy vault; finalizes the immutable legacy upgrade through the
+    ///      coordinator; trusts the successor; and sets the successor as the
+    ///      canonical migration-debt vault. Any sub-step revert rolls back the
+    ///      entire cutover — atomic rollback is part of the safety property.
+    function finalizeLegacyVaultMigration(
+        address coordinator,
+        uint256 snapshotBlockNumber,
+        bytes32 snapshotBlockHash,
+        bytes32 evidenceHash
+    ) external onlyOwner {
+        ILegacyTBTCVaultMigrationCoordinator migrationCoordinator = ILegacyTBTCVaultMigrationCoordinator(
+                coordinator
+            );
+        require(
+            migrationCoordinator.controller() == address(this),
+            "Coordinator controller must be this governance"
+        );
+        require(
+            migrationCoordinator.bridge() == address(bridge),
+            "Coordinator bridge mismatch"
+        );
+
+        address legacyVault = migrationCoordinator.legacyVault();
+        address successorVault = migrationCoordinator.successorVault();
+        require(successorVault != address(0), "Successor vault not set");
+
+        // 1. Record the retirement attestation binding this coordinator.
+        bridge.setLegacyVaultOptimisticMintingDebtAttestation(
+            legacyVault,
+            coordinator,
+            snapshotBlockNumber,
+            snapshotBlockHash,
+            evidenceHash
+        );
+        // 2. Untrust the legacy vault.
+        bridge.setVaultStatus(legacyVault, false);
+        // 3. Finalize the immutable legacy upgrade through the coordinator.
+        migrationCoordinator.finalizeUpgrade();
+        // 4. Trust the successor vault.
+        bridge.setVaultStatus(successorVault, true);
+        // 5. Make the successor the canonical migration-debt vault.
+        bridge.setMigrationDebtVault(successorVault);
+
+        // slither-disable-next-line reentrancy-events
+        emit LegacyVaultMigrationFinalized(
+            coordinator,
+            legacyVault,
+            successorVault,
+            evidenceHash
+        );
+    }
+
     /// @notice Allows the Governance to mark the given address as trusted
     ///         or no longer trusted SPV maintainer. Addresses are not trusted
     ///         as SPV maintainers by default.
@@ -367,6 +516,26 @@ contract BridgeGovernance is Ownable {
         onlyOwner
     {
         bridge.seedFraudChallengeEscrow(preUpgradeOpenEscrow);
+    }
+
+    /// @notice Backfills the Bridge wallet registration order with the wallets
+    ///         registered before the upgrade that introduced the on-chain
+    ///         order, so moving-funds target-wallet selection is enforced
+    ///         deterministically for pre-upgrade wallets.
+    /// @param wallets Pre-upgrade wallet public key hashes, ordered oldest
+    ///        registration first.
+    /// @dev Can be executed only once, guarded by the Bridge's
+    ///      `walletRegistrationOrderSeeded` latch rather than an empty-order
+    ///      requirement. It prepends the supplied pre-upgrade wallets ahead of
+    ///      any wallets already registered post-upgrade and skips any supplied
+    ///      wallet already tracked on-chain, so it stays valid and
+    ///      duplicate-free even when a wallet registers between the upgrade and
+    ///      this call.
+    function seedWalletRegistrationOrder(bytes20[] calldata wallets)
+        external
+        onlyOwner
+    {
+        bridge.seedWalletRegistrationOrder(wallets);
     }
 
     /// @notice Begins the governance delay update process.

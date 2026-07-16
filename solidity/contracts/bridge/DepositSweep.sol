@@ -20,6 +20,7 @@ import {BTCUtils} from "@keep-network/bitcoin-spv-sol/contracts/BTCUtils.sol";
 import "./BitcoinTx.sol";
 import "./BridgeState.sol";
 import "./Wallets.sol";
+import "./MigrationExtraData.sol";
 
 import "../bank/Bank.sol";
 import "../vault/ITBTCVaultMigrationSweepHook.sol";
@@ -99,6 +100,12 @@ library DepositSweep {
         // UTXO doesn't exist) or less by one (main UTXO exists and is pointed
         // by one of the inputs).
         uint256[] treasuryFees;
+        // Depositors of migration-tagged deposits only, aligned index-for-index
+        // with `depositors`. Non-migration slots are left as the zero address.
+        // Used to drive the migration sweep completion callback so that regular
+        // deposits (even by a migration revealer) do not trigger a migration
+        // completion notification.
+        address[] migrationRevealers;
         // This struct doesn't contain `__gap` property as the structure is not
         // stored, it is used as a function's memory argument.
     }
@@ -268,7 +275,7 @@ library DepositSweep {
                 self,
                 vault,
                 sweepTxHash,
-                inputsInfo.depositors
+                inputsInfo.migrationRevealers
             );
         } else {
             // If the `vault` address is zero or belongs to a non-trusted
@@ -530,6 +537,12 @@ library DepositSweep {
             resultInfo.depositors.length
         );
         resultInfo.treasuryFees = new uint256[](resultInfo.depositors.length);
+        // Same length as `depositors`; migration slots are filled below and
+        // the remaining (regular-deposit) slots stay as the zero address, which
+        // the vault callback ignores.
+        resultInfo.migrationRevealers = new address[](
+            resultInfo.depositors.length
+        );
 
         // Initialize helper variables.
         uint256 processedDepositsCount = 0;
@@ -576,6 +589,14 @@ library DepositSweep {
 
                 resultInfo.depositors[processedDepositsCount] = deposit
                     .depositor;
+                // Only migration-tagged deposits drive the migration sweep
+                // completion callback. Regular deposits (even by a migration
+                // revealer) leave the slot as the zero address.
+                if (MigrationExtraData.isMigrationReveal(deposit.extraData)) {
+                    resultInfo.migrationRevealers[
+                        processedDepositsCount
+                    ] = deposit.depositor;
+                }
                 resultInfo.depositedAmounts[processedDepositsCount] = deposit
                     .amount;
                 resultInfo.inputsTotalValue += resultInfo.depositedAmounts[

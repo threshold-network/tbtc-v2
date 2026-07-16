@@ -16,8 +16,10 @@
 pragma solidity 0.8.17;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
 import "./IVault.sol";
+import "./IAccountControlRedemptionNotifier.sol";
 import "./TBTCOptimisticMinting.sol";
 import "../bank/Bank.sol";
 import "../token/TBTC.sol";
@@ -30,7 +32,7 @@ import "../token/TBTC.sol";
 ///         Bank.
 /// @dev TBTC Vault is the owner of TBTC token contract and is the only contract
 ///      minting the token.
-contract TBTCVault is IVault, Ownable, TBTCOptimisticMinting {
+contract TBTCVault is IVault, Ownable, ReentrancyGuard, TBTCOptimisticMinting {
     using SafeERC20 for IERC20;
 
     Bank public immutable bank;
@@ -44,11 +46,35 @@ contract TBTCVault is IVault, Ownable, TBTCOptimisticMinting {
     ///         initiated. Set only when the upgrade process is pending.
     uint256 public upgradeInitiatedTimestamp;
 
+    /// @notice Optional Account Control redemption notifier. When set, every
+    ///         `unmintAndRedeem` redemption reconciles AC minted exposure
+    ///         through it before the redemption completes, and reverts if the
+    ///         AC accounting update cannot be made. Plain `unmint` never calls
+    ///         the notifier, regardless of this setting — see
+    ///         `accountControlReconciliationRequired`. When unset (the
+    ///         default), the `unmintAndRedeem` path behaves exactly as before.
+    IAccountControlRedemptionNotifier public accountControlRedemptionNotifier;
+
+    /// @notice When true, a legacy redemption may not proceed unless an Account
+    ///         Control redemption notifier is configured, so AC-origin supply
+    ///         cannot be redeemed through the legacy path without reconciliation.
+    ///         Defaults to false, preserving the legacy behavior for non-AC
+    ///         deployments. An Account Control deployment sets this to true once
+    ///         the notifier is wired, turning the "no notifier" case from a
+    ///         silent success into a revert. Set independently of the notifier
+    ///         so activation is explicit and cannot be bypassed by unsetting the
+    ///         notifier while the requirement stays on.
+    bool public accountControlReconciliationRequired;
+
     event Minted(address indexed to, uint256 amount);
     event Unminted(address indexed from, uint256 amount);
 
     event UpgradeInitiated(address newVault, uint256 timestamp);
     event UpgradeFinalized(address newVault);
+
+    event AccountControlRedemptionNotifierUpdated(address notifier);
+
+    event AccountControlReconciliationRequirementUpdated(bool required);
 
     modifier onlyBank() {
         require(msg.sender == address(bank), "Caller is not the Bank");
@@ -72,6 +98,97 @@ contract TBTCVault is IVault, Ownable, TBTCOptimisticMinting {
 
         bank = _bank;
         tbtcToken = _tbtcToken;
+    }
+
+    /// @notice Sets the Account Control redemption notifier used to reconcile
+    ///         AC minted exposure on `unmintAndRedeem` redemptions. Set to the
+    ///         zero address to disable reconciliation (the default).
+    /// @param notifier Address of the notifier, or the zero address to disable.
+    /// @dev Only the owner can call. The notifier is a trusted, fail-closed
+    ///      protocol dependency called before every burn routed through
+    ///      `unmintAndRedeem` or `receiveApproval` with redemption data. Any
+    ///      notifier call failure — including a reverting implementation or an
+    ///      address with no code — blocks those two entry points. This is
+    ///      intentional: continuing would burn TBTC without reconciling AC
+    ///      minted exposure. Plain `unmint` (and `receiveApproval` without
+    ///      redemption data) never calls the notifier at all — once
+    ///      `accountControlReconciliationRequired` is set, that path is
+    ///      blocked outright regardless of notifier health, not conditioned on
+    ///      a notifier call failing. Governance must validate, monitor, and
+    ///      replace the notifier if it becomes unavailable; disabling
+    ///      reconciliation is an explicit emergency acceptance of accounting
+    ///      divergence, not the normal recovery path.
+    function setAccountControlRedemptionNotifier(address notifier)
+        external
+        onlyOwner
+    {
+        accountControlRedemptionNotifier = IAccountControlRedemptionNotifier(
+            notifier
+        );
+        emit AccountControlRedemptionNotifierUpdated(notifier);
+    }
+
+    /// @notice Sets whether a legacy redemption requires a configured Account
+    ///         Control redemption notifier. When enabled, legacy redemptions
+    ///         revert unless the notifier is set, so AC-origin supply cannot be
+    ///         redeemed without reconciliation.
+    /// @param required True to require the notifier, false to allow the legacy
+    ///        path without one (the default).
+    /// @dev Only the owner can call. Intended to be enabled by an Account
+    ///      Control deployment once the notifier is wired.
+    function setAccountControlReconciliationRequired(bool required)
+        external
+        onlyOwner
+    {
+        // Requiring reconciliation without a configured notifier would make
+        // every legacy redemption revert. Only allow enabling the requirement
+        // when a notifier is already wired; disabling it is always allowed.
+        require(
+            !required ||
+                address(accountControlRedemptionNotifier) != address(0),
+            "Notifier required to require reconciliation"
+        );
+        accountControlReconciliationRequired = required;
+        emit AccountControlReconciliationRequirementUpdated(required);
+    }
+
+    /// @notice Activates Account Control reconciliation for `unmintAndRedeem`
+    ///         redemptions in a single, safe step: wires the redemption
+    ///         notifier and marks reconciliation as required. After this call
+    ///         every `unmintAndRedeem` redemption reconciles AC minted
+    ///         exposure (or reverts), and plain `unmint` is blocked outright,
+    ///         so AC-origin supply can never be redeemed through the legacy
+    ///         path without reconciliation.
+    /// @param notifier Address of the Account Control redemption notifier. Must
+    ///        be nonzero.
+    /// @dev Only the owner can call. This is the activation entry point an
+    ///      Account Control deployment must invoke before any AC-origin supply
+    ///      can exist, so the finding's exploit path (redeeming AC-origin supply
+    ///      through the legacy route while `AccountControlState.minted` stays
+    ///      unchanged) is closed. Requiring a nonzero notifier makes activation
+    ///      atomic and correct-by-construction: unlike calling the two setters
+    ///      separately, it cannot leave the vault in the inconsistent
+    ///      "required but no notifier" state that reverts every
+    ///      `unmintAndRedeem` redemption. Once active, unsetting the notifier
+    ///      later keeps the requirement on, so those redemptions revert rather
+    ///      than silently bypassing AC accounting, while plain `unmint` stays
+    ///      blocked regardless.
+    function activateAccountControlReconciliation(address notifier)
+        external
+        onlyOwner
+    {
+        require(
+            notifier != address(0),
+            "Notifier required to activate reconciliation"
+        );
+
+        accountControlRedemptionNotifier = IAccountControlRedemptionNotifier(
+            notifier
+        );
+        accountControlReconciliationRequired = true;
+
+        emit AccountControlRedemptionNotifierUpdated(notifier);
+        emit AccountControlReconciliationRequirementUpdated(true);
     }
 
     /// @notice Mints the given `amount` of TBTC to the caller previously
@@ -150,7 +267,7 @@ contract TBTCVault is IVault, Ownable, TBTCOptimisticMinting {
     /// @dev Caller must have at least `amount` of TBTC approved to
     ///       TBTC Vault.
     /// @param amount Amount of TBTC to unmint.
-    function unmint(uint256 amount) external {
+    function unmint(uint256 amount) external nonReentrant {
         (uint256 convertibleAmount, , ) = amountToSatoshis(amount);
 
         _unmint(msg.sender, convertibleAmount);
@@ -169,6 +286,7 @@ contract TBTCVault is IVault, Ownable, TBTCOptimisticMinting {
     ///        function.
     function unmintAndRedeem(uint256 amount, bytes calldata redemptionData)
         external
+        nonReentrant
     {
         (uint256 convertibleAmount, , ) = amountToSatoshis(amount);
 
@@ -200,7 +318,7 @@ contract TBTCVault is IVault, Ownable, TBTCOptimisticMinting {
         uint256 amount,
         address token,
         bytes calldata extraData
-    ) external {
+    ) external nonReentrant {
         require(token == address(tbtcToken), "Token is not TBTC");
         require(msg.sender == token, "Only TBTC caller allowed");
         (uint256 convertibleAmount, , ) = amountToSatoshis(amount);
@@ -253,6 +371,19 @@ contract TBTCVault is IVault, Ownable, TBTCOptimisticMinting {
         require(
             !hasOutstandingMigrationDebt(),
             "Cannot finalize upgrade with outstanding migration debt"
+        );
+
+        // Optimistic minting debt is per-depositor local vault state repaid
+        // from future sweep proceeds routed through the vault callback.
+        // Transferring TBTC ownership and the Bank balance while optimistic
+        // debt is outstanding would strand that debt on the old vault: a
+        // deposit revealed for the old vault cannot repay the debt on the new
+        // vault (sweep validation pins the recorded vault), and if the old
+        // vault is later untrusted the sweep proceeds bypass the repayment
+        // callback entirely, enabling a second mint for the same deposit.
+        require(
+            !hasOutstandingOptimisticMintingDebt(),
+            "Cannot finalize upgrade with outstanding optimistic minting debt"
         );
 
         emit UpgradeFinalized(newVault);
@@ -351,8 +482,62 @@ contract TBTCVault is IVault, Ownable, TBTCOptimisticMinting {
         tbtcToken.mint(minter, amount);
     }
 
+    /// @notice Reconciles Account Control (AC) minted exposure for supply that
+    ///         is about to be burned by the irreversible legacy redemption,
+    ///         before the burn happens, so AC-origin supply can never leave AC
+    ///         accounting through `_unmintAndRedeem` while
+    ///         `AccountControlState.minted` stays unchanged.
+    /// @dev When a notifier is configured it identifies the AC reserve behind
+    ///      `redeemer` and decrements that reserve's minted exposure, reverting
+    ///      the whole operation if the accounting update cannot be made. It is a
+    ///      no-op for redeemers with no AC exposure, so regular unminting and
+    ///      redemption are unaffected. When no notifier is configured the legacy
+    ///      behaviour is preserved, unless reconciliation has been made
+    ///      mandatory (an Account Control deployment), in which case the legacy
+    ///      operation reverts rather than silently bypassing AC accounting.
+    ///      Only called from `_unmintAndRedeem` — see `_unmint` for why plain
+    ///      unmint does not call this.
+    /// @param redeemer The address whose TBTC is being burned.
+    /// @param amount The TBTC amount being burned, in 1e18 precision.
+    function _reconcileAccountControlRedemption(
+        address redeemer,
+        uint256 amount
+    ) internal {
+        IAccountControlRedemptionNotifier notifier = (
+            accountControlRedemptionNotifier
+        );
+        if (address(notifier) != address(0)) {
+            notifier.notifyLegacyRedemption(redeemer, amount);
+        } else {
+            require(
+                !accountControlReconciliationRequired,
+                "Account Control reconciliation required"
+            );
+        }
+    }
+
     /// @dev `amount` MUST be divisible by SATOSHI_MULTIPLIER with no change.
+    ///      Shared by the `unmint` entry point and the empty-`extraData`
+    ///      branch of `receiveApproval`.
     function _unmint(address unminter, uint256 amount) internal {
+        // Unminting returns fungible Bank balance to `unminter`, and Bank
+        // balance is transferable: `unminter` could hand it to another address
+        // via `Bank.transferBalance`/`transferBalanceFrom`, which could then
+        // remint it as TBTC through `mint`/`receiveBalanceApproval`. There is
+        // no way to tag that Bank balance with the AC decrement it should owe,
+        // so once reconciliation is required, a *reversible* per-unmint AC
+        // decrement here could be detached from the balance it was meant to
+        // track and never restored — permanently understating AC exposure.
+        // Block plain unmint outright instead; `_unmintAndRedeem` remains the
+        // irreversible, reconciled exit for AC-origin supply.
+        require(
+            !accountControlReconciliationRequired,
+            "Unmint unavailable while Account Control reconciliation is required"
+        );
+
+        // Emit before the external burn/transfer calls so the event is never
+        // logged after an external call. Re-entry through the vault's unmint
+        // entry points is prevented by their `nonReentrant` guard.
         emit Unminted(unminter, amount);
         tbtcToken.burnFrom(unminter, amount);
         bank.transferBalance(unminter, amount / SATOSHI_MULTIPLIER);
@@ -364,7 +549,15 @@ contract TBTCVault is IVault, Ownable, TBTCOptimisticMinting {
         uint256 amount,
         bytes calldata redemptionData
     ) internal {
+        // Reconcile Account Control minted exposure for the redeemed supply
+        // before it is burned, so AC-origin supply cannot be redeemed through
+        // the legacy path while `AccountControlState.minted` stays unchanged.
+        // Emit before the external reconciliation and burn calls so the event
+        // is never logged after an external call. Reconciliation runs before
+        // the burn by design; re-entry through the vault's unmint entry points
+        // is prevented by their `nonReentrant` guard.
         emit Unminted(redeemer, amount);
+        _reconcileAccountControlRedemption(redeemer, amount);
         tbtcToken.burnFrom(redeemer, amount);
         bank.approveBalanceAndCall(
             address(bridge),

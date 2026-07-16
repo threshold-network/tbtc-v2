@@ -107,16 +107,22 @@ library TBTCMigrationDebtOperations {
     ///
     ///      Debt repayment outcomes:
     ///      - If `amount >= debt`: Debt is fully repaid.
-    ///        `pendingMigrationSweepCompletion` is set to true, enabling
-    ///        the downstream sweep completion callback. The excess
-    ///        (`amount - debt`) is returned as `mintableAmount`.
+    ///        `pendingMigrationSweepCompletion` is set to true only when a
+    ///        reserve is already configured for the revealer, enabling the
+    ///        downstream sweep completion callback. When no reserve is
+    ///        configured the flag is left unset so no stale completion can
+    ///        later be replayed. The excess (`amount - debt`) is returned as
+    ///        `mintableAmount`.
     ///      - If `amount < debt`: Partial repayment. `mintableAmount` is
     ///        zero (all proceeds absorbed by outstanding debt). Remaining
     ///        debt decreases by `amount`.
     /// @param migrationDebt Storage mapping of revealer addresses to
     ///        outstanding debt.
     /// @param pendingMigrationSweepCompletion Storage flag set when debt
-    ///        reaches zero for a revealer.
+    ///        reaches zero for a revealer and a reserve is configured.
+    /// @param migrationSweepReserve Storage mapping of revealer addresses to
+    ///        their designated sweep reserve; a full repayment only queues a
+    ///        pending completion when this is non-zero for the revealer.
     /// @param revealer Address whose migration debt is being repaid.
     /// @param amount Post-fee sweep proceeds in 1e18 precision routed to
     ///        the vault for this revealer.
@@ -127,6 +133,7 @@ library TBTCMigrationDebtOperations {
     function repayDebt(
         mapping(address => uint256) storage migrationDebt,
         mapping(address => bool) storage pendingMigrationSweepCompletion,
+        mapping(address => address) storage migrationSweepReserve,
         address revealer,
         uint256 amount
     ) internal returns (uint256, uint256) {
@@ -137,7 +144,18 @@ library TBTCMigrationDebtOperations {
 
         if (amount >= debt) {
             migrationDebt[revealer] = 0;
-            pendingMigrationSweepCompletion[revealer] = true;
+            // Queue a sweep completion only when a reserve is already
+            // configured to receive it. Setting the flag with no reserve
+            // configured would strand a pending completion: the notifier path
+            // cannot deliver it (there is nothing to notify), yet a reserve
+            // configured after the fact could later consume the stale flag and
+            // replay a completion that is not tied to this repayment event.
+            // Gating on a configured reserve makes the "pending flag without a
+            // reserve" state unreachable, so the completion lifecycle stays
+            // bound to the reserve that was set before the debt was repaid.
+            if (migrationSweepReserve[revealer] != address(0)) {
+                pendingMigrationSweepCompletion[revealer] = true;
+            }
             return (amount - debt, 0);
         }
 
@@ -146,22 +164,45 @@ library TBTCMigrationDebtOperations {
         return (0, nextDebt);
     }
 
+    /// @notice Consumes a revealer's pending migration sweep completion,
+    ///         returning the configured reserve to notify.
+    /// @dev `repayDebt` only queues a pending completion when a reserve is
+    ///      already configured, and every reserve-clearing path also clears the
+    ///      pending flag, so a pending completion normally always has a
+    ///      non-zero reserve here. The zero-reserve branch below is retained as
+    ///      defense-in-depth: should that invariant ever be violated, the
+    ///      pending flag is dropped rather than left set, since leaving it set
+    ///      would allow a reserve configured after the fact to replay an
+    ///      already-elapsed sweep completion that is not tied to the original
+    ///      repayment event.
+    /// @param migrationSweepReserve Storage mapping of revealer addresses to
+    ///        their designated sweep reserve address.
+    /// @param pendingMigrationSweepCompletion Storage mapping tracking pending
+    ///        completions per revealer.
+    /// @param revealer Address whose pending completion is being consumed.
+    /// @return reserve The configured reserve to notify, or address(0) when
+    ///         there is no pending completion or no reserve was configured.
+    /// @return clearedWithoutReserve True when a pending completion was
+    ///         dropped because no reserve was configured at completion time.
     function pullPendingSweepReserve(
         mapping(address => address) storage migrationSweepReserve,
         mapping(address => bool) storage pendingMigrationSweepCompletion,
         address revealer
-    ) internal returns (address) {
+    ) internal returns (address reserve, bool clearedWithoutReserve) {
         if (!pendingMigrationSweepCompletion[revealer]) {
-            return address(0);
+            return (address(0), false);
         }
 
-        address reserve = migrationSweepReserve[revealer];
+        reserve = migrationSweepReserve[revealer];
         if (reserve == address(0)) {
-            return address(0);
+            // Drop the queued completion so that later configuring a reserve
+            // does not replay this already-elapsed sweep completion.
+            pendingMigrationSweepCompletion[revealer] = false;
+            return (address(0), true);
         }
 
         pendingMigrationSweepCompletion[revealer] = false;
         migrationSweepReserve[revealer] = address(0);
-        return reserve;
+        return (reserve, false);
     }
 }

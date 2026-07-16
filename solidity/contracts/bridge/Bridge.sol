@@ -32,10 +32,10 @@ import "./EcdsaLib.sol";
 import "./Wallets.sol";
 import "./Fraud.sol";
 import "./MovingFunds.sol";
+import "./VaultManagement.sol";
 
 import "../bank/IReceiveBalanceApproval.sol";
 import "../bank/Bank.sol";
-import "../vault/ITBTCVaultMigrationDebt.sol";
 
 /// @title Bitcoin Bridge
 /// @notice Bridge manages BTC deposit and redemption flow and is increasing and
@@ -58,6 +58,10 @@ import "../vault/ITBTCVaultMigrationDebt.sol";
 /// @dev Bridge is an upgradeable component of the Bank. The order of
 ///      functionalities in this contract is: deposit, sweep, redemption,
 ///      moving funds, wallet lifecycle, frauds, parameters.
+// `ILegacyRetirementBridge` is a consumer-side view interface the migration
+// coordinator uses to read the Bridge; the Bridge intentionally does not depend
+// on that coordinator-side file, so it is not inherited here.
+// slither-disable-next-line missing-inheritance
 contract Bridge is
     Governable,
     EcdsaWalletOwner,
@@ -71,8 +75,17 @@ contract Bridge is
     error ReimbursementPoolAddressZero();
     error TreasuryAddressZero();
     error CallerNotBank();
+    // The vault trust-list, canonical migration-debt vault, and legacy-vault
+    // retirement errors below are thrown by the linked `VaultManagement`
+    // library under delegatecall. They are redeclared here so they appear in the
+    // Bridge ABI: a `revert` in an external library propagates the raw selector,
+    // and consumers decoding a Bridge revert must find the definition on the
+    // Bridge ABI. The identical library declarations produce the same selector.
+    // Pure `error` declarations add no runtime code, so the Bridge deployed size
+    // is unchanged. Mirrors the event redeclaration below.
     error VaultIsCanonicalMigrationDebtVault(address vault);
     error VaultHasOutstandingMigrationDebt(address vault);
+    error VaultHasOutstandingOptimisticMintingDebt(address vault);
     error VaultNotTrusted(address vault);
     error PreviousMigrationDebtVaultIsZero();
     error PreviousMigrationDebtVaultMismatch(address expected, address actual);
@@ -80,6 +93,20 @@ contract Bridge is
     error MigrationDebtVaultInterfaceMissing(address vault);
     error MigrationDebtVaultUnreachable(address vault);
     error PreviousMigrationDebtVaultHasDebt(address vault);
+    error PreviousMigrationDebtVaultHasOptimisticDebt(address vault);
+    error UnsupportedLegacyVault(address vault);
+    error LegacyVaultCodeHashMismatch(address vault, bytes32 actualCodeHash);
+    error LegacyVaultOptimisticMintingDebtAttestationMissing(address vault);
+    error LegacyVaultOptimisticMintingNotPaused(address vault);
+    error LegacyVaultMigrationCoordinatorInvalid(
+        address vault,
+        address coordinator
+    );
+    error LegacyVaultEvidenceInvalid();
+    error LegacyVaultAttestationCannotBeRevoked(address vault);
+    error LegacyVaultAlreadyRetired(address vault);
+    error LegacyVaultImplementsOptimisticMintingDebtInterface(address vault);
+    error LegacyVaultNotTrusted(address vault);
     error EthRescueRecipientZero();
     error EthRescueAmountZero();
     error EthRescueInsufficientBalance(uint256 requested, uint256 available);
@@ -95,8 +122,25 @@ contract Bridge is
     using MovingFunds for BridgeState.Storage;
     using Wallets for BridgeState.Storage;
     using Fraud for BridgeState.Storage;
+    using VaultManagement for BridgeState.Storage;
 
     BridgeState.Storage internal self;
+
+    /// @notice The exact mainnet legacy `TBTCVault` recognized by the
+    ///         optimistic-minting retirement guard. Its ownership is (or will be)
+    ///         transferred to a dedicated migration coordinator, and it predates
+    ///         the aggregate optimistic-minting-debt selector, so untrusting or
+    ///         rotating away from it is fail-closed unless a governance
+    ///         attestation binds it to that locked coordinator.
+    address public constant LEGACY_MAINNET_TBTC_VAULT =
+        0x9C070027cdC9dc8F82416B2e5314E11DFb4FE3CD;
+    /// @notice The exact runtime code hash of `LEGACY_MAINNET_TBTC_VAULT`. The
+    ///         retirement override applies only when both the address and this
+    ///         code hash match, so it can never apply to different bytecode at
+    ///         the same address on another chain, nor become a general bytecode
+    ///         allowlist.
+    bytes32 public constant LEGACY_MAINNET_TBTC_VAULT_CODE_HASH =
+        0x549c4b627e40d0e38e6d874c56066ad033004f3f5e26ffba9b15806064f6f0df;
 
     event DepositRevealed(
         bytes32 fundingTxHash,
@@ -206,6 +250,40 @@ contract Bridge is
 
     event VaultStatusUpdated(address indexed vault, bool isTrusted);
     event MigrationDebtVaultUpdated(address indexed migrationDebtVault);
+
+    event CovenantSpendAuthorizationUpdated(
+        address indexed covenantSpendAuthorization
+    );
+
+    // Account-control minting-controller events. Their
+    // schemas and indexing are recovered from the live Sepolia Bridge's emitted
+    // logs and topics (120 historical `ControllerBalanceIncreased` records): the
+    // single event indexes controller and recipient with the amount in data; the
+    // batch event indexes only the controller; `MintingControllerSet` carries the
+    // new controller address non-indexed.
+    event MintingControllerSet(address mintingController);
+    event ControllerBalanceIncreased(
+        address indexed controller,
+        address indexed recipient,
+        uint256 amount
+    );
+    event ControllerBalancesIncreased(
+        address indexed controller,
+        address[] recipients,
+        uint256[] amounts
+    );
+
+    // Declared here so it appears in the Bridge ABI. It is emitted by the
+    // `VaultManagement` library under delegatecall, which attributes the log to
+    // this Bridge; the identical library declaration produces the same topic.
+    // See `setLegacyVaultOptimisticMintingDebtAttestation`.
+    event LegacyVaultOptimisticMintingDebtAttestationUpdated(
+        address indexed vault,
+        address indexed coordinator,
+        uint256 snapshotBlockNumber,
+        bytes32 snapshotBlockHash,
+        bytes32 evidenceHash
+    );
 
     event EthRescued(address indexed recipient, uint256 amount);
 
@@ -382,6 +460,73 @@ contract Bridge is
         self.walletClosingPeriod = 40 days;
 
         _transferGovernance(msg.sender);
+    }
+
+    /// @notice Atomic version-6 reinitializer for the combined
+    ///         Sepolia Stage-3 Bridge upgrade. Run exactly once via
+    ///         `ProxyAdmin.upgradeAndCall` when moving the live proxy from the
+    ///         controller-mint implementation (initializer version 5) to the
+    ///         combined implementation that also carries the reviewed PR
+    ///         covenant/migration surface. It asserts the reconstructed storage
+    ///         layout preserved the live minting controller at absolute slot 81,
+    ///         seeds the post-`__gap` migration fields (fraud-challenge escrow
+    ///         accounting and wallet registration order), and wires the covenant
+    ///         spend authorization registry — all in one transaction so any
+    ///         failure rolls back the implementation swap.
+    /// @param expectedMintingController The controller the caller asserts is
+    ///        already stored at slot 81 (the live account-control controller).
+    ///        Asserted, never written.
+    /// @param covenantSpendAuthorization_ Address of the deployed
+    ///        `CovenantSpendAuthorization` registry to wire. Must be a nonzero
+    ///        deployed contract.
+    /// @param preUpgradeOpenFraudChallengeEscrow Sum of `depositAmount` across
+    ///        fraud challenges still open at upgrade time, recomputed by the
+    ///        execution script immediately before submission. Enforced only as
+    ///        a lower bound: the Bridge's current ETH balance must be at least
+    ///        this value, and the full live balance — not this parameter — is
+    ///        what gets seeded.
+    /// @param preUpgradeWallets Wallet public key hashes registered before this
+    ///        upgrade, oldest registration first, matching the off-chain
+    ///        `NewWalletRegistered` scan. The last element must equal the current
+    ///        active wallet (an empty list requires no active wallet).
+    /// @dev Version 6 is required because the live proxy's
+    ///      initializer byte is currently 5. The whole migration is delegated to
+    ///      `Wallets.migrateV6Stage3Combined` (see there for every guard); a
+    ///      revert in any guard reverts the entire `upgradeAndCall`, including the
+    ///      implementation-slot update.
+    function initializeV6_Stage3Combined(
+        address expectedMintingController,
+        address covenantSpendAuthorization_,
+        uint256 preUpgradeOpenFraudChallengeEscrow,
+        bytes20[] calldata preUpgradeWallets
+    ) external reinitializer(6) {
+        // The whole migration — validation, seeding, and covenant
+        // wiring — is delegated to `Wallets.migrateV6Stage3Combined`, executed
+        // under delegatecall in this Bridge's storage context, to keep the Bridge
+        // within the EIP-170 deployed-bytecode limit (the same offloading pattern
+        // the codebase uses for `VaultManagement`). That call removes NONE of the
+        // migration checks: it asserts the controller still occupies slot 81
+        // (proving the storage layout preserved absolute slot 81), verifies the
+        // covenant registry is a deployed contract, verifies every migration
+        // target and the raw slot-81 collision detector is clean, requires the
+        // Bridge ETH balance to be at least the supplied open escrow (the live
+        // balance may exceed it), race-guards the wallet list against the
+        // active wallet, seeds the fraud-challenge escrow accounting from the
+        // full live balance, backfills the wallet registration order, and
+        // finally wires the covenant registry (emitting
+        // `CovenantSpendAuthorizationUpdated`,
+        // which is redeclared in `Wallets` identically so it is attributed to
+        // this Bridge). The reinitializer must not call the external
+        // `onlyGovernance` covenant setter: during `upgradeAndCall` the caller is
+        // the ProxyAdmin, so that guarded setter would revert.
+        // `self.mintingController` and `self.migrationDebtVault` are never
+        // written; `Initializable` emits `Initialized(6)` on return.
+        self.migrateV6Stage3Combined(
+            expectedMintingController,
+            covenantSpendAuthorization_,
+            preUpgradeOpenFraudChallengeEscrow,
+            preUpgradeWallets
+        );
     }
 
     /// @notice Used by the depositor to reveal information about their P2(W)SH
@@ -1177,6 +1322,43 @@ contract Bridge is
         self.defeatFraudChallenge(walletPublicKey, preimage, witness);
     }
 
+    /// @notice Allows to defeat a pending fraud challenge against a wallet when
+    ///         the challenged input is a covenant active UTXO spent by an
+    ///         account-control covenant migration. A covenant active UTXO is
+    ///         not part of the Bridge UTXO accounting, so the regular
+    ///         `defeatFraudChallenge` can never recognize it as honestly spent.
+    ///         Instead, this path recognizes the spend when the covenant
+    ///         authorization registry attests — through the account-control
+    ///         covenant proof flow — that the challenged outpoint is a covenant
+    ///         active UTXO authorized to be spent by this wallet for the signed
+    ///         value. If successfully defeated, the fraud challenge is marked as
+    ///         resolved and the challenger's ether deposit is sent to the
+    ///         treasury.
+    /// @param walletPublicKey The public key of the wallet in the uncompressed
+    ///        and unprefixed format (64 bytes).
+    /// @param preimage The BIP-143 witness preimage which produces the sighash
+    ///        used to generate the ECDSA signature that is the subject of the
+    ///        fraud claim. Covenant active UTXOs are P2WSH outputs, so the
+    ///        preimage is always a witness preimage.
+    /// @dev Requirements:
+    ///      - The covenant spend authorization registry must be configured,
+    ///      - `walletPublicKey` and `sighash` calculated as `hash256(preimage)`
+    ///        must identify an open fraud challenge,
+    ///      - the preimage must be a valid BIP-143 witness preimage signed with
+    ///        the `SIGHASH_ALL` type,
+    ///      - the challenged outpoint must not be a UTXO the Bridge already
+    ///        tracks (a revealed deposit, a spent main UTXO, a moved-funds sweep
+    ///        request, or the wallet's current main UTXO),
+    ///      - the registry must attest that the challenged outpoint is a
+    ///        covenant active UTXO authorized to be spent by this wallet for the
+    ///        input value the preimage signs over.
+    function defeatFraudChallengeWithCovenantSpend(
+        bytes calldata walletPublicKey,
+        bytes calldata preimage
+    ) external {
+        self.defeatFraudChallengeWithCovenantSpend(walletPublicKey, preimage);
+    }
+
     /// @notice Allows to defeat a pending fraud challenge against a wallet by
     ///         proving the sighash and signature were produced for an off-chain
     ///         wallet heartbeat message following a strict format.
@@ -1266,7 +1448,7 @@ contract Bridge is
     ///      transactions executed by ECDSA wallet with  deposits routed to
     ///      them.
     ///
-    ///      When untrusting a vault (`isTrusted == false`), two guards apply:
+    ///      When untrusting a vault (`isTrusted == false`), three guards apply:
     ///      1. The current canonical migration debt vault cannot be untrusted
     ///         directly (must rotate or clear the canonical pointer first).
     ///      2. Any vault implementing `ITBTCVaultMigrationDebt` that still
@@ -1274,8 +1456,17 @@ contract Bridge is
     ///         cannot be untrusted. This prevents a two-step bypass where
     ///         governance changes the canonical pointer away from a vault
     ///         and then untrusts it while migration debt remains in-flight.
-    ///         The second guard uses a fail-open staticcall: vaults that do
-    ///         not implement the interface are unaffected.
+    ///         This guard uses a fail-open staticcall: vaults that do not
+    ///         implement the interface are unaffected.
+    ///      3. A vault with outstanding optimistic minting debt cannot be
+    ///         untrusted (the `VaultManagement` untrust/rotation truth table).
+    ///         A decodable `true` blocks any vault; a
+    ///         failed/malformed response stays fail-open for every vault except
+    ///         the exact known legacy deployment, which is fail-closed unless a
+    ///         governance retirement attestation binds it to its locked
+    ///         migration coordinator.
+    ///      When trusting a vault (`isTrusted == true`), re-trusting the exact
+    ///      known legacy vault after it has been attested and retired reverts.
     /// @param vault The address of the vault.
     /// @param isTrusted flag indicating whether the vault is trusted or not.
     /// @dev Can only be called by the Governance.
@@ -1283,18 +1474,13 @@ contract Bridge is
         external
         onlyGovernance
     {
-        if (!isTrusted && self.migrationDebtVault == vault) {
-            revert VaultIsCanonicalMigrationDebtVault(vault);
-        }
-
-        if (!isTrusted) {
-            if (_hasOutstandingMigrationDebt(vault)) {
-                revert VaultHasOutstandingMigrationDebt(vault);
-            }
-        }
-
-        self.isVaultTrusted[vault] = isTrusted;
-        emit VaultStatusUpdated(vault, isTrusted);
+        self.setVaultStatus(
+            vault,
+            isTrusted,
+            governance,
+            LEGACY_MAINNET_TBTC_VAULT,
+            LEGACY_MAINNET_TBTC_VAULT_CODE_HASH
+        );
     }
 
     /// @notice Sets canonical migration debt vault used by reveal guard.
@@ -1321,31 +1507,7 @@ contract Bridge is
     ///      governance must first use the emergency-disable lane (`vault == 0`),
     ///      which intentionally skips this outgoing strict check.
     function setMigrationDebtVault(address vault) external onlyGovernance {
-        if (vault != address(0) && !self.isVaultTrusted[vault]) {
-            revert VaultNotTrusted(vault);
-        }
-
-        if (vault != address(0)) {
-            if (!_isMigrationDebtVaultConforming(vault)) {
-                revert MigrationDebtVaultInterfaceMissing(vault);
-            }
-        }
-
-        address previousVault = self.migrationDebtVault;
-        if (vault != address(0) && previousVault != address(0)) {
-            (bool ok, bool hasDebt) = _getOutstandingMigrationDebt(
-                previousVault
-            );
-            if (!ok) {
-                revert MigrationDebtVaultUnreachable(previousVault);
-            }
-            if (hasDebt) {
-                revert PreviousMigrationDebtVaultHasDebt(previousVault);
-            }
-        }
-
-        self.migrationDebtVault = vault;
-        emit MigrationDebtVaultUpdated(vault);
+        self.setMigrationDebtVault(vault);
     }
 
     /// @notice Atomically rotates canonical migration debt vault and untrusts
@@ -1364,137 +1526,193 @@ contract Bridge is
         external
         onlyGovernance
     {
-        if (previousVault == address(0)) {
-            revert PreviousMigrationDebtVaultIsZero();
-        }
-        if (previousVault != self.migrationDebtVault) {
-            revert PreviousMigrationDebtVaultMismatch(
-                self.migrationDebtVault,
-                previousVault
-            );
-        }
-        if (newVault == previousVault) {
-            revert MigrationDebtVaultUnchanged(newVault);
-        }
-        if (newVault != address(0) && !self.isVaultTrusted[newVault]) {
-            revert VaultNotTrusted(newVault);
-        }
-
-        if (newVault != address(0)) {
-            if (!_isMigrationDebtVaultConforming(newVault)) {
-                revert MigrationDebtVaultInterfaceMissing(newVault);
-            }
-        }
-
-        if (_hasOutstandingMigrationDebt(previousVault)) {
-            revert PreviousMigrationDebtVaultHasDebt(previousVault);
-        }
-
-        self.migrationDebtVault = newVault;
-        emit MigrationDebtVaultUpdated(newVault);
-
-        self.isVaultTrusted[previousVault] = false;
-        emit VaultStatusUpdated(previousVault, false);
-    }
-
-    /// @notice Queries whether a vault answers every migration debt selector
-    ///         consumed by Bridge reveal and vault-management paths.
-    /// @param vault The address to query.
-    /// @return True if the vault exposes the staticcall selectors consumed by
-    ///         production Bridge code: `hasOutstandingMigrationDebt`,
-    ///         `isMigrationRevealer`, and `canRevealMigration`.
-    /// @dev Mutation selectors on `ITBTCVaultMigrationDebt` are consumed by the
-    ///      vault/operator workflow, not by the Bridge. The sweep completion
-    ///      callbacks use `ITBTCVaultMigrationSweepHook` and intentionally
-    ///      remain fail-open, so they are outside this strict canonical-vault
-    ///      conformance probe.
-    function _isMigrationDebtVaultConforming(address vault)
-        private
-        view
-        returns (bool)
-    {
-        (bool ok, ) = _getOutstandingMigrationDebt(vault);
-        if (!ok) {
-            return false;
-        }
-
-        (ok, ) = _migrationDebtVaultStaticcall(
-            vault,
-            ITBTCVaultMigrationDebt.isMigrationRevealer.selector,
-            address(0),
-            36
+        self.rotateMigrationDebtVault(
+            newVault,
+            previousVault,
+            governance,
+            LEGACY_MAINNET_TBTC_VAULT,
+            LEGACY_MAINNET_TBTC_VAULT_CODE_HASH
         );
-        if (!ok) {
-            return false;
-        }
-
-        (ok, ) = _migrationDebtVaultStaticcall(
-            vault,
-            ITBTCVaultMigrationDebt.canRevealMigration.selector,
-            address(0),
-            36
-        );
-
-        return ok;
     }
 
-    /// @notice Queries whether a vault answers the migration debt interface
-    ///         and whether it reports outstanding debt.
-    /// @param vault The address to query.
-    /// @return ok True if the staticcall succeeds with a decodable bool.
-    /// @return hasDebt True if the vault reports outstanding debt.
-    function _getOutstandingMigrationDebt(address vault)
-        private
-        view
-        returns (bool ok, bool hasDebt)
+    /// @notice Sets the covenant spend authorization registry consulted by
+    ///         `defeatFraudChallengeWithCovenantSpend`.
+    /// @param covenantSpendAuthorization Address of the
+    ///        `CovenantSpendAuthorization` registry, or zero to disable the
+    ///        covenant spend defeat path.
+    /// @dev Can only be called by the Governance. While the registry is unset
+    ///      (zero), the covenant spend defeat path reverts and the covenant
+    ///      signer is expected to stay fail-closed, matching the posture before
+    ///      the covenant migration feature is enabled. The registry is expected
+    ///      to be owned by the account-control covenant authority.
+    ///
+    ///      Governance MUST treat this pointer as security-critical. The
+    ///      covenant spend defeat path reads the registry live at defeat time,
+    ///      so pointing it at a registry that lacks an outstanding covenant
+    ///      signature's authorization — by zeroing it, or rotating to a
+    ///      registry that was not populated with the prior registry's
+    ///      authorizations — strips the defense from a legitimate, still
+    ///      challengeable covenant signature and exposes that wallet to fraud
+    ///      slashing. It must therefore not be changed while any wallet that
+    ///      relied on the current registry remains challengeable; a replacement
+    ///      registry must carry forward every still-relevant authorization
+    ///      first. Because a registry that always returns `true` would exonerate
+    ///      arbitrary wallet signatures, governance must also verify the target
+    ///      is the intended `CovenantSpendAuthorization` deployment.
+    /// @dev The state write and event live in the shared
+    ///      `Wallets._setCovenantSpendAuthorization` helper (section 3.4), hosted
+    ///      in the linked library so the Bridge stays within EIP-170 while both
+    ///      this governance-only path and the Stage-3 reinitializer path
+    ///      (`migrateV6Stage3Combined`) reuse one implementation. The
+    ///      `onlyGovernance` guard stays here; the reinitializer must not call
+    ///      this external setter because during `ProxyAdmin.upgradeAndCall` the
+    ///      caller is the ProxyAdmin, not governance, so the guard would revert
+    ///      the whole atomic upgrade. The event is redeclared identically in
+    ///      `Wallets`, so it is attributed to this Bridge under delegatecall.
+    function setCovenantSpendAuthorization(address covenantSpendAuthorization)
+        external
+        onlyGovernance
     {
-        return
-            _migrationDebtVaultStaticcall(
-                vault,
-                ITBTCVaultMigrationDebt.hasOutstandingMigrationDebt.selector,
-                address(0),
-                4
-            );
+        self.setCovenantSpendAuthorization(covenantSpendAuthorization);
     }
 
-    function _migrationDebtVaultStaticcall(
+    // ===================================================================
+    // Account-control minting-controller surface.
+    // -------------------------------------------------------------------
+    // Reconstructed from the live Sepolia Bridge implementation
+    // `0xa14a9607…`, whose five controller selectors (`mintingController()`
+    // 0x09878d8c, `getMintingController()` 0xf56cb897,
+    // `controllerIncreaseBalance` 0xa5f7eaf8, `controllerIncreaseBalances`
+    // 0x5182a65f, `setMintingController` 0xbbbfb5fd) are all present and
+    // exercised on-chain. Both getters disassemble to `SLOAD 0x51` (absolute
+    // slot 81). The amount passed to the increase functions is already a Bank
+    // amount — the off-chain controller performs any satoshi/decimal conversion
+    // before calling the Bridge — so no unit conversion happens here.
+    // Recipient/zero-amount/array-length validation is intentionally delegated to
+    // `Bank`, matching the live bytecode.
+    // ===================================================================
+
+    /// @notice Returns the account-control minting
+    ///         controller authorized to increase Bank balances through this
+    ///         Bridge.
+    function mintingController() external view returns (address) {
+        return self.mintingController;
+    }
+
+    /// @notice Alias getter for the minting controller,
+    ///         preserved because the live implementation exposes both selectors.
+    function getMintingController() external view returns (address) {
+        return self.mintingController;
+    }
+
+    /// @notice Increases a single recipient's Bank balance
+    ///         on behalf of the account-control minting controller.
+    /// @param recipient Bank balance recipient.
+    /// @param amount Bank amount to credit (already denominated as a Bank
+    ///        amount; no satoshi/decimal conversion happens here).
+    /// @dev Only the configured `mintingController` may call, reverting with
+    ///      "Caller is not the authorized controller" otherwise. The controller
+    ///      event is emitted before the Bank call, matching the live bytecode; a
+    ///      Bank revert rolls the log back. The body runs in `Wallets` under
+    ///      delegatecall (which preserves `msg.sender` and `address(this)`), only
+    ///      to keep the Bridge within the EIP-170 limit; behavior is identical to
+    ///      an inline implementation.
+    function controllerIncreaseBalance(address recipient, uint256 amount)
+        external
+    {
+        self.controllerIncreaseBalance(recipient, amount);
+    }
+
+    /// @notice Increases multiple recipients' Bank balances
+    ///         on behalf of the account-control minting controller.
+    /// @param recipients Bank balance recipients.
+    /// @param amounts Bank amounts to credit, one per recipient.
+    /// @dev Only the configured `mintingController` may call. Array-length
+    ///      validation is delegated to `Bank.increaseBalances` (its
+    ///      "Arrays must have the same length" revert), matching the live
+    ///      bytecode. The batch event is emitted before the Bank call. The body
+    ///      runs in `Wallets` under delegatecall only to keep the Bridge within
+    ///      the EIP-170 limit; behavior is identical to an inline implementation.
+    function controllerIncreaseBalances(
+        address[] calldata recipients,
+        uint256[] calldata amounts
+    ) external {
+        self.controllerIncreaseBalances(recipients, amounts);
+    }
+
+    /// @notice Sets the account-control minting controller.
+    /// @param _mintingController New controller address (zero is permitted).
+    /// @dev Only governance may call. Unauthorized callers revert with the
+    ///      Governable "Caller is not the governance" message. Emits
+    ///      `MintingControllerSet` with the new address only (non-indexed). The
+    ///      state write and event live in `Wallets.setMintingController`, hosted
+    ///      in the linked library so the Bridge stays within EIP-170; the
+    ///      governance guard stays here. Behavior is identical to an inline
+    ///      implementation under delegatecall.
+    function setMintingController(address _mintingController)
+        external
+        onlyGovernance
+    {
+        self.setMintingController(_mintingController);
+    }
+
+    /// @notice Records or revokes a legacy-vault optimistic-minting retirement
+    ///         attestation, binding the exact known legacy `TBTCVault` to the
+    ///         dedicated migration coordinator that owns it.
+    /// @param vault The legacy vault. Must equal `LEGACY_MAINNET_TBTC_VAULT`.
+    /// @param coordinator The migration coordinator to bind, or `address(0)` to
+    ///        revoke.
+    /// @param snapshotBlockNumber The evidence snapshot block (zero for
+    ///        revocation).
+    /// @param snapshotBlockHash The evidence snapshot block hash (zero for
+    ///        revocation).
+    /// @param evidenceHash The deterministic evidence digest (zero for
+    ///        revocation).
+    /// @dev Can only be called by the Governance. For `coordinator != 0` the
+    ///      call reverts unless, all validated fail-closed at execution: the
+    ///      vault is the exact known legacy address with the matching runtime
+    ///      code hash; the vault is currently trusted; the aggregate
+    ///      optimistic-debt selector is undecodable (a conforming vault may never
+    ///      use this override); the snapshot/evidence arguments are well-formed;
+    ///      the vault reports paused optimistic minting; the vault is owned by
+    ///      the coordinator; and the coordinator is bound to this vault, this
+    ///      Bridge, and the current governance, and reports `migrationLocked()`.
+    ///      The `coordinator == 0` revocation form requires the same known vault
+    ///      and code hash, that the vault is still trusted (so the attestation
+    ///      cannot be removed between retirement and coordinator finalization),
+    ///      and that every snapshot/evidence argument is zero. The heavy
+    ///      validation lives in `VaultManagement` to keep the Bridge within the
+    ///      EIP-170 deployed-bytecode limit.
+    function setLegacyVaultOptimisticMintingDebtAttestation(
         address vault,
-        bytes4 selector,
-        address revealer,
-        uint256 inputSize
-    ) private view returns (bool ok, bool value) {
-        // solhint-disable-next-line no-inline-assembly
-        assembly {
-            let ptr := mload(0x40)
-            mstore(ptr, selector)
-            mstore(add(ptr, 0x04), revealer)
-
-            let success := staticcall(gas(), vault, ptr, inputSize, ptr, 0x20)
-            let word := mload(ptr)
-            ok := and(
-                and(success, gt(returndatasize(), 0x1f)),
-                or(iszero(word), eq(word, 1))
-            )
-            value := and(ok, eq(word, 1))
-        }
+        address coordinator,
+        uint256 snapshotBlockNumber,
+        bytes32 snapshotBlockHash,
+        bytes32 evidenceHash
+    ) external onlyGovernance {
+        self.setAttestation(
+            governance,
+            vault,
+            coordinator,
+            snapshotBlockNumber,
+            snapshotBlockHash,
+            evidenceHash,
+            LEGACY_MAINNET_TBTC_VAULT,
+            LEGACY_MAINNET_TBTC_VAULT_CODE_HASH
+        );
     }
 
-    /// @notice Queries whether a vault has outstanding migration debt using
-    ///         a fail-open staticcall to `ITBTCVaultMigrationDebt`.
-    /// @param vault The address to query.
-    /// @return True if the vault implements the migration debt interface and
-    ///         reports outstanding debt. Returns false when the staticcall
-    ///         fails (vault does not implement the interface) or when the
-    ///         vault reports no outstanding debt. This fail-open behaviour
-    ///         ensures backwards compatibility with vaults that predate the
-    ///         migration debt interface.
-    function _hasOutstandingMigrationDebt(address vault)
-        private
+    /// @notice Returns the migration coordinator bound to `vault` by a
+    ///         legacy-vault optimistic-minting retirement attestation, or zero
+    ///         when no attestation exists.
+    /// @param vault The vault to query.
+    /// @return The bound migration coordinator, or `address(0)`.
+    function legacyVaultOptimisticMintingDebtCoordinator(address vault)
+        external
         view
-        returns (bool)
+        returns (address)
     {
-        (, bool hasDebt) = _getOutstandingMigrationDebt(vault);
-        return hasDebt;
+        return self.legacyVaultOptimisticMintingDebtCoordinator[vault];
     }
 
     /// @notice Allows the Governance to mark the given address as trusted
@@ -2308,6 +2526,31 @@ contract Bridge is
 
         self.openFraudChallengeEscrow += preUpgradeOpenEscrow;
         self.fraudChallengeEscrowSeeded = true;
+    }
+
+    /// @notice Backfills the wallet registration order with the wallets that
+    ///         were registered before the upgrade that introduced the on-chain
+    ///         order. This lets `submitMovingFundsCommitment` reconstruct and
+    ///         enforce the deterministic target-wallet selection for pre-upgrade
+    ///         wallets instead of accepting any valid sorted subset.
+    /// @param walletPubKeyHashes Pre-upgrade wallet public key hashes, ordered oldest
+    ///        registration first, matching the `NewWalletRegistered` event
+    ///        history consumed off-chain.
+    /// @dev Can only be called once by governance, guarded by the
+    ///      `walletRegistrationOrderSeeded` latch rather than an empty-order
+    ///      requirement. It prepends the supplied pre-upgrade wallets ahead of
+    ///      any wallets already registered post-upgrade, so it stays valid even
+    ///      when a wallet registers between the upgrade and this call; a
+    ///      supplied wallet already tracked on-chain is skipped to keep the
+    ///      order duplicate-free. Until it runs, `submitMovingFundsCommitment`
+    ///      rejects commitments it cannot reconstruct for pre-upgrade wallets,
+    ///      so this backfill is a required precondition for resuming moving
+    ///      funds.
+    function seedWalletRegistrationOrder(bytes20[] calldata walletPubKeyHashes)
+        external
+        onlyGovernance
+    {
+        self.seedWalletRegistrationOrder(walletPubKeyHashes);
     }
 
     /// @notice Allows the Governance to rescue ETH from the contract balance.

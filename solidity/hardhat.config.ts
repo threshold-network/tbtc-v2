@@ -69,13 +69,30 @@ const config: HardhatUserConfig = {
       "contracts/bridge/BridgeGovernance.sol": bridgeGovernanceCompilerConfig,
       // Bridge sits near the EIP-170 24,576-byte deployed-bytecode limit.
       // A reduced optimizer-runs setting trades a small amount of runtime
-      // gas efficiency for deployment-size headroom.
+      // gas efficiency for deployment-size headroom. Lowered further to make
+      // room for the wallet-registration-order backfill governance entry point
+      // and the legacy-vault optimistic-minting retirement guard/attestation.
+      // The heavy vault-management and legacy-retirement logic is offloaded to
+      // the `VaultManagement` external library; this override only needs to
+      // absorb the Bridge-side delegatecall dispatch stubs, constants, and
+      // accessors.
+      //
+      // Stage-3 combined (Sepolia) note: the reconstructed controller-mint
+      // surface and the version-6 migration reinitializer pushed the Bridge over
+      // EIP-170. Lowering optimizer runs from 300 to 1 alone recovered only ~432
+      // bytes — far short of the ~2,700 the additions cost — so the migration
+      // reinitializer body, the controller-mint execution bodies, and the
+      // covenant/controller setter bodies were offloaded to the `Wallets`
+      // external library (the same delegatecall-dispatch-stub pattern used for
+      // `VaultManagement`), preserving every check, event, and revert. With
+      // `runs: 1` the deployed Bridge runtime is 24,556 bytes (20 bytes below the
+      // limit). `runs: 1` is required — any higher value exceeds the limit.
       "contracts/bridge/Bridge.sol": {
         version: "0.8.17",
         settings: {
           optimizer: {
             enabled: true,
-            runs: 500,
+            runs: 1,
           },
         },
       },

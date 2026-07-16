@@ -241,10 +241,16 @@ describe("Bridge - Moving funds", () => {
                                         () => {
                                           let tx: ContractTransaction
 
+                                          // The deterministic on-chain selection
+                                          // is the newest Live wallets (the last
+                                          // ones registered), sorted ascending.
+                                          // `liveWallets` is registered in array
+                                          // order, so the canonical target set is
+                                          // the tail of the list.
                                           const targetWallets =
                                             liveWallets.slice(
-                                              0,
-                                              expectedTargetWalletsCount
+                                              liveWallets.length -
+                                                expectedTargetWalletsCount
                                             )
 
                                           const { provider } = waffle
@@ -325,6 +331,42 @@ describe("Bridge - Moving funds", () => {
                                                 "1000000",
                                                 "gwei"
                                               ) // 0,001 ETH
+                                            )
+                                          })
+                                        }
+                                      )
+
+                                      context(
+                                        "when the target wallets are a valid subset other than the deterministic selection",
+                                        () => {
+                                          it("should revert", async () => {
+                                            // A different, equally valid sorted
+                                            // subset of Live wallets: the oldest
+                                            // wallets instead of the canonical
+                                            // newest ones. Every structural check
+                                            // passes (correct count, strictly
+                                            // ascending, all Live, none the
+                                            // source), yet a single wallet member
+                                            // must not be able to pin it over the
+                                            // deterministic selection.
+                                            const targetWallets =
+                                              liveWallets.slice(
+                                                0,
+                                                expectedTargetWalletsCount
+                                              )
+
+                                            await expect(
+                                              bridge
+                                                .connect(caller)
+                                                .submitMovingFundsCommitment(
+                                                  ecdsaWalletTestData.pubKeyHash160,
+                                                  mainUtxo,
+                                                  walletMembersIDs,
+                                                  walletMemberIndex,
+                                                  targetWallets
+                                                )
+                                            ).to.be.revertedWith(
+                                              "Submitted target wallets do not match the expected selection"
                                             )
                                           })
                                         }
@@ -723,6 +765,315 @@ describe("Bridge - Moving funds", () => {
           })
         })
       })
+    })
+
+    context(
+      "when the wallet registration order cannot yet reconstruct the selection",
+      () => {
+        // Simulates the post-upgrade transition BEFORE governance backfills the
+        // pre-upgrade wallets: Live wallets that predate the on-chain
+        // registration order are recorded via `setWalletSkipRegistrationOrder`
+        // and the order has not been seeded, so the deterministic selection
+        // cannot be built. The commitment is rejected rather than falling back
+        // to the permissive structural validation, which would let a single
+        // wallet member pin an arbitrary subset. Governance must first backfill
+        // the order via `seedWalletRegistrationOrder` (see the sibling context)
+        // before moving-funds commitments can resume for these wallets.
+        const walletMembersIDs = [1, 2, 3, 4, 5]
+        const walletMemberIndex = 2
+
+        // Arbitrary 20-byte hashes in strictly increasing order.
+        const liveWallets = [
+          "0x4b440cb29c80c3f256212d8fdd4f2125366f3c91",
+          "0x888f01315e0268bfa05d5e522f8d63f6824d9a96",
+          "0xb2a89e53a4227dbe530a52a1c419040735fa636c",
+          "0xbf198e8fff0f90af01024153701da99b9bc08dc5",
+          "0xffb9e05013f5cd126915bc03d340cc5c1be81862",
+        ]
+
+        // 26 BTC main UTXO => expected target wallets count of 3.
+        const mainUtxo = {
+          txHash:
+            "0xc9e58780c6c289c25ae1fe293f85a4db4d0af4f305172f2a1868ddd917458bdf",
+          txOutputIndex: 0,
+          txOutputValue: to1ePrecision(26, 8),
+        }
+
+        before(async () => {
+          await createSnapshot()
+
+          await bridge.setWallet(ecdsaWalletTestData.pubKeyHash160, {
+            ...walletDraft,
+            state: walletState.MovingFunds,
+          })
+          await bridge.setWalletMainUtxo(
+            ecdsaWalletTestData.pubKeyHash160,
+            mainUtxo
+          )
+
+          for (let i = 0; i < liveWallets.length; i++) {
+            // eslint-disable-next-line no-await-in-loop
+            await bridge.setWalletSkipRegistrationOrder(liveWallets[i], {
+              ...walletDraft,
+              state: walletState.Live,
+            })
+          }
+
+          walletRegistry.isWalletMember
+            .whenCalledWith(
+              ecdsaWalletTestData.walletID,
+              walletMembersIDs,
+              thirdParty.address,
+              walletMemberIndex
+            )
+            .returns(true)
+        })
+
+        after(async () => {
+          walletRegistry.isWalletMember.reset()
+          await restoreSnapshot()
+        })
+
+        it("reverts for a non-deterministic subset before the order is seeded", async () => {
+          // The oldest three wallets - a valid sorted subset but not the
+          // canonical newest three. Before the backfill there is no permissive
+          // fallback: the commitment reverts because the deterministic
+          // selection cannot be reconstructed, so a single wallet member cannot
+          // pin an arbitrary subset during the transition window.
+          const targetWallets = liveWallets.slice(0, 3)
+
+          await expect(
+            bridge
+              .connect(thirdParty)
+              .submitMovingFundsCommitment(
+                ecdsaWalletTestData.pubKeyHash160,
+                mainUtxo,
+                walletMembersIDs,
+                walletMemberIndex,
+                targetWallets
+              )
+          ).to.be.revertedWith(
+            "Wallet registration order cannot reconstruct the target selection"
+          )
+        })
+
+        it("reverts even for the canonical newest-three selection before the order is seeded", async () => {
+          // Even the honest deterministic selection cannot be committed until
+          // the order is backfilled: the empty, unseeded order yields no
+          // reconstruction, so wallet-order seeding is a hard precondition for
+          // resuming moving-funds commitments after the upgrade.
+          const targetWallets = liveWallets.slice(liveWallets.length - 3)
+
+          await expect(
+            bridge
+              .connect(thirdParty)
+              .submitMovingFundsCommitment(
+                ecdsaWalletTestData.pubKeyHash160,
+                mainUtxo,
+                walletMembersIDs,
+                walletMemberIndex,
+                targetWallets
+              )
+          ).to.be.revertedWith(
+            "Wallet registration order cannot reconstruct the target selection"
+          )
+        })
+      }
+    )
+
+    context(
+      "when the wallet registration order has been backfilled for pre-upgrade wallets",
+      () => {
+        // Simulates the completed hotfix: pre-upgrade Live wallets are recorded
+        // without the on-chain order (as they were before the upgrade), then
+        // governance backfills the order via `seedWalletRegistrationOrder` in
+        // their original registration (oldest-first) order. Once seeded, the
+        // deterministic selection is authoritative and the permissive fallback
+        // is gone, so an arbitrary valid subset must be rejected.
+        const walletMembersIDs = [1, 2, 3, 4, 5]
+        const walletMemberIndex = 2
+
+        // Arbitrary 20-byte hashes in strictly increasing order. Treated as the
+        // registration order (oldest first), so the canonical target set is the
+        // newest three: the tail of the list.
+        const liveWallets = [
+          "0x4b440cb29c80c3f256212d8fdd4f2125366f3c91",
+          "0x888f01315e0268bfa05d5e522f8d63f6824d9a96",
+          "0xb2a89e53a4227dbe530a52a1c419040735fa636c",
+          "0xbf198e8fff0f90af01024153701da99b9bc08dc5",
+          "0xffb9e05013f5cd126915bc03d340cc5c1be81862",
+        ]
+
+        // 26 BTC main UTXO => expected target wallets count of 3.
+        const mainUtxo = {
+          txHash:
+            "0xc9e58780c6c289c25ae1fe293f85a4db4d0af4f305172f2a1868ddd917458bdf",
+          txOutputIndex: 0,
+          txOutputValue: to1ePrecision(26, 8),
+        }
+
+        before(async () => {
+          await createSnapshot()
+
+          // The source wallet is also a pre-upgrade wallet, so it is recorded
+          // without the on-chain order too. This keeps the order empty until
+          // the governance backfill runs, which the seed requires. The source
+          // is excluded from target selection regardless.
+          await bridge.setWalletSkipRegistrationOrder(
+            ecdsaWalletTestData.pubKeyHash160,
+            {
+              ...walletDraft,
+              state: walletState.MovingFunds,
+            }
+          )
+          await bridge.setWalletMainUtxo(
+            ecdsaWalletTestData.pubKeyHash160,
+            mainUtxo
+          )
+
+          for (let i = 0; i < liveWallets.length; i++) {
+            // eslint-disable-next-line no-await-in-loop
+            await bridge.setWalletSkipRegistrationOrder(liveWallets[i], {
+              ...walletDraft,
+              state: walletState.Live,
+            })
+          }
+
+          // Backfill the registration order through the real governance path,
+          // in oldest-first order, matching the pre-upgrade registration
+          // history.
+          await bridgeGovernance
+            .connect(governance)
+            .seedWalletRegistrationOrder(liveWallets)
+
+          walletRegistry.isWalletMember
+            .whenCalledWith(
+              ecdsaWalletTestData.walletID,
+              walletMembersIDs,
+              thirdParty.address,
+              walletMemberIndex
+            )
+            .returns(true)
+        })
+
+        after(async () => {
+          walletRegistry.isWalletMember.reset()
+          await restoreSnapshot()
+        })
+
+        it("marks the registration order as seeded", async () => {
+          expect(await bridge.getWalletRegistrationOrderSeeded()).to.be.true
+        })
+
+        it("rejects a non-deterministic subset once seeded", async () => {
+          // The oldest three wallets - a valid sorted subset, but not the
+          // canonical newest three the deterministic selection yields.
+          const targetWallets = liveWallets.slice(0, 3)
+
+          await expect(
+            bridge
+              .connect(thirdParty)
+              .submitMovingFundsCommitment(
+                ecdsaWalletTestData.pubKeyHash160,
+                mainUtxo,
+                walletMembersIDs,
+                walletMemberIndex,
+                targetWallets
+              )
+          ).to.be.revertedWith(
+            "Submitted target wallets do not match the expected selection"
+          )
+        })
+
+        it("accepts the deterministic newest-three selection once seeded", async () => {
+          // The canonical set: the newest three registered Live wallets,
+          // sorted ascending (the tail of the oldest-first order).
+          const targetWallets = liveWallets.slice(liveWallets.length - 3)
+
+          await bridge
+            .connect(thirdParty)
+            .submitMovingFundsCommitment(
+              ecdsaWalletTestData.pubKeyHash160,
+              mainUtxo,
+              walletMembersIDs,
+              walletMemberIndex,
+              targetWallets
+            )
+
+          expect(
+            (await bridge.wallets(ecdsaWalletTestData.pubKeyHash160))
+              .movingFundsTargetWalletsCommitmentHash
+          ).to.equal(
+            ethers.utils.solidityKeccak256(["bytes20[]"], [targetWallets])
+          )
+        })
+      }
+    )
+  })
+
+  describe("seedWalletRegistrationOrder reconciliation", () => {
+    const walletDraft = {
+      ecdsaWalletID: ecdsaWalletTestData.walletID,
+      mainUtxoHash: ethers.constants.HashZero,
+      pendingRedemptionsValue: 0,
+      createdAt: 0,
+      movingFundsRequestedAt: 0,
+      closingStartedAt: 0,
+      pendingMovedFundsSweepRequestsCount: 0,
+      state: walletState.Unknown,
+      movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+    }
+
+    const preUpgradeA = "0x1111111111111111111111111111111111111111"
+    const preUpgradeB = "0x2222222222222222222222222222222222222222"
+    const postUpgrade = "0x3333333333333333333333333333333333333333"
+
+    beforeEach(async () => {
+      await createSnapshot()
+
+      // Simulate a wallet registering post-upgrade, before the governance
+      // backfill runs. `setWallet` mirrors `registerNewWallet` and appends it
+      // to the on-chain order, so the order is non-empty at seed time.
+      await bridge.setWallet(postUpgrade, {
+        ...walletDraft,
+        state: walletState.Live,
+      })
+    })
+
+    afterEach(async () => {
+      await restoreSnapshot()
+    })
+
+    it("prepends pre-upgrade wallets ahead of a wallet registered before the backfill", async () => {
+      expect(await bridge.getWalletRegistrationOrder()).to.deep.equal([
+        postUpgrade,
+      ])
+
+      // The empty-order precondition is gone: seeding reconciles by placing the
+      // pre-upgrade wallets (older) ahead of the post-upgrade one (newer),
+      // preserving the global oldest-first order instead of bricking.
+      await bridgeGovernance
+        .connect(governance)
+        .seedWalletRegistrationOrder([preUpgradeA, preUpgradeB])
+
+      expect(await bridge.getWalletRegistrationOrder()).to.deep.equal([
+        preUpgradeA,
+        preUpgradeB,
+        postUpgrade,
+      ])
+      expect(await bridge.getWalletRegistrationOrderSeeded()).to.be.true
+    })
+
+    it("cannot be seeded twice", async () => {
+      await bridgeGovernance
+        .connect(governance)
+        .seedWalletRegistrationOrder([preUpgradeA])
+
+      await expect(
+        bridgeGovernance
+          .connect(governance)
+          .seedWalletRegistrationOrder([preUpgradeB])
+      ).to.be.revertedWith("Wallet registration order already seeded")
     })
   })
 
@@ -3993,59 +4344,150 @@ describe("Bridge - Moving funds", () => {
           })
         })
 
-        context(
-          "when the wallet is neither in the Live nor MovingFunds nor Terminated state",
-          () => {
-            const testData = [
-              {
-                testName: "when the wallet is in the Unknown state",
-                walletState: walletState.Unknown,
-              },
-              {
-                testName: "when the wallet is in the Closing state",
-                walletState: walletState.Closing,
-              },
-              {
-                testName: "when the wallet is in the Closed state",
-                walletState: walletState.Closed,
-              },
-            ]
+        context("when the wallet is in the Closing state", () => {
+          let tx: ContractTransaction
 
-            testData.forEach((test) => {
-              context(test.testName, async () => {
-                before(async () => {
-                  await createSnapshot()
+          before(async () => {
+            await createSnapshot()
 
-                  await bridge.setWallet(
-                    movedFundsSweepRequest.walletPubKeyHash,
-                    {
-                      ...(await bridge.wallets(
-                        movedFundsSweepRequest.walletPubKeyHash
-                      )),
-                      state: test.walletState,
-                    }
-                  )
-                })
-
-                after(async () => {
-                  await restoreSnapshot()
-                })
-
-                it("should revert", async () => {
-                  await expect(
-                    bridge.notifyMovedFundsSweepTimeout(
-                      movedFundsSweepRequest.txHash,
-                      movedFundsSweepRequest.txOutputIndex,
-                      walletMembersIDs
-                    )
-                  ).to.be.revertedWith(
-                    "Wallet must be in Live or MovingFunds or Terminated state"
-                  )
-                })
-              })
+            await bridge.setWallet(movedFundsSweepRequest.walletPubKeyHash, {
+              ...(await bridge.wallets(
+                movedFundsSweepRequest.walletPubKeyHash
+              )),
+              state: walletState.Closing,
             })
-          }
-        )
+
+            tx = await bridge
+              .connect(thirdParty)
+              .notifyMovedFundsSweepTimeout(
+                movedFundsSweepRequest.txHash,
+                movedFundsSweepRequest.txOutputIndex,
+                walletMembersIDs
+              )
+          })
+
+          after(async () => {
+            await restoreSnapshot()
+          })
+
+          it("should switch the moved funds sweep request to the TimedOut state", async () => {
+            const requestKey = ethers.utils.solidityKeccak256(
+              ["bytes32", "uint32"],
+              [
+                movedFundsSweepRequest.txHash,
+                movedFundsSweepRequest.txOutputIndex,
+              ]
+            )
+
+            expect(
+              (await bridge.movedFundsSweepRequests(requestKey)).state
+            ).to.be.equal(movedFundsSweepRequestState.TimedOut)
+          })
+
+          it("should decrease the number of pending moved funds sweep requests for the given wallet", async () =>
+            expect(
+              (await bridge.wallets(movedFundsSweepRequest.walletPubKeyHash))
+                .pendingMovedFundsSweepRequestsCount
+            ).to.be.equal(0))
+
+          it("should not slash or change the wallet state", async () => {
+            // A Closing wallet cannot submit the sweep proof, and the
+            // transition to Closing is permissionless, so slashing it would
+            // punish an action it structurally cannot perform. The request is
+            // cleared without slashing and the state stays Closing.
+            expect(
+              (await bridge.wallets(movedFundsSweepRequest.walletPubKeyHash))
+                .state
+            ).to.be.equal(walletState.Closing)
+            await expect(tx).to.not.emit(bridge, "WalletTerminated")
+          })
+        })
+
+        context("when the wallet is in the Closed state", () => {
+          let tx: ContractTransaction
+
+          before(async () => {
+            await createSnapshot()
+
+            await bridge.setWallet(movedFundsSweepRequest.walletPubKeyHash, {
+              ...(await bridge.wallets(
+                movedFundsSweepRequest.walletPubKeyHash
+              )),
+              state: walletState.Closed,
+            })
+
+            tx = await bridge
+              .connect(thirdParty)
+              .notifyMovedFundsSweepTimeout(
+                movedFundsSweepRequest.txHash,
+                movedFundsSweepRequest.txOutputIndex,
+                walletMembersIDs
+              )
+          })
+
+          after(async () => {
+            await restoreSnapshot()
+          })
+
+          it("should switch the moved funds sweep request to the TimedOut state", async () => {
+            const requestKey = ethers.utils.solidityKeccak256(
+              ["bytes32", "uint32"],
+              [
+                movedFundsSweepRequest.txHash,
+                movedFundsSweepRequest.txOutputIndex,
+              ]
+            )
+
+            expect(
+              (await bridge.movedFundsSweepRequests(requestKey)).state
+            ).to.be.equal(movedFundsSweepRequestState.TimedOut)
+          })
+
+          it("should decrease the number of pending moved funds sweep requests for the given wallet", async () =>
+            expect(
+              (await bridge.wallets(movedFundsSweepRequest.walletPubKeyHash))
+                .pendingMovedFundsSweepRequestsCount
+            ).to.be.equal(0))
+
+          it("should not slash or change the wallet state", async () => {
+            // A Closed wallet has no ECDSA registry metadata to seize, so the
+            // request is cleared without slashing and the state is unchanged.
+            expect(
+              (await bridge.wallets(movedFundsSweepRequest.walletPubKeyHash))
+                .state
+            ).to.be.equal(walletState.Closed)
+            await expect(tx).to.not.emit(bridge, "WalletTerminated")
+          })
+        })
+
+        context("when the wallet is in the Unknown state", () => {
+          before(async () => {
+            await createSnapshot()
+
+            await bridge.setWallet(movedFundsSweepRequest.walletPubKeyHash, {
+              ...(await bridge.wallets(
+                movedFundsSweepRequest.walletPubKeyHash
+              )),
+              state: walletState.Unknown,
+            })
+          })
+
+          after(async () => {
+            await restoreSnapshot()
+          })
+
+          it("should revert", async () => {
+            await expect(
+              bridge.notifyMovedFundsSweepTimeout(
+                movedFundsSweepRequest.txHash,
+                movedFundsSweepRequest.txOutputIndex,
+                walletMembersIDs
+              )
+            ).to.be.revertedWith(
+              "Wallet must be in Live or MovingFunds or Closing or Closed or Terminated state"
+            )
+          })
+        })
       })
 
       context("when moved funds sweep request has not timed out yet", () => {

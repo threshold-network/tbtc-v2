@@ -190,4 +190,39 @@ describe("DepositSweep - Migration callback", () => {
 
     expect(await vault.migrationSweepNotificationCalls()).to.equal(0)
   })
+
+  it("completes the downstream migration sweep on operational retry after both hooks revert", async () => {
+    const { harness, vault } = await deployFixture()
+    const [revealer] = await ethers.getSigners()
+    const sweepTxHash = ethers.utils.keccak256(
+      ethers.utils.toUtf8Bytes("deposit-sweep-operational-retry")
+    )
+
+    await harness.setMigrationDebtVault(vault.address)
+
+    // Both the batch and per-revealer hooks revert (e.g. the downstream
+    // notifier is temporarily reverting). The sweep proof stays fail-open and
+    // both actionable alert events fire; no downstream notification lands.
+    await vault.setShouldRevertMigrationSweepHook(true)
+    const failTx = await harness.notifyMigrationSweepCallback(
+      vault.address,
+      sweepTxHash,
+      [revealer.address]
+    )
+    await expect(failTx)
+      .to.emit(harness, "MigrationSweepCallbackFailed")
+      .withArgs(vault.address, sweepTxHash)
+    await expect(failTx)
+      .to.emit(harness, "MigrationSweepCallbackRetryFailed")
+      .withArgs(vault.address, sweepTxHash, revealer.address)
+    expect(await vault.migrationSweepNotificationCalls()).to.equal(0)
+
+    // The operator clears the downstream failure and retries; the downstream
+    // state transition now completes.
+    await vault.setShouldRevertMigrationSweepHook(false)
+    await harness.notifyMigrationSweepCallback(vault.address, sweepTxHash, [
+      revealer.address,
+    ])
+    expect(await vault.migrationSweepNotificationCalls()).to.equal(1)
+  })
 })

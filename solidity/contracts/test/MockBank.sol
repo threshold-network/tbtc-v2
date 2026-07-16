@@ -17,6 +17,28 @@ contract MockBank is IBank {
         return _balances[account];
     }
 
+    function balanceOf(address account)
+        external
+        view
+        override
+        returns (uint256)
+    {
+        return _balances[account];
+    }
+
+    function transferBalance(address recipient, uint256 amount)
+        external
+        override
+    {
+        require(
+            _balances[msg.sender] >= amount,
+            "MockBank: insufficient balance"
+        );
+        _balances[msg.sender] -= amount;
+        _balances[recipient] += amount;
+        emit TransferBalance(msg.sender, recipient, amount);
+    }
+
     function increaseBalanceAllowance(address spender, uint256 amount)
         external
         override

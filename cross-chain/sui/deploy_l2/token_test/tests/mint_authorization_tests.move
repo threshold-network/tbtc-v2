@@ -1,0 +1,1 @@
+../../tests/mint_authorization_tests.move

@@ -357,6 +357,10 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log("\n--- Deploying updated libraries ---")
   const Deposit = await deploy("Deposit", deployOptions)
   const Redemption = await deploy("Redemption", deployOptions)
+  // VaultManagement is a new library the patched Bridge links (legacy-vault
+  // retirement guard/attestation); it has no prior deployment artifact, so it
+  // is deployed fresh here alongside the other updated libraries.
+  const VaultManagement = await deploy("VaultManagement", deployOptions)
 
   // --- Step 2: Resolve unchanged existing libraries ---
   // These libraries have NOT changed since last deployment and are reused
@@ -376,7 +380,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // --- Step 3: Deploy Bridge implementation ---
   // Uses a distinct artifact name to avoid overwriting the existing Bridge
   // proxy artifact managed by hardhat-deploy. The Bridge contract requires
-  // all 6 libraries linked at deployment time.
+  // all 7 libraries linked at deployment time.
   console.log("\n--- Deploying Bridge implementation ---")
   const bridgeLibraries = {
     Deposit: Deposit.address,
@@ -385,6 +389,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     Wallets: Wallets.address,
     Fraud: Fraud.address,
     MovingFunds: MovingFunds.address,
+    VaultManagement: VaultManagement.address,
   }
 
   const bridgeImpl = await deploy("BridgeTIP109Implementation", {

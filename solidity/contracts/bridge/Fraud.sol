@@ -23,6 +23,7 @@ import "./BitcoinTx.sol";
 import "./EcdsaLib.sol";
 import "./BridgeState.sol";
 import "./Heartbeat.sol";
+import "./ICovenantSpendAuthorization.sol";
 import "./MovingFunds.sol";
 import "./Wallets.sol";
 
@@ -51,6 +52,15 @@ import "./Wallets.sol";
 ///      wallet for a fraud. Anyone from the wallet can defeat the challenge by
 ///      proving the sighash and signature were produced for a heartbeat message
 ///      following a strict format.
+///
+///      Finally, a challenge can target the signature made over a covenant
+///      active UTXO consumed by an account-control covenant migration. Such a
+///      UTXO is not part of the Bridge UTXO accounting, so it can never be
+///      found among the honestly spent UTXOs. The challenge is defeated when
+///      the covenant spend authorization registry attests — through the
+///      account-control covenant proof flow — that the challenged outpoint is a
+///      covenant active UTXO authorized to be spent by the wallet for the
+///      signed value.
 library Fraud {
     using Wallets for BridgeState.Storage;
 
@@ -72,6 +82,10 @@ library Fraud {
         // True when `depositAmount` was included in openFraudChallengeEscrow
         // on submit. Pre-upgrade challenges default to false.
         bool escrowCounted;
+        // True when this challenge incremented `walletPendingFraudChallenges`
+        // on submit. Pre-upgrade challenges default to false, so resolving them
+        // never decrements a counted challenge's slot for the same wallet.
+        bool pendingCounted;
         // This struct doesn't contain `__gap` property as the structure is stored
         // in a mapping, mappings store values in different slots and they are
         // not contiguous with other values.
@@ -193,6 +207,14 @@ library Fraud {
         /* solhint-disable-next-line not-rely-on-time */
         challenge.reportedAt = uint32(block.timestamp);
         challenge.resolved = false;
+
+        // Track the challenge as unresolved for this wallet so the wallet
+        // cannot finalize closing while the challenge can still mature. The
+        // per-challenge flag lets resolution decrement only this challenge's
+        // own contribution, so a pre-upgrade uncounted challenge resolving on
+        // the same wallet cannot steal a counted challenge's slot.
+        self.walletPendingFraudChallenges[walletPubKeyHash]++;
+        challenge.pendingCounted = true;
         // slither-disable-next-line reentrancy-events
         emit FraudChallengeSubmitted(
             walletPubKeyHash,
@@ -271,6 +293,211 @@ library Fraud {
         resolveFraudChallenge(self, walletPublicKey, challenge, sighash);
     }
 
+    /// @notice Allows to defeat a pending fraud challenge against a wallet when
+    ///         the challenged input is a covenant active UTXO spent by an
+    ///         account-control covenant migration. A covenant active UTXO is
+    ///         not part of the Bridge UTXO accounting, so the regular
+    ///         `defeatFraudChallenge` can never recognize it as honestly spent.
+    ///         Instead, the covenant spend authorization registry attests —
+    ///         through the account-control covenant proof flow — that the
+    ///         challenged outpoint is a covenant active UTXO authorized to be
+    ///         spent by this wallet for the value the preimage signs over. If
+    ///         successfully defeated, the fraud challenge is marked as resolved
+    ///         and the challenger's ether deposit is sent to the treasury.
+    /// @param walletPublicKey The public key of the wallet in the uncompressed
+    ///        and unprefixed format (64 bytes).
+    /// @param preimage The BIP-143 witness preimage which produces the sighash
+    ///        used to generate the ECDSA signature that is the subject of the
+    ///        fraud claim. Covenant active UTXOs are P2WSH outputs, so the
+    ///        preimage is always a witness preimage.
+    /// @dev Requirements:
+    ///      - The covenant spend authorization registry must be configured,
+    ///      - `walletPublicKey` and `sighash` calculated as `hash256(preimage)`
+    ///        must identify an open fraud challenge,
+    ///      - the preimage must be a valid BIP-143 witness preimage signed with
+    ///        the `SIGHASH_ALL` type,
+    ///      - the challenged outpoint must not be a UTXO the Bridge already
+    ///        tracks (a revealed deposit, a spent main UTXO, a moved-funds sweep
+    ///        request, or the wallet's current main UTXO), which a genuine
+    ///        external covenant active UTXO never is,
+    ///      - the registry must attest that the challenged outpoint is a
+    ///        covenant active UTXO authorized to be spent by this wallet for the
+    ///        input value the preimage signs over, into the outputs it signs
+    ///        over.
+    ///
+    ///      The registry attests the covenant provenance of the source outpoint
+    ///      itself, so — unlike the swept-deposit categories accepted by
+    ///      `defeatFraudChallenge` — no on-chain proof of the spending
+    ///      transaction is required and the defeat is available as soon as the
+    ///      challenge is opened.
+    function defeatFraudChallengeWithCovenantSpend(
+        BridgeState.Storage storage self,
+        bytes calldata walletPublicKey,
+        bytes calldata preimage
+    ) external {
+        require(
+            self.covenantSpendAuthorization != address(0),
+            "Covenant spend authorization not configured"
+        );
+
+        bytes32 sighash = preimage.hash256();
+
+        uint256 challengeKey = uint256(
+            keccak256(abi.encodePacked(walletPublicKey, sighash))
+        );
+
+        FraudChallenge storage challenge = self.fraudChallenges[challengeKey];
+
+        require(challenge.reportedAt > 0, "Fraud challenge does not exist");
+        require(
+            !challenge.resolved,
+            "Fraud challenge has already been resolved"
+        );
+
+        // Covenant active UTXOs are P2WSH outputs, so a covenant migration
+        // signature is always produced over a BIP-143 witness preimage. Its
+        // layout is: transaction version (4 bytes), hash of previous outpoints
+        // of all inputs (32 bytes), hash of sequences of all inputs (32 bytes),
+        // outpoint of the input being signed (36 bytes), the unlocking script
+        // of the input (>= 1 byte), value of the outpoint (8 bytes), sequence
+        // of the input being signed (4 bytes), hash of all outputs (32 bytes),
+        // transaction locktime (4 bytes), and sighash type (4 bytes), so the
+        // minimum length is 157 bytes.
+        require(preimage.length >= 157, "Invalid witness preimage length");
+
+        // Ensure SIGHASH_ALL type was used during signing, which is represented
+        // by type value `1`.
+        require(extractSighashType(preimage) == 1, "Wrong sighash type");
+
+        requireAuthorizedCovenantSpend(self, walletPublicKey, preimage);
+
+        resolveFraudChallenge(self, walletPublicKey, challenge, sighash);
+    }
+
+    /// @notice Reverts unless the challenged outpoint is a covenant active UTXO
+    ///         the covenant spend authorization registry attests may be spent by
+    ///         the given wallet for the value and outputs the preimage signs
+    ///         over, and is not a UTXO the Bridge already tracks.
+    /// @param walletPublicKey The public key of the wallet in the uncompressed
+    ///        and unprefixed format (64 bytes).
+    /// @param preimage The BIP-143 witness preimage of the challenged input.
+    /// @dev Split out of `defeatFraudChallengeWithCovenantSpend` to keep the
+    ///      caller's stack within limits. Assumes the preimage length and
+    ///      sighash type were already validated by the caller.
+    function requireAuthorizedCovenantSpend(
+        BridgeState.Storage storage self,
+        bytes calldata walletPublicKey,
+        bytes calldata preimage
+    ) internal view {
+        bytes20 walletPubKeyHash = covenantWalletPubKeyHash(walletPublicKey);
+        uint256 utxoKey = extractUtxoKeyFromWitnessPreimage(preimage);
+        // The trailing 52 bytes of a witness preimage are: value of the outpoint
+        // (8 bytes little-endian), sequence of the input being signed (4 bytes),
+        // hash of all outputs (32 bytes), transaction locktime (4 bytes), and
+        // sighash type (4 bytes). The value therefore starts 52 bytes from the
+        // end and the hash of all outputs starts 40 bytes from the end.
+        uint64 value = preimage.extractValueAt(preimage.length - 52);
+
+        // Defense in depth against a mis-issued or malicious authorization: a
+        // covenant active UTXO is external Bitcoin the Bridge never records, so
+        // an outpoint the Bridge already tracks cannot be one. Rejecting such
+        // outpoints here blocks laundering a wallet-controlled backing UTXO
+        // through the covenant path even if the registry attests it.
+        requireNotKnownBridgeUtxo(
+            self,
+            preimage,
+            utxoKey,
+            value,
+            walletPubKeyHash
+        );
+
+        require(
+            ICovenantSpendAuthorization(self.covenantSpendAuthorization)
+                .isAuthorized(
+                    utxoKey,
+                    walletPubKeyHash,
+                    value,
+                    preimage.slice32(preimage.length - 40)
+                ),
+            "Covenant spend not authorized"
+        );
+    }
+
+    /// @notice Derives the 20-byte wallet public key hash from an uncompressed
+    ///         and unprefixed (64-byte) wallet public key, the same way the
+    ///         rest of the Bridge does.
+    /// @param walletPublicKey The public key of the wallet in the uncompressed
+    ///        and unprefixed format (64 bytes).
+    /// @return The 20-byte wallet public key hash.
+    function covenantWalletPubKeyHash(bytes calldata walletPublicKey)
+        internal
+        view
+        returns (bytes20)
+    {
+        return
+            EcdsaLib
+                .compressPublicKey(
+                    walletPublicKey.slice32(0),
+                    walletPublicKey.slice32(32)
+                )
+                .hash160View();
+    }
+
+    /// @notice Reverts if the challenged outpoint is a UTXO the Bridge already
+    ///         tracks: a revealed deposit, a spent main UTXO, a moved-funds
+    ///         sweep request, or the challenged wallet's current main UTXO.
+    /// @param preimage The BIP-143 witness preimage of the challenged input.
+    /// @param utxoKey UTXO key of the challenged outpoint.
+    /// @param value Value in satoshi the preimage signs over, i.e. the value of
+    ///        the challenged outpoint.
+    /// @param walletPubKeyHash 20-byte public key hash of the challenged wallet.
+    /// @dev A covenant active UTXO is external Bitcoin that the Bridge never
+    ///      records, so a tracked outpoint can never be one. This is a
+    ///      defense-in-depth check on top of the registry attestation: it blocks
+    ///      laundering a wallet-controlled backing UTXO — most importantly the
+    ///      wallet's own main UTXO, which is not spent-marked until an authorized
+    ///      spend is proven — through the covenant defeat path, even if the
+    ///      registry (through error or compromise) attests it. It never rejects a
+    ///      genuine covenant active UTXO, which is none of these.
+    function requireNotKnownBridgeUtxo(
+        BridgeState.Storage storage self,
+        bytes calldata preimage,
+        uint256 utxoKey,
+        uint64 value,
+        bytes20 walletPubKeyHash
+    ) internal view {
+        require(
+            self.deposits[utxoKey].revealedAt == 0,
+            "Covenant outpoint is a revealed deposit"
+        );
+        require(
+            !self.spentMainUTXOs[utxoKey],
+            "Covenant outpoint is a spent main UTXO"
+        );
+        require(
+            self.movedFundsSweepRequests[utxoKey].state ==
+                MovingFunds.MovedFundsSweepRequestState.Unknown,
+            "Covenant outpoint is a moved-funds sweep request"
+        );
+
+        // The wallet's current main UTXO is identified by
+        // keccak256(txHash | txOutputIndex | txOutputValue), not by `utxoKey`,
+        // so it is rebuilt from the preimage outpoint and the signed value. The
+        // outpoint (hash and index) is located at the constant offset of 68
+        // (4 + 32 + 32) in a witness preimage.
+        bytes32 outpointTxHash = preimage.extractInputTxIdLeAt(68);
+        uint32 outpointIndex = BTCUtils.reverseUint32(
+            uint32(preimage.extractTxIndexLeAt(68))
+        );
+        require(
+            self.registeredWallets[walletPubKeyHash].mainUtxoHash !=
+                keccak256(
+                    abi.encodePacked(outpointTxHash, outpointIndex, value)
+                ),
+            "Covenant outpoint is the wallet main UTXO"
+        );
+    }
+
     /// @notice Allows to defeat a pending fraud challenge against a wallet by
     ///         proving the sighash and signature were produced for an off-chain
     ///         wallet heartbeat message following a strict format.
@@ -346,6 +573,9 @@ library Fraud {
             walletPublicKey.slice32(32)
         );
         bytes20 walletPubKeyHash = compressedWalletPublicKey.hash160View();
+
+        // The challenge is resolved; it no longer blocks wallet closing.
+        decrementPendingFraudChallenges(self, challenge, walletPubKeyHash);
 
         // slither-disable-next-line reentrancy-events
         emit FraudChallengeDefeated(walletPubKeyHash, sighash);
@@ -431,6 +661,9 @@ library Fraud {
         );
         bytes20 walletPubKeyHash = compressedWalletPublicKey.hash160View();
 
+        // The challenge is resolved; it no longer blocks wallet closing.
+        decrementPendingFraudChallenges(self, challenge, walletPubKeyHash);
+
         self.notifyWalletFraudChallengeDefeatTimeout(
             walletPubKeyHash,
             walletMembersIDs,
@@ -447,6 +680,30 @@ library Fraud {
     ) private {
         if (challenge.escrowCounted || self.fraudChallengeEscrowSeeded) {
             self.openFraudChallengeEscrow -= challenge.depositAmount;
+        }
+    }
+
+    /// @notice Decrements the wallet's unresolved fraud challenge counter used
+    ///         to keep a wallet in the `Closing` state while a challenge can
+    ///         still mature.
+    /// @dev Decrements only for a challenge that incremented the counter on
+    ///      submit (`pendingCounted`), and clears the flag so a challenge can
+    ///      never decrement twice. Pre-upgrade challenges have
+    ///      `pendingCounted == false` and are no-ops here, so resolving one can
+    ///      never steal a counted challenge's slot. The `> 0` check is retained
+    ///      as underflow defense-in-depth; the flag alone already prevents any
+    ///      decrement the counter did not account for.
+    function decrementPendingFraudChallenges(
+        BridgeState.Storage storage self,
+        FraudChallenge storage challenge,
+        bytes20 walletPubKeyHash
+    ) private {
+        if (
+            challenge.pendingCounted &&
+            self.walletPendingFraudChallenges[walletPubKeyHash] > 0
+        ) {
+            challenge.pendingCounted = false;
+            self.walletPendingFraudChallenges[walletPubKeyHash]--;
         }
     }
 

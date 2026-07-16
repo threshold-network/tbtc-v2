@@ -88,4 +88,21 @@ interface ITBTCVaultMigrationDebt {
     ///      aggregate query without enumerating individual revealers.
     /// @return True if at least one revealer has nonzero migration debt.
     function hasOutstandingMigrationDebt() external view returns (bool);
+
+    /// @notice Returns whether this vault has any outstanding optimistic
+    ///         minting debt across all depositors.
+    /// @dev Optimistic minting debt is distinct from migration debt: it is
+    ///      incurred when `finalizeOptimisticMint` mints TBTC before the
+    ///      backing Bitcoin deposit is swept, and it is repaid from future
+    ///      sweep proceeds routed to the vault. Implementations should
+    ///      maintain an internal counter incremented when a depositor's
+    ///      optimistic debt transitions from zero to nonzero and decremented
+    ///      when it transitions back to zero, providing an O(1) aggregate
+    ///      query without enumerating individual depositors. The Bridge
+    ///      consumes this selector via a fail-open staticcall to reject
+    ///      untrusting or rotating away from a vault that still has in-flight
+    ///      optimistic minting debt whose repayment depends on sweep proceeds
+    ///      being routed back through the vault callback.
+    /// @return True if at least one depositor has nonzero optimistic debt.
+    function hasOutstandingOptimisticMintingDebt() external view returns (bool);
 }

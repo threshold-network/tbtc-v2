@@ -10,6 +10,7 @@ contract MockRevertingMigrationDebtVault is ITBTCVaultMigrationDebt {
 
     bool public shouldRevert;
     bool private _hasOutstandingMigrationDebt;
+    bool private _hasOutstandingOptimisticMintingDebtFlag;
 
     function setReverting(bool _shouldRevert) external {
         shouldRevert = _shouldRevert;
@@ -17,6 +18,10 @@ contract MockRevertingMigrationDebtVault is ITBTCVaultMigrationDebt {
 
     function setHasOutstandingMigrationDebt(bool hasDebt) external {
         _hasOutstandingMigrationDebt = hasDebt;
+    }
+
+    function setHasOutstandingOptimisticMintingDebt(bool hasDebt) external {
+        _hasOutstandingOptimisticMintingDebtFlag = hasDebt;
     }
 
     function registerMigrationDebt(address revealer, uint256 amount)
@@ -62,5 +67,15 @@ contract MockRevertingMigrationDebtVault is ITBTCVaultMigrationDebt {
     {
         require(!shouldRevert, "Mock migration debt vault revert");
         return _hasOutstandingMigrationDebt;
+    }
+
+    function hasOutstandingOptimisticMintingDebt()
+        external
+        view
+        override
+        returns (bool)
+    {
+        require(!shouldRevert, "Mock migration debt vault revert");
+        return _hasOutstandingOptimisticMintingDebtFlag;
     }
 }

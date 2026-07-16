@@ -24,6 +24,7 @@ import "./IBridge.sol";
 import "./IBank.sol";
 import "./BitcoinTx.sol";
 import "./ITBTCVault.sol";
+import "./IRedemptionWatchtowerWithdrawal.sol";
 
 /// @title Abstract AbstractBTCRedeemer contract.
 /// @notice This abstract contract is meant to facilitate integration of protocols
@@ -82,6 +83,22 @@ abstract contract AbstractBTCRedeemer is OwnableUpgradeable {
     /// @param recipient The address that received the rescued tBTC tokens.
     /// @param amount The amount of tBTC rescued.
     event TbtcRescued(address indexed recipient, uint256 amount);
+
+    /// @notice Emitted when Bank balance is rescued from the contract.
+    /// @param recipient The address that received the rescued Bank balance.
+    /// @param amount The amount of Bank balance (in satoshis) rescued.
+    event BankBalanceRescued(address indexed recipient, uint256 amount);
+
+    /// @notice Emitted when vetoed redemption funds are withdrawn from the
+    ///         RedemptionWatchtower and forwarded to a recovery recipient.
+    /// @param recipient The address that received the recovered Bank balance.
+    /// @param redemptionKey The vetoed redemption key that was withdrawn.
+    /// @param amount The amount of Bank balance (in satoshis) forwarded.
+    event VetoedFundsRescued(
+        address indexed recipient,
+        uint256 indexed redemptionKey,
+        uint256 amount
+    );
 
     /// @notice Multiplier to convert satoshi to TBTC token units.
     uint256 public constant SATOSHI_MULTIPLIER = 10**10;
@@ -142,9 +159,8 @@ abstract contract AbstractBTCRedeemer is OwnableUpgradeable {
     /// @return tbtcAmount The net amount of Bitcoin (in tBTC token decimals precision)
     ///         expected to be received by the redeemer after fees.
     /// @dev Requirements:
-    ///      - This contract (AbstractBTCRedeemer instance) must have `amount` in its Bank balance.
-    ///      - This contract must have approved the `thresholdBridge` to spend `amount` of its Bank balance.
-    ///      - All requirements from {Bridge#requestRedemption} must be met.
+    ///      - This contract (AbstractBTCRedeemer instance) must hold at least `amount` of tBTC.
+    ///      - All requirements from {TBTCVault-unmintAndRedeem} must be met.
     // slither-disable-next-line dead-code
     function _requestRedemption(
         bytes20 walletPubKeyHash,
@@ -156,31 +172,26 @@ abstract contract AbstractBTCRedeemer is OwnableUpgradeable {
         // this contract to proceed with unminting.
         tbtcToken.safeApprove(address(tbtcVault), 0);
         tbtcToken.safeApprove(address(tbtcVault), amount);
-        // Unmint tBTC tokens. This burns the ERC-20 tokens and credits this
-        // contract's balance in the Bank with the corresponding value in satoshis.
-        tbtcVault.unmint(amount);
 
-        // Convert the tBTC token amount (1e18 precision) to satoshis
-        // (1e8 precision) for Bridge operations.
-        uint64 amountInSatoshis = uint64(amount / SATOSHI_MULTIPLIER);
-
-        // This contract (as balanceOwner) approves the Bridge to spend its Bank balance.
-        // The amount for Bank allowance is in satoshi units (which is what `amount` already is).
-        bank.increaseBalanceAllowance(
-            address(thresholdBridge),
-            amountInSatoshis
-        );
-
-        // This contract calls the Bridge. The Bridge will see `msg.sender` (this contract) as the `balanceOwner`.
-        // The Bridge's internal Redemption logic will then call `bank.transferBalanceFrom(address(this), address(bridge_or_redemption_contract), amount)`.
-        // The actual `balanceOwner` parameter for Bridge.requestRedemption might be `address(this)` if the Bridge function signature supports it,
-        // or it might be implicitly msg.sender for the Bridge. Assuming msg.sender is balanceOwner for the Bridge call.
-        thresholdBridge.requestRedemption(
+        // Redemption data in the format expected by the Bridge's
+        // `receiveBalanceApproval`, reached through `unmintAndRedeem`'s
+        // `Bank.approveBalanceAndCall`. This contract is recorded as the
+        // Bridge-side redeemer, same as the direct `requestRedemption` call
+        // this replaces.
+        bytes memory redemptionData = abi.encode(
+            address(this),
             walletPubKeyHash,
-            mainUtxo,
-            redemptionOutputScript,
-            amountInSatoshis
+            mainUtxo.txHash,
+            mainUtxo.txOutputIndex,
+            mainUtxo.txOutputValue,
+            redemptionOutputScript
         );
+
+        // Unmints tBTC and atomically requests the Bridge redemption in a
+        // single call: this burns the ERC-20 tokens, reconciles Account
+        // Control minted exposure when required, and moves the vault's own
+        // Bank balance into the Bridge redemption request.
+        tbtcVault.unmintAndRedeem(amount, redemptionData);
 
         redemptionKey = _getRedemptionKey(
             walletPubKeyHash,
@@ -261,5 +272,65 @@ abstract contract AbstractBTCRedeemer is OwnableUpgradeable {
 
         // slither-disable-next-line reentrancy-events
         emit TbtcRescued(recipient, amount);
+    }
+
+    /// @notice Allows the contract owner to recover Bank balance that may
+    ///         remain credited to this contract. A cross-chain redemption
+    ///         records this contract as the Bridge redeemer, so a redemption
+    ///         timeout refunds the Bank balance here (rather than to the
+    ///         originating L2 user). Bank balance is a distinct asset from
+    ///         tBTC tokens, so `rescueTbtc` cannot recover it; this function
+    ///         lets the owner forward the refunded balance to the user or a
+    ///         designated recovery address.
+    /// @param recipient The address that will receive the rescued Bank balance.
+    /// @param amount The amount of Bank balance (in satoshis) to transfer.
+    function rescueBankBalance(address recipient, uint256 amount)
+        external
+        onlyOwner
+    {
+        if (recipient == address(0)) revert ZeroAddress();
+        if (bank.balanceOf(address(this)) < amount) {
+            revert InsufficientBalance();
+        }
+
+        bank.transferBalance(recipient, amount);
+
+        // slither-disable-next-line reentrancy-events
+        emit BankBalanceRescued(recipient, amount);
+    }
+
+    /// @notice Withdraws the Bank balance of a vetoed cross-chain redemption
+    ///         from the RedemptionWatchtower and forwards it to a recovery
+    ///         recipient.
+    /// @dev A cross-chain redemption records this contract as the Bridge
+    ///      redeemer, so a veto leaves the non-penalty Bank balance withdrawable
+    ///      only by this contract via `RedemptionWatchtower.withdrawVetoedFunds`.
+    ///      Without this function the balance would be stranded because the
+    ///      contract has no other way to call the watchtower or move the
+    ///      recovered balance to the originating user. Only the balance credited
+    ///      by this specific withdrawal is forwarded, so any unrelated Bank
+    ///      balance already held by the contract is left untouched (and remains
+    ///      recoverable via `rescueBankBalance`).
+    /// @param watchtower The RedemptionWatchtower holding the vetoed funds.
+    /// @param redemptionKey Redemption key of the vetoed request to withdraw.
+    /// @param recipient The address that will receive the recovered balance.
+    function withdrawVetoedRedemptionFunds(
+        IRedemptionWatchtowerWithdrawal watchtower,
+        uint256 redemptionKey,
+        address recipient
+    ) external onlyOwner {
+        if (address(watchtower) == address(0)) revert ZeroAddress();
+        if (recipient == address(0)) revert ZeroAddress();
+
+        uint256 balanceBefore = bank.balanceOf(address(this));
+        watchtower.withdrawVetoedFunds(redemptionKey);
+        uint256 recovered = bank.balanceOf(address(this)) - balanceBefore;
+
+        if (recovered > 0) {
+            bank.transferBalance(recipient, recovered);
+        }
+
+        // slither-disable-next-line reentrancy-events
+        emit VetoedFundsRescued(recipient, redemptionKey, recovered);
     }
 }

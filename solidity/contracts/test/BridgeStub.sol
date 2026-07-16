@@ -20,6 +20,17 @@ contract BridgeStub is Bridge {
         }
     }
 
+    function setRevealedDeposits(BitcoinTx.UTXO[] calldata utxos) external {
+        for (uint256 i = 0; i < utxos.length; i++) {
+            uint256 utxoKey = uint256(
+                keccak256(
+                    abi.encodePacked(utxos[i].txHash, utxos[i].txOutputIndex)
+                )
+            );
+            self.deposits[utxoKey].revealedAt = 1641650400;
+        }
+    }
+
     function setSpentMainUtxos(BitcoinTx.UTXO[] calldata utxos) external {
         for (uint256 i = 0; i < utxos.length; i++) {
             uint256 utxoKey = uint256(
@@ -66,6 +77,52 @@ contract BridgeStub is Bridge {
     function setWallet(bytes20 walletPubKeyHash, Wallets.Wallet calldata wallet)
         external
     {
+        Wallets.WalletState previousState = self
+            .registeredWallets[walletPubKeyHash]
+            .state;
+
+        self.registeredWallets[walletPubKeyHash] = wallet;
+
+        if (wallet.state == Wallets.WalletState.Live) {
+            self.liveWalletsCount++;
+        }
+
+        // Mirror `Wallets.registerNewWallet`: record the registration order the
+        // first time a previously-unknown wallet is registered, so tests can
+        // exercise the deterministic moving-funds target-wallet selection.
+        if (
+            previousState == Wallets.WalletState.Unknown &&
+            wallet.state != Wallets.WalletState.Unknown
+        ) {
+            self.walletRegistrationOrder.push(walletPubKeyHash);
+        }
+    }
+
+    function getWalletRegistrationOrder()
+        external
+        view
+        returns (bytes20[] memory)
+    {
+        return self.walletRegistrationOrder;
+    }
+
+    function getWalletRegistrationOrderSeeded() external view returns (bool) {
+        return self.walletRegistrationOrderSeeded;
+    }
+
+    function setWalletRegistrationOrderSeeded(bool seeded) external {
+        self.walletRegistrationOrderSeeded = seeded;
+    }
+
+    /// @notice Sets a wallet without recording it in the registration order,
+    ///         simulating a wallet registered before the upgrade that
+    ///         introduced the on-chain order. Used to exercise the
+    ///         moving-funds commitment fallback path where the order cannot yet
+    ///         reconstruct the deterministic target set.
+    function setWalletSkipRegistrationOrder(
+        bytes20 walletPubKeyHash,
+        Wallets.Wallet calldata wallet
+    ) external {
         self.registeredWallets[walletPubKeyHash] = wallet;
 
         if (wallet.state == Wallets.WalletState.Live) {
@@ -109,6 +166,27 @@ contract BridgeStub is Bridge {
         external
     {
         self.fraudChallenges[challengeKey].escrowCounted = counted;
+    }
+
+    /// @notice Overrides a fraud challenge's per-challenge pending-counted flag.
+    ///         Used to simulate a challenge opened before `submitFraudChallenge`
+    ///         began flagging counted challenges, so its resolution must not
+    ///         decrement a coexisting counted challenge's wallet counter.
+    function setFraudChallengePendingCounted(uint256 challengeKey, bool counted)
+        external
+    {
+        self.fraudChallenges[challengeKey].pendingCounted = counted;
+    }
+
+    /// @notice Overrides a wallet's unresolved fraud-challenge counter. Used to
+    ///         simulate a fraud challenge opened before `submitFraudChallenge`
+    ///         began counting them per wallet, which leaves the counter at zero
+    ///         while the challenge is still open.
+    function setWalletPendingFraudChallenges(
+        bytes20 walletPubKeyHash,
+        uint32 count
+    ) external {
+        self.walletPendingFraudChallenges[walletPubKeyHash] = count;
     }
 
     function setPendingMovedFundsSweepRequest(
