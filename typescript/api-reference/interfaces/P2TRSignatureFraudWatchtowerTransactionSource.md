@@ -4,22 +4,40 @@
 
 ### Methods
 
+- [commitConfirmedTransactionScan](P2TRSignatureFraudWatchtowerTransactionSource.md#commitconfirmedtransactionscan)
 - [listConfirmedTransactions](P2TRSignatureFraudWatchtowerTransactionSource.md#listconfirmedtransactions)
 - [listMempoolTransactions](P2TRSignatureFraudWatchtowerTransactionSource.md#listmempooltransactions)
 
 ## Methods
 
-### listConfirmedTransactions
+### commitConfirmedTransactionScan
 
-▸ **listConfirmedTransactions**(): `Promise`\<[`P2TRWatchtowerConfirmedTransaction`](../README.md#p2trwatchtowerconfirmedtransaction)[]\>
+▸ **commitConfirmedTransactionScan**(): `Promise`\<`void`\>
+
+Acknowledges the staged confirmed batch after its observations have been
+durably recorded. Sources without a durable cursor may omit this method.
 
 #### Returns
 
-`Promise`\<[`P2TRWatchtowerConfirmedTransaction`](../README.md#p2trwatchtowerconfirmedtransaction)[]\>
+`Promise`\<`void`\>
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:240](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L240)
+[src/services/maintenance/p2tr-signature-fraud.ts:287](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L287)
+
+___
+
+### listConfirmedTransactions
+
+▸ **listConfirmedTransactions**(): `Promise`\<[`P2TRWatchtowerConfirmedTransactionSourceResult`](../README.md#p2trwatchtowerconfirmedtransactionsourceresult)\>
+
+#### Returns
+
+`Promise`\<[`P2TRWatchtowerConfirmedTransactionSourceResult`](../README.md#p2trwatchtowerconfirmedtransactionsourceresult)\>
+
+#### Defined in
+
+[src/services/maintenance/p2tr-signature-fraud.ts:282](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L282)
 
 ___
 
@@ -33,4 +51,4 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:239](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L239)
+[src/services/maintenance/p2tr-signature-fraud.ts:281](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L281)

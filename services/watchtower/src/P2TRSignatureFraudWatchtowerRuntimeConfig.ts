@@ -55,6 +55,20 @@ export const P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV = {
     "P2TR_SIGNATURE_FRAUD_WATCHTOWER_ESPLORA_BITCOIN_NETWORK",
   esploraConfirmedPageLimit:
     "P2TR_SIGNATURE_FRAUD_WATCHTOWER_ESPLORA_CONFIRMED_PAGE_LIMIT",
+  esploraConfirmedHistoryCursorFilePath:
+    "P2TR_SIGNATURE_FRAUD_WATCHTOWER_ESPLORA_CONFIRMED_HISTORY_CURSOR_FILE",
+  taprootDepositRevealFromBlock:
+    "P2TR_SIGNATURE_FRAUD_WATCHTOWER_TAPROOT_DEPOSIT_REVEAL_FROM_BLOCK",
+  taprootDepositRevealConfirmationDepth:
+    "P2TR_SIGNATURE_FRAUD_WATCHTOWER_TAPROOT_DEPOSIT_REVEAL_CONFIRMATION_DEPTH",
+  taprootDepositRevealMaxBlockRange:
+    "P2TR_SIGNATURE_FRAUD_WATCHTOWER_TAPROOT_DEPOSIT_REVEAL_MAX_BLOCK_RANGE",
+  taprootDepositRevealMaxEventsPerRange:
+    "P2TR_SIGNATURE_FRAUD_WATCHTOWER_TAPROOT_DEPOSIT_REVEAL_MAX_EVENTS_PER_RANGE",
+  depositOutspendScanLimit:
+    "P2TR_SIGNATURE_FRAUD_WATCHTOWER_DEPOSIT_OUTSPEND_SCAN_LIMIT",
+  taprootDepositBindingInventoryLimit:
+    "P2TR_SIGNATURE_FRAUD_WATCHTOWER_TAPROOT_DEPOSIT_BINDING_INVENTORY_LIMIT",
   esploraMaxAttempts: "P2TR_SIGNATURE_FRAUD_WATCHTOWER_ESPLORA_MAX_ATTEMPTS",
   esploraRequestTimeoutMs:
     "P2TR_SIGNATURE_FRAUD_WATCHTOWER_ESPLORA_REQUEST_TIMEOUT_MS",
@@ -93,10 +107,18 @@ export type P2TRSignatureFraudWatchtowerBridgeLifecycleRuntimeConfig = Omit<
 
 export type P2TRSignatureFraudWatchtowerTransactionSourceRuntimeConfig = Omit<
   EsploraP2TRSignatureFraudTransactionSourceOptions,
-  "fetchFn" | "taprootDepositRevealSource" | "onDepositScanFailure"
+  | "fetchFn"
+  | "taprootDepositRevealSource"
+  | "taprootDepositRevealSourceTrustDomainID"
+  | "canonicalTaprootDepositRevealSource"
+  | "confirmedHistoryCursorStore"
+  | "onDepositScanFailure"
+  | "taprootDepositRevealChainID"
+  | "taprootDepositRevealBridgeAddress"
 > & {
   esploraBaseUrl?: string
   bitcoinNetwork?: BitcoinNetwork
+  confirmedHistoryCursorFilePath?: string
 }
 
 export type P2TRSignatureFraudWatchtowerRuntimeConfig = {
@@ -133,6 +155,11 @@ export function loadP2TRSignatureFraudWatchtowerRuntimeConfig(
     P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submitChallenges,
     false
   )
+  if (submitChallenges) {
+    throw new Error(
+      `${P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.submitChallenges}=true is disabled while the FROST fraud layer is bounded/no-go; COMPLETE_V2 activation requires a separately reviewed durable outbox and canonical independent reconciliation design`
+    )
+  }
   const allowFileBackedSubmission = parseOptionalBooleanEnv(
     env,
     P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.allowFileBackedSubmission,
@@ -351,16 +378,52 @@ function parseTransactionSourceRuntimeConfig(
     env,
     P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.esploraConfirmedPageLimit
   )
+  const confirmedHistoryCursorFilePath = readOptionalEnv(
+    env,
+    P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.esploraConfirmedHistoryCursorFilePath
+  )
   const depositScanConcurrency = parseOptionalPositiveIntegerEnv(
     env,
     P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.depositScanConcurrency
+  )
+  const taprootDepositRevealFromBlock = parseOptionalNonNegativeIntegerEnv(
+    env,
+    P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.taprootDepositRevealFromBlock
+  )
+  const taprootDepositRevealConfirmationDepth =
+    parseOptionalNonNegativeIntegerEnv(
+      env,
+      P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.taprootDepositRevealConfirmationDepth
+    )
+  const taprootDepositRevealMaxBlockRange = parseOptionalPositiveIntegerEnv(
+    env,
+    P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.taprootDepositRevealMaxBlockRange
+  )
+  const taprootDepositRevealMaxEventsPerRange = parseOptionalPositiveIntegerEnv(
+    env,
+    P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.taprootDepositRevealMaxEventsPerRange
+  )
+  const depositOutspendScanLimit = parseOptionalPositiveIntegerEnv(
+    env,
+    P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.depositOutspendScanLimit
+  )
+  const taprootDepositBindingInventoryLimit = parseOptionalPositiveIntegerEnv(
+    env,
+    P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.taprootDepositBindingInventoryLimit
   )
   const configuredOptions = [
     maxAttempts,
     requestTimeoutMs,
     retryDelayMs,
     confirmedPageLimit,
+    confirmedHistoryCursorFilePath,
     depositScanConcurrency,
+    taprootDepositRevealFromBlock,
+    taprootDepositRevealConfirmationDepth,
+    taprootDepositRevealMaxBlockRange,
+    taprootDepositRevealMaxEventsPerRange,
+    depositOutspendScanLimit,
+    taprootDepositBindingInventoryLimit,
   ]
 
   if (
@@ -378,6 +441,15 @@ function parseTransactionSourceRuntimeConfig(
     )
   }
 
+  if (
+    esploraBaseUrl !== undefined &&
+    confirmedHistoryCursorFilePath === undefined
+  ) {
+    throw new Error(
+      `${P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.esploraBaseUrl} requires ${P2TR_SIGNATURE_FRAUD_WATCHTOWER_ENV.esploraConfirmedHistoryCursorFilePath}`
+    )
+  }
+
   return {
     esploraBaseUrl,
     bitcoinNetwork,
@@ -385,7 +457,14 @@ function parseTransactionSourceRuntimeConfig(
     requestTimeoutMs,
     retryDelayMs,
     confirmedPageLimit,
+    confirmedHistoryCursorFilePath,
     depositScanConcurrency,
+    taprootDepositRevealFromBlock,
+    taprootDepositRevealConfirmationDepth,
+    taprootDepositRevealMaxBlockRange,
+    taprootDepositRevealMaxEventsPerRange,
+    depositOutspendScanLimit,
+    taprootDepositBindingInventoryLimit,
   }
 }
 

@@ -1,5 +1,6 @@
 export { FileBackedP2TRWatchtowerChallengeRecordPersistence } from "./FileBackedP2TRWatchtowerChallengeRecordPersistence.js"
 export { FileBackedP2TRBridgeLifecycleScanCursorStore } from "./FileBackedP2TRBridgeLifecycleScanCursorStore.js"
+export { FileBackedP2TRConfirmedHistoryCursorStore } from "./FileBackedP2TRConfirmedHistoryCursorStore.js"
 export {
   EsploraP2TRSignatureFraudTransactionSource,
   deriveP2TRWalletAddress,
@@ -28,15 +29,24 @@ export {
 } from "./P2TRSignatureFraudWatchtowerRuntime.js"
 export type {
   EsploraP2TRSignatureFraudTransactionSourceOptions,
+  P2TRCanonicalTaprootDepositRevealSource,
   P2TRDepositScanFailure,
   P2TRDepositScanFailureHandler,
   P2TREsploraFetch,
   P2TRTaprootDepositRevealSource,
 } from "./EsploraP2TRSignatureFraudTransactionSource.js"
 export type {
+  P2TRConfirmedHistoryCursor,
+  P2TRConfirmedHistoryCursorStore,
+  P2TRConfirmedHistoryTransaction,
+  P2TRTaprootDepositBindingInventory,
+  P2TRTaprootDepositBindingInventoryEntry,
+} from "./FileBackedP2TRConfirmedHistoryCursorStore.js"
+export type {
   EthersP2TRSignatureFraudBridgeLifecycleEventSourceOptions,
   P2TRCanonicalBridgeLifecycleEventLog,
   P2TRCanonicalBridgeLifecycleLogVerification,
+  P2TRCanonicalBridgeLifecycleLogRangeVerification,
   P2TRCanonicalBridgeLifecycleLogVerifier,
   P2TRBridgeLifecycleScanCursor,
   P2TRBridgeLifecycleScanCursorStore,

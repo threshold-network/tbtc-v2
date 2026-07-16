@@ -7,12 +7,15 @@ import { EthersP2TRSignatureFraudBridgeLifecycleEventSource } from "./EthersP2TR
 import { EsploraP2TRSignatureFraudTransactionSource } from "./EsploraP2TRSignatureFraudTransactionSource.js"
 import { FileBackedP2TRWatchtowerChallengeRecordPersistence } from "./FileBackedP2TRWatchtowerChallengeRecordPersistence.js"
 import { FileBackedP2TRBridgeLifecycleScanCursorStore } from "./FileBackedP2TRBridgeLifecycleScanCursorStore.js"
+import { FileBackedP2TRConfirmedHistoryCursorStore } from "./FileBackedP2TRConfirmedHistoryCursorStore.js"
+import type { P2TRConfirmedHistoryCursorStore } from "./FileBackedP2TRConfirmedHistoryCursorStore.js"
 import type {
   P2TRCanonicalBridgeLifecycleLogVerifier,
   P2TREthersBridgeLifecycleContract,
 } from "./EthersP2TRSignatureFraudBridgeLifecycleEventSource.js"
 import type {
   P2TRDepositScanFailureHandler,
+  P2TRCanonicalTaprootDepositRevealSource,
   P2TREsploraFetch,
   P2TRTaprootDepositRevealSource,
 } from "./EsploraP2TRSignatureFraudTransactionSource.js"
@@ -39,6 +42,9 @@ export type P2TRSignatureFraudWatchtowerRuntime = {
 
 export type P2TRSignatureFraudWatchtowerEsploraRuntimeOptions = {
   taprootDepositRevealSource: P2TRTaprootDepositRevealSource
+  taprootDepositRevealSourceTrustDomainID: string
+  canonicalTaprootDepositRevealSource: P2TRCanonicalTaprootDepositRevealSource
+  confirmedHistoryCursorStore?: P2TRConfirmedHistoryCursorStore
   onDepositScanFailure: P2TRDepositScanFailureHandler
   fetchFn?: P2TREsploraFetch
 }
@@ -53,22 +59,15 @@ export function createFileBackedP2TRSignatureFraudWatchtowerRuntime(
   dependencies: P2TRSignatureFraudWatchtowerRuntimeDependencies,
   options: P2TRSignatureFraudWatchtowerRuntimeSubmissionOptions = {}
 ): P2TRSignatureFraudWatchtowerRuntime {
+  if (config.service.submitChallenges === true) {
+    throw new Error(
+      "Automatic P2TR signature-fraud challenge submission is disabled while the FROST fraud layer is bounded/no-go; COMPLETE_V2 activation requires a separately reviewed durable outbox and canonical independent reconciliation design"
+    )
+  }
   const spendTypeClassifier =
     options.spendTypeClassifier ?? config.service.spendTypeClassifier
   const submissionPolicy =
     options.submissionPolicy ?? config.service.submissionPolicy
-
-  // The spend-type classifier is a code predicate that cannot be synthesized
-  // from environment variables. Fail closed here so a submission-mode env
-  // configuration cannot silently start without an injected classifier.
-  if (
-    config.service.submitChallenges === true &&
-    spendTypeClassifier === undefined
-  ) {
-    throw new Error(
-      "P2TR signature-fraud watchtower submission mode requires an injected spend-type classifier; the environment-backed runtime cannot synthesize one from env vars"
-    )
-  }
 
   return {
     service: new P2TRSignatureFraudWatchtowerService(
@@ -119,12 +118,22 @@ export function createEsploraP2TRTransactionSourceFromRuntimeConfig(
   config: P2TRSignatureFraudWatchtowerRuntimeConfig,
   options: P2TRSignatureFraudWatchtowerEsploraRuntimeOptions
 ): EsploraP2TRSignatureFraudTransactionSource {
-  const { esploraBaseUrl, bitcoinNetwork, ...sourceOptions } =
-    config.transactionSource
+  const {
+    esploraBaseUrl,
+    bitcoinNetwork,
+    confirmedHistoryCursorFilePath,
+    ...sourceOptions
+  } = config.transactionSource
 
-  if (esploraBaseUrl === undefined || bitcoinNetwork === undefined) {
+  if (
+    esploraBaseUrl === undefined ||
+    bitcoinNetwork === undefined ||
+    config.service.bridgeChallengeDomain === undefined ||
+    (confirmedHistoryCursorFilePath === undefined &&
+      options.confirmedHistoryCursorStore === undefined)
+  ) {
     throw new Error(
-      "P2TR signature-fraud Esplora transaction source requires base URL and Bitcoin network"
+      "P2TR signature-fraud Esplora transaction source requires base URL, Bitcoin network, and a confirmed-history cursor store"
     )
   }
 
@@ -134,7 +143,19 @@ export function createEsploraP2TRTransactionSourceFromRuntimeConfig(
     config.service.registeredWalletIDs,
     {
       ...sourceOptions,
+      taprootDepositRevealChainID: config.service.bridgeChallengeDomain.chainID,
+      taprootDepositRevealBridgeAddress:
+        config.service.bridgeChallengeDomain.bridgeAddress,
       taprootDepositRevealSource: options.taprootDepositRevealSource,
+      taprootDepositRevealSourceTrustDomainID:
+        options.taprootDepositRevealSourceTrustDomainID,
+      canonicalTaprootDepositRevealSource:
+        options.canonicalTaprootDepositRevealSource,
+      confirmedHistoryCursorStore:
+        options.confirmedHistoryCursorStore ??
+        new FileBackedP2TRConfirmedHistoryCursorStore(
+          confirmedHistoryCursorFilePath!
+        ),
       onDepositScanFailure: options.onDepositScanFailure,
       fetchFn: options.fetchFn,
     }

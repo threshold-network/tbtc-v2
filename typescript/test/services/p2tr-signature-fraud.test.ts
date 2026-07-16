@@ -34,6 +34,8 @@ import {
   P2TR_SIGHASH_DEFAULT,
   buildP2TRSignatureFraudBridgeChallengePayload,
   P2TRSignatureFraudChallengeSubmitter,
+  P2TRSignatureFraudChallengeBroadcastReconciler,
+  P2TRSignatureFraudChallengeBroadcastResolution,
   P2TRSignatureFraudBridgeChallengeSubmitter,
   P2TRSignatureFraudChallengeSubmissionPolicy,
   P2TRSignatureFraudSpendType,
@@ -73,6 +75,7 @@ type SignatureFraudVector = {
   expectedBip341SighashHex: string
   bip340SignatureHex: string
   witnessSignatureHex: string
+  annexHex?: string
   expectedDraftChallengeIdentityHex: string
   expectedBridgeChallengeIdentityHex: string
   flowMetadata?: {
@@ -176,6 +179,43 @@ const expectWitnessRejection = async (
 }
 
 const txHash = (nibble: string): string => nibble.repeat(64)
+
+const authenticatedBitcoinTxHash = (rawTransaction: BitcoinRawTx): string =>
+  Transaction.fromHex(rawTransaction.transactionHex).getId()
+
+const recordSubmittedChallenge = async (
+  store: P2TRWatchtowerChallengeStore,
+  observation: P2TRSignatureFraudWitnessObservation,
+  challengeTxHash: Hex | Buffer | string
+): Promise<P2TRWatchtowerChallengeRecord> => {
+  await recordP2TRWatchtowerChallengeEvent(store, {
+    type: "submission-started",
+    observationID: observation.observationID,
+    observation,
+  })
+  return recordP2TRWatchtowerChallengeEvent(store, {
+    type: "submission-accepted",
+    observationID: observation.observationID,
+    challengeTxHash,
+  })
+}
+
+const recordRejectedChallenge = async (
+  store: P2TRWatchtowerChallengeStore,
+  observation: P2TRSignatureFraudWitnessObservation,
+  error: string
+): Promise<P2TRWatchtowerChallengeRecord> => {
+  await recordP2TRWatchtowerChallengeEvent(store, {
+    type: "submission-started",
+    observationID: observation.observationID,
+    observation,
+  })
+  return recordP2TRWatchtowerChallengeEvent(store, {
+    type: "submission-rejected",
+    observationID: observation.observationID,
+    error,
+  })
+}
 
 const draftApprovedSpendTypeClassifier: P2TRSignatureFraudSpendTypeClassifier =
   () => P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION
@@ -395,8 +435,13 @@ class BlockingP2TRWatchtowerChallengeStore extends InMemoryP2TRWatchtowerChallen
 }
 
 class FakeP2TRSignatureFraudChallengeSubmitter
-  implements P2TRSignatureFraudChallengeSubmitter
+  implements
+    P2TRSignatureFraudChallengeSubmitter,
+    P2TRSignatureFraudChallengeBroadcastReconciler
 {
+  readonly submissionTrustDomainID = "submitter.test"
+  readonly reconciliationTrustDomainID = "reconciler.test"
+  readonly finalityConfirmationBlocks = 12
   submissionCount = 0
   readonly submittedObservations: P2TRSignatureFraudWitnessObservation[] = []
   private readonly result: Hex | Buffer | string | Error
@@ -416,6 +461,30 @@ class FakeP2TRSignatureFraudChallengeSubmitter
     }
 
     return this.result
+  }
+
+  async reconcileSignatureFraudChallengeBroadcast() {
+    return {
+      status: "absent-after-finality" as const,
+      reason: "challenge is absent after the test finality boundary",
+    }
+  }
+}
+
+class FakeP2TRSignatureFraudChallengeBroadcastReconciler
+  implements P2TRSignatureFraudChallengeBroadcastReconciler
+{
+  readonly reconciliationTrustDomainID = "reconciler.test"
+  readonly finalityConfirmationBlocks = 12
+  reconciliationCount = 0
+
+  constructor(
+    private readonly resolution: P2TRSignatureFraudChallengeBroadcastResolution
+  ) {}
+
+  async reconcileSignatureFraudChallengeBroadcast() {
+    this.reconciliationCount++
+    return this.resolution
   }
 }
 
@@ -474,7 +543,7 @@ describe("P2TR signature-fraud witness parsing", () => {
     })
   })
 
-  it("rejects missing, annex, and script-path witness forms", () => {
+  it("accepts annex-bearing key-path witnesses and rejects missing and script-path forms", () => {
     const vector = vectorCorpus.cases[0]
 
     expectWitnessError(
@@ -492,13 +561,14 @@ describe("P2TR signature-fraud witness parsing", () => {
       Buffer.from("50", "hex"),
     ]
 
-    expectWitnessError(
-      () =>
-        extractP2TRKeyPathInputWitnessSignature(
-          { transactionHex: annexTransaction.toHex() },
-          vector.signedInputIndex
-        ),
-      "unsupported-witness-form"
+    const annexWitness = extractP2TRKeyPathInputWitnessSignature(
+      { transactionHex: annexTransaction.toHex() },
+      vector.signedInputIndex
+    )
+
+    expect(annexWitness.annex?.toString()).to.equal("50")
+    expect(annexWitness.signature.toString()).to.equal(
+      vector.bip340SignatureHex
     )
 
     const scriptPathTransaction = Transaction.fromHex(
@@ -883,6 +953,76 @@ describe("P2TR signature-fraud witness parsing", () => {
     expect(decodedPayload.prevouts[0].scriptPubKey).to.equal(
       payload.prevouts[0].scriptPubKey
     )
+  })
+
+  it("threads a BIP-341 annex through observation, persistence, sighash, and Bridge payload", () => {
+    const vectors = loadFullSighashVectorCorpus().cases
+    const vector = vectors.find(
+      ({ id }) => id === "bip341-keypath-default-with-annex"
+    )
+    const inputZeroVector = vectors.find(
+      ({ id }) => id === "bip341-keypath-none-multi"
+    )
+    const inputTwoVector = vectors.find(
+      ({ id }) => id === "bip341-keypath-single-multi"
+    )
+    if (vector?.annexHex === undefined) {
+      throw new Error("Missing annex-bearing P2TR signature-fraud vector")
+    }
+    if (inputZeroVector === undefined || inputTwoVector === undefined) {
+      throw new Error("Missing companion multi-input P2TR vectors")
+    }
+
+    const signedTransaction = Transaction.fromHex(vector.unsignedTransactionHex)
+    signedTransaction.ins[0].witness = [
+      Buffer.from(inputZeroVector.witnessSignatureHex, "hex"),
+    ]
+    signedTransaction.ins[vector.signedInputIndex].witness = [
+      Buffer.from(vector.witnessSignatureHex, "hex"),
+      Buffer.from(vector.annexHex, "hex"),
+    ]
+    signedTransaction.ins[2].witness = [
+      Buffer.from(inputTwoVector.witnessSignatureHex, "hex"),
+    ]
+    const rawTransaction = { transactionHex: signedTransaction.toHex() }
+    const observations = extractP2TRSignatureFraudWitnessObservations(
+      rawTransaction,
+      toObservationPrevouts(vector),
+      [vector.walletIDHex],
+      undefined,
+      undefined,
+      undefined,
+      bridgeChallengeDomain
+    )
+    expect(observations.map(({ inputIndex }) => inputIndex)).to.deep.equal([
+      0, 1, 2,
+    ])
+    const observation = observations.find(
+      ({ inputIndex }) => inputIndex === vector.signedInputIndex
+    )
+    if (observation === undefined) {
+      throw new Error("Missing annex-bearing watchtower observation")
+    }
+    const restored = deserializeP2TRSignatureFraudWitnessObservation(
+      serializeP2TRSignatureFraudWitnessObservation(observation)
+    )
+    const payload = buildP2TRSignatureFraudBridgeChallengePayload(restored)
+
+    expect(observation.annex?.toString()).to.equal(vector.annexHex)
+    expect(observation.sighash.toString()).to.equal(
+      vector.expectedBip341SighashHex
+    )
+    expect(observation.bridgeChallengeIdentity.toString()).to.equal(
+      vector.expectedBridgeChallengeIdentityHex
+    )
+    expect(restored.annex?.toString()).to.equal(vector.annexHex)
+    expect(payload.annex).to.equal(`0x${vector.annexHex}`)
+
+    const [decodedPayload] = utils.defaultAbiCoder.decode(
+      [P2TR_SIGNATURE_FRAUD_BRIDGE_CHALLENGE_PAYLOAD_ABI_TYPE],
+      encodeP2TRSignatureFraudBridgeChallengePayload(restored)
+    )
+    expect(decodedPayload.annex).to.equal(`0x${vector.annexHex}`)
   })
 
   it("validates stored observations against reconstructed witness data", () => {
@@ -1407,7 +1547,7 @@ describe("P2TR signature-fraud witness parsing", () => {
         watchtower.observeMempoolTransaction(
           rawTransaction,
           toObservationPrevouts(vector),
-          txHash("2")
+          authenticatedBitcoinTxHash(rawTransaction)
         ),
       "invalid-observation-payload"
     )
@@ -1524,7 +1664,7 @@ describe("P2TR signature-fraud witness parsing", () => {
     )
   })
 
-  it("persists accepted challenge submissions through the watchtower", async () => {
+  it("persists accepted challenge submission events through the watchtower", async () => {
     const vector = vectorCorpus.cases[0]
     const rawTransaction = withInputWitness(
       vector.unsignedTransactionHex,
@@ -1538,49 +1678,45 @@ describe("P2TR signature-fraud witness parsing", () => {
     const [observed] = await watchtower.observeMempoolTransaction(
       rawTransaction,
       toObservationPrevouts(vector),
-      txHash("5")
+      authenticatedBitcoinTxHash(rawTransaction)
     )
-    const submitter = new FakeP2TRSignatureFraudChallengeSubmitter(txHash("6"))
-    const submitted = await watchtower.submitChallenge(
+    const submitted = await recordSubmittedChallenge(
+      store,
       observed.observation,
-      submitter,
-      draftApprovedSubmissionPolicy
+      txHash("6")
     )
-    const duplicate = await watchtower.submitChallenge(
-      observed.observation,
-      submitter,
-      draftApprovedSubmissionPolicy
-    )
+    const duplicate = await recordP2TRWatchtowerChallengeEvent(store, {
+      type: "submission-accepted",
+      observationID: observed.observation.observationID,
+      challengeTxHash: txHash("6"),
+    })
 
     expect(submitted.status).to.equal("submitted")
     expect(submitted.submissionAttempts).to.equal(1)
     expect(submitted.challengeTxHash?.toString()).to.equal(txHash("6"))
     expect(duplicate).to.deep.equal(submitted)
-    expect(submitter.submissionCount).to.equal(1)
   })
 
-  it("persists rejected challenge submissions through the watchtower", async () => {
+  it("persists rejected challenge submission events through the watchtower", async () => {
     const vector = vectorCorpus.cases[0]
     const rawTransaction = withInputWitness(
       vector.unsignedTransactionHex,
       vector.signedInputIndex,
       vector.witnessSignatureHex
     )
-    const watchtower = createDraftApprovedP2TRWatchtower(
-      new InMemoryP2TRWatchtowerChallengeStore(),
-      [vector.walletIDHex]
-    )
+    const store = new InMemoryP2TRWatchtowerChallengeStore()
+    const watchtower = createDraftApprovedP2TRWatchtower(store, [
+      vector.walletIDHex,
+    ])
     const [observed] = await watchtower.observeMempoolTransaction(
       rawTransaction,
       toObservationPrevouts(vector),
-      txHash("7")
+      authenticatedBitcoinTxHash(rawTransaction)
     )
-    const rejected = await watchtower.submitChallenge(
+    const rejected = await recordRejectedChallenge(
+      store,
       observed.observation,
-      new FakeP2TRSignatureFraudChallengeSubmitter(
-        new Error("bridge rejected")
-      ),
-      draftApprovedSubmissionPolicy
+      "bridge rejected"
     )
 
     expect(rejected.status).to.equal("rejected")
@@ -1687,15 +1823,16 @@ describe("P2TR signature-fraud witness parsing", () => {
       vector.signedInputIndex,
       vector.witnessSignatureHex
     )
+    const store = new InMemoryP2TRWatchtowerChallengeStore()
     const watchtower = createDraftApprovedP2TRWatchtower(
-      new InMemoryP2TRWatchtowerChallengeStore(),
+      store,
       [vector.walletIDHex],
       bridgeChallengeDomain
     )
     const [observed] = await watchtower.observeMempoolTransaction(
       rawTransaction,
       toObservationPrevouts(vector),
-      txHash("7")
+      authenticatedBitcoinTxHash(rawTransaction)
     )
     let shouldRevert = true
     const bridge = {
@@ -1712,16 +1849,23 @@ describe("P2TR signature-fraud witness parsing", () => {
       challengeDepositAmount: 1,
     })
 
-    const rejected = await watchtower.submitChallenge(
+    await expectWitnessRejection(
+      () => submitter.submitSignatureFraudChallenge(observed.observation),
+      "challenge-transaction-reverted"
+    )
+    const rejected = await recordRejectedChallenge(
+      store,
       observed.observation,
-      submitter,
-      draftApprovedSubmissionPolicy
+      "Bridge challenge transaction reverted"
     )
     shouldRevert = false
-    const submitted = await watchtower.submitChallenge(
+    const challengeTxHash = await submitter.submitSignatureFraudChallenge(
+      observed.observation
+    )
+    const submitted = await recordSubmittedChallenge(
+      store,
       observed.observation,
-      submitter,
-      draftApprovedSubmissionPolicy
+      challengeTxHash
     )
 
     expect(rejected.status).to.equal("rejected")
@@ -1760,7 +1904,7 @@ describe("P2TR signature-fraud witness parsing", () => {
     const [observed] = await watchtower.observeMempoolTransaction(
       rawTransaction,
       toObservationPrevouts(vector),
-      txHash("b")
+      authenticatedBitcoinTxHash(rawTransaction)
     )
     const bridge = {
       async processP2TRSignatureFraudChallenge() {
@@ -1776,20 +1920,38 @@ describe("P2TR signature-fraud witness parsing", () => {
       challengeDepositAmount: 1,
     })
 
-    const result = await watchtower.submitChallenge(
-      observed.observation,
-      submitter,
-      draftApprovedSubmissionPolicy
+    const challengeTxHash = await submitter.submitSignatureFraudChallenge(
+      observed.observation
     )
+    await recordP2TRWatchtowerChallengeEvent(store, {
+      type: "submission-started",
+      observationID: observed.observation.observationID,
+      observation: observed.observation,
+    })
+    await recordP2TRWatchtowerChallengeEvent(store, {
+      type: "submission-broadcast",
+      observationID: observed.observation.observationID,
+      challengeTxHash,
+    })
+    let acceptanceError: Error | undefined
+    try {
+      await recordP2TRWatchtowerChallengeEvent(store, {
+        type: "submission-accepted",
+        observationID: observed.observation.observationID,
+        challengeTxHash,
+      })
+    } catch (error) {
+      acceptanceError = error as Error
+    }
 
     // The acceptance record could not be persisted, but the durable state is the
     // non-replayable "broadcast-pending" status -- never "submitting"/"rejected",
     // which would re-broadcast the already-sent challenge on the next cycle.
-    expect(result.status).to.equal("broadcast-pending")
-    expect(result.challengeTxHash?.toString()).to.equal(txHash("c"))
+    expect(acceptanceError?.message).to.equal("challenge store unavailable")
     const stored = await backing.listChallengeRecords()
     expect(stored).to.have.length(1)
     expect(stored[0].status).to.equal("broadcast-pending")
+    expect(stored[0].challengeTxHash?.toString()).to.equal(txHash("c"))
   })
 
   it("never re-broadcasts a challenge already in broadcast-pending", async () => {
@@ -1808,7 +1970,7 @@ describe("P2TR signature-fraud witness parsing", () => {
     const [observed] = await watchtower.observeMempoolTransaction(
       rawTransaction,
       toObservationPrevouts(vector),
-      txHash("d")
+      authenticatedBitcoinTxHash(rawTransaction)
     )
     // Drive the record into the broadcast-pending state directly.
     await recordP2TRWatchtowerChallengeEvent(store, {
@@ -1837,17 +1999,143 @@ describe("P2TR signature-fraud witness parsing", () => {
       challengeDepositAmount: 1,
     })
 
-    const result = await watchtower.submitChallenge(
-      observed.observation,
-      submitter,
-      draftApprovedSubmissionPolicy
+    await expectWitnessRejection(
+      () =>
+        watchtower.submitChallenge(
+          observed.observation,
+          submitter,
+          draftApprovedSubmissionPolicy
+        ),
+      "invalid-watchtower-state"
     )
 
     // Already broadcast: the submitter is never invoked again, so no duplicate
     // on-chain submission, and the record stays broadcast-pending.
     expect(submitCount).to.equal(0)
-    expect(result.status).to.equal("broadcast-pending")
-    expect(result.challengeTxHash?.toString()).to.equal(txHash("e"))
+    const result = await store.getChallengeRecord(
+      observed.observation.observationID
+    )
+    expect(result?.status).to.equal("broadcast-pending")
+    expect(result?.challengeTxHash?.toString()).to.equal(txHash("e"))
+  })
+
+  it("reconciles broadcast-pending challenges before deciding whether to replay", async () => {
+    const vector = vectorCorpus.cases[0]
+    const rawTransaction = withInputWitness(
+      vector.unsignedTransactionHex,
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+
+    const createPending = async () => {
+      const store = new InMemoryP2TRWatchtowerChallengeStore()
+      const watchtower = createDraftApprovedP2TRWatchtower(
+        store,
+        [vector.walletIDHex],
+        bridgeChallengeDomain
+      )
+      const [observed] = await watchtower.observeMempoolTransaction(
+        rawTransaction,
+        toObservationPrevouts(vector),
+        authenticatedBitcoinTxHash(rawTransaction)
+      )
+      await recordP2TRWatchtowerChallengeEvent(store, {
+        type: "submission-started",
+        observationID: observed.observation.observationID,
+      })
+      await recordP2TRWatchtowerChallengeEvent(store, {
+        type: "submission-broadcast",
+        observationID: observed.observation.observationID,
+        challengeTxHash: `0x${txHash("e")}`,
+        broadcastAtUnixMs: 1_000,
+      })
+      return { store, watchtower, observation: observed.observation }
+    }
+
+    const accepted = await createPending()
+    const acceptedSubmitter = new FakeP2TRSignatureFraudChallengeSubmitter()
+    const acceptedReconciler =
+      new FakeP2TRSignatureFraudChallengeBroadcastReconciler({
+        status: "accepted",
+      })
+    await new P2TRSignatureFraudWatchtowerRunner(
+      accepted.watchtower,
+      {} as BitcoinClient,
+      acceptedSubmitter,
+      {
+        submitChallenges: false,
+        submissionPolicy: draftApprovedSubmissionPolicy,
+      },
+      acceptedReconciler
+    ).replayStoredChallengeRecords(accepted.store)
+    const acceptedRecord = await accepted.store.getChallengeRecord(
+      accepted.observation.observationID
+    )
+
+    expect(acceptedRecord?.status).to.equal("submitted")
+    expect(acceptedRecord?.challengeBroadcastReconciliationAttempts).to.equal(1)
+    expect(acceptedSubmitter.submissionCount).to.equal(0)
+
+    const absent = await createPending()
+    const replacementSubmitter = new FakeP2TRSignatureFraudChallengeSubmitter(
+      txHash("f")
+    )
+    const absentReconciler =
+      new FakeP2TRSignatureFraudChallengeBroadcastReconciler({
+        status: "absent-after-finality",
+        reason: "transaction and challenge are canonically absent",
+      })
+    const [replacement] = await new P2TRSignatureFraudWatchtowerRunner(
+      absent.watchtower,
+      {} as BitcoinClient,
+      replacementSubmitter,
+      {
+        submitChallenges: false,
+        submissionPolicy: draftApprovedSubmissionPolicy,
+      },
+      absentReconciler
+    ).replayStoredChallengeRecords(absent.store)
+
+    expect(replacement.record.status).to.equal("rejected")
+    expect(replacement.submissionRecord.status).to.equal("rejected")
+    expect(replacement.submissionRecord.submissionAttempts).to.equal(1)
+    expect(replacementSubmitter.submissionCount).to.equal(0)
+
+    const unknown = await createPending()
+    const unknownSubmitter = new FakeP2TRSignatureFraudChallengeSubmitter()
+    const unknownReconciler =
+      new FakeP2TRSignatureFraudChallengeBroadcastReconciler({
+        status: "unknown",
+        reason: "canonical providers disagree",
+      })
+    await new P2TRSignatureFraudWatchtowerRunner(
+      unknown.watchtower,
+      {} as BitcoinClient,
+      unknownSubmitter,
+      {
+        submitChallenges: false,
+        submissionPolicy: draftApprovedSubmissionPolicy,
+      },
+      unknownReconciler
+    ).replayStoredChallengeRecords(unknown.store)
+    const unknownRecord = await unknown.store.getChallengeRecord(
+      unknown.observation.observationID
+    )
+    if (unknownRecord === undefined) {
+      throw new Error("Expected pending challenge record")
+    }
+    const restoredUnknown = deserializeP2TRWatchtowerChallengeRecord(
+      serializeP2TRWatchtowerChallengeRecord(unknownRecord)
+    )
+
+    expect(restoredUnknown.status).to.equal("broadcast-pending")
+    expect(restoredUnknown.operatorAlertStatus).to.equal("open")
+    expect(restoredUnknown.operatorAlertCode).to.equal(
+      "P2TR-CHALLENGE-BROADCAST-FINALITY-UNKNOWN"
+    )
+    expect(restoredUnknown.challengeBroadcastReconciliationAttempts).to.equal(1)
+    expect(restoredUnknown.lastChallengeBroadcastResolution).to.equal("unknown")
+    expect(unknownSubmitter.submissionCount).to.equal(0)
   })
 
   it("rejects Bridge submissions with ambiguous finality receipts", async () => {
@@ -1886,7 +2174,7 @@ describe("P2TR signature-fraud witness parsing", () => {
     )
   })
 
-  it("fails closed for unapproved spend types before submission", async () => {
+  it("keeps unapproved spend types observation-only while submission is disabled", async () => {
     const vector = vectorCorpus.cases[0]
     const rawTransaction = withInputWitness(
       vector.unsignedTransactionHex,
@@ -1900,27 +2188,24 @@ describe("P2TR signature-fraud witness parsing", () => {
     const [observed] = await watchtower.observeMempoolTransaction(
       rawTransaction,
       toObservationPrevouts(vector),
-      txHash("7")
+      authenticatedBitcoinTxHash(rawTransaction)
     )
     const submitter = new FakeP2TRSignatureFraudChallengeSubmitter(txHash("8"))
-    const blocked = await watchtower.submitChallenge(
-      observed.observation,
-      submitter
+    await expectWitnessRejection(
+      () => watchtower.submitChallenge(observed.observation, submitter),
+      "invalid-watchtower-state"
     )
 
     expect(observed.observation.spendType).to.equal(
       P2TR_SIGNATURE_FRAUD_SPEND_TYPE_UNCLASSIFIED
     )
-    expect(blocked.status).to.equal("observed")
-    expect(blocked.submissionAttempts).to.equal(0)
-    expect(blocked.challengeTxHash).to.equal(undefined)
-    expect(blocked.operatorAlertStatus).to.equal("open")
-    expect(blocked.operatorAlertCode).to.equal("P2TR-SPEND-TYPE-NOT-APPROVED")
-    expect(blocked.operatorAlertMessage).to.contain("unclassified")
+    expect(observed.record.status).to.equal("observed")
+    expect(observed.record.submissionAttempts).to.equal(0)
+    expect(observed.record.challengeTxHash).to.equal(undefined)
     expect(submitter.submissionCount).to.equal(0)
   })
 
-  it("rejects fail-closed spend types in submission policies", async () => {
+  it("rejects automatic submission for fail-closed spend policies", async () => {
     const vector = vectorCorpus.cases[0]
     const rawTransaction = withInputWitness(
       vector.unsignedTransactionHex,
@@ -1934,7 +2219,7 @@ describe("P2TR signature-fraud witness parsing", () => {
     const [observed] = await watchtower.observeMempoolTransaction(
       rawTransaction,
       toObservationPrevouts(vector),
-      txHash("7")
+      authenticatedBitcoinTxHash(rawTransaction)
     )
     const submitter = new FakeP2TRSignatureFraudChallengeSubmitter(txHash("8"))
 
@@ -1963,7 +2248,10 @@ describe("P2TR signature-fraud witness parsing", () => {
             ),
             {} as BitcoinClient,
             new FakeP2TRSignatureFraudChallengeSubmitter(),
-            { submissionPolicy: { allowedSpendTypes: [spendType] } }
+            {
+              submitChallenges: true,
+              submissionPolicy: { allowedSpendTypes: [spendType] },
+            }
           ),
         "invalid-watchtower-state"
       )
@@ -1984,7 +2272,7 @@ describe("P2TR signature-fraud witness parsing", () => {
     const [observed] = await watchtower.observeMempoolTransaction(
       rawTransaction,
       toObservationPrevouts(vector),
-      txHash("8")
+      authenticatedBitcoinTxHash(rawTransaction)
     )
     const submitter = new FakeP2TRSignatureFraudChallengeSubmitter(txHash("9"))
 
@@ -2003,7 +2291,7 @@ describe("P2TR signature-fraud witness parsing", () => {
     expect(submitter.submissionCount).to.equal(0)
   })
 
-  it("submits classified approved spend types through the watchtower", async () => {
+  it("keeps classified approved spend types observation-only while submission is disabled", async () => {
     const vector = vectorCorpus.cases[0]
     const rawTransaction = withInputWitness(
       vector.unsignedTransactionHex,
@@ -2019,21 +2307,23 @@ describe("P2TR signature-fraud witness parsing", () => {
     const [observed] = await watchtower.observeMempoolTransaction(
       rawTransaction,
       toObservationPrevouts(vector),
-      txHash("8")
+      authenticatedBitcoinTxHash(rawTransaction)
     )
     const submitter = new FakeP2TRSignatureFraudChallengeSubmitter(txHash("9"))
-    const submitted = await watchtower.submitChallenge(
-      observed.observation,
-      submitter,
-      { allowedSpendTypes: [P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION] }
+    await expectWitnessRejection(
+      () =>
+        watchtower.submitChallenge(observed.observation, submitter, {
+          allowedSpendTypes: [P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION],
+        }),
+      "invalid-watchtower-state"
     )
 
     expect(observed.observation.spendType).to.equal(
       P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION
     )
-    expect(submitted.status).to.equal("submitted")
-    expect(submitted.challengeTxHash?.toString()).to.equal(txHash("9"))
-    expect(submitter.submissionCount).to.equal(1)
+    expect(observed.record.status).to.equal("observed")
+    expect(observed.record.challengeTxHash).to.equal(undefined)
+    expect(submitter.submissionCount).to.equal(0)
   })
 
   it("marks Bridge-observed challenge lifecycle outcomes through the watchtower", async () => {
@@ -2043,19 +2333,19 @@ describe("P2TR signature-fraud witness parsing", () => {
       vector.signedInputIndex,
       vector.witnessSignatureHex
     )
-    const watchtower = createDraftApprovedP2TRWatchtower(
-      new InMemoryP2TRWatchtowerChallengeStore(),
-      [vector.walletIDHex]
-    )
+    const store = new InMemoryP2TRWatchtowerChallengeStore()
+    const watchtower = createDraftApprovedP2TRWatchtower(store, [
+      vector.walletIDHex,
+    ])
     const [observed] = await watchtower.observeMempoolTransaction(
       rawTransaction,
       toObservationPrevouts(vector),
-      txHash("8")
+      authenticatedBitcoinTxHash(rawTransaction)
     )
-    const submitted = await watchtower.submitChallenge(
+    const submitted = await recordSubmittedChallenge(
+      store,
       observed.observation,
-      new FakeP2TRSignatureFraudChallengeSubmitter(txHash("9")),
-      draftApprovedSubmissionPolicy
+      txHash("9")
     )
     const timeoutEligible = await watchtower.markChallengeTimeoutEligible(
       submitted.observationID
@@ -2083,19 +2373,19 @@ describe("P2TR signature-fraud witness parsing", () => {
       vector.signedInputIndex,
       vector.witnessSignatureHex
     )
-    const watchtower = createDraftApprovedP2TRWatchtower(
-      new InMemoryP2TRWatchtowerChallengeStore(),
-      [vector.walletIDHex]
-    )
+    const store = new InMemoryP2TRWatchtowerChallengeStore()
+    const watchtower = createDraftApprovedP2TRWatchtower(store, [
+      vector.walletIDHex,
+    ])
     const [observed] = await watchtower.observeMempoolTransaction(
       rawTransaction,
       toObservationPrevouts(vector),
-      txHash("c")
+      authenticatedBitcoinTxHash(rawTransaction)
     )
-    const submitted = await watchtower.submitChallenge(
+    const submitted = await recordSubmittedChallenge(
+      store,
       observed.observation,
-      new FakeP2TRSignatureFraudChallengeSubmitter(txHash("d")),
-      draftApprovedSubmissionPolicy
+      txHash("d")
     )
     await watchtower.raiseChallengeOperatorAlert(
       submitted.observationID,
@@ -2128,33 +2418,34 @@ describe("P2TR signature-fraud witness parsing", () => {
       vector.signedInputIndex,
       vector.witnessSignatureHex
     )
-    const watchtower = createDraftApprovedP2TRWatchtower(
-      new InMemoryP2TRWatchtowerChallengeStore(),
-      [vector.walletIDHex]
-    )
+    const store = new InMemoryP2TRWatchtowerChallengeStore()
+    const watchtower = createDraftApprovedP2TRWatchtower(store, [
+      vector.walletIDHex,
+    ])
     const [observed] = await watchtower.observeMempoolTransaction(
       rawTransaction,
       toObservationPrevouts(vector),
-      txHash("8")
+      authenticatedBitcoinTxHash(rawTransaction)
     )
-    const submitted = await watchtower.submitChallenge(
+    const submitted = await recordSubmittedChallenge(
+      store,
       observed.observation,
-      new FakeP2TRSignatureFraudChallengeSubmitter(txHash("9")),
-      draftApprovedSubmissionPolicy
+      txHash("9")
     )
     const timeoutEligible = await watchtower.markChallengeTimeoutEligible(
       submitted.observationID
     )
     const submitter = new FakeP2TRSignatureFraudChallengeSubmitter(txHash("a"))
 
-    const resubmitted = await watchtower.submitChallenge(
-      observed.observation,
+    const replayed = await new P2TRSignatureFraudWatchtowerRunner(
+      watchtower,
+      {} as BitcoinClient,
       submitter,
-      draftApprovedSubmissionPolicy
-    )
+      { submitChallenges: false }
+    ).replayStoredChallengeRecords(store)
 
     expect(timeoutEligible.status).to.equal("timeout-eligible")
-    expect(resubmitted).to.deep.equal(timeoutEligible)
+    expect(replayed).to.deep.equal([])
     expect(submitter.submissionCount).to.equal(0)
   })
 
@@ -2165,19 +2456,19 @@ describe("P2TR signature-fraud witness parsing", () => {
       vector.signedInputIndex,
       vector.witnessSignatureHex
     )
-    const watchtower = createDraftApprovedP2TRWatchtower(
-      new InMemoryP2TRWatchtowerChallengeStore(),
-      [vector.walletIDHex]
-    )
+    const store = new InMemoryP2TRWatchtowerChallengeStore()
+    const watchtower = createDraftApprovedP2TRWatchtower(store, [
+      vector.walletIDHex,
+    ])
     const [observed] = await watchtower.observeMempoolTransaction(
       rawTransaction,
       toObservationPrevouts(vector),
-      txHash("8")
+      authenticatedBitcoinTxHash(rawTransaction)
     )
-    const submitted = await watchtower.submitChallenge(
+    const submitted = await recordSubmittedChallenge(
+      store,
       observed.observation,
-      new FakeP2TRSignatureFraudChallengeSubmitter(txHash("9")),
-      draftApprovedSubmissionPolicy
+      txHash("9")
     )
     const slashed = await watchtower.markChallengeSlashed(
       submitted.observationID,
@@ -2185,18 +2476,19 @@ describe("P2TR signature-fraud witness parsing", () => {
     )
     const submitter = new FakeP2TRSignatureFraudChallengeSubmitter(txHash("b"))
 
-    const resubmitted = await watchtower.submitChallenge(
-      observed.observation,
+    const replayed = await new P2TRSignatureFraudWatchtowerRunner(
+      watchtower,
+      {} as BitcoinClient,
       submitter,
-      draftApprovedSubmissionPolicy
-    )
+      { submitChallenges: false }
+    ).replayStoredChallengeRecords(store)
     const rewarded = await watchtower.markChallengeRewarded(
       submitted.observationID,
       txHash("c")
     )
 
     expect(slashed.status).to.equal("slashed")
-    expect(resubmitted).to.deep.equal(slashed)
+    expect(replayed).to.deep.equal([])
     expect(submitter.submissionCount).to.equal(0)
     expect(rewarded.status).to.equal("rewarded")
     expect(rewarded.slashingTxHash?.toString()).to.equal(txHash("a"))
@@ -2217,12 +2509,12 @@ describe("P2TR signature-fraud witness parsing", () => {
     const [observed] = await watchtower.observeMempoolTransaction(
       rawTransaction,
       toObservationPrevouts(vector),
-      txHash("1")
+      authenticatedBitcoinTxHash(rawTransaction)
     )
-    const submitted = await watchtower.submitChallenge(
+    const submitted = await recordSubmittedChallenge(
+      store,
       observed.observation,
-      new FakeP2TRSignatureFraudChallengeSubmitter(txHash("2")),
-      draftApprovedSubmissionPolicy
+      txHash("2")
     )
     const raised = await watchtower.raiseChallengeOperatorAlert(
       submitted.observationID,
@@ -2317,7 +2609,7 @@ describe("P2TR signature-fraud witness parsing", () => {
     expect(summary.unresolvedOperatorAlerts).to.equal(2)
   })
 
-  it("processes mempool transactions through the watchtower runner", async () => {
+  it("processes mempool transactions observation-only through the watchtower runner", async () => {
     const vector = vectorCorpus.cases[0]
     const rawTransaction = withInputWitness(
       vector.unsignedTransactionHex,
@@ -2338,40 +2630,38 @@ describe("P2TR signature-fraud witness parsing", () => {
       bitcoinClient,
       submitter,
       {
-        submitChallenges: true,
+        submitChallenges: false,
         submissionPolicy: draftApprovedSubmissionPolicy,
       }
     )
 
     const processed = await runner.processMempoolTransaction(
       rawTransaction,
-      txHash("9")
+      authenticatedBitcoinTxHash(rawTransaction)
     )
     const duplicate = await runner.processMempoolTransaction(
       rawTransaction,
-      txHash("9")
+      authenticatedBitcoinTxHash(rawTransaction)
     )
     const batch = await runner.processMempoolTransactions([
       {
         rawTransaction,
-        bitcoinTxHash: txHash("9"),
+        bitcoinTxHash: authenticatedBitcoinTxHash(rawTransaction),
       },
     ])
 
     expect(processed).to.have.lengthOf(1)
     expect(batch).to.have.lengthOf(1)
     expect(processed[0].record.bitcoinStatus).to.equal("mempool")
-    expect(processed[0].submissionRecord.status).to.equal("submitted")
-    expect(processed[0].submissionRecord.challengeTxHash?.toString()).to.equal(
-      txHash("8")
-    )
+    expect(processed[0].submissionRecord.status).to.equal("observed")
+    expect(processed[0].submissionRecord.challengeTxHash).to.equal(undefined)
     expect(duplicate[0].submissionRecord).to.deep.equal(
       processed[0].submissionRecord
     )
     expect(batch[0].submissionRecord).to.deep.equal(
       processed[0].submissionRecord
     )
-    expect(submitter.submissionCount).to.equal(1)
+    expect(submitter.submissionCount).to.equal(0)
   })
 
   it("defaults watchtower runner processing to observation-only", async () => {
@@ -2396,11 +2686,11 @@ describe("P2TR signature-fraud witness parsing", () => {
 
     const [processed] = await runner.processMempoolTransaction(
       rawTransaction,
-      txHash("9")
+      authenticatedBitcoinTxHash(rawTransaction)
     )
     const [duplicate] = await runner.processMempoolTransaction(
       rawTransaction,
-      txHash("9")
+      authenticatedBitcoinTxHash(rawTransaction)
     )
     const [replayed] = await runner.replayStoredChallengeRecords(store)
 
@@ -2461,17 +2751,18 @@ describe("P2TR signature-fraud witness parsing", () => {
       getRawTransaction: async () =>
         rawPreviousTransactionForPrevout(vector.prevouts[0]),
     } as unknown as BitcoinClient
+    const submitter = new FakeP2TRSignatureFraudChallengeSubmitter(
+      new Error("bridge unavailable")
+    )
     const runner = new P2TRSignatureFraudWatchtowerRunner(
       createDraftApprovedP2TRWatchtower(
         new InMemoryP2TRWatchtowerChallengeStore(),
         [vector.walletIDHex]
       ),
       bitcoinClient,
-      new FakeP2TRSignatureFraudChallengeSubmitter(
-        new Error("bridge unavailable")
-      ),
+      submitter,
       {
-        submitChallenges: true,
+        submitChallenges: false,
         submissionPolicy: draftApprovedSubmissionPolicy,
       }
     )
@@ -2495,10 +2786,9 @@ describe("P2TR signature-fraud witness parsing", () => {
     expect(batch).to.have.lengthOf(1)
     expect(processed[0].record.bitcoinStatus).to.equal("confirmed")
     expect(processed[0].record.bitcoinBlockHeight).to.equal(792)
-    expect(processed[0].submissionRecord.status).to.equal("rejected")
-    expect(processed[0].submissionRecord.lastError).to.equal(
-      "bridge unavailable"
-    )
+    expect(processed[0].submissionRecord.status).to.equal("observed")
+    expect(processed[0].submissionRecord.lastError).to.equal(undefined)
+    expect(submitter.submissionCount).to.equal(0)
   })
 
   it("does not submit when the runner observes no registered wallet spend", async () => {
@@ -2523,12 +2813,15 @@ describe("P2TR signature-fraud witness parsing", () => {
     )
 
     expect(
-      await runner.processMempoolTransaction(rawTransaction, txHash("e"))
+      await runner.processMempoolTransaction(
+        rawTransaction,
+        authenticatedBitcoinTxHash(rawTransaction)
+      )
     ).to.deep.equal([])
     expect(submitter.submissionCount).to.equal(0)
   })
 
-  it("settles batch transaction failures without dropping valid submissions", async () => {
+  it("settles batch transaction failures without dropping valid observations", async () => {
     const vector = vectorCorpus.cases[0]
     const rawTransaction = withInputWitness(
       vector.unsignedTransactionHex,
@@ -2549,6 +2842,9 @@ describe("P2TR signature-fraud witness parsing", () => {
     const malformedRawTransaction = {
       transactionHex: malformedTransaction.toHex(),
     }
+    const malformedBitcoinTxHash = authenticatedBitcoinTxHash(
+      malformedRawTransaction
+    )
     const bitcoinClient = {
       getRawTransaction: async () =>
         rawPreviousTransactionForPrevout(vector.prevouts[0]),
@@ -2564,7 +2860,7 @@ describe("P2TR signature-fraud witness parsing", () => {
       bitcoinClient,
       mempoolSubmitter,
       {
-        submitChallenges: true,
+        submitChallenges: false,
         submissionPolicy: draftApprovedSubmissionPolicy,
       }
     )
@@ -2579,7 +2875,7 @@ describe("P2TR signature-fraud witness parsing", () => {
       bitcoinClient,
       confirmedSubmitter,
       {
-        submitChallenges: true,
+        submitChallenges: false,
         submissionPolicy: draftApprovedSubmissionPolicy,
       }
     )
@@ -2587,11 +2883,11 @@ describe("P2TR signature-fraud witness parsing", () => {
     const mempoolBatch = await mempoolRunner.processMempoolTransactionsSettled([
       {
         rawTransaction,
-        bitcoinTxHash: txHash("2"),
+        bitcoinTxHash: authenticatedBitcoinTxHash(rawTransaction),
       },
       {
         rawTransaction: malformedRawTransaction,
-        bitcoinTxHash: txHash("3"),
+        bitcoinTxHash: malformedBitcoinTxHash,
       },
     ])
     const confirmedBatch =
@@ -2604,7 +2900,7 @@ describe("P2TR signature-fraud witness parsing", () => {
         },
         {
           rawTransaction: malformedRawTransaction,
-          bitcoinTxHash: txHash("6"),
+          bitcoinTxHash: malformedBitcoinTxHash,
           bitcoinBlockHash: txHash("7"),
           bitcoinBlockHeight: 793,
         },
@@ -2613,7 +2909,7 @@ describe("P2TR signature-fraud witness parsing", () => {
     expect(mempoolBatch.submissions).to.have.lengthOf(1)
     expect(mempoolBatch.failures).to.have.lengthOf(1)
     expect(mempoolBatch.failures[0].transaction.bitcoinTxHash).to.equal(
-      txHash("3")
+      malformedBitcoinTxHash
     )
     expect(mempoolBatch.failures[0].error).to.include(
       "Only Taproot key-path witnesses"
@@ -2621,10 +2917,10 @@ describe("P2TR signature-fraud witness parsing", () => {
     expect(confirmedBatch.submissions).to.have.lengthOf(1)
     expect(confirmedBatch.failures).to.have.lengthOf(1)
     expect(confirmedBatch.failures[0].transaction.bitcoinTxHash).to.equal(
-      txHash("6")
+      malformedBitcoinTxHash
     )
-    expect(mempoolSubmitter.submissionCount).to.equal(1)
-    expect(confirmedSubmitter.submissionCount).to.equal(1)
+    expect(mempoolSubmitter.submissionCount).to.equal(0)
+    expect(confirmedSubmitter.submissionCount).to.equal(0)
   })
 
   it("replays restored watchtower challenges with persisted observations", async () => {
@@ -2634,19 +2930,19 @@ describe("P2TR signature-fraud witness parsing", () => {
       vector.signedInputIndex,
       vector.witnessSignatureHex
     )
-    const initialWatchtower = createDraftApprovedP2TRWatchtower(
-      new InMemoryP2TRWatchtowerChallengeStore(),
-      [vector.walletIDHex]
-    )
+    const initialStore = new InMemoryP2TRWatchtowerChallengeStore()
+    const initialWatchtower = createDraftApprovedP2TRWatchtower(initialStore, [
+      vector.walletIDHex,
+    ])
     const [observed] = await initialWatchtower.observeMempoolTransaction(
       rawTransaction,
       toObservationPrevouts(vector),
-      txHash("f")
+      authenticatedBitcoinTxHash(rawTransaction)
     )
-    const rejected = await initialWatchtower.submitChallenge(
+    const rejected = await recordRejectedChallenge(
+      initialStore,
       observed.observation,
-      new FakeP2TRSignatureFraudChallengeSubmitter(new Error("rpc timeout")),
-      draftApprovedSubmissionPolicy
+      "rpc timeout"
     )
     const restoredRecord = deserializeP2TRWatchtowerChallengeRecord(
       serializeP2TRWatchtowerChallengeRecord(rejected)
@@ -2660,7 +2956,7 @@ describe("P2TR signature-fraud witness parsing", () => {
       {} as BitcoinClient,
       submitter,
       {
-        submitChallenges: true,
+        submitChallenges: false,
         submissionPolicy: draftApprovedSubmissionPolicy,
       }
     )
@@ -2678,13 +2974,11 @@ describe("P2TR signature-fraud witness parsing", () => {
     expect(replayed.observation.observationID.toString()).to.equal(
       restoredRecord.observationID.toString()
     )
-    expect(replayed.submissionRecord.status).to.equal("submitted")
-    expect(replayed.submissionRecord.submissionAttempts).to.equal(2)
-    expect(replayed.submissionRecord.challengeTxHash?.toString()).to.equal(
-      txHash("1")
-    )
+    expect(replayed.submissionRecord.status).to.equal("rejected")
+    expect(replayed.submissionRecord.submissionAttempts).to.equal(1)
+    expect(replayed.submissionRecord.challengeTxHash).to.equal(undefined)
     expect(skipped).to.deep.equal([])
-    expect(submitter.submissionCount).to.equal(1)
+    expect(submitter.submissionCount).to.equal(0)
   })
 
   it("honors runner submission attempt limits for rejected challenges", async () => {
@@ -2702,12 +2996,25 @@ describe("P2TR signature-fraud witness parsing", () => {
     const submitter = new FakeP2TRSignatureFraudChallengeSubmitter(
       new Error("bridge unavailable")
     )
+    const watchtower = createDraftApprovedP2TRWatchtower(store, [
+      vector.walletIDHex,
+    ])
+    const [observed] = await watchtower.observeMempoolTransaction(
+      rawTransaction,
+      toObservationPrevouts(vector),
+      authenticatedBitcoinTxHash(rawTransaction)
+    )
+    await recordRejectedChallenge(
+      store,
+      observed.observation,
+      "bridge unavailable"
+    )
     const runner = new P2TRSignatureFraudWatchtowerRunner(
-      createDraftApprovedP2TRWatchtower(store, [vector.walletIDHex]),
+      watchtower,
       bitcoinClient,
       submitter,
       {
-        submitChallenges: true,
+        submitChallenges: false,
         maxSubmissionAttempts: 1,
         submissionPolicy: draftApprovedSubmissionPolicy,
       }
@@ -2715,11 +3022,11 @@ describe("P2TR signature-fraud witness parsing", () => {
 
     const [firstAttempt] = await runner.processMempoolTransaction(
       rawTransaction,
-      txHash("2")
+      authenticatedBitcoinTxHash(rawTransaction)
     )
     const [duplicateObservation] = await runner.processMempoolTransaction(
       rawTransaction,
-      txHash("2")
+      authenticatedBitcoinTxHash(rawTransaction)
     )
     const [replayed] = await runner.replayStoredChallengeRecords(store)
 
@@ -2729,7 +3036,7 @@ describe("P2TR signature-fraud witness parsing", () => {
     expect(duplicateObservation.submissionRecord.submissionAttempts).to.equal(1)
     expect(replayed.submissionRecord.status).to.equal("rejected")
     expect(replayed.submissionRecord.submissionAttempts).to.equal(1)
-    expect(submitter.submissionCount).to.equal(1)
+    expect(submitter.submissionCount).to.equal(0)
   })
 
   it("raises operator alerts when runner submission attempt limits are reached", async () => {
@@ -2747,12 +3054,25 @@ describe("P2TR signature-fraud witness parsing", () => {
     const submitter = new FakeP2TRSignatureFraudChallengeSubmitter(
       new Error("bridge unavailable")
     )
+    const watchtower = createDraftApprovedP2TRWatchtower(store, [
+      vector.walletIDHex,
+    ])
+    const [observed] = await watchtower.observeMempoolTransaction(
+      rawTransaction,
+      toObservationPrevouts(vector),
+      authenticatedBitcoinTxHash(rawTransaction)
+    )
+    await recordRejectedChallenge(
+      store,
+      observed.observation,
+      "bridge unavailable"
+    )
     const runner = new P2TRSignatureFraudWatchtowerRunner(
-      createDraftApprovedP2TRWatchtower(store, [vector.walletIDHex]),
+      watchtower,
       bitcoinClient,
       submitter,
       {
-        submitChallenges: true,
+        submitChallenges: false,
         maxSubmissionAttempts: 1,
         submissionPolicy: draftApprovedSubmissionPolicy,
         submissionAttemptLimitAlert: {
@@ -2764,30 +3084,32 @@ describe("P2TR signature-fraud witness parsing", () => {
 
     const [firstAttempt] = await runner.processMempoolTransaction(
       rawTransaction,
-      txHash("2")
+      authenticatedBitcoinTxHash(rawTransaction)
     )
     const [duplicateObservation] = await runner.processMempoolTransaction(
       rawTransaction,
-      txHash("2")
+      authenticatedBitcoinTxHash(rawTransaction)
     )
     const [replayed] = await runner.replayStoredChallengeRecords(store)
 
     expect(firstAttempt.submissionRecord.status).to.equal("rejected")
     expect(firstAttempt.submissionRecord.submissionAttempts).to.equal(1)
-    expect(firstAttempt.submissionRecord.operatorAlertStatus).to.equal("open")
-    expect(firstAttempt.submissionRecord.operatorAlertCode).to.equal(
-      "P2TR-SUBMISSION-ATTEMPT-LIMIT"
-    )
-    expect(firstAttempt.submissionRecord.operatorAlertMessage).to.equal(
-      "challenge submission reached its retry limit"
+    expect(firstAttempt.submissionRecord.operatorAlertStatus).to.equal(
+      undefined
     )
     expect(duplicateObservation.submissionRecord.submissionAttempts).to.equal(1)
     expect(duplicateObservation.submissionRecord.operatorAlertStatus).to.equal(
-      "open"
+      undefined
     )
     expect(replayed.submissionRecord.submissionAttempts).to.equal(1)
     expect(replayed.submissionRecord.operatorAlertStatus).to.equal("open")
-    expect(submitter.submissionCount).to.equal(1)
+    expect(replayed.submissionRecord.operatorAlertCode).to.equal(
+      "P2TR-SUBMISSION-ATTEMPT-LIMIT"
+    )
+    expect(replayed.submissionRecord.operatorAlertMessage).to.equal(
+      "challenge submission reached its retry limit"
+    )
+    expect(submitter.submissionCount).to.equal(0)
   })
 
   it("rejects invalid runner submission attempt limits", () => {
@@ -2848,7 +3170,7 @@ describe("P2TR signature-fraud witness parsing", () => {
       bitcoinClient,
       submitter,
       {
-        submitChallenges: true,
+        submitChallenges: false,
         maxSubmissionAttempts: 1,
         submissionPolicy: draftApprovedSubmissionPolicy,
         submissionAttemptLimitAlert: {
@@ -2863,7 +3185,7 @@ describe("P2TR signature-fraud witness parsing", () => {
         listMempoolTransactions: async () => [
           {
             rawTransaction,
-            bitcoinTxHash: txHash("1"),
+            bitcoinTxHash: authenticatedBitcoinTxHash(rawTransaction),
           },
         ],
         listConfirmedTransactions: async () => {
@@ -2877,11 +3199,11 @@ describe("P2TR signature-fraud witness parsing", () => {
     expect(cycle.mempool.submissions).to.have.lengthOf(1)
     expect(cycle.mempool.failures).to.deep.equal([])
     expect(cycle.mempool.submissions[0].submissionRecord.status).to.equal(
-      "rejected"
+      "observed"
     )
     expect(
       cycle.mempool.submissions[0].submissionRecord.operatorAlertStatus
-    ).to.equal("open")
+    ).to.equal(undefined)
     expect(cycle.confirmed.submissions).to.deep.equal([])
     expect(cycle.confirmed.failures).to.deep.equal([])
     expect(cycle.sourceFailures).to.deep.equal([
@@ -2891,15 +3213,12 @@ describe("P2TR signature-fraud witness parsing", () => {
       },
     ])
     expect(cycle.summary.total).to.equal(1)
-    expect(cycle.summary.byStatus.rejected).to.equal(1)
+    expect(cycle.summary.byStatus.observed).to.equal(1)
     expect(cycle.summary.byBitcoinStatus.mempool).to.equal(1)
-    expect(cycle.summary.byOperatorAlertStatus.open).to.equal(1)
-    expect(cycle.summary.unresolvedOperatorAlerts).to.equal(1)
-    expect(cycle.unresolvedOperatorAlerts).to.have.lengthOf(1)
-    expect(cycle.unresolvedOperatorAlerts[0].operatorAlertCode).to.equal(
-      "P2TR-SUBMISSION-ATTEMPT-LIMIT"
-    )
-    expect(submitter.submissionCount).to.equal(1)
+    expect(cycle.summary.byOperatorAlertStatus.open).to.equal(0)
+    expect(cycle.summary.unresolvedOperatorAlerts).to.equal(0)
+    expect(cycle.unresolvedOperatorAlerts).to.deep.equal([])
+    expect(submitter.submissionCount).to.equal(0)
   })
 
   it("replays stored challenges during watchtower transaction source cycles", async () => {
@@ -2916,20 +3235,16 @@ describe("P2TR signature-fraud witness parsing", () => {
     const [observed] = await initialWatchtower.observeMempoolTransaction(
       rawTransaction,
       toObservationPrevouts(vector),
-      txHash("1")
+      authenticatedBitcoinTxHash(rawTransaction)
     )
-    await initialWatchtower.submitChallenge(
-      observed.observation,
-      new FakeP2TRSignatureFraudChallengeSubmitter(new Error("rpc timeout")),
-      draftApprovedSubmissionPolicy
-    )
+    await recordRejectedChallenge(store, observed.observation, "rpc timeout")
     const submitter = new FakeP2TRSignatureFraudChallengeSubmitter(txHash("2"))
     const runner = new P2TRSignatureFraudWatchtowerRunner(
       createDraftApprovedP2TRWatchtower(store, [vector.walletIDHex]),
       {} as BitcoinClient,
       submitter,
       {
-        submitChallenges: true,
+        submitChallenges: false,
         submissionPolicy: draftApprovedSubmissionPolicy,
       }
     )
@@ -2937,24 +3252,26 @@ describe("P2TR signature-fraud witness parsing", () => {
     const cycle = await runner.processTransactionSourceSettled(
       {
         listMempoolTransactions: async () => [],
-        listConfirmedTransactions: async () => [],
+        listConfirmedTransactions: async () => ({
+          transactions: [],
+          complete: true,
+        }),
       },
       store
     )
 
     expect(cycle.replayed).to.have.lengthOf(1)
-    expect(cycle.replayed[0].record.status).to.equal("rejected")
-    expect(cycle.replayed[0].submissionRecord.status).to.equal("submitted")
-    expect(cycle.replayed[0].submissionRecord.submissionAttempts).to.equal(2)
-    expect(
-      cycle.replayed[0].submissionRecord.challengeTxHash?.toString()
-    ).to.equal(txHash("2"))
+    expect(cycle.replayed[0].submissionRecord.status).to.equal("rejected")
+    expect(cycle.replayed[0].submissionRecord.submissionAttempts).to.equal(1)
+    expect(cycle.replayed[0].submissionRecord.challengeTxHash).to.equal(
+      undefined
+    )
     expect(cycle.mempool.submissions).to.deep.equal([])
     expect(cycle.confirmed.submissions).to.deep.equal([])
     expect(cycle.sourceFailures).to.deep.equal([])
     expect(cycle.summary.total).to.equal(1)
-    expect(cycle.summary.byStatus.submitted).to.equal(1)
-    expect(submitter.submissionCount).to.equal(1)
+    expect(cycle.summary.byStatus.rejected).to.equal(1)
+    expect(submitter.submissionCount).to.equal(0)
   })
 
   it("processes Bridge lifecycle source cycles with summaries and isolated failures", async () => {
@@ -2971,12 +3288,12 @@ describe("P2TR signature-fraud witness parsing", () => {
     const [observed] = await watchtower.observeMempoolTransaction(
       rawTransaction,
       toObservationPrevouts(vector),
-      txHash("1")
+      authenticatedBitcoinTxHash(rawTransaction)
     )
-    const submitted = await watchtower.submitChallenge(
+    const submitted = await recordSubmittedChallenge(
+      store,
       observed.observation,
-      new FakeP2TRSignatureFraudChallengeSubmitter(txHash("2")),
-      draftApprovedSubmissionPolicy
+      txHash("2")
     )
     await watchtower.raiseChallengeOperatorAlert(
       submitted.observationID,
@@ -3069,12 +3386,12 @@ describe("P2TR signature-fraud witness parsing", () => {
     const [observed] = await watchtower.observeMempoolTransaction(
       rawTransaction,
       toObservationPrevouts(vector),
-      txHash("6")
+      authenticatedBitcoinTxHash(rawTransaction)
     )
-    const submitted = await watchtower.submitChallenge(
+    const submitted = await recordSubmittedChallenge(
+      store,
       observed.observation,
-      new FakeP2TRSignatureFraudChallengeSubmitter(txHash("7")),
-      draftApprovedSubmissionPolicy
+      txHash("7")
     )
     const bridgeChallengeKey = observed.observation.bridgeChallengeKey
     if (bridgeChallengeKey === undefined) {
@@ -3151,41 +3468,33 @@ describe("P2TR signature-fraud witness parsing", () => {
       [vector.walletIDHex],
       bridgeChallengeDomain
     )
-    const submitter = new FakeP2TRSignatureFraudChallengeSubmitter(txHash("7"))
-
     const [[original], [replacement]] = await Promise.all([
       watchtower.observeMempoolTransaction(
         originalRawTransaction,
         inputPrevouts,
-        txHash("6")
+        authenticatedBitcoinTxHash(originalRawTransaction)
       ),
       watchtower.observeMempoolTransaction(
         replacementRawTransaction,
         inputPrevouts,
-        txHash("8")
+        authenticatedBitcoinTxHash(replacementRawTransaction)
       ),
     ])
-    const [originalSubmission, replacementSubmission] = await Promise.all([
-      watchtower.submitChallenge(
-        original.observation,
-        submitter,
-        draftApprovedSubmissionPolicy
-      ),
-      watchtower.submitChallenge(
-        replacement.observation,
-        submitter,
-        draftApprovedSubmissionPolicy
-      ),
-    ])
+    const originalSubmission = await recordSubmittedChallenge(
+      store,
+      original.observation,
+      txHash("7")
+    )
+    const replacementSubmission = await store.getChallengeRecord(
+      replacement.observation.observationID
+    )
     const [reobservedReplacement] = await watchtower.observeMempoolTransaction(
       replacementRawTransaction,
       inputPrevouts,
-      txHash("8")
+      authenticatedBitcoinTxHash(replacementRawTransaction)
     )
-    const replayedReplacementSubmission = await watchtower.submitChallenge(
-      reobservedReplacement.observation,
-      submitter,
-      draftApprovedSubmissionPolicy
+    const replayedReplacementSubmission = await store.getChallengeRecord(
+      reobservedReplacement.observation.observationID
     )
 
     const bridgeChallengeKey = original.observation.bridgeChallengeKey
@@ -3235,9 +3544,8 @@ describe("P2TR signature-fraud witness parsing", () => {
       bridgeChallengeKey.toString()
     )
     expect(originalSubmission.status).to.equal("submitted")
-    expect(replacementSubmission.status).to.equal("submitted")
-    expect(replayedReplacementSubmission.status).to.equal("submitted")
-    expect(submitter.submissionCount).to.equal(1)
+    expect(replacementSubmission?.status).to.equal("submitted")
+    expect(replayedReplacementSubmission?.status).to.equal("submitted")
     expect(records).to.have.lengthOf(1)
     expect(persistence.records).to.have.lengthOf(1)
     expect(lifecycle.failures).to.deep.equal([])
@@ -3283,12 +3591,6 @@ describe("P2TR signature-fraud witness parsing", () => {
       unsignedTransaction.transactionHex === vector.unsignedTransactionHex
         ? P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION
         : P2TR_SIGNATURE_FRAUD_SPEND_TYPE_MOVING_FUNDS
-    const submissionPolicy: P2TRSignatureFraudChallengeSubmissionPolicy = {
-      allowedSpendTypes: [
-        P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
-        P2TR_SIGNATURE_FRAUD_SPEND_TYPE_MOVING_FUNDS,
-      ],
-    }
     const persistence = new InMemoryP2TRWatchtowerChallengeRecordPersistence()
     const store = new P2TRWatchtowerSerializedChallengeStore(persistence)
     const watchtower = new P2TRSignatureFraudWatchtower(
@@ -3312,11 +3614,7 @@ describe("P2TR signature-fraud witness parsing", () => {
       txHash("a"),
       143
     )
-    await watchtower.submitChallenge(
-      original.observation,
-      new FakeP2TRSignatureFraudChallengeSubmitter(txHash("7")),
-      submissionPolicy
-    )
+    await recordSubmittedChallenge(store, original.observation, txHash("7"))
     const [replacement] = await watchtower.observeConfirmedTransaction(
       replacementRawTransaction,
       inputPrevouts,
@@ -3779,7 +4077,7 @@ describe("P2TR signature-fraud witness parsing", () => {
       undefined,
       bridgeChallengeDomain
     )
-    const bitcoinTxHash = Hex.from(txHash("c"))
+    const bitcoinTxHash = Hex.from(authenticatedBitcoinTxHash(rawTransaction))
     const legacyRecord: P2TRWatchtowerChallengeRecord = {
       ...createP2TRWatchtowerChallengeRecord(observation.observationID),
       observation,
@@ -3881,7 +4179,7 @@ describe("P2TR signature-fraud witness parsing", () => {
     )
   })
 
-  it("serializes same-key replacement observations with submission lifecycle updates", async () => {
+  it("serializes same-key replacement observations with submission lifecycle events", async () => {
     const vector = loadFullSighashVectorCorpus().cases.find(
       (candidate) => candidate.id === "bip341-keypath-anyonecanpay-none-multi"
     )
@@ -3915,28 +4213,26 @@ describe("P2TR signature-fraud witness parsing", () => {
       [vector.walletIDHex],
       bridgeChallengeDomain
     )
-    const submitter = new FakeP2TRSignatureFraudChallengeSubmitter(txHash("7"))
     const [original] = await watchtower.observeMempoolTransaction(
       originalRawTransaction,
       inputPrevouts,
-      txHash("6")
+      authenticatedBitcoinTxHash(originalRawTransaction)
     )
 
     const replacementSave = store.blockNextSave()
     const replacementObservation = watchtower.observeMempoolTransaction(
       replacementRawTransaction,
       inputPrevouts,
-      txHash("8")
+      authenticatedBitcoinTxHash(replacementRawTransaction)
     )
     await replacementSave.started
     const getCallsBeforeSubmission = store.getCalls
-    const submission = watchtower.submitChallenge(
+    const submission = recordSubmittedChallenge(
+      store,
       original.observation,
-      submitter,
-      draftApprovedSubmissionPolicy
+      txHash("7")
     )
     const getCallsWhileReplacementSaveBlocked = store.getCalls
-    const submissionsWhileReplacementSaveBlocked = submitter.submissionCount
     replacementSave.unblock()
 
     const [[replacement], submitted] = await Promise.all([
@@ -3953,15 +4249,13 @@ describe("P2TR signature-fraud witness parsing", () => {
     expect(getCallsWhileReplacementSaveBlocked).to.equal(
       getCallsBeforeSubmission
     )
-    expect(submissionsWhileReplacementSaveBlocked).to.equal(0)
     expect(submitted.status).to.equal("submitted")
     expect(finalRecord?.status).to.equal("submitted")
     expect(finalRecord?.submissionAttempts).to.equal(1)
     expect(finalRecord?.challengeTxHash?.toString()).to.equal(txHash("7"))
-    expect(submitter.submissionCount).to.equal(1)
   })
 
-  it("does not submit when lifecycle closure wins before submission start", async () => {
+  it("serializes lifecycle closure after a submission-started event", async () => {
     const vector = vectorCorpus.cases[0]
     const rawTransaction = withInputWitness(
       vector.unsignedTransactionHex,
@@ -3974,19 +4268,18 @@ describe("P2TR signature-fraud witness parsing", () => {
       [vector.walletIDHex],
       bridgeChallengeDomain
     )
-    const submitter = new FakeP2TRSignatureFraudChallengeSubmitter(txHash("7"))
     const [observed] = await watchtower.observeMempoolTransaction(
       rawTransaction,
       toObservationPrevouts(vector),
-      txHash("6")
+      authenticatedBitcoinTxHash(rawTransaction)
     )
 
     const observedSave = store.blockNextSave()
-    const submission = watchtower.submitChallenge(
-      observed.observation,
-      submitter,
-      draftApprovedSubmissionPolicy
-    )
+    const submission = recordP2TRWatchtowerChallengeEvent(store, {
+      type: "submission-started",
+      observationID: observed.observation.observationID,
+      observation: observed.observation,
+    })
     await observedSave.started
     const closure = watchtower.markChallengeTimeoutEligible(
       observed.observation.observationID
@@ -4002,10 +4295,9 @@ describe("P2TR signature-fraud witness parsing", () => {
     )
 
     expect(closureRecord.status).to.equal("timeout-eligible")
-    expect(submissionRecord.status).to.equal("timeout-eligible")
+    expect(submissionRecord.status).to.equal("submitting")
     expect(finalRecord?.status).to.equal("timeout-eligible")
-    expect(finalRecord?.submissionAttempts).to.equal(0)
-    expect(submitter.submissionCount).to.equal(0)
+    expect(finalRecord?.submissionAttempts).to.equal(1)
   })
 
   it("atomically stores the flexible-sighash payload selected for submission", async () => {
@@ -4042,35 +4334,38 @@ describe("P2TR signature-fraud witness parsing", () => {
       [vector.walletIDHex],
       bridgeChallengeDomain
     )
-    const submitter = new FakeP2TRSignatureFraudChallengeSubmitter(txHash("7"))
     const [original] = await watchtower.observeMempoolTransaction(
       originalRawTransaction,
       inputPrevouts,
-      txHash("6")
+      authenticatedBitcoinTxHash(originalRawTransaction)
     )
 
     const submissionObservationSave = store.blockNextSave()
-    const submission = watchtower.submitChallenge(
-      original.observation,
-      submitter,
-      draftApprovedSubmissionPolicy
-    )
+    const submission = recordP2TRWatchtowerChallengeEvent(store, {
+      type: "submission-started",
+      observationID: original.observation.observationID,
+      observation: original.observation,
+    })
     await submissionObservationSave.started
     const replacementObservation = watchtower.observeMempoolTransaction(
       replacementRawTransaction,
       inputPrevouts,
-      txHash("8")
+      authenticatedBitcoinTxHash(replacementRawTransaction)
     )
     submissionObservationSave.unblock()
 
-    const [submitted, [replacement]] = await Promise.all([
+    const [submitting, [replacement]] = await Promise.all([
       submission,
       replacementObservation,
     ])
+    const submitted = await recordP2TRWatchtowerChallengeEvent(store, {
+      type: "submission-accepted",
+      observationID: original.observation.observationID,
+      challengeTxHash: txHash("7"),
+    })
     const finalRecord = await store.getChallengeRecord(
       original.observation.observationID
     )
-    const submittedObservation = submitter.submittedObservations[0]
 
     expect(replacement.observation.observationID.toString()).to.equal(
       original.observation.observationID.toString()
@@ -4078,18 +4373,15 @@ describe("P2TR signature-fraud witness parsing", () => {
     expect(replacementRawTransaction.transactionHex).to.not.equal(
       originalRawTransaction.transactionHex
     )
-    expect(submitter.submissionCount).to.equal(1)
+    expect(submitting.status).to.equal("submitting")
     expect(submitted.status).to.equal("submitted")
     expect(finalRecord?.status).to.equal("submitted")
     expect(finalRecord?.observation?.rawTransaction.transactionHex).to.equal(
-      submittedObservation.rawTransaction.transactionHex
-    )
-    expect(submittedObservation.rawTransaction.transactionHex).to.equal(
       originalRawTransaction.transactionHex
     )
   })
 
-  it("revalidates the frozen crash-recovery payload before submission", async () => {
+  it("keeps frozen crash-recovery payloads inert while submission is disabled", async () => {
     const vector = loadFullSighashVectorCorpus().cases.find(
       (candidate) => candidate.id === "bip341-keypath-anyonecanpay-none-multi"
     )
@@ -4193,24 +4485,31 @@ describe("P2TR signature-fraud witness parsing", () => {
     const allowedSubmitter = new FakeP2TRSignatureFraudChallengeSubmitter(
       txHash("6")
     )
-    const allowed = await allowedWatchtower.submitChallenge(
-      replacementObservation,
-      allowedSubmitter,
-      {
-        allowedSpendTypes: [
-          P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
-          P2TR_SIGNATURE_FRAUD_SPEND_TYPE_MOVING_FUNDS,
-        ],
-      }
+    await expectWitnessRejection(
+      () =>
+        allowedWatchtower.submitChallenge(
+          replacementObservation,
+          allowedSubmitter,
+          {
+            allowedSpendTypes: [
+              P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION,
+              P2TR_SIGNATURE_FRAUD_SPEND_TYPE_MOVING_FUNDS,
+            ],
+          }
+        ),
+      "invalid-watchtower-state"
+    )
+    const allowed = await allowedStore.getChallengeRecord(
+      originalObservation.observationID
     )
 
-    expect(allowed.status).to.equal("submitted")
-    expect(allowed.submissionAttempts).to.equal(2)
-    expect(allowedSubmitter.submissionCount).to.equal(1)
-    expect(
-      allowedSubmitter.submittedObservations[0].rawTransaction.transactionHex
-    ).to.equal(originalRawTransaction.transactionHex)
-    expect(allowedSubmitter.submittedObservations[0].spendType).to.equal(
+    expect(allowed?.status).to.equal("submitting")
+    expect(allowed?.submissionAttempts).to.equal(1)
+    expect(allowedSubmitter.submissionCount).to.equal(0)
+    expect(allowed?.observation?.rawTransaction.transactionHex).to.equal(
+      originalRawTransaction.transactionHex
+    )
+    expect(allowed?.observation?.spendType).to.equal(
       P2TR_SIGNATURE_FRAUD_SPEND_TYPE_REDEMPTION
     )
 
@@ -4228,20 +4527,23 @@ describe("P2TR signature-fraud witness parsing", () => {
     const triggerPolicySubmitter = new FakeP2TRSignatureFraudChallengeSubmitter(
       txHash("7")
     )
-    const triggerPolicyBlocked = await triggerPolicyWatchtower.submitChallenge(
-      replacementObservation,
-      triggerPolicySubmitter,
-      redemptionOnlyPolicy
+    await expectWitnessRejection(
+      () =>
+        triggerPolicyWatchtower.submitChallenge(
+          replacementObservation,
+          triggerPolicySubmitter,
+          redemptionOnlyPolicy
+        ),
+      "invalid-watchtower-state"
+    )
+    const triggerPolicyBlocked = await triggerPolicyStore.getChallengeRecord(
+      originalObservation.observationID
     )
 
     expect(triggerPolicySubmitter.submissionCount).to.equal(0)
-    expect(triggerPolicyBlocked.status).to.equal("submitting")
-    expect(triggerPolicyBlocked.submissionAttempts).to.equal(1)
-    expect(triggerPolicyBlocked.operatorAlertStatus).to.equal("open")
-    expect(triggerPolicyBlocked.operatorAlertCode).to.equal(
-      "P2TR-SPEND-TYPE-NOT-APPROVED"
-    )
-    expect(triggerPolicyBlocked.operatorAlertMessage).to.contain("moving-funds")
+    expect(triggerPolicyBlocked?.status).to.equal("submitting")
+    expect(triggerPolicyBlocked?.submissionAttempts).to.equal(1)
+    expect(triggerPolicyBlocked?.operatorAlertStatus).to.equal(undefined)
 
     const policyStore = new InMemoryP2TRWatchtowerChallengeStore([
       restoreSubmittingRecord(),
@@ -4257,20 +4559,23 @@ describe("P2TR signature-fraud witness parsing", () => {
     const policySubmitter = new FakeP2TRSignatureFraudChallengeSubmitter(
       txHash("8")
     )
-    const policyBlocked = await policyWatchtower.submitChallenge(
-      replacementObservation,
-      policySubmitter,
-      movingFundsOnlyPolicy
+    await expectWitnessRejection(
+      () =>
+        policyWatchtower.submitChallenge(
+          replacementObservation,
+          policySubmitter,
+          movingFundsOnlyPolicy
+        ),
+      "invalid-watchtower-state"
+    )
+    const policyBlocked = await policyStore.getChallengeRecord(
+      originalObservation.observationID
     )
 
     expect(policySubmitter.submissionCount).to.equal(0)
-    expect(policyBlocked.status).to.equal("submitting")
-    expect(policyBlocked.operatorAlertStatus).to.equal("open")
-    expect(policyBlocked.operatorAlertCode).to.equal(
-      "P2TR-SPEND-TYPE-NOT-APPROVED"
-    )
-    expect(policyBlocked.operatorAlertMessage).to.contain("redemption")
-    expect(policyBlocked.observation?.rawTransaction.transactionHex).to.equal(
+    expect(policyBlocked?.status).to.equal("submitting")
+    expect(policyBlocked?.operatorAlertStatus).to.equal(undefined)
+    expect(policyBlocked?.observation?.rawTransaction.transactionHex).to.equal(
       originalRawTransaction.transactionHex
     )
 
@@ -4368,20 +4673,17 @@ describe("P2TR signature-fraud witness parsing", () => {
       txHash("b"),
       144
     )
-    await watchtower.submitChallenge(
-      observed.observation,
-      new FakeP2TRSignatureFraudChallengeSubmitter(txHash("c")),
-      { allowedSpendTypes: [vector.flowMetadata.spendType] }
-    )
+    await recordSubmittedChallenge(store, observed.observation, txHash("c"))
     await watchtower.raiseChallengeOperatorAlert(
       observed.observation.observationID,
       "submission-retry-limit",
       "manual intervention required"
     )
+    const submitter = new FakeP2TRSignatureFraudChallengeSubmitter(txHash("d"))
     const runner = new P2TRSignatureFraudWatchtowerRunner(
       watchtower,
       {} as BitcoinClient,
-      new FakeP2TRSignatureFraudChallengeSubmitter()
+      submitter
     )
 
     const resolvedObservationID =
@@ -4409,12 +4711,7 @@ describe("P2TR signature-fraud witness parsing", () => {
     const finalRecord = await store.getChallengeRecord(
       observed.observation.observationID
     )
-    const submitter = new FakeP2TRSignatureFraudChallengeSubmitter(txHash("d"))
-    const resubmitted = await watchtower.submitChallenge(
-      observed.observation,
-      submitter,
-      { allowedSpendTypes: [vector.flowMetadata.spendType] }
-    )
+    const replayed = await runner.replayStoredChallengeRecords(store)
 
     expect(observed.observation.spendType).to.equal(
       P2TR_SIGNATURE_FRAUD_SPEND_TYPE_MOVING_FUNDS
@@ -4431,7 +4728,7 @@ describe("P2TR signature-fraud witness parsing", () => {
     expect(finalRecord?.status).to.equal("defeat-eligible")
     expect(finalRecord?.bitcoinTxHash?.toString()).to.equal(bitcoinTxHash)
     expect(finalRecord?.operatorAlertStatus).to.equal("cleared")
-    expect(resubmitted).to.deep.equal(finalRecord)
+    expect(replayed).to.deep.equal([])
     expect(submitter.submissionCount).to.equal(0)
   })
 
@@ -4449,12 +4746,12 @@ describe("P2TR signature-fraud witness parsing", () => {
       throw new Error("Missing redemption flow-shaped vector")
     }
 
-    const bitcoinTxHash = txHash("a")
     const rawTransaction = withInputWitness(
       vector.unsignedTransactionHex,
       vector.signedInputIndex,
       vector.witnessSignatureHex
     )
+    const bitcoinTxHash = authenticatedBitcoinTxHash(rawTransaction)
     const classifier = createP2TRSignatureFraudSpendTypeClassifier([
       {
         spendType: vector.flowMetadata.spendType,
@@ -4597,13 +4894,9 @@ describe("P2TR signature-fraud witness parsing", () => {
     const [observed] = await watchtower.observeMempoolTransaction(
       rawTransaction,
       toObservationPrevouts(vector),
-      txHash("6")
+      authenticatedBitcoinTxHash(rawTransaction)
     )
-    await watchtower.submitChallenge(
-      observed.observation,
-      new FakeP2TRSignatureFraudChallengeSubmitter(txHash("7")),
-      draftApprovedSubmissionPolicy
-    )
+    await recordSubmittedChallenge(store, observed.observation, txHash("7"))
     const bridgeChallengeKey = observed.observation.bridgeChallengeKey
     if (bridgeChallengeKey === undefined) {
       throw new Error("Expected Bridge challenge key")
@@ -4634,7 +4927,7 @@ describe("P2TR signature-fraud witness parsing", () => {
     )
   })
 
-  it("fails Bridge lifecycle challenge-key resolution for unknown or duplicate records", async () => {
+  it("ignores unknown Bridge challenge keys and rejects duplicate records", async () => {
     const vector = vectorCorpus.cases[0]
     const rawTransaction = withInputWitness(
       vector.unsignedTransactionHex,
@@ -4699,10 +4992,14 @@ describe("P2TR signature-fraud witness parsing", () => {
     )
 
     expect(unknown.records).to.deep.equal([])
-    expect(unknown.failures).to.have.lengthOf(1)
-    expect(unknown.failures[0].error).to.equal(
-      "No watchtower challenge record matches Bridge challenge key"
-    )
+    expect(unknown.failures).to.deep.equal([])
+    expect(unknown.ignored).to.deep.equal([
+      {
+        event: { type: "timeout-eligible", bridgeChallengeKey },
+        reason:
+          "No matching watchtower challenge record for Bridge proof event",
+      },
+    ])
     expect(duplicate.records).to.deep.equal([])
     expect(duplicate.failures).to.have.lengthOf(1)
     expect(duplicate.failures[0].error).to.equal(
@@ -4757,12 +5054,12 @@ describe("P2TR signature-fraud witness parsing", () => {
     const [observed] = await initialWatchtower.observeMempoolTransaction(
       rawTransaction,
       toObservationPrevouts(vector),
-      txHash("1")
+      authenticatedBitcoinTxHash(rawTransaction)
     )
-    const rejected = await initialWatchtower.submitChallenge(
+    const rejected = await recordRejectedChallenge(
+      store,
       observed.observation,
-      new FakeP2TRSignatureFraudChallengeSubmitter(new Error("rpc timeout")),
-      draftApprovedSubmissionPolicy
+      "rpc timeout"
     )
     const submitter = new FakeP2TRSignatureFraudChallengeSubmitter(txHash("2"))
     const runner = new P2TRSignatureFraudWatchtowerRunner(
@@ -4774,7 +5071,7 @@ describe("P2TR signature-fraud witness parsing", () => {
       {} as BitcoinClient,
       submitter,
       {
-        submitChallenges: true,
+        submitChallenges: false,
         submissionPolicy: draftApprovedSubmissionPolicy,
       }
     )
@@ -4788,7 +5085,10 @@ describe("P2TR signature-fraud witness parsing", () => {
         listMempoolTransactions: async () => {
           throw new Error("mempool source unavailable")
         },
-        listConfirmedTransactions: async () => [],
+        listConfirmedTransactions: async () => ({
+          transactions: [],
+          complete: true,
+        }),
       },
       {
         listBridgeLifecycleEvents: async () => [
@@ -4801,9 +5101,7 @@ describe("P2TR signature-fraud witness parsing", () => {
       store
     )
 
-    expect(cycle.replayed).to.have.lengthOf(1)
-    expect(cycle.replayed[0].record.status).to.equal("rejected")
-    expect(cycle.replayed[0].submissionRecord.status).to.equal("submitted")
+    expect(cycle.replayed).to.deep.equal([])
     expect(cycle.mempool.submissions).to.deep.equal([])
     expect(cycle.mempool.failures).to.deep.equal([])
     expect(cycle.confirmed.submissions).to.deep.equal([])
@@ -4822,7 +5120,194 @@ describe("P2TR signature-fraud witness parsing", () => {
     expect(cycle.summary.byStatus["timeout-eligible"]).to.equal(1)
     expect(cycle.summary.byBitcoinStatus.mempool).to.equal(1)
     expect(cycle.unresolvedOperatorAlerts).to.deep.equal([])
-    expect(submitter.submissionCount).to.equal(1)
+    expect(submitter.submissionCount).to.equal(0)
+  })
+
+  it("reconciles same-cycle honest-spend evidence before returning observations", async () => {
+    const flowVectors = vectorCorpus.cases.filter(
+      (vector) => vector.flowMetadata !== undefined
+    )
+    const vector = flowVectors.find(
+      (candidate) =>
+        candidate.flowMetadata?.spendType ===
+        P2TR_SIGNATURE_FRAUD_SPEND_TYPE_MOVING_FUNDS
+    )
+    if (vector?.flowMetadata === undefined) {
+      throw new Error("Missing moving-funds flow-shaped vector")
+    }
+
+    const rawTransaction = withInputWitness(
+      vector.unsignedTransactionHex,
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    const bitcoinTxHash = Transaction.fromHex(
+      rawTransaction.transactionHex
+    ).getId()
+    const classifier = createP2TRSignatureFraudSpendTypeClassifier(
+      flowVectors.map((candidate) => ({
+        spendType: candidate.flowMetadata!.spendType,
+        matches: ({ unsignedTransaction, candidate: witnessCandidate }) =>
+          unsignedTransaction.transactionHex ===
+            candidate.unsignedTransactionHex &&
+          witnessCandidate.inputIndex ===
+            candidate.flowMetadata!.sourceWalletInput,
+      }))
+    )
+    const bitcoinClient = {
+      getRawTransaction: async (txid: Hex) => {
+        const prevout = vector.prevouts.find(
+          ({ txidHex }) => txidHex === txid.toString()
+        )
+        if (prevout === undefined) {
+          throw new Error("Unknown test prevout")
+        }
+        return rawPreviousTransactionForPrevout(prevout)
+      },
+    } as unknown as BitcoinClient
+    const source = {
+      listMempoolTransactions: async () => [],
+      listConfirmedTransactions: async () => ({
+        transactions: [
+          {
+            rawTransaction,
+            bitcoinTxHash,
+            bitcoinBlockHash: txHash("b"),
+            bitcoinBlockHeight: 144,
+          },
+        ],
+        complete: true,
+      }),
+    }
+
+    const honestStore = new InMemoryP2TRWatchtowerChallengeStore()
+    const honestSubmitter = new FakeP2TRSignatureFraudChallengeSubmitter()
+    const honestRunner = new P2TRSignatureFraudWatchtowerRunner(
+      new P2TRSignatureFraudWatchtower(
+        honestStore,
+        [vector.walletIDHex],
+        undefined,
+        classifier,
+        undefined,
+        bridgeChallengeDomain
+      ),
+      bitcoinClient,
+      honestSubmitter,
+      {
+        submitChallenges: false,
+        submissionPolicy: {
+          allowedSpendTypes: [vector.flowMetadata.spendType],
+        },
+      }
+    )
+    const honestCycle = await honestRunner.processWatchtowerSourcesSettled(
+      source,
+      {
+        listBridgeLifecycleEvents: async () => [
+          {
+            type: "honest-spend-proven" as const,
+            bitcoinTxHash,
+            spendType: vector.flowMetadata!.spendType,
+          },
+        ],
+      },
+      honestStore
+    )
+
+    expect(honestSubmitter.submissionCount).to.equal(0)
+    expect(honestCycle.bridgeLifecycle.records).to.have.lengthOf(1)
+    expect(
+      honestCycle.confirmed.submissions[0].submissionRecord.status
+    ).to.equal("defeat-eligible")
+
+    const unmatchedStore = new InMemoryP2TRWatchtowerChallengeStore()
+    const unmatchedSubmitter = new FakeP2TRSignatureFraudChallengeSubmitter()
+    const unmatchedRunner = new P2TRSignatureFraudWatchtowerRunner(
+      new P2TRSignatureFraudWatchtower(
+        unmatchedStore,
+        [vector.walletIDHex],
+        undefined,
+        classifier,
+        undefined,
+        bridgeChallengeDomain
+      ),
+      bitcoinClient,
+      unmatchedSubmitter,
+      {
+        submitChallenges: false,
+        submissionPolicy: {
+          allowedSpendTypes: [vector.flowMetadata.spendType],
+        },
+      }
+    )
+    const unmatchedCycle =
+      await unmatchedRunner.processWatchtowerSourcesSettled(
+        source,
+        { listBridgeLifecycleEvents: async () => [] },
+        unmatchedStore
+      )
+
+    expect(unmatchedSubmitter.submissionCount).to.equal(0)
+    expect(
+      unmatchedCycle.confirmed.submissions[0].submissionRecord.status
+    ).to.equal("observed")
+  })
+
+  it("fails closed on lifecycle-source failure before submitting observed challenges", async () => {
+    const vector = vectorCorpus.cases[0]
+    const rawTransaction = withInputWitness(
+      vector.unsignedTransactionHex,
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    const store = new InMemoryP2TRWatchtowerChallengeStore()
+    const submitter = new FakeP2TRSignatureFraudChallengeSubmitter()
+    const runner = new P2TRSignatureFraudWatchtowerRunner(
+      createDraftApprovedP2TRWatchtower(
+        store,
+        [vector.walletIDHex],
+        bridgeChallengeDomain
+      ),
+      {
+        getRawTransaction: async () =>
+          rawPreviousTransactionForPrevout(vector.prevouts[0]),
+      } as unknown as BitcoinClient,
+      submitter,
+      {
+        submitChallenges: false,
+        submissionPolicy: draftApprovedSubmissionPolicy,
+      }
+    )
+
+    const cycle = await runner.processWatchtowerSourcesSettled(
+      {
+        listMempoolTransactions: async () => [
+          {
+            rawTransaction,
+            bitcoinTxHash: authenticatedBitcoinTxHash(rawTransaction),
+          },
+        ],
+        listConfirmedTransactions: async () => ({
+          transactions: [],
+          complete: true,
+        }),
+      },
+      {
+        listBridgeLifecycleEvents: async () => {
+          throw new Error("lifecycle unavailable")
+        },
+      },
+      store
+    )
+
+    expect(submitter.submissionCount).to.equal(0)
+    expect(cycle.mempool.submissions[0].submissionRecord.status).to.equal(
+      "observed"
+    )
+    expect(cycle.sourceFailures).to.deep.include({
+      source: "bridge-lifecycle",
+      error: "lifecycle unavailable",
+    })
   })
 
   it("ignores unregistered wallet spends during watchtower observation", async () => {
@@ -4841,7 +5326,7 @@ describe("P2TR signature-fraud witness parsing", () => {
       await watchtower.observeMempoolTransaction(
         rawTransaction,
         toObservationPrevouts(vector),
-        txHash("f")
+        authenticatedBitcoinTxHash(rawTransaction)
       )
     ).to.deep.equal([])
   })
@@ -5042,7 +5527,7 @@ describe("P2TR signature-fraud witness parsing", () => {
     expect(observations.map(({ inputIndex }) => inputIndex)).to.deep.equal([1])
   })
 
-  it("rejects annexed key-path witnesses for bound Taproot deposits", () => {
+  it("keeps annexed key-path witnesses for bound Taproot deposits", () => {
     const vector = vectorCorpus.cases[0]
     const transaction = Transaction.fromHex(vector.unsignedTransactionHex)
     transaction.ins[vector.signedInputIndex].witness = [
@@ -5058,23 +5543,23 @@ describe("P2TR signature-fraud witness parsing", () => {
     }))
     const signedPrevout = vector.prevouts[vector.signedInputIndex]
 
-    expectWitnessError(
-      () =>
-        extractP2TRWalletInputWitnessCandidates(
-          { transactionHex: transaction.toHex() },
-          inputPrevouts,
-          [vector.walletIDHex],
-          [
-            {
-              txid: signedPrevout.txidHex,
-              vout: signedPrevout.vout,
-              outputKey: depositOutputKey,
-              walletID: vector.walletIDHex,
-            },
-          ]
-        ),
-      "unsupported-witness-form"
+    const candidates = extractP2TRWalletInputWitnessCandidates(
+      { transactionHex: transaction.toHex() },
+      inputPrevouts,
+      [vector.walletIDHex],
+      [
+        {
+          txid: signedPrevout.txidHex,
+          vout: signedPrevout.vout,
+          outputKey: depositOutputKey,
+          walletID: vector.walletIDHex,
+        },
+      ]
     )
+
+    expect(candidates).to.have.lengthOf(1)
+    expect(candidates[0].walletID.toString()).to.equal(vector.walletIDHex)
+    expect(candidates[0].annex?.toString()).to.equal("50")
   })
 
   it("validates deposit-specific observations against their bound wallet", () => {
@@ -5184,7 +5669,8 @@ describe("P2TR signature-fraud witness parsing", () => {
     const transaction = Transaction.fromHex(vector.unsignedTransactionHex)
     transaction.ins[vector.signedInputIndex].witness = [
       Buffer.from(vector.witnessSignatureHex, "hex"),
-      Buffer.from("50", "hex"),
+      Buffer.from("51", "hex"),
+      Buffer.concat([Buffer.from("c0", "hex"), Buffer.alloc(32)]),
     ]
 
     expectWitnessError(
@@ -5729,12 +6215,12 @@ describe("P2TR signature-fraud witness parsing", () => {
     const [observed] = await watchtower.observeMempoolTransaction(
       rawTransaction,
       toObservationPrevouts(vector),
-      txHash("a")
+      authenticatedBitcoinTxHash(rawTransaction)
     )
-    const rejected = await watchtower.submitChallenge(
+    const rejected = await recordRejectedChallenge(
+      store,
       observed.observation,
-      new FakeP2TRSignatureFraudChallengeSubmitter(new Error("rpc timeout")),
-      draftApprovedSubmissionPolicy
+      "rpc timeout"
     )
     const restartedStore = new P2TRWatchtowerSerializedChallengeStore(
       persistence
@@ -5753,7 +6239,7 @@ describe("P2TR signature-fraud witness parsing", () => {
       {} as BitcoinClient,
       submitter,
       {
-        submitChallenges: true,
+        submitChallenges: false,
         submissionPolicy: draftApprovedSubmissionPolicy,
       }
     ).replayStoredChallengeRecords(restartedStore)
@@ -5763,12 +6249,10 @@ describe("P2TR signature-fraud witness parsing", () => {
     expect(restored.observation.observationID.toString()).to.equal(
       rejected.observationID.toString()
     )
-    expect(replayed.submissionRecord.status).to.equal("submitted")
-    expect(replayed.submissionRecord.submissionAttempts).to.equal(2)
-    expect(replayed.submissionRecord.challengeTxHash?.toString()).to.equal(
-      txHash("b")
-    )
-    expect(submitter.submissionCount).to.equal(1)
+    expect(replayed.submissionRecord.status).to.equal("rejected")
+    expect(replayed.submissionRecord.submissionAttempts).to.equal(1)
+    expect(replayed.submissionRecord.challengeTxHash).to.equal(undefined)
+    expect(submitter.submissionCount).to.equal(0)
   })
 
   it("rejects store events before a wallet observation exists", async () => {
