@@ -500,6 +500,332 @@ export interface P2TRSignatureFraudChallengeSubmitter {
 
 export const P2TR_SIGNATURE_FRAUD_BRIDGE_ACTION_SUBMIT = 0
 
+/**
+ * Domain separator for the durable challenge-submission outbox intent.
+ *
+ * An intent identifies the exact Router call independently from the Ethereum
+ * transaction envelope. A transaction may be prepared only for this call and
+ * the outbox must persist the signed raw transaction before making it visible
+ * to a broadcaster.
+ */
+export const P2TR_SIGNATURE_FRAUD_SUBMISSION_INTENT_ID_DOMAIN =
+  "tbtc-p2tr-signature-fraud-submission-intent-v1"
+
+export type P2TRSignatureFraudSubmissionIntent = {
+  intentID: Hex
+  observationID: Hex
+  bridgeChallengeKey: Hex
+  walletID: Hex
+  bridgeChallengeIdentity: Hex
+  sighash: Hex
+  chainID: number
+  bridgeAddress: string
+  routerAddress: string
+  calldata: string
+  value: string
+}
+
+export type P2TRSignatureFraudSubmissionIntentOptions = {
+  chainID: BigNumberish
+  bridgeAddress: string
+  routerAddress: string
+  challengeDepositAmount: BigNumberish
+}
+
+export type P2TRSignatureFraudPreparedChallengeTransaction = {
+  intentID: Hex
+  rawTransaction: string
+  transactionHash: Hex
+  sender: string
+  nonce: number
+}
+
+export interface P2TRSignatureFraudChallengeTransactionPreparer {
+  /**
+   * Prepares and signs, but MUST NOT broadcast, an Ethereum transaction for
+   * the supplied intent. Production implementations must allocate the sender
+   * nonce so it cannot collide with another active durable outbox record.
+   */
+  prepareSignatureFraudChallengeTransaction(
+    intent: P2TRSignatureFraudSubmissionIntent
+  ): Promise<P2TRSignatureFraudPreparedChallengeTransaction>
+}
+
+const p2trSignatureFraudRouterInterface = new utils.Interface([
+  "function processP2TRSignatureFraudChallenge(uint8 action, bytes payload, uint32[] walletMembersIDs)",
+])
+
+/** Builds the exact Router calldata authorized by an outbox intent. */
+export const encodeP2TRSignatureFraudRouterSubmitCalldata = (
+  observation: P2TRSignatureFraudWitnessObservation
+): string =>
+  p2trSignatureFraudRouterInterface.encodeFunctionData(
+    "processP2TRSignatureFraudChallenge",
+    [
+      P2TR_SIGNATURE_FRAUD_BRIDGE_ACTION_SUBMIT,
+      encodeP2TRSignatureFraudBridgeChallengePayload(observation),
+      [],
+    ]
+  )
+
+const normalizeP2TRSignatureFraudSubmissionChainID = (
+  chainID: BigNumberish
+): number => {
+  const normalized = BigNumber.from(chainID)
+  if (
+    normalized.lte(0) ||
+    normalized.gt("9007199254740991") ||
+    !Number.isSafeInteger(normalized.toNumber())
+  ) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Challenge submission chain ID must be a positive safe integer"
+    )
+  }
+
+  return normalized.toNumber()
+}
+
+const normalizeP2TRSignatureFraudSubmissionAddress = (
+  address: string,
+  fieldName: string
+): string => {
+  try {
+    const normalized = utils.getAddress(address)
+    if (normalized === constants.AddressZero) {
+      throw new Error("zero address")
+    }
+    return normalized
+  } catch {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      `${fieldName} must be a non-zero Ethereum address`
+    )
+  }
+}
+
+const normalizeP2TRSignatureFraudSubmissionValue = (
+  value: BigNumberish
+): string => {
+  const normalized = BigNumber.from(value)
+  if (normalized.lt(0)) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Challenge submission value must be non-negative"
+    )
+  }
+  return normalized.toString()
+}
+
+export const computeP2TRSignatureFraudSubmissionIntentID = (
+  intent: Omit<P2TRSignatureFraudSubmissionIntent, "intentID">
+): Hex =>
+  Hex.from(
+    utils.keccak256(
+      utils.defaultAbiCoder.encode(
+        [
+          "string",
+          "bytes32",
+          "bytes32",
+          "bytes32",
+          "bytes32",
+          "bytes32",
+          "uint256",
+          "address",
+          "address",
+          "bytes32",
+          "uint256",
+        ],
+        [
+          P2TR_SIGNATURE_FRAUD_SUBMISSION_INTENT_ID_DOMAIN,
+          toBytes32(intent.observationID, "Observation ID"),
+          toBytes32(intent.bridgeChallengeKey, "Bridge challenge key"),
+          toBytes32(intent.walletID, "Wallet ID"),
+          toBytes32(
+            intent.bridgeChallengeIdentity,
+            "Bridge challenge identity"
+          ),
+          toBytes32(intent.sighash, "Sighash"),
+          intent.chainID,
+          intent.bridgeAddress,
+          intent.routerAddress,
+          utils.keccak256(intent.calldata),
+          intent.value,
+        ]
+      )
+    )
+  )
+
+/**
+ * Builds the immutable call intent that must be committed with the evidence
+ * checkpoint before a transaction is signed or broadcast.
+ */
+export const buildP2TRSignatureFraudSubmissionIntent = (
+  observation: P2TRSignatureFraudWitnessObservation,
+  options: P2TRSignatureFraudSubmissionIntentOptions
+): P2TRSignatureFraudSubmissionIntent => {
+  if (observation.bridgeChallengeKey === undefined) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Challenge submission intent requires a Bridge challenge key"
+    )
+  }
+  if (observation.bridgeChallengeIdentity === undefined) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Challenge submission intent requires a Bridge challenge identity"
+    )
+  }
+
+  const intentWithoutID: Omit<P2TRSignatureFraudSubmissionIntent, "intentID"> =
+    {
+      observationID: toBytes32Hex(observation.observationID, "Observation ID"),
+      bridgeChallengeKey: toBytes32Hex(
+        observation.bridgeChallengeKey,
+        "Bridge challenge key"
+      ),
+      walletID: toBytes32Hex(observation.walletID, "Wallet ID"),
+      bridgeChallengeIdentity: toBytes32Hex(
+        observation.bridgeChallengeIdentity,
+        "Bridge challenge identity"
+      ),
+      sighash: toBytes32Hex(observation.sighash, "Sighash"),
+      chainID: normalizeP2TRSignatureFraudSubmissionChainID(options.chainID),
+      bridgeAddress: normalizeP2TRSignatureFraudSubmissionAddress(
+        options.bridgeAddress,
+        "Challenge submission Bridge address"
+      ),
+      routerAddress: normalizeP2TRSignatureFraudSubmissionAddress(
+        options.routerAddress,
+        "Challenge submission Router address"
+      ),
+      calldata: encodeP2TRSignatureFraudRouterSubmitCalldata(observation),
+      value: normalizeP2TRSignatureFraudSubmissionValue(
+        options.challengeDepositAmount
+      ),
+    }
+
+  return {
+    ...intentWithoutID,
+    intentID: computeP2TRSignatureFraudSubmissionIntentID(intentWithoutID),
+  }
+}
+
+/**
+ * Authenticates a signed transaction against its durable intent and derives
+ * the canonical hash/sender/nonce from the raw bytes. This validation must run
+ * before the outbox stores the prepared transaction.
+ */
+export const validateP2TRSignatureFraudPreparedChallengeTransaction = (
+  intent: P2TRSignatureFraudSubmissionIntent,
+  prepared: P2TRSignatureFraudPreparedChallengeTransaction
+): P2TRSignatureFraudPreparedChallengeTransaction => {
+  const expectedIntentID = computeP2TRSignatureFraudSubmissionIntentID({
+    observationID: intent.observationID,
+    bridgeChallengeKey: intent.bridgeChallengeKey,
+    walletID: intent.walletID,
+    bridgeChallengeIdentity: intent.bridgeChallengeIdentity,
+    sighash: intent.sighash,
+    chainID: intent.chainID,
+    bridgeAddress: normalizeP2TRSignatureFraudSubmissionAddress(
+      intent.bridgeAddress,
+      "Challenge submission Bridge address"
+    ),
+    routerAddress: normalizeP2TRSignatureFraudSubmissionAddress(
+      intent.routerAddress,
+      "Challenge submission Router address"
+    ),
+    calldata: utils.hexlify(intent.calldata),
+    value: normalizeP2TRSignatureFraudSubmissionValue(intent.value),
+  })
+  if (
+    !toBytes32Hex(intent.intentID, "Submission intent ID").equals(
+      expectedIntentID
+    ) ||
+    !toBytes32Hex(prepared.intentID, "Prepared submission intent ID").equals(
+      expectedIntentID
+    )
+  ) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Prepared challenge transaction intent ID does not match its call"
+    )
+  }
+
+  let parsed: ReturnType<typeof utils.parseTransaction>
+  try {
+    parsed = utils.parseTransaction(utils.hexlify(prepared.rawTransaction))
+  } catch {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Prepared challenge transaction must be a signed raw Ethereum transaction"
+    )
+  }
+
+  if (parsed.hash === undefined || parsed.from === undefined) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Prepared challenge transaction must include a recoverable signature"
+    )
+  }
+
+  const parsedHash = toBytes32Hex(
+    parsed.hash,
+    "Prepared challenge transaction hash"
+  )
+  const declaredHash = toBytes32Hex(
+    prepared.transactionHash,
+    "Prepared challenge transaction hash"
+  )
+  if (!parsedHash.equals(declaredHash)) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Prepared challenge transaction hash does not match its raw bytes"
+    )
+  }
+
+  const expectedRouter = normalizeP2TRSignatureFraudSubmissionAddress(
+    intent.routerAddress,
+    "Challenge submission Router address"
+  )
+  if (
+    parsed.to === undefined ||
+    utils.getAddress(parsed.to) !== expectedRouter ||
+    parsed.chainId !== intent.chainID ||
+    parsed.data.toLowerCase() !==
+      utils.hexlify(intent.calldata).toLowerCase() ||
+    !parsed.value.eq(intent.value)
+  ) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Prepared challenge transaction does not match its durable intent"
+    )
+  }
+
+  if (
+    !Number.isSafeInteger(parsed.nonce) ||
+    parsed.nonce < 0 ||
+    prepared.nonce !== parsed.nonce ||
+    normalizeP2TRSignatureFraudSubmissionAddress(
+      prepared.sender,
+      "Prepared challenge transaction sender"
+    ) !== utils.getAddress(parsed.from)
+  ) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Prepared challenge transaction sender or nonce does not match its raw bytes"
+    )
+  }
+
+  return {
+    intentID: expectedIntentID,
+    rawTransaction: utils.hexlify(prepared.rawTransaction).toLowerCase(),
+    transactionHash: parsedHash,
+    sender: utils.getAddress(parsed.from),
+    nonce: parsed.nonce,
+  }
+}
+
 export type P2TRSignatureFraudBridgeChallengePayloadInput = {
   txid: string
   vout: number

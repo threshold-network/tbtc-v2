@@ -6,8 +6,10 @@ signature-fraud challenge path.
 > **Current safety state:** automatic/watchtower challenge submission is hard
 > disabled while the FROST fraud layer remains bounded/no-go. Every service,
 > runtime, and SDK runner entry point rejects `submitChallenges: true`, and
-> submission metrics remain zero. COMPLETE_V2 activation needs a separately
-> reviewed durable broadcast outbox and canonical independent reconciler. The
+> submission metrics remain zero. This package now contains an inert durable
+> signed-transaction outbox protocol, but COMPLETE_V2 activation still needs
+> reviewed concrete transactional storage, broadcaster, canonical independent
+> reconciliation, and runtime integration. The
 > bundled Esplora observer is also rehearsal-only and never certifies the
 > confirmed view complete, even when its current result is empty. Wallet-history
 > and sequential outspend polling are not a canonical Bitcoin change feed and
@@ -28,6 +30,37 @@ The package wraps the SDK watchtower runner with process-level boundaries that a
 - a bundled Esplora-backed transaction source for registered P2TR wallet addresses;
 - a bundled Ethers-compatible Bridge lifecycle event source for P2TR challenge defeat and timeout events;
 - dependency injection points for Bitcoin transaction discovery and Bridge lifecycle event discovery.
+
+## Durable Challenge Outbox (Not Activated)
+
+`P2TRSignatureFraudChallengeOutboxScheduler` and
+`P2TRSignatureFraudChallengeOutboxDispatcher` define the future production
+state machine without connecting it to the automatic watchtower. The scheduler
+accepts only complete, confirmed Bitcoin evidence and an immutable exact Router
+call intent. The dispatcher signs without sending, authenticates the signed raw
+transaction, stores those bytes, and commits a compare-and-swap
+`broadcast-pending` attempt before a broadcaster sees them. Recovery may resend
+only those identical bytes; it never creates a replacement transaction or a new
+generation after an ambiguous result.
+
+The reconciliation boundary requires a provider object and trust-domain ID
+distinct from broadcasting. Successful resolution carries a finalized receipt,
+the exact submitted event, a canonical transaction, and matching Router
+challenge state. The watchtower's own transaction must match its signed
+router/calldata/value/sender/nonce exactly. An external satisfaction may use a
+different canonical submit selector or overpay, but must target the Router,
+cover the required deposit, and bind its sender and value to Router state. A
+finalized revert or a finalized consumed
+sender nonce may terminate the immutable transaction; `pending`, `unknown`, or
+inconsistent evidence never makes it replayable. Legacy records with any prior
+submission attempt are quarantined instead of imported into the new outbox.
+
+`migrations/001_p2tr_signature_fraud_challenge_outbox.sql` documents the
+PostgreSQL uniqueness, CAS-version, immutable-generation, and prepared-bytes
+constraints expected from a concrete store. No database adapter, Ethers
+reconciler/broadcaster, service scheduling hook, or environment activation flag
+is wired in this tranche. Consequently, constructing these exported classes
+does not change the hard rejection of `submitChallenges: true`.
 
 This package is intentionally scoped to the Schnorr FROST/ROAST P2TR fraud path. It does not depend on account-control, ac-watchdog, or covenant packages.
 
