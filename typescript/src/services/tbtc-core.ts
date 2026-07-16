@@ -5,6 +5,7 @@ import { Chains, TBTCContracts } from "../lib/contracts"
 import { BitcoinClient, BitcoinNetwork } from "../lib/bitcoin"
 import {
   ethereumAddressFromSigner,
+  EthereumActiveWalletIdentityQuorum,
   EthereumSigner,
   loadEthereumCoreContracts,
 } from "../lib/ethereum"
@@ -60,17 +61,21 @@ export class TBTC {
    * The initialized instance uses default Electrum servers to interact
    * with Bitcoin mainnet
    * @param ethereumSignerOrProvider Ethereum signer or provider.
+   * @param activeWalletIdentityQuorum Independent finalized-state provider
+   *        required before the SDK can create deposit addresses.
    * @returns Initialized tBTC v2 SDK entrypoint.
    * @throws Throws an error if the signer's Ethereum network is other than
    *         Ethereum mainnet.
    */
   static async initializeMainnet(
-    ethereumSignerOrProvider: EthereumSigner | providers.Provider
+    ethereumSignerOrProvider: EthereumSigner | providers.Provider,
+    activeWalletIdentityQuorum?: EthereumActiveWalletIdentityQuorum
   ): Promise<TBTC> {
     return this.initializeEthereum(
       ethereumSignerOrProvider,
       Chains.Ethereum.Mainnet,
-      BitcoinNetwork.Mainnet
+      BitcoinNetwork.Mainnet,
+      activeWalletIdentityQuorum
     )
   }
 
@@ -87,17 +92,21 @@ export class TBTC {
    * updated. Update your integration to testnet4 Bitcoin tooling before
    * upgrading this SDK.
    * @param ethereumSignerOrProvider Ethereum signer or provider.
+   * @param activeWalletIdentityQuorum Independent finalized-state provider
+   *        required before the SDK can create deposit addresses.
    * @returns Initialized tBTC v2 SDK entrypoint.
    * @throws Throws an error if the signer's Ethereum network is other than
    *         Ethereum mainnet.
    */
   static async initializeSepolia(
-    ethereumSignerOrProvider: EthereumSigner | providers.Provider
+    ethereumSignerOrProvider: EthereumSigner | providers.Provider,
+    activeWalletIdentityQuorum?: EthereumActiveWalletIdentityQuorum
   ): Promise<TBTC> {
     return this.initializeEthereum(
       ethereumSignerOrProvider,
       Chains.Ethereum.Sepolia,
-      BitcoinNetwork.Testnet4
+      BitcoinNetwork.Testnet4,
+      activeWalletIdentityQuorum
     )
   }
 
@@ -108,6 +117,8 @@ export class TBTC {
    * @param ethereumSignerOrProvider Ethereum signer or provider.
    * @param ethereumChainId Ethereum chain ID.
    * @param bitcoinNetwork Bitcoin network.
+   * @param activeWalletIdentityQuorum Independent finalized-state provider
+   *        required before the SDK can create deposit addresses.
    * @returns Initialized tBTC v2 SDK entrypoint.
    * @throws Throws an error if the underlying signer's Ethereum network is
    *         other than the given Ethereum network.
@@ -115,14 +126,16 @@ export class TBTC {
   protected static async initializeEthereum(
     ethereumSignerOrProvider: EthereumSigner | providers.Provider,
     ethereumChainId: Chains.Ethereum,
-    bitcoinNetwork: BitcoinNetwork
+    bitcoinNetwork: BitcoinNetwork,
+    activeWalletIdentityQuorum?: EthereumActiveWalletIdentityQuorum
   ): Promise<TBTC> {
     const signerAddress = await ethereumAddressFromSigner(
       ethereumSignerOrProvider
     )
     const tbtcContracts = await loadEthereumCoreContracts(
       ethereumSignerOrProvider,
-      ethereumChainId
+      ethereumChainId,
+      activeWalletIdentityQuorum
     )
 
     const bitcoinClient = ElectrumClient.fromDefaultConfig(bitcoinNetwork)

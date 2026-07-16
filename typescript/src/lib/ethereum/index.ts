@@ -1,6 +1,6 @@
 import { Chains, TBTCContracts } from "../contracts"
 import { providers, Signer } from "ethers"
-import { EthereumBridge } from "./bridge"
+import { EthereumActiveWalletIdentityQuorum, EthereumBridge } from "./bridge"
 import { EthereumWalletRegistry } from "./wallet-registry"
 import { EthereumTBTCToken } from "./tbtc-token"
 import { EthereumTBTCVault } from "./tbtc-vault"
@@ -67,20 +67,26 @@ export async function ethereumAddressFromSigner(
  * chain ID and attaches the given signer there.
  * @param signer Signer that should be attached to tBTC contracts.
  * @param chainId Ethereum chain ID.
+ * @param activeWalletIdentityQuorum Independent finalized-state provider
+ *        required before the SDK can create a deposit address.
  * @returns Handle to tBTC core contracts.
  * @throws Throws an error if the signer's Ethereum chain ID is other than
  *         the one used to load tBTC contracts.
  */
 export async function loadEthereumCoreContracts(
   signer: EthereumSigner,
-  chainId: Chains.Ethereum
+  chainId: Chains.Ethereum,
+  activeWalletIdentityQuorum?: EthereumActiveWalletIdentityQuorum
 ): Promise<TBTCContracts> {
   const signerChainId = await chainIdFromSigner(signer)
   if (signerChainId !== chainId) {
     throw new Error("Signer uses different chain than Ethereum core contracts")
   }
 
-  const bridge = new EthereumBridge({ signerOrProvider: signer }, chainId)
+  const bridge = new EthereumBridge(
+    { signerOrProvider: signer, activeWalletIdentityQuorum },
+    chainId
+  )
   const tbtcToken = new EthereumTBTCToken({ signerOrProvider: signer }, chainId)
   const tbtcVault = new EthereumTBTCVault({ signerOrProvider: signer }, chainId)
   const walletRegistry = new EthereumWalletRegistry(

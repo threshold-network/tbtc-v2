@@ -19,7 +19,15 @@ import {
   MockContract,
 } from "@ethereum-waffle/mock-contract"
 import chai, { expect } from "chai"
-import { BigNumber, Wallet, constants, getDefaultProvider, utils } from "ethers"
+import chaiAsPromised from "chai-as-promised"
+import {
+  BigNumber,
+  Wallet,
+  constants,
+  getDefaultProvider,
+  providers,
+  utils,
+} from "ethers"
 import { MockProvider } from "@ethereum-waffle/provider"
 import { waffleChai } from "@ethereum-waffle/chai"
 import { assertContractCalledWith } from "../utils/helpers"
@@ -32,6 +40,7 @@ import { abi as BaseL1BitcoinDepositorABI } from "../../src/lib/ethereum/artifac
 import { abi as ArbitrumL1BitcoinDepositorABI } from "../../src/lib/ethereum/artifacts/sepolia/ArbitrumL1BitcoinDepositor.json"
 
 chai.use(waffleChai)
+chai.use(chaiAsPromised)
 
 const BridgeABIWithTaprootDepositReveal = [
   ...BridgeABI,
@@ -52,9 +61,10 @@ describe("Ethereum", () => {
     let walletRegistry: MockContract
     let bridgeContract: MockContract
     let bridgeHandle: EthereumBridge
+    let signer: Wallet
 
     beforeEach(async () => {
-      const [signer] = new MockProvider().getWallets()
+      ;[signer] = new MockProvider().getWallets()
 
       walletRegistry = await deployMockContract(
         signer,
@@ -97,6 +107,17 @@ describe("Ethereum", () => {
         )
       })
 
+      it("should not synthesize an active wallet ID when the selector is unavailable", async () => {
+        await bridgeContract.mock.activeWalletPubKeyHash.returns(
+          walletPublicKeyHash.toPrefixedString()
+        )
+        await bridgeContract.mock.activeWalletID.reverts()
+
+        await expect(bridgeHandle.activeWalletID()).to.be.rejectedWith(
+          "Bridge does not expose a canonical active wallet ID"
+        )
+      })
+
       it("should resolve canonical wallet ID from wallet public key hash despite stale local ABI", async () => {
         await bridgeContract.mock.walletID
           .withArgs(walletPublicKeyHash.toPrefixedString())
@@ -117,6 +138,435 @@ describe("Ethereum", () => {
             await bridgeHandle.walletPublicKeyHashForWalletID(walletID)
           ).toString()
         ).to.equal(walletPublicKeyHash.toString())
+      })
+    })
+
+    describe("activeWalletIdentity", () => {
+      const frostWalletID = Hex.from(
+        "2336f65004d8f122f1fe947ebd009a8b4add3a0d937356d568e30f7fcc2e4008"
+      )
+      const frostWalletPublicKeyHash = Hex.from(
+        "c92a772f11bc97d8938a16a9db435401f4e6a7bc"
+      )
+      let sourceProvider: providers.JsonRpcProvider
+      let originalSend: providers.JsonRpcProvider["send"]
+
+      // Local provider test double only. A wrapper around one provider is not
+      // an independent production trust domain; README documents the operator
+      // requirement that cannot be reproduced by this in-process unit test.
+      const distinctProviderTestDouble = (
+        provider: providers.Provider = sourceProvider
+      ): providers.Provider =>
+        new Proxy(provider, {
+          get(target, property) {
+            const value = Reflect.get(target, property, target)
+            return typeof value === "function" ? value.bind(target) : value
+          },
+        })
+
+      const identityHandle = (
+        canonicalProvider: providers.Provider = distinctProviderTestDouble(),
+        sourceTrustDomainID = "source.example",
+        canonicalTrustDomainID = "canonical.example"
+      ) =>
+        new EthereumBridge({
+          address: bridgeContract.address,
+          signerOrProvider: signer,
+          activeWalletIdentityQuorum: {
+            sourceTrustDomainID,
+            canonicalProvider: {
+              trustDomainID: canonicalTrustDomainID,
+              provider: canonicalProvider,
+            },
+          },
+        })
+
+      beforeEach(() => {
+        sourceProvider = signer.provider as providers.JsonRpcProvider
+        originalSend = sourceProvider.send.bind(sourceProvider)
+        sourceProvider.send = async (method, params) => {
+          if (method === "eth_getBlockByNumber" && params[0] === "finalized") {
+            return originalSend(method, ["latest", params[1]])
+          }
+
+          return originalSend(method, params)
+        }
+      })
+
+      afterEach(() => {
+        sourceProvider.send = originalSend
+      })
+
+      it("should fail closed without an independent provider", async () => {
+        await expect(bridgeHandle.activeWalletIdentity()).to.be.rejectedWith(
+          "Deposit wallet identity requires an independent Ethereum provider"
+        )
+      })
+
+      it("should reject providers declaring the same trust domain", () => {
+        expect(() =>
+          identityHandle(sourceProvider, " Shared.Example ", "shared.example")
+        ).to.throw(
+          "Active wallet identity providers must use different trust domains"
+        )
+      })
+
+      it("should reject the same provider instance across trust domains", () => {
+        expect(() => identityHandle(sourceProvider)).to.throw(
+          "Active wallet identity providers must use different provider instances"
+        )
+      })
+
+      it("should return a canonically bound FROST identity", async () => {
+        await bridgeContract.mock.activeWalletPubKeyHash.returns(
+          frostWalletPublicKeyHash.toPrefixedString()
+        )
+        await bridgeContract.mock.activeWalletID.returns(
+          frostWalletID.toPrefixedString()
+        )
+        await bridgeContract.mock.walletID
+          .withArgs(frostWalletPublicKeyHash.toPrefixedString())
+          .returns(frostWalletID.toPrefixedString())
+        await bridgeContract.mock.walletPubKeyHashForWalletID
+          .withArgs(frostWalletID.toPrefixedString())
+          .returns(frostWalletPublicKeyHash.toPrefixedString())
+
+        expect(await identityHandle().activeWalletIdentity()).to.deep.equal({
+          walletPublicKeyHash: frostWalletPublicKeyHash,
+          walletID: frostWalletID,
+        })
+      })
+
+      it("should preserve an upgraded-Bridge legacy ECDSA identity", async () => {
+        const walletPublicKeyHash = Hex.from(
+          "2a621226d6f9916a929c0ab8cc7d3252c1485708"
+        )
+        const walletID = Hex.from(
+          utils.hexZeroPad(walletPublicKeyHash.toPrefixedString(), 32)
+        )
+        await bridgeContract.mock.activeWalletPubKeyHash.returns(
+          walletPublicKeyHash.toPrefixedString()
+        )
+        await bridgeContract.mock.activeWalletID.returns(
+          walletID.toPrefixedString()
+        )
+        await bridgeContract.mock.walletID
+          .withArgs(walletPublicKeyHash.toPrefixedString())
+          .returns(walletID.toPrefixedString())
+        await bridgeContract.mock.walletPubKeyHashForWalletID
+          .withArgs(walletID.toPrefixedString())
+          .returns(walletPublicKeyHash.toPrefixedString())
+
+        expect(await identityHandle().activeWalletIdentity()).to.deep.equal({
+          walletPublicKeyHash,
+          walletID,
+        })
+      })
+
+      it("should reject a provider response that is not canonically mapped", async () => {
+        await bridgeContract.mock.activeWalletPubKeyHash.returns(
+          frostWalletPublicKeyHash.toPrefixedString()
+        )
+        await bridgeContract.mock.activeWalletID.returns(
+          frostWalletID.toPrefixedString()
+        )
+        await bridgeContract.mock.walletID
+          .withArgs(frostWalletPublicKeyHash.toPrefixedString())
+          .returns(constants.HashZero)
+        await bridgeContract.mock.walletPubKeyHashForWalletID
+          .withArgs(frostWalletID.toPrefixedString())
+          .returns(frostWalletPublicKeyHash.toPrefixedString())
+
+        await expect(
+          identityHandle().activeWalletIdentity()
+        ).to.be.rejectedWith("Active wallet identity is not canonically bound")
+      })
+
+      it("should reject two internally coherent provider identities that disagree", async () => {
+        await bridgeContract.mock.activeWalletPubKeyHash.returns(
+          frostWalletPublicKeyHash.toPrefixedString()
+        )
+        await bridgeContract.mock.activeWalletID.returns(
+          frostWalletID.toPrefixedString()
+        )
+        await bridgeContract.mock.walletID
+          .withArgs(frostWalletPublicKeyHash.toPrefixedString())
+          .returns(frostWalletID.toPrefixedString())
+        await bridgeContract.mock.walletPubKeyHashForWalletID
+          .withArgs(frostWalletID.toPrefixedString())
+          .returns(frostWalletPublicKeyHash.toPrefixedString())
+
+        const attackerWalletID = Hex.from(
+          "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+        )
+        const attackerWalletPublicKeyHash = BitcoinHashUtils.computeHash160(
+          Hex.from(
+            Buffer.concat([Buffer.from([0x02]), attackerWalletID.toBuffer()])
+          )
+        )
+        const identityInterface = new utils.Interface([
+          "function activeWalletPubKeyHash() view returns (bytes20)",
+          "function activeWalletID() view returns (bytes32)",
+          "function walletID(bytes20) view returns (bytes32)",
+          "function walletPubKeyHashForWalletID(bytes32) view returns (bytes20)",
+        ])
+        const canonicalProvider = new Proxy(sourceProvider, {
+          get(target, property) {
+            if (property === "call") {
+              return async (transaction: providers.TransactionRequest) => {
+                const data = transaction.data?.toString() ?? ""
+                const selector = data.slice(0, 10)
+                if (
+                  selector ===
+                  identityInterface.getSighash("activeWalletPubKeyHash")
+                ) {
+                  return identityInterface.encodeFunctionResult(
+                    "activeWalletPubKeyHash",
+                    [attackerWalletPublicKeyHash.toPrefixedString()]
+                  )
+                }
+                if (
+                  selector === identityInterface.getSighash("activeWalletID")
+                ) {
+                  return identityInterface.encodeFunctionResult(
+                    "activeWalletID",
+                    [attackerWalletID.toPrefixedString()]
+                  )
+                }
+                if (selector === identityInterface.getSighash("walletID")) {
+                  return identityInterface.encodeFunctionResult("walletID", [
+                    attackerWalletID.toPrefixedString(),
+                  ])
+                }
+                if (
+                  selector ===
+                  identityInterface.getSighash("walletPubKeyHashForWalletID")
+                ) {
+                  return identityInterface.encodeFunctionResult(
+                    "walletPubKeyHashForWalletID",
+                    [attackerWalletPublicKeyHash.toPrefixedString()]
+                  )
+                }
+
+                return target.call(transaction)
+              }
+            }
+
+            const value = Reflect.get(target, property, target)
+            return typeof value === "function" ? value.bind(target) : value
+          },
+        }) as providers.Provider
+
+        await expect(
+          identityHandle(canonicalProvider).activeWalletIdentity()
+        ).to.be.rejectedWith("Active wallet identity providers disagree")
+      })
+
+      it("should authenticate and read each provider at its own finalized head", async () => {
+        await bridgeContract.mock.activeWalletPubKeyHash.returns(
+          frostWalletPublicKeyHash.toPrefixedString()
+        )
+        await bridgeContract.mock.activeWalletID.returns(
+          frostWalletID.toPrefixedString()
+        )
+        await bridgeContract.mock.walletID
+          .withArgs(frostWalletPublicKeyHash.toPrefixedString())
+          .returns(frostWalletID.toPrefixedString())
+        await bridgeContract.mock.walletPubKeyHashForWalletID
+          .withArgs(frostWalletID.toPrefixedString())
+          .returns(frostWalletPublicKeyHash.toPrefixedString())
+
+        await originalSend("evm_mine", [])
+        const canonicalFinalizedBlock = await sourceProvider.getBlock("latest")
+        await originalSend("evm_mine", [])
+        const sourceFinalizedBlock = await sourceProvider.getBlock("latest")
+        const sourceIdentityBlockTags: Array<
+          providers.BlockTag | Promise<providers.BlockTag>
+        > = []
+        const canonicalIdentityBlockTags: Array<
+          providers.BlockTag | Promise<providers.BlockTag>
+        > = []
+        const sourceCall = sourceProvider.call.bind(sourceProvider)
+
+        sourceProvider.send = async (method, params) => {
+          if (method === "eth_getBlockByNumber" && params[0] === "finalized") {
+            return {
+              number: utils.hexValue(sourceFinalizedBlock.number),
+              hash: sourceFinalizedBlock.hash,
+            }
+          }
+
+          return originalSend(method, params)
+        }
+        sourceProvider.call = async (transaction, blockTag) => {
+          sourceIdentityBlockTags.push(blockTag ?? "latest")
+          return sourceCall(transaction, blockTag)
+        }
+
+        const canonicalProvider = new Proxy(sourceProvider, {
+          get(target, property) {
+            if (property === "send") {
+              return async (method: string, params: unknown[]) => {
+                if (
+                  method === "eth_getBlockByNumber" &&
+                  params[0] === "finalized"
+                ) {
+                  return {
+                    number: utils.hexValue(canonicalFinalizedBlock.number),
+                    hash: canonicalFinalizedBlock.hash,
+                  }
+                }
+
+                return originalSend(method, params)
+              }
+            }
+            if (property === "call") {
+              return async (
+                transaction: providers.TransactionRequest,
+                blockTag?: providers.BlockTag
+              ) => {
+                canonicalIdentityBlockTags.push(blockTag ?? "latest")
+                return sourceCall(transaction, blockTag)
+              }
+            }
+
+            const value = Reflect.get(target, property, target)
+            return typeof value === "function" ? value.bind(target) : value
+          },
+        }) as providers.Provider
+
+        try {
+          expect(
+            await identityHandle(canonicalProvider).activeWalletIdentity()
+          ).to.deep.equal({
+            walletPublicKeyHash: frostWalletPublicKeyHash,
+            walletID: frostWalletID,
+          })
+        } finally {
+          sourceProvider.call = sourceCall
+        }
+
+        expect(sourceIdentityBlockTags).to.have.length(4)
+        expect(canonicalIdentityBlockTags).to.have.length(4)
+        for (const blockTag of sourceIdentityBlockTags) {
+          expect(BigNumber.from(await blockTag).toNumber()).to.equal(
+            sourceFinalizedBlock.number
+          )
+        }
+        for (const blockTag of canonicalIdentityBlockTags) {
+          expect(BigNumber.from(await blockTag).toNumber()).to.equal(
+            canonicalFinalizedBlock.number
+          )
+        }
+      })
+
+      it("should reject an unauthenticated advertised finalized hash", async () => {
+        const finalizedBlock = await sourceProvider.getBlock("latest")
+        const canonicalProvider = new Proxy(sourceProvider, {
+          get(target, property) {
+            if (property === "send") {
+              return async (method: string, params: unknown[]) => {
+                if (
+                  method === "eth_getBlockByNumber" &&
+                  params[0] === "finalized"
+                ) {
+                  return {
+                    number: utils.hexValue(finalizedBlock.number),
+                    hash: constants.HashZero,
+                  }
+                }
+
+                return originalSend(method, params)
+              }
+            }
+
+            const value = Reflect.get(target, property, target)
+            return typeof value === "function" ? value.bind(target) : value
+          },
+        }) as providers.Provider
+
+        await expect(
+          identityHandle(canonicalProvider).activeWalletIdentity()
+        ).to.be.rejectedWith(
+          "Active wallet identity canonical provider did not authenticate its finalized block"
+        )
+      })
+
+      it("should reject a retired wallet from a stale finalized head", async () => {
+        const retiredWalletID = Hex.from(
+          "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+        )
+        const retiredWalletPublicKeyHash = BitcoinHashUtils.computeHash160(
+          Hex.from(
+            Buffer.concat([Buffer.from([0x02]), retiredWalletID.toBuffer()])
+          )
+        )
+
+        await bridgeContract.mock.activeWalletPubKeyHash.returns(
+          retiredWalletPublicKeyHash.toPrefixedString()
+        )
+        await bridgeContract.mock.activeWalletID.returns(
+          retiredWalletID.toPrefixedString()
+        )
+        await bridgeContract.mock.walletID
+          .withArgs(retiredWalletPublicKeyHash.toPrefixedString())
+          .returns(retiredWalletID.toPrefixedString())
+        await bridgeContract.mock.walletPubKeyHashForWalletID
+          .withArgs(retiredWalletID.toPrefixedString())
+          .returns(retiredWalletPublicKeyHash.toPrefixedString())
+        const retiredWalletBlock = await sourceProvider.getBlock("latest")
+
+        await bridgeContract.mock.activeWalletPubKeyHash.returns(
+          frostWalletPublicKeyHash.toPrefixedString()
+        )
+        await bridgeContract.mock.activeWalletID.returns(
+          frostWalletID.toPrefixedString()
+        )
+        await bridgeContract.mock.walletID
+          .withArgs(frostWalletPublicKeyHash.toPrefixedString())
+          .returns(frostWalletID.toPrefixedString())
+        await bridgeContract.mock.walletPubKeyHashForWalletID
+          .withArgs(frostWalletID.toPrefixedString())
+          .returns(frostWalletPublicKeyHash.toPrefixedString())
+
+        const canonicalProvider = new Proxy(sourceProvider, {
+          get(target, property) {
+            if (property === "send") {
+              return async (method: string, params: unknown[]) => {
+                if (
+                  method === "eth_getBlockByNumber" &&
+                  params[0] === "finalized"
+                ) {
+                  return {
+                    number: utils.hexValue(retiredWalletBlock.number),
+                    hash: retiredWalletBlock.hash,
+                  }
+                }
+
+                return originalSend(method, params)
+              }
+            }
+
+            const value = Reflect.get(target, property, target)
+            return typeof value === "function" ? value.bind(target) : value
+          },
+        }) as providers.Provider
+
+        await expect(
+          identityHandle(canonicalProvider).activeWalletIdentity()
+        ).to.be.rejectedWith("Active wallet identity providers disagree")
+      })
+
+      it("should not downgrade when V2 identity selectors are unavailable", async () => {
+        await bridgeContract.mock.activeWalletPubKeyHash.returns(
+          frostWalletPublicKeyHash.toPrefixedString()
+        )
+
+        await expect(
+          identityHandle().activeWalletIdentity()
+        ).to.be.rejectedWith(
+          "could not prove upgraded Bridge wallet-identity selectors"
+        )
       })
     })
 
