@@ -1,6 +1,5 @@
 import fs from "fs"
 import path from "path"
-import https from "https"
 import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction, DeployOptions } from "hardhat-deploy/types"
 import { BigNumber, providers, utils } from "ethers"
@@ -13,6 +12,11 @@ import {
   computeOpenFraudChallengeEscrow,
   computeWalletRegistrationOrder,
 } from "./86_deploy_tip109_hotfix"
+// Reuse the gated Etherscan V2 verification from script 87 so the seven
+// libraries + implementation are each verified with their OWN build-info
+// (correct optimizer runs, full compiler version, and — for the linked Bridge —
+// the deployed library addresses) and any failure aborts the upgrade.
+import { verifyDeployedContractOrThrow } from "./87_deploy_covenant_spend_authorization"
 
 // [NEW-STAGE3] Two-mode upgrade of the live Sepolia Bridge proxy to the combined
 // implementation that carries BOTH the reconstructed account-control
@@ -20,8 +24,9 @@ import {
 // reviewed PR covenant/migration surface, wired atomically by the version-6
 // reinitializer. Preparation mode (default) deploys and verifies the new
 // artifacts, computes reference calldata, and records a summary WITHOUT touching
-// the proxy. Execution mode (EXECUTE_STAGE3_COMBINED_UPGRADE=true) re-derives
-// every mutable input immediately before sending ProxyAdmin.upgradeAndCall.
+// the proxy. Execution mode (EXECUTE_STAGE3_COMBINED_UPGRADE=true) re-runs every
+// preflight and re-derives every mutable input immediately before sending
+// ProxyAdmin.upgradeAndCall, then asserts the full post-upgrade surface.
 //
 // Sepolia-only. Mainnet has no controller extension and must use the ordinary
 // reviewed PR implementation and its separate governance migration path.
@@ -43,6 +48,17 @@ const BRIDGE_DEPLOY_BLOCK = 4553028
 // Absolute Bridge storage slots (self begins at absolute slot 51).
 const SLOT_INITIALIZER_VERSION = 50
 const SLOT_MINTING_CONTROLLER = 81
+// Packed slot 130: fraudChallengeEscrowSeeded (bit 0), walletRegistrationOrder-
+// Seeded (bit 8), covenantSpendAuthorization (>> 16).
+const SLOT_PACKED_FLAGS_REGISTRY = 130
+
+// WalletState.Unknown ordinal; any scanned wallet must resolve to a higher state.
+const WALLET_STATE_UNKNOWN = 0
+
+// Custom-error selector `FraudChallengeEscrowNotSeeded()`; a post-upgrade
+// submitFraudChallenge static call must NOT revert with this selector.
+const FRAUD_ESCROW_NOT_SEEDED_SELECTOR = "0x5f4214d3"
+const UNAUTHORIZED_CONTROLLER_REVERT = "Caller is not the authorized controller"
 
 // Selectors the OLD (controller-mint) implementation MUST expose.
 const CONTROLLER_SELECTORS: Record<string, string> = {
@@ -61,45 +77,66 @@ const PR_SELECTORS: Record<string, string> = {
 }
 
 // The seven Bridge libraries, deployed fresh under Stage-3 names. Keys are the
-// canonical linker names; `contract` is the real library source.
-const STAGE3_LIBRARIES: Array<{ key: string; name: string; contract: string }> =
-  [
-    { key: "Deposit", name: "DepositStage3Combined", contract: "Deposit" },
-    {
-      key: "DepositSweep",
-      name: "DepositSweepStage3Combined",
-      contract: "DepositSweep",
-    },
-    {
-      key: "Redemption",
-      name: "RedemptionStage3Combined",
-      contract: "Redemption",
-    },
-    {
-      key: "Wallets",
-      name: "WalletsStage3Combined",
-      contract: "contracts/bridge/Wallets.sol:Wallets",
-    },
-    { key: "Fraud", name: "FraudStage3Combined", contract: "Fraud" },
-    {
-      key: "MovingFunds",
-      name: "MovingFundsStage3Combined",
-      contract: "MovingFunds",
-    },
-    {
-      key: "VaultManagement",
-      name: "VaultManagementStage3Combined",
-      contract: "VaultManagement",
-    },
-  ]
+// canonical linker names; `contract` is the real library source; `source` is the
+// fully-qualified source unit used for verification and library linking.
+const STAGE3_LIBRARIES: Array<{
+  key: string
+  name: string
+  contract: string
+  source: string
+}> = [
+  {
+    key: "Deposit",
+    name: "DepositStage3Combined",
+    contract: "Deposit",
+    source: "contracts/bridge/Deposit.sol",
+  },
+  {
+    key: "DepositSweep",
+    name: "DepositSweepStage3Combined",
+    contract: "DepositSweep",
+    source: "contracts/bridge/DepositSweep.sol",
+  },
+  {
+    key: "Redemption",
+    name: "RedemptionStage3Combined",
+    contract: "Redemption",
+    source: "contracts/bridge/Redemption.sol",
+  },
+  {
+    key: "Wallets",
+    name: "WalletsStage3Combined",
+    contract: "contracts/bridge/Wallets.sol:Wallets",
+    source: "contracts/bridge/Wallets.sol",
+  },
+  {
+    key: "Fraud",
+    name: "FraudStage3Combined",
+    contract: "Fraud",
+    source: "contracts/bridge/Fraud.sol",
+  },
+  {
+    key: "MovingFunds",
+    name: "MovingFundsStage3Combined",
+    contract: "MovingFunds",
+    source: "contracts/bridge/MovingFunds.sol",
+  },
+  {
+    key: "VaultManagement",
+    name: "VaultManagementStage3Combined",
+    contract: "VaultManagement",
+    source: "contracts/bridge/VaultManagement.sol",
+  },
+]
 
 const BRIDGE_IMPL_DEPLOYMENT = "BridgeStage3CombinedImplementation"
+const BRIDGE_FQ_NAME = "contracts/bridge/Bridge.sol:Bridge"
 
 const EIP170_LIMIT = 24576
 const PREFERRED_MARGIN = 128
-const ETHERSCAN_V2_HOST = "api.etherscan.io"
 
-// Minimal ABIs for the live-state reads and the upgrade call.
+// Minimal ABIs for the live-state reads, the upgrade call, and the post-upgrade
+// surface assertions.
 const PROXY_ADMIN_ABI = [
   "function owner() view returns (address)",
   "function upgradeAndCall(address proxy, address implementation, bytes data) payable",
@@ -111,14 +148,23 @@ const BRIDGE_READ_ABI = [
   "function migrationDebtVault() view returns (address)",
   "function activeWalletPubKeyHash() view returns (bytes20)",
   "function liveWalletsCount() view returns (uint32)",
+  "function wallets(bytes20) view returns (bytes32 ecdsaWalletID, bytes32 mainUtxoHash, uint64 pendingRedemptionsValue, uint32 createdAt, uint32 movingFundsRequestedAt, uint32 closingStartedAt, uint32 pendingMovedFundsSweepRequestsCount, uint8 state, bytes32 movingFundsTargetWalletsCommitmentHash)",
+  "function controllerIncreaseBalance(address recipient, uint256 amount)",
+  "function submitFraudChallenge(bytes walletPublicKey, bytes preimageSha256, (bytes32 r, bytes32 s, uint8 v) signature) payable",
   "function initializeV6_Stage3Combined(address expectedMintingController, address covenantSpendAuthorization_, uint256 preUpgradeOpenFraudChallengeEscrow, bytes20[] preUpgradeWallets)",
+  "event MintingControllerSet(address mintingController)",
+  "event CovenantSpendAuthorizationUpdated(address indexed covenantSpendAuthorization)",
+  "event Initialized(uint8 version)",
 ]
 const G1_ABI = [
   "function bridge() view returns (address)",
   "function bank() view returns (address)",
   "function mintingPaused() view returns (bool)",
 ]
-const REGISTRY_ABI = ["function owner() view returns (address)"]
+const REGISTRY_ABI = [
+  "function owner() view returns (address)",
+  "function isAuthorized(uint256 utxoKey, bytes20 walletPubKeyHash, uint64 value, bytes32 outputsHash) view returns (bool)",
+]
 
 const proxyAdminInterface = new utils.Interface(PROXY_ADMIN_ABI)
 const bridgeInterface = new utils.Interface(BRIDGE_READ_ABI)
@@ -143,6 +189,20 @@ async function readCall(
     data: iface.encodeFunctionData(fn, args),
   })
   return iface.decodeFunctionResult(fn, raw)[0]
+}
+
+// Reads the WalletState ordinal for a wallet public-key hash from the Bridge's
+// `wallets(bytes20)` getter (index 7 of the returned struct).
+async function readWalletState(
+  provider: providers.Provider,
+  walletHash: string
+): Promise<number> {
+  const raw = await provider.call({
+    to: BRIDGE_PROXY,
+    data: bridgeInterface.encodeFunctionData("wallets", [walletHash]),
+  })
+  const decoded = bridgeInterface.decodeFunctionResult("wallets", raw)
+  return Number(decoded.state)
 }
 
 // Confirms every selector in `selectors` is (present ? found : absent) in the
@@ -171,88 +231,60 @@ function assertSelectors(
   }
 }
 
-// Submits a Solidity standard-JSON-input verification to the Etherscan V2 API.
-async function etherscanVerifyV2(
-  apiKey: string,
-  chainId: number,
-  contractAddress: string,
-  contractName: string,
-  compilerVersion: string,
-  solcInputJson: string
-): Promise<string> {
-  const postData = new URLSearchParams({
-    apikey: apiKey,
-    module: "contract",
-    action: "verifysourcecode",
-    contractaddress: contractAddress,
-    sourceCode: solcInputJson,
-    codeformat: "solidity-standard-json-input",
-    contractname: contractName,
-    compilerversion: compilerVersion,
-    optimizationUsed: "1",
-    runs: "1",
-  }).toString()
-
-  return new Promise((resolve, reject) => {
-    const req = https.request(
-      {
-        hostname: ETHERSCAN_V2_HOST,
-        path: `/v2/api?chainid=${chainId}`,
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          "Content-Length": Buffer.byteLength(postData),
-        },
-      },
-      (res) => {
-        let data = ""
-        res.on("data", (chunk) => {
-          data += chunk
-        })
-        res.on("end", () => {
-          try {
-            const parsed = JSON.parse(data)
-            if (parsed.status === "1" && parsed.result) resolve(parsed.result)
-            else
-              reject(
-                new Error(parsed.result || parsed.message || "Unknown error")
-              )
-          } catch {
-            reject(new Error(`Invalid response: ${data.substring(0, 200)}`))
-          }
-        })
-      }
-    )
-    req.on("error", reject)
-    req.write(postData)
-    req.end()
-  })
+// Extracts a revert reason and raw revert data from a thrown provider.call error,
+// tolerating the several shapes ethers/nodes use.
+function extractRevert(err: unknown): { reason?: string; data?: string } {
+  const anyErr = err as {
+    reason?: string
+    data?: string
+    error?: { data?: string; message?: string }
+    message?: string
+  }
+  const data =
+    (typeof anyErr?.data === "string" && anyErr.data) ||
+    (typeof anyErr?.error?.data === "string" && anyErr.error.data) ||
+    undefined
+  let reason = anyErr?.reason
+  if (!reason && data && data.startsWith("0x08c379a0")) {
+    try {
+      reason = utils.defaultAbiCoder.decode(
+        ["string"],
+        `0x${data.slice(10)}`
+      )[0] as string
+    } catch {
+      // leave reason undefined
+    }
+  }
+  return { reason, data }
 }
 
-const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
-  const { deployments, getNamedAccounts, artifacts } = hre
-  const { deploy, get, save } = deployments
+// Result of the 16 identity preflight checks (re-run immediately before the
+// upgrade in execution mode).
+interface PreflightResult {
+  chainId: number
+  deployer: string
+  oldImpl: string
+  oldImplRuntimeHash: string
+  admin: string
+  proxyAdminOwner: string
+  governance: string
+  registryAddress: string
+  registryOwner: string
+  g1Bank: string
+}
+
+// Runs all 16 immutable/mutable identity checks against live state and returns
+// the derived values. Called once up front and, in execution mode, AGAIN
+// immediately before sending `upgradeAndCall` so a state drift (implementation,
+// admin, governance, controller, registry, or G1 wiring) between preparation and
+// send aborts the upgrade instead of proceeding on stale assumptions.
+async function runPreflight(
+  hre: HardhatRuntimeEnvironment
+): Promise<PreflightResult> {
+  const { deployments, getNamedAccounts } = hre
+  const { get } = deployments
   const { deployer } = await getNamedAccounts()
-  const { ethers } = hre
-  const { provider } = ethers
-
-  const executeMode = process.env.EXECUTE_STAGE3_COMBINED_UPGRADE === "true"
-
-  const deployOptions: DeployOptions = {
-    from: deployer,
-    log: true,
-    waitConfirmations: 1,
-  }
-
-  console.log(
-    `\nStage-3 combined Bridge upgrade — ${
-      executeMode ? "EXECUTION" : "PREPARATION"
-    } mode`
-  )
-
-  // =================================================================
-  // PREFLIGHT (immutable identity checks; run in both modes)
-  // =================================================================
+  const { provider } = hre.ethers
 
   // 1. Chain is exactly Sepolia.
   const chainId = Number(await hre.getChainId())
@@ -457,7 +489,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       `CovenantSpendAuthorization ${registryAddress} has no runtime code.`
     )
   }
-  const registryArtifact = await artifacts.readArtifact(
+  const registryArtifact = await hre.artifacts.readArtifact(
     "contracts/bridge/CovenantSpendAuthorization.sol:CovenantSpendAuthorization"
   )
   if (
@@ -493,7 +525,61 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     )
   }
 
+  return {
+    chainId,
+    deployer,
+    oldImpl,
+    oldImplRuntimeHash,
+    admin,
+    proxyAdminOwner,
+    governance,
+    registryAddress,
+    registryOwner,
+    g1Bank,
+  }
+}
+
+const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
+  const { deployments, artifacts } = hre
+  const { deploy, get, save } = deployments
+  const { ethers } = hre
+  const { provider } = ethers
+
+  const executeMode = process.env.EXECUTE_STAGE3_COMBINED_UPGRADE === "true"
+  // Etherscan verification only makes sense on a real network; on a local/fork
+  // network (used by the execution-mode unit test) there is no explorer.
+  const isLiveNetwork =
+    hre.network.name !== "hardhat" && hre.network.name !== "localhost"
+  const etherscanApiKey = process.env.ETHERSCAN_API_KEY
+
+  console.log(
+    `\nStage-3 combined Bridge upgrade — ${
+      executeMode ? "EXECUTION" : "PREPARATION"
+    } mode`
+  )
+
+  // Fail fast: a live execution run must be able to verify the freshly deployed
+  // libraries and implementation before the proxy is upgraded.
+  if (executeMode && isLiveNetwork && !etherscanApiKey) {
+    throw new Error(
+      "Refusing EXECUTE mode on a live network without ETHERSCAN_API_KEY: the " +
+        "seven libraries and the combined implementation must be Etherscan-" +
+        "verified before the proxy is upgraded. Set ETHERSCAN_API_KEY and re-run."
+    )
+  }
+
+  // =================================================================
+  // PREFLIGHT (16 identity checks; run in both modes)
+  // =================================================================
+  const pre = await runPreflight(hre)
+  const { deployer, registryAddress } = pre
   console.log("  preflight: all 16 identity checks passed")
+
+  const deployOptions: DeployOptions = {
+    from: deployer,
+    log: true,
+    waitConfirmations: 1,
+  }
 
   // =================================================================
   // DEPLOY: seven fresh libraries + combined implementation
@@ -543,15 +629,27 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     )
   }
 
+  // Runtime hashes for the summary / operator cross-checks.
+  const libraryRuntimeHashes: Record<string, string> = {}
+  // eslint-disable-next-line no-restricted-syntax
+  for (const lib of STAGE3_LIBRARIES) {
+    // eslint-disable-next-line no-await-in-loop
+    const runtime = await provider.getCode(bridgeLibraries[lib.key])
+    libraryRuntimeHashes[lib.key] = utils.keccak256(runtime)
+  }
+  const implRuntimeHash = utils.keccak256(implRuntime)
+
   // =================================================================
   // MIGRATION-INPUT SCANS (reuse the tested script-86 scanners)
   // =================================================================
-  const scanToBlock = await provider.getBlockNumber()
-
+  // Each computation re-reads the latest block and re-scans, so execution never
+  // reuses a block/scan captured before deployment.
   async function computeMigrationInputs(): Promise<{
     openEscrow: BigNumber
     walletOrder: string[]
+    scanToBlock: number
   }> {
+    const scanToBlock = await provider.getBlockNumber()
     const openEscrow = await computeOpenFraudChallengeEscrow(
       provider,
       BRIDGE_PROXY,
@@ -573,6 +671,19 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         throw new Error(`Duplicate wallet public-key hash in scan: ${w}.`)
       }
       seen.add(key)
+    }
+    // Every scanned wallet must resolve to a real (non-Unknown) wallet; a hash
+    // that does not is a scan/state mismatch that would seed a bogus order.
+    // eslint-disable-next-line no-restricted-syntax
+    for (const w of walletOrder) {
+      // eslint-disable-next-line no-await-in-loop
+      const state = await readWalletState(provider, w)
+      if (state === WALLET_STATE_UNKNOWN) {
+        throw new Error(
+          `Scanned wallet ${w} resolves to an Unknown wallet state; the ` +
+            "registration scan and on-chain wallet state disagree — re-run."
+        )
+      }
     }
     // Bridge ETH balance must equal the computed open escrow.
     const bridgeBalance = await provider.getBalance(BRIDGE_PROXY)
@@ -607,13 +718,14 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         } does not equal the active wallet ${activeWallet}; re-run.`
       )
     }
-    return { openEscrow, walletOrder }
+    return { openEscrow, walletOrder, scanToBlock }
   }
 
-  const { openEscrow, walletOrder } = await computeMigrationInputs()
+  const { openEscrow, walletOrder, scanToBlock } =
+    await computeMigrationInputs()
   console.log(
     `  migration inputs: openEscrow=${openEscrow.toString()} wei, ` +
-      `${walletOrder.length} wallets`
+      `${walletOrder.length} wallets (scanned through block ${scanToBlock})`
   )
 
   // Reference initializer + upgrade calldata (for the summary / dry run).
@@ -627,58 +739,44 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   )
 
   // ---- Etherscan V2 verification of the 7 libraries + implementation ----
-  if (hre.network.tags.etherscan && process.env.ETHERSCAN_API_KEY) {
-    const apiKey = process.env.ETHERSCAN_API_KEY
-    const buildInfoDir = path.join(__dirname, "..", "build", "build-info")
-    let solcInput: string | null = null
-    let compilerVersion = ""
+  // A real gate on a live network with a key: each contract is verified against
+  // its OWN build-info (correct runs/version) and the Bridge input carries the
+  // deployed library addresses. Any failure throws and aborts before the upgrade.
+  if (isLiveNetwork && etherscanApiKey) {
+    const bridgeLinkLibraries: Record<string, Record<string, string>> = {}
     // eslint-disable-next-line no-restricted-syntax
-    for (const biFile of fs
-      .readdirSync(buildInfoDir)
-      .filter((f) => f.endsWith(".json"))) {
-      const bi = JSON.parse(
-        fs.readFileSync(path.join(buildInfoDir, biFile), "utf-8")
-      )
-      if (bi.output?.contracts?.["contracts/bridge/Bridge.sol"]?.Bridge) {
-        solcInput = JSON.stringify(bi.input)
-        compilerVersion = `v${bi.solcVersion}`
-        break
+    for (const lib of STAGE3_LIBRARIES) {
+      bridgeLinkLibraries[lib.source] = {
+        ...(bridgeLinkLibraries[lib.source] || {}),
+        [lib.contract.includes(":")
+          ? lib.contract.split(":")[1]
+          : lib.contract]: bridgeLibraries[lib.key],
       }
     }
-    if (solcInput) {
-      const toVerify = [
-        ...STAGE3_LIBRARIES.map((l) => ({
-          address: bridgeLibraries[l.key],
-          name:
-            l.contract.includes(":") === true
-              ? l.contract
-              : `contracts/bridge/${l.contract}.sol:${l.contract}`,
-        })),
-        {
-          address: bridgeImpl.address,
-          name: "contracts/bridge/Bridge.sol:Bridge",
-        },
-      ]
-      // eslint-disable-next-line no-restricted-syntax
-      for (const c of toVerify) {
-        try {
-          // eslint-disable-next-line no-await-in-loop
-          const guid = await etherscanVerifyV2(
-            apiKey,
-            chainId,
-            c.address,
-            c.name,
-            compilerVersion,
-            solcInput
-          )
-          console.log(`  verification submitted for ${c.name}: ${guid}`)
-        } catch (err) {
-          console.log(
-            `  verification failed for ${c.name}: ${(err as Error).message}`
-          )
-        }
-      }
+    // eslint-disable-next-line no-restricted-syntax
+    for (const lib of STAGE3_LIBRARIES) {
+      const fqName = lib.contract.includes(":")
+        ? lib.contract
+        : `${lib.source}:${lib.contract}`
+      console.log(`  verifying ${fqName} at ${bridgeLibraries[lib.key]} ...`)
+      // eslint-disable-next-line no-await-in-loop
+      await verifyDeployedContractOrThrow(hre, etherscanApiKey, pre.chainId, {
+        address: bridgeLibraries[lib.key],
+        fqName,
+      })
     }
+    console.log(`  verifying ${BRIDGE_FQ_NAME} at ${bridgeImpl.address} ...`)
+    await verifyDeployedContractOrThrow(hre, etherscanApiKey, pre.chainId, {
+      address: bridgeImpl.address,
+      fqName: BRIDGE_FQ_NAME,
+      libraries: bridgeLinkLibraries,
+    })
+    console.log("  Etherscan verification confirmed for all 8 contracts")
+  } else if (isLiveNetwork) {
+    console.log(
+      "  ETHERSCAN_API_KEY not set; skipping verification (preparation only — " +
+        "set it and verify before EXECUTE)."
+    )
   }
 
   // =================================================================
@@ -689,19 +787,21 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     mode: executeMode ? "execution" : "preparation",
     timestamp: new Date().toISOString(),
     deployer,
-    chainId,
+    chainId: pre.chainId,
     bridgeProxy: BRIDGE_PROXY,
-    oldImplementation: oldImpl,
-    oldImplementationRuntimeHash: oldImplRuntimeHash,
+    oldImplementation: pre.oldImpl,
+    oldImplementationRuntimeHash: pre.oldImplRuntimeHash,
     proxyAdmin: PROXY_ADMIN,
-    proxyAdminOwner,
-    bridgeGovernance: governance,
+    proxyAdminOwner: pre.proxyAdminOwner,
+    bridgeGovernance: pre.governance,
     mintingController: EXPECTED_MINTING_CONTROLLER,
-    bank: g1Bank,
+    bank: pre.g1Bank,
     covenantSpendAuthorization: registryAddress,
-    covenantSpendAuthorizationOwner: registryOwner,
+    covenantSpendAuthorizationOwner: pre.registryOwner,
     libraries: bridgeLibraries,
+    libraryRuntimeHashes,
     newImplementation: bridgeImpl.address,
+    newImplementationRuntimeHash: implRuntimeHash,
     newImplementationRuntimeSize: implRuntimeSize,
     newImplementationMargin: margin,
     scan: {
@@ -726,24 +826,37 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     // truth for a later execution run — execution recomputes it.
     console.log(
       "\nPREPARATION complete. Re-run with EXECUTE_STAGE3_COMBINED_UPGRADE=true " +
-        "to perform the atomic upgrade (inputs are recomputed at that time)."
+        "to perform the atomic upgrade (preflights and inputs are recomputed)."
     )
     writeSummary(hre, summary)
     return
   }
 
   // =================================================================
-  // EXECUTION: recompute inputs, upgrade, assert post-state
+  // EXECUTION: re-run preflight + recompute inputs, upgrade, assert post-state
   // =================================================================
   console.log(
-    "\nEXECUTION: recomputing migration inputs immediately before send"
+    "\nEXECUTION: re-running all 16 preflights immediately before send"
   )
+  const preSend = await runPreflight(hre)
+  if (
+    preSend.registryAddress.toLowerCase() !== registryAddress.toLowerCase() ||
+    preSend.oldImpl.toLowerCase() !== pre.oldImpl.toLowerCase()
+  ) {
+    throw new Error(
+      "Preflight drift between preparation and send: registry or old " +
+        "implementation changed. Aborting the upgrade."
+    )
+  }
+  console.log("  pre-send preflight: all 16 identity checks passed")
+
+  console.log("  recomputing migration inputs immediately before send")
   const fresh = await computeMigrationInputs()
   const initializerCalldata = bridgeInterface.encodeFunctionData(
     "initializeV6_Stage3Combined",
     [
       EXPECTED_MINTING_CONTROLLER,
-      registryAddress,
+      preSend.registryAddress,
       fresh.openEscrow,
       fresh.walletOrder,
     ]
@@ -763,7 +876,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const receipt = await tx.wait(1)
   console.log(`  upgraded in tx ${receipt.transactionHash}`)
 
-  // ---- Post-upgrade assertions ----
+  // ---- Post-upgrade assertions (spec section 6) ----
   const newImplSlot = addressFromSlot(
     await provider.getStorageAt(BRIDGE_PROXY, EIP_1967_IMPLEMENTATION_SLOT)
   )
@@ -786,12 +899,48 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       `Post-upgrade initializer version is ${newInitVersion}, expected 6.`
     )
   }
+  // Governance unchanged.
+  const postGovernance = utils.getAddress(
+    (await readCall(
+      provider,
+      bridgeInterface,
+      BRIDGE_PROXY,
+      "governance"
+    )) as string
+  )
+  if (postGovernance !== utils.getAddress(BRIDGE_GOVERNANCE)) {
+    throw new Error(
+      `Post-upgrade governance ${postGovernance} changed from ${BRIDGE_GOVERNANCE}.`
+    )
+  }
+  // Both controller getters still return G1; raw slot 81 unchanged.
   const postSlot81 = addressFromSlot(
     await provider.getStorageAt(BRIDGE_PROXY, SLOT_MINTING_CONTROLLER)
   )
-  if (postSlot81 !== utils.getAddress(EXPECTED_MINTING_CONTROLLER)) {
-    throw new Error("Post-upgrade slot 81 (controller) changed.")
+  const postMintingController = utils.getAddress(
+    (await readCall(
+      provider,
+      bridgeInterface,
+      BRIDGE_PROXY,
+      "mintingController"
+    )) as string
+  )
+  const postGetMintingController = utils.getAddress(
+    (await readCall(
+      provider,
+      bridgeInterface,
+      BRIDGE_PROXY,
+      "getMintingController"
+    )) as string
+  )
+  if (
+    postSlot81 !== utils.getAddress(EXPECTED_MINTING_CONTROLLER) ||
+    postMintingController !== utils.getAddress(EXPECTED_MINTING_CONTROLLER) ||
+    postGetMintingController !== utils.getAddress(EXPECTED_MINTING_CONTROLLER)
+  ) {
+    throw new Error("Post-upgrade slot 81 / controller getters changed.")
   }
+  // migrationDebtVault stays zero.
   const postMigrationDebtVault = (await readCall(
     provider,
     bridgeInterface,
@@ -802,6 +951,120 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     throw new Error(
       "Post-upgrade migrationDebtVault() is nonzero — layout regression."
     )
+  }
+  // Packed slot 130 == (uint160(registry) << 16) | flags(0x0101).
+  const postSlot130 = BigNumber.from(
+    await provider.getStorageAt(BRIDGE_PROXY, SLOT_PACKED_FLAGS_REGISTRY)
+  )
+  const expectedSlot130 = BigNumber.from(preSend.registryAddress)
+    .shl(16)
+    .or(0x0101)
+  if (!postSlot130.eq(expectedSlot130)) {
+    throw new Error(
+      `Post-upgrade packed slot 130 is ${postSlot130.toHexString()}, expected ` +
+        `${expectedSlot130.toHexString()} (registry << 16 | 0x0101).`
+    )
+  }
+  // Events: CovenantSpendAuthorizationUpdated + Initialized(6) emitted; the
+  // reinitializer must NOT re-emit MintingControllerSet (it only asserts).
+  const logs: Array<{ topics?: string[]; data?: string }> = receipt.logs || []
+  const covenantTopic = bridgeInterface.getEventTopic(
+    "CovenantSpendAuthorizationUpdated"
+  )
+  const initializedTopic = bridgeInterface.getEventTopic("Initialized")
+  const mintingControllerSetTopic = bridgeInterface.getEventTopic(
+    "MintingControllerSet"
+  )
+  if (!logs.some((l) => l.topics?.[0] === covenantTopic)) {
+    throw new Error(
+      "Post-upgrade CovenantSpendAuthorizationUpdated not emitted."
+    )
+  }
+  if (
+    !logs.some(
+      (l) =>
+        l.topics?.[0] === initializedTopic &&
+        l.data !== undefined &&
+        BigNumber.from(l.data).eq(6)
+    )
+  ) {
+    throw new Error("Post-upgrade Initialized(6) not emitted.")
+  }
+  if (logs.some((l) => l.topics?.[0] === mintingControllerSetTopic)) {
+    throw new Error(
+      "Post-upgrade MintingControllerSet was emitted — the reinitializer must " +
+        "assert the controller, never re-set it."
+    )
+  }
+  // Unauthorized controller call still reverts with the exact live message.
+  try {
+    await provider.call({
+      to: BRIDGE_PROXY,
+      data: bridgeInterface.encodeFunctionData("controllerIncreaseBalance", [
+        EXPECTED_MINTING_CONTROLLER,
+        1,
+      ]),
+    })
+    throw new Error(
+      "Post-upgrade unauthorized controllerIncreaseBalance did not revert."
+    )
+  } catch (err) {
+    const { reason } = extractRevert(err)
+    if (
+      reason !== UNAUTHORIZED_CONTROLLER_REVERT &&
+      !(err as Error).message?.includes(UNAUTHORIZED_CONTROLLER_REVERT)
+    ) {
+      throw new Error(
+        "Post-upgrade unauthorized controller call reverted with an unexpected " +
+          `reason: ${reason ?? (err as Error).message}.`
+      )
+    }
+  }
+  // Registry authorization/read path is callable and clean.
+  const isAuthorizedForZero = (await readCall(
+    provider,
+    registryInterface,
+    preSend.registryAddress,
+    "isAuthorized",
+    [
+      0,
+      "0x0000000000000000000000000000000000000000",
+      0,
+      utils.hexZeroPad("0x00", 32),
+    ]
+  )) as boolean
+  if (isAuthorizedForZero !== false) {
+    throw new Error(
+      "Post-upgrade registry isAuthorized(empty) returned true; expected false."
+    )
+  }
+  // The Bridge can accept a new fraud challenge: a static submitFraudChallenge
+  // must NOT revert with FraudChallengeEscrowNotSeeded(), proving escrow seeding
+  // enabled it. (It may still revert later on the dummy signature/deposit.)
+  try {
+    await provider.call({
+      to: BRIDGE_PROXY,
+      data: bridgeInterface.encodeFunctionData("submitFraudChallenge", [
+        `0x${"11".repeat(64)}`,
+        utils.hexZeroPad("0x00", 32),
+        {
+          r: utils.hexZeroPad("0x01", 32),
+          s: utils.hexZeroPad("0x01", 32),
+          v: 27,
+        },
+      ]),
+    })
+  } catch (err) {
+    const { data } = extractRevert(err)
+    if (
+      typeof data === "string" &&
+      data.toLowerCase().startsWith(FRAUD_ESCROW_NOT_SEEDED_SELECTOR)
+    ) {
+      throw new Error(
+        "Post-upgrade submitFraudChallenge reverted with " +
+          "FraudChallengeEscrowNotSeeded(); escrow seeding did not take effect."
+      )
+    }
   }
   console.log("  post-upgrade assertions passed")
 
@@ -816,12 +1079,15 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   summary.upgradeTxHash = receipt.transactionHash
   summary.receiptBlock = receipt.blockNumber
+  summary.executionScanToBlock = fresh.scanToBlock
   summary.postState = {
     implementation: newImplSlot,
     admin: newAdminSlot,
     initializerVersion: newInitVersion,
+    governance: postGovernance,
     slot81Controller: postSlot81,
     migrationDebtVault: postMigrationDebtVault,
+    packedSlot130: postSlot130.toHexString(),
   }
   writeSummary(hre, summary)
   console.log("\nEXECUTION complete.")

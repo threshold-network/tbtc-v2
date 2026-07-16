@@ -60,6 +60,9 @@ const iface = new utils.Interface([
   "function bridge() view returns (address)",
   "function bank() view returns (address)",
   "function mintingPaused() view returns (bool)",
+  "function controllerIncreaseBalance(address recipient, uint256 amount)",
+  "function submitFraudChallenge(bytes walletPublicKey, bytes preimageSha256, (bytes32 r, bytes32 s, uint8 v) signature) payable",
+  "function isAuthorized(uint256 utxoKey, bytes20 walletPubKeyHash, uint64 value, bytes32 outputsHash) view returns (bool)",
 ])
 const sig = (fn: string) => iface.getSighash(fn)
 const addrWord = (a: string) => utils.hexZeroPad(a.toLowerCase(), 32)
@@ -85,17 +88,26 @@ interface Overrides {
   registryEnvOwner?: string
   activeWallet?: string
   newRuntime?: string
+  // Execution-mode knob: a local network name skips the Etherscan gate and lets
+  // the mock actually upgrade the proxy so the post-upgrade surface can be tested.
+  networkName?: string
 }
+
+// Packed slot 130 after the upgrade: (uint160(registry) << 16) | 0x0101.
+const packedSlot130 = utils.hexZeroPad(
+  ethers.BigNumber.from(REGISTRY).shl(16).or(0x0101).toHexString(),
+  32
+)
 
 function createMockHre(o: Overrides = {}): {
   mockHre: any
   deployCalls: any[]
   upgradeCalls: any[]
-  savedProxy: boolean
+  state: { savedProxy: boolean; upgraded: boolean }
 } {
   const deployCalls: any[] = []
   const upgradeCalls: any[] = []
-  const state = { savedProxy: false }
+  const state = { savedProxy: false, upgraded: false }
 
   const codeFor = (addr: string): string => {
     const a = addr.toLowerCase()
@@ -111,10 +123,17 @@ function createMockHre(o: Overrides = {}): {
     getCode: async (addr: string) => codeFor(addr),
     getStorageAt: async (addr: string, slot: string | number) => {
       const s = typeof slot === "number" ? slot : slot.toLowerCase()
-      if (s === IMPL_SLOT) return o.implSlot ?? addrWord(OLD_IMPL)
+      // After the upgrade the implementation slot, initializer version, and
+      // packed flags/registry slot flip to their post-upgrade values.
+      if (s === IMPL_SLOT)
+        return o.implSlot ?? addrWord(state.upgraded ? NEW_IMPL : OLD_IMPL)
       if (s === ADMIN_SLOT) return o.adminSlot ?? addrWord(PROXY_ADMIN)
-      if (s === 50) return o.initSlot ?? utils.hexZeroPad("0x05", 32)
+      if (s === 50)
+        return (
+          o.initSlot ?? utils.hexZeroPad(state.upgraded ? "0x06" : "0x05", 32)
+        )
       if (s === 81) return o.slot81 ?? addrWord(G1)
+      if (s === 130 && state.upgraded) return packedSlot130
       return utils.hexZeroPad("0x00", 32)
     },
     call: async ({ to, data }: { to: string; data: string }) => {
@@ -126,8 +145,12 @@ function createMockHre(o: Overrides = {}): {
         utils.defaultAbiCoder.encode(["address"], [v.toLowerCase()])
       if (a === PROXY_ADMIN.toLowerCase())
         return encAddr(o.proxyAdminOwner ?? PROXY_ADMIN_OWNER)
-      if (a === REGISTRY.toLowerCase())
+      if (a === REGISTRY.toLowerCase()) {
+        // Registry read path: isAuthorized(empty) is false post-upgrade.
+        if (selector === sig("isAuthorized"))
+          return utils.defaultAbiCoder.encode(["bool"], [false])
         return encAddr(o.registryOwner ?? PROXY_ADMIN_OWNER)
+      }
       if (a === BRIDGE_PROXY.toLowerCase()) {
         if (selector === sig("governance"))
           return encAddr(o.governance ?? BRIDGE_GOVERNANCE)
@@ -143,6 +166,17 @@ function createMockHre(o: Overrides = {}): {
           )
         if (selector === sig("migrationDebtVault"))
           return encAddr("0x0000000000000000000000000000000000000000")
+        // Unauthorized controller call reverts with the exact live message.
+        if (selector === sig("controllerIncreaseBalance")) {
+          const err: any = new Error(
+            "execution reverted: Caller is not the authorized controller"
+          )
+          err.reason = "Caller is not the authorized controller"
+          throw err
+        }
+        // A post-upgrade submitFraudChallenge static call does not revert with
+        // FraudChallengeEscrowNotSeeded() — escrow seeding took effect.
+        if (selector === sig("submitFraudChallenge")) return "0x"
       }
       if (a === G1.toLowerCase()) {
         if (selector === sig("bridge"))
@@ -163,6 +197,26 @@ function createMockHre(o: Overrides = {}): {
     deployedBytecode: o.registryRuntime ?? REGISTRY_RUNTIME,
   }
 
+  // Receipt logs the upgrade tx emits: CovenantSpendAuthorizationUpdated(registry)
+  // and Initialized(6), and deliberately NOT MintingControllerSet.
+  const upgradeReceipt = {
+    transactionHash: "0xabc",
+    blockNumber: 1,
+    logs: [
+      {
+        topics: [
+          utils.id("CovenantSpendAuthorizationUpdated(address)"),
+          utils.hexZeroPad(REGISTRY.toLowerCase(), 32),
+        ],
+        data: "0x",
+      },
+      {
+        topics: [utils.id("Initialized(uint8)")],
+        data: utils.hexZeroPad("0x06", 32),
+      },
+    ],
+  }
+
   const mockHre: any = {
     ethers: {
       ...ethers,
@@ -172,8 +226,9 @@ function createMockHre(o: Overrides = {}): {
         // eslint-disable-next-line class-methods-use-this
         upgradeAndCall(...args: unknown[]) {
           upgradeCalls.push(args)
+          state.upgraded = true
           return {
-            wait: async () => ({ transactionHash: "0xabc", blockNumber: 1 }),
+            wait: async () => upgradeReceipt,
           }
         }
       },
@@ -207,9 +262,9 @@ function createMockHre(o: Overrides = {}): {
       deployer: o.deployer ?? PROXY_ADMIN_OWNER,
     }),
     getChainId: async () => o.chainId ?? "11155111",
-    network: { name: "sepolia", tags: {} },
+    network: { name: o.networkName ?? "sepolia", tags: {} },
   }
-  return { mockHre, deployCalls, upgradeCalls, savedProxy: state.savedProxy }
+  return { mockHre, deployCalls, upgradeCalls, state }
 }
 
 describe("88_upgrade_sepolia_bridge_stage3_combined", () => {
@@ -369,5 +424,64 @@ describe("88_upgrade_sepolia_bridge_stage3_combined", () => {
       newRuntime: `0x${"60".repeat(25000)}`,
     })
     await expectReject(func(mockHre), "EIP-170 limit")
+  })
+
+  it("aborts EXECUTE mode on a live network when ETHERSCAN_API_KEY is missing", async () => {
+    process.env.EXECUTE_STAGE3_COMBINED_UPGRADE = "true"
+    // Default network name is a live one ("sepolia"); no ETHERSCAN_API_KEY set.
+    const { mockHre, deployCalls, upgradeCalls } = createMockHre()
+    await expectReject(func(mockHre), "ETHERSCAN_API_KEY")
+    // The abort is fail-fast: nothing is deployed and the proxy is untouched.
+    expect(deployCalls.length, "no deploy on abort").to.equal(0)
+    expect(upgradeCalls.length, "no upgrade on abort").to.equal(0)
+  })
+
+  it("EXECUTE mode upgrades the proxy and sends the exact initializer + upgrade call", async () => {
+    process.env.EXECUTE_STAGE3_COMBINED_UPGRADE = "true"
+    // A local network name skips the Etherscan gate so the mock can drive the
+    // real upgrade path without a live explorer.
+    const { mockHre, deployCalls, upgradeCalls, state } = createMockHre({
+      networkName: "hardhat",
+    })
+    await func(mockHre)
+
+    // The seven libraries and the implementation were deployed.
+    expect(
+      deployCalls.filter((c) => c.name.endsWith("Stage3Combined")).length
+    ).to.equal(7)
+    expect(
+      deployCalls.find((c) => c.name === "BridgeStage3CombinedImplementation")
+    ).to.not.be.undefined
+
+    // Exactly one upgrade call was made, to the proxy, with the new impl.
+    expect(upgradeCalls.length).to.equal(1)
+    const [proxy, impl, initCalldata] = upgradeCalls[0]
+    expect(proxy).to.equal(BRIDGE_PROXY)
+    expect(impl).to.equal(NEW_IMPL)
+
+    // The initializer calldata carries the exact Stage-3 arguments: the pinned
+    // controller, the deployed registry, zero escrow, and an empty wallet list
+    // (the mock scan returns no NewWalletRegistered logs).
+    const initIface = new utils.Interface([
+      "function initializeV6_Stage3Combined(address expectedMintingController, address covenantSpendAuthorization_, uint256 preUpgradeOpenFraudChallengeEscrow, bytes20[] preUpgradeWallets)",
+    ])
+    const decoded = initIface.decodeFunctionData(
+      "initializeV6_Stage3Combined",
+      initCalldata
+    )
+    expect(utils.getAddress(decoded.expectedMintingController)).to.equal(
+      utils.getAddress(G1)
+    )
+    expect(utils.getAddress(decoded.covenantSpendAuthorization_)).to.equal(
+      utils.getAddress(REGISTRY)
+    )
+    expect(decoded.preUpgradeOpenFraudChallengeEscrow).to.equal(0)
+    expect(decoded.preUpgradeWallets).to.deep.equal([])
+
+    // The upgrade actually happened and the proxy artifact was saved only after
+    // the post-upgrade assertions passed.
+    expect(state.upgraded).to.equal(true)
+    expect(state.savedProxy).to.equal(true)
+    expect(summaryWritten).to.equal(true)
   })
 })

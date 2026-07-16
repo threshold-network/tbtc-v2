@@ -8,11 +8,12 @@
     "contracts/",
     "deploy/",
     "export/",
+    "scripts/postinstall.js",
     "tasks/",
     "export.json"
   ],
   "scripts": {
-    "postinstall": "patch-package",
+    "postinstall": "node ./scripts/postinstall.js",
     "clean": "hardhat clean && rm -rf cache/ export/ external/npm export.json",
     "build": "hardhat compile",
     "deploy": "hardhat deploy --export export.json",

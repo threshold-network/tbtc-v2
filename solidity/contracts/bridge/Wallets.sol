@@ -337,15 +337,18 @@ library Wallets {
     ///         Bridge's. The heavy validation lives here rather than on the
     ///         Bridge only to keep the Bridge within the EIP-170 deployed-
     ///         bytecode limit — it removes none of the migration checks. The
-    ///         covenant registry is validated here but assigned by the Bridge, so
-    ///         the `CovenantSpendAuthorizationUpdated` event stays on the Bridge.
+    ///         covenant registry is validated AND assigned here, through the
+    ///         shared `_setCovenantSpendAuthorization` helper; the
+    ///         `CovenantSpendAuthorizationUpdated` event is redeclared in this
+    ///         library identically, so under delegatecall it is still attributed
+    ///         to the Bridge.
     /// @param self Bridge storage.
     /// @param expectedMintingController Controller the caller asserts already
     ///        occupies absolute slot 81 (the live account-control controller).
     ///        Asserted, never written.
     /// @param covenantRegistry Deployed `CovenantSpendAuthorization` registry.
-    ///        Validated here (nonzero, has code, not already set); assigned by
-    ///        the Bridge after this returns.
+    ///        Validated (nonzero, has code, not already set) and then assigned
+    ///        here via the shared covenant setter helper.
     /// @param preUpgradeOpenFraudChallengeEscrow Sum of open fraud-challenge
     ///        deposits; must equal the Bridge's ETH balance.
     /// @param preUpgradeWallets Pre-upgrade wallet public key hashes, oldest

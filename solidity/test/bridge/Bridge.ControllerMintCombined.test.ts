@@ -1,4 +1,4 @@
-import { ethers, helpers, waffle } from "hardhat"
+import { ethers, helpers, waffle, deployments, network } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { expect } from "chai"
 import { BigNumber } from "ethers"
@@ -443,6 +443,161 @@ describe("Bridge - Controller mint & Stage-3 reinitializer (combined)", () => {
             []
           )
       ).to.be.revertedWith("Initializable: contract is already initialized")
+    })
+
+    it("seeds a nonzero open fraud-challenge escrow when the balance matches", async () => {
+      await createSnapshot()
+      await stageV5LikeState()
+      // Fund the Bridge with the escrow and pass the exact matching value.
+      const escrow = ethers.utils.parseEther("5")
+      await setBridgeBalance(escrow)
+
+      await bridge
+        .connect(thirdParty)
+        .initializeV6_Stage3Combined(
+          controller.address,
+          registry.address,
+          escrow,
+          []
+        )
+
+      // Escrow seeded at slot 129; both seeded flags packed into slot 130.
+      expect(await bridge.getOpenFraudChallengeEscrow()).to.equal(escrow)
+      expect(BigNumber.from(await readSlot(129))).to.equal(escrow)
+      const slot130 = BigNumber.from(await readSlot(130))
+      expect(slot130).to.equal(
+        BigNumber.from(registry.address).shl(16).or(0x0101)
+      )
+      await restoreSnapshot()
+    })
+
+    it("seeds a nonempty wallet registration order whose tail is the active wallet", async () => {
+      await createSnapshot()
+      await stageV5LikeState()
+      const w1 = "0x1111111111111111111111111111111111111111"
+      const w2 = "0x2222222222222222222222222222222222222222"
+      // The list tail must equal the active wallet.
+      await bridge.setActiveWallet(w2)
+
+      await bridge
+        .connect(thirdParty)
+        .initializeV6_Stage3Combined(controller.address, registry.address, 0, [
+          w1,
+          w2,
+        ])
+
+      expect(await bridge.getWalletRegistrationOrderSeeded()).to.equal(true)
+      expect(await bridge.getWalletRegistrationOrder()).to.deep.equal([w1, w2])
+      // Slot 84 holds the wallet-registration-array length.
+      expect(BigNumber.from(await readSlot(84))).to.equal(2)
+      await restoreSnapshot()
+    })
+
+    it("reverts when the covenant registry slot was already set", async () => {
+      await createSnapshot()
+      await stageV5LikeState()
+      // Pre-set only the covenant registry (slot 130, offset 2) with both seeded
+      // flags cleared, so the earlier flag guards pass and the covenant guard is
+      // the one that fires.
+      const preset = BigNumber.from(
+        "0x000000000000000000000000000000000000dEaD"
+      ).shl(16)
+      await ethers.provider.send("hardhat_setStorageAt", [
+        bridge.address,
+        "0x82", // absolute slot 130
+        ethers.utils.hexZeroPad(preset.toHexString(), 32),
+      ])
+
+      await expect(
+        bridge
+          .connect(thirdParty)
+          .initializeV6_Stage3Combined(
+            controller.address,
+            registry.address,
+            0,
+            []
+          )
+      ).to.be.revertedWith("Covenant registry already set")
+      await restoreSnapshot()
+    })
+
+    it("rolls back the implementation slot when upgradeAndCall's reinitializer reverts", async () => {
+      await createSnapshot()
+      await stageV5LikeState()
+
+      const implSlot =
+        "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc"
+      const adminSlot =
+        "0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103"
+      const readAddr = async (slot: string) =>
+        ethers.utils.getAddress(
+          `0x${(await ethers.provider.getStorageAt(bridge.address, slot)).slice(
+            -40
+          )}`
+        )
+      const oldImpl = await readAddr(implSlot)
+      const proxyAdminAddress = await readAddr(adminSlot)
+
+      // Deploy a FRESH Bridge implementation linked to the same libraries, so the
+      // upgrade target differs from the currently installed implementation.
+      const libraries: Record<string, string> = {}
+      // eslint-disable-next-line no-restricted-syntax
+      for (const name of [
+        "Deposit",
+        "DepositSweep",
+        "Redemption",
+        "Wallets",
+        "Fraud",
+        "MovingFunds",
+        "VaultManagement",
+      ]) {
+        // eslint-disable-next-line no-await-in-loop
+        libraries[name] = (await deployments.get(name)).address
+      }
+      const BridgeImplFactory = await ethers.getContractFactory("Bridge", {
+        libraries,
+        signer: deployer,
+      })
+      const freshImpl = await BridgeImplFactory.deploy()
+      await freshImpl.deployed()
+      expect(freshImpl.address).to.not.equal(oldImpl)
+
+      // A reinitializer call that must revert (controller mismatch).
+      const badCalldata = bridge.interface.encodeFunctionData(
+        "initializeV6_Stage3Combined",
+        [thirdParty.address, registry.address, 0, []]
+      )
+
+      // Drive the atomic upgrade+init through the ProxyAdmin as its owner.
+      const proxyAdmin = new ethers.Contract(
+        proxyAdminAddress,
+        [
+          "function owner() view returns (address)",
+          "function upgradeAndCall(address proxy, address implementation, bytes data) payable",
+        ],
+        deployer
+      )
+      const ownerAddr = await proxyAdmin.owner()
+      await network.provider.request({
+        method: "hardhat_impersonateAccount",
+        params: [ownerAddr],
+      })
+      await network.provider.send("hardhat_setBalance", [
+        ownerAddr,
+        "0x3635C9ADC5DEA00000",
+      ])
+      const ownerSigner = ethers.provider.getSigner(ownerAddr)
+
+      await expect(
+        proxyAdmin
+          .connect(ownerSigner)
+          .upgradeAndCall(bridge.address, freshImpl.address, badCalldata)
+      ).to.be.reverted
+
+      // The failed upgradeAndCall rolled back atomically: the implementation slot
+      // still points at the original implementation, not the fresh one.
+      expect(await readAddr(implSlot)).to.equal(oldImpl)
+      await restoreSnapshot()
     })
   })
 })

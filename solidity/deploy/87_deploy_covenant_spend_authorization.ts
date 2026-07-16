@@ -22,14 +22,19 @@ const ETHERSCAN_V2_HOST = "api.etherscan.io"
 
 // Submits a Solidity standard-JSON-input verification to the Etherscan V2 API
 // (the same hand-rolled path scripts 85/86 use, because `hre.run("verify")`
-// does not support the multi-chain V2 endpoint here) and returns the GUID.
-async function etherscanVerifyV2(
+// does not support the multi-chain V2 endpoint here) and returns the GUID. The
+// `runs`/`optimizationUsed` MUST come from the contract's OWN build-info so a
+// library compiled at runs=1000 is never submitted as runs=1 (see
+// `verifyDeployedContractOrThrow`).
+export async function etherscanVerifyV2(
   apiKey: string,
   chainId: number,
   contractAddress: string,
   contractName: string,
   compilerVersion: string,
-  solcInputJson: string
+  solcInputJson: string,
+  runs: string,
+  optimizationUsed: string
 ): Promise<string> {
   const queryString = `chainid=${chainId}`
   const postData = new URLSearchParams({
@@ -41,8 +46,8 @@ async function etherscanVerifyV2(
     codeformat: "solidity-standard-json-input",
     contractname: contractName,
     compilerversion: compilerVersion,
-    optimizationUsed: "1",
-    runs: "1000",
+    optimizationUsed,
+    runs,
   }).toString()
 
   return new Promise((resolve, reject) => {
@@ -84,14 +89,14 @@ async function etherscanVerifyV2(
 }
 
 // Polls Etherscan V2 `checkverifystatus` for a submitted GUID until it resolves
-// or the attempt budget is exhausted. Verification is best-effort: a failure to
-// confirm is logged, not fatal, so a transient Etherscan outage does not block
-// the deployment record.
-async function pollEtherscanVerifyStatus(
+// or the attempt budget is exhausted. The returned status is evaluated by the
+// caller (`verifyDeployedContractOrThrow`), which treats an unconfirmed or
+// exhausted-pending result as a hard failure rather than a best-effort log line.
+export async function pollEtherscanVerifyStatus(
   apiKey: string,
   chainId: number,
   guid: string,
-  attempts = 10
+  attempts = 20
 ): Promise<string> {
   const query = `chainid=${chainId}&module=contract&action=checkverifystatus&guid=${guid}&apikey=${apiKey}`
   // eslint-disable-next-line no-restricted-syntax
@@ -124,6 +129,73 @@ async function pollEtherscanVerifyStatus(
     await new Promise((r) => setTimeout(r, 5000))
   }
   return "Pending in queue"
+}
+
+// True only for an Etherscan status that confirms the source now matches the
+// deployed bytecode. Anything else (a failed compile, a bytecode mismatch, or an
+// exhausted-still-pending poll) is treated as not verified.
+export function isVerifiedStatus(status: string): boolean {
+  const s = status.toLowerCase()
+  return s.includes("pass - verified") || s.includes("already verified")
+}
+
+// Verification target: a deployed contract plus, for a library-linked contract,
+// the solc `settings.libraries` map of its deployed library addresses.
+export interface VerificationTarget {
+  address: string
+  // Fully-qualified name, e.g. "contracts/bridge/Bridge.sol:Bridge".
+  fqName: string
+  // solc standard-JSON `settings.libraries`: { sourceUnit: { LibName: addr } }.
+  libraries?: Record<string, Record<string, string>>
+}
+
+// Submits and polls Etherscan V2 verification for one deployed contract, using
+// that contract's OWN canonical build-info so the optimizer runs and full
+// compiler version always match how it was compiled (a library at runs=1000 is
+// never submitted as the Bridge's runs=1, and vice-versa). For a library-linked
+// contract the deployed library addresses are injected into the solc input so
+// the recompiled+linked bytecode matches the deployed runtime. Throws on a
+// missing build-info, a submission error, an exhausted poll, or any non-verified
+// status, so callers can treat verification as a real gate.
+export async function verifyDeployedContractOrThrow(
+  hre: HardhatRuntimeEnvironment,
+  apiKey: string,
+  chainId: number,
+  target: VerificationTarget
+): Promise<void> {
+  const buildInfo = await hre.artifacts.getBuildInfo(target.fqName)
+  if (!buildInfo) {
+    throw new Error(
+      `No build-info found for ${target.fqName}; cannot verify ${target.address}.`
+    )
+  }
+  // Deep-clone so injecting libraries never mutates the shared build-info cache.
+  const input = JSON.parse(JSON.stringify(buildInfo.input))
+  const optimizer = (input.settings && input.settings.optimizer) || {}
+  const runs = String(optimizer.runs ?? 200)
+  const optimizationUsed = optimizer.enabled ? "1" : "0"
+  if (target.libraries) {
+    input.settings = input.settings || {}
+    input.settings.libraries = target.libraries
+  }
+  const compilerVersion = `v${buildInfo.solcLongVersion}`
+  const guid = await etherscanVerifyV2(
+    apiKey,
+    chainId,
+    target.address,
+    target.fqName,
+    compilerVersion,
+    JSON.stringify(input),
+    runs,
+    optimizationUsed
+  )
+  const status = await pollEtherscanVerifyStatus(apiKey, chainId, guid)
+  if (!isVerifiedStatus(status)) {
+    throw new Error(
+      `Etherscan verification did not confirm for ${target.fqName} at ` +
+        `${target.address}: "${status}".`
+    )
+  }
 }
 
 const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
@@ -256,63 +328,32 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   }
   console.log(`  final owner confirmed: ${finalOwner}`)
 
-  // ---- Etherscan V2 source verification (best-effort) ----
+  // ---- Etherscan V2 source verification (a real gate when a key is set) ----
+  // On a live network a supplied ETHERSCAN_API_KEY makes verification mandatory:
+  // a submission error, an exhausted poll, or any non-verified status throws and
+  // fails the deployment, rather than being logged and ignored. Without a key the
+  // registry is left unverified with an explicit warning to verify it before
+  // running script 88. On a local network there is no Etherscan to verify with.
   const etherscanApiKey = process.env.ETHERSCAN_API_KEY
-  if (!etherscanApiKey) {
+  const isLiveNetwork =
+    hre.network.name !== "hardhat" && hre.network.name !== "localhost"
+  if (!isLiveNetwork) {
+    console.log("  local network; skipping Etherscan verification")
+  } else if (!etherscanApiKey) {
     console.log(
-      "  ETHERSCAN_API_KEY not set; skipping source verification. Verify the " +
-        "registry before running script 88."
+      "  ETHERSCAN_API_KEY not set; skipping source verification. Set it and " +
+        "verify the registry before running script 88."
     )
   } else {
-    try {
-      const buildInfoDir = path.join(__dirname, "..", "build", "build-info")
-      const buildInfoFiles = fs
-        .readdirSync(buildInfoDir)
-        .filter((f) => f.endsWith(".json"))
-      let solcInput: string | null = null
-      let compilerVersion = ""
-      // eslint-disable-next-line no-restricted-syntax
-      for (const biFile of buildInfoFiles) {
-        const bi = JSON.parse(
-          fs.readFileSync(path.join(buildInfoDir, biFile), "utf-8")
-        )
-        if (
-          bi.output?.contracts?.[
-            "contracts/bridge/CovenantSpendAuthorization.sol"
-          ]?.CovenantSpendAuthorization
-        ) {
-          solcInput = JSON.stringify(bi.input)
-          compilerVersion = `v${bi.solcVersion}`
-          break
-        }
-      }
-      if (!solcInput) {
-        console.log("  Could not find build-info; skipping verification.")
-      } else {
-        console.log(
-          `  Submitting Etherscan V2 verification for ${registry.address}...`
-        )
-        const guid = await etherscanVerifyV2(
-          etherscanApiKey,
-          chainId,
-          registry.address,
-          "contracts/bridge/CovenantSpendAuthorization.sol:CovenantSpendAuthorization",
-          compilerVersion,
-          solcInput
-        )
-        console.log(`  Submitted (GUID ${guid}); polling status...`)
-        const status = await pollEtherscanVerifyStatus(
-          etherscanApiKey,
-          chainId,
-          guid
-        )
-        console.log(`  Verification status: ${status}`)
-      }
-    } catch (err) {
-      console.log(
-        `  Verification failed (non-fatal): ${(err as Error).message}`
-      )
-    }
+    console.log(
+      `  Submitting Etherscan V2 verification for ${registry.address}...`
+    )
+    await verifyDeployedContractOrThrow(hre, etherscanApiKey, chainId, {
+      address: registry.address,
+      fqName:
+        "contracts/bridge/CovenantSpendAuthorization.sol:CovenantSpendAuthorization",
+    })
+    console.log("  Etherscan verification confirmed")
   }
 
   // ---- Deployment summary ----
