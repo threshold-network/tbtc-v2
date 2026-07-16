@@ -685,11 +685,15 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         )
       }
     }
-    // Bridge ETH balance must equal the computed open escrow.
+    // Bridge ETH balance must be at least the computed open escrow. Surplus
+    // (e.g. a post-scan deposit or forced/unattributed ETH) is allowed: the
+    // on-chain migration conservatively seeds the full live balance, not this
+    // lower-bound argument, so a balance above openEscrow cannot under-seed
+    // the escrow accounting.
     const bridgeBalance = await provider.getBalance(BRIDGE_PROXY)
-    if (!bridgeBalance.eq(openEscrow)) {
+    if (bridgeBalance.lt(openEscrow)) {
       throw new Error(
-        `Bridge ETH balance ${bridgeBalance.toString()} does not equal computed ` +
+        `Bridge ETH balance ${bridgeBalance.toString()} is below computed ` +
           `open escrow ${openEscrow.toString()}; a fraud challenge changed state ` +
           "mid-flight — re-run."
       )

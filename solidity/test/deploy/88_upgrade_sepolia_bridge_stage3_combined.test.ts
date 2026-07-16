@@ -3,6 +3,7 @@
 
 import { expect } from "chai"
 import { ethers } from "hardhat"
+import { BigNumberish } from "ethers"
 import fs from "fs"
 import path from "path"
 import func from "../../deploy/88_upgrade_sepolia_bridge_stage3_combined"
@@ -88,6 +89,11 @@ interface Overrides {
   registryEnvOwner?: string
   activeWallet?: string
   newRuntime?: string
+  // Live Bridge ETH balance the mock provider reports. Defaults to 0; set to
+  // exercise the balance-vs-computed-open-escrow precheck (the mocked scan
+  // always finds zero fraud-challenge events, so any nonzero value here is
+  // unattributed surplus).
+  bridgeBalance?: BigNumberish
   // Execution-mode knob: a local network name skips the Etherscan gate and lets
   // the mock actually upgrade the proxy so the post-upgrade surface can be tested.
   networkName?: string
@@ -191,7 +197,7 @@ function createMockHre(o: Overrides = {}): {
       }
       return "0x"
     },
-    getBalance: async () => ethers.BigNumber.from(0),
+    getBalance: async () => ethers.BigNumber.from(o.bridgeBalance ?? 0),
     getBlockNumber: async () => 11280610,
     getLogs: async () => [],
     getTransaction: async () => ({ value: ethers.BigNumber.from(0) }),
@@ -423,6 +429,26 @@ describe("88_upgrade_sepolia_bridge_stage3_combined", () => {
     )
     expect(implCall, "implementation deploy").to.not.be.undefined
     expect(implCall.options.contract).to.equal("Bridge")
+    // Preparation mode must NOT upgrade the proxy.
+    expect(upgradeCalls.length).to.equal(0)
+    // Summary is written even in preparation mode.
+    expect(summaryWritten).to.equal(true)
+  })
+
+  it("prepares despite a 1-wei surplus balance with no open fraud-challenge events", async () => {
+    // The mocked scan always finds zero FraudChallengeSubmitted/resolution
+    // events (computed openEscrow is 0), so a 1-wei balance is unattributed
+    // surplus. The precheck only rejects a balance BELOW the computed sum, so
+    // this must succeed instead of throwing.
+    const { mockHre, deployCalls, upgradeCalls } = createMockHre({
+      bridgeBalance: 1,
+    })
+    await func(mockHre)
+
+    expect(
+      deployCalls.length,
+      "libraries + implementation deployed"
+    ).to.be.greaterThan(0)
     // Preparation mode must NOT upgrade the proxy.
     expect(upgradeCalls.length).to.equal(0)
     // Summary is written even in preparation mode.

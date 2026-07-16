@@ -338,7 +338,7 @@ describe("Bridge - Controller mint & Stage-3 reinitializer (combined)", () => {
       await restoreSnapshot()
     })
 
-    it("reverts when the ETH balance does not equal the supplied escrow", async () => {
+    it("reverts when the ETH balance is below the supplied escrow", async () => {
       await createSnapshot()
       await stageV5LikeState()
       await setBridgeBalance(ethers.utils.parseEther("1"))
@@ -348,10 +348,37 @@ describe("Bridge - Controller mint & Stage-3 reinitializer (combined)", () => {
           .initializeV6_Stage3Combined(
             controller.address,
             registry.address,
-            0,
+            ethers.utils.parseEther("2"),
             []
           )
-      ).to.be.revertedWith("Bridge balance != open escrow")
+      ).to.be.revertedWith("Bridge balance < open escrow")
+      await restoreSnapshot()
+    })
+
+    it("seeds the full live balance, not the supplied lower bound, when the balance exceeds it", async () => {
+      await createSnapshot()
+      await stageV5LikeState()
+      // Forced/unattributed surplus: the live balance exceeds the
+      // event-derived sum by 1 wei. The guard is satisfied (balance >= sum)
+      // and the full live balance — not the supplied sum — is what gets
+      // seeded.
+      const escrow = ethers.utils.parseEther("5")
+      const surplusBalance = escrow.add(1)
+      await setBridgeBalance(surplusBalance)
+
+      await bridge
+        .connect(thirdParty)
+        .initializeV6_Stage3Combined(
+          controller.address,
+          registry.address,
+          escrow,
+          []
+        )
+
+      expect(await bridge.getOpenFraudChallengeEscrow()).to.equal(
+        surplusBalance
+      )
+      expect(BigNumber.from(await readSlot(129))).to.equal(surplusBalance)
       await restoreSnapshot()
     })
 

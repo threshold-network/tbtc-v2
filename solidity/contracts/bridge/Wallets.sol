@@ -349,8 +349,9 @@ library Wallets {
     /// @param covenantRegistry Deployed `CovenantSpendAuthorization` registry.
     ///        Validated (nonzero, has code, not already set) and then assigned
     ///        here via the shared covenant setter helper.
-    /// @param preUpgradeOpenFraudChallengeEscrow Sum of open fraud-challenge
-    ///        deposits; must equal the Bridge's ETH balance.
+    /// @param preUpgradeOpenFraudChallengeEscrow Event-derived minimum amount
+    ///        of open fraud-challenge deposits the Bridge's ETH balance must
+    ///        hold; the live balance may exceed it and is what gets seeded.
     /// @param preUpgradeWallets Pre-upgrade wallet public key hashes, oldest
     ///        registration first; the last element must equal the active wallet.
     function migrateV6Stage3Combined(
@@ -410,15 +411,20 @@ library Wallets {
             "Wallet order not empty"
         );
 
-        // The Bridge holds ETH only as open fraud-challenge escrow.
-        // Requiring the balance to equal the supplied escrow makes any
-        // fraud-challenge submission or resolution that lands between the
-        // off-chain scan and this upgrade revert the whole atomic cutover rather
-        // than under- or over-seeding the escrow accounting. `address(this)` is
-        // the Bridge under delegatecall.
+        // The Bridge holds ETH only as open fraud-challenge escrow, but an
+        // unprivileged party can force extra ETH into it (e.g. via
+        // SELFDESTRUCT) without producing the events this sum is derived from.
+        // A lower-bound check still catches a stale scan whose sum exceeds the
+        // live balance (e.g. a resolution that landed between the off-chain
+        // scan and this upgrade), while seeding the captured live balance below
+        // — rather than the supplied sum — safely covers a post-scan
+        // submission or unclassifiable forced ETH instead of letting either
+        // give a permanent veto over this upgrade. `address(this)` is the
+        // Bridge under delegatecall.
+        uint256 bridgeBalance = address(this).balance;
         require(
-            address(this).balance == preUpgradeOpenFraudChallengeEscrow,
-            "Bridge balance != open escrow"
+            bridgeBalance >= preUpgradeOpenFraudChallengeEscrow,
+            "Bridge balance < open escrow"
         );
 
         // Race guard on the event-derived wallet list: a wallet that
@@ -439,9 +445,10 @@ library Wallets {
             );
         }
 
-        // Seed the fraud-challenge escrow accounting and mark it
-        // seeded so `submitFraudChallenge` and `recoverETH` become usable.
-        self.openFraudChallengeEscrow = preUpgradeOpenFraudChallengeEscrow;
+        // Seed the fraud-challenge escrow accounting from the captured
+        // live balance (not the supplied lower bound) and mark it seeded so
+        // `submitFraudChallenge` and `recoverETH` become usable.
+        self.openFraudChallengeEscrow = bridgeBalance;
         self.fraudChallengeEscrowSeeded = true;
 
         // Backfill the wallet registration order so moving-funds

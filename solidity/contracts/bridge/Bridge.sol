@@ -481,8 +481,10 @@ contract Bridge is
     ///        deployed contract.
     /// @param preUpgradeOpenFraudChallengeEscrow Sum of `depositAmount` across
     ///        fraud challenges still open at upgrade time, recomputed by the
-    ///        execution script immediately before submission. Must equal the
-    ///        Bridge's current ETH balance.
+    ///        execution script immediately before submission. Enforced only as
+    ///        a lower bound: the Bridge's current ETH balance must be at least
+    ///        this value, and the full live balance — not this parameter — is
+    ///        what gets seeded.
     /// @param preUpgradeWallets Wallet public key hashes registered before this
     ///        upgrade, oldest registration first, matching the off-chain
     ///        `NewWalletRegistered` scan. The last element must equal the current
@@ -507,10 +509,12 @@ contract Bridge is
         // (proving the storage layout preserved absolute slot 81), verifies the
         // covenant registry is a deployed contract, verifies every migration
         // target and the raw slot-81 collision detector is clean, requires the
-        // Bridge ETH balance to equal the supplied open escrow, race-guards the
-        // wallet list against the active wallet, seeds the fraud-challenge escrow
-        // accounting, backfills the wallet registration order, and finally wires
-        // the covenant registry (emitting `CovenantSpendAuthorizationUpdated`,
+        // Bridge ETH balance to be at least the supplied open escrow (the live
+        // balance may exceed it), race-guards the wallet list against the
+        // active wallet, seeds the fraud-challenge escrow accounting from the
+        // full live balance, backfills the wallet registration order, and
+        // finally wires the covenant registry (emitting
+        // `CovenantSpendAuthorizationUpdated`,
         // which is redeclared in `Wallets` identically so it is attributed to
         // this Bridge). The reinitializer must not call the external
         // `onlyGovernance` covenant setter: during `upgradeAndCall` the caller is

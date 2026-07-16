@@ -22,6 +22,18 @@
   disabled. Pre-upgrade challenges can still resolve; if they do so before the
   seed, they are omitted from the one-time seed. Challenges submitted after the
   seed are marked as counted on submit.
+- The Sepolia Stage-3 combined upgrade (`Wallets.migrateV6Stage3Combined`,
+  invoked from `Bridge.initializeV6_Stage3Combined`) seeds the same slot 129
+  directly in the reinitializer instead of through `seedFraudChallengeEscrow`.
+  It enforces the event-derived open-challenge sum only as a lower bound on
+  the live Bridge ETH balance, then seeds slot 129 from the full live
+  balance — not the supplied sum. Forced or otherwise unattributed ETH sent to
+  the Bridge before the upgrade (which cannot be distinguished on-chain from a
+  genuine late challenge deposit) is therefore conservatively folded into the
+  escrow accounting rather than left unclassified or allowed to block the
+  upgrade indefinitely. This migration path reuses the existing slot 129 /
+  slot 130 layout described above; it introduces no field, slot, packing, gap,
+  or storage type change.
 
 ## walletPendingFraudChallenges slot consumption
 
