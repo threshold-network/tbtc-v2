@@ -430,25 +430,37 @@ abstract contract AbstractL1BTCDepositor is
             tbtcAmount
         );
 
+        // Following the checks-effects-interactions pattern, the deferred
+        // gas reimbursement is read and deleted from storage before the
+        // external `_transferTbtc` call. The actual reimbursement payout
+        // happens after that call, as the last step of the deposit
+        // finalization.
+        GasReimbursement memory reimbursement;
+        if (address(reimbursementPool) != address(0)) {
+            reimbursement = gasReimbursements[depositKey];
+
+            if (reimbursement.receiver != address(0)) {
+                // slither-disable-next-line reentrancy-benign
+                delete gasReimbursements[depositKey];
+            }
+        }
+
         _transferTbtc(tbtcAmount, destinationChainDepositOwner);
 
         // `ReimbursementPool` calls the untrusted receiver address using a
         // low-level call. Reentrancy risk is mitigated by making sure that
-        // `ReimbursementPool.refund` is a non-reentrant function and executing
-        // reimbursements as the last step of the deposit finalization.
+        // `ReimbursementPool.refund` is a non-reentrant function, by deleting
+        // the deferred reimbursement from storage before the external
+        // `_transferTbtc` call (checks-effects-interactions), and by
+        // executing reimbursements as the last step of the deposit
+        // finalization.
         if (address(reimbursementPool) != address(0)) {
             // If there is a deferred reimbursement for this deposit
             // initialization, pay it out now. No need to check reimbursement
             // authorization for the initialization caller. If the deferred
             // reimbursement is here, that implies the caller was authorized
             // to receive it.
-            GasReimbursement memory reimbursement = gasReimbursements[
-                depositKey
-            ];
             if (reimbursement.receiver != address(0)) {
-                // slither-disable-next-line reentrancy-benign
-                delete gasReimbursements[depositKey];
-
                 reimbursementPool.refund(
                     reimbursement.gasSpent,
                     reimbursement.receiver
