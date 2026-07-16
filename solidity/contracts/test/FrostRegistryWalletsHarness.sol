@@ -37,4 +37,44 @@ contract FrostRegistryWalletsHarness {
     function recordAddedWallet(bytes32 xOnlyOutputKey) external {
         data.addWallet(bytes32(0), xOnlyOutputKey);
     }
+
+    function recordAddedWalletWithMembers(
+        bytes32 membersIdsHash,
+        bytes32 xOnlyOutputKey
+    ) external {
+        data.addWallet(membersIdsHash, xOnlyOutputKey);
+    }
+
+    function deleteWallet(bytes32 walletID) external {
+        data.deleteWallet(walletID);
+    }
+
+    function getWallet(bytes32 walletID)
+        external
+        view
+        returns (FrostRegistryWallets.Wallet memory)
+    {
+        FrostRegistryWallets.Wallet storage wallet = data.registry[walletID];
+        if (wallet.xOnlyOutputKey == bytes32(0)) {
+            return data.archived[walletID];
+        }
+        return wallet;
+    }
+
+    function getArchivedWallet(bytes32 walletID)
+        external
+        view
+        returns (bytes32 membersIdsHash, bytes32 xOnlyOutputKey)
+    {
+        FrostRegistryWallets.Wallet storage wallet = data.archived[walletID];
+        return (wallet.membersIdsHash, wallet.xOnlyOutputKey);
+    }
+
+    function getRetainedWalletMembersIdsHash(bytes32 walletID)
+        external
+        view
+        returns (bytes32)
+    {
+        return data.getRetainedWalletMembersIdsHash(walletID);
+    }
 }

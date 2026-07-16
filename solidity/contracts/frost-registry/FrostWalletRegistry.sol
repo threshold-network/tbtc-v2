@@ -1225,24 +1225,15 @@ contract FrostWalletRegistry is
         address operator,
         uint256 walletMemberIndex
     ) external view returns (bool) {
-        uint32 operatorID = sortitionPool.getOperatorID(operator);
-
-        require(operatorID != 0, "Not a sortition pool operator");
-
-        bytes32 memberIdsHash = wallets.getWalletMembersIdsHash(walletID);
-
-        require(
-            memberIdsHash == keccak256(abi.encode(walletMembersIDs)),
-            "Invalid wallet members identifiers"
-        );
-
-        require(
-            1 <= walletMemberIndex &&
-                walletMemberIndex <= walletMembersIDs.length,
-            "Wallet member index is out of range"
-        );
-
-        return walletMembersIDs[walletMemberIndex - 1] == operatorID;
+        return
+            Inactivity.isWalletMember(
+                wallets,
+                sortitionPool,
+                walletID,
+                walletMembersIDs,
+                operator,
+                walletMemberIndex
+            );
     }
 
     /// @notice Checks if awaiting seed timed out.
@@ -1265,7 +1256,11 @@ contract FrostWalletRegistry is
         view
         returns (FrostRegistryWallets.Wallet memory)
     {
-        return wallets.registry[walletID];
+        FrostRegistryWallets.Wallet storage wallet = wallets.registry[walletID];
+        if (wallet.xOnlyOutputKey == bytes32(0)) {
+            return wallets.archived[walletID];
+        }
+        return wallet;
     }
 
     /// @notice Gets the FROST x-only Taproot output key (BIP-340)
