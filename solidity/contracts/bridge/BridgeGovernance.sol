@@ -358,19 +358,17 @@ contract BridgeGovernance is Ownable {
         bridge.setCovenantSpendAuthorization(covenantSpendAuthorization);
     }
 
-    /// @notice [RECONSTRUCTED-LIVE] Sets the account-control minting controller
+    /// @notice Sets the account-control minting controller
     ///         on the Bridge. Restores ABI/source consistency with the live
     ///         controller-mint deployment, whose Bridge exposes
     ///         `setMintingController(address)` and whose governance forwards to
     ///         it. Zero is permitted (disables the controller).
     /// @param _mintingController New minting controller address.
-    function setMintingController(
-        address _mintingController // [RECONSTRUCTED-LIVE] // [RECONSTRUCTED-LIVE]
-    )
+    function setMintingController(address _mintingController)
         external
-        onlyOwner // [RECONSTRUCTED-LIVE]
+        onlyOwner
     {
-        bridge.setMintingController(_mintingController); // [RECONSTRUCTED-LIVE]
+        bridge.setMintingController(_mintingController);
     }
 
     /// @notice Records or revokes a legacy-vault optimistic-minting retirement

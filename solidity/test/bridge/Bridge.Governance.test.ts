@@ -4494,7 +4494,7 @@ describe("Bridge - Governance", () => {
     })
   })
 
-  // [RECONSTRUCTED-LIVE] Governance forwarding for the account-control minting
+  // Governance forwarding for the account-control minting
   // controller: BridgeGovernance.setMintingController is onlyOwner and forwards
   // to Bridge.setMintingController (onlyGovernance).
   describe("setMintingController", () => {

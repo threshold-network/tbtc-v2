@@ -5,7 +5,7 @@ import { HardhatRuntimeEnvironment } from "hardhat/types"
 import { DeployFunction, DeployOptions } from "hardhat-deploy/types"
 import { utils } from "ethers"
 
-// [NEW-STAGE3] Sepolia-only deployment of the `CovenantSpendAuthorization`
+// Sepolia-only deployment of the `CovenantSpendAuthorization`
 // registry consulted by `Bridge.defeatFraudChallengeWithCovenantSpend`. This is
 // step one of the two-step Stage-3 combined upgrade: the registry must exist and
 // be verified before script 88 wires it into the Bridge via the version-6
@@ -210,7 +210,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     waitConfirmations: 1,
   }
 
-  // [NEW-STAGE3] The reconstructed controller-mint surface and the Stage-3
+  // The reconstructed controller-mint surface and the Stage-3
   // reinitializer are Sepolia-only. Refuse to run on any other chain so this can
   // never be pointed at mainnet, where there is no corresponding controller
   // extension.
@@ -223,7 +223,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     )
   }
 
-  // [NEW-STAGE3] The registry owner is a fraud-defense root (it can pardon a
+  // The registry owner is a fraud-defense root (it can pardon a
   // colluding wallet's unauthorized covenant spend), so it must be a deliberate,
   // operationally usable address the team controls — never an incidental
   // deployer. Require it explicitly.
@@ -387,7 +387,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 export default func
 
 func.tags = ["DeployCovenantSpendAuthorizationStage3"]
-// [NEW-STAGE3] Explicitly opt-in only. This must never run as part of a normal
+// Explicitly opt-in only. This must never run as part of a normal
 // `deployments.fixture()`; it is a deliberate Sepolia operation.
 func.skip = async () =>
   process.env.DEPLOY_STAGE3_COVENANT_AUTHORIZATION !== "true"

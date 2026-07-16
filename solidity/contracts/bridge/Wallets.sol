@@ -329,7 +329,7 @@ library Wallets {
         self.walletRegistrationOrderSeeded = true;
     }
 
-    /// @notice [NEW-STAGE3] Validates and applies the storage migration for the
+    /// @notice Validates and applies the storage migration for the
     ///         combined Sepolia Stage-3 Bridge upgrade, on behalf of
     ///         `Bridge.initializeV6_Stage3Combined`. Runs under delegatecall from
     ///         the Bridge's version-6 reinitializer, so `self`, `address(this)`
@@ -360,7 +360,7 @@ library Wallets {
         uint256 preUpgradeOpenFraudChallengeEscrow,
         bytes20[] calldata preUpgradeWallets
     ) external {
-        // [NEW-STAGE3] The controller must already live at slot 81. This is an
+        // The controller must already live at slot 81. This is an
         // assertion, not an assignment: it proves the reconstructed storage
         // layout kept `mintingController` at absolute slot 81 across the upgrade.
         require(
@@ -372,7 +372,7 @@ library Wallets {
             "Minting controller slot mismatch"
         );
 
-        // [NEW-STAGE3] The covenant registry must be a real deployed contract; a
+        // The covenant registry must be a real deployed contract; a
         // zero or codeless address would leave the covenant defeat path silently
         // disabled after an upgrade that is meant to enable it.
         require(covenantRegistry != address(0), "Covenant registry is zero");
@@ -381,7 +381,7 @@ library Wallets {
             "Covenant registry has no code"
         );
 
-        // [NEW-STAGE3] Direct detector for the raw-PR slot collision: had the
+        // Direct detector for the raw-PR slot collision: had the
         // combined implementation reused relative slot 30 for
         // `migrationDebtVault`, the live controller value would be read here as a
         // nonzero migration-debt vault. At the correct layout this reads zero.
@@ -390,7 +390,7 @@ library Wallets {
             "Migration debt vault slot not clean"
         );
 
-        // [NEW-STAGE3] The migration targets must all be untouched; this
+        // The migration targets must all be untouched; this
         // reinitializer is the single writer of these fields on Sepolia.
         require(self.openFraudChallengeEscrow == 0, "Fraud escrow already set");
         require(
@@ -410,7 +410,7 @@ library Wallets {
             "Wallet order not empty"
         );
 
-        // [NEW-STAGE3] The Bridge holds ETH only as open fraud-challenge escrow.
+        // The Bridge holds ETH only as open fraud-challenge escrow.
         // Requiring the balance to equal the supplied escrow makes any
         // fraud-challenge submission or resolution that lands between the
         // off-chain scan and this upgrade revert the whole atomic cutover rather
@@ -421,7 +421,7 @@ library Wallets {
             "Bridge balance != open escrow"
         );
 
-        // [NEW-STAGE3] Race guard on the event-derived wallet list: a wallet that
+        // Race guard on the event-derived wallet list: a wallet that
         // registers between the off-chain scan and this upgrade would change the
         // active wallet. Binding the list's tail to the current active wallet (or
         // requiring no active wallet for an empty list) forces a stale scan to
@@ -439,17 +439,17 @@ library Wallets {
             );
         }
 
-        // [NEW-STAGE3] Seed the fraud-challenge escrow accounting and mark it
+        // Seed the fraud-challenge escrow accounting and mark it
         // seeded so `submitFraudChallenge` and `recoverETH` become usable.
         self.openFraudChallengeEscrow = preUpgradeOpenFraudChallengeEscrow;
         self.fraudChallengeEscrowSeeded = true;
 
-        // [NEW-STAGE3] Backfill the wallet registration order so moving-funds
+        // Backfill the wallet registration order so moving-funds
         // target selection can reconstruct the pre-upgrade wallet set. This also
         // sets `walletRegistrationOrderSeeded`.
         _seedWalletRegistrationOrder(self, preUpgradeWallets);
 
-        // [NEW-STAGE3] Wire the covenant registry last, after every check
+        // Wire the covenant registry last, after every check
         // passed, through the shared helper. Emitting
         // `CovenantSpendAuthorizationUpdated` from this library (the event is
         // redeclared below, identical to the Bridge's, so it carries the same
@@ -460,7 +460,7 @@ library Wallets {
         _setCovenantSpendAuthorization(self, covenantRegistry);
     }
 
-    /// @notice [NEW-STAGE3] Shared covenant-registry assignment helper (the
+    /// @notice Shared covenant-registry assignment helper (the
     ///         section-3.4 shared setter, hosted in this library so the Bridge
     ///         stays within EIP-170). Writes storage and emits the
     ///         Bridge-attributed update event. Called by both the Bridge's
@@ -478,7 +478,7 @@ library Wallets {
         emit CovenantSpendAuthorizationUpdated(registry);
     }
 
-    /// @notice [NEW-STAGE3] External entry point for the shared covenant-registry
+    /// @notice External entry point for the shared covenant-registry
     ///         assignment helper, delegated to by the Bridge's governance-only
     ///         `setCovenantSpendAuthorization`. Zero is permitted. The
     ///         governance guard stays on the Bridge stub; this function carries
@@ -493,7 +493,7 @@ library Wallets {
         _setCovenantSpendAuthorization(self, registry);
     }
 
-    /// @notice [RECONSTRUCTED-LIVE] Execution body for
+    /// @notice Execution body for
     ///         `Bridge.setMintingController`. Sets the account-control minting
     ///         controller (zero permitted) and emits `MintingControllerSet` with
     ///         the new address only. The governance guard stays on the Bridge
@@ -501,16 +501,15 @@ library Wallets {
     /// @param self Bridge storage.
     /// @param _mintingController New controller address.
     function setMintingController(
-        // [RECONSTRUCTED-LIVE]
-        BridgeState.Storage storage self, // [RECONSTRUCTED-LIVE]
-        address _mintingController // [RECONSTRUCTED-LIVE]
+        BridgeState.Storage storage self,
+        address _mintingController
     ) external {
-        self.mintingController = _mintingController; // [RECONSTRUCTED-LIVE]
-        emit MintingControllerSet(_mintingController); // [RECONSTRUCTED-LIVE]
+        self.mintingController = _mintingController;
+        emit MintingControllerSet(_mintingController);
     }
 
     // ===================================================================
-    // [RECONSTRUCTED-LIVE] Account-control minting-controller execution bodies.
+    // Account-control minting-controller execution bodies.
     // -------------------------------------------------------------------
     // The Bridge exposes `controllerIncreaseBalance` (selector 0xa5f7eaf8) and
     // `controllerIncreaseBalances` (selector 0x5182a65f) with the exact
@@ -525,63 +524,59 @@ library Wallets {
     // are attributed to the Bridge.
     // ===================================================================
 
-    event MintingControllerSet(address mintingController); // [RECONSTRUCTED-LIVE]
+    event MintingControllerSet(address mintingController);
     event ControllerBalanceIncreased(
-        // [RECONSTRUCTED-LIVE]
-        address indexed controller, // [RECONSTRUCTED-LIVE]
-        address indexed recipient, // [RECONSTRUCTED-LIVE]
-        uint256 amount // [RECONSTRUCTED-LIVE]
-    ); // [RECONSTRUCTED-LIVE]
+        address indexed controller,
+        address indexed recipient,
+        uint256 amount
+    );
     event ControllerBalancesIncreased(
-        // [RECONSTRUCTED-LIVE]
-        address indexed controller, // [RECONSTRUCTED-LIVE]
-        address[] recipients, // [RECONSTRUCTED-LIVE]
-        uint256[] amounts // [RECONSTRUCTED-LIVE]
-    ); // [RECONSTRUCTED-LIVE]
+        address indexed controller,
+        address[] recipients,
+        uint256[] amounts
+    );
     // Redeclared identically to the Bridge so the covenant event emitted by
     // `migrateV6Stage3Combined` carries the Bridge's topic.
     event CovenantSpendAuthorizationUpdated(
         address indexed covenantSpendAuthorization
     );
 
-    /// @notice [RECONSTRUCTED-LIVE] Execution body for
+    /// @notice Execution body for
     ///         `Bridge.controllerIncreaseBalance`. Only the configured
     ///         `mintingController` may call. The controller event is emitted
     ///         before the Bank call, matching the live bytecode; a Bank revert
     ///         rolls the log back. The amount is already a Bank amount — no
     ///         satoshi/decimal conversion happens here.
     function controllerIncreaseBalance(
-        // [RECONSTRUCTED-LIVE]
-        BridgeState.Storage storage self, // [RECONSTRUCTED-LIVE]
-        address recipient, // [RECONSTRUCTED-LIVE]
-        uint256 amount // [RECONSTRUCTED-LIVE]
+        BridgeState.Storage storage self,
+        address recipient,
+        uint256 amount
     ) external {
-        require( // [AUDIT-LIFTED]
-            msg.sender == self.mintingController, // [AUDIT-LIFTED]
-            "Caller is not the authorized controller" // [AUDIT-LIFTED]
-        ); // [AUDIT-LIFTED]
-        emit ControllerBalanceIncreased(msg.sender, recipient, amount); // [RECONSTRUCTED-LIVE]
-        self.bank.increaseBalance(recipient, amount); // [RECONSTRUCTED-LIVE]
+        require(
+            msg.sender == self.mintingController,
+            "Caller is not the authorized controller"
+        );
+        emit ControllerBalanceIncreased(msg.sender, recipient, amount);
+        self.bank.increaseBalance(recipient, amount);
     }
 
-    /// @notice [RECONSTRUCTED-LIVE] Execution body for
+    /// @notice Execution body for
     ///         `Bridge.controllerIncreaseBalances`. Only the configured
     ///         `mintingController` may call. Array-length validation is delegated
     ///         to `Bank.increaseBalances` (its "Arrays must have the same length"
     ///         revert), matching the live bytecode. The batch event is emitted
     ///         before the Bank call.
     function controllerIncreaseBalances(
-        // [RECONSTRUCTED-LIVE]
-        BridgeState.Storage storage self, // [RECONSTRUCTED-LIVE]
-        address[] calldata recipients, // [RECONSTRUCTED-LIVE]
-        uint256[] calldata amounts // [RECONSTRUCTED-LIVE]
+        BridgeState.Storage storage self,
+        address[] calldata recipients,
+        uint256[] calldata amounts
     ) external {
-        require( // [RECONSTRUCTED-LIVE]
-            msg.sender == self.mintingController, // [RECONSTRUCTED-LIVE]
-            "Caller is not the authorized controller" // [RECONSTRUCTED-LIVE]
-        ); // [RECONSTRUCTED-LIVE]
-        emit ControllerBalancesIncreased(msg.sender, recipients, amounts); // [RECONSTRUCTED-LIVE]
-        self.bank.increaseBalances(recipients, amounts); // [RECONSTRUCTED-LIVE]
+        require(
+            msg.sender == self.mintingController,
+            "Caller is not the authorized controller"
+        );
+        emit ControllerBalancesIncreased(msg.sender, recipients, amounts);
+        self.bank.increaseBalances(recipients, amounts);
     }
 
     /// @notice Handles a notification about a wallet redemption timeout.

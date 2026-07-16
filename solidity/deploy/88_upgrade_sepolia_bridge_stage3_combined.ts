@@ -18,7 +18,7 @@ import {
 // the deployed library addresses) and any failure aborts the upgrade.
 import { verifyDeployedContractOrThrow } from "./87_deploy_covenant_spend_authorization"
 
-// [NEW-STAGE3] Two-mode upgrade of the live Sepolia Bridge proxy to the combined
+// Two-mode upgrade of the live Sepolia Bridge proxy to the combined
 // implementation that carries BOTH the reconstructed account-control
 // controller-mint surface (already live at implementation 0xa14a9607…) AND the
 // reviewed PR covenant/migration surface, wired atomically by the version-6
@@ -1150,6 +1150,6 @@ function writeSummary(
 export default func
 
 func.tags = ["UpgradeSepoliaBridgeStage3Combined"]
-// [NEW-STAGE3] Explicit opt-in to even PREPARE. A second flag
+// Explicit opt-in to even PREPARE. A second flag
 // (EXECUTE_STAGE3_COMBINED_UPGRADE=true) is required to actually upgrade.
 func.skip = async () => process.env.DEPLOY_STAGE3_COMBINED_UPGRADE !== "true"

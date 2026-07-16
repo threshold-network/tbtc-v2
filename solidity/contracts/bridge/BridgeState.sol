@@ -325,7 +325,7 @@ library BridgeState {
         // governance wiring; changing it afterwards requires a dedicated
         // upgrade path of the Bridge implementation.
         address rebateStaking;
-        // [RECONSTRUCTED-LIVE] Address of the account-control minting controller
+        // Address of the account-control minting controller
         // authorized to increase Bank balances through this Bridge
         // (`controllerIncreaseBalance`/`controllerIncreaseBalances`). Its exact
         // storage location is not a design choice: the live Sepolia Bridge
@@ -381,7 +381,7 @@ library BridgeState {
         // planned upgrades of the Bridge contract. If more entires are added to
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
-        // [RECONSTRUCTED-LIVE] Shrunk from 45 to 44 slots to make room for the
+        // Shrunk from 45 to 44 slots to make room for the
         // reconstructed `mintingController` field above without shifting any
         // post-gap field. This keeps `openFraudChallengeEscrow` at absolute slot
         // 129, the packed seed/registry slot at 130, and the legacy-vault

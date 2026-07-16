@@ -1,4 +1,4 @@
-// [NEW-STAGE3] Sepolia mainnet-style fork test for the combined Stage-3 Bridge
+// Sepolia mainnet-style fork test for the combined Stage-3 Bridge
 // upgrade. It performs the real upgrade against the live Sepolia proxy on a fork
 // and proves BOTH preservation invariants and the new covenant defeat path:
 //
@@ -61,8 +61,10 @@ const ADMIN_SLOT =
 const SLOT_COUNT = 132
 
 // ---- Pinned live Sepolia entries at FORK_BLOCK for the storage-preservation
-// proof. Each is a REAL, populated (non-default) entry read from the live chain
-// at block 11280610; snapshotting them before AND after the upgrade proves the
+// proof. Each pinned mapping entry below is a REAL, populated (non-default)
+// entry read from the live chain at block 11280610; the snapshot's scalar
+// samples are also live except rebate staking, which is (correctly) unset at
+// this block. Snapshotting them before AND after the upgrade proves the
 // combined implementation does not reinterpret any preserved mapping storage
 // (raw mapping-root slots 0..131 are always zero and cannot show this). ----
 // A revealed, still-unswept deposit. Key =
