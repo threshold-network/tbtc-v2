@@ -563,6 +563,8 @@ export type P2TRSignatureFraudPreparedChallengeTransaction = {
 }
 
 export interface P2TRSignatureFraudChallengeTransactionPreparer {
+  /** Sender whose nonce lane is serialized by the durable outbox store. */
+  readonly transactionSender: string
   /**
    * Prepares and signs, but MUST NOT broadcast, an Ethereum transaction for
    * the supplied intent. Production implementations must allocate the sender
