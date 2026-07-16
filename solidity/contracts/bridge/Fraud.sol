@@ -19,6 +19,7 @@ import {BytesLib} from "@keep-network/bitcoin-spv-sol/contracts/BytesLib.sol";
 import {BTCUtils} from "@keep-network/bitcoin-spv-sol/contracts/BTCUtils.sol";
 
 import "./BridgeState.sol";
+import "./EcdsaFraudRouterProtocol.sol";
 
 /// @title Bridge fraud helpers
 /// @notice The ECDSA fraud lifecycle (submit / defeat / timeout) was
@@ -45,6 +46,7 @@ library Fraud {
     using BytesLib for bytes;
     using BTCUtils for bytes;
     using BTCUtils for uint32;
+    using BridgeState for BridgeState.Storage;
 
     struct FraudChallenge {
         // The address of the party challenging the wallet.
@@ -68,10 +70,129 @@ library Fraud {
         uint256 depositAmount
     );
 
+    event EcdsaFraudRouterDrainStarted(address indexed ecdsaFraudRouter);
+    event EcdsaFraudRouterRetired(address indexed ecdsaFraudRouter);
+    event EcdsaFraudRouterReplaced(
+        address indexed previousEcdsaFraudRouter,
+        address indexed newEcdsaFraudRouter
+    );
+    event EcdsaFraudRouterSet(address ecdsaFraudRouter);
+
     error InvalidLegacyFraudRouterKind();
     error LegacyFraudRouterNotSet();
     error LegacyFraudChallengeDoesNotExist();
     error LegacyFraudChallengeAlreadyResolved();
+    error EcdsaFraudRouterNotSet();
+    error EcdsaFraudRouterDrainAlreadyStarted(address ecdsaFraudRouter);
+    error EcdsaFraudRouterDrainNotStarted();
+    error EcdsaFraudRouterUnexpected(
+        address expectedEcdsaFraudRouter,
+        address actualEcdsaFraudRouter
+    );
+    error EcdsaFraudRouterReplacementUnchanged();
+
+    /// @notice Validates and wires an empty current-generation router on a
+    ///         Bridge whose one-shot router slot has never been initialized.
+    function configureEcdsaFraudRouter(
+        BridgeState.Storage storage self,
+        address ecdsaFraudRouter
+    ) external {
+        if (self.ecdsaFraudRouter != address(0)) {
+            revert BridgeState.EcdsaFraudRouterAlreadySet();
+        }
+        EcdsaFraudRouterProtocol.requireEmptyCurrentRouter(
+            ecdsaFraudRouter,
+            address(this)
+        );
+        self.setEcdsaFraudRouter(ecdsaFraudRouter);
+    }
+
+    /// @notice Starts the fail-closed drain of an already-wired router.
+    /// @dev While the pinned drain address is non-zero, Wallets refuses every
+    ///      graceful ECDSA closure. This protects the legacy timeout path even
+    ///      though pre-fix routers decrement their global counter before the
+    ///      untrusted challenger refund callback.
+    function beginEcdsaFraudRouterDrain(BridgeState.Storage storage self)
+        external
+    {
+        address ecdsaFraudRouter = self.ecdsaFraudRouter;
+        if (ecdsaFraudRouter == address(0)) {
+            revert EcdsaFraudRouterNotSet();
+        }
+        if (self.ecdsaFraudRouterInDrain != address(0)) {
+            revert EcdsaFraudRouterDrainAlreadyStarted(
+                self.ecdsaFraudRouterInDrain
+            );
+        }
+
+        // There is deliberately no drain-cancel escape hatch. Prove the
+        // authoritative legacy count is readable before entering that
+        // fail-closed state so malformed router wiring cannot brick closure.
+        EcdsaFraudRouterProtocol.requireOpenChallengeCount(
+            ecdsaFraudRouter
+        );
+
+        self.ecdsaFraudRouterInDrain = ecdsaFraudRouter;
+        emit EcdsaFraudRouterDrainStarted(ecdsaFraudRouter);
+    }
+
+    /// @notice Atomically retires a drained legacy router, installs an empty
+    ///         current-generation router, and migrates selected unresolved
+    ///         Bridge-resident legacy challenges into it.
+    /// @dev The old router cannot export its own ETH or records, so its global
+    ///      open count must be exactly zero. Any validation or migration failure
+    ///      reverts the pointer swap and retirement marker together.
+    function replaceEcdsaFraudRouter(
+        BridgeState.Storage storage self,
+        address expectedEcdsaFraudRouter,
+        address newEcdsaFraudRouter,
+        uint256[] calldata legacyChallengeKeys
+    ) external {
+        address ecdsaFraudRouterInDrain = self.ecdsaFraudRouterInDrain;
+        if (ecdsaFraudRouterInDrain == address(0)) {
+            revert EcdsaFraudRouterDrainNotStarted();
+        }
+
+        address currentEcdsaFraudRouter = self.ecdsaFraudRouter;
+        if (
+            currentEcdsaFraudRouter != expectedEcdsaFraudRouter ||
+            ecdsaFraudRouterInDrain != expectedEcdsaFraudRouter
+        ) {
+            revert EcdsaFraudRouterUnexpected(
+                expectedEcdsaFraudRouter,
+                currentEcdsaFraudRouter
+            );
+        }
+        if (newEcdsaFraudRouter == expectedEcdsaFraudRouter) {
+            revert EcdsaFraudRouterReplacementUnchanged();
+        }
+
+        uint256 openChallengeCount = EcdsaFraudRouterProtocol
+            .requireOpenChallengeCount(expectedEcdsaFraudRouter);
+        if (openChallengeCount != 0) {
+            revert EcdsaFraudRouterProtocol
+                .EcdsaFraudRouterHasOpenChallenges(openChallengeCount);
+        }
+        EcdsaFraudRouterProtocol.requireEmptyCurrentRouter(
+            newEcdsaFraudRouter,
+            address(this)
+        );
+
+        self.retiredEcdsaFraudRouters[expectedEcdsaFraudRouter] = true;
+        self.ecdsaFraudRouter = newEcdsaFraudRouter;
+        delete self.ecdsaFraudRouterInDrain;
+
+        emit EcdsaFraudRouterRetired(expectedEcdsaFraudRouter);
+        emit EcdsaFraudRouterReplaced(
+            expectedEcdsaFraudRouter,
+            newEcdsaFraudRouter
+        );
+        emit EcdsaFraudRouterSet(newEcdsaFraudRouter);
+
+        if (legacyChallengeKeys.length > 0) {
+            _migrateLegacyFraudChallenges(self, 0, legacyChallengeKeys);
+        }
+    }
 
     /// @notice Moves unresolved fraud challenges and their exact ETH escrow
     ///         from legacy Bridge storage into one of the fraud routers.
@@ -85,6 +206,14 @@ library Fraud {
         uint8 routerKind,
         uint256[] calldata challengeKeys
     ) external {
+        _migrateLegacyFraudChallenges(self, routerKind, challengeKeys);
+    }
+
+    function _migrateLegacyFraudChallenges(
+        BridgeState.Storage storage self,
+        uint8 routerKind,
+        uint256[] calldata challengeKeys
+    ) internal {
         address router;
 
         if (routerKind == 0) {

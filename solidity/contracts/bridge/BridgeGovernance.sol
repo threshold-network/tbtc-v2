@@ -1845,6 +1845,27 @@ contract BridgeGovernance is Ownable {
         bridge.setEcdsaFraudRouter(ecdsaFraudRouter);
     }
 
+    /// @notice Starts the fail-closed drain required to replace an already
+    ///         wired ECDSA fraud router.
+    function beginEcdsaFraudRouterDrain() external onlyOwner {
+        bridge.beginEcdsaFraudRouterDrain();
+    }
+
+    /// @notice Atomically retires a zero-open-challenge ECDSA fraud router,
+    ///         installs its reviewed replacement, and migrates the supplied
+    ///         Bridge-resident legacy challenge records.
+    function replaceEcdsaFraudRouter(
+        address expectedEcdsaFraudRouter,
+        address newEcdsaFraudRouter,
+        uint256[] calldata legacyChallengeKeys
+    ) external onlyOwner {
+        bridge.replaceEcdsaFraudRouter(
+            expectedEcdsaFraudRouter,
+            newEcdsaFraudRouter,
+            legacyChallengeKeys
+        );
+    }
+
     /// @notice Migrates a batch of legacy fraud challenges from
     ///         Bridge storage to one of the fraud router sidecars.
     ///         Forwards to `Bridge.migrateLegacyFraudChallenges`,

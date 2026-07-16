@@ -177,6 +177,7 @@ library Wallets {
     error LifecycleOwnerMismatch();
     error EcdsaFraudChallengePending();
     error P2TRFraudChallengePending();
+    error EcdsaFraudRouterDrainPending();
     // FROST wallet's canonical walletID lookup failed. Raised when the
     // scheme-aware lifecycle path is invoked for a wallet whose
     // ecdsaWalletID is zero but whose walletIDByWalletPubKeyHash entry
@@ -1071,13 +1072,17 @@ library Wallets {
         P2TRReservation.requireWalletUnlocked(self, walletPubKeyHash);
         Wallet storage wallet = self.registeredWallets[walletPubKeyHash];
 
-        if (
-            wallet.ecdsaWalletID != bytes32(0) &&
-            self.ecdsaFraudRouter != address(0) &&
-            IEcdsaFraudChallengeCounter(self.ecdsaFraudRouter)
-                .hasOpenFraudChallengeForWallet(walletPubKeyHash)
-        ) {
-            revert EcdsaFraudChallengePending();
+        if (wallet.ecdsaWalletID != bytes32(0)) {
+            if (self.ecdsaFraudRouterInDrain != address(0)) {
+                revert EcdsaFraudRouterDrainPending();
+            }
+            if (
+                self.ecdsaFraudRouter != address(0) &&
+                IEcdsaFraudChallengeCounter(self.ecdsaFraudRouter)
+                    .hasOpenFraudChallengeForWallet(walletPubKeyHash)
+            ) {
+                revert EcdsaFraudChallengePending();
+            }
         }
         if (
             wallet.ecdsaWalletID == bytes32(0) &&

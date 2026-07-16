@@ -1,6 +1,45 @@
 import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import type { DeployFunction } from "hardhat-deploy/types"
 
+const CURRENT_PROTOCOL_ID =
+  "0x2ec27e6ba7e92f8ce2c5e8d180e5220c899e662e87c4084d1dec5bc9150d2bf8"
+
+async function assertCurrentRouterHandshake(
+  hre: HardhatRuntimeEnvironment,
+  routerAddress: string,
+  bridgeAddress: string,
+  requireEmpty: boolean
+) {
+  const router = await hre.ethers.getContractAt(
+    "EcdsaFraudRouter",
+    routerAddress
+  )
+  const [boundBridge, protocolID, openCount] = await Promise.all([
+    router.bridge(),
+    router.fraudProtocolID(),
+    router.openFraudChallengeCount(),
+  ])
+
+  if (boundBridge.toLowerCase() !== bridgeAddress.toLowerCase()) {
+    throw new Error(
+      `EcdsaFraudRouter ${routerAddress} is bound to ${boundBridge}, ` +
+        `not Bridge ${bridgeAddress}`
+    )
+  }
+  if (protocolID.toLowerCase() !== CURRENT_PROTOCOL_ID) {
+    throw new Error(
+      `EcdsaFraudRouter ${routerAddress} exposes unsupported protocol ` +
+        `${protocolID}; expected ${CURRENT_PROTOCOL_ID}`
+    )
+  }
+  if (requireEmpty && !openCount.isZero()) {
+    throw new Error(
+      `EcdsaFraudRouter ${routerAddress} is not empty: ` +
+        `${openCount.toString()} open challenge(s)`
+    )
+  }
+}
+
 // Returns a signer for `address` only when that account is configured for the
 // current network. Used to decide whether a governance-gated call can be sent by
 // this deployment, or must instead be emitted as calldata for manual governance
@@ -36,6 +75,16 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     log: true,
     waitConfirmations: 1,
   })
+
+  // Do not trust the deployment record alone. A router is eligible for fresh
+  // wiring only if its immutable Bridge binding, protocol generation, and
+  // state all match the on-chain handshake enforced by Bridge.
+  await assertCurrentRouterHandshake(
+    hre,
+    ecdsaFraudRouter.address,
+    Bridge.address,
+    true
+  )
 
   // Wire the router onto the Bridge via the one-time governance setter
   // `Bridge.setEcdsaFraudRouter`. Until this lands, `Bridge.ecdsaFraudRouter()`
@@ -111,14 +160,23 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     currentEcdsaFraudRouter.toLowerCase() ===
     ecdsaFraudRouter.address.toLowerCase()
   ) {
+    await assertCurrentRouterHandshake(
+      hre,
+      currentEcdsaFraudRouter,
+      Bridge.address,
+      false
+    )
     console.log(
       `EcdsaFraudRouter already wired on this Bridge at ${ecdsaFraudRouter.address}; skipping`
     )
   } else if (currentEcdsaFraudRouter !== ethers.constants.AddressZero) {
     throw new Error(
-      "Bridge is already wired to a different EcdsaFraudRouter " +
-        `(${currentEcdsaFraudRouter}); refusing to wire ` +
-        `${ecdsaFraudRouter.address}`
+      "Bridge is already wired to a different stateful EcdsaFraudRouter " +
+        `(${currentEcdsaFraudRouter}). Do not overwrite it or migrate its ` +
+        "state implicitly. Follow docs/rfc/frost-migration/" +
+        "ecdsa-fraud-router-cutover-runbook.md and use " +
+        "scripts/ecdsa-fraud-router-cutover.ts to drain and atomically " +
+        `replace it with ${ecdsaFraudRouter.address}`
     )
   } else {
     // Resolve the authorized caller. In the governance-wrapper case the setter

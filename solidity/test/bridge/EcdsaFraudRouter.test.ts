@@ -43,6 +43,28 @@ async function expectBalanceDelta(
   expect(delta).to.equal(expectedDelta)
 }
 
+async function expectCustomError(
+  promise: Promise<unknown>,
+  signature: string
+): Promise<void> {
+  const selector = ethers.utils.id(signature).slice(0, 10).toLowerCase()
+
+  try {
+    await promise
+    expect.fail(`expected ${signature}`)
+  } catch (error) {
+    const typedError = error as {
+      data?: string
+      error?: { data?: string }
+      message?: string
+    }
+    const data = typedError.data ?? typedError.error?.data ?? ""
+    expect(`${data} ${typedError.message ?? ""}`.toLowerCase()).to.include(
+      selector
+    )
+  }
+}
+
 describe("EcdsaFraudRouter", () => {
   let thirdParty: SignerWithAddress
   let treasury: SignerWithAddress
@@ -114,6 +136,7 @@ describe("EcdsaFraudRouter", () => {
       bridge.address
     )) as EcdsaFraudRouter
     await ecdsaFraudRouter.deployed()
+    bridge.ecdsaFraudRouter.returns(ecdsaFraudRouter.address)
   })
 
   afterEach(async () => {
@@ -139,6 +162,23 @@ describe("EcdsaFraudRouter", () => {
           value: fraudChallengeDepositAmount,
         }
       )
+
+  it("exposes the current Bridge-bound fraud protocol handshake", async () => {
+    expect(await ecdsaFraudRouter.bridge()).to.equal(bridge.address)
+    expect(await ecdsaFraudRouter.fraudProtocolID()).to.equal(
+      ethers.utils.id("tbtc/ecdsa-signature-fraud/router/current-v2")
+    )
+  })
+
+  it("rejects challenge escrow before the router is authoritative", async () => {
+    bridge.ecdsaFraudRouter.returns(ZeroAddress)
+
+    await expectCustomError(submitChallenge(), "EcdsaFraudRouterNotActive()")
+    expect(await ecdsaFraudRouter.openFraudChallengeCount()).to.equal(0)
+    expect(await ethers.provider.getBalance(ecdsaFraudRouter.address)).to.equal(
+      0
+    )
+  })
 
   const utxoKey = (utxo: {
     txHash: string | Uint8Array

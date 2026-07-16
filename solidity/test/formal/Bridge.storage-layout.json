@@ -37,10 +37,10 @@
       "label": "address",
       "numberOfBytes": "20"
     },
-    "t_array(t_uint256)35_storage": {
+    "t_array(t_uint256)24_storage": {
       "encoding": "inplace",
-      "label": "uint256[35]",
-      "numberOfBytes": "1120",
+      "label": "uint256[24]",
+      "numberOfBytes": "768",
       "base": "t_uint256"
     },
     "t_array(t_uint256)49_storage": {
@@ -738,46 +738,118 @@
           "type": "t_mapping(t_uint256,t_bytes32)"
         },
         {
-          "label": "taprootDepositOutputKeys",
+          "label": "ecdsaFraudRouterCodeHash",
           "offset": 0,
           "slot": "39",
+          "type": "t_bytes32"
+        },
+        {
+          "label": "ecdsaFraudRouterInDrain",
+          "offset": 0,
+          "slot": "40",
+          "type": "t_address"
+        },
+        {
+          "label": "retiredEcdsaFraudRouters",
+          "offset": 0,
+          "slot": "41",
+          "type": "t_mapping(t_address,t_bool)"
+        },
+        {
+          "label": "taprootDepositOutputKeys",
+          "offset": 0,
+          "slot": "42",
           "type": "t_mapping(t_uint256,t_bytes32)"
         },
         {
           "label": "taprootOutputKeyCoverageInitialized",
           "offset": 0,
-          "slot": "40",
+          "slot": "43",
           "type": "t_bool"
         },
         {
           "label": "taprootOutputKeyCoverageInventoryCount",
           "offset": 1,
-          "slot": "40",
+          "slot": "43",
           "type": "t_uint64"
         },
         {
           "label": "taprootOutputKeyCoverageMigratedCount",
           "offset": 9,
-          "slot": "40",
+          "slot": "43",
           "type": "t_uint64"
         },
         {
           "label": "taprootOutputKeyCoverageInventoryRoot",
           "offset": 0,
-          "slot": "41",
+          "slot": "44",
           "type": "t_bytes32"
         },
         {
           "label": "taprootOutputKeyCoverageLeafMigrated",
           "offset": 0,
-          "slot": "42",
+          "slot": "45",
           "type": "t_mapping(t_uint64,t_bool)"
+        },
+        {
+          "label": "taprootOutputKeyCoverageAuthorizedRouter",
+          "offset": 0,
+          "slot": "46",
+          "type": "t_address"
+        },
+        {
+          "label": "taprootOutputKeyCoverageAuthorizationDigest",
+          "offset": 0,
+          "slot": "47",
+          "type": "t_bytes32"
+        },
+        {
+          "label": "taprootOutputKeyCoverageHistoryStartBlock",
+          "offset": 0,
+          "slot": "48",
+          "type": "t_uint64"
+        },
+        {
+          "label": "taprootOutputKeyCoverageSnapshotBlock",
+          "offset": 8,
+          "slot": "48",
+          "type": "t_uint64"
+        },
+        {
+          "label": "taprootOutputKeyCoverageSnapshotBlockHash",
+          "offset": 0,
+          "slot": "49",
+          "type": "t_bytes32"
+        },
+        {
+          "label": "taprootOutputKeyCoverageSourceCheckpointCommitment",
+          "offset": 0,
+          "slot": "50",
+          "type": "t_bytes32"
+        },
+        {
+          "label": "taprootOutputKeyCoverageSourceCheckpoint1",
+          "offset": 0,
+          "slot": "51",
+          "type": "t_bytes32"
+        },
+        {
+          "label": "taprootOutputKeyCoverageSourceCheckpoint2",
+          "offset": 0,
+          "slot": "52",
+          "type": "t_bytes32"
+        },
+        {
+          "label": "taprootOutputKeyCoverageLinkedLibrariesCommitment",
+          "offset": 0,
+          "slot": "53",
+          "type": "t_bytes32"
         },
         {
           "label": "__gap",
           "offset": 0,
-          "slot": "43",
-          "type": "t_array(t_uint256)35_storage"
+          "slot": "54",
+          "type": "t_array(t_uint256)24_storage"
         }
       ]
     },

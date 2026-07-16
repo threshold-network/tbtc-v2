@@ -334,9 +334,9 @@ library BridgeState {
         // governance wiring; changing it afterwards requires a dedicated
         // upgrade path of the Bridge implementation.
         address rebateStaking;
-        // Upgrade note: the FROST extraction state and Taproot deposit
-        // commitment mapping below consume nine reserved slots, reducing
-        // `__gap` from 48 to 39 for storage-layout compatibility.
+        // Upgrade note: the FROST extraction state, Taproot deposit commitment,
+        // and ECDSA fraud-router cutover state below consume eleven reserved
+        // slots, reducing `__gap` from 48 to 37 for storage compatibility.
         // Maps canonical wallet identifier to the wallet public key hash used
         // by legacy Bridge paths. For legacy ECDSA wallets, canonical wallet
         // ID is a left-padded 20-byte wallet public key hash. New wallet
@@ -469,6 +469,17 @@ library BridgeState {
         // backfilled automatically; without a commitment, fraud verification
         // falls back to the registered wallet's base x-only key.
         mapping(uint256 => bytes32) taprootDepositOutputKeyCommitments;
+        // Governance-approved runtime bytecode hash of the authoritative ECDSA
+        // fraud router. Fresh wiring, drain entry, and replacement compare it
+        // against EXTCODEHASH; handshake getters are compatibility checks only.
+        bytes32 ecdsaFraudRouterCodeHash;
+        // Pins the authoritative legacy router throughout a governance drain.
+        // Graceful ECDSA wallet closure remains blocked until an atomic,
+        // zero-open-challenge replacement clears this value.
+        address ecdsaFraudRouterInDrain;
+        // Retired routers may resolve historical state but cannot read current
+        // fraud parameters to admit new escrow after cutover.
+        mapping(address => bool) retiredEcdsaFraudRouters;
         // Exact output key of each revealed Taproot-native deposit. FROST
         // custody cannot activate without COMPLETE_V2, so all FROST deposits
         // are revealed after this field exists and require no unsafe backfill.
@@ -505,7 +516,7 @@ library BridgeState {
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
-        uint256[27] __gap;
+        uint256[24] __gap;
     }
 
     event DepositParametersUpdated(

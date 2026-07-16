@@ -335,6 +335,21 @@ contract Bridge is
     // in the Bridge contract ABI.
     event EcdsaFraudRouterSet(address ecdsaFraudRouter);
 
+    /// @notice Emitted when governance pins the current router and starts the
+    ///         fail-closed challenge drain required before replacement.
+    event EcdsaFraudRouterDrainStarted(
+        address indexed ecdsaFraudRouter
+    );
+
+    /// @notice Emitted when an old router is permanently disabled after drain.
+    event EcdsaFraudRouterRetired(address indexed ecdsaFraudRouter);
+
+    /// @notice Emitted by the atomic drained-router replacement.
+    event EcdsaFraudRouterReplaced(
+        address indexed previousEcdsaFraudRouter,
+        address indexed newEcdsaFraudRouter
+    );
+
     // Mirror of the BridgeState library declaration so the event appears
     // in the Bridge contract ABI.
     event P2TRFraudRouterSet(address p2trFraudRouter);
@@ -365,6 +380,8 @@ contract Bridge is
     );
 
     event RebateStakingSet(address rebateStaking);
+
+    error EcdsaFraudRouterRetiredCaller();
 
     /// @notice Emitted when a deposit's vault field is corrected via governance.
     /// @dev This event is used for transparency when fixing deposits that were
@@ -2238,7 +2255,17 @@ contract Bridge is
             uint32 fraudNotifierRewardMultiplier
         )
     {
-        fraudChallengeDepositAmount = self.fraudChallengeDepositAmount;
+        if (self.retiredEcdsaFraudRouters[msg.sender]) {
+            revert EcdsaFraudRouterRetiredCaller();
+        }
+
+        // Legacy routers read the deposit and timeout through the same view.
+        // During drain, make new submissions economically impossible without
+        // disabling timeout resolution of challenges already in flight.
+        fraudChallengeDepositAmount = msg.sender ==
+            self.ecdsaFraudRouterInDrain
+            ? type(uint96).max
+            : self.fraudChallengeDepositAmount;
         fraudChallengeDefeatTimeout = self.fraudChallengeDefeatTimeout;
         fraudSlashingAmount = self.fraudSlashingAmount;
         fraudNotifierRewardMultiplier = self.fraudNotifierRewardMultiplier;
@@ -2505,7 +2532,7 @@ contract Bridge is
         external
         onlyGovernance
     {
-        self.setEcdsaFraudRouter(ecdsaFraudRouter);
+        self.configureEcdsaFraudRouter(ecdsaFraudRouter);
     }
 
     /// @notice Returns the address of the EcdsaFraudRouter sidecar.
@@ -2513,6 +2540,48 @@ contract Bridge is
     ///         `setEcdsaFraudRouter`.
     function ecdsaFraudRouter() external view returns (address) {
         return self.ecdsaFraudRouter;
+    }
+
+    /// @notice Returns the router pinned by an in-progress fail-closed drain,
+    ///         or address(0) when no cutover is in progress.
+    function ecdsaFraudRouterInDrain() external view returns (address) {
+        return self.ecdsaFraudRouterInDrain;
+    }
+
+    /// @notice Returns whether a replaced router is permanently retired.
+    function isEcdsaFraudRouterRetired(address ecdsaFraudRouter)
+        external
+        view
+        returns (bool)
+    {
+        return self.retiredEcdsaFraudRouters[ecdsaFraudRouter];
+    }
+
+    /// @notice Starts the fail-closed drain of the current ECDSA fraud router.
+    /// @dev While draining, every graceful ECDSA wallet closure reverts. The
+    ///      router continues to accept defeats and timeout notifications so its
+    ///      authoritative open-challenge count can reach zero.
+    function beginEcdsaFraudRouterDrain() external onlyGovernance {
+        self.beginEcdsaFraudRouterDrain();
+    }
+
+    /// @notice Atomically replaces a drained ECDSA fraud router and optionally
+    ///         migrates unresolved challenges still resident in Bridge storage.
+    /// @dev Requirements:
+    ///      - Caller must be governance,
+    ///      - `expectedEcdsaFraudRouter` must still be current and in drain,
+    ///      - The old router's global open challenge count must be zero,
+    ///      - The new router must be empty, current-version, and bound here.
+    function replaceEcdsaFraudRouter(
+        address expectedEcdsaFraudRouter,
+        address newEcdsaFraudRouter,
+        uint256[] calldata legacyChallengeKeys
+    ) external onlyGovernance {
+        self.replaceEcdsaFraudRouter(
+            expectedEcdsaFraudRouter,
+            newEcdsaFraudRouter,
+            legacyChallengeKeys
+        );
     }
 
     /// @notice Privileged callback the EcdsaFraudRouter invokes to
