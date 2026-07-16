@@ -91,6 +91,10 @@ interface Overrides {
   // Execution-mode knob: a local network name skips the Etherscan gate and lets
   // the mock actually upgrade the proxy so the post-upgrade surface can be tested.
   networkName?: string
+  // Registry address the mock upgrade receipt reports in its
+  // CovenantSpendAuthorizationUpdated event. Defaults to the real REGISTRY; set
+  // to a different address to prove the tightened event assertion discriminates.
+  receiptCovenantRegistry?: string
 }
 
 // Packed slot 130 after the upgrade: (uint160(registry) << 16) | 0x0101.
@@ -198,19 +202,25 @@ function createMockHre(o: Overrides = {}): {
   }
 
   // Receipt logs the upgrade tx emits: CovenantSpendAuthorizationUpdated(registry)
-  // and Initialized(6), and deliberately NOT MintingControllerSet.
+  // and Initialized(6), and deliberately NOT MintingControllerSet. Each log
+  // carries a real `address` so the tightened script assertion (which filters to
+  // `address == BRIDGE_PROXY`) can be exercised. The covenant event's registry
+  // is overridable so a wrong value can be injected for the negative test.
+  const receiptRegistry = o.receiptCovenantRegistry ?? REGISTRY
   const upgradeReceipt = {
     transactionHash: "0xabc",
     blockNumber: 1,
     logs: [
       {
+        address: BRIDGE_PROXY,
         topics: [
           utils.id("CovenantSpendAuthorizationUpdated(address)"),
-          utils.hexZeroPad(REGISTRY.toLowerCase(), 32),
+          utils.hexZeroPad(receiptRegistry.toLowerCase(), 32),
         ],
         data: "0x",
       },
       {
+        address: BRIDGE_PROXY,
         topics: [utils.id("Initialized(uint8)")],
         data: utils.hexZeroPad("0x06", 32),
       },
@@ -483,5 +493,29 @@ describe("88_upgrade_sepolia_bridge_stage3_combined", () => {
     expect(state.upgraded).to.equal(true)
     expect(state.savedProxy).to.equal(true)
     expect(summaryWritten).to.equal(true)
+  })
+
+  it("EXECUTE mode aborts when CovenantSpendAuthorizationUpdated carries the wrong registry", async () => {
+    process.env.EXECUTE_STAGE3_COMBINED_UPGRADE = "true"
+    // The Bridge emits the covenant event with a registry that is NOT the one
+    // sent to the reinitializer. The tightened assertion must reject it even
+    // though the topic 0 (and every other post-upgrade check) is satisfied.
+    const { mockHre, upgradeCalls, state } = createMockHre({
+      networkName: "hardhat",
+      receiptCovenantRegistry: "0x9999999999999999999999999999999999999999",
+    })
+    await expectReject(
+      func(mockHre),
+      "CovenantSpendAuthorizationUpdated carried registry"
+    )
+    // The upgrade tx was sent (the check is a post-upgrade assertion), but the
+    // mismatch aborts before the proxy artifact is saved or a summary written.
+    expect(upgradeCalls.length).to.equal(1)
+    expect(state.savedProxy, "must not save proxy on event mismatch").to.equal(
+      false
+    )
+    expect(summaryWritten, "must not write summary on event mismatch").to.equal(
+      false
+    )
   })
 })

@@ -60,6 +60,44 @@ const ADMIN_SLOT =
 // Absolute Bridge storage slots snapshotted before/after the upgrade: 0..131.
 const SLOT_COUNT = 132
 
+// ---- Pinned live Sepolia entries at FORK_BLOCK for the storage-preservation
+// proof. Each is a REAL, populated (non-default) entry read from the live chain
+// at block 11280610; snapshotting them before AND after the upgrade proves the
+// combined implementation does not reinterpret any preserved mapping storage
+// (raw mapping-root slots 0..131 are always zero and cannot show this). ----
+// A revealed, still-unswept deposit. Key =
+// keccak256(fundingTxHash ++ uint32(fundingOutputIndex)); reads to a record with
+// a nonzero `revealedAt`.
+const SAMPLE_DEPOSIT_KEY =
+  "0x7870b687471b01eeed00dbe80d5acaab36c2dcf69e4c7459794378e0b6c9c0cb"
+// A redemption still pending at the fork block. Key =
+// keccak256(keccak256(redeemerOutputScript) ++ walletPubKeyHash); reads to a
+// record with a nonzero `requestedAt`.
+const SAMPLE_REDEMPTION_KEY =
+  "0x02d908230c7f98114d1905b6319fa48cf1186ce22ef31ce277fc16864ebcbf4f"
+// A moved-funds sweep request. Key =
+// keccak256(movingFundsTxHash ++ uint32(outputIndex)); reads to a record with a
+// nonzero `createdAt`.
+const SAMPLE_SWEEP_KEY =
+  "0x6a7d002628af07d86c04de78d45794f8254731acbd4180857cb163f3f2cbc22d"
+// A vault trusted by the Bridge at the fork block (the live Sepolia TBTCVault).
+const SAMPLE_TRUSTED_VAULT = "0xb5679de944a79732a75ce556191df11f489448d5"
+// A trusted SPV maintainer at the fork block. `isSpvMaintainer` has no public
+// getter, so its entry is read directly from the derived mapping slot.
+// `isSpvMaintainer` is the Bridge storage struct's relative slot 21, and the
+// struct begins at absolute slot 51 (the SAME base that puts `mintingController`
+// at absolute slot 81 — see BridgeState.sol). Its mapping root is therefore
+// absolute slot 72, verified against the live chain where this maintainer's
+// derived slot reads 1 while a since-revoked maintainer's derived slot reads 0.
+const SAMPLE_SPV_MAINTAINER = "0x3bc9a80a3ed44a9d14162992cce040efac5a3682"
+const SPV_MAINTAINER_ROOT_SLOT = 72
+const SPV_MAINTAINER_SLOT = ethers.utils.keccak256(
+  ethers.utils.defaultAbiCoder.encode(
+    ["address", "uint256"],
+    [SAMPLE_SPV_MAINTAINER, SPV_MAINTAINER_ROOT_SLOT]
+  )
+)
+
 const BRIDGE_LIBRARIES = [
   "Deposit",
   "DepositSweep",
@@ -185,11 +223,39 @@ describeFork("Bridge - Stage-3 combined upgrade (Sepolia fork)", function () {
     activeWalletRecord: [...(await bridgeReader.wallets(ACTIVE_WALLET))].map(
       String
     ),
+    // Populated mapping-backed entries (real live keys at the fork block) that
+    // must survive the upgrade byte-for-byte through their existing mapping roots.
+    sampleDeposit: [...(await bridgeReader.deposits(SAMPLE_DEPOSIT_KEY))].map(
+      String
+    ),
+    samplePendingRedemption: [
+      ...(await bridgeReader.pendingRedemptions(SAMPLE_REDEMPTION_KEY)),
+    ].map(String),
+    sampleMovedFundsSweep: [
+      ...(await bridgeReader.movedFundsSweepRequests(SAMPLE_SWEEP_KEY)),
+    ].map(String),
+    sampleTrustedVault: await bridgeReader.isVaultTrusted(SAMPLE_TRUSTED_VAULT),
+    // `isSpvMaintainer` has no getter — read the derived mapping slot directly.
+    sampleSpvMaintainerSlot: await ethers.provider.getStorageAt(
+      BRIDGE_PROXY,
+      SPV_MAINTAINER_SLOT
+    ),
+    // Scalar getters that live just below the migration-owned slots. The
+    // watchtower is a real nonzero address; rebate staking is (correctly) unset
+    // at the fork block and must stay unset — a nonzero post-upgrade read would
+    // signal a layout regression around the reconstructed fields.
+    redemptionWatchtower: await bridgeReader.getRedemptionWatchtower(),
+    rebateStaking: await bridgeReader.getRebateStaking(),
   })
 
   before(async function () {
     const bn = await ethers.provider.getBlockNumber()
     if (bn < FORK_BLOCK) this.skip()
+    // The pinned live-state samples (deposit/redemption/sweep/vault/maintainer
+    // keys) are only valid at exactly FORK_BLOCK; a fork at any other height
+    // would read different — or since-removed — entries, so require the exact
+    // pinned block rather than merely "at least" it.
+    expect(bn).to.equal(FORK_BLOCK)
 
     proxyAdminOwner = await impersonate(PROXY_ADMIN_OWNER)
     g1Operator = await impersonate(G1_OPERATOR)
@@ -343,9 +409,12 @@ describeFork("Bridge - Stage-3 combined upgrade (Sepolia fork)", function () {
       )
     }
 
-    // Slot 50: OpenZeppelin initializer version 5 -> 6.
-    expect(parseInt(preSlots[50].slice(-2), 16)).to.equal(5)
-    expect(parseInt(postSlots[50].slice(-2), 16)).to.equal(6)
+    // Slot 50: OpenZeppelin initializer version. Assert the FULL 32-byte word
+    // (not merely the low byte): exactly 5 before and 6 after, so a stray write
+    // to any higher byte of the initializer word (e.g. a lingering `_initializing`
+    // flag) is caught.
+    expect(preSlots[50]).to.equal(ethers.utils.hexZeroPad("0x05", 32))
+    expect(postSlots[50]).to.equal(ethers.utils.hexZeroPad("0x06", 32))
     // Slot 84: walletRegistrationOrder array length 0 -> event-scan count.
     expect(BigNumber.from(preSlots[84])).to.equal(0)
     expect(BigNumber.from(postSlots[84])).to.equal(walletOrder.length)
@@ -377,6 +446,35 @@ describeFork("Bridge - Stage-3 combined upgrade (Sepolia fork)", function () {
     expect(await bridge.migrationDebtVault()).to.equal(
       ethers.constants.AddressZero
     )
+
+    // The representative samples must be real, populated (non-default) entries at
+    // the fork block; otherwise the byte-for-byte equality below would prove only
+    // that zero-valued mapping defaults survive. Assert each is nonzero BEFORE the
+    // upgrade so the preservation proof genuinely exercises populated storage.
+    expect(
+      (preState.sampleDeposit as string[])[2],
+      "sample deposit revealedAt must be populated"
+    ).to.not.equal("0")
+    expect(
+      (preState.samplePendingRedemption as string[])[4],
+      "sample redemption requestedAt must be populated"
+    ).to.not.equal("0")
+    expect(
+      (preState.sampleMovedFundsSweep as string[])[2],
+      "sample moved-funds sweep createdAt must be populated"
+    ).to.not.equal("0")
+    expect(
+      preState.sampleTrustedVault,
+      "sample vault must be trusted"
+    ).to.equal(true)
+    expect(
+      BigNumber.from(preState.sampleSpvMaintainerSlot as string),
+      "sample SPV maintainer slot must be set"
+    ).to.equal(1)
+    expect(
+      preState.redemptionWatchtower,
+      "redemption watchtower must be set"
+    ).to.not.equal(ethers.constants.AddressZero)
 
     // Representative mapping-backed/public state is byte-for-byte identical.
     expect(postState).to.deep.equal(preState)

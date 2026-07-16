@@ -965,9 +965,17 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         `${expectedSlot130.toHexString()} (registry << 16 | 0x0101).`
     )
   }
-  // Events: CovenantSpendAuthorizationUpdated + Initialized(6) emitted; the
-  // reinitializer must NOT re-emit MintingControllerSet (it only asserts).
-  const logs: Array<{ topics?: string[]; data?: string }> = receipt.logs || []
+  // Events: only logs emitted BY THE BRIDGE PROXY count. A same-topic log from a
+  // different address must never satisfy these assertions, so every check is
+  // restricted to `address == BRIDGE_PROXY` and the indexed/data arguments are
+  // ABI-decoded and matched exactly.
+  const logs: Array<{ address?: string; topics?: string[]; data?: string }> =
+    receipt.logs || []
+  const bridgeLogs = logs.filter(
+    (l) =>
+      typeof l.address === "string" &&
+      l.address.toLowerCase() === BRIDGE_PROXY.toLowerCase()
+  )
   const covenantTopic = bridgeInterface.getEventTopic(
     "CovenantSpendAuthorizationUpdated"
   )
@@ -975,25 +983,53 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const mintingControllerSetTopic = bridgeInterface.getEventTopic(
     "MintingControllerSet"
   )
-  if (!logs.some((l) => l.topics?.[0] === covenantTopic)) {
+  // CovenantSpendAuthorizationUpdated: emitted by the Bridge and carrying the
+  // EXACT registry address that was sent to the reinitializer (not merely any
+  // log with the same topic 0).
+  const covenantLog = bridgeLogs.find((l) => l.topics?.[0] === covenantTopic)
+  if (!covenantLog) {
     throw new Error(
-      "Post-upgrade CovenantSpendAuthorizationUpdated not emitted."
+      "Post-upgrade CovenantSpendAuthorizationUpdated not emitted by the Bridge proxy."
     )
   }
-  if (
-    !logs.some(
-      (l) =>
-        l.topics?.[0] === initializedTopic &&
-        l.data !== undefined &&
-        BigNumber.from(l.data).eq(6)
-    )
-  ) {
-    throw new Error("Post-upgrade Initialized(6) not emitted.")
-  }
-  if (logs.some((l) => l.topics?.[0] === mintingControllerSetTopic)) {
+  const parsedCovenant = bridgeInterface.parseLog({
+    topics: covenantLog.topics as string[],
+    data: covenantLog.data ?? "0x",
+  })
+  const emittedRegistry = utils.getAddress(
+    parsedCovenant.args.covenantSpendAuthorization as string
+  )
+  if (emittedRegistry !== utils.getAddress(preSend.registryAddress)) {
     throw new Error(
-      "Post-upgrade MintingControllerSet was emitted — the reinitializer must " +
-        "assert the controller, never re-set it."
+      `Post-upgrade CovenantSpendAuthorizationUpdated carried registry ${emittedRegistry}, ` +
+        `expected the reinitialized registry ${utils.getAddress(
+          preSend.registryAddress
+        )}.`
+    )
+  }
+  // Initialized: emitted by the Bridge with version EXACTLY 6.
+  const initializedLog = bridgeLogs.find(
+    (l) => l.topics?.[0] === initializedTopic
+  )
+  if (!initializedLog) {
+    throw new Error("Post-upgrade Initialized not emitted by the Bridge proxy.")
+  }
+  const parsedInitialized = bridgeInterface.parseLog({
+    topics: initializedLog.topics as string[],
+    data: initializedLog.data ?? "0x",
+  })
+  if (BigNumber.from(parsedInitialized.args.version).toNumber() !== 6) {
+    throw new Error(
+      `Post-upgrade Initialized emitted version ${parsedInitialized.args.version}, expected 6.`
+    )
+  }
+  // MintingControllerSet must NOT be emitted by the Bridge — the reinitializer
+  // asserts the controller, it never re-sets it. Checked against Bridge logs
+  // specifically, not the whole receipt.
+  if (bridgeLogs.some((l) => l.topics?.[0] === mintingControllerSetTopic)) {
+    throw new Error(
+      "Post-upgrade MintingControllerSet was emitted by the Bridge — the " +
+        "reinitializer must assert the controller, never re-set it."
     )
   }
   // Unauthorized controller call still reverts with the exact live message.
