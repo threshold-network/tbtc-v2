@@ -718,7 +718,9 @@ function encodeFinalizeLegacyVaultMigration(
   )
 }
 
-async function getFraudChallengeLogs(
+// Exported so the Stage-3 combined upgrade script (88) can reuse the same
+// tested fraud-challenge log scanner instead of duplicating it.
+export async function getFraudChallengeLogs(
   provider: providers.Provider,
   bridgeAddress: string,
   fromBlock: number,
@@ -763,7 +765,9 @@ async function getFraudChallengeLogs(
   })
 }
 
-async function computeOpenFraudChallengeEscrow(
+// Exported so the Stage-3 combined upgrade script (88) can reuse the same
+// tested open-escrow computation instead of duplicating it.
+export async function computeOpenFraudChallengeEscrow(
   provider: providers.Provider,
   bridgeAddress: string,
   fromBlock: number,
@@ -835,7 +839,9 @@ async function computeOpenFraudChallengeEscrow(
  * pre-upgrade wallets. Duplicate hashes cannot occur because a wallet is
  * registered at most once.
  */
-async function computeWalletRegistrationOrder(
+// Exported so the Stage-3 combined upgrade script (88) can reuse the same
+// tested wallet-registration-order scanner instead of duplicating it.
+export async function computeWalletRegistrationOrder(
   provider: providers.Provider,
   bridgeAddress: string,
   fromBlock: number,

@@ -325,6 +325,24 @@ library BridgeState {
         // governance wiring; changing it afterwards requires a dedicated
         // upgrade path of the Bridge implementation.
         address rebateStaking;
+        // [RECONSTRUCTED-LIVE] Address of the account-control minting controller
+        // authorized to increase Bank balances through this Bridge
+        // (`controllerIncreaseBalance`/`controllerIncreaseBalances`). Its exact
+        // storage location is not a design choice: the live Sepolia Bridge
+        // implementation `0xa14a9607…` executes `SLOAD 0x51` (absolute slot 81)
+        // for both `mintingController()` and `getMintingController()`, and the
+        // live proxy slot 81 holds the deployed controller
+        // `0x1433e4f7…`. Because `Bridge.self` begins at absolute slot 51, this
+        // field must occupy relative slot 30 (absolute 81) and therefore must be
+        // declared here, immediately after `rebateStaking` and BEFORE
+        // `migrationDebtVault`. A layout that instead placed `migrationDebtVault`
+        // at relative slot 30 (the pre-reconstruction ordering) would reinterpret
+        // the live controller as the migration-debt vault and delete the
+        // controller getters — the collision this ordering exists to prevent.
+        // Upgrade note: this reconstructed field consumed one reserved slot,
+        // reducing `__gap` from 45 to 44 for storage-layout compatibility while
+        // keeping every post-gap field (absolute slots 129-131) unmoved.
+        address mintingController;
         // Canonical migration debt vault used by non-migration reveal guard.
         // Optional and set through governance to enable global migration
         // revealer isolation checks.
@@ -363,8 +381,13 @@ library BridgeState {
         // planned upgrades of the Bridge contract. If more entires are added to
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
+        // [RECONSTRUCTED-LIVE] Shrunk from 45 to 44 slots to make room for the
+        // reconstructed `mintingController` field above without shifting any
+        // post-gap field. This keeps `openFraudChallengeEscrow` at absolute slot
+        // 129, the packed seed/registry slot at 130, and the legacy-vault
+        // coordinator mapping at 131.
         // slither-disable-next-line unused-state
-        uint256[45] __gap;
+        uint256[44] __gap;
         /// @notice Sum of `depositAmount` across currently-open fraud
         ///         challenges, used to keep `recoverETH` scoped to
         ///         non-escrowed ETH.

@@ -255,6 +255,26 @@ contract Bridge is
         address indexed covenantSpendAuthorization
     );
 
+    // [RECONSTRUCTED-LIVE] Account-control minting-controller events. Their
+    // schemas and indexing are recovered from the live Sepolia Bridge's emitted
+    // logs and topics (120 historical `ControllerBalanceIncreased` records): the
+    // single event indexes controller and recipient with the amount in data; the
+    // batch event indexes only the controller; `MintingControllerSet` carries the
+    // new controller address non-indexed.
+    event MintingControllerSet(address mintingController); // [RECONSTRUCTED-LIVE]
+    event ControllerBalanceIncreased(
+        // [RECONSTRUCTED-LIVE]
+        address indexed controller, // [RECONSTRUCTED-LIVE]
+        address indexed recipient, // [RECONSTRUCTED-LIVE]
+        uint256 amount // [RECONSTRUCTED-LIVE]
+    ); // [RECONSTRUCTED-LIVE]
+    event ControllerBalancesIncreased(
+        // [RECONSTRUCTED-LIVE]
+        address indexed controller, // [RECONSTRUCTED-LIVE]
+        address[] recipients, // [RECONSTRUCTED-LIVE]
+        uint256[] amounts // [RECONSTRUCTED-LIVE]
+    ); // [RECONSTRUCTED-LIVE]
+
     // Declared here so it appears in the Bridge ABI. It is emitted by the
     // `VaultManagement` library under delegatecall, which attributes the log to
     // this Bridge; the identical library declaration produces the same topic.
@@ -442,6 +462,69 @@ contract Bridge is
         self.walletClosingPeriod = 40 days;
 
         _transferGovernance(msg.sender);
+    }
+
+    /// @notice [NEW-STAGE3] Atomic version-6 reinitializer for the combined
+    ///         Sepolia Stage-3 Bridge upgrade. Run exactly once via
+    ///         `ProxyAdmin.upgradeAndCall` when moving the live proxy from the
+    ///         controller-mint implementation (initializer version 5) to the
+    ///         combined implementation that also carries the reviewed PR
+    ///         covenant/migration surface. It asserts the reconstructed storage
+    ///         layout preserved the live minting controller at absolute slot 81,
+    ///         seeds the post-`__gap` migration fields (fraud-challenge escrow
+    ///         accounting and wallet registration order), and wires the covenant
+    ///         spend authorization registry — all in one transaction so any
+    ///         failure rolls back the implementation swap.
+    /// @param expectedMintingController The controller the caller asserts is
+    ///        already stored at slot 81 (the live account-control controller).
+    ///        Asserted, never written.
+    /// @param covenantSpendAuthorization_ Address of the deployed
+    ///        `CovenantSpendAuthorization` registry to wire. Must be a nonzero
+    ///        deployed contract.
+    /// @param preUpgradeOpenFraudChallengeEscrow Sum of `depositAmount` across
+    ///        fraud challenges still open at upgrade time, recomputed by the
+    ///        execution script immediately before submission. Must equal the
+    ///        Bridge's current ETH balance.
+    /// @param preUpgradeWallets Wallet public key hashes registered before this
+    ///        upgrade, oldest registration first, matching the off-chain
+    ///        `NewWalletRegistered` scan. The last element must equal the current
+    ///        active wallet (an empty list requires no active wallet).
+    /// @dev [NEW-STAGE3] Version 6 is required because the live proxy's
+    ///      initializer byte is currently 5. The whole migration is delegated to
+    ///      `Wallets.migrateV6Stage3Combined` (see there for every guard); a
+    ///      revert in any guard reverts the entire `upgradeAndCall`, including the
+    ///      implementation-slot update.
+    function initializeV6_Stage3Combined(
+        address expectedMintingController, // [NEW-STAGE3]
+        address covenantSpendAuthorization_, // [NEW-STAGE3]
+        uint256 preUpgradeOpenFraudChallengeEscrow, // [NEW-STAGE3]
+        bytes20[] calldata preUpgradeWallets // [NEW-STAGE3]
+    ) external reinitializer(6) {
+        // [NEW-STAGE3] The whole migration — validation, seeding, and covenant
+        // wiring — is delegated to `Wallets.migrateV6Stage3Combined`, executed
+        // under delegatecall in this Bridge's storage context, to keep the Bridge
+        // within the EIP-170 deployed-bytecode limit (the same offloading pattern
+        // the codebase uses for `VaultManagement`). That call removes NONE of the
+        // migration checks: it asserts the controller still occupies slot 81
+        // (proving the storage layout preserved absolute slot 81), verifies the
+        // covenant registry is a deployed contract, verifies every migration
+        // target and the raw slot-81 collision detector is clean, requires the
+        // Bridge ETH balance to equal the supplied open escrow, race-guards the
+        // wallet list against the active wallet, seeds the fraud-challenge escrow
+        // accounting, backfills the wallet registration order, and finally wires
+        // the covenant registry (emitting `CovenantSpendAuthorizationUpdated`,
+        // which is redeclared in `Wallets` identically so it is attributed to
+        // this Bridge). The reinitializer must not call the external
+        // `onlyGovernance` covenant setter: during `upgradeAndCall` the caller is
+        // the ProxyAdmin, so that guarded setter would revert.
+        // `self.mintingController` and `self.migrationDebtVault` are never
+        // written; `Initializable` emits `Initialized(6)` on return.
+        self.migrateV6Stage3Combined(
+            expectedMintingController,
+            covenantSpendAuthorization_,
+            preUpgradeOpenFraudChallengeEscrow,
+            preUpgradeWallets
+        );
     }
 
     /// @notice Used by the depositor to reveal information about their P2(W)SH
@@ -1474,12 +1557,124 @@ contract Bridge is
     ///      first. Because a registry that always returns `true` would exonerate
     ///      arbitrary wallet signatures, governance must also verify the target
     ///      is the intended `CovenantSpendAuthorization` deployment.
+    /// @dev [NEW-STAGE3] The state write and event live in the shared
+    ///      `Wallets._setCovenantSpendAuthorization` helper (section 3.4), hosted
+    ///      in the linked library so the Bridge stays within EIP-170 while both
+    ///      this governance-only path and the Stage-3 reinitializer path
+    ///      (`migrateV6Stage3Combined`) reuse one implementation. The
+    ///      `onlyGovernance` guard stays here; the reinitializer must not call
+    ///      this external setter because during `ProxyAdmin.upgradeAndCall` the
+    ///      caller is the ProxyAdmin, not governance, so the guard would revert
+    ///      the whole atomic upgrade. The event is redeclared identically in
+    ///      `Wallets`, so it is attributed to this Bridge under delegatecall.
     function setCovenantSpendAuthorization(address covenantSpendAuthorization)
         external
         onlyGovernance
     {
-        self.covenantSpendAuthorization = covenantSpendAuthorization;
-        emit CovenantSpendAuthorizationUpdated(covenantSpendAuthorization);
+        self.setCovenantSpendAuthorization(covenantSpendAuthorization);
+    }
+
+    // ===================================================================
+    // [RECONSTRUCTED-LIVE] Account-control minting-controller surface.
+    // -------------------------------------------------------------------
+    // Reconstructed from the live Sepolia Bridge implementation
+    // `0xa14a9607…`, whose five controller selectors (`mintingController()`
+    // 0x09878d8c, `getMintingController()` 0xf56cb897,
+    // `controllerIncreaseBalance` 0xa5f7eaf8, `controllerIncreaseBalances`
+    // 0x5182a65f, `setMintingController` 0xbbbfb5fd) are all present and
+    // exercised on-chain. Both getters disassemble to `SLOAD 0x51` (absolute
+    // slot 81). The amount passed to the increase functions is already a Bank
+    // amount — the off-chain controller performs any satoshi/decimal conversion
+    // before calling the Bridge — so no unit conversion happens here.
+    // Recipient/zero-amount/array-length validation is intentionally delegated to
+    // `Bank`, matching the live bytecode.
+    // ===================================================================
+
+    /// @notice [RECONSTRUCTED-LIVE] Returns the account-control minting
+    ///         controller authorized to increase Bank balances through this
+    ///         Bridge.
+    function mintingController()
+        external
+        view
+        returns (
+            // [RECONSTRUCTED-LIVE]
+            // [RECONSTRUCTED-LIVE]
+            // [RECONSTRUCTED-LIVE]
+            address // [RECONSTRUCTED-LIVE]
+        )
+    {
+        return self.mintingController; // [RECONSTRUCTED-LIVE]
+    }
+
+    /// @notice [RECONSTRUCTED-LIVE] Alias getter for the minting controller,
+    ///         preserved because the live implementation exposes both selectors.
+    function getMintingController()
+        external
+        view
+        returns (
+            // [RECONSTRUCTED-LIVE]
+            // [RECONSTRUCTED-LIVE]
+            // [RECONSTRUCTED-LIVE]
+            address // [RECONSTRUCTED-LIVE]
+        )
+    {
+        return self.mintingController; // [RECONSTRUCTED-LIVE]
+    }
+
+    /// @notice [RECONSTRUCTED-LIVE] Increases a single recipient's Bank balance
+    ///         on behalf of the account-control minting controller.
+    /// @param recipient Bank balance recipient.
+    /// @param amount Bank amount to credit (already denominated as a Bank
+    ///        amount; no satoshi/decimal conversion happens here).
+    /// @dev Only the configured `mintingController` may call, reverting with
+    ///      "Caller is not the authorized controller" otherwise. The controller
+    ///      event is emitted before the Bank call, matching the live bytecode; a
+    ///      Bank revert rolls the log back. The body runs in `Wallets` under
+    ///      delegatecall (which preserves `msg.sender` and `address(this)`), only
+    ///      to keep the Bridge within the EIP-170 limit; behavior is identical to
+    ///      an inline implementation.
+    function controllerIncreaseBalance(
+        // [RECONSTRUCTED-LIVE]
+        address recipient, // [RECONSTRUCTED-LIVE]
+        uint256 amount // [RECONSTRUCTED-LIVE]
+    ) external {
+        self.controllerIncreaseBalance(recipient, amount); // [RECONSTRUCTED-LIVE]
+    }
+
+    /// @notice [RECONSTRUCTED-LIVE] Increases multiple recipients' Bank balances
+    ///         on behalf of the account-control minting controller.
+    /// @param recipients Bank balance recipients.
+    /// @param amounts Bank amounts to credit, one per recipient.
+    /// @dev Only the configured `mintingController` may call. Array-length
+    ///      validation is delegated to `Bank.increaseBalances` (its
+    ///      "Arrays must have the same length" revert), matching the live
+    ///      bytecode. The batch event is emitted before the Bank call. The body
+    ///      runs in `Wallets` under delegatecall only to keep the Bridge within
+    ///      the EIP-170 limit; behavior is identical to an inline implementation.
+    function controllerIncreaseBalances(
+        // [RECONSTRUCTED-LIVE]
+        address[] calldata recipients, // [RECONSTRUCTED-LIVE]
+        uint256[] calldata amounts // [RECONSTRUCTED-LIVE]
+    ) external {
+        self.controllerIncreaseBalances(recipients, amounts); // [RECONSTRUCTED-LIVE]
+    }
+
+    /// @notice [RECONSTRUCTED-LIVE] Sets the account-control minting controller.
+    /// @param _mintingController New controller address (zero is permitted).
+    /// @dev Only governance may call. Unauthorized callers revert with the
+    ///      Governable "Caller is not the governance" message. Emits
+    ///      `MintingControllerSet` with the new address only (non-indexed). The
+    ///      state write and event live in `Wallets.setMintingController`, hosted
+    ///      in the linked library so the Bridge stays within EIP-170; the
+    ///      governance guard stays here. Behavior is identical to an inline
+    ///      implementation under delegatecall.
+    function setMintingController(
+        address _mintingController // [RECONSTRUCTED-LIVE] // [RECONSTRUCTED-LIVE]
+    )
+        external
+        onlyGovernance // [RECONSTRUCTED-LIVE]
+    {
+        self.setMintingController(_mintingController); // [RECONSTRUCTED-LIVE]
     }
 
     /// @notice Records or revokes a legacy-vault optimistic-minting retirement

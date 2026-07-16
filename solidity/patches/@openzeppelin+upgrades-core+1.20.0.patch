@@ -1,0 +1,14 @@
+diff --git a/node_modules/@openzeppelin/upgrades-core/dist/validate/query.js b/node_modules/@openzeppelin/upgrades-core/dist/validate/query.js
+index 7c92094..38d7360 100644
+--- a/node_modules/@openzeppelin/upgrades-core/dist/validate/query.js
++++ b/node_modules/@openzeppelin/upgrades-core/dist/validate/query.js
+@@ -85,7 +85,8 @@ function getUnlinkedBytecode(data, bytecode) {
+         for (const name of linkableContracts) {
+             const { linkReferences } = validation[name];
+             const unlinkedBytecode = (0, link_refs_1.unlinkBytecode)(bytecode, linkReferences);
+-            const version = (0, version_1.getVersion)(unlinkedBytecode);
++            let version;
++            try { version = (0, version_1.getVersion)(unlinkedBytecode); } catch (e) { continue; }
+             if (validation[name].version?.withMetadata === version.withMetadata) {
+                 return unlinkedBytecode;
+             }

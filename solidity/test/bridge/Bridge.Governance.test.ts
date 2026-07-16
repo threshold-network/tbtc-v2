@@ -4494,6 +4494,48 @@ describe("Bridge - Governance", () => {
     })
   })
 
+  // [RECONSTRUCTED-LIVE] Governance forwarding for the account-control minting
+  // controller: BridgeGovernance.setMintingController is onlyOwner and forwards
+  // to Bridge.setMintingController (onlyGovernance).
+  describe("setMintingController", () => {
+    context("when the caller is not the owner", () => {
+      it("should revert", async () => {
+        await expect(
+          bridgeGovernance
+            .connect(thirdParty)
+            .setMintingController(thirdParty.address)
+        ).to.be.revertedWith("Ownable: caller is not the owner")
+      })
+    })
+
+    context("when the caller is the owner", () => {
+      let tx: ContractTransaction
+
+      before(async () => {
+        await createSnapshot()
+
+        tx = await bridgeGovernance
+          .connect(governance)
+          .setMintingController(thirdParty.address)
+      })
+
+      after(async () => {
+        await restoreSnapshot()
+      })
+
+      it("should forward and set the minting controller on the Bridge", async () => {
+        expect(await bridge.mintingController()).to.equal(thirdParty.address)
+        expect(await bridge.getMintingController()).to.equal(thirdParty.address)
+      })
+
+      it("should emit MintingControllerSet event", async () => {
+        await expect(tx)
+          .to.emit(bridge, "MintingControllerSet")
+          .withArgs(thirdParty.address)
+      })
+    })
+  })
+
   describe("rotateMigrationDebtVault", () => {
     let previousVault: MockMigrationDebtVault
     let newVault: MockMigrationDebtVault

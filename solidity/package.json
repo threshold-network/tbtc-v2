@@ -12,6 +12,7 @@
     "export.json"
   ],
   "scripts": {
+    "postinstall": "patch-package",
     "clean": "hardhat clean && rm -rf cache/ export/ external/npm export.json",
     "build": "hardhat compile",
     "deploy": "hardhat deploy --export export.json",
@@ -65,6 +66,7 @@
     "hardhat-dependency-compiler": "^1.1.2",
     "hardhat-deploy": "^0.11.11",
     "hardhat-gas-reporter": "^1.0.8",
+    "patch-package": "^6.4.1",
     "prettier": "^2.5.1",
     "prettier-plugin-sh": "^0.8.1",
     "prettier-plugin-solidity": "^1.0.0-beta.19",
