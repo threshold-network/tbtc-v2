@@ -145,6 +145,22 @@ contract BridgeStub is Bridge {
         self.p2trFraudRouter = router;
     }
 
+    function emitNewFrostWalletRegisteredForTest() external {
+        emit Wallets.NewFrostWalletRegistered(
+            bytes32(uint256(1)),
+            bytes20(uint160(1)),
+            bytes32(uint256(1))
+        );
+    }
+
+    function emitZeroEcdsaWalletRegisteredV2ForTest() external {
+        emit Wallets.NewWalletRegisteredV2(
+            bytes32(uint256(1)),
+            bytes32(0),
+            bytes20(uint160(1))
+        );
+    }
+
     function setLegacyFraudChallengeForTest(
         uint256 challengeKey,
         Fraud.FraudChallenge calldata challenge

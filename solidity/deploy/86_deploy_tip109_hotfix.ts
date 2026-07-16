@@ -11,6 +11,10 @@ import {
   KNOWN_TIMELOCK,
   KNOWN_COUNCIL_SAFE,
 } from "./85_deploy_tip109_governance_upgrade"
+import {
+  abortLiveBridgeUpgradeWithoutVettedCompleteV2,
+  isEphemeralLocalNetwork,
+} from "./45_deploy_p2tr_signature_fraud_router"
 
 const PROXY_ADMIN_ABI = [
   "function upgrade(address proxy, address implementation)",
@@ -91,6 +95,13 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { deploy, get, save } = deployments
   const { deployer } = await getNamedAccounts()
   const { ethers } = hre
+
+  if (!isEphemeralLocalNetwork(hre.network.name)) {
+    await abortLiveBridgeUpgradeWithoutVettedCompleteV2(
+      hre,
+      "86_deploy_tip109_hotfix"
+    )
+  }
 
   // Patch ethers.js v5 Formatter to handle empty-string `to` field returned
   // by some RPC providers for contract-creation transactions. Without this
@@ -434,4 +445,5 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 export default func
 
 func.tags = ["DeployTIP109Hotfix"]
+func.dependencies = ["FrostCustodyNoGo"]
 func.skip = async () => process.env.DEPLOY_TIP109_HOTFIX !== "true"
