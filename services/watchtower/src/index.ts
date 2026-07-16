@@ -43,6 +43,7 @@ export {
   P2TRSignatureFraudWatchtowerService,
   buildP2TRSignatureFraudWatchtowerCycleMetrics,
 } from "./P2TRSignatureFraudWatchtowerService.js"
+export * from "./P2TRSignatureFraudChallengeOutbox.js"
 export {
   abortableDelay,
   runP2TRSignatureFraudWatchtowerLoop,
