@@ -208,6 +208,10 @@ describe("AbstractL1BTCDepositor", () => {
             )
           ).gasSpent
 
+          // The deferred reimbursement entry must exist before finalization,
+          // otherwise the ordering assertions would pass vacuously.
+          expect(initializeDepositGasSpent).to.be.gt(0)
+
           // Make the `_transferTbtc` override observe the deferred gas
           // reimbursement entry of the finalized deposit.
           await depositor.setTrackedDepositKey(
