@@ -465,6 +465,7 @@ contract L1BTCDepositorWormholeV2Base is
         // external `_transferTbtc` call. The actual reimbursement payout
         // happens after that call, as the last step of the deposit
         // finalization.
+        // slither-disable-next-line uninitialized-local
         GasReimbursement memory reimbursement;
         if (address(reimbursementPool) != address(0)) {
             reimbursement = gasReimbursements[depositKey];
