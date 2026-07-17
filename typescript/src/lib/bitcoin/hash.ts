@@ -1,4 +1,3 @@
-import { BigNumber } from "@ethersproject/bignumber"
 import { ripemd160, sha256 } from "@ethersproject/sha2"
 import { Hex } from "../utils"
 
@@ -28,12 +27,12 @@ function computeHash256(text: Hex): Hex {
 }
 
 /**
- * Converts a hash in hex string in little endian to a BigNumber.
+ * Converts a hash in hex string in little endian to a bigint.
  * @param hash Hash in hex-string format.
- * @returns BigNumber representation of the hash.
+ * @returns Bigint representation of the hash.
  */
-function hashLEToBigNumber(hash: Hex): BigNumber {
-  return BigNumber.from(hash.reverse().toPrefixedString())
+function hashLEToBigInt(hash: Hex): bigint {
+  return BigInt(hash.reverse().toPrefixedString())
 }
 
 /**
@@ -53,6 +52,6 @@ function computeSha256(text: Hex): Hex {
 export const BitcoinHashUtils = {
   computeHash160,
   computeHash256,
-  hashLEToBigNumber,
+  hashLEToBigInt,
   computeSha256,
 }

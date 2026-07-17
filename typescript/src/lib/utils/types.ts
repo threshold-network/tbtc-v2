@@ -1,5 +1,5 @@
 import { BitcoinUtxo } from "../../lib/bitcoin"
-import { BigNumber } from "@ethersproject/bignumber"
+
 import { Hex } from "./hex"
 
 export interface RedemptionWallet {
@@ -29,7 +29,7 @@ export interface ValidRedemptionWallet
   /**
    * Balance of the wallet in BTC.
    */
-  walletBTCBalance: BigNumber
+  walletBTCBalance: bigint
 }
 
 export interface SerializableWallet {

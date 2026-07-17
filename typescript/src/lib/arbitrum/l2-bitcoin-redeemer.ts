@@ -7,7 +7,6 @@ import { ArbitrumL2BitcoinRedeemer as L2BitcoinRedeemerTypechain } from "../../.
 import { ChainIdentifier, Chains, L2BitcoinRedeemer } from "../contracts"
 import { EthereumAddress } from "../ethereum"
 import { Hex } from "../utils"
-import { BigNumber } from "@ethersproject/bignumber"
 import { Contract } from "@ethersproject/contracts"
 
 import ArbitrumSepoliaL2BitcoinRedeemerDeployment from "./artifacts/arbitrumSepolia/ArbitrumL2BitcoinRedeemer.json"
@@ -72,7 +71,7 @@ export class ArbitrumL2BitcoinRedeemer
    * @see {L2BitcoinRedeemer#requestRedemption}
    */
   async requestRedemption(
-    amount: BigNumber,
+    amount: bigint,
     redeemerOutputScript: Hex,
     nonce: number
   ): Promise<Hex> {

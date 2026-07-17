@@ -1,7 +1,5 @@
 import { ChainIdentifier } from "./chain-identifier"
-import { BigNumber } from "@ethersproject/bignumber"
-import { BytesLike } from "@ethersproject/bytes"
-import { TransactionReceipt } from "@ethersproject/abstract-provider"
+import { ChainTransactionReceipt } from "./chain-event"
 import { ChainMapping, DestinationChainName } from "./chain"
 import { BitcoinRawTxVectors, BitcoinUtxo } from "../bitcoin"
 import { DepositReceipt } from "./bridge"
@@ -65,7 +63,7 @@ export interface DestinationChainTBTCToken {
    * @param identifier Identifier of the account to get the balance for.
    * @returns The balance of the given identifier in 1e18 precision.
    */
-  balanceOf(identifier: ChainIdentifier): Promise<BigNumber>
+  balanceOf(identifier: ChainIdentifier): Promise<bigint>
 }
 
 /**
@@ -114,7 +112,7 @@ export interface BitcoinDepositor {
     depositOutputIndex: number,
     deposit: DepositReceipt,
     vault?: ChainIdentifier
-  ): Promise<Hex | TransactionReceipt>
+  ): Promise<Hex | ChainTransactionReceipt>
 }
 
 /**
@@ -139,7 +137,7 @@ export interface L2BitcoinRedeemer {
    * @returns Transaction hash of the approve and call transaction.
    */
   requestRedemption(
-    amount: BigNumber,
+    amount: bigint,
     redeemerOutputScript: Hex,
     nonce: number
   ): Promise<Hex>
@@ -220,7 +218,7 @@ export interface L1BitcoinRedeemer {
   requestRedemption(
     walletPublicKey: Hex,
     mainUtxo: BitcoinUtxo,
-    encodedVm: BytesLike
+    encodedVm: Hex | Uint8Array
   ): Promise<Hex>
 }
 

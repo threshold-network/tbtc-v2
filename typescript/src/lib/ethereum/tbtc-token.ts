@@ -1,7 +1,6 @@
 import { TBTC as TBTCTypechain } from "../../../typechain/TBTC"
 import { ChainIdentifier, Chains, TBTCToken } from "../contracts"
 import { defaultAbiCoder } from "@ethersproject/abi"
-import { BigNumber } from "@ethersproject/bignumber"
 import { ContractTransaction } from "@ethersproject/contracts"
 import { BitcoinHashUtils, BitcoinUtxo } from "../bitcoin"
 import { Hex } from "../utils"
@@ -60,10 +59,12 @@ export class EthereumTBTCToken
   /**
    * @see {TBTCToken#totalSupply}
    */
-  async totalSupply(blockNumber?: number): Promise<BigNumber> {
-    return this._instance.totalSupply({
+  async totalSupply(blockNumber?: number): Promise<bigint> {
+    const totalSupply = await this._instance.totalSupply({
       blockTag: blockNumber ?? "latest",
     })
+
+    return totalSupply.toBigInt()
   }
 
   // eslint-disable-next-line valid-jsdoc
@@ -74,7 +75,7 @@ export class EthereumTBTCToken
     walletPublicKey: Hex,
     mainUtxo: BitcoinUtxo,
     redeemerOutputScript: Hex,
-    amount: BigNumber
+    amount: bigint
   ): Promise<Hex> {
     const redeemer = await this._instance?.signer?.getAddress()
     if (!redeemer) {

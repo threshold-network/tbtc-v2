@@ -6,6 +6,7 @@ import {
 import { L2BitcoinDepositor as L2BitcoinDepositorTypechain } from "../../../typechain/L2BitcoinDepositor"
 import {
   ChainIdentifier,
+  ChainTransactionReceipt,
   Chains,
   ExtraDataEncoder,
   DepositReceipt,
@@ -15,7 +16,7 @@ import { EthereumAddress, packRevealDepositParameters } from "../ethereum"
 import { EthereumCrossChainExtraDataEncoder } from "../ethereum/l1-bitcoin-depositor"
 import { Hex } from "../utils"
 import { BitcoinRawTxVectors } from "../bitcoin"
-import { TransactionReceipt } from "@ethersproject/abstract-provider"
+
 
 import BaseL2BitcoinDepositorDeployment from "./artifacts/base/BaseL2BitcoinDepositor.json"
 import BaseSepoliaL2BitcoinDepositorDeployment from "./artifacts/baseSepolia/BaseL2BitcoinDepositor.json"
@@ -91,7 +92,7 @@ export class BaseBitcoinDepositor
     depositOutputIndex: number,
     deposit: DepositReceipt,
     vault?: ChainIdentifier
-  ): Promise<Hex | TransactionReceipt> {
+  ): Promise<Hex | ChainTransactionReceipt> {
     const { fundingTx, reveal } = packRevealDepositParameters(
       depositTx,
       depositOutputIndex,

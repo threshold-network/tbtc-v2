@@ -253,7 +253,7 @@ export class EthereumTBTCVault
           BigNumber.from(event.args!.depositKey).toHexString()
         ),
         depositor: EthereumAddress.from(event.args!.depositor),
-        amount: BigNumber.from(event.args!.amount),
+        amount: BigNumber.from(event.args!.amount).toBigInt(),
         fundingTxHash: BitcoinTxHash.from(event.args!.fundingTxHash).reverse(),
         fundingOutputIndex: BigNumber.from(
           event.args!.fundingOutputIndex
@@ -315,7 +315,7 @@ export class EthereumTBTCVault
         depositor: EthereumAddress.from(event.args!.depositor),
         optimisticMintingDebt: BigNumber.from(
           event.args!.optimisticMintingDebt
-        ),
+        ).toBigInt(),
       }
     })
   }

@@ -1,4 +1,5 @@
 import {
+  ChainTransactionReceipt,
   DepositorProxy,
   DepositReceipt,
   TBTCContracts,
@@ -15,7 +16,7 @@ import {
 } from "../../lib/bitcoin"
 import { payments, Stack, script, opcodes } from "bitcoinjs-lib"
 import { Hex } from "../../lib/utils"
-import { TransactionReceipt } from "@ethersproject/abstract-provider"
+
 
 /**
  * Component representing an instance of the tBTC v2 deposit process.
@@ -128,7 +129,7 @@ export class Deposit {
    */
   async initiateMinting(
     fundingOutpoint?: BitcoinTxOutpoint
-  ): Promise<Hex | TransactionReceipt> {
+  ): Promise<Hex | ChainTransactionReceipt> {
     let resolvedFundingOutpoint: BitcoinTxOutpoint
 
     if (typeof fundingOutpoint !== "undefined") {

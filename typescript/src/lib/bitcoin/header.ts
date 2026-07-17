@@ -1,4 +1,4 @@
-import { BigNumber } from "@ethersproject/bignumber"
+
 import { Hex } from "../utils"
 import { BitcoinHashUtils } from "./hash"
 
@@ -131,8 +131,8 @@ export const BitcoinHeaderSerializer = {
  */
 export function validateBitcoinHeadersChain(
   headers: BitcoinHeader[],
-  previousEpochDifficulty: BigNumber,
-  currentEpochDifficulty: BigNumber
+  previousEpochDifficulty: bigint,
+  currentEpochDifficulty: bigint
 ) {
   let requireCurrentDifficulty: boolean = false
   let previousBlockHeaderHash: Hex = Hex.from("00")
@@ -160,9 +160,7 @@ export function validateBitcoinHeadersChain(
 
     // Ensure the header has sufficient work.
     if (
-      BitcoinHashUtils.hashLEToBigNumber(currentBlockHeaderHash).gt(
-        difficultyTarget
-      )
+      BitcoinHashUtils.hashLEToBigInt(currentBlockHeaderHash) > difficultyTarget
     ) {
       throw new Error("Insufficient work in the header")
     }
@@ -175,15 +173,15 @@ export function validateBitcoinHeadersChain(
     // difficulties.
     const difficulty = targetToDifficulty(difficultyTarget)
 
-    if (previousEpochDifficulty.eq(1) && currentEpochDifficulty.eq(1)) {
+    if (previousEpochDifficulty === 1n && currentEpochDifficulty === 1n) {
       // Special case for Bitcoin Testnet. Do not check block's difficulty
       // due to required difficulty falling to `1` for Testnet.
       continue
     }
 
     if (
-      !difficulty.eq(previousEpochDifficulty) &&
-      !difficulty.eq(currentEpochDifficulty)
+      difficulty !== previousEpochDifficulty &&
+      difficulty !== currentEpochDifficulty
     ) {
       throw new Error(
         "Header difficulty not at current or previous Bitcoin difficulty"
@@ -193,22 +191,22 @@ export function validateBitcoinHeadersChain(
     // Additionally, require the header to be at current difficulty if some
     // headers at current difficulty have already been seen. This ensures
     // there is at most one switch from previous to current difficulties.
-    if (requireCurrentDifficulty && !difficulty.eq(currentEpochDifficulty)) {
+    if (requireCurrentDifficulty && difficulty !== currentEpochDifficulty) {
       throw new Error("Header must be at current Bitcoin difficulty")
     }
 
     // If the header is at current difficulty, require the subsequent headers to
     // be at current difficulty as well.
-    requireCurrentDifficulty = difficulty.eq(currentEpochDifficulty)
+    requireCurrentDifficulty = difficulty === currentEpochDifficulty
   }
 }
 
 /**
  * Converts a block header's bits into target.
  * @param bits - bits from block header.
- * @returns Target as a BigNumber.
+ * @returns Target as a bigint.
  */
-function bitsToTarget(bits: number): BigNumber {
+function bitsToTarget(bits: number): bigint {
   // A serialized 80-byte block header stores the `bits` value as a 4-byte
   // little-endian hexadecimal value in a slot including bytes 73, 74, 75, and
   // 76. This function's input argument is expected to be a numerical
@@ -246,20 +244,20 @@ function bitsToTarget(bits: number): BigNumber {
   const exponent = ((bits >>> 24) & 0xff) - 3
   const mantissa = bits & 0xffffff
 
-  const target = BigNumber.from(mantissa).mul(BigNumber.from(256).pow(exponent))
+  const target = BigInt(mantissa) * 256n ** BigInt(exponent)
   return target
 }
 
 /**
  * Converts difficulty target to difficulty.
  * @param target - difficulty target.
- * @returns Difficulty as a BigNumber.
+ * @returns Difficulty as a bigint.
  */
-function targetToDifficulty(target: BigNumber): BigNumber {
-  const DIFF1_TARGET = BigNumber.from(
+function targetToDifficulty(target: bigint): bigint {
+  const DIFF1_TARGET = BigInt(
     "0xffff0000000000000000000000000000000000000000000000000000"
   )
-  return DIFF1_TARGET.div(target)
+  return DIFF1_TARGET / target
 }
 
 /**

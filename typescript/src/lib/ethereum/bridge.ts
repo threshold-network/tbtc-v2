@@ -117,7 +117,7 @@ export class EthereumBridge
           event.args!.fundingOutputIndex
         ).toNumber(),
         depositor: EthereumAddress.from(event.args!.depositor),
-        amount: BigNumber.from(event.args!.amount),
+        amount: BigNumber.from(event.args!.amount).toBigInt(),
         blindingFactor: Hex.from(event.args!.blindingFactor),
         walletPublicKeyHash: Hex.from(event.args!.walletPubKeyHash),
         refundPublicKeyHash: Hex.from(event.args!.refundPubKeyHash),
@@ -237,9 +237,9 @@ export class EthereumBridge
     return {
       redeemer: EthereumAddress.from(request.redeemer),
       redeemerOutputScript: redeemerOutputScript,
-      requestedAmount: BigNumber.from(request.requestedAmount),
-      treasuryFee: BigNumber.from(request.treasuryFee),
-      txMaxFee: BigNumber.from(request.txMaxFee),
+      requestedAmount: BigNumber.from(request.requestedAmount).toBigInt(),
+      treasuryFee: BigNumber.from(request.treasuryFee).toBigInt(),
+      txMaxFee: BigNumber.from(request.txMaxFee).toBigInt(),
       requestedAt: BigNumber.from(request.requestedAt).toNumber(),
     }
   }
@@ -353,7 +353,7 @@ export class EthereumBridge
     walletPublicKey: Hex,
     mainUtxo: BitcoinUtxo,
     redeemerOutputScript: Hex,
-    amount: BigNumber
+    amount: bigint
   ): Promise<Hex> {
     const walletPublicKeyHash =
       BitcoinHashUtils.computeHash160(walletPublicKey).toPrefixedString()
@@ -494,14 +494,14 @@ export class EthereumBridge
   ): DepositRequest {
     return {
       depositor: EthereumAddress.from(deposit.depositor),
-      amount: BigNumber.from(deposit.amount),
+      amount: BigNumber.from(deposit.amount).toBigInt(),
       vault:
         deposit.vault === AddressZero
           ? undefined
           : EthereumAddress.from(deposit.vault),
       revealedAt: BigNumber.from(deposit.revealedAt).toNumber(),
       sweptAt: BigNumber.from(deposit.sweptAt).toNumber(),
-      treasuryFee: BigNumber.from(deposit.treasuryFee),
+      treasuryFee: BigNumber.from(deposit.treasuryFee).toBigInt(),
     }
   }
 
@@ -629,7 +629,7 @@ export class EthereumBridge
       ecdsaWalletID,
       walletPublicKey: await this.getWalletCompressedPublicKey(ecdsaWalletID),
       mainUtxoHash: Hex.from(wallet.mainUtxoHash),
-      pendingRedemptionsValue: wallet.pendingRedemptionsValue,
+      pendingRedemptionsValue: wallet.pendingRedemptionsValue.toBigInt(),
       createdAt: wallet.createdAt,
       movingFundsRequestedAt: wallet.movingFundsRequestedAt,
       closingStartedAt: wallet.closingStartedAt,
@@ -701,9 +701,9 @@ export class EthereumBridge
         walletPublicKeyHash: Hex.from(event.args!.walletPubKeyHash),
         redeemer: EthereumAddress.from(event.args!.redeemer),
         redeemerOutputScript: Hex.from(redeemerOutputScript),
-        requestedAmount: BigNumber.from(event.args!.requestedAmount),
-        treasuryFee: BigNumber.from(event.args!.treasuryFee),
-        txMaxFee: BigNumber.from(event.args!.txMaxFee),
+        requestedAmount: BigNumber.from(event.args!.requestedAmount).toBigInt(),
+        treasuryFee: BigNumber.from(event.args!.treasuryFee).toBigInt(),
+        txMaxFee: BigNumber.from(event.args!.txMaxFee).toBigInt(),
       }
     })
   }

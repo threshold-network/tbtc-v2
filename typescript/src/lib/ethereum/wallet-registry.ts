@@ -110,7 +110,7 @@ export class EthereumWalletRegistry
         result: {
           submitterMemberIndex: BigNumber.from(
             event.args!.result.submitterMemberIndex
-          ),
+          ).toBigInt(),
           groupPubKey: Hex.from(event.args!.result.groupPubKey),
           misbehavedMembersIndices:
             event.args!.result.misbehavedMembersIndices.map((mmi: unknown) =>
@@ -118,7 +118,7 @@ export class EthereumWalletRegistry
             ),
           signatures: Hex.from(event.args!.result.signatures),
           signingMembersIndices: event.args!.result.signingMembersIndices.map(
-            BigNumber.from
+            (smi: unknown) => BigNumber.from(smi).toBigInt()
           ),
           members: event.args!.result.members.map((m: unknown) =>
             BigNumber.from(m).toNumber()

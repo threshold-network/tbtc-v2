@@ -9,7 +9,7 @@ import {
   Chains,
   DestinationChainTBTCToken,
 } from "../contracts"
-import { BigNumber } from "@ethersproject/bignumber"
+
 import { EthereumAddress } from "../ethereum"
 
 import ArbitrumL2TBTCTokenDeployment from "./artifacts/arbitrumOne/ArbitrumTBTC.json"
@@ -52,8 +52,12 @@ export class ArbitrumTBTCToken
   /**
    * @see {DestinationChainTBTCToken#balanceOf}
    */
-  balanceOf(identifier: ChainIdentifier): Promise<BigNumber> {
-    return this._instance.balanceOf(`0x${identifier.identifierHex}`)
+  async balanceOf(identifier: ChainIdentifier): Promise<bigint> {
+    const balance = await this._instance.balanceOf(
+      `0x${identifier.identifierHex}`
+    )
+
+    return balance.toBigInt()
   }
 }
 

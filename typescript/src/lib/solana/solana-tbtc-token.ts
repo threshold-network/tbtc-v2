@@ -1,6 +1,6 @@
 import { Program, AnchorProvider, Idl } from "@coral-xyz/anchor"
 import { PublicKey, Transaction } from "@solana/web3.js"
-import { BigNumber } from "@ethersproject/bignumber"
+
 import {
   getMint,
   getAssociatedTokenAddressSync,
@@ -62,7 +62,7 @@ export class SolanaTBTCToken
    * If the associated token account does not exist, we create it
    * using a transaction signed by the connected wallet.
    */
-  async balanceOf(identifier: ChainIdentifier): Promise<BigNumber> {
+  async balanceOf(identifier: ChainIdentifier): Promise<bigint> {
     if (!(this.provider as AnchorProvider).wallet?.publicKey) {
       throw new Error("No wallet connected.")
     }
@@ -94,16 +94,16 @@ export class SolanaTBTCToken
     const balanceInfo = await this.provider.connection.getTokenAccountBalance(
       ataAddr
     )
-    return BigNumber.from(balanceInfo.value.amount)
+    return BigInt(balanceInfo.value.amount)
   }
 
   // eslint-disable-next-line valid-jsdoc
   /**
    * Fetches the total supply from the TBTC mint’s SPL Token account.
    */
-  async totalSupply(): Promise<BigNumber> {
+  async totalSupply(): Promise<bigint> {
     const mintInfo = await getMint(this.provider.connection, this.tbtcMint)
-    // `mintInfo.supply` is a bigint, so convert to BigNumber:
-    return BigNumber.from(mintInfo.supply.toString())
+    // `mintInfo.supply` is already a bigint.
+    return mintInfo.supply
   }
 }

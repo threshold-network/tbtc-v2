@@ -1,4 +1,4 @@
-import { BigNumber } from "@ethersproject/bignumber"
+
 import { BitcoinUtxo } from "../bitcoin"
 import { Hex } from "../utils"
 import { ChainIdentifier } from "./chain-identifier"
@@ -20,7 +20,7 @@ export interface TBTCToken {
    *        supply should be fetched for. If this parameter is not set, the
    *        total supply is taken for the latest block.
    */
-  totalSupply(blockNumber?: number): Promise<BigNumber>
+  totalSupply(blockNumber?: number): Promise<bigint>
 
   /**
    * Requests redemption in one transaction using the `approveAndCall` function
@@ -41,7 +41,7 @@ export interface TBTCToken {
     walletPublicKey: Hex,
     mainUtxo: BitcoinUtxo,
     redeemerOutputScript: Hex,
-    amount: BigNumber
+    amount: bigint
   ): Promise<Hex>
 
   /**

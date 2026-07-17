@@ -1,6 +1,7 @@
 import {
   BitcoinDepositor,
   ChainIdentifier,
+  ChainTransactionReceipt,
   ExtraDataEncoder,
 } from "../contracts"
 import { BitcoinHashUtils, BitcoinRawTxVectors } from "../bitcoin"
@@ -14,7 +15,6 @@ import axios from "axios"
 import { BigNumber } from "@ethersproject/bignumber"
 import { MaxUint256 } from "@ethersproject/constants"
 import { keccak256 as solidityKeccak256 } from "@ethersproject/solidity"
-import { TransactionReceipt } from "@ethersproject/abstract-provider"
 
 /**
  * Relayer request payload for revealing a deposit
@@ -570,7 +570,7 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
     depositOutputIndex: number,
     deposit: DepositReceipt,
     vault?: ChainIdentifier
-  ): Promise<Hex | TransactionReceipt> {
+  ): Promise<Hex | ChainTransactionReceipt> {
     const { fundingTx, reveal } = packRevealDepositParameters(
       depositTx,
       depositOutputIndex,
@@ -691,7 +691,7 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
         if (locallyDerivedDepositId) {
           console.log(`Deposit initialized with ID: ${locallyDerivedDepositId}`)
         }
-        return data.receipt as TransactionReceipt
+        return data.receipt as ChainTransactionReceipt
       } catch (error: any) {
         lastError = error
 

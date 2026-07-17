@@ -2,7 +2,7 @@ import { BitcoinTxHash } from "../bitcoin"
 import { Hex } from "../utils"
 import { ChainIdentifier } from "./chain-identifier"
 import { ChainEvent, GetChainEvents } from "./chain-event"
-import { BigNumber } from "@ethersproject/bignumber"
+
 
 /**
  * Interface for communication with the TBTCVault on-chain contract.
@@ -152,7 +152,7 @@ export type OptimisticMintingRequestedEvent = {
    * This value is in ERC 1e18 precision, it has to be converted before using
    * as Bitcoin value with 1e8 precision in satoshi.
    */
-  amount: BigNumber
+  amount: bigint
   /**
    * Hash of a Bitcoin transaction made to fund the deposit.
    */
@@ -202,5 +202,5 @@ export type OptimisticMintingFinalizedEvent = {
    * This value is in ERC 1e18 precision, it has to be converted before using
    * as Bitcoin value with 1e8 precision in satoshi.
    */
-  optimisticMintingDebt: BigNumber
+  optimisticMintingDebt: bigint
 } & ChainEvent

@@ -1,5 +1,6 @@
 import {
   ChainIdentifier,
+  ChainTransactionReceipt,
   ExtraDataEncoder,
   DepositorProxy,
   DepositReceipt,
@@ -7,7 +8,7 @@ import {
 } from "../../lib/contracts"
 import { BitcoinRawTxVectors } from "../../lib/bitcoin"
 import { Hex } from "../../lib/utils"
-import { TransactionReceipt } from "@ethersproject/abstract-provider"
+
 import { SuiTransactionBlockResponse } from "@mysten/sui/client"
 
 /**
@@ -92,7 +93,7 @@ export class CrossChainDepositor implements DepositorProxy {
     deposit: DepositReceipt,
     vault?: ChainIdentifier
   ): Promise<Hex> {
-    let result: Hex | TransactionReceipt | SuiTransactionBlockResponse
+    let result: Hex | ChainTransactionReceipt | SuiTransactionBlockResponse
 
     switch (this.#revealMode) {
       case "L2Transaction":
@@ -115,7 +116,7 @@ export class CrossChainDepositor implements DepositorProxy {
         break
     }
 
-    // If result is a TransactionReceipt, extract the transaction hash
+    // If result is a ChainTransactionReceipt, extract the transaction hash
     if (result instanceof Hex) {
       console.log("Hex: ", result)
       return result
@@ -126,7 +127,9 @@ export class CrossChainDepositor implements DepositorProxy {
       )
       return Hex.from(digestBuffer)
     } else {
-      return Hex.from((result as unknown as TransactionReceipt).transactionHash)
+      return Hex.from(
+        (result as unknown as ChainTransactionReceipt).transactionHash
+      )
     }
   }
 }

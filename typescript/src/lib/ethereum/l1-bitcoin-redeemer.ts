@@ -17,7 +17,7 @@ import SepoliaL1BitcoinRedeemerDeployment from "./artifacts/sepolia/L1BitcoinRed
 import MainnetBaseL1BitcoinRedeemerDeployment from "./artifacts/mainnet/L1BitcoinRedeemer.json"
 import MainnetArbitrumL1BitcoinRedeemerDeployment from "./artifacts/mainnet/L1BitcoinRedeemer.json"
 import { BitcoinHashUtils, BitcoinUtxo } from "../bitcoin"
-import { BytesLike } from "@ethersproject/bytes"
+
 
 const artifactLoader = {
   getMainnet: (l2ChainName: DestinationChainName) => {
@@ -84,7 +84,7 @@ export class EthereumL1BitcoinRedeemer
   async requestRedemption(
     walletPublicKey: Hex,
     mainUtxo: BitcoinUtxo,
-    encodedVm: BytesLike
+    encodedVm: Hex | Uint8Array
   ): Promise<Hex> {
     const walletPublicKeyHash =
       BitcoinHashUtils.computeHash160(walletPublicKey).toPrefixedString()
@@ -97,10 +97,13 @@ export class EthereumL1BitcoinRedeemer
       txOutputValue: mainUtxo.value,
     }
 
+    const encodedVmParam =
+      encodedVm instanceof Uint8Array ? encodedVm : encodedVm.toPrefixedString()
+
     const tx = await this._instance.requestRedemption(
       walletPublicKeyHash,
       mainUtxoParam,
-      encodedVm
+      encodedVmParam
     )
 
     return Hex.from(tx.hash)

@@ -1,4 +1,4 @@
-import { BigNumber } from "@ethersproject/bignumber"
+
 import {
   BitcoinAddressConverter,
   BitcoinClient,
@@ -62,7 +62,7 @@ export class DepositRefund {
    */
   async submitTransaction(
     bitcoinClient: BitcoinClient,
-    fee: BigNumber,
+    fee: bigint,
     utxo: BitcoinUtxo,
     refunderAddress: string,
     refunderPrivateKey: string
@@ -110,7 +110,7 @@ export class DepositRefund {
    */
   async assembleTransaction(
     bitcoinNetwork: BitcoinNetwork,
-    fee: BigNumber,
+    fee: bigint,
     utxo: BitcoinUtxo & BitcoinRawTx,
     refunderAddress: string,
     refunderPrivateKey: string
@@ -125,7 +125,7 @@ export class DepositRefund {
       bitcoinNetwork
     )
 
-    const outputValue = utxo.value.sub(fee)
+    const outputValue = utxo.value - fee
 
     const transaction = new Transaction()
 
@@ -138,7 +138,7 @@ export class DepositRefund {
       refunderAddress,
       bitcoinNetwork
     )
-    transaction.addOutput(outputScript.toBuffer(), outputValue.toNumber())
+    transaction.addOutput(outputScript.toBuffer(), Number(outputValue))
 
     // In order to be able to spend the UTXO being refunded the transaction's
     // locktime must be set to a value equal to or higher than the refund locktime.
