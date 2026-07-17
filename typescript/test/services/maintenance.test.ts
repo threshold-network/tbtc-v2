@@ -1,4 +1,3 @@
-import { BigNumber, BigNumberish } from "ethers"
 import { MockTBTCContracts } from "../utils/mock-tbtc-contracts"
 import { MockBitcoinClient } from "../utils/mock-bitcoin-client"
 import {
@@ -45,7 +44,7 @@ import { runRedemptionScenario } from "./redemptions.test"
 describe("Maintenance", () => {
   describe("WalletTx", () => {
     describe("DepositSweep", () => {
-      const fee = BigNumber.from(1600)
+      const fee = 1600n
 
       describe("submitTransaction", () => {
         let tbtcContracts: MockTBTCContracts
@@ -126,7 +125,7 @@ describe("Maintenance", () => {
                     depositSweepWithNoMainUtxoAndWitnessOutput.expectedSweep
                       .transactionHash,
                   outputIndex: 0,
-                  value: BigNumber.from(35400),
+                  value: 35400n,
                 }
 
                 expect(newMainUtxo).to.be.eql(expectedNewMainUtxo)
@@ -219,7 +218,7 @@ describe("Maintenance", () => {
                       depositSweepWithWitnessMainUtxoAndWitnessOutput
                         .expectedSweep.transactionHash,
                     outputIndex: 0,
-                    value: BigNumber.from(60800),
+                    value: 60800n,
                   }
 
                   expect(newMainUtxo).to.be.eql(expectedNewMainUtxo)
@@ -312,7 +311,7 @@ describe("Maintenance", () => {
                       depositSweepWithNonWitnessMainUtxoAndWitnessOutput
                         .expectedSweep.transactionHash,
                     outputIndex: 0,
-                    value: BigNumber.from(33800),
+                    value: 33800n,
                   }
 
                   expect(newMainUtxo).to.be.eql(expectedNewMainUtxo)
@@ -388,7 +387,7 @@ describe("Maintenance", () => {
                 depositSweepWithNoMainUtxoAndNonWitnessOutput.expectedSweep
                   .transactionHash,
               outputIndex: 0,
-              value: BigNumber.from(13400),
+              value: 13400n,
             }
 
             expect(newMainUtxo).to.be.eql(expectedNewMainUtxo)
@@ -525,7 +524,7 @@ describe("Maintenance", () => {
                     depositSweepWithNoMainUtxoAndWitnessOutput.expectedSweep
                       .transactionHash,
                   outputIndex: 0,
-                  value: BigNumber.from(35400),
+                  value: 35400n,
                 }
 
                 expect(newMainUtxo).to.be.eql(expectedNewMainUtxo)
@@ -672,7 +671,7 @@ describe("Maintenance", () => {
                       depositSweepWithWitnessMainUtxoAndWitnessOutput
                         .expectedSweep.transactionHash,
                     outputIndex: 0,
-                    value: BigNumber.from(60800),
+                    value: 60800n,
                   }
 
                   expect(newMainUtxo).to.be.eql(expectedNewMainUtxo)
@@ -805,7 +804,7 @@ describe("Maintenance", () => {
                       depositSweepWithNonWitnessMainUtxoAndWitnessOutput
                         .expectedSweep.transactionHash,
                     outputIndex: 0,
-                    value: BigNumber.from(33800),
+                    value: 33800n,
                   }
 
                   expect(newMainUtxo).to.be.eql(expectedNewMainUtxo)
@@ -920,7 +919,7 @@ describe("Maintenance", () => {
                 depositSweepWithNoMainUtxoAndNonWitnessOutput.expectedSweep
                   .transactionHash,
               outputIndex: 0,
-              value: BigNumber.from(13400),
+              value: 13400n,
             }
 
             expect(newMainUtxo).to.be.deep.equal(expectedNewMainUtxo)
@@ -996,7 +995,7 @@ describe("Maintenance", () => {
               "2f952bdc206bf51bb745b967cb7166149becada878d3191ffe341155ebcd4883"
             ),
             outputIndex: 1,
-            value: BigNumber.from(3933200),
+            value: 3933200n,
             transactionHex:
               "0100000000010162cae24e74ad64f9f0493b09f3964908b3b3038f4924882d3d" +
               "bd853b4c9bc7390100000000ffffffff02102700000000000017a914867120d5" +
@@ -1058,7 +1057,7 @@ describe("Maintenance", () => {
               "025de155e6f2ffbbf4851493e0d28dad54020db221a3f38bf63c1f65e3d3595b"
             ),
             outputIndex: 0,
-            value: BigNumber.from(5000000000),
+            value: 5000000000n,
             transactionHex:
               "010000000100000000000000000000000000000000000000000000000000000000" +
               "00000000ffffffff0e04db07c34f0103062f503253482fffffffff0100f2052a01" +
@@ -1141,7 +1140,7 @@ describe("Maintenance", () => {
                             transactionHash:
                               data.expectedRedemption.transactionHash,
                             outputIndex: 1,
-                            value: BigNumber.from(1472680),
+                            value: 1472680n,
                           }
 
                           expect(newMainUtxo).to.be.eql(expectedNewMainUtxo)
@@ -1188,7 +1187,7 @@ describe("Maintenance", () => {
                             transactionHash:
                               data.expectedRedemption.transactionHash,
                             outputIndex: 1,
-                            value: BigNumber.from(1458780),
+                            value: 1458780n,
                           }
 
                           expect(newMainUtxo).to.be.eql(expectedNewMainUtxo)
@@ -1235,7 +1234,7 @@ describe("Maintenance", () => {
                             transactionHash:
                               data.expectedRedemption.transactionHash,
                             outputIndex: 1,
-                            value: BigNumber.from(1446580),
+                            value: 1446580n,
                           }
 
                           expect(newMainUtxo).to.be.eql(expectedNewMainUtxo)
@@ -1282,7 +1281,7 @@ describe("Maintenance", () => {
                             transactionHash:
                               data.expectedRedemption.transactionHash,
                             outputIndex: 1,
-                            value: BigNumber.from(1429580),
+                            value: 1429580n,
                           }
 
                           expect(newMainUtxo).to.be.eql(expectedNewMainUtxo)
@@ -1326,7 +1325,7 @@ describe("Maintenance", () => {
                         transactionHash:
                           data.expectedRedemption.transactionHash,
                         outputIndex: 4,
-                        value: BigNumber.from(1375180),
+                        value: 1375180n,
                       }
 
                       expect(newMainUtxo).to.be.eql(expectedNewMainUtxo)
@@ -1371,7 +1370,7 @@ describe("Maintenance", () => {
                     const expectedNewMainUtxo = {
                       transactionHash: data.expectedRedemption.transactionHash,
                       outputIndex: 1,
-                      value: BigNumber.from(1364180),
+                      value: 1364180n,
                     }
 
                     expect(newMainUtxo).to.be.eql(expectedNewMainUtxo)
@@ -1432,10 +1431,7 @@ describe("Maintenance", () => {
                 })
                 bitcoinClient.rawTransactions = rawTransactions
 
-                const pendingRedemptions = new Map<
-                  BigNumberish,
-                  RedemptionRequest
-                >(
+                const pendingRedemptions = new Map<string, RedemptionRequest>(
                   data.pendingRedemptions.map((redemption) => [
                     redemption.redemptionKey,
                     redemption.pendingRedemption,
@@ -1630,7 +1626,7 @@ describe("Maintenance", () => {
                         transactionHash:
                           data.expectedRedemption.transactionHash,
                         outputIndex: 1,
-                        value: BigNumber.from(1472680),
+                        value: 1472680n,
                       }
 
                       expect(newMainUtxo).to.be.eql(expectedNewMainUtxo)
@@ -1750,7 +1746,7 @@ describe("Maintenance", () => {
                         transactionHash:
                           data.expectedRedemption.transactionHash,
                         outputIndex: 1,
-                        value: BigNumber.from(1458780),
+                        value: 1458780n,
                       }
 
                       expect(newMainUtxo).to.be.eql(expectedNewMainUtxo)
@@ -1870,7 +1866,7 @@ describe("Maintenance", () => {
                         transactionHash:
                           data.expectedRedemption.transactionHash,
                         outputIndex: 1,
-                        value: BigNumber.from(1446580),
+                        value: 1446580n,
                       }
 
                       expect(newMainUtxo).to.be.eql(expectedNewMainUtxo)
@@ -1990,7 +1986,7 @@ describe("Maintenance", () => {
                         transactionHash:
                           data.expectedRedemption.transactionHash,
                         outputIndex: 1,
-                        value: BigNumber.from(1429580),
+                        value: 1429580n,
                       }
 
                       expect(newMainUtxo).to.be.eql(expectedNewMainUtxo)
@@ -2152,7 +2148,7 @@ describe("Maintenance", () => {
                   const expectedNewMainUtxo = {
                     transactionHash: data.expectedRedemption.transactionHash,
                     outputIndex: 4,
-                    value: BigNumber.from(1375180),
+                    value: 1375180n,
                   }
 
                   expect(newMainUtxo).to.be.deep.equal(expectedNewMainUtxo)
@@ -2273,7 +2269,7 @@ describe("Maintenance", () => {
                 const expectedNewMainUtxo = {
                   transactionHash: data.expectedRedemption.transactionHash,
                   outputIndex: 1,
-                  value: BigNumber.from(1364180),
+                  value: 1364180n,
                 }
 
                 expect(newMainUtxo).to.be.deep.equal(expectedNewMainUtxo)
@@ -2528,7 +2524,7 @@ describe("Maintenance", () => {
           "3d28bb5bf73379da51bc683f4d0ed31d7b024466c619d80ebd9378077d900be3"
         ),
         outputIndex: 1,
-        value: BigNumber.from(1429580),
+        value: 1429580n,
       }
 
       let bitcoinClient: MockBitcoinClient

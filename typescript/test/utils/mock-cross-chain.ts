@@ -12,12 +12,10 @@ import {
   BitcoinUtxo,
   L2BitcoinRedeemer,
 } from "../../src"
-import { BigNumber, BytesLike } from "ethers"
-
 export class MockDestinationChainTBTCToken
   implements DestinationChainTBTCToken
 {
-  balanceOf(identifier: ChainIdentifier): Promise<BigNumber> {
+  balanceOf(identifier: ChainIdentifier): Promise<bigint> {
     throw new Error("Not supported")
   }
 
@@ -137,7 +135,7 @@ export class MockL1BitcoinRedeemer implements L1BitcoinRedeemer {
   requestRedemption(
     walletPublicKey: Hex,
     mainUtxo: BitcoinUtxo,
-    encodedVm: BytesLike
+    encodedVm: Hex | Uint8Array
   ): Promise<Hex> {
     return Promise.resolve(Hex.from("0x03"))
   }
@@ -155,7 +153,7 @@ export class MockL2BitcoinRedeemer implements L2BitcoinRedeemer {
   }
 
   requestRedemption(
-    amount: BigNumber,
+    amount: bigint,
     redeemerOutputScript: Hex,
     nonce: number
   ): Promise<Hex> {

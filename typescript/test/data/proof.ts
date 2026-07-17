@@ -6,8 +6,6 @@ import {
   BitcoinTxMerkleBranch,
   Hex,
 } from "../../src"
-import { BigNumber } from "ethers"
-
 /**
  * Represents a set of data used for given proof scenario.
  */
@@ -49,7 +47,7 @@ export const singleInputProofTestData: ProofTestData = {
       outputs: [
         {
           outputIndex: 0,
-          value: BigNumber.from(8400),
+          value: 8400n,
           scriptPubKey: Hex.from(
             "00148db50eb52063ea9d98b3eac91489a90f738986f6"
           ),
@@ -172,7 +170,7 @@ export const singleInputProofTestData: ProofTestData = {
     outputs: [
       {
         outputIndex: 0,
-        value: BigNumber.from(8400),
+        value: 8400n,
         scriptPubKey: Hex.from("00148db50eb52063ea9d98b3eac91489a90f738986f6"),
       },
     ],
@@ -265,7 +263,7 @@ export const multipleInputsProofTestData: ProofTestData = {
       outputs: [
         {
           outputIndex: 0,
-          value: BigNumber.from(39800),
+          value: 39800n,
           scriptPubKey: Hex.from(
             "00148db50eb52063ea9d98b3eac91489a90f738986f6"
           ),
@@ -417,7 +415,7 @@ export const multipleInputsProofTestData: ProofTestData = {
     outputs: [
       {
         outputIndex: 0,
-        value: BigNumber.from(39800),
+        value: 39800n,
         scriptPubKey: Hex.from("00148db50eb52063ea9d98b3eac91489a90f738986f6"),
       },
     ],
@@ -474,8 +472,8 @@ export interface TransactionProofData {
     transactionMerkleBranch: BitcoinTxMerkleBranch
     coinbaseRawTransaction: BitcoinRawTx
     coinbaseMerkleBranch: BitcoinTxMerkleBranch
-    previousDifficulty: BigNumber
-    currentDifficulty: BigNumber
+    previousDifficulty: bigint
+    currentDifficulty: bigint
   }
 }
 
@@ -508,7 +506,7 @@ export const transactionConfirmationsInOneEpochData: TransactionProofData = {
       outputs: [
         {
           outputIndex: 0,
-          value: BigNumber.from(5500),
+          value: 5500n,
           scriptPubKey: Hex.from(
             "6a4c5058325b63f33166b9786bdd34b2be8160d5e4fbef9a0a45e773c4201a82" +
               "a4b1eb44793a61d19892a7f8aede51b70953a210e9e8dba54375e4a06d95d68f" +
@@ -517,21 +515,21 @@ export const transactionConfirmationsInOneEpochData: TransactionProofData = {
         },
         {
           outputIndex: 1,
-          value: BigNumber.from(48850),
+          value: 48850n,
           scriptPubKey: Hex.from(
             "76a914953490146c3ae270d66e09c4d12df4573d24c75b88ac"
           ),
         },
         {
           outputIndex: 2,
-          value: BigNumber.from(48850),
+          value: 48850n,
           scriptPubKey: Hex.from(
             "a914352481ec2fecfde0c5cdc635a383c4ac27b9f71e87"
           ),
         },
         {
           outputIndex: 3,
-          value: BigNumber.from(12614691),
+          value: 12614691n,
           scriptPubKey: Hex.from(
             "76a914b00de0cc7b5e518f7d1e43d6e5ecbd52e0cd0c2f88ac"
           ),
@@ -645,8 +643,8 @@ export const transactionConfirmationsInOneEpochData: TransactionProofData = {
       ],
       position: 0,
     },
-    previousDifficulty: BigNumber.from(39156400059293),
-    currentDifficulty: BigNumber.from(39350942467772),
+    previousDifficulty: 39156400059293n,
+    currentDifficulty: 39350942467772n,
   },
 }
 
@@ -674,14 +672,14 @@ export const transactionConfirmationsInTwoEpochsData: TransactionProofData = {
       outputs: [
         {
           outputIndex: 0,
-          value: BigNumber.from(38385795),
+          value: 38385795n,
           scriptPubKey: Hex.from(
             "00145ade2be870b440e171644f22973db748a2002305"
           ),
         },
         {
           outputIndex: 1,
-          value: BigNumber.from(2181468),
+          value: 2181468n,
           scriptPubKey: Hex.from(
             "76a914dbdbe7f1c2ba3dfe38c32b9261f5d8fcb36b689788ac"
           ),
@@ -790,8 +788,8 @@ export const transactionConfirmationsInTwoEpochsData: TransactionProofData = {
       ],
       position: 0,
     },
-    previousDifficulty: BigNumber.from(37590453655497),
-    currentDifficulty: BigNumber.from(39350942467772),
+    previousDifficulty: 37590453655497n,
+    currentDifficulty: 39350942467772n,
   },
 }
 
@@ -818,14 +816,14 @@ export const testnetTransactionData: TransactionProofData = {
       outputs: [
         {
           outputIndex: 0,
-          value: BigNumber.from(1342326),
+          value: 1342326n,
           scriptPubKey: Hex.from(
             "0014ffadb0a5ab3f58e651383b478acdc7cd0008e351"
           ),
         },
         {
           outputIndex: 1,
-          value: BigNumber.from(7218758882),
+          value: 7218758882n,
           scriptPubKey: Hex.from(
             "00143c258d94e7abf4695585911b0420c24c1c78213e"
           ),
@@ -912,7 +910,7 @@ export const testnetTransactionData: TransactionProofData = {
       ],
       position: 0,
     },
-    previousDifficulty: BigNumber.from(1),
-    currentDifficulty: BigNumber.from(1),
+    previousDifficulty: 1n,
+    currentDifficulty: 1n,
   },
 }

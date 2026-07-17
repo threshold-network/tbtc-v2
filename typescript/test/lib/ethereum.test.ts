@@ -19,7 +19,7 @@ import {
   MockContract,
 } from "@ethereum-waffle/mock-contract"
 import chai, { expect } from "chai"
-import { BigNumber, Wallet, constants, getDefaultProvider, utils } from "ethers"
+import { Wallet, constants, getDefaultProvider, utils } from "ethers"
 import { MockProvider } from "@ethereum-waffle/provider"
 import { waffleChai } from "@ethereum-waffle/chai"
 import { assertContractCalledWith } from "../utils/helpers"
@@ -77,10 +77,10 @@ describe("Ethereum", () => {
           )
           .returns({
             redeemer: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
-            requestedAmount: BigNumber.from(10000),
-            treasuryFee: BigNumber.from(100),
-            txMaxFee: BigNumber.from(50),
-            requestedAt: BigNumber.from(1650623240),
+            requestedAmount: 10000n,
+            treasuryFee: 100n,
+            txMaxFee: 50n,
+            requestedAt: 1650623240n,
           } as any)
       })
 
@@ -99,9 +99,9 @@ describe("Ethereum", () => {
           redeemerOutputScript: Hex.from(
             "a9143ec459d0f3c29286ae5df5fcc421e2786024277e87"
           ),
-          requestedAmount: BigNumber.from(10000),
-          treasuryFee: BigNumber.from(100),
-          txMaxFee: BigNumber.from(50),
+          requestedAmount: 10000n,
+          treasuryFee: 100n,
+          txMaxFee: 50n,
           requestedAt: 1650623240,
         })
       })
@@ -119,10 +119,10 @@ describe("Ethereum", () => {
           )
           .returns({
             redeemer: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
-            requestedAmount: BigNumber.from(10000),
-            treasuryFee: BigNumber.from(100),
-            txMaxFee: BigNumber.from(50),
-            requestedAt: BigNumber.from(1650623240),
+            requestedAmount: 10000n,
+            treasuryFee: 100n,
+            txMaxFee: 50n,
+            requestedAt: 1650623240n,
           } as any)
       })
 
@@ -141,9 +141,9 @@ describe("Ethereum", () => {
           redeemerOutputScript: Hex.from(
             "a9143ec459d0f3c29286ae5df5fcc421e2786024277e87"
           ),
-          requestedAmount: BigNumber.from(10000),
-          treasuryFee: BigNumber.from(100),
-          txMaxFee: BigNumber.from(50),
+          requestedAmount: 10000n,
+          treasuryFee: 100n,
+          txMaxFee: 50n,
           requestedAt: 1650623240,
         })
       })
@@ -284,7 +284,7 @@ describe("Ethereum", () => {
               "f8eaf242a55ea15e602f9f990e33f67f99dfbe25d1802bbde63cc1caabf99668"
             ),
             outputIndex: 8,
-            value: BigNumber.from(9999),
+            value: 9999n,
           },
           EthereumAddress.from("82883a4c7a8dd73ef165deb402d432613615ced4")
         )
@@ -311,7 +311,7 @@ describe("Ethereum", () => {
             txHash:
               "0x6896f9abcac13ce6bd2b80d125bedf997ff6330e999f2f605ea15ea542f2eaf8",
             txOutputIndex: 8,
-            txOutputValue: BigNumber.from(9999),
+            txOutputValue: 9999n,
           },
           "0x82883a4c7a8dd73ef165deb402d432613615ced4",
         ])
@@ -320,9 +320,7 @@ describe("Ethereum", () => {
 
     describe("txProofDifficultyFactor", () => {
       beforeEach(async () => {
-        await bridgeContract.mock.txProofDifficultyFactor.returns(
-          BigNumber.from(6)
-        )
+        await bridgeContract.mock.txProofDifficultyFactor.returns(6n)
       })
 
       it("should return the tx proof difficulty factor", async () => {
@@ -343,10 +341,10 @@ describe("Ethereum", () => {
               "f8eaf242a55ea15e602f9f990e33f67f99dfbe25d1802bbde63cc1caabf99668"
             ),
             outputIndex: 8,
-            value: BigNumber.from(9999),
+            value: 9999n,
           },
           Hex.from("a9143ec459d0f3c29286ae5df5fcc421e2786024277e87"),
-          BigNumber.from(10000)
+          10000n
         )
       })
 
@@ -357,10 +355,10 @@ describe("Ethereum", () => {
             txHash:
               "0x6896f9abcac13ce6bd2b80d125bedf997ff6330e999f2f605ea15ea542f2eaf8",
             txOutputIndex: 8,
-            txOutputValue: BigNumber.from(9999),
+            txOutputValue: 9999n,
           },
           "0x17a9143ec459d0f3c29286ae5df5fcc421e2786024277e87",
-          BigNumber.from(10000),
+          10000n,
         ])
       })
     })
@@ -390,7 +388,7 @@ describe("Ethereum", () => {
               "f8eaf242a55ea15e602f9f990e33f67f99dfbe25d1802bbde63cc1caabf99668"
             ),
             outputIndex: 8,
-            value: BigNumber.from(9999),
+            value: 9999n,
           },
           Hex.from(
             "03989d253b17a6a0f41838b84ff0d20e8898f9d7b1a98f2564da4cc29dcf8581d9"
@@ -419,7 +417,7 @@ describe("Ethereum", () => {
             txHash:
               "0x6896f9abcac13ce6bd2b80d125bedf997ff6330e999f2f605ea15ea542f2eaf8",
             txOutputIndex: 8,
-            txOutputValue: BigNumber.from(9999),
+            txOutputValue: 9999n,
           },
           "0x8db50eb52063ea9d98b3eac91489a90f738986f6",
         ])
@@ -439,11 +437,11 @@ describe("Ethereum", () => {
             )
             .returns({
               depositor: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
-              amount: BigNumber.from(10000),
+              amount: 10000n,
               vault: "0x014e1BFbe0f85F129749a8ae0fcB20175433741B",
               revealedAt: 1654774330,
               sweptAt: 1655033516,
-              treasuryFee: BigNumber.from(200),
+              treasuryFee: 200n,
               extraData:
                 "0x0000000000000000000000000000000000000000000000000000000000000000",
             } as any)
@@ -461,13 +459,13 @@ describe("Ethereum", () => {
             depositor: EthereumAddress.from(
               "f39fd6e51aad88f6f4ce6ab8827279cfffb92266"
             ),
-            amount: BigNumber.from(10000),
+            amount: 10000n,
             vault: EthereumAddress.from(
               "014e1bfbe0f85f129749a8ae0fcb20175433741b"
             ),
             revealedAt: 1654774330,
             sweptAt: 1655033516,
-            treasuryFee: BigNumber.from(200),
+            treasuryFee: 200n,
           })
         })
       })
@@ -484,11 +482,11 @@ describe("Ethereum", () => {
             )
             .returns({
               depositor: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
-              amount: BigNumber.from(10000),
+              amount: 10000n,
               vault: constants.AddressZero,
               revealedAt: 1654774330,
               sweptAt: 1655033516,
-              treasuryFee: BigNumber.from(200),
+              treasuryFee: 200n,
               extraData:
                 "0x0000000000000000000000000000000000000000000000000000000000000000",
             } as any)
@@ -506,11 +504,11 @@ describe("Ethereum", () => {
             depositor: EthereumAddress.from(
               "f39fd6e51aad88f6f4ce6ab8827279cfffb92266"
             ),
-            amount: BigNumber.from(10000),
+            amount: 10000n,
             vault: undefined,
             revealedAt: 1654774330,
             sweptAt: 1655033516,
-            treasuryFee: BigNumber.from(200),
+            treasuryFee: 200n,
           })
         })
       })
@@ -529,7 +527,7 @@ describe("Ethereum", () => {
               ecdsaWalletID:
                 "0x9ff37567d973e4d884bc42d2d1a6cb1ff22676ab64f82c62b58e2b0ffd3fff71",
               mainUtxoHash: constants.HashZero,
-              pendingRedemptionsValue: BigNumber.from(0),
+              pendingRedemptionsValue: 0n,
               createdAt: 1654846075,
               movingFundsRequestedAt: 0,
               closingStartedAt: 0,
@@ -615,10 +613,10 @@ describe("Ethereum", () => {
             "f8eaf242a55ea15e602f9f990e33f67f99dfbe25d1802bbde63cc1caabf99668"
           ),
           outputIndex: 8,
-          value: BigNumber.from(9999),
+          value: 9999n,
         },
         redeemer: EthereumAddress.from(signer.address),
-        amount: BigNumber.from(10000),
+        amount: 10000n,
         redeemerOutputScript: {
           unprefixed: Hex.from(
             "0020cdbf909e935c855d3e8d1b61aeb9c5e3c03ae8021b286839b1a72f2e48fdba70"

@@ -18,7 +18,7 @@ import {
   BitcoinHashUtils,
   BitcoinTxHash,
 } from "../../src/lib/bitcoin"
-import { BigNumberish, BigNumber, utils, constants } from "ethers"
+import { utils, constants } from "ethers"
 import { depositSweepWithNoMainUtxoAndWitnessOutput } from "../data/deposit-sweep"
 import { EthereumAddress } from "../../src/lib/ethereum"
 import { Hex } from "../../src/lib/utils"
@@ -39,7 +39,7 @@ interface RequestRedemptionLogEntry {
   walletPublicKey: Hex
   mainUtxo: BitcoinUtxo
   redeemerOutputScript: Hex
-  amount: BigNumber
+  amount: bigint
 }
 
 interface RedemptionProofLogEntry {
@@ -63,24 +63,24 @@ interface WalletLog {
  */
 export class MockBridge implements Bridge {
   private _difficultyFactor = 6
-  private _pendingRedemptions = new Map<BigNumberish, RedemptionRequest>()
-  private _timedOutRedemptions = new Map<BigNumberish, RedemptionRequest>()
+  private _pendingRedemptions = new Map<string, RedemptionRequest>()
+  private _timedOutRedemptions = new Map<string, RedemptionRequest>()
   private _depositSweepProofLog: DepositSweepProofLogEntry[] = []
   private _revealDepositLog: RevealDepositLogEntry[] = []
   private _requestRedemptionLog: RequestRedemptionLogEntry[] = []
   private _redemptionProofLog: RedemptionProofLogEntry[] = []
-  private _deposits = new Map<BigNumberish, DepositRequest>()
+  private _deposits = new Map<string, DepositRequest>()
   private _activeWalletPublicKey: Hex | undefined
   private _newWalletRegisteredEvents: NewWalletRegisteredEvent[] = []
   private _newWalletRegisteredEventsLog: NewWalletRegisteredEventsLog[] = []
   private _wallets = new Map<string, Wallet>()
   private _walletsLog: WalletLog[] = []
 
-  setPendingRedemptions(value: Map<BigNumberish, RedemptionRequest>) {
+  setPendingRedemptions(value: Map<string, RedemptionRequest>) {
     this._pendingRedemptions = value
   }
 
-  setTimedOutRedemptions(value: Map<BigNumberish, RedemptionRequest>) {
+  setTimedOutRedemptions(value: Map<string, RedemptionRequest>) {
     this._timedOutRedemptions = value
   }
 
@@ -116,7 +116,7 @@ export class MockBridge implements Bridge {
     return this._walletsLog
   }
 
-  setDeposits(value: Map<BigNumberish, DepositRequest>) {
+  setDeposits(value: Map<string, DepositRequest>) {
     this._deposits = value
   }
 
@@ -201,11 +201,11 @@ export class MockBridge implements Bridge {
           ? (this._deposits.get(depositKey) as DepositRequest)
           : {
               depositor: EthereumAddress.from(constants.AddressZero),
-              amount: BigNumber.from(0),
+              amount: 0n,
               vault: EthereumAddress.from(constants.AddressZero),
               revealedAt: 0,
               sweptAt: 0,
-              treasuryFee: BigNumber.from(0),
+              treasuryFee: 0n,
             }
       )
     })
@@ -251,7 +251,7 @@ export class MockBridge implements Bridge {
     walletPublicKey: Hex,
     mainUtxo: BitcoinUtxo,
     redeemerOutputScript: Hex,
-    amount: BigNumber
+    amount: bigint
   ): Promise<Hex> {
     this._requestRedemptionLog.push({
       walletPublicKey,
@@ -318,7 +318,7 @@ export class MockBridge implements Bridge {
   private redemptions(
     walletPublicKeyHash: Hex,
     redeemerOutputScript: Hex,
-    redemptionsMap: Map<BigNumberish, RedemptionRequest>
+    redemptionsMap: Map<string, RedemptionRequest>
   ): RedemptionRequest {
     const redemptionKey = MockBridge.buildRedemptionKey(
       walletPublicKeyHash,
@@ -332,9 +332,9 @@ export class MockBridge implements Bridge {
       : {
           redeemer: EthereumAddress.from(constants.AddressZero),
           redeemerOutputScript: Hex.from(""),
-          requestedAmount: BigNumber.from(0),
-          treasuryFee: BigNumber.from(0),
-          txMaxFee: BigNumber.from(0),
+          requestedAmount: 0n,
+          treasuryFee: 0n,
+          txMaxFee: 0n,
           requestedAt: 0,
         }
   }

@@ -15,8 +15,6 @@ import {
 import { MockProvider } from "@ethereum-waffle/provider"
 import { assertContractCalledWith } from "../utils/helpers"
 import { expect } from "chai"
-import { BigNumber } from "ethers"
-
 // ABI imports.
 import { abi as ArbitrumBitcoinDepositorABI } from "../../src/lib/arbitrum/artifacts/arbitrumSepolia/ArbitrumL2BitcoinDepositor.json"
 import { abi as ArbitrumTBTCTokenABI } from "../../src/lib/arbitrum/artifacts/arbitrumSepolia/ArbitrumTBTC.json"
@@ -151,7 +149,7 @@ describe("Arbitrum", () => {
     })
 
     describe("balanceOf", () => {
-      let balance: BigNumber
+      let balance: bigint
 
       const identifier: ChainIdentifier = EthereumAddress.from(
         "934b98637ca318a4d6e7ca6ffd1690b8e77df637"
@@ -170,7 +168,7 @@ describe("Arbitrum", () => {
       })
 
       it("should return the balance", async () => {
-        expect(balance).to.equal(10)
+        expect(balance).to.equal(10n)
       })
     })
   })
