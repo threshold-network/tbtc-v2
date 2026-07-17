@@ -1,13 +1,13 @@
+import type { Abi, Address } from "viem"
 import {
-  EthersContractConfig,
-  EthersContractDeployment,
-  EthersContractHandle,
-} from "../ethereum/adapter-ethers"
-import { BaseL2BitcoinRedeemer as L2BitcoinRedeemerTypechain } from "../../../typechain/BaseL2BitcoinRedeemer"
+  asDeployment,
+  EthereumContractConfig,
+  EvmContractDeployment,
+  EvmContractHandle,
+} from "../ethereum/adapter"
 import { ChainIdentifier, Chains, L2BitcoinRedeemer } from "../contracts"
-import { EthereumAddress } from "../ethereum"
 import { Hex } from "../utils"
-import { Contract } from "@ethersproject/contracts"
+
 
 import BaseSepoliaL2BitcoinRedeemerDeployment from "./artifacts/baseSepolia/BaseL2BitcoinRedeemer.json"
 import BaseSepoliaWormholeCoreDeployment from "./artifacts/baseSepolia/WormholeCore.json"
@@ -21,26 +21,27 @@ import BaseL2BitcoinRedeemerDeployment from "./artifacts/base/BaseL2BitcoinRedee
  * @see {L2BitcoinRedeemer} for reference.
  */
 export class BaseL2BitcoinRedeemer
-  extends EthersContractHandle<L2BitcoinRedeemerTypechain>
+  extends EvmContractHandle
   implements L2BitcoinRedeemer
 {
-  private readonly wormholeCore: Contract
+  private readonly wormholeCoreAddress: Address
+  private readonly wormholeCoreAbi: Abi
   private readonly recipientChain: number
 
-  constructor(config: EthersContractConfig, chainId: Chains.Base) {
-    let deployment: EthersContractDeployment
-    let wormholeCoreDeployment: EthersContractDeployment
+  constructor(config: EthereumContractConfig, chainId: Chains.Base) {
+    let deployment: EvmContractDeployment
+    let wormholeCoreDeployment: EvmContractDeployment
     let recipientChain: number
 
     switch (chainId) {
       case Chains.Base.BaseSepolia:
-        deployment = BaseSepoliaL2BitcoinRedeemerDeployment
-        wormholeCoreDeployment = BaseSepoliaWormholeCoreDeployment
+        deployment = asDeployment(BaseSepoliaL2BitcoinRedeemerDeployment)
+        wormholeCoreDeployment = asDeployment(BaseSepoliaWormholeCoreDeployment)
         recipientChain = WORMHOLE_CHAIN_IDS[Chains.Ethereum.Sepolia]
         break
       case Chains.Base.Base:
-        deployment = BaseL2BitcoinRedeemerDeployment
-        wormholeCoreDeployment = BaseWormholeCoreDeployment
+        deployment = asDeployment(BaseL2BitcoinRedeemerDeployment)
+        wormholeCoreDeployment = asDeployment(BaseWormholeCoreDeployment)
         recipientChain = WORMHOLE_CHAIN_IDS[Chains.Ethereum.Mainnet]
         break
       default:
@@ -50,12 +51,10 @@ export class BaseL2BitcoinRedeemer
     super(config, deployment)
 
     this.recipientChain = recipientChain
-    // Initialize Wormhole core contract
-    this.wormholeCore = new Contract(
-      wormholeCoreDeployment.address,
-      wormholeCoreDeployment.abi,
-      config.signerOrProvider
-    )
+    // The Wormhole core contract is only read (messageFee) - a plain
+    // readContract call against its address suffices, no handle needed.
+    this.wormholeCoreAddress = wormholeCoreDeployment.address as Address
+    this.wormholeCoreAbi = wormholeCoreDeployment.abi
   }
 
   // eslint-disable-next-line valid-jsdoc
@@ -63,7 +62,7 @@ export class BaseL2BitcoinRedeemer
    * @see {L2BitcoinDepositor#getChainIdentifier}
    */
   getChainIdentifier(): ChainIdentifier {
-    return EthereumAddress.from(this._instance.address)
+    return this.getAddress()
   }
 
   // eslint-disable-next-line valid-jsdoc
@@ -83,17 +82,19 @@ export class BaseL2BitcoinRedeemer
       rawRedeemerOutputScript,
     ]).toString("hex")}`
 
-    // Get the Wormhole message fee
-    const messageFee = await this.wormholeCore.messageFee()
+    // Get the Wormhole message fee that must be attached as the
+    // transaction value.
+    const { public: publicClient } = await this._connection()
+    const messageFee = (await publicClient.readContract({
+      address: this.wormholeCoreAddress,
+      abi: this.wormholeCoreAbi,
+      functionName: "messageFee",
+    } as never)) as bigint | number
 
-    const tx = await this._instance.requestRedemption(
-      amount,
-      this.recipientChain,
-      prefixedRawRedeemerOutputScript,
-      nonce,
-      { value: messageFee }
+    return this._write(
+      "requestRedemption",
+      [amount, this.recipientChain, prefixedRawRedeemerOutputScript, nonce],
+      { value: BigInt(messageFee) }
     )
-
-    return Hex.from(tx.hash)
   }
 }

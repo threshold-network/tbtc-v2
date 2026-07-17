@@ -1,9 +1,9 @@
 import {
-  EthersContractConfig,
-  EthersContractDeployment,
-  EthersContractHandle,
-} from "../ethereum/adapter-ethers"
-import { L2BitcoinDepositor as L2BitcoinDepositorTypechain } from "../../../typechain/L2BitcoinDepositor"
+  asDeployment,
+  EthereumContractConfig,
+  EvmContractDeployment,
+  EvmContractHandle,
+} from "../ethereum/adapter"
 import {
   ChainIdentifier,
   ChainTransactionReceipt,
@@ -12,7 +12,7 @@ import {
   DepositReceipt,
   BitcoinDepositor,
 } from "../contracts"
-import { EthereumAddress, packRevealDepositParameters } from "../ethereum"
+import { packRevealDepositParameters } from "../ethereum"
 import { EthereumCrossChainExtraDataEncoder } from "../ethereum/l1-bitcoin-depositor"
 import { Hex } from "../utils"
 import { BitcoinRawTxVectors } from "../bitcoin"
@@ -26,21 +26,21 @@ import BaseSepoliaL2BitcoinDepositorDeployment from "./artifacts/baseSepolia/Bas
  * @see {BitcoinDepositor} for reference.
  */
 export class BaseBitcoinDepositor
-  extends EthersContractHandle<L2BitcoinDepositorTypechain>
+  extends EvmContractHandle
   implements BitcoinDepositor
 {
   readonly #extraDataEncoder: ExtraDataEncoder
   #depositOwner: ChainIdentifier | undefined
 
-  constructor(config: EthersContractConfig, chainId: Chains.Base) {
-    let deployment: EthersContractDeployment
+  constructor(config: EthereumContractConfig, chainId: Chains.Base) {
+    let deployment: EvmContractDeployment
 
     switch (chainId) {
       case Chains.Base.BaseSepolia:
-        deployment = BaseSepoliaL2BitcoinDepositorDeployment
+        deployment = asDeployment(BaseSepoliaL2BitcoinDepositorDeployment)
         break
       case Chains.Base.Base:
-        deployment = BaseL2BitcoinDepositorDeployment
+        deployment = asDeployment(BaseL2BitcoinDepositorDeployment)
         break
       default:
         throw new Error("Unsupported deployment type")
@@ -56,7 +56,7 @@ export class BaseBitcoinDepositor
    * @see {BitcoinDepositor#getChainIdentifier}
    */
   getChainIdentifier(): ChainIdentifier {
-    return EthereumAddress.from(this._instance.address)
+    return this.getAddress()
   }
 
   // eslint-disable-next-line valid-jsdoc
@@ -108,13 +108,11 @@ export class BaseBitcoinDepositor
       deposit.extraData
     )
 
-    const tx = await this._instance.initializeDeposit(
+    return this._write("initializeDeposit", [
       fundingTx,
       reveal,
-      `0x${l2DepositOwner.identifierHex}`
-    )
-
-    return Hex.from(tx.hash)
+      `0x${l2DepositOwner.identifierHex}`,
+    ])
   }
 }
 

@@ -1,8 +1,4 @@
 import {
-  deployMockContract,
-  MockContract,
-} from "@ethereum-waffle/mock-contract"
-import {
   BaseBitcoinDepositor,
   BaseTBTCToken,
   BitcoinRawTxVectors,
@@ -12,30 +8,34 @@ import {
   EthereumAddress,
   Hex,
 } from "../../src"
-import { MockProvider } from "@ethereum-waffle/provider"
-import { assertContractCalledWith } from "../utils/helpers"
-import { expect } from "chai"
+import chai, { expect } from "chai"
+import chaiAsPromised from "chai-as-promised"
+import { encodeFunctionData, type Abi, type Address } from "viem"
+import { expectContractWrite, MockEvm } from "../utils/mock-evm"
 // ABI imports.
 import { abi as BaseBitcoinDepositorABI } from "../../src/lib/base/artifacts/baseSepolia/BaseL2BitcoinDepositor.json"
 import { abi as BaseTBTCTokenABI } from "../../src/lib/base/artifacts/baseSepolia/BaseTBTC.json"
 
+chai.use(chaiAsPromised)
+
+const depositorAbi = BaseBitcoinDepositorABI as Abi
+const tokenAbi = BaseTBTCTokenABI as Abi
+
 describe("Base", () => {
   describe("BaseBitcoinDepositor", () => {
-    let depositorContract: MockContract
+    const depositorAddress: Address =
+      "0x256b3cd6d9dc76c05b104ce7cd1c73f2b442ec80"
+
+    let mock: MockEvm
     let depositorHandle: BaseBitcoinDepositor
 
     beforeEach(async () => {
-      const [signer] = new MockProvider().getWallets()
-
-      depositorContract = await deployMockContract(
-        signer,
-        `${JSON.stringify(BaseBitcoinDepositorABI)}`
-      )
+      mock = new MockEvm()
 
       depositorHandle = new BaseBitcoinDepositor(
         {
-          address: depositorContract.address,
-          signerOrProvider: signer,
+          address: depositorAddress,
+          signerOrProvider: mock.asSigner(),
         },
         Chains.Base.BaseSepolia
       )
@@ -70,11 +70,33 @@ describe("Base", () => {
         "82883a4c7a8dd73ef165deb402d432613615ced4"
       )
 
+      const expectedFundingTx = {
+        version: "0x00000000",
+        inputVector: "0x11111111",
+        outputVector: "0x22222222",
+        locktime: "0x33333333",
+      }
+      const expectedReveal = {
+        fundingOutputIndex: 2,
+        blindingFactor: "0xf9f0c90d00039523",
+        walletPubKeyHash: "0x8db50eb52063ea9d98b3eac91489a90f738986f6",
+        refundPubKeyHash: "0x28e081f285138ccbe389c1eb8985716230129f89",
+        refundLocktime: "0x60bcea61",
+        vault: "0x82883a4c7a8dd73ef165deb402d432613615ced4",
+      }
+      const expectedDepositOwner = "0x91fe5b7027c0ca767270bb1a474ba1338ba2a4d2"
+
       context(
         "when L2 deposit owner is properly encoded in the extra data",
         () => {
           beforeEach(async () => {
-            await depositorContract.mock.initializeDeposit.returns()
+            mock.stubRead(
+              depositorAddress,
+              depositorAbi,
+              "initializeDeposit",
+              [expectedFundingTx, expectedReveal, expectedDepositOwner],
+              undefined
+            )
 
             await depositorHandle.initializeDeposit(
               depositTx,
@@ -85,23 +107,13 @@ describe("Base", () => {
           })
 
           it("should initialize the deposit", async () => {
-            assertContractCalledWith(depositorContract, "initializeDeposit", [
-              {
-                version: "0x00000000",
-                inputVector: "0x11111111",
-                outputVector: "0x22222222",
-                locktime: "0x33333333",
-              },
-              {
-                fundingOutputIndex: 2,
-                blindingFactor: "0xf9f0c90d00039523",
-                walletPubKeyHash: "0x8db50eb52063ea9d98b3eac91489a90f738986f6",
-                refundPubKeyHash: "0x28e081f285138ccbe389c1eb8985716230129f89",
-                refundLocktime: "0x60bcea61",
-                vault: "0x82883a4c7a8dd73ef165deb402d432613615ced4",
-              },
-              "0x91fe5b7027c0cA767270bB1A474bA1338BA2A4d2",
-            ])
+            expectContractWrite(
+              mock,
+              depositorAddress,
+              depositorAbi,
+              "initializeDeposit",
+              [expectedFundingTx, expectedReveal, expectedDepositOwner]
+            )
           })
         }
       )
@@ -128,21 +140,18 @@ describe("Base", () => {
   })
 
   describe("BaseTBTCToken", () => {
-    let tokenContract: MockContract
+    const tokenAddress: Address = "0xc3f9f9b1bfd8bbcbcd05bfe4e18f2d8b1d1c9c50"
+
+    let mock: MockEvm
     let tokenHandle: BaseTBTCToken
 
     beforeEach(async () => {
-      const [signer] = new MockProvider().getWallets()
-
-      tokenContract = await deployMockContract(
-        signer,
-        `${JSON.stringify(BaseTBTCTokenABI)}`
-      )
+      mock = new MockEvm()
 
       tokenHandle = new BaseTBTCToken(
         {
-          address: tokenContract.address,
-          signerOrProvider: signer,
+          address: tokenAddress,
+          signerOrProvider: mock.asSigner(),
         },
         Chains.Base.BaseSepolia
       )
@@ -156,15 +165,29 @@ describe("Base", () => {
       )
 
       beforeEach(async () => {
-        await tokenContract.mock.balanceOf.returns(10)
+        mock.stubRead(
+          tokenAddress,
+          tokenAbi,
+          "balanceOf",
+          ["0x934b98637ca318a4d6e7ca6ffd1690b8e77df637"],
+          10n
+        )
 
         balance = await tokenHandle.balanceOf(identifier)
       })
 
       it("should call the contract with the right parameter", async () => {
-        assertContractCalledWith(tokenContract, "balanceOf", [
-          "0x934b98637ca318a4d6e7ca6ffd1690b8e77df637",
-        ])
+        const expectedCalldata = encodeFunctionData({
+          abi: tokenAbi,
+          functionName: "balanceOf",
+          args: ["0x934b98637ca318a4d6e7ca6ffd1690b8e77df637"],
+        } as never)
+        const matched = mock.requests.some(
+          (request) =>
+            request.method === "eth_call" &&
+            (request.params[0] as { data?: string })?.data === expectedCalldata
+        )
+        expect(matched, "expected balanceOf eth_call was not issued").to.be.true
       })
 
       it("should return the balance", async () => {

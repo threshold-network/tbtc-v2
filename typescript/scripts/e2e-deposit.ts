@@ -16,7 +16,9 @@
  * Deposit receipt is saved to deposit-receipt.json between runs.
  */
 import * as fs from "fs"
-import { ethers } from "ethers"
+import { createWalletClient, http } from "viem"
+import { privateKeyToAccount } from "viem/accounts"
+import { sepolia } from "viem/chains"
 import { TBTC } from "../src/services/tbtc"
 import { Deposit } from "../src/services/deposits"
 import { DepositReceipt } from "../src/lib/contracts"
@@ -66,8 +68,16 @@ async function main() {
     process.exit(1)
   }
 
-  const provider = new ethers.providers.JsonRpcProvider(rpcUrl)
-  const wallet = new ethers.Wallet(privateKey, provider)
+  const account = privateKeyToAccount(
+    (privateKey.startsWith("0x")
+      ? privateKey
+      : `0x${privateKey}`) as `0x${string}`
+  )
+  const wallet = createWalletClient({
+    account,
+    chain: sepolia,
+    transport: http(rpcUrl),
+  })
 
   let tbtc
   const electrumUrl = process.env.ELECTRUM_URL
@@ -108,7 +118,7 @@ async function main() {
   } else {
     tbtc = await TBTC.initializeSepolia(wallet)
   }
-  tbtc.deposits.setDefaultDepositor(EthereumAddress.from(wallet.address))
+  tbtc.deposits.setDefaultDepositor(EthereumAddress.from(account.address))
 
   const bitcoinRecoveryAddress = process.env.BTC_RECOVERY_ADDRESS
   if (!bitcoinRecoveryAddress) {
@@ -172,9 +182,7 @@ async function main() {
   console.log("=== Step 2: Revealing deposit ===")
   const result = await deposit.initiateMinting()
   const txHash =
-    typeof result === "object" && "hash" in result
-      ? result.hash
-      : (result as Hex).toPrefixedString()
+    result instanceof Hex ? result.toPrefixedString() : result.transactionHash
   console.log("Tx:", txHash)
   console.log("Revealed. Wait for sweep (~1h). Check TBTC balance.")
   fs.unlinkSync(RECEIPT_FILE)

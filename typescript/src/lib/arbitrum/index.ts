@@ -1,13 +1,8 @@
-import {
-  chainIdFromSigner,
-  ethereumAddressFromSigner,
-  EthereumSigner,
-} from "../ethereum"
+import { connectEvm, EthereumAddress, EthereumSigner } from "../ethereum"
 import { ArbitrumBitcoinDepositor } from "./l2-bitcoin-depositor"
 import { ArbitrumTBTCToken } from "./l2-tbtc-token"
 import { Chains, DestinationChainInterfaces } from "../contracts"
 import { ArbitrumL2BitcoinRedeemer } from "./l2-bitcoin-redeemer"
-import { EthersContractConfig } from "../ethereum/adapter-ethers"
 
 export * from "./l2-bitcoin-depositor"
 export * from "./l2-tbtc-token"
@@ -25,36 +20,32 @@ export async function loadArbitrumCrossChainInterfaces(
   signer: EthereumSigner,
   chainId: Chains.Arbitrum
 ): Promise<DestinationChainInterfaces> {
-  const signerChainId = await chainIdFromSigner(signer)
-  if (signerChainId !== chainId) {
+  // Normalize the signer once; every contract handle constructed here reuses
+  // the same connection.
+  const connection = await connectEvm(signer)
+  if (connection.chainId !== chainId) {
     throw new Error(
       "Signer uses different chain than Arbitrum cross-chain contracts"
     )
   }
 
-  // Transitional (migration phase 2): the Arbitrum handles still run on the
-  // ethers adapter while `lib/ethereum` is already on viem, so the signer is
-  // force-cast to the ethers shape. Runtime behavior is unchanged for ethers
-  // v5 signers - the only inputs these handles can operate on until they move
-  // to the viem adapter in the next phase, when this cast is deleted.
-  const signerOrProvider =
-    signer as unknown as EthersContractConfig["signerOrProvider"]
-
   const destinationChainBitcoinDepositor = new ArbitrumBitcoinDepositor(
-    { signerOrProvider },
+    { signerOrProvider: connection },
     chainId
   )
   destinationChainBitcoinDepositor.setDepositOwner(
-    await ethereumAddressFromSigner(signer)
+    connection.account !== undefined
+      ? EthereumAddress.from(connection.account)
+      : undefined
   )
 
   const l2BitcoinRedeemer = new ArbitrumL2BitcoinRedeemer(
-    { signerOrProvider },
+    { signerOrProvider: connection },
     chainId
   )
 
   const destinationChainTbtcToken = new ArbitrumTBTCToken(
-    { signerOrProvider },
+    { signerOrProvider: connection },
     chainId
   )
 

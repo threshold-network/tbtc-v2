@@ -1,8 +1,8 @@
 {
   "compilerOptions": {
-    "target": "ES2020",
+    "target": "ES2022",
     "module": "commonjs",
-    "lib": ["es2020", "dom"],
+    "lib": ["es2022", "dom"],
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
@@ -13,5 +13,5 @@
     "resolveJsonModule": true,
     "skipLibCheck": true
   },
-  "include": ["src", "test", "typechain", "typings.d.ts"]
+  "include": ["src", "test", "typings.d.ts"]
 }
