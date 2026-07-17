@@ -112,7 +112,12 @@ abstract contract TBTCOptimisticMinting is Ownable {
     ///         the cap; this acts as an automatic circuit breaker when
     ///         optimistically minted deposits do not settle. Zero value means
     ///         no limit.
-    uint64 public optimisticMintingDebtCap = 5_000_000_000; // 50 BTC
+    ///         The default is a deliberately conservative initial value;
+    ///         governance is expected to raise it based on observed cap
+    ///         utilization. Hitting the cap costs only latency — deposits
+    ///         fall back to the standard sweep flow — while raising it takes
+    ///         the 24-hour governance delay.
+    uint64 public optimisticMintingDebtCap = 1_000_000_000; // 10 BTC
 
     /// @notice The maximum total value of deposits (in satoshi) that can be
     ///         a subject of optimistic minting requests of a single Minter
@@ -122,7 +127,7 @@ abstract contract TBTCOptimisticMinting is Ownable {
     ///         Per-Minter caps are meant to overlap: the sum of all Minters'
     ///         caps may exceed `optimisticMintingDebtCap`, which remains the
     ///         binding total limit.
-    uint64 public optimisticMintingCapPerMinter = 5_000_000_000; // 50 BTC
+    uint64 public optimisticMintingCapPerMinter = 1_000_000_000; // 10 BTC
 
     /// @notice The maximum size of a single deposit (in satoshi) that can be
     ///         a subject of an optimistic minting request. Deposits above
@@ -131,7 +136,7 @@ abstract contract TBTCOptimisticMinting is Ownable {
     ///         a single optimistically minted deposit is the smallest of this
     ///         limit, the per-Minter cap, and the debt cap, out of those that
     ///         are enabled.
-    uint64 public optimisticMintingMaxDepositSize = 1_000_000_000; // 10 BTC
+    uint64 public optimisticMintingMaxDepositSize = 500_000_000; // 5 BTC
 
     /// @notice The maximum number of optimistic minting requests a single
     ///         Minter can submit within a rolling 24-hour window. The limit
