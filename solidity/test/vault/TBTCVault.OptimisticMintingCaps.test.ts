@@ -28,9 +28,9 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
   const MAX_UINT32 = BigNumber.from(2).pow(32).sub(1)
 
   // Contract defaults.
-  const DEFAULT_DEBT_CAP = 50 * BTC
-  const DEFAULT_CAP_PER_MINTER = 50 * BTC
-  const DEFAULT_MAX_DEPOSIT_SIZE = 10 * BTC
+  const DEFAULT_DEBT_CAP = 10 * BTC
+  const DEFAULT_CAP_PER_MINTER = 10 * BTC
+  const DEFAULT_MAX_DEPOSIT_SIZE = 5 * BTC
   const DEFAULT_REQUEST_LIMIT = 100
 
   let governance: SignerWithAddress
@@ -930,14 +930,14 @@ describe("TBTCVault - OptimisticMintingCaps", () => {
 
     it("should still measure the exempt in-flight exposure", async () => {
       // The 20 BTC exempt request counts toward the pending total and
-      // reduces the headroom available to non-exempt requesters.
+      // reduces the headroom available to non-exempt requesters. As it
+      // exceeds the whole 10 BTC debt cap, the reported headroom clamps
+      // to zero.
       expect(await stubVault.optimisticMintingPendingTotal()).to.equal(20 * BTC)
       const allowance = await stubVault.getOptimisticMintingAllowance(
         minter.address
       )
-      expect(allowance.globalHeadroomRemaining).to.equal(
-        DEFAULT_DEBT_CAP - 20 * BTC
-      )
+      expect(allowance.globalHeadroomRemaining).to.equal(0)
     })
   })
 })
