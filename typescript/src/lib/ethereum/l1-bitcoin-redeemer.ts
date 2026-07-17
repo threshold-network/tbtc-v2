@@ -2,7 +2,7 @@ import {
   EthersContractConfig,
   EthersContractDeployment,
   EthersContractHandle,
-} from "./adapter"
+} from "./adapter-ethers"
 import { L1BitcoinRedeemer as L1BitcoinRedeemerTypechain } from "../../../typechain/L1BitcoinRedeemer"
 import {
   ChainIdentifier,

@@ -41,7 +41,7 @@ import {
   EthersContractDeployment,
   EthersContractHandle,
   EthersTransactionUtils,
-} from "./adapter"
+} from "./adapter-ethers"
 import { EthereumAddress } from "./address"
 import { EthereumWalletRegistry } from "./wallet-registry"
 

@@ -2,7 +2,7 @@ import {
   EthersContractConfig,
   EthersContractDeployment,
   EthersContractHandle,
-} from "./adapter"
+} from "./adapter-ethers"
 import { L1BitcoinDepositor as L1BitcoinDepositorTypechain } from "../../../typechain/L1BitcoinDepositor"
 import {
   ChainIdentifier,

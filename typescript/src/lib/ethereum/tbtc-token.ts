@@ -9,7 +9,7 @@ import {
   EthersContractDeployment,
   EthersContractHandle,
   EthersTransactionUtils,
-} from "./adapter"
+} from "./adapter-ethers"
 import { EthereumAddress } from "./address"
 
 import MainnetTBTCTokenDeployment from "./artifacts/mainnet/TBTC.json"

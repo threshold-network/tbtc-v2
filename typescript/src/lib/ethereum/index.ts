@@ -17,7 +17,7 @@ export * from "./wallet-registry"
 // The `adapter` module should not be re-exported directly as it
 // contains low-level contract integration code. Re-export only components
 // that are relevant for `lib/ethereum` clients.
-export { EthersContractConfig as EthereumContractConfig } from "./adapter"
+export { EthersContractConfig as EthereumContractConfig } from "./adapter-ethers"
 
 /**
  * Represents an ethers v5 signer or provider. Signers (from @ethersproject/abstract-signer)

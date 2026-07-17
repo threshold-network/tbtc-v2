@@ -85,6 +85,7 @@
     "patch-package": "8.0.0",
     "starknet": "^6.24.1",
     "url-parse": "^1.5.10",
+    "viem": "^2.21.0",
     "wif": "2.0.6"
   },
   "devDependencies": {

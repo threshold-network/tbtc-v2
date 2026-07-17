@@ -15,7 +15,7 @@ import {
   EthersContractConfig,
   EthersContractDeployment,
   EthersContractHandle,
-} from "./adapter"
+} from "./adapter-ethers"
 import { EthereumAddress } from "./address"
 
 import MainnetWalletRegistryDeployment from "./artifacts/mainnet/WalletRegistry.json"
