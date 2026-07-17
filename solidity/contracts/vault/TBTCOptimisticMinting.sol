@@ -832,11 +832,13 @@ abstract contract TBTCOptimisticMinting is Ownable {
 
         if (amount > debt) {
             optimisticMintingDebt[depositor] = 0;
+            // slither-disable-next-line costly-loop
             optimisticMintingDebtTotal -= debt;
             emit OptimisticMintingDebtRepaid(depositor, 0);
             return amount - debt;
         } else {
             optimisticMintingDebt[depositor] = debt - amount;
+            // slither-disable-next-line costly-loop
             optimisticMintingDebtTotal -= amount;
             emit OptimisticMintingDebtRepaid(depositor, debt - amount);
             return 0;
@@ -956,6 +958,7 @@ abstract contract TBTCOptimisticMinting is Ownable {
         // only when tokens are credited so that fractional accrual between
         // frequent touches is never lost.
         if (valueCap != 0) {
+            // slither-disable-next-line incorrect-equality
             if (allowance.valueRefilledAt == 0) {
                 allowance.valueRemaining = valueCap;
                 /* solhint-disable-next-line not-rely-on-time */
@@ -980,6 +983,7 @@ abstract contract TBTCOptimisticMinting is Ownable {
         }
 
         if (requestLimit != 0) {
+            // slither-disable-next-line incorrect-equality
             if (allowance.requestsRefilledAt == 0) {
                 allowance.requestsRemaining = requestLimit;
                 /* solhint-disable-next-line not-rely-on-time */
