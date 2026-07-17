@@ -65,12 +65,19 @@ export class EthereumWalletRegistry
   /**
    * @see {WalletRegistry#getWalletPublicKey}
    */
-  async getWalletPublicKey(walletID: Hex): Promise<Hex> {
+  async getWalletPublicKey(
+    walletID: Hex,
+    skipRetryWhenNotRegistered = false
+  ): Promise<Hex> {
     const publicKey = await backoffRetrier<string>(
       this._totalRetryAttempts,
       undefined,
       undefined,
-      skipRetryWhenMatched(["Wallet with the given ID has not been registered"])
+      skipRetryWhenNotRegistered
+        ? skipRetryWhenMatched([
+            "Wallet with the given ID has not been registered",
+          ])
+        : undefined
     )(async () => {
       return await this._instance.getWalletPublicKey(
         walletID.toPrefixedString()

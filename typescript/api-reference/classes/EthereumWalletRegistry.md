@@ -180,7 +180,7 @@ WalletRegistry.getDkgResultApprovedEvents
 
 #### Defined in
 
-[lib/ethereum/wallet-registry.ts:129](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/wallet-registry.ts#L129)
+[lib/ethereum/wallet-registry.ts:136](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/wallet-registry.ts#L136)
 
 ___
 
@@ -207,7 +207,7 @@ WalletRegistry.getDkgResultChallengedEvents
 
 #### Defined in
 
-[lib/ethereum/wallet-registry.ts:154](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/wallet-registry.ts#L154)
+[lib/ethereum/wallet-registry.ts:161](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/wallet-registry.ts#L161)
 
 ___
 
@@ -234,7 +234,7 @@ WalletRegistry.getDkgResultSubmittedEvents
 
 #### Defined in
 
-[lib/ethereum/wallet-registry.ts:86](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/wallet-registry.ts#L86)
+[lib/ethereum/wallet-registry.ts:93](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/wallet-registry.ts#L93)
 
 ___
 
@@ -274,13 +274,14 @@ ___
 
 ### getWalletPublicKey
 
-▸ **getWalletPublicKey**(`walletID`): `Promise`\<[`Hex`](Hex.md)\>
+▸ **getWalletPublicKey**(`walletID`, `skipRetryWhenNotRegistered?`): `Promise`\<[`Hex`](Hex.md)\>
 
 #### Parameters
 
-| Name | Type |
-| :------ | :------ |
-| `walletID` | [`Hex`](Hex.md) |
+| Name | Type | Default value |
+| :------ | :------ | :------ |
+| `walletID` | [`Hex`](Hex.md) | `undefined` |
+| `skipRetryWhenNotRegistered` | `boolean` | `false` |
 
 #### Returns
 
