@@ -1,16 +1,16 @@
+import { bytesToHex } from "viem"
 import {
-  EthersContractConfig,
-  EthersContractDeployment,
-  EthersContractHandle,
-} from "./adapter-ethers"
-import { L1BitcoinRedeemer as L1BitcoinRedeemerTypechain } from "../../../typechain/L1BitcoinRedeemer"
+  asDeployment,
+  EthereumContractConfig,
+  EvmContractDeployment,
+  EvmContractHandle,
+} from "./adapter"
 import {
   ChainIdentifier,
   Chains,
   DestinationChainName,
   L1BitcoinRedeemer,
 } from "../contracts"
-import { EthereumAddress } from "./index"
 import { Hex } from "../utils"
 
 import SepoliaL1BitcoinRedeemerDeployment from "./artifacts/sepolia/L1BitcoinRedeemer.json"
@@ -23,9 +23,9 @@ const artifactLoader = {
   getMainnet: (l2ChainName: DestinationChainName) => {
     switch (l2ChainName) {
       case "Base":
-        return MainnetBaseL1BitcoinRedeemerDeployment
+        return asDeployment(MainnetBaseL1BitcoinRedeemerDeployment)
       case "Arbitrum":
-        return MainnetArbitrumL1BitcoinRedeemerDeployment
+        return asDeployment(MainnetArbitrumL1BitcoinRedeemerDeployment)
       default:
         throw new Error("Unsupported destination chain")
     }
@@ -33,7 +33,7 @@ const artifactLoader = {
 
   getSepolia: (l2ChainName: DestinationChainName) => {
     if (l2ChainName === "Base" || l2ChainName === "Arbitrum") {
-      return SepoliaL1BitcoinRedeemerDeployment
+      return asDeployment(SepoliaL1BitcoinRedeemerDeployment)
     }
     throw new Error("Unsupported destination chain")
   },
@@ -45,15 +45,15 @@ const artifactLoader = {
  * @see {L1BitcoinRedeemer} for reference.
  */
 export class EthereumL1BitcoinRedeemer
-  extends EthersContractHandle<L1BitcoinRedeemerTypechain>
+  extends EvmContractHandle
   implements L1BitcoinRedeemer
 {
   constructor(
-    config: EthersContractConfig,
+    config: EthereumContractConfig,
     chainId: Chains.Ethereum,
     l2ChainName: DestinationChainName
   ) {
-    let deployment: EthersContractDeployment
+    let deployment: EvmContractDeployment
 
     switch (chainId) {
       case Chains.Ethereum.Sepolia:
@@ -74,7 +74,7 @@ export class EthereumL1BitcoinRedeemer
    * @see {L1BitcoinRedeemer#getChainIdentifier}
    */
   getChainIdentifier(): ChainIdentifier {
-    return EthereumAddress.from(this._instance.address)
+    return this.getAddress()
   }
 
   // eslint-disable-next-line valid-jsdoc
@@ -98,14 +98,14 @@ export class EthereumL1BitcoinRedeemer
     }
 
     const encodedVmParam =
-      encodedVm instanceof Uint8Array ? encodedVm : encodedVm.toPrefixedString()
+      encodedVm instanceof Uint8Array
+        ? bytesToHex(encodedVm)
+        : encodedVm.toPrefixedString()
 
-    const tx = await this._instance.requestRedemption(
+    return this._write("requestRedemption", [
       walletPublicKeyHash,
       mainUtxoParam,
-      encodedVmParam
-    )
-
-    return Hex.from(tx.hash)
+      encodedVmParam,
+    ])
   }
 }

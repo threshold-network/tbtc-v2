@@ -33,9 +33,14 @@ export interface EthersV5SignerLike {
   readonly _isSigner: boolean
   getAddress(): Promise<string>
   getChainId(): Promise<number>
+  // The transaction fields are typed `unknown` (ethers v5 accepts deferrable
+  // values, i.e. direct values or promises, for every field) so that the
+  // nominal ethers v5 `Signer`/`Wallet` types are structurally assignable
+  // to this shape without a cast. At runtime the SDK always passes plain
+  // `to`/`data`/`value`/`gasLimit` hex strings.
   sendTransaction(tx: {
-    to?: string
-    data?: string
+    to?: unknown
+    data?: unknown
     value?: unknown
     gasLimit?: unknown
   }): Promise<{ hash: string }>

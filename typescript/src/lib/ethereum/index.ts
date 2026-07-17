@@ -1,15 +1,15 @@
 import { Chains, TBTCContracts } from "../contracts"
-import { Signer } from "@ethersproject/abstract-signer"
-import { Provider } from "@ethersproject/abstract-provider"
+
 import { EthereumBridge } from "./bridge"
 import { EthereumWalletRegistry } from "./wallet-registry"
 import { EthereumTBTCToken } from "./tbtc-token"
 import { EthereumTBTCVault } from "./tbtc-vault"
-import { EthereumAddress } from "./address"
+import { connectEvm, EthereumSigner } from "./evm-connection"
 
 export * from "./address"
 export * from "./bridge"
 export * from "./depositor-proxy"
+export * from "./evm-connection"
 export * from "./tbtc-token"
 export * from "./tbtc-vault"
 export * from "./wallet-registry"
@@ -17,50 +17,7 @@ export * from "./wallet-registry"
 // The `adapter` module should not be re-exported directly as it
 // contains low-level contract integration code. Re-export only components
 // that are relevant for `lib/ethereum` clients.
-export { EthersContractConfig as EthereumContractConfig } from "./adapter-ethers"
-
-/**
- * Represents an ethers v5 signer or provider. Signers (from @ethersproject/abstract-signer)
- * can submit transactions; providers (from @ethersproject/abstract-provider) provide read-only access.
- */
-export type EthereumSigner = Signer | Provider
-
-/**
- * Resolves the chain ID from the given signer.
- * @param signer The signer whose chain ID should be resolved.
- * @returns Chain ID as a string.
- */
-export async function chainIdFromSigner(
-  signer: EthereumSigner
-): Promise<string> {
-  let chainId: number
-  if (Signer.isSigner(signer)) {
-    chainId = await signer.getChainId()
-  } else {
-    const network = await signer.getNetwork()
-    chainId = network.chainId
-  }
-
-  return chainId.toString()
-}
-
-/**
- * Resolves the Ethereum address tied to the given signer. The address
- * cannot be resolved for signers that works in the read-only mode
- * @param signer The signer whose address should be resolved.
- * @returns Ethereum address or undefined for read-only signers.
- * @throws Throws an error if the address of the signer is not a proper
- *         Ethereum address.
- */
-export async function ethereumAddressFromSigner(
-  signer: EthereumSigner
-): Promise<EthereumAddress | undefined> {
-  if (Signer.isSigner(signer)) {
-    return EthereumAddress.from(await signer.getAddress())
-  } else {
-    return undefined
-  }
-}
+export { EthereumContractConfig } from "./adapter"
 
 /**
  * Loads Ethereum implementation of tBTC core contracts for the given Ethereum
@@ -75,16 +32,24 @@ export async function loadEthereumCoreContracts(
   signer: EthereumSigner,
   chainId: Chains.Ethereum
 ): Promise<TBTCContracts> {
-  const signerChainId = await chainIdFromSigner(signer)
-  if (signerChainId !== chainId) {
+  // Normalize the signer once; every contract handle constructed here reuses
+  // the same connection.
+  const connection = await connectEvm(signer)
+  if (connection.chainId !== chainId) {
     throw new Error("Signer uses different chain than Ethereum core contracts")
   }
 
-  const bridge = new EthereumBridge({ signerOrProvider: signer }, chainId)
-  const tbtcToken = new EthereumTBTCToken({ signerOrProvider: signer }, chainId)
-  const tbtcVault = new EthereumTBTCVault({ signerOrProvider: signer }, chainId)
+  const bridge = new EthereumBridge({ signerOrProvider: connection }, chainId)
+  const tbtcToken = new EthereumTBTCToken(
+    { signerOrProvider: connection },
+    chainId
+  )
+  const tbtcVault = new EthereumTBTCVault(
+    { signerOrProvider: connection },
+    chainId
+  )
   const walletRegistry = new EthereumWalletRegistry(
-    { signerOrProvider: signer },
+    { signerOrProvider: connection },
     chainId
   )
 

@@ -1,4 +1,3 @@
-import { WalletRegistry as WalletRegistryTypechain } from "../../../typechain/WalletRegistry"
 import {
   GetChainEvents,
   WalletRegistry,
@@ -8,14 +7,13 @@ import {
   ChainIdentifier,
   Chains,
 } from "../contracts"
-import { backoffRetrier, Hex, skipRetryWhenMatched } from "../utils"
-import { Event as EthersEvent } from "@ethersproject/contracts"
-import { BigNumber } from "@ethersproject/bignumber"
+import { Hex } from "../utils"
 import {
-  EthersContractConfig,
-  EthersContractDeployment,
-  EthersContractHandle,
-} from "./adapter-ethers"
+  asDeployment,
+  EthereumContractConfig,
+  EvmContractDeployment,
+  EvmContractHandle,
+} from "./adapter"
 import { EthereumAddress } from "./address"
 
 import MainnetWalletRegistryDeployment from "./artifacts/mainnet/WalletRegistry.json"
@@ -23,28 +21,59 @@ import SepoliaWalletRegistryDeployment from "./artifacts/sepolia/WalletRegistry.
 import LocalWalletRegistryDeployment from "@keep-network/ecdsa/artifacts/WalletRegistry.json"
 
 /**
+ * Structural type of the on-chain `DkgResult` struct as decoded by viem from
+ * the `DkgResultSubmitted` event. Numeric fields are typed `number | bigint`
+ * because viem decodes uints depending on their ABI width - normalize at the
+ * parsing site.
+ */
+type DkgResultStruct = {
+  submitterMemberIndex: number | bigint
+  groupPubKey: string
+  misbehavedMembersIndices: readonly (number | bigint)[]
+  signatures: string
+  signingMembersIndices: readonly (number | bigint)[]
+  members: readonly (number | bigint)[]
+  membersHash: string
+}
+
+/**
+ * Converts a numeric value to a minimal-length, even-padded, 0x-prefixed hex
+ * string - the exact format the ethers `BigNumber.toHexString()` produced
+ * (e.g. `0x01` for 1), which downstream `Hex` handling relies on.
+ * @param value The value to convert.
+ * @returns The 0x-prefixed hex string.
+ */
+function toEvenLengthHex(value: bigint): string {
+  let hex = value.toString(16)
+  if (hex.length % 2 !== 0) {
+    hex = `0${hex}`
+  }
+  return `0x${hex}`
+}
+
+/**
  * Implementation of the Ethereum WalletRegistry handle.
  * @see {WalletRegistry} for reference.
  */
 export class EthereumWalletRegistry
-  extends EthersContractHandle<WalletRegistryTypechain>
+  extends EvmContractHandle
   implements WalletRegistry
 {
   constructor(
-    config: EthersContractConfig,
+    config: EthereumContractConfig,
     chainId: Chains.Ethereum = Chains.Ethereum.Local
   ) {
-    let deployment: EthersContractDeployment
+    let deployment: EvmContractDeployment
 
     switch (chainId) {
       case Chains.Ethereum.Local:
-        deployment = LocalWalletRegistryDeployment
+        deployment = asDeployment(LocalWalletRegistryDeployment)
         break
       case Chains.Ethereum.Sepolia:
-        deployment = SepoliaWalletRegistryDeployment
+        deployment = asDeployment(SepoliaWalletRegistryDeployment)
         break
       case Chains.Ethereum.Mainnet:
-        deployment = MainnetWalletRegistryDeployment
+        deployment = asDeployment(MainnetWalletRegistryDeployment)
         break
       default:
         throw new Error("Unsupported deployment type")
@@ -58,7 +87,7 @@ export class EthereumWalletRegistry
    * @see {WalletRegistry#getChainIdentifier}
    */
   getChainIdentifier(): ChainIdentifier {
-    return EthereumAddress.from(this._instance.address)
+    return this.getAddress()
   }
 
   // eslint-disable-next-line valid-jsdoc
@@ -69,20 +98,17 @@ export class EthereumWalletRegistry
     walletID: Hex,
     skipRetryWhenNotRegistered = false
   ): Promise<Hex> {
-    const publicKey = await backoffRetrier<string>(
-      this._totalRetryAttempts,
-      undefined,
-      undefined,
+    const publicKey = await this._read<string>(
+      "getWalletPublicKey",
+      [walletID.toPrefixedString()],
       skipRetryWhenNotRegistered
-        ? skipRetryWhenMatched([
-            "Wallet with the given ID has not been registered",
-          ])
+        ? {
+            nonRetryableErrors: [
+              "Wallet with the given ID has not been registered",
+            ],
+          }
         : undefined
-    )(async () => {
-      return await this._instance.getWalletPublicKey(
-        walletID.toPrefixedString()
-      )
-    })
+    )
     return Hex.from(publicKey.substring(2))
   }
 
@@ -94,36 +120,35 @@ export class EthereumWalletRegistry
     options?: GetChainEvents.Options,
     ...filterArgs: Array<unknown>
   ): Promise<DkgResultSubmittedEvent[]> {
-    const events: EthersEvent[] = await this.getEvents(
+    const events = await this._getEvents(
       "DkgResultSubmitted",
       options,
       ...filterArgs
     )
 
     return events.map<DkgResultSubmittedEvent>((event) => {
+      const result = event.args.result as DkgResultStruct
+
       return {
-        blockNumber: BigNumber.from(event.blockNumber).toNumber(),
+        blockNumber: event.blockNumber,
         blockHash: Hex.from(event.blockHash),
         transactionHash: Hex.from(event.transactionHash),
-        resultHash: Hex.from(event.args!.resultHash),
-        seed: Hex.from(BigNumber.from(event.args!.seed).toHexString()),
+        resultHash: Hex.from(event.args.resultHash as string),
+        seed: Hex.from(
+          toEvenLengthHex(BigInt(event.args.seed as number | bigint))
+        ),
         result: {
-          submitterMemberIndex: BigNumber.from(
-            event.args!.result.submitterMemberIndex
-          ).toBigInt(),
-          groupPubKey: Hex.from(event.args!.result.groupPubKey),
-          misbehavedMembersIndices:
-            event.args!.result.misbehavedMembersIndices.map((mmi: unknown) =>
-              BigNumber.from(mmi).toNumber()
-            ),
-          signatures: Hex.from(event.args!.result.signatures),
-          signingMembersIndices: event.args!.result.signingMembersIndices.map(
-            (smi: unknown) => BigNumber.from(smi).toBigInt()
+          submitterMemberIndex: BigInt(result.submitterMemberIndex),
+          groupPubKey: Hex.from(result.groupPubKey),
+          misbehavedMembersIndices: result.misbehavedMembersIndices.map((mmi) =>
+            Number(mmi)
           ),
-          members: event.args!.result.members.map((m: unknown) =>
-            BigNumber.from(m).toNumber()
+          signatures: Hex.from(result.signatures),
+          signingMembersIndices: result.signingMembersIndices.map((smi) =>
+            BigInt(smi)
           ),
-          membersHash: Hex.from(event.args!.result.membersHash),
+          members: result.members.map((m) => Number(m)),
+          membersHash: Hex.from(result.membersHash),
         },
       }
     })
@@ -137,7 +162,7 @@ export class EthereumWalletRegistry
     options?: GetChainEvents.Options,
     ...filterArgs: Array<unknown>
   ): Promise<DkgResultApprovedEvent[]> {
-    const events: EthersEvent[] = await this.getEvents(
+    const events = await this._getEvents(
       "DkgResultApproved",
       options,
       ...filterArgs
@@ -145,11 +170,11 @@ export class EthereumWalletRegistry
 
     return events.map<DkgResultApprovedEvent>((event) => {
       return {
-        blockNumber: BigNumber.from(event.blockNumber).toNumber(),
+        blockNumber: event.blockNumber,
         blockHash: Hex.from(event.blockHash),
         transactionHash: Hex.from(event.transactionHash),
-        resultHash: Hex.from(event.args!.resultHash),
-        approver: EthereumAddress.from(event.args!.approver),
+        resultHash: Hex.from(event.args.resultHash as string),
+        approver: EthereumAddress.from(event.args.approver as string),
       }
     })
   }
@@ -162,7 +187,7 @@ export class EthereumWalletRegistry
     options?: GetChainEvents.Options,
     ...filterArgs: Array<unknown>
   ): Promise<DkgResultChallengedEvent[]> {
-    const events: EthersEvent[] = await this.getEvents(
+    const events = await this._getEvents(
       "DkgResultChallenged",
       options,
       ...filterArgs
@@ -170,12 +195,12 @@ export class EthereumWalletRegistry
 
     return events.map<DkgResultChallengedEvent>((event) => {
       return {
-        blockNumber: BigNumber.from(event.blockNumber).toNumber(),
+        blockNumber: event.blockNumber,
         blockHash: Hex.from(event.blockHash),
         transactionHash: Hex.from(event.transactionHash),
-        resultHash: Hex.from(event.args!.resultHash),
-        challenger: EthereumAddress.from(event.args!.challenger),
-        reason: event.args!.reason,
+        resultHash: Hex.from(event.args.resultHash as string),
+        challenger: EthereumAddress.from(event.args.challenger as string),
+        reason: event.args.reason as string,
       }
     })
   }

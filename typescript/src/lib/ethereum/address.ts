@@ -1,5 +1,5 @@
 import { ChainIdentifier } from "../contracts"
-import { getAddress } from "@ethersproject/address"
+import { getAddress } from "viem"
 
 /**
  * Represents an Ethereum address.
@@ -13,7 +13,9 @@ export class EthereumAddress implements ChainIdentifier {
     let validAddress: string
 
     try {
-      validAddress = getAddress(address)
+      validAddress = getAddress(
+        address.startsWith("0x") ? address : `0x${address}`
+      )
     } catch (e) {
       throw new Error(`Invalid Ethereum address`)
     }

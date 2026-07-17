@@ -7,6 +7,7 @@ import { ArbitrumBitcoinDepositor } from "./l2-bitcoin-depositor"
 import { ArbitrumTBTCToken } from "./l2-tbtc-token"
 import { Chains, DestinationChainInterfaces } from "../contracts"
 import { ArbitrumL2BitcoinRedeemer } from "./l2-bitcoin-redeemer"
+import { EthersContractConfig } from "../ethereum/adapter-ethers"
 
 export * from "./l2-bitcoin-depositor"
 export * from "./l2-tbtc-token"
@@ -31,8 +32,16 @@ export async function loadArbitrumCrossChainInterfaces(
     )
   }
 
+  // Transitional (migration phase 2): the Arbitrum handles still run on the
+  // ethers adapter while `lib/ethereum` is already on viem, so the signer is
+  // force-cast to the ethers shape. Runtime behavior is unchanged for ethers
+  // v5 signers - the only inputs these handles can operate on until they move
+  // to the viem adapter in the next phase, when this cast is deleted.
+  const signerOrProvider =
+    signer as unknown as EthersContractConfig["signerOrProvider"]
+
   const destinationChainBitcoinDepositor = new ArbitrumBitcoinDepositor(
-    { signerOrProvider: signer },
+    { signerOrProvider },
     chainId
   )
   destinationChainBitcoinDepositor.setDepositOwner(
@@ -40,12 +49,12 @@ export async function loadArbitrumCrossChainInterfaces(
   )
 
   const l2BitcoinRedeemer = new ArbitrumL2BitcoinRedeemer(
-    { signerOrProvider: signer },
+    { signerOrProvider },
     chainId
   )
 
   const destinationChainTbtcToken = new ArbitrumTBTCToken(
-    { signerOrProvider: signer },
+    { signerOrProvider },
     chainId
   )
 

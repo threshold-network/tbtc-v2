@@ -408,9 +408,20 @@ export class EvmContractHandle {
   protected async _read<T>(
     functionName: string,
     args?: readonly unknown[],
-    opts?: { blockNumber?: number; retries?: number }
+    opts?: {
+      blockNumber?: number
+      retries?: number
+      nonRetryableErrors?: Array<string | RegExp>
+    }
   ): Promise<T> {
-    return backoffRetrier<T>(opts?.retries ?? this._totalRetryAttempts)(
+    return backoffRetrier<T>(
+      opts?.retries ?? this._totalRetryAttempts,
+      undefined,
+      undefined,
+      opts?.nonRetryableErrors
+        ? skipRetryWhenMatched(opts.nonRetryableErrors)
+        : undefined
+    )(
       async () => {
         const { public: publicClient } = await this._connRef.get()
         try {
