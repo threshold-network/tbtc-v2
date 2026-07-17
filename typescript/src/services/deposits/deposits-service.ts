@@ -19,7 +19,7 @@ import { Deposit } from "./deposit"
 import * as crypto from "crypto"
 import { CrossChainDepositor } from "./cross-chain"
 import { EthereumAddress } from "../../lib/ethereum/address"
-import { utils as ethersUtils } from "ethers"
+import { hexZeroPad } from "@ethersproject/bytes"
 import { extractBitcoinRawTxVectors } from "../../lib/bitcoin/tx"
 
 /**
@@ -445,7 +445,7 @@ export class DepositsService {
       )
     }
 
-    const depositOwnerBytes32 = Hex.from(ethersUtils.hexZeroPad(ownerHex, 32))
+    const depositOwnerBytes32 = Hex.from(hexZeroPad(ownerHex, 32))
 
     const receipt = await this.generateDepositReceipt(
       bitcoinRecoveryAddress,

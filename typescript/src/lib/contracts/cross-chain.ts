@@ -1,5 +1,6 @@
 import { ChainIdentifier } from "./chain-identifier"
-import { BigNumber, BytesLike } from "ethers"
+import { BigNumber } from "@ethersproject/bignumber"
+import { BytesLike } from "@ethersproject/bytes"
 import { TransactionReceipt } from "@ethersproject/providers"
 import { ChainMapping, DestinationChainName } from "./chain"
 import { BitcoinRawTxVectors, BitcoinUtxo } from "../bitcoin"
