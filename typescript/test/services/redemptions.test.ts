@@ -1318,7 +1318,7 @@ describe("Redemptions", () => {
                       outputIndex: wallet.data.mainUtxo.outputIndex,
                       value: wallet.data.mainUtxo.value.toString(),
                     },
-                    walletBTCBalance: amountInSatoshi.sub(1).toString(),
+                    walletBTCBalance: (amountInSatoshi - 1n).toString(),
                   },
                 ],
                 testRedeemerOutputScript
@@ -1413,7 +1413,7 @@ describe("Redemptions", () => {
               {
                 state: WalletState.Live,
                 walletPublicKey: overReservedWallet.data.walletPublicKey,
-                pendingRedemptionsValue: liveWallet.data.mainUtxo.value.add(1),
+                pendingRedemptionsValue: liveWallet.data.mainUtxo.value + 1n,
                 mainUtxoHash: tbtcContracts.bridge.buildUtxoHash(
                   liveWallet.data.mainUtxo
                 ),

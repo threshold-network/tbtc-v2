@@ -8,7 +8,7 @@ for reference.
 
 ## Hierarchy
 
-- `EthersContractHandle`\<`L2BitcoinDepositorTypechain`\>
+- `EvmContractHandle`
 
   ↳ **`BaseBitcoinDepositor`**
 
@@ -26,17 +26,21 @@ for reference.
 
 - [#depositOwner](BaseBitcoinDepositor.md##depositowner)
 - [#extraDataEncoder](BaseBitcoinDepositor.md##extradataencoder)
+- [\_abi](BaseBitcoinDepositor.md#_abi)
+- [\_address](BaseBitcoinDepositor.md#_address)
 - [\_deployedAtBlockNumber](BaseBitcoinDepositor.md#_deployedatblocknumber)
-- [\_instance](BaseBitcoinDepositor.md#_instance)
 - [\_totalRetryAttempts](BaseBitcoinDepositor.md#_totalretryattempts)
 
 ### Methods
 
+- [\_connection](BaseBitcoinDepositor.md#_connection)
+- [\_getEvents](BaseBitcoinDepositor.md#_getevents)
+- [\_read](BaseBitcoinDepositor.md#_read)
+- [\_write](BaseBitcoinDepositor.md#_write)
 - [extraDataEncoder](BaseBitcoinDepositor.md#extradataencoder)
 - [getAddress](BaseBitcoinDepositor.md#getaddress)
 - [getChainIdentifier](BaseBitcoinDepositor.md#getchainidentifier)
 - [getDepositOwner](BaseBitcoinDepositor.md#getdepositowner)
-- [getEvents](BaseBitcoinDepositor.md#getevents)
 - [initializeDeposit](BaseBitcoinDepositor.md#initializedeposit)
 - [setDepositOwner](BaseBitcoinDepositor.md#setdepositowner)
 
@@ -59,11 +63,11 @@ for reference.
 
 #### Overrides
 
-EthersContractHandle\&lt;L2BitcoinDepositorTypechain\&gt;.constructor
+EvmContractHandle.constructor
 
 #### Defined in
 
-[src/lib/base/l2-bitcoin-depositor.ts:34](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L34)
+[src/lib/base/l2-bitcoin-depositor.ts:35](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L35)
 
 ## Properties
 
@@ -73,7 +77,7 @@ EthersContractHandle\&lt;L2BitcoinDepositorTypechain\&gt;.constructor
 
 #### Defined in
 
-[src/lib/base/l2-bitcoin-depositor.ts:32](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L32)
+[src/lib/base/l2-bitcoin-depositor.ts:33](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L33)
 
 ___
 
@@ -83,7 +87,39 @@ ___
 
 #### Defined in
 
-[src/lib/base/l2-bitcoin-depositor.ts:31](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L31)
+[src/lib/base/l2-bitcoin-depositor.ts:32](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L32)
+
+___
+
+### \_abi
+
+• `Protected` `Readonly` **\_abi**: `Abi`
+
+ABI of the contract instance.
+
+#### Inherited from
+
+EvmContractHandle.\_abi
+
+#### Defined in
+
+[src/lib/ethereum/adapter.ts:350](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L350)
+
+___
+
+### \_address
+
+• `Protected` `Readonly` **\_address**: \`0x$\{string}\`
+
+Address of the contract instance.
+
+#### Inherited from
+
+EvmContractHandle.\_address
+
+#### Defined in
+
+[src/lib/ethereum/adapter.ts:346](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L346)
 
 ___
 
@@ -91,33 +127,17 @@ ___
 
 • `Protected` `Readonly` **\_deployedAtBlockNumber**: `number`
 
-Number of a block within which the contract was deployed. Value is read from
-the contract deployment artifact. It can be overwritten by setting a
-[EthersContractConfig.deployedAtBlockNumber](../interfaces/EthereumContractConfig.md#deployedatblocknumber) property.
+Number of a block within which the contract was deployed. Value is read
+from the contract deployment artifact. It can be overwritten by setting
+a [EthereumContractConfig.deployedAtBlockNumber](../interfaces/EthereumContractConfig.md#deployedatblocknumber) property.
 
 #### Inherited from
 
-EthersContractHandle.\_deployedAtBlockNumber
+EvmContractHandle.\_deployedAtBlockNumber
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:78](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L78)
-
-___
-
-### \_instance
-
-• `Protected` `Readonly` **\_instance**: `L2BitcoinDepositor`
-
-Ethers instance of the deployed contract.
-
-#### Inherited from
-
-EthersContractHandle.\_instance
-
-#### Defined in
-
-[src/lib/ethereum/adapter.ts:72](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L72)
+[src/lib/ethereum/adapter.ts:356](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L356)
 
 ___
 
@@ -129,13 +149,151 @@ Number of retries for ethereum requests.
 
 #### Inherited from
 
-EthersContractHandle.\_totalRetryAttempts
+EvmContractHandle.\_totalRetryAttempts
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:82](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L82)
+[src/lib/ethereum/adapter.ts:360](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L360)
 
 ## Methods
+
+### \_connection
+
+▸ **_connection**(): `Promise`\<[`EvmConnection`](../interfaces/EvmConnection.md)\>
+
+#### Returns
+
+`Promise`\<[`EvmConnection`](../interfaces/EvmConnection.md)\>
+
+The normalized connection this handle operates on.
+
+#### Inherited from
+
+EvmContractHandle.\_connection
+
+#### Defined in
+
+[src/lib/ethereum/adapter.ts:395](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L395)
+
+___
+
+### \_getEvents
+
+▸ **_getEvents**(`eventName`, `options?`, `...filterArgs`): `Promise`\<`EvmEvent`[]\>
+
+Get events emitted by the Ethereum contract.
+It starts searching from provided block number. If the
+[GetChainEvents.Options#fromBlock](../interfaces/GetChainEvents.Options.md#fromblock) option is missing it looks for
+a contract's defined property [_deployedAtBlockNumber](BaseBitcoinDepositor.md#_deployedatblocknumber).
+It pulls events in one `eth_getLogs` call. If the call fails it
+fallbacks to querying events in batches of
+[GetChainEvents.Options#batchedQueryBlockInterval](../interfaces/GetChainEvents.Options.md#batchedqueryblockinterval) blocks.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `eventName` | `string` | Name of the event. |
+| `options?` | [`Options`](../interfaces/GetChainEvents.Options.md) | Options for events fetching. |
+| `...filterArgs` | `unknown`[] | Positional arguments for events filtering, mapped onto the event's indexed inputs. Values must be 0x-prefixed hex strings, addresses, or `bigint`. |
+
+#### Returns
+
+`Promise`\<`EvmEvent`[]\>
+
+Array of found events.
+
+#### Inherited from
+
+EvmContractHandle.\_getEvents
+
+#### Defined in
+
+[src/lib/ethereum/adapter.ts:516](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L516)
+
+___
+
+### \_read
+
+▸ **_read**\<`T`\>(`functionName`, `args?`, `opts?`): `Promise`\<`T`\>
+
+Calls a read-only contract function with retries.
+
+#### Type parameters
+
+| Name |
+| :------ |
+| `T` |
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `functionName` | `string` | Name of the contract function. |
+| `args?` | readonly `unknown`[] | Positional arguments of the function. |
+| `opts?` | `Object` | Optional block number to read at and retries override. |
+| `opts.blockNumber?` | `number` | - |
+| `opts.nonRetryableErrors?` | (`string` \| `RegExp`)[] | - |
+| `opts.retries?` | `number` | - |
+
+#### Returns
+
+`Promise`\<`T`\>
+
+Decoded function result. Numeric values arrive as `bigint` for
+         types wider than 48 bits and `number` otherwise - normalize
+         with `BigInt(x)` / `Number(x)` at the parsing site.
+
+#### Inherited from
+
+EvmContractHandle.\_read
+
+#### Defined in
+
+[src/lib/ethereum/adapter.ts:408](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L408)
+
+___
+
+### \_write
+
+▸ **_write**(`functionName`, `args`, `opts?`): `Promise`\<[`Hex`](Hex.md)\>
+
+Sends a contract write transaction with retries. The transaction is
+simulated first (`eth_call`) so that reverts surface with a parseable
+reason before anything is sent - mirroring the ethers v5 gas-estimation
+pre-flight.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `functionName` | `string` | Name of the contract function. |
+| `args` | readonly `unknown`[] | Positional arguments of the function. |
+| `opts?` | `Object` | Optional value to send, non-retryable error matchers and logger. |
+| `opts.logger?` | [`ExecutionLoggerFn`](../README.md#executionloggerfn) | - |
+| `opts.nonRetryableErrors?` | (`string` \| `RegExp`)[] | - |
+| `opts.value?` | `bigint` | - |
+
+#### Returns
+
+`Promise`\<[`Hex`](Hex.md)\>
+
+Transaction hash.
+
+**`Throws`**
+
+"Signer not provided" when the handle operates in read-only
+        mode; EvmRevertError on contract revert.
+
+#### Inherited from
+
+EvmContractHandle.\_write
+
+#### Defined in
+
+[src/lib/ethereum/adapter.ts:458](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L458)
+
+___
 
 ### extraDataEncoder
 
@@ -153,7 +311,7 @@ EthersContractHandle.\_totalRetryAttempts
 
 #### Defined in
 
-[src/lib/base/l2-bitcoin-depositor.ts:81](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L81)
+[src/lib/base/l2-bitcoin-depositor.ts:82](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L82)
 
 ___
 
@@ -171,11 +329,11 @@ Address of this contract instance.
 
 #### Inherited from
 
-EthersContractHandle.getAddress
+EvmContractHandle.getAddress
 
 #### Defined in
 
-[src/lib/ethereum/adapter.ts:110](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L110)
+[src/lib/ethereum/adapter.ts:388](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L388)
 
 ___
 
@@ -195,7 +353,7 @@ ___
 
 #### Defined in
 
-[src/lib/base/l2-bitcoin-depositor.ts:57](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L57)
+[src/lib/base/l2-bitcoin-depositor.ts:58](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L58)
 
 ___
 
@@ -215,47 +373,13 @@ ___
 
 #### Defined in
 
-[src/lib/base/l2-bitcoin-depositor.ts:65](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L65)
-
-___
-
-### getEvents
-
-▸ **getEvents**(`eventName`, `options?`, `...filterArgs`): `Promise`\<`Event`[]\>
-
-Get events emitted by the Ethereum contract.
-It starts searching from provided block number. If the GetEvents.Options#fromBlock
-option is missing it looks for a contract's defined property
-[_deployedAtBlockNumber](BaseBitcoinDepositor.md#_deployedatblocknumber). If the property is missing starts searching
-from block `0`.
-
-#### Parameters
-
-| Name | Type | Description |
-| :------ | :------ | :------ |
-| `eventName` | `string` | Name of the event. |
-| `options?` | [`Options`](../interfaces/GetChainEvents.Options.md) | Options for events fetching. |
-| `...filterArgs` | `unknown`[] | Arguments for events filtering. |
-
-#### Returns
-
-`Promise`\<`Event`[]\>
-
-Array of found events.
-
-#### Inherited from
-
-EthersContractHandle.getEvents
-
-#### Defined in
-
-[src/lib/ethereum/adapter.ts:125](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L125)
+[src/lib/base/l2-bitcoin-depositor.ts:66](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L66)
 
 ___
 
 ### initializeDeposit
 
-▸ **initializeDeposit**(`depositTx`, `depositOutputIndex`, `deposit`, `vault?`): `Promise`\<[`Hex`](Hex.md) \| `TransactionReceipt`\>
+▸ **initializeDeposit**(`depositTx`, `depositOutputIndex`, `deposit`, `vault?`): `Promise`\<[`Hex`](Hex.md) \| [`ChainTransactionReceipt`](../interfaces/ChainTransactionReceipt.md)\>
 
 #### Parameters
 
@@ -268,7 +392,7 @@ ___
 
 #### Returns
 
-`Promise`\<[`Hex`](Hex.md) \| `TransactionReceipt`\>
+`Promise`\<[`Hex`](Hex.md) \| [`ChainTransactionReceipt`](../interfaces/ChainTransactionReceipt.md)\>
 
 **`See`**
 
@@ -278,7 +402,7 @@ ___
 
 #### Defined in
 
-[src/lib/base/l2-bitcoin-depositor.ts:89](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L89)
+[src/lib/base/l2-bitcoin-depositor.ts:90](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L90)
 
 ___
 
@@ -304,4 +428,4 @@ ___
 
 #### Defined in
 
-[src/lib/base/l2-bitcoin-depositor.ts:73](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L73)
+[src/lib/base/l2-bitcoin-depositor.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/base/l2-bitcoin-depositor.ts#L74)

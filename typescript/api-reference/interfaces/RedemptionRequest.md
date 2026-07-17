@@ -42,7 +42,7 @@ ___
 
 ### requestedAmount
 
-• **requestedAmount**: `BigNumber`
+• **requestedAmount**: `bigint`
 
 The amount of Bitcoins in satoshis that is requested to be redeemed.
 The actual value of the output in the Bitcoin transaction will be decreased
@@ -68,7 +68,7 @@ ___
 
 ### treasuryFee
 
-• **treasuryFee**: `BigNumber`
+• **treasuryFee**: `bigint`
 
 The amount of Bitcoins in satoshis that is subtracted from the amount of
 the redemption request and used to pay the treasury fee.
@@ -83,7 +83,7 @@ ___
 
 ### txMaxFee
 
-• **txMaxFee**: `BigNumber`
+• **txMaxFee**: `bigint`
 
 The maximum amount of Bitcoins in satoshis that can be subtracted from the
 redemption's `requestedAmount` to pay the transaction network fee.

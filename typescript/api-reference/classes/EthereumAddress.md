@@ -81,7 +81,7 @@ Checks if two identifiers are equal.
 
 #### Defined in
 
-[src/lib/ethereum/address.ts:28](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/address.ts#L28)
+[src/lib/ethereum/address.ts:30](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/address.ts#L30)
 
 ___
 
@@ -101,4 +101,4 @@ ___
 
 #### Defined in
 
-[src/lib/ethereum/address.ts:24](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/address.ts#L24)
+[src/lib/ethereum/address.ts:26](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/address.ts#L26)

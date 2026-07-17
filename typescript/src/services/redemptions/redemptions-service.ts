@@ -393,7 +393,6 @@ export class RedemptionsService {
       )
 
       if (!currentWallet || currentWallet.state !== WalletState.Live) {
-      if (candidateBTCBalance < amount) {
         console.debug(
           `Wallet is not in Live state ` +
             `(wallet public key hash: ${walletPublicKeyHash.toString()}). ` +

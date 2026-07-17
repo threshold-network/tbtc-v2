@@ -17,7 +17,7 @@ Represents a deposit request revealed to the on-chain bridge.
 
 ### amount
 
-• **amount**: `BigNumber`
+• **amount**: `bigint`
 
 Deposit amount in satoshis.
 
@@ -66,7 +66,7 @@ ___
 
 ### treasuryFee
 
-• **treasuryFee**: `BigNumber`
+• **treasuryFee**: `bigint`
 
 Value of the treasury fee calculated for this revealed deposit.
 Denominated in satoshi.

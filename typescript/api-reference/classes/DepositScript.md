@@ -43,7 +43,7 @@ by the target wallet during the deposit sweep process.
 
 #### Defined in
 
-[src/services/deposits/deposit.ts:192](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L192)
+[src/services/deposits/deposit.ts:193](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L193)
 
 ## Properties
 
@@ -56,7 +56,7 @@ and allowing to build a unique deposit script (and address) on Bitcoin chain.
 
 #### Defined in
 
-[src/services/deposits/deposit.ts:185](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L185)
+[src/services/deposits/deposit.ts:186](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L186)
 
 ___
 
@@ -69,7 +69,7 @@ should be a witness P2WSH one. If false, legacy P2SH will be used instead.
 
 #### Defined in
 
-[src/services/deposits/deposit.ts:190](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L190)
+[src/services/deposits/deposit.ts:191](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L191)
 
 ## Methods
 
@@ -93,7 +93,7 @@ Bitcoin address corresponding to this deposit script.
 
 #### Defined in
 
-[src/services/deposits/deposit.ts:261](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L261)
+[src/services/deposits/deposit.ts:262](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L262)
 
 ___
 
@@ -109,7 +109,7 @@ Hashed deposit script as Buffer.
 
 #### Defined in
 
-[src/services/deposits/deposit.ts:209](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L209)
+[src/services/deposits/deposit.ts:210](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L210)
 
 ___
 
@@ -125,7 +125,7 @@ Plain-text deposit script as a hex string.
 
 #### Defined in
 
-[src/services/deposits/deposit.ts:221](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L221)
+[src/services/deposits/deposit.ts:222](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L222)
 
 ___
 
@@ -146,4 +146,4 @@ ___
 
 #### Defined in
 
-[src/services/deposits/deposit.ts:199](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L199)
+[src/services/deposits/deposit.ts:200](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L200)

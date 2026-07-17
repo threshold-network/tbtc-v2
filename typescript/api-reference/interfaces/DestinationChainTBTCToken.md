@@ -20,7 +20,7 @@ canonical destination chain tBTC token.
 
 ### balanceOf
 
-▸ **balanceOf**(`identifier`): `Promise`\<`BigNumber`\>
+▸ **balanceOf**(`identifier`): `Promise`\<`bigint`\>
 
 Returns the balance of the given identifier.
 
@@ -32,13 +32,13 @@ Returns the balance of the given identifier.
 
 #### Returns
 
-`Promise`\<`BigNumber`\>
+`Promise`\<`bigint`\>
 
 The balance of the given identifier in 1e18 precision.
 
 #### Defined in
 
-[src/lib/contracts/cross-chain.ts:68](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L68)
+[src/lib/contracts/cross-chain.ts:66](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L66)
 
 ___
 
@@ -54,4 +54,4 @@ Gets the chain-specific identifier of this contract.
 
 #### Defined in
 
-[src/lib/contracts/cross-chain.ts:61](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L61)
+[src/lib/contracts/cross-chain.ts:59](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L59)

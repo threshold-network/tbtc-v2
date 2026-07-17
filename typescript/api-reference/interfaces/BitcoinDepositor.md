@@ -34,7 +34,7 @@ encode and decode the extra data included in the cross-chain deposit script.
 
 #### Defined in
 
-[src/lib/contracts/cross-chain.ts:100](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L100)
+[src/lib/contracts/cross-chain.ts:98](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L98)
 
 ___
 
@@ -51,7 +51,7 @@ Optional method - may not be available for off-chain implementations.
 
 #### Defined in
 
-[src/lib/contracts/cross-chain.ts:80](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L80)
+[src/lib/contracts/cross-chain.ts:78](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L78)
 
 ___
 
@@ -70,13 +70,13 @@ The identifier of the deposit owner or undefined if not set.
 
 #### Defined in
 
-[src/lib/contracts/cross-chain.ts:87](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L87)
+[src/lib/contracts/cross-chain.ts:85](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L85)
 
 ___
 
 ### initializeDeposit
 
-▸ **initializeDeposit**(`depositTx`, `depositOutputIndex`, `deposit`, `vault?`): `Promise`\<[`Hex`](../classes/Hex.md) \| `TransactionReceipt`\>
+▸ **initializeDeposit**(`depositTx`, `depositOutputIndex`, `deposit`, `vault?`): `Promise`\<[`Hex`](../classes/Hex.md) \| [`ChainTransactionReceipt`](ChainTransactionReceipt.md)\>
 
 Initializes the cross-chain deposit indirectly through the given destination chain.
 
@@ -91,13 +91,13 @@ Initializes the cross-chain deposit indirectly through the given destination cha
 
 #### Returns
 
-`Promise`\<[`Hex`](../classes/Hex.md) \| `TransactionReceipt`\>
+`Promise`\<[`Hex`](../classes/Hex.md) \| [`ChainTransactionReceipt`](ChainTransactionReceipt.md)\>
 
 Transaction hash of the reveal deposit transaction or full transaction receipt.
 
 #### Defined in
 
-[src/lib/contracts/cross-chain.ts:112](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L112)
+[src/lib/contracts/cross-chain.ts:110](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L110)
 
 ___
 
@@ -120,4 +120,4 @@ issued by this contract.
 
 #### Defined in
 
-[src/lib/contracts/cross-chain.ts:94](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L94)
+[src/lib/contracts/cross-chain.ts:92](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L92)

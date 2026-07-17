@@ -106,7 +106,7 @@ ___
 
 ### pendingRedemptionsValue
 
-• **pendingRedemptionsValue**: `BigNumber`
+• **pendingRedemptionsValue**: `bigint`
 
 The total redeemable value of pending redemption requests targeting that wallet.
 

@@ -76,7 +76,7 @@ tBTC tokens and requests redemption.
 | `walletPublicKey` | [`Hex`](../classes/Hex.md) | The Bitcoin public key of the wallet. Must be in the compressed form (33 bytes long with 02 or 03 prefix). |
 | `mainUtxo` | [`BitcoinUtxo`](../README.md#bitcoinutxo) | The main UTXO of the wallet. Must match the main UTXO held by the on-chain Bridge contract. |
 | `redeemerOutputScript` | [`Hex`](../classes/Hex.md) | The output script that the redeemed funds will be locked to. Must not be prepended with length. |
-| `amount` | `BigNumber` | The amount to be redeemed with the precision of the tBTC on-chain token contract. |
+| `amount` | `bigint` | The amount to be redeemed with the precision of the tBTC on-chain token contract. |
 
 #### Returns
 
@@ -92,7 +92,7 @@ ___
 
 ### totalSupply
 
-▸ **totalSupply**(`blockNumber?`): `Promise`\<`BigNumber`\>
+▸ **totalSupply**(`blockNumber?`): `Promise`\<`bigint`\>
 
 Gets the total supply of the TBTC v2 token. The returned value is in
 ERC 1e18 precision, it has to be converted before using as Bitcoin value
@@ -106,7 +106,7 @@ with 1e8 precision in satoshi.
 
 #### Returns
 
-`Promise`\<`BigNumber`\>
+`Promise`\<`bigint`\>
 
 #### Defined in
 

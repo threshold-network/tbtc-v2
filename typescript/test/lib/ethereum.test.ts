@@ -678,7 +678,7 @@ describe("Ethereum", () => {
             "c1082c460527079a84e39ec6481666db72e5a22e473a78db03b996d26fd1dc83"
           ),
           outputIndex: 0,
-          value: BigNumber.from(10000),
+          value: 10000n,
         }
 
         expect(bridgeHandle.buildUtxoHash(utxo).toPrefixedString()).to.be.equal(

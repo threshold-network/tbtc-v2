@@ -29,7 +29,7 @@ Loads the chain mapping based on underlying L1 chain.
 
 #### Defined in
 
-[src/lib/contracts/cross-chain.ts:43](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L43)
+[src/lib/contracts/cross-chain.ts:41](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L41)
 
 ___
 
@@ -55,4 +55,4 @@ Loads L1-specific TBTC cross-chain contracts for the given destination chain.
 
 #### Defined in
 
-[src/lib/contracts/cross-chain.ts:48](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L48)
+[src/lib/contracts/cross-chain.ts:46](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L46)

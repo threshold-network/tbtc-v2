@@ -69,8 +69,8 @@ Assembles a Bitcoin P2(W)PKH deposit refund transaction.
 | Name | Type | Description |
 | :------ | :------ | :------ |
 | `bitcoinNetwork` | [`BitcoinNetwork`](../enums/BitcoinNetwork-1.md) | The target Bitcoin network. |
-| `fee` | `BigNumber` | the value that will be subtracted from the deposit UTXO being refunded and used as the transaction fee. |
-| `utxo` | [`BitcoinTxOutpoint`](../interfaces/BitcoinTxOutpoint.md) & \{ `value`: `BigNumber`  } & [`BitcoinRawTx`](../interfaces/BitcoinRawTx.md) | UTXO that was created during depositing that needs be refunded. |
+| `fee` | `bigint` | the value that will be subtracted from the deposit UTXO being refunded and used as the transaction fee. |
+| `utxo` | [`BitcoinTxOutpoint`](../interfaces/BitcoinTxOutpoint.md) & \{ `value`: `bigint`  } & [`BitcoinRawTx`](../interfaces/BitcoinRawTx.md) | UTXO that was created during depositing that needs be refunded. |
 | `refunderAddress` | `string` | Recipient Bitcoin wallet address of the refunded deposit. |
 | `refunderPrivateKey` | `string` | Bitcoin wallet private key of the refunder. It must correspond to the `refundPublicKeyHash` of the deposit script. |
 
@@ -182,7 +182,7 @@ deposit refund transaction.
 | Name | Type | Description |
 | :------ | :------ | :------ |
 | `bitcoinClient` | [`BitcoinClient`](../interfaces/BitcoinClient.md) | Bitcoin client used to interact with the network. |
-| `fee` | `BigNumber` | the value that will be subtracted from the deposit UTXO being refunded and used as the transaction fee. |
+| `fee` | `bigint` | the value that will be subtracted from the deposit UTXO being refunded and used as the transaction fee. |
 | `utxo` | [`BitcoinUtxo`](../README.md#bitcoinutxo) | UTXO that was created during depositing that needs be refunded. |
 | `refunderAddress` | `string` | Recipient Bitcoin wallet address of the refunded deposit. |
 | `refunderPrivateKey` | `string` | Bitcoin wallet private key of the refunder. It must correspond to the `refundPublicKeyHash` of the deposit script. |

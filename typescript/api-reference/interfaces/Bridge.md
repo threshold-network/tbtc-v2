@@ -230,7 +230,7 @@ Requests a redemption from the on-chain contract.
 | `walletPublicKey` | [`Hex`](../classes/Hex.md) | The Bitcoin public key of the wallet. Must be in the compressed form (33 bytes long with 02 or 03 prefix). |
 | `mainUtxo` | [`BitcoinUtxo`](../README.md#bitcoinutxo) | The main UTXO of the wallet. Must match the main UTXO held by the on-chain contract. |
 | `redeemerOutputScript` | [`Hex`](../classes/Hex.md) | The output script that the redeemed funds will be locked to. Must not be prepended with length. |
-| `amount` | `BigNumber` | The amount to be redeemed in satoshis. |
+| `amount` | `bigint` | The amount to be redeemed in satoshis. |
 
 #### Returns
 

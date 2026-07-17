@@ -48,7 +48,7 @@ This component tries to abstract away that complexity.
 
 #### Defined in
 
-[src/services/deposits/deposit.ts:48](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L48)
+[src/services/deposits/deposit.ts:49](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L49)
 
 ## Properties
 
@@ -60,7 +60,7 @@ Bitcoin client handle.
 
 #### Defined in
 
-[src/services/deposits/deposit.ts:37](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L37)
+[src/services/deposits/deposit.ts:38](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L38)
 
 ___
 
@@ -73,7 +73,7 @@ generated deposit address.
 
 #### Defined in
 
-[src/services/deposits/deposit.ts:46](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L46)
+[src/services/deposits/deposit.ts:47](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L47)
 
 ___
 
@@ -85,7 +85,7 @@ Optional depositor proxy used to initiate minting.
 
 #### Defined in
 
-[src/services/deposits/deposit.ts:41](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L41)
+[src/services/deposits/deposit.ts:42](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L42)
 
 ___
 
@@ -97,7 +97,7 @@ Bitcoin script corresponding to this deposit.
 
 #### Defined in
 
-[src/services/deposits/deposit.ts:29](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L29)
+[src/services/deposits/deposit.ts:30](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L30)
 
 ___
 
@@ -109,7 +109,7 @@ Handle to tBTC contracts.
 
 #### Defined in
 
-[src/services/deposits/deposit.ts:33](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L33)
+[src/services/deposits/deposit.ts:34](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L34)
 
 ## Methods
 
@@ -130,7 +130,7 @@ Specific UTXOs targeting this deposit. Empty array in case
 
 #### Defined in
 
-[src/services/deposits/deposit.ts:100](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L100)
+[src/services/deposits/deposit.ts:101](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L101)
 
 ___
 
@@ -146,7 +146,7 @@ Bitcoin address corresponding to this deposit.
 
 #### Defined in
 
-[src/services/deposits/deposit.ts:89](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L89)
+[src/services/deposits/deposit.ts:90](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L90)
 
 ___
 
@@ -162,13 +162,13 @@ Receipt corresponding to this deposit.
 
 #### Defined in
 
-[src/services/deposits/deposit.ts:82](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L82)
+[src/services/deposits/deposit.ts:83](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L83)
 
 ___
 
 ### initiateMinting
 
-▸ **initiateMinting**(`fundingOutpoint?`): `Promise`\<[`Hex`](Hex.md) \| `TransactionReceipt`\>
+▸ **initiateMinting**(`fundingOutpoint?`): `Promise`\<[`Hex`](Hex.md) \| [`ChainTransactionReceipt`](../interfaces/ChainTransactionReceipt.md)\>
 
 Initiates minting of the TBTC token, based on the Bitcoin funding
 transaction outpoint targeting this deposit. By default, it detects and
@@ -184,7 +184,7 @@ a funding transaction explicitly, using the fundingOutpoint parameter.
 
 #### Returns
 
-`Promise`\<[`Hex`](Hex.md) \| `TransactionReceipt`\>
+`Promise`\<[`Hex`](Hex.md) \| [`ChainTransactionReceipt`](../interfaces/ChainTransactionReceipt.md)\>
 
 Target chain hash of the initiate minting transaction.
 
@@ -206,7 +206,7 @@ Throws an error if the funding outpoint was already used to
 
 #### Defined in
 
-[src/services/deposits/deposit.ts:129](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L129)
+[src/services/deposits/deposit.ts:130](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L130)
 
 ___
 
@@ -229,4 +229,4 @@ ___
 
 #### Defined in
 
-[src/services/deposits/deposit.ts:62](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L62)
+[src/services/deposits/deposit.ts:63](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposit.ts#L63)

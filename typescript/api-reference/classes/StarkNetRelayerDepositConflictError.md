@@ -19,6 +19,7 @@ the relayer so the caller can poll the relayer or otherwise recover.
 
 ### Properties
 
+- [cause](StarkNetRelayerDepositConflictError.md#cause)
 - [depositId](StarkNetRelayerDepositConflictError.md#depositid)
 - [locallyDerivedDepositId](StarkNetRelayerDepositConflictError.md#locallyderiveddepositid)
 - [message](StarkNetRelayerDepositConflictError.md#message)
@@ -62,6 +63,20 @@ Error.constructor
 [src/lib/starknet/starknet-depositor.ts:132](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L132)
 
 ## Properties
+
+### cause
+
+• `Optional` **cause**: `unknown`
+
+#### Inherited from
+
+Error.cause
+
+#### Defined in
+
+node_modules/typescript/lib/lib.es2022.error.d.ts:26
+
+___
 
 ### depositId
 
