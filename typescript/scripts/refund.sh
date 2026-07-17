@@ -135,6 +135,8 @@ printf "${LOG_START}Installing yarn dependencies...${LOG_END}"
 yarn install
 
 printf "${LOG_START}Generating TypeChain bindings...${LOG_END}"
+# Invoked via npm because the pinned Yarn 4 portable shell cannot execute the
+# typechain script's sh for-loop; the package's own build script does the same.
 npm run typechain
 
 # Run script
