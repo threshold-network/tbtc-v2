@@ -3,8 +3,8 @@ import {
   MockContract,
 } from "@ethereum-waffle/mock-contract"
 import {
-  BaseL2BitcoinDepositor,
-  BaseL2TBTCToken,
+  BaseBitcoinDepositor,
+  BaseTBTCToken,
   BitcoinRawTxVectors,
   ChainIdentifier,
   Chains,
@@ -18,23 +18,23 @@ import { expect } from "chai"
 import { BigNumber } from "ethers"
 
 // ABI imports.
-import { abi as BaseL2BitcoinDepositorABI } from "../../src/lib/base/artifacts/baseSepolia/BaseL2BitcoinDepositor.json"
-import { abi as BaseL2TBTCTokenABI } from "../../src/lib/base/artifacts/baseSepolia/BaseTBTC.json"
+import { abi as BaseBitcoinDepositorABI } from "../../src/lib/base/artifacts/baseSepolia/BaseL2BitcoinDepositor.json"
+import { abi as BaseTBTCTokenABI } from "../../src/lib/base/artifacts/baseSepolia/BaseTBTC.json"
 
 describe("Base", () => {
-  describe("BaseL2BitcoinDepositor", () => {
+  describe("BaseBitcoinDepositor", () => {
     let depositorContract: MockContract
-    let depositorHandle: BaseL2BitcoinDepositor
+    let depositorHandle: BaseBitcoinDepositor
 
     beforeEach(async () => {
       const [signer] = new MockProvider().getWallets()
 
       depositorContract = await deployMockContract(
         signer,
-        `${JSON.stringify(BaseL2BitcoinDepositorABI)}`
+        `${JSON.stringify(BaseBitcoinDepositorABI)}`
       )
 
-      depositorHandle = new BaseL2BitcoinDepositor(
+      depositorHandle = new BaseBitcoinDepositor(
         {
           address: depositorContract.address,
           signerOrProvider: signer,
@@ -129,19 +129,19 @@ describe("Base", () => {
     })
   })
 
-  describe("BaseL2TBTCToken", () => {
+  describe("BaseTBTCToken", () => {
     let tokenContract: MockContract
-    let tokenHandle: BaseL2TBTCToken
+    let tokenHandle: BaseTBTCToken
 
     beforeEach(async () => {
       const [signer] = new MockProvider().getWallets()
 
       tokenContract = await deployMockContract(
         signer,
-        `${JSON.stringify(BaseL2TBTCTokenABI)}`
+        `${JSON.stringify(BaseTBTCTokenABI)}`
       )
 
-      tokenHandle = new BaseL2TBTCToken(
+      tokenHandle = new BaseTBTCToken(
         {
           address: tokenContract.address,
           signerOrProvider: signer,

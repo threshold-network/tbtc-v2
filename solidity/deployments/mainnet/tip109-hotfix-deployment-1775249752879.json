@@ -1,0 +1,44 @@
+{
+  "network": "mainnet",
+  "timestamp": "2026-04-03T20:55:52.879Z",
+  "deployer": "0x716089154304f22a2F9c8d2f8C45815183BF3532",
+  "chainId": "1",
+  "purpose": "TIP-109 hotfix: add forceStakeTransfer (PR #939) and zero-address redeemer guard (PR #940)",
+  "deployedContracts": {
+    "RedemptionTIP109Hotfix": "0x1b0534bc3f43b11ebde71f0fc68cf61df4d7e29d",
+    "BridgeTIP109HotfixImplementation": "0x7D43c9259bAe6e594EC5C2fc1121ad67eD601677",
+    "RebateStakingTIP109HotfixImplementation": "0x25aAF04229f77A9AE80430b3C89E3455Ab2ec22F"
+  },
+  "reusedContracts": {
+    "Deposit": "0xE83bcc22A723f693eF0fEB7044F61aeC8c79fe02"
+  },
+  "existingContracts": {
+    "Bridge": "0x5e4861a80B55f035D899f66772117F00FA0E8e7B",
+    "ProxyAdmin": "0x16A76d3cd3C1e3CE843C6680d6B37E9116b5C706",
+    "Timelock": "0x92f2d8b72a7F6a551Be60b9aa4194248E9B4913D",
+    "CouncilSafe": "0x9F6e831c8f8939dc0c830c6e492e7cef4f9c2f5f",
+    "RebateStaking": "0x0184739C32edc3471D3e4860c8E39a5f3Ff85A45"
+  },
+  "timelockActions": [
+    {
+      "target": "0x16A76d3cd3C1e3CE843C6680d6B37E9116b5C706",
+      "data": "0x99a88ec40000000000000000000000000184739c32edc3471d3e4860c8e39a5f3ff85a4500000000000000000000000025aaf04229f77a9ae80430b3c89e3455ab2ec22f",
+      "value": 0,
+      "description": "RebateStaking proxy upgrade via ProxyAdmin.upgrade()"
+    },
+    {
+      "target": "0x16A76d3cd3C1e3CE843C6680d6B37E9116b5C706",
+      "data": "0x99a88ec40000000000000000000000005e4861a80b55f035d899f66772117f00fa0e8e7b0000000000000000000000007d43c9259bae6e594ec5c2fc1121ad67ed601677",
+      "value": 0,
+      "description": "Bridge proxy upgrade via ProxyAdmin.upgrade()"
+    }
+  ],
+  "libraries": {
+    "Deposit": "0xE83bcc22A723f693eF0fEB7044F61aeC8c79fe02",
+    "DepositSweep": "0x392635646Bc22FC13C86859d1f02B27974aC9b95",
+    "Redemption": "0x1b0534bc3f43b11ebde71f0fc68cf61df4d7e29d",
+    "Wallets": "0xc989d3E486AAe6355F65281B4d0bde08c8e32fBC",
+    "Fraud": "0x51bBeF1c7cC3a1D3bC5E64CE6C3BA6E66fbA3559",
+    "MovingFunds": "0x3E0407765FaC663d391aE738f3Aa0c98EAb67a90"
+  }
+}

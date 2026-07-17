@@ -22,7 +22,7 @@ as a hex string.
 
 #### Defined in
 
-[lib/bitcoin/tx.ts:113](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L113)
+[lib/bitcoin/tx.ts:113](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L113)
 
 ___
 
@@ -34,7 +34,7 @@ Transaction locktime as a hex string.
 
 #### Defined in
 
-[lib/bitcoin/tx.ts:124](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L124)
+[lib/bitcoin/tx.ts:124](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L124)
 
 ___
 
@@ -47,7 +47,7 @@ as a hex string.
 
 #### Defined in
 
-[lib/bitcoin/tx.ts:119](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L119)
+[lib/bitcoin/tx.ts:119](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L119)
 
 ___
 
@@ -59,4 +59,4 @@ Transaction version as a hex string.
 
 #### Defined in
 
-[lib/bitcoin/tx.ts:107](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L107)
+[lib/bitcoin/tx.ts:107](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L107)

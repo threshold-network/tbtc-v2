@@ -7,3 +7,5 @@ dist/
 .envrc
 
 yarn-error.log
+CLAUDE.md
+.claude/

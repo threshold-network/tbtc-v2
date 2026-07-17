@@ -7,38 +7,67 @@ import { L1BitcoinDepositor as L1BitcoinDepositorTypechain } from "../../../type
 import {
   ChainIdentifier,
   Chains,
-  CrossChainExtraDataEncoder,
+  ExtraDataEncoder,
   DepositReceipt,
+  DepositState,
   L1BitcoinDepositor,
-  L2Chain,
+  DestinationChainName,
 } from "../contracts"
 import { EthereumAddress, packRevealDepositParameters } from "./index"
 import { BitcoinRawTxVectors } from "../bitcoin"
 import { Hex } from "../utils"
 
-// TODO: Uncomment once BaseL1BitcoinDepositor is available on Ethereum mainnet.
-// import MainnetBaseL1BitcoinDepositorDeployment from "./artifacts/mainnet/BaseL1BitcoinDepositor.json"
+import MainnetBaseL1BitcoinDepositorDeployment from "./artifacts/mainnet/BaseL1BitcoinDepositor.json"
+import MainnetArbitrumL1BitcoinDepositorDeployment from "./artifacts/mainnet/ArbitrumOneL1BitcoinDepositor.json"
+
+import MainnetSolanaL1BitcoinDepositorDeployment from "./artifacts/mainnet/SolanaL1BitcoinDepositor.json"
+import MainnetStarkNetL1BitcoinDepositorDeployment from "./artifacts/mainnet/StarkNetBitcoinDepositor.json"
+import MainnetSuiBTCDepositorWormholeDeployment from "./artifacts/mainnet/SuiBTCDepositorWormhole.json"
+
 import SepoliaBaseL1BitcoinDepositorDeployment from "./artifacts/sepolia/BaseL1BitcoinDepositor.json"
+import SepoliaArbitrumL1BitcoinDepositorDeployment from "./artifacts/sepolia/ArbitrumL1BitcoinDepositor.json"
+import SepoliaStarkNetL1BitcoinDepositorDeployment from "./artifacts/sepolia/StarkNetBitcoinDepositor.json"
+import SepoliaSuiBTCDepositorWormholeDeployment from "./artifacts/sepolia/SuiBTCDepositorWormhole.json"
 
-const artifactLoader = {
-  getMainnet: (l2ChainName: L2Chain) => {
-    switch (l2ChainName) {
-      // TODO: Uncomment once BaseL1BitcoinDepositor is available on Ethereum mainnet.
-      // case "Base":
-      //   return MainnetBaseL1BitcoinDepositorDeployment
-      default:
-        throw new Error("Unsupported L2 chain")
-    }
-  },
+import SepoliaSolanaL1BitcoinDepositorDeployment from "./artifacts/sepolia/SolanaL1BitcoinDepositor.json"
+import { SuiExtraDataEncoder } from "../sui"
+import { StarkNetExtraDataEncoder } from "../starknet"
+import { SolanaExtraDataEncoder } from "../solana"
 
-  getSepolia: (l2ChainName: L2Chain) => {
-    switch (l2ChainName) {
-      case "Base":
-        return SepoliaBaseL1BitcoinDepositorDeployment
-      default:
-        throw new Error("Unsupported L2 chain")
-    }
-  },
+const mainnetArtifacts: Record<DestinationChainName, EthersContractDeployment> =
+  {
+    Base: MainnetBaseL1BitcoinDepositorDeployment,
+    Arbitrum: MainnetArbitrumL1BitcoinDepositorDeployment,
+    Solana: MainnetSolanaL1BitcoinDepositorDeployment,
+    StarkNet: MainnetStarkNetL1BitcoinDepositorDeployment,
+    Sui: MainnetSuiBTCDepositorWormholeDeployment,
+  }
+
+const sepoliaArtifacts: Record<DestinationChainName, EthersContractDeployment> =
+  {
+    Base: SepoliaBaseL1BitcoinDepositorDeployment,
+    Arbitrum: SepoliaArbitrumL1BitcoinDepositorDeployment,
+    Solana: SepoliaSolanaL1BitcoinDepositorDeployment,
+    StarkNet: SepoliaStarkNetL1BitcoinDepositorDeployment,
+    Sui: SepoliaSuiBTCDepositorWormholeDeployment,
+  }
+
+const artifactLoaders: Partial<
+  Record<
+    Chains.Ethereum,
+    Record<DestinationChainName, EthersContractDeployment>
+  >
+> = {
+  [Chains.Ethereum.Mainnet]: mainnetArtifacts,
+  [Chains.Ethereum.Sepolia]: sepoliaArtifacts,
+}
+
+const extraDataEncoders: Partial<
+  Record<DestinationChainName, new () => ExtraDataEncoder>
+> = {
+  Solana: SolanaExtraDataEncoder,
+  StarkNet: StarkNetExtraDataEncoder,
+  Sui: SuiExtraDataEncoder,
 }
 
 /**
@@ -50,31 +79,53 @@ export class EthereumL1BitcoinDepositor
   extends EthersContractHandle<L1BitcoinDepositorTypechain>
   implements L1BitcoinDepositor
 {
-  readonly #extraDataEncoder: CrossChainExtraDataEncoder
+  readonly #extraDataEncoder: ExtraDataEncoder
+  #depositOwner: ChainIdentifier | undefined
 
   constructor(
     config: EthersContractConfig,
     chainId: Chains.Ethereum,
-    l2ChainName: L2Chain
+    destinationChainName: DestinationChainName
   ) {
-    let deployment: EthersContractDeployment
-
-    switch (chainId) {
-      case Chains.Ethereum.Sepolia:
-        deployment = artifactLoader.getSepolia(l2ChainName)
-        break
-      case Chains.Ethereum.Mainnet:
-        deployment = artifactLoader.getMainnet(l2ChainName)
-        break
-      default:
-        throw new Error("Unsupported deployment type")
+    const deploymentArtifacts = artifactLoaders[chainId]
+    if (!deploymentArtifacts) {
+      throw new Error("Unsupported deployment type")
+    }
+    const deployment = deploymentArtifacts[destinationChainName]
+    if (!deployment) {
+      throw new Error("Unsupported destination chain")
     }
 
     super(config, deployment)
 
-    this.#extraDataEncoder = new EthereumCrossChainExtraDataEncoder()
+    const ExtraDataEncoderConstructor =
+      extraDataEncoders[destinationChainName] ?? EthereumExtraDataEncoder
+    this.#extraDataEncoder = new ExtraDataEncoderConstructor()
   }
 
+  // eslint-disable-next-line valid-jsdoc
+  /**
+   * @see {BitcoinDepositor#getDepositOwner}
+   */
+  getDepositOwner(): ChainIdentifier | undefined {
+    return this.#depositOwner
+  }
+
+  // eslint-disable-next-line valid-jsdoc
+  /**
+   * @see {BitcoinDepositor#setDepositOwner}
+   */
+  setDepositOwner(depositOwner: ChainIdentifier | undefined): void {
+    this.#depositOwner = depositOwner
+  }
+
+  // eslint-disable-next-line valid-jsdoc
+  /**
+   * @see {L1BitcoinDepositor#getDepositState}
+   */
+  getDepositState(depositId: string): Promise<DepositState> {
+    return this._instance.deposits(depositId)
+  }
   // eslint-disable-next-line valid-jsdoc
   /**
    * @see {L1BitcoinDepositor#getChainIdentifier}
@@ -87,7 +138,7 @@ export class EthereumL1BitcoinDepositor
   /**
    * @see {L1BitcoinDepositor#extraDataEncoder}
    */
-  extraDataEncoder(): CrossChainExtraDataEncoder {
+  extraDataEncoder(): ExtraDataEncoder {
     return this.#extraDataEncoder
   }
 
@@ -112,14 +163,10 @@ export class EthereumL1BitcoinDepositor
       throw new Error("Extra data is required")
     }
 
-    const l2DepositOwner = this.extraDataEncoder().decodeDepositOwner(
-      deposit.extraData
-    )
-
     const tx = await this._instance.initializeDeposit(
       fundingTx,
       reveal,
-      `0x${l2DepositOwner.identifierHex}`
+      deposit.extraData.toPrefixedString()
     )
 
     return Hex.from(tx.hash)
@@ -127,15 +174,17 @@ export class EthereumL1BitcoinDepositor
 }
 
 /**
- * Implementation of the Ethereum CrossChainExtraDataEncoder.
- * @see {CrossChainExtraDataEncoder} for reference.
+ * Implementation of the Ethereum ExtraDataEncoder.
+ * @see {ExtraDataEncoder} for reference.
  */
-export class EthereumCrossChainExtraDataEncoder
-  implements CrossChainExtraDataEncoder
-{
+/**
+ * Implementation of the Ethereum ExtraDataEncoder.
+ * @see {ExtraDataEncoder} for reference.
+ */
+export class EthereumExtraDataEncoder implements ExtraDataEncoder {
   // eslint-disable-next-line valid-jsdoc
   /**
-   * @see {CrossChainExtraDataEncoder#encodeDepositOwner}
+   * @see {ExtraDataEncoder#encodeDepositOwner}
    */
   encodeDepositOwner(depositOwner: ChainIdentifier): Hex {
     // Make sure we are dealing with an Ethereum address. If not, this
@@ -149,7 +198,7 @@ export class EthereumCrossChainExtraDataEncoder
 
   // eslint-disable-next-line valid-jsdoc
   /**
-   * @see {CrossChainExtraDataEncoder#decodeDepositOwner}
+   * @see {ExtraDataEncoder#decodeDepositOwner}
    */
   decodeDepositOwner(extraData: Hex): ChainIdentifier {
     // Cut the first 12 zero bytes of the extra data and convert the rest to
@@ -159,3 +208,8 @@ export class EthereumCrossChainExtraDataEncoder
     )
   }
 }
+
+/**
+ * @deprecated Use EthereumExtraDataEncoder instead
+ */
+export const EthereumCrossChainExtraDataEncoder = EthereumExtraDataEncoder

@@ -15,6 +15,7 @@ import {
 } from "../../lib/bitcoin"
 import { payments, Stack, script, opcodes } from "bitcoinjs-lib"
 import { Hex } from "../../lib/utils"
+import { TransactionReceipt } from "@ethersproject/providers"
 
 /**
  * Component representing an instance of the tBTC v2 deposit process.
@@ -125,7 +126,9 @@ export class Deposit {
    * @throws Throws an error if the funding outpoint was already used to
    *         initiate minting (both modes).
    */
-  async initiateMinting(fundingOutpoint?: BitcoinTxOutpoint): Promise<Hex> {
+  async initiateMinting(
+    fundingOutpoint?: BitcoinTxOutpoint
+  ): Promise<Hex | TransactionReceipt> {
     let resolvedFundingOutpoint: BitcoinTxOutpoint
 
     if (typeof fundingOutpoint !== "undefined") {

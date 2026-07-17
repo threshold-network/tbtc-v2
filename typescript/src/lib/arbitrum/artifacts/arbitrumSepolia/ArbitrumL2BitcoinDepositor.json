@@ -1,0 +1,429 @@
+{
+  "address": "0xB2fEC598a9374078Bb639f3d70555fc4389b7a78",
+  "abi": [
+    {
+      "inputs": [],
+      "stateMutability": "nonpayable",
+      "type": "constructor"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "components": [
+            {
+              "internalType": "bytes4",
+              "name": "version",
+              "type": "bytes4"
+            },
+            {
+              "internalType": "bytes",
+              "name": "inputVector",
+              "type": "bytes"
+            },
+            {
+              "internalType": "bytes",
+              "name": "outputVector",
+              "type": "bytes"
+            },
+            {
+              "internalType": "bytes4",
+              "name": "locktime",
+              "type": "bytes4"
+            }
+          ],
+          "indexed": false,
+          "internalType": "struct IBridgeTypes.BitcoinTxInfo",
+          "name": "fundingTx",
+          "type": "tuple"
+        },
+        {
+          "components": [
+            {
+              "internalType": "uint32",
+              "name": "fundingOutputIndex",
+              "type": "uint32"
+            },
+            {
+              "internalType": "bytes8",
+              "name": "blindingFactor",
+              "type": "bytes8"
+            },
+            {
+              "internalType": "bytes20",
+              "name": "walletPubKeyHash",
+              "type": "bytes20"
+            },
+            {
+              "internalType": "bytes20",
+              "name": "refundPubKeyHash",
+              "type": "bytes20"
+            },
+            {
+              "internalType": "bytes4",
+              "name": "refundLocktime",
+              "type": "bytes4"
+            },
+            {
+              "internalType": "address",
+              "name": "vault",
+              "type": "address"
+            }
+          ],
+          "indexed": false,
+          "internalType": "struct IBridgeTypes.DepositRevealInfo",
+          "name": "reveal",
+          "type": "tuple"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "l2DepositOwner",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "l2Sender",
+          "type": "address"
+        }
+      ],
+      "name": "DepositInitialized",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "uint8",
+          "name": "version",
+          "type": "uint8"
+        }
+      ],
+      "name": "Initialized",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "previousOwner",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "newOwner",
+          "type": "address"
+        }
+      ],
+      "name": "OwnershipTransferred",
+      "type": "event"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_l1BitcoinDepositor",
+          "type": "address"
+        }
+      ],
+      "name": "attachL1BitcoinDepositor",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_wormholeRelayer",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_l2WormholeGateway",
+          "type": "address"
+        },
+        {
+          "internalType": "uint16",
+          "name": "_l1ChainId",
+          "type": "uint16"
+        }
+      ],
+      "name": "initialize",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "components": [
+            {
+              "internalType": "bytes4",
+              "name": "version",
+              "type": "bytes4"
+            },
+            {
+              "internalType": "bytes",
+              "name": "inputVector",
+              "type": "bytes"
+            },
+            {
+              "internalType": "bytes",
+              "name": "outputVector",
+              "type": "bytes"
+            },
+            {
+              "internalType": "bytes4",
+              "name": "locktime",
+              "type": "bytes4"
+            }
+          ],
+          "internalType": "struct IBridgeTypes.BitcoinTxInfo",
+          "name": "fundingTx",
+          "type": "tuple"
+        },
+        {
+          "components": [
+            {
+              "internalType": "uint32",
+              "name": "fundingOutputIndex",
+              "type": "uint32"
+            },
+            {
+              "internalType": "bytes8",
+              "name": "blindingFactor",
+              "type": "bytes8"
+            },
+            {
+              "internalType": "bytes20",
+              "name": "walletPubKeyHash",
+              "type": "bytes20"
+            },
+            {
+              "internalType": "bytes20",
+              "name": "refundPubKeyHash",
+              "type": "bytes20"
+            },
+            {
+              "internalType": "bytes4",
+              "name": "refundLocktime",
+              "type": "bytes4"
+            },
+            {
+              "internalType": "address",
+              "name": "vault",
+              "type": "address"
+            }
+          ],
+          "internalType": "struct IBridgeTypes.DepositRevealInfo",
+          "name": "reveal",
+          "type": "tuple"
+        },
+        {
+          "internalType": "address",
+          "name": "l2DepositOwner",
+          "type": "address"
+        }
+      ],
+      "name": "initializeDeposit",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "l1BitcoinDepositor",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "l1ChainId",
+      "outputs": [
+        {
+          "internalType": "uint16",
+          "name": "",
+          "type": "uint16"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "l2WormholeGateway",
+      "outputs": [
+        {
+          "internalType": "contract IL2WormholeGateway",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "owner",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes",
+          "name": "",
+          "type": "bytes"
+        },
+        {
+          "internalType": "bytes[]",
+          "name": "additionalVaas",
+          "type": "bytes[]"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "sourceAddress",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "uint16",
+          "name": "sourceChain",
+          "type": "uint16"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "name": "receiveWormholeMessages",
+      "outputs": [],
+      "stateMutability": "payable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "renounceOwnership",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "newOwner",
+          "type": "address"
+        }
+      ],
+      "name": "transferOwnership",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "wormholeRelayer",
+      "outputs": [
+        {
+          "internalType": "contract IWormholeRelayer",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    }
+  ],
+  "transactionHash": "0x43cb5d1e101836fcb61fa9daefa99319a0273b1fafcf0fe011b57483e02b578d",
+  "receipt": {
+    "to": null,
+    "from": "0x992500f42A48371c2c9f91EE6165ba8F9dfB1692",
+    "contractAddress": "0xB2fEC598a9374078Bb639f3d70555fc4389b7a78",
+    "transactionIndex": 1,
+    "gasUsed": "1819206",
+    "logsBloom": "0x00000000000000000000000000000000400000000000000000800000000000000000000000000000000020000000000000000000000080200000000030000000000000000000000000000000000002000001000000000000000002000000000000000000020000000000000000000800000000800000000000000000000000400000000000000000000000002000000000000000000080000000000000800000000000000000000000000000000400000000000000000000000000000000000000000020000000000000000000040000000000000400000000000000000020000000000800000000400000000000000000000000000000000000000000000000",
+    "blockHash": "0xe28c099c49fa263d666a02e7be27845647250097dbf1ec335811e1b83c65ca1d",
+    "transactionHash": "0x43cb5d1e101836fcb61fa9daefa99319a0273b1fafcf0fe011b57483e02b578d",
+    "logs": [
+      {
+        "transactionIndex": 1,
+        "blockNumber": 62644268,
+        "transactionHash": "0x43cb5d1e101836fcb61fa9daefa99319a0273b1fafcf0fe011b57483e02b578d",
+        "address": "0xB2fEC598a9374078Bb639f3d70555fc4389b7a78",
+        "topics": [
+          "0xbc7cd75a20ee27fd9adebab32041f755214dbc6bffa90cc0225b39da2e5c2d3b",
+          "0x00000000000000000000000077bf510b1c0aa46e3006724d9803a49c36da4e8f"
+        ],
+        "data": "0x",
+        "logIndex": 0,
+        "blockHash": "0xe28c099c49fa263d666a02e7be27845647250097dbf1ec335811e1b83c65ca1d"
+      },
+      {
+        "transactionIndex": 1,
+        "blockNumber": 62644268,
+        "transactionHash": "0x43cb5d1e101836fcb61fa9daefa99319a0273b1fafcf0fe011b57483e02b578d",
+        "address": "0xB2fEC598a9374078Bb639f3d70555fc4389b7a78",
+        "topics": [
+          "0x8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e0",
+          "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "0x000000000000000000000000992500f42a48371c2c9f91ee6165ba8f9dfb1692"
+        ],
+        "data": "0x",
+        "logIndex": 1,
+        "blockHash": "0xe28c099c49fa263d666a02e7be27845647250097dbf1ec335811e1b83c65ca1d"
+      },
+      {
+        "transactionIndex": 1,
+        "blockNumber": 62644268,
+        "transactionHash": "0x43cb5d1e101836fcb61fa9daefa99319a0273b1fafcf0fe011b57483e02b578d",
+        "address": "0xB2fEC598a9374078Bb639f3d70555fc4389b7a78",
+        "topics": [
+          "0x7f26b83ff96e1f2b6a682f133852f6798a09c465da95921460cefb3847402498"
+        ],
+        "data": "0x0000000000000000000000000000000000000000000000000000000000000001",
+        "logIndex": 2,
+        "blockHash": "0xe28c099c49fa263d666a02e7be27845647250097dbf1ec335811e1b83c65ca1d"
+      },
+      {
+        "transactionIndex": 1,
+        "blockNumber": 62644268,
+        "transactionHash": "0x43cb5d1e101836fcb61fa9daefa99319a0273b1fafcf0fe011b57483e02b578d",
+        "address": "0xB2fEC598a9374078Bb639f3d70555fc4389b7a78",
+        "topics": [
+          "0x7e644d79422f17c01e4894b5f4f588d331ebfa28653d42ae832dc59e38c9798f"
+        ],
+        "data": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000001f07fac18ea91bec2a8f766c22c49cc32b078e14",
+        "logIndex": 3,
+        "blockHash": "0xe28c099c49fa263d666a02e7be27845647250097dbf1ec335811e1b83c65ca1d"
+      }
+    ],
+    "blockNumber": 62644268,
+    "cumulativeGasUsed": "1819206",
+    "status": 1,
+    "byzantium": true
+  },
+  "numDeployments": 1,
+  "implementation": "0x77Bf510B1C0aA46e3006724d9803a49c36da4E8f",
+  "devdoc": "Contract deployed as upgradable proxy"
+}

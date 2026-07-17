@@ -35,7 +35,7 @@
 
 #### Defined in
 
-[services/maintenance/spv.ts:21](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/maintenance/spv.ts#L21)
+[services/maintenance/spv.ts:21](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/spv.ts#L21)
 
 ## Properties
 
@@ -47,7 +47,7 @@ Bitcoin client handle.
 
 #### Defined in
 
-[services/maintenance/spv.ts:19](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/maintenance/spv.ts#L19)
+[services/maintenance/spv.ts:19](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/spv.ts#L19)
 
 ___
 
@@ -59,7 +59,7 @@ Handle to tBTC contracts.
 
 #### Defined in
 
-[services/maintenance/spv.ts:15](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/maintenance/spv.ts#L15)
+[services/maintenance/spv.ts:15](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/spv.ts#L15)
 
 ## Methods
 
@@ -86,7 +86,7 @@ Empty promise.
 
 #### Defined in
 
-[services/maintenance/spv.ts:34](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/maintenance/spv.ts#L34)
+[services/maintenance/spv.ts:34](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/spv.ts#L34)
 
 ___
 
@@ -113,4 +113,4 @@ Empty promise.
 
 #### Defined in
 
-[services/maintenance/spv.ts:67](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/maintenance/spv.ts#L67)
+[services/maintenance/spv.ts:67](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/spv.ts#L67)

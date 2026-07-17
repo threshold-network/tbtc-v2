@@ -1,0 +1,373 @@
+// tBTC Bridge RebateStaking Governance Runbook
+//
+// Network: Ethereum Mainnet
+// Date: November 2025
+
+= tBTC Bridge RebateStaking – Governance Execution Plan
+
+== Overview
+
+This document describes the exact on-chain steps and payloads
+required to complete the activation of the tBTC Rebate System by
+connecting the `RebateStaking` contract to the tBTC Bridge via the
+new `BridgeGovernance.setRebateStaking(address)` entrypoint.
+
+The plan assumes that the Bridge proxy has already been upgraded
+to a new implementation that supports rebate staking ("Action 1"
+from the October 22 Deployment Plan), and focuses on the missing
+governance hook ("Action 2").
+
+The Bridge implementation enforces that the rebate staking address
+is configured exactly once and cannot be changed via governance;
+changing it later requires a dedicated Bridge implementation
+upgrade.
+
+== Key Contracts & Parameters
+
+* Network: Ethereum Mainnet
+* Bridge (Proxy):: `0x5e4861a80B55f035D899f66772117F00FA0E8e7B`
+* Bridge Implementation (New):: `0x98e19c416100Ad0C66B52d05075F4C899184f2aD`
+* BridgeGovernance (OLD):: `0xf286EA706A2512d2B9232FE7F8b2724880230b45`
+* BridgeGovernance (NEW):: `<NEW_BRIDGE_GOVERNANCE>`
+* RebateStaking (Proxy):: `0x0184739C32edc3471D3e4860c8E39a5f3Ff85A45`
+* ProxyAdmin:: `0x16A76d3cd3C1e3CE843C6680d6B37E9116b5C706`
+* Governance / Council EOA (BridgeGovernance owner)::
+** `0x9F6e831c8F8939DC0C830C6e492e7cEf4f9C2F5f`
+* Bridge governance delay (seconds):: `172800` (48 hours)
+
+Use the following commands (with a configured `ETHEREUM_RPC_URL`)
+to confirm the current state on mainnet:
+
+[,bash]
+----
+# Bridge governance should be OLD BridgeGovernance
+cast call 0x5e4861a80B55f035D899f66772117F00FA0E8e7B \
+  "governance()(address)"
+
+# Expected: 0xf286EA706A2512d2B9232FE7F8b2724880230b45
+
+# BridgeGovernance (OLD) governance delay should be 48h
+cast call 0xf286EA706A2512d2B9232FE7F8b2724880230b45 \
+  "governanceDelays(uint256)(uint256)" 0
+
+# Expected: 172800
+
+# RebateStaking should not yet be wired
+cast call 0x5e4861a80B55f035D899f66772117F00FA0E8e7B \
+  "getRebateStaking()(address)"
+
+# Expected: 0x0000000000000000000000000000000000000000
+----
+
+== Pre-checks (read-only)
+
+* Bridge proxy implementation is already upgraded to the rebate-aware version.
+* Bridge governance owner is the OLD BridgeGovernance:
+** `cast call <BRIDGE> "governance()(address)"` -> `0xf286EA706A2512d2B9232FE7F8b2724880230b45`
+* RebateStaking wiring is not yet set:
+** `cast call <BRIDGE> "getRebateStaking()(address)"` -> `0x0000...0000`
+* RebateStaking proxy points at the Bridge proxy:
+** `cast call <REBATE_STAKING> "bridge()(address)"` -> `<BRIDGE>`
+
+== High-Level Steps
+
+0. (Already executed) Upgrade the Bridge proxy implementation.
+1. Deploy NEW `BridgeGovernance` with the new
+   `setRebateStaking(address)` function.
+2. (Optional) Transfer ownership of NEW `BridgeGovernance` to the
+   Council EOA.
+3. Using OLD `BridgeGovernance`, call
+   `beginBridgeGovernanceTransfer(newBridgeGovernance)` to start the
+   governance timelock for Bridge governance transfer (48 hours on
+   mainnet, 60 seconds on Sepolia).
+4. After the governance delay elapses, call
+   `finalizeBridgeGovernanceTransfer()` on OLD `BridgeGovernance` to
+   make NEW `BridgeGovernance` the Bridge owner.
+5. Using NEW `BridgeGovernance`, call
+   `setRebateStaking(RebateStakingProxy)` once to connect the
+   RebateStaking contract to the Bridge implementation. This call
+   reverts if the address is zero or already set.
+6. Verify post-conditions on-chain and, optionally, via the
+   existing Hardhat verification script.
+
+All payloads below are given as raw calldata so they can be
+submitted through a multisig UI, a timelock, or directly by the
+Council, depending on operational setup.
+
+== Action 0 – (For Reference) Bridge Proxy Upgrade
+
+This action has already been executed and is documented here for
+completeness. It upgraded the Bridge proxy to a new
+implementation that supports rebate staking.
+
+* Executor:: ProxyAdmin owner
+* To:: `0x16A76d3cd3C1e3CE843C6680d6B37E9116b5C706` (ProxyAdmin)
+* Method:: `upgrade(address proxy, address implementation)`
+
+[,json]
+----
+{
+  "to":   "0x16A76d3cd3C1e3CE843C6680d6B37E9116b5C706",
+  "value": "0",
+  "data": "0x99a88ec40000000000000000000000005e4861a80b55f035d899f66772117f00fa0e8e7b00000000000000000000000098e19c416100ad0c66b52d05075f4c899184f2ad"
+}
+----
+
+Decoded:
+
+* `upgrade(proxy = 0x5e48…, implementation = 0x98e1…)`
+
+== Action 1 – Deploy NEW BridgeGovernance
+
+NEW `BridgeGovernance` must be deployed from the PR implementation
+that includes:
+
+* `setRebateStaking(address rebateStaking)` forwarding to the
+  Bridge implementation, and
+* The constructor:
+  `constructor(Bridge _bridge, uint256 _governanceDelay)`.
+
+Constructor arguments:
+
+* `_bridge`:: `0x5e4861a80B55f035D899f66772117F00FA0E8e7B`
+* `_governanceDelay`:: `172800`
+
+This step is typically executed via the existing Hardhat deployment
+scripts and produces a new mainnet address:
+
+* `BridgeGovernance (NEW): <NEW_BRIDGE_GOVERNANCE>`
+
+That address must be recorded and used in all subsequent steps.
+
+=== Optional – Transfer Ownership of NEW BridgeGovernance
+
+If the deployer is not already the Council EOA, ownership of NEW
+`BridgeGovernance` should be transferred to the Council.
+
+* Executor:: Deployer (current `owner()` of NEW BridgeGovernance)
+* To:: `<NEW_BRIDGE_GOVERNANCE>`
+* Method:: `transferOwnership(address newOwner)`
+
+Parameters:
+
+* `newOwner`:: `0x9F6e831c8F8939DC0C830C6e492e7cEf4f9C2F5f`
+
+Calldata (generated via `cast calldata`):
+
+[,bash]
+----
+cast calldata "transferOwnership(address)" \
+  0x9F6e831c8F8939DC0C830C6e492e7cEf4f9C2F5f
+
+# 0xf2fde38b0000000000000000000000009f6e831c8f8939dc0c830c6e492e7cef4f9c2f5f
+----
+
+Tx template:
+
+[,json]
+----
+{
+  "from": "<DEPLOYER_ADDRESS>",
+  "to":   "<NEW_BRIDGE_GOVERNANCE>",
+  "value": "0",
+  "data": "0xf2fde38b0000000000000000000000009f6e831c8f8939dc0c830c6e492e7cef4f9c2f5f"
+}
+----
+
+Post-condition check:
+
+[,bash]
+----
+cast call <NEW_BRIDGE_GOVERNANCE> "owner()(address)" --rpc-url $ETHEREUM_RPC_URL
+
+# Expected: 0x9F6e831c8F8939DC0C830C6e492e7cEf4f9C2F5f
+----
+
+== Action 2 – Begin Bridge Governance Transfer (OLD → NEW)
+
+This action starts the on-chain, 48-hour governance delay for
+transferring the Bridge governance from OLD to NEW
+`BridgeGovernance`.
+
+* Executor:: Council EOA (owner of OLD BridgeGovernance)
+* From:: `0x9F6e831c8F8939DC0C830C6e492e7cEf4f9C2F5f`
+* To:: `0xf286EA706A2512d2B9232FE7F8b2724880230b45`
+* Method:: `beginBridgeGovernanceTransfer(address _newBridgeGovernance)`
+
+Parameters:
+
+* `_newBridgeGovernance`:: `<NEW_BRIDGE_GOVERNANCE>`
+
+Calldata (generate with your actual NEW address):
+
+[,bash]
+----
+cast calldata "beginBridgeGovernanceTransfer(address)" \
+  <NEW_BRIDGE_GOVERNANCE>
+
+# Example shape (do not copy literally):
+# 0x8b18a505000000000000000000000000<NEW_BRIDGE_GOVERNANCE_20_BYTES>
+----
+
+Tx template:
+
+[,json]
+----
+{
+  "from": "0x9F6e831c8F8939DC0C830C6e492e7cEf4f9C2F5f",
+  "to":   "0xf286EA706A2512d2B9232FE7F8b2724880230b45",
+  "value": "0",
+  "data": "0x8b18a505000000000000000000000000<NEW_BRIDGE_GOVERNANCE_20_BYTES>"
+}
+----
+
+Post-condition check:
+
+[,bash]
+----
+cast call 0xf286EA706A2512d2B9232FE7F8b2724880230b45 \
+  "bridgeGovernanceTransferChangeInitiated()(uint256)"
+
+# Expected: non-zero timestamp after this transaction.
+----
+
+== Action 3 – Finalize Bridge Governance Transfer
+
+At least `172800` seconds (48 hours) after the timestamp returned
+by `bridgeGovernanceTransferChangeInitiated()`, finalize the
+governance transfer so that NEW `BridgeGovernance` becomes the
+governance owner of the Bridge.
+
+* Executor:: Council EOA
+* From:: `0x9F6e831c8F8939DC0C830C6e492e7cEf4f9C2F5f`
+* To:: `0xf286EA706A2512d2B9232FE7F8b2724880230b45`
+* Method:: `finalizeBridgeGovernanceTransfer()`
+
+Calldata:
+
+[,bash]
+----
+cast calldata "finalizeBridgeGovernanceTransfer()"
+
+# 0x605da053
+----
+
+Tx template:
+
+[,json]
+----
+{
+  "from": "0x9F6e831c8F8939DC0C830C6e492e7cEf4f9C2F5f",
+  "to":   "0xf286EA706A2512d2B9232FE7F8b2724880230b45",
+  "value": "0",
+  "data": "0x605da053"
+}
+----
+
+Post-condition checks:
+
+[,bash]
+----
+# Bridge governance should now be NEW BridgeGovernance
+cast call 0x5e4861a80B55f035D899f66772117F00FA0E8e7B \
+  "governance()(address)"
+
+# Expected: <NEW_BRIDGE_GOVERNANCE>
+
+# OLD BridgeGovernance should have reset its pending transfer state
+cast call 0xf286EA706A2512d2B9232FE7F8b2724880230b45 \
+  "bridgeGovernanceTransferChangeInitiated()(uint256)"
+
+# Expected: 0
+----
+
+== Action 4 – Set RebateStaking via NEW BridgeGovernance
+
+Once the Bridge `governance()` points to NEW `BridgeGovernance`,
+the Council can perform the one-off wiring of the RebateStaking
+contract to the Bridge.
+
+* Executor:: Council EOA (owner of NEW BridgeGovernance)
+* From:: `0x9F6e831c8F8939DC0C830C6e492e7cEf4f9C2F5f`
+* To:: `<NEW_BRIDGE_GOVERNANCE>`
+* Method:: `setRebateStaking(address rebateStaking)`
+
+Parameters:
+
+* `rebateStaking`:: `0x0184739C32edc3471D3e4860c8E39a5f3Ff85A45`
+
+Calldata (fully determined):
+
+[,bash]
+----
+cast calldata "setRebateStaking(address)" \
+  0x0184739C32edc3471D3e4860c8E39a5f3Ff85A45
+
+# 0xca73c4620000000000000000000000000184739c32edc3471d3e4860c8e39a5f3ff85a45
+----
+
+Tx template:
+
+[,json]
+----
+{
+  "from": "0x9F6e831c8F8939DC0C830C6e492e7cEf4f9C2F5f",
+  "to":   "<NEW_BRIDGE_GOVERNANCE>",
+  "value": "0",
+  "data": "0xca73c4620000000000000000000000000184739c32edc3471d3e4860c8e39a5f3ff85a45"
+}
+----
+
+Decoded call path:
+
+* External:: `BridgeGovernance(NEW).setRebateStaking(RebateStakingProxy)`
+* Internal:: `Bridge.setRebateStaking(RebateStakingProxy)`
+* Bridge state library:: `BridgeState.setRebateStaking(RebateStakingProxy)`
+
+This transaction is expected to succeed exactly once for a given
+Bridge implementation; subsequent attempts will revert on-chain.
+
+Post-condition check:
+
+[,bash]
+----
+cast call 0x5e4861a80B55f035D899f66772117F00FA0E8e7B \
+  "getRebateStaking()(address)"
+
+# Expected: 0x0184739C32edc3471D3e4860c8E39a5f3Ff85A45
+----
+
+== Final Verification
+
+After all actions above are executed, perform the following checks:
+
+[,bash]
+----
+# 1. NEW BridgeGovernance controls the Bridge
+cast call 0x5e4861a80B55f035D899f66772117F00FA0E8e7B \
+  "governance()(address)"
+
+# Expected: <NEW_BRIDGE_GOVERNANCE>
+
+# 2. RebateStaking is connected to the Bridge
+cast call 0x5e4861a80B55f035D899f66772117F00FA0E8e7B \
+  "getRebateStaking()(address)"
+
+# Expected: 0x0184739C32edc3471D3e4860c8E39a5f3Ff85A45
+
+# 3. (Optional) Run the existing verification script
+npx hardhat deploy --network mainnet --tags VerifyRebateDeployment
+
+== Governance follow-up overview
+
+After Action 1 produces the new governance address, the Council EOA (the owner
+of the OLD `BridgeGovernance`) must: (1) call
+`beginBridgeGovernanceTransfer(<NEW_BRIDGE_GOVERNANCE>)`, (2) wait the 48-hour
+delay, and (3) call `finalizeBridgeGovernanceTransfer()` to hand control of the
+Bridge proxy to the new contract. All calldata templates above are illustrative;
+replace `<NEW_BRIDGE_GOVERNANCE>` with the coordinate address generated in
+Action 1. No other state-changing calls are required until Action 4.
+----
+
+If all checks pass, the tBTC Rebate System is fully wired and
+governable via the new BridgeGovernance contract.

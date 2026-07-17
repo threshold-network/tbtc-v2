@@ -1,0 +1,43 @@
+{
+  "l1": {
+    "contracts": {
+      "tbtc": "0x18084fbA666a33d37592fA2633fD49a74DD93a88",
+      "wormhole": "0x98f3c9e6E3fAce36bAAd05FE09d375Ef1464288B",
+      "tokenBridge": "0x3ee18B2214AFF97000D974cf647E7C347E8fa585",
+      "btcDepositorWormhole": "0xb810AbD43d8FCFD812d6FEB14fefc236E92a341A",
+      "bridge": "0x5e4861a80B55f035D899f66772117F00FA0E8e7B",
+      "vault": "0x9C070027cdC9dc8F82416B2e5314E11DFb4FE3CD"
+    }
+  },
+  "l2": {
+    "rpc": "https://fullnode.mainnet.sui.io",
+    "package": "0x77045f1b9f811a7a8fb9ebd085b5b0c55c5cb0d1520ff55f7037f89b5da9f5f1",
+    "objects": {
+      "receiverState": "0x164f463fdc60bbbff19c30ad9597ea7123c643d3671e9719cd982e3912176d94",
+      "gatewayState": "0x76eb72899418719b2db5fbc12f5fb42e93bb75f67116420f5dbf971dd31fe7f7",
+      "emitterCapId": "0x8e884c0922b2c4fea19125b2b304fd2669b2756a229b0f1f228df23ab3994865",
+      "capabilities": "0xb0faec8d0a74808108c775230967d9617acf0952425c2a559cac95588f187901",
+      "treasury": "0x0ee96ad714d690753b5b4cd62d952c658dfc9e152195394395460f63cfac26b2",
+      "tokenState": "0x2ff31492339e06859132b8db199f640ca37a5dc8ab1713782c4372c678f2f85c"
+    },
+    "wormhole": {
+      "core": "0xaeab97f96cf9877fee2883315d459552b2b921edc16d7ceac6eab944dd88919c",
+      "tokenBridge": "0xc57508ee0d4595e5a8728974a4a93a787d38f339757230d441e895422c07aba9",
+      "tokenBridgePackage": "0x26efee2b51c911237888e5dc6702868abca3c7ac12c53f76ef8eba0697695e3d",
+      "wrappedTbtcType": "0xbc3a676894871284b3ccfb2eec66f428612000e2a6e6d23f592ce8833c27c973::coin::COIN"
+    }
+  },
+  "bridge": {
+    "defaultAmount": "0.001"
+  },
+  "withdrawal": {
+    "defaultAmount": "0.0005"
+  },
+  "wormhole": {
+    "chainIds": {
+      "ethereum": 2,
+      "sui": 21
+    },
+    "api": "https://api.wormholescan.io"
+  }
+}

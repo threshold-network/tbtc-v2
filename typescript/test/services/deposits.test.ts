@@ -22,12 +22,13 @@ import {
   DepositsService,
   EthereumAddress,
   extractBitcoinRawTxVectors,
-  L2Chain,
+  DestinationChainName,
   CrossChainDepositor,
   Hex,
-  CrossChainContracts,
+  CrossChainInterfaces,
   ChainIdentifier,
   BitcoinRawTxVectors,
+  CrossChainContracts,
 } from "../../src"
 import { MockBitcoinClient } from "../utils/mock-bitcoin-client"
 import { MockTBTCContracts } from "../utils/mock-tbtc-contracts"
@@ -42,8 +43,11 @@ import { MockDepositorProxy } from "../utils/mock-depositor-proxy"
 import {
   MockCrossChainExtraDataEncoder,
   MockL1BitcoinDepositor,
+  MockBitcoinDepositor,
   MockL2BitcoinDepositor,
   MockL2TBTCToken,
+  MockL2BitcoinRedeemer,
+  MockL1BitcoinRedeemer,
 } from "../utils/mock-cross-chain"
 
 describe("Deposits", () => {
@@ -1635,7 +1639,7 @@ describe("Deposits", () => {
           tbtcContracts,
           bitcoinClient,
           // Mock cross-chain contracts resolver.
-          (_: L2Chain) => undefined
+          (_: DestinationChainName) => undefined
         )
       })
 
@@ -1821,7 +1825,7 @@ describe("Deposits", () => {
           tbtcContracts,
           bitcoinClient,
           // Mock cross-chain contracts resolver.
-          (_: L2Chain) => undefined
+          (_: DestinationChainName) => undefined
         )
       })
 
@@ -1989,7 +1993,7 @@ describe("Deposits", () => {
       })
     })
 
-    describe("initiateCrossChainDeposit", () => {
+    describe("initiateCrossChainDeposit - BASE", () => {
       const l2DepositOwner = EthereumAddress.from(
         "934b98637ca318a4d6e7ca6ffd1690b8e77df637"
       )
@@ -2003,7 +2007,7 @@ describe("Deposits", () => {
             tbtcContracts,
             bitcoinClient,
             // Mock cross-chain contracts resolver that always returns undefined.
-            (_: L2Chain) => undefined
+            (_: DestinationChainName) => undefined
           )
         })
 
@@ -2018,8 +2022,10 @@ describe("Deposits", () => {
       })
 
       context("when cross-chain contracts are initialized", () => {
-        let l2BitcoinDepositor: MockL2BitcoinDepositor
+        let l2BitcoinDepositor: MockBitcoinDepositor
         let l1BitcoinDepositor: MockL1BitcoinDepositor
+        let l2BitcoinRedeemer: MockL2BitcoinRedeemer
+        let l1BitcoinRedeemer: MockL1BitcoinRedeemer
         let crossChainContracts: CrossChainContracts
 
         beforeEach(async () => {
@@ -2040,14 +2046,24 @@ describe("Deposits", () => {
             new MockCrossChainExtraDataEncoder()
           )
 
+          l1BitcoinRedeemer = new MockL1BitcoinRedeemer(
+            EthereumAddress.from("0x1111111111111111111111111111111111111111")
+          )
+
+          l2BitcoinRedeemer = new MockL2BitcoinRedeemer(
+            EthereumAddress.from("0x2222222222222222222222222222222222222222")
+          )
+
           crossChainContracts = {
-            l2TbtcToken: new MockL2TBTCToken(),
-            l2BitcoinDepositor: l2BitcoinDepositor,
+            destinationChainTbtcToken: new MockL2TBTCToken(),
+            destinationChainBitcoinDepositor: l2BitcoinDepositor,
             l1BitcoinDepositor: l1BitcoinDepositor,
+            l1BitcoinRedeemer: l1BitcoinRedeemer,
+            l2BitcoinRedeemer: l2BitcoinRedeemer,
           }
 
           const crossChainContractsResolver = (
-            l2ChainName: L2Chain
+            l2ChainName: DestinationChainName
           ): CrossChainContracts | undefined => {
             if (l2ChainName === "Base") {
               return crossChainContracts
@@ -2068,13 +2084,15 @@ describe("Deposits", () => {
                 "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
                 "Base"
               )
-            ).to.be.rejectedWith("Cannot resolve L2 deposit owner")
+            ).to.be.rejectedWith(
+              "Cannot resolve destination chain deposit owner"
+            )
           })
         })
 
         context("when L2 deposit owner can be resolved", () => {
           beforeEach(async () => {
-            crossChainContracts.l2BitcoinDepositor.setDepositOwner(
+            crossChainContracts.destinationChainBitcoinDepositor.setDepositOwner(
               l2DepositOwner
             )
           })
@@ -2184,6 +2202,423 @@ describe("Deposits", () => {
                     Hex.from("e6f9d74726b19b75f16fe1e9feaec048aa4fa1d0")
                   )
                 })
+              })
+            })
+          })
+        })
+      })
+    })
+  })
+
+  describe("initiateCrossChainDeposit - ARBITRUM", () => {
+    const l2DepositOwner = EthereumAddress.from(
+      "934b98637ca318a4d6e7ca6ffd1690b8e77df637"
+    )
+    const bitcoinClient = new MockBitcoinClient()
+    const tbtcContracts = new MockTBTCContracts()
+    let depositService: DepositsService
+
+    context("when cross-chain contracts are not initialized", () => {
+      beforeEach(async () => {
+        depositService = new DepositsService(
+          tbtcContracts,
+          bitcoinClient,
+          // Mock cross-chain contracts resolver that always returns undefined.
+          (_: DestinationChainName) => undefined
+        )
+      })
+
+      it("should throw", async () => {
+        await expect(
+          depositService.initiateCrossChainDeposit(
+            "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+            "Arbitrum"
+          )
+        ).to.be.rejectedWith(
+          "Cross-chain contracts for Arbitrum not initialized"
+        )
+      })
+    })
+
+    context("when cross-chain contracts are initialized", () => {
+      let l2BitcoinDepositor: MockBitcoinDepositor
+      let l1BitcoinDepositor: MockL1BitcoinDepositor
+      let l1BitcoinRedeemer: MockL1BitcoinRedeemer
+      let l2BitcoinRedeemer: MockL2BitcoinRedeemer
+      let crossChainContracts: CrossChainContracts
+
+      beforeEach(async () => {
+        const l2BitcoinDepositorEncoder = new MockCrossChainExtraDataEncoder()
+        // Set valid 32-byte extra data as initiateCrossChainDeposit
+        // performs length and content checks on the extra data.
+        l2BitcoinDepositorEncoder.setEncoding(
+          l2DepositOwner,
+          Hex.from(`000000000000000000000000${l2DepositOwner.identifierHex}`)
+        )
+        l2BitcoinDepositor = new MockL2BitcoinDepositor(
+          EthereumAddress.from("49D1e49013Df517Ea30306DE2F462F2D0170212f"),
+          l2BitcoinDepositorEncoder
+        )
+
+        l1BitcoinDepositor = new MockL1BitcoinDepositor(
+          EthereumAddress.from("F4c1B212B37775769c73353264ac48dD7fA5B71E"),
+          new MockCrossChainExtraDataEncoder()
+        )
+
+        l1BitcoinRedeemer = new MockL1BitcoinRedeemer(
+          EthereumAddress.from("0x1111111111111111111111111111111111111111")
+        )
+
+        l2BitcoinRedeemer = new MockL2BitcoinRedeemer(
+          EthereumAddress.from("0x2222222222222222222222222222222222222222")
+        )
+
+        crossChainContracts = {
+          destinationChainTbtcToken: new MockL2TBTCToken(),
+          destinationChainBitcoinDepositor: l2BitcoinDepositor,
+          l1BitcoinDepositor: l1BitcoinDepositor,
+          l1BitcoinRedeemer: l1BitcoinRedeemer,
+          l2BitcoinRedeemer: l2BitcoinRedeemer,
+        }
+
+        const crossChainContractsResolver = (
+          l2ChainName: DestinationChainName
+        ): CrossChainContracts | undefined => {
+          if (l2ChainName === "Arbitrum") {
+            return crossChainContracts
+          }
+        }
+
+        depositService = new DepositsService(
+          tbtcContracts,
+          bitcoinClient,
+          crossChainContractsResolver
+        )
+      })
+
+      context("when L2 deposit owner cannot be resolved", () => {
+        it("should throw", async () => {
+          await expect(
+            depositService.initiateCrossChainDeposit(
+              "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+              "Arbitrum"
+            )
+          ).to.be.rejectedWith("Cannot resolve destination chain deposit owner")
+        })
+      })
+
+      context("when L2 deposit owner can be resolved", () => {
+        beforeEach(async () => {
+          crossChainContracts.destinationChainBitcoinDepositor.setDepositOwner(
+            l2DepositOwner
+          )
+        })
+
+        context("when active wallet is not set", () => {
+          it("should throw", async () => {
+            await expect(
+              depositService.initiateCrossChainDeposit(
+                "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+                "Arbitrum"
+              )
+            ).to.be.rejectedWith("Could not get active wallet public key")
+          })
+        })
+
+        context("when active wallet is set", () => {
+          beforeEach(async () => {
+            tbtcContracts.bridge.setActiveWalletPublicKey(
+              Hex.from(
+                "03989d253b17a6a0f41838b84ff0d20e8898f9d7b1a98f2564da4cc29dcf8581d9"
+              )
+            )
+          })
+
+          context("when recovery address is incorrect", () => {
+            it("should throw", async () => {
+              await expect(
+                depositService.initiateCrossChainDeposit(
+                  "2N5WZpig3vgpSdjSherS2Lv7GnPuxCvkQjT", // p2sh address
+                  "Arbitrum"
+                )
+              ).to.be.rejectedWith(
+                "Bitcoin recovery address must be P2PKH or P2WPKH"
+              )
+            })
+          })
+
+          context("when recovery address is correct", () => {
+            const assertCommonDepositProperties = (receipt: DepositReceipt) => {
+              expect(receipt.depositor).to.be.equal(
+                l1BitcoinDepositor.getChainIdentifier()
+              )
+
+              expect(receipt.walletPublicKeyHash).to.be.deep.equal(
+                Hex.from("8db50eb52063ea9d98b3eac91489a90f738986f6")
+              )
+
+              // Expect the refund locktime to be in the future.
+              const receiptTimestamp = BigNumber.from(
+                receipt.refundLocktime.reverse().toPrefixedString()
+              ).toNumber()
+              const currentTimestamp = Math.floor(new Date().getTime() / 1000)
+              expect(receiptTimestamp).to.be.greaterThan(currentTimestamp)
+
+              // Expect blinding factor to be set and 8-byte long.
+              expect(receipt.blindingFactor).not.to.be.undefined
+              expect(receipt.blindingFactor.toBuffer().length).to.be.equal(8)
+
+              expect(receipt.extraData).to.be.eql(
+                Hex.from(
+                  `000000000000000000000000${l2DepositOwner.identifierHex}`
+                )
+              )
+            }
+
+            context("when recovery address is P2PKH", () => {
+              let deposit: Deposit
+
+              beforeEach(async () => {
+                deposit = await depositService.initiateCrossChainDeposit(
+                  "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+                  "Arbitrum"
+                )
+              })
+
+              it("should initiate deposit correctly", async () => {
+                // Inspect the deposit object by looking at its receipt.
+                const receipt = deposit.getReceipt()
+
+                assertCommonDepositProperties(receipt)
+
+                expect(receipt.refundPublicKeyHash).to.be.deep.equal(
+                  Hex.from("2cd680318747b720d67bf4246eb7403b476adb34")
+                )
+              })
+            })
+
+            context("when recovery address is P2WPKH", () => {
+              let deposit: Deposit
+
+              beforeEach(async () => {
+                deposit = await depositService.initiateCrossChainDeposit(
+                  "tb1qumuaw3exkxdhtut0u85latkqfz4ylgwstkdzsx",
+                  "Arbitrum"
+                )
+              })
+
+              it("should initiate deposit correctly", async () => {
+                // Inspect the deposit object by looking at its receipt.
+                const receipt = deposit.getReceipt()
+
+                assertCommonDepositProperties(receipt)
+
+                expect(receipt.refundPublicKeyHash).to.be.deep.equal(
+                  Hex.from("e6f9d74726b19b75f16fe1e9feaec048aa4fa1d0")
+                )
+              })
+            })
+          })
+        })
+      })
+    })
+  })
+
+  describe("initiateCrossChainDeposit - SOLANA", () => {
+    const l2DepositOwner = EthereumAddress.from(
+      "934b98637ca318a4d6e7ca6ffd1690b8e77df637"
+    )
+    const bitcoinClient = new MockBitcoinClient()
+    const tbtcContracts = new MockTBTCContracts()
+    let depositService: DepositsService
+
+    context("when cross-chain contracts are not initialized", () => {
+      beforeEach(async () => {
+        depositService = new DepositsService(
+          tbtcContracts,
+          bitcoinClient,
+          // Mock cross-chain contracts resolver that always returns undefined.
+          (_: DestinationChainName) => undefined
+        )
+      })
+
+      it("should throw", async () => {
+        await expect(
+          depositService.initiateCrossChainDeposit(
+            "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+            "Solana"
+          )
+        ).to.be.rejectedWith("Cross-chain contracts for Solana not initialized")
+      })
+    })
+
+    context("when cross-chain contracts are initialized", () => {
+      let l2BitcoinDepositor: MockBitcoinDepositor
+      let l1BitcoinDepositor: MockL1BitcoinDepositor
+      let crossChainContracts: CrossChainInterfaces
+
+      beforeEach(async () => {
+        const l2BitcoinDepositorEncoder = new MockCrossChainExtraDataEncoder()
+        // Set valid 32-byte extra data as initiateCrossChainDeposit
+        // performs length and content checks on the extra data.
+        l2BitcoinDepositorEncoder.setEncoding(
+          l2DepositOwner,
+          Hex.from(`000000000000000000000000${l2DepositOwner.identifierHex}`)
+        )
+        l2BitcoinDepositor = new MockL2BitcoinDepositor(
+          EthereumAddress.from("49D1e49013Df517Ea30306DE2F462F2D0170212f"),
+          l2BitcoinDepositorEncoder
+        )
+
+        l1BitcoinDepositor = new MockL1BitcoinDepositor(
+          EthereumAddress.from("F4c1B212B37775769c73353264ac48dD7fA5B71E"),
+          new MockCrossChainExtraDataEncoder()
+        )
+
+        crossChainContracts = {
+          destinationChainTbtcToken: new MockL2TBTCToken(),
+          destinationChainBitcoinDepositor: l2BitcoinDepositor,
+          l1BitcoinDepositor: l1BitcoinDepositor,
+          l1BitcoinRedeemer: new MockL1BitcoinRedeemer(
+            EthereumAddress.from("0x1111111111111111111111111111111111111111")
+          ),
+        }
+
+        const crossChainContractsResolver = (
+          destinationChainName: DestinationChainName
+        ): CrossChainInterfaces | undefined => {
+          if (destinationChainName === "Solana") {
+            return crossChainContracts
+          }
+        }
+
+        depositService = new DepositsService(
+          tbtcContracts,
+          bitcoinClient,
+          crossChainContractsResolver
+        )
+      })
+
+      context("when Solana deposit owner cannot be resolved", () => {
+        it("should throw", async () => {
+          await expect(
+            depositService.initiateCrossChainDeposit(
+              "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+              "Solana"
+            )
+          ).to.be.rejectedWith("Cannot resolve destination chain deposit owner")
+        })
+      })
+
+      context("when L2 deposit owner can be resolved", () => {
+        beforeEach(async () => {
+          crossChainContracts.destinationChainBitcoinDepositor.setDepositOwner(
+            l2DepositOwner
+          )
+        })
+
+        context("when active wallet is not set", () => {
+          it("should throw", async () => {
+            await expect(
+              depositService.initiateCrossChainDeposit(
+                "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+                "Solana"
+              )
+            ).to.be.rejectedWith("Could not get active wallet public key")
+          })
+        })
+
+        context("when active wallet is set", () => {
+          beforeEach(async () => {
+            tbtcContracts.bridge.setActiveWalletPublicKey(
+              Hex.from(
+                "03989d253b17a6a0f41838b84ff0d20e8898f9d7b1a98f2564da4cc29dcf8581d9"
+              )
+            )
+          })
+
+          context("when recovery address is incorrect", () => {
+            it("should throw", async () => {
+              await expect(
+                depositService.initiateCrossChainDeposit(
+                  "2N5WZpig3vgpSdjSherS2Lv7GnPuxCvkQjT", // p2sh address
+                  "Solana"
+                )
+              ).to.be.rejectedWith(
+                "Bitcoin recovery address must be P2PKH or P2WPKH"
+              )
+            })
+          })
+
+          context("when recovery address is correct", () => {
+            const assertCommonDepositProperties = (receipt: DepositReceipt) => {
+              expect(receipt.depositor).to.be.equal(
+                l1BitcoinDepositor.getChainIdentifier()
+              )
+
+              expect(receipt.walletPublicKeyHash).to.be.deep.equal(
+                Hex.from("8db50eb52063ea9d98b3eac91489a90f738986f6")
+              )
+
+              // Expect the refund locktime to be in the future.
+              const receiptTimestamp = BigNumber.from(
+                receipt.refundLocktime.reverse().toPrefixedString()
+              ).toNumber()
+              const currentTimestamp = Math.floor(new Date().getTime() / 1000)
+              expect(receiptTimestamp).to.be.greaterThan(currentTimestamp)
+
+              // Expect blinding factor to be set and 8-byte long.
+              expect(receipt.blindingFactor).not.to.be.undefined
+              expect(receipt.blindingFactor.toBuffer().length).to.be.equal(8)
+
+              expect(receipt.extraData).to.be.eql(
+                Hex.from(
+                  `000000000000000000000000${l2DepositOwner.identifierHex}`
+                )
+              )
+            }
+
+            context("when recovery address is P2PKH", () => {
+              let deposit: Deposit
+
+              beforeEach(async () => {
+                deposit = await depositService.initiateCrossChainDeposit(
+                  "mjc2zGWypwpNyDi4ZxGbBNnUA84bfgiwYc",
+                  "Solana"
+                )
+              })
+
+              it("should initiate deposit correctly", async () => {
+                // Inspect the deposit object by looking at its receipt.
+                const receipt = deposit.getReceipt()
+
+                assertCommonDepositProperties(receipt)
+
+                expect(receipt.refundPublicKeyHash).to.be.deep.equal(
+                  Hex.from("2cd680318747b720d67bf4246eb7403b476adb34")
+                )
+              })
+            })
+
+            context("when recovery address is P2WPKH", () => {
+              let deposit: Deposit
+
+              beforeEach(async () => {
+                deposit = await depositService.initiateCrossChainDeposit(
+                  "tb1qumuaw3exkxdhtut0u85latkqfz4ylgwstkdzsx",
+                  "Solana"
+                )
+              })
+
+              it("should initiate deposit correctly", async () => {
+                // Inspect the deposit object by looking at its receipt.
+                const receipt = deposit.getReceipt()
+
+                assertCommonDepositProperties(receipt)
+
+                expect(receipt.refundPublicKeyHash).to.be.deep.equal(
+                  Hex.from("e6f9d74726b19b75f16fe1e9feaec048aa4fa1d0")
+                )
               })
             })
           })
@@ -2365,8 +2800,10 @@ describe("Deposits", () => {
       "a7C94958CDC477feE1F7D78705275238134699F5"
     )
 
-    let l2BitcoinDepositor: MockL2BitcoinDepositor
+    let l2BitcoinDepositor: MockBitcoinDepositor
     let l1BitcoinDepositor: MockL1BitcoinDepositor
+    let l1BitcoinRedeemer: MockL1BitcoinRedeemer
+    let l2BitcoinRedeemer: MockL2BitcoinRedeemer
     let crossChainContracts: CrossChainContracts
     let depositor: CrossChainDepositor
 
@@ -2391,10 +2828,19 @@ describe("Deposits", () => {
         l1BitcoinDepositorEncoder
       )
 
+      l1BitcoinRedeemer = new MockL1BitcoinRedeemer(
+        EthereumAddress.from("0x1111111111111111111111111111111111111111")
+      )
+      l2BitcoinRedeemer = new MockL2BitcoinRedeemer(
+        EthereumAddress.from("0x2222222222222222222222222222222222222222")
+      )
+
       crossChainContracts = {
-        l2TbtcToken: new MockL2TBTCToken(),
-        l2BitcoinDepositor: l2BitcoinDepositor,
+        destinationChainTbtcToken: new MockL2TBTCToken(),
+        destinationChainBitcoinDepositor: l2BitcoinDepositor,
         l1BitcoinDepositor: l1BitcoinDepositor,
+        l1BitcoinRedeemer: l1BitcoinRedeemer,
+        l2BitcoinRedeemer: l2BitcoinRedeemer,
       }
 
       depositor = new CrossChainDepositor(crossChainContracts)
@@ -2416,7 +2862,7 @@ describe("Deposits", () => {
         () => {
           it("should throw", () => {
             expect(() => depositor.extraData()).to.throw(
-              "Cannot resolve L2 deposit owner"
+              "Cannot resolve destination chain deposit owner"
             )
           })
         }
@@ -2426,7 +2872,7 @@ describe("Deposits", () => {
         "when the deposit owner is set in the L2BitcoinDepositor contract",
         () => {
           beforeEach(async () => {
-            crossChainContracts.l2BitcoinDepositor.setDepositOwner(
+            crossChainContracts.destinationChainBitcoinDepositor.setDepositOwner(
               l2DepositOwner
             )
           })

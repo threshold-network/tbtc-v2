@@ -1,0 +1,137 @@
+{
+  "manifestVersion": "3.2",
+  "admin": {
+    "address": "0xbbe11Cb434f9DDAc9CC2eEC7D88D5C6ED4C41EA7",
+    "txHash": "0xf28a215383f01f3f757eac8e950907959b47f488c5233363cf4d11c3afd269b0"
+  },
+  "proxies": [
+    {
+      "address": "0xDEbD9aA9BC4845c7Cd2d9a997F82A2Daea540bD5",
+      "txHash": "0x8338ef2cea60670e4cce6c0ef68592abe2a1e7fc0cde5b2e5d74468438f3cecd",
+      "kind": "transparent"
+    }
+  ],
+  "impls": {
+    "6f8a080eb3d81df72370bb32bfb791d146b0b8bb3ffba9da54d6a2155f00b013": {
+      "address": "0xda04b0Ae3E07dd4a14Ca993C47461b5Be18C3D4A",
+      "txHash": "0x410681893ea908a34d396cd25fa019b3cad441852df67f6bb54f79b3592bf07c",
+      "layout": {
+        "solcVersion": "0.8.17",
+        "storage": [
+          {
+            "label": "_initialized",
+            "offset": 0,
+            "slot": "0",
+            "type": "t_uint8",
+            "contract": "Initializable",
+            "src": "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol:63",
+            "retypedFrom": "bool"
+          },
+          {
+            "label": "_initializing",
+            "offset": 1,
+            "slot": "0",
+            "type": "t_bool",
+            "contract": "Initializable",
+            "src": "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol:68"
+          },
+          {
+            "label": "__gap",
+            "offset": 0,
+            "slot": "1",
+            "type": "t_array(t_uint256)50_storage",
+            "contract": "ContextUpgradeable",
+            "src": "@openzeppelin/contracts-upgradeable/utils/ContextUpgradeable.sol:40"
+          },
+          {
+            "label": "_owner",
+            "offset": 0,
+            "slot": "51",
+            "type": "t_address",
+            "contract": "OwnableUpgradeable",
+            "src": "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol:22"
+          },
+          {
+            "label": "__gap",
+            "offset": 0,
+            "slot": "52",
+            "type": "t_array(t_uint256)49_storage",
+            "contract": "OwnableUpgradeable",
+            "src": "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol:94"
+          },
+          {
+            "label": "wormholeRelayer",
+            "offset": 0,
+            "slot": "101",
+            "type": "t_contract(IWormholeRelayer)4663",
+            "contract": "L2BitcoinDepositor",
+            "src": "contracts/baseSepolia/L2BitcoinDepositor.sol:55"
+          },
+          {
+            "label": "l2WormholeGateway",
+            "offset": 0,
+            "slot": "102",
+            "type": "t_contract(IL2WormholeGateway)4393",
+            "contract": "L2BitcoinDepositor",
+            "src": "contracts/baseSepolia/L2BitcoinDepositor.sol:59"
+          },
+          {
+            "label": "l1ChainId",
+            "offset": 20,
+            "slot": "102",
+            "type": "t_uint16",
+            "contract": "L2BitcoinDepositor",
+            "src": "contracts/baseSepolia/L2BitcoinDepositor.sol:65"
+          },
+          {
+            "label": "l1BitcoinDepositor",
+            "offset": 0,
+            "slot": "103",
+            "type": "t_address",
+            "contract": "L2BitcoinDepositor",
+            "src": "contracts/baseSepolia/L2BitcoinDepositor.sol:68"
+          }
+        ],
+        "types": {
+          "t_address": {
+            "label": "address",
+            "numberOfBytes": "20"
+          },
+          "t_array(t_uint256)49_storage": {
+            "label": "uint256[49]",
+            "numberOfBytes": "1568"
+          },
+          "t_array(t_uint256)50_storage": {
+            "label": "uint256[50]",
+            "numberOfBytes": "1600"
+          },
+          "t_bool": {
+            "label": "bool",
+            "numberOfBytes": "1"
+          },
+          "t_contract(IL2WormholeGateway)4393": {
+            "label": "contract IL2WormholeGateway",
+            "numberOfBytes": "20"
+          },
+          "t_contract(IWormholeRelayer)4663": {
+            "label": "contract IWormholeRelayer",
+            "numberOfBytes": "20"
+          },
+          "t_uint16": {
+            "label": "uint16",
+            "numberOfBytes": "2"
+          },
+          "t_uint256": {
+            "label": "uint256",
+            "numberOfBytes": "32"
+          },
+          "t_uint8": {
+            "label": "uint8",
+            "numberOfBytes": "1"
+          }
+        },
+        "namespaces": {}
+      }
+    }
+  }
+}

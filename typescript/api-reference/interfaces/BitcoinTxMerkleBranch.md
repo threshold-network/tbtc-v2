@@ -20,7 +20,7 @@ The height of the block the transaction was confirmed in.
 
 #### Defined in
 
-[lib/bitcoin/spv.ts:52](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/spv.ts#L52)
+[lib/bitcoin/spv.ts:52](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/spv.ts#L52)
 
 ___
 
@@ -34,7 +34,7 @@ the deepest pairing first. Each hash is an unprefixed hex string.
 
 #### Defined in
 
-[lib/bitcoin/spv.ts:59](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/spv.ts#L59)
+[lib/bitcoin/spv.ts:59](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/spv.ts#L59)
 
 ___
 
@@ -46,4 +46,4 @@ The 0-based index of the transaction's position in the block.
 
 #### Defined in
 
-[lib/bitcoin/spv.ts:64](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/spv.ts#L64)
+[lib/bitcoin/spv.ts:64](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/spv.ts#L64)

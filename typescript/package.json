@@ -1,10 +1,41 @@
 {
   "name": "@keep-network/tbtc-v2.ts",
-  "version": "2.5.0-dev",
+  "version": "4.0.0-dev",
   "license": "MIT",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./core": {
+      "types": "./dist/src/core.d.ts",
+      "default": "./dist/src/core.js"
+    },
+    "./solana": {
+      "types": "./dist/src/lib/solana/index.d.ts",
+      "default": "./dist/src/lib/solana/index.js"
+    },
+    "./starknet": {
+      "types": "./dist/src/lib/starknet/index.d.ts",
+      "default": "./dist/src/lib/starknet/index.js"
+    },
+    "./arbitrum": {
+      "types": "./dist/src/lib/arbitrum/index.d.ts",
+      "default": "./dist/src/lib/arbitrum/index.js"
+    },
+    "./base": {
+      "types": "./dist/src/lib/base/index.d.ts",
+      "default": "./dist/src/lib/base/index.js"
+    },
+    "./sui": {
+      "types": "./dist/src/lib/sui/index.d.ts",
+      "default": "./dist/src/lib/sui/index.js"
+    }
+  },
   "scripts": {
+    "postinstall": "patch-package",
     "refund": "ts-node --files ./scripts/refund.ts",
     "format": "yarn run lint && prettier --check .",
     "format:fix": "yarn run lint:fix && prettier --write .",
@@ -19,22 +50,30 @@
   "files": [
     "dist/",
     "src/",
-    "typechain/"
+    "typechain/",
+    "patches/"
   ],
   "config": {
-    "contracts": "./node_modules/@keep-network/ecdsa/artifacts/WalletRegistry.json ./node_modules/@keep-network/tbtc-v2/artifacts/{Bridge,TBTCVault,TBTC}.json ./node_modules/@keep-network/tbtc-v2/build/contracts/l2/L1BitcoinDepositor.sol/L1BitcoinDepositor.json ./node_modules/@keep-network/tbtc-v2/build/contracts/l2/L2BitcoinDepositor.sol/L2BitcoinDepositor.json ./node_modules/@keep-network/tbtc-v2/build/contracts/l2/L2TBTC.sol/L2TBTC.json"
+    "contracts": "./src/lib/ethereum/artifacts/sepolia/L1BitcoinRedeemer.json ./src/lib/base/artifacts/baseSepolia/BaseL2BitcoinRedeemer.json ./src/lib/arbitrum/artifacts/arbitrumSepolia/ArbitrumL2BitcoinRedeemer.json ./node_modules/@keep-network/ecdsa/artifacts/WalletRegistry.json ./node_modules/@keep-network/tbtc-v2/artifacts/{Bridge,TBTCVault,TBTC}.json ./node_modules/@keep-network/tbtc-v2/build/contracts/l2/L1BitcoinDepositor.sol/L1BitcoinDepositor.json ./node_modules/@keep-network/tbtc-v2/build/contracts/l2/L2BitcoinDepositor.sol/L2BitcoinDepositor.json ./node_modules/@keep-network/tbtc-v2/build/contracts/l2/L2TBTC.sol/L2TBTC.json"
   },
   "dependencies": {
     "@bitcoinerlab/secp256k1": "^1.0.5",
+    "@coral-xyz/anchor": "0.28.0",
     "@keep-network/ecdsa": "development",
     "@keep-network/tbtc-v2": "development",
+    "@mysten/sui": "1.34.0",
+    "@solana/spl-token": "0.3.9",
+    "@solana/web3.js": "~1.97.0",
+    "axios": "^1.9.0",
     "bignumber.js": "^9.1.2",
     "bitcoinjs-lib": "^6.1.5",
     "bufio": "^1.0.6",
     "ecpair": "^2.1.0",
-    "electrum-client-js": "git+https://github.com/keep-network/electrum-client-js.git#v0.1.1",
+    "electrum-client-js": "git+https://github.com/keep-network/electrum-client-js.git#v0.2.0",
     "ethers": "^5.5.2",
     "p-timeout": "^4.1.0",
+    "patch-package": "8.0.0",
+    "starknet": "^6.24.1",
     "url-parse": "^1.5.10",
     "wif": "2.0.6"
   },
@@ -45,10 +84,11 @@
     "@types/chai": "^4.2.21",
     "@types/chai-as-promised": "^7.1.4",
     "@types/mocha": "^8.2.3",
-    "@types/node": "^16.4.0",
+    "@types/node": "18",
+    "@types/sinon": "^17.0.4",
     "@types/url-parse": "^1.4.11",
-    "@typescript-eslint/eslint-plugin": "^4.28.3",
-    "@typescript-eslint/parser": "^4.28.3",
+    "@typescript-eslint/eslint-plugin": "^5.0.0",
+    "@typescript-eslint/parser": "^5.0.0",
     "chai": "^4.3.4",
     "chai-as-promised": "^7.1.1",
     "commander": "^9.4.0",
@@ -57,15 +97,25 @@
     "ethereum-waffle": "4.0.0-alpha.25",
     "mocha": "^9.0.2",
     "prettier": "^2.3.2",
+    "sinon": "^20.0.0",
     "ts-node": "^10.8.0",
     "typechain": "^8.1.1",
     "typedoc": "^0.25.3",
     "typedoc-plugin-markdown": "^3.17.0",
-    "typescript": "^4.6.0"
+    "typescript": "^5.0.0"
+  },
+  "resolutions": {
+    "secp256k1": "4.0.3",
+    "@solana/web3.js": "1.97.0"
+  },
+  "overrides": {
+    "secp256k1": "4.0.3",
+    "@solana/web3.js": "1.97.0"
   },
   "engines": {
     "node": ">=16"
   },
+  "packageManager": "yarn@4.12.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/keep-network/tbtc-v2.git",

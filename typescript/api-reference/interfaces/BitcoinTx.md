@@ -20,7 +20,7 @@ The vector of transaction inputs.
 
 #### Defined in
 
-[lib/bitcoin/tx.ts:37](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L37)
+[lib/bitcoin/tx.ts:37](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L37)
 
 ___
 
@@ -32,7 +32,7 @@ The vector of transaction outputs.
 
 #### Defined in
 
-[lib/bitcoin/tx.ts:42](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L42)
+[lib/bitcoin/tx.ts:42](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L42)
 
 ___
 
@@ -44,4 +44,4 @@ The transaction hash (or transaction ID) as an un-prefixed hex string.
 
 #### Defined in
 
-[lib/bitcoin/tx.ts:32](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L32)
+[lib/bitcoin/tx.ts:32](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/bitcoin/tx.ts#L32)

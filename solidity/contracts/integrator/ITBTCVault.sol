@@ -28,4 +28,7 @@ interface ITBTCVault {
 
     /// @dev See {TBTCVault#tbtcToken}
     function tbtcToken() external view returns (address);
+
+    /// @dev See {TBTCVault#unmint}
+    function unmint(uint256 amount) external;
 }

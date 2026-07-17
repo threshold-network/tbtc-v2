@@ -17,11 +17,11 @@ on.
 
 • **loadChainMapping**: () => `undefined` \| [`ChainMapping`](../README.md#chainmapping)
 
+Loads the chain mapping based on underlying L1 chain.
+
 #### Type declaration
 
 ▸ (): `undefined` \| [`ChainMapping`](../README.md#chainmapping)
-
-Loads the chain mapping based on underlying L1 chain.
 
 ##### Returns
 
@@ -29,25 +29,25 @@ Loads the chain mapping based on underlying L1 chain.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:38](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L38)
+[lib/contracts/cross-chain.ts:42](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L42)
 
 ___
 
 ### loadL1Contracts
 
-• **loadL1Contracts**: (`l2ChainName`: ``"Base"``) => `Promise`\<[`L1CrossChainContracts`](../README.md#l1crosschaincontracts)\>
+• **loadL1Contracts**: (`destinationChainName`: [`DestinationChainName`](../README.md#destinationchainname)) => `Promise`\<[`L1CrossChainContracts`](../README.md#l1crosschaincontracts)\>
+
+Loads L1-specific TBTC cross-chain contracts for the given destination chain.
 
 #### Type declaration
 
-▸ (`l2ChainName`): `Promise`\<[`L1CrossChainContracts`](../README.md#l1crosschaincontracts)\>
-
-Loads L1-specific TBTC cross-chain contracts for the given L2 chain.
+▸ (`destinationChainName`): `Promise`\<[`L1CrossChainContracts`](../README.md#l1crosschaincontracts)\>
 
 ##### Parameters
 
 | Name | Type | Description |
 | :------ | :------ | :------ |
-| `l2ChainName` | ``"Base"`` | Name of the L2 chain for which to load L1 contracts. |
+| `destinationChainName` | [`DestinationChainName`](../README.md#destinationchainname) | Name of the destination chain for which to load L1 contracts. |
 
 ##### Returns
 
@@ -55,4 +55,4 @@ Loads L1-specific TBTC cross-chain contracts for the given L2 chain.
 
 #### Defined in
 
-[lib/contracts/cross-chain.ts:43](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L43)
+[lib/contracts/cross-chain.ts:47](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/cross-chain.ts#L47)

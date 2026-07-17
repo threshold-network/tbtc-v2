@@ -22,7 +22,7 @@ any action in the Bridge.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:395](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L395)
+[lib/contracts/bridge.ts:395](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L395)
 
 ___
 
@@ -36,7 +36,7 @@ and must defend against them.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:390](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L390)
+[lib/contracts/bridge.ts:390](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L390)
 
 ___
 
@@ -48,7 +48,7 @@ The wallet can sweep deposits and accept redemption requests.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:377](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L377)
+[lib/contracts/bridge.ts:377](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L377)
 
 ___
 
@@ -63,7 +63,7 @@ accepted.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:384](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L384)
+[lib/contracts/bridge.ts:384](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L384)
 
 ___
 
@@ -78,7 +78,7 @@ any actions in the Bridge.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:402](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L402)
+[lib/contracts/bridge.ts:402](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L402)
 
 ___
 
@@ -90,4 +90,4 @@ The wallet is unknown to the Bridge.
 
 #### Defined in
 
-[lib/contracts/bridge.ts:373](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L373)
+[lib/contracts/bridge.ts:373](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/contracts/bridge.ts#L373)

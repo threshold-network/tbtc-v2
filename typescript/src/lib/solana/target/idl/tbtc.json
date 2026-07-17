@@ -1,0 +1,560 @@
+{
+  "version": "0.1.0",
+  "name": "tbtc",
+  "constants": [
+    {
+      "name": "SEED_PREFIX_TBTC_MINT",
+      "type": "bytes",
+      "value": "[116, 98, 116, 99, 45, 109, 105, 110, 116]"
+    }
+  ],
+  "instructions": [
+    {
+      "name": "initialize",
+      "accounts": [
+        {
+          "name": "mint",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "config",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "guardians",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "minters",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "authority",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "tbtcMetadata",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "rent",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "mplTokenMetadataProgram",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "tokenProgram",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "systemProgram",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "changeAuthority",
+      "accounts": [
+        {
+          "name": "config",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "authority",
+          "isMut": false,
+          "isSigner": true
+        },
+        {
+          "name": "newAuthority",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "cancelAuthorityChange",
+      "accounts": [
+        {
+          "name": "config",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "authority",
+          "isMut": false,
+          "isSigner": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "takeAuthority",
+      "accounts": [
+        {
+          "name": "config",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "pendingAuthority",
+          "isMut": false,
+          "isSigner": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "addMinter",
+      "accounts": [
+        {
+          "name": "config",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "authority",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "minters",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "minterInfo",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "minter",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "systemProgram",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "removeMinter",
+      "accounts": [
+        {
+          "name": "config",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "authority",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "minters",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "minterInfo",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "minter",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "systemProgram",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "addGuardian",
+      "accounts": [
+        {
+          "name": "config",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "authority",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "guardians",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "guardianInfo",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "guardian",
+          "isMut": false,
+          "isSigner": false,
+          "docs": ["`Guardians`."]
+        },
+        {
+          "name": "systemProgram",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "removeGuardian",
+      "accounts": [
+        {
+          "name": "config",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "authority",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "guardians",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "guardianInfo",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "guardian",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "systemProgram",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "pause",
+      "accounts": [
+        {
+          "name": "config",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "guardianInfo",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "guardian",
+          "isMut": false,
+          "isSigner": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "unpause",
+      "accounts": [
+        {
+          "name": "config",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "authority",
+          "isMut": false,
+          "isSigner": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "mint",
+      "accounts": [
+        {
+          "name": "mint",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "config",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "minterInfo",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "minter",
+          "isMut": false,
+          "isSigner": true
+        },
+        {
+          "name": "recipientToken",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "tokenProgram",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Config",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "authority",
+            "docs": ["The authority over this program."],
+            "type": "publicKey"
+          },
+          {
+            "name": "pendingAuthority",
+            "type": {
+              "option": "publicKey"
+            }
+          },
+          {
+            "name": "mint",
+            "type": "publicKey"
+          },
+          {
+            "name": "mintBump",
+            "type": "u8"
+          },
+          {
+            "name": "numMinters",
+            "type": "u32"
+          },
+          {
+            "name": "numGuardians",
+            "type": "u32"
+          },
+          {
+            "name": "paused",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GuardianInfo",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "guardian",
+            "type": "publicKey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Guardians",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "keys",
+            "type": {
+              "vec": "publicKey"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "MinterInfo",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "minter",
+            "type": "publicKey"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Minters",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "keys",
+            "type": {
+              "vec": "publicKey"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "events": [
+    {
+      "name": "MinterAdded",
+      "fields": [
+        {
+          "name": "minter",
+          "type": "publicKey",
+          "index": false
+        }
+      ]
+    },
+    {
+      "name": "MinterRemoved",
+      "fields": [
+        {
+          "name": "minter",
+          "type": "publicKey",
+          "index": false
+        }
+      ]
+    },
+    {
+      "name": "GuardianAdded",
+      "fields": [
+        {
+          "name": "guardian",
+          "type": "publicKey",
+          "index": false
+        }
+      ]
+    },
+    {
+      "name": "GuardianRemoved",
+      "fields": [
+        {
+          "name": "guardian",
+          "type": "publicKey",
+          "index": false
+        }
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6032,
+      "name": "IsNotAuthority",
+      "msg": "Not valid authority to perform this action"
+    },
+    {
+      "code": 6034,
+      "name": "IsNotPendingAuthority",
+      "msg": "Not valid pending authority to take authority"
+    },
+    {
+      "code": 6036,
+      "name": "NoPendingAuthorityChange",
+      "msg": "No pending authority"
+    },
+    {
+      "code": 6048,
+      "name": "GuardianAlreadyExists",
+      "msg": "This address is already a guardian"
+    },
+    {
+      "code": 6050,
+      "name": "GuardianNonexistent",
+      "msg": "This address is not a guardian"
+    },
+    {
+      "code": 6052,
+      "name": "SignerNotGuardian",
+      "msg": "Caller is not a guardian"
+    },
+    {
+      "code": 6064,
+      "name": "MinterAlreadyExists",
+      "msg": "This address is already a minter"
+    },
+    {
+      "code": 6066,
+      "name": "MinterNonexistent",
+      "msg": "This address is not a minter"
+    },
+    {
+      "code": 6068,
+      "name": "SignerNotMinter",
+      "msg": "Caller is not a minter"
+    },
+    {
+      "code": 6080,
+      "name": "IsPaused",
+      "msg": "Program is paused"
+    },
+    {
+      "code": 6082,
+      "name": "IsNotPaused",
+      "msg": "Program is not paused"
+    }
+  ],
+  "metadata": {
+    "address": "Gj93RRt6QB7FjmyokAD5rcMAku7pq3Fk2Aa8y6nNbwsV"
+  }
+}

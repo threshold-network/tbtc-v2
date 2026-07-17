@@ -22,13 +22,14 @@ Service exposing features related to tBTC v2 deposits.
 - [initiateCrossChainDeposit](DepositsService.md#initiatecrosschaindeposit)
 - [initiateDeposit](DepositsService.md#initiatedeposit)
 - [initiateDepositWithProxy](DepositsService.md#initiatedepositwithproxy)
+- [setCrossChainContractsResolver](DepositsService.md#setcrosschaincontractsresolver)
 - [setDefaultDepositor](DepositsService.md#setdefaultdepositor)
 
 ## Constructors
 
 ### constructor
 
-• **new DepositsService**(`tbtcContracts`, `bitcoinClient`, `crossChainContracts`): [`DepositsService`](DepositsService.md)
+• **new DepositsService**(`tbtcContracts`, `bitcoinClient`, `crossChainContracts?`): [`DepositsService`](DepositsService.md)
 
 #### Parameters
 
@@ -36,7 +37,7 @@ Service exposing features related to tBTC v2 deposits.
 | :------ | :------ |
 | `tbtcContracts` | [`TBTCContracts`](../README.md#tbtccontracts) |
 | `bitcoinClient` | [`BitcoinClient`](../interfaces/BitcoinClient.md) |
-| `crossChainContracts` | (`_`: ``"Base"``) => `undefined` \| [`CrossChainContracts`](../README.md#crosschaincontracts) |
+| `crossChainContracts?` | (`_`: [`DestinationChainName`](../README.md#destinationchainname)) => `undefined` \| [`CrossChainInterfaces`](../README.md#crosschaininterfaces) |
 
 #### Returns
 
@@ -44,36 +45,33 @@ Service exposing features related to tBTC v2 deposits.
 
 #### Defined in
 
-[services/deposits/deposits-service.ts:51](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L51)
+[services/deposits/deposits-service.ts:53](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L53)
 
 ## Properties
 
 ### #crossChainContracts
 
-• `Private` `Readonly` **#crossChainContracts**: (`_`: ``"Base"``) => `undefined` \| [`CrossChainContracts`](../README.md#crosschaincontracts)
+• `Private` **#crossChainContracts**: (`_`: [`DestinationChainName`](../README.md#destinationchainname)) => `undefined` \| [`CrossChainInterfaces`](../README.md#crosschaininterfaces)
+
+Gets cross-chain contracts for the given supported L2 chain.
 
 #### Type declaration
 
-▸ (`_`): `undefined` \| [`CrossChainContracts`](../README.md#crosschaincontracts)
-
-Gets cross-chain contracts for the given supported L2 chain.
+▸ (`_`): `undefined` \| [`CrossChainInterfaces`](../README.md#crosschaininterfaces)
 
 ##### Parameters
 
 | Name | Type | Description |
 | :------ | :------ | :------ |
-| `_` | ``"Base"`` | Name of the L2 chain for which to get cross-chain contracts. |
+| `_` | [`DestinationChainName`](../README.md#destinationchainname) | Name of the L2 chain for which to get cross-chain contracts. |
 
 ##### Returns
 
-`undefined` \| [`CrossChainContracts`](../README.md#crosschaincontracts)
-
-Cross-chain contracts for the given L2 chain or
-         undefined if not initialized.
+`undefined` \| [`CrossChainInterfaces`](../README.md#crosschaininterfaces)
 
 #### Defined in
 
-[services/deposits/deposits-service.ts:49](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L49)
+[services/deposits/deposits-service.ts:49](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L49)
 
 ___
 
@@ -86,7 +84,7 @@ initiated by this service.
 
 #### Defined in
 
-[services/deposits/deposits-service.ts:42](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L42)
+[services/deposits/deposits-service.ts:42](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L42)
 
 ___
 
@@ -98,7 +96,7 @@ Bitcoin client handle.
 
 #### Defined in
 
-[services/deposits/deposits-service.ts:37](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L37)
+[services/deposits/deposits-service.ts:37](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L37)
 
 ___
 
@@ -111,7 +109,7 @@ This is 9 month in seconds assuming 1 month = 30 days
 
 #### Defined in
 
-[services/deposits/deposits-service.ts:29](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L29)
+[services/deposits/deposits-service.ts:29](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L29)
 
 ___
 
@@ -123,7 +121,7 @@ Handle to tBTC contracts.
 
 #### Defined in
 
-[services/deposits/deposits-service.ts:33](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L33)
+[services/deposits/deposits-service.ts:33](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L33)
 
 ## Methods
 
@@ -145,13 +143,13 @@ Handle to tBTC contracts.
 
 #### Defined in
 
-[services/deposits/deposits-service.ts:183](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L183)
+[services/deposits/deposits-service.ts:202](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L202)
 
 ___
 
 ### initiateCrossChainDeposit
 
-▸ **initiateCrossChainDeposit**(`bitcoinRecoveryAddress`, `l2ChainName`): `Promise`\<[`Deposit`](Deposit.md)\>
+▸ **initiateCrossChainDeposit**(`bitcoinRecoveryAddress`, `destinationChainName`): `Promise`\<[`Deposit`](Deposit.md)\>
 
 Initiates the tBTC v2 cross-chain deposit process. A cross-chain deposit
 is a deposit that targets an L2 chain other than the L1 chain the tBTC
@@ -169,7 +167,7 @@ must be initialized along with a L2 signer first.
 | Name | Type | Description |
 | :------ | :------ | :------ |
 | `bitcoinRecoveryAddress` | `string` | P2PKH or P2WPKH Bitcoin address that can be used for emergency recovery of the deposited funds. |
-| `l2ChainName` | ``"Base"`` | Name of the L2 chain the deposit is targeting. |
+| `destinationChainName` | [`DestinationChainName`](../README.md#destinationchainname) | Name of the L2 chain the deposit is targeting. |
 
 #### Returns
 
@@ -199,7 +197,7 @@ This is actually a call to initiateDepositWithProxy with a built-in
 
 #### Defined in
 
-[services/deposits/deposits-service.ts:163](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L163)
+[services/deposits/deposits-service.ts:182](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L182)
 
 ___
 
@@ -233,7 +231,7 @@ Throws an error if one of the following occurs:
 
 #### Defined in
 
-[services/deposits/deposits-service.ts:76](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L76)
+[services/deposits/deposits-service.ts:95](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L95)
 
 ___
 
@@ -275,7 +273,31 @@ Throws an error if one of the following occurs:
 
 #### Defined in
 
-[services/deposits/deposits-service.ts:115](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L115)
+[services/deposits/deposits-service.ts:134](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L134)
+
+___
+
+### setCrossChainContractsResolver
+
+▸ **setCrossChainContractsResolver**(`resolver`): `void`
+
+Sets the cross-chain contracts resolver after construction. This is
+used by the TBTC class to wire up cross-chain contract resolution
+once the loader is ready.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `resolver` | (`_`: [`DestinationChainName`](../README.md#destinationchainname)) => `undefined` \| [`CrossChainInterfaces`](../README.md#crosschaininterfaces) | Function that returns cross-chain contracts for a given destination chain name, or undefined if not initialized. |
+
+#### Returns
+
+`void`
+
+#### Defined in
+
+[services/deposits/deposits-service.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L74)
 
 ___
 
@@ -304,4 +326,4 @@ Typically, there is no need to use this method when DepositsService
 
 #### Defined in
 
-[services/deposits/deposits-service.ts:261](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L261)
+[services/deposits/deposits-service.ts:280](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/deposits/deposits-service.ts#L280)

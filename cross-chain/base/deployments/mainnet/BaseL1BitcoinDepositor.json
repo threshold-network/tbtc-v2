@@ -1,0 +1,801 @@
+{
+  "address": "0x186D048097c7406C64EfB0537886E3CaE100a1fe",
+  "abi": [
+    {
+      "inputs": [],
+      "stateMutability": "nonpayable",
+      "type": "constructor"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "depositKey",
+          "type": "uint256"
+        },
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "destinationChainDepositOwner",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "l1Sender",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "initialAmount",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "tbtcAmount",
+          "type": "uint256"
+        }
+      ],
+      "name": "DepositFinalized",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "depositKey",
+          "type": "uint256"
+        },
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "destinationChainDepositOwner",
+          "type": "bytes32"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "l1Sender",
+          "type": "address"
+        }
+      ],
+      "name": "DepositInitialized",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "initializeDepositGasOffset",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "finalizeDepositGasOffset",
+          "type": "uint256"
+        }
+      ],
+      "name": "GasOffsetParametersUpdated",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "uint8",
+          "name": "version",
+          "type": "uint8"
+        }
+      ],
+      "name": "Initialized",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "l2FinalizeDepositGasLimit",
+          "type": "uint256"
+        }
+      ],
+      "name": "L2FinalizeDepositGasLimitUpdated",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "previousOwner",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "newOwner",
+          "type": "address"
+        }
+      ],
+      "name": "OwnershipTransferred",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "bool",
+          "name": "reimburseTxMaxFee",
+          "type": "bool"
+        }
+      ],
+      "name": "ReimburseTxMaxFeeUpdated",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "_address",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "bool",
+          "name": "authorization",
+          "type": "bool"
+        }
+      ],
+      "name": "ReimbursementAuthorizationUpdated",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "newReimbursementPool",
+          "type": "address"
+        }
+      ],
+      "name": "ReimbursementPoolUpdated",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "l2Receiver",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint64",
+          "name": "transferSequence",
+          "type": "uint64"
+        }
+      ],
+      "name": "TokensTransferredWithPayload",
+      "type": "event"
+    },
+    {
+      "inputs": [],
+      "name": "SATOSHI_MULTIPLIER",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_l2BitcoinDepositor",
+          "type": "address"
+        }
+      ],
+      "name": "attachL2BitcoinDepositor",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "bridge",
+      "outputs": [
+        {
+          "internalType": "contract IBridge",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "name": "deposits",
+      "outputs": [
+        {
+          "internalType": "enum L1BTCDepositorWormholeV2Base.DepositState",
+          "name": "",
+          "type": "uint8"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "depositKey",
+          "type": "uint256"
+        }
+      ],
+      "name": "finalizeDeposit",
+      "outputs": [],
+      "stateMutability": "payable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "finalizeDepositGasOffset",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "name": "gasReimbursements",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "receiver",
+          "type": "address"
+        },
+        {
+          "internalType": "uint96",
+          "name": "gasSpent",
+          "type": "uint96"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_tbtcBridge",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_tbtcVault",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_wormhole",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_wormholeRelayer",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_wormholeTokenBridge",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "_l2WormholeGateway",
+          "type": "address"
+        },
+        {
+          "internalType": "uint16",
+          "name": "_l2ChainId",
+          "type": "uint16"
+        }
+      ],
+      "name": "initialize",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "components": [
+            {
+              "internalType": "bytes4",
+              "name": "version",
+              "type": "bytes4"
+            },
+            {
+              "internalType": "bytes",
+              "name": "inputVector",
+              "type": "bytes"
+            },
+            {
+              "internalType": "bytes",
+              "name": "outputVector",
+              "type": "bytes"
+            },
+            {
+              "internalType": "bytes4",
+              "name": "locktime",
+              "type": "bytes4"
+            }
+          ],
+          "internalType": "struct IBridgeTypes.BitcoinTxInfo",
+          "name": "fundingTx",
+          "type": "tuple"
+        },
+        {
+          "components": [
+            {
+              "internalType": "uint32",
+              "name": "fundingOutputIndex",
+              "type": "uint32"
+            },
+            {
+              "internalType": "bytes8",
+              "name": "blindingFactor",
+              "type": "bytes8"
+            },
+            {
+              "internalType": "bytes20",
+              "name": "walletPubKeyHash",
+              "type": "bytes20"
+            },
+            {
+              "internalType": "bytes20",
+              "name": "refundPubKeyHash",
+              "type": "bytes20"
+            },
+            {
+              "internalType": "bytes4",
+              "name": "refundLocktime",
+              "type": "bytes4"
+            },
+            {
+              "internalType": "address",
+              "name": "vault",
+              "type": "address"
+            }
+          ],
+          "internalType": "struct IBridgeTypes.DepositRevealInfo",
+          "name": "reveal",
+          "type": "tuple"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "destinationChainDepositOwner",
+          "type": "bytes32"
+        }
+      ],
+      "name": "initializeDeposit",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "initializeDepositGasOffset",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "l2BitcoinDepositor",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "l2ChainId",
+      "outputs": [
+        {
+          "internalType": "uint16",
+          "name": "",
+          "type": "uint16"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "l2FinalizeDepositGasLimit",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "l2WormholeGateway",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "owner",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "quoteFinalizeDeposit",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "cost",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "reimburseTxMaxFee",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "reimbursementAuthorizations",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "reimbursementPool",
+      "outputs": [
+        {
+          "internalType": "contract ReimbursementPool",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "renounceOwnership",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bool",
+          "name": "_reimburseTxMaxFee",
+          "type": "bool"
+        }
+      ],
+      "name": "setReimburseTxMaxFee",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "tbtcToken",
+      "outputs": [
+        {
+          "internalType": "contract IERC20Upgradeable",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "tbtcVault",
+      "outputs": [
+        {
+          "internalType": "contract ITBTCVault",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "newOwner",
+          "type": "address"
+        }
+      ],
+      "name": "transferOwnership",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "_initializeDepositGasOffset",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "_finalizeDepositGasOffset",
+          "type": "uint256"
+        }
+      ],
+      "name": "updateGasOffsetParameters",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "_l2FinalizeDepositGasLimit",
+          "type": "uint256"
+        }
+      ],
+      "name": "updateL2FinalizeDepositGasLimit",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_address",
+          "type": "address"
+        },
+        {
+          "internalType": "bool",
+          "name": "authorization",
+          "type": "bool"
+        }
+      ],
+      "name": "updateReimbursementAuthorization",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "contract ReimbursementPool",
+          "name": "_reimbursementPool",
+          "type": "address"
+        }
+      ],
+      "name": "updateReimbursementPool",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "wormhole",
+      "outputs": [
+        {
+          "internalType": "contract IWormhole",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "wormholeRelayer",
+      "outputs": [
+        {
+          "internalType": "contract IWormholeRelayer",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "wormholeTokenBridge",
+      "outputs": [
+        {
+          "internalType": "contract IWormholeTokenBridge",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    }
+  ],
+  "transactionHash": "0xcbe0778409a7ac55c62bc8aa84d3e29cd816c180f69849cba1b1bb7dd05be207",
+  "receipt": {
+    "to": null,
+    "from": "0x353C5c3DE81EDb53FFB398f6416f962b90ae8611",
+    "contractAddress": "0x186D048097c7406C64EfB0537886E3CaE100a1fe",
+    "transactionIndex": 73,
+    "gasUsed": "890161",
+    "logsBloom": "0x00000000000000000000000000000000400000000000000000800000000000000000000000000000000000000000000000000010000000000004000000000000000000000000000000000000000002000001000000000080000400000000000000000000020000000000000000000800000000800000000000000000000000400000000000000000000000000000000000000000000080000000030000800000000000000000000000000000000400000000000200000000000000000000000000000020000000000000000000040000000000000400000000000000000020100000000000000000000000000000000000000080000000000000000000000000",
+    "blockHash": "0xf635b1a7ef6398780d268c90950f5fae8c4b76ba46f0e07b2c6dc51a56ca062e",
+    "transactionHash": "0xcbe0778409a7ac55c62bc8aa84d3e29cd816c180f69849cba1b1bb7dd05be207",
+    "logs": [
+      {
+        "transactionIndex": 73,
+        "blockNumber": 21961116,
+        "transactionHash": "0xcbe0778409a7ac55c62bc8aa84d3e29cd816c180f69849cba1b1bb7dd05be207",
+        "address": "0x186D048097c7406C64EfB0537886E3CaE100a1fe",
+        "topics": [
+          "0xbc7cd75a20ee27fd9adebab32041f755214dbc6bffa90cc0225b39da2e5c2d3b",
+          "0x00000000000000000000000059fae614867b66421b44d1ed3461e6b6a4b50106"
+        ],
+        "data": "0x",
+        "logIndex": 218,
+        "blockHash": "0xf635b1a7ef6398780d268c90950f5fae8c4b76ba46f0e07b2c6dc51a56ca062e"
+      },
+      {
+        "transactionIndex": 73,
+        "blockNumber": 21961116,
+        "transactionHash": "0xcbe0778409a7ac55c62bc8aa84d3e29cd816c180f69849cba1b1bb7dd05be207",
+        "address": "0x186D048097c7406C64EfB0537886E3CaE100a1fe",
+        "topics": [
+          "0x8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e0",
+          "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "0x000000000000000000000000353c5c3de81edb53ffb398f6416f962b90ae8611"
+        ],
+        "data": "0x",
+        "logIndex": 219,
+        "blockHash": "0xf635b1a7ef6398780d268c90950f5fae8c4b76ba46f0e07b2c6dc51a56ca062e"
+      },
+      {
+        "transactionIndex": 73,
+        "blockNumber": 21961116,
+        "transactionHash": "0xcbe0778409a7ac55c62bc8aa84d3e29cd816c180f69849cba1b1bb7dd05be207",
+        "address": "0x186D048097c7406C64EfB0537886E3CaE100a1fe",
+        "topics": [
+          "0x7f26b83ff96e1f2b6a682f133852f6798a09c465da95921460cefb3847402498"
+        ],
+        "data": "0x0000000000000000000000000000000000000000000000000000000000000001",
+        "logIndex": 220,
+        "blockHash": "0xf635b1a7ef6398780d268c90950f5fae8c4b76ba46f0e07b2c6dc51a56ca062e"
+      },
+      {
+        "transactionIndex": 73,
+        "blockNumber": 21961116,
+        "transactionHash": "0xcbe0778409a7ac55c62bc8aa84d3e29cd816c180f69849cba1b1bb7dd05be207",
+        "address": "0x186D048097c7406C64EfB0537886E3CaE100a1fe",
+        "topics": [
+          "0x7e644d79422f17c01e4894b5f4f588d331ebfa28653d42ae832dc59e38c9798f"
+        ],
+        "data": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000005a165919357eb5854287a0bad49d703f144b187f",
+        "logIndex": 221,
+        "blockHash": "0xf635b1a7ef6398780d268c90950f5fae8c4b76ba46f0e07b2c6dc51a56ca062e"
+      }
+    ],
+    "blockNumber": 21961116,
+    "cumulativeGasUsed": "8570750",
+    "status": 1,
+    "byzantium": true
+  },
+  "numDeployments": 2,
+  "implementation": "0x32aAfccfb865060F7F9fB3766c50134F9228B67E",
+  "devdoc": "Contract deployed as upgradable proxy"
+}

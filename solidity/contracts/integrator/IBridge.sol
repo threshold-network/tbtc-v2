@@ -15,6 +15,8 @@
 
 pragma solidity ^0.8.0;
 
+import "./BitcoinTx.sol";
+
 /// @notice Namespace which groups all types relevant to the IBridge interface.
 /// @dev This is a mirror of the real types used in the Bridge contract.
 ///      This way, the `integrator` subpackage does not need to import
@@ -49,6 +51,15 @@ library IBridgeTypes {
         uint32 sweptAt;
         bytes32 extraData;
     }
+
+    /// @dev See bridge/Redemption.sol#RedemptionRequest
+    struct RedemptionRequest {
+        address redeemer;
+        uint64 requestedAmount;
+        uint64 treasuryFee;
+        uint64 txMaxFee;
+        uint32 requestedAt;
+    }
 }
 
 /// @notice Interface of the Bridge contract.
@@ -76,5 +87,33 @@ interface IBridge {
             uint64 depositTreasuryFeeDivisor,
             uint64 depositTxMaxFee,
             uint32 depositRevealAheadPeriod
+        );
+
+    /// @dev See {Bridge#requestRedemption}
+    function requestRedemption(
+        bytes20 walletPubKeyHash,
+        BitcoinTx.UTXO calldata mainUtxo,
+        bytes calldata redeemerOutputScript,
+        uint64 amount
+    ) external;
+
+    /// @dev See {Bridge#pendingRedemptions}
+    function pendingRedemptions(uint256 redemptionKey)
+        external
+        view
+        returns (IBridgeTypes.RedemptionRequest memory);
+
+    /// @dev See {Bridge#redemptionParameters}
+    function redemptionParameters()
+        external
+        view
+        returns (
+            uint64 redemptionDustThreshold,
+            uint64 redemptionTreasuryFeeDivisor,
+            uint64 redemptionTxMaxFee,
+            uint64 redemptionTxMaxTotalFee,
+            uint32 redemptionTimeout,
+            uint96 redemptionTimeoutSlashingAmount,
+            uint32 redemptionTimeoutNotifierRewardMultiplier
         );
 }

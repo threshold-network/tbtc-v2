@@ -1,9 +1,9 @@
 import {
   ChainIdentifier,
-  CrossChainContracts,
+  CrossChainInterfaces,
   DepositorProxy,
   DepositReceipt,
-  L2Chain,
+  DestinationChainName,
   TBTCContracts,
 } from "../../lib/contracts"
 import {
@@ -46,16 +46,35 @@ export class DepositsService {
    * @returns Cross-chain contracts for the given L2 chain or
    *          undefined if not initialized.
    */
-  readonly #crossChainContracts: (_: L2Chain) => CrossChainContracts | undefined
+  #crossChainContracts: (
+    _: DestinationChainName
+  ) => CrossChainInterfaces | undefined
 
   constructor(
     tbtcContracts: TBTCContracts,
     bitcoinClient: BitcoinClient,
-    crossChainContracts: (_: L2Chain) => CrossChainContracts | undefined
+    crossChainContracts?: (
+      _: DestinationChainName
+    ) => CrossChainInterfaces | undefined
   ) {
     this.tbtcContracts = tbtcContracts
     this.bitcoinClient = bitcoinClient
-    this.#crossChainContracts = crossChainContracts
+    this.#crossChainContracts = crossChainContracts ?? (() => undefined)
+  }
+
+  /**
+   * Sets the cross-chain contracts resolver after construction. This is
+   * used by the TBTC class to wire up cross-chain contract resolution
+   * once the loader is ready.
+   * @param resolver Function that returns cross-chain contracts for a
+   *                 given destination chain name, or undefined if not
+   *                 initialized.
+   * @returns {void}
+   */
+  setCrossChainContractsResolver(
+    resolver: (_: DestinationChainName) => CrossChainInterfaces | undefined
+  ) {
+    this.#crossChainContracts = resolver
   }
 
   /**
@@ -146,7 +165,7 @@ export class DepositsService {
    * @param bitcoinRecoveryAddress P2PKH or P2WPKH Bitcoin address that can
    *                               be used for emergency recovery of the
    *                               deposited funds.
-   * @param l2ChainName Name of the L2 chain the deposit is targeting.
+   * @param destinationChainName Name of the L2 chain the deposit is targeting.
    * @returns Handle to the initiated deposit process.
    * @throws Throws an error if one of the following occurs:
    *         - There are no active wallet in the Bridge contract
@@ -162,12 +181,12 @@ export class DepositsService {
    */
   async initiateCrossChainDeposit(
     bitcoinRecoveryAddress: string,
-    l2ChainName: L2Chain
+    destinationChainName: DestinationChainName
   ): Promise<Deposit> {
-    const crossChainContracts = this.#crossChainContracts(l2ChainName)
+    const crossChainContracts = this.#crossChainContracts(destinationChainName)
     if (!crossChainContracts) {
       throw new Error(
-        `Cross-chain contracts for ${l2ChainName} not initialized`
+        `Cross-chain contracts for ${destinationChainName} not initialized`
       )
     }
 

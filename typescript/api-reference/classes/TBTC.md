@@ -1,6 +1,19 @@
 # Class: TBTC
 
-Entrypoint component of the tBTC v2 SDK.
+Full tBTC v2 SDK entrypoint with cross-chain (L2) support.
+
+Extends the base TBTC class with `initializeCrossChain` for L2 bridging.
+Chain-specific modules (Solana, StarkNet, Sui, Base, Arbitrum) are loaded
+on demand when `initializeCrossChain` is called.
+
+For consumers not interested in the cross-chain (L2) support, use the `/core`
+subpath which exports the base TBTC class.
+
+## Hierarchy
+
+- [`TBTCCore`](TBTCCore.md)
+
+  ↳ **`TBTC`**
 
 ## Table of contents
 
@@ -10,8 +23,9 @@ Entrypoint component of the tBTC v2 SDK.
 
 ### Properties
 
-- [#crossChainContracts](TBTC.md##crosschaincontracts)
-- [#crossChainContractsLoader](TBTC.md##crosschaincontractsloader)
+- [\_crossChainContracts](TBTC.md#_crosschaincontracts)
+- [\_crossChainContractsLoader](TBTC.md#_crosschaincontractsloader)
+- [\_l2Signer](TBTC.md#_l2signer)
 - [bitcoinClient](TBTC.md#bitcoinclient)
 - [deposits](TBTC.md#deposits)
 - [maintenance](TBTC.md#maintenance)
@@ -22,6 +36,7 @@ Entrypoint component of the tBTC v2 SDK.
 
 - [crossChainContracts](TBTC.md#crosschaincontracts)
 - [initializeCrossChain](TBTC.md#initializecrosschain)
+- [extractStarkNetAddress](TBTC.md#extractstarknetaddress)
 - [initializeCustom](TBTC.md#initializecustom)
 - [initializeEthereum](TBTC.md#initializeethereum)
 - [initializeMainnet](TBTC.md#initializemainnet)
@@ -45,35 +60,49 @@ Entrypoint component of the tBTC v2 SDK.
 
 [`TBTC`](TBTC.md)
 
+#### Overrides
+
+[TBTCCore](TBTCCore.md).[constructor](TBTCCore.md#constructor)
+
 #### Defined in
 
-[services/tbtc.ts:59](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L59)
+[services/tbtc.ts:40](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L40)
 
 ## Properties
 
-### #crossChainContracts
+### \_crossChainContracts
 
-• `Private` `Readonly` **#crossChainContracts**: `Map`\<``"Base"``, [`CrossChainContracts`](../README.md#crosschaincontracts)\>
-
-Mapping of cross-chain contracts for different supported L2 chains.
-Each set of cross-chain contracts must be first initialized using
-the `initializeCrossChain` method.
+• `Private` `Readonly` **\_crossChainContracts**: `Map`\<[`DestinationChainName`](../README.md#destinationchainname), [`CrossChainInterfaces`](../README.md#crosschaininterfaces)\>
 
 #### Defined in
 
-[services/tbtc.ts:57](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L57)
+[services/tbtc.ts:35](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L35)
 
 ___
 
-### #crossChainContractsLoader
+### \_crossChainContractsLoader
 
-• `Private` `Optional` `Readonly` **#crossChainContractsLoader**: [`CrossChainContractsLoader`](../interfaces/CrossChainContractsLoader.md)
-
-Reference to the cross-chain contracts loader.
+• `Private` `Optional` **\_crossChainContractsLoader**: [`CrossChainContractsLoader`](../interfaces/CrossChainContractsLoader.md)
 
 #### Defined in
 
-[services/tbtc.ts:51](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L51)
+[services/tbtc.ts:33](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L33)
+
+___
+
+### \_l2Signer
+
+• `Optional` **\_l2Signer**: [`EthereumSigner`](../README.md#ethereumsigner) \| `SuiSignerWithAddress` \| [`StarkNetProvider`](../README.md#starknetprovider) \| `AnchorProvider`
+
+Internal property to store L2 signer/provider for advanced use cases.
+
+**`Deprecated`**
+
+Will be removed in next major version.
+
+#### Defined in
+
+[services/tbtc.ts:199](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L199)
 
 ___
 
@@ -83,9 +112,13 @@ ___
 
 Bitcoin client handle for low-level access.
 
+#### Inherited from
+
+[TBTCCore](TBTCCore.md).[bitcoinClient](TBTCCore.md#bitcoinclient)
+
 #### Defined in
 
-[services/tbtc.ts:47](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L47)
+[services/tbtc-core.ts:45](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L45)
 
 ___
 
@@ -95,9 +128,13 @@ ___
 
 Service supporting the tBTC v2 deposit flow.
 
+#### Inherited from
+
+[TBTCCore](TBTCCore.md).[deposits](TBTCCore.md#deposits)
+
 #### Defined in
 
-[services/tbtc.ts:30](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L30)
+[services/tbtc-core.ts:28](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L28)
 
 ___
 
@@ -108,9 +145,13 @@ ___
 Service supporting authorized operations of tBTC v2 system maintainers
 and operators.
 
+#### Inherited from
+
+[TBTCCore](TBTCCore.md).[maintenance](TBTCCore.md#maintenance)
+
 #### Defined in
 
-[services/tbtc.ts:35](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L35)
+[services/tbtc-core.ts:33](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L33)
 
 ___
 
@@ -120,9 +161,13 @@ ___
 
 Service supporting the tBTC v2 redemption flow.
 
+#### Inherited from
+
+[TBTCCore](TBTCCore.md).[redemptions](TBTCCore.md#redemptions)
+
 #### Defined in
 
-[services/tbtc.ts:39](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L39)
+[services/tbtc-core.ts:37](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L37)
 
 ___
 
@@ -132,18 +177,22 @@ ___
 
 Handle to tBTC contracts for low-level access.
 
+#### Inherited from
+
+[TBTCCore](TBTCCore.md).[tbtcContracts](TBTCCore.md#tbtccontracts)
+
 #### Defined in
 
-[services/tbtc.ts:43](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L43)
+[services/tbtc-core.ts:41](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L41)
 
 ## Methods
 
 ### crossChainContracts
 
-▸ **crossChainContracts**(`l2ChainName`): `undefined` \| [`CrossChainContracts`](../README.md#crosschaincontracts)
+▸ **crossChainContracts**(`l2ChainName`): `undefined` \| [`CrossChainInterfaces`](../README.md#crosschaininterfaces)
 
 Gets cross-chain contracts for the given supported L2 chain.
-The given L2 chain contracts must be first initialized using the
+The given destination chain contracts must be first initialized using the
 `initializeCrossChain` method.
 
  THIS IS EXPERIMENTAL CODE THAT CAN BE CHANGED OR REMOVED
@@ -155,27 +204,41 @@ The given L2 chain contracts must be first initialized using the
 
 | Name | Type | Description |
 | :------ | :------ | :------ |
-| `l2ChainName` | ``"Base"`` | Name of the L2 chain for which to get cross-chain contracts. |
+| `l2ChainName` | [`DestinationChainName`](../README.md#destinationchainname) | Name of the destination chain for which to get cross-chain contracts. |
 
 #### Returns
 
-`undefined` \| [`CrossChainContracts`](../README.md#crosschaincontracts)
+`undefined` \| [`CrossChainInterfaces`](../README.md#crosschaininterfaces)
 
 Cross-chain contracts for the given L2 chain or
          undefined if not initialized.
 
 #### Defined in
 
-[services/tbtc.ts:252](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L252)
+[services/tbtc.ts:382](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L382)
 
 ___
 
 ### initializeCrossChain
 
-▸ **initializeCrossChain**(`l2ChainName`, `l2Signer`): `Promise`\<`void`\>
+▸ **initializeCrossChain**(`l2ChainName`, `signerOrEthereumSigner`): `Promise`\<`void`\>
 
-Initializes cross-chain contracts for the given L2 chain, using the
-given signer. Updates the signer on subsequent calls.
+Initializes cross-chain contracts for the given L2 chain.
+
+For StarkNet, use single-parameter initialization:
+```
+await tbtc.initializeCrossChain("StarkNet", starknetProvider)
+```
+
+For SUI, use single-parameter initialization:
+```
+await tbtc.initializeCrossChain("Sui", suiSigner)
+```
+
+For other L2 chains, use the standard pattern:
+```
+await tbtc.initializeCrossChain("Base", ethereumSigner)
+```
 
  THIS IS EXPERIMENTAL CODE THAT CAN BE CHANGED OR REMOVED
               IN FUTURE RELEASES. IT SHOULD BE USED ONLY FOR INTERNAL
@@ -186,37 +249,59 @@ given signer. Updates the signer on subsequent calls.
 
 | Name | Type | Description |
 | :------ | :------ | :------ |
-| `l2ChainName` | ``"Base"`` | Name of the L2 chain for which to initialize cross-chain contracts. |
-| `l2Signer` | [`EthereumSigner`](../README.md#ethereumsigner) | Signer to use with the L2 chain contracts. |
+| `l2ChainName` | [`DestinationChainName`](../README.md#destinationchainname) | Name of the L2 chain |
+| `signerOrEthereumSigner` | [`EthereumSigner`](../README.md#ethereumsigner) \| `SuiSignerWithAddress` \| [`StarkNetProvider`](../README.md#starknetprovider) \| `AnchorProvider` | For StarkNet: StarkNet provider/account. For SUI: SUI signer/wallet. For Solana: Solana provider. For other L2s: Ethereum signer. |
 
 #### Returns
 
 `Promise`\<`void`\>
 
-Void promise.
+Void promise
 
 **`Throws`**
 
 Throws an error if:
-        - Cross-chain contracts loader is not available for this TBTC SDK instance,
-        - Chain mapping between the L1 and the given L2 chain is not defined.
-
-**`Dev`**
-
-In case this function needs to support non-EVM L2 chains that can't
-     use EthereumSigner as a signer type, the l2Signer parameter should
-     probably be turned into a union of multiple supported types or
-     generalized in some other way.
+        - Cross-chain contracts loader not available
+        - Invalid provider type for StarkNet or SUI
+        - No connected account in StarkNet provider
 
 #### Defined in
 
-[services/tbtc.ts:198](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L198)
+[services/tbtc.ts:239](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L239)
+
+___
+
+### extractStarkNetAddress
+
+▸ **extractStarkNetAddress**(`provider`): `Promise`\<`string`\>
+
+Extracts StarkNet wallet address from a provider or account object.
+
+#### Parameters
+
+| Name | Type | Description |
+| :------ | :------ | :------ |
+| `provider` | `undefined` \| ``null`` \| [`StarkNetProvider`](../README.md#starknetprovider) | StarkNet provider or account object. |
+
+#### Returns
+
+`Promise`\<`string`\>
+
+The StarkNet wallet address in hex format.
+
+**`Throws`**
+
+Throws an error if the provider is invalid or address cannot be extracted.
+
+#### Defined in
+
+[services/tbtc.ts:153](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L153)
 
 ___
 
 ### initializeCustom
 
-▸ **initializeCustom**(`tbtcContracts`, `bitcoinClient`): `Promise`\<[`TBTC`](TBTC.md)\>
+▸ **initializeCustom**(`tbtcContracts`, `bitcoinClient`): `Promise`\<[`TBTCCore`](TBTCCore.md)\>
 
 Initializes the tBTC v2 SDK entrypoint with custom tBTC contracts and
 Bitcoin client.
@@ -230,7 +315,7 @@ Bitcoin client.
 
 #### Returns
 
-`Promise`\<[`TBTC`](TBTC.md)\>
+`Promise`\<[`TBTCCore`](TBTCCore.md)\>
 
 Initialized tBTC v2 SDK entrypoint.
 
@@ -240,15 +325,19 @@ This function is especially useful for local development as it gives
      flexibility to combine different implementations of tBTC v2 contracts
      with different Bitcoin networks.
 
+#### Inherited from
+
+[TBTCCore](TBTCCore.md).[initializeCustom](TBTCCore.md#initializecustom)
+
 #### Defined in
 
-[services/tbtc.ts:170](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L170)
+[services/tbtc-core.ts:150](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc-core.ts#L150)
 
 ___
 
 ### initializeEthereum
 
-▸ **initializeEthereum**(`signer`, `ethereumChainId`, `bitcoinNetwork`, `crossChainSupport?`): `Promise`\<[`TBTC`](TBTC.md)\>
+▸ **initializeEthereum**(`ethereumSignerOrProvider`, `ethereumChainId`, `bitcoinNetwork`, `crossChainSupport?`): `Promise`\<[`TBTC`](TBTC.md)\>
 
 Initializes the tBTC v2 SDK entrypoint for the given Ethereum network and Bitcoin network.
 The initialized instance uses default Electrum servers to interact
@@ -258,7 +347,7 @@ with Bitcoin network.
 
 | Name | Type | Default value | Description |
 | :------ | :------ | :------ | :------ |
-| `signer` | [`EthereumSigner`](../README.md#ethereumsigner) | `undefined` | Ethereum signer. |
+| `ethereumSignerOrProvider` | [`EthereumSigner`](../README.md#ethereumsigner) | `undefined` | Ethereum signer or provider. |
 | `ethereumChainId` | [`Ethereum`](../enums/Chains.Ethereum.md) | `undefined` | Ethereum chain ID. |
 | `bitcoinNetwork` | [`BitcoinNetwork`](../enums/BitcoinNetwork-1.md) | `undefined` | Bitcoin network. |
 | `crossChainSupport` | `boolean` | `false` | Whether to enable cross-chain support. False by default. |
@@ -274,15 +363,19 @@ Initialized tBTC v2 SDK entrypoint.
 Throws an error if the underlying signer's Ethereum network is
         other than the given Ethereum network.
 
+#### Overrides
+
+[TBTCCore](TBTCCore.md).[initializeEthereum](TBTCCore.md#initializeethereum)
+
 #### Defined in
 
-[services/tbtc.ts:123](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L123)
+[services/tbtc.ts:113](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L113)
 
 ___
 
 ### initializeMainnet
 
-▸ **initializeMainnet**(`signer`): `Promise`\<[`TBTC`](TBTC.md)\>
+▸ **initializeMainnet**(`ethereumSignerOrProvider`, `crossChainSupport?`): `Promise`\<[`TBTC`](TBTC.md)\>
 
 Initializes the tBTC v2 SDK entrypoint for Ethereum and Bitcoin mainnets.
 The initialized instance uses default Electrum servers to interact
@@ -290,9 +383,10 @@ with Bitcoin mainnet
 
 #### Parameters
 
-| Name | Type | Description |
-| :------ | :------ | :------ |
-| `signer` | [`EthereumSigner`](../README.md#ethereumsigner) | Ethereum signer. |
+| Name | Type | Default value | Description |
+| :------ | :------ | :------ | :------ |
+| `ethereumSignerOrProvider` | [`EthereumSigner`](../README.md#ethereumsigner) | `undefined` | Ethereum signer or provider. |
+| `crossChainSupport` | `boolean` | `false` | Whether to enable cross-chain support. False by default. |
 
 #### Returns
 
@@ -305,25 +399,38 @@ Initialized tBTC v2 SDK entrypoint.
 Throws an error if the signer's Ethereum network is other than
         Ethereum mainnet.
 
+#### Overrides
+
+[TBTCCore](TBTCCore.md).[initializeMainnet](TBTCCore.md#initializemainnet)
+
 #### Defined in
 
-[services/tbtc.ts:86](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L86)
+[services/tbtc.ts:59](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L59)
 
 ___
 
 ### initializeSepolia
 
-▸ **initializeSepolia**(`signer`): `Promise`\<[`TBTC`](TBTC.md)\>
+▸ **initializeSepolia**(`ethereumSignerOrProvider`, `crossChainSupport?`): `Promise`\<[`TBTC`](TBTC.md)\>
 
-Initializes the tBTC v2 SDK entrypoint for Ethereum Sepolia and Bitcoin testnet.
+Initializes the tBTC v2 SDK entrypoint for Ethereum Sepolia and Bitcoin testnet4.
 The initialized instance uses default Electrum servers to interact
-with Bitcoin testnet
+with Bitcoin testnet4.
+
+BREAKING CHANGE (v4): This method previously connected to Bitcoin testnet3
+(BitcoinNetwork.Testnet). It now connects to Bitcoin testnet4
+(BitcoinNetwork.Testnet4, BIP-94). Both networks share the same address
+prefixes (tb1/m/2), so callers will not see a compile-time or runtime
+error -- they will silently connect to the wrong Bitcoin network if not
+updated. Update your integration to testnet4 Bitcoin tooling before
+upgrading this SDK.
 
 #### Parameters
 
-| Name | Type | Description |
-| :------ | :------ | :------ |
-| `signer` | [`EthereumSigner`](../README.md#ethereumsigner) | Ethereum signer. |
+| Name | Type | Default value | Description |
+| :------ | :------ | :------ | :------ |
+| `ethereumSignerOrProvider` | [`EthereumSigner`](../README.md#ethereumsigner) | `undefined` | Ethereum signer or provider. |
+| `crossChainSupport` | `boolean` | `false` | Whether to enable cross-chain support. False by default. |
 
 #### Returns
 
@@ -336,6 +443,10 @@ Initialized tBTC v2 SDK entrypoint.
 Throws an error if the signer's Ethereum network is other than
         Ethereum mainnet.
 
+#### Overrides
+
+[TBTCCore](TBTCCore.md).[initializeSepolia](TBTCCore.md#initializesepolia)
+
 #### Defined in
 
-[services/tbtc.ts:103](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L103)
+[services/tbtc.ts:89](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/tbtc.ts#L89)

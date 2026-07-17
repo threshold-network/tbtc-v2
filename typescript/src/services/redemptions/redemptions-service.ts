@@ -1,4 +1,7 @@
 import {
+  CrossChainContracts,
+  DestinationChainName,
+  L2Chain,
   RedemptionRequest,
   TBTCContracts,
   WalletState,
@@ -8,12 +11,18 @@ import {
   BitcoinClient,
   BitcoinNetwork,
   BitcoinScriptUtils,
+  BitcoinTxHash,
   BitcoinTxOutput,
   BitcoinUtxo,
 } from "../../lib/bitcoin"
-import { BigNumber, BigNumberish } from "ethers"
-import { Hex } from "../../lib/utils"
+import { BigNumber, BigNumberish, BytesLike } from "ethers"
+import { amountToSatoshi, ApiUrl, endpointUrl, Hex } from "../../lib/utils"
 import { RedeemerProxy } from "./redeemer-proxy"
+import {
+  RedemptionWallet,
+  SerializableWallet,
+  ValidRedemptionWallet,
+} from "../../lib/utils/types"
 
 /**
  * Service exposing features related to tBTC v2 redemptions.
@@ -27,10 +36,36 @@ export class RedemptionsService {
    * Bitcoin client handle.
    */
   private readonly bitcoinClient: BitcoinClient
+  /**
+   * Gets cross-chain contracts for the given supported L2 chain.
+   * @param _ Name of the L2 chain for which to get cross-chain contracts.
+   * @returns Cross-chain contracts for the given L2 chain or
+   *          undefined if not initialized.
+   */
+  #crossChainContracts: (_: L2Chain) => CrossChainContracts | undefined
 
-  constructor(tbtcContracts: TBTCContracts, bitcoinClient: BitcoinClient) {
+  constructor(
+    tbtcContracts: TBTCContracts,
+    bitcoinClient: BitcoinClient,
+    crossChainContracts?: (_: L2Chain) => CrossChainContracts | undefined
+  ) {
     this.tbtcContracts = tbtcContracts
     this.bitcoinClient = bitcoinClient
+    this.#crossChainContracts = crossChainContracts ?? (() => undefined)
+  }
+
+  /**
+   * Sets the cross-chain contracts resolver after construction. This is
+   * used by the TBTC class to wire up cross-chain contract resolution
+   * once the loader is ready.
+   * @param resolver Function that returns cross-chain contracts for a
+   *                 given L2 chain, or undefined if not initialized.
+   * @returns {void}
+   */
+  setCrossChainContractsResolver(
+    resolver: (_: L2Chain) => CrossChainContracts | undefined
+  ) {
+    this.#crossChainContracts = resolver
   }
 
   /**
@@ -53,19 +88,52 @@ export class RedemptionsService {
     targetChainTxHash: Hex
     walletPublicKey: Hex
   }> {
-    const { walletPublicKey, mainUtxo, redeemerOutputScript } =
-      await this.determineRedemptionData(bitcoinRedeemerAddress, amount)
+    try {
+      const candidateWallets = await this.fetchWalletsForRedemption()
+      const { walletPublicKey, mainUtxo, redeemerOutputScript } =
+        await this.determineValidRedemptionWallet(
+          amountToSatoshi(amount),
+          candidateWallets,
+          bitcoinRedeemerAddress
+        )
 
-    const txHash = await this.tbtcContracts.tbtcToken.requestRedemption(
-      walletPublicKey,
-      mainUtxo,
-      redeemerOutputScript,
-      amount
-    )
+      if (!walletPublicKey || !mainUtxo || !redeemerOutputScript) {
+        throw new Error(
+          "Could not find a valid redemption wallet with enough funds"
+        )
+      }
 
-    return {
-      targetChainTxHash: txHash,
-      walletPublicKey,
+      const txHash = await this.tbtcContracts.tbtcToken.requestRedemption(
+        walletPublicKey,
+        mainUtxo,
+        redeemerOutputScript,
+        amount
+      )
+
+      return {
+        targetChainTxHash: txHash,
+        walletPublicKey: walletPublicKey,
+      }
+    } catch (error) {
+      console.warn(
+        "Error requesting redemption with candidate wallets. Falling back to manual redemption data:",
+        error
+      )
+
+      const { walletPublicKey, mainUtxo, redeemerOutputScript } =
+        await this.determineRedemptionData(bitcoinRedeemerAddress, amount)
+
+      const txHash = await this.tbtcContracts.tbtcToken.requestRedemption(
+        walletPublicKey,
+        mainUtxo,
+        redeemerOutputScript,
+        amount
+      )
+
+      return {
+        targetChainTxHash: txHash,
+        walletPublicKey: walletPublicKey,
+      }
     }
   }
 
@@ -117,6 +185,121 @@ export class RedemptionsService {
   }
 
   /**
+   * Requests a redemption of TBTC v2 token into BTC using a custom integration.
+   * The function builds the redemption data and handles the redemption request
+   * through the provided redeemer proxy.
+   * @param bitcoinRedeemerAddress Bitcoin address the redeemed BTC should be
+   *        sent to. Only P2PKH, P2WPKH, P2SH, and P2WSH address types are supported.
+   * @param amount The amount to be redeemed with the precision of the tBTC
+   *        on-chain token contract.
+   * @param l2ChainName The name of the L2 chain to request redemption on.
+   * @returns Object containing:
+   *          - Target chain hash of the request redemption transaction
+   *            (for example, Ethereum transaction hash)
+   */
+  async requestCrossChainRedemption(
+    bitcoinRedeemerAddress: string,
+    amount: BigNumber,
+    l2ChainName: DestinationChainName
+  ): Promise<{ targetChainTxHash: Hex }> {
+    const crossChainContracts = this.#crossChainContracts(l2ChainName)
+    if (!crossChainContracts || !crossChainContracts.l2BitcoinRedeemer) {
+      throw new Error(
+        `Cross-chain redeemer contracts for ${l2ChainName} not initialized`
+      )
+    }
+
+    const redeemerOutputScript = await this.getRedeemerOutputScript(
+      bitcoinRedeemerAddress
+    )
+    // Nonce must be a uint32. Use seconds since epoch which fits.
+    // Using milliseconds (Date.now()) would be too large.
+    const nonce = Math.floor(Date.now() / 1000)
+
+    const txHash =
+      await crossChainContracts.l2BitcoinRedeemer.requestRedemption(
+        amount,
+        redeemerOutputScript,
+        nonce
+      )
+
+    return {
+      targetChainTxHash: txHash,
+    }
+  }
+
+  /**
+   * Relays a redemption request from L2 to L1.
+   * @param amount The amount to be redeemed with TBTC token precision (1e18).
+   * @param encodedVm The encoded Wormhole VAA message from the L2 chain.
+   * @param l2ChainName The name of the L2 chain originating the request.
+   * @param redeemerOutputScript The Bitcoin output script where redeemed BTC
+   *        will be sent. Can be raw hex (with or without 0x prefix) representing
+   *        the output script directly.
+   * @returns Object containing the target chain transaction hash.
+   * @throws Throws an error if cross-chain contracts are not initialized for
+   *         the specified L2 chain.
+   * @throws Throws an error if no wallet with sufficient funds can be found.
+   */
+  async relayRedemptionRequestToL1(
+    amount: BigNumber,
+    encodedVm: BytesLike,
+    l2ChainName: DestinationChainName,
+    redeemerOutputScript: string
+  ): Promise<{
+    targetChainTxHash: Hex
+  }> {
+    const crossChainContracts = this.#crossChainContracts(l2ChainName)
+    if (!crossChainContracts || !crossChainContracts.l1BitcoinRedeemer) {
+      throw new Error(
+        `Cross-chain contracts for ${l2ChainName} not initialized`
+      )
+    }
+
+    const resolvedScript = await this.resolveRedeemerOutputScript(
+      redeemerOutputScript
+    )
+    const amountInSatoshi = amountToSatoshi(amount)
+
+    let walletPublicKey: Hex
+    let mainUtxo: BitcoinUtxo
+
+    try {
+      const candidateWallets = await this.fetchWalletsForRedemption()
+      const validWallet = await this.determineValidRedemptionWallet(
+        amountInSatoshi,
+        candidateWallets,
+        resolvedScript.toString()
+      )
+      walletPublicKey = validWallet.walletPublicKey
+      mainUtxo = validWallet.mainUtxo
+    } catch (error) {
+      console.warn(
+        "API-based wallet selection failed for cross-chain relay. " +
+          "Falling back to on-chain wallet selection:",
+        error
+      )
+      const fallbackResult = await this.findWalletForRedemption(
+        amountInSatoshi,
+        resolvedScript
+      )
+      walletPublicKey = fallbackResult.walletPublicKey
+      mainUtxo = fallbackResult.mainUtxo
+    }
+
+    const txHash =
+      await crossChainContracts.l1BitcoinRedeemer.requestRedemption(
+        walletPublicKey,
+        mainUtxo,
+        encodedVm
+      )
+
+    return {
+      targetChainTxHash: txHash,
+    }
+  }
+
+  /**
    *
    * @param bitcoinRedeemerAddress Bitcoin address redeemed BTC should be
    *                               sent to. Only P2PKH, P2WPKH, P2SH, and P2WSH
@@ -137,35 +320,108 @@ export class RedemptionsService {
     mainUtxo: BitcoinUtxo
     redeemerOutputScript: Hex
   }> {
-    const bitcoinNetwork = await this.bitcoinClient.getNetwork()
-
-    const redeemerOutputScript = BitcoinAddressConverter.addressToOutputScript(
-      bitcoinRedeemerAddress,
-      bitcoinNetwork
+    const redeemerOutputScript = await this.getRedeemerOutputScript(
+      bitcoinRedeemerAddress
     )
-    if (
-      !BitcoinScriptUtils.isP2PKHScript(redeemerOutputScript) &&
-      !BitcoinScriptUtils.isP2WPKHScript(redeemerOutputScript) &&
-      !BitcoinScriptUtils.isP2SHScript(redeemerOutputScript) &&
-      !BitcoinScriptUtils.isP2WSHScript(redeemerOutputScript)
-    ) {
-      throw new Error("Redeemer output script must be of standard type")
-    }
-
-    const amountToSatoshi = (value: BigNumber): BigNumber => {
-      const satoshiMultiplier = BigNumber.from(1e10)
-      const remainder = value.mod(satoshiMultiplier)
-      const convertibleAmount = value.sub(remainder)
-      return convertibleAmount.div(satoshiMultiplier)
-    }
 
     // The findWalletForRedemption operates on satoshi amount precision (1e8)
     // while the amount parameter is TBTC token precision (1e18). We need to
     // convert the amount to get proper results.
     const { walletPublicKey, mainUtxo } = await this.findWalletForRedemption(
-      redeemerOutputScript,
-      amountToSatoshi(amount)
+      amountToSatoshi(amount),
+      redeemerOutputScript
     )
+
+    return { walletPublicKey, mainUtxo, redeemerOutputScript }
+  }
+
+  /**
+   * Determines a valid wallet that can handle a redemption request.
+   * @param amount The amount to be redeemed in satoshi precision (1e8).
+   * @param potentialCandidateWallets Array of wallets that can handle the
+   *        redemption request. The wallets must be in the Live state.
+   * @param redeemerAddressOrScript Optional. Either a Bitcoin address (P2PKH,
+   *        P2WPKH, P2SH, P2WSH) or a raw hex output script (with or without
+   *        0x prefix). When provided, the function checks for pending
+   *        redemptions to avoid wallet collisions.
+   *        - If the input matches /^(0x)?[0-9a-fA-F]+$/, it's treated as a
+   *          raw hex output script and used directly.
+   *        - Otherwise, it's treated as a Bitcoin address and converted to
+   *          an output script.
+   * @returns Object containing:
+   *          - Bitcoin public key of the wallet asked to handle the redemption.
+   *            Presented in the compressed form (33 bytes long with 02 or 03 prefix).
+   *          - Main UTXO of the wallet.
+   *          - Redeemer output script (if provided).
+   * @throws Throws an error if no valid redemption wallet exists for the given
+   *         input parameters.
+   */
+  protected async determineValidRedemptionWallet(
+    amount: BigNumber,
+    potentialCandidateWallets: Array<SerializableWallet>,
+    redeemerAddressOrScript?: string
+  ): Promise<RedemptionWallet> {
+    let walletPublicKey: Hex | undefined = undefined
+    let mainUtxo: BitcoinUtxo | undefined = undefined
+    let redeemerOutputScript: Hex | undefined = undefined
+
+    if (redeemerAddressOrScript) {
+      redeemerOutputScript = await this.resolveRedeemerOutputScript(
+        redeemerAddressOrScript
+      )
+    }
+
+    for (let index = 0; index < potentialCandidateWallets.length; index++) {
+      const serializableWallet = potentialCandidateWallets[index]
+      const {
+        walletBTCBalance: candidateBTCBalance,
+        walletPublicKey: candidatePublicKey,
+        mainUtxo: candidateMainUtxo,
+      } = this.fromSerializableWallet(serializableWallet)
+
+      if (candidateBTCBalance.lt(amount)) {
+        console.debug(
+          `The wallet (${candidatePublicKey.toString()})` +
+            `cannot handle the redemption request. ` +
+            `Continue the loop execution to the next wallet...`
+        )
+        continue
+      }
+
+      if (redeemerOutputScript) {
+        const pendingRedemption =
+          await this.tbtcContracts.bridge.pendingRedemptions(
+            candidatePublicKey,
+            redeemerOutputScript
+          )
+
+        if (pendingRedemption.requestedAt !== 0) {
+          console.debug(
+            `There is a pending redemption request from this wallet to the ` +
+              `same Bitcoin address. Given wallet public key` +
+              `(${candidatePublicKey.toString()}) and redeemer output script ` +
+              `(${redeemerOutputScript.toString()}) pair can be used for only one ` +
+              `pending request at the same time. ` +
+              `Continue the loop execution to the next wallet...`
+          )
+          continue
+        }
+      }
+      walletPublicKey = candidatePublicKey
+      mainUtxo = candidateMainUtxo
+
+      console.debug(
+        `The wallet (${walletPublicKey.toString()})` +
+          `can handle the redemption request. ` +
+          `Stop the loop execution and proceed with the redemption...`
+      )
+
+      break
+    }
+
+    if (!walletPublicKey || !mainUtxo) {
+      throw new Error(`Could not find a wallet with enough funds.`)
+    }
 
     return { walletPublicKey, mainUtxo, redeemerOutputScript }
   }
@@ -173,120 +429,163 @@ export class RedemptionsService {
   /**
    * Finds the oldest live wallet that has enough BTC to handle a redemption
    * request.
+   * @param amount The amount to be redeemed in satoshis.
    * @param redeemerOutputScript The redeemer output script the redeemed funds are
    *        supposed to be locked on. Must not be prepended with length.
-   * @param amount The amount to be redeemed in satoshis.
+   * @param concurrencyLimit Maximum number of wallets to process concurrently.
+   *        Defaults to 50.
    * @returns Promise with the wallet details needed to request a redemption.
    */
   protected async findWalletForRedemption(
-    redeemerOutputScript: Hex,
-    amount: BigNumber
+    amount: BigNumber,
+    redeemerOutputScript?: Hex,
+    concurrencyLimit: number = 50
   ): Promise<{
     walletPublicKey: Hex
     mainUtxo: BitcoinUtxo
   }> {
-    const wallets =
+    const allWalletEvents =
       await this.tbtcContracts.bridge.getNewWalletRegisteredEvents()
 
-    let walletData:
-      | {
-          walletPublicKey: Hex
-          mainUtxo: BitcoinUtxo
-        }
-      | undefined = undefined
     let maxAmount = BigNumber.from(0)
-    let liveWalletsCounter = 0
 
     const bitcoinNetwork = await this.bitcoinClient.getNetwork()
 
-    for (const wallet of wallets) {
-      const { walletPublicKeyHash } = wallet
-      const { state, walletPublicKey, pendingRedemptionsValue } =
-        await this.tbtcContracts.bridge.wallets(walletPublicKeyHash)
+    let liveWalletsCounter = 0
 
-      // Wallet must be in Live state.
-      if (state !== WalletState.Live || !walletPublicKey) {
-        console.debug(
-          `Wallet is not in Live state ` +
-            `(wallet public key hash: ${walletPublicKeyHash.toString()}). ` +
-            `Continue the loop execution to the next wallet...`
-        )
-        continue
-      }
-      liveWalletsCounter++
+    const candidateResults: Array<{
+      index: number
+      walletPublicKey: Hex
+      mainUtxo: BitcoinUtxo
+    }> = []
 
-      // Wallet must have a main UTXO that can be determined.
-      const mainUtxo = await this.determineWalletMainUtxo(
-        walletPublicKeyHash,
-        bitcoinNetwork
-      )
-      if (!mainUtxo) {
-        console.debug(
-          `Could not find matching UTXO on chains ` +
-            `for wallet public key hash (${walletPublicKeyHash.toString()}). ` +
-            `Continue the loop execution to the next wallet...`
-        )
-        continue
-      }
+    const chunkedWallets = this.chunkArray(allWalletEvents, concurrencyLimit)
 
-      const pendingRedemption =
-        await this.tbtcContracts.bridge.pendingRedemptions(
-          walletPublicKey,
-          redeemerOutputScript
-        )
+    for (let cIndex = 0; cIndex < chunkedWallets.length; cIndex++) {
+      const chunk = chunkedWallets[cIndex]
+      const chunkPromises = chunk.map(async (walletEvent, indexInChunk) => {
+        const globalIndex = cIndex * concurrencyLimit + indexInChunk
 
-      if (pendingRedemption.requestedAt != 0) {
-        console.debug(
-          `There is a pending redemption request from this wallet to the ` +
-            `same Bitcoin address. Given wallet public key hash` +
-            `(${walletPublicKeyHash.toString()}) and redeemer output script ` +
-            `(${redeemerOutputScript.toString()}) pair can be used for only one ` +
-            `pending request at the same time. ` +
-            `Continue the loop execution to the next wallet...`
-        )
-        continue
-      }
+        const { walletPublicKeyHash } = walletEvent
+        const { state, walletPublicKey, pendingRedemptionsValue } =
+          await this.tbtcContracts.bridge.wallets(walletPublicKeyHash)
 
-      const walletBTCBalance = mainUtxo.value.sub(pendingRedemptionsValue)
+        // Wallet must be in Live state.
+        if (state !== WalletState.Live || !walletPublicKey) {
+          console.debug(
+            `Wallet is not in Live state ` +
+              `(wallet public key hash: ${walletPublicKeyHash.toString()}). ` +
+              `Continue the loop execution to the next wallet...`
+          )
+          return
+        }
+        liveWalletsCounter++
 
-      // Save the max possible redemption amount.
-      maxAmount = walletBTCBalance.gt(maxAmount) ? walletBTCBalance : maxAmount
+        if (redeemerOutputScript) {
+          const pendingRedemption =
+            await this.tbtcContracts.bridge.pendingRedemptions(
+              walletPublicKey,
+              redeemerOutputScript
+            )
 
-      if (walletBTCBalance.gte(amount)) {
-        walletData = {
-          walletPublicKey,
-          mainUtxo,
+          if (pendingRedemption.requestedAt !== 0) {
+            console.debug(
+              `There is a pending redemption request from this wallet to the ` +
+                `same Bitcoin address. Given wallet public key hash` +
+                `(${walletPublicKeyHash.toString()}) and redeemer output script ` +
+                `(${redeemerOutputScript.toString()}) pair can be used for only one ` +
+                `pending request at the same time. ` +
+                `Continue the loop execution to the next wallet...`
+            )
+            return
+          }
         }
 
-        break
-      }
+        const mainUtxo = await this.determineWalletMainUtxo(
+          walletPublicKeyHash,
+          bitcoinNetwork
+        )
+        if (!mainUtxo) {
+          console.debug(
+            `Could not find matching UTXO on chains ` +
+              `for wallet public key hash (${walletPublicKeyHash.toString()}). ` +
+              `Continue the loop execution to the next wallet...`
+          )
+          return
+        }
 
-      console.debug(
-        `The wallet (${walletPublicKeyHash.toString()})` +
-          `cannot handle the redemption request. ` +
-          `Continue the loop execution to the next wallet...`
-      )
+        const walletBTCBalance = mainUtxo.value.sub(pendingRedemptionsValue)
+
+        if (walletBTCBalance.gt(maxAmount)) {
+          maxAmount = walletBTCBalance
+        }
+
+        if (walletBTCBalance.gte(amount)) {
+          candidateResults.push({
+            index: globalIndex,
+            walletPublicKey,
+            mainUtxo,
+          })
+        } else {
+          console.debug(
+            `The wallet (${walletPublicKeyHash.toString()})` +
+              `cannot handle the redemption request. ` +
+              `Continue the loop execution to the next wallet...`
+          )
+        }
+      })
+      await Promise.all(chunkPromises)
     }
 
     if (liveWalletsCounter === 0) {
       throw new Error("Currently, there are no live wallets in the network.")
     }
 
-    // Cover a corner case when the user requested redemption for all live wallets
-    // in the network using the same Bitcoin address.
-    if (!walletData && liveWalletsCounter > 0 && maxAmount.eq(0)) {
+    // If no wallet can handle it, check if maxAmount is zero =>
+    // that might mean all have a pending redemption for that address.
+    if (candidateResults.length === 0) {
+      if (maxAmount.eq(0)) {
+        throw new Error(
+          "All live wallets in the network have the pending redemption for a given Bitcoin address. " +
+            "Please use another Bitcoin address."
+        )
+      }
+
       throw new Error(
-        "All live wallets in the network have the pending redemption for a given Bitcoin address. " +
-          "Please use another Bitcoin address."
+        `Could not find a wallet with enough funds. ` +
+          `Maximum redemption amount is ${maxAmount.toString()} Satoshi ` +
+          `( ${maxAmount.div(BigNumber.from(1e8)).toString()} BTC )`
       )
     }
 
-    if (!walletData)
-      throw new Error(
-        `Could not find a wallet with enough funds. Maximum redemption amount is ${maxAmount} Satoshi.`
-      )
+    // Sort candidates by their original index to pick the "oldest" wallet
+    // from the events array. If `getNewWalletRegisteredEvents()` is already
+    // in oldest->newest order, then using the `index` is sufficient to find
+    // the earliest wallet.
+    candidateResults.sort((a, b) => a.index - b.index)
+    const chosenWallet = candidateResults[0]
 
-    return walletData
+    return {
+      walletPublicKey: chosenWallet.walletPublicKey,
+      mainUtxo: chosenWallet.mainUtxo,
+    }
+  }
+
+  /**
+   * Chunk an array into subarrays of a given size.
+   * @param arr The array to be chunked.
+   * @param chunkSize The size of each chunk.
+   * @returns An array of subarrays, where each subarray has a maximum length of `chunkSize`.
+   */
+  private chunkArray<T>(arr: T[], chunkSize: number): T[][] {
+    if (chunkSize <= 0) {
+      throw new Error("chunkSize must be greater than 0.")
+    }
+    const result: T[][] = []
+    for (let i = 0; i < arr.length; i += chunkSize) {
+      result.push(arr.slice(i, i + chunkSize))
+    }
+    return result
   }
 
   /**
@@ -414,13 +713,9 @@ export class RedemptionsService {
     walletPublicKey: Hex,
     type: "pending" | "timedOut" = "pending"
   ): Promise<RedemptionRequest> {
-    const bitcoinNetwork = await this.bitcoinClient.getNetwork()
-
-    const redeemerOutputScript = BitcoinAddressConverter.addressToOutputScript(
-      bitcoinRedeemerAddress,
-      bitcoinNetwork
+    const redeemerOutputScript = await this.getRedeemerOutputScript(
+      bitcoinRedeemerAddress
     )
-
     let redemptionRequest: RedemptionRequest | undefined = undefined
 
     switch (type) {
@@ -448,5 +743,114 @@ export class RedemptionsService {
     }
 
     return redemptionRequest
+  }
+
+  /**
+   * Fetches all wallets that are currently live and can handle a redemption
+   * request.
+   * @returns Array of wallet events.
+   */
+  protected async fetchWalletsForRedemption(): Promise<
+    Array<SerializableWallet>
+  > {
+    const network = await this.bitcoinClient.getNetwork()
+
+    if (network !== BitcoinNetwork.Mainnet) {
+      throw new Error("This function is only available on Mainnet")
+    }
+
+    const response = await fetch(
+      `${ApiUrl.TBTC_EXPLORER}${endpointUrl.TBTC_REDEMPTION_WALLET}`
+    )
+    if (!response.ok) {
+      throw new Error("Failed to fetch redemption wallet from server")
+    }
+
+    const { data } = await response.json()
+    return data.candidateResults
+  }
+
+  /**
+   * Converts a Bitcoin address to its output script.
+   * @param bitcoinRedeemerAddress Bitcoin address to be converted.
+   * @returns The output script of the given Bitcoin address.
+   */
+  protected async getRedeemerOutputScript(
+    bitcoinRedeemerAddress: string
+  ): Promise<Hex> {
+    const bitcoinNetwork = await this.bitcoinClient.getNetwork()
+
+    const redeemerOutputScript = BitcoinAddressConverter.addressToOutputScript(
+      bitcoinRedeemerAddress,
+      bitcoinNetwork
+    )
+
+    if (
+      !BitcoinScriptUtils.isP2PKHScript(redeemerOutputScript) &&
+      !BitcoinScriptUtils.isP2WPKHScript(redeemerOutputScript) &&
+      !BitcoinScriptUtils.isP2SHScript(redeemerOutputScript) &&
+      !BitcoinScriptUtils.isP2WSHScript(redeemerOutputScript)
+    ) {
+      throw new Error("Redeemer output script must be of standard type")
+    }
+
+    return redeemerOutputScript
+  }
+
+  /**
+   * Resolves a redeemer address or script input to a Hex output script.
+   * This method detects whether the input is a raw hex output script or a
+   * Bitcoin address and handles each case appropriately.
+   * @param redeemerAddressOrScript Either a Bitcoin address (P2PKH, P2WPKH,
+   *        P2SH, P2WSH) or a raw hex output script (with or without 0x prefix).
+   * @returns The resolved output script as a Hex object.
+   */
+  protected async resolveRedeemerOutputScript(
+    redeemerAddressOrScript: string
+  ): Promise<Hex> {
+    if (!redeemerAddressOrScript || redeemerAddressOrScript.trim() === "") {
+      throw new Error("Redeemer output script cannot be empty")
+    }
+
+    const isHexScript = /^(0x)?[0-9a-fA-F]+$/.test(redeemerAddressOrScript)
+
+    if (isHexScript) {
+      const withoutPrefix = redeemerAddressOrScript.startsWith("0x")
+        ? redeemerAddressOrScript.slice(2)
+        : redeemerAddressOrScript
+
+      if (withoutPrefix.length % 2 !== 0) {
+        throw new Error(
+          "Invalid hex script: odd-length hex string is not a valid byte sequence"
+        )
+      }
+
+      if (withoutPrefix.length < 4) {
+        throw new Error(
+          "Invalid hex script: output script must be at least 2 bytes"
+        )
+      }
+
+      return Hex.from(redeemerAddressOrScript)
+    }
+
+    return this.getRedeemerOutputScript(redeemerAddressOrScript)
+  }
+
+  protected fromSerializableWallet(
+    serialized: SerializableWallet
+  ): ValidRedemptionWallet {
+    return {
+      index: serialized.index,
+      walletPublicKey: Hex.from(serialized.walletPublicKey),
+      mainUtxo: {
+        transactionHash: BitcoinTxHash.from(
+          serialized.mainUtxo.transactionHash
+        ),
+        outputIndex: serialized.mainUtxo.outputIndex,
+        value: BigNumber.from(serialized.mainUtxo.value),
+      },
+      walletBTCBalance: BigNumber.from(serialized.walletBTCBalance),
+    }
   }
 }

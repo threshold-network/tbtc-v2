@@ -1,6 +1,6 @@
 :toc: macro
 
-= TBTC v2
+= tBTC v2
 
 https://github.com/keep-network/tbtc-v2/actions/workflows/contracts.yml[image:https://img.shields.io/github/actions/workflow/status/keep-network/tbtc-v2/contracts.yml?branch=main&event=push&label=Core%20contracts%20build[Core contracts build status]]
 https://github.com/keep-network/tbtc-v2/actions/workflows/typescript.yml[image:https://img.shields.io/github/actions/workflow/status/keep-network/tbtc-v2/typescript.yml?branch=main&event=push&label=SDK%20build[SDK build status]]
@@ -20,28 +20,29 @@ original asset. This centralized model requires you to trust a third party and
 is prone to censorship, threatening Bitcoin's promise of secure, permissionless
 decentralization.
 
-Threshold aims to solve this problem with TBTC v2.
+Threshold aims to solve this problem with tBTC v2.
 
-The second generation of TBTC is a truly decentralized bridge between Bitcoin
+The second generation of tBTC is a truly decentralized bridge between Bitcoin
 and Ethereum. It provides Bitcoin holders permissionless access to DeFi and the
 expanding web3 universe.
 
-TBTC v2 replaces centralized intermediaries with a randomly selected group of
+tBTC v2 replaces centralized intermediaries with a randomly selected group of
 node operators on the Threshold Network. This group of independent operators
 works together to secure your deposited Bitcoin through threshold cryptography.
-That means TBTC v2 requires a majority threshold agreement before operators
+That means tBTC v2 requires a majority threshold agreement before operators
 perform any action with your Bitcoin. By rotating the selection of operators,
-TBTC v2 protects against any malicious individual or group of operators seizing
-control. Unlike other solutions on the market, users on TBTC v2 are reliant on
-math, not hardware or people. Additionally, TBTC v2 is open and accessible to
+tBTC v2 protects against any malicious individual or group of operators seizing
+control. Unlike other solutions on the market, users on tBTC v2 are reliant on
+math, not hardware or people. Additionally, tBTC v2 is open and accessible to
 anyone.
-  
-TBTC v2 allows anyone to use Bitcoin in the expanding DeFi and Web3 universe
+
+tBTC v2 allows anyone to use Bitcoin in the expanding DeFi and Web3 universe
 without a third-party intermediary.
 
 toc::[]
 
 == Overview
+
 tBTCv2 uses the
 link:https://github.com/keep-network/keep-core/tree/main/solidity/random-beacon[Random
 Beacon] and link:https://github.com/keep-network/sortition-pools[Sortition Pool]
@@ -51,7 +52,7 @@ Bitcoin wallets at a governable frequency (starting weekly). The youngest
 wallet accepts new deposits, and the oldest wallet serves redemptions.
 
 Depositing Bitcoin into the tBTCv2 bridge grants a transferable Bank balance, which
-can be used to mint a supply-pegged ERC-20: TBTC. For an in-depth explanation
+can be used to mint a supply-pegged ERC-20: tBTC. For an in-depth explanation
 about the design, see link:docs/rfc/rfc-1.adoc[RFC 1: tBTCv2 Design].
 
 == Repository structure

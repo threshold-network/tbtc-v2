@@ -37,6 +37,10 @@ export const constants = {
   walletClosingPeriod: 3456000, // 40 days
   governanceDelay: 172800, // 48 hours
   satoshiMultiplier: 1e10, // Converts satoshi to TBTC token units
+  // Arbitrary non-zero address used in tests to represent a configured
+  // rebate staking contract. This value is not tied to any real deployment
+  // and MUST remain test-only.
+  testRebateStakingAddress: "0x0000000000000000000000000000000000001000",
 }
 
 export const walletState = {

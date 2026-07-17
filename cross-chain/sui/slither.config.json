@@ -1,0 +1,5 @@
+{
+  "detectors_to_exclude": "assembly,naming-convention,solc-version,timestamp,too-many-digits,similar-names",
+  "hardhat_artifacts_directory": "build",
+  "filter_paths": "contracts/test|node_modules"
+}

@@ -33,7 +33,7 @@ operators of the tBTC v2 system.
 
 #### Defined in
 
-[services/maintenance/maintenance-service.ts:20](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/maintenance/maintenance-service.ts#L20)
+[services/maintenance/maintenance-service.ts:20](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/maintenance-service.ts#L20)
 
 ## Properties
 
@@ -45,7 +45,7 @@ Features for optimistic minting maintainers.
 
 #### Defined in
 
-[services/maintenance/maintenance-service.ts:14](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/maintenance/maintenance-service.ts#L14)
+[services/maintenance/maintenance-service.ts:14](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/maintenance-service.ts#L14)
 
 ___
 
@@ -57,4 +57,4 @@ Features for SPV proof maintainers.
 
 #### Defined in
 
-[services/maintenance/maintenance-service.ts:18](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/services/maintenance/maintenance-service.ts#L18)
+[services/maintenance/maintenance-service.ts:18](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/maintenance-service.ts#L18)

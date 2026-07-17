@@ -3,7 +3,7 @@
 pragma solidity 0.8.17;
 
 import "./TestERC20.sol";
-import "../l2/Wormhole.sol";
+import "../cross-chain/wormhole/Wormhole.sol";
 
 /// @dev Stub contract used in L2WormholeGateway unit tests.
 ///      Stub contract is used instead of a smock because of the token transfer
@@ -13,6 +13,9 @@ contract WormholeBridgeStub is IWormholeTokenBridge {
 
     uint256 public transferAmount;
     bytes32 public receiverAddress;
+    bytes32 public fromAddress =
+        0x7000000000000000000000000000000000000000000000000000000000000000; // Default value
+    uint16 public tokenChain = 4; // Default value
 
     // Two simple events allowing to assert Wormhole bridge functions are
     // called.
@@ -54,10 +57,10 @@ contract WormholeBridgeStub is IWormholeTokenBridge {
                 1, // payloadID
                 2, // amount
                 0x3000000000000000000000000000000000000000000000000000000000000000, // tokenAddress
-                4, // tokenChain
+                tokenChain, // tokenChain - now uses the configurable value
                 0x5000000000000000000000000000000000000000000000000000000000000000, // to
                 6, // toChain
-                0x7000000000000000000000000000000000000000000000000000000000000000, // fromAddress
+                fromAddress, // fromAddress - now uses the configurable value
                 abi.encode(receiverAddress) // payload
             );
 
@@ -116,6 +119,14 @@ contract WormholeBridgeStub is IWormholeTokenBridge {
 
     function setReceiverAddress(bytes32 _receiverAddress) external {
         receiverAddress = _receiverAddress;
+    }
+
+    function setFromAddress(bytes32 _fromAddress) external {
+        fromAddress = _fromAddress;
+    }
+
+    function setTokenChain(uint16 _tokenChain) external {
+        tokenChain = _tokenChain;
     }
 
     // Allows to mint Wormhole tBTC for depositWormholeTbtc unit tests.

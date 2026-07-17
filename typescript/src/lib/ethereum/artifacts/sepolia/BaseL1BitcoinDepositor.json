@@ -1,5 +1,5 @@
 {
-  "address": "0x0c5e36731008f4AFC1AF5Da2C4D5E07eE4a3EB69",
+  "address": "0x59FAE614867b66421b44D1Ed3461e6B6a4B50106",
   "abi": [
     {
       "inputs": [],
@@ -17,9 +17,9 @@
         },
         {
           "indexed": true,
-          "internalType": "address",
-          "name": "l2DepositOwner",
-          "type": "address"
+          "internalType": "bytes32",
+          "name": "destinationChainDepositOwner",
+          "type": "bytes32"
         },
         {
           "indexed": true,
@@ -54,9 +54,9 @@
         },
         {
           "indexed": true,
-          "internalType": "address",
-          "name": "l2DepositOwner",
-          "type": "address"
+          "internalType": "bytes32",
+          "name": "destinationChainDepositOwner",
+          "type": "bytes32"
         },
         {
           "indexed": true,
@@ -137,12 +137,69 @@
       "inputs": [
         {
           "indexed": false,
+          "internalType": "bool",
+          "name": "reimburseTxMaxFee",
+          "type": "bool"
+        }
+      ],
+      "name": "ReimburseTxMaxFeeUpdated",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "_address",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "bool",
+          "name": "authorization",
+          "type": "bool"
+        }
+      ],
+      "name": "ReimbursementAuthorizationUpdated",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
           "internalType": "address",
           "name": "newReimbursementPool",
           "type": "address"
         }
       ],
       "name": "ReimbursementPoolUpdated",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "l2Receiver",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint64",
+          "name": "transferSequence",
+          "type": "uint64"
+        }
+      ],
+      "name": "TokensTransferredWithPayload",
       "type": "event"
     },
     {
@@ -195,7 +252,7 @@
       "name": "deposits",
       "outputs": [
         {
-          "internalType": "enum L1BitcoinDepositor.DepositState",
+          "internalType": "enum L1BTCDepositorWormholeV2.DepositState",
           "name": "",
           "type": "uint8"
         }
@@ -363,9 +420,9 @@
           "type": "tuple"
         },
         {
-          "internalType": "address",
-          "name": "l2DepositOwner",
-          "type": "address"
+          "internalType": "bytes32",
+          "name": "destinationChainDepositOwner",
+          "type": "bytes32"
         }
       ],
       "name": "initializeDeposit",
@@ -466,6 +523,38 @@
     },
     {
       "inputs": [],
+      "name": "reimburseTxMaxFee",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "reimbursementAuthorizations",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
       "name": "reimbursementPool",
       "outputs": [
         {
@@ -480,6 +569,19 @@
     {
       "inputs": [],
       "name": "renounceOwnership",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bool",
+          "name": "_reimburseTxMaxFee",
+          "type": "bool"
+        }
+      ],
+      "name": "setReimburseTxMaxFee",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -557,6 +659,24 @@
     {
       "inputs": [
         {
+          "internalType": "address",
+          "name": "_address",
+          "type": "address"
+        },
+        {
+          "internalType": "bool",
+          "name": "authorization",
+          "type": "bool"
+        }
+      ],
+      "name": "updateReimbursementAuthorization",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
           "internalType": "contract ReimbursementPool",
           "name": "_reimbursementPool",
           "type": "address"
@@ -607,75 +727,75 @@
       "type": "function"
     }
   ],
-  "transactionHash": "0x5a405183332f623649fcf19f8506cf2582882d5dc2b05582e0066388ef122229",
+  "transactionHash": "0xa717881fde2b4a8f0bfd99bed89217df6cde5b09179c1562dc90d5a585fb3a3f",
   "receipt": {
     "to": null,
-    "from": "0x68ad60CC5e8f3B7cC53beaB321cf0e6036962dBc",
-    "contractAddress": "0x0c5e36731008f4AFC1AF5Da2C4D5E07eE4a3EB69",
-    "transactionIndex": 94,
-    "gasUsed": "887851",
-    "logsBloom": "0x00000000000000000000000000000000400000000000000400800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000202000001000000000000000000000000000000000000020000000000000000000800000000800000000000000008000000400000000200000000000000000000000000000040000080000000000000800000000000000000000000000000000400000000000000000000000000000010000000000020000000000000200020040000000000000400000000000000000020000000000000000000000000000000100000000000000000000000000000000000",
-    "blockHash": "0x9d4a08d2b6fd26df76447aa1b5e0054686b1d462dc12be4d271dca1299060a2c",
-    "transactionHash": "0x5a405183332f623649fcf19f8506cf2582882d5dc2b05582e0066388ef122229",
+    "from": "0x353C5c3DE81EDb53FFB398f6416f962b90ae8611",
+    "contractAddress": "0x59FAE614867b66421b44D1Ed3461e6B6a4B50106",
+    "transactionIndex": 109,
+    "gasUsed": "890221",
+    "logsBloom": "0x00000000800000000000000000000000400000000000040000800000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000002000001000000000000000000000000200000000000020000000000000000000800000000800000000000000000000000400000000000000000000000000040000000000000000080000000000000800800000000000000000000000000000400000000000200000000000000000000000000000020000000000000000000040000000000000400000000100000000020100000000000000000000000000000000000000000000000000000000000000000",
+    "blockHash": "0x8763fc2bcf540d3e552042512e5563e404054b580ed517c5ee35cefc92da78d6",
+    "transactionHash": "0xa717881fde2b4a8f0bfd99bed89217df6cde5b09179c1562dc90d5a585fb3a3f",
     "logs": [
       {
-        "transactionIndex": 94,
-        "blockNumber": 5441536,
-        "transactionHash": "0x5a405183332f623649fcf19f8506cf2582882d5dc2b05582e0066388ef122229",
-        "address": "0x0c5e36731008f4AFC1AF5Da2C4D5E07eE4a3EB69",
+        "transactionIndex": 109,
+        "blockNumber": 7592526,
+        "transactionHash": "0xa717881fde2b4a8f0bfd99bed89217df6cde5b09179c1562dc90d5a585fb3a3f",
+        "address": "0x59FAE614867b66421b44D1Ed3461e6B6a4B50106",
         "topics": [
           "0xbc7cd75a20ee27fd9adebab32041f755214dbc6bffa90cc0225b39da2e5c2d3b",
-          "0x000000000000000000000000720cb49a8b3c03e199075544f7f1f4d772dd6d06"
+          "0x0000000000000000000000008e261d2a1966e2329c161c1ec2a6e4686056a99c"
         ],
         "data": "0x",
-        "logIndex": 75,
-        "blockHash": "0x9d4a08d2b6fd26df76447aa1b5e0054686b1d462dc12be4d271dca1299060a2c"
+        "logIndex": 151,
+        "blockHash": "0x8763fc2bcf540d3e552042512e5563e404054b580ed517c5ee35cefc92da78d6"
       },
       {
-        "transactionIndex": 94,
-        "blockNumber": 5441536,
-        "transactionHash": "0x5a405183332f623649fcf19f8506cf2582882d5dc2b05582e0066388ef122229",
-        "address": "0x0c5e36731008f4AFC1AF5Da2C4D5E07eE4a3EB69",
+        "transactionIndex": 109,
+        "blockNumber": 7592526,
+        "transactionHash": "0xa717881fde2b4a8f0bfd99bed89217df6cde5b09179c1562dc90d5a585fb3a3f",
+        "address": "0x59FAE614867b66421b44D1Ed3461e6B6a4B50106",
         "topics": [
           "0x8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e0",
           "0x0000000000000000000000000000000000000000000000000000000000000000",
-          "0x00000000000000000000000068ad60cc5e8f3b7cc53beab321cf0e6036962dbc"
+          "0x000000000000000000000000353c5c3de81edb53ffb398f6416f962b90ae8611"
         ],
         "data": "0x",
-        "logIndex": 76,
-        "blockHash": "0x9d4a08d2b6fd26df76447aa1b5e0054686b1d462dc12be4d271dca1299060a2c"
+        "logIndex": 152,
+        "blockHash": "0x8763fc2bcf540d3e552042512e5563e404054b580ed517c5ee35cefc92da78d6"
       },
       {
-        "transactionIndex": 94,
-        "blockNumber": 5441536,
-        "transactionHash": "0x5a405183332f623649fcf19f8506cf2582882d5dc2b05582e0066388ef122229",
-        "address": "0x0c5e36731008f4AFC1AF5Da2C4D5E07eE4a3EB69",
+        "transactionIndex": 109,
+        "blockNumber": 7592526,
+        "transactionHash": "0xa717881fde2b4a8f0bfd99bed89217df6cde5b09179c1562dc90d5a585fb3a3f",
+        "address": "0x59FAE614867b66421b44D1Ed3461e6B6a4B50106",
         "topics": [
           "0x7f26b83ff96e1f2b6a682f133852f6798a09c465da95921460cefb3847402498"
         ],
         "data": "0x0000000000000000000000000000000000000000000000000000000000000001",
-        "logIndex": 77,
-        "blockHash": "0x9d4a08d2b6fd26df76447aa1b5e0054686b1d462dc12be4d271dca1299060a2c"
+        "logIndex": 153,
+        "blockHash": "0x8763fc2bcf540d3e552042512e5563e404054b580ed517c5ee35cefc92da78d6"
       },
       {
-        "transactionIndex": 94,
-        "blockNumber": 5441536,
-        "transactionHash": "0x5a405183332f623649fcf19f8506cf2582882d5dc2b05582e0066388ef122229",
-        "address": "0x0c5e36731008f4AFC1AF5Da2C4D5E07eE4a3EB69",
+        "transactionIndex": 109,
+        "blockNumber": 7592526,
+        "transactionHash": "0xa717881fde2b4a8f0bfd99bed89217df6cde5b09179c1562dc90d5a585fb3a3f",
+        "address": "0x59FAE614867b66421b44D1Ed3461e6B6a4B50106",
         "topics": [
           "0x7e644d79422f17c01e4894b5f4f588d331ebfa28653d42ae832dc59e38c9798f"
         ],
-        "data": "0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000dd0007713cb99564b7835fd628a1718e8f9f9785",
-        "logIndex": 78,
-        "blockHash": "0x9d4a08d2b6fd26df76447aa1b5e0054686b1d462dc12be4d271dca1299060a2c"
+        "data": "0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f9dae701c26e4df76e3cd6e16f9939af15d5590b",
+        "logIndex": 154,
+        "blockHash": "0x8763fc2bcf540d3e552042512e5563e404054b580ed517c5ee35cefc92da78d6"
       }
     ],
-    "blockNumber": 5441536,
-    "cumulativeGasUsed": "8903785",
+    "blockNumber": 7592526,
+    "cumulativeGasUsed": "11291714",
     "status": 1,
     "byzantium": true
   },
   "numDeployments": 1,
-  "implementation": "0x720Cb49A8b3c03E199075544F7f1F4d772Dd6d06",
+  "implementation": "0x8e261d2a1966E2329C161C1ec2a6E4686056a99c",
   "devdoc": "Contract deployed as upgradable proxy"
 }

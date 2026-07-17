@@ -1,0 +1,23 @@
+[package]
+name = "l2_tBTC"
+edition = "2024.beta"  # Use 'legacy' if '2024.beta' causes issues
+license = "GPL-3.0-only"
+authors = ["The tBTC team"]
+version = "0.1.0"
+
+[dependencies]
+Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "041c5f2bae2fe52079e44b70514333532d69f4e6" }
+Wormhole = { local = "../wormhole/sui/wormhole" }
+TokenBridge = { local = "../wormhole/sui/token_bridge" }
+
+[addresses]
+l2_tbtc = "0x0"
+wormhole = "0xf47329f4344f3bf0f8e436e2f7b485466cff300f12a166563995d3888c296a94"
+token_bridge = "0x562760fc51d90d4ae1835bac3e91e0e6987d3497b06f066941d3e51f6e8d76d0"
+
+[dev-addresses]
+# The dev-addresses section allows overwriting named addresses for the `--test`
+# and `--dev` modes.
+# token_bridge = "0x562760fc51d90d4ae1835bac3e91e0e6987d3497b06f066941d3e51f6e8d76d0"
+# wormhole = "0xf47329f4344f3bf0f8e436e2f7b485466cff300f12a166563995d3888c296a94"
+# l2_tbtc = "0x402"

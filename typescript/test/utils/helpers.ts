@@ -76,9 +76,14 @@ export function assertContractCalledWith(
   functionName: string,
   parameters: any[]
 ) {
-  const functionCallData = contract.interface.encodeFunctionData(
+  const normalizedParameters = normalizeContractParameters(
+    contract,
     functionName,
     parameters
+  )
+  const functionCallData = contract.interface.encodeFunctionData(
+    functionName,
+    normalizedParameters
   )
 
   assert(
@@ -88,4 +93,32 @@ export function assertContractCalledWith(
     ),
     "Expected contract function was not called"
   )
+}
+
+function normalizeContractParameters(
+  contract: MockContract,
+  functionName: string,
+  parameters: any[]
+): any[] {
+  const functionFragment = contract.interface.getFunction(functionName)
+
+  return parameters.map((parameter, index) =>
+    normalizeBytes32Value(parameter, functionFragment.inputs[index]?.type)
+  )
+}
+
+function normalizeBytes32Value(parameter: any, parameterType?: string): any {
+  if (
+    parameterType !== "bytes32" ||
+    typeof parameter !== "string" ||
+    !parameter.startsWith("0x")
+  ) {
+    return parameter
+  }
+
+  if (parameter.length === 42) {
+    return `0x${parameter.slice(2).padStart(64, "0")}`
+  }
+
+  return parameter
 }

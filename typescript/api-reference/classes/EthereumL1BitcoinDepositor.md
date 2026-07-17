@@ -15,7 +15,7 @@ for reference.
 
 ## Implements
 
-- [`L1BitcoinDepositor`](../interfaces/L1BitcoinDepositor.md)
+- [`L1BitcoinDepositor`](../README.md#l1bitcoindepositor)
 
 ## Table of contents
 
@@ -25,6 +25,7 @@ for reference.
 
 ### Properties
 
+- [#depositOwner](EthereumL1BitcoinDepositor.md##depositowner)
 - [#extraDataEncoder](EthereumL1BitcoinDepositor.md##extradataencoder)
 - [\_deployedAtBlockNumber](EthereumL1BitcoinDepositor.md#_deployedatblocknumber)
 - [\_instance](EthereumL1BitcoinDepositor.md#_instance)
@@ -35,14 +36,17 @@ for reference.
 - [extraDataEncoder](EthereumL1BitcoinDepositor.md#extradataencoder)
 - [getAddress](EthereumL1BitcoinDepositor.md#getaddress)
 - [getChainIdentifier](EthereumL1BitcoinDepositor.md#getchainidentifier)
+- [getDepositOwner](EthereumL1BitcoinDepositor.md#getdepositowner)
+- [getDepositState](EthereumL1BitcoinDepositor.md#getdepositstate)
 - [getEvents](EthereumL1BitcoinDepositor.md#getevents)
 - [initializeDeposit](EthereumL1BitcoinDepositor.md#initializedeposit)
+- [setDepositOwner](EthereumL1BitcoinDepositor.md#setdepositowner)
 
 ## Constructors
 
 ### constructor
 
-• **new EthereumL1BitcoinDepositor**(`config`, `chainId`, `l2ChainName`): [`EthereumL1BitcoinDepositor`](EthereumL1BitcoinDepositor.md)
+• **new EthereumL1BitcoinDepositor**(`config`, `chainId`, `destinationChainName`): [`EthereumL1BitcoinDepositor`](EthereumL1BitcoinDepositor.md)
 
 #### Parameters
 
@@ -50,7 +54,7 @@ for reference.
 | :------ | :------ |
 | `config` | [`EthereumContractConfig`](../interfaces/EthereumContractConfig.md) |
 | `chainId` | [`Ethereum`](../enums/Chains.Ethereum.md) |
-| `l2ChainName` | ``"Base"`` |
+| `destinationChainName` | [`DestinationChainName`](../README.md#destinationchainname) |
 
 #### Returns
 
@@ -62,17 +66,27 @@ EthersContractHandle\&lt;L1BitcoinDepositorTypechain\&gt;.constructor
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-depositor.ts:55](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L55)
+[lib/ethereum/l1-bitcoin-depositor.ts:85](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L85)
 
 ## Properties
 
-### #extraDataEncoder
+### #depositOwner
 
-• `Private` `Readonly` **#extraDataEncoder**: [`CrossChainExtraDataEncoder`](../interfaces/CrossChainExtraDataEncoder.md)
+• `Private` **#depositOwner**: `undefined` \| [`ChainIdentifier`](../interfaces/ChainIdentifier.md)
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-depositor.ts:53](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L53)
+[lib/ethereum/l1-bitcoin-depositor.ts:83](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L83)
+
+___
+
+### #extraDataEncoder
+
+• `Private` `Readonly` **#extraDataEncoder**: [`ExtraDataEncoder`](../interfaces/ExtraDataEncoder.md)
+
+#### Defined in
+
+[lib/ethereum/l1-bitcoin-depositor.ts:82](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L82)
 
 ___
 
@@ -90,7 +104,7 @@ EthersContractHandle.\_deployedAtBlockNumber
 
 #### Defined in
 
-[lib/ethereum/adapter.ts:80](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L80)
+[lib/ethereum/adapter.ts:80](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L80)
 
 ___
 
@@ -106,7 +120,7 @@ EthersContractHandle.\_instance
 
 #### Defined in
 
-[lib/ethereum/adapter.ts:74](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L74)
+[lib/ethereum/adapter.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L74)
 
 ___
 
@@ -122,27 +136,27 @@ EthersContractHandle.\_totalRetryAttempts
 
 #### Defined in
 
-[lib/ethereum/adapter.ts:84](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L84)
+[lib/ethereum/adapter.ts:84](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L84)
 
 ## Methods
 
 ### extraDataEncoder
 
-▸ **extraDataEncoder**(): [`CrossChainExtraDataEncoder`](../interfaces/CrossChainExtraDataEncoder.md)
+▸ **extraDataEncoder**(): [`ExtraDataEncoder`](../interfaces/ExtraDataEncoder.md)
 
 #### Returns
 
-[`CrossChainExtraDataEncoder`](../interfaces/CrossChainExtraDataEncoder.md)
+[`ExtraDataEncoder`](../interfaces/ExtraDataEncoder.md)
 
 **`See`**
 
 #### Implementation of
 
-[L1BitcoinDepositor](../interfaces/L1BitcoinDepositor.md).[extraDataEncoder](../interfaces/L1BitcoinDepositor.md#extradataencoder)
+L1BitcoinDepositor.extraDataEncoder
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-depositor.ts:90](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L90)
+[lib/ethereum/l1-bitcoin-depositor.ts:141](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L141)
 
 ___
 
@@ -164,7 +178,7 @@ EthersContractHandle.getAddress
 
 #### Defined in
 
-[lib/ethereum/adapter.ts:112](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L112)
+[lib/ethereum/adapter.ts:112](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L112)
 
 ___
 
@@ -180,11 +194,57 @@ ___
 
 #### Implementation of
 
-[L1BitcoinDepositor](../interfaces/L1BitcoinDepositor.md).[getChainIdentifier](../interfaces/L1BitcoinDepositor.md#getchainidentifier)
+L1BitcoinDepositor.getChainIdentifier
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-depositor.ts:82](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L82)
+[lib/ethereum/l1-bitcoin-depositor.ts:133](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L133)
+
+___
+
+### getDepositOwner
+
+▸ **getDepositOwner**(): `undefined` \| [`ChainIdentifier`](../interfaces/ChainIdentifier.md)
+
+#### Returns
+
+`undefined` \| [`ChainIdentifier`](../interfaces/ChainIdentifier.md)
+
+**`See`**
+
+#### Implementation of
+
+L1BitcoinDepositor.getDepositOwner
+
+#### Defined in
+
+[lib/ethereum/l1-bitcoin-depositor.ts:110](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L110)
+
+___
+
+### getDepositState
+
+▸ **getDepositState**(`depositId`): `Promise`\<[`DepositState`](../enums/DepositState.md)\>
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `depositId` | `string` |
+
+#### Returns
+
+`Promise`\<[`DepositState`](../enums/DepositState.md)\>
+
+**`See`**
+
+#### Implementation of
+
+L1BitcoinDepositor.getDepositState
+
+#### Defined in
+
+[lib/ethereum/l1-bitcoin-depositor.ts:126](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L126)
 
 ___
 
@@ -195,7 +255,7 @@ ___
 Get events emitted by the Ethereum contract.
 It starts searching from provided block number. If the GetEvents.Options#fromBlock
 option is missing it looks for a contract's defined property
-[_deployedAtBlockNumber](BaseL2BitcoinDepositor.md#_deployedatblocknumber). If the property is missing starts searching
+[_deployedAtBlockNumber](BaseBitcoinDepositor.md#_deployedatblocknumber). If the property is missing starts searching
 from block `0`.
 
 #### Parameters
@@ -218,7 +278,7 @@ EthersContractHandle.getEvents
 
 #### Defined in
 
-[lib/ethereum/adapter.ts:127](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L127)
+[lib/ethereum/adapter.ts:127](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/adapter.ts#L127)
 
 ___
 
@@ -243,8 +303,34 @@ ___
 
 #### Implementation of
 
-[L1BitcoinDepositor](../interfaces/L1BitcoinDepositor.md).[initializeDeposit](../interfaces/L1BitcoinDepositor.md#initializedeposit)
+L1BitcoinDepositor.initializeDeposit
 
 #### Defined in
 
-[lib/ethereum/l1-bitcoin-depositor.ts:98](https://github.com/keep-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L98)
+[lib/ethereum/l1-bitcoin-depositor.ts:149](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L149)
+
+___
+
+### setDepositOwner
+
+▸ **setDepositOwner**(`depositOwner`): `void`
+
+#### Parameters
+
+| Name | Type |
+| :------ | :------ |
+| `depositOwner` | `undefined` \| [`ChainIdentifier`](../interfaces/ChainIdentifier.md) |
+
+#### Returns
+
+`void`
+
+**`See`**
+
+#### Implementation of
+
+L1BitcoinDepositor.setDepositOwner
+
+#### Defined in
+
+[lib/ethereum/l1-bitcoin-depositor.ts:118](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L118)

@@ -1,6 +1,7 @@
 import { deployments, ethers, helpers } from "hardhat"
 import { randomBytes } from "crypto"
-import { smock } from "@defi-wonderland/smock"
+import { smock, FakeContract } from "@defi-wonderland/smock"
+import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import type {
   Bank,
   BankStub,
@@ -15,12 +16,34 @@ import type {
   BridgeGovernance,
   IRelay,
   RedemptionWatchtower,
+  RebateStaking,
+  IERC20,
 } from "../../typechain"
 
 /**
  * Common fixture for tests suites targeting the Bridge contract.
  */
-export default async function bridgeFixture() {
+export default async function bridgeFixture(): Promise<{
+  deployer: SignerWithAddress
+  governance: SignerWithAddress
+  spvMaintainer: SignerWithAddress
+  thirdParty: SignerWithAddress
+  treasury: SignerWithAddress
+  redemptionWatchtowerManager: SignerWithAddress
+  guardians: SignerWithAddress[]
+  tbtc: TBTC
+  vendingMachine: VendingMachine
+  tbtcVault: TBTCVault
+  bank: Bank & BankStub
+  relay: FakeContract<IRelay>
+  walletRegistry: FakeContract<IWalletRegistry>
+  bridge: Bridge & BridgeStub
+  reimbursementPool: ReimbursementPool
+  maintainerProxy: MaintainerProxy
+  bridgeGovernance: BridgeGovernance
+  redemptionWatchtower: RedemptionWatchtower
+  deployBridge: (txProofDifficultyFactor: number) => Promise<any>
+}> {
   await deployments.fixture()
 
   const {
@@ -45,6 +68,12 @@ export default async function bridgeFixture() {
   const tbtcVault: TBTCVault = await helpers.contracts.getContract("TBTCVault")
 
   const bank: Bank & BankStub = await helpers.contracts.getContract("Bank")
+
+  const t: IERC20 = await helpers.contracts.getContract("T")
+
+  const rebateStaking: RebateStaking = await helpers.contracts.getContract(
+    "RebateStaking"
+  )
 
   const bridge: Bridge & BridgeStub = await helpers.contracts.getContract(
     "Bridge"
@@ -137,6 +166,8 @@ export default async function bridgeFixture() {
     maintainerProxy,
     bridgeGovernance,
     redemptionWatchtower,
+    t,
+    rebateStaking,
     deployBridge,
   }
 }

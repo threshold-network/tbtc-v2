@@ -4,8 +4,7 @@
 anyone, and even the smallest of fixes is appreciated!
 
 The following is a set of guidelines for contributing to Keep and its packages.
-These are mostly guidelines, not rules. Use your best judgment, and feel free to
-propose changes to this document in a pull request.
+Feel free to propose changes to this document in a pull request.
 
 == Getting started
 
@@ -55,3 +54,33 @@ Solidity linting, please propose these changes to our
 https://github.com/keep-network/solium-config-keep[solium-config-keep] and
 https://github.com/keep-network/eslint-config-keep[eslint-config-keep] packages.
 All other packages have it as a dependency.
+
+== Commit Messages
+
+When composing commit messages, please follow the general guidelines listed in
+https://cbea.ms/git-commit/[Chris Beams’s How to Write a Git Commit Message].
+Many editors have git modes that will highlight overly long first lines of
+commit messages, etc. The GitHub UI itself will warn you if your commit summary
+is too long, and will auto-wrap commit messages made through the UI to 72
+characters.
+
+The above goes into good commit style. Some additional guidelines do apply,
+however:
+
+* The target audience of your commit messages is always "some person 10 years
+  from now who never got a chance to talk to present you" (that person could be
+  future you!).
+* Commit messages with a summary and no description should be very rare. This
+  means you should probably break any habit of using `git commit -m`.
+* A fundamental principle that informs our use of GitHub: assume GitHub will
+  someday go away, and ensure git has captured all important information about
+  the development of the code. Commit messages are the piece of knowledge that
+  is second most likely to survive tool transitions (the first is the code
+  itself); as such, they must stand alone. Do not reference tickets or issues
+  in your commit messages. Summarize any conclusions from the issue or ticket
+  that inform the commit itself, and capture any additional reasoning or context
+  in the merge commit.
+* Make your commits as atomic as you can manage. This means each commit contains
+  a single logical unit of work. 
+* Run a quick `git log --graph --all --oneline --decorate` before pushing.
+  It’s much easier to fix typos and minor mistakes locally.

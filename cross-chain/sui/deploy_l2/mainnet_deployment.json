@@ -1,0 +1,34 @@
+{
+  "network": "mainnet",
+  "deploymentDate": "2025-07-03",
+  "transactionDigest": "2vHbDX3s3FSRekzL6zkgoUc18ZFW2ZVBERjwgx6KmVLW",
+  "packageId": "0x77045f1b9f811a7a8fb9ebd085b5b0c55c5cb0d1520ff55f7037f89b5da9f5f1",
+  "adminCaps": {
+    "tbtc": "0x1028ceebc370a2ee481a6ff8b38035f41189644021cdf46a57e14c2d4121c11f",
+    "gateway": "0x10db95bdfdf83c9562a2855864d5ccafb7b5e4204dae17866ec79a25d1c64904",
+    "bitcoinDepositor": "0x4c1cd43cfe7bbe3e196ea9ad98f14f19d3e99fa5ca0c003737084e8a6ba4252a",
+    "treasuryCap": "0x5dff98d71a967b3a06112bf8dd5e5377c52fe7aa209a52a18e1bf09387f7454c"
+  },
+  "sharedObjects": {
+    "tokenState": "0x2ff31492339e06859132b8db199f640ca37a5dc8ab1713782c4372c678f2f85c",
+    "gatewayState": "0x76eb72899418719b2db5fbc12f5fb42e93bb75f67116420f5dbf971dd31fe7f7",
+    "receiverState": "0x164f463fdc60bbbff19c30ad9597ea7123c643d3671e9719cd982e3912176d94"
+  },
+  "metadata": {
+    "coinMetadata": "0xace3435fae9bed56c559aa0a70fd746ee78d3db043c09a803b62abce06d35121",
+    "upgradeCap": "0x5bf1aa54782f1a55ed44d9d16c442bd19e98c1d12b00f8cf9b4f198bf1b02a07"
+  },
+  "tokenInfo": {
+    "symbol": "TBTC",
+    "name": "tBTC v2",
+    "decimals": 8,
+    "description": "Canonical L2/sidechain token implementation for tBTC"
+  },
+  "initialization": {
+    "transactionDigest": "8c9JmjMd7HFeMdZDAxR9VsUxXqrFSN1Z9o8yQSEeuxxB",
+    "gatewayCapabilities": "0xb0faec8d0a74808108c775230967d9617acf0952425c2a559cac95588f187901",
+    "minterCap": "0x0ee96ad714d690753b5b4cd62d952c658dfc9e152195394395460f63cfac26b2",
+    "isInitialized": true,
+    "mintingLimit": "18446744073709551615"
+  }
+}

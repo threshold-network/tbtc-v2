@@ -37,7 +37,7 @@
     "test": "hardhat test"
   },
   "dependencies": {
-    "@keep-network/tbtc-v2": "development",
+    "@keep-network/tbtc-v2": "1.7.2",
     "@openzeppelin/contracts": "^4.8.1",
     "@openzeppelin/contracts-upgradeable": "^4.8.1"
   },

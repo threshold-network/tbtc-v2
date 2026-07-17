@@ -1,7 +1,9 @@
 import { HardhatRuntimeEnvironment, HardhatNetworkConfig } from "hardhat/types"
 import { DeployFunction } from "hardhat-deploy/types"
 
-const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
+const func: DeployFunction = async function resolveTbtcV1Token(
+  hre: HardhatRuntimeEnvironment
+) {
   const { getNamedAccounts, deployments, helpers } = hre
   const { log } = deployments
   const { deployer } = await getNamedAccounts()

@@ -21,8 +21,10 @@ jobs:
         with:
           node-version: "18.x"
           registry-url: "https://registry.npmjs.org"
-          cache: "yarn"
           cache-dependency-path: typescript/yarn.lock
+
+      - name: Enable Corepack
+        run: corepack enable
 
       # We need this step because the `@keep-network/tbtc-v2` which we update in
       # next step has an indirect dependency to `@summa-tx/relay-sol@2.0.2`
