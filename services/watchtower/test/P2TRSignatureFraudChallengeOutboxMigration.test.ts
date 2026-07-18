@@ -1,0 +1,488 @@
+import assert from "node:assert/strict"
+import { readdirSync, readFileSync } from "node:fs"
+import test from "node:test"
+
+const migrationsURL = new URL("../migrations/", import.meta.url)
+const migrationURL = new URL(
+  "003_p2tr_signature_fraud_challenge_outbox.sql",
+  migrationsURL
+)
+const migrationSource = readFileSync(migrationURL, "utf8")
+const migration = migrationSource.replace(/\s+/g, " ")
+
+test("leaves transaction ownership to the ordered migration runner", () => {
+  const orderedMigrations = readdirSync(migrationsURL)
+    .filter((name) => /^\d{3}_.+\.sql$/.test(name))
+    .sort()
+
+  for (const name of orderedMigrations) {
+    assert.doesNotMatch(
+      readFileSync(new URL(name, migrationsURL), "utf8"),
+      /^\s*(?:BEGIN|COMMIT)\s*;/gim,
+      `${name} embeds transaction control`
+    )
+  }
+  assert.match(
+    migrationURL.pathname,
+    /\/003_p2tr_signature_fraud_challenge_outbox\.sql$/
+  )
+  const canonicalJournalIndex = orderedMigrations.findIndex((name) =>
+    name.startsWith("002_")
+  )
+  const challengeOutboxIndex = orderedMigrations.indexOf(
+    "003_p2tr_signature_fraud_challenge_outbox.sql"
+  )
+  assert.notEqual(challengeOutboxIndex, -1)
+  if (canonicalJournalIndex !== -1) {
+    assert.ok(canonicalJournalIndex < challengeOutboxIndex)
+  }
+})
+
+test("stores append-only evidence generations linked to an exact predecessor", () => {
+  assert.match(
+    migration,
+    /record_id bytea PRIMARY KEY CHECK \(octet_length\(record_id\) = 32\)/
+  )
+  assert.match(migration, /UNIQUE \(series_id, generation\)/)
+  assert.match(
+    migration,
+    /series_id bytea NOT NULL CHECK \(octet_length\(series_id\) = 32\)/
+  )
+  assert.match(migration, /UNIQUE \(previous_record_id\)/)
+  assert.match(
+    migration,
+    /generation integer NOT NULL CHECK \(generation BETWEEN 0 AND 31\)/
+  )
+  assert.doesNotMatch(
+    migration,
+    /generation integer NOT NULL DEFAULT 0 CHECK \(generation = 0\)/
+  )
+  assert.match(migration, /prior_record\.generation \+ 1 <> NEW\.generation/)
+  assert.match(migration, /prior_record\.series_id <> NEW\.series_id/)
+  assert.match(
+    migration,
+    /fresh nonce generation lacks independently attested exact disposition/
+  )
+  assert.match(
+    migration,
+    /canonical reappearance lacks independently attested reorg evidence/
+  )
+  assert.match(
+    migration,
+    /P2TR challenge generation identity and evidence are immutable/
+  )
+  assert.match(
+    migration,
+    /BEFORE DELETE ON p2tr_signature_fraud_challenge_outbox/
+  )
+})
+
+test("binds the exact input, funding occurrence, and Ethereum binding point", () => {
+  assert.match(
+    migration,
+    /canonical_input_index bigint NOT NULL CHECK \( canonical_input_index = bitcoin_input_index \)/
+  )
+  assert.match(
+    migration,
+    /canonical_funding_block_hash bytea NOT NULL CHECK \( octet_length\(canonical_funding_block_hash\) = 32 \)/
+  )
+  assert.match(migration, /canonical_funding_txid bytea NOT NULL/)
+  assert.match(
+    migration,
+    /canonical_funding_vout bigint NOT NULL CHECK \( canonical_funding_vout BETWEEN 0 AND 4294967295 \)/
+  )
+  assert.match(
+    migration,
+    /canonical_binding_ethereum_block_number bigint NOT NULL CHECK \( canonical_binding_ethereum_block_number >= 0 AND canonical_binding_ethereum_block_number <= canonical_provenance_through_block_number \)/
+  )
+  assert.match(
+    migration,
+    /canonical_binding_ethereum_block_hash bytea NOT NULL CHECK \( octet_length\(canonical_binding_ethereum_block_hash\) = 32 \)/
+  )
+  assert.match(
+    migration,
+    /prior_record\.canonical_funding_block_hash <> NEW\.canonical_funding_block_hash/
+  )
+  assert.match(
+    migration,
+    /NEW\.canonical_binding_ethereum_block_hash, NEW\.canonical_provenance_fingerprint/
+  )
+})
+
+test("admits only normalized COMPLETE_V2 evidence and its immutable domain", () => {
+  assert.match(
+    migration,
+    /evidence_protocol_id bytea NOT NULL CHECK \( octet_length\(evidence_protocol_id\) = 32 AND evidence_protocol_id = decode\( '12c62b64ecf6d008bcff153495dcdbe7a981f3a9a1b9c0898b86b1e6d0d350ef', 'hex' \) \)/
+  )
+  assert.match(migration, /CHECK \(bridge_challenge_key = bridge_challenge_identity\)/)
+  assert.match(migration, /CHECK \(intent_input_index = bitcoin_input_index\)/)
+  assert.match(
+    migration,
+    /router_protocol_id bytea NOT NULL CHECK \( octet_length\(router_protocol_id\) = 32 AND router_protocol_id = evidence_protocol_id \)/
+  )
+  assert.match(
+    migration,
+    /router_domain_chain_id numeric\(78, 0\) NOT NULL CHECK \( router_domain_chain_id = domain_chain_id AND router_domain_chain_id = chain_id \)/
+  )
+  assert.match(
+    migration,
+    /signing_key = wallet_id AND binding_tx_hash = decode\(repeat\('00', 32\), 'hex'\) AND binding_output_index = 0 AND canonical_input_binding_kind = 'registered-wallet-output'/
+  )
+  assert.match(
+    migration,
+    /signing_key <> wallet_id AND binding_tx_hash = canonical_funding_txid AND binding_output_index = canonical_funding_vout AND canonical_input_binding_kind = 'deposit-binding'/
+  )
+  assert.match(
+    migration,
+    /UNIQUE \( chain_id, router_address, bridge_challenge_key, observation_id, intent_input_index, bitcoin_tx_hash, bitcoin_wtxid, canonical_candidate_provenance_generation, generation \)/
+  )
+})
+
+test("requires a durable bound nonce guard before signer invocation", () => {
+  assert.match(
+    migration,
+    /CREATE TABLE p2tr_signature_fraud_challenge_nonce_guard/
+  )
+  assert.match(
+    migration,
+    /CREATE UNIQUE INDEX p2tr_signature_fraud_unresolved_nonce_guard_idx/
+  )
+  assert.match(migration, /WHERE voided_before_sign_at_unix_ms IS NULL/)
+  assert.match(
+    migration,
+    /num_nonnulls\( selected_signer_lane_id, selected_signer_identity, selected_sender \) IN \(0, 3\)/
+  )
+  assert.match(
+    migration,
+    /P2TR signer lane must be durably selected before nonce reservation/
+  )
+  assert.match(
+    migration,
+    /nonce reservation does not match the durable selected signer lane/
+  )
+  assert.match(
+    migration,
+    /num_nonnulls\( nonce_reservation_id, signer_lane_id, signer_identity, reserved_sender, reserved_nonce, nonce_reservation_binding, nonce_reserved_at_unix_ms \) IN \(0, 7\)/
+  )
+  assert.match(
+    migration,
+    /selected_signer_lane_id = signer_lane_id AND selected_signer_identity = signer_identity AND selected_sender = reserved_sender/
+  )
+  assert.match(
+    migration,
+    /signer_invocation_started_at_unix_ms IS NULL OR \( nonce_reservation_id IS NOT NULL AND signer_invocation_started_at_unix_ms >= nonce_reserved_at_unix_ms \)/
+  )
+  assert.match(
+    migration,
+    /P2TR challenge nonce was not durably bound before use/
+  )
+  assert.match(
+    migration,
+    /CREATE UNIQUE INDEX p2tr_signature_fraud_challenge_outbox_active_lane_idx/
+  )
+  assert.match(
+    migration,
+    /CREATE UNIQUE INDEX p2tr_signature_fraud_challenge_outbox_active_sender_idx/
+  )
+  assert.match(
+    migration,
+    /CREATE UNIQUE INDEX p2tr_signature_fraud_challenge_outbox_selected_lane_idx/
+  )
+  assert.match(
+    migration,
+    /CREATE UNIQUE INDEX p2tr_signature_fraud_challenge_outbox_selected_sender_idx/
+  )
+  assert.match(
+    migration,
+    /num_nonnulls\( voided_before_sign_at_unix_ms, void_reason, void_evidence_digest \) IN \(0, 3\)/
+  )
+  assert.match(migration, /only an unsigned selected reservation can be voided/)
+  assert.match(migration, /P2TR challenge nonce guards cannot be deleted/)
+})
+
+test("stores immutable generation-scoped same-nonce EIP-1559 variants", () => {
+  assert.match(
+    migration,
+    /CREATE TABLE p2tr_signature_fraud_signer_lane_configuration/
+  )
+  assert.match(
+    migration,
+    /UNIQUE \(activation_manifest_hash, chain_id, signer_identity\)/
+  )
+  assert.match(
+    migration,
+    /signer_code_hash bytea NOT NULL CHECK \(octet_length\(signer_code_hash\) = 32\)/
+  )
+  assert.match(
+    migration,
+    /configuration_hash bytea NOT NULL CHECK \( octet_length\(configuration_hash\) = 32/
+  )
+  assert.match(
+    migration,
+    /CREATE FUNCTION p2tr_signature_fraud_signer_lane_configuration_hash/
+  )
+  assert.match(
+    migration,
+    /configuration_hash = p2tr_signature_fraud_signer_lane_configuration_hash/
+  )
+  assert.match(
+    migration,
+    /CREATE TABLE p2tr_signature_fraud_challenge_fee_policy/
+  )
+  assert.match(
+    migration,
+    /selected signer lane lacks its manifest-bound fee and value policy/
+  )
+  assert.match(
+    migration,
+    /NEW\.gas_limit \* NEW\.max_fee_per_gas > fee_policy\.max_total_fee_wei/
+  )
+  assert.match(
+    migration,
+    /CREATE TABLE p2tr_signature_fraud_challenge_outbox_variant/
+  )
+  assert.match(
+    migration,
+    /PRIMARY KEY \(record_id, generation, variant_sequence\)/
+  )
+  assert.match(
+    migration,
+    /transaction_type smallint NOT NULL CHECK \(transaction_type = 2\)/
+  )
+  assert.match(
+    migration,
+    /NEW\.sender <> outbox_record\.reserved_sender OR NEW\.transaction_nonce <> outbox_record\.reserved_nonce/
+  )
+  assert.match(
+    migration,
+    /NEW\.sender <> previous_variant\.sender OR NEW\.transaction_nonce <> previous_variant\.transaction_nonce/
+  )
+  assert.match(
+    migration,
+    /NEW\.max_fee_per_gas <= previous_variant\.max_fee_per_gas OR NEW\.max_priority_fee_per_gas <= previous_variant\.max_priority_fee_per_gas OR NEW\.gas_limit < previous_variant\.gas_limit/
+  )
+  assert.match(
+    migration,
+    /BEFORE UPDATE OR DELETE ON p2tr_signature_fraud_challenge_outbox_variant/
+  )
+})
+
+test("records append-only broadcast boundaries per generation and variant", () => {
+  assert.match(
+    migration,
+    /CREATE TABLE p2tr_signature_fraud_challenge_outbox_broadcast_attempt/
+  )
+  assert.match(
+    migration,
+    /PRIMARY KEY \(record_id, generation, variant_sequence, attempt_number\)/
+  )
+  assert.match(
+    migration,
+    /CREATE TABLE p2tr_signature_fraud_challenge_outbox_broadcast_acknowledgement/
+  )
+  assert.match(
+    migration,
+    /FOREIGN KEY \(record_id, generation, variant_sequence, returned_transaction_hash\) REFERENCES p2tr_signature_fraud_challenge_outbox_variant\(record_id, generation, variant_sequence, transaction_hash\)/
+  )
+  assert.match(
+    migration,
+    /BEFORE UPDATE OR DELETE ON p2tr_signature_fraud_challenge_outbox_broadcast_attempt/
+  )
+})
+
+test("requires structured independently attested cancellation evidence", () => {
+  assert.match(
+    migration,
+    /CREATE TABLE p2tr_signature_fraud_challenge_cancellation_evidence/
+  )
+  assert.match(migration, /conflicting_outpoint_tx_hash bytea/)
+  assert.match(migration, /canonical_spend_tx_hash bytea/)
+  assert.match(migration, /bridge_proof_transaction_hash bytea/)
+  assert.match(migration, /replacement_bitcoin_block_hash bytea/)
+  assert.match(migration, /bitcoin_cursor_block_hash bytea NOT NULL/)
+  assert.match(migration, /ethereum_cursor_block_hash bytea NOT NULL/)
+  assert.match(
+    migration,
+    /CREATE TABLE p2tr_signature_fraud_challenge_cancellation_attestation/
+  )
+  assert.match(
+    migration,
+    /UNIQUE \(cancellation_evidence_id, independence_domain_id\)/
+  )
+  assert.match(
+    migration,
+    /SELECT count\(DISTINCT independence_domain_id\) INTO attestation_count FROM p2tr_signature_fraud_challenge_cancellation_attestation/
+  )
+  assert.match(
+    migration,
+    /cancellation lacks matching independently attested canonical evidence/
+  )
+  assert.match(
+    migration,
+    /BEFORE UPDATE OR DELETE ON p2tr_signature_fraud_challenge_cancellation_evidence/
+  )
+  assert.match(
+    migration,
+    /status <> 'cancelled-before-broadcast' OR \( cancellation_evidence_id IS NULL AND selected_signer_lane_id IS NULL AND nonce_reservation_id IS NULL AND signer_invocation_started_at_unix_ms IS NULL AND prepared_transaction_hash IS NULL AND broadcast_attempts = 0 AND last_error IS NOT NULL \)/
+  )
+  assert.match(
+    migration,
+    /operator cancellation is allowed only from an unsigned queued record/
+  )
+  assert.match(
+    migration,
+    /canonical cancellation is allowed only before signer invocation/
+  )
+  assert.doesNotMatch(migration, /canonical-ineligible/)
+})
+
+test("requires exact independently attested disposition before lane release", () => {
+  assert.match(
+    migration,
+    /CREATE TABLE p2tr_signature_fraud_challenge_nonce_disposition/
+  )
+  assert.match(migration, /sender_account_nonce_at_finality numeric/)
+  assert.match(migration, /finalized_through_block_hash bytea NOT NULL/)
+  assert.match(
+    migration,
+    /CREATE TABLE p2tr_signature_fraud_challenge_nonce_disposition_attestation/
+  )
+  assert.match(
+    migration,
+    /UNIQUE \(nonce_disposition_id, independence_domain_id\)/
+  )
+  assert.match(
+    migration,
+    /nonce lane release requires independently attested final disposition/
+  )
+  assert.match(
+    migration,
+    /FOREIGN KEY \(previous_record_id, prior_nonce_disposition_id\) REFERENCES p2tr_signature_fraud_challenge_nonce_disposition\(record_id, nonce_disposition_id\)/
+  )
+  assert.match(migration, /submitted_late_artifact_id bytea CHECK/)
+  assert.match(
+    migration,
+    /FOREIGN KEY \( record_id, generation, submitted_late_artifact_id, transaction_hash \) REFERENCES p2tr_signature_fraud_challenge_late_signed_artifact \( record_id, generation, artifact_id, transaction_hash \) DEFERRABLE INITIALLY DEFERRED/
+  )
+  assert.match(
+    migration,
+    /BEFORE UPDATE OR DELETE ON p2tr_signature_fraud_challenge_nonce_disposition/
+  )
+})
+
+test("isolates quarantined signers and protects escaped sender nonces", () => {
+  assert.match(
+    migration,
+    /CREATE TABLE p2tr_signature_fraud_challenge_signer_quarantine/
+  )
+  assert.match(migration, /UNIQUE \(chain_id, signer_lane_id\)/)
+  assert.match(migration, /UNIQUE \(chain_id, signer_identity\)/)
+  assert.match(
+    migration,
+    /CREATE TABLE p2tr_signature_fraud_challenge_escaped_envelope/
+  )
+  assert.match(
+    migration,
+    /actual_sender <> expected_sender OR actual_nonce <> expected_nonce/
+  )
+  assert.match(migration, /guard_kind = 'escaped-envelope'/)
+  assert.match(
+    migration,
+    /quarantine_reason IN \('wrong-sender', 'wrong-nonce'\)/
+  )
+  assert.match(
+    migration,
+    /BEFORE UPDATE OR DELETE ON p2tr_signature_fraud_challenge_escaped_envelope/
+  )
+  assert.match(
+    migration,
+    /CREATE TABLE p2tr_signature_fraud_challenge_late_signed_artifact/
+  )
+  assert.match(migration, /expected_provenance_fingerprint bytea NOT NULL/)
+  assert.match(
+    migration,
+    /late signed artifact does not match its durable signer boundary/
+  )
+  assert.match(
+    migration,
+    /BEFORE UPDATE OR DELETE ON p2tr_signature_fraud_challenge_late_signed_artifact/
+  )
+})
+
+test("records immutable activation-blocking alerts at bounded ledger caps", () => {
+  assert.match(
+    migration,
+    /CREATE TABLE p2tr_signature_fraud_challenge_critical_alert/
+  )
+  assert.match(
+    migration,
+    /series_id bytea NOT NULL CHECK \(octet_length\(series_id\) = 32\)/
+  )
+  assert.match(
+    migration,
+    /code text NOT NULL CHECK \(code IN \( 'generation-cap-exhausted', 'signed-variant-cap-exhausted', 'signed-state-quarantined', 'provenance-reconciliation-incident' \)\)/
+  )
+  assert.match(
+    migration,
+    /activation_blocking boolean NOT NULL CHECK \(activation_blocking\)/
+  )
+  assert.match(
+    migration,
+    /CHECK \(code <> 'generation-cap-exhausted' OR generation = 31\)/
+  )
+  assert.match(
+    migration,
+    /expected_latest_variant_sequence IS DISTINCT FROM 15/
+  )
+  assert.match(
+    migration,
+    /expected_status NOT IN \('generation-required', 'cancelled-reorg'\)/
+  )
+  assert.match(
+    migration,
+    /critical alert is not bound to the exact P2TR challenge series/
+  )
+  assert.match(
+    migration,
+    /FOREIGN KEY \(record_id, generation, series_id\) REFERENCES p2tr_signature_fraud_challenge_outbox\(record_id, generation, series_id\)/
+  )
+  assert.match(
+    migration,
+    /BEFORE UPDATE OR DELETE ON p2tr_signature_fraud_challenge_critical_alert/
+  )
+})
+
+test("rotates manifests and outbox provenance in one database trigger", () => {
+  assert.match(
+    migration,
+    /CREATE OR REPLACE FUNCTION p2tr_watchtower_activation_manifest_monotonic\(\)/
+  )
+  assert.match(
+    migration,
+    /INSERT INTO p2tr_signature_fraud_challenge_provenance_invalidation/
+  )
+  assert.match(
+    migration,
+    /INSERT INTO p2tr_signature_fraud_challenge_provenance_incident/
+  )
+  assert.match(
+    migration,
+    /activation manifest rotation invalidated the generation provenance/
+  )
+  assert.match(migration, /record_state = jsonb_set\(/)
+  assert.match(
+    migration,
+    /CREATE TABLE p2tr_signature_fraud_challenge_outbox_state_history/
+  )
+})
+
+test("protects serialized generation identity alongside normalized columns", () => {
+  assert.match(
+    migration,
+    /NEW\.record_state -> 'canonicalProvenance'[\s\S]*OLD\.record_state -> 'canonicalProvenance'/
+  )
+  assert.match(
+    migration,
+    /serialized P2TR outbox generation identity and evidence are immutable/
+  )
+})
