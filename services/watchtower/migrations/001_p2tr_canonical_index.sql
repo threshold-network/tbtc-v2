@@ -1,5 +1,3 @@
-BEGIN;
-
 CREATE TABLE p2tr_watchtower_schema_version (
     component text PRIMARY KEY,
     version integer NOT NULL CHECK (version > 0),
@@ -221,5 +219,3 @@ CREATE TABLE p2tr_cross_source_watermark (
         CHECK (octet_length(ethereum_block_hash) = 32),
     updated_at timestamptz NOT NULL DEFAULT clock_timestamp()
 );
-
-COMMIT;

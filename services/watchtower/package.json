@@ -6,6 +6,8 @@
   "description": "Production service scaffold for tBTC P2TR signature-fraud watchtower cycles.",
   "dependencies": {
     "@keep-network/tbtc-v2.ts": "workspace:*",
+    "ethers": "^5.7.2",
+    "merkle-patricia-tree": "3.0.0",
     "pg": "^8.13.1"
   },
   "scripts": {

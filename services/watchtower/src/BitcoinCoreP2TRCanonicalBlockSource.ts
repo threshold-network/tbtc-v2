@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { Block, Transaction } from "bitcoinjs-lib"
 import type {
   P2TRBitcoinChainPoint,
@@ -5,15 +6,18 @@ import type {
   P2TRCanonicalBitcoinBlockSource,
   P2TRCanonicalBitcoinTransaction,
 } from "./P2TRCanonicalBitcoinIndex.js"
+import {
+  bindP2TRHttpTransport,
+  type P2TRAuthenticatedHttpsTransport,
+  type P2TRBoundHttpTransport,
+} from "./P2TRAuthenticatedHttpTransport.js"
 
 export interface P2TRBitcoinCoreRpc {
+  readonly endpointFingerprint?: string
   call<T>(method: string, parameters?: readonly unknown[]): Promise<T>
 }
 
-export type P2TRBitcoinCoreFetch = (
-  input: string,
-  init?: RequestInit
-) => Promise<Response>
+export type P2TRBitcoinCoreFetch = typeof fetch
 
 export type HttpP2TRBitcoinCoreRpcOptions = {
   url: string
@@ -24,6 +28,9 @@ export type HttpP2TRBitcoinCoreRpcOptions = {
   maxAttempts?: number
   retryDelayMs?: number
   maxResponseBytes?: number
+  /** Deployment-pinned CA bundle/SPKI policy identifier for HTTPS endpoints. */
+  tlsServerIdentity?: string
+  authenticatedHttpsTransport?: P2TRAuthenticatedHttpsTransport
 }
 
 export type BitcoinCoreP2TRCanonicalBlockSourceOptions = {
@@ -95,9 +102,10 @@ const DEFAULT_PREVOUT_FETCH_CONCURRENCY = 8
  * Authentication values are never included in thrown errors.
  */
 export class HttpP2TRBitcoinCoreRpc implements P2TRBitcoinCoreRpc {
+  readonly endpointFingerprint: string
   private readonly url: string
   private readonly authorization: string
-  private readonly fetchFn: P2TRBitcoinCoreFetch
+  private readonly transport: P2TRBoundHttpTransport
   private readonly requestTimeoutMs: number
   private readonly maxAttempts: number
   private readonly retryDelayMs: number
@@ -106,9 +114,7 @@ export class HttpP2TRBitcoinCoreRpc implements P2TRBitcoinCoreRpc {
 
   constructor(options: HttpP2TRBitcoinCoreRpcOptions) {
     const url = new URL(options.url)
-    if (url.protocol !== "http:" && url.protocol !== "https:") {
-      throw new Error("Bitcoin Core RPC URL must use http or https")
-    }
+    assertSecureRpcURL(url, "Bitcoin Core RPC")
     if (options.username.length === 0 || options.password.length === 0) {
       throw new Error("Bitcoin Core RPC credentials must be non-empty")
     }
@@ -117,7 +123,13 @@ export class HttpP2TRBitcoinCoreRpc implements P2TRBitcoinCoreRpc {
     this.authorization = `Basic ${Buffer.from(
       `${options.username}:${options.password}`
     ).toString("base64")}`
-    this.fetchFn = options.fetchFn ?? fetch
+    this.transport = bindP2TRHttpTransport({
+      url,
+      label: "Bitcoin Core RPC",
+      tlsServerIdentity: options.tlsServerIdentity,
+      authenticatedHttpsTransport: options.authenticatedHttpsTransport,
+      loopbackFetchFn: options.fetchFn,
+    })
     this.requestTimeoutMs = positiveInteger(
       options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
       "Bitcoin Core RPC request timeout"
@@ -134,6 +146,19 @@ export class HttpP2TRBitcoinCoreRpc implements P2TRBitcoinCoreRpc {
       options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES,
       "Bitcoin Core RPC response byte bound"
     )
+    this.endpointFingerprint = `0x${createHash("sha256")
+      .update(
+        JSON.stringify({
+          schema: "p2tr-bitcoin-core-json-rpc-transport/v1",
+          url: url.toString(),
+          transportIdentity: this.transport.identity,
+          authenticationIdentityHash: createHash("sha256")
+            .update(options.username.normalize("NFKC"), "utf8")
+            .digest("hex"),
+        }),
+        "utf8"
+      )
+      .digest("hex")}`
     if (this.maxResponseBytes < DEFAULT_MAX_RESPONSE_BYTES) {
       throw new Error(
         `Canonical verbosity-3 RPC responses require at least the ${DEFAULT_MAX_RESPONSE_BYTES}-byte transport bound`
@@ -153,7 +178,7 @@ export class HttpP2TRBitcoinCoreRpc implements P2TRBitcoinCoreRpc {
     let lastError: unknown
     for (let attempt = 1; attempt <= this.maxAttempts; attempt++) {
       try {
-        const response = await this.fetchFn(this.url, {
+        const response = await this.transport.request(this.url, {
           method: "POST",
           headers: {
             authorization: this.authorization,
@@ -166,7 +191,17 @@ export class HttpP2TRBitcoinCoreRpc implements P2TRBitcoinCoreRpc {
             params: parameters,
           }),
           signal: AbortSignal.timeout(this.requestTimeoutMs),
+          redirect: "error",
         })
+        if (
+          response.redirected ||
+          (response.url.length > 0 &&
+            new URL(response.url).toString() !== this.url)
+        ) {
+          throw new NonRetryableBitcoinCoreRpcError(
+            "Bitcoin Core RPC response URL changed"
+          )
+        }
 
         const contentLength = response.headers.get("content-length")
         if (
@@ -253,6 +288,7 @@ export class BitcoinCoreP2TRCanonicalBlockSource
 {
   readonly trustDomainID: string
   readonly network: string
+  readonly endpointFingerprint?: string
   private readonly expectedGenesisHash: string
   private readonly maxHeaderLag: number
   private readonly minimumVerificationProgress: number
@@ -269,6 +305,7 @@ export class BitcoinCoreP2TRCanonicalBlockSource
       options.trustDomainID,
       "Bitcoin Core trust-domain ID"
     )
+    this.endpointFingerprint = rpc.endpointFingerprint
     this.network = options.network
     this.expectedGenesisHash = normalizeHash(
       options.expectedGenesisHash,
@@ -759,6 +796,34 @@ const nonEmptyString = (value: string, field: string): string => {
     throw new Error(`${field} must be non-empty`)
   }
   return value.trim()
+}
+
+const assertSecureRpcURL = (
+  url: URL,
+  label: string
+): void => {
+  if (url.username !== "" || url.password !== "") {
+    throw new Error(`${label} URL must not embed credentials`)
+  }
+  if (url.protocol === "https:") {
+    return
+  }
+  if (url.protocol !== "http:" || !isLoopbackHost(url.hostname)) {
+    throw new Error(`${label} requires HTTPS or a numeric loopback HTTP endpoint`)
+  }
+}
+
+const isLoopbackHost = (hostname: string): boolean => {
+  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "")
+  if (normalized === "::1") return true
+  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(
+    normalized
+  )
+  return (
+    match !== null &&
+    match.slice(1).every((part) => Number(part) <= 255) &&
+    Number(match[1]) === 127
+  )
 }
 
 const errorMessage = (error: unknown): string =>

@@ -162,6 +162,7 @@ export type P2TRTaprootDepositBinding = P2TRBitcoinOutpoint & {
 
 export type P2TRFrostWalletBinding = {
   walletID: string
+  walletPubKeyHash: string
   sourceEventID: string
   ethereum: P2TREthereumChainPoint
 }
@@ -201,6 +202,9 @@ export interface P2TRCanonicalEvidenceStore
     bindings: P2TRTaprootDepositBinding[]
   ): Promise<void>
   addFrostWalletBindings(bindings: P2TRFrostWalletBinding[]): Promise<void>
+  loadFrostWalletIDByPubKeyHash(
+    walletPubKeyHash: string
+  ): Promise<string | undefined>
   /** Removes Ethereum-derived state above or off the retained canonical point. */
   rollbackEthereumEvidenceTo(point: P2TREthereumChainPoint): Promise<void>
   countPendingDepositReveals(): Promise<number>
