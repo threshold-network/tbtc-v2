@@ -39,6 +39,81 @@ contract EcdsaFraudRouterCutoverStub {
     }
 }
 
+/// @notice Malicious current-generation handshake whose ancestry can be wired
+///         into a cycle after deployment. Production routers use immutables;
+///         this stub proves the cutover independently traverses and rejects a
+///         dishonest graph instead of trusting the candidate's depth word.
+contract MutableEcdsaFraudRouterAncestryStub {
+    struct FraudChallenge {
+        address challenger;
+        uint256 depositAmount;
+        uint32 reportedAt;
+        bool resolved;
+    }
+
+    address public immutable bridge;
+    bytes32 public constant fraudProtocolID =
+        keccak256("tbtc/ecdsa-signature-fraud/router/current-v3");
+    address public predecessor;
+    bytes32 public predecessorCodeHash;
+    uint8 public ancestryDepth;
+    uint256 public openFraudChallengeCount;
+    uint256 public unattributedOpenFraudChallengeCount;
+    uint256 public openFraudChallengeEscrow;
+    mapping(uint256 => FraudChallenge) public fraudChallenges;
+
+    constructor(address _bridge) {
+        bridge = _bridge;
+    }
+
+    function setAncestry(address _predecessor, uint8 _ancestryDepth) external {
+        predecessor = _predecessor;
+        predecessorCodeHash = _predecessor == address(0)
+            ? bytes32(0)
+            : _predecessor.codehash;
+        ancestryDepth = _ancestryDepth;
+    }
+
+    function setPredecessorCodeHash(bytes32 codeHash) external {
+        predecessorCodeHash = codeHash;
+    }
+
+    function setOpenFraudChallengeEscrowForTest(uint256 escrow) external {
+        openFraudChallengeEscrow = escrow;
+    }
+}
+
+/// @notice Current-generation predecessor whose identity lookup fails with
+///         empty revert data. Its legacy-shaped mapping deliberately exists so
+///         tests prove an OOG/empty revert cannot be misclassified as v2.
+contract RevertingIdentityEcdsaFraudRouterStub {
+    struct FraudChallenge {
+        address challenger;
+        uint256 depositAmount;
+        uint32 reportedAt;
+        bool resolved;
+    }
+
+    address public immutable bridge;
+    bytes32 public constant fraudProtocolID =
+        keccak256("tbtc/ecdsa-signature-fraud/router/current-v3");
+    address public constant predecessor = address(0);
+    bytes32 public constant predecessorCodeHash = bytes32(0);
+    uint8 public constant ancestryDepth = 0;
+    mapping(uint256 => FraudChallenge) public fraudChallenges;
+
+    constructor(address _bridge) {
+        bridge = _bridge;
+    }
+
+    function challengeIdentityExists(uint256) external pure returns (bool) {
+        // solhint-disable-next-line no-inline-assembly
+        assembly {
+            revert(0, 0)
+        }
+    }
+}
+
 /// @notice Returns deliberately malformed data for every selector. A
 ///         permissive fallback must never satisfy the router handshake.
 contract MalformedEcdsaFraudRouterCutoverStub {
@@ -54,14 +129,43 @@ contract MalformedEcdsaFraudRouterCutoverStub {
 /// @notice Models the dangerous ordering used by the pre-fix stateful router:
 ///         the global count reaches zero before the untrusted refund callback.
 contract LegacyEcdsaFraudRouterCutoverStub {
+    struct FraudChallenge {
+        address challenger;
+        uint256 depositAmount;
+        uint32 reportedAt;
+        bool resolved;
+    }
+
     IBridgeForEcdsaFraudRouterCutoverTest public immutable bridge;
+    bytes32 public constant fraudProtocolID =
+        keccak256("tbtc/ecdsa-signature-fraud/router/current-v2");
     uint256 public openFraudChallengeCount;
+    mapping(uint256 => FraudChallenge) public fraudChallenges;
 
     address payable internal challenger;
     uint256 internal challengeDeposit;
 
     constructor(address _bridge) {
         bridge = IBridgeForEcdsaFraudRouterCutoverTest(_bridge);
+    }
+
+    function setOpenFraudChallengeCountForTest(uint256 count) external {
+        openFraudChallengeCount = count;
+    }
+
+    function setFraudChallenge(
+        uint256 challengeKey,
+        address _challenger,
+        uint256 depositAmount,
+        uint32 reportedAt,
+        bool resolved
+    ) external {
+        fraudChallenges[challengeKey] = FraudChallenge(
+            _challenger,
+            depositAmount,
+            reportedAt,
+            resolved
+        );
     }
 
     function submitChallengeForTest() external payable {

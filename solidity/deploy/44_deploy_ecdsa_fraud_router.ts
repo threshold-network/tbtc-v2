@@ -2,7 +2,7 @@ import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import type { DeployFunction } from "hardhat-deploy/types"
 
 const CURRENT_PROTOCOL_ID =
-  "0x2ec27e6ba7e92f8ce2c5e8d180e5220c899e662e87c4084d1dec5bc9150d2bf8"
+  "0x35a446ffef8a2299061382519986bc72b6129928ebe5438078d31d0fb94960fc"
 
 async function assertCurrentRouterHandshake(
   hre: HardhatRuntimeEnvironment,
@@ -14,10 +14,26 @@ async function assertCurrentRouterHandshake(
     "EcdsaFraudRouter",
     routerAddress
   )
-  const [boundBridge, protocolID, openCount] = await Promise.all([
+  const [
+    boundBridge,
+    protocolID,
+    predecessor,
+    predecessorCodeHash,
+    ancestryDepth,
+    openCount,
+    unattributedCount,
+    openEscrow,
+    migratedChallengesActivatedAt,
+  ] = await Promise.all([
     router.bridge(),
     router.fraudProtocolID(),
+    router.predecessor(),
+    router.predecessorCodeHash(),
+    router.ancestryDepth(),
     router.openFraudChallengeCount(),
+    router.unattributedOpenFraudChallengeCount(),
+    router.openFraudChallengeEscrow(),
+    router.migratedChallengesActivatedAt(),
   ])
 
   if (boundBridge.toLowerCase() !== bridgeAddress.toLowerCase()) {
@@ -32,10 +48,28 @@ async function assertCurrentRouterHandshake(
         `${protocolID}; expected ${CURRENT_PROTOCOL_ID}`
     )
   }
-  if (requireEmpty && !openCount.isZero()) {
+  if (predecessor !== hre.ethers.constants.AddressZero) {
     throw new Error(
-      `EcdsaFraudRouter ${routerAddress} is not empty: ` +
-        `${openCount.toString()} open challenge(s)`
+      `fresh EcdsaFraudRouter ${routerAddress} unexpectedly inherits ${predecessor}`
+    )
+  }
+  if (
+    predecessorCodeHash !== hre.ethers.constants.HashZero ||
+    ancestryDepth !== 0
+  ) {
+    throw new Error(
+      `fresh EcdsaFraudRouter ${routerAddress} exposes a non-empty ancestry pin`
+    )
+  }
+  if (
+    requireEmpty &&
+    (!openCount.isZero() ||
+      !unattributedCount.isZero() ||
+      !openEscrow.isZero() ||
+      !migratedChallengesActivatedAt.isZero())
+  ) {
+    throw new Error(
+      `EcdsaFraudRouter ${routerAddress} is not fresh: ${openCount.toString()} open challenge(s), ${openEscrow.toString()} wei escrow, activation epoch ${migratedChallengesActivatedAt.toString()}`
     )
   }
 }
@@ -66,12 +100,61 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   const { deployer } = await getNamedAccounts()
 
   const Bridge = await deployments.get("Bridge")
+  const bridgeContract = await ethers.getContractAt("Bridge", Bridge.address)
+  const existingRouterDeployment = await deployments.getOrNull(
+    "EcdsaFraudRouter"
+  )
+
+  // Never let hardhat-deploy replace the canonical stateful-router record
+  // before the live Bridge pointer has been read. Changed bytecode under the
+  // same deployment name would otherwise save a fresh inactive address and
+  // only discover the mismatch afterwards.
+  try {
+    const liveRouter = await bridgeContract.ecdsaFraudRouter()
+    if (liveRouter !== ethers.constants.AddressZero) {
+      if (
+        !existingRouterDeployment ||
+        existingRouterDeployment.address.toLowerCase() !==
+          liveRouter.toLowerCase()
+      ) {
+        throw new Error(
+          `canonical EcdsaFraudRouter record does not preserve live router ${liveRouter}`
+        )
+      }
+      const [approvedHash, runtimeCode] = await Promise.all([
+        bridgeContract.ecdsaFraudRouterCodeHash(),
+        ethers.provider.getCode(liveRouter),
+      ])
+      const runtimeHash = ethers.utils.keccak256(runtimeCode)
+      if (
+        approvedHash !== ethers.constants.HashZero &&
+        approvedHash.toLowerCase() !== runtimeHash.toLowerCase()
+      ) {
+        throw new Error(
+          `live EcdsaFraudRouter code hash mismatch: ${approvedHash} != ${runtimeHash}`
+        )
+      }
+      console.log(
+        `preserving canonical stateful EcdsaFraudRouter ${liveRouter}; ` +
+          "prepare replacements through deployment 87 under its distinct alias"
+      )
+      return
+    }
+  } catch (err) {
+    if ((err as { code?: string }).code !== "CALL_EXCEPTION") throw err
+    if (existingRouterDeployment) {
+      throw new Error(
+        "Bridge does not yet expose ecdsaFraudRouter(); refusing to overwrite " +
+          `the existing canonical record ${existingRouterDeployment.address}`
+      )
+    }
+  }
 
   // EcdsaFraudRouter is a plain (non-upgradeable) contract that
   // pins the Bridge address at construction.
   const ecdsaFraudRouter = await deploy("EcdsaFraudRouter", {
     from: deployer,
-    args: [Bridge.address],
+    args: [Bridge.address, ethers.constants.AddressZero],
     log: true,
     waitConfirmations: 1,
   })
@@ -99,7 +182,6 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   // 48_deploy_frost_wallet_registry: read the current Bridge value, send the
   // setter when the deployer/governance owner is a configured signer, else emit
   // the exact governance calldata for manual execution, and verify idempotently.
-  const bridgeContract = await ethers.getContractAt("Bridge", Bridge.address)
   const bridgeGovernance = await ethers.getContractAt(
     "BridgeGovernance",
     (
@@ -119,6 +201,21 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   const currentBridgeGovernance = await bridgeContract.governance()
   const governanceIsDeployer =
     currentBridgeGovernance.toLowerCase() === deployer.toLowerCase()
+  if (
+    !governanceIsDeployer &&
+    currentBridgeGovernance.toLowerCase() !==
+      bridgeGovernance.address.toLowerCase()
+  ) {
+    throw new Error(
+      "Refusing EcdsaFraudRouter wiring through stale BridgeGovernance " +
+        `${bridgeGovernance.address}; live Bridge.governance() is ` +
+        `${currentBridgeGovernance}. Complete and read back the delayed ` +
+        "governance handoff before invoking a wrapper."
+    )
+  }
+  const routerRuntimeCodeHash = ethers.utils.keccak256(
+    await ethers.provider.getCode(ecdsaFraudRouter.address)
+  )
   const ALREADY_SET_SELECTOR = ethers.utils
     .id("EcdsaFraudRouterAlreadySet()")
     .slice(0, 10)
@@ -166,6 +263,15 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
       Bridge.address,
       false
     )
+    const approvedCodeHash = await bridgeContract.ecdsaFraudRouterCodeHash()
+    if (
+      approvedCodeHash.toLowerCase() !== routerRuntimeCodeHash.toLowerCase()
+    ) {
+      throw new Error(
+        "Bridge EcdsaFraudRouter code hash mismatch: expected " +
+          `${routerRuntimeCodeHash}, got ${approvedCodeHash}`
+      )
+    }
     console.log(
       `EcdsaFraudRouter already wired on this Bridge at ${ecdsaFraudRouter.address}; skipping`
     )
@@ -179,6 +285,13 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
         `replace it with ${ecdsaFraudRouter.address}`
     )
   } else {
+    if (!governanceIsDeployer) {
+      throw new Error(
+        "Refusing to wire EcdsaFraudRouter from deploy 44 on an existing " +
+          "governed Bridge. Use the signed cutover manifest, distinct fresh " +
+          "BridgeGovernance deployment, and delayed handoff runbook."
+      )
+    }
     // Resolve the authorized caller. In the governance-wrapper case the setter
     // is `BridgeGovernance.onlyOwner`, so the call must come from the wrapper
     // owner -- which post-handoff is the governance multisig, not `deployer`.
@@ -202,7 +315,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     if (!setterSigner) {
       const calldata = setterContract.interface.encodeFunctionData(
         "setEcdsaFraudRouter",
-        [ecdsaFraudRouter.address]
+        [ecdsaFraudRouter.address, routerRuntimeCodeHash]
       )
       const reason = !bridgeExposesGetter
         ? `the Bridge at ${Bridge.address} does not yet expose ` +
@@ -228,7 +341,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
       try {
         const tx = await setterContract
           .connect(setterSigner)
-          .setEcdsaFraudRouter(ecdsaFraudRouter.address)
+          .setEcdsaFraudRouter(ecdsaFraudRouter.address, routerRuntimeCodeHash)
         await tx.wait(1)
         console.log(
           `wired EcdsaFraudRouter at ${ecdsaFraudRouter.address} onto Bridge ${
@@ -274,6 +387,15 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
         throw new Error(
           "Bridge.ecdsaFraudRouter mismatch after deploy: " +
             `expected ${ecdsaFraudRouter.address}, got ${wiredRouter}`
+        )
+      }
+      const approvedCodeHash = await bridgeContract.ecdsaFraudRouterCodeHash()
+      if (
+        approvedCodeHash.toLowerCase() !== routerRuntimeCodeHash.toLowerCase()
+      ) {
+        throw new Error(
+          "Bridge EcdsaFraudRouter code hash mismatch after deploy: expected " +
+            `${routerRuntimeCodeHash}, got ${approvedCodeHash}`
         )
       }
     }

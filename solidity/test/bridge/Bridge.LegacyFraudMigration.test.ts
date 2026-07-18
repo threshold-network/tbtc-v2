@@ -114,6 +114,9 @@ describe("Bridge - legacy fraud challenge migration", () => {
     await expect(tx)
       .to.emit(bridge, "LegacyFraudChallengeMigrated")
       .withArgs(0, keys[1], thirdParty.address, deposits[1])
+    const receipt = await tx.wait()
+    const migratedAt = (await ethers.provider.getBlock(receipt.blockNumber))
+      .timestamp
 
     expect(await ethers.provider.getBalance(bridge.address)).to.equal(
       bridgeBalanceBefore.sub(totalDeposit)
@@ -145,7 +148,14 @@ describe("Bridge - legacy fraud challenge migration", () => {
       expect(migrated.depositAmount).to.equal(deposits[i])
       expect(migrated.reportedAt).to.equal(1_700_000_000)
       expect(migrated.resolved).to.equal(false)
+      expect(
+        await ecdsaFraudRouter.migrationDefenseStartedAtByChallenge(keys[i])
+      ).to.equal(migratedAt)
+      expect(
+        await ecdsaFraudRouter.fraudChallengeDefeatTimeoutStartedAt(keys[i])
+      ).to.equal(migratedAt)
     }
+    expect(await ecdsaFraudRouter.migratedChallengesActivatedAt()).to.equal(0)
   })
 
   it("blocks public evidence from pre-seeding an ECDSA migration key", async () => {
@@ -408,7 +418,13 @@ describe("Bridge - legacy fraud challenge migration", () => {
   ]) {
     it(`${routerName} rejects resolved migration records`, async () => {
       const factory = await ethers.getContractFactory(routerName, deployer)
-      const router = await factory.deploy(thirdParty.address)
+      const router =
+        routerName === "EcdsaFraudRouter"
+          ? await factory.deploy(
+              thirdParty.address,
+              ethers.constants.AddressZero
+            )
+          : await factory.deploy(thirdParty.address)
       await router.deployed()
       const deposit = ethers.utils.parseEther("0.1")
 

@@ -337,9 +337,7 @@ contract Bridge is
 
     /// @notice Emitted when governance pins the current router and starts the
     ///         fail-closed challenge drain required before replacement.
-    event EcdsaFraudRouterDrainStarted(
-        address indexed ecdsaFraudRouter
-    );
+    event EcdsaFraudRouterDrainStarted(address indexed ecdsaFraudRouter);
 
     /// @notice Emitted when an old router is permanently disabled after drain.
     event EcdsaFraudRouterRetired(address indexed ecdsaFraudRouter);
@@ -348,6 +346,18 @@ contract Bridge is
     event EcdsaFraudRouterReplaced(
         address indexed previousEcdsaFraudRouter,
         address indexed newEcdsaFraudRouter
+    );
+
+    event EcdsaFraudRouterCodeHashApproved(
+        address indexed ecdsaFraudRouter,
+        bytes32 indexed runtimeCodeHash
+    );
+    event EcdsaFraudRouterMigrationPrepared(
+        address indexed previousEcdsaFraudRouter,
+        address indexed newEcdsaFraudRouter,
+        bytes32 indexed challengeSetHash,
+        uint256 challengeCount,
+        uint256 totalEscrow
     );
 
     // Mirror of the BridgeState library declaration so the event appears
@@ -2262,8 +2272,7 @@ contract Bridge is
         // Legacy routers read the deposit and timeout through the same view.
         // During drain, make new submissions economically impossible without
         // disabling timeout resolution of challenges already in flight.
-        fraudChallengeDepositAmount = msg.sender ==
-            self.ecdsaFraudRouterInDrain
+        fraudChallengeDepositAmount = msg.sender == self.ecdsaFraudRouterInDrain
             ? type(uint96).max
             : self.fraudChallengeDepositAmount;
         fraudChallengeDefeatTimeout = self.fraudChallengeDefeatTimeout;
@@ -2528,11 +2537,11 @@ contract Bridge is
     ///      `setRedemptionWatchtower` and `setFrostWalletRegistry`).
     ///      After being set, the router becomes the only address
     ///      permitted to invoke `slashWalletForFraud` on this Bridge.
-    function setEcdsaFraudRouter(address ecdsaFraudRouter)
-        external
-        onlyGovernance
-    {
-        self.configureEcdsaFraudRouter(ecdsaFraudRouter);
+    function setEcdsaFraudRouter(
+        address ecdsaFraudRouter,
+        bytes32 expectedCodeHash
+    ) external onlyGovernance {
+        self.configureEcdsaFraudRouter(ecdsaFraudRouter, expectedCodeHash);
     }
 
     /// @notice Returns the address of the EcdsaFraudRouter sidecar.
@@ -2540,6 +2549,12 @@ contract Bridge is
     ///         `setEcdsaFraudRouter`.
     function ecdsaFraudRouter() external view returns (address) {
         return self.ecdsaFraudRouter;
+    }
+
+    /// @notice Returns the governance-approved runtime bytecode hash of the
+    ///         authoritative ECDSA fraud router.
+    function ecdsaFraudRouterCodeHash() external view returns (bytes32) {
+        return self.ecdsaFraudRouterCodeHash;
     }
 
     /// @notice Returns the router pinned by an in-progress fail-closed drain,
@@ -2557,31 +2572,17 @@ contract Bridge is
         return self.retiredEcdsaFraudRouters[ecdsaFraudRouter];
     }
 
-    /// @notice Starts the fail-closed drain of the current ECDSA fraud router.
-    /// @dev While draining, every graceful ECDSA wallet closure reverts. The
-    ///      router continues to accept defeats and timeout notifications so its
-    ///      authoritative open-challenge count can reach zero.
-    function beginEcdsaFraudRouterDrain() external onlyGovernance {
-        self.beginEcdsaFraudRouterDrain();
-    }
-
-    /// @notice Atomically replaces a drained ECDSA fraud router and optionally
-    ///         migrates unresolved challenges still resident in Bridge storage.
-    /// @dev Requirements:
-    ///      - Caller must be governance,
-    ///      - `expectedEcdsaFraudRouter` must still be current and in drain,
-    ///      - The old router's global open challenge count must be zero,
-    ///      - The new router must be empty, current-version, and bound here.
-    function replaceEcdsaFraudRouter(
-        address expectedEcdsaFraudRouter,
-        address newEcdsaFraudRouter,
-        uint256[] calldata legacyChallengeKeys
+    /// @notice Governance-only dispatcher for the delayed ECDSA router
+    ///         cutover. Action 0 begins drain, 1 migrates the committed
+    ///         inventory, and 2 finalizes after independent reconciliation.
+    /// @dev Typed workflow methods live on BridgeGovernance. Keeping one
+    ///      Bridge selector and decoding in linked Fraud bytecode preserves
+    ///      EIP-170 margin for the combined upgrade stack.
+    function processEcdsaFraudRouterCutover(
+        uint8 action,
+        bytes calldata payload
     ) external onlyGovernance {
-        self.replaceEcdsaFraudRouter(
-            expectedEcdsaFraudRouter,
-            newEcdsaFraudRouter,
-            legacyChallengeKeys
-        );
+        self.processEcdsaFraudRouterCutover(action, payload);
     }
 
     /// @notice Privileged callback the EcdsaFraudRouter invokes to

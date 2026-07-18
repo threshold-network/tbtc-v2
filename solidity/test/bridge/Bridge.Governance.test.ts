@@ -4510,9 +4510,13 @@ describe("Bridge - Governance", () => {
         const paramsLib = await helpers.contracts.getContract(
           "BridgeGovernanceParameters"
         )
+        const cutoverLib = await helpers.contracts.getContract(
+          "EcdsaFraudRouterCutover"
+        )
         const govFactory = await ethers.getContractFactory("BridgeGovernance", {
           libraries: {
             BridgeGovernanceParameters: paramsLib.address,
+            EcdsaFraudRouterCutover: cutoverLib.address,
           },
         })
         localBridgeGovernance = (await govFactory
@@ -4551,9 +4555,13 @@ describe("Bridge - Governance", () => {
       const paramsLib = await helpers.contracts.getContract(
         "BridgeGovernanceParameters"
       )
+      const cutoverLib = await helpers.contracts.getContract(
+        "EcdsaFraudRouterCutover"
+      )
       const govFactory = await ethers.getContractFactory("BridgeGovernance", {
         libraries: {
           BridgeGovernanceParameters: paramsLib.address,
+          EcdsaFraudRouterCutover: cutoverLib.address,
         },
       })
 

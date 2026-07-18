@@ -243,6 +243,10 @@ contract BridgeStub is Bridge {
         self.ecdsaFraudRouter = router;
     }
 
+    function setEcdsaFraudRouterCodeHashForTest(bytes32 codeHash) external {
+        self.ecdsaFraudRouterCodeHash = codeHash;
+    }
+
     function resetP2TRFraudRouterForTest(address router) external {
         self.p2trFraudRouter = router;
     }

@@ -1,5 +1,5 @@
 /* eslint-disable no-underscore-dangle */
-import { BigNumber } from "ethers"
+import { BigNumber, BytesLike } from "ethers"
 import { ethers, helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import chai, { expect } from "chai"
@@ -133,7 +133,8 @@ describe("EcdsaFraudRouter", () => {
       "EcdsaFraudRouter"
     )
     ecdsaFraudRouter = (await EcdsaFraudRouterFactory.deploy(
-      bridge.address
+      bridge.address,
+      ethers.constants.AddressZero
     )) as EcdsaFraudRouter
     await ecdsaFraudRouter.deployed()
     bridge.ecdsaFraudRouter.returns(ecdsaFraudRouter.address)
@@ -166,8 +167,27 @@ describe("EcdsaFraudRouter", () => {
   it("exposes the current Bridge-bound fraud protocol handshake", async () => {
     expect(await ecdsaFraudRouter.bridge()).to.equal(bridge.address)
     expect(await ecdsaFraudRouter.fraudProtocolID()).to.equal(
-      ethers.utils.id("tbtc/ecdsa-signature-fraud/router/current-v2")
+      ethers.utils.id("tbtc/ecdsa-signature-fraud/router/current-v3")
     )
+    expect(await ecdsaFraudRouter.predecessor()).to.equal(ZeroAddress)
+    expect(await ecdsaFraudRouter.predecessorCodeHash()).to.equal(HashZero)
+    expect(await ecdsaFraudRouter.ancestryDepth()).to.equal(0)
+  })
+
+  it("rejects unavailable and self-linked predecessors at deployment", async () => {
+    const factory = await ethers.getContractFactory("EcdsaFraudRouter")
+    await expect(
+      factory.deploy(bridge.address, thirdParty.address)
+    ).to.be.revertedWith("Predecessor code unavailable")
+
+    const signerAddress = await factory.signer.getAddress()
+    const predictedAddress = ethers.utils.getContractAddress({
+      from: signerAddress,
+      nonce: await ethers.provider.getTransactionCount(signerAddress),
+    })
+    await expect(
+      factory.deploy(bridge.address, predictedAddress)
+    ).to.be.revertedWith("Predecessor cannot be this router")
   })
 
   it("rejects challenge escrow before the router is authoritative", async () => {
@@ -180,10 +200,7 @@ describe("EcdsaFraudRouter", () => {
     )
   })
 
-  const utxoKey = (utxo: {
-    txHash: string | Uint8Array
-    txOutputIndex: number
-  }) =>
+  const utxoKey = (utxo: { txHash: BytesLike; txOutputIndex: number }) =>
     ethers.BigNumber.from(
       ethers.utils.solidityKeccak256(
         ["bytes32", "uint32"],
@@ -267,12 +284,120 @@ describe("EcdsaFraudRouter", () => {
     )
   })
 
+  it("preserves resolved challenge identities across bounded router generations", async () => {
+    const data = nonWitnessSignSingleInputTx
+    await submitChallenge(data)
+    await markHonestlySpent(data)
+    await ecdsaFraudRouter.defeatFraudChallenge(
+      fraudWallet.publicKey,
+      data.preimage,
+      data.witness
+    )
+
+    const factory = await ethers.getContractFactory("EcdsaFraudRouter")
+    const replacement = (await factory.deploy(
+      bridge.address,
+      ecdsaFraudRouter.address
+    )) as EcdsaFraudRouter
+    await replacement.deployed()
+    expect(await replacement.ancestryDepth()).to.equal(1)
+    expect(await replacement.predecessorCodeHash()).to.equal(
+      ethers.utils.keccak256(
+        await ethers.provider.getCode(ecdsaFraudRouter.address)
+      )
+    )
+    bridge.ecdsaFraudRouter.returns(replacement.address)
+
+    await expect(
+      replacement
+        .connect(thirdParty)
+        .submitFraudChallenge(
+          fraudWallet.publicKey,
+          data.preimageSha256,
+          data.signature,
+          { value: fraudChallengeDepositAmount }
+        )
+    ).to.be.revertedWith("Fraud challenge already exists")
+
+    const nextReplacement = (await factory.deploy(
+      bridge.address,
+      replacement.address
+    )) as EcdsaFraudRouter
+    await nextReplacement.deployed()
+    expect(await nextReplacement.ancestryDepth()).to.equal(2)
+    bridge.ecdsaFraudRouter.returns(nextReplacement.address)
+
+    await expect(
+      nextReplacement
+        .connect(thirdParty)
+        .submitFraudChallenge(
+          fraudWallet.publicKey,
+          data.preimageSha256,
+          data.signature,
+          { value: fraudChallengeDepositAmount }
+        )
+    ).to.be.revertedWith("Fraud challenge already exists")
+  })
+
+  it("fails closed when a v3 predecessor identity lookup empty-reverts", async () => {
+    const predecessorFactory = await ethers.getContractFactory(
+      "RevertingIdentityEcdsaFraudRouterStub"
+    )
+    const predecessor = await predecessorFactory.deploy(bridge.address)
+    await predecessor.deployed()
+
+    const routerFactory = await ethers.getContractFactory("EcdsaFraudRouter")
+    const replacement = (await routerFactory.deploy(
+      bridge.address,
+      predecessor.address
+    )) as EcdsaFraudRouter
+    await replacement.deployed()
+
+    await expectCustomError(
+      replacement.challengeIdentityExists(1),
+      "EcdsaFraudRouterPredecessorUnavailable(address)"
+    )
+  })
+
+  it("rejects migration that would reactivate a predecessor tombstone", async () => {
+    const legacyFactory = await ethers.getContractFactory(
+      "LegacyEcdsaFraudRouterCutoverStub"
+    )
+    const legacy = await legacyFactory.deploy(thirdParty.address)
+    await legacy.deployed()
+    const key = 73
+    await legacy.setFraudChallenge(key, thirdParty.address, 0, 1, true)
+
+    const routerFactory = await ethers.getContractFactory("EcdsaFraudRouter")
+    const migrationRouter = (await routerFactory.deploy(
+      thirdParty.address,
+      legacy.address
+    )) as EcdsaFraudRouter
+    await migrationRouter.deployed()
+
+    await expect(
+      migrationRouter.connect(thirdParty).acceptMigration(
+        [key],
+        [
+          {
+            challenger: thirdParty.address,
+            depositAmount: fraudChallengeDepositAmount,
+            reportedAt: 2,
+            resolved: false,
+          },
+        ],
+        { value: fraudChallengeDepositAmount }
+      )
+    ).to.be.revertedWith("Challenge already migrated")
+  })
+
   it("rejects unresolved migrated fraud challenges without a report timestamp", async () => {
     const EcdsaFraudRouterFactory = await ethers.getContractFactory(
       "EcdsaFraudRouter"
     )
     const migrationRouter = (await EcdsaFraudRouterFactory.deploy(
-      thirdParty.address
+      thirdParty.address,
+      ethers.constants.AddressZero
     )) as EcdsaFraudRouter
     await migrationRouter.deployed()
 

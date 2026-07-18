@@ -335,8 +335,8 @@ library BridgeState {
         // upgrade path of the Bridge implementation.
         address rebateStaking;
         // Upgrade note: the FROST extraction state, Taproot deposit commitment,
-        // and ECDSA fraud-router cutover state below consume eleven reserved
-        // slots, reducing `__gap` from 48 to 37 for storage compatibility.
+        // and ECDSA fraud-router cutover state below consume twelve reserved
+        // slots, reducing `__gap` from 48 to 36 for storage compatibility.
         // Maps canonical wallet identifier to the wallet public key hash used
         // by legacy Bridge paths. For legacy ECDSA wallets, canonical wallet
         // ID is a left-padded 20-byte wallet public key hash. New wallet
@@ -470,12 +470,15 @@ library BridgeState {
         // falls back to the registered wallet's base x-only key.
         mapping(uint256 => bytes32) taprootDepositOutputKeyCommitments;
         // Governance-approved runtime bytecode hash of the authoritative ECDSA
-        // fraud router. Fresh wiring, drain entry, and replacement compare it
-        // against EXTCODEHASH; handshake getters are compatibility checks only.
+        // fraud router. This is checked against EXTCODEHASH on fresh wiring,
+        // drain entry, and replacement; router-provided handshake getters are
+        // supplemental compatibility checks, never the trust anchor.
         bytes32 ecdsaFraudRouterCodeHash;
-        // Pins the authoritative legacy router throughout a governance drain.
-        // Graceful ECDSA wallet closure remains blocked until an atomic,
-        // zero-open-challenge replacement clears this value.
+        // Legacy EcdsaFraudRouter contracts are plain, stateful, and cannot be
+        // upgraded in place. A non-zero value pins the currently authoritative
+        // router throughout a governance-controlled drain. While set, graceful
+        // ECDSA wallet closure fails closed until an atomic zero-open-challenge
+        // replacement clears it.
         address ecdsaFraudRouterInDrain;
         // Retired routers may resolve historical state but cannot read current
         // fraud parameters to admit new escrow after cutover.
