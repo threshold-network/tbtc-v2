@@ -156,6 +156,10 @@ describe("FrostWalletRegistry DKG edge cases (B-1.5 slice 4)", () => {
       }
     )
     frostWalletRegistry = registry
+    await frostWalletRegistry.backfillArchivedWalletMembership(
+      ethers.constants.HashZero,
+      ethers.utils.id("frost-wallet-archive/edge-cases-fresh")
+    )
     await frostSortitionPool.transferOwnership(frostWalletRegistry.address)
 
     // The production deploy chain already wired Bridge.frostWalletRegistry
@@ -356,6 +360,32 @@ describe("FrostWalletRegistry DKG edge cases (B-1.5 slice 4)", () => {
       State.CHALLENGE,
       "submit is optimistic; state moves to CHALLENGE"
     )
+
+    // Simulate upgrading a proxy whose result was already pending: the new
+    // implementation starts with an empty migration marker and freezes every
+    // DKG transition. Keep it frozen beyond the original challenge period.
+    await hre.network.provider.send("hardhat_setStorageAt", [
+      frostWalletRegistry.address,
+      ethers.utils.hexValue(204),
+      ethers.constants.HashZero,
+    ])
+    await hre.network.provider.send("hardhat_mine", [
+      `0x${(RESULT_CHALLENGE_BLOCKS + 1).toString(16)}`,
+    ])
+
+    // Finalization must atomically rebase the pending result's challenge
+    // clock. Without the rebase, the malicious submitter could approve this
+    // invalid result immediately because the original deadline elapsed while
+    // every challenger was frozen by the migration gate.
+    await frostWalletRegistry
+      .connect(deployer)
+      .backfillArchivedWalletMembership(
+        ethers.constants.HashZero,
+        ethers.utils.id("frost-wallet-archive/edge-cases-reactivated")
+      )
+    await expect(
+      frostWalletRegistry.connect(submitter).approveDkgResult(badResult)
+    ).to.be.revertedWith("Challenge period has not passed yet")
 
     // Within the challenge window, an EOA challenger calls
     // challengeDkgResult. The contract requires `msg.sender ==
