@@ -40,7 +40,8 @@ describe(
           ),
           "utf8"
         )
-        await database.query(migration)
+        // Production migration runners own the transaction boundary.
+        await database.query(`BEGIN;\n${migration}\nCOMMIT;`)
 
         const store = new PostgresP2TRCanonicalIndexStore(database, {
           storeID: "integration-store",
@@ -57,9 +58,32 @@ describe(
         const checkpoint = { height: 0, hash: "aa".repeat(32) }
         const original = { height: 1, hash: "bb".repeat(32) }
         const replacement = { height: 1, hash: "cc".repeat(32) }
+        const originalWatermark = {
+          bitcoin: original,
+          ethereum: { blockNumber: 11, blockHash: "ab".repeat(32) },
+        }
+        const replacementWatermark = {
+          bitcoin: replacement,
+          ethereum: originalWatermark.ethereum,
+        }
 
         await store.applyBitcoinScan(
           scan({ checkpoint, next: original, blockHash: original.hash })
+        )
+        const pending = await store.loadPendingCandidates(10, original.height)
+        assert.equal(pending.candidates.length, 1)
+        assert.equal(pending.candidates[0].inputPrevouts[0].scriptPubKey, "")
+        await store.applyBitcoinScan(
+          acknowledgementScan({ checkpoint, current: original })
+        )
+        assert.deepEqual(
+          await store.loadPendingCandidates(10, original.height),
+          { candidates: [], complete: true }
+        )
+        await store.advanceCrossSourceWatermark(undefined, originalWatermark)
+        assert.deepEqual(
+          await store.loadCrossSourceWatermark(),
+          originalWatermark
         )
         await store.applyBitcoinScan(
           scan({
@@ -68,6 +92,38 @@ describe(
             next: replacement,
             blockHash: replacement.hash,
           })
+        )
+
+        // The replacement block history and stale cross-source watermark are
+        // committed atomically by the Bitcoin scan transaction.
+        assert.equal(await store.loadCrossSourceWatermark(), undefined)
+        const replacementPending = await store.loadPendingCandidates(
+          10,
+          replacement.height
+        )
+        assert.equal(replacementPending.candidates.length, 1)
+        assert.equal(
+          replacementPending.candidates[0].block.hash,
+          replacement.hash
+        )
+        await assert.rejects(
+          store.advanceCrossSourceWatermark(
+            originalWatermark,
+            replacementWatermark
+          ),
+          /compare-and-swap failed/
+        )
+        await store.applyBitcoinScan(
+          acknowledgementScan({ checkpoint, current: replacement })
+        )
+        assert.deepEqual(
+          await store.loadPendingCandidates(10, replacement.height),
+          { candidates: [], complete: true }
+        )
+        await store.advanceCrossSourceWatermark(undefined, replacementWatermark)
+        assert.deepEqual(
+          await store.loadCrossSourceWatermark(),
+          replacementWatermark
         )
 
         assert.deepEqual(
@@ -83,6 +139,70 @@ describe(
           { height: "0", hash: checkpoint.hash },
           { height: "1", hash: replacement.hash },
         ])
+        const outputs = await database.query<{ script_pubkey: string }>(
+          `SELECT encode(script_pubkey, 'hex') AS script_pubkey
+             FROM p2tr_bitcoin_outputs
+            WHERE txid = decode($1, 'hex')`,
+          ["10".repeat(32)]
+        )
+        assert.deepEqual(outputs.rows, [{ script_pubkey: "" }])
+        await store.assertP2TRSignatureFraudActivationIndexReady(checkpoint)
+        await assert.rejects(
+          store.assertP2TRSignatureFraudActivationIndexReady({
+            height: 0,
+            hash: "ff".repeat(32),
+          }),
+          /exact configured genesis/
+        )
+
+        await database.query(
+          `INSERT INTO p2tr_tracked_outpoints
+             (txid, vout, kind, wallet_id, output_key, value_sats,
+              script_pubkey, created_height, created_hash)
+           VALUES (decode($1, 'hex'), 0, 'wallet', decode($2, 'hex'),
+                   decode($2, 'hex'), 1, decode($3, 'hex'), $4,
+                   decode($5, 'hex'))`,
+          [
+            "90".repeat(32),
+            "91".repeat(32),
+            `5120${"91".repeat(32)}`,
+            replacement.height,
+            replacement.hash,
+          ]
+        )
+        await assert.rejects(
+          store.assertP2TRSignatureFraudActivationIndexReady(checkpoint),
+          /tracked FROST output outside/
+        )
+        await database.query(
+          "DELETE FROM p2tr_tracked_outpoints WHERE txid = decode($1, 'hex')",
+          ["90".repeat(32)]
+        )
+
+        await database.query(
+          `INSERT INTO p2tr_pending_deposit_reveals
+             (source_event_id, funding_txid, funding_vout, wallet_id,
+              output_key, ethereum_block_number, ethereum_block_hash,
+              resolved_funding_height, resolved_funding_hash, resolved_at)
+           VALUES ('deposit:invalid-resolved', decode($1, 'hex'), 0,
+                   decode($2, 'hex'), decode($3, 'hex'), 1,
+                   decode($4, 'hex'), $5, decode($6, 'hex'), clock_timestamp())`,
+          [
+            "92".repeat(32),
+            "93".repeat(32),
+            "94".repeat(32),
+            "95".repeat(32),
+            replacement.height,
+            replacement.hash,
+          ]
+        )
+        await assert.rejects(
+          store.assertP2TRSignatureFraudActivationIndexReady(checkpoint),
+          /revealed FROST output outside/
+        )
+        await database.query(
+          "DELETE FROM p2tr_pending_deposit_reveals WHERE source_event_id = 'deposit:invalid-resolved'"
+        )
 
         await store.runInP2TRSignatureFraudWatchtowerTransaction(async () => {
           await store.addFrostWalletBindings([
@@ -117,7 +237,11 @@ describe(
               payload: { canonical: true },
             },
           ])
-          await store.advanceCrossSourceWatermark(undefined, {
+          await assert.rejects(
+            store.assertP2TRSignatureFraudActivationIndexReady(checkpoint),
+            /every canonical evidence backlog to be drained/
+          )
+          await store.advanceCrossSourceWatermark(replacementWatermark, {
             bitcoin: replacement,
             ethereum: { blockNumber: 12, blockHash: "dd".repeat(32) },
           })
@@ -173,12 +297,101 @@ const scan = ({
       hash: blockHash,
       parentHash: checkpoint.hash,
       rawBlockHex: "00",
-      transactions: [],
+      transactions: [
+        {
+          txid: "10".repeat(32),
+          wtxid: "20".repeat(32),
+          rawTransactionHex: "00",
+          coinbase: true,
+          inputs: [],
+          outputs: [
+            {
+              txid: "10".repeat(32),
+              vout: 0,
+              valueSats: 0,
+              scriptPubKey: "",
+            },
+          ],
+        },
+        {
+          txid: "30".repeat(32),
+          wtxid: "40".repeat(32),
+          rawTransactionHex: "01",
+          coinbase: false,
+          inputs: [
+            {
+              txid: "10".repeat(32),
+              vout: 0,
+              spendingTxid: "30".repeat(32),
+              inputIndex: 0,
+              authenticatedPrevout: {
+                txid: "10".repeat(32),
+                vout: 0,
+                valueSats: 0,
+                scriptPubKey: "",
+              },
+            },
+          ],
+          outputs: [
+            {
+              txid: "30".repeat(32),
+              vout: 0,
+              valueSats: 0,
+              scriptPubKey: "51",
+            },
+          ],
+        },
+      ],
     },
   ],
   trackedOutpoints: [],
   trackedOutpointSpends: [],
-  candidates: [],
+  candidates: [
+    {
+      txid: "30".repeat(32),
+      wtxid: "40".repeat(32),
+      rawTransactionHex: "01",
+      block: { height: next.height, hash: blockHash },
+      inputPrevouts: [
+        {
+          txid: "10".repeat(32),
+          vout: 0,
+          valueSats: 0,
+          scriptPubKey: "",
+        },
+      ],
+      walletInputKeyBindings: [],
+    },
+  ],
   acknowledgedCandidates: [],
+  orphanedCandidates: [],
+})
+
+const acknowledgementScan = ({
+  checkpoint,
+  current,
+}: {
+  checkpoint: { height: number; hash: string }
+  current: { height: number; hash: string }
+}): P2TRCanonicalBitcoinScan => ({
+  configurationFingerprint: "01".repeat(32),
+  network: "regtest",
+  checkpoint,
+  expectedCursor: current,
+  rollbackTo: current,
+  nextCursor: current,
+  sampledFinalizedHead: current,
+  complete: true,
+  blocks: [],
+  trackedOutpoints: [],
+  trackedOutpointSpends: [],
+  candidates: [],
+  acknowledgedCandidates: [
+    {
+      txid: "30".repeat(32),
+      wtxid: "40".repeat(32),
+      blockHash: current.hash,
+    },
+  ],
   orphanedCandidates: [],
 })

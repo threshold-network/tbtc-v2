@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { Block, Transaction } from "bitcoinjs-lib"
 import type {
   P2TRBitcoinChainPoint,
@@ -253,7 +254,7 @@ export class BitcoinCoreP2TRCanonicalBlockSource
 {
   readonly trustDomainID: string
   readonly network: string
-  private readonly expectedGenesisHash: string
+  readonly genesisHash: string
   private readonly maxHeaderLag: number
   private readonly minimumVerificationProgress: number
   private readonly maxBlockBytes: number
@@ -270,7 +271,7 @@ export class BitcoinCoreP2TRCanonicalBlockSource
       "Bitcoin Core trust-domain ID"
     )
     this.network = options.network
-    this.expectedGenesisHash = normalizeHash(
+    this.genesisHash = normalizeHash(
       options.expectedGenesisHash,
       "Bitcoin genesis hash"
     )
@@ -368,7 +369,7 @@ export class BitcoinCoreP2TRCanonicalBlockSource
       this.getBlockHash(0),
       this.getBlockHash(chainInfo.blocks),
     ])
-    if (genesisHash !== this.expectedGenesisHash) {
+    if (genesisHash !== this.genesisHash) {
       throw new Error("Bitcoin Core genesis hash does not match configuration")
     }
 
@@ -561,7 +562,12 @@ const materializeTransaction = (
 
   return {
     txid,
-    wtxid: Buffer.from(transaction.getHash(true)).reverse().toString("hex"),
+    // bitcoinjs-lib deliberately returns the all-zero witness hash for a
+    // coinbase transaction because BIP141 uses that sentinel when constructing
+    // the witness merkle root. Bitcoin Core's verbosity-3 `hash`, however, is
+    // the transaction's actual serialized witness hash. Materialize that value
+    // directly so identity validation does not reject every canonical block.
+    wtxid: serializedTransactionHash(transaction.toBuffer()),
     rawTransactionHex,
     coinbase: transaction.isCoinbase(),
     inputs: transaction.ins.map((input, inputIndex) => ({
@@ -637,7 +643,8 @@ const materializeTransactionWithPrevouts = (
       const valueSats = bitcoinAmountToSatoshis(verboseInput.prevout?.value)
       const scriptPubKey = normalizeHex(
         verboseInput.prevout?.scriptPubKey?.hex,
-        `Bitcoin verbosity-3 prevout script ${input.txid}:${input.vout}`
+        `Bitcoin verbosity-3 prevout script ${input.txid}:${input.vout}`,
+        true
       )
       return {
         ...input,
@@ -728,16 +735,31 @@ const normalizeHash = (value: unknown, field: string): string => {
   return value.toLowerCase()
 }
 
-const normalizeHex = (value: unknown, field: string): string => {
+const normalizeHex = (
+  value: unknown,
+  field: string,
+  allowEmpty = false
+): string => {
   if (
     typeof value !== "string" ||
-    value.length === 0 ||
+    (!allowEmpty && value.length === 0) ||
     value.length % 2 !== 0 ||
-    !/^[0-9a-fA-F]+$/.test(value)
+    !(allowEmpty ? /^[0-9a-fA-F]*$/ : /^[0-9a-fA-F]+$/).test(value)
   ) {
-    throw new Error(`${field} must be non-empty, even-length hex`)
+    throw new Error(
+      `${field} must be ${allowEmpty ? "" : "non-empty, "}even-length hex`
+    )
   }
   return value.toLowerCase()
+}
+
+const serializedTransactionHash = (rawTransaction: Buffer): string => {
+  const firstHash = createHash("sha256").update(rawTransaction).digest()
+  return createHash("sha256")
+    .update(firstHash)
+    .digest()
+    .reverse()
+    .toString("hex")
 }
 
 const positiveInteger = (value: number, field: string): number => {
