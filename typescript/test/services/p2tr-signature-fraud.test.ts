@@ -1,5 +1,6 @@
 import fs from "fs"
 import path from "path"
+import { createHash } from "crypto"
 
 import { expect } from "chai"
 import { Transaction } from "bitcoinjs-lib"
@@ -11,6 +12,7 @@ import {
   computeP2TRKeyPathSighash,
   computeP2TRSignatureFraudBridgeChallengeIdentity,
   computeP2TRSignatureFraudBridgeChallengeKey,
+  computeP2TRSignatureFraudBoundNonceReservationID,
   computeP2TRSignatureFraudDraftChallengeIdentity,
   computeP2TRWalletInputWitnessObservationID,
   createP2TRWatchtowerChallengeRecord,
@@ -30,8 +32,14 @@ import {
   P2TR_SIGNATURE_FRAUD_SPEND_TYPE_WALLET_CLOSING,
   P2TR_SIGNATURE_FRAUD_BRIDGE_ACTION_SUBMIT,
   P2TR_SIGNATURE_FRAUD_BRIDGE_CHALLENGE_PAYLOAD_ABI_TYPE,
+  P2TR_SIGNATURE_FRAUD_NONCE_RESERVATION_DOMAIN,
+  P2TR_SIGNATURE_FRAUD_COMPLETE_V2_PROTOCOL,
+  P2TR_SIGNATURE_FRAUD_COMPLETE_V2_PROTOCOL_ID,
+  buildP2TRCompleteV2SignatureFraudChallengeEvidence,
   buildP2TRSignatureFraudSubmissionIntent,
+  computeP2TRCompleteV2SignatureFraudChallengeIdentity,
   computeP2TRSignatureFraudSubmissionIntentID,
+  encodeP2TRCompleteV2SignatureFraudChallengePayload,
   encodeP2TRSignatureFraudRouterSubmitCalldata,
   P2TR_SIGHASH_ALL,
   P2TR_SIGHASH_DEFAULT,
@@ -65,6 +73,9 @@ import {
   summarizeP2TRWatchtowerChallengeRecords,
   validateP2TRSignatureFraudPayloadBounds,
   validateP2TRInputPrevouts,
+  validateP2TRSignatureFraudBoundNonceReservation,
+  validateP2TRSignatureFraudPreparedChallengeReplacementTransaction,
+  validateP2TRSignatureFraudPreparedChallengeTransactionReservation,
   validateP2TRSignatureFraudPreparedChallengeTransaction,
   validateP2TRSignatureFraudWitnessObservationConsistency,
 } from "../../src/services/maintenance/p2tr-signature-fraud"
@@ -168,6 +179,33 @@ const withInputWitness = (
   return { transactionHex: transaction.toHex() }
 }
 
+const withCompleteVectorWitnesses = (
+  vector: SignatureFraudVector,
+  corpus: SignatureFraudVector[]
+): BitcoinRawTx => {
+  const transaction = Transaction.fromHex(vector.unsignedTransactionHex)
+  for (let inputIndex = 0; inputIndex < transaction.ins.length; inputIndex++) {
+    const companion = corpus.find(
+      (candidate) =>
+        candidate.signedInputIndex === inputIndex &&
+        (candidate.annexHex === undefined || candidate.annexHex.length === 0)
+    )
+    if (companion === undefined) {
+      throw new Error(`Missing COMPLETE_V2 companion vector for input ${inputIndex}`)
+    }
+    transaction.ins[inputIndex].witness = [
+      Buffer.from(companion.witnessSignatureHex, "hex"),
+    ]
+  }
+  transaction.ins[vector.signedInputIndex].witness = [
+    Buffer.from(vector.witnessSignatureHex, "hex"),
+    ...(vector.annexHex === undefined || vector.annexHex.length === 0
+      ? []
+      : [Buffer.from(vector.annexHex, "hex")]),
+  ]
+  return { transactionHex: transaction.toHex() }
+}
+
 const toObservationPrevouts = (vector: SignatureFraudVector) =>
   vector.prevouts.map((prevout) => ({
     txid: prevout.txidHex,
@@ -266,6 +304,57 @@ const bridgeChallengeDomain = {
 const completeBridgeChallengeEvidenceAbiType =
   "tuple(bytes32 walletID,bytes32 signingKey,bytes32 bindingTxHash,uint32 bindingOutputIndex,bytes32 sighash,bytes32 nonceX,bytes32 signatureScalar)"
 
+const completeV2ReferenceDomain = {
+  chainID: 1,
+  bridgeAddress: "0x1111111111111111111111111111111111111111",
+}
+
+const abiWord = (value: number): string => value.toString(16).padStart(64, "0")
+
+const strip0x = (value: string): string => value.replace(/^0x/, "")
+
+const expectedCompleteV2Payload = (evidence: {
+  walletID: string
+  signingKey: string
+  bindingTxHash: string
+  bindingOutputIndex: number
+  sighash: string
+  signature: string
+}): string =>
+  `0x${strip0x(evidence.walletID)}${strip0x(
+    evidence.signingKey
+  )}${strip0x(evidence.bindingTxHash)}${abiWord(
+    evidence.bindingOutputIndex
+  )}${strip0x(evidence.sighash)}${strip0x(evidence.signature)}`
+
+const expectedCompleteV2DispatcherCalldata = (payload: string): string =>
+  `0xf1f87d85${abiWord(0)}${abiWord(0x60)}${abiWord(0x160)}${abiWord(
+    224
+  )}${strip0x(payload)}${abiWord(0)}`
+
+const expectedCompleteV2Identity = (identity: {
+  chainID: number
+  bridgeAddress: string
+  walletID: string
+  signingKey: string
+  sighash: string
+}): string =>
+  `0x${createHash("sha256")
+    .update(
+      Buffer.concat([
+        Buffer.from(
+          "tbtc-p2tr-signature-fraud-authorization-v3",
+          "utf8"
+        ),
+        Buffer.from(abiWord(identity.chainID), "hex"),
+        Buffer.from(strip0x(identity.bridgeAddress), "hex"),
+        Buffer.from(strip0x(identity.walletID), "hex"),
+        Buffer.from(strip0x(identity.signingKey), "hex"),
+        Buffer.from(strip0x(identity.sighash), "hex"),
+      ])
+    )
+    .digest("hex")}`
+
 const createDraftApprovedP2TRWatchtower = (
   store: P2TRWatchtowerChallengeStore,
   registeredWalletIDs: (Hex | Buffer | string)[],
@@ -349,9 +438,7 @@ class InMemoryP2TRWatchtowerChallengeStore
   }
 }
 
-class InMemoryP2TRWatchtowerChallengeRecordPersistence
-  implements P2TRWatchtowerChallengeRecordPersistence
-{
+class InMemoryP2TRWatchtowerChallengeRecordPersistence implements P2TRWatchtowerChallengeRecordPersistence {
   records: P2TRWatchtowerChallengeRecordJSON[]
 
   constructor(records: P2TRWatchtowerChallengeRecordJSON[] = []) {
@@ -502,9 +589,7 @@ class FakeP2TRSignatureFraudChallengeSubmitter
   }
 }
 
-class FakeP2TRSignatureFraudChallengeBroadcastReconciler
-  implements P2TRSignatureFraudChallengeBroadcastReconciler
-{
+class FakeP2TRSignatureFraudChallengeBroadcastReconciler implements P2TRSignatureFraudChallengeBroadcastReconciler {
   readonly reconciliationTrustDomainID = "reconciler.test"
   readonly finalityConfirmationBlocks = 12
   reconciliationCount = 0
@@ -1839,6 +1924,164 @@ describe("P2TR signature-fraud witness parsing", () => {
     expect(rejected.lastError).to.equal("bridge rejected")
   })
 
+  it("matches COMPLETE_V2 Solidity identity, fixed evidence, and dispatcher calldata for every sighash mode", () => {
+    const completeVectors = loadFullSighashVectorCorpus().cases
+    expect(completeVectors).to.have.length(9)
+    for (const vector of completeVectors) {
+      const rawTransaction = withCompleteVectorWitnesses(
+        vector,
+        completeVectors
+      )
+      const prevouts = toObservationPrevouts(vector)
+      const walletObservation = extractP2TRSignatureFraudWitnessObservations(
+        rawTransaction,
+        prevouts,
+        [vector.walletIDHex],
+        undefined,
+        undefined,
+        undefined,
+        completeV2ReferenceDomain
+      ).find(({ inputIndex }) => inputIndex === vector.signedInputIndex)
+      if (walletObservation === undefined) {
+        throw new Error(`Missing COMPLETE_V2 wallet observation for ${vector.id}`)
+      }
+      const walletEvidence =
+        buildP2TRCompleteV2SignatureFraudChallengeEvidence(
+          walletObservation,
+          completeV2ReferenceDomain
+        )
+      const walletPayload = expectedCompleteV2Payload({
+        walletID: vector.walletIDHex,
+        signingKey: vector.walletIDHex,
+        bindingTxHash: "00".repeat(32),
+        bindingOutputIndex: 0,
+        sighash: vector.expectedBip341SighashHex,
+        signature: vector.bip340SignatureHex,
+      })
+      const walletIdentity = expectedCompleteV2Identity({
+        chainID: completeV2ReferenceDomain.chainID,
+        bridgeAddress: completeV2ReferenceDomain.bridgeAddress,
+        walletID: vector.walletIDHex,
+        signingKey: vector.walletIDHex,
+        sighash: vector.expectedBip341SighashHex,
+      })
+
+      expect(
+        encodeP2TRCompleteV2SignatureFraudChallengePayload(walletEvidence),
+        vector.id
+      ).to.equal(walletPayload)
+      expect(
+        encodeP2TRSignatureFraudRouterSubmitCalldata(walletEvidence),
+        vector.id
+      ).to.equal(expectedCompleteV2DispatcherCalldata(walletPayload))
+      expect(walletEvidence.bridgeChallengeIdentity.toPrefixedString()).to.equal(
+        walletIdentity
+      )
+      expect(walletEvidence.bridgeChallengeKey.toPrefixedString()).to.equal(
+        walletIdentity
+      )
+      expect(
+        computeP2TRCompleteV2SignatureFraudChallengeIdentity({
+          domainChainID: completeV2ReferenceDomain.chainID,
+          bridgeAddress: completeV2ReferenceDomain.bridgeAddress,
+          walletID: vector.walletIDHex,
+          signingKey: vector.walletIDHex,
+          sighash: vector.expectedBip341SighashHex,
+        }).toPrefixedString()
+      ).to.equal(walletIdentity)
+
+      const signedPrevout = prevouts[vector.signedInputIndex]
+      const signingKey = extractP2TRWalletIDFromScriptPubKey(
+        signedPrevout.scriptPubKey
+      )!
+      const tweakedWalletID = `0x${"aa".repeat(32)}`
+      const [tweakedObservation] =
+        extractP2TRSignatureFraudWitnessObservations(
+          rawTransaction,
+          prevouts,
+          [tweakedWalletID],
+          undefined,
+          undefined,
+          undefined,
+          completeV2ReferenceDomain,
+          [
+            {
+              txid: signedPrevout.txid,
+              vout: signedPrevout.vout,
+              outputKey: signingKey,
+              walletID: tweakedWalletID,
+            },
+          ]
+        )
+      const tweakedEvidence =
+        buildP2TRCompleteV2SignatureFraudChallengeEvidence(
+          tweakedObservation,
+          completeV2ReferenceDomain
+        )
+      const tweakedPayload = expectedCompleteV2Payload({
+        walletID: tweakedWalletID,
+        signingKey: signingKey.toPrefixedString(),
+        bindingTxHash: signedPrevout.txid.toString(),
+        bindingOutputIndex: signedPrevout.vout,
+        sighash: vector.expectedBip341SighashHex,
+        signature: vector.bip340SignatureHex,
+      })
+      const tweakedIdentity = expectedCompleteV2Identity({
+        chainID: completeV2ReferenceDomain.chainID,
+        bridgeAddress: completeV2ReferenceDomain.bridgeAddress,
+        walletID: tweakedWalletID,
+        signingKey: signingKey.toPrefixedString(),
+        sighash: vector.expectedBip341SighashHex,
+      })
+      expect(
+        encodeP2TRCompleteV2SignatureFraudChallengePayload(tweakedEvidence),
+        vector.id
+      ).to.equal(tweakedPayload)
+      expect(
+        encodeP2TRSignatureFraudRouterSubmitCalldata(tweakedEvidence),
+        vector.id
+      ).to.equal(expectedCompleteV2DispatcherCalldata(tweakedPayload))
+      expect(
+        tweakedEvidence.bridgeChallengeIdentity.toPrefixedString(),
+        vector.id
+      ).to.equal(tweakedIdentity)
+    }
+  })
+
+  it("rejects legacy BOUNDED_V1 evidence at the COMPLETE_V2 intent boundary", () => {
+    const vector = vectorCorpus.cases[0]
+    const rawTransaction = withInputWitness(
+      vector.unsignedTransactionHex,
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    const [observation] = extractP2TRSignatureFraudWitnessObservations(
+      rawTransaction,
+      toObservationPrevouts(vector),
+      [vector.walletIDHex],
+      undefined,
+      undefined,
+      undefined,
+      completeV2ReferenceDomain
+    )
+    const evidence = buildP2TRCompleteV2SignatureFraudChallengeEvidence(
+      observation,
+      completeV2ReferenceDomain
+    )
+    expect(evidence.protocol).to.equal(P2TR_SIGNATURE_FRAUD_COMPLETE_V2_PROTOCOL)
+    expect(evidence.evidenceProtocolID.toPrefixedString()).to.equal(
+      P2TR_SIGNATURE_FRAUD_COMPLETE_V2_PROTOCOL_ID
+    )
+    expectWitnessError(
+      () =>
+        encodeP2TRSignatureFraudRouterSubmitCalldata({
+          ...evidence,
+          protocol: "BOUNDED_V1",
+        } as never),
+      "invalid-watchtower-state"
+    )
+  })
+
   it("builds a domain-bound durable submission intent and authenticates its signed raw transaction", async () => {
     const vector = vectorCorpus.cases[0]
     const rawTransaction = withInputWitness(
@@ -1856,30 +2099,48 @@ describe("P2TR signature-fraud witness parsing", () => {
       bridgeChallengeDomain
     )
     const routerAddress = "0x2222222222222222222222222222222222222222"
-    const intent = buildP2TRSignatureFraudSubmissionIntent(observation, {
+    const completeEvidence =
+      buildP2TRCompleteV2SignatureFraudChallengeEvidence(
+        observation,
+        bridgeChallengeDomain
+      )
+    const intent = buildP2TRSignatureFraudSubmissionIntent(completeEvidence, {
+      domainChainID: bridgeChallengeDomain.chainID,
       chainID: bridgeChallengeDomain.chainID,
       bridgeAddress: bridgeChallengeDomain.bridgeAddress,
       routerAddress,
       challengeDepositAmount: 1234,
     })
     const expectedCalldata =
-      encodeP2TRSignatureFraudRouterSubmitCalldata(observation)
+      encodeP2TRSignatureFraudRouterSubmitCalldata(completeEvidence)
 
     expect(intent.observationID.toString()).to.equal(
       observation.observationID.toString()
     )
     expect(intent.bridgeChallengeKey.toString()).to.equal(
+      completeEvidence.bridgeChallengeIdentity.toString()
+    )
+    expect(intent.bridgeChallengeKey.toString()).to.not.equal(
       observation.bridgeChallengeKey?.toString()
     )
     expect(intent.calldata).to.equal(expectedCalldata)
     expect(intent.value).to.equal("1234")
     expect(intent.intentID.toString()).to.equal(
       computeP2TRSignatureFraudSubmissionIntentID({
+        protocol: intent.protocol,
+        evidenceProtocolID: intent.evidenceProtocolID,
         observationID: intent.observationID,
+        inputIndex: intent.inputIndex,
         bridgeChallengeKey: intent.bridgeChallengeKey,
         walletID: intent.walletID,
+        signingKey: intent.signingKey,
+        bindingTxHash: intent.bindingTxHash,
+        bindingOutputIndex: intent.bindingOutputIndex,
         bridgeChallengeIdentity: intent.bridgeChallengeIdentity,
         sighash: intent.sighash,
+        nonceX: intent.nonceX,
+        signatureScalar: intent.signatureScalar,
+        domainChainID: intent.domainChainID,
         chainID: intent.chainID,
         bridgeAddress: intent.bridgeAddress,
         routerAddress: intent.routerAddress,
@@ -1918,6 +2179,245 @@ describe("P2TR signature-fraud witness parsing", () => {
     expect(validated.nonce).to.equal(7)
   })
 
+  it("accepts only strictly increasing same-nonce EIP-1559 replacements", async () => {
+    const vector = vectorCorpus.cases[0]
+    const rawTransaction = withInputWitness(
+      vector.unsignedTransactionHex,
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    const [observation] = extractP2TRSignatureFraudWitnessObservations(
+      rawTransaction,
+      toObservationPrevouts(vector),
+      [vector.walletIDHex],
+      undefined,
+      undefined,
+      undefined,
+      bridgeChallengeDomain
+    )
+    const intent = buildP2TRSignatureFraudSubmissionIntent(
+      buildP2TRCompleteV2SignatureFraudChallengeEvidence(
+        observation,
+        bridgeChallengeDomain
+      ),
+      {
+        domainChainID: bridgeChallengeDomain.chainID,
+        chainID: bridgeChallengeDomain.chainID,
+        bridgeAddress: bridgeChallengeDomain.bridgeAddress,
+        routerAddress: "0x2222222222222222222222222222222222222222",
+        challengeDepositAmount: 1234,
+      }
+    )
+    const wallet = new Wallet(`0x${"42".repeat(32)}`)
+    const sign = async (
+      nonce: number,
+      maxFeePerGas: number,
+      maxPriorityFeePerGas: number
+    ) => {
+      const raw = await wallet.signTransaction({
+        type: 2,
+        to: intent.routerAddress,
+        data: intent.calldata,
+        value: BigNumber.from(intent.value),
+        chainId: intent.chainID,
+        nonce,
+        gasLimit: 1_000_000,
+        maxFeePerGas,
+        maxPriorityFeePerGas,
+      })
+      const parsed = utils.parseTransaction(raw)
+      return {
+        intentID: intent.intentID,
+        rawTransaction: raw,
+        transactionHash: Hex.from(parsed.hash!),
+        sender: wallet.address,
+        nonce,
+      }
+    }
+
+    const previous = await sign(7, 20, 2)
+    const replacement = await sign(7, 40, 4)
+    const validated =
+      validateP2TRSignatureFraudPreparedChallengeReplacementTransaction(
+        intent,
+        previous,
+        replacement
+      )
+    expect(validated.transactionHash.toString()).to.equal(
+      replacement.transactionHash.toString()
+    )
+
+    const unchangedPriorityFee = await sign(7, 40, 2)
+    expectWitnessError(
+      () =>
+        validateP2TRSignatureFraudPreparedChallengeReplacementTransaction(
+          intent,
+          previous,
+          unchangedPriorityFee
+        ),
+      "invalid-watchtower-state"
+    )
+    const changedNonce = await sign(8, 40, 4)
+    expectWitnessError(
+      () =>
+        validateP2TRSignatureFraudPreparedChallengeReplacementTransaction(
+          intent,
+          previous,
+          changedNonce
+        ),
+      "invalid-watchtower-state"
+    )
+  })
+
+  it("authenticates nonce reservations against the exact record and signer lane", async () => {
+    const vector = vectorCorpus.cases[0]
+    const rawTransaction = withInputWitness(
+      vector.unsignedTransactionHex,
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    const [observation] = extractP2TRSignatureFraudWitnessObservations(
+      rawTransaction,
+      toObservationPrevouts(vector),
+      [vector.walletIDHex],
+      undefined,
+      undefined,
+      undefined,
+      bridgeChallengeDomain
+    )
+    const intent = buildP2TRSignatureFraudSubmissionIntent(
+      buildP2TRCompleteV2SignatureFraudChallengeEvidence(
+        observation,
+        bridgeChallengeDomain
+      ),
+      {
+        domainChainID: bridgeChallengeDomain.chainID,
+        chainID: bridgeChallengeDomain.chainID,
+        bridgeAddress: bridgeChallengeDomain.bridgeAddress,
+        routerAddress: "0x2222222222222222222222222222222222222222",
+        challengeDepositAmount: 1234,
+      }
+    )
+    const signer = new Wallet(`0x${"42".repeat(32)}`)
+    const outboxRecordID = Hex.from(`0x${"71".repeat(32)}`)
+    const generation = 3
+    const nonce = 7
+    const lane = {
+      laneID: "lane-a",
+      signerIdentity: "signer-a",
+      transactionSender: signer.address,
+    }
+    const reservationID = computeP2TRSignatureFraudBoundNonceReservationID(
+      intent,
+      outboxRecordID,
+      generation,
+      lane,
+      nonce
+    )
+    const bindingSignature = await signer._signTypedData(
+      {
+        name: "tBTC P2TR Fraud Outbox",
+        version: "1",
+        chainId: intent.chainID,
+        verifyingContract: intent.routerAddress,
+      },
+      {
+        NonceReservation: [
+          { name: "domain", type: "string" },
+          { name: "outboxRecordID", type: "bytes32" },
+          { name: "intentID", type: "bytes32" },
+          { name: "generation", type: "uint32" },
+          { name: "laneIDHash", type: "bytes32" },
+          { name: "signerIdentityHash", type: "bytes32" },
+          { name: "sender", type: "address" },
+          { name: "nonce", type: "uint256" },
+        ],
+      },
+      {
+        domain: P2TR_SIGNATURE_FRAUD_NONCE_RESERVATION_DOMAIN,
+        outboxRecordID: outboxRecordID.toPrefixedString(),
+        intentID: intent.intentID.toPrefixedString(),
+        generation,
+        laneIDHash: utils.id(lane.laneID),
+        signerIdentityHash: utils.id(lane.signerIdentity),
+        sender: signer.address,
+        nonce,
+      }
+    )
+    const reservation = {
+      reservationID,
+      outboxRecordID,
+      intentID: intent.intentID,
+      generation,
+      laneID: lane.laneID,
+      signerIdentity: lane.signerIdentity,
+      sender: signer.address,
+      nonce,
+      bindingSignature,
+    }
+    expect(
+      validateP2TRSignatureFraudBoundNonceReservation(
+        intent,
+        outboxRecordID,
+        generation,
+        lane,
+        reservation
+      ).reservationID.toString()
+    ).to.equal(reservationID.toString())
+
+    for (const tampered of [
+      { ...reservation, outboxRecordID: Hex.from(`0x${"72".repeat(32)}`) },
+      { ...reservation, generation: generation + 1 },
+      { ...reservation, laneID: "lane-b" },
+      { ...reservation, signerIdentity: "signer-b" },
+      {
+        ...reservation,
+        sender: new Wallet(`0x${"43".repeat(32)}`).address,
+      },
+      { ...reservation, nonce: nonce + 1 },
+      { ...reservation, bindingSignature: `0x${"00".repeat(65)}` },
+    ]) {
+      expectWitnessError(
+        () =>
+          validateP2TRSignatureFraudBoundNonceReservation(
+            intent,
+            outboxRecordID,
+            generation,
+            lane,
+            tampered
+          ),
+        "invalid-watchtower-state"
+      )
+    }
+
+    const wrongNonceRaw = await signer.signTransaction({
+      type: 2,
+      to: intent.routerAddress,
+      data: intent.calldata,
+      value: intent.value,
+      chainId: intent.chainID,
+      nonce: nonce + 1,
+      gasLimit: 1_000_000,
+      maxFeePerGas: 20,
+      maxPriorityFeePerGas: 2,
+    })
+    expectWitnessError(
+      () =>
+        validateP2TRSignatureFraudPreparedChallengeTransactionReservation(
+          intent,
+          reservation,
+          {
+            intentID: intent.intentID,
+            rawTransaction: wrongNonceRaw,
+            transactionHash: Hex.from(utils.keccak256(wrongNonceRaw)),
+            sender: signer.address,
+            nonce: nonce + 1,
+          }
+        ),
+      "invalid-watchtower-state"
+    )
+  })
+
   it("rejects prepared transactions that do not exactly match the durable intent", async () => {
     const vector = vectorCorpus.cases[0]
     const rawTransaction = withInputWitness(
@@ -1934,12 +2434,19 @@ describe("P2TR signature-fraud witness parsing", () => {
       undefined,
       bridgeChallengeDomain
     )
-    const intent = buildP2TRSignatureFraudSubmissionIntent(observation, {
-      chainID: bridgeChallengeDomain.chainID,
-      bridgeAddress: bridgeChallengeDomain.bridgeAddress,
-      routerAddress: "0x2222222222222222222222222222222222222222",
-      challengeDepositAmount: 1234,
-    })
+    const intent = buildP2TRSignatureFraudSubmissionIntent(
+      buildP2TRCompleteV2SignatureFraudChallengeEvidence(
+        observation,
+        bridgeChallengeDomain
+      ),
+      {
+        domainChainID: bridgeChallengeDomain.chainID,
+        chainID: bridgeChallengeDomain.chainID,
+        bridgeAddress: bridgeChallengeDomain.bridgeAddress,
+        routerAddress: "0x2222222222222222222222222222222222222222",
+        challengeDepositAmount: 1234,
+      }
+    )
     const wallet = new Wallet(`0x${"43".repeat(32)}`)
     const wrongRawTransaction = await wallet.signTransaction({
       to: "0x3333333333333333333333333333333333333333",
@@ -2883,9 +3390,8 @@ describe("P2TR signature-fraud witness parsing", () => {
       submitted.observationID,
       "ops-oncall"
     )
-    const unresolvedAlerts = await listP2TRWatchtowerUnresolvedOperatorAlerts(
-      store
-    )
+    const unresolvedAlerts =
+      await listP2TRWatchtowerUnresolvedOperatorAlerts(store)
     const defeated = await watchtower.markChallengeDefeated(
       submitted.observationID,
       txHash("3")
@@ -4165,9 +4671,8 @@ describe("P2TR signature-fraud witness parsing", () => {
       reloadedStore
     )
     const records = await reloadedStore.listChallengeRecords()
-    const finalRecord = await reloadedStore.getChallengeRecord(
-      bridgeChallengeKey
-    )
+    const finalRecord =
+      await reloadedStore.getChallengeRecord(bridgeChallengeKey)
 
     expect(originalRawTransaction.transactionHex).to.not.equal(
       replacementRawTransaction.transactionHex
