@@ -68,6 +68,26 @@ export interface P2TRPostgresTransactionSession {
   ): Promise<P2TRPostgresQueryResult<Row>>
 }
 
+const p2trPostgresTransactionSessions = new WeakSet<object>()
+
+/**
+ * Rejects structurally compatible, but autocommit, sessions. Only the
+ * transaction coordinator can mint this capability.
+ */
+export function assertP2TRPostgresTransactionSession(
+  session: P2TRPostgresTransactionSession
+): void {
+  if (
+    typeof session !== "object" ||
+    session === null ||
+    !p2trPostgresTransactionSessions.has(session)
+  ) {
+    throw new Error(
+      "PostgreSQL adapter requires a coordinator-owned transaction session"
+    )
+  }
+}
+
 export type P2TRReadinessExportAcknowledgementVerification = {
   consumerID: string
   signingKeyID: string
@@ -350,6 +370,7 @@ export class PostgresP2TRCanonicalIndexStore
       query: (text, values) =>
         this.requireTransactionClient().query(text, values),
     }
+    p2trPostgresTransactionSessions.add(session)
     const adapter = factory(session)
     if (typeof adapter !== "object" || adapter === null) {
       throw new Error(
@@ -358,6 +379,22 @@ export class PostgresP2TRCanonicalIndexStore
     }
     this.registerP2TRSignatureFraudWatchtowerTransactionalParticipant(adapter)
     return adapter
+  }
+
+  assertP2TRSignatureFraudWatchtowerTransactionalParticipants(
+    participants: readonly object[]
+  ): void {
+    for (const participant of participants) {
+      if (
+        typeof participant !== "object" ||
+        participant === null ||
+        !this.transactionalParticipants.has(participant)
+      ) {
+        throw new Error(
+          "P2TR watchtower dependency is not owned by this PostgreSQL transaction coordinator"
+        )
+      }
+    }
   }
 
   assertP2TRSignatureFraudWatchtowerSharedStore(dependencies: {
@@ -4162,12 +4199,18 @@ export class PostgresP2TRCanonicalIndexStore
         validateFrostWalletBinding(binding)
         const insert = await client.query(
           `INSERT INTO p2tr_frost_wallet_bindings
-             (wallet_id, source_event_id, ethereum_block_number,
+             (wallet_id, wallet_pub_key_hash, source_event_id, ethereum_block_number,
               ethereum_block_hash)
-           VALUES ($1, $2, $3, $4)
-           ON CONFLICT (wallet_id) DO NOTHING`,
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (wallet_id) DO UPDATE
+             SET wallet_pub_key_hash = EXCLUDED.wallet_pub_key_hash
+           WHERE p2tr_frost_wallet_bindings.wallet_pub_key_hash IS NULL
+             AND p2tr_frost_wallet_bindings.source_event_id = EXCLUDED.source_event_id
+             AND p2tr_frost_wallet_bindings.ethereum_block_number = EXCLUDED.ethereum_block_number
+             AND p2tr_frost_wallet_bindings.ethereum_block_hash = EXCLUDED.ethereum_block_hash`,
           [
             hexBuffer(binding.walletID, "FROST wallet ID"),
+            hexBuffer(binding.walletPubKeyHash, "FROST wallet public-key hash"),
             binding.sourceEventID,
             binding.ethereum.blockNumber,
             hexBuffer(binding.ethereum.blockHash, "wallet Ethereum block hash"),
@@ -4175,11 +4218,13 @@ export class PostgresP2TRCanonicalIndexStore
         )
         if (insert.rowCount === 0) {
           const existing = await client.query<{
+            wallet_pub_key_hash: string
             source_event_id: string
             ethereum_block_number: string | number
             ethereum_block_hash: string
           }>(
-            `SELECT source_event_id,
+            `SELECT encode(wallet_pub_key_hash, 'hex') AS wallet_pub_key_hash,
+                    source_event_id,
                     ethereum_block_number,
                     encode(ethereum_block_hash, 'hex') AS ethereum_block_hash
                FROM p2tr_frost_wallet_bindings
@@ -4189,6 +4234,11 @@ export class PostgresP2TRCanonicalIndexStore
           const row = existing.rows[0]
           if (
             existing.rows.length !== 1 ||
+            row.wallet_pub_key_hash !==
+              normalizeBytes20(
+                binding.walletPubKeyHash,
+                "FROST wallet public-key hash"
+              ) ||
             row.source_event_id !== binding.sourceEventID ||
             databaseInteger(
               row.ethereum_block_number,
@@ -4216,6 +4266,29 @@ export class PostgresP2TRCanonicalIndexStore
           `FROST wallet binding registry reached its ${this.maxWalletBindings}-item capacity; lifecycle cursor advancement halted`
         )
       }
+    })
+  }
+
+  async loadFrostWalletIDByPubKeyHash(
+    walletPubKeyHash: string
+  ): Promise<string | undefined> {
+    const normalized = normalizeBytes20(
+      walletPubKeyHash,
+      "FROST wallet public-key hash"
+    )
+    return this.withClient(async (client) => {
+      const result = await client.query<{ wallet_id: string }>(
+        `SELECT encode(wallet_id, 'hex') AS wallet_id
+           FROM p2tr_frost_wallet_bindings
+          WHERE wallet_pub_key_hash = $1`,
+        [hexBuffer(normalized, "FROST wallet public-key hash")]
+      )
+      if (result.rows.length > 1) {
+        throw new Error("FROST wallet public-key hash uniqueness is violated")
+      }
+      return result.rows[0] === undefined
+        ? undefined
+        : normalizeBytes32(result.rows[0].wallet_id, "FROST wallet ID")
     })
   }
 
@@ -6937,6 +7010,7 @@ const validateDepositBinding = (binding: P2TRTaprootDepositBinding): void => {
 
 const validateFrostWalletBinding = (binding: P2TRFrostWalletBinding): void => {
   normalizeBytes32(binding.walletID, "FROST wallet ID")
+  normalizeBytes20(binding.walletPubKeyHash, "FROST wallet public-key hash")
   boundedString(binding.sourceEventID, 512, "wallet source event ID")
   validatePoint(
     { height: binding.ethereum.blockNumber, hash: binding.ethereum.blockHash },
@@ -9120,6 +9194,14 @@ const normalizeBytes32 = (value: string, field: string): string => {
   const normalized = value.replace(/^0x/i, "").toLowerCase()
   if (!/^[0-9a-f]{64}$/.test(normalized)) {
     throw new Error(`${field} must be a 32-byte hex value`)
+  }
+  return normalized
+}
+
+const normalizeBytes20 = (value: string, field: string): string => {
+  const normalized = value.replace(/^0x/i, "").toLowerCase()
+  if (!/^[0-9a-f]{40}$/.test(normalized)) {
+    throw new Error(`${field} must be a 20-byte hex value`)
   }
   return normalized
 }

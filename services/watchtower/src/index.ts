@@ -10,7 +10,28 @@ export {
   HttpP2TRBitcoinCoreRpc,
 } from "./BitcoinCoreP2TRCanonicalBlockSource.js"
 export { CanonicalBitcoinP2TRSignatureFraudTransactionSource } from "./CanonicalBitcoinP2TRSignatureFraudTransactionSource.js"
-export { PostgresP2TRCanonicalIndexStore } from "./PostgresP2TRCanonicalIndexStore.js"
+export {
+  PostgresP2TRCanonicalIndexStore,
+  assertP2TRPostgresTransactionSession,
+} from "./PostgresP2TRCanonicalIndexStore.js"
+export * from "./P2TRCanonicalEthereumJournal.js"
+export * from "./PostgresP2TRCanonicalEthereumJournalStore.js"
+export * from "./PostgresP2TRCanonicalEthereumEvidenceProjector.js"
+export * from "./P2TRWatchtowerMigrations.js"
+export * from "./P2TRProductionActivation.js"
+export * from "./P2TRCompleteCandidateIdentity.js"
+export * from "./P2TRLiveCoreCandidateEvidence.js"
+export * from "./P2TRProductionCandidateObservation.js"
+export * from "./P2TRReconcilerAttestation.js"
+export * from "./PostgresP2TRProductionActivationStore.js"
+export * from "./CanonicalBitcoinP2TRProductionEvidenceProvider.js"
+export * from "./HttpP2TREthereumJsonRpc.js"
+export * from "./P2TRAuthenticatedHttpTransport.js"
+export * from "./VerifiedP2TRProductionEthereumProvider.js"
+export * from "./PostgresP2TRProductionEthereumHistoryAccumulator.js"
+export * from "./HttpP2TRProductionSignedHandshakeProvider.js"
+export * from "./P2TRProductionActivationRuntime.js"
+export { ethereumKeccak256 } from "./EthereumKeccak256.js"
 export {
   EthersP2TRCanonicalBridgeLifecycleLogVerifier,
   EthersP2TRSignatureFraudBridgeLifecycleEventSource,

@@ -62,15 +62,17 @@ describe(
           connectionString: postgresURL,
           options: `-c search_path=${schema}`,
         })
-        const migration = await readFile(
-          new URL(
-            "../migrations/001_p2tr_canonical_index.sql",
-            import.meta.url
-          ),
-          "utf8"
-        )
-        // Production migration runners own the transaction boundary.
-        await database.query(`BEGIN;\n${migration}\nCOMMIT;`)
+        for (const filename of [
+          "001_p2tr_canonical_index.sql",
+          "002_p2tr_canonical_ethereum.sql",
+        ]) {
+          const migration = await readFile(
+            new URL(`../migrations/${filename}`, import.meta.url),
+            "utf8"
+          )
+          // Production migration runners own each transaction boundary.
+          await database.query(`BEGIN;\n${migration}\nCOMMIT;`)
+        }
 
         const store = new PostgresP2TRCanonicalIndexStore(
           database,
@@ -340,6 +342,7 @@ describe(
           await store.addFrostWalletBindings([
             {
               walletID: "11".repeat(32),
+              walletPubKeyHash: "12".repeat(20),
               sourceEventID: "wallet:orphaned",
               ethereum: { blockNumber: 12, blockHash: "dd".repeat(32) },
             },
