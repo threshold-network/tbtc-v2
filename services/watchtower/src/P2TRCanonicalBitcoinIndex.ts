@@ -117,6 +117,8 @@ export interface P2TRCanonicalBitcoinBlockSource {
   /** Opaque operational trust-domain identity for this Bitcoin Core node. */
   readonly trustDomainID: string
   readonly network: string
+  /** Exact configured genesis hash for `network`. */
+  readonly genesisHash: string
 
   /** Returns only a fully synchronized canonical node head. */
   getSyncedHead(): Promise<P2TRBitcoinChainPoint>
@@ -204,6 +206,15 @@ export interface P2TRCanonicalEvidenceStore
   /** Removes Ethereum-derived state above or off the retained canonical point. */
   rollbackEthereumEvidenceTo(point: P2TREthereumChainPoint): Promise<void>
   countPendingDepositReveals(): Promise<number>
+  /**
+   * Defense-in-depth activation audit. Full-history coverage is established by
+   * the transaction source's genesis checkpoint handshake; this method then
+   * proves every durable tracked/revealed output is inside that journal and
+   * all delivery/reconciliation backlogs are empty.
+   */
+  assertP2TRSignatureFraudActivationIndexReady(
+    genesis: P2TRBitcoinChainPoint
+  ): Promise<void>
   enqueueUnmatchedProofs(proofs: P2TRUnmatchedProofEnvelope[]): Promise<void>
   listUnmatchedProofs(limit: number): Promise<P2TRUnmatchedProofEnvelope[]>
   resolveUnmatchedProofs(eventIDs: string[]): Promise<void>

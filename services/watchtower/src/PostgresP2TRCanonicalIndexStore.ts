@@ -468,6 +468,21 @@ export class PostgresP2TRCanonicalIndexStore
         )
       }
 
+      // A Bitcoin reorganization invalidates every cross-source decision made
+      // above the retained ancestor (or at the same height under another
+      // hash). Remove that watermark in this same serializable transaction so
+      // the replacement blocks/candidates below are replayed before another
+      // cross-source advancement can commit.
+      await client.query(
+        `DELETE FROM p2tr_cross_source_watermark
+          WHERE bitcoin_height > $1
+             OR (bitcoin_height = $1 AND bitcoin_hash <> $2)`,
+        [
+          scan.rollbackTo.height,
+          hexBuffer(scan.rollbackTo.hash, "Bitcoin rollback watermark hash"),
+        ]
+      )
+
       await client.query(
         `UPDATE p2tr_tracked_outpoints
             SET spent_by_txid = NULL,
@@ -580,7 +595,7 @@ export class PostgresP2TRCanonicalIndexStore
                 hexBuffer(transaction.wtxid, "output witness transaction ID"),
                 output.vout,
                 output.valueSats,
-                hexBuffer(output.scriptPubKey, "output scriptPubKey"),
+                scriptHexBuffer(output.scriptPubKey, "output scriptPubKey"),
                 block.height,
                 hexBuffer(block.hash, "output block hash"),
               ]
@@ -782,6 +797,146 @@ export class PostgresP2TRCanonicalIndexStore
         throw new Error("Pending deposit reveal count failed")
       }
       return databaseInteger(result.rows[0].count, "pending deposit count")
+    })
+  }
+
+  async assertP2TRSignatureFraudActivationIndexReady(
+    genesis: P2TRBitcoinChainPoint
+  ): Promise<void> {
+    validatePoint(genesis, "P2TR activation Bitcoin genesis")
+    if (genesis.height !== 0) {
+      throw new Error(
+        "P2TR fraud activation requires a Bitcoin checkpoint at genesis height 0"
+      )
+    }
+
+    await this.runInP2TRSignatureFraudWatchtowerTransaction(async () => {
+      const client = this.requireTransactionClient()
+      const cursor = await client.query<CursorRow>(
+        `SELECT store_id,
+                encode(configuration_fingerprint, 'hex') AS configuration_fingerprint,
+                network,
+                checkpoint_height,
+                encode(checkpoint_hash, 'hex') AS checkpoint_hash,
+                current_height,
+                encode(current_hash, 'hex') AS current_hash
+           FROM p2tr_bitcoin_cursor
+          WHERE singleton = true`
+      )
+      const durable = cursor.rows[0]
+      if (
+        cursor.rows.length !== 1 ||
+        durable.store_id !==
+          this.p2trSignatureFraudWatchtowerTransactionalStoreID ||
+        databaseInteger(
+          durable.checkpoint_height,
+          "activation checkpoint height"
+        ) !== 0 ||
+        durable.checkpoint_hash !== genesis.hash
+      ) {
+        throw new Error(
+          "P2TR fraud activation requires the durable canonical index to start at the exact configured genesis"
+        )
+      }
+
+      const backlogs = await client.query<{
+        pending_reveals: string | number
+        pending_candidates: string | number
+        unmatched_proofs: string | number
+      }>(
+        `SELECT
+           (SELECT count(*)
+              FROM p2tr_pending_deposit_reveals
+             WHERE resolved_at IS NULL) AS pending_reveals,
+           (SELECT count(*)
+              FROM p2tr_bitcoin_candidates
+             WHERE delivered = false) AS pending_candidates,
+           (SELECT count(*)
+              FROM p2tr_unmatched_proofs
+             WHERE resolved_at IS NULL) AS unmatched_proofs`
+      )
+      const backlog = backlogs.rows[0]
+      if (
+        backlogs.rows.length !== 1 ||
+        databaseInteger(
+          backlog.pending_reveals,
+          "activation pending deposit reveal count"
+        ) !== 0 ||
+        databaseInteger(
+          backlog.pending_candidates,
+          "activation pending candidate count"
+        ) !== 0 ||
+        databaseInteger(
+          backlog.unmatched_proofs,
+          "activation unmatched proof count"
+        ) !== 0
+      ) {
+        throw new Error(
+          "P2TR fraud activation requires every canonical evidence backlog to be drained"
+        )
+      }
+
+      const trackedViolations = await client.query<{ count: string | number }>(
+        `SELECT count(*) AS count
+           FROM p2tr_tracked_outpoints tracked
+           LEFT JOIN p2tr_bitcoin_outputs output
+             ON output.txid = tracked.txid
+            AND output.vout = tracked.vout
+          WHERE tracked.created_height <= $1
+             OR output.txid IS NULL
+             OR output.block_height <> tracked.created_height
+             OR output.block_hash <> tracked.created_hash
+             OR output.value_sats <> tracked.value_sats
+             OR output.script_pubkey <> tracked.script_pubkey`,
+        [genesis.height]
+      )
+      if (
+        trackedViolations.rows.length !== 1 ||
+        databaseInteger(
+          trackedViolations.rows[0].count,
+          "activation tracked output violation count"
+        ) !== 0
+      ) {
+        throw new Error(
+          "P2TR fraud activation found a tracked FROST output outside the genesis-backed canonical journal"
+        )
+      }
+
+      const revealViolations = await client.query<{ count: string | number }>(
+        `SELECT count(*) AS count
+           FROM p2tr_pending_deposit_reveals reveal
+           LEFT JOIN p2tr_bitcoin_outputs output
+             ON output.txid = reveal.funding_txid
+            AND output.vout = reveal.funding_vout
+           LEFT JOIN p2tr_tracked_outpoints tracked
+             ON tracked.txid = reveal.funding_txid
+            AND tracked.vout = reveal.funding_vout
+          WHERE reveal.resolved_at IS NOT NULL
+            AND (
+              reveal.resolved_funding_height <= $1
+              OR output.txid IS NULL
+              OR tracked.txid IS NULL
+              OR tracked.kind <> 'deposit'
+              OR output.block_height <> reveal.resolved_funding_height
+              OR output.block_hash <> reveal.resolved_funding_hash
+              OR tracked.created_height <> reveal.resolved_funding_height
+              OR tracked.created_hash <> reveal.resolved_funding_hash
+              OR tracked.wallet_id <> reveal.wallet_id
+              OR tracked.output_key <> reveal.output_key
+            )`,
+        [genesis.height]
+      )
+      if (
+        revealViolations.rows.length !== 1 ||
+        databaseInteger(
+          revealViolations.rows[0].count,
+          "activation revealed output violation count"
+        ) !== 0
+      ) {
+        throw new Error(
+          "P2TR fraud activation found a revealed FROST output outside the genesis-backed canonical journal"
+        )
+      }
     })
   }
 
@@ -1881,7 +2036,7 @@ const candidateFromRow = (
           prevout.valueSats as string | number,
           "candidate prevout value"
         ),
-        scriptPubKey: normalizeHex(
+        scriptPubKey: normalizeScriptHex(
           String(prevout.scriptPubKey),
           "candidate prevout script"
         ),
@@ -2189,8 +2344,19 @@ const normalizeHex = (value: string, field: string): string => {
   return normalized
 }
 
+const normalizeScriptHex = (value: string, field: string): string => {
+  const normalized = value.replace(/^0x/i, "").toLowerCase()
+  if (normalized.length % 2 !== 0 || !/^[0-9a-f]*$/.test(normalized)) {
+    throw new Error(`${field} must be even-length hex`)
+  }
+  return normalized
+}
+
 const hexBuffer = (value: string, field: string): Buffer =>
   Buffer.from(normalizeHex(value, field), "hex")
+
+const scriptHexBuffer = (value: string, field: string): Buffer =>
+  Buffer.from(normalizeScriptHex(value, field), "hex")
 
 const uint32 = (value: unknown, field: string): number => {
   const parsed = typeof value === "number" ? value : Number(value)

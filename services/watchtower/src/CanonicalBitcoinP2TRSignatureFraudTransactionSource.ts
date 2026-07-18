@@ -21,6 +21,12 @@ import type {
 
 export type CanonicalBitcoinP2TRSignatureFraudTransactionSourceOptions = {
   checkpoint: P2TRBitcoinChainPoint
+  /**
+   * Production activation must select `genesis-full-history`. Custom
+   * checkpoints exist only for bounded tests/rehearsals and can never satisfy
+   * the production activation handshake.
+   */
+  historyCoverage: "genesis-full-history" | "test-only-custom-checkpoint"
   expectedBitcoinCoreTrustDomainID: string
   confirmationDepth: number
   maxBlocksPerScan: number
@@ -58,6 +64,9 @@ export class CanonicalBitcoinP2TRSignatureFraudTransactionSource
   readonly p2trSignatureFraudWatchtowerRequiresAuthenticatedPrevouts =
     true as const
   readonly p2trSignatureFraudWatchtowerTransactionalStoreID: string
+  readonly p2trSignatureFraudWatchtowerCanonicalBitcoinHistoryCoverage:
+    | "genesis-full-history"
+    | "test-only-partial-history"
 
   private readonly configuredWalletIDs: Set<string>
   private readonly walletIDs: Set<string>
@@ -96,6 +105,25 @@ export class CanonicalBitcoinP2TRSignatureFraudTransactionSource
     }
 
     this.checkpoint = normalizePoint(options.checkpoint, "Bitcoin checkpoint")
+    if (options.historyCoverage === "genesis-full-history") {
+      if (
+        this.checkpoint.height !== 0 ||
+        this.checkpoint.hash !== blockSource.genesisHash
+      ) {
+        throw new Error(
+          "Production P2TR fraud activation requires the exact configured genesis checkpoint at height 0"
+        )
+      }
+      this.p2trSignatureFraudWatchtowerCanonicalBitcoinHistoryCoverage =
+        "genesis-full-history"
+    } else if (options.historyCoverage === "test-only-custom-checkpoint") {
+      this.p2trSignatureFraudWatchtowerCanonicalBitcoinHistoryCoverage =
+        "test-only-partial-history"
+    } else {
+      throw new Error(
+        "Canonical Bitcoin P2TR source history coverage mode is invalid"
+      )
+    }
     this.confirmationDepth = positiveInteger(
       options.confirmationDepth,
       "Bitcoin confirmation depth"
@@ -132,6 +160,51 @@ export class CanonicalBitcoinP2TRSignatureFraudTransactionSource
   async listMempoolTransactions(): Promise<P2TRWatchtowerMempoolTransaction[]> {
     // Production evidence is deliberately confirmed-only.
     return []
+  }
+
+  /** Fail-closed handshake consumed by a production activation composition. */
+  async assertP2TRSignatureFraudProductionHistoryCoverage(): Promise<void> {
+    if (
+      this.p2trSignatureFraudWatchtowerCanonicalBitcoinHistoryCoverage !==
+        "genesis-full-history" ||
+      this.checkpoint.height !== 0 ||
+      this.checkpoint.hash !== this.blockSource.genesisHash
+    ) {
+      throw new Error(
+        "P2TR fraud activation requires canonical Bitcoin history scanned from the exact network genesis"
+      )
+    }
+    // The constructor check catches static misconfiguration. Activation also
+    // authenticates the live Core node: getSyncedHead validates network,
+    // genesis, sync state, pruning, and txindex before the exact genesis read.
+    const nodeHead = await this.blockSource.getSyncedHead()
+    if ((await this.blockSource.getBlockHash(0)) !== this.checkpoint.hash) {
+      throw new Error(
+        "P2TR fraud activation live Bitcoin genesis does not match its full-history checkpoint"
+      )
+    }
+    const finalizedHeight = nodeHead.height - this.confirmationDepth
+    if (finalizedHeight < this.checkpoint.height) {
+      throw new Error(
+        "P2TR fraud activation Bitcoin finalized head has not reached genesis"
+      )
+    }
+    const finalized = {
+      height: finalizedHeight,
+      hash: await this.blockSource.getBlockHash(finalizedHeight),
+    }
+    const cursor = await this.store.loadBitcoinCursor()
+    if (
+      cursor === undefined ||
+      cursor.configurationFingerprint !== this.configurationFingerprint ||
+      cursor.network !== this.blockSource.network ||
+      !samePoint(cursor.checkpoint, this.checkpoint) ||
+      !samePoint(cursor.current, finalized)
+    ) {
+      throw new Error(
+        "P2TR fraud activation requires the genesis-backed canonical index to be caught up to the live finalized Bitcoin head"
+      )
+    }
   }
 
   async listConfirmedTransactions(): Promise<P2TRCanonicalWatchtowerConfirmedTransactionSourceResult> {
