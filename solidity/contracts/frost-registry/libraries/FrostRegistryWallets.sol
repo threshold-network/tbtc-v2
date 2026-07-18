@@ -35,6 +35,20 @@ library FrostRegistryWallets {
     error XOnlyOutputKeyIsLegacyAlias();
     error XOnlyOutputKeyAlreadyRegistered();
     error WalletNotRegistered();
+    error WalletMembersIdsHashIsZero();
+    error WalletWasNeverRegistered();
+    error WalletStillRegistered();
+    error WalletAlreadyArchived();
+    error WalletArchiveMigrationAlreadyCompleted();
+    error WalletArchiveMigrationNotReady();
+
+    enum ArchiveMigrationState {
+        Uninitialized,
+        Pending,
+        ManifestCommitted,
+        Completed,
+        Fresh
+    }
 
     struct Wallet {
         // Keccak256 hash of group members identifiers array. Group members
@@ -59,10 +73,46 @@ library FrostRegistryWallets {
         // the wallet's original signing group. An archived wallet ID can never
         // be registered again.
         mapping(bytes32 => Wallet) archived;
+        // Existing proxies read zero after the archive implementation is
+        // installed. Fresh deployments and fully verified historical
+        // migrations store their signed manifest root before new wallet work
+        // is permitted. A non-zero root is the completion sentinel.
+        bytes32 archiveMigrationManifestHash;
+        // Independent authority attesting the canonical legacy-loss manifest.
+        // Packed with the upgrade block and state in one slot.
+        address archiveMigrationAuthority;
+        uint64 archiveMigrationUpgradeBlock;
+        ArchiveMigrationState archiveMigrationState;
+        bytes32 archiveMigrationOldImplementationCodeHash;
+        bytes32 archiveMigrationNewImplementationCodeHash;
+        bytes32 archiveMigrationMerkleRoot;
+        bytes32 archiveMigrationHistoryRoot;
+        bytes32 archiveMigrationPendingManifestHash;
+        uint256 archiveMigrationExpectedCount;
+        uint256 archiveMigrationCompletedCount;
+        mapping(uint256 => uint256) archiveMigrationClaimedBitMap;
+        bytes32 archiveMigrationCheckpointHash;
+        uint64 archiveMigrationCheckpointBlock;
+        uint32 archiveMigrationMaxTailBlocks;
+        uint64 archiveMigrationUpgradeDeadlineBlock;
+        address archiveMigrationSourceAttester;
+        address archiveMigrationReconcilerAttester;
+        bytes32 archiveMigrationSourceAttestationHash;
+        bytes32 archiveMigrationReconcilerAttestationHash;
+        bytes32 archiveMigrationSourceIdentityHash;
+        bytes32 archiveMigrationSourceEndpointIdentityHash;
+        bytes32 archiveMigrationSourceTrustDomainHash;
+        bytes32 archiveMigrationSourceEndpointPolicyHash;
+        bytes32 archiveMigrationReconcilerIdentityHash;
+        bytes32 archiveMigrationReconcilerEndpointIdentityHash;
+        bytes32 archiveMigrationReconcilerTrustDomainHash;
+        bytes32 archiveMigrationReconcilerEndpointPolicyHash;
+        bytes32 archiveMigrationFinalSourceAttestationHash;
+        bytes32 archiveMigrationFinalReconcilerAttestationHash;
         // Reserved storage space in case we need to add more variables.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
-        uint256[48] __gap;
+        uint256[22] __gap;
     }
 
     /// @notice Performs preliminary validation of a new FROST wallet's
@@ -128,6 +178,43 @@ library FrostRegistryWallets {
 
         self.archived[walletID] = wallet;
         delete self.registry[walletID];
+    }
+
+    function isArchiveReady(Data storage self) internal view returns (bool) {
+        return
+            self.archiveMigrationState == ArchiveMigrationState.Completed ||
+            self.archiveMigrationState == ArchiveMigrationState.Fresh;
+    }
+
+    /// @notice Restores the membership commitment of a wallet closed by an
+    ///         implementation deployed before archive tombstones existed.
+    /// @dev `registered` is the permanent registry-level record written when
+    ///      DKG approval first created the wallet. It prevents governance from
+    ///      manufacturing historical wallets. The caller must independently
+    ///      reconstruct and verify `membersIdsHash` from canonical DKG events.
+    function backfillArchivedWalletMembership(
+        Data storage self,
+        mapping(bytes32 => bool) storage registered,
+        bytes32 walletID,
+        bytes32 membersIdsHash
+    ) internal {
+        if (membersIdsHash == bytes32(0)) {
+            revert WalletMembersIdsHashIsZero();
+        }
+        if (!registered[walletID]) {
+            revert WalletWasNeverRegistered();
+        }
+        if (self.registry[walletID].xOnlyOutputKey != bytes32(0)) {
+            revert WalletStillRegistered();
+        }
+        if (self.archived[walletID].xOnlyOutputKey != bytes32(0)) {
+            revert WalletAlreadyArchived();
+        }
+
+        self.archived[walletID] = Wallet({
+            membersIdsHash: membersIdsHash,
+            xOnlyOutputKey: walletID
+        });
     }
 
     /// @notice Checks if a wallet with the given ID is registered.

@@ -48,6 +48,7 @@ describe("FrostWalletRegistry full-cycle DKG happy path (B-1.5 slice 3)", () => 
   let bridge: Bridge & BridgeStub
   let frostWalletRegistry: any
   let frostSortitionPool: any
+  let frostAllowlist: any
   let randomBeacon: any
   let operators: Awaited<ReturnType<typeof registerOperators>>
 
@@ -137,6 +138,10 @@ describe("FrostWalletRegistry full-cycle DKG happy path (B-1.5 slice 3)", () => 
       }
     )
     frostWalletRegistry = registry
+    await frostWalletRegistry.backfillArchivedWalletMembership(
+      ethers.constants.HashZero,
+      ethers.utils.id("frost-wallet-archive/happy-path-fresh")
+    )
     await frostSortitionPool.transferOwnership(frostWalletRegistry.address)
 
     // The production deploy chain already wired Bridge.frostWalletRegistry
@@ -175,8 +180,7 @@ describe("FrostWalletRegistry full-cycle DKG happy path (B-1.5 slice 3)", () => 
       dkgParams.resultSubmissionTimeout,
       dkgParams.submitterPrecedencePeriodLength
     )
-
-    const [frostAllowlist] = await helpers.upgrades.deployProxy(
+    ;[frostAllowlist] = await helpers.upgrades.deployProxy(
       "FrostAllowlistHappyPathTest",
       {
         contractName: "FrostAllowlist",
@@ -442,5 +446,57 @@ describe("FrostWalletRegistry full-cycle DKG happy path (B-1.5 slice 3)", () => 
         .connect(submitter)
         .notifyOperatorInactivity(heartbeatClaim, 0, groupMemberIds)
     ).to.be.revertedWith("Invalid nonce")
+
+    // Active membership may authorize protocol work, but closing the wallet
+    // must immediately remove that authority while retaining the immutable
+    // commitment for delayed settlement/conflict/recovery paths.
+    expect(
+      await frostWalletRegistry.isWalletMember(
+        xOnlyOutputKey,
+        groupMemberIds,
+        submitter.address,
+        1
+      )
+    ).to.equal(true)
+
+    await frostWalletRegistry.connect(deployer).closeWallet(xOnlyOutputKey)
+
+    const activeWallet = await frostWalletRegistry.getWallet(xOnlyOutputKey)
+    expect(activeWallet.membersIdsHash).to.equal(ethers.constants.HashZero)
+    expect(activeWallet.xOnlyOutputKey).to.equal(ethers.constants.HashZero)
+
+    expect(
+      await frostWalletRegistry.getRetainedWalletMembersIdsHash(xOnlyOutputKey)
+    ).to.equal(
+      ethers.utils.keccak256(
+        ethers.utils.defaultAbiCoder.encode(["uint32[]"], [groupMemberIds])
+      )
+    )
+    expect(
+      await frostWalletRegistry.isWalletRegistered(xOnlyOutputKey)
+    ).to.equal(false)
+
+    await expect(
+      frostWalletRegistry.isWalletMember(
+        xOnlyOutputKey,
+        groupMemberIds,
+        submitter.address,
+        1
+      )
+    ).to.be.reverted
+
+    const wrongGroupMemberIds = [...groupMemberIds]
+    wrongGroupMemberIds[0] = wrongGroupMemberIds[0] + 1
+    await expect(
+      frostWalletRegistry
+        .connect(deployer)
+        .seize(0, 0, deployer.address, xOnlyOutputKey, wrongGroupMemberIds)
+    ).to.be.revertedWith("Invalid wallet members identifiers")
+
+    await expect(
+      frostWalletRegistry
+        .connect(deployer)
+        .seize(0, 0, deployer.address, xOnlyOutputKey, groupMemberIds)
+    ).to.emit(frostAllowlist, "MaliciousBehaviorIdentified")
   })
 })
