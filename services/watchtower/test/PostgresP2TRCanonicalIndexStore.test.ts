@@ -100,6 +100,21 @@ describe("PostgresP2TRCanonicalIndexStore", () => {
     assert.match(migration, /CREATE TABLE p2tr_frost_wallet_bindings/)
     assert.match(migration, /CREATE TABLE p2tr_unmatched_proofs/)
     assert.match(migration, /CREATE TABLE p2tr_cross_source_watermark/)
+    assert.doesNotMatch(migration, /^\s*(?:BEGIN|COMMIT)\s*;/im)
+  })
+
+  it("rejects non-genesis production activation before querying durable state", async () => {
+    const pool = new FakePool()
+    const store = new PostgresP2TRCanonicalIndexStore(pool, storeOptions())
+
+    await assert.rejects(
+      store.assertP2TRSignatureFraudActivationIndexReady({
+        height: 1,
+        hash: "aa".repeat(32),
+      }),
+      /checkpoint at genesis height 0/
+    )
+    assert.deepEqual(pool.client.statements, [])
   })
 
   it("rolls back before cursor advancement when the pending reveal cap is exceeded", async () => {

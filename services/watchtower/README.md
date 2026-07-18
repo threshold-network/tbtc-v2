@@ -52,6 +52,19 @@ raw block hashes, each header's declared proof-of-work target, merkle and witnes
 commitments, transaction identity, and every non-coinbase prevout against raw
 `txindex` bytes before the source can mark a scan complete.
 
+Production activation must construct the canonical transaction source with
+`historyCoverage: "genesis-full-history"`, checkpoint height `0`, and the exact
+genesis hash configured for the selected Core network. Its asynchronous
+activation handshake revalidates the live synchronized Core node and genesis;
+it also requires the durable cursor to match the live finalized Core head.
+Custom checkpoints are explicitly test-only and cannot pass that handshake.
+Scanning from height 1 imposes a one-time full-chain synchronization/indexing
+cost, but it is the only self-contained proof that the checkpoint strictly
+predates every possible FROST P2TR wallet or revealed-deposit output. Before
+activation, `assertP2TRSignatureFraudActivationIndexReady` additionally checks
+that every durable tracked/revealed output joins to that genesis-backed journal
+and that candidate, deposit-reveal, and unmatched-proof backlogs are empty.
+
 The configured Core node's `getblockhash` chain is the source's canonical-chain
 trust boundary. The raw checks do not independently validate network difficulty
 transitions, choose the greatest-work chain, or protect against a consistently
@@ -79,6 +92,10 @@ hash-orphaned wallet and deposit registrations, strips their exact key bindings
 from candidates, and invalidates orphaned proof and watermark state. All
 recovery, rollback, pagination, mutation, and backlog operations have configured
 bounds and fail closed when a bound is exceeded.
+Bitcoin reorganization handling removes a watermark above the retained common
+ancestor in the same serializable transaction that replaces the block and
+candidate journal, forcing cross-source processing to replay replacement
+history before it can advance again.
 
 Production adapters that share this state must be created through
 `createP2TRSignatureFraudWatchtowerTransactionalAdapter`. Its query-only session

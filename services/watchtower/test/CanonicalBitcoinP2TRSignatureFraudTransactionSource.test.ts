@@ -23,6 +23,97 @@ const ORIGINAL_WTXID = "44".repeat(32)
 const REPLACEMENT_WTXID = "55".repeat(32)
 
 describe("CanonicalBitcoinP2TRSignatureFraudTransactionSource", () => {
+  it("admits production activation only from the exact live network genesis", async () => {
+    const blockSource = new MutableBlockSource()
+    const fullHistoryStore = new MemoryIndexStore()
+    const fullHistory = new CanonicalBitcoinP2TRSignatureFraudTransactionSource(
+      blockSource,
+      fullHistoryStore,
+      [],
+      {
+        checkpoint: { height: 0, hash: CHECKPOINT_HASH },
+        historyCoverage: "genesis-full-history",
+        expectedBitcoinCoreTrustDomainID: "core-a",
+        confirmationDepth: 1,
+        maxBlocksPerScan: 2,
+        maxRollbackBlocks: 6,
+        maxCandidateDeliveriesPerScan: 1,
+      }
+    )
+
+    await assert.rejects(
+      fullHistory.assertP2TRSignatureFraudProductionHistoryCoverage(),
+      /caught up to the live finalized Bitcoin head/
+    )
+    const historicalScan = await fullHistory.listConfirmedTransactions()
+    assert.equal(historicalScan.complete, true)
+    await fullHistory.commitConfirmedTransactionScan()
+    await assert.doesNotReject(() =>
+      fullHistory.assertP2TRSignatureFraudProductionHistoryCoverage()
+    )
+    blockSource.replaceLiveGenesis("fe".repeat(32))
+    await assert.rejects(
+      fullHistory.assertP2TRSignatureFraudProductionHistoryCoverage(),
+      /live Bitcoin genesis does not match/
+    )
+    blockSource.replaceLiveGenesis(CHECKPOINT_HASH)
+    assert.throws(
+      () =>
+        new CanonicalBitcoinP2TRSignatureFraudTransactionSource(
+          blockSource,
+          new MemoryIndexStore(),
+          [],
+          {
+            checkpoint: { height: 1, hash: BLOCK_ONE_HASH },
+            historyCoverage: "genesis-full-history",
+            expectedBitcoinCoreTrustDomainID: "core-a",
+            confirmationDepth: 1,
+            maxBlocksPerScan: 2,
+            maxRollbackBlocks: 6,
+            maxCandidateDeliveriesPerScan: 1,
+          }
+        ),
+      /exact configured genesis checkpoint at height 0/
+    )
+    assert.throws(
+      () =>
+        new CanonicalBitcoinP2TRSignatureFraudTransactionSource(
+          blockSource,
+          new MemoryIndexStore(),
+          [],
+          {
+            checkpoint: { height: 0, hash: "ff".repeat(32) },
+            historyCoverage: "genesis-full-history",
+            expectedBitcoinCoreTrustDomainID: "core-a",
+            confirmationDepth: 1,
+            maxBlocksPerScan: 2,
+            maxRollbackBlocks: 6,
+            maxCandidateDeliveriesPerScan: 1,
+          }
+        ),
+      /exact configured genesis checkpoint at height 0/
+    )
+
+    const rehearsal = new CanonicalBitcoinP2TRSignatureFraudTransactionSource(
+      blockSource,
+      new MemoryIndexStore(),
+      [],
+      {
+        checkpoint: { height: 1, hash: BLOCK_ONE_HASH },
+        historyCoverage: "test-only-custom-checkpoint",
+        expectedBitcoinCoreTrustDomainID: "core-a",
+        confirmationDepth: 1,
+        maxBlocksPerScan: 2,
+        maxRollbackBlocks: 6,
+        maxCandidateDeliveriesPerScan: 1,
+      }
+    )
+    await assert.rejects(
+      rehearsal.assertP2TRSignatureFraudProductionHistoryCoverage(),
+      /history scanned from the exact network genesis/
+    )
+  })
+
   it("delivers authenticated candidates and distinguishes a re-mined witness variant", async () => {
     const blockSource = new MutableBlockSource()
     const store = new MemoryIndexStore()
@@ -32,6 +123,7 @@ describe("CanonicalBitcoinP2TRSignatureFraudTransactionSource", () => {
       [WALLET_ID],
       {
         checkpoint: { height: 0, hash: CHECKPOINT_HASH },
+        historyCoverage: "test-only-custom-checkpoint",
         expectedBitcoinCoreTrustDomainID: "core-a",
         confirmationDepth: 1,
         maxBlocksPerScan: 2,
@@ -75,6 +167,7 @@ describe("CanonicalBitcoinP2TRSignatureFraudTransactionSource", () => {
       [],
       {
         checkpoint: { height: 0, hash: CHECKPOINT_HASH },
+        historyCoverage: "test-only-custom-checkpoint",
         expectedBitcoinCoreTrustDomainID: "core-a",
         confirmationDepth: 1,
         maxBlocksPerScan: 2,
@@ -112,6 +205,7 @@ describe("CanonicalBitcoinP2TRSignatureFraudTransactionSource", () => {
       [WALLET_ID],
       {
         checkpoint: { height: 0, hash: CHECKPOINT_HASH },
+        historyCoverage: "test-only-custom-checkpoint",
         expectedBitcoinCoreTrustDomainID: "core-a",
         confirmationDepth: 1,
         maxBlocksPerScan: 2,
@@ -136,14 +230,16 @@ describe("CanonicalBitcoinP2TRSignatureFraudTransactionSource", () => {
 class MutableBlockSource implements P2TRCanonicalBitcoinBlockSource {
   readonly trustDomainID = "core-a"
   readonly network = "regtest"
+  readonly genesisHash = CHECKPOINT_HASH
   private replacement = false
+  private liveGenesisHash = CHECKPOINT_HASH
 
   async getSyncedHead() {
     return { height: 3, hash: "ee".repeat(32) }
   }
 
   async getBlockHash(height: number) {
-    if (height === 0) return CHECKPOINT_HASH
+    if (height === 0) return this.liveGenesisHash
     if (height === 1) return BLOCK_ONE_HASH
     if (height === 2) {
       return this.replacement ? REPLACEMENT_BLOCK_TWO_HASH : BLOCK_TWO_HASH
@@ -169,6 +265,10 @@ class MutableBlockSource implements P2TRCanonicalBitcoinBlockSource {
 
   replaceWitnessVariant(): void {
     this.replacement = true
+  }
+
+  replaceLiveGenesis(hash: string): void {
+    this.liveGenesisHash = hash
   }
 }
 
