@@ -222,12 +222,16 @@ export default async function bridgeFixture(): Promise<{
       deployer
     )
     ecdsaFraudRouter = (await EcdsaFraudRouterFactory.deploy(
-      bridge.address
+      bridge.address,
+      ethers.constants.AddressZero
     )) as EcdsaFraudRouter
     await ecdsaFraudRouter.deployed()
+    const ecdsaFraudRouterCodeHash = ethers.utils.keccak256(
+      await ethers.provider.getCode(ecdsaFraudRouter.address)
+    )
     await bridgeGovernance
       .connect(governance)
-      .setEcdsaFraudRouter(ecdsaFraudRouter.address)
+      .setEcdsaFraudRouter(ecdsaFraudRouter.address, ecdsaFraudRouterCodeHash)
   } else {
     ecdsaFraudRouter = (await ethers.getContractAt(
       "EcdsaFraudRouter",

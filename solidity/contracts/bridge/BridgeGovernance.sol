@@ -17,6 +17,7 @@ pragma solidity 0.8.17;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "./BridgeGovernanceParameters.sol";
+import "./EcdsaFraudRouterCutover.sol";
 
 import "./Bridge.sol";
 
@@ -32,6 +33,7 @@ contract BridgeGovernance is Ownable {
     using BridgeGovernanceParameters for BridgeGovernanceParameters.WalletData;
     using BridgeGovernanceParameters for BridgeGovernanceParameters.FraudData;
     using BridgeGovernanceParameters for BridgeGovernanceParameters.TreasuryData;
+    using EcdsaFraudRouterCutover for EcdsaFraudRouterCutover.Data;
 
     BridgeGovernanceParameters.DepositData internal depositData;
     BridgeGovernanceParameters.RedemptionData internal redemptionData;
@@ -39,6 +41,7 @@ contract BridgeGovernance is Ownable {
     BridgeGovernanceParameters.WalletData internal walletData;
     BridgeGovernanceParameters.FraudData internal fraudData;
     BridgeGovernanceParameters.TreasuryData internal treasuryData;
+    EcdsaFraudRouterCutover.Data internal ecdsaFraudCutoverData;
 
     Bridge internal bridge;
 
@@ -55,6 +58,10 @@ contract BridgeGovernance is Ownable {
 
     uint256 public bridgeGovernanceTransferChangeInitiated;
     address internal newBridgeGovernance;
+
+    error EcdsaFraudCutoverGovernanceDelayUpdatePending();
+    error EcdsaFraudCutoverGovernanceTransferPending();
+    error EcdsaFraudCutoverActive();
 
     // We skip emitting event on *Update to go down with the contract size
     // limit. The reason why we leave *Started but not including *Updated is
@@ -345,6 +352,9 @@ contract BridgeGovernance is Ownable {
         external
         onlyOwner
     {
+        if (ecdsaFraudCutoverData.phase != EcdsaFraudRouterCutover.Phase.Idle) {
+            revert EcdsaFraudCutoverActive();
+        }
         require(
             _newGovernanceDelay >= MIN_GOVERNANCE_DELAY,
             "New governance delay must be >= minimum"
@@ -382,6 +392,9 @@ contract BridgeGovernance is Ownable {
         external
         onlyOwner
     {
+        if (ecdsaFraudCutoverData.phase != EcdsaFraudRouterCutover.Phase.Idle) {
+            revert EcdsaFraudCutoverActive();
+        }
         // slither-disable-next-line missing-zero-check
         newBridgeGovernance = _newBridgeGovernance;
         /* solhint-disable not-rely-on-time */
@@ -400,6 +413,9 @@ contract BridgeGovernance is Ownable {
     ///      Event that informs about the transfer in this function is skipped on
     ///      purpose to go down with the contract size.
     function finalizeBridgeGovernanceTransfer() external onlyOwner {
+        if (ecdsaFraudCutoverData.phase != EcdsaFraudRouterCutover.Phase.Idle) {
+            revert EcdsaFraudCutoverActive();
+        }
         require(
             bridgeGovernanceTransferChangeInitiated > 0,
             "Change not initiated"
@@ -1841,29 +1857,125 @@ contract BridgeGovernance is Ownable {
     ///      - The caller must be the owner,
     ///      - ECDSA fraud router address must not be already set,
     ///      - ECDSA fraud router address must not be 0x0.
-    function setEcdsaFraudRouter(address ecdsaFraudRouter) external onlyOwner {
-        bridge.setEcdsaFraudRouter(ecdsaFraudRouter);
-    }
-
-    /// @notice Starts the fail-closed drain required to replace an already
-    ///         wired ECDSA fraud router.
-    function beginEcdsaFraudRouterDrain() external onlyOwner {
-        bridge.beginEcdsaFraudRouterDrain();
-    }
-
-    /// @notice Atomically retires a zero-open-challenge ECDSA fraud router,
-    ///         installs its reviewed replacement, and migrates the supplied
-    ///         Bridge-resident legacy challenge records.
-    function replaceEcdsaFraudRouter(
-        address expectedEcdsaFraudRouter,
-        address newEcdsaFraudRouter,
-        uint256[] calldata legacyChallengeKeys
+    function setEcdsaFraudRouter(
+        address ecdsaFraudRouter,
+        bytes32 expectedCodeHash
     ) external onlyOwner {
-        bridge.replaceEcdsaFraudRouter(
-            expectedEcdsaFraudRouter,
-            newEcdsaFraudRouter,
+        bridge.setEcdsaFraudRouter(ecdsaFraudRouter, expectedCodeHash);
+    }
+
+    /// @notice Freezes the old router and pins the exact reviewed replacement
+    ///         before any inventory snapshot is taken.
+    function beginEcdsaFraudRouterDrain(
+        address expectedOldRouter,
+        bytes32 expectedOldCodeHash,
+        address newRouter,
+        bytes32 expectedNewCodeHash,
+        uint64 scanStartBlock
+    ) external onlyOwner {
+        if (bridgeGovernanceTransferChangeInitiated != 0) {
+            revert EcdsaFraudCutoverGovernanceTransferPending();
+        }
+        if (governanceDelays[1] != 0 || governanceDelays[2] != 0) {
+            revert EcdsaFraudCutoverGovernanceDelayUpdatePending();
+        }
+        ecdsaFraudCutoverData.beginDrain(
+            address(bridge),
+            expectedOldRouter,
+            expectedOldCodeHash,
+            newRouter,
+            expectedNewCodeHash,
+            scanStartBlock,
+            governanceDelay()
+        );
+    }
+
+    /// @notice Stages the canonical, finalized-block-bound inventory after
+    ///         the old entry path has been frozen by the drain.
+    function stageEcdsaFraudInventory(
+        uint64 finalizedBlockNumber,
+        bytes32 finalizedBlockHash,
+        bytes32 challengeSetHash,
+        uint32 challengeCount,
+        uint256 totalEscrow,
+        address reconciler
+    ) external onlyOwner {
+        ecdsaFraudCutoverData.stageInventory(
+            address(bridge),
+            finalizedBlockNumber,
+            finalizedBlockHash,
+            challengeSetHash,
+            challengeCount,
+            totalEscrow,
+            reconciler
+        );
+    }
+
+    /// @notice Confirms the staged inventory from the independently operated
+    ///         reconciler account.
+    function confirmEcdsaFraudInventory(bytes32 inventoryCommitment) external {
+        ecdsaFraudCutoverData.confirmInventory(
+            address(bridge),
+            inventoryCommitment
+        );
+    }
+
+    /// @notice Migrates the exact confirmed key set into the inactive
+    ///         replacement while keeping the old router and drain lock pinned.
+    function migrateEcdsaFraudRouter(uint256[] calldata legacyChallengeKeys)
+        external
+        onlyOwner
+    {
+        ecdsaFraudCutoverData.migrate(address(bridge), legacyChallengeKeys);
+    }
+
+    /// @notice Independently reads back Bridge deletions and replacement
+    ///         records, counts, and escrow before the finalization delay starts.
+    function confirmEcdsaFraudMigration(uint256[] calldata legacyChallengeKeys)
+        external
+    {
+        ecdsaFraudCutoverData.confirmMigration(
+            address(bridge),
             legacyChallengeKeys
         );
+    }
+
+    /// @notice Starts a delayed replacement of a phase-four reconciler whose
+    ///         signing key is unavailable. The proposed reconciler must remain
+    ///         distinct from governance and from the original reconciler.
+    function beginEcdsaFraudReconcilerUpdate(address newReconciler)
+        external
+        onlyOwner
+    {
+        ecdsaFraudCutoverData.beginReconcilerUpdate(
+            address(bridge),
+            newReconciler
+        );
+    }
+
+    /// @notice Completes a phase-four reconciler replacement after the exact
+    ///         governance delay pinned when the drain began.
+    function finalizeEcdsaFraudReconcilerUpdate() external {
+        ecdsaFraudCutoverData.finalizeReconcilerUpdate(address(bridge));
+    }
+
+    /// @notice Rechecks the committed post-migration state after the full
+    ///         governance delay, activates the replacement, and clears drain.
+    function finalizeEcdsaFraudRouterReplacement(
+        uint256[] calldata legacyChallengeKeys
+    ) external onlyOwner {
+        ecdsaFraudCutoverData.finalize(address(bridge), legacyChallengeKeys);
+    }
+
+    /// @notice Full on-chain readback of the active cutover commitment and
+    ///         phase. The record is cleared only by successful finalization;
+    ///         finalized commitments remain permanently indexed in events.
+    function ecdsaFraudCutoverState()
+        external
+        view
+        returns (EcdsaFraudRouterCutover.Data memory)
+    {
+        return ecdsaFraudCutoverData;
     }
 
     /// @notice Migrates a batch of legacy fraud challenges from

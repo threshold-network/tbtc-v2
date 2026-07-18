@@ -139,9 +139,12 @@ export const fixture = deployments.createFixture(
       ecdsaFraudRouter = await helpers.contracts.getContract<EcdsaFraudRouter>(
         "EcdsaFraudRouter"
       )
+      const ecdsaFraudRouterCodeHash = ethers.utils.keccak256(
+        await ethers.provider.getCode(ecdsaFraudRouter.address)
+      )
       await bridgeGovernance
         .connect(governance)
-        .setEcdsaFraudRouter(ecdsaFraudRouter.address)
+        .setEcdsaFraudRouter(ecdsaFraudRouter.address, ecdsaFraudRouterCodeHash)
     } else {
       ecdsaFraudRouter = (await ethers.getContractAt(
         "EcdsaFraudRouter",
