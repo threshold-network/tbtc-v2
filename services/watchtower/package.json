@@ -17,7 +17,9 @@
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
+    "@types/pg": "^8.11.10",
     "bitcoinjs-lib": "^6.1.5",
+    "ethers": "^5.5.2",
     "tsx": "^4.21.0",
     "typescript": "^5.9.2"
   },

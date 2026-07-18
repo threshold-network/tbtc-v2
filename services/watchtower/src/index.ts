@@ -44,6 +44,8 @@ export {
   buildP2TRSignatureFraudWatchtowerCycleMetrics,
 } from "./P2TRSignatureFraudWatchtowerService.js"
 export * from "./P2TRSignatureFraudChallengeOutbox.js"
+export * from "./PostgresP2TRSignatureFraudOutboxActivationHandshake.js"
+export * from "./PostgresP2TRSignatureFraudChallengeOutboxStore.js"
 export {
   abortableDelay,
   runP2TRSignatureFraudWatchtowerLoop,
