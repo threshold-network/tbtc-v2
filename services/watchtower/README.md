@@ -104,6 +104,10 @@ rejects participants not owned by that coordinator. This is the extension point
 for the transactional challenge-record store, Ethereum lifecycle index, and
 broadcast outbox; those concrete adapters are deliberately not supplied by this
 tranche.
+The coordinator destroys pooled clients after failed transaction-control or
+rollback operations. In particular, a failed `COMMIT` is surfaced as an unknown
+transaction outcome for caller reconciliation and the ambiguous session is
+never returned to the pool.
 
 This tranche does **not** make activation safe. Before automatic challenge
 submission can be reviewed for enablement, a later stack must add and test all

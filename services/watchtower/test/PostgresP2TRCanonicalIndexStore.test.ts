@@ -64,6 +64,64 @@ describe("PostgresP2TRCanonicalIndexStore", () => {
     ])
     assert.equal(pool.client.statements.at(-1), "ROLLBACK")
     assert.equal(pool.client.released, true)
+    assert.equal(pool.client.releaseArgument, undefined)
+  })
+
+  it("destroys a client whose rollback fails while preserving the operation error", async () => {
+    const rollbackError = new Error("rollback transport failed")
+    const client = new FakeClient({ ROLLBACK: rollbackError })
+    const store = new PostgresP2TRCanonicalIndexStore(
+      new FakePool(client),
+      storeOptions()
+    )
+    const operationError = new Error("fail cycle")
+
+    await assert.rejects(
+      store.runInP2TRSignatureFraudWatchtowerTransaction(async () => {
+        throw operationError
+      }),
+      (error) => error === operationError
+    )
+
+    assert.equal(client.statements.at(-1), "ROLLBACK")
+    assert.equal(client.releaseArgument, rollbackError)
+  })
+
+  it("destroys a client after an ambiguous BEGIN failure", async () => {
+    const beginError = new Error("begin response lost")
+    const client = new FakeClient({
+      "BEGIN ISOLATION LEVEL SERIALIZABLE": beginError,
+    })
+    const store = new PostgresP2TRCanonicalIndexStore(
+      new FakePool(client),
+      storeOptions()
+    )
+
+    await assert.rejects(
+      store.runInP2TRSignatureFraudWatchtowerTransaction(async () => undefined),
+      (error) => error === beginError
+    )
+
+    assert.deepEqual(client.statements, ["BEGIN ISOLATION LEVEL SERIALIZABLE"])
+    assert.equal(client.releaseArgument, beginError)
+  })
+
+  it("destroys a client and reports an unknown outcome after COMMIT fails", async () => {
+    const commitError = new Error("commit response lost")
+    const client = new FakeClient({ COMMIT: commitError })
+    const store = new PostgresP2TRCanonicalIndexStore(
+      new FakePool(client),
+      storeOptions()
+    )
+
+    await assert.rejects(
+      store.runInP2TRSignatureFraudWatchtowerTransaction(async () => "result"),
+      /COMMIT failed; transaction outcome is unknown/
+    )
+
+    assert.equal(client.statements.at(-1), "COMMIT")
+    assert.equal(client.statements.includes("ROLLBACK"), false)
+    assert.equal(client.releaseArgument, commitError)
   })
 
   it("creates store-owned adapters with a transaction-scoped query capability", async () => {
@@ -196,12 +254,17 @@ class FakePool implements P2TRPostgresPool {
 class FakeClient implements P2TRPostgresClient {
   readonly statements: string[] = []
   released = false
+  releaseArgument?: Error | boolean
+
+  constructor(private readonly failures: Record<string, Error> = {}) {}
 
   async query<Row = Record<string, unknown>>(
     text: string,
     _values?: readonly unknown[]
   ): Promise<P2TRPostgresQueryResult<Row>> {
     this.statements.push(text)
+    const failure = this.failures[text]
+    if (failure !== undefined) throw failure
     if (text.includes("server_version_num")) {
       return {
         rows: [{ server_version_num: "160000" } as Row],
@@ -214,8 +277,9 @@ class FakeClient implements P2TRPostgresClient {
     return { rows: [], rowCount: 0 }
   }
 
-  release(): void {
+  release(error?: Error | boolean): void {
     this.released = true
+    this.releaseArgument = error
   }
 }
 
