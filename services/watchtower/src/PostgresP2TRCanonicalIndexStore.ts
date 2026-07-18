@@ -25,7 +25,8 @@ export interface P2TRPostgresClient {
     text: string,
     values?: readonly unknown[]
   ): Promise<P2TRPostgresQueryResult<Row>>
-  release(): void
+  /** Passing an error/true destroys the client instead of returning it to the pool. */
+  release(error?: Error | boolean): void
 }
 
 /** Structurally compatible with a `pg` Pool. */
@@ -197,24 +198,54 @@ export class PostgresP2TRCanonicalIndexStore
     if (active !== undefined) return operation()
 
     const client = await this.pool.connect()
+    let transactionPhase: "begin" | "active" | "commit" | "finished" = "begin"
+    let releaseError: Error | boolean | undefined
     try {
       await client.query("BEGIN ISOLATION LEVEL SERIALIZABLE")
+      transactionPhase = "active"
       await client.query("SELECT set_config('statement_timeout', $1, true)", [
         `${this.statementTimeoutMs}ms`,
       ])
       await this.assertDatabaseReady(client)
       const result = await this.transaction.run(client, operation)
+      transactionPhase = "commit"
       await client.query("COMMIT")
+      transactionPhase = "finished"
       return result
     } catch (error) {
-      try {
-        await client.query("ROLLBACK")
-      } catch {
-        // Preserve the original transaction failure.
+      if (transactionPhase === "active") {
+        try {
+          await client.query("ROLLBACK")
+          transactionPhase = "finished"
+        } catch (rollbackError) {
+          // The session may still be inside an aborted or even ambiguous
+          // transaction. Preserve the original operation error, but ensure pg
+          // destroys this client instead of returning it to the pool.
+          releaseError = postgresClientError(
+            rollbackError,
+            "PostgreSQL ROLLBACK failed"
+          )
+        }
+      } else if (transactionPhase === "begin") {
+        // A failed BEGIN response cannot prove whether the server entered the
+        // transaction before the connection failed.
+        releaseError = postgresClientError(error, "PostgreSQL BEGIN failed")
+      } else if (transactionPhase === "commit") {
+        // Never claim rollback after a COMMIT error: the server may have
+        // committed before its response was lost. Destroy the session and
+        // surface the unknown outcome for reconciliation by the caller.
+        const commitError = postgresClientError(
+          error,
+          "PostgreSQL COMMIT failed"
+        )
+        releaseError = commitError
+        throw new Error(
+          `PostgreSQL COMMIT failed; transaction outcome is unknown: ${commitError.message}`
+        )
       }
       throw error
     } finally {
-      client.release()
+      client.release(releaseError)
     }
   }
 
@@ -2357,6 +2388,9 @@ const hexBuffer = (value: string, field: string): Buffer =>
 
 const scriptHexBuffer = (value: string, field: string): Buffer =>
   Buffer.from(normalizeScriptHex(value, field), "hex")
+
+const postgresClientError = (value: unknown, context: string): Error =>
+  value instanceof Error ? value : new Error(`${context}: ${String(value)}`)
 
 const uint32 = (value: unknown, field: string): number => {
   const parsed = typeof value === "number" ? value : Number(value)
