@@ -50,6 +50,14 @@ export type P2TRCanonicalWatchtowerConfirmedTransaction =
 
 export type P2TRCanonicalWatchtowerConfirmedTransactionSourceResult =
   P2TRWatchtowerConfirmedTransactionSourceResult & {
+    /** Wallet set used for this exact canonical scan. */
+    registeredWalletIDs: string[]
+    /** Confirmed observations invalidated by the canonical rollback. */
+    orphanedConfirmedTransactions: Array<{
+      bitcoinTxHash: string
+      bitcoinWtxid: string
+      bitcoinBlockHash: string
+    }>
     transactions: P2TRCanonicalWatchtowerConfirmedTransaction[]
     scan: {
       rollbackTo: P2TRBitcoinChainPoint
