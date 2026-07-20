@@ -1021,6 +1021,76 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
       ).to.not.throw()
     })
 
+    describe("chain IDs colliding with Object.prototype members", () => {
+      // A bare `STARKNET_RELAYER_CHAIN_NAMES[chainId]` lookup resolves these
+      // strings to truthy members inherited from Object.prototype (e.g. the
+      // `toString`/`constructor` functions, the `__proto__` object), which
+      // would make them appear to have a default relayer route and synthesize a
+      // malformed URL (".../api/[object Object]/reveal") instead of throwing.
+      // Recognition uses an own-property check, so these must be treated
+      // exactly like any other unrecognized chain ID.
+      const PROTOTYPE_CHAIN_IDS = ["toString", "__proto__", "constructor"]
+
+      for (const chainId of PROTOTYPE_CHAIN_IDS) {
+        const label = JSON.stringify(chainId)
+
+        it(`should throw for ${label} with no URL overrides`, () => {
+          expect(
+            () =>
+              new StarkNetDepositor(
+                { chainId },
+                "StarkNet",
+                createMockProvider()
+              )
+          ).to.throw(/No default StarkNet relayer route for chain ID/)
+        })
+
+        it(`should throw for ${label} with only a reveal URL override`, () => {
+          expect(
+            () =>
+              new StarkNetDepositor(
+                { chainId, relayerUrl: "http://custom.example/api/reveal" },
+                "StarkNet",
+                createMockProvider()
+              )
+          ).to.throw(/No default StarkNet relayer route for chain ID/)
+        })
+
+        it(`should throw for ${label} with only a status URL override`, () => {
+          expect(
+            () =>
+              new StarkNetDepositor(
+                {
+                  chainId,
+                  relayerStatusUrl: "http://custom.example/api/deposit",
+                },
+                "StarkNet",
+                createMockProvider()
+              )
+          ).to.throw(/No default StarkNet relayer route for chain ID/)
+        })
+
+        it(`should construct for ${label} when both custom URLs are supplied`, () => {
+          // Own-property recognition - not the map's prototype chain - is what
+          // gates construction, so a fully custom/dev network keyed by a
+          // prototype-colliding chain ID still constructs when BOTH endpoints
+          // are supplied explicitly.
+          expect(
+            () =>
+              new StarkNetDepositor(
+                {
+                  chainId,
+                  relayerUrl: "http://custom.example/api/reveal",
+                  relayerStatusUrl: "http://custom.example/api/deposit",
+                },
+                "StarkNet",
+                createMockProvider()
+              )
+          ).to.not.throw()
+        })
+      }
+    })
+
     it("should construct for all recognized chain IDs with no URL overrides", () => {
       const recognizedChainIds = [
         "0x534e5f4d41494e", // SN_MAIN

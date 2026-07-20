@@ -147,12 +147,37 @@ export type StarkNetDepositorConfig = StarkNetBitcoinDepositorConfig
 
 /**
  * Maps StarkNet chain IDs to the chain name segment used in relayer URLs
- * (PascalCase, matching the relayer's route naming).
+ * (PascalCase, matching the relayer's route naming). Only these explicitly
+ * listed chain IDs have a default relayer route; recognition must go through
+ * {@link hasDefaultStarkNetRelayerRoute} rather than a bare `[chainId]` lookup
+ * (see that helper).
  */
 const STARKNET_RELAYER_CHAIN_NAMES: Record<string, string> = {
   "0x534e5f474f45524c49": "StarknetTestnet", // SN_GOERLI
   "0x534e5f5345504f4c4941": "StarknetTestnet", // SN_SEPOLIA - mapped to StarknetTestnet in relayer
   "0x534e5f4d41494e": "StarknetMainnet", // SN_MAIN
+}
+
+/**
+ * Determines whether a StarkNet chain ID has a built-in default relayer route.
+ *
+ * This is the single authoritative recognition check reused by both
+ * {@link resolveStarkNetRelayerChainName} and the constructor's both-endpoint
+ * rule. It uses an own-property check on purpose: a bare
+ * `STARKNET_RELAYER_CHAIN_NAMES[chainId]` lookup would also resolve names
+ * inherited from `Object.prototype` (e.g. "toString", "constructor",
+ * "valueOf", "__proto__") to truthy members, making those non-chain strings
+ * appear to have a default route. Such a value would then be interpolated into
+ * a malformed relayer URL instead of failing loudly, so only the chain IDs
+ * explicitly listed in {@link STARKNET_RELAYER_CHAIN_NAMES} may be recognized.
+ * @param chainId The StarkNet chain ID.
+ * @returns True only when chainId is one of the explicitly mapped chain IDs.
+ */
+function hasDefaultStarkNetRelayerRoute(chainId: string): boolean {
+  return Object.prototype.hasOwnProperty.call(
+    STARKNET_RELAYER_CHAIN_NAMES,
+    chainId
+  )
 }
 
 /**
@@ -167,15 +192,14 @@ const STARKNET_RELAYER_CHAIN_NAMES: Record<string, string> = {
  * @throws Error if the chain ID has no recognized default relayer route.
  */
 function resolveStarkNetRelayerChainName(chainId: string): string {
-  const chainName = STARKNET_RELAYER_CHAIN_NAMES[chainId]
-  if (!chainName) {
+  if (!hasDefaultStarkNetRelayerRoute(chainId)) {
     throw new Error(
       `No default StarkNet relayer route for chain ID: ${chainId}. ` +
         "Supply explicit relayerUrl and relayerStatusUrl values to use a " +
         "custom or unsupported StarkNet network."
     )
   }
-  return chainName
+  return STARKNET_RELAYER_CHAIN_NAMES[chainId]
 }
 
 const LOCAL_RELAYER_URL_BASE = "http://localhost:3001"
@@ -374,8 +398,9 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
     // reveal URL and the status endpoint is intentionally left unset rather
     // than paired with an unrelated default. Empty strings are treated as
     // absent, matching the defaulting checks below.
-    const hasDefaultRelayerRoute =
-      STARKNET_RELAYER_CHAIN_NAMES[config.chainId] !== undefined
+    const hasDefaultRelayerRoute = hasDefaultStarkNetRelayerRoute(
+      config.chainId
+    )
     if (
       !hasDefaultRelayerRoute &&
       (!enhancedConfig.relayerUrl || !enhancedConfig.relayerStatusUrl)
