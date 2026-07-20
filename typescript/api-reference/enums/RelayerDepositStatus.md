@@ -1,7 +1,16 @@
 # Enumeration: RelayerDepositStatus
 
 Status of a deposit as reported by the relayer's deposit-status endpoint.
-Mirrors the relayer's own DepositStatus enum.
+
+These are the three on-chain states the Starknet deposit-status endpoint can
+return. The endpoint derives its value from the L1 depositor contract's
+`deposits` mapping (`Unknown`/`Initialized`/`Finalized`), which has exactly
+these three states. This enum intentionally does NOT mirror every value of
+the relayer's internal cross-chain lifecycle enum (which additionally has
+`AWAITING_WORMHOLE_VAA` and `BRIDGED`): those internal lifecycle values are
+never surfaced by the status endpoint, so trusting them here would widen the
+accepted input beyond what the endpoint can actually report and weaken the
+fail-closed validation in [StarkNetBitcoinDepositor.handleDepositConflict](../classes/StarkNetBitcoinDepositor.md#handledepositconflict).
 
 ## Table of contents
 
@@ -19,7 +28,7 @@ Mirrors the relayer's own DepositStatus enum.
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:65](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L65)
+[src/lib/starknet/starknet-depositor.ts:74](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L74)
 
 ___
 
@@ -29,7 +38,7 @@ ___
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:63](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L63)
+[src/lib/starknet/starknet-depositor.ts:72](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L72)
 
 ___
 
@@ -39,4 +48,4 @@ ___
 
 #### Defined in
 
-[src/lib/starknet/starknet-depositor.ts:61](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L61)
+[src/lib/starknet/starknet-depositor.ts:70](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/starknet/starknet-depositor.ts#L70)
