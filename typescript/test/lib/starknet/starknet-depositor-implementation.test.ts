@@ -832,6 +832,55 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
         "https://tbtc-crosschain-relayer-swmku.ondigitalocean.app/api/StarknetMainnet/deposit/123456789"
       )
     })
+
+    it("should default to exact paired reveal and status routes for every recognized chain ID", async () => {
+      // For a recognized chain ID with no overrides, the reveal and status
+      // defaults must resolve to the SAME chain segment (never drifting apart)
+      // and to the environment-matched base (production under Node/SSR). This
+      // pins the full route for mainnet, Sepolia, and the legacy Goerli
+      // mapping, guarding against silent chain-name/route regressions.
+      const PRODUCTION_BASE =
+        "https://tbtc-crosschain-relayer-swmku.ondigitalocean.app"
+      const recognizedChainRoutes = [
+        { chainId: "0x534e5f4d41494e", chainSegment: "StarknetMainnet" }, // SN_MAIN
+        { chainId: "0x534e5f5345504f4c4941", chainSegment: "StarknetTestnet" }, // SN_SEPOLIA
+        { chainId: "0x534e5f474f45524c49", chainSegment: "StarknetTestnet" }, // SN_GOERLI (legacy)
+      ]
+
+      for (const { chainId, chainSegment } of recognizedChainRoutes) {
+        const recognizedDepositor = new StarkNetDepositor(
+          { chainId },
+          "StarkNet",
+          createMockProvider()
+        )
+        recognizedDepositor.setDepositOwner(StarkNetAddress.from("0x123456"))
+
+        axios.post = sinon.stub().rejects(build409Error("123456789"))
+        axios.get = sinon.stub().resolves({
+          data: {
+            success: true,
+            depositId: "123456789",
+            status: RelayerDepositStatus.QUEUED,
+          },
+        })
+
+        const conflict = await expectConflictError(
+          recognizedDepositor.initializeDeposit(mockDepositTx, 0, mockReceipt)
+        )
+
+        // A verified status proves the defaulted status route actually
+        // resolved and its response matched the queried deposit ID.
+        expect(conflict.statusVerified, chainId).to.be.true
+        expect(
+          (axios.post as sinon.SinonStub).getCall(0).args[0],
+          chainId
+        ).to.equal(`${PRODUCTION_BASE}/api/${chainSegment}/reveal`)
+        expect(
+          (axios.get as sinon.SinonStub).getCall(0).args[0],
+          chainId
+        ).to.equal(`${PRODUCTION_BASE}/api/${chainSegment}/deposit/123456789`)
+      }
+    })
   })
 
   describe("configuration", () => {
@@ -934,11 +983,14 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
       ).to.throw(/No default StarkNet relayer route for chain ID/)
     })
 
-    it("should construct with an unrecognized chain ID when a custom reveal URL is supplied", () => {
-      // With a custom reveal URL, no default endpoint is synthesized from the
-      // unknown chain ID (the status URL is not defaulted for a custom reveal
-      // service), so there is nothing to misroute; status verification is
-      // simply disabled unless an explicit status URL is also provided.
+    it("should throw when an unrecognized chain ID is used with only a reveal URL override", () => {
+      // A custom/unsupported network is supported only when BOTH endpoints are
+      // supplied explicitly. With only a reveal URL, the status endpoint would
+      // otherwise have to be synthesized from an unknown chain ID, so
+      // construction must fail loudly rather than leave a half-configured
+      // depositor. (A RECOGNIZED chain ID with only a reveal URL is a distinct,
+      // supported case - see the custom-reveal-URL conflict test above - where
+      // status verification is simply disabled.)
       expect(
         () =>
           new StarkNetDepositor(
@@ -949,7 +1001,7 @@ describe("StarkNetDepositor - T-001 Implementation", () => {
             "StarkNet",
             createMockProvider()
           )
-      ).to.not.throw()
+      ).to.throw(/No default StarkNet relayer route for chain ID/)
     })
 
     it("should construct with an unrecognized chain ID when both custom URLs are supplied", () => {

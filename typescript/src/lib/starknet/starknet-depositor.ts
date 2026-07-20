@@ -364,6 +364,27 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
     // explicitly provided. Explicit config values always win.
     const enhancedConfig = { ...config }
 
+    // A custom or unsupported StarkNet network - one whose chain ID has no
+    // default relayer route - is supported only when the caller supplies BOTH
+    // the reveal and status endpoints explicitly. If either endpoint would
+    // otherwise have to be synthesized from an unrecognized chain ID, fail
+    // loudly at construction instead of silently misrouting a reveal after
+    // Bitcoin funding. A recognized chain ID keeps its documented defaulting
+    // behavior below, including the case where a caller supplies only a custom
+    // reveal URL and the status endpoint is intentionally left unset rather
+    // than paired with an unrelated default. Empty strings are treated as
+    // absent, matching the defaulting checks below.
+    const hasDefaultRelayerRoute =
+      STARKNET_RELAYER_CHAIN_NAMES[config.chainId] !== undefined
+    if (
+      !hasDefaultRelayerRoute &&
+      (!enhancedConfig.relayerUrl || !enhancedConfig.relayerStatusUrl)
+    ) {
+      // resolveStarkNetRelayerChainName throws for an unrecognized chain ID;
+      // only its throw is needed here, not its return value.
+      resolveStarkNetRelayerChainName(config.chainId)
+    }
+
     // Whether the SDK must synthesize the reveal endpoint. An unrecognized
     // chainId has no default relayer route, so the builder throws here rather
     // than silently misrouting a reveal after Bitcoin funding (see
