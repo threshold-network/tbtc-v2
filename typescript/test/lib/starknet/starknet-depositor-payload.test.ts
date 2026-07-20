@@ -5,6 +5,7 @@ import { BitcoinRawTxVectors } from "../../../src/lib/bitcoin"
 import { DepositReceipt } from "../../../src/lib/contracts/bridge"
 import { Hex } from "../../../src/lib/utils"
 import { EthereumAddress } from "../../../src/lib/ethereum"
+import { createMockDepositTx, createMockDeposit } from "./test-helpers"
 import sinon from "sinon"
 import axios from "axios"
 
@@ -235,13 +236,76 @@ describe("StarkNetDepositor Payload Format", () => {
 
     await depositor.initializeDeposit(depositTx, 0, deposit)
 
-    // Verify deposit ID was logged
+    // Verify the exact deposit ID was logged. The ID is derived with Bitcoin
+    // SHA-256d over the serialized funding transaction (digest used directly,
+    // NOT reversed) packed with the uint32 output index, matching the relayer.
     const depositIdLogCall = consoleLogStub
       .getCalls()
       .find((call) => call.args[0]?.includes("Deposit initialized with ID:"))
 
     expect(depositIdLogCall).to.exist
-    expect(depositIdLogCall!.args[0]).to.include("Deposit initialized with ID:")
+    expect(depositIdLogCall!.args[0]).to.equal(
+      "Deposit initialized with ID: 84327574594609900513771153583252034476167624431248952116381071070685377716504"
+    )
+
+    consoleLogStub.restore()
+  })
+
+  it("should derive the canonical deposit ID for the standard mock vectors (output index 0)", async () => {
+    // Canonical vector: createMockDepositTx() with output index 0 must derive
+    // exactly the ID the relayer derives for the same inputs.
+    const consoleLogStub = sinon.stub(console, "log")
+
+    axiosStub.resolves({
+      data: {
+        success: true,
+        receipt: { transactionHash: "0xabc123", blockNumber: 12345 },
+      },
+    })
+
+    await depositor.initializeDeposit(
+      createMockDepositTx(),
+      0,
+      createMockDeposit()
+    )
+
+    const depositIdLogCall = consoleLogStub
+      .getCalls()
+      .find((call) => call.args[0]?.includes("Deposit initialized with ID:"))
+
+    expect(depositIdLogCall, "deposit ID should be logged").to.exist
+    expect(depositIdLogCall!.args[0]).to.equal(
+      "Deposit initialized with ID: 52847317767373198432771341860755114399097173875446941334774910450063200677754"
+    )
+
+    consoleLogStub.restore()
+  })
+
+  it("should pack the output index as uint32 when deriving the deposit ID (non-zero index)", async () => {
+    // A non-zero output index must change the derived ID via uint32 packing.
+    const consoleLogStub = sinon.stub(console, "log")
+
+    axiosStub.resolves({
+      data: {
+        success: true,
+        receipt: { transactionHash: "0xabc123", blockNumber: 12345 },
+      },
+    })
+
+    await depositor.initializeDeposit(
+      createMockDepositTx(),
+      1,
+      createMockDeposit()
+    )
+
+    const depositIdLogCall = consoleLogStub
+      .getCalls()
+      .find((call) => call.args[0]?.includes("Deposit initialized with ID:"))
+
+    expect(depositIdLogCall, "deposit ID should be logged").to.exist
+    expect(depositIdLogCall!.args[0]).to.equal(
+      "Deposit initialized with ID: 9808213022425870350059927235286989383750284896017613751947258983338977818301"
+    )
 
     consoleLogStub.restore()
   })

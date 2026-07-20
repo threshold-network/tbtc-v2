@@ -3,7 +3,7 @@ import {
   ChainIdentifier,
   ExtraDataEncoder,
 } from "../contracts"
-import { BitcoinRawTxVectors } from "../bitcoin"
+import { BitcoinHashUtils, BitcoinRawTxVectors } from "../bitcoin"
 import { DepositReceipt } from "../contracts/bridge"
 import { StarkNetAddress } from "./address"
 import { StarkNetExtraDataEncoder } from "./extra-data-encoder"
@@ -54,7 +54,16 @@ interface RelayerRevealResponse {
 
 /**
  * Status of a deposit as reported by the relayer's deposit-status endpoint.
- * Mirrors the relayer's own DepositStatus enum.
+ *
+ * These are the three on-chain states the Starknet deposit-status endpoint can
+ * return. The endpoint derives its value from the L1 depositor contract's
+ * `deposits` mapping (`Unknown`/`Initialized`/`Finalized`), which has exactly
+ * these three states. This enum intentionally does NOT mirror every value of
+ * the relayer's internal cross-chain lifecycle enum (which additionally has
+ * `AWAITING_WORMHOLE_VAA` and `BRIDGED`): those internal lifecycle values are
+ * never surfaced by the status endpoint, so trusting them here would widen the
+ * accepted input beyond what the endpoint can actually report and weaken the
+ * fail-closed validation in {@link StarkNetBitcoinDepositor.handleDepositConflict}.
  */
 export enum RelayerDepositStatus {
   // eslint-disable-next-line no-unused-vars
@@ -63,6 +72,25 @@ export enum RelayerDepositStatus {
   INITIALIZED = 1,
   // eslint-disable-next-line no-unused-vars
   FINALIZED = 2,
+}
+
+/**
+ * Determines whether a numeric relayer status value is one of the recognized
+ * on-chain {@link RelayerDepositStatus} values (QUEUED, INITIALIZED, or
+ * FINALIZED). Unlike a reverse-enum lookup, this explicit guard will not
+ * silently start trusting a value if the enum is ever extended with states the
+ * status endpoint does not actually report.
+ * @param value The candidate status value reported by the relayer.
+ * @returns True only for QUEUED, INITIALIZED, or FINALIZED.
+ */
+function isKnownRelayerDepositStatus(
+  value: unknown
+): value is RelayerDepositStatus {
+  return (
+    value === RelayerDepositStatus.QUEUED ||
+    value === RelayerDepositStatus.INITIALIZED ||
+    value === RelayerDepositStatus.FINALIZED
+  )
 }
 
 /**
@@ -127,6 +155,29 @@ const STARKNET_RELAYER_CHAIN_NAMES: Record<string, string> = {
   "0x534e5f4d41494e": "StarknetMainnet", // SN_MAIN
 }
 
+/**
+ * Resolves the relayer URL chain-name segment for a recognized StarkNet chain
+ * ID. Only the chain IDs in {@link STARKNET_RELAYER_CHAIN_NAMES} (mainnet,
+ * Sepolia, and legacy Goerli) have a default relayer route. An unknown or
+ * mistyped chain ID has no default route and must fail loudly instead of being
+ * silently coerced to a testnet segment, which could misroute a reveal after
+ * Bitcoin funding.
+ * @param chainId The StarkNet chain ID.
+ * @returns The PascalCase chain-name segment used in relayer URLs.
+ * @throws Error if the chain ID has no recognized default relayer route.
+ */
+function resolveStarkNetRelayerChainName(chainId: string): string {
+  const chainName = STARKNET_RELAYER_CHAIN_NAMES[chainId]
+  if (!chainName) {
+    throw new Error(
+      `No default StarkNet relayer route for chain ID: ${chainId}. ` +
+        "Supply explicit relayerUrl and relayerStatusUrl values to use a " +
+        "custom or unsupported StarkNet network."
+    )
+  }
+  return chainName
+}
+
 const LOCAL_RELAYER_URL_BASE = "http://localhost:3001"
 const PRODUCTION_RELAYER_URL_BASE =
   "https://tbtc-crosschain-relayer-swmku.ondigitalocean.app"
@@ -153,9 +204,10 @@ function isLocalhostBrowserOrigin(): boolean {
  * explicit relayerUrl override is configured.
  * @param chainId The StarkNet chain ID.
  * @returns The relayer reveal URL for the given chain.
+ * @throws Error if the chain ID has no recognized default relayer route.
  */
 function getDefaultStarkNetRelayerUrl(chainId: string): string {
-  const chainName = STARKNET_RELAYER_CHAIN_NAMES[chainId] || "StarknetTestnet"
+  const chainName = resolveStarkNetRelayerChainName(chainId)
   const baseUrl = isLocalhostBrowserOrigin()
     ? LOCAL_RELAYER_URL_BASE
     : PRODUCTION_RELAYER_URL_BASE
@@ -170,9 +222,10 @@ function getDefaultStarkNetRelayerUrl(chainId: string): string {
  * between the two endpoints.
  * @param chainId The StarkNet chain ID.
  * @returns The relayer deposit-status URL for the given chain.
+ * @throws Error if the chain ID has no recognized default relayer route.
  */
 function getDefaultStarkNetRelayerStatusUrl(chainId: string): string {
-  const chainName = STARKNET_RELAYER_CHAIN_NAMES[chainId] || "StarknetTestnet"
+  const chainName = resolveStarkNetRelayerChainName(chainId)
   const baseUrl = isLocalhostBrowserOrigin()
     ? LOCAL_RELAYER_URL_BASE
     : PRODUCTION_RELAYER_URL_BASE
@@ -190,13 +243,89 @@ function getDefaultStarkNetRelayerStatusUrl(chainId: string): string {
 const CANONICAL_DEPOSIT_ID_PATTERN = /^(0|[1-9][0-9]*)$/
 
 /**
- * Determines whether a value is a canonical decimal deposit ID string.
+ * Maximum canonical deposit ID value in decimal form. A deposit ID is derived
+ * from a 32-byte Solidity hash converted to decimal (see `initializeDeposit`),
+ * so its legitimate range is `0..2^256-1`. Any larger magnitude cannot be a
+ * genuine deposit ID and must be rejected. `2^256-1` is exactly 78 decimal
+ * digits long.
+ */
+const MAX_CANONICAL_DEPOSIT_ID = ethers.constants.MaxUint256.toString()
+
+/**
+ * Determines whether a value is a canonical decimal deposit ID string within
+ * the `0..2^256-1` range produced by the deposit-ID derivation.
  * @param value The candidate deposit ID reported by the relayer
  * @returns True only when the value is a well-formed canonical decimal
- *          deposit ID
+ *          deposit ID that does not exceed the uint256 maximum
  */
 function isCanonicalDepositId(value: unknown): value is string {
-  return typeof value === "string" && CANONICAL_DEPOSIT_ID_PATTERN.test(value)
+  if (typeof value !== "string") {
+    return false
+  }
+
+  // Discard anything longer than the max before running the regex or any
+  // numeric comparison, so arbitrarily long attacker-controlled strings are
+  // rejected cheaply and never parsed.
+  if (value.length > MAX_CANONICAL_DEPOSIT_ID.length) {
+    return false
+  }
+
+  if (!CANONICAL_DEPOSIT_ID_PATTERN.test(value)) {
+    return false
+  }
+
+  // Only a same-length (78-digit) candidate can exceed the uint256 maximum.
+  // Because the regex guarantees digits with no leading zeros, comparing two
+  // equal-length decimal strings lexicographically is equivalent to a numeric
+  // comparison, and avoids precision-losing Number conversion.
+  if (
+    value.length === MAX_CANONICAL_DEPOSIT_ID.length &&
+    value > MAX_CANONICAL_DEPOSIT_ID
+  ) {
+    return false
+  }
+
+  return true
+}
+
+/**
+ * Derives the canonical decimal deposit ID for a StarkNet reveal from the raw
+ * Bitcoin funding transaction, matching the relayer's derivation.
+ *
+ * The funding transaction is first hashed with Bitcoin SHA-256d (double
+ * SHA-256). That 32-byte digest - used directly in internal byte order, i.e.
+ * NOT reversed into block-explorer txid byte order - and a `uint32` output
+ * index are then packed and Keccak-hashed. The result is converted to the
+ * canonical decimal string form produced elsewhere in this file.
+ * @param depositTx The raw Bitcoin funding transaction vectors.
+ * @param depositOutputIndex The funding output index, packed as a uint32.
+ * @returns The canonical decimal deposit ID.
+ */
+function deriveCanonicalDepositId(
+  depositTx: BitcoinRawTxVectors,
+  depositOutputIndex: number
+): string {
+  // Concatenate the raw transaction vectors as bytes (unprefixed hex).
+  const fundingTxComponents =
+    depositTx.version.toString() +
+    depositTx.inputs.toString() +
+    depositTx.outputs.toString() +
+    depositTx.locktime.toString()
+
+  // Bitcoin double SHA-256 of the serialized funding transaction. The digest is
+  // used directly as the bytes32 funding hash - it is NOT reversed into
+  // block-explorer txid byte order, matching the relayer's derivation.
+  const fundingTxHash = BitcoinHashUtils.computeHash256(
+    Hex.from(fundingTxComponents)
+  )
+
+  // Pack the funding hash and the uint32 output index, Keccak-hash them, and
+  // convert to the canonical decimal representation.
+  const depositIdHash = ethers.utils.solidityKeccak256(
+    ["bytes32", "uint32"],
+    [fundingTxHash.toPrefixedString(), depositOutputIndex]
+  )
+  return ethers.BigNumber.from(depositIdHash).toString()
 }
 
 /**
@@ -234,13 +363,30 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
     // Set default relayer URLs based on chainId and environment if not
     // explicitly provided. Explicit config values always win.
     const enhancedConfig = { ...config }
-    if (!enhancedConfig.relayerUrl) {
+
+    // Whether the SDK must synthesize the reveal endpoint. An unrecognized
+    // chainId has no default relayer route, so the builder throws here rather
+    // than silently misrouting a reveal after Bitcoin funding (see
+    // resolveStarkNetRelayerChainName).
+    const shouldDefaultRelayerUrl = !enhancedConfig.relayerUrl
+    if (shouldDefaultRelayerUrl) {
       enhancedConfig.relayerUrl = getDefaultStarkNetRelayerUrl(config.chainId)
     }
-    // Deposit-status endpoint, sibling of the reveal endpoint above. Used
-    // to verify the real outcome of a deposit the relayer reports as a
-    // conflict (HTTP 409) instead of trusting the conflict response alone.
-    if (!enhancedConfig.relayerStatusUrl) {
+
+    // Deposit-status endpoint, sibling of the reveal endpoint above. Used to
+    // verify the real outcome of a deposit the relayer reports as a conflict
+    // (HTTP 409) instead of trusting the conflict response alone.
+    //
+    // Only default it when the SDK also chose the reveal endpoint. Automatic
+    // conflict-status verification is trustworthy only when the SDK controls
+    // both endpoints; pairing a caller's custom reveal service with the SDK's
+    // default (Threshold production) status service would cross a configured
+    // service boundary and could attach misleading "verified" metadata to a
+    // conflict. A caller using a custom reveal service must explicitly supply
+    // relayerStatusUrl to opt back into status verification. An explicitly
+    // supplied relayerStatusUrl is always preserved, including when the reveal
+    // URL is defaulted.
+    if (shouldDefaultRelayerUrl && !enhancedConfig.relayerStatusUrl) {
       enhancedConfig.relayerStatusUrl = getDefaultStarkNetRelayerStatusUrl(
         config.chainId
       )
@@ -419,33 +565,22 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
           hasReceipt: !!data.receipt,
         })
 
-        // Calculate deposit ID
+        // Calculate deposit ID (canonical decimal form) for logging. This is
+        // derived the same way the relayer derives it, so the two can be
+        // cross-checked; it is never used as a substitute for the relayer's
+        // receipt.
         let depositId: string | undefined
         try {
-          // Get funding transaction hash - concatenate raw hex without 0x prefix
-          const fundingTxComponents =
-            depositTx.version.toString() +
-            depositTx.inputs.toString() +
-            depositTx.outputs.toString() +
-            depositTx.locktime.toString()
-
-          // Apply double SHA-256 (Bitcoin standard)
-          const fundingTxHash = ethers.utils.keccak256(
-            ethers.utils.keccak256("0x" + fundingTxComponents)
-          )
-
-          // Calculate deposit ID
-          const depositIdHash = ethers.utils.solidityKeccak256(
-            ["bytes32", "uint256"],
-            [fundingTxHash, depositOutputIndex]
-          )
-          depositId = ethers.BigNumber.from(depositIdHash).toString()
+          depositId = deriveCanonicalDepositId(depositTx, depositOutputIndex)
         } catch (e) {
           console.warn("Failed to calculate deposit ID:", e)
         }
 
-        // Validate response
-        if (!data.success) {
+        // Validate response. Require the literal boolean `true`: Axios does
+        // not validate decoded JSON against the declared type, so a truthy
+        // non-boolean value such as "false", "true", 1, {}, or [] must not be
+        // treated as a successful initialization and cast to a receipt.
+        if (data.success !== true) {
           throw new Error(
             data.error ||
               `Relayer returned unsuccessful response: ${
@@ -554,8 +689,9 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
           // that was queried - a mismatched ID means the response cannot be
           // trusted to describe this conflict.
           statusResponse.depositId === depositId &&
-          typeof statusResponse.status === "number" &&
-          RelayerDepositStatus[statusResponse.status] !== undefined
+          // Accept only the recognized on-chain status values the endpoint can
+          // actually report (see RelayerDepositStatus).
+          isKnownRelayerDepositStatus(statusResponse.status)
         ) {
           status = statusResponse.status
           statusVerified = true
@@ -605,7 +741,10 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
       },
     })
 
-    if (!response.data?.success) {
+    // Require the literal boolean `true`. Axios does not validate decoded JSON
+    // against the declared type, so a truthy non-boolean value such as
+    // "false", "true", 1, or {} must not be treated as a verified status.
+    if (response.data?.success !== true) {
       return undefined
     }
 
@@ -658,7 +797,10 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
   }
 
   /**
-   * Determines if an error is retryable
+   * Determines if an error is retryable. A 409 (Conflict) is intentionally not
+   * handled here: it is dispatched to {@link handleDepositConflict} in
+   * `initializeDeposit` before this classifier is ever consulted, and an
+   * ordinary 409 would fall through to the default `false` regardless.
    * @param error The error to check
    * @returns True if the error is retryable
    */
@@ -670,11 +812,6 @@ export class StarkNetBitcoinDepositor implements BitcoinDepositor {
       error.code === "ENOTFOUND"
     ) {
       return true
-    }
-
-    // Don't retry on 409 (Conflict) - deposit already exists
-    if (error.response?.status === 409) {
-      return false
     }
 
     // Server errors (5xx)
