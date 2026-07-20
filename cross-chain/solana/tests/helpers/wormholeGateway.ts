@@ -658,6 +658,9 @@ export async function sendTbtcGatewayIx(
 
 type SendTbtcWrappedContext = {
   custodian?: PublicKey;
+  // Defaults to the canonical gateway-info PDA for the recipient chain. That
+  // PDA may be uninitialized for gateway-less chains; the program tolerates
+  // that. The account is mandatory (seeds-pinned) so it cannot be omitted.
   gatewayInfo?: PublicKey;
   wrappedTbtcToken?: PublicKey;
   wrappedTbtcMint?: PublicKey;

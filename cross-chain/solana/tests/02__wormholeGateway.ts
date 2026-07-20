@@ -1169,15 +1169,13 @@ describe("wormhole-gateway", () => {
       // Check minted amount before.
       const mintedAmountBefore = await wormholeGateway.getMintedAmount();
 
-      // Get destination gateway.
+      // Send to a gateway-less destination chain. Chain 69 has no registered
+      // tBTC gateway, so its GatewayInfo PDA is uninitialized. The helper still
+      // passes the canonical (uninitialized) PDA - the account is mandatory and
+      // seeds-pinned - and the program treats an uninitialized gateway_info as
+      // "no gateway", so the wrapped send must still succeed. This is the
+      // regression guard for the gateway-less wrapped-transfer path.
       const recipientChain = 69;
-      const clearGatewayIx = await wormholeGateway.updateGatewayAddress(
-        {
-          authority: authority.publicKey,
-        },
-        { chain: recipientChain, address: Array.from(Buffer.alloc(32)) }
-      );
-      await expectIxSuccess([clearGatewayIx], [authority]);
 
       const recipient = Array.from(Buffer.alloc(32, "deadbeef", "hex"));
       const nonce = 420;
@@ -1349,6 +1347,50 @@ describe("wormhole-gateway", () => {
         }
       );
       await expectIxFail([ix], [commonTokenOwner], "GatewayDisabled");
+    });
+
+    it("cannot bypass a disabled route by substituting the gateway_info account", async () => {
+      // Use common token account.
+      const sender = commonTokenOwner.publicKey;
+      const senderToken = getAssociatedTokenAddressSync(
+        tbtc.getMintPDA(),
+        sender
+      );
+
+      // Disable the destination gateway (idempotent).
+      const recipientChain = 5;
+      const disableGatewayIx = await wormholeGateway.updateGatewayAddress(
+        {
+          authority: authority.publicKey,
+        },
+        { chain: recipientChain, address: DISABLED_GATEWAY_ADDRESS }
+      );
+      await expectIxSuccess([disableGatewayIx], [authority]);
+
+      const recipient = Array.from(Buffer.alloc(32, "deadbeef", "hex"));
+      const nonce = 420;
+
+      // Attempt to dodge the disabled-gateway check by passing a substitute
+      // account instead of the canonical gateway_info PDA for the chain. The
+      // seeds constraint must reject it, so a disabled route cannot be bypassed.
+      const bogusGatewayInfo = anchor.web3.Keypair.generate().publicKey;
+
+      const sendAmount = BigInt(69);
+      const ix = await wormholeGateway.sendTbtcWrappedIx(
+        {
+          senderToken,
+          sender,
+          gatewayInfo: bogusGatewayInfo,
+        },
+        {
+          amount: new anchor.BN(sendAmount.toString()),
+          recipientChain,
+          recipient,
+          arbiterFee: new anchor.BN(0),
+          nonce,
+        }
+      );
+      await expectIxFail([ix], [commonTokenOwner], "ConstraintSeeds");
     });
   });
 });
