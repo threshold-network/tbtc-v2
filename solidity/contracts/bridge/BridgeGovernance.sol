@@ -1871,6 +1871,37 @@ contract BridgeGovernance is Ownable {
         bridge.setP2TRFraudRouter(p2trFraudRouter);
     }
 
+    function processTaprootOutputKeyCoverage(bytes calldata payload)
+        external
+        onlyOwner
+        returns (bytes memory)
+    {
+        return bridge.processTaprootOutputKeyCoverage(payload);
+    }
+
+    /// @notice Installs the independently authorized historical coverage
+    ///         commitment while leaving FROST custody disabled. Leaf migration
+    ///         is permissionless and resumable through the Bridge dispatcher.
+    function initializeCompleteP2TRCoverage(
+        bytes calldata initializationPayload,
+        address frostRegistry,
+        address ecdsaRouter
+    ) external onlyOwner {
+        if (frostRegistry != address(0)) {
+            bridge.setFrostWalletRegistry(frostRegistry);
+        }
+        if (ecdsaRouter != address(0)) {
+            bridge.setEcdsaFraudRouter(ecdsaRouter);
+        }
+        bridge.processTaprootOutputKeyCoverage(initializationPayload);
+    }
+
+    /// @notice Activates only after every signed-inventory leaf is migrated or
+    ///         terminally resolved and the exact router handshake succeeds.
+    function activateCompleteP2TR(address router) external onlyOwner {
+        bridge.setP2TRFraudRouter(router);
+    }
+
     /// @notice Sets the BridgeLifecycleRouter address. This function
     ///         does not have a governance delay because it is a
     ///         one-off action performed during enablement of the

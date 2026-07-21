@@ -86,20 +86,8 @@ describe("FrostWalletRegistry DKG edge cases (B-1.5 slice 4)", () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ deployer, bridge } = await waffle.loadFixture(bridgeFixture))
 
-    // This suite deliberately exercises the registry -> Bridge FROST callback.
-    // Install the handshake-only COMPLETE_V2 test stub explicitly so the test
-    // never depends on whichever bounded production router another full-suite
-    // fixture left in Bridge storage. The stub is not a functional fraud router
-    // and is never used by deployment code.
-    const CompleteP2TRFraudRouterFactory = await ethers.getContractFactory(
-      "HandshakeOnlyCompleteP2TRSignatureFraudRouterStub",
-      deployer
-    )
-    const completeP2TRFraudRouter = await CompleteP2TRFraudRouterFactory.deploy(
-      bridge.address
-    )
-    await completeP2TRFraudRouter.deployed()
-    await bridge.resetP2TRFraudRouterForTest(completeP2TRFraudRouter.address)
+    // `bridgeFixture` installs the concrete COMPLETE_V2 router and immutable
+    // reservation registry required by the FROST activation handshake.
 
     const t = await deployments.get("T")
     randomBeacon = await smock.fake<IRandomBeacon>("IRandomBeacon")

@@ -19,6 +19,7 @@ import {BTCUtils} from "@keep-network/bitcoin-spv-sol/contracts/BTCUtils.sol";
 
 import "./BitcoinTx.sol";
 import "./BridgeState.sol";
+import "./P2TRReservation.sol";
 import "./Wallets.sol";
 
 import "../bank/Bank.sol";
@@ -165,6 +166,32 @@ library DepositSweep {
             uint64 sweepTxOutputValue
         ) = processDepositSweepTxOutput(self, sweepTx.outputVector);
 
+        {
+            P2TRReservation.ProofSettlement memory settlement = settleDepositSweepProof(
+                    self,
+                    sweepTxHash,
+                    walletPubKeyHash,
+                    sweepTx.inputVector
+                );
+            if (
+                settlement.disposition ==
+                P2TRReservation.ProofDisposition.Conflicted
+            ) return;
+        }
+        P2TRReservation.requireProofWalletState(
+            self,
+            sweepTxHash,
+            walletPubKeyHash,
+            1
+        );
+        P2TRReservation.requireProofWalletUnlocked(
+            self,
+            sweepTxHash,
+            walletPubKeyHash
+        );
+        P2TRReservation.DepositApplicationPlan memory applicationPlan = P2TRReservation
+            .depositApplicationPlan(self, sweepTxHash, vault);
+
         (
             Wallets.Wallet storage wallet,
             BitcoinTx.UTXO memory resolvedMainUtxo
@@ -200,9 +227,10 @@ library DepositSweep {
 
         // Make sure the highest value of the deposit transaction fee does not
         // exceed the maximum value limited by the governable parameter.
-        require(
-            depositTxFee + depositTxFeeRemainder <= self.depositTxMaxFee,
-            "Transaction fee is too high"
+        validateDepositSweepFee(
+            self,
+            sweepTxHash,
+            depositTxFee + depositTxFeeRemainder
         );
 
         // Reduce each deposit amount by treasury fee and transaction fee.
@@ -235,7 +263,7 @@ library DepositSweep {
         // slither-disable-next-line reentrancy-events
         emit DepositsSwept(walletPubKeyHash, sweepTxHash);
 
-        if (vault != address(0) && self.isVaultTrusted[vault]) {
+        if (applicationPlan.routeToVault) {
             // If the `vault` address is not zero and belongs to a trusted
             // vault, route the deposits to that vault.
             self.bank.increaseBalanceAndCall(
@@ -255,8 +283,47 @@ library DepositSweep {
 
         // Pass the treasury fee to the treasury address.
         if (totalTreasuryFee > 0) {
-            self.bank.increaseBalance(self.treasury, totalTreasuryFee);
+            self.bank.increaseBalance(
+                applicationPlan.treasury,
+                totalTreasuryFee
+            );
         }
+    }
+
+    function settleDepositSweepProof(
+        BridgeState.Storage storage self,
+        bytes32 sweepTxHash,
+        bytes20 walletPubKeyHash,
+        bytes memory inputVector
+    ) internal returns (P2TRReservation.ProofSettlement memory) {
+        bytes32[] memory additionalResources = new bytes32[](0);
+        return
+            P2TRReservation.settleProof(
+                self,
+                sweepTxHash,
+                1,
+                walletPubKeyHash,
+                P2TRReservation.proofResources(
+                    inputVector,
+                    additionalResources
+                )
+            );
+    }
+
+    function validateDepositSweepFee(
+        BridgeState.Storage storage self,
+        bytes32 transactionHash,
+        uint256 fee
+    ) internal view {
+        require(
+            fee <=
+                P2TRReservation.proofFeeLimit(
+                    self,
+                    transactionHash,
+                    self.depositTxMaxFee
+                ),
+            "Transaction fee is too high"
+        );
     }
 
     /// @notice Resolves sweeping wallet based on the provided wallet public key
@@ -289,13 +356,6 @@ library DepositSweep {
         )
     {
         wallet = self.registeredWallets[walletPubKeyHash];
-
-        Wallets.WalletState walletState = wallet.state;
-        require(
-            walletState == Wallets.WalletState.Live ||
-                walletState == Wallets.WalletState.MovingFunds,
-            "Wallet must be in Live or MovingFunds state"
-        );
 
         // Check if the main UTXO for given wallet exists. If so, validate
         // passed main UTXO data against the stored hash and use them for

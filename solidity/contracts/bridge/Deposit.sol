@@ -164,6 +164,27 @@ library Deposit {
         // not contiguous with other values.
     }
 
+    error DepositNotRevealed();
+    error DepositVaultAlreadySet();
+    error DepositAlreadySwept();
+
+    event DepositVaultFixed(uint256 indexed depositKey, address newVault);
+
+    /// @dev One-time v2 repair kept in the linked library to preserve Bridge's
+    ///      EIP-170 deployment margin.
+    function initializeV2FixVaultZeroDeposit(
+        BridgeState.Storage storage self
+    ) external {
+        uint256 depositKey = 0xf3bc9cd6f46f4c206bc8711e40bb5692e8fe5f0ac4d4da0a709dc71bb751c98a;
+        address tbtcVault = 0x9C070027cdC9dc8F82416B2e5314E11DFb4FE3CD;
+        DepositRequest storage deposit = self.deposits[depositKey];
+        if (deposit.revealedAt == 0) revert DepositNotRevealed();
+        if (deposit.vault != address(0)) revert DepositVaultAlreadySet();
+        if (deposit.sweptAt != 0) revert DepositAlreadySwept();
+        deposit.vault = tbtcVault;
+        emit DepositVaultFixed(depositKey, tbtcVault);
+    }
+
     event DepositRevealed(
         bytes32 fundingTxHash,
         uint32 fundingOutputIndex,
@@ -465,16 +486,18 @@ library Deposit {
                 extraData
             );
 
-        self.taprootDepositOutputKeyCommitments[
-            uint256(
-                keccak256(
-                    abi.encodePacked(fundingTxHash, reveal.fundingOutputIndex)
-                )
+        uint256 depositKey = uint256(
+            keccak256(
+                abi.encodePacked(fundingTxHash, reveal.fundingOutputIndex)
             )
+        );
+        self.taprootDepositOutputKeyCommitments[
+            depositKey
         ] = taprootOutputKeyCommitment(
             reveal.walletXOnlyPublicKey,
             taprootOutputKey
         );
+        self.taprootDepositOutputKeys[depositKey] = taprootOutputKey;
 
         _emitTaprootDepositRevealedEvents(
             fundingTxHash,

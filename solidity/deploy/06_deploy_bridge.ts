@@ -23,6 +23,13 @@ const func: DeployFunction = async function deployBridge(
     network === "sepolia"
       ? 1
       : 6
+  const p2trCoverageAuthority =
+    process.env.COMPLETE_P2TR_COVERAGE_AUTHORITY ??
+    (network === "hardhat" ||
+    network === "development" ||
+    network === "system_tests"
+      ? deployer
+      : ethers.constants.AddressZero)
 
   const deployOptions: DeployOptions = {
     from: deployer,
@@ -30,18 +37,33 @@ const func: DeployFunction = async function deployBridge(
     waitConfirmations: 1,
   }
 
+  const P2TRReservation = await deploy("P2TRReservation", deployOptions)
+  const P2TRPreSigning = await deploy("P2TRPreSigning", deployOptions)
+  const p2trReservationLinkedOptions: DeployOptions = {
+    ...deployOptions,
+    libraries: {
+      P2TRReservation: P2TRReservation.address,
+    },
+  }
+
   const Deposit = await deploy("Deposit", deployOptions)
-  const DepositSweep = await deploy("DepositSweep", deployOptions)
-  const Redemption = await deploy("Redemption", deployOptions)
+  const DepositSweep = await deploy(
+    "DepositSweep",
+    p2trReservationLinkedOptions
+  )
+  const Redemption = await deploy("Redemption", p2trReservationLinkedOptions)
   const Wallets = await deploy("Wallets", {
     contract: "contracts/bridge/Wallets.sol:Wallets",
-    ...deployOptions,
+    ...p2trReservationLinkedOptions,
   })
   // The migration loop is externalized into Fraud to keep the Bridge
   // implementation below EIP-170 while preserving an atomic migration of
   // pre-upgrade challenges and their escrow.
   const Fraud = await deploy("Fraud", deployOptions)
-  const MovingFunds = await deploy("MovingFunds", deployOptions)
+  const MovingFunds = await deploy(
+    "MovingFunds",
+    p2trReservationLinkedOptions
+  )
 
   const [bridge, proxyDeployment] = await helpers.upgrades.deployProxy(
     "Bridge",
@@ -65,10 +87,13 @@ const func: DeployFunction = async function deployBridge(
           Wallets: Wallets.address,
           Fraud: Fraud.address,
           MovingFunds: MovingFunds.address,
+          P2TRPreSigning: P2TRPreSigning.address,
+          P2TRReservation: P2TRReservation.address,
         },
       },
       proxyOpts: {
         kind: "transparent",
+        constructorArgs: [p2trCoverageAuthority],
         // Allow external libraries linking. We need to ensure manually that the
         // external  libraries we link are upgrade safe, as the OpenZeppelin plugin
         // doesn't perform such a validation yet.
@@ -85,6 +110,8 @@ const func: DeployFunction = async function deployBridge(
     await helpers.etherscan.verify(Wallets)
     await helpers.etherscan.verify(Fraud)
     await helpers.etherscan.verify(MovingFunds)
+    await helpers.etherscan.verify(P2TRPreSigning)
+    await helpers.etherscan.verify(P2TRReservation)
 
     // We use `verify` instead of `verify:verify` as the `verify` task is defined
     // in "@openzeppelin/hardhat-upgrades" to perform Etherscan verification

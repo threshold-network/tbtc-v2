@@ -25,7 +25,7 @@
     "lint:fix:eslint": "eslint . --fix",
     "lint:sol": "solhint 'contracts/**/*.sol'",
     "lint:fix:sol": "solhint 'contracts/**/*.sol' --fix",
-    "formal:vectors:check": "node scripts/formal/check_p2tr_signature_fraud_vectors.mjs && node scripts/formal/check_p2tr_spend_type_closure.mjs",
+    "formal:vectors:check": "node scripts/formal/check_p2tr_signature_fraud_vectors.mjs && node scripts/formal/check_p2tr_spend_type_closure.mjs && node scripts/formal/generate_complete_p2tr_challenge_vectors.mjs --check",
     "test": "USE_EXTERNAL_DEPLOY=true TEST_USE_STUBS_TBTC=true hardhat test",
     "test:formal-invariants": "USE_EXTERNAL_DEPLOY=true TEST_USE_STUBS_TBTC=true hardhat test ./test/formal/*.test.ts",
     "test:integration": "NODE_ENV=integration-test USE_EXTERNAL_DEPLOY=true TEST_USE_STUBS_TBTC=true hardhat test ./test/integration/*.test.ts",

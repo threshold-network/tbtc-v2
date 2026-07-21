@@ -7,6 +7,7 @@ import "../bridge/Bridge.sol";
 import "../bridge/EcdsaLib.sol";
 import "../bridge/Fraud.sol";
 import "../bridge/MovingFunds.sol";
+import "../bridge/P2TRReservation.sol";
 import "../bridge/RebateStaking.sol";
 import "../bridge/Redemption.sol";
 import "../bridge/Wallets.sol";
@@ -14,6 +15,55 @@ import {BTCUtils} from "@keep-network/bitcoin-spv-sol/contracts/BTCUtils.sol";
 
 contract BridgeStub is Bridge {
     using BTCUtils for bytes;
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor(address p2trCoverageAuthority)
+        Bridge(p2trCoverageAuthority)
+    {}
+
+    function requireP2TRProofWalletStateForTest(
+        bytes32 transactionHash,
+        bytes20 walletPubKeyHash,
+        uint8 expectedAction
+    ) external view {
+        P2TRReservation.requireProofWalletState(
+            self,
+            transactionHash,
+            walletPubKeyHash,
+            expectedAction
+        );
+    }
+
+    function settleP2TRProofForTest(
+        bytes32 transactionHash,
+        uint8 expectedAction,
+        bytes20 expectedWalletPubKeyHash,
+        bytes32[] calldata provenResourceIDs
+    ) external returns (uint8 disposition, uint64 reservedFeeLimit) {
+        P2TRReservation.ProofSettlement memory settlement = P2TRReservation
+            .settleProof(
+                self,
+                transactionHash,
+                expectedAction,
+                expectedWalletPubKeyHash,
+                provenResourceIDs
+            );
+        return (uint8(settlement.disposition), settlement.feeLimitSnapshot);
+    }
+
+    function reconcileAuthorizedMovingFundsProofForTest(
+        bytes20 walletPubKeyHash,
+        bytes32 transactionHash,
+        bytes32 targetWalletsHash
+    ) external returns (bool) {
+        return
+            P2TRReservation.reconcileAuthorizedMovingFundsProof(
+                self,
+                walletPubKeyHash,
+                transactionHash,
+                targetWalletsHash
+            );
+    }
 
     function setSweptDeposits(BitcoinTx.UTXO[] calldata utxos) external {
         for (uint256 i = 0; i < utxos.length; i++) {
@@ -36,6 +86,58 @@ contract BridgeStub is Bridge {
         );
         self.taprootDepositOutputKeyCommitments[utxoKey] = Deposit
             .taprootOutputKeyCommitment(walletID, outputKey);
+        self.taprootDepositOutputKeys[utxoKey] = outputKey;
+    }
+
+    function setHistoricalTaprootDepositForCoverage(
+        BitcoinTx.UTXO calldata utxo,
+        bytes32 walletID,
+        bytes32 outputKey
+    ) external {
+        uint256 utxoKey = uint256(
+            keccak256(abi.encodePacked(utxo.txHash, utxo.txOutputIndex))
+        );
+        self.deposits[utxoKey].depositor = msg.sender;
+        self.deposits[utxoKey].amount = utxo.txOutputValue;
+        self.deposits[utxoKey].revealedAt = 1;
+        self.taprootDepositOutputKeyCommitments[utxoKey] = Deposit
+            .taprootOutputKeyCommitment(walletID, outputKey);
+        delete self.taprootDepositOutputKeys[utxoKey];
+    }
+
+    function deleteHistoricalDepositForCoverage(BitcoinTx.UTXO calldata utxo)
+        external
+    {
+        uint256 utxoKey = uint256(
+            keccak256(abi.encodePacked(utxo.txHash, utxo.txOutputIndex))
+        );
+        delete self.deposits[utxoKey];
+    }
+
+    function setP2TRAuthorizationDepositForTest(
+        BitcoinTx.UTXO calldata utxo,
+        bytes32 walletID,
+        bytes32 outputKey
+    ) external {
+        uint256 utxoKey = uint256(
+            keccak256(abi.encodePacked(utxo.txHash, utxo.txOutputIndex))
+        );
+        self.deposits[utxoKey].amount = utxo.txOutputValue;
+        self.deposits[utxoKey].revealedAt = 1;
+        self.taprootDepositOutputKeyCommitments[utxoKey] = Deposit
+            .taprootOutputKeyCommitment(walletID, outputKey);
+        self.taprootDepositOutputKeys[utxoKey] = outputKey;
+    }
+
+    function setLiveWalletsForTest(bytes20[] calldata walletPubKeyHashes)
+        external
+    {
+        for (uint256 i = 0; i < walletPubKeyHashes.length; i++) {
+            self.registeredWallets[walletPubKeyHashes[i]].state = Wallets
+                .WalletState
+                .Live;
+        }
+        self.liveWalletsCount += uint32(walletPubKeyHashes.length);
     }
 
     function setSpentMainUtxos(BitcoinTx.UTXO[] calldata utxos) external {

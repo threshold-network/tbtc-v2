@@ -18,6 +18,8 @@ describe("Deploy Script 84: Bridge C-2.1a Counter Upgrade", () => {
   const WALLETS_ADDRESS = "0x3000000000000000000000000000000000000004"
   const MOVING_FUNDS_ADDRESS = "0x3000000000000000000000000000000000000005"
   const FRAUD_ADDRESS = "0x3000000000000000000000000000000000000006"
+  const P2TR_PRE_SIGNING_ADDRESS = "0x3000000000000000000000000000000000000007"
+  const P2TR_RESERVATION_ADDRESS = "0x3000000000000000000000000000000000000008"
   const BRIDGE_ADDRESS = "0x4000000000000000000000000000000000000001"
   const PROXY_ADDRESS = "0x4000000000000000000000000000000000000002"
 
@@ -35,6 +37,8 @@ describe("Deploy Script 84: Bridge C-2.1a Counter Upgrade", () => {
     Wallets: WALLETS_ADDRESS,
     Fraud: FRAUD_ADDRESS,
     MovingFunds: MOVING_FUNDS_ADDRESS,
+    P2TRPreSigning: P2TR_PRE_SIGNING_ADDRESS,
+    P2TRReservation: P2TR_RESERVATION_ADDRESS,
   }
 
   interface DeployCall {
@@ -151,6 +155,8 @@ describe("Deploy Script 84: Bridge C-2.1a Counter Upgrade", () => {
       "ReimbursementPool",
     ])
     expect(deployCalls.map(({ name }) => name)).to.deep.equal([
+      "P2TRReservation",
+      "P2TRPreSigning",
       "Deposit",
       "DepositSweep",
       "Redemption",
@@ -216,6 +222,8 @@ describe("Deploy Script 84: Bridge C-2.1a Counter Upgrade", () => {
       { name: "Wallets", address: WALLETS_ADDRESS },
       { name: "Fraud", address: FRAUD_ADDRESS },
       { name: "MovingFunds", address: MOVING_FUNDS_ADDRESS },
+      { name: "P2TRPreSigning", address: P2TR_PRE_SIGNING_ADDRESS },
+      { name: "P2TRReservation", address: P2TR_RESERVATION_ADDRESS },
       { name: "Bridge", address: BRIDGE_ADDRESS },
     ])
   })
