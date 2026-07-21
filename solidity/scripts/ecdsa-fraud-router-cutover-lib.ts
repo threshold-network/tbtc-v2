@@ -1,4 +1,85 @@
+/* eslint-disable no-await-in-loop, no-restricted-syntax */
 import { BigNumber, ethers, providers } from "ethers"
+import {
+  CanonicalHistoryEvidence,
+  CanonicalHistoryEmitter,
+  CanonicalHistoryScan,
+  canonicalEmitterSetCommitment,
+  scanCanonicalHistory,
+} from "./ecdsa-fraud-router-canonical-history"
+
+export {
+  CanonicalHistoryEvidence,
+  CanonicalHistoryEmitter,
+  CanonicalHistoryScan,
+  canonicalEmitterSetCommitment,
+}
+
+export const ECDSA_CUTOVER_MIN_AUTHENTICATED_TAIL_BLOCKS = 64
+export const ECDSA_CUTOVER_MAX_AUTHENTICATED_TAIL_BLOCKS = 255
+export const ECDSA_CUTOVER_BLOCKHASH_WINDOW = 255
+export const ECDSA_CUTOVER_DEFAULT_PREFLIGHT_CONFIRMATIONS = 64
+export const ECDSA_CUTOVER_DEFAULT_MIN_BEGIN_SLACK_BLOCKS = 16
+
+export type CutoverPreflightTiming = {
+  preflightBlock: number
+  maxTailBlocks: number
+  earliestBeginBlock: number
+  latestBeginBlock: number
+  beginSlackBlocks: number
+}
+
+/**
+ * Selects a recent canonical checkpoint P for a permissionless begin at B.
+ * The checkpoint is already 64 blocks deep. The caller must still recheck the
+ * actual begin transaction block against 64 <= B-P <= T. The contract derives
+ * the staging deadline as D=B+255 after begin succeeds.
+ */
+export function cutoverPreflightTiming(
+  headBlock: number,
+  confirmations: number,
+  maxTailBlocks: number,
+  minimumBeginSlackBlocks: number
+): CutoverPreflightTiming {
+  const values = [
+    headBlock,
+    confirmations,
+    maxTailBlocks,
+    minimumBeginSlackBlocks,
+  ]
+  if (values.some((value) => !Number.isSafeInteger(value)) || headBlock < 1) {
+    throw new Error("cutover preflight timing contains an invalid integer")
+  }
+  if (
+    confirmations < ECDSA_CUTOVER_DEFAULT_PREFLIGHT_CONFIRMATIONS ||
+    maxTailBlocks < ECDSA_CUTOVER_MIN_AUTHENTICATED_TAIL_BLOCKS ||
+    maxTailBlocks > ECDSA_CUTOVER_MAX_AUTHENTICATED_TAIL_BLOCKS ||
+    minimumBeginSlackBlocks < 1
+  ) {
+    throw new Error("cutover preflight timing bounds are invalid")
+  }
+  const preflightBlock = headBlock - confirmations
+  if (preflightBlock < 0) {
+    throw new Error("chain is too young for the requested preflight checkpoint")
+  }
+  // A transaction can land no earlier than the next block.
+  const earliestBeginBlock = headBlock + 1
+  const latestBeginBlock = preflightBlock + maxTailBlocks
+  const beginSlackBlocks = latestBeginBlock - earliestBeginBlock
+  if (beginSlackBlocks < minimumBeginSlackBlocks) {
+    throw new Error(
+      `preflight leaves ${beginSlackBlocks} begin blocks of slack; ` +
+        `${minimumBeginSlackBlocks} required`
+    )
+  }
+  return {
+    preflightBlock,
+    maxTailBlocks,
+    earliestBeginBlock,
+    latestBeginBlock,
+    beginSlackBlocks,
+  }
+}
 
 export const LEGACY_GOVERNANCE_STORAGE_LAYOUT = {
   contract: "BridgeGovernance",
@@ -31,8 +112,15 @@ export const BRIDGE_LEGACY_FRAUD_STORAGE_LAYOUT_HASH = ethers.utils.keccak256(
   ethers.utils.toUtf8Bytes(JSON.stringify(BRIDGE_LEGACY_FRAUD_STORAGE_LAYOUT))
 )
 
+export type AuthorityContext = {
+  durableStoreIdentity: string
+  endpointIdentity: string
+  trustDomain: string
+  policyHash: string
+}
+
 export type HandoffManifest = {
-  version: 1
+  version: 4
   chainId: number
   bridge: string
   bridgeDeploymentBlock: number
@@ -46,22 +134,43 @@ export type HandoffManifest = {
   governanceDelay: string
   oldRouter: string
   oldRouterRuntimeCodeHash: string
+  historyEmitters: HistoryEmitter[]
   replacementRouter: string
   replacementRouterRuntimeCodeHash: string
   scanStartBlock: number
+  expectedUnrelatedBridgeBalance: string
   legacyInventorySourcePreflight: LegacyInventorySourcePreflight
+  sourceCheckpointCommitment: string
+  maxTailBlocks: number
+  sourceSigner: string
+  sourceId: string
+  sourceContext: AuthorityContext
   reconciler: string
+  reconcilerSourceId: string
+  reconcilerContext: AuthorityContext
   phase: string
   transactions?: Record<string, string>
 }
 
+export type HistoryEmitter = CanonicalHistoryEmitter & {
+  kind: "bridge" | "ecdsa-router-v2" | "ecdsa-router-v3"
+  expectedUnrelatedBalance: string
+}
+
 export type LegacyInventorySourcePreflight = {
-  finalizedBlock: number
-  finalizedBlockHash: string
+  history: CanonicalHistoryEvidence
   sourceEventCount: number
   sourceEventDigest: string
+  lifecycleEventCount: number
+  lifecycleEventDigest: string
   challengeIdentityCount: number
   challengeIdentityDigest: string
+  unresolvedChallengeCount: number
+  totalEscrow: string
+  legacyLiabilityDigest: string
+  bridgeBalance: string
+  unrelatedBridgeBalance: string
+  routerStates: RouterLifecycleState[]
 }
 
 export type InventoryBundle = {
@@ -80,9 +189,29 @@ export type InventoryBundle = {
   challengeCount: number
   totalEscrow: string
   oldRouterOpenChallengeCount: string
-  bridgeLegacyEscrowBalance: string
+  oldRouterOpenChallengeEscrow: string
+  routerStates: RouterLifecycleState[]
+  bridgeBalance: string
+  unrelatedBridgeBalance: string
   sourceEventCount: number
   sourceEventDigest: string
+  lifecycleEventCount: number
+  lifecycleEventDigest: string
+  legacyLiabilityDigest: string
+  history: CanonicalHistoryEvidence
+  historyEvidenceHash: string
+}
+
+export type RouterLifecycleState = {
+  address: string
+  runtimeCodeHash: string
+  protocolId: string
+  identityCount: number
+  unresolvedChallengeCount: number
+  totalEscrow: string
+  balance: string
+  unrelatedBalance: string
+  liabilityDigest: string
 }
 
 export type LegacyGovernanceSnapshot = {
@@ -102,27 +231,192 @@ const fraudSubmissionInterface = new ethers.utils.Interface([
   "event FraudChallengeSubmitted(bytes20 indexed walletPubKeyHash,bytes32 sighash,uint8 v,bytes32 r,bytes32 s)",
   "function submitFraudChallenge(bytes walletPublicKey,bytes preimageSha256,(uint8 v,bytes32 r,bytes32 s) signature)",
 ])
+const fraudLifecycleInterface = new ethers.utils.Interface([
+  "event FraudChallengeSubmitted(bytes20 indexed walletPubKeyHash,bytes32 sighash,uint8 v,bytes32 r,bytes32 s)",
+  "event FraudChallengeDefeated(bytes20 indexed walletPubKeyHash,bytes32 sighash)",
+  "event FraudChallengeDefeatTimedOut(bytes20 indexed walletPubKeyHash,bytes32 sighash)",
+  "event LegacyFraudChallengeMigrated(uint8 indexed routerKind,uint256 indexed challengeKey,address indexed challenger,uint256 depositAmount)",
+  "event FraudChallengeMigratedFromBridge(uint256 indexed challengeKey,address indexed challenger,uint256 depositAmount)",
+  "event MigratedFraudChallengesActivated(uint64 activatedAt)",
+])
+const FRAUD_LIFECYCLE_TOPICS = [
+  "FraudChallengeSubmitted",
+  "FraudChallengeDefeated",
+  "FraudChallengeDefeatTimedOut",
+  "LegacyFraudChallengeMigrated",
+  "FraudChallengeMigratedFromBridge",
+  "MigratedFraudChallengesActivated",
+].map((event) => fraudLifecycleInterface.getEventTopic(event))
+const FRAUD_SUBMISSION_SELECTOR = fraudSubmissionInterface.getSighash(
+  "submitFraudChallenge"
+)
+const CURRENT_V2_PROTOCOL_ID = ethers.utils.id(
+  "tbtc/ecdsa-signature-fraud/router/current-v2"
+)
+const CURRENT_V3_PROTOCOL_ID = ethers.utils.id(
+  "tbtc/ecdsa-signature-fraud/router/current-v3"
+)
+const routerHistoryInterface = new ethers.utils.Interface([
+  "function fraudProtocolID() view returns (bytes32)",
+  "function predecessor() view returns (address)",
+  "function predecessorCodeHash() view returns (bytes32)",
+  "function openFraudChallengeCount() view returns (uint256)",
+  "function openFraudChallengeEscrow() view returns (uint256)",
+  "function fraudChallenges(uint256) view returns (address challenger,uint256 depositAmount,uint32 reportedAt,bool resolved)",
+])
+
+async function strictRouterCall(
+  provider: providers.Provider,
+  router: string,
+  signature: string,
+  args: unknown[] = [],
+  blockTag?: number
+): Promise<ethers.utils.Result> {
+  const result = await provider.call(
+    {
+      to: router,
+      data: routerHistoryInterface.encodeFunctionData(signature, args),
+    },
+    blockTag
+  )
+  return routerHistoryInterface.decodeFunctionResult(signature, result)
+}
+
+export async function discoverHistoryEmitters(
+  provider: providers.Provider,
+  bridge: string,
+  oldRouter: string,
+  expectedUnrelatedBalances: Record<string, string>,
+  blockTag?: number
+): Promise<HistoryEmitter[]> {
+  const normalizedBridge = ethers.utils.getAddress(bridge)
+  const bridgeCode = await provider.getCode(normalizedBridge, blockTag)
+  if (bridgeCode === "0x") throw new Error("Bridge history emitter has no code")
+  const lookupBalance = (address: string): string => {
+    const entry = Object.entries(expectedUnrelatedBalances).find(
+      ([candidate]) => candidate.toLowerCase() === address.toLowerCase()
+    )
+    if (!entry) {
+      throw new Error(
+        `explicit unrelated-funds allowance missing for emitter ${address}`
+      )
+    }
+    return BigNumber.from(entry[1]).toString()
+  }
+  const emitters: HistoryEmitter[] = [
+    {
+      address: normalizedBridge,
+      runtimeCodeHash: ethers.utils.keccak256(bridgeCode),
+      kind: "bridge",
+      expectedUnrelatedBalance: lookupBalance(normalizedBridge),
+    },
+  ]
+  const seen = new Set([normalizedBridge.toLowerCase()])
+  let cursor = ethers.utils.getAddress(oldRouter)
+  for (let depth = 0; depth <= 8; depth++) {
+    if (seen.has(cursor.toLowerCase())) {
+      throw new Error(`cyclic or duplicate ECDSA history emitter ${cursor}`)
+    }
+    seen.add(cursor.toLowerCase())
+    const code = await provider.getCode(cursor, blockTag)
+    if (code === "0x")
+      throw new Error(`router history emitter ${cursor} has no code`)
+    const runtimeCodeHash = ethers.utils.keccak256(code)
+    const protocolId = String(
+      (
+        await strictRouterCall(
+          provider,
+          cursor,
+          "fraudProtocolID",
+          [],
+          blockTag
+        )
+      )[0]
+    )
+    if (
+      protocolId.toLowerCase() !== CURRENT_V2_PROTOCOL_ID.toLowerCase() &&
+      protocolId.toLowerCase() !== CURRENT_V3_PROTOCOL_ID.toLowerCase()
+    ) {
+      throw new Error(`unsupported router history protocol at ${cursor}`)
+    }
+    emitters.push({
+      address: cursor,
+      runtimeCodeHash,
+      kind:
+        protocolId.toLowerCase() === CURRENT_V3_PROTOCOL_ID.toLowerCase()
+          ? "ecdsa-router-v3"
+          : "ecdsa-router-v2",
+      expectedUnrelatedBalance: lookupBalance(cursor),
+    })
+    if (protocolId.toLowerCase() === CURRENT_V2_PROTOCOL_ID.toLowerCase()) {
+      return emitters
+    }
+    const predecessor = ethers.utils.getAddress(
+      String(
+        (
+          await strictRouterCall(provider, cursor, "predecessor", [], blockTag)
+        )[0]
+      )
+    )
+    const pinnedCodeHash = String(
+      (
+        await strictRouterCall(
+          provider,
+          cursor,
+          "predecessorCodeHash",
+          [],
+          blockTag
+        )
+      )[0]
+    )
+    if (predecessor === ethers.constants.AddressZero) {
+      if (pinnedCodeHash !== ethers.constants.HashZero) {
+        throw new Error(
+          `terminal router ${cursor} pins a nonzero predecessor hash`
+        )
+      }
+      return emitters
+    }
+    const predecessorCode = await provider.getCode(predecessor, blockTag)
+    if (
+      predecessorCode === "0x" ||
+      ethers.utils.keccak256(predecessorCode).toLowerCase() !==
+        pinnedCodeHash.toLowerCase()
+    ) {
+      throw new Error(`router ${cursor} predecessor code hash mismatch`)
+    }
+    cursor = predecessor
+  }
+  throw new Error("ECDSA router history ancestry exceeds eight predecessors")
+}
 
 type SubmissionCandidate = {
+  emitter: string
   walletPubKeyHash: string
   sighash: string
   v: number
   r: string
   s: string
   challengeKey: string
-}
-
-type CallTraceFrame = {
-  to?: string
-  input?: string
-  error?: string
-  calls?: CallTraceFrame[]
+  challenger: string
+  depositAmount: string
 }
 
 type RecoveredSubmissionSources = {
   logs: providers.Log[]
   challengeKeys: string[]
+  candidatesByKey: Map<string, SubmissionCandidate>
   sourceEventDigest: string
+}
+
+type LegacyLifecycleReconciliation = {
+  challengeKeys: string[]
+  challenges: InventoryBundle["challenges"]
+  totalEscrow: BigNumber
+  lifecycleEventCount: number
+  lifecycleEventDigest: string
+  legacyLiabilityDigest: string
+  routerStates: RouterLifecycleState[]
 }
 
 function compareChallengeKeys(left: string, right: string): number {
@@ -133,44 +427,11 @@ function compareChallengeKeys(left: string, right: string): number {
   return 0
 }
 
-async function getSubmissionLogs(
-  provider: providers.Provider,
-  bridge: string,
-  fromBlock: number,
-  toBlock: number
-): Promise<providers.Log[]> {
-  const logs: providers.Log[] = []
-  const topic = fraudSubmissionInterface.getEventTopic(
-    "FraudChallengeSubmitted"
-  )
-  // Keep archive-provider requests serialized. Mainnet's canonical range can
-  // span many chunks and an unbounded Promise.all is likely to trigger RPC
-  // throttling halfway through the safety proof.
-  // eslint-disable-next-line no-restricted-syntax
-  for (let start = fromBlock; start <= toBlock; start += 10_000) {
-    logs.push(
-      // eslint-disable-next-line no-await-in-loop
-      ...(await provider.getLogs({
-        address: bridge,
-        topics: [topic],
-        fromBlock: start,
-        toBlock: Math.min(start + 9_999, toBlock),
-      }))
-    )
-  }
-  return logs.sort((left, right) => {
-    if (left.blockNumber !== right.blockNumber) {
-      return left.blockNumber - right.blockNumber
-    }
-    if (left.transactionIndex !== right.transactionIndex) {
-      return left.transactionIndex - right.transactionIndex
-    }
-    return left.logIndex - right.logIndex
-  })
-}
-
 function parseSubmissionCandidate(
-  data: string
+  data: string,
+  emitter: string,
+  challenger: string,
+  depositAmount: string
 ): SubmissionCandidate | undefined {
   let parsed: ethers.utils.TransactionDescription
   try {
@@ -206,6 +467,7 @@ function parseSubmissionCandidate(
   )
 
   return {
+    emitter: ethers.utils.getAddress(emitter),
     walletPubKeyHash: ethers.utils.ripemd160(
       ethers.utils.sha256(compressedKey)
     ),
@@ -221,6 +483,8 @@ function parseSubmissionCandidate(
         )
       )
     ).toString(),
+    challenger: ethers.utils.getAddress(challenger),
+    depositAmount: BigNumber.from(depositAmount).toString(),
   }
 }
 
@@ -236,59 +500,9 @@ function candidateMatchesLog(
       String(parsed.args.sighash).toLowerCase() &&
     candidate.v === Number(parsed.args.v) &&
     candidate.r.toLowerCase() === String(parsed.args.r).toLowerCase() &&
-    candidate.s.toLowerCase() === String(parsed.args.s).toLowerCase()
+    candidate.s.toLowerCase() === String(parsed.args.s).toLowerCase() &&
+    candidate.emitter.toLowerCase() === log.address.toLowerCase()
   )
-}
-
-function collectBridgeSubmissionCandidates(
-  frame: CallTraceFrame,
-  bridge: string,
-  candidates: SubmissionCandidate[]
-): void {
-  if (frame.error) return
-  if (frame.to?.toLowerCase() === bridge.toLowerCase() && frame.input) {
-    const candidate = parseSubmissionCandidate(frame.input)
-    if (candidate) candidates.push(candidate)
-  }
-  const childFrames = frame.calls ?? []
-  childFrames.forEach((child) => {
-    collectBridgeSubmissionCandidates(child, bridge, candidates)
-  })
-}
-
-async function traceSubmissionCandidates(
-  provider: providers.Provider,
-  bridge: string,
-  transactionHash: string
-): Promise<SubmissionCandidate[]> {
-  const rpcProvider = provider as providers.Provider & {
-    send?: (method: string, params: unknown[]) => Promise<unknown>
-  }
-  if (typeof rpcProvider.send !== "function") {
-    throw new Error(
-      `provider cannot trace forwarded fraud submission ${transactionHash}`
-    )
-  }
-
-  let trace: unknown
-  try {
-    trace = await rpcProvider.send("debug_traceTransaction", [
-      transactionHash,
-      { tracer: "callTracer", timeout: "30s" },
-    ])
-  } catch (error) {
-    throw new Error(
-      `execution trace unavailable for forwarded fraud submission ${transactionHash}: ${String(
-        error
-      )}`
-    )
-  }
-  if (!trace || typeof trace !== "object") {
-    throw new Error(`invalid execution trace for ${transactionHash}`)
-  }
-  const candidates: SubmissionCandidate[] = []
-  collectBridgeSubmissionCandidates(trace as CallTraceFrame, bridge, candidates)
-  return candidates
 }
 
 function sourceEventDigest(logs: providers.Log[]): string {
@@ -311,50 +525,49 @@ function sourceEventDigest(logs: providers.Log[]): string {
   )
 }
 
-async function recoverSubmissionSources(
-  provider: providers.Provider,
-  bridge: string,
-  fromBlock: number,
-  toBlock: number
-): Promise<RecoveredSubmissionSources> {
-  const logs = await getSubmissionLogs(provider, bridge, fromBlock, toBlock)
+function recoverSubmissionSources(
+  history: CanonicalHistoryScan
+): RecoveredSubmissionSources {
+  const submissionTopic = fraudSubmissionInterface
+    .getEventTopic("FraudChallengeSubmitted")
+    .toLowerCase()
+  const logs = history.selectedLogs.filter(
+    (log) => log.topics[0]?.toLowerCase() === submissionTopic
+  )
   const logsByTransaction = new Map<string, providers.Log[]>()
   logs.forEach((log) => {
     const transactionLogs = logsByTransaction.get(log.transactionHash) ?? []
     transactionLogs.push(log)
     logsByTransaction.set(log.transactionHash, transactionLogs)
   })
-
-  const challengeKeys: string[] = []
-  // Trace one transaction at a time so a large historical recovery cannot
-  // exhaust or rate-limit the archive node used for the irreversible preflight.
-  // eslint-disable-next-line no-restricted-syntax
-  for (const [transactionHash, transactionLogs] of logsByTransaction) {
-    // eslint-disable-next-line no-await-in-loop
-    const transaction = await provider.getTransaction(transactionHash)
-    if (!transaction) {
-      throw new Error(`missing fraud submission transaction ${transactionHash}`)
-    }
-
-    let candidates: SubmissionCandidate[] = []
-    if (transaction.to?.toLowerCase() === bridge.toLowerCase()) {
-      const direct = parseSubmissionCandidate(transaction.data)
-      if (
-        direct &&
-        transactionLogs.length === 1 &&
-        candidateMatchesLog(direct, transactionLogs[0])
-      ) {
-        candidates = [direct]
-      }
-    }
-    if (candidates.length === 0) {
-      // eslint-disable-next-line no-await-in-loop
-      candidates = await traceSubmissionCandidates(
-        provider,
-        bridge,
-        transactionHash
+  const candidatesByTransaction = new Map<string, SubmissionCandidate[]>()
+  history.candidateCalls.forEach((call) => {
+    const candidate = parseSubmissionCandidate(
+      call.input,
+      call.to,
+      call.from,
+      call.value
+    )
+    if (!candidate) {
+      throw new Error(
+        `canonical candidate call ${call.transactionHash} is malformed`
       )
     }
+    const transactionCandidates =
+      candidatesByTransaction.get(call.transactionHash) ?? []
+    transactionCandidates.push(candidate)
+    candidatesByTransaction.set(call.transactionHash, transactionCandidates)
+  })
+
+  const challengeKeys: string[] = []
+  const candidatesByKey = new Map<string, SubmissionCandidate>()
+  const transactionHashes = new Set([
+    ...logsByTransaction.keys(),
+    ...candidatesByTransaction.keys(),
+  ])
+  transactionHashes.forEach((transactionHash) => {
+    const transactionLogs = logsByTransaction.get(transactionHash) ?? []
+    const candidates = candidatesByTransaction.get(transactionHash) ?? []
 
     const consumed = new Set<number>()
     transactionLogs.forEach((log) => {
@@ -366,47 +579,431 @@ async function recoverSubmissionSources(
         )
       if (matches.length !== 1) {
         throw new Error(
-          `fraud submission event ${transactionHash}:${log.logIndex} maps to ${matches.length} successful Bridge calls`
+          `fraud submission event ${transactionHash}:${log.logIndex} maps to ${matches.length} successful canonical calls`
         )
       }
       consumed.add(matches[0].index)
-      challengeKeys.push(matches[0].candidate.challengeKey)
+      const { candidate } = matches[0]
+      if (candidatesByKey.has(candidate.challengeKey)) {
+        throw new Error(
+          `duplicate canonical fraud challenge identity ${candidate.challengeKey}`
+        )
+      }
+      challengeKeys.push(candidate.challengeKey)
+      candidatesByKey.set(candidate.challengeKey, candidate)
+    })
+    if (consumed.size !== candidates.length) {
+      throw new Error(
+        `fraud submission transaction ${transactionHash} has ${
+          candidates.length - consumed.size
+        } successful call(s) without canonical receipt logs`
+      )
+    }
+  })
+
+  return {
+    logs,
+    challengeKeys,
+    candidatesByKey,
+    sourceEventDigest: sourceEventDigest(logs),
+  }
+}
+
+function lifecyclePair(walletPubKeyHash: string, sighash: string): string {
+  return `${walletPubKeyHash.toLowerCase()}:${sighash.toLowerCase()}`
+}
+
+async function reconcileLegacyLifecycle(
+  provider: providers.Provider,
+  bridge: string,
+  finalizedBlock: number,
+  history: CanonicalHistoryScan,
+  recovered: RecoveredSubmissionSources,
+  historyEmitters: HistoryEmitter[]
+): Promise<LegacyLifecycleReconciliation> {
+  const allKeys = [...recovered.challengeKeys].sort(compareChallengeKeys)
+  const keysByPair = new Map<string, string>()
+  recovered.candidatesByKey.forEach((candidate, key) => {
+    const pair = lifecyclePair(candidate.walletPubKeyHash, candidate.sighash)
+    if (keysByPair.has(pair)) {
+      throw new Error(`ambiguous fraud lifecycle identity ${pair}`)
+    }
+    keysByPair.set(pair, key)
+  })
+
+  const resolutions = new Map<string, { name: string; emitter: string }>()
+  const migrations = new Map<
+    string,
+    { challenger: string; depositAmount: string; routerKind: number }
+  >()
+  const routerMigrations = new Map<
+    string,
+    { emitter: string; challenger: string; depositAmount: string }
+  >()
+  const submissionTopic = fraudLifecycleInterface
+    .getEventTopic("FraudChallengeSubmitted")
+    .toLowerCase()
+  history.selectedLogs.forEach((log) => {
+    if (log.topics[0]?.toLowerCase() === submissionTopic) return
+    const parsed = fraudLifecycleInterface.parseLog(log)
+    if (
+      parsed.name === "FraudChallengeDefeated" ||
+      parsed.name === "FraudChallengeDefeatTimedOut"
+    ) {
+      const pair = lifecyclePair(
+        String(parsed.args.walletPubKeyHash),
+        String(parsed.args.sighash)
+      )
+      const key = keysByPair.get(pair)
+      if (!key) {
+        throw new Error(
+          `${parsed.name} event has no canonical submission identity`
+        )
+      }
+      if (resolutions.has(key)) {
+        throw new Error(`duplicate fraud resolution for identity ${key}`)
+      }
+      resolutions.set(key, {
+        name: parsed.name,
+        emitter: ethers.utils.getAddress(log.address),
+      })
+      return
+    }
+    if (parsed.name === "LegacyFraudChallengeMigrated") {
+      const key = BigNumber.from(parsed.args.challengeKey).toString()
+      if (!recovered.candidatesByKey.has(key)) {
+        throw new Error(
+          `legacy migration event has no canonical submission identity ${key}`
+        )
+      }
+      if (migrations.has(key)) {
+        throw new Error(`duplicate legacy migration for identity ${key}`)
+      }
+      migrations.set(key, {
+        challenger: ethers.utils.getAddress(parsed.args.challenger),
+        depositAmount: BigNumber.from(parsed.args.depositAmount).toString(),
+        routerKind: Number(parsed.args.routerKind),
+      })
+      return
+    }
+    if (parsed.name === "FraudChallengeMigratedFromBridge") {
+      const key = BigNumber.from(parsed.args.challengeKey).toString()
+      if (!recovered.candidatesByKey.has(key)) {
+        throw new Error(
+          `router migration event has no canonical submission identity ${key}`
+        )
+      }
+      if (routerMigrations.has(key)) {
+        throw new Error(`duplicate router migration for identity ${key}`)
+      }
+      routerMigrations.set(key, {
+        emitter: ethers.utils.getAddress(log.address),
+        challenger: ethers.utils.getAddress(parsed.args.challenger),
+        depositAmount: BigNumber.from(parsed.args.depositAmount).toString(),
+      })
+    }
+  })
+
+  const challengeKeys: string[] = []
+  const challenges: InventoryBundle["challenges"] = []
+  let totalEscrow = BigNumber.from(0)
+  const liabilityRecords: Array<{
+    key: string
+    challenger: string
+    depositAmount: string
+    reportedAt: number
+    resolved: boolean
+    resolution: string
+    migrated: boolean
+    routerKind: number
+    sourceEmitter: string
+    currentEmitter: string
+  }> = []
+  const routerRecords = new Map<
+    string,
+    Array<{
+      key: string
+      challenger: string
+      depositAmount: string
+      reportedAt: number
+      resolved: boolean
+    }>
+  >()
+  for (let index = 0; index < allKeys.length; index++) {
+    const key = allKeys[index]
+    const submitted = recovered.candidatesByKey.get(key)
+    if (!submitted) {
+      throw new Error(`missing canonical submission for identity ${key}`)
+    }
+    const resolution = resolutions.get(key)
+    const migration = migrations.get(key)
+    const routerMigration = routerMigrations.get(key)
+    if (Boolean(migration) !== Boolean(routerMigration)) {
+      throw new Error(`fraud migration event pair is incomplete for ${key}`)
+    }
+    if (migration && routerMigration) {
+      if (submitted.emitter.toLowerCase() !== bridge.toLowerCase()) {
+        throw new Error(
+          `non-Bridge fraud identity ${key} was migrated from Bridge`
+        )
+      }
+      if (
+        migration.challenger.toLowerCase() !==
+          submitted.challenger.toLowerCase() ||
+        !BigNumber.from(migration.depositAmount).eq(submitted.depositAmount) ||
+        routerMigration.challenger.toLowerCase() !==
+          submitted.challenger.toLowerCase() ||
+        !BigNumber.from(routerMigration.depositAmount).eq(
+          submitted.depositAmount
+        )
+      ) {
+        throw new Error(
+          `legacy migration liability differs from submission ${key}`
+        )
+      }
+      // The Bridge source record must have been deleted atomically with the
+      // paired destination event.
+      // eslint-disable-next-line no-await-in-loop
+      const bridgeRecord = await readLegacyChallenge(
+        provider,
+        bridge,
+        key,
+        finalizedBlock
+      )
+      if (
+        bridgeRecord.reportedAt !== 0 ||
+        bridgeRecord.challenger !== ethers.constants.AddressZero ||
+        !BigNumber.from(bridgeRecord.depositAmount).isZero()
+      ) {
+        throw new Error(
+          `migrated fraud identity ${key} still has Bridge storage`
+        )
+      }
+    }
+    const currentEmitter = routerMigration?.emitter ?? submitted.emitter
+    // eslint-disable-next-line no-await-in-loop
+    const challenge =
+      currentEmitter.toLowerCase() === bridge.toLowerCase()
+        ? // eslint-disable-next-line no-await-in-loop
+          await readLegacyChallenge(provider, bridge, key, finalizedBlock)
+        : // eslint-disable-next-line no-await-in-loop
+          await readRouterChallenge(
+            provider,
+            currentEmitter,
+            key,
+            finalizedBlock
+          )
+    if (
+      challenge.reportedAt === 0 ||
+      challenge.challenger.toLowerCase() !==
+        submitted.challenger.toLowerCase() ||
+      !BigNumber.from(challenge.depositAmount).eq(submitted.depositAmount)
+    ) {
+      throw new Error(
+        `fraud identity ${key} storage/submission liability mismatch`
+      )
+    }
+    if (
+      challenge.resolved !== Boolean(resolution) ||
+      (resolution &&
+        resolution.emitter.toLowerCase() !== currentEmitter.toLowerCase())
+    ) {
+      throw new Error(
+        `fraud identity ${key} storage/lifecycle resolution mismatch`
+      )
+    }
+    if (currentEmitter.toLowerCase() === bridge.toLowerCase()) {
+      if (!challenge.resolved) {
+        challengeKeys.push(key)
+        challenges.push(challenge)
+        totalEscrow = totalEscrow.add(challenge.depositAmount)
+      }
+    } else {
+      const records = routerRecords.get(currentEmitter.toLowerCase()) ?? []
+      records.push({ key, ...challenge })
+      routerRecords.set(currentEmitter.toLowerCase(), records)
+    }
+    liabilityRecords.push({
+      key,
+      challenger: challenge.challenger,
+      depositAmount: challenge.depositAmount,
+      reportedAt: challenge.reportedAt,
+      resolved: challenge.resolved,
+      resolution: resolution?.name ?? "",
+      migrated: Boolean(migration),
+      routerKind: migration?.routerKind ?? 0,
+      sourceEmitter: submitted.emitter,
+      currentEmitter,
     })
   }
 
-  return { logs, challengeKeys, sourceEventDigest: sourceEventDigest(logs) }
+  const routerStates: RouterLifecycleState[] = []
+  // eslint-disable-next-line no-restricted-syntax
+  for (const emitter of historyEmitters.filter(
+    (item) => item.kind !== "bridge"
+  )) {
+    const records = (
+      routerRecords.get(emitter.address.toLowerCase()) ?? []
+    ).sort((left, right) => compareChallengeKeys(left.key, right.key))
+    const unresolved = records.filter((record) => !record.resolved)
+    const computedEscrow = unresolved.reduce(
+      (sum, record) => sum.add(record.depositAmount),
+      BigNumber.from(0)
+    )
+    // eslint-disable-next-line no-await-in-loop
+    const observedCount = BigNumber.from(
+      (
+        await strictRouterCall(
+          provider,
+          emitter.address,
+          "openFraudChallengeCount",
+          [],
+          finalizedBlock
+        )
+      )[0]
+    )
+    if (!observedCount.eq(unresolved.length)) {
+      throw new Error(`router ${emitter.address} lifecycle/count mismatch`)
+    }
+    if (emitter.kind === "ecdsa-router-v3") {
+      // eslint-disable-next-line no-await-in-loop
+      const observedEscrow = BigNumber.from(
+        (
+          await strictRouterCall(
+            provider,
+            emitter.address,
+            "openFraudChallengeEscrow",
+            [],
+            finalizedBlock
+          )
+        )[0]
+      )
+      if (!observedEscrow.eq(computedEscrow)) {
+        throw new Error(`router ${emitter.address} lifecycle/escrow mismatch`)
+      }
+    }
+    // eslint-disable-next-line no-await-in-loop
+    const balance = await provider.getBalance(emitter.address, finalizedBlock)
+    if (!balance.eq(computedEscrow.add(emitter.expectedUnrelatedBalance))) {
+      throw new Error(`router ${emitter.address} has unattributed ETH balance`)
+    }
+    const liabilityDigest = ethers.utils.keccak256(
+      ethers.utils.defaultAbiCoder.encode(
+        [
+          "tuple(uint256 key,address challenger,uint256 depositAmount,uint32 reportedAt,bool resolved)[]",
+        ],
+        [records]
+      )
+    )
+    routerStates.push({
+      address: emitter.address,
+      runtimeCodeHash: emitter.runtimeCodeHash,
+      protocolId:
+        emitter.kind === "ecdsa-router-v3"
+          ? CURRENT_V3_PROTOCOL_ID
+          : CURRENT_V2_PROTOCOL_ID,
+      identityCount: records.length,
+      unresolvedChallengeCount: unresolved.length,
+      totalEscrow: computedEscrow.toString(),
+      balance: balance.toString(),
+      unrelatedBalance: BigNumber.from(
+        emitter.expectedUnrelatedBalance
+      ).toString(),
+      liabilityDigest,
+    })
+  }
+
+  const lifecycleEventDigest = sourceEventDigest(history.selectedLogs)
+  const legacyLiabilityDigest = ethers.utils.keccak256(
+    ethers.utils.defaultAbiCoder.encode(
+      [
+        "tuple(uint256 key,address challenger,uint256 depositAmount,uint32 reportedAt,bool resolved,string resolution,bool migrated,uint8 routerKind,address sourceEmitter,address currentEmitter)[]",
+      ],
+      [liabilityRecords]
+    )
+  )
+  return {
+    challengeKeys,
+    challenges,
+    totalEscrow,
+    lifecycleEventCount: history.selectedLogs.length,
+    lifecycleEventDigest,
+    legacyLiabilityDigest,
+    routerStates,
+  }
 }
 
 export async function buildLegacyInventorySourcePreflight(
   provider: providers.Provider,
   bridge: string,
   scanStartBlock: number,
-  finalizedBlock: number
+  finalizedBlock: number,
+  historyEmitters: HistoryEmitter[],
+  checkpoint?: CanonicalHistoryScan
 ): Promise<LegacyInventorySourcePreflight> {
   if (finalizedBlock < scanStartBlock) {
     throw new Error("source preflight finalized block predates scan floor")
   }
-  const block = await provider.getBlock(finalizedBlock)
-  if (!block?.hash) throw new Error(`finalized block ${finalizedBlock} missing`)
-  const recovered = await recoverSubmissionSources(
+  const history = await scanCanonicalHistory(
+    provider,
+    historyEmitters,
+    scanStartBlock,
+    finalizedBlock,
+    FRAUD_LIFECYCLE_TOPICS,
+    FRAUD_SUBMISSION_SELECTOR,
+    checkpoint
+  )
+  const recovered = recoverSubmissionSources(history)
+  const lifecycle = await reconcileLegacyLifecycle(
     provider,
     bridge,
-    scanStartBlock,
-    finalizedBlock
+    finalizedBlock,
+    history,
+    recovered,
+    historyEmitters
   )
   const identities = [...new Set(recovered.challengeKeys)].sort(
     compareChallengeKeys
   )
+  const bridgeBalance = await provider.getBalance(bridge, finalizedBlock)
+  if (bridgeBalance.lt(lifecycle.totalEscrow)) {
+    throw new Error("Bridge balance is below canonical legacy escrow")
+  }
   return {
-    finalizedBlock,
-    finalizedBlockHash: block.hash,
+    history: history.evidence,
     sourceEventCount: recovered.logs.length,
     sourceEventDigest: recovered.sourceEventDigest,
+    lifecycleEventCount: lifecycle.lifecycleEventCount,
+    lifecycleEventDigest: lifecycle.lifecycleEventDigest,
     challengeIdentityCount: identities.length,
     challengeIdentityDigest: ethers.utils.keccak256(
       ethers.utils.defaultAbiCoder.encode(["uint256[]"], [identities])
     ),
+    unresolvedChallengeCount: lifecycle.challengeKeys.length,
+    totalEscrow: lifecycle.totalEscrow.toString(),
+    legacyLiabilityDigest: lifecycle.legacyLiabilityDigest,
+    bridgeBalance: bridgeBalance.toString(),
+    unrelatedBridgeBalance: bridgeBalance.sub(lifecycle.totalEscrow).toString(),
+    routerStates: lifecycle.routerStates,
   }
+}
+
+export async function extendCanonicalHistoryJournal(
+  provider: providers.Provider,
+  historyEmitters: HistoryEmitter[],
+  scanStartBlock: number,
+  finalizedBlock: number,
+  checkpoint?: CanonicalHistoryScan
+): Promise<CanonicalHistoryScan> {
+  return scanCanonicalHistory(
+    provider,
+    historyEmitters,
+    scanStartBlock,
+    finalizedBlock,
+    FRAUD_LIFECYCLE_TOPICS,
+    FRAUD_SUBMISSION_SELECTOR,
+    checkpoint
+  )
 }
 
 async function readLegacyChallenge(
@@ -442,40 +1039,60 @@ async function readLegacyChallenge(
   }
 }
 
+async function readRouterChallenge(
+  provider: providers.Provider,
+  router: string,
+  challengeKey: string,
+  blockTag: number
+): Promise<{
+  challenger: string
+  depositAmount: string
+  reportedAt: number
+  resolved: boolean
+}> {
+  const result = await strictRouterCall(
+    provider,
+    router,
+    "fraudChallenges",
+    [challengeKey],
+    blockTag
+  )
+  return {
+    challenger: ethers.utils.getAddress(result.challenger ?? result[0]),
+    depositAmount: BigNumber.from(result.depositAmount ?? result[1]).toString(),
+    reportedAt: Number(result.reportedAt ?? result[2]),
+    resolved: Boolean(result.resolved ?? result[3]),
+  }
+}
+
 export async function buildCanonicalInventory(
   provider: providers.Provider,
   manifest: HandoffManifest,
-  finalizedBlock: number
+  finalizedBlock: number,
+  checkpoint?: CanonicalHistoryScan
 ): Promise<InventoryBundle> {
   if (finalizedBlock < manifest.scanStartBlock) {
     throw new Error("finalized inventory block predates canonical scan floor")
   }
-  const block = await provider.getBlock(finalizedBlock)
-  if (!block?.hash) throw new Error(`finalized block ${finalizedBlock} missing`)
-  const recovered = await recoverSubmissionSources(
+  const history = await scanCanonicalHistory(
+    provider,
+    manifest.historyEmitters,
+    manifest.scanStartBlock,
+    finalizedBlock,
+    FRAUD_LIFECYCLE_TOPICS,
+    FRAUD_SUBMISSION_SELECTOR,
+    checkpoint
+  )
+  const recovered = recoverSubmissionSources(history)
+  const lifecycle = await reconcileLegacyLifecycle(
     provider,
     manifest.bridge,
-    manifest.scanStartBlock,
-    finalizedBlock
+    finalizedBlock,
+    history,
+    recovered,
+    manifest.historyEmitters
   )
-  const discoveredKeys = new Set(recovered.challengeKeys)
-
-  const allKeys = [...discoveredKeys].sort(compareChallengeKeys)
-  const allChallenges = await Promise.all(
-    allKeys.map((key) =>
-      readLegacyChallenge(provider, manifest.bridge, key, finalizedBlock)
-    )
-  )
-  const challengeKeys: string[] = []
-  const challenges: InventoryBundle["challenges"] = []
-  let totalEscrow = BigNumber.from(0)
-  for (let i = 0; i < allKeys.length; i++) {
-    if (allChallenges[i].reportedAt !== 0 && !allChallenges[i].resolved) {
-      challengeKeys.push(allKeys[i])
-      challenges.push(allChallenges[i])
-      totalEscrow = totalEscrow.add(allChallenges[i].depositAmount)
-    }
-  }
+  const { challengeKeys, challenges, totalEscrow } = lifecycle
   const challengeSetHash = ethers.utils.keccak256(
     ethers.utils.defaultAbiCoder.encode(
       [
@@ -487,6 +1104,7 @@ export async function buildCanonicalInventory(
   )
   const countInterface = new ethers.utils.Interface([
     "function openFraudChallengeCount() view returns (uint256)",
+    "function openFraudChallengeEscrow() view returns (uint256)",
   ])
   const oldRouterOpenChallengeCount = BigNumber.from(
     countInterface.decodeFunctionResult(
@@ -500,81 +1118,517 @@ export async function buildCanonicalInventory(
       )
     )[0]
   )
+  let oldRouterOpenChallengeEscrow = BigNumber.from(0)
+  try {
+    const result = await provider.call(
+      {
+        to: manifest.oldRouter,
+        data: countInterface.encodeFunctionData("openFraudChallengeEscrow"),
+      },
+      finalizedBlock
+    )
+    if (ethers.utils.hexDataLength(result) !== 32) {
+      throw new Error("old router escrow selector returned malformed data")
+    }
+    oldRouterOpenChallengeEscrow = BigNumber.from(
+      countInterface.decodeFunctionResult("openFraudChallengeEscrow", result)[0]
+    )
+  } catch (error) {
+    // Terminal v2 routers predate the escrow counter. Only a clean selector
+    // absence is compatible; malformed successful return data is not.
+    if (String(error).includes("malformed data")) throw error
+  }
+  const bridgeBalance = await provider.getBalance(
+    manifest.bridge,
+    finalizedBlock
+  )
+  if (bridgeBalance.lt(totalEscrow)) {
+    throw new Error("Bridge balance is below canonical legacy escrow")
+  }
   const inventory: InventoryBundle = {
     scanStartBlock: manifest.scanStartBlock,
     scanEndBlock: finalizedBlock,
     finalizedBlock,
-    finalizedBlockHash: block.hash,
+    finalizedBlockHash: history.evidence.finalizedBlockHash,
     challengeKeys,
     challenges,
     challengeSetHash,
     challengeCount: challengeKeys.length,
     totalEscrow: totalEscrow.toString(),
     oldRouterOpenChallengeCount: oldRouterOpenChallengeCount.toString(),
-    bridgeLegacyEscrowBalance: (
-      await provider.getBalance(manifest.bridge, finalizedBlock)
-    ).toString(),
+    oldRouterOpenChallengeEscrow: oldRouterOpenChallengeEscrow.toString(),
+    routerStates: lifecycle.routerStates,
+    bridgeBalance: bridgeBalance.toString(),
+    unrelatedBridgeBalance: bridgeBalance.sub(totalEscrow).toString(),
     sourceEventCount: recovered.logs.length,
     sourceEventDigest: recovered.sourceEventDigest,
+    lifecycleEventCount: lifecycle.lifecycleEventCount,
+    lifecycleEventDigest: lifecycle.lifecycleEventDigest,
+    legacyLiabilityDigest: lifecycle.legacyLiabilityDigest,
+    history: history.evidence,
+    historyEvidenceHash: ethers.constants.HashZero,
   }
+  inventory.historyEvidenceHash = canonicalInventoryHistoryHash(inventory)
   assertCanonicalInventory(manifest, inventory)
   return inventory
 }
 
-export function handoffPlanHash(manifest: HandoffManifest): string {
+export function canonicalInventoryHistoryHash(
+  inventory: InventoryBundle
+): string {
+  return ethers.utils.keccak256(encodeInventoryHistoryEvidence(inventory))
+}
+
+const HISTORY_EVIDENCE_TYPE =
+  "tuple(bytes32 historyCommitment,bytes32 emitterSetCommitment,uint64 blockCount,uint64 transactionCount,uint64 receiptCount,uint64 logCount,uint64 emitterLogCount,uint64 candidateCallCount,uint64 sourceEventCount,uint64 lifecycleEventCount,bytes32 emitterLogDigest,bytes32 candidateCallDigest,bytes32 sourceEventDigest,bytes32 lifecycleEventDigest,bytes32 legacyLiabilityDigest,uint256 bridgeBalance,uint256 unrelatedBridgeBalance)"
+
+export function inventoryHistoryEvidence(
+  inventory: InventoryBundle
+): Record<string, unknown> {
+  return {
+    historyCommitment: inventory.history.historyCommitment,
+    emitterSetCommitment: inventory.history.emitterSetCommitment,
+    blockCount: inventory.history.blockCount,
+    transactionCount: inventory.history.transactionCount,
+    receiptCount: inventory.history.receiptCount,
+    logCount: inventory.history.logCount,
+    emitterLogCount: inventory.history.emitterLogCount,
+    candidateCallCount: inventory.history.candidateCallCount,
+    sourceEventCount: inventory.sourceEventCount,
+    lifecycleEventCount: inventory.lifecycleEventCount,
+    emitterLogDigest: inventory.history.emitterLogDigest,
+    candidateCallDigest: inventory.history.candidateCallDigest,
+    sourceEventDigest: inventory.sourceEventDigest,
+    lifecycleEventDigest: inventory.lifecycleEventDigest,
+    legacyLiabilityDigest: inventory.legacyLiabilityDigest,
+    bridgeBalance: inventory.bridgeBalance,
+    unrelatedBridgeBalance: inventory.unrelatedBridgeBalance,
+  }
+}
+
+export function encodeInventoryHistoryEvidence(
+  inventory: InventoryBundle
+): string {
+  return ethers.utils.defaultAbiCoder.encode(
+    [HISTORY_EVIDENCE_TYPE],
+    [inventoryHistoryEvidence(inventory)]
+  )
+}
+
+export function inventorySnapshot(
+  inventory: InventoryBundle
+): Record<string, unknown> {
+  return {
+    finalizedBlock: inventory.finalizedBlock,
+    finalizedBlockHash: inventory.finalizedBlockHash,
+    challengeSetHash: inventory.challengeSetHash,
+    challengeCount: inventory.challengeCount,
+    totalEscrow: inventory.totalEscrow,
+    history: inventoryHistoryEvidence(inventory),
+  }
+}
+
+export function encodeInventorySnapshot(inventory: InventoryBundle): string {
+  return ethers.utils.defaultAbiCoder.encode(
+    [
+      `tuple(uint64 finalizedBlock,bytes32 finalizedBlockHash,bytes32 challengeSetHash,uint32 challengeCount,uint256 totalEscrow,${HISTORY_EVIDENCE_TYPE} history)`,
+    ],
+    [inventorySnapshot(inventory)]
+  )
+}
+
+const INVENTORY_SOURCE_ATTESTATION_DOMAIN = ethers.utils.keccak256(
+  ethers.utils.toUtf8Bytes(
+    "tbtc/ecdsa-fraud-cutover/inventory-source-attestation/v1"
+  )
+)
+const SOURCE_CONTEXT_DOMAIN = ethers.utils.keccak256(
+  ethers.utils.toUtf8Bytes("tbtc/ecdsa-fraud-cutover/source-context/v1")
+)
+const RECONCILER_CONTEXT_DOMAIN = ethers.utils.keccak256(
+  ethers.utils.toUtf8Bytes("tbtc/ecdsa-fraud-cutover/reconciler-context/v1")
+)
+const SOURCE_CHECKPOINT_DOMAIN = ethers.utils.keccak256(
+  ethers.utils.toUtf8Bytes("tbtc/ecdsa-fraud-cutover/source-checkpoint/v1")
+)
+const RECONCILER_CHECKPOINT_DOMAIN = ethers.utils.keccak256(
+  ethers.utils.toUtf8Bytes("tbtc/ecdsa-fraud-cutover/reconciler-checkpoint/v1")
+)
+const SOURCE_STAGE_DOMAIN = ethers.utils.keccak256(
+  ethers.utils.toUtf8Bytes("tbtc/ecdsa-fraud-cutover/source-stage/v1")
+)
+const RECONCILER_STAGE_DOMAIN = ethers.utils.keccak256(
+  ethers.utils.toUtf8Bytes("tbtc/ecdsa-fraud-cutover/reconciler-stage/v1")
+)
+
+export function authorityContextCommitment(
+  role: "source" | "reconciler",
+  signer: string,
+  sourceId: string,
+  context: AuthorityContext
+): string {
   return ethers.utils.keccak256(
     ethers.utils.defaultAbiCoder.encode(
       [
-        "uint256",
-        "uint256",
-        "address",
-        "uint256",
-        "address",
-        "bytes32",
-        "bytes32",
         "bytes32",
         "address",
         "bytes32",
-        "address",
-        "uint256",
-        "address",
         "bytes32",
-        "address",
         "bytes32",
-        "uint256",
-        "uint256",
         "bytes32",
-        "uint256",
         "bytes32",
-        "uint256",
-        "bytes32",
-        "address",
       ],
       [
-        manifest.version,
-        manifest.chainId,
-        manifest.bridge,
-        manifest.bridgeDeploymentBlock,
-        manifest.oldGovernance,
-        manifest.oldGovernanceRuntimeCodeHash,
-        manifest.oldGovernanceStorageLayoutHash,
-        manifest.bridgeLegacyFraudStorageLayoutHash,
-        manifest.newGovernance,
-        manifest.newGovernanceRuntimeCodeHash,
-        manifest.governanceOwner,
-        manifest.governanceDelay,
+        role === "source" ? SOURCE_CONTEXT_DOMAIN : RECONCILER_CONTEXT_DOMAIN,
+        signer,
+        sourceId,
+        context.durableStoreIdentity,
+        context.endpointIdentity,
+        context.trustDomain,
+        context.policyHash,
+      ]
+    )
+  )
+}
+
+export function cutoverAuthorityCommitment(manifest: HandoffManifest): string {
+  return ethers.utils.keccak256(
+    ethers.utils.defaultAbiCoder.encode(
+      ["address", "bytes32", "bytes32", "address", "bytes32", "bytes32"],
+      [
+        manifest.sourceSigner,
+        manifest.sourceId,
+        authorityContextCommitment(
+          "source",
+          manifest.sourceSigner,
+          manifest.sourceId,
+          manifest.sourceContext
+        ),
+        manifest.reconciler,
+        manifest.reconcilerSourceId,
+        authorityContextCommitment(
+          "reconciler",
+          manifest.reconciler,
+          manifest.reconcilerSourceId,
+          manifest.reconcilerContext
+        ),
+      ]
+    )
+  )
+}
+
+export function checkpointRoleDigests(manifest: HandoffManifest): {
+  source: string
+  reconciler: string
+} {
+  return {
+    source: ethers.utils.keccak256(
+      ethers.utils.defaultAbiCoder.encode(
+        ["bytes32", "bytes32", "bytes32"],
+        [
+          SOURCE_CHECKPOINT_DOMAIN,
+          manifest.sourceCheckpointCommitment,
+          authorityContextCommitment(
+            "source",
+            manifest.sourceSigner,
+            manifest.sourceId,
+            manifest.sourceContext
+          ),
+        ]
+      )
+    ),
+    reconciler: ethers.utils.keccak256(
+      ethers.utils.defaultAbiCoder.encode(
+        ["bytes32", "bytes32", "bytes32"],
+        [
+          RECONCILER_CHECKPOINT_DOMAIN,
+          manifest.sourceCheckpointCommitment,
+          authorityContextCommitment(
+            "reconciler",
+            manifest.reconciler,
+            manifest.reconcilerSourceId,
+            manifest.reconcilerContext
+          ),
+        ]
+      )
+    ),
+  }
+}
+
+export function inventoryAuthorityAttestationHashes(
+  manifest: HandoffManifest,
+  inventory: InventoryBundle
+): { source: string; reconciler: string } {
+  const routingCommitment = ethers.utils.keccak256(
+    ethers.utils.defaultAbiCoder.encode(
+      ["address", "address", "uint64"],
+      [manifest.oldRouter, manifest.replacementRouter, inventory.scanStartBlock]
+    )
+  )
+  const snapshotHash = ethers.utils.keccak256(
+    encodeInventorySnapshot(inventory)
+  )
+  const digest = (role: "source" | "reconciler"): string =>
+    ethers.utils.keccak256(
+      ethers.utils.defaultAbiCoder.encode(
+        [
+          "bytes32",
+          "bytes32",
+          "uint256",
+          "address",
+          "bytes32",
+          "bytes32",
+          "bytes32",
+          "bytes32",
+          "bytes32",
+        ],
+        [
+          INVENTORY_SOURCE_ATTESTATION_DOMAIN,
+          role === "source" ? SOURCE_STAGE_DOMAIN : RECONCILER_STAGE_DOMAIN,
+          manifest.chainId,
+          manifest.bridge,
+          routingCommitment,
+          snapshotHash,
+          inventory.historyEvidenceHash,
+          authorityContextCommitment(
+            role,
+            role === "source" ? manifest.sourceSigner : manifest.reconciler,
+            role === "source" ? manifest.sourceId : manifest.reconcilerSourceId,
+            role === "source"
+              ? manifest.sourceContext
+              : manifest.reconcilerContext
+          ),
+          handoffPlanHash(manifest),
+        ]
+      )
+    )
+  return { source: digest("source"), reconciler: digest("reconciler") }
+}
+
+export function inventorySourceAttestationHash(
+  manifest: HandoffManifest,
+  inventory: InventoryBundle
+): string {
+  return inventoryAuthorityAttestationHashes(manifest, inventory).source
+}
+
+const BEGIN_AUTHORITY_DOMAIN = ethers.utils.keccak256(
+  ethers.utils.toUtf8Bytes("tbtc/ecdsa-fraud-cutover/begin-authority/v1")
+)
+const OWNER_AUTHORIZATION_DOMAIN = ethers.utils.keccak256(
+  ethers.utils.toUtf8Bytes("tbtc/ecdsa-fraud-cutover/owner-authorization/v1")
+)
+
+export function ownerAuthorizationHash(manifest: HandoffManifest): string {
+  const routerCommitment = ethers.utils.keccak256(
+    ethers.utils.defaultAbiCoder.encode(
+      ["address", "bytes32", "address", "bytes32"],
+      [
         manifest.oldRouter,
         manifest.oldRouterRuntimeCodeHash,
         manifest.replacementRouter,
         manifest.replacementRouterRuntimeCodeHash,
+      ]
+    )
+  )
+  const authorityCommitment = cutoverAuthorityCommitment(manifest)
+  return ethers.utils.keccak256(
+    ethers.utils.defaultAbiCoder.encode(
+      [
+        "bytes32",
+        "uint256",
+        "address",
+        "address",
+        "bytes32",
+        "uint64",
+        "uint256",
+        "bytes32",
+        "bytes32",
+      ],
+      [
+        OWNER_AUTHORIZATION_DOMAIN,
+        manifest.chainId,
+        manifest.newGovernance,
+        manifest.bridge,
+        routerCommitment,
         manifest.scanStartBlock,
-        manifest.legacyInventorySourcePreflight.finalizedBlock,
-        manifest.legacyInventorySourcePreflight.finalizedBlockHash,
-        manifest.legacyInventorySourcePreflight.sourceEventCount,
-        manifest.legacyInventorySourcePreflight.sourceEventDigest,
-        manifest.legacyInventorySourcePreflight.challengeIdentityCount,
-        manifest.legacyInventorySourcePreflight.challengeIdentityDigest,
-        manifest.reconciler,
+        manifest.governanceDelay,
+        authorityCommitment,
+        canonicalEmitterSetCommitment(manifest.historyEmitters),
+      ]
+    )
+  )
+}
+
+export function handoffPlanHash(manifest: HandoffManifest): string {
+  const preflight = manifest.legacyInventorySourcePreflight
+  const checkpointDigests = checkpointRoleDigests(manifest)
+  const preflightCommitment = ethers.utils.keccak256(
+    ethers.utils.defaultAbiCoder.encode(
+      [
+        "bytes32",
+        "bytes32",
+        "bytes32",
+        "bytes32",
+        "uint64",
+        "bytes32",
+        "uint8",
+      ],
+      [
+        canonicalEmitterSetCommitment(manifest.historyEmitters),
+        legacyInventorySourcePreflightHash(preflight),
+        checkpointDigests.source,
+        checkpointDigests.reconciler,
+        preflight.history.finalizedBlock,
+        preflight.history.finalizedBlockHash,
+        manifest.maxTailBlocks,
+      ]
+    )
+  )
+  return ethers.utils.keccak256(
+    ethers.utils.defaultAbiCoder.encode(
+      ["bytes32", "bytes32", "bytes32"],
+      [
+        BEGIN_AUTHORITY_DOMAIN,
+        ownerAuthorizationHash(manifest),
+        preflightCommitment,
+      ]
+    )
+  )
+}
+
+export function encodeAuthorityProof(
+  manifest: HandoffManifest,
+  sourceManifestSignature: string,
+  reconcilerManifestSignature: string
+): string {
+  const preflight = manifest.legacyInventorySourcePreflight
+  return ethers.utils.defaultAbiCoder.encode(
+    [
+      "tuple(address sourceSigner,bytes32 sourceId,tuple(bytes32 durableStoreIdentity,bytes32 endpointIdentity,bytes32 trustDomain,bytes32 policyHash) sourceContext,address reconciler,bytes32 reconcilerSourceId,tuple(bytes32 durableStoreIdentity,bytes32 endpointIdentity,bytes32 trustDomain,bytes32 policyHash) reconcilerContext,bytes32 manifestPlanHash,bytes32 emitterSetCommitment,bytes32 sourcePreflightCommitment,bytes32 sourceCheckpointCommitment,uint64 sourcePreflightFinalizedBlock,bytes32 sourcePreflightFinalizedBlockHash,uint8 maxTailBlocks,bytes sourceManifestSignature,bytes reconcilerManifestSignature)",
+    ],
+    [
+      {
+        sourceSigner: manifest.sourceSigner,
+        sourceId: manifest.sourceId,
+        sourceContext: manifest.sourceContext,
+        reconciler: manifest.reconciler,
+        reconcilerSourceId: manifest.reconcilerSourceId,
+        reconcilerContext: manifest.reconcilerContext,
+        manifestPlanHash: handoffPlanHash(manifest),
+        emitterSetCommitment: canonicalEmitterSetCommitment(
+          manifest.historyEmitters
+        ),
+        sourcePreflightCommitment:
+          legacyInventorySourcePreflightHash(preflight),
+        sourceCheckpointCommitment: manifest.sourceCheckpointCommitment,
+        sourcePreflightFinalizedBlock: preflight.history.finalizedBlock,
+        sourcePreflightFinalizedBlockHash: preflight.history.finalizedBlockHash,
+        maxTailBlocks: manifest.maxTailBlocks,
+        sourceManifestSignature,
+        reconcilerManifestSignature,
+      },
+    ]
+  )
+}
+
+export function legacyInventorySourcePreflightHash(
+  preflight: LegacyInventorySourcePreflight
+): string {
+  const { history } = preflight
+  const historyHash = ethers.utils.keccak256(
+    ethers.utils.defaultAbiCoder.encode(
+      [
+        "uint256",
+        "address",
+        "bytes32",
+        "uint256",
+        "uint256",
+        "bytes32",
+        "bytes32",
+        "bytes32",
+        "bytes32",
+        "uint256",
+        "uint256",
+        "uint256",
+        "uint256",
+        "uint256",
+        "bytes32",
+        "uint256",
+        "bytes32",
+      ],
+      [
+        history.chainId,
+        history.bridge,
+        history.emitterSetCommitment,
+        history.scanStartBlock,
+        history.finalizedBlock,
+        history.startParentHash,
+        history.startBlockHash,
+        history.finalizedBlockHash,
+        history.historyCommitment,
+        history.blockCount,
+        history.transactionCount,
+        history.receiptCount,
+        history.logCount,
+        history.emitterLogCount,
+        history.emitterLogDigest,
+        history.candidateCallCount,
+        history.candidateCallDigest,
+      ]
+    )
+  )
+  const routerStateHash = ethers.utils.keccak256(
+    ethers.utils.defaultAbiCoder.encode(
+      [
+        "tuple(address emitter,bytes32 runtimeCodeHash,bytes32 protocolId,uint256 identityCount,uint256 unresolvedChallengeCount,uint256 totalEscrow,uint256 balance,uint256 unrelatedBalance,bytes32 liabilityDigest)[]",
+      ],
+      [
+        preflight.routerStates.map((state) => ({
+          emitter: state.address,
+          runtimeCodeHash: state.runtimeCodeHash,
+          protocolId: state.protocolId,
+          identityCount: state.identityCount,
+          unresolvedChallengeCount: state.unresolvedChallengeCount,
+          totalEscrow: state.totalEscrow,
+          balance: state.balance,
+          unrelatedBalance: state.unrelatedBalance,
+          liabilityDigest: state.liabilityDigest,
+        })),
+      ]
+    )
+  )
+  return ethers.utils.keccak256(
+    ethers.utils.defaultAbiCoder.encode(
+      [
+        "bytes32",
+        "uint256",
+        "bytes32",
+        "uint256",
+        "bytes32",
+        "uint256",
+        "bytes32",
+        "uint256",
+        "uint256",
+        "bytes32",
+        "uint256",
+        "uint256",
+        "bytes32",
+      ],
+      [
+        historyHash,
+        preflight.sourceEventCount,
+        preflight.sourceEventDigest,
+        preflight.lifecycleEventCount,
+        preflight.lifecycleEventDigest,
+        preflight.challengeIdentityCount,
+        preflight.challengeIdentityDigest,
+        preflight.unresolvedChallengeCount,
+        preflight.totalEscrow,
+        preflight.legacyLiabilityDigest,
+        preflight.bridgeBalance,
+        preflight.unrelatedBridgeBalance,
+        routerStateHash,
       ]
     )
   )
@@ -585,22 +1639,57 @@ export function assertLegacyInventorySourcePreflight(
   observed: LegacyInventorySourcePreflight = manifest.legacyInventorySourcePreflight
 ): void {
   const expected = manifest.legacyInventorySourcePreflight
+  const expectedHistory = expected.history
+  const observedHistory = observed.history
   if (
-    !Number.isSafeInteger(expected.finalizedBlock) ||
-    expected.finalizedBlock < manifest.scanStartBlock ||
-    expected.finalizedBlock < manifest.bridgeDeploymentBlock ||
+    !Number.isSafeInteger(expectedHistory.finalizedBlock) ||
+    expectedHistory.scanStartBlock !== manifest.scanStartBlock ||
+    expectedHistory.finalizedBlock < manifest.scanStartBlock ||
+    expectedHistory.finalizedBlock < manifest.bridgeDeploymentBlock ||
+    expectedHistory.chainId !== manifest.chainId ||
+    expectedHistory.bridge.toLowerCase() !== manifest.bridge.toLowerCase() ||
+    expectedHistory.emitterSetCommitment.toLowerCase() !==
+      canonicalEmitterSetCommitment(manifest.historyEmitters).toLowerCase() ||
+    expectedHistory.blockCount !==
+      expectedHistory.finalizedBlock - expectedHistory.scanStartBlock + 1 ||
+    expectedHistory.transactionCount !== expectedHistory.receiptCount ||
+    expectedHistory.candidateCallCount !== expected.sourceEventCount ||
     !Number.isSafeInteger(expected.sourceEventCount) ||
     expected.sourceEventCount < 0 ||
     !Number.isSafeInteger(expected.challengeIdentityCount) ||
     expected.challengeIdentityCount < 0 ||
-    expected.challengeIdentityCount > expected.sourceEventCount
+    expected.challengeIdentityCount > expected.sourceEventCount ||
+    expected.unresolvedChallengeCount > expected.challengeIdentityCount ||
+    expected.unresolvedChallengeCount !== 0 ||
+    BigNumber.from(expected.bridgeBalance).lt(expected.totalEscrow) ||
+    !BigNumber.from(expected.unrelatedBridgeBalance).eq(
+      manifest.expectedUnrelatedBridgeBalance
+    ) ||
+    !BigNumber.from(expected.bridgeBalance).eq(
+      BigNumber.from(expected.totalEscrow).add(expected.unrelatedBridgeBalance)
+    ) ||
+    expected.routerStates.length !== manifest.historyEmitters.length - 1 ||
+    expected.routerStates.some((state, index) => {
+      const emitter = manifest.historyEmitters[index + 1]
+      return (
+        state.address.toLowerCase() !== emitter.address.toLowerCase() ||
+        state.runtimeCodeHash.toLowerCase() !==
+          emitter.runtimeCodeHash.toLowerCase() ||
+        state.unresolvedChallengeCount !== 0 ||
+        !BigNumber.from(state.totalEscrow).isZero() ||
+        !BigNumber.from(state.unrelatedBalance).eq(
+          emitter.expectedUnrelatedBalance
+        )
+      )
+    })
   ) {
     throw new Error("signed legacy inventory source preflight is malformed")
   }
   if (
-    observed.finalizedBlock !== expected.finalizedBlock ||
-    observed.finalizedBlockHash.toLowerCase() !==
-      expected.finalizedBlockHash.toLowerCase() ||
+    legacyInventorySourcePreflightHash(observed).toLowerCase() !==
+      legacyInventorySourcePreflightHash(expected).toLowerCase() ||
+    observedHistory.finalizedBlockHash.toLowerCase() !==
+      expectedHistory.finalizedBlockHash.toLowerCase() ||
     observed.sourceEventCount !== expected.sourceEventCount ||
     observed.sourceEventDigest.toLowerCase() !==
       expected.sourceEventDigest.toLowerCase() ||
@@ -614,17 +1703,289 @@ export function assertLegacyInventorySourcePreflight(
   }
 }
 
-export function assertManifestSignature(
-  manifest: HandoffManifest,
-  signature: string
-): void {
-  const recovered = ethers.utils.verifyMessage(
-    ethers.utils.arrayify(handoffPlanHash(manifest)),
-    signature
+const EIP1271_MAGIC_VALUE = "0x1626ba7e"
+const eip1271Interface = new ethers.utils.Interface([
+  "function isValidSignature(bytes32 hash,bytes signature) view returns (bytes4)",
+])
+
+export async function assertAuthoritySignature(
+  provider: providers.Provider,
+  signer: string,
+  digest: string,
+  signature: string,
+  label: string
+): Promise<void> {
+  const normalizedSigner = ethers.utils.getAddress(signer)
+  const signedMessageHash = ethers.utils.hashMessage(
+    ethers.utils.arrayify(digest)
   )
-  if (recovered.toLowerCase() !== manifest.reconciler.toLowerCase()) {
+  const code = await provider.getCode(normalizedSigner)
+  if (code !== "0x") {
+    let result: string
+    try {
+      result = await provider.call({
+        to: normalizedSigner,
+        data: eip1271Interface.encodeFunctionData("isValidSignature", [
+          signedMessageHash,
+          signature,
+        ]),
+      })
+    } catch (error) {
+      throw new Error(`${label} EIP-1271 validation failed: ${String(error)}`)
+    }
+    if (
+      ethers.utils.hexDataLength(result) < 4 ||
+      ethers.utils.hexDataSlice(result, 0, 4).toLowerCase() !==
+        EIP1271_MAGIC_VALUE
+    ) {
+      throw new Error(`${label} EIP-1271 signature is invalid`)
+    }
+    return
+  }
+
+  let recovered: string
+  try {
+    recovered = ethers.utils.verifyMessage(
+      ethers.utils.arrayify(digest),
+      signature
+    )
+  } catch (error) {
+    throw new Error(`${label} EOA signature is invalid: ${String(error)}`)
+  }
+  if (recovered.toLowerCase() !== normalizedSigner.toLowerCase()) {
+    throw new Error(`${label} signature is not from ${normalizedSigner}`)
+  }
+}
+
+export async function assertManifestSignature(
+  provider: providers.Provider,
+  manifest: HandoffManifest,
+  signature: string,
+  signer: "source" | "reconciler" = "reconciler"
+): Promise<void> {
+  const expected =
+    signer === "source" ? manifest.sourceSigner : manifest.reconciler
+  await assertAuthoritySignature(
+    provider,
+    expected,
+    handoffPlanHash(manifest),
+    signature,
+    `${signer} manifest`
+  )
+}
+
+const RECONCILER_RECOVERY_DOMAIN = ethers.utils.keccak256(
+  ethers.utils.toUtf8Bytes("tbtc/ecdsa-fraud-cutover/reconciler-recovery/v1")
+)
+const RECONCILER_ENROLLMENT_DOMAIN = ethers.utils.keccak256(
+  ethers.utils.toUtf8Bytes("tbtc/ecdsa-fraud-cutover/reconciler-enrollment/v1")
+)
+
+function storedAuthorityCommitment(
+  manifest: HandoffManifest,
+  currentReconciler: string,
+  currentReconcilerSourceId: string,
+  currentReconcilerContext: AuthorityContext
+): string {
+  return ethers.utils.keccak256(
+    ethers.utils.defaultAbiCoder.encode(
+      ["address", "bytes32", "bytes32", "address", "bytes32", "bytes32"],
+      [
+        manifest.sourceSigner,
+        manifest.sourceId,
+        authorityContextCommitment(
+          "source",
+          manifest.sourceSigner,
+          manifest.sourceId,
+          manifest.sourceContext
+        ),
+        currentReconciler,
+        currentReconcilerSourceId,
+        authorityContextCommitment(
+          "reconciler",
+          currentReconciler,
+          currentReconcilerSourceId,
+          currentReconcilerContext
+        ),
+      ]
+    )
+  )
+}
+
+export function reconcilerEnrollmentAttestationHash(
+  manifest: HandoffManifest,
+  inventoryCommitment: string,
+  currentReconciler: string,
+  currentReconcilerSourceId: string,
+  currentReconcilerContext: AuthorityContext,
+  newReconciler: string,
+  newReconcilerSourceId: string,
+  newReconcilerContext: AuthorityContext
+): string {
+  const pendingCheckpointRoleDigest = ethers.utils.keccak256(
+    ethers.utils.defaultAbiCoder.encode(
+      ["bytes32", "bytes32", "bytes32"],
+      [
+        RECONCILER_CHECKPOINT_DOMAIN,
+        manifest.sourceCheckpointCommitment,
+        authorityContextCommitment(
+          "reconciler",
+          newReconciler,
+          newReconcilerSourceId,
+          newReconcilerContext
+        ),
+      ]
+    )
+  )
+  return ethers.utils.keccak256(
+    ethers.utils.defaultAbiCoder.encode(
+      [
+        "bytes32",
+        "uint256",
+        "address",
+        "address",
+        "bytes32",
+        "bytes32",
+        "bytes32",
+        "bytes32",
+      ],
+      [
+        RECONCILER_ENROLLMENT_DOMAIN,
+        manifest.chainId,
+        manifest.newGovernance,
+        manifest.bridge,
+        inventoryCommitment,
+        handoffPlanHash(manifest),
+        storedAuthorityCommitment(
+          manifest,
+          currentReconciler,
+          currentReconcilerSourceId,
+          currentReconcilerContext
+        ),
+        pendingCheckpointRoleDigest,
+      ]
+    )
+  )
+}
+
+export function reconcilerRecoveryAttestationHash(
+  manifest: HandoffManifest,
+  inventoryCommitment: string,
+  currentReconciler: string,
+  currentReconcilerSourceId: string,
+  currentReconcilerContext: AuthorityContext,
+  enrollmentDigest: string,
+  enrollmentAttestation: string
+): string {
+  return ethers.utils.keccak256(
+    ethers.utils.defaultAbiCoder.encode(
+      [
+        "bytes32",
+        "uint256",
+        "address",
+        "address",
+        "bytes32",
+        "bytes32",
+        "bytes32",
+        "bytes32",
+        "bytes32",
+      ],
+      [
+        RECONCILER_RECOVERY_DOMAIN,
+        manifest.chainId,
+        manifest.newGovernance,
+        manifest.bridge,
+        inventoryCommitment,
+        handoffPlanHash(manifest),
+        storedAuthorityCommitment(
+          manifest,
+          currentReconciler,
+          currentReconcilerSourceId,
+          currentReconcilerContext
+        ),
+        enrollmentDigest,
+        ethers.utils.keccak256(enrollmentAttestation),
+      ]
+    )
+  )
+}
+
+export function assertCutoverAuthoritySeparation(
+  manifest: HandoffManifest
+): void {
+  const preflightBlock =
+    manifest.legacyInventorySourcePreflight.history.finalizedBlock
+  if (
+    manifest.version !== 4 ||
+    !ethers.utils.isHexString(manifest.sourceCheckpointCommitment, 32) ||
+    BigNumber.from(manifest.sourceCheckpointCommitment).isZero() ||
+    !Number.isSafeInteger(manifest.maxTailBlocks) ||
+    manifest.maxTailBlocks < ECDSA_CUTOVER_MIN_AUTHENTICATED_TAIL_BLOCKS ||
+    manifest.maxTailBlocks > ECDSA_CUTOVER_MAX_AUTHENTICATED_TAIL_BLOCKS ||
+    preflightBlock < ECDSA_CUTOVER_DEFAULT_PREFLIGHT_CONFIRMATIONS
+  ) {
+    throw new Error("cutover authenticated-tail commitment is malformed")
+  }
+  const zeroAddress = ethers.constants.AddressZero.toLowerCase()
+  const sourceSigner = ethers.utils.getAddress(manifest.sourceSigner)
+  const reconciler = ethers.utils.getAddress(manifest.reconciler)
+  const governanceOwner = ethers.utils.getAddress(manifest.governanceOwner)
+  const oldGovernance = ethers.utils.getAddress(manifest.oldGovernance)
+  const newGovernance = ethers.utils.getAddress(manifest.newGovernance)
+  const addresses = [sourceSigner, reconciler]
+  if (addresses.some((address) => address.toLowerCase() === zeroAddress)) {
+    throw new Error("cutover source/reconciler authority cannot be zero")
+  }
+  if (sourceSigner.toLowerCase() === reconciler.toLowerCase()) {
+    throw new Error("cutover source signer and reconciler must be distinct")
+  }
+  for (const authority of addresses) {
+    if (
+      authority.toLowerCase() === governanceOwner.toLowerCase() ||
+      authority.toLowerCase() === oldGovernance.toLowerCase() ||
+      authority.toLowerCase() === newGovernance.toLowerCase()
+    ) {
+      throw new Error(
+        "cutover source/reconciler authorities must be distinct from owner and governance"
+      )
+    }
+  }
+  const sourceId = ethers.utils.hexZeroPad(manifest.sourceId, 32)
+  const reconcilerSourceId = ethers.utils.hexZeroPad(
+    manifest.reconcilerSourceId,
+    32
+  )
+  if (
+    sourceId === ethers.constants.HashZero ||
+    reconcilerSourceId === ethers.constants.HashZero ||
+    sourceId.toLowerCase() === reconcilerSourceId.toLowerCase()
+  ) {
     throw new Error(
-      `handoff manifest signature is not from reconciler ${manifest.reconciler}`
+      "cutover source and reconciler provider identities must be nonzero and distinct"
+    )
+  }
+  const { sourceContext, reconcilerContext } = manifest
+  const fields: Array<keyof AuthorityContext> = [
+    "durableStoreIdentity",
+    "endpointIdentity",
+    "trustDomain",
+    "policyHash",
+  ]
+  if (
+    !sourceContext ||
+    !reconcilerContext ||
+    fields.some(
+      (field) =>
+        !ethers.utils.isHexString(sourceContext[field], 32) ||
+        !ethers.utils.isHexString(reconcilerContext[field], 32) ||
+        BigNumber.from(sourceContext[field]).isZero() ||
+        BigNumber.from(reconcilerContext[field]).isZero() ||
+        sourceContext[field].toLowerCase() ===
+          reconcilerContext[field].toLowerCase()
+    )
+  ) {
+    throw new Error(
+      "cutover authority store, endpoint, trust-domain, and policy identities must be nonzero and role-distinct"
     )
   }
 }
@@ -778,6 +2139,28 @@ export function assertCanonicalInventory(
     throw new Error("inventory scan does not end at the finalized block")
   }
   if (
+    inventory.history.chainId !== manifest.chainId ||
+    inventory.history.bridge.toLowerCase() !== manifest.bridge.toLowerCase() ||
+    inventory.history.emitterSetCommitment.toLowerCase() !==
+      canonicalEmitterSetCommitment(manifest.historyEmitters).toLowerCase() ||
+    inventory.history.scanStartBlock !== inventory.scanStartBlock ||
+    inventory.history.finalizedBlock !== inventory.finalizedBlock ||
+    inventory.history.finalizedBlockHash.toLowerCase() !==
+      inventory.finalizedBlockHash.toLowerCase() ||
+    inventory.history.blockCount !==
+      inventory.finalizedBlock - inventory.scanStartBlock + 1 ||
+    inventory.history.transactionCount !== inventory.history.receiptCount ||
+    inventory.history.candidateCallCount !== inventory.sourceEventCount
+  ) {
+    throw new Error("canonical receipt history metadata mismatch")
+  }
+  if (
+    canonicalInventoryHistoryHash(inventory).toLowerCase() !==
+    inventory.historyEvidenceHash.toLowerCase()
+  ) {
+    throw new Error("canonical receipt history evidence hash mismatch")
+  }
+  if (
     inventory.challenges.length !== inventory.challengeCount ||
     inventory.challengeKeys.length !== inventory.challenges.length
   ) {
@@ -826,14 +2209,45 @@ export function assertCanonicalInventory(
   ) {
     throw new Error("inventory challenge-set hash mismatch")
   }
-  if (!BigNumber.from(inventory.oldRouterOpenChallengeCount).isZero()) {
+  if (
+    !BigNumber.from(inventory.oldRouterOpenChallengeCount).isZero() ||
+    !BigNumber.from(inventory.oldRouterOpenChallengeEscrow).isZero() ||
+    inventory.routerStates.length !== manifest.historyEmitters.length - 1 ||
+    inventory.routerStates.some(
+      (state) =>
+        state.unresolvedChallengeCount !== 0 ||
+        !BigNumber.from(state.totalEscrow).isZero()
+    )
+  ) {
     throw new Error("old router still has unresolved challenges")
   }
   if (
-    BigNumber.from(inventory.bridgeLegacyEscrowBalance).lt(
-      inventory.totalEscrow
+    !BigNumber.from(inventory.unrelatedBridgeBalance).eq(
+      manifest.expectedUnrelatedBridgeBalance
+    ) ||
+    !BigNumber.from(inventory.bridgeBalance).eq(
+      BigNumber.from(inventory.totalEscrow).add(
+        inventory.unrelatedBridgeBalance
+      )
     )
   ) {
-    throw new Error("Bridge balance is below committed legacy escrow")
+    throw new Error(
+      "Bridge balance does not equal legacy escrow plus signed unrelated funds"
+    )
+  }
+  if (
+    inventory.lifecycleEventCount < inventory.sourceEventCount ||
+    inventory.challengeCount > inventory.sourceEventCount ||
+    inventory.history.emitterLogCount < inventory.lifecycleEventCount
+  ) {
+    throw new Error("canonical lifecycle/event accounting mismatch")
+  }
+  if (
+    inventory.challengeCount !== 0 ||
+    !BigNumber.from(inventory.totalEscrow).isZero()
+  ) {
+    throw new Error(
+      "cutover activation requires an empty Bridge legacy inventory"
+    )
   }
 }
