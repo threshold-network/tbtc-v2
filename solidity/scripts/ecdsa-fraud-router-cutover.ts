@@ -28,6 +28,7 @@ import {
   assertLegacyGovernanceReadyForHandoff,
   assertLegacyInventorySourcePreflight,
   assertManifestSignature,
+  artifactContentHashBytes32,
   AuthorityContext,
   authorityContextCommitment,
   BRIDGE_LEGACY_FRAUD_STORAGE_LAYOUT_HASH,
@@ -107,6 +108,9 @@ type CutoverState = {
   sourceCheckpointCommitment: string
   sourcePreflightCommitment: string
   sourcePreflightBlock: BigNumber
+  evidenceGeneration: number
+  evidenceAnchorArtifactHash: string
+  evidencePredecessorArtifactHash: string
   drainBlock: BigNumber
   maxTailBlocks: number
   stageDeadlineBlock: BigNumber
@@ -178,8 +182,32 @@ function saveManifest(
   action?: string,
   txHash?: string
 ): void {
+  if (!manifestFileContentHash) {
+    throw new Error("cutover manifest CAS state is unavailable")
+  }
+  const cutoverAuthorizationBound =
+    action === "begin-drain" || Boolean(manifest.transactions?.["begin-drain"])
+  const predecessorArtifactHash = artifactContentHashBytes32(
+    manifestFileContentHash
+  )
+  const evidenceLineage = cutoverAuthorizationBound
+    ? {
+        evidenceGeneration: manifest.evidenceGeneration,
+        evidenceAnchorArtifactHash: manifest.evidenceAnchorArtifactHash,
+        evidencePredecessorArtifactHash:
+          manifest.evidencePredecessorArtifactHash,
+      }
+    : {
+        evidenceGeneration: manifest.evidenceGeneration + 1,
+        evidenceAnchorArtifactHash:
+          manifest.evidenceGeneration === 0
+            ? predecessorArtifactHash
+            : manifest.evidenceAnchorArtifactHash,
+        evidencePredecessorArtifactHash: predecessorArtifactHash,
+      }
   const updated: HandoffManifest = {
     ...manifest,
+    ...evidenceLineage,
     phase,
     transactions: {
       ...(manifest.transactions ?? {}),
@@ -187,9 +215,6 @@ function saveManifest(
     },
   }
   const file = manifestPath()
-  if (!manifestFileContentHash) {
-    throw new Error("cutover manifest CAS state is unavailable")
-  }
   manifestFileContentHash = writeCutoverManifest(file, updated, {
     expectedCurrentContentHash: manifestFileContentHash,
   })
@@ -197,6 +222,13 @@ function saveManifest(
   // dropping the transaction hash that was just persisted atomically.
   // eslint-disable-next-line no-param-reassign
   manifest.phase = updated.phase
+  // eslint-disable-next-line no-param-reassign
+  manifest.evidenceGeneration = updated.evidenceGeneration
+  // eslint-disable-next-line no-param-reassign
+  manifest.evidenceAnchorArtifactHash = updated.evidenceAnchorArtifactHash
+  // eslint-disable-next-line no-param-reassign
+  manifest.evidencePredecessorArtifactHash =
+    updated.evidencePredecessorArtifactHash
   // eslint-disable-next-line no-param-reassign
   manifest.transactions = updated.transactions
 }
@@ -243,6 +275,9 @@ function normalizeState(raw: any): CutoverState {
     sourceCheckpointCommitment: raw.sourceCheckpointCommitment,
     sourcePreflightCommitment: raw.sourcePreflightCommitment,
     sourcePreflightBlock: raw.sourcePreflightBlock,
+    evidenceGeneration: Number(raw.evidenceGeneration),
+    evidenceAnchorArtifactHash: raw.evidenceAnchorArtifactHash,
+    evidencePredecessorArtifactHash: raw.evidencePredecessorArtifactHash,
     drainBlock: raw.drainBlock,
     maxTailBlocks: Number(raw.maxTailBlocks),
     stageDeadlineBlock: raw.stageDeadlineBlock,
@@ -361,7 +396,7 @@ async function assertManifestStatic(
   bridge: Contract,
   newGovernance: Contract
 ): Promise<void> {
-  if (manifest.version !== 4) throw new Error("unsupported manifest version")
+  if (manifest.version !== 5) throw new Error("unsupported manifest version")
   if (!manifest.legacyInventorySourcePreflight) {
     throw new Error("manifest lacks signed legacy inventory source preflight")
   }
@@ -466,6 +501,7 @@ async function assertManifestStatic(
     throw new Error("signed legacy inventory source block is not canonical")
   }
   const [
+    newGovernanceBridge,
     newOwner,
     newDelay,
     pendingDelay,
@@ -476,6 +512,7 @@ async function assertManifestStatic(
     liveGovernance,
     replacementActivationEpoch,
   ] = await Promise.all([
+    newGovernance.bridgeAddress(),
     newGovernance.owner(),
     newGovernance.governanceDelays(0),
     newGovernance.governanceDelays(1),
@@ -488,6 +525,11 @@ async function assertManifestStatic(
       await ethers.getContractAt("EcdsaFraudRouter", manifest.replacementRouter)
     ).migratedChallengesActivatedAt(),
   ])
+  if (!sameAddress(newGovernanceBridge, manifest.bridge)) {
+    throw new Error(
+      `new BridgeGovernance targets ${newGovernanceBridge}, not ${manifest.bridge}`
+    )
+  }
   if (!sameAddress(newOwner, manifest.governanceOwner)) {
     throw new Error(`new BridgeGovernance owner mismatch: ${newOwner}`)
   }
@@ -870,6 +912,15 @@ function assertStateManifest(
     !state.sourcePreflightBlock.eq(
       manifest.legacyInventorySourcePreflight.history.finalizedBlock
     ) ||
+    state.evidenceGeneration !== manifest.evidenceGeneration ||
+    !sameHash(
+      state.evidenceAnchorArtifactHash,
+      manifest.evidenceAnchorArtifactHash
+    ) ||
+    !sameHash(
+      state.evidencePredecessorArtifactHash,
+      manifest.evidencePredecessorArtifactHash
+    ) ||
     state.drainBlock.lte(state.sourcePreflightBlock) ||
     state.drainBlock
       .sub(state.sourcePreflightBlock)
@@ -1249,18 +1300,27 @@ async function refreshPreflight(
     manifest.historyEmitters,
     scan
   )
+  if (!manifestFileContentHash) {
+    throw new Error("cutover manifest CAS state is unavailable")
+  }
+  const predecessorArtifactHash = artifactContentHashBytes32(
+    manifestFileContentHash
+  )
   const refreshed: HandoffManifest = {
     ...manifest,
     legacyInventorySourcePreflight: preflight,
     sourceCheckpointCommitment: canonicalHistoryCheckpointCommitment(scan),
     maxTailBlocks,
+    evidenceGeneration: manifest.evidenceGeneration + 1,
+    evidenceAnchorArtifactHash:
+      manifest.evidenceGeneration === 0
+        ? predecessorArtifactHash
+        : manifest.evidenceAnchorArtifactHash,
+    evidencePredecessorArtifactHash: predecessorArtifactHash,
     phase: "preflight-refreshed-awaiting-dual-signatures",
   }
   assertCutoverAuthoritySeparation(refreshed)
   assertLegacyInventorySourcePreflight(refreshed)
-  if (!manifestFileContentHash) {
-    throw new Error("cutover manifest CAS state is unavailable")
-  }
   manifestFileContentHash = writeCutoverManifest(manifestPath(), refreshed, {
     expectedCurrentContentHash: manifestFileContentHash,
   })

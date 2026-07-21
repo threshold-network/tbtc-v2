@@ -21,6 +21,14 @@ export const ECDSA_CUTOVER_BLOCKHASH_WINDOW = 255
 export const ECDSA_CUTOVER_DEFAULT_PREFLIGHT_CONFIRMATIONS = 64
 export const ECDSA_CUTOVER_DEFAULT_MIN_BEGIN_SLACK_BLOCKS = 16
 
+export function artifactContentHashBytes32(contentHash: string): string {
+  const match = /^sha256:([0-9a-f]{64})$/.exec(contentHash)
+  if (!match) {
+    throw new Error("cutover artifact content hash is malformed")
+  }
+  return `0x${match[1]}`
+}
+
 export type CutoverPreflightTiming = {
   preflightBlock: number
   maxTailBlocks: number
@@ -120,7 +128,7 @@ export type AuthorityContext = {
 }
 
 export type HandoffManifest = {
-  version: 4
+  version: 5
   chainId: number
   bridge: string
   bridgeDeploymentBlock: number
@@ -142,6 +150,9 @@ export type HandoffManifest = {
   legacyInventorySourcePreflight: LegacyInventorySourcePreflight
   sourceCheckpointCommitment: string
   maxTailBlocks: number
+  evidenceGeneration: number
+  evidenceAnchorArtifactHash: string
+  evidencePredecessorArtifactHash: string
   sourceSigner: string
   sourceId: string
   sourceContext: AuthorityContext
@@ -229,7 +240,7 @@ const LEGACY_FRAUD_CHALLENGES_MAPPING_SLOT =
   BRIDGE_LEGACY_FRAUD_STORAGE_LAYOUT.fraudChallengesAbsoluteSlot
 const fraudSubmissionInterface = new ethers.utils.Interface([
   "event FraudChallengeSubmitted(bytes20 indexed walletPubKeyHash,bytes32 sighash,uint8 v,bytes32 r,bytes32 s)",
-  "function submitFraudChallenge(bytes walletPublicKey,bytes preimageSha256,(uint8 v,bytes32 r,bytes32 s) signature)",
+  "function submitFraudChallenge(bytes walletPublicKey,bytes preimageSha256,(bytes32 r,bytes32 s,uint8 v) signature)",
 ])
 const fraudLifecycleInterface = new ethers.utils.Interface([
   "event FraudChallengeSubmitted(bytes20 indexed walletPubKeyHash,bytes32 sighash,uint8 v,bytes32 r,bytes32 s)",
@@ -1413,7 +1424,7 @@ export function inventorySourceAttestationHash(
 }
 
 const BEGIN_AUTHORITY_DOMAIN = ethers.utils.keccak256(
-  ethers.utils.toUtf8Bytes("tbtc/ecdsa-fraud-cutover/begin-authority/v1")
+  ethers.utils.toUtf8Bytes("tbtc/ecdsa-fraud-cutover/begin-authority/v2")
 )
 const OWNER_AUTHORIZATION_DOMAIN = ethers.utils.keccak256(
   ethers.utils.toUtf8Bytes("tbtc/ecdsa-fraud-cutover/owner-authorization/v1")
@@ -1473,6 +1484,9 @@ export function handoffPlanHash(manifest: HandoffManifest): string {
         "uint64",
         "bytes32",
         "uint8",
+        "uint32",
+        "bytes32",
+        "bytes32",
       ],
       [
         canonicalEmitterSetCommitment(manifest.historyEmitters),
@@ -1482,6 +1496,9 @@ export function handoffPlanHash(manifest: HandoffManifest): string {
         preflight.history.finalizedBlock,
         preflight.history.finalizedBlockHash,
         manifest.maxTailBlocks,
+        manifest.evidenceGeneration,
+        manifest.evidenceAnchorArtifactHash,
+        manifest.evidencePredecessorArtifactHash,
       ]
     )
   )
@@ -1505,7 +1522,7 @@ export function encodeAuthorityProof(
   const preflight = manifest.legacyInventorySourcePreflight
   return ethers.utils.defaultAbiCoder.encode(
     [
-      "tuple(address sourceSigner,bytes32 sourceId,tuple(bytes32 durableStoreIdentity,bytes32 endpointIdentity,bytes32 trustDomain,bytes32 policyHash) sourceContext,address reconciler,bytes32 reconcilerSourceId,tuple(bytes32 durableStoreIdentity,bytes32 endpointIdentity,bytes32 trustDomain,bytes32 policyHash) reconcilerContext,bytes32 manifestPlanHash,bytes32 emitterSetCommitment,bytes32 sourcePreflightCommitment,bytes32 sourceCheckpointCommitment,uint64 sourcePreflightFinalizedBlock,bytes32 sourcePreflightFinalizedBlockHash,uint8 maxTailBlocks,bytes sourceManifestSignature,bytes reconcilerManifestSignature)",
+      "tuple(address sourceSigner,bytes32 sourceId,tuple(bytes32 durableStoreIdentity,bytes32 endpointIdentity,bytes32 trustDomain,bytes32 policyHash) sourceContext,address reconciler,bytes32 reconcilerSourceId,tuple(bytes32 durableStoreIdentity,bytes32 endpointIdentity,bytes32 trustDomain,bytes32 policyHash) reconcilerContext,bytes32 manifestPlanHash,uint32 evidenceGeneration,bytes32 evidenceAnchorArtifactHash,bytes32 evidencePredecessorArtifactHash,bytes32 emitterSetCommitment,bytes32 sourcePreflightCommitment,bytes32 sourceCheckpointCommitment,uint64 sourcePreflightFinalizedBlock,bytes32 sourcePreflightFinalizedBlockHash,uint8 maxTailBlocks,bytes sourceManifestSignature,bytes reconcilerManifestSignature)",
     ],
     [
       {
@@ -1516,6 +1533,10 @@ export function encodeAuthorityProof(
         reconcilerSourceId: manifest.reconcilerSourceId,
         reconcilerContext: manifest.reconcilerContext,
         manifestPlanHash: handoffPlanHash(manifest),
+        evidenceGeneration: manifest.evidenceGeneration,
+        evidenceAnchorArtifactHash: manifest.evidenceAnchorArtifactHash,
+        evidencePredecessorArtifactHash:
+          manifest.evidencePredecessorArtifactHash,
         emitterSetCommitment: canonicalEmitterSetCommitment(
           manifest.historyEmitters
         ),
@@ -1915,8 +1936,29 @@ export function assertCutoverAuthoritySeparation(
 ): void {
   const preflightBlock =
     manifest.legacyInventorySourcePreflight.history.finalizedBlock
+  const validEvidenceGeneration =
+    Number.isSafeInteger(manifest.evidenceGeneration) &&
+    manifest.evidenceGeneration >= 0 &&
+    manifest.evidenceGeneration <= 0xffffffff
+  const validEvidenceHashes =
+    ethers.utils.isHexString(manifest.evidenceAnchorArtifactHash, 32) &&
+    ethers.utils.isHexString(manifest.evidencePredecessorArtifactHash, 32)
+  const initialEvidence =
+    manifest.evidenceGeneration === 0 &&
+    manifest.evidenceAnchorArtifactHash === ethers.constants.HashZero &&
+    manifest.evidencePredecessorArtifactHash === ethers.constants.HashZero
+  const refreshedEvidence =
+    manifest.evidenceGeneration > 0 &&
+    manifest.evidenceAnchorArtifactHash !== ethers.constants.HashZero &&
+    manifest.evidencePredecessorArtifactHash !== ethers.constants.HashZero &&
+    (manifest.evidenceGeneration !== 1 ||
+      manifest.evidenceAnchorArtifactHash.toLowerCase() ===
+        manifest.evidencePredecessorArtifactHash.toLowerCase())
   if (
-    manifest.version !== 4 ||
+    manifest.version !== 5 ||
+    !validEvidenceGeneration ||
+    !validEvidenceHashes ||
+    (!initialEvidence && !refreshedEvidence) ||
     !ethers.utils.isHexString(manifest.sourceCheckpointCommitment, 32) ||
     BigNumber.from(manifest.sourceCheckpointCommitment).isZero() ||
     !Number.isSafeInteger(manifest.maxTailBlocks) ||

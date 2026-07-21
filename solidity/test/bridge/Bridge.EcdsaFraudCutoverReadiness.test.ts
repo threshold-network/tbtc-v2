@@ -2,7 +2,7 @@ import { expect } from "chai"
 import { ethers } from "hardhat"
 
 describe("BridgeGovernance ECDSA cutover readiness ABI", () => {
-  it("has the fixed selector, exact 38-word order, and all-zero idle vector", async () => {
+  it("has the fixed selector, exact 41-word order, and all-zero idle vector", async () => {
     const parameters = await (
       await ethers.getContractFactory("BridgeGovernanceParameters")
     ).deploy()
@@ -33,8 +33,8 @@ describe("BridgeGovernance ECDSA cutover readiness ABI", () => {
       to: governance.address,
       data: "0x4c1a700d",
     })
-    expect(ethers.utils.hexDataLength(raw)).to.equal(38 * 32)
-    expect(raw).to.equal(`0x${"00".repeat(38 * 32)}`)
+    expect(ethers.utils.hexDataLength(raw)).to.equal(41 * 32)
+    expect(raw).to.equal(`0x${"00".repeat(41 * 32)}`)
 
     const [readiness] = governance.interface.decodeFunctionResult(
       "ecdsaFraudCutoverReadiness",
@@ -96,6 +96,13 @@ describe("BridgeGovernance ECDSA cutover readiness ABI", () => {
       ethers.constants.HashZero
     )
     expect(readiness.sourcePreflightBlock).to.equal(0)
+    expect(readiness.evidenceGeneration).to.equal(0)
+    expect(readiness.evidenceAnchorArtifactHash).to.equal(
+      ethers.constants.HashZero
+    )
+    expect(readiness.evidencePredecessorArtifactHash).to.equal(
+      ethers.constants.HashZero
+    )
     expect(readiness.drainBlock).to.equal(0)
     expect(readiness.maxTailBlocks).to.equal(0)
     expect(readiness.stageDeadlineBlock).to.equal(0)

@@ -494,7 +494,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
       updatedJournal
     )
   const manifest: HandoffManifest = {
-    version: 4,
+    version: 5,
     chainId: (await ethers.provider.getNetwork()).chainId,
     bridge: bridge.address,
     bridgeDeploymentBlock,
@@ -526,6 +526,9 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     sourceCheckpointCommitment:
       canonicalHistoryCheckpointCommitment(updatedJournal),
     maxTailBlocks: timing.maxTailBlocks,
+    evidenceGeneration: 0,
+    evidenceAnchorArtifactHash: ethers.constants.HashZero,
+    evidencePredecessorArtifactHash: ethers.constants.HashZero,
     sourceSigner: ethers.utils.getAddress(sourceSigner),
     sourceId: ethers.utils.hexZeroPad(sourceId, 32),
     sourceContext,

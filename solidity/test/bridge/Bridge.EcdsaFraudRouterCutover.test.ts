@@ -15,7 +15,7 @@ const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { increaseTime } = helpers.time
 
 const BEGIN_AUTHORITY_DOMAIN = ethers.utils.id(
-  "tbtc/ecdsa-fraud-cutover/begin-authority/v1"
+  "tbtc/ecdsa-fraud-cutover/begin-authority/v2"
 )
 const OWNER_AUTHORIZATION_DOMAIN = ethers.utils.id(
   "tbtc/ecdsa-fraud-cutover/owner-authorization/v1"
@@ -54,7 +54,7 @@ const HISTORY_TUPLE =
   "tuple(bytes32 historyCommitment,bytes32 emitterSetCommitment,uint64 blockCount,uint64 transactionCount,uint64 receiptCount,uint64 logCount,uint64 emitterLogCount,uint64 candidateCallCount,uint64 sourceEventCount,uint64 lifecycleEventCount,bytes32 emitterLogDigest,bytes32 candidateCallDigest,bytes32 sourceEventDigest,bytes32 lifecycleEventDigest,bytes32 legacyLiabilityDigest,uint256 bridgeBalance,uint256 unrelatedBridgeBalance)"
 const SNAPSHOT_TUPLE = `tuple(uint64 finalizedBlock,bytes32 finalizedBlockHash,bytes32 challengeSetHash,uint32 challengeCount,uint256 totalEscrow,${HISTORY_TUPLE} history)`
 const OWNER_AUTHORIZATION_TUPLE = `tuple(address oldRouter,bytes32 oldRouterCodeHash,address newRouter,bytes32 newRouterCodeHash,uint64 scanStartBlock,address sourceSigner,bytes32 sourceId,${CONTEXT_TUPLE} sourceContext,address reconciler,bytes32 reconcilerSourceId,${CONTEXT_TUPLE} reconcilerContext,bytes32 emitterSetCommitment)`
-const PROOF_TUPLE = `tuple(address sourceSigner,bytes32 sourceId,${CONTEXT_TUPLE} sourceContext,address reconciler,bytes32 reconcilerSourceId,${CONTEXT_TUPLE} reconcilerContext,bytes32 manifestPlanHash,bytes32 emitterSetCommitment,bytes32 sourcePreflightCommitment,bytes32 sourceCheckpointCommitment,uint64 sourcePreflightFinalizedBlock,bytes32 sourcePreflightFinalizedBlockHash,uint8 maxTailBlocks,bytes sourceManifestSignature,bytes reconcilerManifestSignature)`
+const PROOF_TUPLE = `tuple(address sourceSigner,bytes32 sourceId,${CONTEXT_TUPLE} sourceContext,address reconciler,bytes32 reconcilerSourceId,${CONTEXT_TUPLE} reconcilerContext,bytes32 manifestPlanHash,uint32 evidenceGeneration,bytes32 evidenceAnchorArtifactHash,bytes32 evidencePredecessorArtifactHash,bytes32 emitterSetCommitment,bytes32 sourcePreflightCommitment,bytes32 sourceCheckpointCommitment,uint64 sourcePreflightFinalizedBlock,bytes32 sourcePreflightFinalizedBlockHash,uint8 maxTailBlocks,bytes sourceManifestSignature,bytes reconcilerManifestSignature)`
 
 type AuthorityContext = {
   durableStoreIdentity: string
@@ -87,6 +87,9 @@ type AuthorityPlan = OwnerPlan & {
   preflightBlock: number
   preflightBlockHash: string
   maxTailBlocks: number
+  evidenceGeneration: number
+  evidenceAnchorArtifactHash: string
+  evidencePredecessorArtifactHash: string
   planHash: string
   encodedProof: string
   drainBlock?: number
@@ -187,7 +190,9 @@ describe("Bridge - ECDSA fraud router cutover", () => {
     )
   }
 
-  function authorityCommitment(plan: OwnerPlan): string {
+  function authorityCommitment(
+    plan: Omit<OwnerPlan, "ownerAuthorizationHash">
+  ): string {
     return ethers.utils.keccak256(
       ethers.utils.defaultAbiCoder.encode(
         ["address", "bytes32", "bytes32", "address", "bytes32", "bytes32"],
@@ -387,6 +392,9 @@ describe("Bridge - ECDSA fraud router cutover", () => {
     const maxTailBlocks = options.maxTailBlocks ?? 64
     const sourcePreflightCommitment = ethers.utils.id("full-preflight")
     const sourceCheckpointCommitment = ethers.utils.id("exact-checkpoint")
+    const evidenceGeneration = 1
+    const evidenceAnchorArtifactHash = ethers.utils.id("artifact-anchor")
+    const evidencePredecessorArtifactHash = evidenceAnchorArtifactHash
     const sourceContextCommitment = contextCommitment(
       SOURCE_CONTEXT_DOMAIN,
       ownerPlan.sourceSigner,
@@ -429,6 +437,9 @@ describe("Bridge - ECDSA fraud router cutover", () => {
           "uint64",
           "bytes32",
           "uint8",
+          "uint32",
+          "bytes32",
+          "bytes32",
         ],
         [
           ownerPlan.emitterSetCommitment,
@@ -438,6 +449,9 @@ describe("Bridge - ECDSA fraud router cutover", () => {
           preflightBlock,
           preflightBlockHash,
           maxTailBlocks,
+          evidenceGeneration,
+          evidenceAnchorArtifactHash,
+          evidencePredecessorArtifactHash,
         ]
       )
     )
@@ -470,6 +484,9 @@ describe("Bridge - ECDSA fraud router cutover", () => {
           reconcilerSourceId: ownerPlan.reconcilerSourceId,
           reconcilerContext: ownerPlan.reconcilerContext,
           manifestPlanHash: planHash,
+          evidenceGeneration,
+          evidenceAnchorArtifactHash,
+          evidencePredecessorArtifactHash,
           emitterSetCommitment: ownerPlan.emitterSetCommitment,
           sourcePreflightCommitment,
           sourceCheckpointCommitment,
@@ -488,6 +505,9 @@ describe("Bridge - ECDSA fraud router cutover", () => {
       preflightBlock,
       preflightBlockHash,
       maxTailBlocks,
+      evidenceGeneration,
+      evidenceAnchorArtifactHash,
+      evidencePredecessorArtifactHash,
       planHash,
       encodedProof,
     }

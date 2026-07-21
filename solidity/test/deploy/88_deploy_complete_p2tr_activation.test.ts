@@ -5,20 +5,24 @@ import fs from "fs"
 import os from "os"
 import path from "path"
 import { expect } from "chai"
-import { Wallet, constants, providers, utils } from "ethers"
-import { artifacts } from "hardhat"
+import type { Deployment } from "hardhat-deploy/types"
+import { BigNumber, Wallet, constants, providers, utils } from "ethers"
+import { artifacts, deployments, ethers, network, waffle } from "hardhat"
 import deployCompleteP2TRActivation, {
   ACTIVATION_ARTIFACT_SCHEMA,
-  AuthorityKind,
   BRIDGE_FROST_REGISTRY_STORAGE_SLOT,
   BRIDGE_LIFECYCLE_ROUTER_STORAGE_SLOT,
   CoverageInventoryDocument,
+  ECDSA_CUTOVER_PROTOCOL_ID,
+  EcdsaCutoverBinding,
+  EcdsaCutoverDeployments,
   EIP_1967_IMPLEMENTATION_SLOT,
   FROST_ARCHIVE_STATE_COMPLETED,
   FROST_ARCHIVE_STATE_FRESH,
   FROST_FRESH_ARCHIVE_SCHEMA_HASH,
   FrostLifecyclePrerequisiteReceipt,
   PreparedCall,
+  assertEcdsaCutoverResume,
   assertFrostPrerequisiteResumeBinding,
   assertRuntimeCode,
   buildAuthorityEnvelope,
@@ -27,6 +31,7 @@ import deployCompleteP2TRActivation, {
   immutableFrostPrerequisiteBinding,
   reconcilePhase,
   resolveFrostLifecycleInstallPlan,
+  validateEcdsaCutoverBinding,
   verifyFrostLifecyclePrerequisites,
 } from "../../deploy/88_deploy_complete_p2tr_activation"
 import {
@@ -44,6 +49,15 @@ import {
   hashArchiveManifestV2,
   hashArchivePhaseArtifact,
 } from "../../deploy/54_upgrade_frost_wallet_registry_archive"
+import { canonicalEmitterSetCommitment } from "../../scripts/ecdsa-fraud-router-canonical-history"
+import {
+  BRIDGE_LEGACY_FRAUD_STORAGE_LAYOUT_HASH,
+  HandoffManifest,
+  LEGACY_GOVERNANCE_STORAGE_LAYOUT_HASH,
+  encodeAuthorityProof,
+  handoffPlanHash,
+} from "../../scripts/ecdsa-fraud-router-cutover-lib"
+import bridgeFixture from "../fixtures/bridge"
 
 describe("Deploy Script 88: COMPLETE_V2 activation", () => {
   const bridge = "0x1000000000000000000000000000000000000001"
@@ -704,9 +718,7 @@ describe("Deploy Script 88: COMPLETE_V2 activation", () => {
     expect(envelope.timelockSchedule).to.be.undefined
   })
 
-  for (const kind of ["safe", "timelock"] as Array<
-    Exclude<AuthorityKind, "eoa">
-  >) {
+  for (const kind of ["safe", "timelock"] as const) {
     it(`prepares deterministic ${kind} contract-authority calldata without a local signer`, async () => {
       expect(
         await classifyAuthority(
@@ -881,7 +893,7 @@ describe("Deploy Script 88: COMPLETE_V2 activation", () => {
     ])
     expect(inventory.entries[0].migrationPayload).to.match(/^0x[0-9a-f]+$/)
     expect(ACTIVATION_ARTIFACT_SCHEMA).to.equal(
-      "tbtc/complete-p2tr-activation/v3"
+      "tbtc/complete-p2tr-activation/v4"
     )
 
     expect(() =>
@@ -896,5 +908,547 @@ describe("Deploy Script 88: COMPLETE_V2 activation", () => {
         entries: [{ ...manifest.entries[0], index: 1 }],
       })
     ).to.throw("contiguous positional indices")
+  })
+})
+
+describe("Deploy Script 88: finalized step-87 ECDSA reuse", () => {
+  const artifactHash = `sha256:${"ab".repeat(32)}`
+
+  const expectRejected = async (
+    promise: Promise<unknown>,
+    message: string
+  ): Promise<void> => {
+    try {
+      await promise
+      expect.fail(`expected rejection containing: ${message}`)
+    } catch (error) {
+      expect(String(error)).to.include(message)
+    }
+  }
+
+  const deployment = (address: string): Deployment =>
+    ({ address } as Deployment)
+
+  const storageWord = (value: BigNumber | number | string): string =>
+    utils.hexZeroPad(BigNumber.from(value).toHexString(), 32)
+
+  const setStorage = async (
+    address: string,
+    slot: number | string,
+    value: BigNumber | number | string
+  ): Promise<void> => {
+    await network.provider.send("hardhat_setStorageAt", [
+      address,
+      typeof slot === "number" ? utils.hexValue(slot) : slot,
+      storageWord(value),
+    ])
+  }
+
+  async function finalizedFixture(): Promise<{
+    manifest: HandoffManifest
+    aliases: EcdsaCutoverDeployments
+    bridge: string
+    oldRouter: string
+    replacementRouter: string
+    chainId: string
+    preparedBinding: EcdsaCutoverBinding
+    preparedManifest: HandoffManifest
+  }> {
+    const fixture = await bridgeFixture()
+    const chainId = (await ethers.provider.getNetwork()).chainId.toString()
+    const oldRouter = fixture.ecdsaFraudRouter
+    const replacementFactory = await ethers.getContractFactory(
+      "EcdsaFraudRouter",
+      fixture.deployer
+    )
+    const replacementRouter = await replacementFactory.deploy(
+      fixture.bridge.address,
+      oldRouter.address
+    )
+    await replacementRouter.deployed()
+
+    const governanceDelay = await fixture.bridgeGovernance.governanceDelays(0)
+    const [parametersLibrary, cutoverLibrary] = await Promise.all([
+      deployments.get("BridgeGovernanceParameters"),
+      deployments.get("EcdsaFraudRouterCutover"),
+    ])
+    const newGovernanceFactory = await ethers.getContractFactory(
+      "BridgeGovernance",
+      {
+        signer: fixture.deployer,
+        libraries: {
+          BridgeGovernanceParameters: parametersLibrary.address,
+          EcdsaFraudRouterCutover: cutoverLibrary.address,
+        },
+      }
+    )
+    const newGovernance = await newGovernanceFactory.deploy(
+      fixture.bridge.address,
+      governanceDelay
+    )
+    await newGovernance.deployed()
+    await newGovernance
+      .connect(fixture.deployer)
+      .transferOwnership(fixture.governance.address)
+    const oldGovernance = fixture.bridgeGovernance
+
+    const runtimeHash = async (address: string): Promise<string> =>
+      utils.keccak256(await ethers.provider.getCode(address))
+    const [
+      bridgeCodeHash,
+      oldGovernanceCodeHash,
+      newGovernanceCodeHash,
+      oldRouterCodeHash,
+      replacementRouterCodeHash,
+    ] = await Promise.all([
+      runtimeHash(fixture.bridge.address),
+      runtimeHash(oldGovernance.address),
+      runtimeHash(newGovernance.address),
+      runtimeHash(oldRouter.address),
+      runtimeHash(replacementRouter.address),
+    ])
+
+    const historyEmitters: HandoffManifest["historyEmitters"] = [
+      {
+        address: fixture.bridge.address,
+        runtimeCodeHash: bridgeCodeHash,
+        kind: "bridge",
+        expectedUnrelatedBalance: "0",
+      },
+      {
+        address: oldRouter.address,
+        runtimeCodeHash: oldRouterCodeHash,
+        kind: "ecdsa-router-v3",
+        expectedUnrelatedBalance: "0",
+      },
+    ]
+    const emitterSetCommitment = canonicalEmitterSetCommitment(historyEmitters)
+    const source = fixture.guardians[0]
+    const reconciler = fixture.guardians[1]
+    const sourceContext = {
+      durableStoreIdentity: utils.id("source-store"),
+      endpointIdentity: utils.id("source-endpoint"),
+      trustDomain: utils.id("source-domain"),
+      policyHash: utils.id("source-policy"),
+    }
+    const reconcilerContext = {
+      durableStoreIdentity: utils.id("reconciler-store"),
+      endpointIdentity: utils.id("reconciler-endpoint"),
+      trustDomain: utils.id("reconciler-domain"),
+      policyHash: utils.id("reconciler-policy"),
+    }
+    await network.provider.send("hardhat_mine", [utils.hexValue(80)])
+    const finalizedBlock = (await ethers.provider.getBlockNumber()) - 64
+    const finalizedHeader = await ethers.provider.getBlock(finalizedBlock)
+    if (!finalizedHeader.hash) throw new Error("missing finalized block hash")
+    const preparedManifest: HandoffManifest = {
+      version: 5,
+      chainId: Number(chainId),
+      bridge: fixture.bridge.address,
+      bridgeDeploymentBlock: 1,
+      oldGovernance: oldGovernance.address,
+      oldGovernanceRuntimeCodeHash: oldGovernanceCodeHash,
+      oldGovernanceStorageLayoutHash: LEGACY_GOVERNANCE_STORAGE_LAYOUT_HASH,
+      bridgeLegacyFraudStorageLayoutHash:
+        BRIDGE_LEGACY_FRAUD_STORAGE_LAYOUT_HASH,
+      newGovernance: newGovernance.address,
+      newGovernanceRuntimeCodeHash: newGovernanceCodeHash,
+      governanceOwner: fixture.governance.address,
+      governanceDelay: governanceDelay.toString(),
+      oldRouter: oldRouter.address,
+      oldRouterRuntimeCodeHash: oldRouterCodeHash,
+      historyEmitters,
+      replacementRouter: replacementRouter.address,
+      replacementRouterRuntimeCodeHash: replacementRouterCodeHash,
+      scanStartBlock: 1,
+      expectedUnrelatedBridgeBalance: "0",
+      legacyInventorySourcePreflight: {
+        history: {
+          chainId: Number(chainId),
+          bridge: fixture.bridge.address,
+          emitterSetCommitment,
+          scanStartBlock: 1,
+          finalizedBlock,
+          startParentHash: utils.id("start-parent"),
+          startBlockHash: utils.id("start-block"),
+          finalizedBlockHash: finalizedHeader.hash,
+          historyCommitment: utils.id("history"),
+          blockCount: finalizedBlock,
+          transactionCount: 0,
+          receiptCount: 0,
+          logCount: 0,
+          emitterLogCount: 0,
+          emitterLogDigest: constants.HashZero,
+          candidateCallCount: 0,
+          candidateCallDigest: constants.HashZero,
+        },
+        sourceEventCount: 0,
+        sourceEventDigest: constants.HashZero,
+        lifecycleEventCount: 0,
+        lifecycleEventDigest: constants.HashZero,
+        challengeIdentityCount: 0,
+        challengeIdentityDigest: constants.HashZero,
+        unresolvedChallengeCount: 0,
+        totalEscrow: "0",
+        legacyLiabilityDigest: constants.HashZero,
+        bridgeBalance: "0",
+        unrelatedBridgeBalance: "0",
+        routerStates: [
+          {
+            address: oldRouter.address,
+            runtimeCodeHash: oldRouterCodeHash,
+            protocolId: ECDSA_CUTOVER_PROTOCOL_ID,
+            identityCount: 0,
+            unresolvedChallengeCount: 0,
+            totalEscrow: "0",
+            balance: "0",
+            unrelatedBalance: "0",
+            liabilityDigest: constants.HashZero,
+          },
+        ],
+      },
+      sourceCheckpointCommitment: utils.id("source-checkpoint"),
+      maxTailBlocks: 255,
+      evidenceGeneration: 0,
+      evidenceAnchorArtifactHash: constants.HashZero,
+      evidencePredecessorArtifactHash: constants.HashZero,
+      sourceSigner: source.address,
+      sourceId: utils.id("source-id"),
+      sourceContext,
+      reconciler: reconciler.address,
+      reconcilerSourceId: utils.id("reconciler-id"),
+      reconcilerContext,
+      phase: "new-governance-owned",
+    }
+
+    const preparedAliases: EcdsaCutoverDeployments = {
+      canonicalGovernance: deployment(preparedManifest.oldGovernance),
+      cutoverGovernance: deployment(preparedManifest.newGovernance),
+      historicalGovernance: deployment(preparedManifest.oldGovernance),
+      canonicalRouter: deployment(preparedManifest.oldRouter),
+      cutoverRouter: deployment(preparedManifest.replacementRouter),
+      historicalRouter: deployment(preparedManifest.oldRouter),
+    }
+    const preparedBinding = await validateEcdsaCutoverBinding(
+      ethers.provider,
+      preparedManifest,
+      "/secure/ecdsa-cutover.json",
+      artifactHash,
+      chainId,
+      fixture.bridge.address,
+      preparedAliases,
+      true
+    )
+    assertEcdsaCutoverResume(preparedBinding, preparedBinding)
+
+    await network.provider.send("hardhat_mine", [utils.hexValue(256)])
+    const refreshedFinalizedBlock =
+      (await ethers.provider.getBlockNumber()) - 64
+    const refreshedFinalizedHeader = await ethers.provider.getBlock(
+      refreshedFinalizedBlock
+    )
+    if (!refreshedFinalizedHeader.hash) {
+      throw new Error("missing refreshed finalized block hash")
+    }
+    const manifest: HandoffManifest = {
+      ...preparedManifest,
+      legacyInventorySourcePreflight: {
+        ...preparedManifest.legacyInventorySourcePreflight,
+        history: {
+          ...preparedManifest.legacyInventorySourcePreflight.history,
+          finalizedBlock: refreshedFinalizedBlock,
+          finalizedBlockHash: refreshedFinalizedHeader.hash,
+          blockCount: refreshedFinalizedBlock,
+          historyCommitment: utils.id("refreshed-history"),
+        },
+      },
+      sourceCheckpointCommitment: utils.id("refreshed-source-checkpoint"),
+      evidenceGeneration: 1,
+      evidenceAnchorArtifactHash: `0x${"ab".repeat(32)}`,
+      evidencePredecessorArtifactHash: `0x${"ab".repeat(32)}`,
+      phase: "preflight-refreshed-awaiting-dual-signatures",
+    }
+
+    await oldGovernance
+      .connect(fixture.governance)
+      .beginBridgeGovernanceTransfer(newGovernance.address)
+    await network.provider.send("evm_increaseTime", [
+      governanceDelay.toNumber(),
+    ])
+    await network.provider.send("evm_mine")
+    await oldGovernance
+      .connect(fixture.governance)
+      .finalizeBridgeGovernanceTransfer()
+
+    const contextType =
+      "tuple(bytes32 durableStoreIdentity,bytes32 endpointIdentity,bytes32 trustDomain,bytes32 policyHash)"
+    const ownerAuthorizationPayload = utils.defaultAbiCoder.encode(
+      [
+        `tuple(address oldRouter,bytes32 oldRouterCodeHash,address newRouter,bytes32 newRouterCodeHash,uint64 scanStartBlock,address sourceSigner,bytes32 sourceId,${contextType} sourceContext,address reconciler,bytes32 reconcilerSourceId,${contextType} reconcilerContext,bytes32 emitterSetCommitment)`,
+      ],
+      [
+        {
+          oldRouter: manifest.oldRouter,
+          oldRouterCodeHash: manifest.oldRouterRuntimeCodeHash,
+          newRouter: manifest.replacementRouter,
+          newRouterCodeHash: manifest.replacementRouterRuntimeCodeHash,
+          scanStartBlock: manifest.scanStartBlock,
+          sourceSigner: manifest.sourceSigner,
+          sourceId: manifest.sourceId,
+          sourceContext: manifest.sourceContext,
+          reconciler: manifest.reconciler,
+          reconcilerSourceId: manifest.reconcilerSourceId,
+          reconcilerContext: manifest.reconcilerContext,
+          emitterSetCommitment,
+        },
+      ]
+    )
+    await newGovernance
+      .connect(fixture.governance)
+      .processEcdsaFraudCutoverOwnerAction(0, ownerAuthorizationPayload)
+
+    const planHash = handoffPlanHash(manifest)
+    const [sourceSignature, reconcilerSignature] = await Promise.all([
+      source.signMessage(utils.arrayify(planHash)),
+      reconciler.signMessage(utils.arrayify(planHash)),
+    ])
+    const beginPayload = utils.defaultAbiCoder.encode(
+      [
+        "tuple(address oldRouter,bytes32 oldRouterCodeHash,address newRouter,bytes32 newRouterCodeHash,uint64 scanStartBlock,bytes authorityProof)",
+      ],
+      [
+        {
+          oldRouter: manifest.oldRouter,
+          oldRouterCodeHash: manifest.oldRouterRuntimeCodeHash,
+          newRouter: manifest.replacementRouter,
+          newRouterCodeHash: manifest.replacementRouterRuntimeCodeHash,
+          scanStartBlock: manifest.scanStartBlock,
+          authorityProof: encodeAuthorityProof(
+            manifest,
+            sourceSignature,
+            reconcilerSignature
+          ),
+        },
+      ]
+    )
+    const beginTransaction = await newGovernance
+      .connect(fixture.thirdParty)
+      .processEcdsaFraudCutoverAuthorityAction(3, beginPayload)
+    const beginReceipt = await beginTransaction.wait()
+
+    await fixture.bridge.resetEcdsaFraudRouterForTest(replacementRouter.address)
+    await fixture.bridge.setEcdsaFraudRouterCodeHashForTest(
+      replacementRouterCodeHash
+    )
+    await setStorage(fixture.bridge.address, 51 + 40, constants.AddressZero)
+
+    await network.provider.send("hardhat_setBalance", [
+      fixture.bridge.address,
+      utils.hexValue(utils.parseEther("10")),
+    ])
+    await network.provider.send("hardhat_impersonateAccount", [
+      fixture.bridge.address,
+    ])
+    const bridgeSigner = await ethers.getSigner(fixture.bridge.address)
+    const block = await ethers.provider.getBlock("latest")
+    await replacementRouter.connect(bridgeSigner).acceptMigration(
+      [utils.id("migrated-open-challenge")],
+      [
+        {
+          challenger: fixture.thirdParty.address,
+          depositAmount: 123,
+          reportedAt: block.timestamp,
+          resolved: false,
+        },
+      ],
+      { value: 123 }
+    )
+    await replacementRouter.connect(bridgeSigner).activateMigratedChallenges()
+    await network.provider.send("hardhat_stopImpersonatingAccount", [
+      fixture.bridge.address,
+    ])
+
+    const retiredRouterSlot = utils.keccak256(
+      utils.defaultAbiCoder.encode(
+        ["address", "uint256"],
+        [oldRouter.address, 51 + 41]
+      )
+    )
+    await setStorage(fixture.bridge.address, retiredRouterSlot, 1)
+    manifest.phase = "finalized"
+    manifest.transactions = { "begin-drain": beginReceipt.transactionHash }
+
+    const aliases: EcdsaCutoverDeployments = {
+      canonicalGovernance: deployment(manifest.newGovernance),
+      cutoverGovernance: deployment(manifest.newGovernance),
+      historicalGovernance: deployment(manifest.oldGovernance),
+      canonicalRouter: deployment(manifest.replacementRouter),
+      cutoverRouter: deployment(manifest.replacementRouter),
+      historicalRouter: deployment(manifest.oldRouter),
+    }
+    return {
+      manifest,
+      aliases,
+      bridge: fixture.bridge.address,
+      oldRouter: oldRouter.address,
+      replacementRouter: replacementRouter.address,
+      chainId,
+      preparedBinding,
+      preparedManifest,
+    }
+  }
+
+  const validate = async (
+    fixture: Awaited<ReturnType<typeof finalizedFixture>>,
+    manifest: HandoffManifest = fixture.manifest,
+    aliases: EcdsaCutoverDeployments = fixture.aliases,
+    unionInstalled = true
+  ): Promise<EcdsaCutoverBinding> =>
+    validateEcdsaCutoverBinding(
+      ethers.provider,
+      manifest,
+      "/secure/ecdsa-cutover.json",
+      artifactHash,
+      fixture.chainId,
+      fixture.bridge,
+      aliases,
+      unionInstalled
+    )
+
+  it("prepares the transitional union upgrade without enabling post-upgrade phases", async () => {
+    const fixture = await waffle.loadFixture(finalizedFixture)
+    const transitionalManifest = {
+      ...fixture.manifest,
+      phase: "new-governance-owned",
+      transactions: undefined,
+    }
+    const transitionalAliases = {
+      ...fixture.aliases,
+      canonicalGovernance: deployment(fixture.manifest.oldGovernance),
+      canonicalRouter: deployment(fixture.manifest.oldRouter),
+    }
+    const binding = await validate(
+      fixture,
+      transitionalManifest,
+      transitionalAliases,
+      false
+    )
+    expect(binding.finalized).to.be.false
+    expect(binding.router).to.equal(fixture.replacementRouter)
+  })
+
+  it("reuses the finalized migrated router with legitimate open challenge escrow", async () => {
+    const fixture = await waffle.loadFixture(finalizedFixture)
+    const binding = await validate(fixture)
+    expect(binding.finalized).to.be.true
+    expect(binding.openChallengeCount).to.equal("1")
+    expect(binding.openChallengeEscrow).to.equal("123")
+    expect(binding.unattributedOpenChallengeCount).to.equal("1")
+    expect(BigNumber.from(binding.migratedChallengesActivatedAt).gt(0)).to.be
+      .true
+  })
+
+  it("resumes 87-prep through the union-only interruption, refreshed handoff, and finalized 88 binding", async () => {
+    const fixture = await waffle.loadFixture(finalizedFixture)
+    const finalizedBinding = await validate(fixture)
+
+    expect(fixture.preparedBinding.finalized).to.be.false
+    expect(fixture.preparedBinding.evidenceGeneration).to.equal(0)
+    expect(finalizedBinding.finalized).to.be.true
+    expect(finalizedBinding.evidenceGeneration).to.equal(1)
+    expect(finalizedBinding.manifestPlanHash).not.to.equal(
+      fixture.preparedBinding.manifestPlanHash
+    )
+    expect(
+      fixture.manifest.legacyInventorySourcePreflight.history.finalizedBlock
+    ).to.be.greaterThan(
+      fixture.preparedManifest.legacyInventorySourcePreflight.history
+        .finalizedBlock + 255
+    )
+    expect(() =>
+      assertEcdsaCutoverResume(fixture.preparedBinding, finalizedBinding)
+    ).not.to.throw()
+  })
+
+  it("rejects stale aliases, wrong code hashes, active drain, and unfinalized artifacts", async () => {
+    const fixture = await waffle.loadFixture(finalizedFixture)
+    await expectRejected(
+      validate(fixture, fixture.manifest, {
+        ...fixture.aliases,
+        canonicalRouter: deployment(fixture.oldRouter),
+      }),
+      "finalized router canonical alias is stale"
+    )
+
+    await expectRejected(
+      validate(fixture, {
+        ...fixture.manifest,
+        replacementRouterRuntimeCodeHash: utils.id("wrong-router-code"),
+      }),
+      "runtime code hash mismatch"
+    )
+
+    await setStorage(fixture.bridge, 51 + 40, fixture.oldRouter)
+    await expectRejected(
+      validate(fixture),
+      "finalized manifest disagrees with Bridge readback"
+    )
+    await setStorage(fixture.bridge, 51 + 40, constants.AddressZero)
+
+    await expectRejected(
+      validate(fixture, { ...fixture.manifest, phase: "inventory-confirmed" }),
+      "on-chain cutover has an unfinalized manifest"
+    )
+
+    await expectRejected(
+      validate(fixture, {
+        ...fixture.manifest,
+        transactions: { "begin-drain": constants.HashZero },
+      }),
+      "begin-drain transaction is missing"
+    )
+
+    await setStorage(
+      fixture.manifest.newGovernance,
+      69,
+      "0x3000000000000000000000000000000000000003"
+    )
+    await expectRejected(
+      validate(fixture),
+      "cutover governance identity mismatch"
+    )
+  })
+
+  it("rejects manifest identity/hash and union-predecessor resume drift", async () => {
+    const fixture = await waffle.loadFixture(finalizedFixture)
+    const binding = await validate(fixture)
+    expect(() =>
+      assertEcdsaCutoverResume(fixture.preparedBinding, {
+        ...fixture.preparedBinding,
+        manifestPlanHash: utils.id("unsigned-refresh"),
+      })
+    ).to.throw("without a new evidence generation")
+    expect(() =>
+      assertEcdsaCutoverResume(fixture.preparedBinding, {
+        ...fixture.preparedBinding,
+        manifestArtifactHash: `sha256:${"cd".repeat(32)}`,
+        manifestPlanHash: utils.id("signed-but-unrelated-refresh"),
+        evidenceGeneration: 1,
+        evidenceAnchorArtifactHash: utils.id("wrong-anchor"),
+        evidencePredecessorArtifactHash: `0x${"ab".repeat(32)}`,
+      })
+    ).to.throw("evidence anchor changed")
+    expect(() =>
+      assertEcdsaCutoverResume(binding, {
+        ...binding,
+        sourceEndpointIdentity: utils.id("drifted-source-endpoint"),
+      })
+    ).to.throw("sourceEndpointIdentity")
+    expect(() =>
+      assertEcdsaCutoverResume(binding, {
+        ...binding,
+        manifestArtifactHash: `sha256:${"cd".repeat(32)}`,
+      })
+    ).to.throw("finalized cutover binding changed")
   })
 })
