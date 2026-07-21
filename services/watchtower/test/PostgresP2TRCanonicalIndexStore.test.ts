@@ -1,14 +1,113 @@
 import assert from "node:assert/strict"
+import { createHash } from "node:crypto"
 import { readFile } from "node:fs/promises"
 import { describe, it } from "node:test"
-import { PostgresP2TRCanonicalIndexStore } from "../src/PostgresP2TRCanonicalIndexStore.js"
+import {
+  calculateP2TREvidenceChunkDigest,
+  calculateP2TREvidenceChunkLeafDigest,
+  calculateP2TREvidenceChunkManifestRoot,
+  calculateP2TREvidenceContentDigest,
+  calculateP2TREvidenceObjectDigest,
+  calculateP2TRReadinessExportStreamLeafDigest,
+  PostgresP2TRCanonicalIndexStore,
+  verifyP2TRReadinessExportObjectFrames,
+} from "../src/PostgresP2TRCanonicalIndexStore.js"
 import type {
   P2TRPostgresClient,
   P2TRPostgresPool,
   P2TRPostgresQueryResult,
+  P2TRReadinessExportAcknowledgementVerification,
 } from "../src/PostgresP2TRCanonicalIndexStore.js"
+import type { P2TRReadinessExportStreamFrame } from "../src/P2TRCanonicalBitcoinIndex.js"
 
 describe("PostgresP2TRCanonicalIndexStore", () => {
+  it("verifies a bounded multi-chunk readiness object and rejects tampering", () => {
+    const bytes = Buffer.allocUnsafe(70_000)
+    bytes.forEach((_, index) => {
+      bytes[index] = index % 251
+    })
+    const chunks = [bytes.subarray(0, 65_536), bytes.subarray(65_536)]
+    const chunkFrames = chunks.map((chunk, index) => {
+      const byteOffset = index * 65_536
+      const digest = calculateP2TREvidenceChunkDigest(chunk)
+      return {
+        index,
+        byteOffset,
+        digest,
+        leafDigest: calculateP2TREvidenceChunkLeafDigest({
+          chunkIndex: index,
+          byteOffset,
+          chunkDigest: digest,
+        }),
+        bytes: chunk,
+      }
+    })
+    const contentDigest = calculateP2TREvidenceContentDigest(bytes)
+    const chunkManifestRoot = calculateP2TREvidenceChunkManifestRoot(
+      chunkFrames.map(({ leafDigest }) => leafDigest)
+    )
+    const object = {
+      kind: "bounded_fixture",
+      byteLength: bytes.length,
+      contentDigest,
+      chunkCount: chunkFrames.length,
+      chunkManifestRoot,
+      digest: calculateP2TREvidenceObjectDigest({
+        kind: "bounded_fixture",
+        byteLength: bytes.length,
+        chunkCount: chunkFrames.length,
+        contentDigest,
+        chunkManifestRoot,
+      }),
+    }
+    const streamLeafDigest = calculateP2TRReadinessExportStreamLeafDigest({
+      exportFence: 7,
+      streamOrdinal: 3,
+      objectDigest: object.digest,
+      objectKind: object.kind,
+      byteLength: object.byteLength,
+      contentDigest: object.contentDigest,
+      chunkManifestRoot: object.chunkManifestRoot,
+    })
+    const frames: P2TRReadinessExportStreamFrame[] = chunkFrames.map(
+      (chunk) => ({
+        schema: "tbtc-p2tr-readiness-export-stream-frame/v1",
+        exportID: "31".repeat(32),
+        exportFence: 7,
+        streamOrdinal: 3,
+        streamLeafDigest,
+        object,
+        chunk,
+      })
+    )
+
+    assert.deepEqual(verifyP2TRReadinessExportObjectFrames(frames), {
+      exportID: "31".repeat(32),
+      exportFence: 7,
+      streamOrdinal: 3,
+      objectDigest: object.digest,
+      contentDigest,
+      chunkManifestRoot,
+      streamLeafDigest,
+      byteLength: bytes.length,
+      chunkCount: 2,
+    })
+
+    const tampered = frames.map((frame) => ({
+      ...frame,
+      chunk: { ...frame.chunk, bytes: Buffer.from(frame.chunk.bytes) },
+    }))
+    ;(tampered[1].chunk.bytes as Buffer)[0] ^= 1
+    assert.throws(
+      () => verifyP2TRReadinessExportObjectFrames(tampered),
+      /chunk frame is inconsistent/
+    )
+    assert.throws(
+      () => calculateP2TREvidenceChunkDigest(Buffer.alloc(65_537)),
+      /exceeds 64 KiB/
+    )
+  })
+
   it("rejects matching text store IDs owned by another coordinator", () => {
     const first = new PostgresP2TRCanonicalIndexStore(
       new FakePool(),
@@ -158,6 +257,19 @@ describe("PostgresP2TRCanonicalIndexStore", () => {
     assert.match(migration, /CREATE TABLE p2tr_frost_wallet_bindings/)
     assert.match(migration, /CREATE TABLE p2tr_unmatched_proofs/)
     assert.match(migration, /CREATE TABLE p2tr_cross_source_watermark/)
+    assert.match(migration, /CREATE TABLE p2tr_evidence_chunks/)
+    assert.match(migration, /CREATE TABLE p2tr_evidence_objects/)
+    assert.match(migration, /CREATE TABLE p2tr_complete_authorization_domain/)
+    assert.match(migration, /CREATE TABLE p2tr_watchtower_source_identity/)
+    assert.match(migration, /CREATE TABLE p2tr_canonical_generations/)
+    assert.match(migration, /CREATE TABLE p2tr_canonical_memberships/)
+    assert.match(migration, /CREATE TABLE p2tr_readiness_exports/)
+    assert.match(migration, /CREATE TABLE p2tr_readiness_export_objects/)
+    assert.match(
+      migration,
+      /CREATE TABLE p2tr_readiness_export_acknowledgements/
+    )
+    assert.match(migration, /p2tr_reject_immutable_update/)
     assert.doesNotMatch(migration, /^\s*(?:BEGIN|COMMIT)\s*;/im)
   })
 
@@ -204,7 +316,7 @@ describe("PostgresP2TRCanonicalIndexStore", () => {
     )
   })
 
-  it("removes hash-orphaned Ethereum evidence from the canonical candidate view", async () => {
+  it("removes hash-orphaned Ethereum evidence from canonical projection state", async () => {
     const client = new EthereumRollbackClient()
     const pool = new FakePool(client)
     const store = new PostgresP2TRCanonicalIndexStore(pool, storeOptions())
@@ -214,16 +326,9 @@ describe("PostgresP2TRCanonicalIndexStore", () => {
       blockHash: "aa".repeat(32),
     })
 
-    assert.deepEqual(JSON.parse(client.candidateBinding as string), {
-      txid: "11".repeat(32),
-      vout: 4,
-      walletID: "22".repeat(32),
-      outputKey: "33".repeat(32),
-    })
     for (const mutation of [
-      "UPDATE p2tr_bitcoin_candidates",
       "DELETE FROM p2tr_pending_deposit_reveals",
-      "DELETE FROM p2tr_frost_wallet_bindings",
+      "DELETE FROM p2tr_frost_wallet_bindings wallet",
       "DELETE FROM p2tr_unmatched_proofs",
       "DELETE FROM p2tr_cross_source_watermark",
     ]) {
@@ -260,7 +365,7 @@ class FakeClient implements P2TRPostgresClient {
 
   async query<Row = Record<string, unknown>>(
     text: string,
-    _values?: readonly unknown[]
+    values?: readonly unknown[]
   ): Promise<P2TRPostgresQueryResult<Row>> {
     this.statements.push(text)
     const failure = this.failures[text]
@@ -272,7 +377,33 @@ class FakeClient implements P2TRPostgresClient {
       }
     }
     if (text.includes("p2tr_watchtower_schema_version")) {
-      return { rows: [{ version: 1 } as Row], rowCount: 1 }
+      return { rows: [{ version: 3 } as Row], rowCount: 1 }
+    }
+    if (text.includes("p2tr_assert_complete_authorization_domain")) {
+      const chainID = BigInt(String(values?.[1]))
+      const domainDigest = createHash("sha256")
+        .update("tbtc-p2tr-complete-domain-v1", "utf8")
+        .update(values?.[0] as Buffer)
+        .update(Buffer.from(chainID.toString(16).padStart(64, "0"), "hex"))
+        .update(values?.[2] as Buffer)
+        .digest("hex")
+      return { rows: [{ domain_digest: domainDigest } as Row], rowCount: 1 }
+    }
+    if (text.includes("p2tr_assert_watchtower_source_identity")) {
+      const sourceIdentityDigest = createHash("sha256")
+        .update(
+          `tbtc-p2tr-watchtower-source-identity-v1\x1f${String(
+            values?.[0]
+          )}\x1f${String(values?.[1])}\x1f${String(values?.[2])}`,
+          "utf8"
+        )
+        .update(values?.[3] as Buffer)
+        .update(values?.[4] as Buffer)
+        .digest("hex")
+      return {
+        rows: [{ source_identity_digest: sourceIdentityDigest } as Row],
+        rowCount: 1,
+      }
     }
     return { rows: [], rowCount: 0 }
   }
@@ -304,8 +435,6 @@ class PendingCapClient extends FakeClient {
 }
 
 class EthereumRollbackClient extends FakeClient {
-  candidateBinding?: unknown
-
   async query<Row = Record<string, unknown>>(
     text: string,
     values?: readonly unknown[]
@@ -338,9 +467,6 @@ class EthereumRollbackClient extends FakeClient {
         rowCount: 1,
       }
     }
-    if (text.includes("UPDATE p2tr_bitcoin_candidates")) {
-      this.candidateBinding = values?.[0]
-    }
     return super.query<Row>(text, values)
   }
 }
@@ -351,9 +477,33 @@ const storeOptions = () => ({
   maxJournalTransactions: 10_000,
   maxJournalInputs: 100_000,
   maxJournalOutputs: 100_000,
+  maxWalletBindings: 10_000,
   maxPendingDepositReveals: 1_000,
   maxUnmatchedProofs: 1_000,
   maxProofMutationBatchSize: 100,
   maxProofPageSize: 100,
   maxProofPayloadBytes: 64_000,
+  authorizationDomain: {
+    chainID: "31337",
+    bridgeAddress: "12".repeat(20),
+  },
+  sourceIdentity: {
+    clusterID: "unit-cluster",
+    operatorID: "unit-operator",
+    bitcoinIdentityDigest: "21".repeat(32),
+    ethereumIdentityDigest: "22".repeat(32),
+  },
+  readinessExportSigner: {
+    keyID: "unit-readiness-signer",
+    async signPayloadDigest(): Promise<string> {
+      return "ab".repeat(64)
+    },
+  },
+  readinessExportAcknowledgementVerifier: {
+    async verify({
+      signature,
+    }: P2TRReadinessExportAcknowledgementVerification): Promise<boolean> {
+      return signature === "ab".repeat(64)
+    },
+  },
 })
