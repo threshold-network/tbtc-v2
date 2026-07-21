@@ -509,6 +509,12 @@ export type P2TRProductionBitcoinIndexHealth = {
   clearedFailureGeneration: number
 }
 
+export type P2TRProductionRuntimeAlertHealth = {
+  manifestHash: string
+  unresolvedCandidateEnqueueTransactionGuardCount: number
+  candidateEnqueueRetryExhaustionCount: number
+}
+
 export type P2TRProductionEthereumJournalHealth = {
   storeID: string
   chainID: number
@@ -664,6 +670,29 @@ export type P2TRProductionReadinessCertificateInput = {
   payload: Readonly<Record<string, unknown>>
 }
 
+export type P2TRProductionCandidateEnqueueRetryExhaustionAlert = {
+  tokenID: string
+  manifestHash: string
+  candidateDigest: string
+  attemptCount: number
+  lastSQLState: "40001" | "40P01"
+}
+
+export type P2TRProductionCandidateEnqueueTransactionGuard = {
+  tokenID: string
+  manifestHash: string
+  candidateDigest: string
+  maxAttemptCount: number
+}
+
+export type P2TRProductionCandidateEnqueueTransactionResolution = {
+  tokenID: string
+  manifestHash: string
+  candidateDigest: string
+  outboxIntentID: string
+  outcomeKind: P2TRProductionCandidateEnqueueOutcome["kind"]
+}
+
 export type P2TRProductionStateStore = {
   readonly p2trSignatureFraudWatchtowerTransactionalStoreID: string
   lockReadinessSnapshot(): Promise<void>
@@ -672,6 +701,7 @@ export type P2TRProductionStateStore = {
   mintReadinessCertificate(
     input: P2TRProductionReadinessCertificateInput
   ): Promise<P2TRProductionReadinessCertificateReference>
+  readRuntimeAlertHealth(): Promise<P2TRProductionRuntimeAlertHealth>
   assertCandidateIndexed(
     candidate: P2TRProductionBitcoinCandidate
   ): Promise<void>
@@ -688,8 +718,20 @@ export type P2TRProductionStateStore = {
     outboxIntentID: string,
     manifestHash: string
   ): Promise<void>
+  saveCandidateEnqueueRetryExhaustionAlert(
+    alert: P2TRProductionCandidateEnqueueRetryExhaustionAlert
+  ): Promise<void>
+  armCandidateEnqueueTransactionGuard(
+    guard: P2TRProductionCandidateEnqueueTransactionGuard
+  ): Promise<void>
+  resolveCandidateEnqueueTransactionGuard(
+    resolution: P2TRProductionCandidateEnqueueTransactionResolution
+  ): Promise<void>
 }
 
+/** Database-only enqueue participant. Signing and broadcast I/O are forbidden
+ * here because this complete operation may be replayed after PostgreSQL aborts
+ * the outer serializable transaction. */
 export type P2TRProductionCandidateEnqueuer = {
   readonly p2trSignatureFraudWatchtowerTransactionalStoreID: string
   enqueueReconciledCandidate(
@@ -725,6 +767,22 @@ export class P2TRProductionCandidateEnqueueRejectedError extends Error {
   }
 }
 
+export class P2TRProductionCandidateEnqueueRetryExhaustedError extends Error {
+  readonly code = "candidate-enqueue-transaction-retry-exhausted" as const
+  readonly activationBlocking = true as const
+
+  constructor(
+    readonly alert: P2TRProductionCandidateEnqueueRetryExhaustionAlert,
+    options?: ErrorOptions
+  ) {
+    super(
+      `Candidate authorization and enqueue transaction exhausted ${alert.attemptCount} transaction attempts after PostgreSQL ${alert.lastSQLState}`,
+      options
+    )
+    this.name = "P2TRProductionCandidateEnqueueRetryExhaustedError"
+  }
+}
+
 export type P2TRProductionTransactionCoordinator = {
   readonly p2trSignatureFraudWatchtowerTransactionalStoreID: string
   runInP2TRSignatureFraudWatchtowerTransaction<T>(
@@ -733,6 +791,12 @@ export type P2TRProductionTransactionCoordinator = {
   assertP2TRSignatureFraudWatchtowerTransactionalParticipants(
     participants: readonly object[]
   ): void
+  readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(
+    error: unknown
+  ):
+    | P2TRProductionCandidateEnqueueRetryExhaustionAlert["lastSQLState"]
+    | undefined
+  isP2TRSignatureFraudWatchtowerTransactionActive(): boolean
 }
 
 export type P2TRProductionActivationDependencies = {
@@ -752,6 +816,7 @@ export type P2TRProductionActivationGateOptions = {
   trustedManifestSignerKeyHash: string
   expectedProtocols: P2TRProductionActivationExpectedProtocols
   candidateAuthorizationLifetimeMs?: number
+  candidateEnqueueTransactionMaxAttempts?: number
 }
 
 export type P2TRProductionReadySnapshot = {
@@ -772,6 +837,8 @@ type CandidateTokenRecord = {
 }
 
 const DEFAULT_CANDIDATE_AUTHORIZATION_LIFETIME_MS = 60_000
+const DEFAULT_CANDIDATE_ENQUEUE_TRANSACTION_MAX_ATTEMPTS = 3
+const MAX_CANDIDATE_ENQUEUE_TRANSACTION_ATTEMPTS = 8
 
 /**
  * Fail-closed production gate. Readiness is recomputed at pinned chain points;
@@ -782,6 +849,7 @@ export class P2TRProductionActivationGate {
   readonly manifest: Readonly<P2TRProductionActivationManifest>
   readonly manifestHash: string
   private readonly candidateAuthorizationLifetimeMs: number
+  private readonly candidateEnqueueTransactionMaxAttempts: number
   private readonly candidateTokens = new WeakMap<object, CandidateTokenRecord>()
   // A readiness check replaces the singleton durable certificate. Keep that
   // authority through candidate attestation and durable authorization issue.
@@ -802,6 +870,12 @@ export class P2TRProductionActivationGate {
       options.candidateAuthorizationLifetimeMs ??
         DEFAULT_CANDIDATE_AUTHORIZATION_LIFETIME_MS,
       "candidate authorization lifetime"
+    )
+    this.candidateEnqueueTransactionMaxAttempts = boundedPositiveInteger(
+      options.candidateEnqueueTransactionMaxAttempts ??
+        DEFAULT_CANDIDATE_ENQUEUE_TRANSACTION_MAX_ATTEMPTS,
+      MAX_CANDIDATE_ENQUEUE_TRANSACTION_ATTEMPTS,
+      "candidate enqueue transaction attempts"
     )
     validateManifestPolicy(this.manifest, options.expectedProtocols)
     assertP2TRActivationAttestationKeySeparation({
@@ -871,13 +945,17 @@ export class P2TRProductionActivationGate {
       await this.dependencies.transactionCoordinator.runInP2TRSignatureFraudWatchtowerTransaction(
         async () => {
           await this.dependencies.stateStore.lockReadinessSnapshot()
-          const [migrations, bitcoinHealth, ethereumHealth] = await Promise.all(
-            [
+          const [
+            migrations,
+            bitcoinHealth,
+            ethereumHealth,
+            runtimeAlertHealth,
+          ] = await Promise.all([
               this.dependencies.migrations.listAppliedMigrations(),
               this.dependencies.stateStore.readBitcoinIndexHealth(),
               this.dependencies.stateStore.readEthereumJournalHealth(),
-            ]
-          )
+              this.dependencies.stateStore.readRuntimeAlertHealth(),
+            ])
           assertEthereumJournalCursorHealth(
             ethereumHealth,
             this.manifest,
@@ -909,6 +987,10 @@ export class P2TRProductionActivationGate {
             this.manifest,
             ethereum,
             verifiedEthereumJournalHistory
+          )
+          assertP2TRProductionRuntimeAlertHealth(
+            runtimeAlertHealth,
+            this.manifestHash
           )
           return this.dependencies.stateStore.mintReadinessCertificate({
             manifestHash: this.manifestHash,
@@ -1078,34 +1160,26 @@ export class P2TRProductionActivationGate {
     // Invalidate in memory before any await. A failed transaction requires a
     // fresh dual-provider reconciliation rather than replaying stale authority.
     record.consumed = true
-    const outcome =
-      await this.dependencies.transactionCoordinator.runInP2TRSignatureFraudWatchtowerTransaction(
-        async () => {
-          await this.dependencies.stateStore.lockCandidateAuthorization(
-            record.receipt.tokenID,
-            record.receipt.candidateDigest,
-            record.receipt.manifestHash
-          )
-          // A canonical rollback may occur after issuance but before enqueue.
-          // Revalidate the exact candidate under the enqueue transaction lock.
-          await this.dependencies.stateStore.assertCandidateIndexed(normalized)
-          const outcome = normalizeCandidateEnqueueOutcome(
-            await this.dependencies.candidateEnqueuer.enqueueReconciledCandidate(
-              normalized,
-              record.receipt
-            )
-          )
-          await this.dependencies.stateStore.consumeCandidateAuthorization(
-            record.receipt.tokenID,
-            outcome.outboxIntentID,
-            record.receipt.manifestHash
-          )
-          return outcome
-        }
-      )
+    const guard: P2TRProductionCandidateEnqueueTransactionGuard = {
+      tokenID: record.receipt.tokenID,
+      manifestHash: record.receipt.manifestHash,
+      candidateDigest: record.receipt.candidateDigest,
+      maxAttemptCount: this.candidateEnqueueTransactionMaxAttempts,
+    }
+    // Commit the guard before entering any replayable transaction. A crash,
+    // non-retryable failure, or exhausted retry loop therefore leaves a
+    // restart-visible activation blocker rather than an untracked authority.
+    await this.dependencies.transactionCoordinator.runInP2TRSignatureFraudWatchtowerTransaction(
+      () =>
+        this.dependencies.stateStore.armCandidateEnqueueTransactionGuard(guard)
+    )
+    const outcome = await this.runCandidateEnqueueTransactionWithRetry(
+      record.receipt,
+      normalized
+    )
     // A generation-cap outcome may carry an alert written by a nested
-    // transaction participant. Throwing in the callback above would roll that
-    // alert and the token disposition back with the outer transaction.
+    // transaction participant. Throwing in the transaction callback would
+    // roll that alert and the token disposition back with the outer transaction.
     if (outcome.kind === "generation-cap-exhausted") {
       throw new P2TRProductionCandidateEnqueueRejectedError(
         outcome.outboxIntentID,
@@ -1113,6 +1187,88 @@ export class P2TRProductionActivationGate {
       )
     }
     return outcome.outboxIntentID
+  }
+
+  private async runCandidateEnqueueTransactionWithRetry(
+    receipt: P2TRProductionCandidateAuthorizationReceipt,
+    candidate: P2TRProductionBitcoinCandidate
+  ): Promise<P2TRProductionCandidateEnqueueOutcome> {
+    for (
+      let attemptCount = 1;
+      attemptCount <= this.candidateEnqueueTransactionMaxAttempts;
+      attemptCount++
+    ) {
+      try {
+        return await this.dependencies.transactionCoordinator.runInP2TRSignatureFraudWatchtowerTransaction(
+          async () => {
+            await this.dependencies.stateStore.lockCandidateAuthorization(
+              receipt.tokenID,
+              receipt.candidateDigest,
+              receipt.manifestHash
+            )
+            // A canonical rollback may occur after issuance but before enqueue.
+            // Revalidate the exact candidate under the enqueue transaction lock.
+            await this.dependencies.stateStore.assertCandidateIndexed(candidate)
+            if (
+              !this.dependencies.transactionCoordinator.isP2TRSignatureFraudWatchtowerTransactionActive()
+            ) {
+              throw new Error(
+                "Candidate enqueue escaped its PostgreSQL transaction boundary"
+              )
+            }
+            const outcome = normalizeCandidateEnqueueOutcome(
+              await this.dependencies.candidateEnqueuer.enqueueReconciledCandidate(
+                candidate,
+                receipt
+              )
+            )
+            await this.dependencies.stateStore.consumeCandidateAuthorization(
+              receipt.tokenID,
+              outcome.outboxIntentID,
+              receipt.manifestHash
+            )
+            await this.dependencies.stateStore.resolveCandidateEnqueueTransactionGuard(
+              {
+                tokenID: receipt.tokenID,
+                manifestHash: receipt.manifestHash,
+                candidateDigest: receipt.candidateDigest,
+                outboxIntentID: outcome.outboxIntentID,
+                outcomeKind: outcome.kind,
+              }
+            )
+            return outcome
+          }
+        )
+      } catch (error) {
+        const lastSQLState =
+          this.dependencies.transactionCoordinator.readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(
+            error
+          )
+        if (lastSQLState === undefined) throw error
+        if (attemptCount < this.candidateEnqueueTransactionMaxAttempts) {
+          continue
+        }
+        const alert: P2TRProductionCandidateEnqueueRetryExhaustionAlert = {
+          tokenID: receipt.tokenID,
+          manifestHash: receipt.manifestHash,
+          candidateDigest: receipt.candidateDigest,
+          attemptCount,
+          lastSQLState,
+        }
+        // The failed attempt has fully unwound. Persist the blocker in a fresh
+        // transaction so it survives both this process and the final error.
+        await this.dependencies.transactionCoordinator.runInP2TRSignatureFraudWatchtowerTransaction(
+          () =>
+            this.dependencies.stateStore.saveCandidateEnqueueRetryExhaustionAlert(
+              alert
+            )
+        )
+        throw new P2TRProductionCandidateEnqueueRetryExhaustedError(alert, {
+          cause: error,
+        })
+      }
+    }
+    throw new Error("Candidate enqueue transaction retry bound is unreachable")
   }
 
   private async readVerifiedEthereum(): Promise<P2TRProductionEthereumState> {
@@ -2286,6 +2442,28 @@ export function assertP2TRProductionEthereumJournalHealth(
   ) {
     throw new Error(
       "Canonical Ethereum journal is incomplete, stale, or unhealthy"
+    )
+  }
+}
+
+export function assertP2TRProductionRuntimeAlertHealth(
+  actual: P2TRProductionRuntimeAlertHealth,
+  expectedManifestHash: string
+): void {
+  if (
+    bytes32(actual.manifestHash, "runtime alert manifest") !==
+      bytes32(expectedManifestHash, "activation manifest") ||
+    nonNegativeInteger(
+      actual.unresolvedCandidateEnqueueTransactionGuardCount,
+      "unresolved candidate enqueue transaction guard count"
+    ) !== 0 ||
+    nonNegativeInteger(
+      actual.candidateEnqueueRetryExhaustionCount,
+      "candidate enqueue retry-exhaustion alert count"
+    ) !== 0
+  ) {
+    throw new Error(
+      "Production runtime has activation-blocking candidate enqueue alerts"
     )
   }
 }
@@ -3886,6 +4064,18 @@ function positiveInteger(value: number, label: string): number {
     throw new Error(`${label} must be a positive safe integer`)
   }
   return value
+}
+
+function boundedPositiveInteger(
+  value: number,
+  maximum: number,
+  label: string
+): number {
+  const normalized = positiveInteger(value, label)
+  if (normalized > maximum) {
+    throw new Error(`${label} exceeds its ${maximum}-attempt bound`)
+  }
+  return normalized
 }
 
 function nonNegativeInteger(value: number, label: string): number {
