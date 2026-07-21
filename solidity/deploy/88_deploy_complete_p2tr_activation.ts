@@ -11,6 +11,19 @@ import {
   verifyBitcoinJournal,
   verifyIndependentSignature,
 } from "../scripts/complete-p2tr-coverage"
+import {
+  ARCHIVE_MANIFEST_SCHEMA_HASH,
+  ARCHIVE_RECONCILER_ATTESTATION_ROLE,
+  ARCHIVE_SOURCE_ATTESTATION_ROLE,
+  ArchiveManifestV2,
+  ArchivePhaseArtifact,
+  buildArchiveManifestAttestation,
+  buildArchiveMerkleTree,
+  hashArchiveCheckpoint,
+  hashArchiveManifestAttestation,
+  hashArchiveManifestV2,
+  readArchivePhase,
+} from "./54_upgrade_frost_wallet_registry_archive"
 
 export const COMPLETE_V2_PROTOCOL_ID = utils.id(
   "tbtc/p2tr-signature-fraud/evidence/complete-v2"
@@ -32,6 +45,15 @@ export const COVERAGE_MANIFEST_SCHEMA = "tbtc/taproot-output-key-coverage/v2"
 export const MAXIMUM_COVERAGE_BATCH_SIZE = 32
 export const EIP_170_REQUIRED_HEADROOM = 512
 export const DEFAULT_MAXIMUM_ACTIVATION_TAIL_BLOCKS = 8192
+export const BRIDGE_FROST_REGISTRY_STORAGE_SLOT = 51 + 32
+export const BRIDGE_ECDSA_ROUTER_STORAGE_SLOT = 51 + 33
+export const BRIDGE_P2TR_ROUTER_STORAGE_SLOT = 51 + 34
+export const BRIDGE_LIFECYCLE_ROUTER_STORAGE_SLOT = 51 + 35
+export const FROST_ARCHIVE_STATE_COMPLETED = 3
+export const FROST_ARCHIVE_STATE_FRESH = 4
+export const FROST_FRESH_ARCHIVE_SCHEMA_HASH = utils.id(
+  "tbtc/frost-wallet-archive/fresh-v2"
+)
 export const COVERAGE_AUTHORIZATION_DOMAIN =
   "tbtc-p2tr-output-key-coverage-authorization-v1"
 export const DUAL_SOURCE_CHECKPOINT_DOMAIN =
@@ -62,6 +84,7 @@ const bridgeInterface = new utils.Interface([
   "function processTaprootOutputKeyCoverage(bytes payload) returns (bytes)",
   "function deposits(uint256 depositKey) view returns (address depositor,uint64 amount,uint32 revealedAt,address vault,uint64 treasuryFee,uint32 sweptAt,bytes32 extraData)",
   "function setFrostWalletRegistry(address registry)",
+  "function setLifecycleRouter(address router)",
   "function setEcdsaFraudRouter(address router,bytes32 expectedCodeHash)",
 ])
 const bridgeGovernanceInterface = new utils.Interface([
@@ -70,6 +93,7 @@ const bridgeGovernanceInterface = new utils.Interface([
   "function beginBridgeGovernanceTransfer(address newGovernance)",
   "function finalizeBridgeGovernanceTransfer()",
   "function setFrostWalletRegistry(address registry)",
+  "function setLifecycleRouter(address router)",
   "function processTaprootOutputKeyCoverage(bytes payload)",
   "function setEcdsaFraudRouter(address router,bytes32 expectedCodeHash)",
 ])
@@ -100,6 +124,18 @@ const registryInterface = new utils.Interface([
 const legacyRouterInterface = new utils.Interface([
   "function bridge() view returns (address)",
   "function openFraudChallengeCount() view returns (uint256)",
+])
+const lifecycleRouterInterface = new utils.Interface([
+  "function bridge() view returns (address)",
+])
+const frostWalletRegistryInterface = new utils.Interface([
+  "function governance() view returns (address)",
+  "function walletOwner() view returns (address)",
+  "function lifecycleOwner() view returns (address)",
+  "function updateLifecycleOwner(address lifecycleOwner)",
+  "function getWalletArchiveMigrationManifestHash() view returns (bytes32)",
+  "function getWalletArchiveFinalAttestations() view returns (bytes32 sourceAttestationHash,bytes32 reconcilerAttestationHash)",
+  "function getWalletArchiveMigration() view returns (uint8 state,address authority,uint256 upgradeBlockNumber,bytes32 oldImplementationCodeHash,bytes32 newImplementationCodeHash,bytes32 walletsRoot,bytes32 historyRoot,bytes32 pendingManifestHash,uint256 expectedCount,uint256 completedCount,bytes32 checkpointHash,uint256 checkpointBlockNumber,uint256 maxTailBlocks)",
 ])
 
 export type AuthorityKind = "eoa" | "safe" | "timelock"
@@ -190,6 +226,55 @@ export interface RuntimeReceipt {
   address: string
   runtimeBytes: number
   runtimeCodeHash: string
+}
+
+export interface FrostArchivePrerequisiteReceipt {
+  artifactPath: string
+  artifactHash: string
+  artifactPhase: ArchivePhaseArtifact["phase"]
+  state: typeof FROST_ARCHIVE_STATE_COMPLETED | typeof FROST_ARCHIVE_STATE_FRESH
+  stateName: "Completed" | "Fresh"
+  manifestHash: string
+  proxy: string
+  implementation: string
+  implementationCodeHash: string
+  oldImplementationCodeHash: string
+  walletsRoot: string
+  historyRoot: string
+  expectedCount: string
+  completedCount: string
+  checkpointHash: string
+  checkpointBlockNumber: string
+  maxTailBlocks: string
+  finalSourceAttestationHash: string
+  finalReconcilerAttestationHash: string
+}
+
+export interface FrostLifecyclePrerequisiteReceipt {
+  archive: FrostArchivePrerequisiteReceipt
+  implementationRuntime: RuntimeReceipt
+  lifecycleRouterRuntime: RuntimeReceipt
+  lifecycleRouterBridge: string
+  registryWalletOwner: string
+  registryGovernance: string
+  configuredBridgeFrostRegistry: string
+  configuredBridgeLifecycleRouter: string
+  registryLifecycleOwner: string
+}
+
+export interface FrostLifecycleInstallPlan {
+  lifecycleRouterToInstall: string
+  lifecycleOwnerToInstall: string
+}
+
+export interface FrostLifecyclePrerequisiteInput {
+  provider: providers.Provider
+  chainId: string
+  networkName: string
+  bridge: string
+  frostWalletRegistry: Pick<Deployment, "address" | "implementation">
+  bridgeLifecycleRouter: Pick<Deployment, "address" | "deployedBytecode">
+  archiveArtifactPath: string
 }
 
 export interface CompleteP2TRActivationArtifact {
@@ -536,6 +621,570 @@ const readUint = async (
   functionName: string
 ): Promise<BigNumber> =>
   BigNumber.from((await callResult(provider, target, iface, functionName))[0])
+
+const sameHex = (left: string, right: string): boolean =>
+  left.toLowerCase() === right.toLowerCase()
+
+const assertArchiveSignature = async (
+  provider: providers.Provider,
+  signer: string,
+  digest: string,
+  signature: string
+): Promise<void> => {
+  if (!utils.isHexString(signature) || signature === "0x") {
+    throw new Error("FROST archive manifest attestation signature is missing")
+  }
+  const signerCode = await provider.getCode(signer)
+  if (signerCode === "0x") {
+    if (!sameHex(utils.recoverAddress(digest, signature), signer)) {
+      throw new Error("FROST archive manifest attestation signature mismatch")
+    }
+    return
+  }
+  const eip1271 = new utils.Interface([
+    "function isValidSignature(bytes32 digest,bytes signature) view returns (bytes4)",
+  ])
+  const result = await provider.call({
+    to: signer,
+    data: eip1271.encodeFunctionData("isValidSignature", [digest, signature]),
+  })
+  if (
+    !sameHex(
+      eip1271.decodeFunctionResult("isValidSignature", result)[0],
+      "0x1626ba7e"
+    )
+  ) {
+    throw new Error("FROST archive manifest attestation signature rejected")
+  }
+}
+
+const assertCompletedArchiveArtifact = async (
+  provider: providers.Provider,
+  artifact: ArchivePhaseArtifact,
+  manifestHash: string,
+  migration: {
+    authority: string
+    upgradeBlockNumber: BigNumber
+    oldImplementationCodeHash: string
+    newImplementationCodeHash: string
+    walletsRoot: string
+    historyRoot: string
+    pendingManifestHash: string
+    expectedCount: BigNumber
+    completedCount: BigNumber
+    checkpointHash: string
+    checkpointBlockNumber: BigNumber
+    maxTailBlocks: BigNumber
+  },
+  finalAttestations: {
+    source: string
+    reconciler: string
+  }
+): Promise<ArchiveManifestV2> => {
+  const { manifest } = artifact
+  if (
+    !manifest ||
+    !artifact.manifestHash ||
+    !artifact.checkpoint ||
+    !artifact.proofEntries ||
+    !artifact.manifestAttestationRequests
+  ) {
+    throw new Error(
+      "Executed FROST archive artifact is missing signed manifest/root receipts"
+    )
+  }
+  const calculatedManifestHash = hashArchiveManifestV2(manifest)
+  if (
+    !sameHex(calculatedManifestHash, artifact.manifestHash) ||
+    !sameHex(manifestHash, artifact.manifestHash) ||
+    !sameHex(migration.pendingManifestHash, artifact.manifestHash)
+  ) {
+    throw new Error("FROST archive signed manifest hash mismatch")
+  }
+  const proofTree = buildArchiveMerkleTree(
+    artifact.proofEntries.map(
+      ({ walletID, dkgResultHash, membersIdsHash }) => ({
+        walletID,
+        dkgResultHash,
+        membersIdsHash,
+      })
+    )
+  )
+  if (
+    !sameHex(proofTree.root, manifest.walletsRoot) ||
+    proofTree.entries.length !== manifest.walletCount ||
+    canonicalJSON(proofTree.entries) !== canonicalJSON(artifact.proofEntries)
+  ) {
+    throw new Error("FROST archive wallet root/proof receipt mismatch")
+  }
+  if (
+    !sameHex(
+      hashArchiveCheckpoint(artifact.checkpoint),
+      artifact.checkpoint.checkpointHash
+    ) ||
+    !sameHex(artifact.checkpoint.checkpointHash, manifest.checkpointHash)
+  ) {
+    throw new Error("FROST archive checkpoint root receipt mismatch")
+  }
+  if (
+    manifest.schemaHash.toLowerCase() !==
+      ARCHIVE_MANIFEST_SCHEMA_HASH.toLowerCase() ||
+    !sameHex(manifest.registry, artifact.proxy) ||
+    !sameHex(
+      manifest.oldImplementationCodeHash,
+      artifact.oldImplementationCodeHash
+    ) ||
+    !sameHex(
+      manifest.newImplementationCodeHash,
+      artifact.implementationCodeHash
+    ) ||
+    !sameHex(
+      migration.oldImplementationCodeHash,
+      manifest.oldImplementationCodeHash
+    ) ||
+    !sameHex(
+      migration.newImplementationCodeHash,
+      manifest.newImplementationCodeHash
+    ) ||
+    !sameHex(migration.walletsRoot, manifest.walletsRoot) ||
+    !sameHex(migration.historyRoot, manifest.historyRoot) ||
+    !sameHex(migration.checkpointHash, manifest.checkpointHash) ||
+    !sameHex(migration.authority, artifact.authority) ||
+    !migration.upgradeBlockNumber.eq(manifest.upgradeBlockNumber) ||
+    !migration.expectedCount.eq(manifest.walletCount) ||
+    !migration.completedCount.eq(manifest.walletCount) ||
+    !migration.checkpointBlockNumber.eq(manifest.checkpointBlockNumber) ||
+    !migration.maxTailBlocks.eq(manifest.maxTailBlocks) ||
+    artifact.checkpoint.chainId !== artifact.chainId ||
+    !sameHex(artifact.checkpoint.registry, artifact.proxy) ||
+    artifact.checkpoint.checkpointBlockNumber !==
+      manifest.checkpointBlockNumber ||
+    artifact.checkpoint.maxTailBlocks !== manifest.maxTailBlocks ||
+    artifact.checkpoint.upgradeDeadlineBlock !==
+      manifest.upgradeDeadlineBlock ||
+    artifact.upgradeBlockNumber !== manifest.upgradeBlockNumber ||
+    artifact.upgradeBlockHash === undefined ||
+    !sameHex(artifact.upgradeBlockHash, manifest.upgradeBlockHash) ||
+    artifact.upgradeTransactionIndex !== manifest.upgradeTransactionIndex
+  ) {
+    throw new Error("FROST archive artifact/on-chain readback mismatch")
+  }
+
+  const expectedRequests = {
+    source: buildArchiveManifestAttestation(
+      manifest,
+      artifact.manifestHash,
+      ARCHIVE_SOURCE_ATTESTATION_ROLE,
+      manifest.sourceAttester
+    ),
+    reconciler: buildArchiveManifestAttestation(
+      manifest,
+      artifact.manifestHash,
+      ARCHIVE_RECONCILER_ATTESTATION_ROLE,
+      manifest.reconcilerAttester
+    ),
+  }
+  if (
+    canonicalJSON(expectedRequests) !==
+    canonicalJSON(artifact.manifestAttestationRequests)
+  ) {
+    throw new Error("FROST archive manifest attestation context mismatch")
+  }
+  const expectedAttestationHashes = {
+    source: hashArchiveManifestAttestation(expectedRequests.source),
+    reconciler: hashArchiveManifestAttestation(expectedRequests.reconciler),
+  }
+  if (
+    !sameHex(finalAttestations.source, expectedAttestationHashes.source) ||
+    !sameHex(finalAttestations.reconciler, expectedAttestationHashes.reconciler)
+  ) {
+    throw new Error("FROST archive final signed-attestation readback mismatch")
+  }
+  if (artifact.manifestAttestations) {
+    await Promise.all(
+      (["source", "reconciler"] as const).map(async (role) => {
+        const expected = expectedRequests[role]
+        const signed = artifact.manifestAttestations?.[role]
+        const digest = expectedAttestationHashes[role]
+        if (!signed) {
+          throw new Error("FROST archive signed attestation receipt mismatch")
+        }
+        if (
+          canonicalJSON(signed.attestation) !== canonicalJSON(expected) ||
+          !sameHex(signed.digest, digest) ||
+          !sameHex(signed.signer, expected.attester)
+        ) {
+          throw new Error("FROST archive signed attestation receipt mismatch")
+        }
+        await assertArchiveSignature(
+          provider,
+          expected.attester,
+          digest,
+          signed.signature
+        )
+      })
+    )
+  }
+  return manifest
+}
+
+export const immutableFrostPrerequisiteBinding = (
+  receipt: FrostLifecyclePrerequisiteReceipt
+): Record<string, unknown> => ({
+  archive: receipt.archive,
+  implementationRuntime: receipt.implementationRuntime,
+  lifecycleRouterRuntime: receipt.lifecycleRouterRuntime,
+  lifecycleRouterBridge: receipt.lifecycleRouterBridge,
+  registryWalletOwner: receipt.registryWalletOwner,
+  registryGovernance: receipt.registryGovernance,
+})
+
+export const assertFrostPrerequisiteResumeBinding = (
+  previousBinding: unknown,
+  receipt: FrostLifecyclePrerequisiteReceipt
+): void => {
+  if (
+    previousBinding === undefined ||
+    canonicalJSON(previousBinding) !==
+      canonicalJSON(immutableFrostPrerequisiteBinding(receipt))
+  ) {
+    throw new Error("FROST archive/lifecycle prerequisite resume drift")
+  }
+}
+
+export function resolveFrostLifecycleInstallPlan(
+  receipt: FrostLifecyclePrerequisiteReceipt,
+  previousAddresses?: Record<string, string>
+): FrostLifecycleInstallPlan {
+  const desiredRouter = receipt.lifecycleRouterRuntime.address
+  const resumed = previousAddresses !== undefined
+  if (
+    resumed &&
+    (previousAddresses.lifecycleRouterToInstall === undefined ||
+      previousAddresses.lifecycleOwnerToInstall === undefined)
+  ) {
+    throw new Error(
+      "Resume artifact is missing the FROST lifecycle install plan"
+    )
+  }
+  let lifecycleRouterToInstall = constants.AddressZero
+  let lifecycleOwnerToInstall = constants.AddressZero
+  if (resumed) {
+    lifecycleRouterToInstall = previousAddresses.lifecycleRouterToInstall
+    lifecycleOwnerToInstall = previousAddresses.lifecycleOwnerToInstall
+  } else {
+    if (receipt.configuredBridgeLifecycleRouter === constants.AddressZero) {
+      lifecycleRouterToInstall = desiredRouter
+    }
+    if (receipt.registryLifecycleOwner === constants.AddressZero) {
+      lifecycleOwnerToInstall = desiredRouter
+    }
+  }
+  const plannedBindings: Array<[string, string]> = [
+    ["Bridge lifecycle router", lifecycleRouterToInstall],
+    ["FROST lifecycle owner", lifecycleOwnerToInstall],
+  ]
+  plannedBindings.forEach(([label, planned]) => {
+    if (
+      !utils.isAddress(planned) ||
+      (planned !== constants.AddressZero && !sameHex(planned, desiredRouter))
+    ) {
+      throw new Error(`Resume artifact has an invalid ${label} plan`)
+    }
+  })
+  if (
+    receipt.configuredBridgeLifecycleRouter === constants.AddressZero &&
+    lifecycleRouterToInstall === constants.AddressZero
+  ) {
+    throw new Error(
+      "Resume artifact does not install the missing lifecycle router"
+    )
+  }
+  if (
+    receipt.registryLifecycleOwner === constants.AddressZero &&
+    lifecycleOwnerToInstall === constants.AddressZero
+  ) {
+    throw new Error(
+      "Resume artifact does not install the missing lifecycle owner"
+    )
+  }
+  return { lifecycleRouterToInstall, lifecycleOwnerToInstall }
+}
+
+export async function verifyFrostLifecyclePrerequisites({
+  provider,
+  chainId,
+  networkName,
+  bridge,
+  frostWalletRegistry,
+  bridgeLifecycleRouter,
+  archiveArtifactPath,
+}: FrostLifecyclePrerequisiteInput): Promise<FrostLifecyclePrerequisiteReceipt> {
+  const resolvedArchiveArtifactPath = path.resolve(archiveArtifactPath)
+  const archiveArtifact = readArchivePhase(resolvedArchiveArtifactPath)
+  if (!archiveArtifact) {
+    throw new Error("Executed deploy54 FROST archive artifact is required")
+  }
+  if (
+    archiveArtifact.phase !== "executed" ||
+    archiveArtifact.networkName !== networkName ||
+    archiveArtifact.chainId !== chainId ||
+    !sameHex(archiveArtifact.proxy, frostWalletRegistry.address)
+  ) {
+    throw new Error(
+      "FROST archive artifact is not executed for this deployment"
+    )
+  }
+  if (
+    !frostWalletRegistry.implementation ||
+    !utils.isAddress(frostWalletRegistry.implementation)
+  ) {
+    throw new Error("FrostWalletRegistry implementation metadata is missing")
+  }
+  const liveImplementation = readAddressWord(
+    await provider.getStorageAt(
+      frostWalletRegistry.address,
+      EIP_1967_IMPLEMENTATION_SLOT
+    ),
+    "FrostWalletRegistry EIP-1967 implementation"
+  )
+  if (
+    !sameHex(liveImplementation, frostWalletRegistry.implementation) ||
+    !sameHex(liveImplementation, archiveArtifact.implementation)
+  ) {
+    throw new Error("FrostWalletRegistry proxy implementation address mismatch")
+  }
+  const implementationCode = await provider.getCode(liveImplementation)
+  const implementationRuntime = assertRuntimeCode(
+    "FrostWalletRegistry implementation",
+    liveImplementation,
+    implementationCode,
+    implementationCode
+  )
+  if (
+    !sameHex(
+      implementationRuntime.runtimeCodeHash,
+      archiveArtifact.implementationCodeHash
+    )
+  ) {
+    throw new Error(
+      "FrostWalletRegistry proxy implementation codehash mismatch"
+    )
+  }
+
+  const migrationResult = await callResult(
+    provider,
+    frostWalletRegistry.address,
+    frostWalletRegistryInterface,
+    "getWalletArchiveMigration"
+  )
+  const migration = {
+    state: BigNumber.from(migrationResult.state).toNumber(),
+    authority: utils.getAddress(migrationResult.authority),
+    upgradeBlockNumber: BigNumber.from(migrationResult.upgradeBlockNumber),
+    oldImplementationCodeHash:
+      migrationResult.oldImplementationCodeHash as string,
+    newImplementationCodeHash:
+      migrationResult.newImplementationCodeHash as string,
+    walletsRoot: migrationResult.walletsRoot as string,
+    historyRoot: migrationResult.historyRoot as string,
+    pendingManifestHash: migrationResult.pendingManifestHash as string,
+    expectedCount: BigNumber.from(migrationResult.expectedCount),
+    completedCount: BigNumber.from(migrationResult.completedCount),
+    checkpointHash: migrationResult.checkpointHash as string,
+    checkpointBlockNumber: BigNumber.from(
+      migrationResult.checkpointBlockNumber
+    ),
+    maxTailBlocks: BigNumber.from(migrationResult.maxTailBlocks),
+  }
+  if (
+    migration.state !== FROST_ARCHIVE_STATE_COMPLETED &&
+    migration.state !== FROST_ARCHIVE_STATE_FRESH
+  ) {
+    throw new Error("FROST archive state must be exactly Completed or Fresh")
+  }
+  const manifestHash = (
+    await callResult(
+      provider,
+      frostWalletRegistry.address,
+      frostWalletRegistryInterface,
+      "getWalletArchiveMigrationManifestHash"
+    )
+  )[0] as string
+  if (
+    !utils.isHexString(manifestHash, 32) ||
+    manifestHash === constants.HashZero
+  ) {
+    throw new Error("FROST archive signed manifest hash is zero")
+  }
+
+  let finalSourceAttestationHash = constants.HashZero
+  let finalReconcilerAttestationHash = constants.HashZero
+  if (migration.state === FROST_ARCHIVE_STATE_COMPLETED) {
+    const finalAttestations = await callResult(
+      provider,
+      frostWalletRegistry.address,
+      frostWalletRegistryInterface,
+      "getWalletArchiveFinalAttestations"
+    )
+    finalSourceAttestationHash = finalAttestations.sourceAttestationHash
+    finalReconcilerAttestationHash = finalAttestations.reconcilerAttestationHash
+    const manifest = await assertCompletedArchiveArtifact(
+      provider,
+      archiveArtifact,
+      manifestHash,
+      migration,
+      {
+        source: finalSourceAttestationHash,
+        reconciler: finalReconcilerAttestationHash,
+      }
+    )
+    if (manifest.chainId !== chainId) {
+      throw new Error("FROST archive manifest chain ID mismatch")
+    }
+  } else {
+    const freshManifestHash = utils.keccak256(
+      utils.defaultAbiCoder.encode(
+        ["bytes32", "uint256", "address"],
+        [FROST_FRESH_ARCHIVE_SCHEMA_HASH, chainId, frostWalletRegistry.address]
+      )
+    )
+    if (
+      !sameHex(manifestHash, freshManifestHash) ||
+      !sameHex(archiveArtifact.oldImplementation, liveImplementation) ||
+      !sameHex(
+        archiveArtifact.oldImplementationCodeHash,
+        implementationRuntime.runtimeCodeHash
+      ) ||
+      archiveArtifact.authority !== constants.AddressZero ||
+      archiveArtifact.frostInactivity !== constants.AddressZero ||
+      archiveArtifact.frostInactivityCodeHash !== constants.HashZero ||
+      archiveArtifact.manifest !== undefined ||
+      archiveArtifact.proofEntries !== undefined ||
+      archiveArtifact.checkpoint !== undefined ||
+      migration.authority !== constants.AddressZero ||
+      !migration.upgradeBlockNumber.isZero() ||
+      migration.oldImplementationCodeHash !== constants.HashZero ||
+      migration.newImplementationCodeHash !== constants.HashZero ||
+      migration.walletsRoot !== constants.HashZero ||
+      migration.historyRoot !== constants.HashZero ||
+      migration.pendingManifestHash !== constants.HashZero ||
+      !migration.expectedCount.isZero() ||
+      !migration.completedCount.isZero() ||
+      migration.checkpointHash !== constants.HashZero ||
+      !migration.checkpointBlockNumber.isZero() ||
+      !migration.maxTailBlocks.isZero() ||
+      (archiveArtifact.manifestHash !== undefined &&
+        !sameHex(archiveArtifact.manifestHash, manifestHash))
+    ) {
+      throw new Error("Fresh FROST archive artifact/readback mismatch")
+    }
+  }
+
+  const lifecycleRouterCode = await provider.getCode(
+    bridgeLifecycleRouter.address
+  )
+  if (!bridgeLifecycleRouter.deployedBytecode) {
+    throw new Error("BridgeLifecycleRouter runtime metadata is missing")
+  }
+  const lifecycleRouterRuntime = assertRuntimeCode(
+    "BridgeLifecycleRouter",
+    bridgeLifecycleRouter.address,
+    lifecycleRouterCode,
+    bridgeLifecycleRouter.deployedBytecode
+  )
+  const lifecycleRouterBridge = await readAddress(
+    provider,
+    bridgeLifecycleRouter.address,
+    lifecycleRouterInterface,
+    "bridge"
+  )
+  const registryWalletOwner = await readAddress(
+    provider,
+    frostWalletRegistry.address,
+    frostWalletRegistryInterface,
+    "walletOwner"
+  )
+  const registryGovernance = await readAddress(
+    provider,
+    frostWalletRegistry.address,
+    frostWalletRegistryInterface,
+    "governance"
+  )
+  const configuredBridgeFrostRegistry = readAddressWord(
+    await provider.getStorageAt(bridge, BRIDGE_FROST_REGISTRY_STORAGE_SLOT),
+    "Bridge FROST registry slot"
+  )
+  const configuredBridgeLifecycleRouter = readAddressWord(
+    await provider.getStorageAt(bridge, BRIDGE_LIFECYCLE_ROUTER_STORAGE_SLOT),
+    "Bridge lifecycle router slot"
+  )
+  const registryLifecycleOwner = await readAddress(
+    provider,
+    frostWalletRegistry.address,
+    frostWalletRegistryInterface,
+    "lifecycleOwner"
+  )
+  if (
+    !sameHex(lifecycleRouterBridge, bridge) ||
+    !sameHex(registryWalletOwner, bridge)
+  ) {
+    throw new Error("FROST lifecycle router/registry Bridge crosslink mismatch")
+  }
+  if (
+    configuredBridgeFrostRegistry !== constants.AddressZero &&
+    !sameHex(configuredBridgeFrostRegistry, frostWalletRegistry.address)
+  ) {
+    throw new Error("Bridge is bound to a different FROST registry")
+  }
+  if (
+    configuredBridgeLifecycleRouter !== constants.AddressZero &&
+    !sameHex(configuredBridgeLifecycleRouter, bridgeLifecycleRouter.address)
+  ) {
+    throw new Error("Bridge is bound to a different lifecycle router")
+  }
+  if (
+    registryLifecycleOwner !== constants.AddressZero &&
+    !sameHex(registryLifecycleOwner, bridgeLifecycleRouter.address)
+  ) {
+    throw new Error("FrostWalletRegistry has a different lifecycle owner")
+  }
+
+  return {
+    archive: {
+      artifactPath: resolvedArchiveArtifactPath,
+      artifactHash: archiveArtifact.artifactHash as string,
+      artifactPhase: archiveArtifact.phase,
+      state: migration.state,
+      stateName:
+        migration.state === FROST_ARCHIVE_STATE_COMPLETED
+          ? "Completed"
+          : "Fresh",
+      manifestHash,
+      proxy: utils.getAddress(frostWalletRegistry.address),
+      implementation: liveImplementation,
+      implementationCodeHash: implementationRuntime.runtimeCodeHash,
+      oldImplementationCodeHash: migration.oldImplementationCodeHash,
+      walletsRoot: migration.walletsRoot,
+      historyRoot: migration.historyRoot,
+      expectedCount: migration.expectedCount.toString(),
+      completedCount: migration.completedCount.toString(),
+      checkpointHash: migration.checkpointHash,
+      checkpointBlockNumber: migration.checkpointBlockNumber.toString(),
+      maxTailBlocks: migration.maxTailBlocks.toString(),
+      finalSourceAttestationHash,
+      finalReconcilerAttestationHash,
+    },
+    implementationRuntime,
+    lifecycleRouterRuntime,
+    lifecycleRouterBridge,
+    registryWalletOwner,
+    registryGovernance,
+    configuredBridgeFrostRegistry,
+    configuredBridgeLifecycleRouter,
+    registryLifecycleOwner,
+  }
+}
 
 const readCoverage = async (
   provider: providers.Provider,
@@ -1308,7 +1957,13 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
   validateStorageLayout(__dirname + "/..")
   const Bridge = await get("Bridge")
   const FrostWalletRegistry = await get("FrostWalletRegistry")
+  const BridgeLifecycleRouter = await get("BridgeLifecycleRouter")
   const WalletProposalValidator = await get("WalletProposalValidator")
+  const chainId = await hre.getChainId()
+  const frostArchiveArtifactPath = process.env.FROST_ARCHIVE_ARTIFACT_PATH
+  if (!frostArchiveArtifactPath) {
+    throw new Error("FROST_ARCHIVE_ARTIFACT_PATH is required")
+  }
   const manifestPath = process.env.COMPLETE_P2TR_COVERAGE_MANIFEST
   if (!manifestPath) {
     throw new Error("COMPLETE_P2TR_COVERAGE_MANIFEST is required")
@@ -1335,9 +1990,27 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
   )
   const previous = readActivationArtifact(artifactPath)
 
+  const frostPrerequisites = await verifyFrostLifecyclePrerequisites({
+    provider: ethers.provider,
+    chainId,
+    networkName: hre.network.name,
+    bridge: Bridge.address,
+    frostWalletRegistry: FrostWalletRegistry,
+    bridgeLifecycleRouter: BridgeLifecycleRouter,
+    archiveArtifactPath: frostArchiveArtifactPath,
+  })
+  if (previous) {
+    assertFrostPrerequisiteResumeBinding(
+      previous.readbacks.frostPrerequisites,
+      frostPrerequisites
+    )
+  }
+  const { lifecycleRouterToInstall, lifecycleOwnerToInstall } =
+    resolveFrostLifecycleInstallPlan(frostPrerequisites, previous?.addresses)
+
   const p2trRouterWord = await ethers.provider.getStorageAt(
     Bridge.address,
-    51 + 34
+    BRIDGE_P2TR_ROUTER_STORAGE_SLOT
   )
   const configuredP2TRRouter = readAddressWord(
     p2trRouterWord,
@@ -1354,7 +2027,7 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
   }
   const frostRegistryWord = await ethers.provider.getStorageAt(
     Bridge.address,
-    51 + 32
+    BRIDGE_FROST_REGISTRY_STORAGE_SLOT
   )
   const configuredFrostRegistry = readAddressWord(
     frostRegistryWord,
@@ -1508,6 +2181,10 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
     Router,
   }
   const runtimeReceipts: Record<string, RuntimeReceipt> = {}
+  runtimeReceipts.FrostWalletRegistryImplementation =
+    frostPrerequisites.implementationRuntime
+  runtimeReceipts.BridgeLifecycleRouter =
+    frostPrerequisites.lifecycleRouterRuntime
   for (const [label, deployment] of Object.entries(runtimeDeployments)) {
     // eslint-disable-next-line no-await-in-loop
     const code = await ethers.provider.getCode(deployment.address)
@@ -1577,7 +2254,6 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
     snapshotImplementation.toLowerCase() ===
     BridgeImplementation.address.toLowerCase()
 
-  const chainId = await hre.getChainId()
   const coverageAuthorization = {
     inventoryRoot: inventory.root,
     inventoryCount: inventory.count,
@@ -1808,7 +2484,7 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
   }
   const ecdsaRouterWord = await ethers.provider.getStorageAt(
     Bridge.address,
-    51 + 33
+    BRIDGE_ECDSA_ROUTER_STORAGE_SLOT
   )
   const configuredEcdsaRouter = readAddressWord(
     ecdsaRouterWord,
@@ -2047,6 +2723,35 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
           )
         ).toString()
       : "0"
+  const frostGovernanceAuthority = frostPrerequisites.registryGovernance
+  let frostGovernanceAuthorityKind = governanceAuthorityKind
+  if (!sameHex(frostGovernanceAuthority, governanceAuthority)) {
+    frostGovernanceAuthorityKind = await classifyAuthority(
+      ethers.provider,
+      frostGovernanceAuthority,
+      configuredAccounts,
+      process.env.COMPLETE_P2TR_FROST_GOVERNANCE_AUTHORITY_KIND as
+        | "safe"
+        | "timelock"
+        | undefined
+    )
+  }
+  let frostGovernanceTimelockDelay = "0"
+  if (frostGovernanceAuthorityKind === "timelock") {
+    frostGovernanceTimelockDelay = sameHex(
+      frostGovernanceAuthority,
+      governanceAuthority
+    )
+      ? governanceTimelockDelay
+      : (
+          await readUint(
+            ethers.provider,
+            frostGovernanceAuthority,
+            timelockInterface,
+            "getMinDelay"
+          )
+        ).toString()
+  }
 
   const forbiddenCheckpointAuthorities = new Set(
     [
@@ -2056,6 +2761,7 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
       governanceAuthority,
       currentGovernance,
       replacementGovernance,
+      frostGovernanceAuthority,
     ].map((address) => address.toLowerCase())
   )
   if (
@@ -2091,6 +2797,89 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
     })
 
   const candidatePhases: ActivationPhase[] = []
+  let canonicalLifecycleInstallCalls: PreparedCall[] = []
+  const appendFrostLifecycleInstallPhase = (
+    prerequisite: string,
+    bridgeSetterTarget: string,
+    bridgeSetterInterface: utils.Interface
+  ): string => {
+    if (
+      lifecycleRouterToInstall === constants.AddressZero &&
+      lifecycleOwnerToInstall === constants.AddressZero
+    ) {
+      return prerequisite
+    }
+    const bridgeRouterCall =
+      lifecycleRouterToInstall === constants.AddressZero
+        ? undefined
+        : makeCall(
+            "install-bridge-lifecycle-router",
+            bridgeSetterTarget,
+            bridgeSetterInterface.encodeFunctionData("setLifecycleRouter", [
+              lifecycleRouterToInstall,
+            ]),
+            "Install the immutable BridgeLifecycleRouter binding on Bridge"
+          )
+    const registryOwnerCall =
+      lifecycleOwnerToInstall === constants.AddressZero
+        ? undefined
+        : makeCall(
+            "install-registry-lifecycle-owner",
+            FrostWalletRegistry.address,
+            frostWalletRegistryInterface.encodeFunctionData(
+              "updateLifecycleOwner",
+              [lifecycleOwnerToInstall]
+            ),
+            "Bind FrostWalletRegistry lifecycle ownership to BridgeLifecycleRouter"
+          )
+    canonicalLifecycleInstallCalls = [
+      bridgeRouterCall,
+      registryOwnerCall,
+    ].filter((call): call is PreparedCall => call !== undefined)
+    const calls: AuthorityEnvelope[] = []
+    if (
+      bridgeRouterCall &&
+      frostPrerequisites.configuredBridgeLifecycleRouter ===
+        constants.AddressZero
+    ) {
+      calls.push(
+        envelope(
+          bridgeRouterCall,
+          governanceAuthority,
+          governanceAuthorityKind,
+          "install-frost-lifecycle",
+          governanceTimelockDelay
+        )
+      )
+    }
+    if (
+      registryOwnerCall &&
+      frostPrerequisites.registryLifecycleOwner === constants.AddressZero
+    ) {
+      calls.push(
+        envelope(
+          registryOwnerCall,
+          frostGovernanceAuthority,
+          frostGovernanceAuthorityKind,
+          "install-frost-lifecycle",
+          frostGovernanceTimelockDelay
+        )
+      )
+    }
+    candidatePhases.push({
+      id: "install-frost-lifecycle",
+      status: "prepared",
+      prerequisite,
+      calls,
+      transactionHashes: [],
+      readback: {
+        bridgeLifecycleRouter:
+          frostPrerequisites.configuredBridgeLifecycleRouter,
+        registryLifecycleOwner: frostPrerequisites.registryLifecycleOwner,
+      },
+    })
+    return "install-frost-lifecycle"
+  }
   const prePhaseImplementation = readAddressWord(
     await ethers.provider.getStorageAt(
       Bridge.address,
@@ -2231,6 +3020,11 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
       })
       prerequisite = "install-frost-registry"
     }
+    prerequisite = appendFrostLifecycleInstallPhase(
+      prerequisite,
+      activationTarget,
+      bridgeGovernanceInterface
+    )
     if (ecdsaRouterToInstall !== constants.AddressZero) {
       const setEcdsa = makeCall(
         "install-ecdsa-router",
@@ -2351,6 +3145,11 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
       })
       prerequisite = "install-frost-registry"
     }
+    prerequisite = appendFrostLifecycleInstallPhase(
+      prerequisite,
+      Bridge.address,
+      bridgeInterface
+    )
     if (ecdsaRouterToInstall !== constants.AddressZero) {
       const setEcdsa = makeCall(
         "install-ecdsa-router",
@@ -2440,6 +3239,18 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
     })
   }
 
+  const planPhaseCalls = (
+    id: string,
+    calls: AuthorityEnvelope[]
+  ): unknown[] => {
+    if (id === "migrate-coverage") {
+      return [{ maximumBatchSize: MAXIMUM_COVERAGE_BATCH_SIZE }]
+    }
+    if (id === "install-frost-lifecycle") {
+      return canonicalLifecycleInstallCalls
+    }
+    return calls.map(({ inner }) => inner)
+  }
   const planID = utils.keccak256(
     utils.toUtf8Bytes(
       canonicalJSON({
@@ -2454,18 +3265,22 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
         sourceCheckpointCommitment: checkpointCommitment,
         linkedLibrariesCommitment: librariesCommitment,
         coverageAuthorizationDigest,
+        frostPrerequisites:
+          immutableFrostPrerequisiteBinding(frostPrerequisites),
         addresses: {
           bridgeImplementation: BridgeImplementation.address.toLowerCase(),
+          frostWalletRegistryImplementation:
+            frostPrerequisites.archive.implementation.toLowerCase(),
+          bridgeLifecycleRouter: BridgeLifecycleRouter.address.toLowerCase(),
+          lifecycleRouterToInstall: lifecycleRouterToInstall.toLowerCase(),
+          lifecycleOwnerToInstall: lifecycleOwnerToInstall.toLowerCase(),
           registry: Registry.address.toLowerCase(),
           router: Router.address.toLowerCase(),
           replacementGovernance: replacementGovernance.toLowerCase(),
         },
         calls: candidatePhases.map(({ id, calls }) => ({
           id,
-          calls:
-            id === "migrate-coverage"
-              ? [{ maximumBatchSize: MAXIMUM_COVERAGE_BATCH_SIZE }]
-              : calls.map(({ inner }) => inner),
+          calls: planPhaseCalls(id, calls),
         })),
       })
     )
@@ -2477,6 +3292,14 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
     const sameCandidates =
       previous.addresses.bridgeImplementation?.toLowerCase() ===
         BridgeImplementation.address.toLowerCase() &&
+      previous.addresses.frostWalletRegistryImplementation?.toLowerCase() ===
+        frostPrerequisites.archive.implementation.toLowerCase() &&
+      previous.addresses.bridgeLifecycleRouter?.toLowerCase() ===
+        BridgeLifecycleRouter.address.toLowerCase() &&
+      previous.addresses.lifecycleRouterToInstall?.toLowerCase() ===
+        lifecycleRouterToInstall.toLowerCase() &&
+      previous.addresses.lifecycleOwnerToInstall?.toLowerCase() ===
+        lifecycleOwnerToInstall.toLowerCase() &&
       previous.addresses.authorizationRegistry?.toLowerCase() ===
         Registry.address.toLowerCase() &&
       previous.addresses.completeRouter?.toLowerCase() ===
@@ -2526,11 +3349,17 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
   }
 
   let activeRouter = readAddressWord(
-    await ethers.provider.getStorageAt(Bridge.address, 51 + 34),
+    await ethers.provider.getStorageAt(
+      Bridge.address,
+      BRIDGE_P2TR_ROUTER_STORAGE_SLOT
+    ),
     "Bridge P2TR router slot"
   )
   let activeEcdsaRouter = readAddressWord(
-    await ethers.provider.getStorageAt(Bridge.address, 51 + 33),
+    await ethers.provider.getStorageAt(
+      Bridge.address,
+      BRIDGE_ECDSA_ROUTER_STORAGE_SLOT
+    ),
     "Bridge ECDSA router slot"
   )
   let coverageReadback: Awaited<ReturnType<typeof readCoverage>> | undefined
@@ -2575,6 +3404,18 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
           frostRegistryWord,
           "Bridge FROST registry slot"
         ).toLowerCase() === FrostWalletRegistry.address.toLowerCase()
+    } else if (candidate.id === "install-frost-lifecycle") {
+      observed =
+        (lifecycleRouterToInstall === constants.AddressZero ||
+          sameHex(
+            frostPrerequisites.configuredBridgeLifecycleRouter,
+            BridgeLifecycleRouter.address
+          )) &&
+        (lifecycleOwnerToInstall === constants.AddressZero ||
+          sameHex(
+            frostPrerequisites.registryLifecycleOwner,
+            BridgeLifecycleRouter.address
+          ))
     } else if (candidate.id === "initialize-coverage") {
       observed =
         coverageReadback?.initialized === true &&
@@ -2623,6 +3464,11 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
     coverageAuthorizationTuple: COVERAGE_AUTHORIZATION_TUPLE,
     routerProtocol: routerInterface.getSighash("evidenceProtocolID"),
     registryProtocol: registryInterface.getSighash("reservationProtocolID"),
+    installBridgeLifecycleRouter:
+      bridgeInterface.getSighash("setLifecycleRouter"),
+    installRegistryLifecycleOwner: frostWalletRegistryInterface.getSighash(
+      "updateLifecycleOwner"
+    ),
   }
   const artifact: CompleteP2TRActivationArtifact = {
     schemaVersion: ACTIVATION_ARTIFACT_SCHEMA,
@@ -2656,6 +3502,12 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
       governanceAuthority,
       replacementGovernance,
       frostWalletRegistry: FrostWalletRegistry.address,
+      frostWalletRegistryImplementation:
+        frostPrerequisites.archive.implementation,
+      frostRegistryGovernance: frostGovernanceAuthority,
+      bridgeLifecycleRouter: BridgeLifecycleRouter.address,
+      lifecycleRouterToInstall,
+      lifecycleOwnerToInstall,
       proposalValidator: WalletProposalValidator.address,
       bridgeImplementation: BridgeImplementation.address,
       ecdsaRouter: EcdsaRouter.address,
@@ -2683,6 +3535,14 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
       router: routerReadbacks,
       registry: registryReadbacks,
       coverageAuthorizationDigest,
+      frostPrerequisites: immutableFrostPrerequisiteBinding(frostPrerequisites),
+      frostLifecycle: {
+        configuredBridgeFrostRegistry:
+          frostPrerequisites.configuredBridgeFrostRegistry,
+        configuredBridgeLifecycleRouter:
+          frostPrerequisites.configuredBridgeLifecycleRouter,
+        registryLifecycleOwner: frostPrerequisites.registryLifecycleOwner,
+      },
       sourceCheckpointCommitment: checkpointCommitment,
       rebuildSourceIDs: authenticatedManifest.sourceIDs,
       rebuildBackendIDs: authenticatedManifest.backendIDs,
@@ -2742,6 +3602,10 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
       continue
     }
 
+    let everyTimelockCallDone =
+      phase.calls.length > 0 &&
+      phase.calls.every(({ kind }) => kind === "timelock")
+    let anyTimelockCallPending = false
     for (const authorityCall of phase.calls) {
       if (
         authorityCall.kind === "timelock" &&
@@ -2758,10 +3622,9 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
           )
         )[0] as boolean
         if (done) {
-          phase.status = "executed"
-          persistArtifact(artifactPath, artifact)
           continue
         }
+        everyTimelockCallDone = false
         // eslint-disable-next-line no-await-in-loop
         const pending = (
           await callResult(
@@ -2773,10 +3636,18 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
           )
         )[0] as boolean
         if (pending) {
-          phase.status = "pending"
-          persistArtifact(artifactPath, artifact)
+          anyTimelockCallPending = true
         }
+      } else {
+        everyTimelockCallDone = false
       }
+    }
+    if (everyTimelockCallDone) {
+      phase.status = "executed"
+      persistArtifact(artifactPath, artifact)
+    } else if (anyTimelockCallPending) {
+      phase.status = "pending"
+      persistArtifact(artifactPath, artifact)
     }
 
     if (phase.id === "migrate-coverage") {
@@ -2879,18 +3750,22 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
 
     if (mode !== "execute" || phase.status === "executed") continue
     if (!phase.calls.every(({ kind }) => kind === "eoa")) continue
-    const authority = phase.calls[0].authority
     if (
-      !configuredAccounts.some(
-        (account) => account.toLowerCase() === authority.toLowerCase()
+      !phase.calls.every(({ authority }) =>
+        configuredAccounts.some(
+          (account) => account.toLowerCase() === authority.toLowerCase()
+        )
       )
     ) {
       continue
     }
     phase.status = "pending"
     persistArtifact(artifactPath, artifact)
-    const signer = await ethers.getSigner(authority)
-    for (const { inner } of phase.calls) {
+    for (const { authority, inner } of phase.calls) {
+      // A lifecycle phase can contain Bridge-governance and registry-governance
+      // calls. Sign each envelope with its own recorded authority.
+      // eslint-disable-next-line no-await-in-loop
+      const signer = await ethers.getSigner(authority)
       // eslint-disable-next-line no-await-in-loop
       const transaction = await signer.sendTransaction({
         to: inner.target,
@@ -2918,15 +3793,64 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
   }
 
   activeRouter = readAddressWord(
-    await ethers.provider.getStorageAt(Bridge.address, 51 + 34),
+    await ethers.provider.getStorageAt(
+      Bridge.address,
+      BRIDGE_P2TR_ROUTER_STORAGE_SLOT
+    ),
     "Bridge P2TR router slot"
   )
   activeEcdsaRouter = readAddressWord(
-    await ethers.provider.getStorageAt(Bridge.address, 51 + 33),
+    await ethers.provider.getStorageAt(
+      Bridge.address,
+      BRIDGE_ECDSA_ROUTER_STORAGE_SLOT
+    ),
     "Bridge ECDSA router slot"
   )
+  const finalBridgeFrostRegistry = readAddressWord(
+    await ethers.provider.getStorageAt(
+      Bridge.address,
+      BRIDGE_FROST_REGISTRY_STORAGE_SLOT
+    ),
+    "Bridge FROST registry slot"
+  )
+  const finalBridgeLifecycleRouter = readAddressWord(
+    await ethers.provider.getStorageAt(
+      Bridge.address,
+      BRIDGE_LIFECYCLE_ROUTER_STORAGE_SLOT
+    ),
+    "Bridge lifecycle router slot"
+  )
+  const finalRegistryLifecycleOwner = await readAddress(
+    ethers.provider,
+    FrostWalletRegistry.address,
+    frostWalletRegistryInterface,
+    "lifecycleOwner"
+  )
+  if (
+    finalBridgeFrostRegistry !== constants.AddressZero &&
+    !sameHex(finalBridgeFrostRegistry, FrostWalletRegistry.address)
+  ) {
+    throw new Error("Final Bridge FROST registry readback mismatch")
+  }
+  if (
+    finalBridgeLifecycleRouter !== constants.AddressZero &&
+    !sameHex(finalBridgeLifecycleRouter, BridgeLifecycleRouter.address)
+  ) {
+    throw new Error("Final Bridge lifecycle router readback mismatch")
+  }
+  if (
+    finalRegistryLifecycleOwner !== constants.AddressZero &&
+    !sameHex(finalRegistryLifecycleOwner, BridgeLifecycleRouter.address)
+  ) {
+    throw new Error("Final FROST lifecycle owner readback mismatch")
+  }
   artifact.readbacks.activeP2TRRouter = activeRouter
   artifact.readbacks.activeEcdsaRouter = activeEcdsaRouter
+  artifact.readbacks.frostLifecycle = {
+    configuredBridgeFrostRegistry: finalBridgeFrostRegistry,
+    configuredBridgeLifecycleRouter: finalBridgeLifecycleRouter,
+    registryLifecycleOwner: finalRegistryLifecycleOwner,
+  }
   const finalImplementation = readAddressWord(
     await ethers.provider.getStorageAt(
       Bridge.address,
