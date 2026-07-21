@@ -59,8 +59,6 @@ contract BridgeGovernance is Ownable {
     uint256 public bridgeGovernanceTransferChangeInitiated;
     address internal newBridgeGovernance;
 
-    error EcdsaFraudCutoverGovernanceDelayUpdatePending();
-    error EcdsaFraudCutoverGovernanceTransferPending();
     error EcdsaFraudCutoverActive();
 
     // We skip emitting event on *Update to go down with the contract size
@@ -1864,118 +1862,49 @@ contract BridgeGovernance is Ownable {
         bridge.setEcdsaFraudRouter(ecdsaFraudRouter, expectedCodeHash);
     }
 
-    /// @notice Freezes the old router and pins the exact reviewed replacement
-    ///         before any inventory snapshot is taken.
-    function beginEcdsaFraudRouterDrain(
-        address expectedOldRouter,
-        bytes32 expectedOldCodeHash,
-        address newRouter,
-        bytes32 expectedNewCodeHash,
-        uint64 scanStartBlock
+    /// @notice Executes an owner-authorized cutover action. The payload schema
+    ///         is pinned by the selected action in `EcdsaFraudRouterCutover`.
+    function processEcdsaFraudCutoverOwnerAction(
+        uint8 action,
+        bytes calldata payload
     ) external onlyOwner {
-        if (bridgeGovernanceTransferChangeInitiated != 0) {
-            revert EcdsaFraudCutoverGovernanceTransferPending();
-        }
-        if (governanceDelays[1] != 0 || governanceDelays[2] != 0) {
-            revert EcdsaFraudCutoverGovernanceDelayUpdatePending();
-        }
-        ecdsaFraudCutoverData.beginDrain(
+        ecdsaFraudCutoverData.processOwnerAction(
             address(bridge),
-            expectedOldRouter,
-            expectedOldCodeHash,
-            newRouter,
-            expectedNewCodeHash,
-            scanStartBlock,
-            governanceDelay()
+            action,
+            payload,
+            governanceDelay(),
+            bridgeGovernanceTransferChangeInitiated != 0 ||
+                governanceDelays[1] != 0 ||
+                governanceDelays[2] != 0
         );
     }
 
-    /// @notice Stages the canonical, finalized-block-bound inventory after
-    ///         the old entry path has been frozen by the drain.
-    function stageEcdsaFraudInventory(
-        uint64 finalizedBlockNumber,
-        bytes32 finalizedBlockHash,
-        bytes32 challengeSetHash,
-        uint32 challengeCount,
-        uint256 totalEscrow,
-        address reconciler
-    ) external onlyOwner {
-        ecdsaFraudCutoverData.stageInventory(
+    /// @notice Executes an independently authorized confirmation or recovery
+    ///         action. The linked library authenticates the action's caller.
+    function processEcdsaFraudCutoverAuthorityAction(
+        uint8 action,
+        bytes calldata payload
+    ) external {
+        ecdsaFraudCutoverData.processAuthorityAction(
             address(bridge),
-            finalizedBlockNumber,
-            finalizedBlockHash,
-            challengeSetHash,
-            challengeCount,
-            totalEscrow,
-            reconciler
+            action,
+            payload,
+            governanceDelay(),
+            bridgeGovernanceTransferChangeInitiated != 0 ||
+                governanceDelays[1] != 0 ||
+                governanceDelays[2] != 0
         );
-    }
-
-    /// @notice Confirms the staged inventory from the independently operated
-    ///         reconciler account.
-    function confirmEcdsaFraudInventory(bytes32 inventoryCommitment) external {
-        ecdsaFraudCutoverData.confirmInventory(
-            address(bridge),
-            inventoryCommitment
-        );
-    }
-
-    /// @notice Migrates the exact confirmed key set into the inactive
-    ///         replacement while keeping the old router and drain lock pinned.
-    function migrateEcdsaFraudRouter(uint256[] calldata legacyChallengeKeys)
-        external
-        onlyOwner
-    {
-        ecdsaFraudCutoverData.migrate(address(bridge), legacyChallengeKeys);
-    }
-
-    /// @notice Independently reads back Bridge deletions and replacement
-    ///         records, counts, and escrow before the finalization delay starts.
-    function confirmEcdsaFraudMigration(uint256[] calldata legacyChallengeKeys)
-        external
-    {
-        ecdsaFraudCutoverData.confirmMigration(
-            address(bridge),
-            legacyChallengeKeys
-        );
-    }
-
-    /// @notice Starts a delayed replacement of a phase-four reconciler whose
-    ///         signing key is unavailable. The proposed reconciler must remain
-    ///         distinct from governance and from the original reconciler.
-    function beginEcdsaFraudReconcilerUpdate(address newReconciler)
-        external
-        onlyOwner
-    {
-        ecdsaFraudCutoverData.beginReconcilerUpdate(
-            address(bridge),
-            newReconciler
-        );
-    }
-
-    /// @notice Completes a phase-four reconciler replacement after the exact
-    ///         governance delay pinned when the drain began.
-    function finalizeEcdsaFraudReconcilerUpdate() external {
-        ecdsaFraudCutoverData.finalizeReconcilerUpdate(address(bridge));
-    }
-
-    /// @notice Rechecks the committed post-migration state after the full
-    ///         governance delay, activates the replacement, and clears drain.
-    function finalizeEcdsaFraudRouterReplacement(
-        uint256[] calldata legacyChallengeKeys
-    ) external onlyOwner {
-        ecdsaFraudCutoverData.finalize(address(bridge), legacyChallengeKeys);
     }
 
     /// @notice Full on-chain readback of the active cutover commitment and
     ///         phase. The record is cleared only by successful finalization;
     ///         finalized commitments remain permanently indexed in events.
-    function ecdsaFraudCutoverState()
+    function ecdsaFraudCutoverReadiness()
         external
         view
-        returns (EcdsaFraudRouterCutover.Data memory)
+        returns (EcdsaFraudRouterCutover.Readiness memory readiness)
     {
-        return ecdsaFraudCutoverData;
+        return ecdsaFraudCutoverData.readiness();
     }
 
     /// @notice Migrates a batch of legacy fraud challenges from

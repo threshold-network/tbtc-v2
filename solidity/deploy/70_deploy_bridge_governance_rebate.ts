@@ -26,11 +26,24 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       waitConfirmations: 1,
     }
   )
+  const ecdsaFraudRouterCutoverVerifier = await deployments.deploy(
+    "EcdsaFraudRouterCutoverVerifierRebate",
+    {
+      contract: "EcdsaFraudRouterCutoverVerifier",
+      from: deployer,
+      log: true,
+      waitConfirmations: 1,
+    }
+  )
   const ecdsaFraudRouterCutover = await deployments.deploy(
     "EcdsaFraudRouterCutoverRebate",
     {
       contract: "EcdsaFraudRouterCutover",
       from: deployer,
+      libraries: {
+        EcdsaFraudRouterCutoverVerifier:
+          ecdsaFraudRouterCutoverVerifier.address,
+      },
       log: true,
       waitConfirmations: 1,
     }
@@ -52,6 +65,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   if (hre.network.tags.etherscan) {
     await helpers.etherscan.verify(bridgeGovernanceParameters)
+    await helpers.etherscan.verify(ecdsaFraudRouterCutoverVerifier)
     await helpers.etherscan.verify(ecdsaFraudRouterCutover)
     await helpers.etherscan.verify(bridgeGovernance)
   }

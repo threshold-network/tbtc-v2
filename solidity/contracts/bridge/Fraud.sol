@@ -222,7 +222,11 @@ library Fraud {
         // There is deliberately no drain-cancel escape hatch. Prove the
         // authoritative legacy count is readable before entering that
         // fail-closed state so malformed router wiring cannot brick closure.
-        EcdsaFraudRouterProtocol.requireOpenChallengeCount(ecdsaFraudRouter);
+        // Read and require both the authoritative unresolved count and the
+        // escrow counter (when present) in the same transaction that enters
+        // the no-cancel drain. This closes the Safe/Timelock delay between an
+        // off-chain zero-state preflight and calldata execution.
+        EcdsaFraudRouterProtocol.requireEmptyAncestry(ecdsaFraudRouter);
         bytes32 approvedCodeHash = self.ecdsaFraudRouterCodeHash;
         if (
             approvedCodeHash != bytes32(0) &&

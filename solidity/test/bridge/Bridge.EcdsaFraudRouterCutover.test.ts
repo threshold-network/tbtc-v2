@@ -1,6 +1,6 @@
-import { ethers, helpers, waffle } from "hardhat"
 import { expect } from "chai"
-import type { BigNumberish, Contract } from "ethers"
+import { ethers, helpers, waffle } from "hardhat"
+import type { BigNumber, Contract, ContractTransaction } from "ethers"
 import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import type {
   Bridge,
@@ -9,21 +9,92 @@ import type {
   EcdsaFraudRouter,
 } from "../../typechain"
 import bridgeFixture from "../fixtures/bridge"
-import { wallet as fraudWallet } from "../data/fraud"
-import { constants, walletState } from "../fixtures"
+import { constants } from "../fixtures"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
-const { increaseTime, lastBlockTime } = helpers.time
+const { increaseTime } = helpers.time
 
-const INVENTORY_DOMAIN = ethers.utils.keccak256(
-  ethers.utils.toUtf8Bytes("tbtc/ecdsa-fraud-router-cutover/inventory/v1")
+const BEGIN_AUTHORITY_DOMAIN = ethers.utils.id(
+  "tbtc/ecdsa-fraud-cutover/begin-authority/v1"
+)
+const OWNER_AUTHORIZATION_DOMAIN = ethers.utils.id(
+  "tbtc/ecdsa-fraud-cutover/owner-authorization/v1"
+)
+const SOURCE_ATTESTATION_DOMAIN = ethers.utils.id(
+  "tbtc/ecdsa-fraud-cutover/inventory-source-attestation/v1"
+)
+const SOURCE_CONTEXT_DOMAIN = ethers.utils.id(
+  "tbtc/ecdsa-fraud-cutover/source-context/v1"
+)
+const RECONCILER_CONTEXT_DOMAIN = ethers.utils.id(
+  "tbtc/ecdsa-fraud-cutover/reconciler-context/v1"
+)
+const SOURCE_CHECKPOINT_DOMAIN = ethers.utils.id(
+  "tbtc/ecdsa-fraud-cutover/source-checkpoint/v1"
+)
+const RECONCILER_CHECKPOINT_DOMAIN = ethers.utils.id(
+  "tbtc/ecdsa-fraud-cutover/reconciler-checkpoint/v1"
+)
+const SOURCE_STAGE_DOMAIN = ethers.utils.id(
+  "tbtc/ecdsa-fraud-cutover/source-stage/v1"
+)
+const RECONCILER_STAGE_DOMAIN = ethers.utils.id(
+  "tbtc/ecdsa-fraud-cutover/reconciler-stage/v1"
+)
+const RECONCILER_ENROLLMENT_DOMAIN = ethers.utils.id(
+  "tbtc/ecdsa-fraud-cutover/reconciler-enrollment/v1"
+)
+const RECONCILER_RECOVERY_DOMAIN = ethers.utils.id(
+  "tbtc/ecdsa-fraud-cutover/reconciler-recovery/v1"
 )
 
-type LegacyChallenge = {
-  challenger: string
-  depositAmount: BigNumberish
-  reportedAt: number
-  resolved: boolean
+const CONTEXT_TUPLE =
+  "tuple(bytes32 durableStoreIdentity,bytes32 endpointIdentity,bytes32 trustDomain,bytes32 policyHash)"
+const HISTORY_TUPLE =
+  "tuple(bytes32 historyCommitment,bytes32 emitterSetCommitment,uint64 blockCount,uint64 transactionCount,uint64 receiptCount,uint64 logCount,uint64 emitterLogCount,uint64 candidateCallCount,uint64 sourceEventCount,uint64 lifecycleEventCount,bytes32 emitterLogDigest,bytes32 candidateCallDigest,bytes32 sourceEventDigest,bytes32 lifecycleEventDigest,bytes32 legacyLiabilityDigest,uint256 bridgeBalance,uint256 unrelatedBridgeBalance)"
+const SNAPSHOT_TUPLE = `tuple(uint64 finalizedBlock,bytes32 finalizedBlockHash,bytes32 challengeSetHash,uint32 challengeCount,uint256 totalEscrow,${HISTORY_TUPLE} history)`
+const OWNER_AUTHORIZATION_TUPLE = `tuple(address oldRouter,bytes32 oldRouterCodeHash,address newRouter,bytes32 newRouterCodeHash,uint64 scanStartBlock,address sourceSigner,bytes32 sourceId,${CONTEXT_TUPLE} sourceContext,address reconciler,bytes32 reconcilerSourceId,${CONTEXT_TUPLE} reconcilerContext,bytes32 emitterSetCommitment)`
+const PROOF_TUPLE = `tuple(address sourceSigner,bytes32 sourceId,${CONTEXT_TUPLE} sourceContext,address reconciler,bytes32 reconcilerSourceId,${CONTEXT_TUPLE} reconcilerContext,bytes32 manifestPlanHash,bytes32 emitterSetCommitment,bytes32 sourcePreflightCommitment,bytes32 sourceCheckpointCommitment,uint64 sourcePreflightFinalizedBlock,bytes32 sourcePreflightFinalizedBlockHash,uint8 maxTailBlocks,bytes sourceManifestSignature,bytes reconcilerManifestSignature)`
+
+type AuthorityContext = {
+  durableStoreIdentity: string
+  endpointIdentity: string
+  trustDomain: string
+  policyHash: string
+}
+
+type OwnerPlan = {
+  oldRouter: Contract
+  replacement: EcdsaFraudRouter
+  oldCodeHash: string
+  newCodeHash: string
+  scanStartBlock: number
+  sourceSigner: string
+  sourceId: string
+  sourceContext: AuthorityContext
+  sourceSignatureSigner: SignerWithAddress
+  reconciler: string
+  reconcilerSourceId: string
+  reconcilerContext: AuthorityContext
+  reconcilerSignatureSigner: SignerWithAddress
+  emitterSetCommitment: string
+  ownerAuthorizationHash: string
+}
+
+type AuthorityPlan = OwnerPlan & {
+  sourcePreflightCommitment: string
+  sourceCheckpointCommitment: string
+  preflightBlock: number
+  preflightBlockHash: string
+  maxTailBlocks: number
+  planHash: string
+  encodedProof: string
+  drainBlock?: number
+}
+
+type SnapshotOptions = {
+  challengeCount?: number
+  totalEscrow?: BigNumber | number
 }
 
 async function expectCustomError(
@@ -35,52 +106,111 @@ async function expectCustomError(
     await promise
     expect.fail(`expected ${signature}`)
   } catch (error) {
-    const typedError = error as {
+    const typed = error as {
       data?: string
       error?: { data?: string }
       message?: string
     }
-    const data = typedError.data ?? typedError.error?.data ?? ""
-    expect(`${data} ${typedError.message ?? ""}`.toLowerCase()).to.include(
-      selector
-    )
+    expect(
+      `${typed.data ?? ""} ${typed.error?.data ?? ""} ${
+        typed.message ?? ""
+      }`.toLowerCase()
+    ).to.include(selector)
   }
 }
 
 describe("Bridge - ECDSA fraud router cutover", () => {
   let deployer: SignerWithAddress
   let governance: SignerWithAddress
+  let source: SignerWithAddress
   let reconciler: SignerWithAddress
+  let keeper: SignerWithAddress
+  let pendingReconciler: SignerWithAddress
   let bridge: Bridge & BridgeStub
   let bridgeGovernance: BridgeGovernance
-  let ecdsaFraudRouter: EcdsaFraudRouter
+  let oldRouter: EcdsaFraudRouter
 
   before(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({
-      deployer,
-      governance,
-      thirdParty: reconciler,
-      bridge,
-      bridgeGovernance,
-      ecdsaFraudRouter,
-    } = await waffle.loadFixture(bridgeFixture))
+    const fixture = await waffle.loadFixture(bridgeFixture)
+    deployer = fixture.deployer
+    governance = fixture.governance
+    reconciler = fixture.thirdParty
+    const [sourceAuthority, cutoverKeeper, recoveryReconciler] =
+      fixture.guardians
+    source = sourceAuthority
+    keeper = cutoverKeeper
+    pendingReconciler = recoveryReconciler
+    bridge = fixture.bridge
+    bridgeGovernance = fixture.bridgeGovernance
+    oldRouter = fixture.ecdsaFraudRouter
   })
 
   beforeEach(async () => createSnapshot())
   afterEach(async () => restoreSnapshot())
 
-  async function deployCurrentRouter(): Promise<EcdsaFraudRouter> {
-    const factory = await ethers.getContractFactory(
-      "EcdsaFraudRouter",
-      deployer
+  function authorityContext(label: string): AuthorityContext {
+    return {
+      durableStoreIdentity: ethers.utils.id(`${label}-durable-store`),
+      endpointIdentity: ethers.utils.id(`${label}-endpoint`),
+      trustDomain: ethers.utils.id(`${label}-trust-domain`),
+      policyHash: ethers.utils.id(`${label}-policy`),
+    }
+  }
+
+  function contextCommitment(
+    domain: string,
+    signer: string,
+    sourceId: string,
+    context: AuthorityContext
+  ): string {
+    return ethers.utils.keccak256(
+      ethers.utils.defaultAbiCoder.encode(
+        [
+          "bytes32",
+          "address",
+          "bytes32",
+          "bytes32",
+          "bytes32",
+          "bytes32",
+          "bytes32",
+        ],
+        [
+          domain,
+          signer,
+          sourceId,
+          context.durableStoreIdentity,
+          context.endpointIdentity,
+          context.trustDomain,
+          context.policyHash,
+        ]
+      )
     )
-    const router = (await factory.deploy(
-      bridge.address,
-      await bridge.ecdsaFraudRouter()
-    )) as EcdsaFraudRouter
-    await router.deployed()
-    return router
+  }
+
+  function authorityCommitment(plan: OwnerPlan): string {
+    return ethers.utils.keccak256(
+      ethers.utils.defaultAbiCoder.encode(
+        ["address", "bytes32", "bytes32", "address", "bytes32", "bytes32"],
+        [
+          plan.sourceSigner,
+          plan.sourceId,
+          contextCommitment(
+            SOURCE_CONTEXT_DOMAIN,
+            plan.sourceSigner,
+            plan.sourceId,
+            plan.sourceContext
+          ),
+          plan.reconciler,
+          plan.reconcilerSourceId,
+          contextCommitment(
+            RECONCILER_CONTEXT_DOMAIN,
+            plan.reconciler,
+            plan.reconcilerSourceId,
+            plan.reconcilerContext
+          ),
+        ]
+      )
+    )
   }
 
   async function runtimeCodeHash(contract: Contract): Promise<string> {
@@ -89,717 +219,857 @@ describe("Bridge - ECDSA fraud router cutover", () => {
     )
   }
 
-  function challengeSetHash(
-    challengeKeys: BigNumberish[],
-    challenges: LegacyChallenge[]
-  ): string {
-    return ethers.utils.keccak256(
+  async function mineBlocks(count: number): Promise<void> {
+    if (count > 0) {
+      await ethers.provider.send("hardhat_mine", [ethers.utils.hexValue(count)])
+    }
+  }
+
+  async function deployReplacement(): Promise<EcdsaFraudRouter> {
+    const factory = await ethers.getContractFactory(
+      "EcdsaFraudRouter",
+      deployer
+    )
+    const replacement = (await factory.deploy(
+      bridge.address,
+      await bridge.ecdsaFraudRouter()
+    )) as EcdsaFraudRouter
+    await replacement.deployed()
+    return replacement
+  }
+
+  async function ownerAction(
+    action: number,
+    payload: string
+  ): Promise<ContractTransaction> {
+    return bridgeGovernance
+      .connect(governance)
+      .processEcdsaFraudCutoverOwnerAction(action, payload)
+  }
+
+  async function authorityAction(
+    signer: SignerWithAddress,
+    action: number,
+    payload: string
+  ): Promise<ContractTransaction> {
+    return bridgeGovernance
+      .connect(signer)
+      .processEcdsaFraudCutoverAuthorityAction(action, payload)
+  }
+
+  async function buildOwnerPlan(
+    replacement: EcdsaFraudRouter,
+    options: {
+      oldRouter?: Contract
+      sourceAuthority?: Contract
+      reconcilerAuthority?: Contract
+      sourceSignatureSigner?: SignerWithAddress
+      reconcilerSignatureSigner?: SignerWithAddress
+    } = {}
+  ): Promise<OwnerPlan> {
+    const currentOldRouter = options.oldRouter ?? oldRouter
+    const oldCodeHash = await runtimeCodeHash(currentOldRouter)
+    const newCodeHash = await runtimeCodeHash(replacement)
+    const sourceSigner = options.sourceAuthority?.address ?? source.address
+    const reconcilerAddress =
+      options.reconcilerAuthority?.address ?? reconciler.address
+    const sourceId = ethers.utils.id("independent-source-db")
+    const reconcilerSourceId = ethers.utils.id("independent-reconciler-db")
+    const sourceContext = authorityContext("source")
+    const reconcilerContext = authorityContext("reconciler")
+    const emitterSetCommitment = ethers.utils.id("exact-emitter-set")
+    const scanStartBlock = 0
+    const network = await ethers.provider.getNetwork()
+    const governanceDelay = await bridgeGovernance.governanceDelays(0)
+    const routerCommitment = ethers.utils.keccak256(
+      ethers.utils.defaultAbiCoder.encode(
+        ["address", "bytes32", "address", "bytes32"],
+        [
+          currentOldRouter.address,
+          oldCodeHash,
+          replacement.address,
+          newCodeHash,
+        ]
+      )
+    )
+    const partial = {
+      oldRouter: currentOldRouter,
+      replacement,
+      oldCodeHash,
+      newCodeHash,
+      scanStartBlock,
+      sourceSigner,
+      sourceId,
+      sourceContext,
+      sourceSignatureSigner: options.sourceSignatureSigner ?? source,
+      reconciler: reconcilerAddress,
+      reconcilerSourceId,
+      reconcilerContext,
+      reconcilerSignatureSigner:
+        options.reconcilerSignatureSigner ?? reconciler,
+      emitterSetCommitment,
+    }
+    const ownerAuthorizationHash = ethers.utils.keccak256(
       ethers.utils.defaultAbiCoder.encode(
         [
-          "uint256[]",
-          "tuple(address challenger,uint256 depositAmount,uint32 reportedAt,bool resolved)[]",
+          "bytes32",
+          "uint256",
+          "address",
+          "address",
+          "bytes32",
+          "uint64",
+          "uint256",
+          "bytes32",
+          "bytes32",
         ],
-        [challengeKeys, challenges]
+        [
+          OWNER_AUTHORIZATION_DOMAIN,
+          network.chainId,
+          bridgeGovernance.address,
+          bridge.address,
+          routerCommitment,
+          scanStartBlock,
+          governanceDelay,
+          authorityCommitment(partial),
+          emitterSetCommitment,
+        ]
       )
+    )
+    return { ...partial, ownerAuthorizationHash }
+  }
+
+  function ownerAuthorizationPayload(plan: OwnerPlan): string {
+    return ethers.utils.defaultAbiCoder.encode(
+      [OWNER_AUTHORIZATION_TUPLE],
+      [
+        {
+          oldRouter: plan.oldRouter.address,
+          oldRouterCodeHash: plan.oldCodeHash,
+          newRouter: plan.replacement.address,
+          newRouterCodeHash: plan.newCodeHash,
+          scanStartBlock: plan.scanStartBlock,
+          sourceSigner: plan.sourceSigner,
+          sourceId: plan.sourceId,
+          sourceContext: plan.sourceContext,
+          reconciler: plan.reconciler,
+          reconcilerSourceId: plan.reconcilerSourceId,
+          reconcilerContext: plan.reconcilerContext,
+          emitterSetCommitment: plan.emitterSetCommitment,
+        },
+      ]
     )
   }
 
-  async function mineBlocks(count: number): Promise<void> {
-    await ethers.provider.send("hardhat_mine", [ethers.utils.hexValue(count)])
+  async function authorize(plan: OwnerPlan): Promise<void> {
+    await (await ownerAction(0, ownerAuthorizationPayload(plan))).wait()
+  }
+
+  async function buildAuthorityPlan(
+    ownerPlan: OwnerPlan,
+    options: {
+      preflightAge?: number
+      preflightBlockHash?: string
+      maxTailBlocks?: number
+    } = {}
+  ): Promise<AuthorityPlan> {
+    const preflightAge = options.preflightAge ?? 63
+    const currentBlock = await ethers.provider.getBlockNumber()
+    if (currentBlock < preflightAge + 1) {
+      await mineBlocks(preflightAge + 1 - currentBlock)
+    }
+    const preflightBlock =
+      (await ethers.provider.getBlockNumber()) - preflightAge
+    const canonicalPreflightHash = (
+      await ethers.provider.getBlock(preflightBlock)
+    ).hash
+    const preflightBlockHash =
+      options.preflightBlockHash ?? canonicalPreflightHash
+    const maxTailBlocks = options.maxTailBlocks ?? 64
+    const sourcePreflightCommitment = ethers.utils.id("full-preflight")
+    const sourceCheckpointCommitment = ethers.utils.id("exact-checkpoint")
+    const sourceContextCommitment = contextCommitment(
+      SOURCE_CONTEXT_DOMAIN,
+      ownerPlan.sourceSigner,
+      ownerPlan.sourceId,
+      ownerPlan.sourceContext
+    )
+    const reconcilerContextCommitment = contextCommitment(
+      RECONCILER_CONTEXT_DOMAIN,
+      ownerPlan.reconciler,
+      ownerPlan.reconcilerSourceId,
+      ownerPlan.reconcilerContext
+    )
+    const sourceCheckpointRoleDigest = ethers.utils.keccak256(
+      ethers.utils.defaultAbiCoder.encode(
+        ["bytes32", "bytes32", "bytes32"],
+        [
+          SOURCE_CHECKPOINT_DOMAIN,
+          sourceCheckpointCommitment,
+          sourceContextCommitment,
+        ]
+      )
+    )
+    const reconcilerCheckpointRoleDigest = ethers.utils.keccak256(
+      ethers.utils.defaultAbiCoder.encode(
+        ["bytes32", "bytes32", "bytes32"],
+        [
+          RECONCILER_CHECKPOINT_DOMAIN,
+          sourceCheckpointCommitment,
+          reconcilerContextCommitment,
+        ]
+      )
+    )
+    const preflightCommitment = ethers.utils.keccak256(
+      ethers.utils.defaultAbiCoder.encode(
+        [
+          "bytes32",
+          "bytes32",
+          "bytes32",
+          "bytes32",
+          "uint64",
+          "bytes32",
+          "uint8",
+        ],
+        [
+          ownerPlan.emitterSetCommitment,
+          sourcePreflightCommitment,
+          sourceCheckpointRoleDigest,
+          reconcilerCheckpointRoleDigest,
+          preflightBlock,
+          preflightBlockHash,
+          maxTailBlocks,
+        ]
+      )
+    )
+    const planHash = ethers.utils.keccak256(
+      ethers.utils.defaultAbiCoder.encode(
+        ["bytes32", "bytes32", "bytes32"],
+        [
+          BEGIN_AUTHORITY_DOMAIN,
+          ownerPlan.ownerAuthorizationHash,
+          preflightCommitment,
+        ]
+      )
+    )
+    const sourceManifestSignature =
+      await ownerPlan.sourceSignatureSigner.signMessage(
+        ethers.utils.arrayify(planHash)
+      )
+    const reconcilerManifestSignature =
+      await ownerPlan.reconcilerSignatureSigner.signMessage(
+        ethers.utils.arrayify(planHash)
+      )
+    const encodedProof = ethers.utils.defaultAbiCoder.encode(
+      [PROOF_TUPLE],
+      [
+        {
+          sourceSigner: ownerPlan.sourceSigner,
+          sourceId: ownerPlan.sourceId,
+          sourceContext: ownerPlan.sourceContext,
+          reconciler: ownerPlan.reconciler,
+          reconcilerSourceId: ownerPlan.reconcilerSourceId,
+          reconcilerContext: ownerPlan.reconcilerContext,
+          manifestPlanHash: planHash,
+          emitterSetCommitment: ownerPlan.emitterSetCommitment,
+          sourcePreflightCommitment,
+          sourceCheckpointCommitment,
+          sourcePreflightFinalizedBlock: preflightBlock,
+          sourcePreflightFinalizedBlockHash: preflightBlockHash,
+          maxTailBlocks,
+          sourceManifestSignature,
+          reconcilerManifestSignature,
+        },
+      ]
+    )
+    return {
+      ...ownerPlan,
+      sourcePreflightCommitment,
+      sourceCheckpointCommitment,
+      preflightBlock,
+      preflightBlockHash,
+      maxTailBlocks,
+      planHash,
+      encodedProof,
+    }
+  }
+
+  function beginPayload(plan: AuthorityPlan): string {
+    return ethers.utils.defaultAbiCoder.encode(
+      [
+        "tuple(address oldRouter,bytes32 oldRouterCodeHash,address newRouter,bytes32 newRouterCodeHash,uint64 scanStartBlock,bytes authorityProof)",
+      ],
+      [
+        {
+          oldRouter: plan.oldRouter.address,
+          oldRouterCodeHash: plan.oldCodeHash,
+          newRouter: plan.replacement.address,
+          newRouterCodeHash: plan.newCodeHash,
+          scanStartBlock: plan.scanStartBlock,
+          authorityProof: plan.encodedProof,
+        },
+      ]
+    )
   }
 
   async function beginDrain(
     replacement: EcdsaFraudRouter,
-    oldRouter: Contract = ecdsaFraudRouter,
-    scanStartBlock = 0
-  ): Promise<{ oldCodeHash: string; newCodeHash: string; drainBlock: number }> {
-    const oldCodeHash = await runtimeCodeHash(oldRouter)
-    const newCodeHash = await runtimeCodeHash(replacement)
-    const tx = await bridgeGovernance
-      .connect(governance)
-      .beginEcdsaFraudRouterDrain(
-        oldRouter.address,
-        oldCodeHash,
-        replacement.address,
-        newCodeHash,
-        scanStartBlock
-      )
-    const receipt = await tx.wait()
-    return { oldCodeHash, newCodeHash, drainBlock: receipt.blockNumber }
+    ownerOptions: Parameters<typeof buildOwnerPlan>[1] = {},
+    proofOptions: Parameters<typeof buildAuthorityPlan>[1] = {}
+  ): Promise<AuthorityPlan> {
+    const ownerPlan = await buildOwnerPlan(replacement, ownerOptions)
+    await authorize(ownerPlan)
+    const plan = await buildAuthorityPlan(ownerPlan, proofOptions)
+    const receipt = await (
+      await authorityAction(keeper, 3, beginPayload(plan))
+    ).wait()
+    plan.drainBlock = receipt.blockNumber
+    return plan
   }
 
-  async function stageInventory(
-    root: string,
-    count: number,
-    totalEscrow: BigNumberish
+  async function encodeSnapshot(
+    plan: AuthorityPlan,
+    finalizedBlock: number,
+    options: SnapshotOptions = {}
   ): Promise<{
-    finalizedBlock: number
-    finalizedBlockHash: string
-    commitment: string
+    encodedSnapshot: string
+    sourceSignature: string
+    reconcilerSignature: string
   }> {
-    const finalizedBlock = await ethers.provider.getBlockNumber()
-    const finalizedBlockHash = (await ethers.provider.getBlock(finalizedBlock))
-      .hash
-    await mineBlocks(64)
-    await bridgeGovernance
-      .connect(governance)
-      .stageEcdsaFraudInventory(
-        finalizedBlock,
-        finalizedBlockHash,
-        root,
-        count,
-        totalEscrow,
-        reconciler.address
-      )
-    const state = await bridgeGovernance.ecdsaFraudCutoverState()
-    return {
+    const block = await ethers.provider.getBlock(finalizedBlock)
+    const challengeCount = options.challengeCount ?? 0
+    const totalEscrow = options.totalEscrow ?? 0
+    const bridgeBalance = await ethers.provider.getBalance(bridge.address)
+    const sourceEventCount = challengeCount
+    const history = {
+      historyCommitment: ethers.utils.id("canonical-receipt-history"),
+      emitterSetCommitment: plan.emitterSetCommitment,
+      blockCount: finalizedBlock - plan.scanStartBlock + 1,
+      transactionCount: 0,
+      receiptCount: 0,
+      logCount: 0,
+      emitterLogCount: sourceEventCount,
+      candidateCallCount: sourceEventCount,
+      sourceEventCount,
+      lifecycleEventCount: sourceEventCount,
+      emitterLogDigest: ethers.utils.id("emitter-log-digest"),
+      candidateCallDigest: ethers.utils.id("candidate-call-digest"),
+      sourceEventDigest: ethers.utils.id("source-event-digest"),
+      lifecycleEventDigest: ethers.utils.id("lifecycle-event-digest"),
+      legacyLiabilityDigest: ethers.utils.id("legacy-liability-digest"),
+      bridgeBalance,
+      unrelatedBridgeBalance: bridgeBalance.sub(totalEscrow),
+    }
+    const snapshot = {
       finalizedBlock,
-      finalizedBlockHash,
-      commitment: state.inventoryCommitment,
+      finalizedBlockHash: block.hash,
+      challengeSetHash: ethers.utils.keccak256(
+        ethers.utils.defaultAbiCoder.encode(
+          [
+            "uint256[]",
+            "tuple(address challenger,uint256 depositAmount,uint32 reportedAt,bool resolved)[]",
+          ],
+          [[], []]
+        )
+      ),
+      challengeCount,
+      totalEscrow,
+      history,
+    }
+    const encodedSnapshot = ethers.utils.defaultAbiCoder.encode(
+      [SNAPSHOT_TUPLE],
+      [snapshot]
+    )
+    const routingCommitment = ethers.utils.keccak256(
+      ethers.utils.defaultAbiCoder.encode(
+        ["address", "address", "uint64"],
+        [plan.oldRouter.address, plan.replacement.address, plan.scanStartBlock]
+      )
+    )
+    const snapshotHash = ethers.utils.keccak256(encodedSnapshot)
+    const historyEvidenceHash = ethers.utils.keccak256(
+      ethers.utils.defaultAbiCoder.encode([HISTORY_TUPLE], [history])
+    )
+    const network = await ethers.provider.getNetwork()
+    const stageDigest = (sourceRole: boolean): string =>
+      ethers.utils.keccak256(
+        ethers.utils.defaultAbiCoder.encode(
+          [
+            "bytes32",
+            "bytes32",
+            "uint256",
+            "address",
+            "bytes32",
+            "bytes32",
+            "bytes32",
+            "bytes32",
+            "bytes32",
+          ],
+          [
+            SOURCE_ATTESTATION_DOMAIN,
+            sourceRole ? SOURCE_STAGE_DOMAIN : RECONCILER_STAGE_DOMAIN,
+            network.chainId,
+            bridge.address,
+            routingCommitment,
+            snapshotHash,
+            historyEvidenceHash,
+            sourceRole
+              ? contextCommitment(
+                  SOURCE_CONTEXT_DOMAIN,
+                  plan.sourceSigner,
+                  plan.sourceId,
+                  plan.sourceContext
+                )
+              : contextCommitment(
+                  RECONCILER_CONTEXT_DOMAIN,
+                  plan.reconciler,
+                  plan.reconcilerSourceId,
+                  plan.reconcilerContext
+                ),
+            plan.planHash,
+          ]
+        )
+      )
+    return {
+      encodedSnapshot,
+      sourceSignature: await plan.sourceSignatureSigner.signMessage(
+        ethers.utils.arrayify(stageDigest(true))
+      ),
+      reconcilerSignature: await plan.reconcilerSignatureSigner.signMessage(
+        ethers.utils.arrayify(stageDigest(false))
+      ),
     }
   }
 
-  async function executeEmptyCutover(
-    oldRouter: EcdsaFraudRouter,
-    replacement: EcdsaFraudRouter
-  ): Promise<void> {
-    await beginDrain(replacement, oldRouter)
-    const { commitment } = await stageInventory(challengeSetHash([], []), 0, 0)
-    await bridgeGovernance
-      .connect(reconciler)
-      .confirmEcdsaFraudInventory(commitment)
-    await bridgeGovernance.connect(governance).migrateEcdsaFraudRouter([])
-    await bridgeGovernance.connect(reconciler).confirmEcdsaFraudMigration([])
+  async function stageAtAge(
+    plan: AuthorityPlan,
+    age: number,
+    finalizedBlock = plan.drainBlock as number,
+    options: SnapshotOptions = {}
+  ): Promise<ContractTransaction> {
+    const currentBlock = await ethers.provider.getBlockNumber()
+    await mineBlocks(Math.max(0, finalizedBlock + age - 1 - currentBlock))
+    const snapshot = await encodeSnapshot(plan, finalizedBlock, options)
+    return authorityAction(
+      keeper,
+      4,
+      ethers.utils.defaultAbiCoder.encode(
+        ["bytes", "bytes", "bytes"],
+        [
+          snapshot.encodedSnapshot,
+          snapshot.sourceSignature,
+          snapshot.reconcilerSignature,
+        ]
+      )
+    )
+  }
+
+  async function migrateEmptyInventory(plan: AuthorityPlan): Promise<void> {
+    await (await stageAtAge(plan, 64)).wait()
+    const staged = await bridgeGovernance.ecdsaFraudCutoverReadiness()
+    await (
+      await authorityAction(
+        reconciler,
+        0,
+        ethers.utils.defaultAbiCoder.encode(
+          ["bytes32"],
+          [staged.inventoryCommitment]
+        )
+      )
+    ).wait()
+    await (
+      await ownerAction(
+        2,
+        ethers.utils.defaultAbiCoder.encode(["uint256[]"], [[]])
+      )
+    ).wait()
+  }
+
+  async function executeEmptyCutover(forceBridgeEther = false): Promise<void> {
+    const replacement = await deployReplacement()
+    const plan = await beginDrain(replacement)
+    await (await stageAtAge(plan, 64)).wait()
+    const staged = await bridgeGovernance.ecdsaFraudCutoverReadiness()
+    if (forceBridgeEther) {
+      const force = await (
+        await ethers.getContractFactory(
+          "EcdsaFraudCutoverForceEtherStub",
+          deployer
+        )
+      ).deploy({ value: 1 })
+      await force.forceSend(bridge.address)
+    }
+    await (
+      await authorityAction(
+        reconciler,
+        0,
+        ethers.utils.defaultAbiCoder.encode(
+          ["bytes32"],
+          [staged.inventoryCommitment]
+        )
+      )
+    ).wait()
+    await (
+      await ownerAction(
+        2,
+        ethers.utils.defaultAbiCoder.encode(["uint256[]"], [[]])
+      )
+    ).wait()
+    await (
+      await authorityAction(
+        reconciler,
+        1,
+        ethers.utils.defaultAbiCoder.encode(["uint256[]"], [[]])
+      )
+    ).wait()
     await increaseTime(constants.governanceDelay)
-    await bridgeGovernance
-      .connect(governance)
-      .finalizeEcdsaFraudRouterReplacement([])
+    await (
+      await ownerAction(
+        4,
+        ethers.utils.defaultAbiCoder.encode(["uint256[]"], [[]])
+      )
+    ).wait()
+    expect(await bridge.ecdsaFraudRouter()).to.equal(replacement.address)
+    const readiness = await bridgeGovernance.ecdsaFraudCutoverReadiness()
+    expect(Number(readiness.phase)).to.equal(0)
+    expect(readiness.ownerAuthorizationHash).to.equal(ethers.constants.HashZero)
   }
 
-  it("pins and reads back the exact runtime code hash on fresh wiring", async () => {
-    await bridge.resetEcdsaFraudRouterForTest(ethers.constants.AddressZero)
-    await bridge.setEcdsaFraudRouterCodeHashForTest(ethers.constants.HashZero)
-    const router = await deployCurrentRouter()
-    const codeHash = await runtimeCodeHash(router)
-
-    await expectCustomError(
-      bridgeGovernance
-        .connect(governance)
-        .setEcdsaFraudRouter(
-          router.address,
-          ethers.utils.hexZeroPad("0x01", 32)
-        ),
-      "EcdsaFraudRouterCodeHashMismatch(address,bytes32,bytes32)"
-    )
-    await bridgeGovernance
-      .connect(governance)
-      .setEcdsaFraudRouter(router.address, codeHash)
-    expect(await bridge.ecdsaFraudRouter()).to.equal(router.address)
-    expect(await bridge.ecdsaFraudRouterCodeHash()).to.equal(codeHash)
+  it("executes an empty cutover with permissionless begin and staging", async () => {
+    await executeEmptyCutover()
   })
 
-  it("rejects wrong replacement bytecode before irreversible drain", async () => {
-    const replacement = await deployCurrentRouter()
-    await expectCustomError(
-      bridgeGovernance
-        .connect(governance)
-        .beginEcdsaFraudRouterDrain(
-          ecdsaFraudRouter.address,
-          await runtimeCodeHash(ecdsaFraudRouter),
-          replacement.address,
-          ethers.utils.hexZeroPad("0x01", 32),
-          0
-        ),
-      "EcdsaFraudRouterCodeHashMismatch(address,bytes32,bytes32)"
-    )
-    expect((await bridgeGovernance.ecdsaFraudCutoverState()).phase).to.equal(0)
+  it("does not wedge finalization when unrelated ETH arrives after staging", async () => {
+    await executeEmptyCutover(true)
+    expect(await ethers.provider.getBalance(bridge.address)).to.equal(1)
   })
 
-  it("rejects over-depth and cyclic ancestry before irreversible drain", async () => {
-    const factory = await ethers.getContractFactory(
-      "MutableEcdsaFraudRouterAncestryStub",
-      deployer
-    )
-    const oldRouter = await factory.deploy(bridge.address)
-    const replacement = await factory.deploy(bridge.address)
-    await Promise.all([oldRouter.deployed(), replacement.deployed()])
-    await bridge.resetEcdsaFraudRouterForTest(oldRouter.address)
-    await bridge.setEcdsaFraudRouterCodeHashForTest(
-      await runtimeCodeHash(oldRouter)
+  it("stores the exact owner authorization hash and lets Idle preauthorization be replaced", async () => {
+    const first = await buildOwnerPlan(await deployReplacement())
+    const second = await buildOwnerPlan(await deployReplacement())
+    await authorize(first)
+    expect(
+      (await bridgeGovernance.ecdsaFraudCutoverReadiness())
+        .ownerAuthorizationHash
+    ).to.equal(first.ownerAuthorizationHash)
+
+    await authorize(second)
+    expect(
+      (await bridgeGovernance.ecdsaFraudCutoverReadiness())
+        .ownerAuthorizationHash
+    ).to.equal(second.ownerAuthorizationHash)
+
+    const staleProof = await buildAuthorityPlan(first)
+    await expectCustomError(
+      authorityAction(keeper, 3, beginPayload(staleProof)),
+      "EcdsaFraudCutoverInvalidSourceAuthority()"
     )
 
-    await replacement.setAncestry(oldRouter.address, 9)
-    await expectCustomError(
-      bridgeGovernance
-        .connect(governance)
-        .beginEcdsaFraudRouterDrain(
-          oldRouter.address,
-          await runtimeCodeHash(oldRouter),
-          replacement.address,
-          await runtimeCodeHash(replacement),
-          0
-        ),
-      "EcdsaFraudRouterAncestryTooDeep(uint256)"
-    )
-
-    await replacement.setAncestry(oldRouter.address, 1)
-    await replacement.setPredecessorCodeHash(
-      ethers.utils.hexZeroPad("0x01", 32)
-    )
-    await expectCustomError(
-      bridgeGovernance
-        .connect(governance)
-        .beginEcdsaFraudRouterDrain(
-          oldRouter.address,
-          await runtimeCodeHash(oldRouter),
-          replacement.address,
-          await runtimeCodeHash(replacement),
-          0
-        ),
-      "EcdsaFraudRouterAncestryInvalid(address)"
-    )
-
-    await replacement.setAncestry(oldRouter.address, 1)
-    await oldRouter.setAncestry(replacement.address, 1)
-    await expectCustomError(
-      bridgeGovernance
-        .connect(governance)
-        .beginEcdsaFraudRouterDrain(
-          oldRouter.address,
-          await runtimeCodeHash(oldRouter),
-          replacement.address,
-          await runtimeCodeHash(replacement),
-          0
-        ),
-      "EcdsaFraudRouterAncestryInvalid(address)"
-    )
-    expect((await bridgeGovernance.ecdsaFraudCutoverState()).phase).to.equal(0)
-    expect(await bridge.ecdsaFraudRouterInDrain()).to.equal(
-      ethers.constants.AddressZero
-    )
+    const currentProof = await buildAuthorityPlan(second)
+    await (await authorityAction(keeper, 3, beginPayload(currentProof))).wait()
+    expect(
+      Number((await bridgeGovernance.ecdsaFraudCutoverReadiness()).phase)
+    ).to.equal(1)
   })
 
-  it("freezes legacy submissions and graceful closure during drain", async () => {
-    const legacyFactory = await ethers.getContractFactory(
-      "LegacyEcdsaFraudRouterCutoverStub",
-      deployer
-    )
-    const legacyRouter = await legacyFactory.deploy(bridge.address)
-    await legacyRouter.deployed()
-    await bridge.resetEcdsaFraudRouterForTest(legacyRouter.address)
-    await bridge.setEcdsaFraudRouterCodeHashForTest(
-      await runtimeCodeHash(legacyRouter)
-    )
-
-    const closingStartedAt = await lastBlockTime()
-    await bridge.setWallet(fraudWallet.pubKeyHash160, {
-      ecdsaWalletID: fraudWallet.ecdsaWalletID,
-      mainUtxoHash: ethers.constants.HashZero,
-      pendingRedemptionsValue: 0,
-      createdAt: 0,
-      movingFundsRequestedAt: 0,
-      closingStartedAt,
-      pendingMovedFundsSweepRequestsCount: 0,
-      state: walletState.Closing,
-      movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
+  it("enforces 64 <= B-P <= T <= 255", async () => {
+    const tooSmall = await buildOwnerPlan(await deployReplacement())
+    await authorize(tooSmall)
+    const tooSmallProof = await buildAuthorityPlan(tooSmall, {
+      maxTailBlocks: 63,
     })
+    await expectCustomError(
+      authorityAction(keeper, 3, beginPayload(tooSmallProof)),
+      "EcdsaFraudCutoverInvalidSourceAuthority()"
+    )
 
-    const challengerFactory = await ethers.getContractFactory(
-      "ReentrantEcdsaFraudChallenger",
-      deployer
-    )
-    const challenger = await challengerFactory.deploy(
-      legacyRouter.address,
-      bridge.address,
-      fraudWallet.pubKeyHash160
-    )
-    await challenger.deployed()
-    await challenger.submitChallenge({
-      value: constants.fraudChallengeDepositAmount,
+    const stale = await buildOwnerPlan(await deployReplacement())
+    await authorize(stale)
+    const staleProof = await buildAuthorityPlan(stale, {
+      preflightAge: 64,
+      maxTailBlocks: 64,
     })
-
-    const replacement = await deployCurrentRouter()
-    await beginDrain(replacement, legacyRouter)
-    await expect(
-      legacyRouter.connect(reconciler).submitChallengeForTest({
-        value: constants.fraudChallengeDepositAmount,
-      })
-    ).to.be.revertedWith("Deposit too low")
-
-    await increaseTime((await bridge.walletParameters()).walletClosingPeriod)
-    const tx = await challenger.resolveChallenge()
-    await expect(tx)
-      .to.emit(challenger, "ReentrantClosureAttempt")
-      .withArgs(
-        false,
-        ethers.utils.id("EcdsaFraudRouterDrainPending()").slice(0, 10)
-      )
     await expectCustomError(
-      bridge.notifyWalletClosingPeriodElapsed(fraudWallet.pubKeyHash160),
-      "EcdsaFraudRouterDrainPending()"
+      authorityAction(keeper, 3, beginPayload(staleProof)),
+      "EcdsaFraudCutoverInvalidSourceAuthority()"
     )
+
+    const maximum = await buildOwnerPlan(await deployReplacement())
+    await authorize(maximum)
+    const maximumProof = await buildAuthorityPlan(maximum, {
+      maxTailBlocks: 255,
+    })
+    await (await authorityAction(keeper, 3, beginPayload(maximumProof))).wait()
+    const readiness = await bridgeGovernance.ecdsaFraudCutoverReadiness()
+    expect(Number(readiness.maxTailBlocks)).to.equal(255)
+    expect(readiness.stageDeadlineBlock).to.equal(readiness.drainBlock.add(255))
   })
 
-  it("binds inventory to chain, Bridge, routers, hashes, and pinned range", async () => {
-    const replacement = await deployCurrentRouter()
-    const scanStartBlock = Math.max(
-      0,
-      (await ethers.provider.getBlockNumber()) - 10
-    )
-    const { oldCodeHash, newCodeHash, drainBlock } = await beginDrain(
-      replacement,
-      ecdsaFraudRouter,
-      scanStartBlock
-    )
-    const root = challengeSetHash([], [])
-    const { finalizedBlock, finalizedBlockHash, commitment } =
-      await stageInventory(root, 0, 0)
-    const { chainId } = await ethers.provider.getNetwork()
-    const routerCommitment = ethers.utils.keccak256(
-      ethers.utils.defaultAbiCoder.encode(
-        ["address", "address", "bytes32", "bytes32", "uint64", "uint256"],
-        [
-          ecdsaFraudRouter.address,
-          replacement.address,
-          oldCodeHash,
-          newCodeHash,
-          drainBlock,
-          constants.governanceDelay,
-        ]
-      )
-    )
-    const snapshotCommitment = ethers.utils.keccak256(
-      ethers.utils.defaultAbiCoder.encode(
-        ["uint64", "uint64", "bytes32", "bytes32", "uint32", "uint256"],
-        [scanStartBlock, finalizedBlock, finalizedBlockHash, root, 0, 0]
-      )
-    )
-    const expected = ethers.utils.keccak256(
-      ethers.utils.defaultAbiCoder.encode(
-        ["bytes32", "uint256", "address", "bytes32", "bytes32"],
-        [
-          INVENTORY_DOMAIN,
-          chainId,
-          bridge.address,
-          routerCommitment,
-          snapshotCommitment,
-        ]
-      )
-    )
-    expect(commitment).to.equal(expected)
-    expect(
-      (await bridgeGovernance.ecdsaFraudCutoverState()).scanStartBlock
-    ).to.equal(scanStartBlock)
-    expect(
-      (await bridgeGovernance.ecdsaFraudCutoverState()).governanceDelay
-    ).to.equal(constants.governanceDelay)
-  })
-
-  it("rejects a drain while a governance delay update is pending", async () => {
-    const replacement = await deployCurrentRouter()
-    await bridgeGovernance
-      .connect(governance)
-      .beginGovernanceDelayUpdate(constants.governanceDelay + 1)
+  it("rejects a noncanonical preflight block hash before drain", async () => {
+    const ownerPlan = await buildOwnerPlan(await deployReplacement())
+    await authorize(ownerPlan)
+    const plan = await buildAuthorityPlan(ownerPlan, {
+      preflightBlockHash: ethers.utils.hexZeroPad("0xdead", 32),
+    })
     await expectCustomError(
-      beginDrain(replacement),
-      "EcdsaFraudCutoverGovernanceDelayUpdatePending()"
+      authorityAction(keeper, 3, beginPayload(plan)),
+      "EcdsaFraudCutoverBlockHashMismatch()"
     )
   })
 
-  it("rejects a drain while a Bridge governance transfer is pending", async () => {
-    const replacement = await deployCurrentRouter()
-    await bridgeGovernance
-      .connect(governance)
-      .beginBridgeGovernanceTransfer(reconciler.address)
-
+  it("requires staging the exact drain block after 64 confirmations", async () => {
+    const plan = await beginDrain(await deployReplacement())
     await expectCustomError(
-      beginDrain(replacement),
-      "EcdsaFraudCutoverGovernanceTransferPending()"
-    )
-    expect((await bridgeGovernance.ecdsaFraudCutoverState()).phase).to.equal(0)
-    expect(await bridge.ecdsaFraudRouterInDrain()).to.equal(
-      ethers.constants.AddressZero
-    )
-  })
-
-  it("blocks governance handoff throughout every active cutover phase", async () => {
-    const replacement = await deployCurrentRouter()
-    const assertHandoffBlocked = async () => {
-      await expectCustomError(
-        bridgeGovernance
-          .connect(governance)
-          .beginBridgeGovernanceTransfer(reconciler.address),
-        "EcdsaFraudCutoverActive()"
-      )
-      await expectCustomError(
-        bridgeGovernance.connect(governance).finalizeBridgeGovernanceTransfer(),
-        "EcdsaFraudCutoverActive()"
-      )
-    }
-
-    await beginDrain(replacement)
-    expect((await bridgeGovernance.ecdsaFraudCutoverState()).phase).to.equal(1)
-    await assertHandoffBlocked()
-
-    const { commitment } = await stageInventory(challengeSetHash([], []), 0, 0)
-    expect((await bridgeGovernance.ecdsaFraudCutoverState()).phase).to.equal(2)
-    await assertHandoffBlocked()
-
-    await bridgeGovernance
-      .connect(reconciler)
-      .confirmEcdsaFraudInventory(commitment)
-    expect((await bridgeGovernance.ecdsaFraudCutoverState()).phase).to.equal(3)
-    await assertHandoffBlocked()
-
-    await bridgeGovernance.connect(governance).migrateEcdsaFraudRouter([])
-    expect((await bridgeGovernance.ecdsaFraudCutoverState()).phase).to.equal(4)
-    await assertHandoffBlocked()
-
-    await bridgeGovernance.connect(reconciler).confirmEcdsaFraudMigration([])
-    expect((await bridgeGovernance.ecdsaFraudCutoverState()).phase).to.equal(5)
-    await assertHandoffBlocked()
-  })
-
-  it("pins the delay and blocks delay updates for the full cutover", async () => {
-    const replacement = await deployCurrentRouter()
-    await beginDrain(replacement)
-    expect(
-      (await bridgeGovernance.ecdsaFraudCutoverState()).governanceDelay
-    ).to.equal(constants.governanceDelay)
-    await expectCustomError(
-      bridgeGovernance
-        .connect(governance)
-        .beginGovernanceDelayUpdate(constants.governanceDelay + 1),
-      "EcdsaFraudCutoverActive()"
-    )
-  })
-
-  it("fails closed outside the 64-255 block snapshot window", async () => {
-    const replacement = await deployCurrentRouter()
-    await beginDrain(replacement)
-    const root = challengeSetHash([], [])
-    const shallowBlock = await ethers.provider.getBlockNumber()
-    const shallowHash = (await ethers.provider.getBlock(shallowBlock)).hash
-
-    await expectCustomError(
-      bridgeGovernance
-        .connect(governance)
-        .stageEcdsaFraudInventory(
-          shallowBlock,
-          shallowHash,
-          root,
-          0,
-          0,
-          reconciler.address
-        ),
+      stageAtAge(plan, 1),
       "EcdsaFraudCutoverBlockNotFinalized()"
     )
-
-    const { commitment } = await stageInventory(root, 0, 0)
-    await bridgeGovernance
-      .connect(reconciler)
-      .confirmEcdsaFraudInventory(commitment)
-    await mineBlocks(190)
     await expectCustomError(
-      bridgeGovernance.connect(governance).migrateEcdsaFraudRouter([]),
+      stageAtAge(plan, 64, (plan.drainBlock as number) + 1),
+      "EcdsaFraudCutoverInvalidScanRange()"
+    )
+  })
+
+  it("accepts staging at the derived B+255 deadline", async () => {
+    const plan = await beginDrain(await deployReplacement())
+    await (await stageAtAge(plan, 255)).wait()
+    expect(
+      Number((await bridgeGovernance.ecdsaFraudCutoverReadiness()).phase)
+    ).to.equal(2)
+  })
+
+  it("rejects staging after the derived B+255 deadline", async () => {
+    const plan = await beginDrain(await deployReplacement())
+    await expectCustomError(
+      stageAtAge(plan, 256),
       "EcdsaFraudCutoverBlockHashUnavailable()"
     )
-
-    // Confirmation does not create a liveness trap: before migration, owner
-    // can restage a newer canonical snapshot and obtain a fresh independent
-    // confirmation while the same fail-closed drain remains pinned.
-    const restaged = await stageInventory(root, 0, 0)
-    expect(restaged.commitment).to.not.equal(commitment)
-    await bridgeGovernance
-      .connect(reconciler)
-      .confirmEcdsaFraudInventory(restaged.commitment)
   })
 
-  it("rejects omitted legacy keys atomically and preserves the drain", async () => {
-    const keys = [404, 405]
-    const deposits = [
-      ethers.utils.parseEther("0.75"),
-      ethers.utils.parseEther("0.4"),
-    ]
-    const challenges: LegacyChallenge[] = [
-      {
-        challenger: reconciler.address,
-        depositAmount: deposits[0],
-        reportedAt: 1_700_000_000,
-        resolved: false,
-      },
-      {
-        challenger: deployer.address,
-        depositAmount: deposits[1],
-        reportedAt: 1_700_000_001,
-        resolved: false,
-      },
-    ]
-    for (let i = 0; i < keys.length; i++) {
-      await bridge.setLegacyFraudChallengeForTest(keys[i], challenges[i], {
-        value: deposits[i],
-      })
-    }
-
-    const replacement = await deployCurrentRouter()
-    await beginDrain(replacement)
-    const totalEscrow = deposits[0].add(deposits[1])
-    const { commitment } = await stageInventory(
-      challengeSetHash(keys, challenges),
-      keys.length,
-      totalEscrow
-    )
-    await bridgeGovernance
-      .connect(reconciler)
-      .confirmEcdsaFraudInventory(commitment)
-
-    await expectCustomError(
-      bridgeGovernance.connect(governance).migrateEcdsaFraudRouter([keys[0]]),
-      "EcdsaFraudCutoverChallengeCountMismatch()"
-    )
-    await expectCustomError(
-      bridgeGovernance
-        .connect(governance)
-        .migrateEcdsaFraudRouter([keys[0], 999]),
-      "LegacyFraudChallengeDoesNotExist()"
-    )
-
+  it("does not reapply the finalized-block deadline after staging", async () => {
+    const plan = await beginDrain(await deployReplacement())
+    await (await stageAtAge(plan, 64)).wait()
+    await mineBlocks(256)
+    const staged = await bridgeGovernance.ecdsaFraudCutoverReadiness()
+    await (
+      await authorityAction(
+        reconciler,
+        0,
+        ethers.utils.defaultAbiCoder.encode(
+          ["bytes32"],
+          [staged.inventoryCommitment]
+        )
+      )
+    ).wait()
+    await (
+      await ownerAction(
+        2,
+        ethers.utils.defaultAbiCoder.encode(["uint256[]"], [[]])
+      )
+    ).wait()
+    await (
+      await authorityAction(
+        reconciler,
+        1,
+        ethers.utils.defaultAbiCoder.encode(["uint256[]"], [[]])
+      )
+    ).wait()
     expect(
-      (await bridge.legacyFraudChallengeForTest(keys[0])).reportedAt
-    ).to.equal(challenges[0].reportedAt)
-    expect(
-      (await bridge.legacyFraudChallengeForTest(keys[1])).reportedAt
-    ).to.equal(challenges[1].reportedAt)
-    expect(await replacement.openFraudChallengeCount()).to.equal(0)
-    expect(await bridge.ecdsaFraudRouter()).to.equal(ecdsaFraudRouter.address)
-    expect((await bridgeGovernance.ecdsaFraudCutoverState()).phase).to.equal(3)
+      Number((await bridgeGovernance.ecdsaFraudCutoverReadiness()).phase)
+    ).to.equal(5)
   })
 
-  it("keeps nonempty migrated inventory recovery-only and refuses activation", async () => {
-    const key = 404
-    const deposit = ethers.utils.parseEther("0.75")
-    const challenge: LegacyChallenge = {
-      challenger: reconciler.address,
-      depositAmount: deposit,
-      reportedAt: 1_700_000_000,
-      resolved: false,
-    }
-    await bridge.setLegacyFraudChallengeForTest(key, challenge, {
-      value: deposit,
-    })
-
-    const replacement = await deployCurrentRouter()
-    const { oldCodeHash } = await beginDrain(replacement)
-    const { commitment } = await stageInventory(
-      challengeSetHash([key], [challenge]),
-      1,
-      deposit
-    )
-    await expectCustomError(
-      bridgeGovernance.connect(deployer).confirmEcdsaFraudInventory(commitment),
-      "EcdsaFraudCutoverUnauthorizedReconciler()"
-    )
-    await bridgeGovernance
-      .connect(reconciler)
-      .confirmEcdsaFraudInventory(commitment)
-    await bridgeGovernance.connect(governance).migrateEcdsaFraudRouter([key])
-
-    expect(await bridge.ecdsaFraudRouter()).to.equal(ecdsaFraudRouter.address)
-    expect(await bridge.ecdsaFraudRouterCodeHash()).to.equal(oldCodeHash)
-    expect((await bridgeGovernance.ecdsaFraudCutoverState()).phase).to.equal(4)
-    expect(
-      (await bridgeGovernance.ecdsaFraudCutoverState()).inventoryCommitment
-    ).to.equal(commitment)
-    expect((await bridge.legacyFraudChallengeForTest(key)).reportedAt).to.equal(
-      0
-    )
-    expect((await replacement.fraudChallenges(key)).challenger).to.equal(
-      reconciler.address
-    )
-    expect(await replacement.openFraudChallengeCount()).to.equal(1)
-    expect(await replacement.unattributedOpenFraudChallengeCount()).to.equal(1)
-    expect(await replacement.openFraudChallengeEscrow()).to.equal(deposit)
-    expect(await ethers.provider.getBalance(replacement.address)).to.equal(
-      deposit
-    )
-    await expectCustomError(
-      replacement.fraudChallengeDefeatTimeoutStartedAt(key),
-      "EcdsaFraudRouterMigratedChallengeInactive(uint256)"
-    )
-    await expectCustomError(
-      replacement.defeatFraudChallenge("0x", "0x", true),
-      "EcdsaFraudRouterNotActive()"
-    )
-
-    await bridgeGovernance.connect(reconciler).confirmEcdsaFraudMigration([key])
-    const confirmedState = await bridgeGovernance.ecdsaFraudCutoverState()
-    expect(confirmedState.phase).to.equal(5)
-    expect(confirmedState.postMigrationCommitment).to.not.equal(
-      ethers.constants.HashZero
-    )
-
-    await expectCustomError(
-      bridgeGovernance
-        .connect(governance)
-        .finalizeEcdsaFraudRouterReplacement([key]),
-      "EcdsaFraudCutoverActivationRequiresEmptyInventory()"
-    )
-    await increaseTime(constants.governanceDelay)
-    await expectCustomError(
-      bridgeGovernance
-        .connect(governance)
-        .finalizeEcdsaFraudRouterReplacement([key]),
-      "EcdsaFraudCutoverActivationRequiresEmptyInventory()"
-    )
-    expect(await bridge.ecdsaFraudRouter()).to.equal(ecdsaFraudRouter.address)
-    expect(await bridge.ecdsaFraudRouterInDrain()).to.equal(
-      ecdsaFraudRouter.address
-    )
-    expect(await replacement.migratedChallengesActivatedAt()).to.equal(0)
-    expect((await bridgeGovernance.ecdsaFraudCutoverState()).phase).to.equal(5)
-  })
-
-  it("starts an empty replacement activation epoch and clears the coordinator", async () => {
-    const replacement = await deployCurrentRouter()
-
-    await executeEmptyCutover(ecdsaFraudRouter, replacement)
-
-    const activatedAt = await replacement.migratedChallengesActivatedAt()
-    expect(activatedAt).to.be.gt(0)
-    expect(activatedAt).to.equal(await lastBlockTime())
-    expect(await bridge.ecdsaFraudRouter()).to.equal(replacement.address)
-    const state = await bridgeGovernance.ecdsaFraudCutoverState()
-    expect(state.phase).to.equal(0)
-    expect(state.pendingReconciler).to.equal(ethers.constants.AddressZero)
-    expect(state.reconcilerUpdateStartedAt).to.equal(0)
-  })
-
-  it("recovers a lost phase-four reconciler through delayed candidate acceptance", async () => {
-    const replacement = await deployCurrentRouter()
-    await beginDrain(replacement)
-    const { commitment } = await stageInventory(challengeSetHash([], []), 0, 0)
-    await bridgeGovernance
-      .connect(reconciler)
-      .confirmEcdsaFraudInventory(commitment)
-    await bridgeGovernance.connect(governance).migrateEcdsaFraudRouter([])
-
-    await bridgeGovernance
-      .connect(governance)
-      .beginEcdsaFraudReconcilerUpdate(deployer.address)
-    let state = await bridgeGovernance.ecdsaFraudCutoverState()
-    expect(state.phase).to.equal(4)
-    expect(state.reconciler).to.equal(reconciler.address)
-    expect(state.pendingReconciler).to.equal(deployer.address)
-    expect(state.reconcilerUpdateStartedAt).to.be.gt(0)
-
-    await expectCustomError(
-      bridgeGovernance.connect(reconciler).finalizeEcdsaFraudReconcilerUpdate(),
-      "EcdsaFraudCutoverUnauthorizedReconciler()"
-    )
-    await expectCustomError(
-      bridgeGovernance.connect(deployer).finalizeEcdsaFraudReconcilerUpdate(),
-      "EcdsaFraudCutoverDelayNotElapsed()"
-    )
-    await increaseTime(constants.governanceDelay)
-    await bridgeGovernance
-      .connect(deployer)
-      .finalizeEcdsaFraudReconcilerUpdate()
-
-    state = await bridgeGovernance.ecdsaFraudCutoverState()
-    expect(state.reconciler).to.equal(deployer.address)
-    expect(state.pendingReconciler).to.equal(ethers.constants.AddressZero)
-    expect(state.reconcilerUpdateStartedAt).to.equal(0)
-    await expectCustomError(
-      bridgeGovernance.connect(reconciler).confirmEcdsaFraudMigration([]),
-      "EcdsaFraudCutoverUnauthorizedReconciler()"
-    )
-    await bridgeGovernance.connect(deployer).confirmEcdsaFraudMigration([])
-    expect((await bridgeGovernance.ecdsaFraudCutoverState()).phase).to.equal(5)
-  })
-
-  it("rechecks the full pinned ancestry before activation", async () => {
-    const legacyFactory = await ethers.getContractFactory(
-      "LegacyEcdsaFraudRouterCutoverStub",
-      deployer
-    )
-    const legacyRouter = await legacyFactory.deploy(bridge.address)
-    await legacyRouter.deployed()
-
-    const currentFactory = await ethers.getContractFactory(
-      "MutableEcdsaFraudRouterAncestryStub",
-      deployer
-    )
-    const oldRouter = await currentFactory.deploy(bridge.address)
-    await oldRouter.deployed()
-    await oldRouter.setAncestry(legacyRouter.address, 1)
-    await bridge.resetEcdsaFraudRouterForTest(oldRouter.address)
+  it("atomically rechecks old-router liabilities at drain execution", async () => {
+    const mutable = await (
+      await ethers.getContractFactory(
+        "MutableEcdsaFraudRouterAncestryStub",
+        deployer
+      )
+    ).deploy(bridge.address)
+    await mutable.deployed()
+    await bridge.resetEcdsaFraudRouterForTest(mutable.address)
     await bridge.setEcdsaFraudRouterCodeHashForTest(
-      await runtimeCodeHash(oldRouter)
+      await runtimeCodeHash(mutable)
+    )
+    const replacement = await deployReplacement()
+    const ownerPlan = await buildOwnerPlan(replacement, { oldRouter: mutable })
+    await authorize(ownerPlan)
+    await mutable.setOpenFraudChallengeEscrowForTest(1)
+    const plan = await buildAuthorityPlan(ownerPlan)
+    await expectCustomError(
+      authorityAction(keeper, 3, beginPayload(plan)),
+      "EcdsaFraudRouterAncestryHasOpenChallenges(address,uint256,uint256)"
+    )
+    expect(
+      Number((await bridgeGovernance.ecdsaFraudCutoverReadiness()).phase)
+    ).to.equal(0)
+  })
+
+  it("rejects even a dually attested non-empty activation inventory", async () => {
+    const plan = await beginDrain(await deployReplacement())
+    await expectCustomError(
+      stageAtAge(plan, 64, plan.drainBlock, { challengeCount: 1 }),
+      "EcdsaFraudCutoverActivationRequiresEmptyInventory()"
+    )
+  })
+
+  it("binds reconciler recovery to explicit pending-reconciler enrollment", async () => {
+    const plan = await beginDrain(await deployReplacement())
+    await migrateEmptyInventory(plan)
+    const readiness = await bridgeGovernance.ecdsaFraudCutoverReadiness()
+    const pendingSourceId = ethers.utils.id("replacement-reconciler-db")
+    const pendingContext = authorityContext("replacement-reconciler")
+    const pendingContextCommitment = contextCommitment(
+      RECONCILER_CONTEXT_DOMAIN,
+      pendingReconciler.address,
+      pendingSourceId,
+      pendingContext
+    )
+    const pendingCheckpointRoleDigest = ethers.utils.keccak256(
+      ethers.utils.defaultAbiCoder.encode(
+        ["bytes32", "bytes32", "bytes32"],
+        [
+          RECONCILER_CHECKPOINT_DOMAIN,
+          plan.sourceCheckpointCommitment,
+          pendingContextCommitment,
+        ]
+      )
+    )
+    const network = await ethers.provider.getNetwork()
+    const enrollmentDigest = ethers.utils.keccak256(
+      ethers.utils.defaultAbiCoder.encode(
+        [
+          "bytes32",
+          "uint256",
+          "address",
+          "address",
+          "bytes32",
+          "bytes32",
+          "bytes32",
+          "bytes32",
+        ],
+        [
+          RECONCILER_ENROLLMENT_DOMAIN,
+          network.chainId,
+          bridgeGovernance.address,
+          bridge.address,
+          readiness.inventoryCommitment,
+          plan.planHash,
+          authorityCommitment(plan),
+          pendingCheckpointRoleDigest,
+        ]
+      )
+    )
+    const enrollmentAttestation = await pendingReconciler.signMessage(
+      ethers.utils.arrayify(enrollmentDigest)
+    )
+    const recoveryDigest = ethers.utils.keccak256(
+      ethers.utils.defaultAbiCoder.encode(
+        [
+          "bytes32",
+          "uint256",
+          "address",
+          "address",
+          "bytes32",
+          "bytes32",
+          "bytes32",
+          "bytes32",
+          "bytes32",
+        ],
+        [
+          RECONCILER_RECOVERY_DOMAIN,
+          network.chainId,
+          bridgeGovernance.address,
+          bridge.address,
+          readiness.inventoryCommitment,
+          plan.planHash,
+          authorityCommitment(plan),
+          enrollmentDigest,
+          ethers.utils.keccak256(enrollmentAttestation),
+        ]
+      )
+    )
+    const sourceRecoveryAttestation = await source.signMessage(
+      ethers.utils.arrayify(recoveryDigest)
+    )
+    const recoveryPayload = (
+      enrollment: string,
+      sourceRecovery: string
+    ): string =>
+      ethers.utils.defaultAbiCoder.encode(
+        ["address", "bytes32", CONTEXT_TUPLE, "bytes", "bytes"],
+        [
+          pendingReconciler.address,
+          pendingSourceId,
+          pendingContext,
+          enrollment,
+          sourceRecovery,
+        ]
+      )
+
+    const forgedEnrollment = await keeper.signMessage(
+      ethers.utils.arrayify(enrollmentDigest)
+    )
+    await expectCustomError(
+      ownerAction(
+        3,
+        recoveryPayload(forgedEnrollment, sourceRecoveryAttestation)
+      ),
+      "EcdsaFraudCutoverInvalidReconciler()"
     )
 
-    const replacement = await deployCurrentRouter()
-    await beginDrain(replacement, oldRouter)
-    const { commitment } = await stageInventory(challengeSetHash([], []), 0, 0)
-    await bridgeGovernance
-      .connect(reconciler)
-      .confirmEcdsaFraudInventory(commitment)
-    await bridgeGovernance.connect(governance).migrateEcdsaFraudRouter([])
-    await bridgeGovernance.connect(reconciler).confirmEcdsaFraudMigration([])
+    await (
+      await ownerAction(
+        3,
+        recoveryPayload(enrollmentAttestation, sourceRecoveryAttestation)
+      )
+    ).wait()
+    const pending = await bridgeGovernance.ecdsaFraudCutoverReadiness()
+    expect(pending.pendingReconciler).to.equal(pendingReconciler.address)
+    expect(pending.pendingReconcilerSourceId).to.equal(pendingSourceId)
+
     await increaseTime(constants.governanceDelay)
-
-    await oldRouter.setOpenFraudChallengeEscrowForTest(1)
-    await expectCustomError(
-      bridgeGovernance
-        .connect(governance)
-        .finalizeEcdsaFraudRouterReplacement([]),
-      "EcdsaFraudRouterAncestryHasOpenChallenges(address,uint256,uint256)"
-    )
-
-    await oldRouter.setOpenFraudChallengeEscrowForTest(0)
-    await legacyRouter.setOpenFraudChallengeCountForTest(1)
-    await expectCustomError(
-      bridgeGovernance
-        .connect(governance)
-        .finalizeEcdsaFraudRouterReplacement([]),
-      "EcdsaFraudRouterAncestryHasOpenChallenges(address,uint256,uint256)"
-    )
-
-    expect((await bridgeGovernance.ecdsaFraudCutoverState()).phase).to.equal(5)
-    expect(await bridge.ecdsaFraudRouter()).to.equal(oldRouter.address)
-    expect(await bridge.ecdsaFraudRouterInDrain()).to.equal(oldRouter.address)
+    await (await authorityAction(pendingReconciler, 2, "0x")).wait()
+    const recovered = await bridgeGovernance.ecdsaFraudCutoverReadiness()
+    expect(recovered.reconciler).to.equal(pendingReconciler.address)
+    expect(recovered.reconcilerSourceId).to.equal(pendingSourceId)
+    expect(recovered.pendingReconciler).to.equal(ethers.constants.AddressZero)
   })
 
-  it("blocks every generic shared-mapping migration after the inventory freeze", async () => {
-    const replacement = await deployCurrentRouter()
-    await beginDrain(replacement)
-    await expectCustomError(
-      bridgeGovernance.connect(governance).migrateLegacyFraudChallenges(0, []),
-      "EcdsaFraudRouterMigrationPending()"
-    )
-    await expectCustomError(
-      bridgeGovernance.connect(governance).migrateLegacyFraudChallenges(1, []),
-      "EcdsaFraudRouterMigrationPending()"
-    )
-  })
-
-  it("permanently rejects A to B to A router resurrection", async () => {
-    const replacement = await deployCurrentRouter()
-    await executeEmptyCutover(ecdsaFraudRouter, replacement)
-    expect(await bridge.ecdsaFraudRouter()).to.equal(replacement.address)
-
-    await expectCustomError(
-      bridgeGovernance
-        .connect(governance)
-        .beginEcdsaFraudRouterDrain(
-          replacement.address,
-          await runtimeCodeHash(replacement),
-          ecdsaFraudRouter.address,
-          await runtimeCodeHash(ecdsaFraudRouter),
-          0
+  it("accepts distinct EIP-1271 source and reconciler authorities", async () => {
+    const sourceAuthority = await (
+      await ethers.getContractFactory(
+        "EcdsaFraudCutoverAuthorityStub",
+        deployer
+      )
+    ).deploy(source.address)
+    const reconcilerAuthority = await (
+      await ethers.getContractFactory(
+        "EcdsaFraudCutoverAuthorityStub",
+        deployer
+      )
+    ).deploy(reconciler.address)
+    const plan = await beginDrain(await deployReplacement(), {
+      sourceAuthority,
+      reconcilerAuthority,
+      sourceSignatureSigner: source,
+      reconcilerSignatureSigner: reconciler,
+    })
+    await (await stageAtAge(plan, 64)).wait()
+    const readiness = await bridgeGovernance.ecdsaFraudCutoverReadiness()
+    const authorityCalldata = bridgeGovernance.interface.encodeFunctionData(
+      "processEcdsaFraudCutoverAuthorityAction",
+      [
+        0,
+        ethers.utils.defaultAbiCoder.encode(
+          ["bytes32"],
+          [readiness.inventoryCommitment]
         ),
-      "EcdsaFraudRouterPredecessorMismatch(address,address)"
+      ]
     )
-    expect((await bridgeGovernance.ecdsaFraudCutoverState()).phase).to.equal(0)
-    expect(await bridge.ecdsaFraudRouter()).to.equal(replacement.address)
+    await reconcilerAuthority
+      .connect(reconciler)
+      .execute(bridgeGovernance.address, authorityCalldata)
+    expect(
+      Number((await bridgeGovernance.ecdsaFraudCutoverReadiness()).phase)
+    ).to.equal(3)
   })
 })
