@@ -1124,7 +1124,9 @@ contract FrostWalletRegistry is
         require(nonce == inactivityClaimNonce[walletID], "Invalid nonce");
 
         bytes32 xOnlyOutputKey = wallets.getWalletXOnlyOutputKey(walletID);
-        bytes32 memberIdsHash = wallets.getWalletMembersIdsHash(walletID);
+        bytes32 memberIdsHash = wallets.getRetainedWalletMembersIdsHash(
+            walletID
+        );
 
         require(
             memberIdsHash == keccak256(abi.encode(groupMembers)),
@@ -1176,31 +1178,16 @@ contract FrostWalletRegistry is
         bytes32 walletID,
         uint32[] calldata walletMembersIDs
     ) external onlyLifecycleOwner {
-        bytes32 memberIdsHash = wallets.getRetainedWalletMembersIdsHash(
-            walletID
-        );
-        require(
-            memberIdsHash == keccak256(abi.encode(walletMembersIDs)),
-            "Invalid wallet members identifiers"
-        );
-
-        address[] memory groupMembersAddresses = sortitionPool.getIDOperators(
-            walletMembersIDs
-        );
-        address[] memory stakingProvidersAddresses = new address[](
-            walletMembersIDs.length
-        );
-        for (uint256 i = 0; i < groupMembersAddresses.length; i++) {
-            stakingProvidersAddresses[i] = operatorToStakingProvider(
-                groupMembersAddresses[i]
-            );
-        }
-
-        _currentAuthorizationSource().reportMaliciousBehavior(
+        Inactivity.seize(
+            wallets,
+            authorization,
+            sortitionPool,
+            _currentAuthorizationSource(),
             amount,
             rewardMultiplier,
             notifier,
-            stakingProvidersAddresses
+            walletID,
+            walletMembersIDs
         );
     }
 
