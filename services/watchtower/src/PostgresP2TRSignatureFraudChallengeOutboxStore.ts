@@ -3,12 +3,15 @@ import { createHash } from "node:crypto"
 
 import {
   Hex,
+  P2TRSignatureFraudBoundNonceReservation,
+  validateP2TRCompleteV2SignatureFraudSubmissionIntent,
   validateP2TRSignatureFraudPreparedChallengeTransactionReservation,
   validateP2TRSignatureFraudPreparedEIP1559ChallengeTransaction,
 } from "@keep-network/tbtc-v2.ts"
 
 import {
   P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_PAGE_SIZE,
+  P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_VOIDED_RESERVATIONS,
   P2TRSignatureFraudCanonicalProvenanceBinding,
   P2TRSignatureFraudCanonicalProvenanceInvalidationEvidence,
   P2TRSignatureFraudChallengeOutboxEligibilitySnapshot,
@@ -17,13 +20,22 @@ import {
   P2TRSignatureFraudChallengeOutboxRecord,
   P2TRSignatureFraudChallengeOutboxStore,
   P2TRSignatureFraudLegacySubmissionQuarantine,
+  P2TRSignatureFraudAmbiguousNonceReleaseInvocation,
+  P2TRSignatureFraudIndependentNonceReleaseResolution,
   P2TRSignatureFraudOutboxCriticalAlert,
+  P2TRSignatureFraudNonceReleaseAttempt,
+  P2TRSignatureFraudNonceReleaseAttemptResult,
+  P2TRSignatureFraudNonceReleasePage,
+  P2TRSignatureFraudNonceReleasePageRequest,
+  P2TRSignatureFraudNonceReleaseRequest,
   P2TRSignatureFraudPreparedTransactionVariant,
   P2TRSignatureFraudSignerQuarantine,
   P2TRSignatureFraudUnexpectedSignedArtifact,
   P2TRSignatureFraudVoidedNonceReservation,
   computeP2TRSignatureFraudCanonicalProvenanceInvalidationEvidenceHash,
   computeP2TRSignatureFraudDispositionHash,
+  computeP2TRSignatureFraudNonceReleaseRequestID,
+  computeP2TRSignatureFraudNonceReleaseResolutionEvidenceDigest,
   computeP2TRSignatureFraudResolutionEvidenceDigest,
 } from "./P2TRSignatureFraudChallengeOutbox.js"
 import type { P2TRPostgresOutboxTransactionSession } from "./PostgresP2TRSignatureFraudOutboxActivationHandshake.js"
@@ -49,12 +61,16 @@ export type PostgresP2TRSignatureFraudChallengeOutboxStoreOptions = {
   transactionCoordinator: Pick<
     P2TRSignatureFraudWatchtowerTransactionCoordinator,
     "runInP2TRSignatureFraudWatchtowerTransaction"
-  >
+  > & {
+    isP2TRSignatureFraudWatchtowerTransactionActive(): boolean
+  }
   assertTransactionSession(session: P2TRPostgresOutboxTransactionSession): void
   /**
    * Must prove the runtime's exclusive readiness snapshot is held in this
-   * transaction and compare every exact input-level field before returning.
-   * The outbox never accepts a fingerprint-only assertion.
+   * transaction, recompute the committed event-set hash/count from that
+   * canonical journal, prove the input-binding source event is a member, and
+   * compare every exact input-level field before returning. The outbox never
+   * accepts a fingerprint-only assertion.
    */
   lockAndAssertCurrentCanonicalProvenance(
     session: P2TRPostgresOutboxTransactionSession,
@@ -70,6 +86,15 @@ export type PostgresP2TRSignatureFraudChallengeOutboxStoreOptions = {
     session: P2TRPostgresOutboxTransactionSession,
     observationID: string
   ): Promise<P2TRSignatureFraudChallengeOutboxEligibilitySnapshot>
+  /**
+   * Pure, local verification boundary. It must authenticate both independent
+   * attestations and their exact provider evidence without network or database
+   * I/O; this callback runs while the ambiguous attempt and barrier are locked.
+   */
+  assertIndependentNonceReleaseResolution(
+    invocation: P2TRSignatureFraudAmbiguousNonceReleaseInvocation,
+    resolution: P2TRSignatureFraudIndependentNonceReleaseResolution
+  ): true | Promise<true>
   broadcastProviderID: string
 }
 
@@ -153,6 +178,24 @@ type ProvenanceInvalidationRow = {
   invalidated_at_unix_ms: string | number
 }
 
+type NonceReleaseRequestRow = {
+  release_request_id: Buffer
+  record_id: Buffer
+  generation: string | number
+  nonce_guard_id: Buffer
+  chain_id: string | number
+  signer_lane_id: string
+  signer_identity: string
+  sender: Buffer
+  transaction_nonce: string | number
+  reservation_epoch: string | number
+  reservation_binding: Buffer
+  void_evidence_digest: Buffer
+  requested_at_unix_ms: string | number
+  attempt_count: string | number
+  ambiguous: boolean
+}
+
 const STORED_ROW_COLUMNS = `
   record_state, status, version, updated_at_unix_ms,
   preparation_attempts, broadcast_attempts, reconciliation_attempts,
@@ -166,17 +209,22 @@ const STORED_ROW_COLUMNS = `
   last_pre_broadcast_recheck_status, last_resolution_status, last_error,
   provenance_invalidation_id`
 
+const MAX_DURABLE_OUTBOX_RECORD_BYTES = 262_144
+const MAX_SIGNED_ETHEREUM_TRANSACTION_BYTES = 4_096
+
 /**
- * PostgreSQL implementation for the activation-grade outbox. It deliberately
- * owns neither a connection nor transaction: all methods require the runtime
- * coordinator's minted session, so observation/cursor writes and enqueue/CAS
- * effects share one commit or rollback decision.
+ * PostgreSQL implementation for the activation-grade outbox. Every public
+ * operation enters the runtime coordinator's transaction boundary. Nested
+ * calls reuse the same AsyncLocalStorage scope, so eligibility loading and its
+ * enqueue/authorization updates share one commit while dispatcher transitions
+ * commit before any signer or broadcaster I/O begins.
  */
-export class PostgresP2TRSignatureFraudChallengeOutboxStore implements P2TRSignatureFraudChallengeOutboxStore {
+export class PostgresP2TRSignatureFraudChallengeOutboxStore
+  implements P2TRSignatureFraudChallengeOutboxStore
+{
   readonly p2trSignatureFraudWatchtowerStoreProfile =
     "transactional-production" as const
   readonly p2trSignatureFraudWatchtowerTransactionalStoreID: string
-  private readonly durableProvenanceInvalidationIDs = new Map<string, string>()
   private readonly transaction = new AsyncLocalStorage<boolean>()
 
   constructor(
@@ -191,9 +239,25 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore implements P2TRSigna
     this.p2trSignatureFraudWatchtowerTransactionalStoreID = options.storeID
   }
 
+  assertExternalIOTransactionBoundary(): void {
+    if (
+      this.inTransaction() ||
+      this.options.transactionCoordinator.isP2TRSignatureFraudWatchtowerTransactionActive()
+    ) {
+      throw new Error(
+        "Irreversible outbox I/O cannot run inside an ambient database transaction"
+      )
+    }
+  }
+
   async installSignerLaneConfiguration(
     configuration: P2TRProductionSignerLaneConfiguration
   ): Promise<void> {
+    if (!this.inTransaction()) {
+      return this.runInTransaction(() =>
+        this.installSignerLaneConfiguration(configuration)
+      )
+    }
     this.assertSession()
     const {
       configurationHash: _ignored,
@@ -246,7 +310,11 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore implements P2TRSigna
   async insertGenerationIfAbsent(
     record: P2TRSignatureFraudChallengeOutboxRecord
   ): Promise<P2TRSignatureFraudChallengeOutboxRecord> {
+    if (!this.inTransaction()) {
+      return this.runInTransaction(() => this.insertGenerationIfAbsent(record))
+    }
     this.assertSession()
+    assertCompactDurableOutboxRecord(record)
     const existing = await this.getByRecordOrSeriesGeneration(
       record.recordID,
       record.seriesID,
@@ -254,6 +322,10 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore implements P2TRSigna
     )
     if (existing !== undefined) return existing
 
+    const serializedExisting = await this.lockAndAssertActiveOutboxCapacity(
+      record
+    )
+    if (serializedExisting !== undefined) return serializedExisting
     const priorLinks = await this.loadPriorGenerationLinks(record)
     const columns = outboxInsertColumns(record, priorLinks)
     const inserted = await insertObject(
@@ -266,22 +338,21 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore implements P2TRSigna
       await this.insertFeePolicy(record)
       return (await this.get(record.recordID))!
     }
-    const conflicted = await this.getByRecordOrSeriesGeneration(
+    const winner = await this.getByRecordOrSeriesGeneration(
       record.recordID,
       record.seriesID,
       record.generation
     )
-    if (conflicted === undefined) {
-      throw new Error(
-        "PostgreSQL outbox insertion conflicted with another identity"
-      )
-    }
-    return conflicted
+    if (winner !== undefined) return winner
+    throw new Error("PostgreSQL outbox insertion returned no durable identity")
   }
 
   async get(
     recordID: string
   ): Promise<P2TRSignatureFraudChallengeOutboxRecord | undefined> {
+    if (!this.inTransaction()) {
+      return this.runInTransaction(() => this.get(recordID))
+    }
     this.assertSession()
     const result = await this.options.session.query<StoredOutboxRow>(
       `SELECT ${STORED_ROW_COLUMNS}
@@ -296,6 +367,9 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore implements P2TRSigna
   async getLatest(
     seriesID: string
   ): Promise<P2TRSignatureFraudChallengeOutboxRecord | undefined> {
+    if (!this.inTransaction()) {
+      return this.runInTransaction(() => this.getLatest(seriesID))
+    }
     this.assertSession()
     const result = await this.options.session.query<StoredOutboxRow>(
       `SELECT ${STORED_ROW_COLUMNS}
@@ -313,6 +387,11 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore implements P2TRSigna
     chainID: number,
     signerIdentity: string
   ): Promise<boolean> {
+    if (!this.inTransaction()) {
+      return this.runInTransaction(() =>
+        this.isSignerQuarantined(chainID, signerIdentity)
+      )
+    }
     this.assertSession()
     const result = await this.options.session.query<{ exists: boolean }>(
       `SELECT EXISTS (
@@ -330,6 +409,11 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore implements P2TRSigna
   }
 
   async hasExpiredPreparationLeases(nowUnixMs: number): Promise<boolean> {
+    if (!this.inTransaction()) {
+      return this.runInTransaction(() =>
+        this.hasExpiredPreparationLeases(nowUnixMs)
+      )
+    }
     this.assertSession()
     const result = await this.options.session.query<{ exists: boolean }>(
       `SELECT EXISTS (
@@ -343,11 +427,897 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore implements P2TRSigna
     return result.rows[0]?.exists === true
   }
 
+  async hasPendingNonceReleases(): Promise<boolean> {
+    if (!this.inTransaction()) {
+      return this.runInTransaction(() => this.hasPendingNonceReleases())
+    }
+    this.assertSession()
+    const result = await this.options.session.query<{ exists: boolean }>(
+      `SELECT EXISTS (
+          SELECT 1
+            FROM p2tr_signature_fraud_challenge_nonce_release_request r
+           WHERE NOT EXISTS (
+                 SELECT 1
+                   FROM p2tr_signature_fraud_challenge_nonce_release_terminal x
+                  WHERE x.release_request_id = r.release_request_id
+               )
+       ) AS exists`
+    )
+    return result.rows[0]?.exists === true
+  }
+
+  async getNonceReleaseRequest(
+    releaseRequestID: string
+  ): Promise<P2TRSignatureFraudNonceReleaseRequest | undefined> {
+    if (!this.inTransaction()) {
+      return this.runInTransaction(() =>
+        this.getNonceReleaseRequest(releaseRequestID)
+      )
+    }
+    this.assertSession()
+    const result = await this.queryNonceReleaseRequests(
+      `r.release_request_id = decode($1, 'hex')`,
+      [stripHex(bytes32(releaseRequestID, "Nonce-release request ID"))],
+      1
+    )
+    if (result.length === 0) return undefined
+    return this.hydrateNonceReleaseRequest(result[0])
+  }
+
+  async listPendingNonceReleases(
+    request: P2TRSignatureFraudNonceReleasePageRequest
+  ): Promise<P2TRSignatureFraudNonceReleasePage> {
+    if (!this.inTransaction()) {
+      return this.runInTransaction(() =>
+        this.listPendingNonceReleases(request)
+      )
+    }
+    this.assertSession()
+    if (
+      !Number.isSafeInteger(request.limit) ||
+      request.limit <= 0 ||
+      request.limit > P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_PAGE_SIZE
+    ) {
+      throw new Error("PostgreSQL nonce-release page request is invalid")
+    }
+    const cursor =
+      request.cursor === undefined
+        ? undefined
+        : bytes32(request.cursor, "Nonce-release page cursor")
+    const rows = await this.queryNonceReleaseRequests(
+      `NOT EXISTS (
+          SELECT 1
+            FROM p2tr_signature_fraud_challenge_nonce_release_terminal x
+           WHERE x.release_request_id = r.release_request_id
+        )
+        AND ($1::text IS NULL OR r.release_request_id > decode($1, 'hex'))`,
+      [cursor === undefined ? null : stripHex(cursor)],
+      request.limit + 1
+    )
+    const pageRows = rows.slice(0, request.limit)
+    const requests: P2TRSignatureFraudNonceReleaseRequest[] = []
+    for (const row of pageRows) {
+      requests.push(await this.hydrateNonceReleaseRequest(row))
+    }
+    return {
+      requests,
+      nextCursor:
+        rows.length > request.limit
+          ? prefixedHex(pageRows[pageRows.length - 1].release_request_id)
+          : undefined,
+    }
+  }
+
+  async claimNonceReleaseAttempt(
+    releaseRequestID: string,
+    owner: string,
+    startedAtUnixMs: number,
+    expiresAtUnixMs: number
+  ): Promise<P2TRSignatureFraudNonceReleaseAttempt | undefined> {
+    if (!this.inTransaction()) {
+      return this.runInTransaction(() =>
+        this.claimNonceReleaseAttempt(
+          releaseRequestID,
+          owner,
+          startedAtUnixMs,
+          expiresAtUnixMs
+        )
+      )
+    }
+    this.assertSession()
+    const releaseID = stripHex(
+      bytes32(releaseRequestID, "Claimed nonce-release request ID")
+    )
+    const started = unixMilliseconds(
+      startedAtUnixMs,
+      "Nonce-release attempt start time"
+    )
+    const expires = unixMilliseconds(
+      expiresAtUnixMs,
+      "Nonce-release attempt expiration"
+    )
+    if (expires <= started) {
+      throw new Error("Nonce-release attempt expiration must follow its start")
+    }
+    const locked = await this.options.session.query<{ release_request_id: Buffer }>(
+      `SELECT release_request_id
+         FROM p2tr_signature_fraud_challenge_nonce_release_request
+        WHERE release_request_id = decode($1, 'hex')
+        FOR UPDATE`,
+      [releaseID]
+    )
+    if (locked.rows.length !== 1) {
+      throw new Error("Nonce-release request does not exist")
+    }
+    const state = await this.options.session.query<{
+      attempt_sequence: string | number | null
+      owner: string | null
+      started_at_unix_ms: string | number | null
+      expires_at_unix_ms: string | number | null
+      result_kind: string | null
+      invoked: boolean
+      acknowledged: boolean
+    }>(
+      `SELECT a.attempt_sequence,
+              a.owner,
+              a.started_at_unix_ms,
+              a.expires_at_unix_ms,
+              x.result_kind,
+              EXISTS (
+                SELECT 1
+                  FROM p2tr_signature_fraud_challenge_nonce_release_invocation i
+                 WHERE i.release_request_id = decode($1, 'hex')
+                   AND i.attempt_sequence = a.attempt_sequence
+              ) AS invoked,
+              EXISTS (
+                SELECT 1
+                  FROM p2tr_signature_fraud_challenge_nonce_release_terminal ok
+                 WHERE ok.release_request_id = decode($1, 'hex')
+              ) AS acknowledged
+         FROM (SELECT 1) seed
+         LEFT JOIN LATERAL (
+           SELECT attempt_sequence, owner, started_at_unix_ms,
+                  expires_at_unix_ms
+             FROM p2tr_signature_fraud_challenge_nonce_release_attempt
+            WHERE release_request_id = decode($1, 'hex')
+            ORDER BY attempt_sequence DESC
+            LIMIT 1
+         ) a ON true
+         LEFT JOIN p2tr_signature_fraud_challenge_nonce_release_result x
+           ON x.release_request_id = decode($1, 'hex')
+          AND x.attempt_sequence = a.attempt_sequence`,
+      [releaseID]
+    )
+    const latest = state.rows[0]
+    if (latest?.acknowledged === true) return undefined
+    if (
+      latest?.attempt_sequence !== null &&
+      latest?.attempt_sequence !== undefined &&
+      ((latest.result_kind === null &&
+        (latest.invoked ||
+          databaseSafeInteger(
+            latest.expires_at_unix_ms!,
+            "Latest nonce-release attempt expiration"
+          ) > started)) ||
+        (latest.invoked && latest.result_kind === "ambiguous-error"))
+    ) {
+      if (
+        latest.result_kind === null &&
+        !latest.invoked &&
+        latest.owner === owner
+      ) {
+        return {
+          releaseRequestID: bytes32(
+            releaseRequestID,
+            "Reclaimed nonce-release request ID"
+          ),
+          attemptSequence: databaseSafeInteger(
+            latest.attempt_sequence,
+            "Reclaimed nonce-release attempt sequence"
+          ),
+          owner,
+          startedAtUnixMs: databaseSafeInteger(
+            latest.started_at_unix_ms!,
+            "Reclaimed nonce-release attempt start"
+          ),
+          expiresAtUnixMs: databaseSafeInteger(
+            latest.expires_at_unix_ms!,
+            "Reclaimed nonce-release attempt expiration"
+          ),
+        }
+      }
+      return undefined
+    }
+    const attemptSequence =
+      latest?.attempt_sequence === null || latest?.attempt_sequence === undefined
+        ? 1
+        : databaseSafeInteger(
+            latest.attempt_sequence,
+            "Latest nonce-release attempt sequence"
+          ) + 1
+    const inserted = await this.options.session.query(
+      `INSERT INTO p2tr_signature_fraud_challenge_nonce_release_attempt (
+          release_request_id, attempt_sequence, owner,
+          started_at_unix_ms, expires_at_unix_ms
+       ) VALUES (decode($1, 'hex'), $2, $3, $4, $5)
+       RETURNING release_request_id`,
+      [
+        releaseID,
+        attemptSequence,
+        requireText(owner, "Nonce-release attempt owner", 128),
+        started,
+        expires,
+      ]
+    )
+    if (inserted.rowCount !== 1) return undefined
+    return {
+      releaseRequestID: bytes32(
+        releaseRequestID,
+        "Claimed nonce-release request ID"
+      ),
+      attemptSequence,
+      owner,
+      startedAtUnixMs: started,
+      expiresAtUnixMs: expires,
+    }
+  }
+
+  async beginNonceReleaseAttempt(
+    attempt: P2TRSignatureFraudNonceReleaseAttempt,
+    invokedAtUnixMs: number
+  ): Promise<boolean> {
+    if (!this.inTransaction()) {
+      return this.runInTransaction(() =>
+        this.beginNonceReleaseAttempt(attempt, invokedAtUnixMs)
+      )
+    }
+    this.assertSession()
+    const releaseID = stripHex(
+      bytes32(attempt.releaseRequestID, "Invoked nonce-release request ID")
+    )
+    const invokedAt = unixMilliseconds(
+      invokedAtUnixMs,
+      "Nonce-release invocation time"
+    )
+    const inserted = await this.options.session.query(
+      `INSERT INTO p2tr_signature_fraud_challenge_nonce_release_invocation (
+          release_request_id, attempt_sequence, owner, invoked_at_unix_ms
+       ) VALUES (decode($1, 'hex'), $2, $3, $4)
+       ON CONFLICT (release_request_id, attempt_sequence) DO NOTHING
+       RETURNING release_request_id`,
+      [
+        releaseID,
+        positiveSafeInteger(
+          attempt.attemptSequence,
+          "Invoked nonce-release attempt sequence"
+        ),
+        requireText(attempt.owner, "Nonce-release invocation owner", 128),
+        invokedAt,
+      ]
+    )
+    return inserted.rowCount === 1
+  }
+
+  async recordNonceReleaseAttemptResult(
+    attempt: P2TRSignatureFraudNonceReleaseAttempt,
+    result: P2TRSignatureFraudNonceReleaseAttemptResult
+  ): Promise<"acknowledged" | "ambiguous"> {
+    if (!this.inTransaction()) {
+      return this.runInTransaction(() =>
+        this.recordNonceReleaseAttemptResult(attempt, result)
+      )
+    }
+    this.assertSession()
+    const releaseID = stripHex(
+      bytes32(attempt.releaseRequestID, "Completed nonce-release request ID")
+    )
+    type ReleaseLaneRow = {
+      record_id: Buffer
+      generation: string | number
+      series_id: Buffer
+      chain_id: string | number
+      signer_lane_id: string
+      signer_identity: string
+      sender: Buffer
+    }
+    const requestState = await this.options.session.query<ReleaseLaneRow>(
+      `SELECT r.record_id, r.generation, o.series_id, r.chain_id,
+              r.signer_lane_id, r.signer_identity, r.sender
+         FROM p2tr_signature_fraud_challenge_nonce_release_request r
+         JOIN p2tr_signature_fraud_challenge_outbox o
+           ON o.record_id = r.record_id
+          AND o.generation = r.generation
+        WHERE r.release_request_id = decode($1, 'hex')
+        FOR UPDATE OF r`,
+      [releaseID]
+    )
+    if (requestState.rows.length !== 1) {
+      throw new Error("Nonce-release request does not exist")
+    }
+    const attemptState = await this.options.session.query<{
+      attempt_sequence: string | number
+      owner: string
+      started_at_unix_ms: string | number
+      expires_at_unix_ms: string | number
+      latest_sequence: string | number
+    }>(
+      `SELECT a.attempt_sequence,
+              a.owner,
+              a.started_at_unix_ms,
+              a.expires_at_unix_ms,
+              (SELECT max(all_attempts.attempt_sequence)
+                 FROM p2tr_signature_fraud_challenge_nonce_release_attempt all_attempts
+                WHERE all_attempts.release_request_id = a.release_request_id
+              ) AS latest_sequence
+         FROM p2tr_signature_fraud_challenge_nonce_release_attempt a
+        WHERE a.release_request_id = decode($1, 'hex')
+          AND a.attempt_sequence = $2`,
+      [releaseID, attempt.attemptSequence]
+    )
+    if (attemptState.rows.length !== 1) {
+      throw new Error("Nonce-release attempt does not exist")
+    }
+    const state = attemptState.rows[0]
+    if (
+      state.owner !== attempt.owner ||
+      databaseSafeInteger(
+        state.started_at_unix_ms,
+        "Persisted nonce-release attempt start"
+      ) !== attempt.startedAtUnixMs ||
+      databaseSafeInteger(
+        state.expires_at_unix_ms,
+        "Persisted nonce-release attempt expiration"
+      ) !== attempt.expiresAtUnixMs
+    ) {
+      throw new Error("Nonce-release attempt token does not match durable state")
+    }
+    const recordedAtUnixMs = unixMilliseconds(
+      result.recordedAtUnixMs,
+      "Nonce-release result time"
+    )
+    const successful =
+      result.kind === "released" || result.kind === "already-released"
+    const currentAndOnTime =
+      databaseSafeInteger(
+        state.latest_sequence,
+        "Latest nonce-release attempt sequence"
+      ) === attempt.attemptSequence &&
+      recordedAtUnixMs >= attempt.startedAtUnixMs &&
+      recordedAtUnixMs <=
+        databaseSafeInteger(
+          state.expires_at_unix_ms,
+          "Nonce-release attempt expiration"
+        )
+    const resultKind =
+      successful && !currentAndOnTime ? "ambiguous-late" : result.kind
+    let acknowledgement:
+      | Extract<
+          P2TRSignatureFraudNonceReleaseAttemptResult,
+          { kind: "released" | "already-released" }
+        >["acknowledgement"]
+      | undefined
+    let responseDigest: string
+    let detail: string
+    if (result.kind === "released" || result.kind === "already-released") {
+      acknowledgement = result.acknowledgement
+      responseDigest = bytes32(
+        acknowledgement.responseDigest,
+        "Nonce-release provider response digest"
+      )
+      detail = `${resultKind}:${acknowledgement.outcome}`
+    } else {
+      if (!("responseDigest" in result) || !("detail" in result)) {
+        throw new Error("Nonce-release result shape is invalid")
+      }
+      responseDigest = bytes32(
+        result.responseDigest,
+        "Nonce-release error response digest"
+      )
+      detail = requireText(result.detail, "Nonce-release result detail", 1024)
+    }
+    const returnedReleaseRequestID =
+      acknowledgement !== undefined
+        ? bytes32(
+            acknowledgement.releaseRequestID,
+            "Returned nonce-release request ID"
+          )
+        : result.kind === "contract-mismatch" &&
+            result.returnedReleaseRequestID !== undefined
+          ? bytes32(
+              result.returnedReleaseRequestID,
+              "Mismatched returned nonce-release request ID"
+            )
+          : undefined
+    const returnedReservationID =
+      acknowledgement !== undefined
+        ? bytes32(
+            acknowledgement.reservationID,
+            "Returned nonce-release reservation ID"
+          )
+        : result.kind === "contract-mismatch" &&
+            result.returnedReservationID !== undefined
+          ? bytes32(
+              result.returnedReservationID,
+              "Mismatched returned nonce-release reservation ID"
+            )
+          : undefined
+
+    let mismatchLanes: ReleaseLaneRow[] = []
+    if (resultKind === "contract-mismatch") {
+      const durableRequest = requestState.rows[0]
+      const returnedLanes = await this.options.session.query<ReleaseLaneRow>(
+        `SELECT DISTINCT g.record_id, o.generation, o.series_id, g.chain_id,
+                g.signer_lane_id, g.signer_identity, g.sender
+           FROM p2tr_signature_fraud_challenge_nonce_guard g
+           JOIN p2tr_signature_fraud_challenge_outbox o
+             ON o.record_id = g.record_id
+           LEFT JOIN p2tr_signature_fraud_challenge_nonce_release_request rr
+             ON rr.nonce_guard_id = g.nonce_guard_id
+          WHERE g.nonce_guard_id = decode($1, 'hex')
+             OR rr.release_request_id = decode($2, 'hex')`,
+        [
+          returnedReservationID === undefined
+            ? null
+            : stripHex(returnedReservationID),
+          returnedReleaseRequestID === undefined
+            ? null
+            : stripHex(returnedReleaseRequestID),
+        ]
+      )
+      const affectedLanes = new Map<string, ReleaseLaneRow>()
+      for (const lane of [durableRequest, ...returnedLanes.rows]) {
+        const key = `${lane.chain_id}:${lane.signer_lane_id}:${lane.signer_identity}:${prefixedHex(
+          lane.sender
+        )}`
+        affectedLanes.set(key, lane)
+      }
+      mismatchLanes = [...affectedLanes.values()].sort((left, right) =>
+        `${left.chain_id}:${left.signer_lane_id}:${left.signer_identity}:${prefixedHex(
+          left.sender
+        )}`.localeCompare(
+          `${right.chain_id}:${right.signer_lane_id}:${right.signer_identity}:${prefixedHex(
+            right.sender
+          )}`
+        )
+      )
+      // Signer state transitions lock the outbox row, then its configured lane,
+      // then the global I/O barrier. Use that same total order for every lane
+      // affected by a malformed allocator acknowledgement so the post-I/O
+      // evidence transaction cannot deadlock and roll itself back.
+      for (const lane of mismatchLanes) {
+        const outboxLock = await this.options.session.query(
+          `SELECT 1
+             FROM p2tr_signature_fraud_challenge_outbox
+            WHERE record_id = decode($1, 'hex')
+            FOR UPDATE`,
+          [stripHex(prefixedHex(lane.record_id))]
+        )
+        if (outboxLock.rows.length !== 1) {
+          throw new Error("Mismatched nonce release lacks its outbox record")
+        }
+      }
+      for (const lane of mismatchLanes) {
+        const laneLock = await this.options.session.query(
+          `SELECT 1
+             FROM p2tr_signature_fraud_signer_lane_configuration c
+             JOIN p2tr_signature_fraud_challenge_outbox o
+               ON o.activation_manifest_hash = c.activation_manifest_hash
+            WHERE o.record_id = decode($1, 'hex')
+              AND c.chain_id = $2
+              AND c.signer_lane_id = $3
+              AND c.signer_identity = $4
+              AND c.sender = decode($5, 'hex')
+            FOR UPDATE OF c`,
+          [
+            stripHex(prefixedHex(lane.record_id)),
+            databaseSafeInteger(lane.chain_id, "Mismatched release chain ID"),
+            lane.signer_lane_id,
+            lane.signer_identity,
+            stripHex(prefixedHex(lane.sender)),
+          ]
+        )
+        if (laneLock.rows.length !== 1) {
+          throw new Error("Mismatched nonce release lacks its configured lane")
+        }
+      }
+    }
+    await this.options.session.query(
+      `INSERT INTO p2tr_signature_fraud_challenge_nonce_release_result (
+          release_request_id, attempt_sequence, result_kind,
+          returned_release_request_id, returned_reservation_id,
+          response_digest, detail_digest, recorded_at_unix_ms
+       ) VALUES (
+          decode($1, 'hex'), $2, $3, decode($4, 'hex'), decode($5, 'hex'),
+          decode($6, 'hex'), decode($7, 'hex'), $8
+       ) ON CONFLICT (release_request_id, attempt_sequence) DO NOTHING`,
+      [
+        releaseID,
+        attempt.attemptSequence,
+        resultKind,
+        returnedReleaseRequestID === undefined
+          ? null
+          : stripHex(returnedReleaseRequestID),
+        returnedReservationID === undefined
+          ? null
+          : stripHex(returnedReservationID),
+        stripHex(responseDigest),
+        stripHex(hashText(detail)),
+        recordedAtUnixMs,
+      ]
+    )
+    if (resultKind === "contract-mismatch") {
+      const durableRequest = requestState.rows[0]
+      for (const lane of mismatchLanes) {
+        const quarantine: P2TRSignatureFraudSignerQuarantine = {
+          laneID: lane.signer_lane_id,
+          signerIdentity: lane.signer_identity,
+          expectedSender: prefixedHex(lane.sender),
+          reasonCode: "reservation-provider-failure",
+          quarantinedAtUnixMs: recordedAtUnixMs,
+          reason: detail,
+          detailsDigest: responseDigest,
+        }
+        await this.options.session.query(
+          `INSERT INTO p2tr_signature_fraud_challenge_signer_quarantine (
+              signer_quarantine_id, record_id, nonce_reservation_id, chain_id,
+              signer_lane_id, signer_identity, expected_sender, expected_nonce,
+              quarantine_reason, details_digest, quarantined_at_unix_ms
+           ) VALUES (
+              decode($1, 'hex'), decode($2, 'hex'), NULL, $3, $4, $5,
+              decode($6, 'hex'), NULL, 'reservation-provider-failure',
+              decode($7, 'hex'), $8
+           ) ON CONFLICT DO NOTHING`,
+          [
+            stripHex(signerQuarantineID(quarantine)),
+            stripHex(prefixedHex(lane.record_id)),
+            databaseSafeInteger(lane.chain_id, "Mismatched release chain ID"),
+            lane.signer_lane_id,
+            lane.signer_identity,
+            stripHex(prefixedHex(lane.sender)),
+            stripHex(responseDigest),
+            recordedAtUnixMs,
+          ]
+        )
+      }
+      await this.saveCriticalAlert({
+        code: "reservation-release-failed",
+        seriesID: prefixedHex(durableRequest.series_id),
+        recordID: prefixedHex(durableRequest.record_id),
+        generation: databaseSafeInteger(
+          durableRequest.generation,
+          "Mismatched release generation"
+        ),
+        activationBlocking: true,
+        createdAtUnixMs: recordedAtUnixMs,
+        detail,
+      })
+    }
+    const persisted = await this.options.session.query<{ result_kind: string }>(
+      `SELECT result_kind
+         FROM p2tr_signature_fraud_challenge_nonce_release_result
+        WHERE release_request_id = decode($1, 'hex')
+          AND attempt_sequence = $2`,
+      [releaseID, attempt.attemptSequence]
+    )
+    return persisted.rows[0]?.result_kind === "released" ||
+      persisted.rows[0]?.result_kind === "already-released"
+      ? "acknowledged"
+      : "ambiguous"
+  }
+
+  async resolveAmbiguousNonceRelease(
+    resolution: P2TRSignatureFraudIndependentNonceReleaseResolution
+  ): Promise<"acknowledged" | "unsafe"> {
+    if (!this.inTransaction()) {
+      return this.runInTransaction(() =>
+        this.resolveAmbiguousNonceRelease(resolution)
+      )
+    }
+    this.assertSession()
+    const releaseRequestID = bytes32(
+      resolution.releaseRequestID,
+      "Resolved nonce-release request ID"
+    )
+    const attemptSequence = positiveSafeInteger(
+      resolution.attemptSequence,
+      "Resolved nonce-release attempt sequence"
+    )
+    const attemptOwner = requireText(
+      resolution.attemptOwner,
+      "Resolved nonce-release attempt owner",
+      128
+    )
+    const attemptStartedAtUnixMs = unixMilliseconds(
+      resolution.attemptStartedAtUnixMs,
+      "Resolved nonce-release attempt start"
+    )
+    const attemptExpiresAtUnixMs = unixMilliseconds(
+      resolution.attemptExpiresAtUnixMs,
+      "Resolved nonce-release attempt expiration"
+    )
+    const invokedAtUnixMs = unixMilliseconds(
+      resolution.invokedAtUnixMs,
+      "Resolved nonce-release invocation time"
+    )
+    const resolvedAtUnixMs = unixMilliseconds(
+      resolution.resolvedAtUnixMs,
+      "Independent nonce-release resolution time"
+    )
+    if (
+      attemptExpiresAtUnixMs <= attemptStartedAtUnixMs ||
+      invokedAtUnixMs < attemptStartedAtUnixMs ||
+      invokedAtUnixMs > attemptExpiresAtUnixMs ||
+      ![
+        "released",
+        "already-released",
+        "terminal-unsafe",
+      ].includes(resolution.outcome)
+    ) {
+      throw new Error("Independent nonce-release resolution is malformed")
+    }
+    const providerEvidenceDigest = bytes32(
+      resolution.providerEvidenceDigest,
+      "Nonce-release provider evidence digest"
+    )
+    const evidenceDigest = bytes32(
+      resolution.evidenceDigest,
+      "Independent nonce-release resolution digest"
+    )
+    if (
+      computeP2TRSignatureFraudNonceReleaseResolutionEvidenceDigest({
+        releaseRequestID,
+        attemptSequence,
+        attemptOwner,
+        attemptStartedAtUnixMs,
+        attemptExpiresAtUnixMs,
+        invokedAtUnixMs,
+        outcome: resolution.outcome,
+        providerEvidenceDigest,
+      }) !== evidenceDigest
+    ) {
+      throw new Error("Independent nonce-release resolution digest is invalid")
+    }
+    if (
+      !Array.isArray(resolution.canonicalAttestations) ||
+      resolution.canonicalAttestations.length !== 2
+    ) {
+      throw new Error(
+        "Independent nonce-release resolution requires exactly two attestations"
+      )
+    }
+    const [primary, corroborating] = resolution.canonicalAttestations
+    const primaryTrustDomainID = requireText(
+      primary.trustDomainID,
+      "Primary release-resolution trust domain",
+      128
+    )
+    const corroboratingTrustDomainID = requireText(
+      corroborating.trustDomainID,
+      "Corroborating release-resolution trust domain",
+      128
+    )
+    const primaryIndependenceDomainID = requireText(
+      primary.independenceDomainID,
+      "Primary release-resolution independence domain",
+      128
+    )
+    const corroboratingIndependenceDomainID = requireText(
+      corroborating.independenceDomainID,
+      "Corroborating release-resolution independence domain",
+      128
+    )
+    const primaryAttestation = hexData(
+      primary.attestation,
+      "Primary release-resolution attestation"
+    )
+    const corroboratingAttestation = hexData(
+      corroborating.attestation,
+      "Corroborating release-resolution attestation"
+    )
+    if (
+      primaryTrustDomainID === corroboratingTrustDomainID ||
+      primaryIndependenceDomainID === corroboratingIndependenceDomainID ||
+      primaryAttestation === corroboratingAttestation ||
+      primaryAttestation === "0x" ||
+      corroboratingAttestation === "0x" ||
+      primaryAttestation.length > 4098 ||
+      corroboratingAttestation.length > 4098 ||
+      bytes32(primary.evidenceDigest, "Primary release evidence digest") !==
+        evidenceDigest ||
+      bytes32(
+        corroborating.evidenceDigest,
+        "Corroborating release evidence digest"
+      ) !== evidenceDigest
+    ) {
+      throw new Error(
+        "Independent nonce-release attestations do not bind the same evidence across distinct domains"
+      )
+    }
+    const primaryAttestedAtUnixMs = unixMilliseconds(
+      primary.attestedAtUnixMs,
+      "Primary release-resolution attestation time"
+    )
+    const corroboratingAttestedAtUnixMs = unixMilliseconds(
+      corroborating.attestedAtUnixMs,
+      "Corroborating release-resolution attestation time"
+    )
+
+    const invocationState = await this.options.session.query<{
+      owner: string
+      started_at_unix_ms: string | number
+      expires_at_unix_ms: string | number
+      invoked_at_unix_ms: string | number
+      response_digest: Buffer | null
+      result_kind: string | null
+    }>(
+      `SELECT a.owner, a.started_at_unix_ms, a.expires_at_unix_ms,
+              i.invoked_at_unix_ms, x.response_digest, x.result_kind
+         FROM p2tr_signature_fraud_challenge_nonce_release_request r
+         JOIN p2tr_signature_fraud_challenge_nonce_release_attempt a
+           ON a.release_request_id = r.release_request_id
+          AND a.attempt_sequence = $2
+         JOIN p2tr_signature_fraud_challenge_nonce_release_invocation i
+           ON i.release_request_id = a.release_request_id
+          AND i.attempt_sequence = a.attempt_sequence
+         LEFT JOIN p2tr_signature_fraud_challenge_nonce_release_result x
+           ON x.release_request_id = a.release_request_id
+          AND x.attempt_sequence = a.attempt_sequence
+        WHERE r.release_request_id = decode($1, 'hex')
+        FOR UPDATE OF r, a`,
+      [stripHex(releaseRequestID), attemptSequence]
+    )
+    if (invocationState.rows.length !== 1) {
+      throw new Error("Ambiguous nonce-release invocation does not exist")
+    }
+    const state = invocationState.rows[0]
+    if (
+      state.owner !== attemptOwner ||
+      databaseSafeInteger(state.started_at_unix_ms, "Stored release start") !==
+        attemptStartedAtUnixMs ||
+      databaseSafeInteger(
+        state.expires_at_unix_ms,
+        "Stored release expiration"
+      ) !== attemptExpiresAtUnixMs ||
+      databaseSafeInteger(
+        state.invoked_at_unix_ms,
+        "Stored release invocation"
+      ) !== invokedAtUnixMs ||
+      (state.result_kind !== null && state.result_kind !== "ambiguous-error")
+    ) {
+      throw new Error(
+        "Independent resolution does not bind the exact ambiguous invocation"
+      )
+    }
+    const existing = await this.options.session.query<{
+      outcome: "released" | "already-released" | "terminal-unsafe"
+      resolution_evidence_digest: Buffer
+    }>(
+      `SELECT outcome, resolution_evidence_digest
+         FROM p2tr_signature_fraud_challenge_nonce_release_resolution
+        WHERE release_request_id = decode($1, 'hex')
+          AND attempt_sequence = $2`,
+      [stripHex(releaseRequestID), attemptSequence]
+    )
+    if (existing.rows.length === 1) {
+      if (
+        existing.rows[0].outcome !== resolution.outcome ||
+        prefixedHex(existing.rows[0].resolution_evidence_digest) !==
+          evidenceDigest
+      ) {
+        throw new Error("Independent nonce-release resolution conflicts")
+      }
+      return resolution.outcome === "terminal-unsafe"
+        ? "unsafe"
+        : "acknowledged"
+    }
+    const request = await this.getNonceReleaseRequest(releaseRequestID)
+    if (request === undefined) {
+      throw new Error("Independent resolution lacks its release request")
+    }
+    const outboxLock = await this.options.session.query(
+      `SELECT 1
+         FROM p2tr_signature_fraud_challenge_outbox
+        WHERE record_id = decode($1, 'hex')
+        FOR UPDATE`,
+      [stripHex(bytes32(request.recordID, "Resolved release outbox record ID"))]
+    )
+    if (outboxLock.rows.length !== 1) {
+      throw new Error("Independent resolution lacks its locked outbox record")
+    }
+    const invocation: P2TRSignatureFraudAmbiguousNonceReleaseInvocation = {
+      request,
+      attempt: {
+        releaseRequestID,
+        attemptSequence,
+        owner: attemptOwner,
+        startedAtUnixMs: attemptStartedAtUnixMs,
+        expiresAtUnixMs: attemptExpiresAtUnixMs,
+      },
+      invokedAtUnixMs,
+      ambiguousResponseDigest:
+        state.response_digest === null
+          ? undefined
+          : prefixedHex(state.response_digest),
+    }
+    if (
+      (await this.options.assertIndependentNonceReleaseResolution(
+        invocation,
+        resolution
+      )) !== true
+    ) {
+      throw new Error(
+        "Independent nonce-release resolution authentication failed"
+      )
+    }
+    await this.options.session.query(
+      `INSERT INTO p2tr_signature_fraud_challenge_nonce_release_resolution (
+          release_request_id, attempt_sequence, attempt_owner,
+          attempt_started_at_unix_ms, attempt_expires_at_unix_ms,
+          invoked_at_unix_ms, outcome, provider_evidence_digest,
+          resolution_evidence_digest, primary_trust_domain_id,
+          primary_independence_domain_id, primary_evidence_digest,
+          primary_attestation, primary_attested_at_unix_ms,
+          corroborating_trust_domain_id,
+          corroborating_independence_domain_id,
+          corroborating_evidence_digest, corroborating_attestation,
+          corroborating_attested_at_unix_ms, resolved_at_unix_ms
+       ) VALUES (
+          decode($1, 'hex'), $2, $3, $4, $5, $6, $7,
+          decode($8, 'hex'), decode($9, 'hex'), $10, $11,
+          decode($9, 'hex'), decode($12, 'hex'), $13, $14, $15,
+          decode($9, 'hex'), decode($16, 'hex'), $17, $18
+       )`,
+      [
+        stripHex(releaseRequestID),
+        attemptSequence,
+        attemptOwner,
+        attemptStartedAtUnixMs,
+        attemptExpiresAtUnixMs,
+        invokedAtUnixMs,
+        resolution.outcome,
+        stripHex(providerEvidenceDigest),
+        stripHex(evidenceDigest),
+        primaryTrustDomainID,
+        primaryIndependenceDomainID,
+        stripHex(primaryAttestation),
+        primaryAttestedAtUnixMs,
+        corroboratingTrustDomainID,
+        corroboratingIndependenceDomainID,
+        stripHex(corroboratingAttestation),
+        corroboratingAttestedAtUnixMs,
+        resolvedAtUnixMs,
+      ]
+    )
+    if (resolution.outcome === "terminal-unsafe") {
+      const record = await this.get(request.recordID)
+      if (record === undefined) {
+        throw new Error("Unsafe nonce-release resolution lost its outbox record")
+      }
+      await this.saveCriticalAlert({
+        code: "nonce-release-terminal-unsafe",
+        seriesID: record.seriesID,
+        recordID: record.recordID,
+        generation: record.generation,
+        activationBlocking: true,
+        createdAtUnixMs: resolvedAtUnixMs,
+        detail:
+          "Independent allocator reconciliation proved a terminal unsafe nonce-release outcome",
+      })
+      return "unsafe"
+    }
+    return "acknowledged"
+  }
+
   async compareAndSwap(
     recordID: string,
     expectedVersion: number,
     next: P2TRSignatureFraudChallengeOutboxRecord
   ): Promise<boolean> {
+    if (!this.inTransaction()) {
+      return this.runInTransaction(() =>
+        this.compareAndSwap(recordID, expectedVersion, next)
+      )
+    }
     this.assertSession()
     return this.compareAndSwapLocked(recordID, expectedVersion, next)
   }
@@ -358,6 +1328,16 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore implements P2TRSigna
     expectedProvenance: P2TRSignatureFraudCanonicalProvenanceBinding,
     next: P2TRSignatureFraudChallengeOutboxRecord
   ): Promise<boolean> {
+    if (!this.inTransaction()) {
+      return this.runInTransaction(() =>
+        this.compareAndSwapWithCurrentCanonicalProvenance(
+          recordID,
+          expectedVersion,
+          expectedProvenance,
+          next
+        )
+      )
+    }
     this.assertSession()
     const binding = canonicalClaimBinding(next, expectedProvenance)
     if (
@@ -381,6 +1361,15 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore implements P2TRSigna
     expectedProvenanceFingerprint: string,
     artifact: P2TRSignatureFraudUnexpectedSignedArtifact
   ): Promise<P2TRSignatureFraudChallengeOutboxRecord> {
+    if (!this.inTransaction()) {
+      return this.runInTransaction(() =>
+        this.captureEscapedSignedArtifact(
+          recordID,
+          expectedProvenanceFingerprint,
+          artifact
+        )
+      )
+    }
     this.assertSession()
     const currentRow = await this.lockRecord(recordID)
     if (currentRow === undefined)
@@ -395,27 +1384,45 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore implements P2TRSigna
     ) {
       throw new Error("Escaped signed artifact provenance mismatch")
     }
+    const alreadyCaptured = hasSignedTransactionHash(
+      current,
+      artifact.preparedTransaction.transactionHash.toPrefixedString()
+    )
     if (
-      hasSignedTransactionHash(
-        current,
-        artifact.preparedTransaction.transactionHash.toPrefixedString()
-      )
+      alreadyCaptured &&
+      current.activeSignerInvocationStartedAtUnixMs === undefined
     ) {
       return current
     }
-    if (current.provenanceInvalidationEvidence === undefined) {
+    if (
+      current.reservedNonce === undefined ||
+      current.signerInvocationStartedAtUnixMs === undefined ||
+      current.activeSignerInvocationStartedAtUnixMs === undefined ||
+      bytes32(
+        current.reservedNonce.reservationID.toPrefixedString(),
+        "Stored signer-boundary reservation ID"
+      ) !==
+        bytes32(artifact.expectedReservationID, "Late artifact reservation ID")
+    ) {
       throw new Error(
-        "Escaped signed artifact has no durable provenance invalidation context"
+        "Late signed artifact has no retained durable signer boundary"
       )
     }
-    await this.insertUnexpectedArtifact(current, artifact)
-    await this.insertProvenanceIncident(
-      current,
-      current.provenanceInvalidationEvidence.evidenceHash,
-      "signed-envelope-escaped",
-      artifact.reason,
-      artifact.capturedAtUnixMs
-    )
+    if (!alreadyCaptured) {
+      await this.insertUnexpectedArtifact(current, artifact)
+    }
+    if (
+      !alreadyCaptured &&
+      current.provenanceInvalidationEvidence !== undefined
+    ) {
+      await this.insertProvenanceIncident(
+        current,
+        current.provenanceInvalidationEvidence.evidenceHash,
+        "signed-envelope-escaped",
+        artifact.reason,
+        artifact.capturedAtUnixMs
+      )
+    }
     const artifacts = current.unexpectedSignedArtifacts ?? []
     const next: P2TRSignatureFraudChallengeOutboxRecord = {
       ...current,
@@ -424,25 +1431,45 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore implements P2TRSigna
         current.updatedAtUnixMs,
         artifact.capturedAtUnixMs
       ),
-      unexpectedSignedArtifacts: [...artifacts, artifact],
+      activeSignerInvocationStartedAtUnixMs: undefined,
+      unexpectedSignedArtifacts: alreadyCaptured
+        ? artifacts
+        : [...artifacts, artifact],
     }
+    assertCompactDurableOutboxRecord(next)
     const updated = await this.updateMutableState(current, next)
     if (!updated) throw new Error("Escaped artifact CAS unexpectedly failed")
-    await this.saveCriticalAlert({
-      code: "provenance-reconciliation-incident",
-      seriesID: current.seriesID,
-      recordID: current.recordID,
-      generation: current.generation,
-      activationBlocking: true,
-      createdAtUnixMs: artifact.capturedAtUnixMs,
-      detail: artifact.reason,
-    })
+    const expectedLaneArtifact =
+      address(
+        artifact.preparedTransaction.sender,
+        "Captured signed artifact sender"
+      ) === address(current.reservedNonce.sender, "Reserved signer sender") &&
+      artifact.preparedTransaction.nonce === current.reservedNonce.nonce
+    if (!alreadyCaptured) {
+      await this.saveCriticalAlert({
+        code: expectedLaneArtifact
+          ? "late-signed-artifact-captured"
+          : "escaped-signed-envelope-captured",
+        seriesID: current.seriesID,
+        recordID: current.recordID,
+        generation: current.generation,
+        activationBlocking: true,
+        createdAtUnixMs: artifact.capturedAtUnixMs,
+        detail: artifact.reason,
+      })
+    }
+    await this.resolveEligibleCriticalAlerts(next)
     return (await this.get(recordID))!
   }
 
   async invalidateCanonicalProvenance(
     evidence: P2TRSignatureFraudCanonicalProvenanceInvalidationEvidence
   ): Promise<readonly P2TRSignatureFraudChallengeOutboxRecord[]> {
+    if (!this.inTransaction()) {
+      return this.runInTransaction(() =>
+        this.invalidateCanonicalProvenance(evidence)
+      )
+    }
     this.assertSession()
     await this.options.lockAndAssertCanonicalProvenanceInvalidation(
       this.options.session,
@@ -520,22 +1547,27 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore implements P2TRSigna
         status: reservationIntentInFlight
           ? "preparing"
           : terminal
-            ? current.status
-            : escaped
-              ? "provenance-invalidated-awaiting-reconciliation"
-              : "cancelled-provenance-invalidated",
+          ? current.status
+          : escaped
+          ? "provenance-invalidated-awaiting-reconciliation"
+          : "cancelled-provenance-invalidated",
         version: current.version + 1,
         provenanceInvalidationEvidence: evidence,
         preparationLease: reservationIntentInFlight
           ? current.preparationLease
           : undefined,
-        activeSignerInvocationStartedAtUnixMs: undefined,
+        // Canonical rollback cannot cancel an already-issued signer RPC.
+        // Preserve the marker until the caller observes the RPC return and
+        // atomically journals its signed bytes or failure disposition.
+        activeSignerInvocationStartedAtUnixMs:
+          current.activeSignerInvocationStartedAtUnixMs,
         updatedAtUnixMs: Math.max(
           current.updatedAtUnixMs,
           evidence.invalidatedAtUnixMs
         ),
         lastError: evidence.reason,
       }
+      assertCompactDurableOutboxRecord(next)
       if (!(await this.updateMutableState(current, next))) {
         throw new Error("Canonical provenance invalidation CAS failed")
       }
@@ -558,6 +1590,9 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore implements P2TRSigna
   async listPage(
     request: P2TRSignatureFraudChallengeOutboxPageRequest
   ): Promise<P2TRSignatureFraudChallengeOutboxPage> {
+    if (!this.inTransaction()) {
+      return this.runInTransaction(() => this.listPage(request))
+    }
     this.assertSession()
     if (
       !Number.isSafeInteger(request.limit) ||
@@ -602,6 +1637,9 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore implements P2TRSigna
   async saveLegacyQuarantine(
     quarantine: P2TRSignatureFraudLegacySubmissionQuarantine
   ): Promise<void> {
+    if (!this.inTransaction()) {
+      return this.runInTransaction(() => this.saveLegacyQuarantine(quarantine))
+    }
     this.assertSession()
     await this.options.session.query(
       `INSERT INTO p2tr_signature_fraud_legacy_submission_quarantine (
@@ -636,6 +1674,9 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore implements P2TRSigna
   async saveCriticalAlert(
     alert: P2TRSignatureFraudOutboxCriticalAlert
   ): Promise<void> {
+    if (!this.inTransaction()) {
+      return this.runInTransaction(() => this.saveCriticalAlert(alert))
+    }
     this.assertSession()
     const alertID = hashStructured({
       domain: "tbtc-p2tr-signature-fraud-outbox-alert-v1",
@@ -671,6 +1712,11 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore implements P2TRSigna
       snapshot: P2TRSignatureFraudChallengeOutboxEligibilitySnapshot
     ) => Promise<T>
   ): Promise<T> {
+    if (!this.inTransaction()) {
+      return this.runInTransaction(() =>
+        this.runInEligibilityTransaction(observationID, operation)
+      )
+    }
     this.assertSession()
     const normalized = bytes32(observationID, "Eligibility observation ID")
     const snapshot = await this.options.loadEligibilitySnapshot(
@@ -694,12 +1740,146 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore implements P2TRSigna
     this.options.assertTransactionSession(this.options.session)
   }
 
+  private inTransaction(): boolean {
+    return this.transaction.getStore() === true
+  }
+
+  private async runInTransaction<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.inTransaction()) return operation()
+    return this.options.transactionCoordinator.runInP2TRSignatureFraudWatchtowerTransaction(
+      () =>
+        this.transaction.run(true, async () => {
+          this.assertSession()
+          return operation()
+        })
+    )
+  }
+
+  private async queryNonceReleaseRequests(
+    predicate: string,
+    values: readonly unknown[],
+    limit: number
+  ): Promise<NonceReleaseRequestRow[]> {
+    const result = await this.options.session.query<NonceReleaseRequestRow>(
+      `SELECT r.release_request_id,
+              r.record_id,
+              r.generation,
+              r.nonce_guard_id,
+              r.chain_id,
+              r.signer_lane_id,
+              r.signer_identity,
+              r.sender,
+              r.transaction_nonce,
+              r.reservation_epoch,
+              g.reservation_binding,
+              r.void_evidence_digest,
+              r.requested_at_unix_ms,
+              (SELECT count(*)::bigint
+                 FROM p2tr_signature_fraud_challenge_nonce_release_attempt a
+                WHERE a.release_request_id = r.release_request_id
+              ) AS attempt_count,
+              EXISTS (
+                SELECT 1
+                  FROM p2tr_signature_fraud_challenge_nonce_release_attempt a
+                  LEFT JOIN p2tr_signature_fraud_challenge_nonce_release_result x
+                    ON x.release_request_id = a.release_request_id
+                   AND x.attempt_sequence = a.attempt_sequence
+                 WHERE a.release_request_id = r.release_request_id
+                   AND (x.result_kind IS NULL OR x.result_kind NOT IN (
+                     'released', 'already-released'
+                   ))
+              ) AS ambiguous
+         FROM p2tr_signature_fraud_challenge_nonce_release_request r
+         JOIN p2tr_signature_fraud_challenge_nonce_guard g
+           ON g.nonce_guard_id = r.nonce_guard_id
+        WHERE ${predicate}
+        ORDER BY r.release_request_id
+        LIMIT ${positiveSafeInteger(limit, "Nonce-release query limit")}`,
+      values
+    )
+    return result.rows
+  }
+
+  private async hydrateNonceReleaseRequest(
+    row: NonceReleaseRequestRow
+  ): Promise<P2TRSignatureFraudNonceReleaseRequest> {
+    const recordID = prefixedHex(row.record_id)
+    const record = await this.get(recordID)
+    if (record === undefined) {
+      throw new Error("Nonce-release request references a missing outbox record")
+    }
+    const reservationID = prefixedHex(row.nonce_guard_id)
+    const tombstone = (record.voidedNonceReservations ?? []).find(
+      (item) =>
+        hexValue(item.reservation.reservationID, "Voided reservation ID") ===
+        reservationID
+    )
+    if (tombstone === undefined) {
+      throw new Error(
+        "Nonce-release request is absent from the durable record tombstones"
+      )
+    }
+    const reservation = tombstone.reservation
+    if (
+      record.generation !==
+        databaseSafeInteger(row.generation, "Nonce-release generation") ||
+      record.intent.chainID !==
+        databaseSafeInteger(row.chain_id, "Nonce-release chain ID") ||
+      reservation.laneID !== row.signer_lane_id ||
+      reservation.signerIdentity !== row.signer_identity ||
+      address(reservation.sender, "Nonce-release sender") !==
+        prefixedHex(row.sender) ||
+      reservation.nonce !==
+        databaseSafeInteger(row.transaction_nonce, "Nonce-release nonce") ||
+      reservation.reservationEpoch !==
+        databaseSafeInteger(
+          row.reservation_epoch,
+          "Nonce-release reservation epoch"
+        ) ||
+      hexData(reservation.bindingSignature, "Nonce-release binding") !==
+        prefixedHex(row.reservation_binding) ||
+      bytes32(tombstone.evidenceDigest, "Void evidence digest") !==
+        prefixedHex(row.void_evidence_digest)
+    ) {
+      throw new Error(
+        "Nonce-release request does not match its exact durable reservation"
+      )
+    }
+    const releaseRequestID = prefixedHex(row.release_request_id)
+    if (
+      computeP2TRSignatureFraudNonceReleaseRequestID(
+        recordID,
+        reservationID,
+        tombstone.evidenceDigest
+      ) !== releaseRequestID
+    ) {
+      throw new Error("Nonce-release request identity is invalid")
+    }
+    return {
+      releaseRequestID,
+      recordID,
+      generation: record.generation,
+      reservation,
+      voidEvidenceDigest: tombstone.evidenceDigest,
+      requestedAtUnixMs: databaseSafeInteger(
+        row.requested_at_unix_ms,
+        "Nonce-release request time"
+      ),
+      attemptCount: databaseSafeInteger(
+        row.attempt_count,
+        "Nonce-release attempt count"
+      ),
+      ambiguous: row.ambiguous,
+    }
+  }
+
   private async compareAndSwapLocked(
     recordID: string,
     expectedVersion: number,
     next: P2TRSignatureFraudChallengeOutboxRecord,
     expectedProvenance?: P2TRSignatureFraudCanonicalProvenanceBinding
   ): Promise<boolean> {
+    assertCompactDurableOutboxRecord(next)
     const row = await this.lockRecord(recordID)
     if (row === undefined) return false
     const current = await this.hydrateRow(row)
@@ -715,18 +1895,182 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore implements P2TRSigna
     ) {
       return false
     }
+    if (
+      ((current.selectedLaneID === undefined && next.selectedLaneID !== undefined) ||
+        (current.activeSignerInvocationStartedAtUnixMs === undefined &&
+          next.activeSignerInvocationStartedAtUnixMs !== undefined)) &&
+      !(await this.lockAndAssertSignerLaneAvailable(next))
+    ) {
+      return false
+    }
     await this.syncChildLedgers(current, next)
-    return this.updateMutableState(current, next)
+    const updated = await this.updateMutableState(current, next)
+    if (updated) {
+      await this.persistDerivedCriticalAlerts(current, next)
+      await this.resolveEligibleCriticalAlerts(next)
+    }
+    return updated
+  }
+
+  private async persistDerivedCriticalAlerts(
+    current: P2TRSignatureFraudChallengeOutboxRecord,
+    next: P2TRSignatureFraudChallengeOutboxRecord
+  ): Promise<void> {
+    const existing = new Set(
+      (current.signerQuarantines ?? []).map(signerQuarantineID)
+    )
+    const signerBoundaryQuarantine = (next.signerQuarantines ?? []).find(
+      (quarantine) =>
+        !existing.has(signerQuarantineID(quarantine)) &&
+        quarantine.reservationID !== undefined &&
+        quarantine.reasonCode !== "reservation-binding-mismatch" &&
+        quarantine.reasonCode !== "reservation-provider-failure"
+    )
+    if (signerBoundaryQuarantine === undefined) return
+    await this.saveCriticalAlert({
+      code: "signed-state-quarantined",
+      seriesID: next.seriesID,
+      recordID: next.recordID,
+      generation: next.generation,
+      activationBlocking: true,
+      createdAtUnixMs: signerBoundaryQuarantine.quarantinedAtUnixMs,
+      detail: signerBoundaryQuarantine.reason,
+    })
+  }
+
+  private async lockAndAssertSignerLaneAvailable(
+    record: P2TRSignatureFraudChallengeOutboxRecord
+  ): Promise<boolean> {
+    if (
+      record.selectedLaneID === undefined ||
+      record.selectedSignerIdentity === undefined ||
+      record.preparationSender === undefined
+    ) {
+      return false
+    }
+    const manifestHash = stripHex(
+      bytes32(
+        record.feePolicyManifest.activationManifestHash,
+        "Selected lane manifest hash"
+      )
+    )
+    const sender = stripHex(
+      address(record.preparationSender, "Selected lane sender")
+    )
+    const locked = await this.options.session.query(
+      `SELECT 1
+         FROM p2tr_signature_fraud_signer_lane_configuration
+        WHERE activation_manifest_hash = decode($1, 'hex')
+          AND chain_id = $2
+          AND signer_lane_id = $3
+          AND signer_identity = $4
+          AND sender = decode($5, 'hex')
+          AND enabled
+        FOR UPDATE`,
+      [
+        manifestHash,
+        record.intent.chainID,
+        record.selectedLaneID,
+        record.selectedSignerIdentity,
+        sender,
+      ]
+    )
+    if (locked.rows.length !== 1) return false
+    const blocked = await this.options.session.query<{ blocked: boolean }>(
+      `SELECT EXISTS (
+          SELECT 1
+            FROM p2tr_signature_fraud_challenge_nonce_release_request r
+           WHERE r.chain_id = $1
+             AND (r.signer_lane_id = $2
+                  OR r.signer_identity = $3
+                  OR r.sender = decode($4, 'hex'))
+             AND NOT EXISTS (
+                   SELECT 1
+                     FROM p2tr_signature_fraud_challenge_nonce_release_terminal x
+                    WHERE x.release_request_id = r.release_request_id
+                 )
+        ) OR EXISTS (
+          SELECT 1
+            FROM p2tr_signature_fraud_challenge_signer_quarantine q
+           WHERE q.chain_id = $1
+             AND (q.signer_lane_id = $2
+                  OR q.signer_identity = $3
+                  OR q.expected_sender = decode($4, 'hex'))
+        ) OR EXISTS (
+          SELECT 1
+            FROM p2tr_signature_fraud_challenge_critical_alert a
+           WHERE a.code = 'reservation-release-failed'
+             AND NOT EXISTS (
+                   SELECT 1
+                     FROM p2tr_signature_fraud_challenge_critical_alert_resolution ar
+                    WHERE ar.alert_id = a.alert_id
+                 )
+        ) AS blocked`,
+      [
+        record.intent.chainID,
+        record.selectedLaneID,
+        record.selectedSignerIdentity,
+        sender,
+      ]
+    )
+    return blocked.rows[0]?.blocked !== true
+  }
+
+  private async resolveEligibleCriticalAlerts(
+    record: P2TRSignatureFraudChallengeOutboxRecord
+  ): Promise<void> {
+    if (record.finalNonceResolution === undefined) return
+    await this.options.session.query(
+      `INSERT INTO p2tr_signature_fraud_challenge_critical_alert_resolution (
+          alert_id, record_id, generation, nonce_disposition_id,
+          resolution_digest, resolved_at_unix_ms
+       )
+       SELECT a.alert_id,
+              o.record_id,
+              o.generation,
+              o.nonce_disposition_id,
+              sha256(a.alert_id || o.nonce_disposition_id || d.evidence_digest),
+              o.updated_at_unix_ms
+         FROM p2tr_signature_fraud_challenge_critical_alert a
+         JOIN p2tr_signature_fraud_challenge_outbox o
+           ON o.record_id = a.record_id
+          AND o.generation = a.generation
+         JOIN p2tr_signature_fraud_challenge_nonce_disposition d
+           ON d.record_id = o.record_id
+          AND d.nonce_disposition_id = o.nonce_disposition_id
+        WHERE a.record_id = decode($1, 'hex')
+          AND a.code IN (
+                'late-signed-artifact-captured',
+                'signed-state-quarantined'
+              )
+          AND o.lane_released_at_unix_ms IS NOT NULL
+          AND NOT EXISTS (
+                SELECT 1
+                  FROM p2tr_signature_fraud_challenge_escaped_envelope ee
+                 WHERE ee.record_id = o.record_id
+              )
+          AND EXISTS (
+                SELECT 1
+                  FROM p2tr_signature_fraud_challenge_late_signed_artifact la
+                 WHERE la.record_id = o.record_id
+                   AND la.generation = o.generation
+                   AND la.expected_reservation_id = o.nonce_reservation_id
+              )
+          AND NOT EXISTS (
+                SELECT 1
+                  FROM p2tr_signature_fraud_challenge_critical_alert_resolution ar
+                 WHERE ar.alert_id = a.alert_id
+              )
+       ON CONFLICT (alert_id) DO NOTHING`,
+      [stripHex(bytes32(record.recordID, "Alert-resolution record ID"))]
+    )
   }
 
   private async updateMutableState(
     current: P2TRSignatureFraudChallengeOutboxRecord,
     next: P2TRSignatureFraudChallengeOutboxRecord
   ): Promise<boolean> {
-    const columns = outboxMutableColumns(
-      next,
-      this.durableProvenanceInvalidationIDs.get(next.recordID.toLowerCase())
-    )
+    const columns = outboxMutableColumns(next)
     const entries = Object.entries(columns)
     const values = entries.map(([, value]) => value)
     const assignments = entries
@@ -780,6 +2124,51 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore implements P2TRSigna
     return result.rows[0] === undefined
       ? undefined
       : this.hydrateRow(result.rows[0])
+  }
+
+  private async lockAndAssertActiveOutboxCapacity(
+    record: P2TRSignatureFraudChallengeOutboxRecord
+  ): Promise<P2TRSignatureFraudChallengeOutboxRecord | undefined> {
+    const manifest = await this.options.session.query<{
+      manifest_hash: Buffer
+      max_active_records: string | number
+    }>(
+      `SELECT manifest_hash,
+              (payload #>> '{outbox,maxActiveOutboxRecords}')::integer
+                AS max_active_records
+        FROM p2tr_watchtower_activation_manifest
+        WHERE singleton = true
+        FOR SHARE`
+    )
+    if (
+      manifest.rows.length !== 1 ||
+      prefixedHex(manifest.rows[0].manifest_hash) !==
+        bytes32(
+          record.evidenceCheckpoint.activationManifest.manifestHash,
+          "Outbox activation manifest hash"
+        )
+    ) {
+      throw new Error(
+        "New challenge generation is not bound to the current activation manifest"
+      )
+    }
+    // Recheck idempotency immediately before INSERT. The database trigger's
+    // singleton counter is the capacity authority and forces concurrent
+    // SERIALIZABLE writers through a write/write conflict.
+    const existing = await this.getByRecordOrSeriesGeneration(
+      record.recordID,
+      record.seriesID,
+      record.generation
+    )
+    if (existing !== undefined) return existing
+    const maxActiveRecords = positiveSafeInteger(
+      manifest.rows[0].max_active_records,
+      "Manifest-bound active outbox capacity"
+    )
+    if (maxActiveRecords > 1_000_000) {
+      throw new Error("Manifest-bound active outbox capacity is invalid")
+    }
+    return undefined
   }
 
   private async hydrateRow(
@@ -869,10 +2258,6 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore implements P2TRSigna
     )
     setOptional(state, "lastError", row.last_error ?? undefined)
     if (row.provenance_invalidation_id !== null) {
-      this.durableProvenanceInvalidationIDs.set(
-        state.recordID.toLowerCase(),
-        prefixedHex(row.provenance_invalidation_id)
-      )
       state.provenanceInvalidationEvidence =
         await this.loadProvenanceInvalidation(
           state.recordID,
@@ -1108,26 +2493,135 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore implements P2TRSigna
     for (const item of next.voidedNonceReservations ?? []) {
       const id = item.reservation.reservationID.toPrefixedString().toLowerCase()
       if (currentIDs.has(id)) continue
-      const result = await this.options.session.query(
-        `UPDATE p2tr_signature_fraud_challenge_nonce_guard
-            SET voided_before_sign_at_unix_ms = $2,
-                void_reason = $3,
-                void_evidence_digest = decode($4, 'hex')
-          WHERE nonce_guard_id = decode($1, 'hex')
-            AND voided_before_sign_at_unix_ms IS NULL`,
-        [
-          stripHex(bytes32(id, "Voided reservation ID")),
-          unixMilliseconds(item.voidedAtUnixMs, "Reservation void time"),
-          item.reasonCode,
-          stripHex(bytes32(item.evidenceDigest, "Reservation void digest")),
-        ]
-      )
-      if (result.rowCount !== 1) {
-        throw new Error(
-          "Durable nonce reservation could not be voided exactly once"
+      const currentReservationID =
+        current.reservedNonce?.reservationID.toPrefixedString().toLowerCase()
+      if (currentReservationID !== id) {
+        await this.insertReturnedReservationTombstone(current, item)
+      } else {
+        const result = await this.options.session.query(
+          `UPDATE p2tr_signature_fraud_challenge_nonce_guard
+              SET voided_before_sign_at_unix_ms = $2,
+                  void_reason = $3,
+                  void_evidence_digest = decode($4, 'hex')
+            WHERE nonce_guard_id = decode($1, 'hex')
+              AND voided_before_sign_at_unix_ms IS NULL`,
+          [
+            stripHex(bytes32(id, "Voided reservation ID")),
+            unixMilliseconds(item.voidedAtUnixMs, "Reservation void time"),
+            item.reasonCode,
+            stripHex(bytes32(item.evidenceDigest, "Reservation void digest")),
+          ]
         )
+        if (result.rowCount !== 1) {
+          throw new Error(
+            "Durable nonce reservation could not be voided exactly once"
+          )
+        }
+      }
+      const aliasOfActiveNonce =
+        current.reservedNonce !== undefined &&
+        currentReservationID !== id &&
+        current.intent.chainID === next.intent.chainID &&
+        address(current.reservedNonce.sender, "Active reservation sender") ===
+          address(item.reservation.sender, "Returned reservation sender") &&
+        current.reservedNonce.nonce === item.reservation.nonce
+      if (!aliasOfActiveNonce) {
+        await this.insertNonceReleaseRequest(next, item)
+      }
+      if (item.reasonCode === "reservation-binding-invalid") {
+        await this.saveCriticalAlert({
+          code: "reservation-state-ambiguous",
+          seriesID: next.seriesID,
+          recordID: next.recordID,
+          generation: next.generation,
+          activationBlocking: true,
+          createdAtUnixMs: item.voidedAtUnixMs,
+          detail: item.reason,
+        })
       }
     }
+  }
+
+  private async insertNonceReleaseRequest(
+    record: P2TRSignatureFraudChallengeOutboxRecord,
+    item: P2TRSignatureFraudVoidedNonceReservation
+  ): Promise<void> {
+    const reservation = item.reservation
+    const releaseRequestID = computeP2TRSignatureFraudNonceReleaseRequestID(
+      record.recordID,
+      reservation.reservationID,
+      item.evidenceDigest
+    )
+    await this.options.session.query(
+      `INSERT INTO p2tr_signature_fraud_challenge_nonce_release_request (
+          release_request_id, allocator_idempotency_key, record_id,
+          generation, nonce_guard_id, chain_id, signer_lane_id,
+          signer_identity, sender, transaction_nonce, reservation_epoch,
+          void_evidence_digest, requested_at_unix_ms
+       ) VALUES (
+          decode($1, 'hex'), decode($1, 'hex'), decode($2, 'hex'), $3,
+          decode($4, 'hex'), $5, $6, $7, decode($8, 'hex'), $9, $10,
+          decode($11, 'hex'), $12
+       )`,
+      [
+        stripHex(releaseRequestID),
+        stripHex(bytes32(record.recordID, "Release request record ID")),
+        record.generation,
+        stripHex(
+          hexValue(reservation.reservationID, "Release reservation ID")
+        ),
+        record.intent.chainID,
+        reservation.laneID,
+        reservation.signerIdentity,
+        stripHex(address(reservation.sender, "Release reservation sender")),
+        reservation.nonce,
+        reservation.reservationEpoch,
+        stripHex(bytes32(item.evidenceDigest, "Release void evidence digest")),
+        unixMilliseconds(item.voidedAtUnixMs, "Release request time"),
+      ]
+    )
+  }
+
+  private async insertReturnedReservationTombstone(
+    record: P2TRSignatureFraudChallengeOutboxRecord,
+    item: P2TRSignatureFraudVoidedNonceReservation
+  ): Promise<void> {
+    if (
+      record.reservedNonce !== undefined &&
+      hexValue(
+        record.reservedNonce.reservationID,
+        "Active nonce reservation ID"
+      ) ===
+        hexValue(
+          item.reservation.reservationID,
+          "Returned nonce reservation ID"
+        )
+    ) {
+      throw new Error(
+        "The currently active nonce reservation cannot be tombstoned as a returned conflict"
+      )
+    }
+    await this.insertReturnedReservationTombstoneRow(record, item)
+  }
+
+  private async insertReturnedReservationTombstoneRow(
+    record: P2TRSignatureFraudChallengeOutboxRecord,
+    item: P2TRSignatureFraudVoidedNonceReservation
+  ): Promise<void> {
+    const reservation = item.reservation
+    await this.options.session.query(
+      `INSERT INTO p2tr_signature_fraud_challenge_nonce_guard (
+          nonce_guard_id, record_id, guard_kind, chain_id, signer_lane_id,
+          signer_identity, sender, transaction_nonce, reservation_binding,
+          reservation_epoch, guarded_at_unix_ms,
+          voided_before_sign_at_unix_ms, void_reason, void_evidence_digest
+       ) VALUES (
+          decode($1, 'hex'), decode($2, 'hex'), 'bound-reservation', $3,
+          $4, $5, decode($6, 'hex'), $7, decode($8, 'hex'), $9, $10, $10,
+          $11, decode($12, 'hex')
+       )`,
+      returnedReservationTombstoneValues(record, item, reservation)
+    )
   }
 
   private async insertNonceGuard(
@@ -1138,10 +2632,10 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore implements P2TRSigna
       `INSERT INTO p2tr_signature_fraud_challenge_nonce_guard (
           nonce_guard_id, record_id, guard_kind, chain_id, signer_lane_id,
           signer_identity, sender, transaction_nonce, reservation_binding,
-          guarded_at_unix_ms
+          reservation_epoch, guarded_at_unix_ms
        ) VALUES (
           decode($1, 'hex'), decode($2, 'hex'), 'bound-reservation', $3,
-          $4, $5, decode($6, 'hex'), $7, decode($8, 'hex'), $9
+          $4, $5, decode($6, 'hex'), $7, decode($8, 'hex'), $9, $10
        )`,
       [
         stripHex(hexValue(reservation.reservationID, "Nonce reservation ID")),
@@ -1154,6 +2648,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore implements P2TRSigna
         stripHex(
           hexData(reservation.bindingSignature, "Nonce reservation binding")
         ),
+        reservation.reservationEpoch,
         unixMilliseconds(
           record.nonceReservedAtUnixMs,
           "Nonce reservation time"
@@ -1504,14 +2999,14 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore implements P2TRSigna
       resolution.status === "terminal-reverted"
         ? resolution.receipt
         : ownDisposition?.status === "reverted"
-          ? ownDisposition.receipt
-          : undefined
+        ? ownDisposition.receipt
+        : undefined
     const nonceConsumed =
       resolution.status === "terminal-nonce-consumed"
         ? resolution
         : ownDisposition?.status === "nonce-consumed"
-          ? ownDisposition
-          : undefined
+        ? ownDisposition
+        : undefined
     const accepted =
       resolution.status === "accepted-own" ? resolution : undefined
     const transactionHash =
@@ -1534,10 +3029,10 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore implements P2TRSigna
       resolution.status === "terminal-reverted"
         ? "finalized-reverted"
         : resolution.status === "terminal-nonce-consumed"
-          ? "finalized-nonce-consumed"
-          : resolution.status === "accepted-own"
-            ? "finalized-accepted-own"
-            : "finalized-after-external-satisfaction"
+        ? "finalized-nonce-consumed"
+        : resolution.status === "accepted-own"
+        ? "finalized-accepted-own"
+        : "finalized-after-external-satisfaction"
     await this.options.session.query(
       `INSERT INTO p2tr_signature_fraud_challenge_nonce_disposition (
           nonce_disposition_id, record_id, generation, nonce_reservation_id,
@@ -1579,8 +3074,8 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore implements P2TRSigna
         reverted !== undefined
           ? false
           : nonceConsumed !== undefined
-            ? null
-            : true,
+          ? null
+          : true,
         stripHex(bytes32(blockHash, "Disposition block hash")),
         blockNumber,
         stripHex(
@@ -1653,6 +3148,31 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore implements P2TRSigna
     for (const quarantine of next.signerQuarantines ?? []) {
       const id = signerQuarantineID(quarantine)
       if (existing.has(id)) continue
+      const laneLock = await this.options.session.query(
+        `SELECT 1
+           FROM p2tr_signature_fraud_signer_lane_configuration
+          WHERE activation_manifest_hash = decode($1, 'hex')
+            AND chain_id = $2
+            AND signer_lane_id = $3
+            AND signer_identity = $4
+            AND sender = decode($5, 'hex')
+          FOR UPDATE`,
+        [
+          stripHex(
+            bytes32(
+              next.feePolicyManifest.activationManifestHash,
+              "Quarantined lane manifest hash"
+            )
+          ),
+          next.intent.chainID,
+          quarantine.laneID,
+          quarantine.signerIdentity,
+          stripHex(address(quarantine.expectedSender, "Quarantine sender")),
+        ]
+      )
+      if (laneLock.rows.length !== 1) {
+        throw new Error("Signer quarantine lacks its manifest-bound lane")
+      }
       await this.options.session.query(
         `INSERT INTO p2tr_signature_fraud_challenge_signer_quarantine (
             signer_quarantine_id, record_id, nonce_reservation_id, chain_id,
@@ -1801,14 +3321,15 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore implements P2TRSigna
       .find(
         (candidate) =>
           candidate.reasonCode === "wrong-sender" ||
-          candidate.reasonCode === "wrong-nonce"
+          candidate.reasonCode === "wrong-nonce" ||
+          candidate.reasonCode === "ambiguous-signer-invocation"
       )
     if (quarantine === undefined) {
       throw new Error(
         "Escaped wrong-lane envelope lacks signer quarantine evidence"
       )
     }
-    const actualGuardID = hashStructured({
+    let actualGuardID = hashStructured({
       domain: "tbtc-p2tr-signature-fraud-escaped-nonce-guard-v1",
       recordID: record.recordID,
       transactionHash: hexValue(
@@ -1818,27 +3339,91 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore implements P2TRSigna
       sender: address(transaction.sender, "Escaped sender"),
       nonce: transaction.nonce,
     })
-    await this.options.session.query(
-      `INSERT INTO p2tr_signature_fraud_challenge_nonce_guard (
+    let actualGuardRecordID = record.recordID
+    let actualGuardLaneID = reservation.laneID
+    let actualGuardSignerIdentity = reservation.signerIdentity
+    const existingGuard = await this.options.session.query<{
+      nonce_guard_id: Buffer
+      record_id: Buffer
+      signer_lane_id: string
+      signer_identity: string
+    }>(
+      `SELECT nonce_guard_id, record_id, signer_lane_id, signer_identity
+         FROM p2tr_signature_fraud_challenge_nonce_guard
+        WHERE chain_id = $1
+          AND sender = decode($2, 'hex')
+          AND transaction_nonce = $3
+          AND voided_before_sign_at_unix_ms IS NULL
+        ORDER BY guarded_at_unix_ms DESC,
+                 nonce_guard_id
+        LIMIT 1
+        FOR SHARE`,
+      [
+        record.intent.chainID,
+        stripHex(address(transaction.sender, "Escaped sender")),
+        transaction.nonce,
+      ]
+    )
+    if (existingGuard.rows.length === 1) {
+      actualGuardID = prefixedHex(existingGuard.rows[0].nonce_guard_id)
+      actualGuardRecordID = prefixedHex(existingGuard.rows[0].record_id)
+      actualGuardLaneID = existingGuard.rows[0].signer_lane_id
+      actualGuardSignerIdentity = existingGuard.rows[0].signer_identity
+    } else {
+      await this.options.session.query(
+        `INSERT INTO p2tr_signature_fraud_challenge_nonce_guard (
           nonce_guard_id, record_id, guard_kind, chain_id, signer_lane_id,
           signer_identity, sender, transaction_nonce, parent_reservation_id,
           guarded_at_unix_ms
        ) VALUES (
           decode($1, 'hex'), decode($2, 'hex'), 'escaped-envelope', $3,
           $4, $5, decode($6, 'hex'), $7, decode($8, 'hex'), $9
-       )`,
-      [
-        stripHex(actualGuardID),
-        stripHex(bytes32(record.recordID, "Escaped guard record ID")),
-        record.intent.chainID,
-        reservation.laneID,
-        reservation.signerIdentity,
-        stripHex(address(transaction.sender, "Escaped sender")),
-        transaction.nonce,
-        stripHex(hexValue(reservation.reservationID, "Parent reservation ID")),
-        artifact.capturedAtUnixMs,
-      ]
-    )
+       ) ON CONFLICT (chain_id, sender, transaction_nonce)
+           WHERE voided_before_sign_at_unix_ms IS NULL
+           DO NOTHING`,
+        [
+          stripHex(actualGuardID),
+          stripHex(bytes32(record.recordID, "Escaped guard record ID")),
+          record.intent.chainID,
+          reservation.laneID,
+          reservation.signerIdentity,
+          stripHex(address(transaction.sender, "Escaped sender")),
+          transaction.nonce,
+          stripHex(
+            hexValue(reservation.reservationID, "Parent reservation ID")
+          ),
+          artifact.capturedAtUnixMs,
+        ]
+      )
+      const durableGuard = await this.options.session.query<{
+        nonce_guard_id: Buffer
+        record_id: Buffer
+        signer_lane_id: string
+        signer_identity: string
+      }>(
+        `SELECT nonce_guard_id, record_id, signer_lane_id, signer_identity
+           FROM p2tr_signature_fraud_challenge_nonce_guard
+          WHERE chain_id = $1
+            AND sender = decode($2, 'hex')
+            AND transaction_nonce = $3
+            AND voided_before_sign_at_unix_ms IS NULL
+          ORDER BY nonce_guard_id
+          LIMIT 1
+          FOR SHARE`,
+        [
+          record.intent.chainID,
+          stripHex(address(transaction.sender, "Escaped sender")),
+          transaction.nonce,
+        ]
+      )
+      if (durableGuard.rows.length !== 1) {
+        throw new Error("Escaped nonce guard could not be acquired")
+      }
+      actualGuardID = prefixedHex(durableGuard.rows[0].nonce_guard_id)
+      actualGuardRecordID = prefixedHex(durableGuard.rows[0].record_id)
+      actualGuardLaneID = durableGuard.rows[0].signer_lane_id
+      actualGuardSignerIdentity = durableGuard.rows[0].signer_identity
+    }
     await this.options.session.query(
       `INSERT INTO p2tr_signature_fraud_challenge_escaped_envelope (
           escaped_envelope_id, record_id, signer_quarantine_id,
@@ -1861,7 +3446,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore implements P2TRSigna
         stripHex(
           bytes32(artifact.expectedReservationID, "Expected reservation ID")
         ),
-        stripHex(bytes32(record.recordID, "Actual guard record ID")),
+        stripHex(bytes32(actualGuardRecordID, "Actual guard record ID")),
         stripHex(actualGuardID),
         record.intent.chainID,
         reservation.laneID,
@@ -1870,8 +3455,8 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore implements P2TRSigna
         reservation.nonce,
         stripHex(address(transaction.sender, "Actual sender")),
         transaction.nonce,
-        reservation.laneID,
-        reservation.signerIdentity,
+        actualGuardLaneID,
+        actualGuardSignerIdentity,
         transaction.eip1559?.transactionType ?? 0,
         stripHex(
           hexData(transaction.rawTransaction, "Escaped raw transaction")
@@ -1888,10 +3473,6 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore implements P2TRSigna
     record: P2TRSignatureFraudChallengeOutboxRecord,
     evidence: P2TRSignatureFraudCanonicalProvenanceInvalidationEvidence
   ): Promise<void> {
-    this.durableProvenanceInvalidationIDs.set(
-      record.recordID.toLowerCase(),
-      bytes32(evidence.evidenceHash, "Provenance invalidation ID")
-    )
     await this.options.session.query(
       `INSERT INTO p2tr_signature_fraud_challenge_provenance_invalidation (
           provenance_invalidation_id, record_id, provenance_tombstone_id,
@@ -1991,6 +3572,788 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore implements P2TRSigna
         unixMilliseconds(createdAtUnixMs, "Provenance incident time"),
       ]
     )
+  }
+}
+
+const DURABLE_OUTBOX_RECORD_KEYS = new Set([
+  "seriesID",
+  "recordID",
+  "intent",
+  "evidenceCheckpoint",
+  "canonicalEthereumEligibility",
+  "canonicalProvenance",
+  "feePolicyManifest",
+  "status",
+  "version",
+  "generation",
+  "generationTrigger",
+  "createdAtUnixMs",
+  "updatedAtUnixMs",
+  "preparationAttempts",
+  "broadcastAttempts",
+  "reconciliationAttempts",
+  "preparationSender",
+  "selectedLaneID",
+  "selectedSignerIdentity",
+  "reservedNonce",
+  "nonceReservedAtUnixMs",
+  "voidedNonceReservations",
+  "signerQuarantines",
+  "unexpectedSignedArtifacts",
+  "cancellationEvidence",
+  "provenanceInvalidationEvidence",
+  "finalNonceResolution",
+  "generationDisposition",
+  "preparationLease",
+  "preparationResumeStatus",
+  "activeSignerInvocationStartedAtUnixMs",
+  "signerInvocationStartedAtUnixMs",
+  "preparedTransaction",
+  "preparedTransactionVariants",
+  "lastBroadcastAtUnixMs",
+  "lastBroadcastProviderAccepted",
+  "lastReconciliationAtUnixMs",
+  "lastPreBroadcastRecheckAtUnixMs",
+  "lastPreBroadcastRecheckStatus",
+  "lastResolutionStatus",
+  "lastError",
+])
+
+const DURABLE_INTENT_KEYS = new Set([
+  "protocol",
+  "evidenceProtocolID",
+  "intentID",
+  "observationID",
+  "inputIndex",
+  "bridgeChallengeKey",
+  "walletID",
+  "signingKey",
+  "bindingTxHash",
+  "bindingOutputIndex",
+  "bridgeChallengeIdentity",
+  "sighash",
+  "nonceX",
+  "signatureScalar",
+  "domainChainID",
+  "chainID",
+  "bridgeAddress",
+  "routerAddress",
+  "calldata",
+  "value",
+])
+
+const DURABLE_EVIDENCE_CHECKPOINT_KEYS = new Set([
+  "confirmedSourceComplete",
+  "bitcoinTxHash",
+  "bitcoinWitnessTxHash",
+  "bitcoinInputIndex",
+  "bitcoinBlockHash",
+  "bitcoinBlockHeight",
+  "bitcoinCursorBlockHash",
+  "bitcoinCursorBlockHeight",
+  "ethereumLifecycleBlockHash",
+  "ethereumLifecycleBlockNumber",
+  "activationManifest",
+  "submittedEventScanFromBlock",
+])
+
+const DURABLE_ACTIVATION_MANIFEST_KEYS = new Set([
+  "manifestHash",
+  "routerCodeHash",
+  "routerProtocolID",
+  "routerDomainChainID",
+  "completeAuthorizationRegistryAddress",
+  "completeAuthorizationRegistryCodeHash",
+  "completeAuthorizationRegistryProtocolID",
+  "completeReservationModel",
+])
+
+const DURABLE_ETHEREUM_ELIGIBILITY_KEYS = new Set([
+  "readAtBlockNumber",
+  "readAtBlockHash",
+  "chainID",
+  "routerDomainChainID",
+  "routerAddress",
+  "routerCodeHash",
+  "routerProtocolID",
+  "routerBridgeAddress",
+  "routerChallengeKey",
+  "routerChallengeAbsent",
+  "completeAuthorizationRegistryAddress",
+  "completeAuthorizationRegistryCodeHash",
+  "completeAuthorizationRegistryProtocolID",
+  "completeReservationModel",
+  "completeChallengeIdentity",
+  "completeWalletID",
+  "completeExactChallengeAuthorizationAbsent",
+  "completeExactTransactionAuthorizationAbsent",
+  "completeWalletReservationActive",
+  "completeActiveReservationChallengeIdentity",
+  "walletChallengeable",
+  "canonicalProofBacklogComplete",
+  "activationManifestHash",
+  "readSetHash",
+])
+
+const DURABLE_PROVENANCE_KEYS = new Set([
+  "journalStoreID",
+  "descriptorSetHash",
+  "throughBlockNumber",
+  "throughBlockHash",
+  "historyRoot",
+  "eventSetHash",
+  "eventCount",
+  "challengeKey",
+  "candidateDigest",
+  "readinessCertificateID",
+  "readinessCertificateGeneration",
+  "candidateProvenanceGeneration",
+  "inputBindingKind",
+  "inputBindingSourceEventID",
+  "inputIndex",
+  "fundingBlockHash",
+  "fundingTxid",
+  "fundingVout",
+  "inputWalletID",
+  "inputOutputKey",
+  "bindingEthereumBlockNumber",
+  "bindingEthereumBlockHash",
+  "provenanceFingerprint",
+  "manifestHash",
+])
+
+const DURABLE_FEE_POLICY_MANIFEST_KEYS = new Set([
+  "policyHash",
+  "activationManifestHash",
+  "chainID",
+  "challengeValueWei",
+  "lanes",
+])
+
+const DURABLE_FEE_POLICY_LANE_KEYS = new Set([
+  "laneID",
+  "signerIdentity",
+  "sender",
+  "maxGasLimit",
+  "maxFeePerGas",
+  "maxPriorityFeePerGas",
+  "maxTotalFeeWei",
+])
+
+const DURABLE_NONCE_RESERVATION_KEYS = new Set([
+  "reservationID",
+  "outboxRecordID",
+  "intentID",
+  "generation",
+  "reservationEpoch",
+  "laneID",
+  "signerIdentity",
+  "sender",
+  "nonce",
+  "bindingSignature",
+])
+
+const DURABLE_PREPARED_TRANSACTION_KEYS = new Set([
+  "intentID",
+  "rawTransaction",
+  "transactionHash",
+  "sender",
+  "nonce",
+  "eip1559",
+])
+
+const DURABLE_EIP1559_KEYS = new Set([
+  "transactionType",
+  "gasLimit",
+  "maxFeePerGas",
+  "maxPriorityFeePerGas",
+])
+
+const DURABLE_VOIDED_RESERVATION_KEYS = new Set([
+  "reservation",
+  "voidedAtUnixMs",
+  "reasonCode",
+  "reason",
+  "evidenceDigest",
+])
+
+const DURABLE_SIGNER_QUARANTINE_KEYS = new Set([
+  "laneID",
+  "signerIdentity",
+  "expectedSender",
+  "expectedNonce",
+  "reservationID",
+  "reasonCode",
+  "quarantinedAtUnixMs",
+  "reason",
+  "detailsDigest",
+])
+
+const DURABLE_UNEXPECTED_ARTIFACT_KEYS = new Set([
+  "preparedTransaction",
+  "expectedReservationID",
+  "capturedAtUnixMs",
+  "reason",
+])
+
+const DURABLE_PREPARATION_LEASE_KEYS = new Set(["owner", "expiresAtUnixMs"])
+
+const DURABLE_PREPARED_VARIANT_KEYS = new Set([
+  "sequence",
+  "preparedTransaction",
+  "signedAtUnixMs",
+  "broadcastAttempts",
+  "lastBroadcastAtUnixMs",
+  "lastBroadcastProviderAccepted",
+  "lastError",
+])
+
+const DURABLE_PROVENANCE_INVALIDATION_KEYS = new Set([
+  "evidenceHash",
+  "provenanceTombstoneID",
+  "candidate",
+  "observationID",
+  "candidateDigest",
+  "candidateProvenanceGeneration",
+  "provenanceFingerprint",
+  "manifestHash",
+  "ethereumRollbackBlockHash",
+  "ethereumRollbackBlockNumber",
+  "provenanceInvalidationSequence",
+  "invalidatedAtUnixMs",
+  "reason",
+])
+
+const DURABLE_CANDIDATE_POINTER_KEYS = new Set([
+  "txid",
+  "wtxid",
+  "blockHash",
+  "blockHeight",
+  "inputIndex",
+])
+
+const DURABLE_CANONICAL_CURSOR_KEYS = new Set([
+  "bitcoinBlockHash",
+  "bitcoinBlockHeight",
+  "ethereumBlockHash",
+  "ethereumBlockNumber",
+])
+
+const DURABLE_CANCELLATION_AGREEMENT_KEYS = new Set([
+  "primaryTrustDomainID",
+  "corroboratingTrustDomainID",
+  "primaryIndependenceDomainID",
+  "corroboratingIndependenceDomainID",
+  "primaryAttestation",
+  "corroboratingAttestation",
+  "checkedAtUnixMs",
+])
+
+const FORBIDDEN_RAW_OBSERVATION_KEYS = new Set([
+  "canonicalObservation",
+  "transactionPayload",
+  "transactionHex",
+  "rawTransactionHex",
+  "unsignedTransaction",
+  "unsignedTransactionHex",
+  "inputPrevouts",
+  "witnessSignature",
+  "scriptPubKey",
+])
+
+function assertCompactDurableOutboxRecord(
+  record: P2TRSignatureFraudChallengeOutboxRecord
+): void {
+  assertExactKeys(record, DURABLE_OUTBOX_RECORD_KEYS, "outbox record")
+  assertExactKeys(record.intent, DURABLE_INTENT_KEYS, "COMPLETE_V2 intent")
+  assertExactKeys(
+    record.evidenceCheckpoint,
+    DURABLE_EVIDENCE_CHECKPOINT_KEYS,
+    "evidence checkpoint"
+  )
+  assertExactKeys(
+    record.evidenceCheckpoint.activationManifest,
+    DURABLE_ACTIVATION_MANIFEST_KEYS,
+    "activation manifest binding"
+  )
+  assertExactKeys(
+    record.canonicalEthereumEligibility,
+    DURABLE_ETHEREUM_ELIGIBILITY_KEYS,
+    "canonical Ethereum eligibility"
+  )
+  assertExactKeys(
+    record.canonicalProvenance,
+    DURABLE_PROVENANCE_KEYS,
+    "canonical provenance"
+  )
+  assertExactKeys(
+    record.feePolicyManifest,
+    DURABLE_FEE_POLICY_MANIFEST_KEYS,
+    "fee-policy manifest"
+  )
+  for (const lane of record.feePolicyManifest.lanes) {
+    assertExactKeys(lane, DURABLE_FEE_POLICY_LANE_KEYS, "fee-policy lane")
+  }
+  assertGenerationTriggerKeys(record.generationTrigger)
+  if (record.reservedNonce !== undefined) {
+    assertExactKeys(
+      record.reservedNonce,
+      DURABLE_NONCE_RESERVATION_KEYS,
+      "nonce reservation"
+    )
+  }
+  const voidedReservations = record.voidedNonceReservations ?? []
+  if (
+    voidedReservations.length >
+    P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_VOIDED_RESERVATIONS
+  ) {
+    throw new Error("Voided nonce-reservation ledger exceeded its fixed cap")
+  }
+  const voidedReservationIDs = new Set<string>()
+  for (const item of voidedReservations) {
+    assertExactKeys(
+      item,
+      DURABLE_VOIDED_RESERVATION_KEYS,
+      "voided nonce reservation wrapper"
+    )
+    assertExactKeys(
+      item.reservation,
+      DURABLE_NONCE_RESERVATION_KEYS,
+      "voided nonce reservation"
+    )
+    const reservationID = hexValue(
+      item.reservation.reservationID,
+      "Voided nonce reservation ID"
+    )
+    if (voidedReservationIDs.has(reservationID)) {
+      throw new Error("Voided nonce-reservation ledger contains a duplicate")
+    }
+    voidedReservationIDs.add(reservationID)
+  }
+  for (const quarantine of record.signerQuarantines ?? []) {
+    assertExactKeys(
+      quarantine,
+      DURABLE_SIGNER_QUARANTINE_KEYS,
+      "signer quarantine"
+    )
+  }
+  for (const artifact of record.unexpectedSignedArtifacts ?? []) {
+    assertExactKeys(
+      artifact,
+      DURABLE_UNEXPECTED_ARTIFACT_KEYS,
+      "unexpected signed artifact"
+    )
+  }
+  if (record.cancellationEvidence !== undefined) {
+    assertCancellationEvidenceKeys(record.cancellationEvidence)
+  }
+  if (record.provenanceInvalidationEvidence !== undefined) {
+    assertExactKeys(
+      record.provenanceInvalidationEvidence,
+      DURABLE_PROVENANCE_INVALIDATION_KEYS,
+      "provenance invalidation evidence"
+    )
+    assertExactKeys(
+      record.provenanceInvalidationEvidence.candidate,
+      DURABLE_CANDIDATE_POINTER_KEYS,
+      "provenance invalidation candidate"
+    )
+  }
+  if (record.finalNonceResolution !== undefined) {
+    assertResolutionKeys(record.finalNonceResolution, "final nonce resolution")
+  }
+  if (record.generationDisposition !== undefined) {
+    assertResolutionKeys(record.generationDisposition, "generation disposition")
+  }
+  if (record.preparationLease !== undefined) {
+    assertExactKeys(
+      record.preparationLease,
+      DURABLE_PREPARATION_LEASE_KEYS,
+      "preparation lease"
+    )
+  }
+  for (const variant of record.preparedTransactionVariants ?? []) {
+    assertExactKeys(
+      variant,
+      DURABLE_PREPARED_VARIANT_KEYS,
+      "prepared transaction variant"
+    )
+  }
+  validateP2TRCompleteV2SignatureFraudSubmissionIntent(record.intent)
+  assertNoRawObservationFields(record)
+  for (const transaction of [
+    record.preparedTransaction,
+    ...(record.preparedTransactionVariants ?? []).map(
+      ({ preparedTransaction }) => preparedTransaction
+    ),
+    ...(record.unexpectedSignedArtifacts ?? []).map(
+      ({ preparedTransaction }) => preparedTransaction
+    ),
+  ]) {
+    if (transaction === undefined) continue
+    assertExactKeys(
+      transaction,
+      DURABLE_PREPARED_TRANSACTION_KEYS,
+      "prepared transaction"
+    )
+    if (transaction.eip1559 !== undefined) {
+      assertExactKeys(
+        transaction.eip1559,
+        DURABLE_EIP1559_KEYS,
+        "prepared EIP-1559 envelope"
+      )
+    }
+    const byteLength =
+      stripHex(hexData(transaction.rawTransaction, "Signed transaction"))
+        .length / 2
+    if (byteLength > MAX_SIGNED_ETHEREUM_TRANSACTION_BYTES) {
+      throw new Error("Signed Ethereum transaction exceeds the durable bound")
+    }
+  }
+  const serializedBytes = Buffer.byteLength(
+    JSON.stringify(serializeJSON(record)),
+    "utf8"
+  )
+  if (serializedBytes > MAX_DURABLE_OUTBOX_RECORD_BYTES) {
+    throw new Error("Durable outbox record exceeds the compact evidence bound")
+  }
+}
+
+function assertGenerationTriggerKeys(
+  trigger: P2TRSignatureFraudChallengeOutboxRecord["generationTrigger"]
+): void {
+  const allowed =
+    trigger.kind === "initial"
+      ? new Set(["kind"])
+      : trigger.kind === "nonce-disposition"
+      ? new Set(["kind", "previousRecordID", "dispositionHash"])
+      : trigger.kind === "canonical-reappearance"
+      ? new Set(["kind", "previousRecordID", "cancellationEvidenceHash"])
+      : new Set([
+          "kind",
+          "previousRecordID",
+          "invalidationEvidenceHash",
+          "previousProvenanceFingerprint",
+        ])
+  assertExactKeys(trigger, allowed, "generation trigger")
+}
+
+function assertCancellationEvidenceKeys(
+  evidence: NonNullable<
+    P2TRSignatureFraudChallengeOutboxRecord["cancellationEvidence"]
+  >
+): void {
+  const common = [
+    "evidenceHash",
+    "kind",
+    "originalCandidate",
+    "canonicalCursor",
+    "agreement",
+  ]
+  assertExactKeys(
+    evidence,
+    evidence.kind === "canonical-reorg"
+      ? new Set([...common, "candidateCurrent", "replacementCanonicalTip"])
+      : new Set([
+          ...common,
+          "conflictingOutpoint",
+          "canonicalSpend",
+          "bridgeProofReceipt",
+        ]),
+    "canonical cancellation evidence"
+  )
+  assertExactKeys(
+    evidence.originalCandidate,
+    DURABLE_CANDIDATE_POINTER_KEYS,
+    "cancellation original candidate"
+  )
+  assertExactKeys(
+    evidence.canonicalCursor,
+    DURABLE_CANONICAL_CURSOR_KEYS,
+    "cancellation canonical cursor"
+  )
+  assertExactKeys(
+    evidence.agreement,
+    DURABLE_CANCELLATION_AGREEMENT_KEYS,
+    "cancellation agreement"
+  )
+  if (evidence.kind === "canonical-reorg") {
+    assertExactKeys(
+      evidence.replacementCanonicalTip,
+      new Set(["blockHash", "blockHeight"]),
+      "canonical replacement tip"
+    )
+    return
+  }
+  assertExactKeys(
+    evidence.conflictingOutpoint,
+    new Set(["txid", "vout"]),
+    "honest-spend conflicting outpoint"
+  )
+  assertExactKeys(
+    evidence.canonicalSpend,
+    DURABLE_CANDIDATE_POINTER_KEYS,
+    "honest canonical spend"
+  )
+  assertExactKeys(
+    evidence.bridgeProofReceipt,
+    new Set([
+      "transactionHash",
+      "blockHash",
+      "blockNumber",
+      "logIndex",
+      "proofType",
+    ]),
+    "honest-spend Bridge proof receipt"
+  )
+}
+
+function assertResolutionKeys(
+  resolution:
+    | NonNullable<
+        P2TRSignatureFraudChallengeOutboxRecord["finalNonceResolution"]
+      >
+    | NonNullable<
+        P2TRSignatureFraudChallengeOutboxRecord["generationDisposition"]
+      >,
+  label: string
+): void {
+  const common = [
+    "status",
+    "observedHead",
+    "finalizedThrough",
+    "canonicalAttestations",
+    "routerChallenge",
+  ]
+  if (resolution.status === "terminal-reverted") {
+    assertExactKeys(resolution, new Set([...common, "receipt"]), label)
+  } else if (resolution.status === "terminal-nonce-consumed") {
+    assertExactKeys(
+      resolution,
+      new Set([
+        ...common,
+        "sender",
+        "transactionNonce",
+        "finalizedAccountNonce",
+        "accountNonceReadAtBlock",
+        "transactionAbsent",
+        "consumingTransaction",
+      ]),
+      label
+    )
+    assertNonceConsumingTransactionKeys(resolution.consumingTransaction, label)
+  } else {
+    assertExactKeys(
+      resolution,
+      new Set([
+        ...common,
+        "receipt",
+        "transaction",
+        "submittedEvent",
+        "ownTransactionDisposition",
+      ]),
+      label
+    )
+    assertCanonicalTransactionKeys(resolution.transaction, label)
+    assertExactKeys(
+      resolution.submittedEvent,
+      new Set([
+        "routerAddress",
+        "transactionHash",
+        "blockNumber",
+        "blockHash",
+        "blockTimestamp",
+        "logIndex",
+        "walletID",
+        "walletPubKeyHash",
+        "bridgeChallengeIdentity",
+        "challengeKey",
+        "sighash",
+      ]),
+      `${label} submitted event`
+    )
+    if (resolution.ownTransactionDisposition !== undefined) {
+      const disposition = resolution.ownTransactionDisposition
+      if (disposition.status === "reverted") {
+        assertExactKeys(
+          disposition,
+          new Set(["status", "receipt"]),
+          `${label} own transaction disposition`
+        )
+        assertCanonicalReceiptKeys(disposition.receipt, label)
+      } else {
+        assertExactKeys(
+          disposition,
+          new Set([
+            "status",
+            "sender",
+            "transactionNonce",
+            "finalizedAccountNonce",
+            "accountNonceReadAtBlock",
+            "transactionAbsent",
+            "consumingTransaction",
+          ]),
+          `${label} own transaction disposition`
+        )
+        assertNonceConsumingTransactionKeys(
+          disposition.consumingTransaction,
+          label
+        )
+      }
+    }
+  }
+  assertExactKeys(
+    resolution.observedHead,
+    new Set(["blockNumber", "blockHash"]),
+    `${label} observed head`
+  )
+  assertExactKeys(
+    resolution.finalizedThrough,
+    new Set(["blockNumber", "blockHash"]),
+    `${label} finalized boundary`
+  )
+  for (const attestation of resolution.canonicalAttestations) {
+    assertExactKeys(
+      attestation,
+      new Set([
+        "trustDomainID",
+        "independenceDomainID",
+        "evidenceDigest",
+        "attestation",
+        "attestedAtUnixMs",
+      ]),
+      `${label} canonical attestation`
+    )
+  }
+  assertCanonicalRouterChallengeKeys(resolution.routerChallenge, label)
+  if ("receipt" in resolution) {
+    assertCanonicalReceiptKeys(resolution.receipt, label)
+  }
+}
+
+function assertCanonicalReceiptKeys(value: object, label: string): void {
+  assertExactKeys(
+    value,
+    new Set(["transactionHash", "status", "blockNumber", "blockHash"]),
+    `${label} canonical receipt`
+  )
+}
+
+function assertNonceConsumingTransactionKeys(
+  value: object,
+  label: string
+): void {
+  assertExactKeys(
+    value,
+    new Set(["transactionHash", "sender", "nonce", "blockNumber", "blockHash"]),
+    `${label} nonce-consuming transaction`
+  )
+}
+
+function assertCanonicalRouterChallengeKeys(
+  value: { exists: boolean },
+  label: string
+): void {
+  assertExactKeys(
+    value,
+    value.exists
+      ? new Set([
+          "exists",
+          "challengeKey",
+          "challenger",
+          "depositAmount",
+          "reportedAt",
+          "resolved",
+          "readAtBlock",
+        ])
+      : new Set(["exists", "challengeKey", "readAtBlock"]),
+    `${label} Router challenge`
+  )
+}
+
+function assertCanonicalTransactionKeys(
+  value: {
+    decodedSubmissionCall: object
+  },
+  label: string
+): void {
+  assertExactKeys(
+    value,
+    new Set([
+      "transactionHash",
+      "sender",
+      "routerAddress",
+      "calldata",
+      "value",
+      "nonce",
+      "chainID",
+      "blockNumber",
+      "blockHash",
+      "decodedSubmissionCall",
+    ]),
+    `${label} canonical transaction`
+  )
+  assertExactKeys(
+    value.decodedSubmissionCall,
+    new Set([
+      "variant",
+      "selector",
+      "action",
+      "walletID",
+      "bridgeChallengeIdentity",
+      "challengeKey",
+      "sighash",
+    ]),
+    `${label} decoded submission call`
+  )
+}
+
+function returnedReservationTombstoneValues(
+  record: P2TRSignatureFraudChallengeOutboxRecord,
+  item: P2TRSignatureFraudVoidedNonceReservation,
+  reservation: P2TRSignatureFraudVoidedNonceReservation["reservation"]
+): readonly unknown[] {
+  return [
+    stripHex(hexValue(reservation.reservationID, "Nonce reservation ID")),
+    stripHex(bytes32(record.recordID, "Nonce reservation record ID")),
+    record.intent.chainID,
+    reservation.laneID,
+    reservation.signerIdentity,
+    stripHex(address(reservation.sender, "Reserved sender")),
+    reservation.nonce,
+    stripHex(hexData(reservation.bindingSignature, "Reservation binding")),
+    reservation.reservationEpoch,
+    unixMilliseconds(item.voidedAtUnixMs, "Reservation tombstone time"),
+    item.reasonCode,
+    stripHex(bytes32(item.evidenceDigest, "Reservation tombstone digest")),
+  ]
+}
+
+function assertExactKeys(
+  value: object,
+  allowed: ReadonlySet<string>,
+  label: string
+): void {
+  for (const key of Object.keys(value)) {
+    if (!allowed.has(key)) {
+      throw new Error(`${label} contains unsupported durable field ${key}`)
+    }
+  }
+}
+
+function assertNoRawObservationFields(value: unknown): void {
+  if (value === null || typeof value !== "object") return
+  if (Array.isArray(value)) {
+    for (const item of value) assertNoRawObservationFields(item)
+    return
+  }
+  for (const [key, item] of Object.entries(value)) {
+    if (FORBIDDEN_RAW_OBSERVATION_KEYS.has(key)) {
+      throw new Error(
+        `Durable outbox state cannot contain raw observation field ${key}`
+      )
+    }
+    assertNoRawObservationFields(item)
   }
 }
 
@@ -2204,9 +4567,13 @@ function outboxInsertColumns(
     canonical_provenance_history_root: databaseBytes(
       bytes32(record.canonicalProvenance.historyRoot, "Provenance history root")
     ),
-    canonical_provenance_event_ids: JSON.stringify(
-      record.canonicalProvenance.eventIDs
+    canonical_provenance_event_set_hash: databaseBytes(
+      bytes32(
+        record.canonicalProvenance.eventSetHash,
+        "Provenance event-set hash"
+      )
     ),
+    canonical_provenance_event_count: record.canonicalProvenance.eventCount,
     canonical_candidate_digest: databaseBytes(
       bytes32(
         record.canonicalProvenance.candidateDigest,
@@ -2298,8 +4665,7 @@ function outboxInsertColumns(
 }
 
 function outboxMutableColumns(
-  record: P2TRSignatureFraudChallengeOutboxRecord,
-  durableProvenanceInvalidationID?: string
+  record: P2TRSignatureFraudChallengeOutboxRecord
 ): Record<string, unknown> {
   const reservation = record.reservedNonce
   const variants = record.preparedTransactionVariants ?? []
@@ -2366,11 +4732,10 @@ function outboxMutableColumns(
       record.cancellationEvidence?.evidenceHash
     ),
     provenance_invalidation_id: optionalDatabaseBytes(
-      durableProvenanceInvalidationID ??
-        record.provenanceInvalidationEvidence?.evidenceHash
+      record.provenanceInvalidationEvidence?.evidenceHash
     ),
     signer_quarantine_id: optionalDatabaseBytes(
-      latestQuarantine === undefined
+      latestQuarantine === undefined || record.status !== "quarantined"
         ? undefined
         : signerQuarantineID(latestQuarantine)
     ),

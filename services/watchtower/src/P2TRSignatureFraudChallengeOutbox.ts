@@ -5,6 +5,7 @@ import {
   P2TRSignatureFraudBoundNonceReservation,
   P2TRSignatureFraudChallengeTransactionPreparer,
   P2TRSignatureFraudChallengeTransactionFeePolicy,
+  P2TRSignatureFraudNonceReleaseAcknowledgement,
   P2TRSignatureFraudPreparedChallengeTransaction,
   P2TRSignatureFraudSubmissionIntentOptions,
   P2TRSignatureFraudSubmissionIntent,
@@ -47,8 +48,13 @@ export const P2TR_SIGNATURE_FRAUD_CANONICAL_CANDIDATE_DOMAIN =
   "tbtc-p2tr-signature-fraud-canonical-candidate-v1"
 export const P2TR_SIGNATURE_FRAUD_CANONICAL_PROVENANCE_DOMAIN =
   "tbtc-p2tr-signature-fraud-canonical-provenance-v1"
+export const P2TR_SIGNATURE_FRAUD_CANONICAL_EVENT_SET_DOMAIN =
+  "tbtc-p2tr-signature-fraud-canonical-event-set-v1"
 export const P2TR_SIGNATURE_FRAUD_PROVENANCE_INVALIDATION_DOMAIN =
   "tbtc-p2tr-signature-fraud-provenance-invalidation-v1"
+export const P2TR_SIGNATURE_FRAUD_NONCE_RELEASE_REQUEST_DOMAIN =
+  "tbtc-p2tr-signature-fraud-nonce-release-request-v1"
+export const P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_VOIDED_RESERVATIONS = 32
 
 export type P2TRSignatureFraudChallengeOutboxStatus =
   | "queued"
@@ -409,7 +415,7 @@ type P2TRSignatureFraudFinalizedResolutionEvidence = {
   /** Two independently sourced attestations over the same canonical digest. */
   canonicalAttestations: readonly [
     P2TRSignatureFraudCanonicalEvidenceAttestation,
-    P2TRSignatureFraudCanonicalEvidenceAttestation,
+    P2TRSignatureFraudCanonicalEvidenceAttestation
   ]
 }
 
@@ -615,6 +621,172 @@ export type P2TRSignatureFraudVoidedNonceReservation = {
   evidenceDigest: string
 }
 
+export type P2TRSignatureFraudNonceReleaseRequest = {
+  /** Stable provider idempotency key, committed before allocator I/O. */
+  releaseRequestID: string
+  recordID: string
+  generation: number
+  reservation: P2TRSignatureFraudBoundNonceReservation
+  voidEvidenceDigest: string
+  requestedAtUnixMs: number
+  attemptCount: number
+  ambiguous: boolean
+}
+
+export type P2TRSignatureFraudNonceReleaseAttempt = {
+  releaseRequestID: string
+  attemptSequence: number
+  owner: string
+  startedAtUnixMs: number
+  expiresAtUnixMs: number
+}
+
+export type P2TRSignatureFraudNonceReleaseAttemptResult =
+  | {
+      kind: "released" | "already-released"
+      acknowledgement: P2TRSignatureFraudNonceReleaseAcknowledgement
+      recordedAtUnixMs: number
+    }
+  | {
+      kind: "ambiguous-error" | "contract-mismatch"
+      responseDigest: string
+      /** Bounded, independently parseable identities returned by the allocator. */
+      returnedReleaseRequestID?: string
+      returnedReservationID?: string
+      detail: string
+      recordedAtUnixMs: number
+    }
+
+export type P2TRSignatureFraudIndependentNonceReleaseResolution = {
+  releaseRequestID: string
+  attemptSequence: number
+  attemptOwner: string
+  attemptStartedAtUnixMs: number
+  attemptExpiresAtUnixMs: number
+  invokedAtUnixMs: number
+  outcome: "released" | "already-released" | "terminal-unsafe"
+  providerEvidenceDigest: string
+  evidenceDigest: string
+  canonicalAttestations: readonly [
+    P2TRSignatureFraudCanonicalEvidenceAttestation,
+    P2TRSignatureFraudCanonicalEvidenceAttestation
+  ]
+  resolvedAtUnixMs: number
+}
+
+export type P2TRSignatureFraudAmbiguousNonceReleaseInvocation = {
+  request: P2TRSignatureFraudNonceReleaseRequest
+  attempt: P2TRSignatureFraudNonceReleaseAttempt
+  invokedAtUnixMs: number
+  ambiguousResponseDigest?: string
+}
+
+export const computeP2TRSignatureFraudNonceReleaseResolutionEvidenceDigest = (
+  resolution: Omit<
+    P2TRSignatureFraudIndependentNonceReleaseResolution,
+    "evidenceDigest" | "canonicalAttestations" | "resolvedAtUnixMs"
+  >
+): string => {
+  const uint64 = (value: number, label: string): Buffer => {
+    requireNonNegativeSafeInteger(value, label)
+    const encoded = Buffer.alloc(8)
+    encoded.writeBigUInt64BE(BigInt(value))
+    return encoded
+  }
+  const textDigest = (value: string, label: string): Buffer => {
+    const normalized = requireBoundedText(value, 128, label)
+    return createHash("sha256").update(normalized, "utf8").digest()
+  }
+  if (![
+    "released",
+    "already-released",
+    "terminal-unsafe",
+  ].includes(resolution.outcome)) {
+    throw new Error("Nonce-release resolution outcome is invalid")
+  }
+  return `0x${createHash("sha256")
+    .update("tbtc-p2tr-nonce-release-independent-resolution-v1", "utf8")
+    .update(
+      Buffer.from(
+        normalizeBytes32(
+          resolution.releaseRequestID,
+          "Nonce-release resolution request ID"
+        ).slice(2),
+        "hex"
+      )
+    )
+    .update(
+      uint64(
+        resolution.attemptSequence,
+        "Nonce-release resolution attempt sequence"
+      )
+    )
+    .update(textDigest(resolution.attemptOwner, "Nonce-release attempt owner"))
+    .update(
+      uint64(
+        resolution.attemptStartedAtUnixMs,
+        "Nonce-release attempt start"
+      )
+    )
+    .update(
+      uint64(
+        resolution.attemptExpiresAtUnixMs,
+        "Nonce-release attempt expiration"
+      )
+    )
+    .update(
+      uint64(resolution.invokedAtUnixMs, "Nonce-release invocation time")
+    )
+    .update(textDigest(resolution.outcome, "Nonce-release resolution outcome"))
+    .update(
+      Buffer.from(
+        normalizeBytes32(
+          resolution.providerEvidenceDigest,
+          "Nonce-release provider evidence digest"
+        ).slice(2),
+        "hex"
+      )
+    )
+    .digest("hex")}`
+}
+
+export type P2TRSignatureFraudNonceReleasePageRequest = {
+  limit: number
+  cursor?: string
+}
+
+export type P2TRSignatureFraudNonceReleasePage = {
+  requests: P2TRSignatureFraudNonceReleaseRequest[]
+  nextCursor?: string
+}
+
+/**
+ * Binds a release request to one exact tombstoned reservation. The byte-level
+ * construction is intentionally mirrored by the PostgreSQL insert trigger.
+ */
+export const computeP2TRSignatureFraudNonceReleaseRequestID = (
+  recordID: Hex | Buffer | string,
+  reservationID: Hex | Buffer | string,
+  voidEvidenceDigest: Hex | Buffer | string
+): string => {
+  const hash = createHash("sha256")
+  hash.update(P2TR_SIGNATURE_FRAUD_NONCE_RELEASE_REQUEST_DOMAIN, "utf8")
+  hash.update(Buffer.from(normalizeBytes32(recordID, "Release record ID").slice(2), "hex"))
+  hash.update(
+    Buffer.from(
+      normalizeBytes32(reservationID, "Release reservation ID").slice(2),
+      "hex"
+    )
+  )
+  hash.update(
+    Buffer.from(
+      normalizeBytes32(voidEvidenceDigest, "Release void evidence digest").slice(2),
+      "hex"
+    )
+  )
+  return `0x${hash.digest("hex")}`
+}
+
 export type P2TRSignatureFraudSignerQuarantine = {
   laneID: string
   signerIdentity: string
@@ -699,6 +871,12 @@ export type P2TRSignatureFraudOutboxCriticalAlert = {
     | "generation-cap-exhausted"
     | "signed-variant-cap-exhausted"
     | "signed-state-quarantined"
+    | "late-signed-artifact-captured"
+    | "escaped-signed-envelope-captured"
+    | "reservation-release-failed"
+    | "nonce-release-terminal-unsafe"
+    | "reservation-state-ambiguous"
+    | "nonce-reservation-cap-exhausted"
     | "provenance-reconciliation-incident"
   seriesID: string
   recordID: string
@@ -771,7 +949,9 @@ export type P2TRSignatureFraudCanonicalProvenanceBinding = {
   throughBlockNumber: number
   throughBlockHash: string
   historyRoot: string
-  eventIDs: readonly string[]
+  /** Fixed commitment to the exact canonical event set; raw IDs are not durable. */
+  eventSetHash: string
+  eventCount: number
   challengeKey: string
   candidateDigest: string
   readinessCertificateID: string
@@ -800,6 +980,32 @@ export const computeP2TRSignatureFraudCanonicalCandidateDigest = (
     observationID: normalizeBytes32(observationID, "Canonical observation ID"),
     ...normalizeCanonicalCandidatePointer(candidate, "Canonical candidate"),
   })
+
+export const computeP2TRSignatureFraudCanonicalEventSetHash = (
+  eventIDs: readonly (Hex | Buffer | string)[]
+): string => {
+  if (
+    !Array.isArray(eventIDs) ||
+    eventIDs.length === 0 ||
+    eventIDs.length > P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_PAGE_SIZE
+  ) {
+    throw new Error(
+      "Canonical provenance event set must contain between one and one thousand IDs"
+    )
+  }
+  const normalized = eventIDs
+    .map((eventID) =>
+      normalizeBytes32(eventID, "Canonical provenance event ID")
+    )
+    .sort()
+  if (new Set(normalized).size !== normalized.length) {
+    throw new Error("Canonical provenance event IDs must be unique")
+  }
+  return sha256Structured({
+    domain: P2TR_SIGNATURE_FRAUD_CANONICAL_EVENT_SET_DOMAIN,
+    eventIDs: normalized,
+  })
+}
 
 export const computeP2TRSignatureFraudCanonicalProvenanceFingerprint = (
   binding: Omit<
@@ -873,7 +1079,10 @@ export type P2TRSignatureFraudChallengeOutboxSchedulerOptions = {
  * append at most one strictly validated variant and may update only delivery
  * metadata for existing variants.
  */
-export interface P2TRSignatureFraudChallengeOutboxStore extends P2TRSignatureFraudWatchtowerStoreProfileProvider {
+export interface P2TRSignatureFraudChallengeOutboxStore
+  extends P2TRSignatureFraudWatchtowerStoreProfileProvider {
+  /** Rejects dispatcher I/O when an outer database transaction is ambient. */
+  assertExternalIOTransactionBoundary(): void
   insertGenerationIfAbsent(
     record: P2TRSignatureFraudChallengeOutboxRecord
   ): Promise<P2TRSignatureFraudChallengeOutboxRecord>
@@ -885,6 +1094,44 @@ export interface P2TRSignatureFraudChallengeOutboxStore extends P2TRSignatureFra
   ): Promise<P2TRSignatureFraudChallengeOutboxRecord | undefined>
   isSignerQuarantined(chainID: number, signerIdentity: string): Promise<boolean>
   hasExpiredPreparationLeases(nowUnixMs: number): Promise<boolean>
+  hasPendingNonceReleases(): Promise<boolean>
+  getNonceReleaseRequest(
+    releaseRequestID: string
+  ): Promise<P2TRSignatureFraudNonceReleaseRequest | undefined>
+  listPendingNonceReleases(
+    request: P2TRSignatureFraudNonceReleasePageRequest
+  ): Promise<P2TRSignatureFraudNonceReleasePage>
+  claimNonceReleaseAttempt(
+    releaseRequestID: string,
+    owner: string,
+    startedAtUnixMs: number,
+    expiresAtUnixMs: number
+  ): Promise<P2TRSignatureFraudNonceReleaseAttempt | undefined>
+  /**
+   * Commits the irreversible allocator-I/O boundary for an exact live attempt.
+   * A resultless invocation is never reclaimed merely because time elapsed.
+   */
+  beginNonceReleaseAttempt(
+    attempt: P2TRSignatureFraudNonceReleaseAttempt,
+    invokedAtUnixMs: number
+  ): Promise<boolean>
+  /**
+   * Appends the attempt result. Exact, current, on-time provider
+   * acknowledgements resolve the request; late responses remain ambiguous.
+   */
+  recordNonceReleaseAttemptResult(
+    attempt: P2TRSignatureFraudNonceReleaseAttempt,
+    result: P2TRSignatureFraudNonceReleaseAttemptResult
+  ): Promise<"acknowledged" | "ambiguous">
+  /**
+   * Appends independently verified terminal evidence for the exact sticky
+   * ambiguous provider invocation. Implementations must never replace the
+   * original result and must clear the global I/O barrier only atomically with
+   * this evidence.
+   */
+  resolveAmbiguousNonceRelease(
+    resolution: P2TRSignatureFraudIndependentNonceReleaseResolution
+  ): Promise<"acknowledged" | "unsafe">
   compareAndSwap(
     recordID: string,
     expectedVersion: number,
@@ -902,9 +1149,10 @@ export interface P2TRSignatureFraudChallengeOutboxStore extends P2TRSignatureFra
     next: P2TRSignatureFraudChallengeOutboxRecord
   ): Promise<boolean>
   /**
-   * Privileged append-only recovery boundary for bytes returned after a
-   * concurrent provenance invalidation won the normal version CAS. It may not
-   * change status, release a nonce, or remove any prior artifact.
+   * Privileged append-only recovery boundary for bytes returned after any
+   * post-signer normal version CAS is lost. It requires the retained durable
+   * reservation and signer boundary and may not change status, release a
+   * nonce, or remove any prior artifact.
    */
   captureEscapedSignedArtifact(
     recordID: string,
@@ -1060,6 +1308,8 @@ export type P2TRSignatureFraudChallengeOutboxDispatcherOptions = {
   preparationLeaseMs?: number
   minimumRebroadcastIntervalMs?: number
   recoveryPageSize?: number
+  nonceReleaseAttemptLeaseMs?: number
+  nonceReleaseOwner?: string
   onRecoveryBacklog?: (
     report: P2TRSignatureFraudChallengeOutboxRecoveryReport
   ) => Promise<void> | void
@@ -1069,6 +1319,15 @@ export type P2TRSignatureFraudChallengeOutboxDispatcherOptions = {
 export type P2TRSignatureFraudChallengeOutboxRecoveryReport = {
   scanned: number
   recovered: number
+  nextCursor?: string
+  backlogRemaining: boolean
+}
+
+export type P2TRSignatureFraudNonceReleaseRecoveryReport = {
+  scanned: number
+  attempted: number
+  acknowledged: number
+  ambiguous: number
   nextCursor?: string
   backlogRemaining: boolean
 }
@@ -1091,171 +1350,184 @@ export class P2TRSignatureFraudChallengeOutboxScheduler {
     nowUnixMs = Date.now()
   ): Promise<P2TRSignatureFraudChallengeOutboxRecord> {
     const key = normalizeBytes32(observationID, "Challenge observation ID")
-    return this.store.runInEligibilityTransaction(key, async (snapshot) => {
-      // Cached record JSON is an evidence alias only. The candidate journal
-      // supplies the current canonical witness bytes and authenticated
-      // prevouts used to derive calldata.
-      const canonicalObservation = snapshot.canonicalObservation
-      validateAuthoritativeObservationBinding(snapshot)
-      validateP2TRSignatureFraudWitnessObservationConsistency(
-        canonicalObservation,
-        canonicalObservationConsistencyContext(snapshot, this.options)
-      )
-      const completeEvidence =
-        buildP2TRCompleteV2SignatureFraudChallengeEvidence(
+    const result = await this.store.runInEligibilityTransaction(
+      key,
+      async (snapshot) => {
+        // Cached record JSON is an evidence alias only. The candidate journal
+        // supplies the current canonical witness bytes and authenticated
+        // prevouts used to derive calldata.
+        const canonicalObservation = snapshot.canonicalObservation
+        validateAuthoritativeObservationBinding(snapshot)
+        validateP2TRSignatureFraudWitnessObservationConsistency(
           canonicalObservation,
-          {
-            chainID: this.options.submissionIntent.domainChainID,
-            bridgeAddress: this.options.submissionIntent.bridgeAddress,
-          }
+          canonicalObservationConsistencyContext(snapshot, this.options)
         )
-      const intent = buildP2TRSignatureFraudSubmissionIntent(
-        completeEvidence,
-        this.options.submissionIntent
-      )
-      validateEligibilitySnapshot(
-        key,
-        snapshot,
-        intent,
-        this.options.activationManifest
-      )
-      validateOutboxEnqueue(
-        snapshot.challengeRecord,
-        canonicalObservation,
-        intent,
-        snapshot.evidenceCheckpoint,
-        nowUnixMs
-      )
-
-      const seriesID = computeP2TRSignatureFraudOutboxSeriesID(intent)
-      const latest = await this.store.getLatest(seriesID)
-      let generation = 0
-      let generationTrigger: P2TRSignatureFraudGenerationTrigger = {
-        kind: "initial",
-      }
-      if (latest !== undefined) {
-        validateSeriesHead(
-          latest,
-          intent,
-          seriesID,
-          this.options.feePolicyManifest,
-          latest.status === "cancelled-provenance-invalidated"
-        )
-        if (latest.status === "generation-required") {
-          if (latest.generationDisposition === undefined) {
-            throw new Error(
-              "Challenge outbox generation head lacks finalized nonce disposition evidence"
-            )
-          }
-          validateNonceDispositionSuccessor(latest, snapshot)
-          generationTrigger = {
-            kind: "nonce-disposition",
-            previousRecordID: latest.recordID,
-            dispositionHash: computeP2TRSignatureFraudDispositionHash(
-              latest.generationDisposition
-            ),
-          }
-        } else if (latest.status === "cancelled-reorg") {
-          if (
-            latest.cancellationEvidence === undefined ||
-            latest.cancellationEvidence.kind !== "canonical-reorg"
-          ) {
-            throw new Error(
-              "Challenge outbox reorg head lacks canonical cancellation evidence"
-            )
-          }
-          validateCanonicalReappearanceSuccessor(latest, snapshot)
-          generationTrigger = {
-            kind: "canonical-reappearance",
-            previousRecordID: latest.recordID,
-            cancellationEvidenceHash: latest.cancellationEvidence.evidenceHash,
-          }
-        } else if (latest.status === "cancelled-provenance-invalidated") {
-          if (latest.provenanceInvalidationEvidence === undefined) {
-            throw new Error(
-              "Challenge outbox provenance-invalidated head lacks its canonical rollback tombstone evidence"
-            )
-          }
-          validateCanonicalProvenanceRestorationSuccessor(latest, snapshot)
-          generationTrigger = {
-            kind: "provenance-restored",
-            previousRecordID: latest.recordID,
-            invalidationEvidenceHash:
-              latest.provenanceInvalidationEvidence.evidenceHash,
-            previousProvenanceFingerprint:
-              latest.canonicalProvenance.provenanceFingerprint,
-          }
-        } else {
-          const expectedLatestRecordID =
-            computeP2TRSignatureFraudOutboxRecordID(
-              intent,
-              latest.generation,
-              snapshot.evidenceCheckpoint,
-              snapshot.canonicalEthereumEligibility,
-              snapshot.canonicalProvenance,
-              this.options.feePolicyManifest,
-              latest.generationTrigger
-            )
-          if (expectedLatestRecordID !== latest.recordID) {
-            throw new Error(
-              "A nonterminal challenge generation already owns this series with different canonical evidence"
-            )
-          }
-          return latest
-        }
-
-        generation = latest.generation + 1
-        if (generation >= P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_GENERATIONS) {
-          await this.store.saveCriticalAlert({
-            code: "generation-cap-exhausted",
-            seriesID,
-            recordID: latest.recordID,
-            generation: latest.generation,
-            activationBlocking: true,
-            createdAtUnixMs: requireUnixMilliseconds(
-              nowUnixMs,
-              "Challenge generation-cap alert time"
-            ),
-            detail:
-              "Canonical fraud evidence remains eligible after the bounded generation limit; manual multi-sender recovery is required",
-          })
-          throw new Error(
-            "Challenge outbox reached the bounded evidence-generation limit and persisted an activation-blocking alert"
+        const completeEvidence =
+          buildP2TRCompleteV2SignatureFraudChallengeEvidence(
+            canonicalObservation,
+            {
+              chainID: this.options.submissionIntent.domainChainID,
+              bridgeAddress: this.options.submissionIntent.bridgeAddress,
+            }
           )
-        }
-      }
+        const intent = buildP2TRSignatureFraudSubmissionIntent(
+          completeEvidence,
+          this.options.submissionIntent
+        )
+        validateEligibilitySnapshot(
+          key,
+          snapshot,
+          intent,
+          this.options.activationManifest
+        )
+        validateOutboxEnqueue(
+          snapshot.challengeRecord,
+          canonicalObservation,
+          intent,
+          snapshot.evidenceCheckpoint,
+          nowUnixMs
+        )
 
-      const recordID = computeP2TRSignatureFraudOutboxRecordID(
-        intent,
-        generation,
-        snapshot.evidenceCheckpoint,
-        snapshot.canonicalEthereumEligibility,
-        snapshot.canonicalProvenance,
-        this.options.feePolicyManifest,
-        generationTrigger
-      )
-      const record: P2TRSignatureFraudChallengeOutboxRecord = {
-        seriesID,
-        recordID,
-        intent,
-        evidenceCheckpoint: snapshot.evidenceCheckpoint,
-        canonicalEthereumEligibility: snapshot.canonicalEthereumEligibility,
-        canonicalProvenance: snapshot.canonicalProvenance,
-        feePolicyManifest: this.options.feePolicyManifest,
-        status: "queued",
-        version: 0,
-        generation,
-        generationTrigger,
-        createdAtUnixMs: nowUnixMs,
-        updatedAtUnixMs: nowUnixMs,
-        preparationAttempts: 0,
-        broadcastAttempts: 0,
-        reconciliationAttempts: 0,
+        const seriesID = computeP2TRSignatureFraudOutboxSeriesID(intent)
+        const latest = await this.store.getLatest(seriesID)
+        let generation = 0
+        let generationTrigger: P2TRSignatureFraudGenerationTrigger = {
+          kind: "initial",
+        }
+        if (latest !== undefined) {
+          validateSeriesHead(
+            latest,
+            intent,
+            seriesID,
+            this.options.feePolicyManifest,
+            latest.status === "cancelled-provenance-invalidated"
+          )
+          if (latest.status === "generation-required") {
+            if (latest.generationDisposition === undefined) {
+              throw new Error(
+                "Challenge outbox generation head lacks finalized nonce disposition evidence"
+              )
+            }
+            validateNonceDispositionSuccessor(latest, snapshot)
+            generationTrigger = {
+              kind: "nonce-disposition",
+              previousRecordID: latest.recordID,
+              dispositionHash: computeP2TRSignatureFraudDispositionHash(
+                latest.generationDisposition
+              ),
+            }
+          } else if (latest.status === "cancelled-reorg") {
+            if (
+              latest.cancellationEvidence === undefined ||
+              latest.cancellationEvidence.kind !== "canonical-reorg"
+            ) {
+              throw new Error(
+                "Challenge outbox reorg head lacks canonical cancellation evidence"
+              )
+            }
+            validateCanonicalReappearanceSuccessor(latest, snapshot)
+            generationTrigger = {
+              kind: "canonical-reappearance",
+              previousRecordID: latest.recordID,
+              cancellationEvidenceHash:
+                latest.cancellationEvidence.evidenceHash,
+            }
+          } else if (latest.status === "cancelled-provenance-invalidated") {
+            if (latest.provenanceInvalidationEvidence === undefined) {
+              throw new Error(
+                "Challenge outbox provenance-invalidated head lacks its canonical rollback tombstone evidence"
+              )
+            }
+            validateCanonicalProvenanceRestorationSuccessor(latest, snapshot)
+            generationTrigger = {
+              kind: "provenance-restored",
+              previousRecordID: latest.recordID,
+              invalidationEvidenceHash:
+                latest.provenanceInvalidationEvidence.evidenceHash,
+              previousProvenanceFingerprint:
+                latest.canonicalProvenance.provenanceFingerprint,
+            }
+          } else {
+            const expectedLatestRecordID =
+              computeP2TRSignatureFraudOutboxRecordID(
+                intent,
+                latest.generation,
+                snapshot.evidenceCheckpoint,
+                snapshot.canonicalEthereumEligibility,
+                snapshot.canonicalProvenance,
+                this.options.feePolicyManifest,
+                latest.generationTrigger
+              )
+            if (expectedLatestRecordID !== latest.recordID) {
+              throw new Error(
+                "A nonterminal challenge generation already owns this series with different canonical evidence"
+              )
+            }
+            return { kind: "record" as const, record: latest }
+          }
+
+          generation = latest.generation + 1
+          if (generation >= P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_GENERATIONS) {
+            await this.store.saveCriticalAlert({
+              code: "generation-cap-exhausted",
+              seriesID,
+              recordID: latest.recordID,
+              generation: latest.generation,
+              activationBlocking: true,
+              createdAtUnixMs: requireUnixMilliseconds(
+                nowUnixMs,
+                "Challenge generation-cap alert time"
+              ),
+              detail:
+                "Canonical fraud evidence remains eligible after the bounded generation limit; manual multi-sender recovery is required",
+            })
+            return {
+              kind: "generation-cap-exhausted" as const,
+              message:
+                "Challenge outbox reached the bounded evidence-generation limit and persisted an activation-blocking alert",
+            }
+          }
+        }
+
+        const recordID = computeP2TRSignatureFraudOutboxRecordID(
+          intent,
+          generation,
+          snapshot.evidenceCheckpoint,
+          snapshot.canonicalEthereumEligibility,
+          snapshot.canonicalProvenance,
+          this.options.feePolicyManifest,
+          generationTrigger
+        )
+        const record: P2TRSignatureFraudChallengeOutboxRecord = {
+          seriesID,
+          recordID,
+          intent,
+          evidenceCheckpoint: snapshot.evidenceCheckpoint,
+          canonicalEthereumEligibility: snapshot.canonicalEthereumEligibility,
+          canonicalProvenance: snapshot.canonicalProvenance,
+          feePolicyManifest: this.options.feePolicyManifest,
+          status: "queued",
+          version: 0,
+          generation,
+          generationTrigger,
+          createdAtUnixMs: nowUnixMs,
+          updatedAtUnixMs: nowUnixMs,
+          preparationAttempts: 0,
+          broadcastAttempts: 0,
+          reconciliationAttempts: 0,
+        }
+        const stored = await this.store.insertGenerationIfAbsent(record)
+        validateExistingOutboxIdentity(stored, record)
+        return { kind: "record" as const, record: stored }
       }
-      const stored = await this.store.insertGenerationIfAbsent(record)
-      validateExistingOutboxIdentity(stored, record)
-      return stored
-    })
+    )
+    // Do not throw from the eligibility callback after persisting a critical
+    // alert: that callback is the transaction body, so throwing there would
+    // roll the fail-closed alert back with the rejected enqueue.
+    if (result.kind === "generation-cap-exhausted") {
+      throw new Error(result.message)
+    }
+    return result.record
   }
 }
 
@@ -1263,6 +1535,8 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
   private readonly preparationLeaseMs: number
   private readonly minimumRebroadcastIntervalMs: number
   private readonly recoveryPageSize: number
+  private readonly nonceReleaseAttemptLeaseMs: number
+  private readonly nonceReleaseOwner: string
   private readonly onRecoveryBacklog?: (
     report: P2TRSignatureFraudChallengeOutboxRecoveryReport
   ) => Promise<void> | void
@@ -1295,6 +1569,15 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_PAGE_SIZE,
       "Challenge outbox recovery page size"
     )
+    this.nonceReleaseAttemptLeaseMs = requirePositiveSafeInteger(
+      options.nonceReleaseAttemptLeaseMs ?? 30_000,
+      "Challenge nonce-release attempt lease"
+    )
+    this.nonceReleaseOwner = requireBoundedText(
+      options.nonceReleaseOwner ?? "p2tr-outbox-dispatcher",
+      P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_LEASE_OWNER_LENGTH,
+      "Challenge nonce-release owner"
+    )
     this.onRecoveryBacklog = options.onRecoveryBacklog
     this.now = options.now ?? Date.now
     this.preparers = validateSignerLanes(
@@ -1313,6 +1596,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     recordID: Hex | Buffer | string,
     leaseOwner: string
   ): Promise<P2TRSignatureFraudChallengeOutboxRecord> {
+    this.store.assertExternalIOTransactionBoundary()
     const normalizedLeaseOwner = requireBoundedText(
       leaseOwner,
       P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_LEASE_OWNER_LENGTH,
@@ -1337,6 +1621,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     if (current.status !== "queued") {
       return current
     }
+    await this.assertVoidedReservationCapacity(current)
     await this.assertRecoveryBarrier()
 
     const nowUnixMs = requireUnixMilliseconds(
@@ -1455,18 +1740,26 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         await selectedPreparer.reserveSignatureFraudChallengeNonce(
           laneClaim.intent,
           Hex.from(laneClaim.recordID),
-          laneClaim.generation
+          laneClaim.generation,
+          laneClaim.preparationAttempts
         )
     } catch (error) {
-      const failed = this.signerFailureRecord(
-        laneClaim,
-        selectedPreparer,
-        errorMessage(error),
-        false,
-        undefined,
-        "reservation-provider-failure"
-      )
-      await this.store.compareAndSwap(key, laneClaim.version, failed)
+      // A transport error can occur after the allocator durably reserved a
+      // nonce. Retain the exact lane/epoch and let lease recovery retry that
+      // idempotency key; clearing the claim would leak allocator capacity.
+      const ambiguous = nextRecord(laneClaim, {
+        updatedAtUnixMs: requireUnixMilliseconds(
+          this.now(),
+          "Ambiguous nonce reservation response time"
+        ),
+        lastError: requireReason(
+          `Nonce reservation response is ambiguous and will be recovered with the same epoch: ${errorMessage(
+            error
+          )}`,
+          "Ambiguous nonce reservation response"
+        ),
+      })
+      await this.store.compareAndSwap(key, laneClaim.version, ambiguous)
       return this.requireRecord(key)
     }
 
@@ -1476,6 +1769,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         laneClaim.intent,
         Hex.from(laneClaim.recordID),
         laneClaim.generation,
+        laneClaim.preparationAttempts,
         selectedPreparer,
         unvalidatedReservation
       )
@@ -1502,24 +1796,25 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       updatedAtUnixMs: reservedAt,
       lastError: undefined,
     })
-    if (!(await this.store.compareAndSwap(key, laneClaim.version, reserved))) {
-      const durable = await this.requireRecord(key)
-      if (
-        (durable.status === "preparing" ||
-          durable.status ===
-            "provenance-invalidated-awaiting-reconciliation") &&
-        durable.provenanceInvalidationEvidence !== undefined &&
-        durable.signerInvocationStartedAtUnixMs === undefined &&
-        (durable.preparedTransactionVariants?.length ?? 0) === 0
-      ) {
-        return this.voidInvalidatedPreSignerReservation(
-          durable,
-          reservation,
-          selectedPreparer
-        )
-      }
-      await selectedPreparer.releaseSignatureFraudChallengeNonce(reservation)
-      return durable
+    let reservationPersisted: boolean
+    try {
+      reservationPersisted = await this.store.compareAndSwap(
+        key,
+        laneClaim.version,
+        reserved
+      )
+    } catch {
+      // Constraint/quarantine races roll their transaction back. The
+      // authenticated provider response still needs the same durable
+      // adoption-or-tombstone treatment as a false CAS.
+      reservationPersisted = false
+    }
+    if (!reservationPersisted) {
+      return this.reconcileReturnedReservationAfterLostClaim(
+        key,
+        reservation,
+        selectedPreparer
+      )
     }
 
     const signerBoundaryTime = requireUnixMilliseconds(
@@ -1567,7 +1862,20 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         undefined,
         "ambiguous-signer-invocation"
       )
-      await this.store.compareAndSwap(key, signerBoundary.version, failed)
+      if (
+        !(await this.store.compareAndSwap(
+          key,
+          signerBoundary.version,
+          failed
+        ))
+      ) {
+        return this.completeSignerFailureAfterLostCas(
+          signerBoundary,
+          selectedPreparer,
+          errorMessage(error),
+          "ambiguous-signer-invocation"
+        )
+      }
       return this.requireRecord(key)
     }
     try {
@@ -1584,7 +1892,20 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         undefined,
         "malformed-signed-envelope"
       )
-      await this.store.compareAndSwap(key, signerBoundary.version, failed)
+      if (
+        !(await this.store.compareAndSwap(
+          key,
+          signerBoundary.version,
+          failed
+        ))
+      ) {
+        return this.completeSignerFailureAfterLostCas(
+          signerBoundary,
+          selectedPreparer,
+          errorMessage(error),
+          "malformed-signed-envelope"
+        )
+      }
       return this.requireRecord(key)
     }
     try {
@@ -1659,6 +1980,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     recordID: Hex | Buffer | string,
     leaseOwner: string
   ): Promise<P2TRSignatureFraudChallengeOutboxRecord> {
+    this.store.assertExternalIOTransactionBoundary()
     const normalizedLeaseOwner = requireBoundedText(
       leaseOwner,
       P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_LEASE_OWNER_LENGTH,
@@ -1842,7 +2164,20 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         undefined,
         "ambiguous-signer-invocation"
       )
-      await this.store.compareAndSwap(key, signerBoundary.version, failed)
+      if (
+        !(await this.store.compareAndSwap(
+          key,
+          signerBoundary.version,
+          failed
+        ))
+      ) {
+        return this.completeSignerFailureAfterLostCas(
+          signerBoundary,
+          selectedPreparer,
+          errorMessage(error),
+          "ambiguous-signer-invocation"
+        )
+      }
       return this.requireRecord(key)
     }
     try {
@@ -1863,7 +2198,20 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         undefined,
         "malformed-signed-envelope"
       )
-      await this.store.compareAndSwap(key, signerBoundary.version, failed)
+      if (
+        !(await this.store.compareAndSwap(
+          key,
+          signerBoundary.version,
+          failed
+        ))
+      ) {
+        return this.completeSignerFailureAfterLostCas(
+          signerBoundary,
+          selectedPreparer,
+          errorMessage(error),
+          "malformed-signed-envelope"
+        )
+      }
       return this.requireRecord(key)
     }
     try {
@@ -1968,6 +2316,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
   async recoverExpiredPreparationLeases(
     cursor?: string
   ): Promise<P2TRSignatureFraudChallengeOutboxRecoveryReport> {
+    this.store.assertExternalIOTransactionBoundary()
     const normalizedCursor = optionalBoundedText(
       cursor,
       P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_CURSOR_LENGTH,
@@ -1995,16 +2344,59 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       nextCursor: page.nextCursor,
       backlogRemaining: page.nextCursor !== undefined || expiredRemain,
     }
-    this.recoveryBarrierEstablished = !report.backlogRemaining
+    this.recoveryBarrierEstablished =
+      !report.backlogRemaining &&
+      !(await this.store.hasPendingNonceReleases())
     if (report.backlogRemaining) {
       await this.onRecoveryBacklog?.(report)
     }
     return report
   }
 
+  async recoverPendingNonceReleases(
+    cursor?: string
+  ): Promise<P2TRSignatureFraudNonceReleaseRecoveryReport> {
+    this.store.assertExternalIOTransactionBoundary()
+    const normalizedCursor = optionalBoundedText(
+      cursor,
+      P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_CURSOR_LENGTH,
+      "Challenge nonce-release recovery cursor"
+    )
+    const page = await this.store.listPendingNonceReleases({
+      limit: this.recoveryPageSize,
+      cursor: normalizedCursor,
+    })
+    let attempted = 0
+    let acknowledged = 0
+    let ambiguous = 0
+    for (const request of page.requests) {
+      const result = await this.attemptNonceRelease(request)
+      if (result === "skipped") continue
+      attempted++
+      if (result === "acknowledged") acknowledged++
+      else ambiguous++
+    }
+    const pendingRemain = await this.store.hasPendingNonceReleases()
+    const report: P2TRSignatureFraudNonceReleaseRecoveryReport = {
+      scanned: page.requests.length,
+      attempted,
+      acknowledged,
+      ambiguous,
+      nextCursor: page.nextCursor,
+      backlogRemaining: page.nextCursor !== undefined || pendingRemain,
+    }
+    this.recoveryBarrierEstablished =
+      !report.backlogRemaining &&
+      !(await this.store.hasExpiredPreparationLeases(
+        requireUnixMilliseconds(this.now(), "Challenge recovery barrier time")
+      ))
+    return report
+  }
+
   async broadcast(
     recordID: Hex | Buffer | string
   ): Promise<P2TRSignatureFraudChallengeOutboxRecord> {
+    this.store.assertExternalIOTransactionBoundary()
     const key = normalizeBytes32(recordID, "Challenge outbox record ID")
     const current = await this.requireRecord(key)
     if (
@@ -2154,6 +2546,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
   async reconcile(
     recordID: Hex | Buffer | string
   ): Promise<P2TRSignatureFraudChallengeOutboxRecord> {
+    this.store.assertExternalIOTransactionBoundary()
     const key = normalizeBytes32(recordID, "Challenge outbox record ID")
     const current = await this.requireRecord(key)
     if (
@@ -2193,8 +2586,9 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         reconciliationAttempts: current.reconciliationAttempts,
         lastBroadcastAtUnixMs: current.lastBroadcastAtUnixMs,
       }
-      resolution =
-        await this.reconciler.reconcileSignatureFraudChallengeOutbox(context)
+      resolution = await this.reconciler.reconcileSignatureFraudChallengeOutbox(
+        context
+      )
       validateStructuredResolution(
         current,
         resolution,
@@ -2241,7 +2635,6 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         next = nextRecord(current, {
           ...base,
           status: resolution.status,
-          preparationSender: undefined,
           finalNonceResolution:
             resolution as P2TRSignatureFraudFinalNonceResolution,
           lastError: undefined,
@@ -2252,7 +2645,6 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         next = nextRecord(current, {
           ...base,
           status: "generation-required",
-          preparationSender: undefined,
           finalNonceResolution: resolution,
           generationDisposition: resolution,
           lastError:
@@ -2363,26 +2755,37 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
               current.intent,
               Hex.from(current.recordID),
               current.generation,
+              current.preparationAttempts,
               selectedPreparer,
               await selectedPreparer.reserveSignatureFraudChallengeNonce(
                 current.intent,
                 Hex.from(current.recordID),
-                current.generation
+                current.generation,
+                current.preparationAttempts
               )
             )
         } catch (error) {
-          const failed = this.signerFailureRecord(
-            current,
-            selectedPreparer,
-            errorMessage(
-              `Challenge nonce reservation recovery failed: ${errorMessage(
-                error
-              )}`
-            ),
-            false,
-            undefined,
-            "reservation-provider-failure"
+          const retryAtUnixMs = requireUnixMilliseconds(
+            this.now(),
+            "Ambiguous recovered reservation response time"
           )
+          const failed = nextRecord(current, {
+            preparationLease: {
+              owner: current.preparationLease.owner,
+              expiresAtUnixMs: requireSafeIntegerSum(
+                retryAtUnixMs,
+                this.preparationLeaseMs,
+                "Recovered reservation retry lease expiration"
+              ),
+            },
+            updatedAtUnixMs: retryAtUnixMs,
+            lastError: requireReason(
+              `Challenge nonce reservation recovery remains ambiguous and will retry the same epoch: ${errorMessage(
+                error
+              )}`,
+              "Ambiguous recovered reservation response"
+            ),
+          })
           await this.store.compareAndSwap(
             current.recordID,
             current.version,
@@ -2413,6 +2816,28 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         }
         return this.recoverExpiredPreparation(rebound)
       }
+      const unavailableAtUnixMs = requireUnixMilliseconds(
+        this.now(),
+        "Missing reservation-recovery provider diagnostic time"
+      )
+      const unavailable = nextRecord(current, {
+        updatedAtUnixMs: unavailableAtUnixMs,
+        lastError:
+          "An expired pre-persistence nonce reservation claim cannot be recovered because its exact manifest-bound allocator is unavailable",
+      })
+      if (
+        !(await this.store.compareAndSwap(
+          current.recordID,
+          current.version,
+          unavailable
+        ))
+      ) {
+        return this.requireRecord(current.recordID)
+      }
+      // Keep the original expired lease and reservation epoch intact. The
+      // startup recovery barrier remains closed until the exact allocator is
+      // restored and the same idempotent reservation request is recovered.
+      return unavailable
     }
 
     const releasableReservation =
@@ -2440,17 +2865,24 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
             reasonCode: "reservation-expired",
             reason: voidReason,
           })
+    if (releasableReservation !== undefined) {
+      await this.assertVoidedReservationCapacity(current)
+    }
     const recovered = nextRecord(current, {
       // Once the signer boundary is durable, never sign a replacement or
       // release this lane on lease expiry.
       status: signerWasInvoked
         ? "quarantined"
         : current.provenanceInvalidationEvidence !== undefined
-          ? "cancelled-provenance-invalidated"
-          : (resumeStatus ?? "queued"),
+        ? "cancelled-provenance-invalidated"
+        : resumeStatus ?? "queued",
       preparationLease: undefined,
       preparationResumeStatus: undefined,
-      activeSignerInvocationStartedAtUnixMs: undefined,
+      // A lease timeout cannot prove that an external signer call stopped.
+      // Only the worker observing that call return may clear this marker.
+      activeSignerInvocationStartedAtUnixMs: signerWasInvoked
+        ? current.activeSignerInvocationStartedAtUnixMs
+        : undefined,
       preparationSender: retainLane ? current.preparationSender : undefined,
       selectedLaneID: retainLane ? current.selectedLaneID : undefined,
       selectedSignerIdentity: retainLane
@@ -2473,12 +2905,22 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
               },
             ]
           : current.voidedNonceReservations,
+      signerQuarantines:
+        signerWasInvoked && current.reservedNonce !== undefined
+          ? appendSignerQuarantine(
+              current.signerQuarantines,
+              current.reservedNonce,
+              voidedAt,
+              "Preparation lease expired after the durable signer invocation boundary; the returned-byte outcome is ambiguous",
+              "ambiguous-signer-invocation"
+            )
+          : current.signerQuarantines,
       updatedAtUnixMs: voidedAt,
       lastError: signerWasInvoked
         ? "Challenge outbox preparation lease expired after the signer boundary; nonce lane retained"
         : resumeStatus === undefined
-          ? "Challenge outbox preparation lease expired before signer invocation"
-          : "Challenge outbox replacement lease expired before signer invocation; prior variant restored",
+        ? "Challenge outbox preparation lease expired before signer invocation"
+        : "Challenge outbox replacement lease expired before signer invocation; prior variant restored",
     })
     if (
       !(await this.store.compareAndSwap(
@@ -2495,78 +2937,91 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     // never make a signed nonce reusable or race an in-flight signer.
     if (releasableReservation !== undefined) {
       const preparer = this.preparerForReservation(releasableReservation)
-      if (preparer !== undefined) {
-        try {
-          await preparer.releaseSignatureFraudChallengeNonce(
-            releasableReservation
-          )
-        } catch (error) {
-          const durable = await this.requireRecord(current.recordID)
-          if (durable.version === recovered.version) {
-            const warned = nextRecord(durable, {
-              updatedAtUnixMs: requireUnixMilliseconds(
-                this.now(),
-                "Challenge nonce allocator release warning time"
-              ),
-              lastError: errorMessage(
-                `Nonce guard was durably voided but allocator release failed: ${errorMessage(
-                  error
-                )}`
-              ),
-            })
-            await this.store.compareAndSwap(
-              durable.recordID,
-              durable.version,
-              warned
-            )
-          }
-        }
-      }
+      return this.releaseVoidedReservation(
+        recovered,
+        releasableReservation,
+        preparer
+      )
     }
     return this.requireRecord(current.recordID)
   }
 
-  private async voidInvalidatedPreSignerReservation(
+  private async voidReturnedPreSignerReservation(
     current: P2TRSignatureFraudChallengeOutboxRecord,
     reservation: P2TRSignatureFraudBoundNonceReservation,
-    preparer: P2TRSignatureFraudChallengeTransactionPreparer
-  ): Promise<P2TRSignatureFraudChallengeOutboxRecord> {
+    preparer: P2TRSignatureFraudChallengeTransactionPreparer,
+    preserveActiveClaim = false
+  ): Promise<P2TRSignatureFraudChallengeOutboxRecord | undefined> {
     if (
-      current.provenanceInvalidationEvidence === undefined ||
+      current.reservedNonce !== undefined ||
       current.signerInvocationStartedAtUnixMs !== undefined ||
       (current.preparedTransactionVariants?.length ?? 0) > 0
     ) {
       throw new Error(
-        "Only an invalidated pre-signer nonce reservation may be safely voided"
+        "Only a returned reservation whose pre-signer state claim was lost may be safely voided"
       )
     }
     validateP2TRSignatureFraudBoundNonceReservation(
       current.intent,
       Hex.from(current.recordID),
       current.generation,
+      reservation.reservationEpoch,
       preparer,
       reservation
     )
+    const existingTombstone = (current.voidedNonceReservations ?? []).find(
+      (item) =>
+        normalizeBytes32(
+          item.reservation.reservationID,
+          "Existing voided reservation ID"
+        ) ===
+        normalizeBytes32(
+          reservation.reservationID,
+          "Returned reservation ID"
+        )
+    )
+    if (existingTombstone !== undefined) {
+      return this.releaseVoidedReservation(current, reservation, preparer)
+    }
+    await this.assertVoidedReservationCapacity(current)
     const voidedAtUnixMs = requireUnixMilliseconds(
       this.now(),
-      "Invalidated challenge nonce reservation void time"
+      "Returned challenge nonce reservation void time"
     )
-    const reason =
-      "Canonical provenance was invalidated before signer invocation"
+    const provenanceInvalidated =
+      current.provenanceInvalidationEvidence !== undefined
+    const reason = provenanceInvalidated
+      ? "Canonical provenance was invalidated before signer invocation"
+      : "Nonce reservation returned after its durable preparation claim was lost"
+    const reasonCode = provenanceInvalidated
+      ? "reservation-abandoned"
+      : "reservation-expired"
     const evidenceDigest = sha256Structured({
       recordID: current.recordID,
       generation: current.generation,
       reservationID: reservation.reservationID.toPrefixedString(),
       voidedAtUnixMs,
-      reasonCode: "reservation-abandoned",
+      reasonCode,
       reason,
     })
     const voided = nextRecord(current, {
-      status: "cancelled-provenance-invalidated",
-      preparationLease: undefined,
-      preparationSender: undefined,
-      selectedLaneID: undefined,
-      selectedSignerIdentity: undefined,
+      status: preserveActiveClaim
+        ? current.status
+        : provenanceInvalidated
+        ? "cancelled-provenance-invalidated"
+        : current.status === "preparing"
+        ? "queued"
+        : current.status,
+      preparationLease: preserveActiveClaim
+        ? current.preparationLease
+        : undefined,
+      preparationSender: preserveActiveClaim
+        ? current.preparationSender
+        : undefined,
+      selectedLaneID: preserveActiveClaim ? current.selectedLaneID : undefined,
+      selectedSignerIdentity: preserveActiveClaim
+        ? current.selectedSignerIdentity
+        : undefined,
       reservedNonce: undefined,
       nonceReservedAtUnixMs: undefined,
       voidedNonceReservations: [
@@ -2574,7 +3029,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         {
           reservation,
           voidedAtUnixMs,
-          reasonCode: "reservation-abandoned",
+          reasonCode,
           reason,
           evidenceDigest,
         },
@@ -2589,11 +3044,341 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         voided
       ))
     ) {
-      return this.requireRecord(current.recordID)
+      return undefined
     }
-    // The durable guard is void before the external allocator is notified.
-    await preparer.releaseSignatureFraudChallengeNonce(reservation)
-    return voided
+    return this.releaseVoidedReservation(voided, reservation, preparer)
+  }
+
+  private async reconcileReturnedReservationAfterLostClaim(
+    recordID: string,
+    reservation: P2TRSignatureFraudBoundNonceReservation,
+    preparer: P2TRSignatureFraudChallengeTransactionPreparer
+  ): Promise<P2TRSignatureFraudChallengeOutboxRecord> {
+    for (let retry = 0; retry < 8; retry++) {
+      const durable = await this.requireRecord(recordID)
+      if (
+        durable.reservedNonce !== undefined &&
+        normalizeBytes32(
+          durable.reservedNonce.reservationID,
+          "Durable nonce reservation ID"
+        ) ===
+          normalizeBytes32(
+            reservation.reservationID,
+            "Returned nonce reservation ID"
+          )
+      ) {
+        return durable
+      }
+      const unsigned =
+        durable.reservedNonce === undefined &&
+        durable.signerInvocationStartedAtUnixMs === undefined &&
+        durable.activeSignerInvocationStartedAtUnixMs === undefined &&
+        (durable.preparedTransactionVariants?.length ?? 0) === 0
+      const sameActiveClaim =
+        unsigned &&
+        durable.status === "preparing" &&
+        durable.preparationLease !== undefined &&
+        durable.preparationLease.expiresAtUnixMs > this.now() &&
+        durable.preparationAttempts === reservation.reservationEpoch &&
+        durable.selectedLaneID === reservation.laneID &&
+        durable.selectedSignerIdentity === reservation.signerIdentity &&
+        durable.preparationSender !== undefined &&
+        normalizeAddress(
+          durable.preparationSender,
+          "Durable selected reservation sender"
+        ) ===
+          normalizeAddress(
+            reservation.sender,
+            "Returned reservation sender"
+          )
+      if (sameActiveClaim) {
+        const adoptedAtUnixMs = requireUnixMilliseconds(
+          this.now(),
+          "Late reservation adoption time"
+        )
+        const adopted = nextRecord(durable, {
+          reservedNonce: reservation,
+          nonceReservedAtUnixMs: adoptedAtUnixMs,
+          updatedAtUnixMs: adoptedAtUnixMs,
+          lastError:
+            "Adopted the exact idempotent nonce reservation returned to an earlier worker",
+        })
+        try {
+          if (
+            await this.store.compareAndSwap(
+              durable.recordID,
+              durable.version,
+              adopted
+            )
+          ) {
+            return adopted
+          }
+        } catch {
+          const voided = await this.voidReturnedPreSignerReservation(
+            durable,
+            reservation,
+            preparer,
+            false
+          )
+          if (voided !== undefined) return voided
+          continue
+        }
+        continue
+      }
+      if (unsigned) {
+        const voided = await this.voidReturnedPreSignerReservation(
+          durable,
+          reservation,
+          preparer,
+          durable.status === "preparing"
+        )
+        if (voided !== undefined) return voided
+        continue
+      }
+      const tombstoned = await this.tombstoneConflictingReturnedReservation(
+        durable,
+        reservation,
+        preparer
+      )
+      if (tombstoned !== undefined) return tombstoned
+    }
+    throw new Error(
+      "Returned nonce reservation reconciliation did not converge"
+    )
+  }
+
+  private async tombstoneConflictingReturnedReservation(
+    current: P2TRSignatureFraudChallengeOutboxRecord,
+    reservation: P2TRSignatureFraudBoundNonceReservation,
+    preparer: P2TRSignatureFraudChallengeTransactionPreparer
+  ): Promise<P2TRSignatureFraudChallengeOutboxRecord | undefined> {
+    validateP2TRSignatureFraudBoundNonceReservation(
+      current.intent,
+      Hex.from(current.recordID),
+      current.generation,
+      reservation.reservationEpoch,
+      preparer,
+      reservation
+    )
+    await this.assertVoidedReservationCapacity(current)
+    const voidedAtUnixMs = requireUnixMilliseconds(
+      this.now(),
+      "Conflicting returned reservation tombstone time"
+    )
+    const reason =
+      "A distinct authenticated nonce reservation returned after another reservation or signer boundary became durable"
+    const evidenceDigest = sha256Structured({
+      recordID: current.recordID,
+      generation: current.generation,
+      reservationID: reservation.reservationID.toPrefixedString(),
+      reservationEpoch: reservation.reservationEpoch,
+      voidedAtUnixMs,
+      reasonCode: "reservation-binding-invalid",
+      reason,
+    })
+    const next = nextRecord(current, {
+      voidedNonceReservations: [
+        ...(current.voidedNonceReservations ?? []),
+        {
+          reservation,
+          voidedAtUnixMs,
+          reasonCode: "reservation-binding-invalid",
+          reason,
+          evidenceDigest,
+        },
+      ],
+      updatedAtUnixMs: voidedAtUnixMs,
+      lastError: reason,
+    })
+    if (
+      !(await this.store.compareAndSwap(
+        current.recordID,
+        current.version,
+        next
+      ))
+    ) {
+      return undefined
+    }
+    const aliasOfActiveNonce =
+      current.reservedNonce !== undefined &&
+      normalizeAddress(
+        current.reservedNonce.sender,
+        "Active reservation sender"
+      ) === normalizeAddress(reservation.sender, "Returned reservation sender") &&
+      current.reservedNonce.nonce === reservation.nonce
+    if (aliasOfActiveNonce) return next
+    return this.releaseVoidedReservation(next, reservation, preparer)
+  }
+
+  private async assertVoidedReservationCapacity(
+    record: P2TRSignatureFraudChallengeOutboxRecord
+  ): Promise<void> {
+    if (
+      (record.voidedNonceReservations?.length ?? 0) <
+      P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_VOIDED_RESERVATIONS
+    ) {
+      return
+    }
+    const detail =
+      "The bounded pre-sign nonce-reservation tombstone ledger is exhausted; operator recovery is required"
+    await this.store.saveCriticalAlert({
+      code: "nonce-reservation-cap-exhausted",
+      seriesID: record.seriesID,
+      recordID: record.recordID,
+      generation: record.generation,
+      activationBlocking: true,
+      createdAtUnixMs: requireUnixMilliseconds(
+        this.now(),
+        "Nonce-reservation cap alert time"
+      ),
+      detail,
+    })
+    throw new Error(detail)
+  }
+
+  private async releaseVoidedReservation(
+    record: P2TRSignatureFraudChallengeOutboxRecord,
+    reservation: P2TRSignatureFraudBoundNonceReservation,
+    preparer: P2TRSignatureFraudChallengeTransactionPreparer | undefined
+  ): Promise<P2TRSignatureFraudChallengeOutboxRecord> {
+    const tombstone = (record.voidedNonceReservations ?? []).find(
+      (item) =>
+        normalizeBytes32(
+          item.reservation.reservationID,
+          "Voided reservation ID"
+        ) ===
+        normalizeBytes32(reservation.reservationID, "Released reservation ID")
+    )
+    if (tombstone === undefined) {
+      throw new Error(
+        "Allocator release requires the exact durable reservation tombstone"
+      )
+    }
+    const releaseRequestID = computeP2TRSignatureFraudNonceReleaseRequestID(
+      record.recordID,
+      reservation.reservationID,
+      tombstone.evidenceDigest
+    )
+    const request = await this.store.getNonceReleaseRequest(releaseRequestID)
+    if (request === undefined) {
+      throw new Error(
+        "Durable reservation tombstone lacks its atomic nonce-release request"
+      )
+    }
+    await this.attemptNonceRelease(request, preparer)
+    return this.requireRecord(record.recordID)
+  }
+
+  private async attemptNonceRelease(
+    request: P2TRSignatureFraudNonceReleaseRequest,
+    configuredPreparer?: P2TRSignatureFraudChallengeTransactionPreparer
+  ): Promise<"acknowledged" | "ambiguous" | "skipped"> {
+    const preparer =
+      configuredPreparer ?? this.preparerForReservation(request.reservation)
+    // No provider call can occur without the exact manifest-bound allocator;
+    // do not consume an append-only attempt sequence merely to rediscover it.
+    if (preparer === undefined) return "skipped"
+
+    const startedAtUnixMs = requireUnixMilliseconds(
+      this.now(),
+      "Nonce-release attempt start time"
+    )
+    const attempt = await this.store.claimNonceReleaseAttempt(
+      request.releaseRequestID,
+      this.nonceReleaseOwner,
+      startedAtUnixMs,
+      requireSafeIntegerSum(
+        startedAtUnixMs,
+        this.nonceReleaseAttemptLeaseMs,
+        "Nonce-release attempt expiration"
+      )
+    )
+    if (attempt === undefined) return "skipped"
+
+    const invokedAtUnixMs = requireUnixMilliseconds(
+      this.now(),
+      "Nonce-release allocator invocation time"
+    )
+    if (!(await this.store.beginNonceReleaseAttempt(attempt, invokedAtUnixMs))) {
+      return "skipped"
+    }
+
+    let acknowledgement: P2TRSignatureFraudNonceReleaseAcknowledgement
+    try {
+      acknowledgement =
+        await preparer.releaseSignatureFraudChallengeNonce(
+          request.reservation,
+          Hex.from(request.releaseRequestID)
+        )
+    } catch (error) {
+      const detail = requireReason(
+        `Nonce allocator release response is ambiguous: ${errorMessage(error)}`,
+        "Nonce allocator release error"
+      )
+      return this.store.recordNonceReleaseAttemptResult(attempt, {
+        kind: "ambiguous-error",
+        responseDigest: sha256Structured({
+          domain: "tbtc-p2tr-nonce-release-error-v1",
+          releaseRequestID: request.releaseRequestID,
+          detail,
+        }),
+        detail,
+        recordedAtUnixMs: requireUnixMilliseconds(
+          this.now(),
+          "Ambiguous nonce-release response time"
+        ),
+      })
+    }
+
+    try {
+      validateNonceReleaseAcknowledgement(request, acknowledgement)
+    } catch (error) {
+      const detail = requireReason(
+        `Nonce allocator returned a mismatched release acknowledgement: ${errorMessage(
+          error
+        )}`,
+        "Nonce allocator acknowledgement mismatch"
+      )
+      const returnedReleaseRequestID = optionalNonceReleaseResponseID(
+        acknowledgement,
+        "releaseRequestID"
+      )
+      const returnedReservationID = optionalNonceReleaseResponseID(
+        acknowledgement,
+        "reservationID"
+      )
+      const providerResponseDigest = optionalNonceReleaseResponseID(
+        acknowledgement,
+        "responseDigest"
+      )
+      return this.store.recordNonceReleaseAttemptResult(attempt, {
+        kind: "contract-mismatch",
+        responseDigest:
+          providerResponseDigest ??
+          sha256Structured({
+            domain: "tbtc-p2tr-nonce-release-contract-mismatch-v1",
+            releaseRequestID: request.releaseRequestID,
+            returnedReleaseRequestID: returnedReleaseRequestID ?? null,
+            returnedReservationID: returnedReservationID ?? null,
+            detail,
+          }),
+        returnedReleaseRequestID,
+        returnedReservationID,
+        detail,
+        recordedAtUnixMs: requireUnixMilliseconds(
+          this.now(),
+          "Mismatched nonce-release response time"
+        ),
+      })
+    }
+    return this.store.recordNonceReleaseAttemptResult(attempt, {
+      kind: acknowledgement.outcome,
+      acknowledgement,
+      recordedAtUnixMs: requireUnixMilliseconds(
+        this.now(),
+        "Nonce-release acknowledgement time"
+      ),
+    })
   }
 
   private async recheckIrreversibleAction(
@@ -2636,30 +3421,61 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     if (!this.recoveryBarrierEstablished) {
       await this.establishRecoveryBarrier()
     }
-    if (
-      await this.store.hasExpiredPreparationLeases(
+    const [expiredPreparationLease, pendingNonceRelease] = await Promise.all([
+      this.store.hasExpiredPreparationLeases(
         requireUnixMilliseconds(this.now(), "Challenge recovery barrier time")
-      )
-    ) {
+      ),
+      this.store.hasPendingNonceReleases(),
+    ])
+    if (expiredPreparationLease || pendingNonceRelease) {
       this.recoveryBarrierEstablished = false
       throw new Error(
-        "Challenge signing is blocked by an expired durable preparation lease"
+        pendingNonceRelease
+          ? "Challenge signing is blocked by an unacknowledged durable nonce release"
+          : "Challenge signing is blocked by an expired durable preparation lease"
       )
     }
   }
 
   private async establishRecoveryBarrier(): Promise<void> {
+    const recoverReleases = async (): Promise<void> => {
+      let cursor: string | undefined
+      for (let pageCount = 0; pageCount < 1_024; pageCount++) {
+        const report = await this.recoverPendingNonceReleases(cursor)
+        if (report.nextCursor === undefined) return
+        cursor = report.nextCursor
+      }
+      throw new Error(
+        "Challenge signing is blocked because nonce-release recovery did not converge"
+      )
+    }
+    await recoverReleases()
     let cursor: string | undefined
     for (let pageCount = 0; pageCount < 1_024; pageCount++) {
       const report = await this.recoverExpiredPreparationLeases(cursor)
-      if (!report.backlogRemaining) return
-      // A new expired row may sort before the cursor after the final page.
-      // Restart the bounded scan when the exact store query still finds one.
+      if (report.nextCursor === undefined) break
       cursor = report.nextCursor
+      if (pageCount === 1_023) {
+        throw new Error(
+          "Challenge signing is blocked because lease recovery did not converge"
+        )
+      }
     }
-    throw new Error(
-      "Challenge signing is blocked because the durable recovery scan did not converge"
+    // Lease recovery can create new durable release requests.
+    await recoverReleases()
+    const nowUnixMs = requireUnixMilliseconds(
+      this.now(),
+      "Challenge recovery barrier completion time"
     )
+    if (
+      (await this.store.hasPendingNonceReleases()) ||
+      (await this.store.hasExpiredPreparationLeases(nowUnixMs))
+    ) {
+      throw new Error(
+        "Challenge signing is blocked by unresolved durable recovery work"
+      )
+    }
+    this.recoveryBarrierEstablished = true
   }
 
   private async applyPreSignRecheckFailure(
@@ -2880,11 +3696,24 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
           ? "broadcast-pending"
           : "prepared"
         : undefined)
+    const durableTerminal = [
+      "accepted-own",
+      "satisfied-external",
+      "terminal-reverted",
+      "terminal-nonce-consumed",
+      "generation-required",
+      "cancelled-before-broadcast",
+      "cancelled-honest-spend",
+      "cancelled-reorg",
+      "cancelled-provenance-invalidated",
+    ].includes(current.status)
     return nextRecord(current, {
       status:
-        signerInvoked && retainedStatus === undefined
+        durableTerminal || current.provenanceInvalidationEvidence !== undefined
+          ? current.status
+          : signerInvoked && retainedStatus === undefined
           ? "quarantined"
-          : (retainedStatus ?? "queued"),
+          : retainedStatus ?? "queued",
       preparationLease: undefined,
       preparationResumeStatus: undefined,
       activeSignerInvocationStartedAtUnixMs: undefined,
@@ -2927,6 +3756,68 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     })
   }
 
+  /**
+   * Completes the exact signer invocation after a concurrent durable mutation
+   * won the first completion CAS. Provenance invalidation and lease recovery
+   * deliberately retain the active marker; the worker that observes the RPC
+   * return is the only actor allowed to clear it. A later invocation must not
+   * be mistaken for the call being completed here.
+   */
+  private async completeSignerFailureAfterLostCas(
+    signerBoundary: P2TRSignatureFraudChallengeOutboxRecord,
+    preparer: P2TRSignatureFraudChallengeTransactionPreparer,
+    reason: string,
+    reasonCode: P2TRSignatureFraudSignerQuarantine["reasonCode"]
+  ): Promise<P2TRSignatureFraudChallengeOutboxRecord> {
+    const expectedBoundary =
+      signerBoundary.activeSignerInvocationStartedAtUnixMs
+    if (expectedBoundary === undefined) {
+      throw new Error("Signer completion lacks its durable active boundary")
+    }
+    for (let retry = 0; retry < 8; retry++) {
+      const durable = await this.requireRecord(signerBoundary.recordID)
+      if (durable.activeSignerInvocationStartedAtUnixMs === undefined) {
+        return durable
+      }
+      if (
+        durable.activeSignerInvocationStartedAtUnixMs !== expectedBoundary ||
+        durable.preparationAttempts !== signerBoundary.preparationAttempts ||
+        durable.reservedNonce === undefined ||
+        signerBoundary.reservedNonce === undefined ||
+        normalizeBytes32(
+          durable.reservedNonce.reservationID,
+          "Durable signer completion reservation ID"
+        ) !==
+          normalizeBytes32(
+            signerBoundary.reservedNonce.reservationID,
+            "Expected signer completion reservation ID"
+          )
+      ) {
+        throw new Error(
+          "Signer completion no longer owns the durable active invocation"
+        )
+      }
+      const failed = this.signerFailureRecord(
+        durable,
+        preparer,
+        reason,
+        true,
+        undefined,
+        reasonCode
+      )
+      if (
+        await this.store.compareAndSwap(
+          durable.recordID,
+          durable.version,
+          failed
+        )
+      ) {
+        return this.requireRecord(durable.recordID)
+      }
+    }
+    throw new Error("Signer completion reconciliation did not converge")
+  }
+
   private async quarantine(
     current: P2TRSignatureFraudChallengeOutboxRecord,
     reason: string
@@ -2949,10 +3840,10 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         current.status === "external-satisfied-awaiting-own-transaction"
           ? current.status
           : postSendBoundary
-            ? "broadcast-pending"
-            : hasSignedVariants
-              ? "prepared"
-              : "quarantined",
+          ? "broadcast-pending"
+          : hasSignedVariants
+          ? "prepared"
+          : "quarantined",
       preparationLease: undefined,
       preparationResumeStatus: undefined,
       activeSignerInvocationStartedAtUnixMs: undefined,
@@ -3105,7 +3996,7 @@ const canonicalObservationConsistencyContext = (
       snapshot.canonicalWalletInputAuthorization.kind === "deposit-binding"
         ? [snapshot.canonicalWalletInputAuthorization.binding]
         : [],
-  }) as P2TRSignatureFraudWitnessObservationConsistencyContext
+  } as P2TRSignatureFraudWitnessObservationConsistencyContext)
 
 const validateSchedulerOptions = (
   options: P2TRSignatureFraudChallengeOutboxSchedulerOptions
@@ -3254,7 +4145,10 @@ const validateCompleteV2IntentObservationBinding = (
       "COMPLETE_V2 intent requires the exact P2TR signing input and prevout"
     )
   }
-  const walletID = normalizeBytes32(observation.walletID, "Observation wallet ID")
+  const walletID = normalizeBytes32(
+    observation.walletID,
+    "Observation wallet ID"
+  )
   const normalizedSigningKey = normalizeBytes32(
     signingKey,
     "Observation P2TR signing key"
@@ -3272,10 +4166,9 @@ const validateCompleteV2IntentObservationBinding = (
   const intentSignature = `${normalizeBytes32(
     intent.nonceX,
     "Intent signature nonce X"
-  )}${normalizeBytes32(
-    intent.signatureScalar,
-    "Intent signature scalar"
-  ).slice(2)}`
+  )}${normalizeBytes32(intent.signatureScalar, "Intent signature scalar").slice(
+    2
+  )}`
   if (
     intent.inputIndex !== observation.inputIndex ||
     normalizeBytes32(intent.walletID, "Intent wallet ID") !== walletID ||
@@ -3803,10 +4696,9 @@ const validateRecordFeePolicyManifest = (
   const manifest = record.feePolicyManifest
   const { policyHash: _ignored, ...withoutHash } = manifest
   const normalized = normalizeChallengeFeePolicyManifestWithoutHash(withoutHash)
-  const normalizedActivationManifest =
-    normalizeActivationManifestBinding(
-      record.evidenceCheckpoint.activationManifest
-    )
+  const normalizedActivationManifest = normalizeActivationManifestBinding(
+    record.evidenceCheckpoint.activationManifest
+  )
   if (
     normalizeBytes32(manifest.policyHash, "Challenge fee policy hash") !==
       computeP2TRSignatureFraudChallengeFeePolicyHash(withoutHash) ||
@@ -3871,6 +4763,59 @@ const feePolicyForReservation = (
     signerIdentity: reservation.signerIdentity,
     transactionSender: reservation.sender,
   } as P2TRSignatureFraudChallengeTransactionPreparer)
+
+const validateNonceReleaseAcknowledgement = (
+  request: P2TRSignatureFraudNonceReleaseRequest,
+  acknowledgement: P2TRSignatureFraudNonceReleaseAcknowledgement
+): void => {
+  if (
+    acknowledgement === null ||
+    typeof acknowledgement !== "object" ||
+    (acknowledgement.outcome !== "released" &&
+      acknowledgement.outcome !== "already-released") ||
+    normalizeBytes32(
+      acknowledgement.releaseRequestID,
+      "Nonce-release acknowledgement request ID"
+    ) !==
+      normalizeBytes32(request.releaseRequestID, "Nonce-release request ID") ||
+    normalizeBytes32(
+      acknowledgement.reservationID,
+      "Nonce-release acknowledgement reservation ID"
+    ) !==
+      normalizeBytes32(
+        request.reservation.reservationID,
+        "Nonce-release reservation ID"
+      )
+  ) {
+    throw new Error(
+      "Nonce-release acknowledgement does not bind the exact request and reservation"
+    )
+  }
+  normalizeBytes32(
+    acknowledgement.responseDigest,
+    "Nonce-release acknowledgement response digest"
+  )
+}
+
+const optionalNonceReleaseResponseID = (
+  acknowledgement: unknown,
+  field: "releaseRequestID" | "reservationID" | "responseDigest"
+): string | undefined => {
+  if (
+    acknowledgement === null ||
+    typeof acknowledgement !== "object" ||
+    !(field in acknowledgement)
+  ) {
+    return undefined
+  }
+  const value = (acknowledgement as Record<string, unknown>)[field]
+  if (typeof value !== "string") return undefined
+  try {
+    return normalizeBytes32(value, `Nonce-release response ${field}`)
+  } catch {
+    return undefined
+  }
+}
 
 const validateConfiguredSignerFeePolicies = (
   record: P2TRSignatureFraudChallengeOutboxRecord,
@@ -4068,8 +5013,14 @@ const normalizePositivePolicyUint256 = (
 const normalizeChallengeFeePolicyManifestWithoutHash = (
   manifest: Omit<P2TRSignatureFraudChallengeFeePolicyManifest, "policyHash">
 ) => {
-  if (!Array.isArray(manifest.lanes) || manifest.lanes.length === 0) {
-    throw new Error("Challenge fee policy requires at least one signer lane")
+  if (
+    !Array.isArray(manifest.lanes) ||
+    manifest.lanes.length === 0 ||
+    manifest.lanes.length > 32
+  ) {
+    throw new Error(
+      "Challenge fee policy requires between one and thirty-two signer lanes"
+    )
   }
   const lanes = manifest.lanes
     .map((lane) => {
@@ -4116,8 +5067,8 @@ const normalizeChallengeFeePolicyManifestWithoutHash = (
       return leftIdentity < rightIdentity
         ? -1
         : leftIdentity > rightIdentity
-          ? 1
-          : 0
+        ? 1
+        : 0
     })
   if (
     new Set(lanes.map(({ laneID }) => laneID)).size !== lanes.length ||
@@ -6029,20 +6980,6 @@ const normalizeCanonicalProvenanceWithoutFingerprint = (
     "provenanceFingerprint"
   >
 ) => {
-  if (!Array.isArray(binding.eventIDs) || binding.eventIDs.length === 0) {
-    throw new Error("Canonical provenance requires at least one exact event ID")
-  }
-  if (binding.eventIDs.length > P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_PAGE_SIZE) {
-    throw new Error("Canonical provenance event-ID set exceeds the bounded cap")
-  }
-  const eventIDs = binding.eventIDs
-    .map((eventID) =>
-      normalizeBytes32(eventID, "Canonical provenance event ID")
-    )
-    .sort()
-  if (new Set(eventIDs).size !== eventIDs.length) {
-    throw new Error("Canonical provenance event IDs must be unique")
-  }
   return {
     journalStoreID: requireBoundedText(
       binding.journalStoreID,
@@ -6065,7 +7002,15 @@ const normalizeCanonicalProvenanceWithoutFingerprint = (
       binding.historyRoot,
       "Canonical provenance history root"
     ),
-    eventIDs,
+    eventSetHash: normalizeBytes32(
+      binding.eventSetHash,
+      "Canonical provenance event-set hash"
+    ),
+    eventCount: requireBoundedPositiveSafeInteger(
+      binding.eventCount,
+      P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_PAGE_SIZE,
+      "Canonical provenance event count"
+    ),
     challengeKey: normalizeBytes32(
       binding.challengeKey,
       "Canonical provenance challenge key"
@@ -6154,9 +7099,6 @@ const validateCanonicalProvenanceBinding = (
   const { provenanceFingerprint: _ignored, ...withoutFingerprint } = binding
   const normalized =
     normalizeCanonicalProvenanceWithoutFingerprint(withoutFingerprint)
-  const suppliedEventIDs = binding.eventIDs.map((eventID) =>
-    normalizeBytes32(eventID, "Canonical provenance event ID")
-  )
   const authorizedWalletID =
     inputAuthorization.kind === "registered-wallet-output"
       ? inputAuthorization.walletID
@@ -6166,7 +7108,6 @@ const validateCanonicalProvenanceBinding = (
       ? inputAuthorization.outputKey
       : inputAuthorization.binding.outputKey
   if (
-    JSON.stringify(suppliedEventIDs) !== JSON.stringify(normalized.eventIDs) ||
     normalized.candidateDigest !==
       computeP2TRSignatureFraudCanonicalCandidateDigest(
         candidate,
@@ -6213,7 +7154,6 @@ const validateCanonicalProvenanceBinding = (
         inputAuthorization.sourceEventID,
         "Canonical input-binding source event ID"
       ) ||
-    !normalized.eventIDs.includes(normalized.inputBindingSourceEventID) ||
     normalized.inputWalletID !==
       normalizeBytes32(authorizedWalletID, "Authorized input wallet ID") ||
     normalized.inputOutputKey !==
@@ -6667,8 +7607,8 @@ const classifyReservationMismatch = (
   normalizeAddress(reservation.sender, "Reserved signed sender")
     ? "wrong-sender"
     : escaped.nonce !== reservation.nonce
-      ? "wrong-nonce"
-      : "malformed-signed-envelope"
+    ? "wrong-nonce"
+    : "malformed-signed-envelope"
 
 const classifyReplacementSignerFailure = (
   reservation: P2TRSignatureFraudBoundNonceReservation,

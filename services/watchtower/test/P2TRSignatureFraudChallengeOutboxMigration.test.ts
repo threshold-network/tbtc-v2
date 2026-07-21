@@ -77,6 +77,96 @@ test("stores append-only evidence generations linked to an exact predecessor", (
   )
 })
 
+test("stores only compact fixed per-input evidence", () => {
+  assert.match(
+    migration,
+    /canonical_provenance_event_set_hash bytea NOT NULL CHECK/
+  )
+  assert.match(
+    migration,
+    /canonical_provenance_event_count bigint NOT NULL CHECK \( canonical_provenance_event_count BETWEEN 1 AND 1000 \)/
+  )
+  assert.doesNotMatch(migration, /canonical_provenance_event_ids/)
+  assert.match(
+    migration,
+    /calldata bytea NOT NULL CHECK \(octet_length\(calldata\) = 388\)/
+  )
+  assert.equal(
+    (
+      migration.match(/octet_length\(raw_transaction\) BETWEEN 1 AND 4096/g) ??
+      []
+    ).length,
+    3
+  )
+})
+
+test("serializes a manifest-bound global active-record capacity", () => {
+  assert.match(migration, /payload #>> '\{outbox,maxActiveOutboxRecords\}'/)
+  assert.match(
+    migration,
+    /p2tr_watchtower_manifest_outbox_capacity_check CHECK .* NOT VALID/
+  )
+  assert.match(
+    migration,
+    /CREATE TABLE p2tr_signature_fraud_challenge_outbox_capacity/
+  )
+  assert.match(
+    migration,
+    /SET active_generation_count = active_generation_count \+ 1 WHERE singleton = true AND active_generation_count < \(/
+  )
+  assert.match(
+    migration,
+    /p2tr_signature_fraud_consume_generation_capacity_trigger AFTER INSERT ON p2tr_signature_fraud_challenge_outbox/
+  )
+  assert.match(
+    migration,
+    /SET active_generation_count = active_generation_count - 1/
+  )
+  assert.match(
+    migration,
+    /manifest-bound global active outbox capacity is exhausted or missing/
+  )
+})
+
+test("never expires a resultless allocator invocation by wall clock", () => {
+  assert.match(
+    migration,
+    /CREATE TABLE p2tr_signature_fraud_challenge_nonce_release_invocation/
+  )
+  assert.match(
+    migration,
+    /nonce-release attempts must be contiguous and cannot replace a resultless invocation/
+  )
+  assert.match(
+    migration,
+    /p2tr_signature_fraud_validate_nonce_release_invocation_insert_trigger BEFORE INSERT/
+  )
+  assert.match(
+    migration,
+    /active_release_request_id IS NULL AND active_signer_invocation_count = 0/
+  )
+  assert.match(
+    migration,
+    /CREATE TABLE p2tr_signature_fraud_challenge_nonce_release_resolution/
+  )
+  assert.match(
+    migration,
+    /tbtc-p2tr-nonce-release-independent-resolution-v1/
+  )
+  assert.match(
+    migration,
+    /primary_evidence_digest = resolution_evidence_digest/
+  )
+  assert.match(
+    migration,
+    /corroborating_evidence_digest = resolution_evidence_digest/
+  )
+  assert.match(
+    migration,
+    /p2tr_signature_fraud_apply_nonce_release_resolution_barrier_trigger AFTER INSERT/
+  )
+})
+
 test("binds the exact input, funding occurrence, and Ethereum binding point", () => {
   assert.match(
     migration,
@@ -114,7 +204,10 @@ test("admits only normalized COMPLETE_V2 evidence and its immutable domain", () 
     migration,
     /evidence_protocol_id bytea NOT NULL CHECK \( octet_length\(evidence_protocol_id\) = 32 AND evidence_protocol_id = decode\( '12c62b64ecf6d008bcff153495dcdbe7a981f3a9a1b9c0898b86b1e6d0d350ef', 'hex' \) \)/
   )
-  assert.match(migration, /CHECK \(bridge_challenge_key = bridge_challenge_identity\)/)
+  assert.match(
+    migration,
+    /CHECK \(bridge_challenge_key = bridge_challenge_identity\)/
+  )
   assert.match(migration, /CHECK \(intent_input_index = bitcoin_input_index\)/)
   assert.match(
     migration,
@@ -418,10 +511,19 @@ test("records immutable activation-blocking alerts at bounded ledger caps", () =
     migration,
     /series_id bytea NOT NULL CHECK \(octet_length\(series_id\) = 32\)/
   )
-  assert.match(
-    migration,
-    /code text NOT NULL CHECK \(code IN \( 'generation-cap-exhausted', 'signed-variant-cap-exhausted', 'signed-state-quarantined', 'provenance-reconciliation-incident' \)\)/
-  )
+  for (const code of [
+    "generation-cap-exhausted",
+    "signed-variant-cap-exhausted",
+    "signed-state-quarantined",
+    "late-signed-artifact-captured",
+    "escaped-signed-envelope-captured",
+    "reservation-release-failed",
+    "reservation-state-ambiguous",
+    "nonce-reservation-cap-exhausted",
+    "provenance-reconciliation-incident",
+  ]) {
+    assert.match(migration, new RegExp(`'${code}'`))
+  }
   assert.match(
     migration,
     /activation_blocking boolean NOT NULL CHECK \(activation_blocking\)/
@@ -436,11 +538,19 @@ test("records immutable activation-blocking alerts at bounded ledger caps", () =
   )
   assert.match(
     migration,
-    /expected_status NOT IN \('generation-required', 'cancelled-reorg'\)/
+    /expected_status NOT IN \( 'generation-required', 'cancelled-reorg', 'cancelled-provenance-invalidated' \)/
   )
   assert.match(
     migration,
     /critical alert is not bound to the exact P2TR challenge series/
+  )
+  assert.match(
+    migration,
+    /late signer alert requires an immutable signed artifact/
+  )
+  assert.match(
+    migration,
+    /reservation release alert requires an immutable allocator contract mismatch/
   )
   assert.match(
     migration,
@@ -449,6 +559,37 @@ test("records immutable activation-blocking alerts at bounded ledger caps", () =
   assert.match(
     migration,
     /BEFORE UPDATE OR DELETE ON p2tr_signature_fraud_challenge_critical_alert/
+  )
+})
+
+test("serializes nonce-release and signer I/O through a durable barrier", () => {
+  assert.match(
+    migration,
+    /CREATE TABLE p2tr_signature_fraud_nonce_allocator_safety_barrier/
+  )
+  assert.match(
+    migration,
+    /unresolved_release_count integer NOT NULL DEFAULT 0/
+  )
+  assert.match(
+    migration,
+    /p2tr_signature_fraud_register_pending_nonce_release_trigger AFTER INSERT/
+  )
+  assert.match(
+    migration,
+    /active_signer_invocation_count = active_signer_invocation_count \+ 1/
+  )
+  assert.match(
+    migration,
+    /active_signer_invocation_count = active_signer_invocation_count - 1/
+  )
+  assert.match(
+    migration,
+    /p2tr_signature_fraud_apply_nonce_release_result_barrier_trigger AFTER INSERT/
+  )
+  assert.match(
+    migration,
+    /contract_mismatch_blocked = contract_mismatch_blocked OR NEW.result_kind = 'contract-mismatch'/
   )
 })
 
