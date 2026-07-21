@@ -9,6 +9,7 @@ import {
   calculateP2TREvidenceContentDigest,
   calculateP2TREvidenceObjectDigest,
   calculateP2TRReadinessExportStreamLeafDigest,
+  isP2TRPostgresTransactionConfirmedAbortError,
   PostgresP2TRCanonicalIndexStore,
   verifyP2TRReadinessExportObjectFrames,
 } from "../src/PostgresP2TRCanonicalIndexStore.js"
@@ -205,7 +206,140 @@ describe("PostgresP2TRCanonicalIndexStore", () => {
     assert.equal(client.releaseArgument, beginError)
   })
 
-  it("destroys a client and reports an unknown outcome after COMMIT fails", async () => {
+  it("surfaces a swallowed query serialization abort without replaying the callback", async () => {
+    const queryError = Object.assign(new Error("serialization abort"), {
+      code: "40001",
+    })
+    const client = new FakeClient({ "SELECT retryable": queryError })
+    const store = new PostgresP2TRCanonicalIndexStore(
+      new FakePool(client),
+      storeOptions()
+    )
+    const adapter =
+      store.createP2TRSignatureFraudWatchtowerTransactionalAdapter(
+        (session) => ({ query: () => session.query("SELECT retryable") })
+      )
+    let invocations = 0
+
+    await assert.rejects(
+      store.runInP2TRSignatureFraudWatchtowerTransaction(async () => {
+        invocations++
+        await assert.rejects(adapter.query(), (error) => error === queryError)
+        return "swallowed"
+      }),
+      (error) => {
+        assert.equal(isP2TRPostgresTransactionConfirmedAbortError(error), true)
+        if (!isP2TRPostgresTransactionConfirmedAbortError(error)) return false
+        assert.equal(error.reason, "retryable-sqlstate")
+        assert.equal(error.sqlState, "40001")
+        assert.equal(error.postgresError, queryError)
+        assert.equal(error.operationError, queryError)
+        return true
+      }
+    )
+
+    assert.equal(invocations, 1)
+    assert.equal(client.statements.at(-1), "ROLLBACK")
+    assert.equal(client.statements.includes("COMMIT"), false)
+    assert.equal(client.releaseArgument, undefined)
+  })
+
+  it("surfaces the original query abort after a callback wraps it", async () => {
+    const queryError = Object.assign(new Error("deadlock abort"), {
+      code: "40P01",
+    })
+    const client = new FakeClient({ "SELECT retryable": queryError })
+    const store = new PostgresP2TRCanonicalIndexStore(
+      new FakePool(client),
+      storeOptions()
+    )
+    const adapter =
+      store.createP2TRSignatureFraudWatchtowerTransactionalAdapter(
+        (session) => ({ query: () => session.query("SELECT retryable") })
+      )
+    let wrapper: Error | undefined
+
+    await assert.rejects(
+      store.runInP2TRSignatureFraudWatchtowerTransaction(async () => {
+        try {
+          await adapter.query()
+        } catch (error) {
+          wrapper = new Error("wrapped database failure", { cause: error })
+          throw wrapper
+        }
+      }),
+      (error) => {
+        assert.equal(isP2TRPostgresTransactionConfirmedAbortError(error), true)
+        if (!isP2TRPostgresTransactionConfirmedAbortError(error)) return false
+        assert.equal(error.sqlState, "40P01")
+        assert.equal(error.postgresError, queryError)
+        assert.equal(error.operationError, wrapper)
+        return true
+      }
+    )
+    assert.equal(client.statements.at(-1), "ROLLBACK")
+  })
+
+  it("never infers a confirmed abort from an arbitrary callback error code", async () => {
+    const callbackError = Object.assign(new Error("external callback failed"), {
+      code: "40001",
+    })
+    const client = new FakeClient()
+    const store = new PostgresP2TRCanonicalIndexStore(
+      new FakePool(client),
+      storeOptions()
+    )
+    let invocations = 0
+
+    await assert.rejects(
+      store.runInP2TRSignatureFraudWatchtowerTransaction(async () => {
+        invocations++
+        throw callbackError
+      }),
+      (error) => {
+        assert.equal(error, callbackError)
+        assert.equal(isP2TRPostgresTransactionConfirmedAbortError(error), false)
+        return true
+      }
+    )
+
+    assert.equal(invocations, 1)
+    assert.equal(client.statements.at(-1), "ROLLBACK")
+  })
+
+  it("surfaces a server 40001 during COMMIT as a confirmed abort", async () => {
+    const commitError = Object.assign(new Error("serialization at commit"), {
+      code: "40001",
+    })
+    const client = new FakeClient({ COMMIT: commitError })
+    const store = new PostgresP2TRCanonicalIndexStore(
+      new FakePool(client),
+      storeOptions()
+    )
+    let invocations = 0
+
+    await assert.rejects(
+      store.runInP2TRSignatureFraudWatchtowerTransaction(async () => {
+        invocations++
+        return "result"
+      }),
+      (error) => {
+        assert.equal(isP2TRPostgresTransactionConfirmedAbortError(error), true)
+        if (!isP2TRPostgresTransactionConfirmedAbortError(error)) return false
+        assert.equal(error.reason, "retryable-sqlstate")
+        assert.equal(error.sqlState, "40001")
+        assert.equal(error.postgresError, commitError)
+        return true
+      }
+    )
+
+    assert.equal(invocations, 1)
+    assert.equal(client.statements.at(-1), "COMMIT")
+    assert.equal(client.statements.includes("ROLLBACK"), false)
+    assert.equal(client.releaseArgument, undefined)
+  })
+
+  it("keeps an uncoded COMMIT transport failure outcome unknown", async () => {
     const commitError = new Error("commit response lost")
     const client = new FakeClient({ COMMIT: commitError })
     const store = new PostgresP2TRCanonicalIndexStore(
@@ -215,12 +349,107 @@ describe("PostgresP2TRCanonicalIndexStore", () => {
 
     await assert.rejects(
       store.runInP2TRSignatureFraudWatchtowerTransaction(async () => "result"),
-      /COMMIT failed; transaction outcome is unknown/
+      (error) => {
+        assert.match(String(error), /transaction outcome is unknown/)
+        assert.equal(isP2TRPostgresTransactionConfirmedAbortError(error), false)
+        return true
+      }
     )
 
     assert.equal(client.statements.at(-1), "COMMIT")
     assert.equal(client.statements.includes("ROLLBACK"), false)
     assert.equal(client.releaseArgument, commitError)
+  })
+
+  it("surfaces an explicit ROLLBACK command tag from COMMIT as confirmed", async () => {
+    const client = new FakeClient({}, { COMMIT: "ROLLBACK" })
+    const store = new PostgresP2TRCanonicalIndexStore(
+      new FakePool(client),
+      storeOptions()
+    )
+
+    await assert.rejects(
+      store.runInP2TRSignatureFraudWatchtowerTransaction(async () => "result"),
+      (error) => {
+        assert.equal(isP2TRPostgresTransactionConfirmedAbortError(error), true)
+        if (!isP2TRPostgresTransactionConfirmedAbortError(error)) return false
+        assert.equal(error.reason, "rollback-command")
+        assert.equal(error.sqlState, undefined)
+        return true
+      }
+    )
+
+    assert.equal(client.statements.at(-1), "COMMIT")
+    assert.equal(client.statements.includes("ROLLBACK"), false)
+    assert.equal(client.releaseArgument, undefined)
+  })
+
+  it("does not brand an abort when its explicit ROLLBACK fails", async () => {
+    const rollbackError = new Error("rollback response lost")
+    const queryError = Object.assign(new Error("serialization abort"), {
+      code: "40001",
+    })
+    const client = new FakeClient({
+      "SELECT retryable": queryError,
+      ROLLBACK: rollbackError,
+    })
+    const store = new PostgresP2TRCanonicalIndexStore(
+      new FakePool(client),
+      storeOptions()
+    )
+    const adapter =
+      store.createP2TRSignatureFraudWatchtowerTransactionalAdapter(
+        (session) => ({ query: () => session.query("SELECT retryable") })
+      )
+
+    await assert.rejects(
+      store.runInP2TRSignatureFraudWatchtowerTransaction(() => adapter.query()),
+      (error) => {
+        assert.equal(error, queryError)
+        assert.equal(isP2TRPostgresTransactionConfirmedAbortError(error), false)
+        return true
+      }
+    )
+
+    assert.equal(client.releaseArgument, rollbackError)
+  })
+
+  it("tracks a nested query abort in the outer AsyncLocalStorage transaction", async () => {
+    const queryError = Object.assign(new Error("serialization abort"), {
+      code: "40001",
+    })
+    const client = new FakeClient({ "SELECT retryable": queryError })
+    const store = new PostgresP2TRCanonicalIndexStore(
+      new FakePool(client),
+      storeOptions()
+    )
+    const adapter =
+      store.createP2TRSignatureFraudWatchtowerTransactionalAdapter(
+        (session) => ({ query: () => session.query("SELECT retryable") })
+      )
+    let outerInvocations = 0
+    let nestedInvocations = 0
+
+    await assert.rejects(
+      store.runInP2TRSignatureFraudWatchtowerTransaction(async () => {
+        outerInvocations++
+        await store.runInP2TRSignatureFraudWatchtowerTransaction(async () => {
+          nestedInvocations++
+          await adapter.query()
+        })
+      }),
+      (error) => isP2TRPostgresTransactionConfirmedAbortError(error)
+    )
+
+    assert.equal(outerInvocations, 1)
+    assert.equal(nestedInvocations, 1)
+    assert.equal(
+      client.statements.filter(
+        (statement) => statement === "BEGIN ISOLATION LEVEL SERIALIZABLE"
+      ).length,
+      1
+    )
+    assert.equal(client.statements.at(-1), "ROLLBACK")
   })
 
   it("creates store-owned adapters with a transaction-scoped query capability", async () => {
@@ -361,7 +590,10 @@ class FakeClient implements P2TRPostgresClient {
   released = false
   releaseArgument?: Error | boolean
 
-  constructor(private readonly failures: Record<string, Error> = {}) {}
+  constructor(
+    private readonly failures: Record<string, Error> = {},
+    private readonly commandTags: Record<string, string> = {}
+  ) {}
 
   async query<Row = Record<string, unknown>>(
     text: string,
@@ -405,7 +637,12 @@ class FakeClient implements P2TRPostgresClient {
         rowCount: 1,
       }
     }
-    return { rows: [], rowCount: 0 }
+    const command = this.commandTags[text]
+    return {
+      rows: [],
+      rowCount: 0,
+      ...(command === undefined ? {} : { command }),
+    }
   }
 
   release(error?: Error | boolean): void {
