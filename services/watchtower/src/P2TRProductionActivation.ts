@@ -346,7 +346,13 @@ export type P2TRProductionActivationManifest = {
       sourceOperatorFingerprint: string
       minimumGeneration: number
     }
-    quarantineJournalProtocolID: string
+    quarantineJournal: {
+      protocolID: string
+      storeID: string
+      storeFingerprint: string
+      clusterFingerprint: string
+      minimumGeneration: number
+    }
     exactRetainedGroupInventoryRequired: true
     finalizedReservationReceiptRequired: true
     exactReservationIdentityRequired: true
@@ -588,6 +594,9 @@ export type P2TRProductionFrostHandshakeState = {
   }
   quarantineJournal: {
     protocolID: string
+    storeID: string
+    storeFingerprint: string
+    clusterFingerprint: string
     root: string
     generation: number
     currentQuarantineCount: 0
@@ -778,7 +787,7 @@ export class P2TRProductionActivationGate {
       this.manifest.frostSigner.attestationSignerKeyHash
     )
     assertOutboxHandshake(outboxHandshake.payload.state, this.manifest.outbox)
-    assertFrostHandshake(
+    assertP2TRProductionFrostHandshake(
       frostHandshake.payload.state,
       this.manifest.frostSigner,
       ethereum.frostWalletGroupInventory
@@ -1452,6 +1461,94 @@ function validateManifestShape(
   }
   address(frost.completeRouterAddress, "FROST COMPLETE router")
   address(frost.authorizationRegistryAddress, "FROST authorization registry")
+  boundedString(frost.canonicalJournal.storeID, 255, "FROST journal store ID")
+  bytes32(
+    frost.canonicalJournal.storeFingerprint,
+    "FROST journal store fingerprint"
+  )
+  bytes32(
+    frost.canonicalJournal.clusterFingerprint,
+    "FROST journal cluster fingerprint"
+  )
+  ethereumPoint(frost.canonicalJournal.checkpoint, "FROST journal checkpoint")
+  bytes32(
+    frost.canonicalJournal.descriptorSetHash,
+    "FROST journal descriptor set"
+  )
+  boundedString(
+    frost.canonicalJournal.sourceTrustDomainID,
+    128,
+    "FROST journal source trust domain"
+  )
+  bytes32(
+    frost.canonicalJournal.sourceEndpointFingerprint,
+    "FROST journal source endpoint"
+  )
+  bytes32(
+    frost.canonicalJournal.sourceOperatorFingerprint,
+    "FROST journal source operator"
+  )
+  nonNegativeInteger(
+    frost.canonicalJournal.minimumGeneration,
+    "FROST journal minimum generation"
+  )
+  bytes32(frost.quarantineJournal.protocolID, "FROST quarantine protocol")
+  boundedString(
+    frost.quarantineJournal.storeID,
+    255,
+    "FROST quarantine store ID"
+  )
+  bytes32(
+    frost.quarantineJournal.storeFingerprint,
+    "FROST quarantine store fingerprint"
+  )
+  bytes32(
+    frost.quarantineJournal.clusterFingerprint,
+    "FROST quarantine cluster fingerprint"
+  )
+  nonNegativeInteger(
+    frost.quarantineJournal.minimumGeneration,
+    "FROST quarantine minimum generation"
+  )
+  if (
+    frost.canonicalJournal.storeID === frost.quarantineJournal.storeID ||
+    bytes32(
+      frost.canonicalJournal.storeFingerprint,
+      "FROST canonical store fingerprint"
+    ) ===
+      bytes32(
+        frost.quarantineJournal.storeFingerprint,
+        "FROST quarantine store fingerprint"
+      ) ||
+    bytes32(
+      frost.canonicalJournal.clusterFingerprint,
+      "FROST canonical cluster fingerprint"
+    ) ===
+      bytes32(
+        frost.quarantineJournal.clusterFingerprint,
+        "FROST quarantine cluster fingerprint"
+      ) ||
+    bytes32(
+      frost.durableSessionStoreFingerprint,
+      "FROST durable session store fingerprint"
+    ) ===
+      bytes32(
+        frost.canonicalJournal.storeFingerprint,
+        "FROST canonical store fingerprint"
+      ) ||
+    bytes32(
+      frost.durableSessionStoreFingerprint,
+      "FROST durable session store fingerprint"
+    ) ===
+      bytes32(
+        frost.quarantineJournal.storeFingerprint,
+        "FROST quarantine store fingerprint"
+      )
+  ) {
+    throw new Error(
+      "FROST canonical, quarantine, and session stores must be independent"
+    )
+  }
   if (
     frost.threshold !== 51 ||
     frost.maximumGroupSize !== 100 ||
@@ -1541,7 +1638,7 @@ function validateManifestPolicy(
     ],
     [
       "FROST quarantine journal",
-      manifest.frostSigner.quarantineJournalProtocolID,
+      manifest.frostSigner.quarantineJournal.protocolID,
       expected.frostQuarantineJournalProtocolID,
     ],
   ]
@@ -2003,7 +2100,7 @@ function assertOutboxHandshake(
   }
 }
 
-function assertFrostHandshake(
+export function assertP2TRProductionFrostHandshake(
   actual: P2TRProductionFrostHandshakeState,
   expected: Readonly<P2TRProductionActivationManifest["frostSigner"]>,
   canonicalInventory: P2TRFrostWalletGroupInventory
@@ -2013,6 +2110,10 @@ function assertFrostHandshake(
   )
   const ethereumInventory =
     normalizeFrostWalletGroupInventory(canonicalInventory)
+  const actualCanonicalJournal = actual.canonicalJournal
+  const expectedCanonicalJournal = expected.canonicalJournal
+  const actualQuarantineJournal = actual.quarantineJournal
+  const expectedQuarantineJournal = expected.quarantineJournal
   if (
     bytes32(actual.protocolID, "FROST handshake protocol") !==
       bytes32(expected.protocolID, "manifest FROST protocol") ||
@@ -2046,6 +2147,173 @@ function assertFrostHandshake(
       bytes32(
         expected.retainedGroupInventoryProtocolID,
         "manifest retained-group inventory protocol"
+      ) ||
+    boundedString(
+      actualCanonicalJournal.storeID,
+      255,
+      "FROST handshake journal store ID"
+    ) !==
+      boundedString(
+        expectedCanonicalJournal.storeID,
+        255,
+        "manifest FROST journal store ID"
+      ) ||
+    bytes32(
+      actualCanonicalJournal.storeFingerprint,
+      "FROST handshake journal store fingerprint"
+    ) !==
+      bytes32(
+        expectedCanonicalJournal.storeFingerprint,
+        "manifest FROST journal store fingerprint"
+      ) ||
+    bytes32(
+      actualCanonicalJournal.clusterFingerprint,
+      "FROST handshake journal cluster fingerprint"
+    ) !==
+      bytes32(
+        expectedCanonicalJournal.clusterFingerprint,
+        "manifest FROST journal cluster fingerprint"
+      ) ||
+    canonicalJSON(
+      ethereumPoint(
+        actualCanonicalJournal.checkpoint,
+        "FROST handshake journal checkpoint"
+      )
+    ) !==
+      canonicalJSON(
+        ethereumPoint(
+          expectedCanonicalJournal.checkpoint,
+          "manifest FROST journal checkpoint"
+        )
+      ) ||
+    canonicalJSON(
+      ethereumPoint(
+        actualCanonicalJournal.current,
+        "FROST handshake journal current point"
+      )
+    ) !== canonicalJSON(signerInventory.point) ||
+    bytes32(
+      actualCanonicalJournal.descriptorSetHash,
+      "FROST handshake journal descriptor set"
+    ) !==
+      bytes32(
+        expectedCanonicalJournal.descriptorSetHash,
+        "manifest FROST journal descriptor set"
+      ) ||
+    boundedString(
+      actualCanonicalJournal.sourceTrustDomainID,
+      128,
+      "FROST handshake journal source trust domain"
+    ) !==
+      boundedString(
+        expectedCanonicalJournal.sourceTrustDomainID,
+        128,
+        "manifest FROST journal source trust domain"
+      ) ||
+    bytes32(
+      actualCanonicalJournal.sourceEndpointFingerprint,
+      "FROST handshake journal source endpoint"
+    ) !==
+      bytes32(
+        expectedCanonicalJournal.sourceEndpointFingerprint,
+        "manifest FROST journal source endpoint"
+      ) ||
+    bytes32(
+      actualCanonicalJournal.sourceOperatorFingerprint,
+      "FROST handshake journal source operator"
+    ) !==
+      bytes32(
+        expectedCanonicalJournal.sourceOperatorFingerprint,
+        "manifest FROST journal source operator"
+      ) ||
+    nonNegativeInteger(
+      actualCanonicalJournal.generation,
+      "FROST handshake journal generation"
+    ) !== signerInventory.snapshotGeneration ||
+    actualCanonicalJournal.generation <
+      nonNegativeInteger(
+        expectedCanonicalJournal.minimumGeneration,
+        "manifest FROST journal minimum generation"
+      ) ||
+    actualCanonicalJournal.complete !== true ||
+    bytes32(
+      actualQuarantineJournal.protocolID,
+      "FROST handshake quarantine protocol"
+    ) !==
+      bytes32(
+        expectedQuarantineJournal.protocolID,
+        "manifest FROST quarantine protocol"
+      ) ||
+    boundedString(
+      actualQuarantineJournal.storeID,
+      255,
+      "FROST handshake quarantine store ID"
+    ) !==
+      boundedString(
+        expectedQuarantineJournal.storeID,
+        255,
+        "manifest FROST quarantine store ID"
+      ) ||
+    bytes32(
+      actualQuarantineJournal.storeFingerprint,
+      "FROST handshake quarantine store fingerprint"
+    ) !==
+      bytes32(
+        expectedQuarantineJournal.storeFingerprint,
+        "manifest FROST quarantine store fingerprint"
+      ) ||
+    bytes32(
+      actualQuarantineJournal.clusterFingerprint,
+      "FROST handshake quarantine cluster fingerprint"
+    ) !==
+      bytes32(
+        expectedQuarantineJournal.clusterFingerprint,
+        "manifest FROST quarantine cluster fingerprint"
+      ) ||
+    nonNegativeInteger(
+      actualQuarantineJournal.generation,
+      "FROST handshake quarantine generation"
+    ) <
+      nonNegativeInteger(
+        expectedQuarantineJournal.minimumGeneration,
+        "manifest FROST quarantine minimum generation"
+      ) ||
+    bytes32(actualQuarantineJournal.root, "FROST quarantine root") ===
+      ZERO_WORD ||
+    actualQuarantineJournal.currentQuarantineCount !== 0 ||
+    actualQuarantineJournal.complete !== true ||
+    actualCanonicalJournal.storeID === actualQuarantineJournal.storeID ||
+    bytes32(
+      actualCanonicalJournal.storeFingerprint,
+      "FROST handshake canonical store fingerprint"
+    ) ===
+      bytes32(
+        actualQuarantineJournal.storeFingerprint,
+        "FROST handshake quarantine store fingerprint"
+      ) ||
+    bytes32(
+      actualCanonicalJournal.clusterFingerprint,
+      "FROST handshake canonical cluster fingerprint"
+    ) ===
+      bytes32(
+        actualQuarantineJournal.clusterFingerprint,
+        "FROST handshake quarantine cluster fingerprint"
+      ) ||
+    bytes32(
+      actual.durableSessionStoreFingerprint,
+      "FROST handshake durable session store fingerprint"
+    ) ===
+      bytes32(
+        actualCanonicalJournal.storeFingerprint,
+        "FROST handshake canonical store fingerprint"
+      ) ||
+    bytes32(
+      actual.durableSessionStoreFingerprint,
+      "FROST handshake durable session store fingerprint"
+    ) ===
+      bytes32(
+        actualQuarantineJournal.storeFingerprint,
+        "FROST handshake quarantine store fingerprint"
       ) ||
     canonicalJSON(signerInventory) !== canonicalJSON(ethereumInventory) ||
     actual.finalizedReservationReadbackEnforced !== true ||
