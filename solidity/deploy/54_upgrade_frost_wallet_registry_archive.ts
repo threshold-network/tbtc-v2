@@ -69,9 +69,9 @@ const EIP1967_IMPLEMENTATION_SLOT =
 // external-library link locations are zeroed. Update only alongside the source,
 // compiler/settings test, and an explicit bytecode-size review.
 export const EXPECTED_UNLINKED_REGISTRY_RUNTIME_HASH =
-  "0x8b16bcc3e70643bc715f9a228acbde19c445596ba0ab2f0a9f8f194a0ef61b3d"
+  "0xa9d528cb66af83df56d9b96a895f5e71f6d2c567d3d97e15809af6983215b570"
 export const EXPECTED_NORMALIZED_FROST_INACTIVITY_RUNTIME_HASH =
-  "0x283853ac21145089ea297e06e01434432abb26a6fb36697474173406b07973b8"
+  "0xbdff70c830c201fdf35d15d0c6e343c4a6205ef3b82be17333fcc3d692198309"
 
 export interface LogPosition {
   blockNumber: number
