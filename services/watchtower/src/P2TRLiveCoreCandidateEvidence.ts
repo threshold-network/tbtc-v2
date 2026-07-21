@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto"
 import {
   assertP2TRVerifiedCompleteCandidateIdentity,
+  normalizeP2TRCompleteBridgeDomain,
   type P2TRCompleteBridgeDomain,
   type P2TRCompleteCandidateIdentity,
 } from "./P2TRCompleteCandidateIdentity.js"
@@ -81,8 +82,9 @@ export async function verifyP2TRLiveCoreCandidateEvidence(
   bridgeDomain: P2TRCompleteBridgeDomain,
   policy: P2TRLiveCoreCandidateVerificationPolicy
 ): Promise<P2TRVerifiedLiveCoreCandidateEvidence> {
-  const now = nonNegativeInteger(
-    (policy.nowUnixMs ?? Date.now)(),
+  const nowUnixMs = policy.nowUnixMs ?? Date.now
+  const verificationStartedAt = nonNegativeInteger(
+    nowUnixMs(),
     "live-Core verification time"
   )
   const payload = assertP2TRVerifiedReconcilerCandidateAttestation(
@@ -91,9 +93,16 @@ export async function verifyP2TRLiveCoreCandidateEvidence(
       requestNonce: attestation.payload.requestNonce,
       requestBindingDigest: attestation.payload.requestBindingDigest,
       minimumExportFenceExclusive: attestation.payload.export.exportFence - 1,
-      nowUnixMs: now,
+      nowUnixMs: verificationStartedAt,
     }
   )
+  const normalizedBridgeDomain = normalizeP2TRCompleteBridgeDomain(bridgeDomain)
+  if (
+    canonicalJSON(normalizedBridgeDomain) !==
+    canonicalJSON(attestation.completeIdentity.domain)
+  ) {
+    throw new Error("Live-Core verification names another Bridge domain")
+  }
   const expectedSource = normalizeSource(policy.expectedSource)
   const actualProviderSource = normalizeSource(provider)
   if (canonicalJSON(actualProviderSource) !== canonicalJSON(expectedSource)) {
@@ -109,19 +118,36 @@ export async function verifyP2TRLiveCoreCandidateEvidence(
   ) {
     throw new Error("Live-Core verifier is not independent from the reconciler")
   }
+  if (actualProviderSource.network !== payload.export.snapshot.network) {
+    throw new Error(
+      "Live-Core verifier is not bound to the reconciler Bitcoin network"
+    )
+  }
 
   const identity = assertP2TRVerifiedCompleteCandidateIdentity(
     attestation.completeIdentity
   )
-  const receipt = normalizeReceipt(
-    await provider.verifyCandidateAgainstLiveCore({
-      requestNonce: payload.requestNonce,
-      reconcilerAttestationDigest: attestation.attestationDigest,
-      exportFence: payload.export.exportFence,
-      bridgeDomain,
-      identity,
-    })
+  const receiptValue = await provider.verifyCandidateAgainstLiveCore({
+    requestNonce: payload.requestNonce,
+    reconcilerAttestationDigest: attestation.attestationDigest,
+    exportFence: payload.export.exportFence,
+    bridgeDomain: normalizedBridgeDomain,
+    identity,
+  })
+  const verificationCompletedAt = nonNegativeInteger(
+    nowUnixMs(),
+    "live-Core verification completion time"
   )
+  if (verificationCompletedAt < verificationStartedAt) {
+    throw new Error("Live-Core verification clock moved backwards")
+  }
+  assertP2TRVerifiedReconcilerCandidateAttestation(attestation, {
+    requestNonce: payload.requestNonce,
+    requestBindingDigest: payload.requestBindingDigest,
+    minimumExportFenceExclusive: payload.export.exportFence - 1,
+    nowUnixMs: verificationCompletedAt,
+  })
+  const receipt = normalizeReceipt(receiptValue)
   const remoteComputation = payload.export.candidate.recomputation
   const {
     auditContentRoot: _auditContentRoot,
@@ -142,8 +168,9 @@ export async function verifyP2TRLiveCoreCandidateEvidence(
     receipt.candidateConfirmations !==
       receipt.bestPoint.height - identity.blockHeight + 1 ||
     receipt.checkedAtUnixMs >
-      now + nonNegativeInteger(policy.maximumClockSkewMs, "clock skew") ||
-    receipt.expiresAtUnixMs <= now ||
+      verificationCompletedAt +
+        nonNegativeInteger(policy.maximumClockSkewMs, "clock skew") ||
+    receipt.expiresAtUnixMs <= verificationCompletedAt ||
     receipt.expiresAtUnixMs <= receipt.checkedAtUnixMs ||
     receipt.expiresAtUnixMs - receipt.checkedAtUnixMs >
       positiveInteger(
