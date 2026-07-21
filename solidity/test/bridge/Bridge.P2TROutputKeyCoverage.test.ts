@@ -42,6 +42,10 @@ describe("Bridge COMPLETE_V2 Taproot output-key coverage", () => {
     const frostRegistry = await smock.fake(
       "IFrostRegistryForP2TRPreAuthorization"
     )
+    frostRegistry.getWalletArchiveMigration.returns(4)
+    frostRegistry.getWalletArchiveMigrationManifestHash.returns(
+      keccak256(toUtf8Bytes("fresh-frost-wallet-archive"))
+    )
     const proposalValidator = await smock.fake(
       "IProposalValidatorForP2TRPreAuthorization"
     )
@@ -121,24 +125,20 @@ describe("Bridge COMPLETE_V2 Taproot output-key coverage", () => {
       ethers.utils.arrayify(initialization.digest)
     )
     await expect(
-      bridge.connect(deployer).processTaprootOutputKeyCoverage(
-        defaultAbiCoder.encode(
-          [
-            "uint8",
-            COVERAGE_AUTHORIZATION_TUPLE,
-            "bytes",
-            "bytes",
-            "bytes",
-          ],
-          [
-            0,
-            initialization.authorization,
-            initialization.sourceSignatures[0],
-            initialization.sourceSignatures[1],
-            governanceOnlySignature,
-          ]
+      bridge
+        .connect(deployer)
+        .processTaprootOutputKeyCoverage(
+          defaultAbiCoder.encode(
+            ["uint8", COVERAGE_AUTHORIZATION_TUPLE, "bytes", "bytes", "bytes"],
+            [
+              0,
+              initialization.authorization,
+              initialization.sourceSignatures[0],
+              initialization.sourceSignatures[1],
+              governanceOnlySignature,
+            ]
+          )
         )
-      )
     ).to.be.revertedWith("Invalid coverage authorization")
 
     const invalidInventory = await buildCoverageInitializationPayload(
@@ -169,8 +169,15 @@ describe("Bridge COMPLETE_V2 Taproot output-key coverage", () => {
         .processTaprootOutputKeyCoverage(initialization.payload)
     ).to.be.revertedWith("Coverage inventory already initialized")
 
-    await expect(bridge.connect(deployer).setP2TRFraudRouter(router.address)).to
-      .be.reverted
+    const activationPayload = defaultAbiCoder.encode(
+      ["uint8", "address"],
+      [8, router.address]
+    )
+    await expect(
+      bridge
+        .connect(deployer)
+        .processTaprootOutputKeyCoverage(activationPayload)
+    ).to.be.reverted
 
     const migrationPayload = defaultAbiCoder.encode(
       ["uint8", "uint64", "uint256", "bytes32", "bytes32", "bytes32[]"],
@@ -215,7 +222,9 @@ describe("Bridge COMPLETE_V2 Taproot output-key coverage", () => {
       bridge.connect(migrator).processTaprootOutputKeyCoverage(migrationPayload)
     ).to.be.reverted
 
-    await bridge.connect(deployer).setP2TRFraudRouter(router.address)
+    await bridge
+      .connect(deployer)
+      .processTaprootOutputKeyCoverage(activationPayload)
     expect(await bridge.p2trFraudRouter()).to.equal(router.address)
     expect(await router.authorizationRegistry()).to.equal(registry.address)
     expect(await registry.bridge()).to.equal(bridge.address)
@@ -250,6 +259,54 @@ describe("Bridge COMPLETE_V2 Taproot output-key coverage", () => {
     expect(state[1]).to.equal(ethers.constants.HashZero)
     expect(state[2]).to.equal(0)
     expect(state[3]).to.equal(0)
+  })
+
+  it("fails closed until the FROST wallet archive is finalized", async () => {
+    const { frostRegistry, registry, router } = await deployCompleteRouter()
+    const initialization = await buildCoverageInitializationPayload(
+      bridge,
+      migrator.address,
+      ethers.constants.HashZero,
+      0,
+      registry.address,
+      router.address,
+      migrator
+    )
+    await bridge
+      .connect(deployer)
+      .processTaprootOutputKeyCoverage(initialization.payload)
+    const activationPayload = defaultAbiCoder.encode(
+      ["uint8", "address"],
+      [8, router.address]
+    )
+
+    frostRegistry.getWalletArchiveMigration.returns(2)
+    await expect(
+      bridge
+        .connect(deployer)
+        .processTaprootOutputKeyCoverage(activationPayload)
+    ).to.be.reverted
+
+    frostRegistry.getWalletArchiveMigration.returns(3)
+    frostRegistry.getWalletArchiveMigrationManifestHash.returns(
+      ethers.constants.HashZero
+    )
+    await expect(
+      bridge
+        .connect(deployer)
+        .processTaprootOutputKeyCoverage(activationPayload)
+    ).to.be.reverted
+
+    frostRegistry.getWalletArchiveMigrationManifestHash.returns(
+      keccak256(toUtf8Bytes("completed-frost-wallet-archive"))
+    )
+    await expect(
+      bridge
+        .connect(deployer)
+        .processTaprootOutputKeyCoverage(activationPayload)
+    )
+      .to.emit(bridge, "P2TRFraudRouterSet")
+      .withArgs(router.address)
   })
 
   it("terminally resolves a swept snapshot leaf without locking activation", async () => {
@@ -320,10 +377,7 @@ describe("Bridge COMPLETE_V2 Taproot output-key coverage", () => {
       .withArgs(0, depositKey, walletID, outputKey, 1)
     await expect(
       bridge.connect(migrator).processTaprootOutputKeyCoverage(resolutionBatch)
-    ).not.to.emit(
-      bridge,
-      "TaprootOutputKeyCoverageLeafTerminallyResolved"
-    )
+    ).not.to.emit(bridge, "TaprootOutputKeyCoverageLeafTerminallyResolved")
     expect(
       defaultAbiCoder.decode(
         ["bytes32"],
@@ -332,7 +386,11 @@ describe("Bridge COMPLETE_V2 Taproot output-key coverage", () => {
         )
       )[0]
     ).to.equal(ethers.constants.HashZero)
-    await bridge.connect(deployer).setP2TRFraudRouter(router.address)
+    await bridge
+      .connect(deployer)
+      .processTaprootOutputKeyCoverage(
+        defaultAbiCoder.encode(["uint8", "address"], [8, router.address])
+      )
   })
 
   it("accepts EIP-1271 authorization and exposes the signed watermark", async () => {

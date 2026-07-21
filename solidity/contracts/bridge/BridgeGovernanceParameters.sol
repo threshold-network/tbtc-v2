@@ -15,6 +15,17 @@
 
 pragma solidity 0.8.17;
 
+interface IBridgeCompleteP2TRGovernance {
+    function processTaprootOutputKeyCoverage(bytes calldata payload)
+        external
+        returns (bytes memory);
+
+    function processEcdsaFraudRouterCutover(
+        uint8 action,
+        bytes calldata payload
+    ) external;
+}
+
 /// @title Bridge Governance library for storing updatable parameters.
 library BridgeGovernanceParameters {
     struct TreasuryData {
@@ -1570,5 +1581,29 @@ library BridgeGovernanceParameters {
 
         self.newTreasury = address(0);
         self.treasuryChangeInitiated = 0;
+    }
+
+    /// @dev Externalized from BridgeGovernance to preserve its EIP-170 reserve.
+    ///      The library runs by delegatecall, so the subsequent Bridge call is
+    ///      still authenticated as originating from BridgeGovernance.
+    function processTaprootOutputKeyCoverage(
+        address bridge,
+        bytes calldata payload
+    ) external {
+        IBridgeCompleteP2TRGovernance(bridge).processTaprootOutputKeyCoverage(
+            payload
+        );
+    }
+
+    /// @dev See `processTaprootOutputKeyCoverage` above.
+    function migrateLegacyFraudChallenges(
+        address bridge,
+        uint8 routerKind,
+        uint256[] calldata challengeKeys
+    ) external {
+        IBridgeCompleteP2TRGovernance(bridge).processEcdsaFraudRouterCutover(
+            3,
+            abi.encode(routerKind, challengeKeys)
+        );
     }
 }

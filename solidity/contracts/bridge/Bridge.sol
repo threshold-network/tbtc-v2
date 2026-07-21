@@ -2611,36 +2611,6 @@ contract Bridge is
         );
     }
 
-    /// @notice Governance helper transferring unresolved legacy fraud
-    ///         challenges and their aggregate ETH escrow to a router sidecar.
-    /// @param challengeKeys Identifiers of legacy challenges (from
-    ///        `BridgeState.fraudChallenges`) to migrate.
-    /// @dev Requirements:
-    ///      - Caller must be governance,
-    ///      - `routerKind` must be 0 (ECDSA) or 1 (P2TR),
-    ///      - The selected router must be set,
-    ///      - Every key must reference an unresolved legacy challenge.
-    function migrateLegacyFraudChallenges(
-        uint8 routerKind,
-        uint256[] calldata challengeKeys
-    ) external onlyGovernance {
-        self.migrateLegacyFraudChallenges(routerKind, challengeKeys);
-    }
-
-    /// @notice Sets the P2TRSignatureFraudRouter sidecar address.
-    /// @dev Same one-time-setter pattern as `setEcdsaFraudRouter`.
-    ///      The router and Bridge are deployed together at the
-    ///      cutover; the two sidecars are wired independently.
-    function setP2TRFraudRouter(address p2trFraudRouter)
-        external
-        onlyGovernance
-    {
-        P2TRReservation.setCompleteP2TRFraudRouter(
-            self,
-            p2trFraudRouter
-        );
-    }
-
     /// @notice Initializes, migrates, or reads the one-shot historical
     ///         Taproot output-key coverage inventory. See P2TRReservation for
     ///         the versioned action payloads.

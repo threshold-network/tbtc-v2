@@ -191,12 +191,15 @@ export const fixture = deployments.createFixture(
       )
       await bridgeGovernance
         .connect(governance)
-        .processTaprootOutputKeyCoverage(
-          coverageInitialization.payload
-        )
+        .processTaprootOutputKeyCoverage(coverageInitialization.payload)
       await bridgeGovernance
         .connect(governance)
-        .setP2TRFraudRouter(p2trFraudRouter.address)
+        .processTaprootOutputKeyCoverage(
+          ethers.utils.defaultAbiCoder.encode(
+            ["uint8", "address"],
+            [8, p2trFraudRouter.address]
+          )
+        )
     } else {
       p2trFraudRouter = (await ethers.getContractAt(
         "P2TRSignatureFraudRouter",

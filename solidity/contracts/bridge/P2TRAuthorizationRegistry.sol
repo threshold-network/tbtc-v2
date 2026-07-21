@@ -38,14 +38,12 @@ interface IP2TRAuthorizationRegistry {
 
     /// @notice Monotonic sequence assigned when an identity is first
     ///         authorized. Zero means the identity has never been authorized.
-    function authorizationSequenceByChallengeIdentity(
-        bytes32 challengeIdentity
-    ) external view returns (uint256);
-
-    function authorizedChallengeIdentityCount()
+    function authorizationSequenceByChallengeIdentity(bytes32 challengeIdentity)
         external
         view
         returns (uint256);
+
+    function authorizedChallengeIdentityCount() external view returns (uint256);
 
     function registerPreAuthorizedTransaction(
         PreAuthorization calldata authorization,
@@ -78,10 +76,7 @@ interface IP2TRAuthorizationRegistry {
 
     function activeReservationCount() external view returns (uint256);
 
-    function activeReservationAt(uint256 index)
-        external
-        view
-        returns (bytes32);
+    function activeReservationAt(uint256 index) external view returns (bytes32);
 
     function activeReservationSetVersion() external view returns (uint256);
 
@@ -147,6 +142,13 @@ interface IProposalValidatorForP2TRPreAuthorization {
 }
 
 interface IFrostRegistryForP2TRPreAuthorization {
+    function getWalletArchiveMigration() external view returns (uint8 state);
+
+    function getWalletArchiveMigrationManifestHash()
+        external
+        view
+        returns (bytes32);
+
     function getWallet(bytes32 walletID)
         external
         view
@@ -177,9 +179,7 @@ library P2TRAuthorization {
     bytes32 internal constant ReservationProtocolID =
         keccak256("tbtc/p2tr-pre-signing-reservation/threshold-v1");
     bytes32 internal constant SigningPolicyHash =
-        keccak256(
-            "tbtc/p2tr-pre-signing-policy/default-no-annex-51-seats-v1"
-        );
+        keccak256("tbtc/p2tr-pre-signing-policy/default-no-annex-51-seats-v1");
 
     /// @notice All BIP-341 fields needed to reconstruct an annex-free key-path
     ///         SIGHASH_DEFAULT for one accepted transaction input.
@@ -447,10 +447,7 @@ contract P2TRAuthorizationRegistry is IP2TRAuthorizationRegistry {
         address _proposalValidator
     ) {
         require(_bridge != address(0), "Bridge address cannot be zero");
-        require(
-            _frostRegistry != address(0),
-            "FROST registry cannot be zero"
-        );
+        require(_frostRegistry != address(0), "FROST registry cannot be zero");
         require(
             _proposalValidator != address(0),
             "Proposal validator cannot be zero"
@@ -834,10 +831,11 @@ contract P2TRAuthorizationRegistry is IP2TRAuthorizationRegistry {
         );
     }
 
-    function settleAuthorizedProof(
-        bytes32 id,
-        bytes32 transactionHash
-    ) external override returns (bytes20 walletPubKeyHash) {
+    function settleAuthorizedProof(bytes32 id, bytes32 transactionHash)
+        external
+        override
+        returns (bytes20 walletPubKeyHash)
+    {
         require(msg.sender == bridge, "Caller is not Bridge");
         Reservation storage reservation = reservations[id];
         require(
@@ -845,12 +843,9 @@ contract P2TRAuthorizationRegistry is IP2TRAuthorizationRegistry {
             "Reservation is not active"
         );
 
-        AuthorizedVariant storage variant = authorizedVariants[
-            transactionHash
-        ];
+        AuthorizedVariant storage variant = authorizedVariants[transactionHash];
         require(
-            variant.authorized &&
-                variant.reservationID == id,
+            variant.authorized && variant.reservationID == id,
             "Transaction variant is not authorized"
         );
 
@@ -874,11 +869,7 @@ contract P2TRAuthorizationRegistry is IP2TRAuthorizationRegistry {
     function settleConflictingProof(
         bytes32 transactionHash,
         bytes32 spentResourceID
-    )
-        external
-        override
-        returns (bytes32 id, bytes20 walletPubKeyHash)
-    {
+    ) external override returns (bytes32 id, bytes20 walletPubKeyHash) {
         require(msg.sender == bridge, "Caller is not Bridge");
         id = resourceReservation[spentResourceID];
         require(id != bytes32(0), "Resource is not reserved");
@@ -888,9 +879,7 @@ contract P2TRAuthorizationRegistry is IP2TRAuthorizationRegistry {
             reservation.status == ReservationStatus.Active,
             "Reservation is not active"
         );
-        AuthorizedVariant storage variant = authorizedVariants[
-            transactionHash
-        ];
+        AuthorizedVariant storage variant = authorizedVariants[transactionHash];
         require(
             !variant.authorized || variant.reservationID != id,
             "Authorized variant is not a conflict"
@@ -908,9 +897,7 @@ contract P2TRAuthorizationRegistry is IP2TRAuthorizationRegistry {
         );
     }
 
-    function _releaseResources(bytes32 id, bytes20 walletPubKeyHash)
-        internal
-    {
+    function _releaseResources(bytes32 id, bytes20 walletPubKeyHash) internal {
         bytes32[] storage resources = reservationResources[id];
         for (uint256 i = 0; i < resources.length; i++) {
             require(
@@ -945,12 +932,7 @@ contract P2TRAuthorizationRegistry is IP2TRAuthorizationRegistry {
     }
 
     /// @notice Exact number of currently active reservations.
-    function activeReservationCount()
-        external
-        view
-        override
-        returns (uint256)
-    {
+    function activeReservationCount() external view override returns (uint256) {
         return activeReservationIDs.length;
     }
 
@@ -1033,9 +1015,7 @@ contract P2TRAuthorizationRegistry is IP2TRAuthorizationRegistry {
             bool authorized
         )
     {
-        AuthorizedVariant storage variant = authorizedVariants[
-            transactionHash
-        ];
+        AuthorizedVariant storage variant = authorizedVariants[transactionHash];
         return (
             variant.reservationID,
             variant.authorizationRoot,
@@ -1062,9 +1042,7 @@ contract P2TRAuthorizationRegistry is IP2TRAuthorizationRegistry {
             bool signingAllowed
         )
     {
-        AuthorizedVariant storage variant = authorizedVariants[
-            transactionHash
-        ];
+        AuthorizedVariant storage variant = authorizedVariants[transactionHash];
         fraudDefenseAuthorized = variant.authorized;
         reservationID_ = variant.reservationID;
         authorizationRoot = variant.authorizationRoot;
@@ -1087,9 +1065,7 @@ contract P2TRAuthorizationRegistry is IP2TRAuthorizationRegistry {
         )
     {
         transactionHash = latestVariantByReservation[id];
-        AuthorizedVariant storage variant = authorizedVariants[
-            transactionHash
-        ];
+        AuthorizedVariant storage variant = authorizedVariants[transactionHash];
         authorizationSequence = variant.authorizationSequence;
         signingAllowed =
             transactionHash != bytes32(0) &&
@@ -1159,7 +1135,6 @@ contract P2TRAuthorizationRegistry is IP2TRAuthorizationRegistry {
         uint64[] calldata inputValues,
         bytes32[] calldata signingKeys
     ) internal {
-
         TransactionAggregateHashes memory hashes = _computeTransactionHashes(
             transaction,
             inputValues,
@@ -1307,16 +1282,16 @@ contract P2TRAuthorizationRegistry is IP2TRAuthorizationRegistry {
                 walletPubKeyHash
             );
         require(
-            frostRegistryAddress == frostRegistry &&
-                bridgeWalletID == walletID,
+            frostRegistryAddress == frostRegistry && bridgeWalletID == walletID,
             "Invalid FROST wallet binding"
         );
 
         (
             bytes32 membersIdsHash,
             bytes32 xOnlyOutputKey
-        ) = IFrostRegistryForP2TRPreAuthorization(frostRegistry)
-                .getWallet(walletID);
+        ) = IFrostRegistryForP2TRPreAuthorization(frostRegistry).getWallet(
+                walletID
+            );
         require(xOnlyOutputKey == walletID, "FROST wallet is not registered");
         require(
             membersIdsHash == keccak256(abi.encode(walletMembersIDs)),
