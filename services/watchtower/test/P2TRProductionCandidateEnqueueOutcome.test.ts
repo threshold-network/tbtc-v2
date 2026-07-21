@@ -4,6 +4,8 @@ import { describe, it } from "node:test"
 import {
   P2TRProductionActivationGate,
   P2TRProductionCandidateEnqueueRejectedError,
+  P2TRProductionCandidateEnqueueRetryExhaustedError,
+  assertP2TRProductionRuntimeAlertHealth,
   deriveP2TRProductionCandidateObservationID,
   type P2TRProductionActivationDependencies,
   type P2TRProductionBitcoinCandidate,
@@ -11,6 +13,10 @@ import {
   type P2TRProductionCandidateAuthorizationReceipt,
   type P2TRProductionCandidateAuthorizationToken,
   type P2TRProductionCandidateEnqueueOutcome,
+  type P2TRProductionCandidateEnqueueRetryExhaustionAlert,
+  type P2TRProductionCandidateEnqueueTransactionGuard,
+  type P2TRProductionCandidateEnqueueTransactionResolution,
+  type P2TRProductionRuntimeAlertHealth,
   type P2TRProductionStateStore,
   type P2TRProductionTransactionCoordinator,
 } from "../src/P2TRProductionActivation.js"
@@ -27,7 +33,13 @@ describe("production candidate enqueue outcomes", () => {
     const coordinator = new RollbackAwareCoordinator(sequence)
     const alerts: string[] = []
     const dispositions: string[] = []
-    const stateStore = candidateStateStore(coordinator, dispositions, sequence)
+    const journal = emptyCandidateJournal()
+    const stateStore = candidateStateStore(
+      coordinator,
+      dispositions,
+      journal,
+      sequence
+    )
     const candidateEnqueuer = {
       p2trSignatureFraudWatchtowerTransactionalStoreID: STORE_ID,
       enqueueReconciledCandidate:
@@ -66,11 +78,17 @@ describe("production candidate enqueue outcomes", () => {
 
     assert.deepEqual(alerts, ["generation-cap-exhausted"])
     assert.deepEqual(dispositions, [CAPPED_INTENT_ID])
-    assert.equal(coordinator.commits, 1)
+    assert.equal(journal.guards.length, 1)
+    assert.equal(journal.resolutions.length, 1)
+    assert.equal(journal.resolutions[0].outcomeKind, "generation-cap-exhausted")
+    assert.equal(coordinator.commits, 2)
     assert.equal(coordinator.rollbacks, 0)
     assert.deepEqual(sequence, [
+      "guard-committed",
+      "transaction-committed",
       "alert-committed",
       "disposition-committed",
+      "resolution-committed",
       "transaction-committed",
       "caller-rejected",
     ])
@@ -79,7 +97,8 @@ describe("production candidate enqueue outcomes", () => {
   it("preserves successful enqueue and one-use token consumption", async () => {
     const coordinator = new RollbackAwareCoordinator()
     const dispositions: string[] = []
-    const stateStore = candidateStateStore(coordinator, dispositions)
+    const journal = emptyCandidateJournal()
+    const stateStore = candidateStateStore(coordinator, dispositions, journal)
     const candidateEnqueuer = {
       p2trSignatureFraudWatchtowerTransactionalStoreID: STORE_ID,
       enqueueReconciledCandidate:
@@ -99,7 +118,10 @@ describe("production candidate enqueue outcomes", () => {
       ENQUEUED_INTENT_ID
     )
     assert.deepEqual(dispositions, [ENQUEUED_INTENT_ID])
-    assert.equal(coordinator.commits, 1)
+    assert.equal(journal.guards.length, 1)
+    assert.equal(journal.resolutions.length, 1)
+    assert.equal(journal.resolutions[0].outcomeKind, "enqueued")
+    assert.equal(coordinator.commits, 2)
     assert.equal(coordinator.rollbacks, 0)
     await assert.rejects(
       gate.consumeCandidateAuthorization(token, candidate),
@@ -111,7 +133,8 @@ describe("production candidate enqueue outcomes", () => {
     const coordinator = new RollbackAwareCoordinator()
     const alerts: string[] = []
     const dispositions: string[] = []
-    const stateStore = candidateStateStore(coordinator, dispositions)
+    const journal = emptyCandidateJournal()
+    const stateStore = candidateStateStore(coordinator, dispositions, journal)
     const candidateEnqueuer = {
       p2trSignatureFraudWatchtowerTransactionalStoreID: STORE_ID,
       enqueueReconciledCandidate:
@@ -133,7 +156,156 @@ describe("production candidate enqueue outcomes", () => {
     )
     assert.deepEqual(alerts, [])
     assert.deepEqual(dispositions, [])
-    assert.equal(coordinator.commits, 0)
+    assert.equal(journal.guards.length, 1)
+    assert.equal(journal.resolutions.length, 0)
+    assert.throws(
+      () =>
+        assertP2TRProductionRuntimeAlertHealth(
+          healthFor(journal),
+          MANIFEST_HASH
+        ),
+      /activation-blocking candidate enqueue alerts/
+    )
+    assert.equal(coordinator.commits, 1)
+    assert.equal(coordinator.rollbacks, 1)
+  })
+
+  it("retries the complete database-only transaction after branded PostgreSQL aborts", async () => {
+    for (const sqlState of ["40001", "40P01"] as const) {
+      const coordinator = new RollbackAwareCoordinator()
+      coordinator.failNextTransactionWith(sqlState)
+      const dispositions: string[] = []
+      const journal = emptyCandidateJournal()
+      const stateStore = candidateStateStore(coordinator, dispositions, journal)
+      let enqueueAttempts = 0
+      const candidateEnqueuer = {
+        p2trSignatureFraudWatchtowerTransactionalStoreID: STORE_ID,
+        enqueueReconciledCandidate:
+          async (): Promise<P2TRProductionCandidateEnqueueOutcome> => {
+            enqueueAttempts++
+            assert.equal(
+              coordinator.isP2TRSignatureFraudWatchtowerTransactionActive(),
+              true
+            )
+            return { kind: "enqueued", outboxIntentID: ENQUEUED_INTENT_ID }
+          },
+      }
+      const { gate, token, candidate } = gateForCandidate(
+        coordinator,
+        stateStore,
+        candidateEnqueuer,
+        3
+      )
+
+      assert.equal(
+        await gate.consumeCandidateAuthorization(token, candidate),
+        ENQUEUED_INTENT_ID
+      )
+      assert.equal(enqueueAttempts, 2)
+      assert.deepEqual(dispositions, [ENQUEUED_INTENT_ID])
+      assert.equal(journal.resolutions.length, 1)
+      assert.equal(journal.exhaustionAlerts.length, 0)
+      assert.equal(coordinator.commits, 2)
+      assert.equal(coordinator.rollbacks, 1)
+    }
+  })
+
+  it("keeps an unresolved guard and durable alert after retry exhaustion", async () => {
+    const coordinator = new RollbackAwareCoordinator()
+    coordinator.failNextTransactionWith("40001")
+    coordinator.failNextTransactionWith("40P01")
+    const dispositions: string[] = []
+    const journal = emptyCandidateJournal()
+    const stateStore = candidateStateStore(coordinator, dispositions, journal)
+    let enqueueAttempts = 0
+    const candidateEnqueuer = {
+      p2trSignatureFraudWatchtowerTransactionalStoreID: STORE_ID,
+      enqueueReconciledCandidate:
+        async (): Promise<P2TRProductionCandidateEnqueueOutcome> => {
+          enqueueAttempts++
+          return { kind: "enqueued", outboxIntentID: ENQUEUED_INTENT_ID }
+        },
+    }
+    const { gate, token, candidate } = gateForCandidate(
+      coordinator,
+      stateStore,
+      candidateEnqueuer,
+      2
+    )
+
+    await assert.rejects(
+      gate.consumeCandidateAuthorization(token, candidate),
+      (error: unknown) => {
+        assert.ok(
+          error instanceof P2TRProductionCandidateEnqueueRetryExhaustedError
+        )
+        assert.equal(
+          error.code,
+          "candidate-enqueue-transaction-retry-exhausted"
+        )
+        assert.equal(error.activationBlocking, true)
+        assert.equal(error.alert.tokenID, TOKEN_ID)
+        assert.equal(error.alert.manifestHash, MANIFEST_HASH)
+        assert.equal(error.alert.attemptCount, 2)
+        assert.equal(error.alert.lastSQLState, "40P01")
+        return true
+      }
+    )
+
+    assert.equal(enqueueAttempts, 2)
+    assert.deepEqual(dispositions, [])
+    assert.equal(journal.guards.length, 1)
+    assert.equal(journal.resolutions.length, 0)
+    assert.equal(journal.exhaustionAlerts.length, 1)
+    assert.deepEqual(journal.exhaustionAlerts[0], {
+      tokenID: TOKEN_ID,
+      manifestHash: MANIFEST_HASH,
+      candidateDigest: journal.guards[0].candidateDigest,
+      attemptCount: 2,
+      lastSQLState: "40P01",
+    })
+    assert.throws(
+      () =>
+        assertP2TRProductionRuntimeAlertHealth(
+          healthFor(journal),
+          MANIFEST_HASH
+        ),
+      /activation-blocking candidate enqueue alerts/
+    )
+    assert.equal(coordinator.commits, 2)
+    assert.equal(coordinator.rollbacks, 2)
+  })
+
+  it("does not retry an application error that spoofs PostgreSQL SQLSTATE", async () => {
+    const coordinator = new RollbackAwareCoordinator()
+    const journal = emptyCandidateJournal()
+    const stateStore = candidateStateStore(coordinator, [], journal)
+    let enqueueAttempts = 0
+    const candidateEnqueuer = {
+      p2trSignatureFraudWatchtowerTransactionalStoreID: STORE_ID,
+      enqueueReconciledCandidate:
+        async (): Promise<P2TRProductionCandidateEnqueueOutcome> => {
+          enqueueAttempts++
+          throw Object.assign(new Error("forged serialization failure"), {
+            code: "40001",
+          })
+        },
+    }
+    const { gate, token, candidate } = gateForCandidate(
+      coordinator,
+      stateStore,
+      candidateEnqueuer,
+      3
+    )
+
+    await assert.rejects(
+      gate.consumeCandidateAuthorization(token, candidate),
+      /forged serialization failure/
+    )
+    assert.equal(enqueueAttempts, 1)
+    assert.equal(journal.guards.length, 1)
+    assert.equal(journal.resolutions.length, 0)
+    assert.equal(journal.exhaustionAlerts.length, 0)
     assert.equal(coordinator.rollbacks, 1)
   })
 })
@@ -145,6 +317,8 @@ class RollbackAwareCoordinator implements P2TRProductionTransactionCoordinator {
   private active = false
   private staged: Array<() => void> = []
   private readonly sequence?: string[]
+  private readonly failures: Array<"40001" | "40P01"> = []
+  private readonly retryableErrors = new WeakMap<object, "40001" | "40P01">()
 
   constructor(sequence?: string[]) {
     this.sequence = sequence
@@ -158,6 +332,12 @@ class RollbackAwareCoordinator implements P2TRProductionTransactionCoordinator {
     this.staged = []
     try {
       const result = await operation()
+      const sqlState = this.commits > 0 ? this.failures.shift() : undefined
+      if (sqlState !== undefined) {
+        const failure = new Error(`transaction aborted with ${sqlState}`)
+        this.retryableErrors.set(failure, sqlState)
+        throw failure
+      }
       for (const mutation of this.staged) mutation()
       this.commits++
       this.sequence?.push("transaction-committed")
@@ -173,15 +353,41 @@ class RollbackAwareCoordinator implements P2TRProductionTransactionCoordinator {
 
   assertP2TRSignatureFraudWatchtowerTransactionalParticipants(): void {}
 
+  readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(
+    error: unknown
+  ): "40001" | "40P01" | undefined {
+    if (typeof error !== "object" || error === null) return undefined
+    return this.retryableErrors.get(error)
+  }
+
+  isP2TRSignatureFraudWatchtowerTransactionActive(): boolean {
+    return this.active
+  }
+
+  failNextTransactionWith(sqlState: "40001" | "40P01"): void {
+    this.failures.push(sqlState)
+  }
+
   stage(mutation: () => void): void {
     if (!this.active) throw new Error("test mutation is outside a transaction")
     this.staged.push(mutation)
   }
 }
 
+type CandidateJournal = {
+  guards: P2TRProductionCandidateEnqueueTransactionGuard[]
+  resolutions: P2TRProductionCandidateEnqueueTransactionResolution[]
+  exhaustionAlerts: P2TRProductionCandidateEnqueueRetryExhaustionAlert[]
+}
+
+function emptyCandidateJournal(): CandidateJournal {
+  return { guards: [], resolutions: [], exhaustionAlerts: [] }
+}
+
 function candidateStateStore(
   coordinator: RollbackAwareCoordinator,
   dispositions: string[],
+  journal: CandidateJournal,
   sequence?: string[]
 ): P2TRProductionStateStore {
   return {
@@ -191,6 +397,9 @@ function candidateStateStore(
     },
     async readEthereumJournalHealth() {
       throw new Error("unused test dependency")
+    },
+    async readRuntimeAlertHealth() {
+      return healthFor(journal)
     },
     async assertCandidateIndexed() {},
     async issueCandidateAuthorization() {
@@ -203,13 +412,46 @@ function candidateStateStore(
         sequence?.push("disposition-committed")
       })
     },
+    async armCandidateEnqueueTransactionGuard(guard) {
+      coordinator.stage(() => {
+        journal.guards.push(guard)
+        sequence?.push("guard-committed")
+      })
+    },
+    async resolveCandidateEnqueueTransactionGuard(resolution) {
+      coordinator.stage(() => {
+        journal.resolutions.push(resolution)
+        sequence?.push("resolution-committed")
+      })
+    },
+    async saveCandidateEnqueueRetryExhaustionAlert(alert) {
+      coordinator.stage(() => journal.exhaustionAlerts.push(alert))
+    },
+  }
+}
+
+function healthFor(
+  journal: CandidateJournal
+): P2TRProductionRuntimeAlertHealth {
+  const resolved = new Set(
+    journal.resolutions.map(
+      (resolution) => `${resolution.manifestHash}:${resolution.tokenID}`
+    )
+  )
+  return {
+    manifestHash: MANIFEST_HASH,
+    unresolvedCandidateEnqueueTransactionGuardCount: journal.guards.filter(
+      (guard) => !resolved.has(`${guard.manifestHash}:${guard.tokenID}`)
+    ).length,
+    candidateEnqueueRetryExhaustionCount: journal.exhaustionAlerts.length,
   }
 }
 
 function gateForCandidate(
   coordinator: RollbackAwareCoordinator,
   stateStore: P2TRProductionStateStore,
-  candidateEnqueuer: P2TRProductionActivationDependencies["candidateEnqueuer"]
+  candidateEnqueuer: P2TRProductionActivationDependencies["candidateEnqueuer"],
+  maxAttempts = 3
 ): {
   gate: P2TRProductionActivationGate
   token: P2TRProductionCandidateAuthorizationToken
@@ -254,7 +496,11 @@ function gateForCandidate(
   const gate = Object.create(
     P2TRProductionActivationGate.prototype
   ) as P2TRProductionActivationGate
-  Object.assign(gate, { dependencies, candidateTokens })
+  Object.assign(gate, {
+    dependencies,
+    candidateTokens,
+    candidateEnqueueTransactionMaxAttempts: maxAttempts,
+  })
   return { gate, token, candidate }
 }
 

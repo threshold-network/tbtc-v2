@@ -281,6 +281,13 @@ export class PostgresP2TRCanonicalIndexStore
   private readonly statementTimeoutMs: number
   private readonly transaction = new AsyncLocalStorage<TransactionContext>()
   private readonly transactionalParticipants = new WeakSet<object>()
+  /**
+   * Confirmed aborts this coordinator itself raised. The error class is
+   * process-local, so membership is what proves the aborted transaction was
+   * one of ours and is therefore ours to restart.
+   */
+  private readonly ownConfirmedAborts =
+    new WeakSet<P2TRPostgresTransactionConfirmedAbortError>()
 
   constructor(
     private readonly pool: P2TRPostgresPool,
@@ -415,6 +422,11 @@ export class PostgresP2TRCanonicalIndexStore
   createP2TRSignatureFraudWatchtowerTransactionalAdapter<T extends object>(
     factory: (session: P2TRPostgresTransactionSession) => T
   ): T {
+    // The transaction client is already wrapped by
+    // `observeRetryablePostgresAborts`, so a retryable SQLSTATE raised through
+    // an adapter session is recorded at the query boundary even when the
+    // adapter catches, wraps or swallows the error. Do not re-wrap it here:
+    // the caller must keep seeing the original `pg` error and its `code`.
     const session: P2TRPostgresTransactionSession = {
       query: (text, values) =>
         this.requireTransactionClient().query(text, values),
@@ -444,6 +456,30 @@ export class PostgresP2TRCanonicalIndexStore
         )
       }
     }
+  }
+
+  /**
+   * Report the retryable SQLSTATE of a transaction PostgreSQL is *confirmed*
+   * to have aborted, so an owner may discard attempt-local state and start a
+   * fresh whole transaction.
+   *
+   * Only a confirmed abort qualifies: a rolled-back-and-released session, or a
+   * COMMIT that itself answered with 40001/40P01. An unknown COMMIT outcome
+   * never surfaces here — that session is destroyed and its transaction may
+   * have committed, so it must never be retried. A COMMIT answering with the
+   * `ROLLBACK` command tag is a confirmed abort with no SQLSTATE; it is
+   * reported as non-retryable so the failure stays fail-closed and visible.
+   */
+  readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(
+    error: unknown
+  ): P2TRRetryablePostgresSQLState | undefined {
+    if (!isP2TRPostgresTransactionConfirmedAbortError(error)) return undefined
+    if (!this.ownConfirmedAborts.has(error)) return undefined
+    return error.sqlState
+  }
+
+  isP2TRSignatureFraudWatchtowerTransactionActive(): boolean {
+    return this.transaction.getStore() !== undefined
   }
 
   assertP2TRSignatureFraudWatchtowerSharedStore(dependencies: {
@@ -503,10 +539,8 @@ export class PostgresP2TRCanonicalIndexStore
       const commit = await client.query("COMMIT")
       transactionPhase = "finished"
       if (normalizePostgresCommandTag(commit.command) === "ROLLBACK") {
-        throw confirmedPostgresAbortError(
-          attempt,
-          "rollback-command",
-          undefined
+        throw this.ownConfirmedAbort(
+          confirmedPostgresAbortError(attempt, "rollback-command", undefined)
         )
       }
       return result
@@ -526,10 +560,8 @@ export class PostgresP2TRCanonicalIndexStore
           throw error
         }
         if (attempt.confirmedAbort !== undefined) {
-          throw confirmedPostgresAbortError(
-            attempt,
-            "retryable-sqlstate",
-            error
+          throw this.ownConfirmedAbort(
+            confirmedPostgresAbortError(attempt, "retryable-sqlstate", error)
           )
         }
       } else if (transactionPhase === "begin") {
@@ -542,10 +574,8 @@ export class PostgresP2TRCanonicalIndexStore
         // lost, so destroy the session and surface the unknown outcome.
         if (attempt.confirmedAbort !== undefined) {
           transactionPhase = "finished"
-          throw confirmedPostgresAbortError(
-            attempt,
-            "retryable-sqlstate",
-            error
+          throw this.ownConfirmedAbort(
+            confirmedPostgresAbortError(attempt, "retryable-sqlstate", error)
           )
         }
         const commitError = postgresClientError(
@@ -5983,6 +6013,13 @@ export class PostgresP2TRCanonicalIndexStore
       throw new Error("PostgreSQL mutation requires an active transaction")
     }
     return context.client
+  }
+
+  private ownConfirmedAbort(
+    error: P2TRPostgresTransactionConfirmedAbortError
+  ): P2TRPostgresTransactionConfirmedAbortError {
+    this.ownConfirmedAborts.add(error)
+    return error
   }
 }
 

@@ -242,6 +242,7 @@ export type P2TRCanonicalEthereumTransactionCoordinator = {
   assertP2TRSignatureFraudWatchtowerTransactionalParticipants(
     participants: readonly object[]
   ): void
+  isP2TRSignatureFraudWatchtowerTransactionActive(): boolean
 }
 
 export type P2TRCanonicalEthereumJournalOptions = {
