@@ -2190,6 +2190,7 @@ describe("P2TR signature-fraud witness parsing", () => {
     const signer = new Wallet(`0x${"42".repeat(32)}`)
     const outboxRecordID = Hex.from(`0x${"71".repeat(32)}`)
     const generation = 3
+    const reservationEpoch = 4
     const nonce = 7
     const lane = {
       laneID: "lane-a",
@@ -2200,6 +2201,7 @@ describe("P2TR signature-fraud witness parsing", () => {
       intent,
       outboxRecordID,
       generation,
+      reservationEpoch,
       lane,
       nonce
     )
@@ -2216,6 +2218,7 @@ describe("P2TR signature-fraud witness parsing", () => {
           { name: "outboxRecordID", type: "bytes32" },
           { name: "intentID", type: "bytes32" },
           { name: "generation", type: "uint32" },
+          { name: "reservationEpoch", type: "uint32" },
           { name: "laneIDHash", type: "bytes32" },
           { name: "signerIdentityHash", type: "bytes32" },
           { name: "sender", type: "address" },
@@ -2227,6 +2230,7 @@ describe("P2TR signature-fraud witness parsing", () => {
         outboxRecordID: outboxRecordID.toPrefixedString(),
         intentID: intent.intentID.toPrefixedString(),
         generation,
+        reservationEpoch,
         laneIDHash: utils.id(lane.laneID),
         signerIdentityHash: utils.id(lane.signerIdentity),
         sender: signer.address,
@@ -2238,25 +2242,31 @@ describe("P2TR signature-fraud witness parsing", () => {
       outboxRecordID,
       intentID: intent.intentID,
       generation,
+      reservationEpoch,
       laneID: lane.laneID,
       signerIdentity: lane.signerIdentity,
       sender: signer.address,
       nonce,
       bindingSignature,
     }
-    expect(
+    const validatedReservation =
       validateP2TRSignatureFraudBoundNonceReservation(
         intent,
         outboxRecordID,
         generation,
+        reservationEpoch,
         lane,
         reservation
-      ).reservationID.toString()
-    ).to.equal(reservationID.toString())
+      )
+    expect(validatedReservation.reservationID.toString()).to.equal(
+      reservationID.toString()
+    )
+    expect(validatedReservation.reservationEpoch).to.equal(reservationEpoch)
 
     for (const tampered of [
       { ...reservation, outboxRecordID: Hex.from(`0x${"72".repeat(32)}`) },
       { ...reservation, generation: generation + 1 },
+      { ...reservation, reservationEpoch: reservationEpoch + 1 },
       { ...reservation, laneID: "lane-b" },
       { ...reservation, signerIdentity: "signer-b" },
       {
@@ -2272,6 +2282,7 @@ describe("P2TR signature-fraud witness parsing", () => {
             intent,
             outboxRecordID,
             generation,
+            reservationEpoch,
             lane,
             tampered
           ),

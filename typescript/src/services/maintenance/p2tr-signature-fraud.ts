@@ -617,11 +617,21 @@ export type P2TRSignatureFraudBoundNonceReservation = {
   outboxRecordID: Hex
   intentID: Hex
   generation: number
+  /** Durable preparation-attempt epoch; retrying one epoch is idempotent. */
+  reservationEpoch: number
   laneID: string
   signerIdentity: string
   sender: string
   nonce: number
   bindingSignature: string
+}
+
+export type P2TRSignatureFraudNonceReleaseAcknowledgement = {
+  releaseRequestID: Hex
+  reservationID: Hex
+  outcome: "released" | "already-released"
+  /** Provider-authenticated or otherwise provider-stable response digest. */
+  responseDigest: Hex
 }
 
 export type P2TRSignatureFraudSignerLaneIdentity = {
@@ -659,13 +669,19 @@ export interface P2TRSignatureFraudChallengeTransactionPreparer {
   reserveSignatureFraudChallengeNonce(
     intent: P2TRSignatureFraudSubmissionIntent,
     outboxRecordID: Hex,
-    generation: number
+    generation: number,
+    reservationEpoch: number
   ): Promise<P2TRSignatureFraudBoundNonceReservation>
 
-  /** Releases a reservation only when no transaction signer was invoked. */
+  /**
+   * Releases a reservation only when no transaction signer was invoked.
+   * The operation MUST be idempotent by `releaseRequestID`: a retry after an
+   * ambiguous response returns `already-released` for the same reservation.
+   */
   releaseSignatureFraudChallengeNonce(
-    reservation: P2TRSignatureFraudBoundNonceReservation
-  ): Promise<void>
+    reservation: P2TRSignatureFraudBoundNonceReservation,
+    releaseRequestID: Hex
+  ): Promise<P2TRSignatureFraudNonceReleaseAcknowledgement>
 
   /**
    * Prepares and signs, but MUST NOT broadcast, an Ethereum transaction for
@@ -1187,6 +1203,7 @@ const p2trSignatureFraudNonceReservationTypes = {
     { name: "outboxRecordID", type: "bytes32" },
     { name: "intentID", type: "bytes32" },
     { name: "generation", type: "uint32" },
+    { name: "reservationEpoch", type: "uint32" },
     { name: "laneIDHash", type: "bytes32" },
     { name: "signerIdentityHash", type: "bytes32" },
     { name: "sender", type: "address" },
@@ -1242,6 +1259,7 @@ const p2trSignatureFraudNonceReservationTypedData = (
   intent: P2TRSignatureFraudSubmissionIntent,
   outboxRecordID: Hex | Buffer | string,
   generation: number,
+  reservationEpoch: number,
   lane: P2TRSignatureFraudSignerLaneIdentity,
   nonce: number
 ) => {
@@ -1259,6 +1277,8 @@ const p2trSignatureFraudNonceReservationTypedData = (
   )
   const normalizedGeneration =
     normalizeP2TRSignatureFraudReservationGeneration(generation)
+  const normalizedReservationEpoch =
+    normalizeP2TRSignatureFraudReservationGeneration(reservationEpoch)
   const normalizedNonce = normalizeP2TRSignatureFraudReservationNonce(nonce)
   const normalizedOutboxRecordID = toBytes32Hex(
     outboxRecordID,
@@ -1284,6 +1304,7 @@ const p2trSignatureFraudNonceReservationTypedData = (
       outboxRecordID: normalizedOutboxRecordID.toPrefixedString(),
       intentID: normalizedIntentID.toPrefixedString(),
       generation: normalizedGeneration,
+      reservationEpoch: normalizedReservationEpoch,
       laneIDHash: utils.id(normalizedLaneID),
       signerIdentityHash: utils.id(normalizedSignerIdentity),
       sender,
@@ -1293,6 +1314,7 @@ const p2trSignatureFraudNonceReservationTypedData = (
       outboxRecordID: normalizedOutboxRecordID,
       intentID: normalizedIntentID,
       generation: normalizedGeneration,
+      reservationEpoch: normalizedReservationEpoch,
       laneID: normalizedLaneID,
       signerIdentity: normalizedSignerIdentity,
       sender,
@@ -1306,6 +1328,7 @@ export const computeP2TRSignatureFraudBoundNonceReservationID = (
   intent: P2TRSignatureFraudSubmissionIntent,
   outboxRecordID: Hex | Buffer | string,
   generation: number,
+  reservationEpoch: number,
   lane: P2TRSignatureFraudSignerLaneIdentity,
   nonce: number
 ): Hex => {
@@ -1313,6 +1336,7 @@ export const computeP2TRSignatureFraudBoundNonceReservationID = (
     intent,
     outboxRecordID,
     generation,
+    reservationEpoch,
     lane,
     nonce
   )
@@ -1334,6 +1358,7 @@ export const validateP2TRSignatureFraudBoundNonceReservation = (
   intent: P2TRSignatureFraudSubmissionIntent,
   outboxRecordID: Hex | Buffer | string,
   generation: number,
+  reservationEpoch: number,
   lane: P2TRSignatureFraudSignerLaneIdentity,
   reservation: P2TRSignatureFraudBoundNonceReservation
 ): P2TRSignatureFraudBoundNonceReservation => {
@@ -1341,6 +1366,7 @@ export const validateP2TRSignatureFraudBoundNonceReservation = (
     intent,
     outboxRecordID,
     generation,
+    reservationEpoch,
     lane,
     reservation.nonce
   )
@@ -1360,6 +1386,8 @@ export const validateP2TRSignatureFraudBoundNonceReservation = (
     !actualOutboxRecordID.equals(typedData.normalized.outboxRecordID) ||
     !actualIntentID.equals(typedData.normalized.intentID) ||
     reservation.generation !== typedData.normalized.generation ||
+    reservation.reservationEpoch !==
+      typedData.normalized.reservationEpoch ||
     reservation.laneID !== typedData.normalized.laneID ||
     reservation.signerIdentity !== typedData.normalized.signerIdentity ||
     normalizeP2TRSignatureFraudSubmissionAddress(
@@ -1409,6 +1437,7 @@ export const validateP2TRSignatureFraudBoundNonceReservation = (
     outboxRecordID: typedData.normalized.outboxRecordID,
     intentID: typedData.normalized.intentID,
     generation: typedData.normalized.generation,
+    reservationEpoch: typedData.normalized.reservationEpoch,
     laneID: typedData.normalized.laneID,
     signerIdentity: typedData.normalized.signerIdentity,
     sender: typedData.normalized.sender,
