@@ -10,9 +10,11 @@ import { BigNumber, Wallet, constants, providers, utils } from "ethers"
 import { artifacts, deployments, ethers, network, waffle } from "hardhat"
 import deployCompleteP2TRActivation, {
   ACTIVATION_ARTIFACT_SCHEMA,
+  BRIDGE_GOVERNANCE_PENDING_TARGET_SLOT,
   BRIDGE_FROST_REGISTRY_STORAGE_SLOT,
   BRIDGE_LIFECYCLE_ROUTER_STORAGE_SLOT,
   CoverageInventoryDocument,
+  CompleteP2TRActivationArtifact,
   ECDSA_CUTOVER_PROTOCOL_ID,
   EcdsaCutoverBinding,
   EcdsaCutoverDeployments,
@@ -22,16 +24,28 @@ import deployCompleteP2TRActivation, {
   FROST_FRESH_ARCHIVE_SCHEMA_HASH,
   FrostLifecyclePrerequisiteReceipt,
   PreparedCall,
+  LEGACY_ACTIVATION_ARTIFACT_SCHEMA,
+  PREVIOUS_ACTIVATION_ARTIFACT_SCHEMA,
+  activationArtifactContentHash,
   assertEcdsaCutoverResume,
   assertFrostPrerequisiteResumeBinding,
+  assertNoHistoricalActivationArtifact,
   assertRuntimeCode,
   buildAuthorityEnvelope,
+  bridgeGovernanceTransferNotBefore,
   classifyAuthority,
   deriveCoverageInventory,
   immutableFrostPrerequisiteBinding,
+  inspectRecordedPhaseTransaction,
+  persistArtifact,
+  readActivationArtifact,
+  readPendingBridgeGovernanceTarget,
   reconcilePhase,
   resolveFrostLifecycleInstallPlan,
+  requireSuccessfulPhaseReceiptReadback,
   validateEcdsaCutoverBinding,
+  validatePendingBridgeGovernanceTransfer,
+  validateStorageLayout,
   verifyFrostLifecyclePrerequisites,
 } from "../../deploy/88_deploy_complete_p2tr_activation"
 import {
@@ -49,6 +63,7 @@ import {
   hashArchiveManifestV2,
   hashArchivePhaseArtifact,
 } from "../../deploy/54_upgrade_frost_wallet_registry_archive"
+import { acquireDurableArtifactSessionLock } from "../../scripts/durable-artifact"
 import { canonicalEmitterSetCommitment } from "../../scripts/ecdsa-fraud-router-canonical-history"
 import {
   BRIDGE_LEGACY_FRAUD_STORAGE_LAYOUT_HASH,
@@ -908,6 +923,478 @@ describe("Deploy Script 88: COMPLETE_V2 activation", () => {
         entries: [{ ...manifest.entries[0], index: 1 }],
       })
     ).to.throw("contiguous positional indices")
+  })
+})
+
+describe("Deploy Script 88: durable activation operations", () => {
+  const bridge = "0x1000000000000000000000000000000000000001"
+  const authority = "0x2000000000000000000000000000000000000002"
+  const target = "0x3000000000000000000000000000000000000003"
+  const preparedCall: PreparedCall = {
+    id: "upgrade-bridge",
+    target,
+    value: "0",
+    data: "0x12345678",
+    description: "upgrade the Bridge",
+  }
+  const authorityCall = buildAuthorityEnvelope(preparedCall, authority, "eoa", {
+    chainId: "1",
+    bridge,
+    phase: "upgrade-bridge",
+  })
+  const word = (byte: string): string => `0x${byte.repeat(32)}`
+  const fileHash = (byte: string): string => `sha256:${byte.repeat(32)}`
+  const ecdsaCutover: EcdsaCutoverBinding = {
+    manifestPath: "/private/ecdsa-cutover.json",
+    manifestArtifactHash: fileHash("11"),
+    manifestPlanHash: word("12"),
+    structuralPlanHash: word("13"),
+    manifestPhase: "new-governance-owned",
+    finalized: true,
+    evidenceGeneration: 1,
+    evidenceAnchorArtifactHash: fileHash("14"),
+    evidencePredecessorArtifactHash: fileHash("15"),
+    authorizationTransactionHash: word("16"),
+    authorizationPlanHash: word("17"),
+    chainId: "1",
+    bridge,
+    oldGovernance: authority,
+    oldGovernanceCodeHash: word("18"),
+    governance: target,
+    governanceCodeHash: word("19"),
+    governanceOwner: authority,
+    governanceDelay: "86400",
+    oldGovernanceTransferInitiatedAt: "0",
+    oldGovernancePendingTarget: constants.AddressZero,
+    oldGovernanceTransferNotBefore: "0",
+    oldRouter: authority,
+    oldRouterCodeHash: word("1a"),
+    router: target,
+    routerCodeHash: word("1b"),
+    protocolID: ECDSA_CUTOVER_PROTOCOL_ID,
+    predecessor: authority,
+    predecessorCodeHash: word("1c"),
+    ancestryDepth: "1",
+    openChallengeCount: "0",
+    openChallengeEscrow: "0",
+    unattributedOpenChallengeCount: "0",
+    migratedChallengesActivatedAt: "1",
+    sourceSigner: authority,
+    sourceID: word("1d"),
+    sourceStoreIdentity: word("1e"),
+    sourceEndpointIdentity: word("1f"),
+    sourceTrustDomain: word("20"),
+    sourcePolicyHash: word("21"),
+    reconciler: target,
+    reconcilerSourceID: word("22"),
+    reconcilerStoreIdentity: word("23"),
+    reconcilerEndpointIdentity: word("24"),
+    reconcilerTrustDomain: word("25"),
+    reconcilerPolicyHash: word("26"),
+  }
+
+  let root: string
+  let directory: string
+  let artifactPath: string
+
+  const artifact = (
+    status: "prepared" | "pending" | "executed" = "prepared"
+  ): CompleteP2TRActivationArtifact => ({
+    schemaVersion: ACTIVATION_ARTIFACT_SCHEMA,
+    contentHash: constants.HashZero,
+    networkName: "hardhat",
+    chainId: "1",
+    bridge,
+    structuralPlanID: word("41"),
+    planID: word("44"),
+    bridgePredecessorImplementation: target,
+    bridgePredecessorImplementationCodeHash: word("42"),
+    ecdsaCutover,
+    inventory: {
+      manifestPath: "/private/coverage.json",
+      historyStartBlockNumber: 1,
+      snapshotBlockNumber: 2,
+      snapshotBlockHash: `0x${"55".repeat(32)}`,
+      bitcoinJournalSha256: `sha256:${"66".repeat(32)}`,
+      bitcoinRawEvidenceCommitment: `0x${"67".repeat(32)}`,
+      semanticProjectionRoot: `0x${"68".repeat(32)}`,
+      sourceCheckpointCommitment: `0x${"69".repeat(32)}`,
+      linkedLibrariesCommitment: `0x${"70".repeat(32)}`,
+      sourceIDs: [`0x${"71".repeat(32)}`, `0x${"72".repeat(32)}`],
+      root: `0x${"73".repeat(32)}`,
+      count: 0,
+      migrationCursor: 0,
+    },
+    addresses: {},
+    runtimeReceipts: {},
+    selectors: {},
+    phases: [
+      {
+        id: "upgrade-bridge",
+        status,
+        calls: [authorityCall],
+        transactionHashes: [],
+      },
+    ],
+    readbacks: {},
+  })
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "tbtc-activation-ops-"))
+    fs.chmodSync(root, 0o700)
+    directory = path.join(root, "private-activation")
+    artifactPath = path.join(directory, "activation.json")
+  })
+
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true })
+  })
+
+  it("creates an owned private directory and exact-mode typed artifact", () => {
+    const initial = artifact()
+    const fileContentHash = persistArtifact(artifactPath, initial, {
+      createOnly: true,
+    })
+    const loaded = readActivationArtifact(artifactPath)!
+
+    expect(fs.statSync(directory).mode & 0o777).to.equal(0o700)
+    expect(fs.statSync(artifactPath).mode & 0o777).to.equal(0o600)
+    expect(loaded.artifact).to.deep.equal({
+      ...initial,
+      contentHash: activationArtifactContentHash(initial),
+    })
+    expect(loaded.fileContentHash).to.equal(fileContentHash)
+  })
+
+  it("rejects symlink targets and non-private parent modes", () => {
+    const initial = artifact()
+    persistArtifact(artifactPath, initial, { createOnly: true })
+    const alias = path.join(directory, "alias.json")
+    fs.symlinkSync(artifactPath, alias)
+    expect(() => readActivationArtifact(alias)).to.throw()
+
+    fs.unlinkSync(alias)
+    fs.chmodSync(directory, 0o750)
+    expect(() => readActivationArtifact(artifactPath)).to.throw(
+      "parent permissions must be exactly 0700"
+    )
+  })
+
+  it("never promotes legacy or durable stale temporary entries", () => {
+    const initial = artifact()
+    persistArtifact(artifactPath, initial, { createOnly: true })
+    const original = readActivationArtifact(artifactPath)!.artifact
+
+    for (const temporary of [
+      `${artifactPath}.tmp`,
+      path.join(directory, ".activation.json.tmp-dead-writer"),
+    ]) {
+      fs.writeFileSync(temporary, "untrusted", { mode: 0o600, flag: "wx" })
+      expect(() => readActivationArtifact(artifactPath)).to.throw(
+        "requires manual reconciliation"
+      )
+      expect(fs.existsSync(temporary)).to.be.true
+      fs.unlinkSync(temporary)
+      expect(readActivationArtifact(artifactPath)!.artifact).to.deep.equal(
+        original
+      )
+    }
+  })
+
+  it("serializes concurrent writers without removing another lock", () => {
+    fs.mkdirSync(directory, { mode: 0o700 })
+    const lock = path.join(directory, ".activation.json.lock")
+    fs.writeFileSync(lock, "live writer", { mode: 0o600, flag: "wx" })
+
+    expect(() =>
+      persistArtifact(artifactPath, artifact(), { createOnly: true })
+    ).to.throw("write is already locked")
+    expect(() => readActivationArtifact(artifactPath)).to.throw(
+      "verify no writer is live before manual recovery"
+    )
+    expect(fs.readFileSync(lock, "utf8")).to.equal("live writer")
+  })
+
+  it("rejects reads while a durable activation session is live", () => {
+    persistArtifact(artifactPath, artifact(), { createOnly: true })
+    const session = acquireDurableArtifactSessionLock(artifactPath, {
+      requirePrivateDirectory: true,
+    })
+    try {
+      expect(() => readActivationArtifact(artifactPath)).to.throw(
+        "verify no writer is live before manual recovery"
+      )
+    } finally {
+      session.release()
+    }
+    expect(
+      readActivationArtifact(artifactPath)?.artifact.schemaVersion
+    ).to.equal(ACTIVATION_ARTIFACT_SCHEMA)
+  })
+
+  it("advances CAS for byte-identical concurrent writers and requires an explicit prior", () => {
+    const first = artifact()
+    const firstHash = persistArtifact(artifactPath, first, {
+      createOnly: true,
+    })
+    const identicalSnapshot = readActivationArtifact(artifactPath)!.artifact
+    const secondHash = persistArtifact(artifactPath, identicalSnapshot, {
+      expectedCurrentContentHash: firstHash,
+    })
+    expect(secondHash).not.to.equal(firstHash)
+
+    expect(() =>
+      persistArtifact(artifactPath, identicalSnapshot, {
+        expectedCurrentContentHash: firstHash,
+      })
+    ).to.throw("compare-and-swap mismatch")
+    expect(readActivationArtifact(artifactPath)!.fileContentHash).to.equal(
+      secondHash
+    )
+    expect(() => persistArtifact(artifactPath, artifact(), {})).to.throw(
+      "exact expected-prior file hash"
+    )
+  })
+
+  it("keeps the prior commit through pre-publication crashes and reads back a published crash", () => {
+    const initialHash = persistArtifact(artifactPath, artifact(), {
+      createOnly: true,
+    })
+    for (const failAt of ["before-temp-write", "after-temp-fsync"] as const) {
+      expect(() =>
+        persistArtifact(artifactPath, artifact("pending"), {
+          expectedCurrentContentHash: initialHash,
+          failpoint: (phase) => {
+            if (phase === failAt) throw new Error(`crash at ${failAt}`)
+          },
+        })
+      ).to.throw(`crash at ${failAt}`)
+      expect(
+        readActivationArtifact(artifactPath)!.artifact.phases[0].status
+      ).to.equal("prepared")
+    }
+
+    expect(() =>
+      persistArtifact(artifactPath, artifact("pending"), {
+        expectedCurrentContentHash: initialHash,
+        failpoint: (phase) => {
+          if (phase === "after-rename") throw new Error("crash after rename")
+        },
+      })
+    ).to.throw("crash after rename")
+    expect(
+      readActivationArtifact(artifactPath)!.artifact.phases[0].status
+    ).to.equal("pending")
+  })
+
+  it("rejects schema v2/v3 and a raw self-hashed v4 document deterministically", () => {
+    fs.mkdirSync(directory, { mode: 0o700 })
+    fs.writeFileSync(
+      artifactPath,
+      `${JSON.stringify({
+        schemaVersion: LEGACY_ACTIVATION_ARTIFACT_SCHEMA,
+      })}\n`,
+      { mode: 0o600, flag: "wx" }
+    )
+    expect(() => readActivationArtifact(artifactPath)).to.throw(
+      "artifact schema v2 is unsupported"
+    )
+
+    fs.unlinkSync(artifactPath)
+    fs.writeFileSync(
+      artifactPath,
+      `${JSON.stringify({
+        schemaVersion: PREVIOUS_ACTIVATION_ARTIFACT_SCHEMA,
+      })}\n`,
+      { mode: 0o600, flag: "wx" }
+    )
+    expect(() => readActivationArtifact(artifactPath)).to.throw(
+      "artifact schema v3 is unsupported"
+    )
+
+    fs.unlinkSync(artifactPath)
+    const rawV4 = artifact()
+    rawV4.contentHash = activationArtifactContentHash(rawV4)
+    fs.writeFileSync(artifactPath, `${JSON.stringify(rawV4)}\n`, {
+      mode: 0o600,
+      flag: "wx",
+    })
+    expect(() => readActivationArtifact(artifactPath)).to.throw(
+      "identity/content mismatch"
+    )
+  })
+
+  it("fails closed on historical direct artifacts and stale temporaries", () => {
+    const historicalPath = path.join(root, "complete-p2tr-activation.json")
+    fs.writeFileSync(
+      historicalPath,
+      `${JSON.stringify({
+        schemaVersion: LEGACY_ACTIVATION_ARTIFACT_SCHEMA,
+      })}\n`,
+      { mode: 0o600, flag: "wx" }
+    )
+    expect(() =>
+      assertNoHistoricalActivationArtifact(historicalPath, artifactPath)
+    ).to.throw("artifact schema v2 is unsupported")
+
+    fs.unlinkSync(historicalPath)
+    fs.writeFileSync(
+      historicalPath,
+      `${JSON.stringify({
+        schemaVersion: PREVIOUS_ACTIVATION_ARTIFACT_SCHEMA,
+      })}\n`,
+      { mode: 0o600, flag: "wx" }
+    )
+    expect(() =>
+      assertNoHistoricalActivationArtifact(historicalPath, artifactPath)
+    ).to.throw("artifact schema v3 is unsupported")
+
+    fs.unlinkSync(historicalPath)
+    const rawV4 = artifact()
+    rawV4.contentHash = activationArtifactContentHash(rawV4)
+    fs.writeFileSync(historicalPath, `${JSON.stringify(rawV4)}\n`, {
+      mode: 0o600,
+      flag: "wx",
+    })
+    expect(() =>
+      assertNoHistoricalActivationArtifact(historicalPath, artifactPath)
+    ).to.throw("schema v4 requires audited migration")
+    expect(() =>
+      assertNoHistoricalActivationArtifact(historicalPath, historicalPath)
+    ).not.to.throw()
+
+    fs.unlinkSync(historicalPath)
+    fs.writeFileSync(`${historicalPath}.tmp`, "untrusted", {
+      mode: 0o600,
+      flag: "wx",
+    })
+    expect(() =>
+      assertNoHistoricalActivationArtifact(historicalPath, artifactPath)
+    ).to.throw("requires manual reconciliation")
+  })
+
+  it("wraps unsafe historical entries in a manual-reconciliation diagnostic", () => {
+    const historicalPath = path.join(root, "complete-p2tr-activation.json")
+    const backing = path.join(root, "backing.json")
+    fs.writeFileSync(backing, "{}\n", { mode: 0o600, flag: "wx" })
+    fs.symlinkSync(backing, historicalPath)
+
+    expect(() =>
+      assertNoHistoricalActivationArtifact(historicalPath, artifactPath)
+    ).to.throw("requires manual reconciliation before use")
+  })
+
+  it("binds pending governance state to the exact slot-74 target", async () => {
+    expect(
+      validatePendingBridgeGovernanceTransfer(0, constants.AddressZero, target)
+    ).to.equal(false)
+    expect(validatePendingBridgeGovernanceTransfer(1, target, target)).to.equal(
+      true
+    )
+    expect(() =>
+      validatePendingBridgeGovernanceTransfer(1, authority, target)
+    ).to.throw("does not match COMPLETE_V2 replacement")
+    expect(() =>
+      validatePendingBridgeGovernanceTransfer(0, target, target)
+    ).to.throw("inconsistent initiation and target state")
+    expect(() =>
+      validatePendingBridgeGovernanceTransfer(1, constants.AddressZero, target)
+    ).to.throw("inconsistent initiation and target state")
+
+    let observedSlot: unknown
+    const provider = {
+      getStorageAt: async (_address: string, slot: unknown) => {
+        observedSlot = slot
+        return utils.hexZeroPad(target, 32)
+      },
+    } as unknown as providers.Provider
+    expect(
+      await readPendingBridgeGovernanceTarget(provider, authority)
+    ).to.equal(utils.getAddress(target))
+    expect(observedSlot).to.equal(BRIDGE_GOVERNANCE_PENDING_TARGET_SLOT)
+  })
+
+  it("recomputes the finalize deadline from the fresh initiation and delay", () => {
+    const original = bridgeGovernanceTransferNotBefore(100, 10)
+    const restartedLater = bridgeGovernanceTransferNotBefore(200, 10)
+    const increasedDelay = bridgeGovernanceTransferNotBefore(100, 25)
+
+    expect(original.toString()).to.equal("110")
+    expect(restartedLater.toString()).to.equal("210")
+    expect(increasedDelay.toString()).to.equal("125")
+    expect(restartedLater.gt(original)).to.equal(true)
+    expect(increasedDelay.gt(original)).to.equal(true)
+    expect(() => bridgeGovernanceTransferNotBefore(0, 10)).to.throw(
+      "zero initiation"
+    )
+  })
+
+  it("pins governance target slots to the legacy production manifest", () => {
+    expect(() =>
+      validateStorageLayout(path.resolve(__dirname, "../.."))
+    ).not.to.throw()
+  })
+
+  it("refuses phase advancement after a successful receipt with wrong readback", async () => {
+    let failure: unknown
+    try {
+      await requireSuccessfulPhaseReceiptReadback(
+        "upgrade-bridge",
+        { status: 1 },
+        async () => false
+      )
+    } catch (error) {
+      failure = error
+    }
+    expect(failure).to.be.instanceOf(Error)
+    expect((failure as Error).message).to.include(
+      "receipt succeeded but exact readback did not match"
+    )
+  })
+
+  it("inspects a durable pending transaction and never guesses when its hash is unavailable", async () => {
+    const recordedHash = `0x${"77".repeat(32)}`
+    const pendingTransaction = {
+      hash: recordedHash,
+      to: target,
+      from: authority,
+      data: preparedCall.data,
+      value: BigNumber.from(0),
+    } as providers.TransactionResponse
+    const pendingProvider = {
+      getTransactionReceipt: async () => null,
+      getTransaction: async () => pendingTransaction,
+    } as unknown as providers.Provider
+    expect(
+      await inspectRecordedPhaseTransaction(
+        pendingProvider,
+        "upgrade-bridge",
+        recordedHash,
+        authorityCall,
+        async () => false
+      )
+    ).to.equal("pending")
+
+    const unavailableProvider = {
+      getTransactionReceipt: async () => null,
+      getTransaction: async () => null,
+    } as unknown as providers.Provider
+    let failure: unknown
+    try {
+      await inspectRecordedPhaseTransaction(
+        unavailableProvider,
+        "upgrade-bridge",
+        `0x${"78".repeat(32)}`,
+        authorityCall,
+        async () => false
+      )
+    } catch (error) {
+      failure = error
+    }
+    expect(failure).to.be.instanceOf(Error)
+    expect((failure as Error).message).to.include(
+      "manual reconciliation is required before any rebroadcast"
+    )
   })
 })
 
