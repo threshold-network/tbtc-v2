@@ -155,7 +155,10 @@ function quantity(value: unknown, label: string): BigNumber {
 function rlpQuantity(value: unknown, label: string): string {
   const number = quantity(value, label)
   if (number.isZero()) return "0x"
-  return ethers.utils.hexStripZeros(number.toHexString())
+  // BigNumber already returns the minimal whole-byte representation. Using
+  // hexStripZeros here can produce an odd-nibble value such as `0x3`, which
+  // is not BytesLike and cannot be RLP encoded.
+  return number.toHexString()
 }
 
 function numberQuantity(value: unknown, label: string): number {

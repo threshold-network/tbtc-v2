@@ -313,6 +313,13 @@ contract BridgeGovernance is Ownable {
         governanceDelays[0] = _governanceDelay;
     }
 
+    /// @notice Bridge instance governed by this wrapper.
+    /// @dev Exposed so deployment handoffs can authenticate the constructor
+    ///      binding; the Bridge address is storage, not runtime bytecode.
+    function bridgeAddress() external view returns (address) {
+        return address(bridge);
+    }
+
     /// @notice Allows the Governance to mark the given vault address as trusted
     ///         or no longer trusted. Vaults are not trusted by default.
     ///         Trusted vault must meet the following criteria:

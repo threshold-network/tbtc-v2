@@ -9,7 +9,7 @@ import {
 } from "./ecdsa-fraud-router-cutover-lib"
 
 export const ECDSA_CUTOVER_MANIFEST_ARTIFACT_KIND =
-  "tbtc/ecdsa-fraud-cutover/manifest/v4"
+  "tbtc/ecdsa-fraud-cutover/manifest/v5"
 export const ECDSA_CUTOVER_INVENTORY_ARTIFACT_KIND =
   "tbtc/ecdsa-fraud-cutover/inventory/v1"
 

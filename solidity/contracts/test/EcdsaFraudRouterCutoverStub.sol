@@ -2,6 +2,115 @@
 
 pragma solidity 0.8.17;
 
+import "../bridge/Deposit.sol";
+import "../bridge/MovingFunds.sol";
+import "../bridge/Wallets.sol";
+
+contract EcdsaFraudRouterBridgeStub {
+    address public ecdsaFraudRouter;
+    address public immutable treasury;
+    bytes20 public immutable walletPubKeyHash;
+    bytes32 public immutable registeredWalletID;
+    uint96 public immutable fraudChallengeDepositAmount;
+
+    constructor(
+        address _treasury,
+        bytes20 _walletPubKeyHash,
+        bytes32 _walletID,
+        uint96 _fraudChallengeDepositAmount
+    ) {
+        treasury = _treasury;
+        walletPubKeyHash = _walletPubKeyHash;
+        registeredWalletID = _walletID;
+        fraudChallengeDepositAmount = _fraudChallengeDepositAmount;
+    }
+
+    function setEcdsaFraudRouter(address router) external {
+        ecdsaFraudRouter = router;
+    }
+
+    function wallets(bytes20 requestedWallet)
+        external
+        view
+        returns (Wallets.Wallet memory wallet)
+    {
+        if (requestedWallet == walletPubKeyHash) {
+            wallet.ecdsaWalletID = registeredWalletID;
+            wallet.createdAt = 1;
+            wallet.state = Wallets.WalletState.Live;
+        }
+    }
+
+    function activeWalletPubKeyHash() external pure returns (bytes20) {
+        return bytes20(0);
+    }
+
+    function activeWalletID() external pure returns (bytes32) {
+        return bytes32(0);
+    }
+
+    function walletID(bytes20 requestedWallet) external view returns (bytes32) {
+        return
+            requestedWallet == walletPubKeyHash
+                ? registeredWalletID
+                : bytes32(0);
+    }
+
+    function walletPubKeyHashForWalletID(bytes32 requestedWalletID)
+        external
+        view
+        returns (bytes20)
+    {
+        return
+            requestedWalletID == registeredWalletID
+                ? walletPubKeyHash
+                : bytes20(0);
+    }
+
+    function fraudParameters()
+        external
+        view
+        returns (
+            uint96,
+            uint32,
+            uint96,
+            uint32
+        )
+    {
+        return (fraudChallengeDepositAmount, 1 days, 0, 0);
+    }
+
+    function deposits(uint256)
+        external
+        pure
+        returns (Deposit.DepositRequest memory request)
+    {
+        return request;
+    }
+
+    function spentMainUTXOs(uint256) external pure returns (bool) {
+        return false;
+    }
+
+    function movedFundsSweepRequests(uint256)
+        external
+        pure
+        returns (MovingFunds.MovedFundsSweepRequest memory request)
+    {
+        return request;
+    }
+
+    function legacyFraudChallengeExists(uint256) external pure returns (bool) {
+        return false;
+    }
+
+    function slashWalletForFraud(
+        bytes20,
+        uint32[] calldata,
+        address
+    ) external pure {}
+}
+
 interface IBridgeForEcdsaFraudRouterCutoverTest {
     function fraudParameters()
         external

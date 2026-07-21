@@ -1,12 +1,22 @@
 import { expect } from "chai"
 import { ethers, network } from "hardhat"
 import type { providers } from "ethers"
+import type {
+  EcdsaFraudRouter,
+  RevertingEcdsaFraudChallenger,
+} from "../../typechain"
+import { constants } from "../fixtures"
+import {
+  nonWitnessSignSingleInputTx,
+  wallet as fraudWallet,
+} from "../data/fraud"
 import {
   assertCanonicalInventory,
   assertLegacyGovernanceReadyForHandoff,
   BRIDGE_LEGACY_FRAUD_STORAGE_LAYOUT_HASH,
   buildLegacyInventorySourcePreflight,
   HandoffManifest,
+  HistoryEmitter,
   InventoryBundle,
   LEGACY_GOVERNANCE_STORAGE_LAYOUT_HASH,
 } from "../../scripts/ecdsa-fraud-router-cutover-lib"
@@ -40,80 +50,161 @@ async function setStorage(
 }
 
 describe("ECDSA fraud cutover manifest guards", () => {
-  function forwardedSubmissionProvider(traceAvailable: boolean): {
-    provider: providers.Provider
-    bridge: string
-    expectedChallengeKey: string
+  function hardhatCanonicalTraceProvider(): providers.Provider & {
+    send(method: string, params: unknown[]): Promise<unknown>
   } {
-    const bridge = "0x00000000000000000000000000000000000000b1"
-    const forwarder = "0x00000000000000000000000000000000000000f1"
-    const walletPublicKey =
-      "0x989d253b17a6a0f41838b84ff0d20e8898f9d7b1a98f2564da4cc29dcf8581d9" +
-      "d218b65e7d91c752f7b22eaceb771a9af3a6f3d3f010a5d471a1aeef7d7713af"
-    const preimageSha256 = ethers.utils.hexZeroPad("0x1234", 32)
-    const sighash = ethers.utils.sha256(preimageSha256)
-    const signature = {
-      v: 27,
-      r: ethers.utils.hexZeroPad("0x01", 32),
-      s: ethers.utils.hexZeroPad("0x02", 32),
-    }
-    const fraudInterface = new ethers.utils.Interface([
-      "event FraudChallengeSubmitted(bytes20 indexed walletPubKeyHash,bytes32 sighash,uint8 v,bytes32 r,bytes32 s)",
-      "function submitFraudChallenge(bytes walletPublicKey,bytes preimageSha256,(uint8 v,bytes32 r,bytes32 s) signature)",
-    ])
-    const calldata = fraudInterface.encodeFunctionData("submitFraudChallenge", [
-      walletPublicKey,
-      preimageSha256,
-      signature,
-    ])
-    const walletPubKeyHash = ethers.utils.ripemd160(
-      ethers.utils.sha256(
-        ethers.utils.hexConcat([
-          "0x03",
-          ethers.utils.hexDataSlice(walletPublicKey, 0, 32),
-        ])
-      )
-    )
-    const encodedLog = fraudInterface.encodeEventLog(
-      fraudInterface.getEvent("FraudChallengeSubmitted"),
-      [walletPubKeyHash, sighash, signature.v, signature.r, signature.s]
-    )
-    const transactionHash = ethers.utils.hexZeroPad("0x42", 32)
-    const blockHash = ethers.utils.hexZeroPad("0x99", 32)
-    const provider = {
-      getLogs: async () => [
-        {
-          address: bridge,
-          blockHash,
-          blockNumber: 100,
-          data: encodedLog.data,
-          logIndex: 0,
-          removed: false,
-          topics: encodedLog.topics,
-          transactionHash,
-          transactionIndex: 0,
-        },
-      ],
-      getBlock: async () => ({ hash: blockHash }),
-      getTransaction: async () => ({ to: forwarder, data: "0x" }),
-      send: async () => {
-        if (!traceAvailable) throw new Error("trace disabled")
-        return {
-          to: forwarder,
-          input: "0x",
-          calls: [{ to: bridge, input: calldata }],
+    const { provider } = ethers
+    return new Proxy(provider, {
+      get(target, property, receiver) {
+        if (property === "send") {
+          return async (method: string, params: unknown[]) => {
+            if (method !== "debug_traceBlockByHash") {
+              return target.send(method, params)
+            }
+            const block = (await target.send("eth_getBlockByHash", [
+              params[0],
+              true,
+            ])) as {
+              transactions: Array<{
+                hash: string
+                from: string
+                to: string
+                input: string
+                value: string
+              }>
+            }
+            return Promise.all(
+              block.transactions.map(async (transaction) => {
+                const trace = (await target.send("debug_traceTransaction", [
+                  transaction.hash,
+                  params[1],
+                ])) as {
+                  failed: boolean
+                  structLogs?: Array<{
+                    op: string
+                    depth: number
+                    stack: string[]
+                    memory: string[]
+                  }>
+                }
+                const calls = (trace.structLogs ?? [])
+                  .filter(({ op, depth }) => op === "CALL" && depth === 1)
+                  .map(({ stack, memory }) => {
+                    const value = ethers.BigNumber.from(
+                      `0x${stack[stack.length - 3]}`
+                    )
+                    const inputOffset = ethers.BigNumber.from(
+                      `0x${stack[stack.length - 4]}`
+                    ).toNumber()
+                    const inputSize = ethers.BigNumber.from(
+                      `0x${stack[stack.length - 5]}`
+                    ).toNumber()
+                    const memoryBytes = `0x${memory.join("")}`
+                    return {
+                      from: transaction.to,
+                      to: ethers.utils.getAddress(
+                        ethers.utils.hexDataSlice(
+                          `0x${stack[stack.length - 2]}`,
+                          12
+                        )
+                      ),
+                      input: ethers.utils.hexDataSlice(
+                        memoryBytes,
+                        inputOffset,
+                        inputOffset + inputSize
+                      ),
+                      value: value.toHexString(),
+                    }
+                  })
+                return {
+                  txHash: transaction.hash,
+                  result: {
+                    from: transaction.from,
+                    to: transaction.to,
+                    input: transaction.input,
+                    value: transaction.value,
+                    error: trace.failed ? "execution reverted" : undefined,
+                    calls,
+                  },
+                }
+              })
+            )
+          }
         }
+        const value = Reflect.get(target, property, receiver)
+        return typeof value === "function" ? value.bind(target) : value
       },
-    } as unknown as providers.Provider
+    })
+  }
+
+  async function forwardedSubmissionFixture(): Promise<{
+    provider: providers.Provider & {
+      send(method: string, params: unknown[]): Promise<unknown>
+    }
+    bridge: string
+    scanBlock: number
+    historyEmitters: HistoryEmitter[]
+    expectedChallengeKey: string
+  }> {
+    const [challenger, treasury] = await ethers.getSigners()
+    const bridge = await (
+      await ethers.getContractFactory("EcdsaFraudRouterBridgeStub")
+    ).deploy(
+      treasury.address,
+      fraudWallet.pubKeyHash160,
+      fraudWallet.ecdsaWalletID,
+      constants.fraudChallengeDepositAmount
+    )
+    await bridge.deployed()
+
+    const router = (await (
+      await ethers.getContractFactory("EcdsaFraudRouter")
+    ).deploy(bridge.address, ethers.constants.AddressZero)) as EcdsaFraudRouter
+    await router.deployed()
+    await bridge.setEcdsaFraudRouter(router.address)
+    const forwarder = (await (
+      await ethers.getContractFactory("RevertingEcdsaFraudChallenger")
+    ).deploy(router.address)) as RevertingEcdsaFraudChallenger
+    await forwarder.deployed()
+    const receipt = await (
+      await forwarder
+        .connect(challenger)
+        .submitFraudChallenge(
+          fraudWallet.publicKey,
+          nonWitnessSignSingleInputTx.preimageSha256,
+          nonWitnessSignSingleInputTx.signature,
+          { value: constants.fraudChallengeDepositAmount }
+        )
+    ).wait()
+    const historyEmitters: HistoryEmitter[] = [
+      {
+        address: bridge.address,
+        runtimeCodeHash: ethers.utils.keccak256(
+          await ethers.provider.getCode(bridge.address)
+        ),
+        kind: "bridge",
+        expectedUnrelatedBalance: "0",
+      },
+      {
+        address: router.address,
+        runtimeCodeHash: ethers.utils.keccak256(
+          await ethers.provider.getCode(router.address)
+        ),
+        kind: "ecdsa-router-v3",
+        expectedUnrelatedBalance: "0",
+      },
+    ]
 
     return {
-      provider,
-      bridge,
+      provider: hardhatCanonicalTraceProvider(),
+      bridge: bridge.address,
+      scanBlock: receipt.blockNumber,
+      historyEmitters,
       expectedChallengeKey: ethers.BigNumber.from(
         ethers.utils.keccak256(
           ethers.utils.solidityPack(
             ["bytes", "bytes32"],
-            [walletPublicKey, sighash]
+            [fraudWallet.publicKey, nonWitnessSignSingleInputTx.sighash]
           )
         )
       ).toString(),
@@ -121,13 +212,19 @@ describe("ECDSA fraud cutover manifest guards", () => {
   }
 
   it("recovers forwarded legacy submissions from a unique Bridge call trace", async () => {
-    const { provider, bridge, expectedChallengeKey } =
-      forwardedSubmissionProvider(true)
+    const {
+      provider,
+      bridge,
+      scanBlock,
+      historyEmitters,
+      expectedChallengeKey,
+    } = await forwardedSubmissionFixture()
     const preflight = await buildLegacyInventorySourcePreflight(
       provider,
       bridge,
-      1,
-      100
+      scanBlock,
+      scanBlock,
+      historyEmitters
     )
 
     expect(preflight.sourceEventCount).to.equal(1)
@@ -143,9 +240,30 @@ describe("ECDSA fraud cutover manifest guards", () => {
   })
 
   it("fails closed when forwarded submission traces are unavailable", async () => {
-    const { provider, bridge } = forwardedSubmissionProvider(false)
+    const { provider, bridge, scanBlock, historyEmitters } =
+      await forwardedSubmissionFixture()
+    const traceUnavailableProvider = new Proxy(provider, {
+      get(target, property, receiver) {
+        if (property === "send") {
+          return async (method: string, params: unknown[]) => {
+            if (method === "debug_traceBlockByHash") {
+              throw new Error("execution trace unavailable")
+            }
+            return target.send(method, params)
+          }
+        }
+        const value = Reflect.get(target, property, receiver)
+        return typeof value === "function" ? value.bind(target) : value
+      },
+    })
     await expectRejected(
-      buildLegacyInventorySourcePreflight(provider, bridge, 1, 100),
+      buildLegacyInventorySourcePreflight(
+        traceUnavailableProvider,
+        bridge,
+        scanBlock,
+        scanBlock,
+        historyEmitters
+      ),
       "execution trace unavailable"
     )
   })

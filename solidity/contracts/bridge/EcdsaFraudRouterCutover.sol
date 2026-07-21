@@ -112,6 +112,9 @@ library EcdsaFraudRouterCutover {
         bytes32 reconcilerSourceId;
         AuthorityContext reconcilerContext;
         bytes32 manifestPlanHash;
+        uint32 evidenceGeneration;
+        bytes32 evidenceAnchorArtifactHash;
+        bytes32 evidencePredecessorArtifactHash;
         bytes32 emitterSetCommitment;
         bytes32 sourcePreflightCommitment;
         bytes32 sourceCheckpointCommitment;
@@ -181,6 +184,9 @@ library EcdsaFraudRouterCutover {
         bytes32 sourceCheckpointCommitment;
         bytes32 sourcePreflightCommitment;
         uint64 sourcePreflightBlock;
+        uint32 evidenceGeneration;
+        bytes32 evidenceAnchorArtifactHash;
+        bytes32 evidencePredecessorArtifactHash;
         uint64 drainBlock;
         uint8 maxTailBlocks;
         uint64 stageDeadlineBlock;
@@ -202,6 +208,9 @@ library EcdsaFraudRouterCutover {
         uint256 totalEscrow;
         HistoryEvidence history;
         bytes32 manifestPlanHash;
+        uint32 evidenceGeneration;
+        bytes32 evidenceAnchorArtifactHash;
+        bytes32 evidencePredecessorArtifactHash;
         bytes32 emitterSetCommitment;
         bytes32 sourcePreflightCommitment;
         bytes32 sourceCheckpointCommitment;
@@ -549,6 +558,11 @@ library EcdsaFraudRouterCutover {
         self.drainBlock = uint64(block.number);
         self.scanStartBlock = params.scanStartBlock;
         self.manifestPlanHash = authorityProof.manifestPlanHash;
+        self.evidenceGeneration = authorityProof.evidenceGeneration;
+        self.evidenceAnchorArtifactHash = authorityProof
+            .evidenceAnchorArtifactHash;
+        self.evidencePredecessorArtifactHash = authorityProof
+            .evidencePredecessorArtifactHash;
         self.emitterSetCommitment = authorityProof.emitterSetCommitment;
         self.sourcePreflightCommitment = authorityProof
             .sourcePreflightCommitment;
@@ -913,6 +927,9 @@ library EcdsaFraudRouterCutover {
         delete self.totalEscrow;
         delete self.history;
         delete self.manifestPlanHash;
+        delete self.evidenceGeneration;
+        delete self.evidenceAnchorArtifactHash;
+        delete self.evidencePredecessorArtifactHash;
         delete self.emitterSetCommitment;
         delete self.sourcePreflightCommitment;
         delete self.sourceCheckpointCommitment;

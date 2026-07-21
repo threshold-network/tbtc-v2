@@ -24,7 +24,7 @@ library EcdsaFraudRouterCutoverVerifier {
     bytes32 internal constant SOURCE_ATTESTATION_DOMAIN =
         keccak256("tbtc/ecdsa-fraud-cutover/inventory-source-attestation/v1");
     bytes32 internal constant BEGIN_AUTHORITY_DOMAIN =
-        keccak256("tbtc/ecdsa-fraud-cutover/begin-authority/v1");
+        keccak256("tbtc/ecdsa-fraud-cutover/begin-authority/v2");
     bytes32 internal constant OWNER_AUTHORIZATION_DOMAIN =
         keccak256("tbtc/ecdsa-fraud-cutover/owner-authorization/v1");
     bytes32 internal constant RECONCILER_ENROLLMENT_DOMAIN =
@@ -99,6 +99,12 @@ library EcdsaFraudRouterCutoverVerifier {
                 proof.reconcilerContext
             ) ||
             proof.manifestPlanHash == bytes32(0) ||
+            proof.evidenceGeneration == 0 ||
+            proof.evidenceAnchorArtifactHash == bytes32(0) ||
+            proof.evidencePredecessorArtifactHash == bytes32(0) ||
+            (proof.evidenceGeneration == 1 &&
+                proof.evidenceAnchorArtifactHash !=
+                proof.evidencePredecessorArtifactHash) ||
             proof.emitterSetCommitment == bytes32(0) ||
             proof.sourcePreflightCommitment == bytes32(0) ||
             proof.sourceCheckpointCommitment == bytes32(0) ||
@@ -471,6 +477,10 @@ library EcdsaFraudRouterCutoverVerifier {
         result.sourceCheckpointCommitment = self.sourceCheckpointCommitment;
         result.sourcePreflightCommitment = self.sourcePreflightCommitment;
         result.sourcePreflightBlock = self.sourcePreflightFinalizedBlock;
+        result.evidenceGeneration = self.evidenceGeneration;
+        result.evidenceAnchorArtifactHash = self.evidenceAnchorArtifactHash;
+        result.evidencePredecessorArtifactHash = self
+            .evidencePredecessorArtifactHash;
         result.drainBlock = self.drainBlock;
         result.maxTailBlocks = self.maxTailBlocks;
         result.stageDeadlineBlock = self.stageDeadlineBlock;
@@ -576,7 +586,10 @@ library EcdsaFraudRouterCutoverVerifier {
                     ),
                     proof.sourcePreflightFinalizedBlock,
                     proof.sourcePreflightFinalizedBlockHash,
-                    proof.maxTailBlocks
+                    proof.maxTailBlocks,
+                    proof.evidenceGeneration,
+                    proof.evidenceAnchorArtifactHash,
+                    proof.evidencePredecessorArtifactHash
                 )
             );
     }

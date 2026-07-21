@@ -46,7 +46,7 @@ describe("ECDSA fraud cutover durable artifacts", () => {
   it("publishes exact-mode, hashed artifacts and resumes with CAS", () => {
     const file = artifact()
     const initial = {
-      version: 4,
+      version: 5,
       phase: "new-governance-owned",
     } as unknown as HandoffManifest
     const initialFileHash = writeCutoverManifest(file, initial, {

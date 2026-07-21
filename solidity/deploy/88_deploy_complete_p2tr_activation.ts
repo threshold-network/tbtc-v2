@@ -24,6 +24,15 @@ import {
   hashArchiveManifestV2,
   readArchivePhase,
 } from "./54_upgrade_frost_wallet_registry_archive"
+import { loadCutoverManifest } from "../scripts/ecdsa-fraud-router-cutover-artifacts"
+import {
+  HandoffManifest,
+  artifactContentHashBytes32,
+  assertCutoverAuthoritySeparation,
+  discoverHistoryEmitters,
+  handoffPlanHash,
+  ownerAuthorizationHash,
+} from "../scripts/ecdsa-fraud-router-cutover-lib"
 
 export const COMPLETE_V2_PROTOCOL_ID = utils.id(
   "tbtc/p2tr-signature-fraud/evidence/complete-v2"
@@ -40,7 +49,7 @@ export const EIP_1967_IMPLEMENTATION_SLOT =
   "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc"
 export const EIP_170_RUNTIME_LIMIT = 24_576
 export const COVERAGE_LEAF_DOMAIN = "tbtc-p2tr-output-key-coverage-leaf-v1"
-export const ACTIVATION_ARTIFACT_SCHEMA = "tbtc/complete-p2tr-activation/v3"
+export const ACTIVATION_ARTIFACT_SCHEMA = "tbtc/complete-p2tr-activation/v4"
 export const COVERAGE_MANIFEST_SCHEMA = "tbtc/taproot-output-key-coverage/v2"
 export const MAXIMUM_COVERAGE_BATCH_SIZE = 32
 export const EIP_170_REQUIRED_HEADROOM = 512
@@ -59,16 +68,15 @@ export const COVERAGE_AUTHORIZATION_DOMAIN =
 export const DUAL_SOURCE_CHECKPOINT_DOMAIN =
   "tbtc-complete-p2tr-dual-source-checkpoint-v1"
 export const LINKED_LIBRARIES_DOMAIN = "tbtc-complete-p2tr-linked-libraries-v1"
+export const ECDSA_CUTOVER_PROTOCOL_ID = utils.id(
+  "tbtc/ecdsa-signature-fraud/router/current-v3"
+)
 export const COVERAGE_AUTHORIZATION_TUPLE =
   "tuple(bytes32 inventoryRoot,uint64 inventoryCount,uint64 historyStartBlock,uint64 snapshotBlock,bytes32 snapshotBlockHash,bytes32 sourceIdentity1,address sourceSigner1,bytes32 sourceCheckpointDigest1,bytes32 sourceIdentity2,address sourceSigner2,bytes32 sourceCheckpointDigest2,bytes32 sourceCheckpointCommitment,bytes32 linkedLibrariesCommitment,address implementation,bytes32 implementationCodeHash,address authorizationRegistry,bytes32 authorizationRegistryCodeHash,address fraudRouter,bytes32 fraudRouterCodeHash)"
 
 const proxyAdminInterface = new utils.Interface([
   "function owner() view returns (address)",
   "function upgrade(address proxy,address implementation)",
-])
-const ownableInterface = new utils.Interface([
-  "function owner() view returns (address)",
-  "function transferOwnership(address newOwner)",
 ])
 const timelockInterface = new utils.Interface([
   "function getMinDelay() view returns (uint256)",
@@ -79,6 +87,10 @@ const timelockInterface = new utils.Interface([
 ])
 const bridgeInterface = new utils.Interface([
   "function governance() view returns (address)",
+  "function ecdsaFraudRouter() view returns (address)",
+  "function ecdsaFraudRouterCodeHash() view returns (bytes32)",
+  "function ecdsaFraudRouterInDrain() view returns (address)",
+  "function isEcdsaFraudRouterRetired(address) view returns (bool)",
   "function frostLifecycleContext(bytes20) view returns (address,bytes32)",
   "function p2trFraudRouter() view returns (address)",
   "function processTaprootOutputKeyCoverage(bytes payload) returns (bytes)",
@@ -89,13 +101,14 @@ const bridgeInterface = new utils.Interface([
 ])
 const bridgeGovernanceInterface = new utils.Interface([
   "function owner() view returns (address)",
-  "function governanceDelay() view returns (uint256)",
-  "function beginBridgeGovernanceTransfer(address newGovernance)",
-  "function finalizeBridgeGovernanceTransfer()",
+  "function bridgeAddress() view returns (address)",
+  "function governanceDelays(uint256) view returns (uint256)",
   "function setFrostWalletRegistry(address registry)",
   "function setLifecycleRouter(address router)",
   "function processTaprootOutputKeyCoverage(bytes payload)",
   "function setEcdsaFraudRouter(address router,bytes32 expectedCodeHash)",
+  "function processEcdsaFraudCutoverAuthorityAction(uint8 action,bytes payload)",
+  "event EcdsaFraudCutoverAuthorizationBound(bytes32 indexed manifestPlanHash,bytes32 indexed sourceCheckpointCommitment,uint8 maxTailBlocks,uint64 stageDeadlineBlock)",
 ])
 const routerInterface = new utils.Interface([
   "function bridge() view returns (address)",
@@ -136,6 +149,17 @@ const frostWalletRegistryInterface = new utils.Interface([
   "function getWalletArchiveMigrationManifestHash() view returns (bytes32)",
   "function getWalletArchiveFinalAttestations() view returns (bytes32 sourceAttestationHash,bytes32 reconcilerAttestationHash)",
   "function getWalletArchiveMigration() view returns (uint8 state,address authority,uint256 upgradeBlockNumber,bytes32 oldImplementationCodeHash,bytes32 newImplementationCodeHash,bytes32 walletsRoot,bytes32 historyRoot,bytes32 pendingManifestHash,uint256 expectedCount,uint256 completedCount,bytes32 checkpointHash,uint256 checkpointBlockNumber,uint256 maxTailBlocks)",
+])
+const ecdsaRouterInterface = new utils.Interface([
+  "function bridge() view returns (address)",
+  "function fraudProtocolID() view returns (bytes32)",
+  "function predecessor() view returns (address)",
+  "function predecessorCodeHash() view returns (bytes32)",
+  "function ancestryDepth() view returns (uint256)",
+  "function openFraudChallengeCount() view returns (uint256)",
+  "function openFraudChallengeEscrow() view returns (uint256)",
+  "function unattributedOpenFraudChallengeCount() view returns (uint256)",
+  "function migratedChallengesActivatedAt() view returns (uint256)",
 ])
 
 export type AuthorityKind = "eoa" | "safe" | "timelock"
@@ -277,13 +301,63 @@ export interface FrostLifecyclePrerequisiteInput {
   archiveArtifactPath: string
 }
 
+export interface EcdsaCutoverBinding {
+  manifestPath: string
+  manifestArtifactHash: string
+  manifestPlanHash: string
+  structuralPlanHash: string
+  manifestPhase: string
+  finalized: boolean
+  evidenceGeneration: number
+  evidenceAnchorArtifactHash: string
+  evidencePredecessorArtifactHash: string
+  authorizationTransactionHash: string
+  authorizationPlanHash: string
+  chainId: string
+  bridge: string
+  oldGovernance: string
+  oldGovernanceCodeHash: string
+  governance: string
+  governanceCodeHash: string
+  governanceOwner: string
+  governanceDelay: string
+  oldRouter: string
+  oldRouterCodeHash: string
+  router: string
+  routerCodeHash: string
+  protocolID: string
+  predecessor: string
+  predecessorCodeHash: string
+  ancestryDepth: string
+  openChallengeCount: string
+  openChallengeEscrow: string
+  unattributedOpenChallengeCount: string
+  migratedChallengesActivatedAt: string
+  sourceSigner: string
+  sourceID: string
+  sourceStoreIdentity: string
+  sourceEndpointIdentity: string
+  sourceTrustDomain: string
+  sourcePolicyHash: string
+  reconciler: string
+  reconcilerSourceID: string
+  reconcilerStoreIdentity: string
+  reconcilerEndpointIdentity: string
+  reconcilerTrustDomain: string
+  reconcilerPolicyHash: string
+}
+
 export interface CompleteP2TRActivationArtifact {
   schemaVersion: typeof ACTIVATION_ARTIFACT_SCHEMA
   contentHash: string
   networkName: string
   chainId: string
   bridge: string
+  structuralPlanID: string
   planID: string
+  bridgePredecessorImplementation: string
+  bridgePredecessorImplementationCodeHash: string
+  ecdsaCutover: EcdsaCutoverBinding
   inventory: {
     manifestPath: string
     historyStartBlockNumber: number
@@ -1186,6 +1260,651 @@ export async function verifyFrostLifecyclePrerequisites({
   }
 }
 
+const readBytes32 = async (
+  provider: providers.Provider,
+  target: string,
+  iface: utils.Interface,
+  functionName: string
+): Promise<string> => {
+  const value = (await callResult(provider, target, iface, functionName))[0]
+  if (!utils.isHexString(value, 32)) {
+    throw new Error(`${functionName}: malformed bytes32 readback`)
+  }
+  return value
+}
+
+const readBool = async (
+  provider: providers.Provider,
+  target: string,
+  iface: utils.Interface,
+  functionName: string,
+  args: unknown[] = []
+): Promise<boolean> =>
+  Boolean((await callResult(provider, target, iface, functionName, args))[0])
+
+const assertCodeHash = async (
+  provider: providers.Provider,
+  label: string,
+  address: string,
+  expectedCodeHash: string
+): Promise<void> => {
+  if (!utils.isAddress(address) || !utils.isHexString(expectedCodeHash, 32)) {
+    throw new Error(`${label}: malformed address/code hash`)
+  }
+  const code = await provider.getCode(address)
+  if (
+    code === "0x" ||
+    utils.keccak256(code).toLowerCase() !== expectedCodeHash.toLowerCase()
+  ) {
+    throw new Error(`${label}: runtime code hash mismatch`)
+  }
+}
+
+export interface EcdsaCutoverDeployments {
+  canonicalGovernance: Deployment
+  cutoverGovernance: Deployment
+  historicalGovernance: Deployment
+  canonicalRouter: Deployment
+  cutoverRouter: Deployment
+  historicalRouter: Deployment
+}
+
+const sameAddress = (left: string, right: string): boolean =>
+  left.toLowerCase() === right.toLowerCase()
+
+const sameHash = (left: string, right: string): boolean =>
+  left.toLowerCase() === right.toLowerCase()
+
+export async function verifyEcdsaCutoverAuthorizationTransaction(
+  provider: providers.Provider,
+  manifest: HandoffManifest
+): Promise<{ transactionHash: string; planHash: string }> {
+  const transactionHash = manifest.transactions?.["begin-drain"]
+  if (!transactionHash || !utils.isHexString(transactionHash, 32)) {
+    throw new Error(
+      "ECDSA finalized cutover manifest lacks a valid begin-drain transaction"
+    )
+  }
+  const [transaction, receipt] = await Promise.all([
+    provider.getTransaction(transactionHash),
+    provider.getTransactionReceipt(transactionHash),
+  ])
+  if (
+    !transaction ||
+    !receipt ||
+    receipt.status !== 1 ||
+    !transaction.to ||
+    !sameAddress(transaction.to, manifest.newGovernance) ||
+    !sameHash(transaction.hash, transactionHash)
+  ) {
+    throw new Error(
+      "ECDSA begin-drain transaction is missing, reverted, or targets another governance"
+    )
+  }
+  let parsedTransaction: utils.TransactionDescription
+  try {
+    parsedTransaction = bridgeGovernanceInterface.parseTransaction({
+      data: transaction.data,
+      value: transaction.value,
+    })
+  } catch (_) {
+    throw new Error("ECDSA begin-drain transaction calldata is malformed")
+  }
+  if (
+    parsedTransaction.name !== "processEcdsaFraudCutoverAuthorityAction" ||
+    !BigNumber.from(parsedTransaction.args.action).eq(3)
+  ) {
+    throw new Error("ECDSA begin-drain transaction invokes another action")
+  }
+  const canonicalBlock = await provider.getBlock(receipt.blockNumber)
+  if (
+    !canonicalBlock?.hash ||
+    !sameHash(canonicalBlock.hash, receipt.blockHash)
+  ) {
+    throw new Error("ECDSA begin-drain receipt is not on the canonical chain")
+  }
+  const authorizationTopic = bridgeGovernanceInterface.getEventTopic(
+    "EcdsaFraudCutoverAuthorizationBound"
+  )
+  const authorizationLogs = receipt.logs.filter(
+    (log) =>
+      sameAddress(log.address, manifest.newGovernance) &&
+      log.topics.length > 0 &&
+      sameHash(log.topics[0], authorizationTopic)
+  )
+  if (authorizationLogs.length !== 1) {
+    throw new Error(
+      "ECDSA begin-drain receipt must contain exactly one authorization binding"
+    )
+  }
+  const authorization = bridgeGovernanceInterface.parseLog(authorizationLogs[0])
+  const expectedPlanHash = handoffPlanHash(manifest)
+  if (
+    !sameHash(authorization.args.manifestPlanHash, expectedPlanHash) ||
+    !sameHash(
+      authorization.args.sourceCheckpointCommitment,
+      manifest.sourceCheckpointCommitment
+    ) ||
+    BigNumber.from(authorization.args.maxTailBlocks).toNumber() !==
+      manifest.maxTailBlocks ||
+    !BigNumber.from(authorization.args.stageDeadlineBlock).eq(
+      receipt.blockNumber + 255
+    )
+  ) {
+    throw new Error(
+      "ECDSA begin-drain authorization binding disagrees with the manifest"
+    )
+  }
+  return {
+    transactionHash: transaction.hash,
+    planHash: authorization.args.manifestPlanHash,
+  }
+}
+
+export async function validateEcdsaCutoverBinding(
+  provider: providers.Provider,
+  manifest: HandoffManifest,
+  manifestPath: string,
+  manifestArtifactHash: string,
+  chainId: string,
+  bridge: string,
+  deployments: EcdsaCutoverDeployments,
+  unionImplementationInstalled: boolean
+): Promise<EcdsaCutoverBinding> {
+  if (manifest.version !== 5) {
+    throw new Error("ECDSA cutover manifest version is unsupported")
+  }
+  if (!/^sha256:[0-9a-f]{64}$/.test(manifestArtifactHash)) {
+    throw new Error("ECDSA cutover manifest artifact hash is malformed")
+  }
+  assertCutoverAuthoritySeparation(manifest)
+  if (
+    manifest.chainId.toString() !== chainId ||
+    !sameAddress(manifest.bridge, bridge)
+  ) {
+    throw new Error("ECDSA cutover manifest chain/Bridge mismatch")
+  }
+  if (
+    sameAddress(manifest.oldGovernance, manifest.newGovernance) ||
+    sameAddress(manifest.oldRouter, manifest.replacementRouter)
+  ) {
+    throw new Error(
+      "ECDSA cutover manifest does not name distinct replacements"
+    )
+  }
+  const aliasPairs: Array<[string, Deployment, string]> = [
+    [
+      "cutover governance",
+      deployments.cutoverGovernance,
+      manifest.newGovernance,
+    ],
+    [
+      "historical governance",
+      deployments.historicalGovernance,
+      manifest.oldGovernance,
+    ],
+    ["cutover router", deployments.cutoverRouter, manifest.replacementRouter],
+    ["historical router", deployments.historicalRouter, manifest.oldRouter],
+  ]
+  aliasPairs.forEach(([label, deployment, expected]) => {
+    if (!sameAddress(deployment.address, expected)) {
+      throw new Error(`ECDSA ${label} deployment alias mismatch`)
+    }
+  })
+  if (
+    !sameAddress(
+      deployments.canonicalGovernance.address,
+      manifest.oldGovernance
+    ) &&
+    !sameAddress(
+      deployments.canonicalGovernance.address,
+      manifest.newGovernance
+    )
+  ) {
+    throw new Error("ECDSA canonical governance alias is outside the manifest")
+  }
+  if (
+    !sameAddress(deployments.canonicalRouter.address, manifest.oldRouter) &&
+    !sameAddress(
+      deployments.canonicalRouter.address,
+      manifest.replacementRouter
+    )
+  ) {
+    throw new Error("ECDSA canonical router alias is outside the manifest")
+  }
+
+  await Promise.all([
+    assertCodeHash(
+      provider,
+      "ECDSA old governance",
+      manifest.oldGovernance,
+      manifest.oldGovernanceRuntimeCodeHash
+    ),
+    assertCodeHash(
+      provider,
+      "ECDSA cutover governance",
+      manifest.newGovernance,
+      manifest.newGovernanceRuntimeCodeHash
+    ),
+    assertCodeHash(
+      provider,
+      "ECDSA old router",
+      manifest.oldRouter,
+      manifest.oldRouterRuntimeCodeHash
+    ),
+    assertCodeHash(
+      provider,
+      "ECDSA cutover router",
+      manifest.replacementRouter,
+      manifest.replacementRouterRuntimeCodeHash
+    ),
+  ])
+
+  if (
+    manifest.historyEmitters.length < 2 ||
+    manifest.historyEmitters[0].kind !== "bridge" ||
+    !sameAddress(manifest.historyEmitters[0].address, bridge) ||
+    !sameAddress(manifest.historyEmitters[1].address, manifest.oldRouter) ||
+    !sameHash(
+      manifest.historyEmitters[1].runtimeCodeHash,
+      manifest.oldRouterRuntimeCodeHash
+    )
+  ) {
+    throw new Error("ECDSA cutover manifest has invalid router ancestry")
+  }
+  const discoveredHistoryEmitters = await discoverHistoryEmitters(
+    provider,
+    bridge,
+    manifest.oldRouter,
+    Object.fromEntries(
+      manifest.historyEmitters.map((emitter) => [
+        emitter.address,
+        emitter.expectedUnrelatedBalance,
+      ])
+    )
+  )
+  const exactEmitter = (
+    emitter: HandoffManifest["historyEmitters"][number]
+  ): string =>
+    [
+      emitter.address.toLowerCase(),
+      emitter.runtimeCodeHash.toLowerCase(),
+      emitter.kind,
+      BigNumber.from(emitter.expectedUnrelatedBalance).toString(),
+    ].join(":")
+  if (
+    discoveredHistoryEmitters.map(exactEmitter).join("|") !==
+    manifest.historyEmitters.map(exactEmitter).join("|")
+  ) {
+    throw new Error("ECDSA cutover manifest router ancestry is incomplete")
+  }
+
+  const [
+    replacementBridge,
+    protocolID,
+    predecessor,
+    predecessorCodeHash,
+    ancestryDepth,
+    openChallengeCount,
+    openChallengeEscrow,
+    unattributedOpenChallengeCount,
+    migratedChallengesActivatedAt,
+    governanceBridge,
+    governanceOwner,
+    governanceDelay,
+  ] = await Promise.all([
+    readAddress(
+      provider,
+      manifest.replacementRouter,
+      ecdsaRouterInterface,
+      "bridge"
+    ),
+    readBytes32(
+      provider,
+      manifest.replacementRouter,
+      ecdsaRouterInterface,
+      "fraudProtocolID"
+    ),
+    readAddress(
+      provider,
+      manifest.replacementRouter,
+      ecdsaRouterInterface,
+      "predecessor"
+    ),
+    readBytes32(
+      provider,
+      manifest.replacementRouter,
+      ecdsaRouterInterface,
+      "predecessorCodeHash"
+    ),
+    readUint(
+      provider,
+      manifest.replacementRouter,
+      ecdsaRouterInterface,
+      "ancestryDepth"
+    ),
+    readUint(
+      provider,
+      manifest.replacementRouter,
+      ecdsaRouterInterface,
+      "openFraudChallengeCount"
+    ),
+    readUint(
+      provider,
+      manifest.replacementRouter,
+      ecdsaRouterInterface,
+      "openFraudChallengeEscrow"
+    ),
+    readUint(
+      provider,
+      manifest.replacementRouter,
+      ecdsaRouterInterface,
+      "unattributedOpenFraudChallengeCount"
+    ),
+    readUint(
+      provider,
+      manifest.replacementRouter,
+      ecdsaRouterInterface,
+      "migratedChallengesActivatedAt"
+    ),
+    readAddress(
+      provider,
+      manifest.newGovernance,
+      bridgeGovernanceInterface,
+      "bridgeAddress"
+    ),
+    readAddress(
+      provider,
+      manifest.newGovernance,
+      bridgeGovernanceInterface,
+      "owner"
+    ),
+    BigNumber.from(
+      (
+        await callResult(
+          provider,
+          manifest.newGovernance,
+          bridgeGovernanceInterface,
+          "governanceDelays",
+          [0]
+        )
+      )[0]
+    ),
+  ])
+  if (
+    !sameAddress(replacementBridge, bridge) ||
+    !sameHash(protocolID, ECDSA_CUTOVER_PROTOCOL_ID) ||
+    !sameAddress(predecessor, manifest.oldRouter) ||
+    !sameHash(predecessorCodeHash, manifest.oldRouterRuntimeCodeHash) ||
+    !ancestryDepth.eq(manifest.historyEmitters.length - 1)
+  ) {
+    throw new Error("ECDSA replacement router protocol/predecessor mismatch")
+  }
+  if (
+    !sameAddress(governanceBridge, bridge) ||
+    !sameAddress(governanceOwner, manifest.governanceOwner) ||
+    governanceDelay.toString() !== manifest.governanceDelay
+  ) {
+    throw new Error("ECDSA cutover governance identity mismatch")
+  }
+
+  let finalized = false
+  if (unionImplementationInstalled) {
+    const [
+      liveGovernance,
+      liveRouter,
+      approvedRouterCodeHash,
+      drainRouter,
+      oldRouterRetired,
+    ] = await Promise.all([
+      readAddress(provider, bridge, bridgeInterface, "governance"),
+      readAddress(provider, bridge, bridgeInterface, "ecdsaFraudRouter"),
+      readBytes32(
+        provider,
+        bridge,
+        bridgeInterface,
+        "ecdsaFraudRouterCodeHash"
+      ),
+      readAddress(provider, bridge, bridgeInterface, "ecdsaFraudRouterInDrain"),
+      readBool(provider, bridge, bridgeInterface, "isEcdsaFraudRouterRetired", [
+        manifest.oldRouter,
+      ]),
+    ])
+    if (
+      (!sameAddress(liveGovernance, manifest.oldGovernance) &&
+        !sameAddress(liveGovernance, manifest.newGovernance)) ||
+      (!sameAddress(liveRouter, manifest.oldRouter) &&
+        !sameAddress(liveRouter, manifest.replacementRouter)) ||
+      (!sameAddress(drainRouter, constants.AddressZero) &&
+        !sameAddress(drainRouter, manifest.oldRouter))
+    ) {
+      throw new Error("ECDSA cutover live state is outside the manifest")
+    }
+    if (
+      (sameAddress(liveRouter, manifest.oldRouter) &&
+        !sameHash(approvedRouterCodeHash, manifest.oldRouterRuntimeCodeHash)) ||
+      (sameAddress(liveRouter, manifest.replacementRouter) &&
+        !sameHash(
+          approvedRouterCodeHash,
+          manifest.replacementRouterRuntimeCodeHash
+        ))
+    ) {
+      throw new Error(
+        "ECDSA live router code authorization is outside the manifest"
+      )
+    }
+    finalized =
+      sameAddress(liveGovernance, manifest.newGovernance) &&
+      sameAddress(liveRouter, manifest.replacementRouter) &&
+      sameHash(
+        approvedRouterCodeHash,
+        manifest.replacementRouterRuntimeCodeHash
+      ) &&
+      sameAddress(drainRouter, constants.AddressZero) &&
+      oldRouterRetired &&
+      !migratedChallengesActivatedAt.isZero()
+    if (manifest.phase === "finalized" && !finalized) {
+      throw new Error("ECDSA finalized manifest disagrees with Bridge readback")
+    }
+    if (manifest.phase !== "finalized" && finalized) {
+      throw new Error("ECDSA on-chain cutover has an unfinalized manifest")
+    }
+  } else if (manifest.phase === "finalized") {
+    throw new Error("ECDSA manifest finalized before the union Bridge upgrade")
+  }
+
+  if (finalized) {
+    if (
+      !sameAddress(
+        deployments.canonicalGovernance.address,
+        manifest.newGovernance
+      )
+    ) {
+      throw new Error("ECDSA finalized governance canonical alias is stale")
+    }
+    if (
+      !sameAddress(
+        deployments.canonicalRouter.address,
+        manifest.replacementRouter
+      )
+    ) {
+      throw new Error("ECDSA finalized router canonical alias is stale")
+    }
+  }
+
+  let authorization = {
+    transactionHash: constants.HashZero,
+    planHash: constants.HashZero,
+  }
+  if (manifest.transactions?.["begin-drain"] || finalized) {
+    authorization = await verifyEcdsaCutoverAuthorizationTransaction(
+      provider,
+      manifest
+    )
+  }
+
+  return {
+    manifestPath,
+    manifestArtifactHash,
+    manifestPlanHash: handoffPlanHash(manifest),
+    structuralPlanHash: ownerAuthorizationHash(manifest),
+    manifestPhase: manifest.phase,
+    finalized,
+    evidenceGeneration: manifest.evidenceGeneration,
+    evidenceAnchorArtifactHash: manifest.evidenceAnchorArtifactHash,
+    evidencePredecessorArtifactHash: manifest.evidencePredecessorArtifactHash,
+    authorizationTransactionHash: authorization.transactionHash,
+    authorizationPlanHash: authorization.planHash,
+    chainId,
+    bridge: utils.getAddress(bridge),
+    oldGovernance: utils.getAddress(manifest.oldGovernance),
+    oldGovernanceCodeHash: manifest.oldGovernanceRuntimeCodeHash,
+    governance: utils.getAddress(manifest.newGovernance),
+    governanceCodeHash: manifest.newGovernanceRuntimeCodeHash,
+    governanceOwner: utils.getAddress(manifest.governanceOwner),
+    governanceDelay: manifest.governanceDelay,
+    oldRouter: utils.getAddress(manifest.oldRouter),
+    oldRouterCodeHash: manifest.oldRouterRuntimeCodeHash,
+    router: utils.getAddress(manifest.replacementRouter),
+    routerCodeHash: manifest.replacementRouterRuntimeCodeHash,
+    protocolID,
+    predecessor,
+    predecessorCodeHash,
+    ancestryDepth: ancestryDepth.toString(),
+    openChallengeCount: openChallengeCount.toString(),
+    openChallengeEscrow: openChallengeEscrow.toString(),
+    unattributedOpenChallengeCount: unattributedOpenChallengeCount.toString(),
+    migratedChallengesActivatedAt: migratedChallengesActivatedAt.toString(),
+    sourceSigner: utils.getAddress(manifest.sourceSigner),
+    sourceID: manifest.sourceId,
+    sourceStoreIdentity: manifest.sourceContext.durableStoreIdentity,
+    sourceEndpointIdentity: manifest.sourceContext.endpointIdentity,
+    sourceTrustDomain: manifest.sourceContext.trustDomain,
+    sourcePolicyHash: manifest.sourceContext.policyHash,
+    reconciler: utils.getAddress(manifest.reconciler),
+    reconcilerSourceID: manifest.reconcilerSourceId,
+    reconcilerStoreIdentity: manifest.reconcilerContext.durableStoreIdentity,
+    reconcilerEndpointIdentity: manifest.reconcilerContext.endpointIdentity,
+    reconcilerTrustDomain: manifest.reconcilerContext.trustDomain,
+    reconcilerPolicyHash: manifest.reconcilerContext.policyHash,
+  }
+}
+
+export function assertEcdsaCutoverResume(
+  previous: EcdsaCutoverBinding,
+  current: EcdsaCutoverBinding
+): void {
+  const immutableKeys: Array<keyof EcdsaCutoverBinding> = [
+    "manifestPath",
+    "structuralPlanHash",
+    "chainId",
+    "bridge",
+    "oldGovernance",
+    "oldGovernanceCodeHash",
+    "governance",
+    "governanceCodeHash",
+    "governanceOwner",
+    "governanceDelay",
+    "oldRouter",
+    "oldRouterCodeHash",
+    "router",
+    "routerCodeHash",
+    "protocolID",
+    "predecessor",
+    "predecessorCodeHash",
+    "ancestryDepth",
+    "sourceSigner",
+    "sourceID",
+    "sourceStoreIdentity",
+    "sourceEndpointIdentity",
+    "sourceTrustDomain",
+    "sourcePolicyHash",
+    "reconciler",
+    "reconcilerSourceID",
+    "reconcilerStoreIdentity",
+    "reconcilerEndpointIdentity",
+    "reconcilerTrustDomain",
+    "reconcilerPolicyHash",
+  ]
+  immutableKeys.forEach((key) => {
+    if (previous[key] !== current[key]) {
+      throw new Error(`ECDSA cutover resume identity drift: ${key}`)
+    }
+  })
+  if (previous.finalized && !current.finalized) {
+    throw new Error("ECDSA cutover resume regressed from finalized state")
+  }
+  if (current.evidenceGeneration < previous.evidenceGeneration) {
+    throw new Error("ECDSA cutover evidence generation regressed during resume")
+  }
+  if (current.evidenceGeneration === previous.evidenceGeneration) {
+    if (previous.manifestPlanHash !== current.manifestPlanHash) {
+      throw new Error(
+        "ECDSA cutover plan changed without a new evidence generation"
+      )
+    }
+    if (
+      current.evidenceGeneration === 0 &&
+      previous.manifestArtifactHash !== current.manifestArtifactHash
+    ) {
+      throw new Error("ECDSA initial cutover manifest artifact drifted")
+    }
+  } else {
+    const previousArtifactHash = artifactContentHashBytes32(
+      previous.manifestArtifactHash
+    )
+    if (
+      current.evidenceGeneration === previous.evidenceGeneration + 1 &&
+      !sameHash(current.evidencePredecessorArtifactHash, previousArtifactHash)
+    ) {
+      throw new Error(
+        "ECDSA cutover evidence predecessor does not bind the prior artifact"
+      )
+    }
+    const expectedAnchor =
+      previous.evidenceGeneration === 0
+        ? previousArtifactHash
+        : previous.evidenceAnchorArtifactHash
+    if (!sameHash(current.evidenceAnchorArtifactHash, expectedAnchor)) {
+      throw new Error("ECDSA cutover evidence anchor changed during resume")
+    }
+  }
+  if (!sameHash(previous.authorizationTransactionHash, constants.HashZero)) {
+    if (
+      !sameHash(
+        previous.authorizationTransactionHash,
+        current.authorizationTransactionHash
+      ) ||
+      !sameHash(previous.authorizationPlanHash, current.authorizationPlanHash)
+    ) {
+      throw new Error("ECDSA cutover authorization binding regressed")
+    }
+  }
+  if (
+    current.finalized &&
+    (!sameHash(current.authorizationPlanHash, current.manifestPlanHash) ||
+      sameHash(current.authorizationTransactionHash, constants.HashZero))
+  ) {
+    throw new Error("ECDSA finalized cutover lacks its authenticated plan")
+  }
+  if (previous.finalized) {
+    const finalKeys: Array<keyof EcdsaCutoverBinding> = [
+      "manifestArtifactHash",
+      "manifestPlanHash",
+      "evidenceGeneration",
+      "evidenceAnchorArtifactHash",
+      "evidencePredecessorArtifactHash",
+      "authorizationTransactionHash",
+      "authorizationPlanHash",
+    ]
+    finalKeys.forEach((key) => {
+      if (previous[key] !== current[key]) {
+        throw new Error(`ECDSA finalized cutover binding changed: ${key}`)
+      }
+    })
+  }
+}
+
 const readCoverage = async (
   provider: providers.Provider,
   bridge: string,
@@ -1890,10 +2609,14 @@ const parseArtifact = (
   const artifact = JSON.parse(
     fs.readFileSync(artifactPath, "utf8")
   ) as CompleteP2TRActivationArtifact
-  if (
-    artifact.schemaVersion !== ACTIVATION_ARTIFACT_SCHEMA ||
-    artifact.contentHash !== activationArtifactContentHash(artifact)
-  ) {
+  if (artifact.schemaVersion !== ACTIVATION_ARTIFACT_SCHEMA) {
+    throw new Error(
+      `Unsupported COMPLETE_V2 activation artifact schema ${String(
+        artifact.schemaVersion
+      )}; v3 artifacts predate the authenticated step-87 handoff and cannot be resumed`
+    )
+  }
+  if (artifact.contentHash !== activationArtifactContentHash(artifact)) {
     throw new Error("COMPLETE_V2 activation artifact content hash mismatch")
   }
   return artifact
@@ -1963,6 +2686,30 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
   const frostArchiveArtifactPath = process.env.FROST_ARCHIVE_ARTIFACT_PATH
   if (!frostArchiveArtifactPath) {
     throw new Error("FROST_ARCHIVE_ARTIFACT_PATH is required")
+  }
+  const ecdsaCutoverManifestPath = path.resolve(
+    process.env.ECDSA_CUTOVER_MANIFEST ??
+      path.join(
+        hre.config.paths.deployments,
+        hre.network.name,
+        "ecdsa-fraud-router-cutover-manifest.json"
+      )
+  )
+  if (!fs.existsSync(ecdsaCutoverManifestPath)) {
+    throw new Error(
+      `ECDSA cutover manifest not found at ${ecdsaCutoverManifestPath}; run deployment 87 first`
+    )
+  }
+  const loadedEcdsaCutoverManifest = loadCutoverManifest(
+    ecdsaCutoverManifestPath
+  )
+  const ecdsaCutoverDeployments: EcdsaCutoverDeployments = {
+    canonicalGovernance: await get("BridgeGovernance"),
+    cutoverGovernance: await get("BridgeGovernanceEcdsaFraudCutover"),
+    historicalGovernance: await get("BridgeGovernanceBeforeEcdsaCutover"),
+    canonicalRouter: await get("EcdsaFraudRouter"),
+    cutoverRouter: await get("EcdsaFraudRouterEcdsaCutoverReplacement"),
+    historicalRouter: await get("EcdsaFraudRouterBeforeEcdsaCutover"),
   }
   const manifestPath = process.env.COMPLETE_P2TR_COVERAGE_MANIFEST
   if (!manifestPath) {
@@ -2146,11 +2893,6 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
     libraries: bridgeLibraries,
     args: [coverageAuthority],
   })
-  const EcdsaRouter = await deploy("EcdsaFraudRouterCompleteV2", {
-    ...deployOptions,
-    contract: "EcdsaFraudRouter",
-    args: [Bridge.address],
-  })
   const Registry = await deploy("P2TRAuthorizationRegistry", {
     ...deployOptions,
     contract: "P2TRAuthorizationRegistry",
@@ -2176,7 +2918,6 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
     Fraud,
     MovingFunds,
     BridgeImplementation,
-    EcdsaRouter,
     Registry,
     Router,
   }
@@ -2473,71 +3214,6 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
     )
   }
 
-  const ecdsaBridge = await readAddress(
-    ethers.provider,
-    EcdsaRouter.address,
-    legacyRouterInterface,
-    "bridge"
-  )
-  if (ecdsaBridge.toLowerCase() !== Bridge.address.toLowerCase()) {
-    throw new Error("ECDSA router is bound to another Bridge")
-  }
-  const ecdsaRouterWord = await ethers.provider.getStorageAt(
-    Bridge.address,
-    BRIDGE_ECDSA_ROUTER_STORAGE_SLOT
-  )
-  const configuredEcdsaRouter = readAddressWord(
-    ecdsaRouterWord,
-    "Bridge ECDSA router slot"
-  )
-  let ecdsaRouterToInstall =
-    previous?.addresses.ecdsaRouterToInstall ?? constants.AddressZero
-  if (
-    ecdsaRouterToInstall !== constants.AddressZero &&
-    ecdsaRouterToInstall.toLowerCase() !== EcdsaRouter.address.toLowerCase()
-  ) {
-    throw new Error("Resume artifact has an invalid ECDSA router plan")
-  }
-  if (configuredEcdsaRouter === constants.AddressZero) {
-    if (!previous) {
-      ecdsaRouterToInstall = EcdsaRouter.address
-    } else if (
-      ecdsaRouterToInstall.toLowerCase() !== EcdsaRouter.address.toLowerCase()
-    ) {
-      throw new Error(
-        "Resume artifact does not install the missing ECDSA router"
-      )
-    }
-  } else {
-    const existingCode = await ethers.provider.getCode(configuredEcdsaRouter)
-    assertRuntimeCode(
-      "Configured ECDSA router",
-      configuredEcdsaRouter,
-      existingCode,
-      expectedRuntime(EcdsaRouter, "EcdsaRouter")
-    )
-    if (
-      ecdsaRouterToInstall !== constants.AddressZero &&
-      configuredEcdsaRouter.toLowerCase() !== ecdsaRouterToInstall.toLowerCase()
-    ) {
-      throw new Error("Configured ECDSA router diverges from resume plan")
-    }
-    if (
-      !alreadyActivated &&
-      (!(
-        await readUint(
-          ethers.provider,
-          configuredEcdsaRouter,
-          legacyRouterInterface,
-          "openFraudChallengeCount"
-        )
-      ).isZero() ||
-        !(await ethers.provider.getBalance(configuredEcdsaRouter)).isZero())
-    ) {
-      throw new Error("Configured ECDSA router has open challenge/accounting")
-    }
-  }
-
   const configuredAccounts = await ethers.provider.listAccounts()
   const adminWord = await ethers.provider.getStorageAt(
     Bridge.address,
@@ -2572,178 +3248,142 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
         ).toString()
       : "0"
 
+  const prePhaseImplementation = readAddressWord(
+    await ethers.provider.getStorageAt(
+      Bridge.address,
+      EIP_1967_IMPLEMENTATION_SLOT
+    ),
+    "Bridge EIP-1967 implementation"
+  )
+  const unionImplementationInstalled = sameAddress(
+    prePhaseImplementation,
+    BridgeImplementation.address
+  )
+  if (!previous && unionImplementationInstalled) {
+    throw new Error(
+      "Union Bridge implementation was installed outside a step-88 activation artifact"
+    )
+  }
+  const bridgePredecessorImplementation =
+    previous?.bridgePredecessorImplementation ?? prePhaseImplementation
+  const bridgePredecessorCode = await ethers.provider.getCode(
+    bridgePredecessorImplementation
+  )
+  if (bridgePredecessorCode === "0x") {
+    throw new Error("Bridge union predecessor implementation has no code")
+  }
+  const bridgePredecessorImplementationCodeHash = utils.keccak256(
+    bridgePredecessorCode
+  )
+  if (
+    previous &&
+    previous.bridgePredecessorImplementationCodeHash !==
+      bridgePredecessorImplementationCodeHash
+  ) {
+    throw new Error("Bridge union predecessor code hash changed during resume")
+  }
+  if (
+    !sameAddress(prePhaseImplementation, bridgePredecessorImplementation) &&
+    !unionImplementationInstalled
+  ) {
+    throw new Error("Bridge implementation is outside the union-only ancestry")
+  }
+  if (
+    previous?.addresses.bridgeImplementation &&
+    !sameAddress(
+      previous.addresses.bridgeImplementation,
+      BridgeImplementation.address
+    )
+  ) {
+    throw new Error("Resume artifact names another union Bridge implementation")
+  }
+
+  const ecdsaCutover = await validateEcdsaCutoverBinding(
+    ethers.provider,
+    loadedEcdsaCutoverManifest.value,
+    ecdsaCutoverManifestPath,
+    loadedEcdsaCutoverManifest.fileContentHash,
+    chainId,
+    Bridge.address,
+    ecdsaCutoverDeployments,
+    unionImplementationInstalled
+  )
+  if (previous) {
+    if (!previous.ecdsaCutover) {
+      throw new Error("Resume artifact lacks the step-87 ECDSA cutover binding")
+    }
+    assertEcdsaCutoverResume(previous.ecdsaCutover, ecdsaCutover)
+    if (
+      !sameAddress(
+        previous.bridgePredecessorImplementation,
+        bridgePredecessorImplementation
+      )
+    ) {
+      throw new Error("Bridge union predecessor changed during resume")
+    }
+  }
+
   const liveGovernance = await readAddress(
     ethers.provider,
     Bridge.address,
     bridgeInterface,
     "governance"
   )
-  const currentGovernance =
-    previous?.addresses.currentGovernance ?? liveGovernance
-  const currentGovernanceCode = await ethers.provider.getCode(currentGovernance)
-  let governanceAuthority =
-    previous?.addresses.governanceAuthority ?? currentGovernance
-  let governanceDelay = BigNumber.from(0)
-  let activationTarget = Bridge.address
-  let atomicActivation = false
-  let replacementGovernance = constants.AddressZero
-  let governanceParameters: Deployment | undefined
-  let replacementGovernanceDeployment: Deployment | undefined
-
-  if (currentGovernanceCode !== "0x") {
-    const originalGovernanceOwner = await readAddress(
-      ethers.provider,
-      currentGovernance,
-      bridgeGovernanceInterface,
-      "owner"
-    )
-    if (
-      previous &&
-      originalGovernanceOwner.toLowerCase() !==
-        governanceAuthority.toLowerCase()
-    ) {
-      throw new Error(
-        "Original BridgeGovernance owner diverges from resume plan"
-      )
-    }
-    governanceAuthority = originalGovernanceOwner
-    governanceDelay = await readUint(
-      ethers.provider,
-      currentGovernance,
-      bridgeGovernanceInterface,
-      "governanceDelay"
-    )
-    governanceParameters = await deploy(
-      "BridgeGovernanceParametersCompleteV2",
-      {
-        ...deployOptions,
-        contract: "BridgeGovernanceParameters",
-      }
-    )
-    replacementGovernanceDeployment = await deploy(
-      "BridgeGovernanceCompleteV2",
-      {
-        ...deployOptions,
-        contract: "BridgeGovernance",
-        args: [Bridge.address, governanceDelay],
-        libraries: {
-          BridgeGovernanceParameters: governanceParameters.address,
-        },
-      }
-    )
-    replacementGovernance = replacementGovernanceDeployment.address
-    if (
-      previous?.addresses.replacementGovernance &&
-      previous.addresses.replacementGovernance !== constants.AddressZero &&
-      previous.addresses.replacementGovernance.toLowerCase() !==
-        replacementGovernance.toLowerCase()
-    ) {
-      throw new Error("Replacement BridgeGovernance diverges from resume plan")
-    }
-    activationTarget = replacementGovernance
-    atomicActivation = true
-
-    runtimeDeployments.BridgeGovernanceParameters = governanceParameters
-    runtimeDeployments.BridgeGovernance = replacementGovernanceDeployment
-    for (const [label, deployment] of [
-      ["BridgeGovernanceParameters", governanceParameters],
-      ["BridgeGovernance", replacementGovernanceDeployment],
-    ] as Array<[string, Deployment]>) {
-      // eslint-disable-next-line no-await-in-loop
-      const code = await ethers.provider.getCode(deployment.address)
-      runtimeReceipts[label] = assertRuntimeCode(
-        label,
-        deployment.address,
-        code,
-        expectedRuntime(deployment, label)
-      )
-    }
-
-    const replacementOwner = await readAddress(
-      ethers.provider,
-      replacementGovernance,
-      ownableInterface,
-      "owner"
-    )
-    if (replacementOwner.toLowerCase() === deployer.toLowerCase()) {
-      const signer = await ethers.getSigner(deployer)
-      const transfer = await signer.sendTransaction({
-        to: replacementGovernance,
-        data: ownableInterface.encodeFunctionData("transferOwnership", [
-          governanceAuthority,
-        ]),
-      })
-      await transfer.wait(1)
-    } else if (
-      replacementOwner.toLowerCase() !== governanceAuthority.toLowerCase()
-    ) {
-      throw new Error(
-        "Replacement BridgeGovernance is owned by an unexpected authority"
-      )
-    }
-    const transferredOwner = await readAddress(
-      ethers.provider,
-      replacementGovernance,
-      ownableInterface,
-      "owner"
-    )
-    if (transferredOwner.toLowerCase() !== governanceAuthority.toLowerCase()) {
-      throw new Error("Replacement BridgeGovernance ownership transfer failed")
-    }
-  } else if (
-    previous?.addresses.replacementGovernance &&
-    previous.addresses.replacementGovernance !== constants.AddressZero
-  ) {
-    throw new Error("Resume artifact expects contract Bridge governance")
-  }
-
   if (
-    liveGovernance.toLowerCase() !== currentGovernance.toLowerCase() &&
-    liveGovernance.toLowerCase() !== replacementGovernance.toLowerCase()
+    !sameAddress(liveGovernance, ecdsaCutover.oldGovernance) &&
+    !sameAddress(liveGovernance, ecdsaCutover.governance)
   ) {
-    throw new Error("Bridge governance diverges from activation plan")
+    throw new Error("Bridge governance is outside the step-87 cutover")
   }
+  const currentGovernance = ecdsaCutover.governance
+  const governanceAuthority = ecdsaCutover.governanceOwner
+  const activationTarget = ecdsaCutover.governance
 
-  const governanceContractKind = process.env
-    .COMPLETE_P2TR_GOVERNANCE_AUTHORITY_KIND as "safe" | "timelock" | undefined
-  const governanceAuthorityKind = await classifyAuthority(
-    ethers.provider,
-    governanceAuthority,
-    configuredAccounts,
-    governanceContractKind
-  )
-  const governanceTimelockDelay =
-    governanceAuthorityKind === "timelock"
-      ? (
-          await readUint(
-            ethers.provider,
-            governanceAuthority,
-            timelockInterface,
-            "getMinDelay"
-          )
-        ).toString()
-      : "0"
-  const frostGovernanceAuthority = frostPrerequisites.registryGovernance
-  let frostGovernanceAuthorityKind = governanceAuthorityKind
-  if (!sameHex(frostGovernanceAuthority, governanceAuthority)) {
-    frostGovernanceAuthorityKind = await classifyAuthority(
+  let governanceAuthorityKind: AuthorityKind = "eoa"
+  let governanceTimelockDelay = "0"
+  if (ecdsaCutover.finalized) {
+    const governanceContractKind = process.env
+      .COMPLETE_P2TR_GOVERNANCE_AUTHORITY_KIND as
+      | "safe"
+      | "timelock"
+      | undefined
+    governanceAuthorityKind = await classifyAuthority(
       ethers.provider,
-      frostGovernanceAuthority,
+      governanceAuthority,
       configuredAccounts,
-      process.env.COMPLETE_P2TR_FROST_GOVERNANCE_AUTHORITY_KIND as
-        | "safe"
-        | "timelock"
-        | undefined
+      governanceContractKind
     )
+    governanceTimelockDelay =
+      governanceAuthorityKind === "timelock"
+        ? (
+            await readUint(
+              ethers.provider,
+              governanceAuthority,
+              timelockInterface,
+              "getMinDelay"
+            )
+          ).toString()
+        : "0"
   }
+  const frostGovernanceAuthority = frostPrerequisites.registryGovernance
+  let frostGovernanceAuthorityKind: AuthorityKind = "eoa"
   let frostGovernanceTimelockDelay = "0"
-  if (frostGovernanceAuthorityKind === "timelock") {
-    frostGovernanceTimelockDelay = sameHex(
-      frostGovernanceAuthority,
-      governanceAuthority
-    )
-      ? governanceTimelockDelay
-      : (
+  if (ecdsaCutover.finalized) {
+    if (sameHex(frostGovernanceAuthority, governanceAuthority)) {
+      frostGovernanceAuthorityKind = governanceAuthorityKind
+      frostGovernanceTimelockDelay = governanceTimelockDelay
+    } else {
+      frostGovernanceAuthorityKind = await classifyAuthority(
+        ethers.provider,
+        frostGovernanceAuthority,
+        configuredAccounts,
+        process.env.COMPLETE_P2TR_FROST_GOVERNANCE_AUTHORITY_KIND as
+          | "safe"
+          | "timelock"
+          | undefined
+      )
+      if (frostGovernanceAuthorityKind === "timelock") {
+        frostGovernanceTimelockDelay = (
           await readUint(
             ethers.provider,
             frostGovernanceAuthority,
@@ -2751,6 +3391,8 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
             "getMinDelay"
           )
         ).toString()
+      }
+    }
   }
 
   const forbiddenCheckpointAuthorities = new Set(
@@ -2759,8 +3401,8 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
       coverageAuthority,
       proxyAuthority,
       governanceAuthority,
+      ecdsaCutover.oldGovernance,
       currentGovernance,
-      replacementGovernance,
       frostGovernanceAuthority,
     ].map((address) => address.toLowerCase())
   )
@@ -2880,13 +3522,7 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
     })
     return "install-frost-lifecycle"
   }
-  const prePhaseImplementation = readAddressWord(
-    await ethers.provider.getStorageAt(
-      Bridge.address,
-      EIP_1967_IMPLEMENTATION_SLOT
-    ),
-    "Bridge EIP-1967 implementation"
-  )
+
   const migrationCursor = previous?.inventory.migrationCursor ?? 0
   const nextCoverageBatch = await buildNextCoverageBatch(
     ethers.provider,
@@ -2945,55 +3581,12 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
     transactionHashes: [],
   })
 
-  if (atomicActivation) {
-    const beginCall = makeCall(
-      "begin-governance-transfer",
-      currentGovernance,
-      bridgeGovernanceInterface.encodeFunctionData(
-        "beginBridgeGovernanceTransfer",
-        [replacementGovernance]
-      ),
-      "Begin Bridge governance transfer to the COMPLETE_V2 wrapper"
-    )
-    candidatePhases.push({
-      id: "begin-governance-transfer",
-      status: "prepared",
-      prerequisite: "upgrade-bridge",
-      calls: [
-        envelope(
-          beginCall,
-          governanceAuthority,
-          governanceAuthorityKind,
-          "begin-governance-transfer",
-          governanceTimelockDelay
-        ),
-      ],
-      transactionHashes: [],
-    })
-    const finalizeCall = makeCall(
-      "finalize-governance-transfer",
-      currentGovernance,
-      bridgeGovernanceInterface.encodeFunctionData(
-        "finalizeBridgeGovernanceTransfer"
-      ),
-      "Finalize Bridge governance transfer after its on-chain delay"
-    )
-    candidatePhases.push({
-      id: "finalize-governance-transfer",
-      status: "prepared",
-      prerequisite: "begin-governance-transfer",
-      calls: [
-        envelope(
-          finalizeCall,
-          governanceAuthority,
-          governanceAuthorityKind,
-          "finalize-governance-transfer",
-          governanceTimelockDelay
-        ),
-      ],
-      transactionHashes: [],
-    })
-    let prerequisite = "finalize-governance-transfer"
+  // Step 88 owns only the union implementation upgrade until step 87 has
+  // finalized its signed governance/router migration. This prevents a second
+  // governance handoff or a competing empty ECDSA router from bypassing the
+  // authoritative migrated liabilities.
+  if (ecdsaCutover.finalized) {
+    let prerequisite = "upgrade-bridge"
     if (frostRegistryToInstall !== constants.AddressZero) {
       const setFrostRegistry = makeCall(
         "install-frost-registry",
@@ -3025,33 +3618,6 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
       activationTarget,
       bridgeGovernanceInterface
     )
-    if (ecdsaRouterToInstall !== constants.AddressZero) {
-      const setEcdsa = makeCall(
-        "install-ecdsa-router",
-        activationTarget,
-        bridgeGovernanceInterface.encodeFunctionData("setEcdsaFraudRouter", [
-          ecdsaRouterToInstall,
-          runtimeReceipts.EcdsaRouter.runtimeCodeHash,
-        ]),
-        "Install the fresh empty ECDSA fraud router with its approved code hash"
-      )
-      candidatePhases.push({
-        id: "install-ecdsa-router",
-        status: "prepared",
-        prerequisite,
-        calls: [
-          envelope(
-            setEcdsa,
-            governanceAuthority,
-            governanceAuthorityKind,
-            "install-ecdsa-router",
-            governanceTimelockDelay
-          ),
-        ],
-        transactionHashes: [],
-      })
-      prerequisite = "install-ecdsa-router"
-    }
     const initializeCall = makeCall(
       "initialize-coverage",
       activationTarget,
@@ -3117,126 +3683,6 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
       ],
       transactionHashes: [],
     })
-  } else {
-    let prerequisite = "upgrade-bridge"
-    if (frostRegistryToInstall !== constants.AddressZero) {
-      const setFrostRegistry = makeCall(
-        "install-frost-registry",
-        Bridge.address,
-        bridgeInterface.encodeFunctionData("setFrostWalletRegistry", [
-          FrostWalletRegistry.address,
-        ]),
-        "Install the immutable FROST wallet registry binding"
-      )
-      candidatePhases.push({
-        id: "install-frost-registry",
-        status: "prepared",
-        prerequisite,
-        calls: [
-          envelope(
-            setFrostRegistry,
-            governanceAuthority,
-            governanceAuthorityKind,
-            "install-frost-registry",
-            governanceTimelockDelay
-          ),
-        ],
-        transactionHashes: [],
-      })
-      prerequisite = "install-frost-registry"
-    }
-    prerequisite = appendFrostLifecycleInstallPhase(
-      prerequisite,
-      Bridge.address,
-      bridgeInterface
-    )
-    if (ecdsaRouterToInstall !== constants.AddressZero) {
-      const setEcdsa = makeCall(
-        "install-ecdsa-router",
-        Bridge.address,
-        bridgeInterface.encodeFunctionData("setEcdsaFraudRouter", [
-          ecdsaRouterToInstall,
-          runtimeReceipts.EcdsaRouter.runtimeCodeHash,
-        ]),
-        "Install the fresh empty ECDSA fraud router"
-      )
-      candidatePhases.push({
-        id: "install-ecdsa-router",
-        status: "prepared",
-        prerequisite,
-        calls: [
-          envelope(
-            setEcdsa,
-            governanceAuthority,
-            governanceAuthorityKind,
-            "install-ecdsa-router",
-            governanceTimelockDelay
-          ),
-        ],
-        transactionHashes: [],
-      })
-      prerequisite = "install-ecdsa-router"
-    }
-    const initialize = makeCall(
-      "initialize-coverage",
-      Bridge.address,
-      bridgeInterface.encodeFunctionData("processTaprootOutputKeyCoverage", [
-        inventory.initializationPayload,
-      ]),
-      "Initialize the canonical Taproot output-key coverage inventory"
-    )
-    candidatePhases.push({
-      id: "initialize-coverage",
-      status: "prepared",
-      prerequisite,
-      calls: [
-        envelope(
-          initialize,
-          governanceAuthority,
-          governanceAuthorityKind,
-          "initialize-coverage",
-          governanceTimelockDelay
-        ),
-      ],
-      transactionHashes: [],
-    })
-    prerequisite = "initialize-coverage"
-    candidatePhases.push({
-      id: "migrate-coverage",
-      status: "prepared",
-      prerequisite,
-      calls: migrationCalls,
-      transactionHashes: [],
-      readback: {
-        cursor: migrationCursor,
-        nextCursor: nextCoverageBatch.cursor,
-        indices: nextCoverageBatch.indices,
-      },
-    })
-    prerequisite = "migrate-coverage"
-    const activate = makeCall(
-      "activate-complete-p2tr",
-      Bridge.address,
-      bridgeInterface.encodeFunctionData("processTaprootOutputKeyCoverage", [
-        utils.defaultAbiCoder.encode(["uint8", "address"], [8, Router.address]),
-      ]),
-      "Activate COMPLETE_V2 after exact coverage completion"
-    )
-    candidatePhases.push({
-      id: "activate-complete-p2tr",
-      status: "prepared",
-      prerequisite,
-      calls: [
-        envelope(
-          activate,
-          governanceAuthority,
-          governanceAuthorityKind,
-          "activate-complete-p2tr",
-          governanceTimelockDelay
-        ),
-      ],
-      transactionHashes: [],
-    })
   }
 
   const planPhaseCalls = (
@@ -3251,6 +3697,42 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
     }
     return calls.map(({ inner }) => inner)
   }
+
+  const structuralPlanID = utils.keccak256(
+    utils.toUtf8Bytes(
+      canonicalJSON({
+        schema: ACTIVATION_ARTIFACT_SCHEMA,
+        chainId,
+        bridge: Bridge.address.toLowerCase(),
+        inventoryRoot: inventory.root,
+        inventoryCount: inventory.count,
+        historyStartBlock: manifest.historyStartBlockNumber,
+        snapshotBlock: manifest.snapshotBlockNumber,
+        snapshotBlockHash: manifest.snapshotBlockHash,
+        sourceCheckpointCommitment: checkpointCommitment,
+        linkedLibrariesCommitment: librariesCommitment,
+        coverageAuthorizationDigest,
+        bridgePredecessorImplementation:
+          bridgePredecessorImplementation.toLowerCase(),
+        bridgePredecessorImplementationCodeHash,
+        ecdsaStructuralPlanHash: ecdsaCutover.structuralPlanHash,
+        frostPrerequisites:
+          immutableFrostPrerequisiteBinding(frostPrerequisites),
+        addresses: {
+          bridgeImplementation: BridgeImplementation.address.toLowerCase(),
+          frostWalletRegistryImplementation:
+            frostPrerequisites.archive.implementation.toLowerCase(),
+          bridgeLifecycleRouter: BridgeLifecycleRouter.address.toLowerCase(),
+          lifecycleRouterToInstall: lifecycleRouterToInstall.toLowerCase(),
+          lifecycleOwnerToInstall: lifecycleOwnerToInstall.toLowerCase(),
+          registry: Registry.address.toLowerCase(),
+          router: Router.address.toLowerCase(),
+          governance: ecdsaCutover.governance.toLowerCase(),
+          ecdsaRouter: ecdsaCutover.router.toLowerCase(),
+        },
+      })
+    )
+  )
   const planID = utils.keccak256(
     utils.toUtf8Bytes(
       canonicalJSON({
@@ -3267,6 +3749,50 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
         coverageAuthorizationDigest,
         frostPrerequisites:
           immutableFrostPrerequisiteBinding(frostPrerequisites),
+        bridgePredecessorImplementation:
+          bridgePredecessorImplementation.toLowerCase(),
+        bridgePredecessorImplementationCodeHash,
+        ecdsaCutover: {
+          manifestArtifactHash: ecdsaCutover.manifestArtifactHash,
+          manifestPlanHash: ecdsaCutover.manifestPlanHash,
+          structuralPlanHash: ecdsaCutover.structuralPlanHash,
+          finalized: ecdsaCutover.finalized,
+          evidenceGeneration: ecdsaCutover.evidenceGeneration,
+          evidenceAnchorArtifactHash: ecdsaCutover.evidenceAnchorArtifactHash,
+          evidencePredecessorArtifactHash:
+            ecdsaCutover.evidencePredecessorArtifactHash,
+          authorizationTransactionHash:
+            ecdsaCutover.authorizationTransactionHash,
+          authorizationPlanHash: ecdsaCutover.authorizationPlanHash,
+          chainId: ecdsaCutover.chainId,
+          bridge: ecdsaCutover.bridge.toLowerCase(),
+          oldGovernance: ecdsaCutover.oldGovernance.toLowerCase(),
+          oldGovernanceCodeHash: ecdsaCutover.oldGovernanceCodeHash,
+          governance: ecdsaCutover.governance.toLowerCase(),
+          governanceCodeHash: ecdsaCutover.governanceCodeHash,
+          governanceOwner: ecdsaCutover.governanceOwner.toLowerCase(),
+          governanceDelay: ecdsaCutover.governanceDelay,
+          oldRouter: ecdsaCutover.oldRouter.toLowerCase(),
+          oldRouterCodeHash: ecdsaCutover.oldRouterCodeHash,
+          router: ecdsaCutover.router.toLowerCase(),
+          routerCodeHash: ecdsaCutover.routerCodeHash,
+          protocolID: ecdsaCutover.protocolID,
+          predecessor: ecdsaCutover.predecessor.toLowerCase(),
+          predecessorCodeHash: ecdsaCutover.predecessorCodeHash,
+          ancestryDepth: ecdsaCutover.ancestryDepth,
+          sourceSigner: ecdsaCutover.sourceSigner.toLowerCase(),
+          sourceID: ecdsaCutover.sourceID,
+          sourceStoreIdentity: ecdsaCutover.sourceStoreIdentity,
+          sourceEndpointIdentity: ecdsaCutover.sourceEndpointIdentity,
+          sourceTrustDomain: ecdsaCutover.sourceTrustDomain,
+          sourcePolicyHash: ecdsaCutover.sourcePolicyHash,
+          reconciler: ecdsaCutover.reconciler.toLowerCase(),
+          reconcilerSourceID: ecdsaCutover.reconcilerSourceID,
+          reconcilerStoreIdentity: ecdsaCutover.reconcilerStoreIdentity,
+          reconcilerEndpointIdentity: ecdsaCutover.reconcilerEndpointIdentity,
+          reconcilerTrustDomain: ecdsaCutover.reconcilerTrustDomain,
+          reconcilerPolicyHash: ecdsaCutover.reconcilerPolicyHash,
+        },
         addresses: {
           bridgeImplementation: BridgeImplementation.address.toLowerCase(),
           frostWalletRegistryImplementation:
@@ -3276,7 +3802,8 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
           lifecycleOwnerToInstall: lifecycleOwnerToInstall.toLowerCase(),
           registry: Registry.address.toLowerCase(),
           router: Router.address.toLowerCase(),
-          replacementGovernance: replacementGovernance.toLowerCase(),
+          governance: ecdsaCutover.governance.toLowerCase(),
+          ecdsaRouter: ecdsaCutover.router.toLowerCase(),
         },
         calls: candidatePhases.map(({ id, calls }) => ({
           id,
@@ -3289,23 +3816,8 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
     const previousInitialization = previous.phases.find(
       ({ id }) => id === "initialize-coverage"
     )
-    const sameCandidates =
-      previous.addresses.bridgeImplementation?.toLowerCase() ===
-        BridgeImplementation.address.toLowerCase() &&
-      previous.addresses.frostWalletRegistryImplementation?.toLowerCase() ===
-        frostPrerequisites.archive.implementation.toLowerCase() &&
-      previous.addresses.bridgeLifecycleRouter?.toLowerCase() ===
-        BridgeLifecycleRouter.address.toLowerCase() &&
-      previous.addresses.lifecycleRouterToInstall?.toLowerCase() ===
-        lifecycleRouterToInstall.toLowerCase() &&
-      previous.addresses.lifecycleOwnerToInstall?.toLowerCase() ===
-        lifecycleOwnerToInstall.toLowerCase() &&
-      previous.addresses.authorizationRegistry?.toLowerCase() ===
-        Registry.address.toLowerCase() &&
-      previous.addresses.completeRouter?.toLowerCase() ===
-        Router.address.toLowerCase()
     if (
-      !sameCandidates ||
+      previous.structuralPlanID !== structuralPlanID ||
       (previousInitialization && previousInitialization.status !== "prepared")
     ) {
       throw new Error(
@@ -3328,25 +3840,6 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
     bridgeInterface,
     "governance"
   )
-  let initiatedAt = BigNumber.from(0)
-  if (
-    atomicActivation &&
-    currentGovernanceReadback.toLowerCase() !==
-      replacementGovernance.toLowerCase()
-  ) {
-    try {
-      initiatedAt = await readUint(
-        ethers.provider,
-        currentGovernance,
-        new utils.Interface([
-          "function bridgeGovernanceTransferChangeInitiated() view returns (uint256)",
-        ]),
-        "bridgeGovernanceTransferChangeInitiated"
-      )
-    } catch {
-      initiatedAt = BigNumber.from(0)
-    }
-  }
 
   let activeRouter = readAddressWord(
     await ethers.provider.getStorageAt(
@@ -3380,24 +3873,6 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
       observed =
         installedImplementation.toLowerCase() ===
         BridgeImplementation.address.toLowerCase()
-    } else if (candidate.id === "begin-governance-transfer") {
-      observed =
-        !initiatedAt.isZero() ||
-        currentGovernanceReadback.toLowerCase() ===
-          replacementGovernance.toLowerCase()
-      if (!initiatedAt.isZero()) {
-        candidate.notBefore = initiatedAt.add(governanceDelay).toString()
-      }
-    } else if (candidate.id === "finalize-governance-transfer") {
-      observed =
-        currentGovernanceReadback.toLowerCase() ===
-        replacementGovernance.toLowerCase()
-      if (!initiatedAt.isZero()) {
-        candidate.notBefore = initiatedAt.add(governanceDelay).toString()
-      }
-    } else if (candidate.id === "install-ecdsa-router") {
-      observed =
-        activeEcdsaRouter.toLowerCase() === EcdsaRouter.address.toLowerCase()
     } else if (candidate.id === "install-frost-registry") {
       observed =
         readAddressWord(
@@ -3476,7 +3951,11 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
     networkName: hre.network.name,
     chainId,
     bridge: Bridge.address,
+    structuralPlanID,
     planID,
+    bridgePredecessorImplementation,
+    bridgePredecessorImplementationCodeHash,
+    ecdsaCutover,
     inventory: {
       manifestPath: resolvedManifestPath,
       historyStartBlockNumber: manifest.historyStartBlockNumber,
@@ -3500,7 +3979,6 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
       proxyAuthority,
       currentGovernance,
       governanceAuthority,
-      replacementGovernance,
       frostWalletRegistry: FrostWalletRegistry.address,
       frostWalletRegistryImplementation:
         frostPrerequisites.archive.implementation,
@@ -3510,8 +3988,8 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
       lifecycleOwnerToInstall,
       proposalValidator: WalletProposalValidator.address,
       bridgeImplementation: BridgeImplementation.address,
-      ecdsaRouter: EcdsaRouter.address,
-      ecdsaRouterToInstall,
+      ecdsaRouter: ecdsaCutover.router,
+      ecdsaOldRouter: ecdsaCutover.oldRouter,
       frostRegistryToInstall,
       authorizationRegistry: Registry.address,
       completeRouter: Router.address,
@@ -3531,6 +4009,7 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
       snapshotUsesCompleteImplementation,
       currentGovernance: currentGovernanceReadback,
       activeEcdsaRouter,
+      ecdsaCutover,
       activeP2TRRouter: activeRouter,
       router: routerReadbacks,
       registry: registryReadbacks,
@@ -3778,17 +4257,6 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
       await transaction.wait(1)
     }
     phase.status = "executed"
-    if (phase.id === "begin-governance-transfer") {
-      const confirmation = await ethers.provider.getBlock("latest")
-      const finalize = artifact.phases.find(
-        ({ id }) => id === "finalize-governance-transfer"
-      )
-      if (finalize) {
-        finalize.notBefore = BigNumber.from(confirmation.timestamp)
-          .add(governanceDelay)
-          .toString()
-      }
-    }
     persistArtifact(artifactPath, artifact)
   }
 
