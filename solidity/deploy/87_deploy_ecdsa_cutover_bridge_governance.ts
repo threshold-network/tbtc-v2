@@ -1,14 +1,62 @@
 import fs from "fs"
 import path from "path"
+import { ethers as ethersSdk } from "ethers"
 import type { HardhatRuntimeEnvironment } from "hardhat/types"
 import type { DeployFunction } from "hardhat-deploy/types"
+import { canonicalHistoryCheckpointCommitment } from "../scripts/ecdsa-fraud-router-canonical-history"
 import {
+  CanonicalHistoryJournalFile,
+  loadCanonicalHistoryJournal,
+  nextCanonicalHistoryJournal,
+  normalizeDurableStoreIdentity,
+  saveCanonicalHistoryJournal,
+} from "../scripts/ecdsa-fraud-router-journal-store"
+import {
+  assertIndependentArtifactStores,
+  readPrivateFileWithHash,
+} from "../scripts/durable-artifact"
+import {
+  loadCutoverManifest,
+  writeCutoverManifest,
+} from "../scripts/ecdsa-fraud-router-cutover-artifacts"
+import {
+  assertCutoverAuthoritySeparation,
   assertLegacyGovernanceReadyForHandoff,
+  AuthorityContext,
   BRIDGE_LEGACY_FRAUD_STORAGE_LAYOUT_HASH,
   buildLegacyInventorySourcePreflight,
+  CanonicalHistoryScan,
+  cutoverPreflightTiming,
+  discoverHistoryEmitters,
+  extendCanonicalHistoryJournal,
   HandoffManifest,
   LEGACY_GOVERNANCE_STORAGE_LAYOUT_HASH,
 } from "../scripts/ecdsa-fraud-router-cutover-lib"
+
+function requiredBytes32(name: string): string {
+  const value = process.env[name]
+  if (!value || !ethersSdk.utils.isHexString(value, 32)) {
+    throw new Error(`${name} must be bytes32`)
+  }
+  const normalized = ethersSdk.utils.hexZeroPad(value, 32)
+  if (normalized === ethersSdk.constants.HashZero) {
+    throw new Error(`${name} cannot be zero`)
+  }
+  return normalized
+}
+
+function authorityContext(role: "SOURCE" | "RECONCILER"): AuthorityContext {
+  return {
+    durableStoreIdentity: normalizeDurableStoreIdentity(
+      requiredBytes32(`ECDSA_CUTOVER_${role}_DURABLE_STORE_IDENTITY`)
+    ),
+    endpointIdentity: requiredBytes32(
+      `ECDSA_CUTOVER_${role}_ENDPOINT_IDENTITY`
+    ),
+    trustDomain: requiredBytes32(`ECDSA_CUTOVER_${role}_TRUST_DOMAIN`),
+    policyHash: requiredBytes32(`ECDSA_CUTOVER_${role}_POLICY_HASH`),
+  }
+}
 
 const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   const { deployments, ethers, getNamedAccounts, network } = hre
@@ -19,8 +67,29 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   const canonicalGovernanceDeployment = await get("BridgeGovernance")
   const bridge = await ethers.getContractAt("Bridge", bridgeDeployment.address)
   const oldGovernanceAddress = await bridge.governance()
+  const configuredManifestPath = process.env.ECDSA_CUTOVER_MANIFEST
+  const legacyManifestPath = process.env.ECDSA_CUTOVER_MANIFEST_OUT
+  if (
+    configuredManifestPath &&
+    legacyManifestPath &&
+    path.resolve(configuredManifestPath) !== path.resolve(legacyManifestPath)
+  ) {
+    throw new Error(
+      "ECDSA_CUTOVER_MANIFEST and legacy ECDSA_CUTOVER_MANIFEST_OUT must identify the same file"
+    )
+  }
+  if (
+    !configuredManifestPath &&
+    !legacyManifestPath &&
+    !["hardhat", "development", "localhost"].includes(network.name)
+  ) {
+    throw new Error(
+      "ECDSA_CUTOVER_MANIFEST is required outside local development networks"
+    )
+  }
   const outputPath =
-    process.env.ECDSA_CUTOVER_MANIFEST_OUT ??
+    configuredManifestPath ??
+    legacyManifestPath ??
     path.join(
       hre.config.paths.deployments,
       network.name,
@@ -33,9 +102,8 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     "EcdsaFraudRouterBeforeEcdsaCutover"
   )
   if (fs.existsSync(outputPath)) {
-    const existing = JSON.parse(
-      fs.readFileSync(outputPath, "utf8")
-    ) as HandoffManifest
+    const existing = loadCutoverManifest(outputPath).value
+    assertCutoverAuthoritySeparation(existing)
     if (
       existing.chainId !== (await ethers.provider.getNetwork()).chainId ||
       existing.bridge.toLowerCase() !== bridge.address.toLowerCase() ||
@@ -135,9 +203,21 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
       waitConfirmations: 1,
     }
   )
+  const verifier = await deploy(
+    "EcdsaFraudRouterCutoverVerifierGovernanceLibrary",
+    {
+      contract: "EcdsaFraudRouterCutoverVerifier",
+      from: deployer,
+      log: true,
+      waitConfirmations: 1,
+    }
+  )
   const coordinator = await deploy("EcdsaFraudRouterCutoverGovernanceLibrary", {
     contract: "EcdsaFraudRouterCutover",
     from: deployer,
+    libraries: {
+      EcdsaFraudRouterCutoverVerifier: verifier.address,
+    },
     log: true,
     waitConfirmations: 1,
   })
@@ -254,27 +334,167 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
   }
   const reconciler = process.env.ECDSA_CUTOVER_RECONCILER
   if (!reconciler) throw new Error("ECDSA_CUTOVER_RECONCILER is required")
+  const sourceSigner = process.env.ECDSA_CUTOVER_SOURCE_SIGNER
+  if (!sourceSigner) throw new Error("ECDSA_CUTOVER_SOURCE_SIGNER is required")
+  const sourceId = process.env.ECDSA_CUTOVER_SOURCE_ID
+  if (!sourceId || ethers.utils.hexDataLength(sourceId) !== 32) {
+    throw new Error("ECDSA_CUTOVER_SOURCE_ID must be bytes32")
+  }
+  const reconcilerSourceId = process.env.ECDSA_CUTOVER_RECONCILER_SOURCE_ID
+  if (
+    !reconcilerSourceId ||
+    ethers.utils.hexDataLength(reconcilerSourceId) !== 32
+  ) {
+    throw new Error("ECDSA_CUTOVER_RECONCILER_SOURCE_ID must be bytes32")
+  }
+  const localSourceId = process.env.ECDSA_CUTOVER_LOCAL_SOURCE_ID
+  if (
+    !localSourceId ||
+    ethers.utils.hexZeroPad(localSourceId, 32).toLowerCase() !==
+      ethers.utils.hexZeroPad(sourceId, 32).toLowerCase()
+  ) {
+    throw new Error(
+      "deployment provider must match the pinned canonical source identity"
+    )
+  }
+  const sourceJournalPath = process.env.ECDSA_CUTOVER_SOURCE_JOURNAL
+  const reconcilerJournalPath = process.env.ECDSA_CUTOVER_RECONCILER_JOURNAL
+  if (!sourceJournalPath || !reconcilerJournalPath) {
+    throw new Error(
+      "ECDSA_CUTOVER_SOURCE_JOURNAL and ECDSA_CUTOVER_RECONCILER_JOURNAL are required"
+    )
+  }
+  assertIndependentArtifactStores(sourceJournalPath, reconcilerJournalPath)
+  const sourceContext = authorityContext("SOURCE")
+  const reconcilerContext = authorityContext("RECONCILER")
+  if (!fs.existsSync(reconcilerJournalPath)) {
+    throw new Error(
+      "the independently maintained reconciler journal must exist before deployment"
+    )
+  }
+  loadCanonicalHistoryJournal(
+    reconcilerJournalPath,
+    ethers.utils.hexZeroPad(reconcilerSourceId, 32),
+    reconcilerContext.durableStoreIdentity
+  )
+  const expectedUnrelatedBridgeBalance =
+    process.env.ECDSA_CUTOVER_EXPECTED_UNRELATED_BRIDGE_BALANCE
+  if (expectedUnrelatedBridgeBalance === undefined) {
+    throw new Error(
+      "ECDSA_CUTOVER_EXPECTED_UNRELATED_BRIDGE_BALANCE is required"
+    )
+  }
+  const expectedEmitterBalancesInput =
+    process.env.ECDSA_CUTOVER_EXPECTED_UNRELATED_EMITTER_BALANCES
+  if (!expectedEmitterBalancesInput) {
+    throw new Error(
+      "ECDSA_CUTOVER_EXPECTED_UNRELATED_EMITTER_BALANCES JSON is required"
+    )
+  }
+  let expectedEmitterBalances: Record<string, string>
+  try {
+    expectedEmitterBalances = JSON.parse(expectedEmitterBalancesInput)
+  } catch (_) {
+    throw new Error(
+      "ECDSA_CUTOVER_EXPECTED_UNRELATED_EMITTER_BALANCES must be a JSON object"
+    )
+  }
+  expectedEmitterBalances[bridge.address] = ethers.BigNumber.from(
+    expectedUnrelatedBridgeBalance
+  ).toString()
   const bridgeDeploymentBlock = bridgeDeployment.receipt?.blockNumber
   if (bridgeDeploymentBlock === undefined) {
     throw new Error("Bridge deployment receipt block is required")
   }
-  const sourcePreflightFinalizedBlock =
-    (await ethers.provider.getBlockNumber()) - 64
+  const head = await ethers.provider.getBlockNumber()
+  const preflightConfirmations = Number(
+    process.env.ECDSA_CUTOVER_PREFLIGHT_CONFIRMATIONS ?? "64"
+  )
+  const maximumPreflightAge = Number(
+    process.env.ECDSA_CUTOVER_MAX_PREFLIGHT_AGE_BLOCKS ?? "255"
+  )
+  const minimumBeginSlack = Number(
+    process.env.ECDSA_CUTOVER_MIN_BEGIN_SLACK_BLOCKS ?? "16"
+  )
+  const timing = cutoverPreflightTiming(
+    head,
+    preflightConfirmations,
+    maximumPreflightAge,
+    minimumBeginSlack
+  )
+  const sourcePreflightFinalizedBlock = timing.preflightBlock
   if (sourcePreflightFinalizedBlock < bridgeDeploymentBlock) {
     throw new Error(
       "Bridge deployment must be at least 64 confirmations deep before " +
         "the signed legacy-inventory source preflight can be prepared"
     )
   }
+  const historyEmitters = await discoverHistoryEmitters(
+    ethers.provider,
+    bridge.address,
+    oldRouter,
+    expectedEmitterBalances
+  )
+  let checkpoint: CanonicalHistoryScan | undefined
+  let previousJournal: CanonicalHistoryJournalFile | undefined
+  let previousJournalFileHash: string | undefined
+  if (fs.existsSync(sourceJournalPath)) {
+    previousJournalFileHash =
+      readPrivateFileWithHash(sourceJournalPath).contentHash
+    previousJournal = loadCanonicalHistoryJournal(
+      sourceJournalPath,
+      ethers.utils.hexZeroPad(sourceId, 32),
+      sourceContext.durableStoreIdentity
+    )
+    checkpoint = previousJournal.scan
+  }
+  const firstUnindexedBlock = checkpoint
+    ? checkpoint.evidence.finalizedBlock + 1
+    : bridgeDeploymentBlock
+  const tailLength = sourcePreflightFinalizedBlock - firstUnindexedBlock + 1
+  const maximumJournalTailLength = Number(
+    process.env.ECDSA_CUTOVER_MAX_JOURNAL_TAIL_BLOCKS ?? "64"
+  )
+  if (
+    !Number.isSafeInteger(maximumJournalTailLength) ||
+    maximumJournalTailLength < 1 ||
+    maximumJournalTailLength > 64 ||
+    tailLength > maximumJournalTailLength
+  ) {
+    throw new Error(
+      `canonical history journal is stale by ${tailLength} blocks; update it in bounded batches before deployment`
+    )
+  }
+  const updatedJournal = await extendCanonicalHistoryJournal(
+    ethers.provider,
+    historyEmitters,
+    bridgeDeploymentBlock,
+    sourcePreflightFinalizedBlock,
+    checkpoint
+  )
+  saveCanonicalHistoryJournal(
+    sourceJournalPath,
+    nextCanonicalHistoryJournal(
+      ethers.utils.hexZeroPad(sourceId, 32),
+      sourceContext.durableStoreIdentity,
+      updatedJournal,
+      previousJournal
+    ),
+    previousJournalFileHash
+      ? { expectedCurrentContentHash: previousJournalFileHash }
+      : { createOnly: true }
+  )
   const legacyInventorySourcePreflight =
     await buildLegacyInventorySourcePreflight(
       ethers.provider,
       bridge.address,
       bridgeDeploymentBlock,
-      sourcePreflightFinalizedBlock
+      sourcePreflightFinalizedBlock,
+      historyEmitters,
+      updatedJournal
     )
   const manifest: HandoffManifest = {
-    version: 1,
+    version: 4,
     chainId: (await ethers.provider.getNetwork()).chainId,
     bridge: bridge.address,
     bridgeDeploymentBlock,
@@ -290,6 +510,7 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     governanceDelay: governanceDelay.toString(),
     oldRouter,
     oldRouterRuntimeCodeHash,
+    historyEmitters,
     replacementRouter: replacement,
     replacementRouterRuntimeCodeHash: ethers.utils.keccak256(
       await ethers.provider.getCode(replacement)
@@ -298,16 +519,34 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
     // staging action. Reconciler tooling rejects any inventory with another
     // start block.
     scanStartBlock: bridgeDeploymentBlock,
+    expectedUnrelatedBridgeBalance: ethers.BigNumber.from(
+      expectedUnrelatedBridgeBalance
+    ).toString(),
     legacyInventorySourcePreflight,
+    sourceCheckpointCommitment:
+      canonicalHistoryCheckpointCommitment(updatedJournal),
+    maxTailBlocks: timing.maxTailBlocks,
+    sourceSigner: ethers.utils.getAddress(sourceSigner),
+    sourceId: ethers.utils.hexZeroPad(sourceId, 32),
+    sourceContext,
     reconciler: ethers.utils.getAddress(reconciler),
+    reconcilerSourceId: ethers.utils.hexZeroPad(reconcilerSourceId, 32),
+    reconcilerContext,
     phase: "new-governance-owned",
+  }
+  assertCutoverAuthoritySeparation(manifest)
+  if (
+    !ethers.BigNumber.from(
+      legacyInventorySourcePreflight.unrelatedBridgeBalance
+    ).eq(manifest.expectedUnrelatedBridgeBalance)
+  ) {
+    throw new Error(
+      "canonical source balance does not match the explicit unrelated-funds allowance"
+    )
   }
   await assertLegacyGovernanceReadyForHandoff(ethers.provider, manifest)
 
-  fs.mkdirSync(path.dirname(outputPath), { recursive: true })
-  fs.writeFileSync(outputPath, `${JSON.stringify(manifest, null, 2)}\n`, {
-    flag: "wx",
-  })
+  writeCutoverManifest(outputPath, manifest, { createOnly: true })
   console.log(`wrote resumable handoff manifest: ${outputPath}`)
   console.log(
     "BridgeGovernance canonical alias remains the incumbent; use the cutover " +

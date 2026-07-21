@@ -29,6 +29,8 @@
     "test": "USE_EXTERNAL_DEPLOY=true TEST_USE_STUBS_TBTC=true hardhat test",
     "test:formal-invariants": "USE_EXTERNAL_DEPLOY=true TEST_USE_STUBS_TBTC=true hardhat test ./test/formal/*.test.ts",
     "test:integration": "NODE_ENV=integration-test USE_EXTERNAL_DEPLOY=true TEST_USE_STUBS_TBTC=true hardhat test ./test/integration/*.test.ts",
+    "ecdsa-cutover:journal": "hardhat run scripts/ecdsa-fraud-router-history-journal.ts",
+    "ecdsa-cutover:run": "hardhat run scripts/ecdsa-fraud-router-cutover.ts",
     "prepack": "tsc -p tsconfig.export.json && hardhat export-artifacts export/artifacts",
     "prepublishOnly": "./scripts/prepare-artifacts.sh --network $npm_config_network"
   },
@@ -70,6 +72,7 @@
     "hardhat-dependency-compiler": "^1.1.2",
     "hardhat-deploy": "^0.11.11",
     "hardhat-gas-reporter": "^1.0.8",
+    "merkle-patricia-tree": "^2.3.2",
     "prettier": "^2.5.1",
     "prettier-plugin-sh": "^0.8.1",
     "prettier-plugin-solidity": "^1.0.0-beta.19",

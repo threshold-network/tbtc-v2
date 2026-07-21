@@ -3,17 +3,53 @@ import path from "path"
 import { deployments, ethers, network } from "hardhat"
 import type { BigNumber, Contract } from "ethers"
 import {
+  loadCutoverInventory,
+  loadCutoverManifest,
+  writeCutoverInventory,
+  writeCutoverManifest,
+} from "./ecdsa-fraud-router-cutover-artifacts"
+import { canonicalHistoryCheckpointCommitment } from "./ecdsa-fraud-router-canonical-history"
+import {
+  CanonicalHistoryJournalFile,
+  canonicalHistoryJournalContains,
+  loadCanonicalHistoryJournal,
+  nextCanonicalHistoryJournal,
+  normalizeDurableStoreIdentity,
+  saveCanonicalHistoryJournal,
+} from "./ecdsa-fraud-router-journal-store"
+import {
+  assertIndependentArtifactStores,
+  readPrivateFileWithHash,
+} from "./durable-artifact"
+import {
   assertCanonicalInventory,
+  assertAuthoritySignature,
+  assertCutoverAuthoritySeparation,
   assertLegacyGovernanceReadyForHandoff,
   assertLegacyInventorySourcePreflight,
   assertManifestSignature,
+  AuthorityContext,
+  authorityContextCommitment,
   BRIDGE_LEGACY_FRAUD_STORAGE_LAYOUT_HASH,
   buildCanonicalInventory,
   buildLegacyInventorySourcePreflight,
+  canonicalEmitterSetCommitment,
+  CanonicalHistoryScan,
+  checkpointRoleDigests,
+  cutoverPreflightTiming,
+  encodeAuthorityProof,
+  encodeInventorySnapshot,
+  extendCanonicalHistoryJournal,
+  discoverHistoryEmitters,
   handoffPlanHash,
   HandoffManifest,
   InventoryBundle,
+  inventoryAuthorityAttestationHashes,
+  legacyInventorySourcePreflightHash,
+  ownerAuthorizationHash,
   readLegacyGovernanceStorage,
+  reconcilerEnrollmentAttestationHash,
+  reconcilerRecoveryAttestationHash,
 } from "./ecdsa-fraud-router-cutover-lib"
 
 const CURRENT_PROTOCOL_ID = ethers.utils.id(
@@ -27,13 +63,19 @@ const MAX_BLOCKHASH_AGE = 255
 type CutoverAction =
   | "inspect"
   | "print-plan-hash"
+  | "print-inventory-hash"
+  | "verify-preflight"
+  | "refresh-preflight"
   | "build-inventory"
   | "begin-governance-handoff"
   | "finalize-governance-handoff"
+  | "authorize-drain"
   | "begin-drain"
   | "stage-inventory"
   | "confirm-inventory"
   | "migrate"
+  | "print-reconciler-enrollment-hash"
+  | "print-reconciler-recovery-hash"
   | "begin-reconciler-update"
   | "finalize-reconciler-update"
   | "confirm-migration"
@@ -43,50 +85,55 @@ type CutoverState = {
   phase: number
   oldRouter: string
   newRouter: string
-  oldRouterCodeHash: string
-  newRouterCodeHash: string
-  drainBlock: BigNumber
-  scanStartBlock: BigNumber
   finalizedBlock: BigNumber
   finalizedBlockHash: string
-  challengeSetHash: string
-  challengeCount: number
-  totalEscrow: BigNumber
+  sourceSigner: string
+  sourceId: string
   reconciler: string
+  reconcilerSourceId: string
   inventoryCommitment: string
   postMigrationCommitment: string
   migratedBlock: BigNumber
   migrationConfirmedAt: BigNumber
-  governanceDelay: BigNumber
   pendingReconciler: string
-  reconcilerUpdateStartedAt: BigNumber
+  pendingReconcilerSourceId: string
+  sourceContext: AuthorityContext
+  reconcilerContext: AuthorityContext
+  pendingReconcilerContext: AuthorityContext
+  sourceContextCommitment: string
+  reconcilerContextCommitment: string
+  sourceCheckpointRoleDigest: string
+  reconcilerCheckpointRoleDigest: string
+  sourceCheckpointCommitment: string
+  sourcePreflightCommitment: string
+  sourcePreflightBlock: BigNumber
+  drainBlock: BigNumber
+  maxTailBlocks: number
+  stageDeadlineBlock: BigNumber
+  ownerAuthorizationHash: string
 }
 
 const ACTIONS: CutoverAction[] = [
   "inspect",
   "print-plan-hash",
+  "print-inventory-hash",
+  "verify-preflight",
+  "refresh-preflight",
   "build-inventory",
   "begin-governance-handoff",
   "finalize-governance-handoff",
+  "authorize-drain",
   "begin-drain",
   "stage-inventory",
   "confirm-inventory",
   "migrate",
+  "print-reconciler-enrollment-hash",
+  "print-reconciler-recovery-hash",
   "begin-reconciler-update",
   "finalize-reconciler-update",
   "confirm-migration",
   "finalize",
 ]
-
-const MUTATING_ACTIONS = new Set<CutoverAction>([
-  "begin-governance-handoff",
-  "finalize-governance-handoff",
-  "begin-drain",
-  "stage-inventory",
-  "confirm-inventory",
-  "migrate",
-  "finalize",
-])
 
 function parseAction(value: string | undefined): CutoverAction {
   const action = (value ?? "inspect") as CutoverAction
@@ -111,9 +158,7 @@ function manifestPath(): string {
   )
 }
 
-function readJson<T>(file: string): T {
-  return JSON.parse(fs.readFileSync(file, "utf8")) as T
-}
+let manifestFileContentHash: string | undefined
 
 function loadManifest(): HandoffManifest {
   const file = manifestPath()
@@ -122,7 +167,9 @@ function loadManifest(): HandoffManifest {
       `cutover manifest not found at ${file}; run deployment 87 first`
     )
   }
-  return readJson<HandoffManifest>(file)
+  const loaded = loadCutoverManifest(file)
+  manifestFileContentHash = loaded.fileContentHash
+  return loaded.value
 }
 
 function saveManifest(
@@ -140,9 +187,12 @@ function saveManifest(
     },
   }
   const file = manifestPath()
-  const temporary = `${file}.tmp`
-  fs.writeFileSync(temporary, `${JSON.stringify(updated, null, 2)}\n`)
-  fs.renameSync(temporary, file)
+  if (!manifestFileContentHash) {
+    throw new Error("cutover manifest CAS state is unavailable")
+  }
+  manifestFileContentHash = writeCutoverManifest(file, updated, {
+    expectedCurrentContentHash: manifestFileContentHash,
+  })
   // Keep subsequent idempotent readback/save steps in this invocation from
   // dropping the transaction hash that was just persisted atomically.
   // eslint-disable-next-line no-param-reassign
@@ -161,7 +211,7 @@ function inventoryPath(required: boolean): string | undefined {
 
 function loadInventory(manifest: HandoffManifest): InventoryBundle {
   const file = inventoryPath(true) as string
-  const inventory = readJson<InventoryBundle>(file)
+  const inventory = loadCutoverInventory(file).value
   assertCanonicalInventory(manifest, inventory)
   return inventory
 }
@@ -171,28 +221,37 @@ function normalizeState(raw: any): CutoverState {
     phase: Number(raw.phase),
     oldRouter: raw.oldRouter,
     newRouter: raw.newRouter,
-    oldRouterCodeHash: raw.oldRouterCodeHash,
-    newRouterCodeHash: raw.newRouterCodeHash,
-    drainBlock: raw.drainBlock,
-    scanStartBlock: raw.scanStartBlock,
     finalizedBlock: raw.finalizedBlock,
     finalizedBlockHash: raw.finalizedBlockHash,
-    challengeSetHash: raw.challengeSetHash,
-    challengeCount: Number(raw.challengeCount),
-    totalEscrow: raw.totalEscrow,
+    sourceSigner: raw.sourceSigner,
+    sourceId: raw.sourceId,
     reconciler: raw.reconciler,
+    reconcilerSourceId: raw.reconcilerSourceId,
     inventoryCommitment: raw.inventoryCommitment,
     postMigrationCommitment: raw.postMigrationCommitment,
     migratedBlock: raw.migratedBlock,
     migrationConfirmedAt: raw.migrationConfirmedAt,
-    governanceDelay: raw.governanceDelay,
     pendingReconciler: raw.pendingReconciler,
-    reconcilerUpdateStartedAt: raw.reconcilerUpdateStartedAt,
+    pendingReconcilerSourceId: raw.pendingReconcilerSourceId,
+    sourceContext: raw.sourceContext,
+    reconcilerContext: raw.reconcilerContext,
+    pendingReconcilerContext: raw.pendingReconcilerContext,
+    sourceContextCommitment: raw.sourceContextCommitment,
+    reconcilerContextCommitment: raw.reconcilerContextCommitment,
+    sourceCheckpointRoleDigest: raw.sourceCheckpointRoleDigest,
+    reconcilerCheckpointRoleDigest: raw.reconcilerCheckpointRoleDigest,
+    sourceCheckpointCommitment: raw.sourceCheckpointCommitment,
+    sourcePreflightCommitment: raw.sourcePreflightCommitment,
+    sourcePreflightBlock: raw.sourcePreflightBlock,
+    drainBlock: raw.drainBlock,
+    maxTailBlocks: Number(raw.maxTailBlocks),
+    stageDeadlineBlock: raw.stageDeadlineBlock,
+    ownerAuthorizationHash: raw.ownerAuthorizationHash,
   }
 }
 
 async function getState(governance: Contract): Promise<CutoverState> {
-  return normalizeState(await governance.ecdsaFraudCutoverState())
+  return normalizeState(await governance.ecdsaFraudCutoverReadiness())
 }
 
 function sameAddress(left: string, right: string): boolean {
@@ -201,6 +260,32 @@ function sameAddress(left: string, right: string): boolean {
 
 function sameHash(left: string, right: string): boolean {
   return left.toLowerCase() === right.toLowerCase()
+}
+
+function sameAuthorityContext(
+  left: AuthorityContext,
+  right: AuthorityContext
+): boolean {
+  return (
+    left !== undefined &&
+    right !== undefined &&
+    sameHash(left.durableStoreIdentity, right.durableStoreIdentity) &&
+    sameHash(left.endpointIdentity, right.endpointIdentity) &&
+    sameHash(left.trustDomain, right.trustDomain) &&
+    sameHash(left.policyHash, right.policyHash)
+  )
+}
+
+function independentAuthorityContexts(
+  left: AuthorityContext,
+  right: AuthorityContext
+): boolean {
+  return (
+    !sameHash(left.durableStoreIdentity, right.durableStoreIdentity) &&
+    !sameHash(left.endpointIdentity, right.endpointIdentity) &&
+    !sameHash(left.trustDomain, right.trustDomain) &&
+    !sameHash(left.policyHash, right.policyHash)
+  )
 }
 
 async function runtimeCodeHash(address: string): Promise<string> {
@@ -276,11 +361,24 @@ async function assertManifestStatic(
   bridge: Contract,
   newGovernance: Contract
 ): Promise<void> {
-  if (manifest.version !== 1) throw new Error("unsupported manifest version")
+  if (manifest.version !== 4) throw new Error("unsupported manifest version")
   if (!manifest.legacyInventorySourcePreflight) {
     throw new Error("manifest lacks signed legacy inventory source preflight")
   }
+  const preflightFinalizedBlock =
+    manifest.legacyInventorySourcePreflight.history.finalizedBlock
+  if (
+    !ethers.utils.isHexString(manifest.sourceCheckpointCommitment, 32) ||
+    sameHash(manifest.sourceCheckpointCommitment, ZERO_HASH) ||
+    !Number.isSafeInteger(manifest.maxTailBlocks) ||
+    manifest.maxTailBlocks < FINALITY_CONFIRMATIONS ||
+    manifest.maxTailBlocks > MAX_BLOCKHASH_AGE ||
+    preflightFinalizedBlock < manifest.scanStartBlock
+  ) {
+    throw new Error("invalid authenticated-tail commitment in manifest")
+  }
   assertLegacyInventorySourcePreflight(manifest)
+  assertCutoverAuthoritySeparation(manifest)
   const { chainId } = await ethers.provider.getNetwork()
   if (manifest.chainId !== chainId) {
     throw new Error(
@@ -332,15 +430,37 @@ async function assertManifestStatic(
       manifest.oldRouter,
       manifest.oldRouterRuntimeCodeHash
     ),
+    ...manifest.historyEmitters.map((emitter) =>
+      assertCodeHash(emitter.address, emitter.runtimeCodeHash)
+    ),
   ])
+  const discoveredEmitters = await discoverHistoryEmitters(
+    ethers.provider,
+    manifest.bridge,
+    manifest.oldRouter,
+    Object.fromEntries(
+      manifest.historyEmitters.map((emitter) => [
+        emitter.address,
+        emitter.expectedUnrelatedBalance,
+      ])
+    )
+  )
+  if (
+    JSON.stringify(discoveredEmitters) !==
+    JSON.stringify(manifest.historyEmitters)
+  ) {
+    throw new Error(
+      "manifest history emitter ancestry is incomplete or reordered"
+    )
+  }
   const sourcePreflightBlock = await ethers.provider.getBlock(
-    manifest.legacyInventorySourcePreflight.finalizedBlock
+    manifest.legacyInventorySourcePreflight.history.finalizedBlock
   )
   if (
     !sourcePreflightBlock?.hash ||
     !sameHash(
       sourcePreflightBlock.hash,
-      manifest.legacyInventorySourcePreflight.finalizedBlockHash
+      manifest.legacyInventorySourcePreflight.history.finalizedBlockHash
     )
   ) {
     throw new Error("signed legacy inventory source block is not canonical")
@@ -414,34 +534,56 @@ async function assertManifestStatic(
   }
 }
 
-function requireSignature(manifest: HandoffManifest): void {
-  const signature = process.env.ECDSA_CUTOVER_MANIFEST_SIGNATURE
-  if (!signature) {
+async function requireManifestSignatures(
+  manifest: HandoffManifest
+): Promise<{ source: string; reconciler: string }> {
+  const source = process.env.ECDSA_CUTOVER_SOURCE_MANIFEST_SIGNATURE
+  const reconciler = process.env.ECDSA_CUTOVER_RECONCILER_MANIFEST_SIGNATURE
+  if (!source || !reconciler) {
     throw new Error(
-      "ECDSA_CUTOVER_MANIFEST_SIGNATURE is required for mutating actions"
+      "both ECDSA_CUTOVER_SOURCE_MANIFEST_SIGNATURE and ECDSA_CUTOVER_RECONCILER_MANIFEST_SIGNATURE are required"
     )
   }
-  assertManifestSignature(manifest, signature)
+  await Promise.all([
+    assertManifestSignature(ethers.provider, manifest, source, "source"),
+    assertManifestSignature(
+      ethers.provider,
+      manifest,
+      reconciler,
+      "reconciler"
+    ),
+  ])
+  return { source, reconciler }
 }
 
-function requireRecoverySignature(
-  manifest: HandoffManifest,
-  expectedReconciler: string
-): void {
-  const signature = process.env.ECDSA_CUTOVER_RECOVERY_SIGNATURE
-  if (!signature) {
-    throw new Error(
-      "ECDSA_CUTOVER_RECOVERY_SIGNATURE is required from the proposed/current recovery reconciler"
-    )
+function requiredBytes32(name: string): string {
+  const value = process.env[name]
+  if (
+    !value ||
+    !ethers.utils.isHexString(value, 32) ||
+    ethers.BigNumber.from(value).isZero()
+  ) {
+    throw new Error(`${name} must be a nonzero bytes32 value`)
   }
-  const recovered = ethers.utils.verifyMessage(
-    ethers.utils.arrayify(handoffPlanHash(manifest)),
-    signature
-  )
-  if (!sameAddress(recovered, expectedReconciler)) {
-    throw new Error(
-      `recovery signature is not from reconciler ${expectedReconciler}`
-    )
+  return ethers.utils.hexZeroPad(value, 32)
+}
+
+function recoveryReconcilerContext(): AuthorityContext {
+  return {
+    durableStoreIdentity: normalizeDurableStoreIdentity(
+      requiredBytes32(
+        "ECDSA_CUTOVER_RECOVERY_RECONCILER_DURABLE_STORE_IDENTITY"
+      )
+    ),
+    endpointIdentity: requiredBytes32(
+      "ECDSA_CUTOVER_RECOVERY_RECONCILER_ENDPOINT_IDENTITY"
+    ),
+    trustDomain: requiredBytes32(
+      "ECDSA_CUTOVER_RECOVERY_RECONCILER_TRUST_DOMAIN"
+    ),
+    policyHash: requiredBytes32(
+      "ECDSA_CUTOVER_RECOVERY_RECONCILER_POLICY_HASH"
+    ),
   }
 }
 
@@ -491,6 +633,39 @@ async function submitOrPrint(
   return transaction.hash
 }
 
+async function submitPermissionlessOrPrint(
+  target: Contract,
+  method: string,
+  args: unknown[]
+): Promise<string | undefined> {
+  const data = target.interface.encodeFunctionData(method, args)
+  console.log(`target: ${target.address}`)
+  console.log(`data:   ${data}`)
+  console.log("sender: any relayer (payload signatures authorize this action)")
+  if (process.env.ECDSA_CUTOVER_EXECUTE !== "true") {
+    console.log(
+      "calldata only; set ECDSA_CUTOVER_EXECUTE=true and ECDSA_CUTOVER_RELAYER to submit"
+    )
+    return undefined
+  }
+  const relayerInput = process.env.ECDSA_CUTOVER_RELAYER
+  if (!relayerInput) {
+    throw new Error(
+      "ECDSA_CUTOVER_RELAYER is required for permissionless execution"
+    )
+  }
+  const relayer = ethers.utils.getAddress(relayerInput)
+  const signer = await configuredSigner(relayer)
+  if (!signer) {
+    throw new Error(`configured relayer ${relayer} is not an available signer`)
+  }
+  const transaction = await signer.sendTransaction({ to: target.address, data })
+  const receipt = await transaction.wait(1)
+  if (receipt.status !== 1) throw new Error(`${method} transaction failed`)
+  console.log(`submitted ${method}: ${transaction.hash}`)
+  return transaction.hash
+}
+
 async function requireLiveGovernance(
   bridge: Contract,
   expected: string
@@ -523,37 +698,88 @@ async function assertFinalizedWindow(
 
 function inventoryFingerprint(inventory: InventoryBundle): string {
   return ethers.utils.keccak256(
-    ethers.utils.toUtf8Bytes(
-      JSON.stringify({
-        scanStartBlock: inventory.scanStartBlock,
-        scanEndBlock: inventory.scanEndBlock,
-        finalizedBlock: inventory.finalizedBlock,
-        finalizedBlockHash: inventory.finalizedBlockHash.toLowerCase(),
-        challengeKeys: inventory.challengeKeys.map((key) =>
-          ethers.BigNumber.from(key).toString()
-        ),
-        challenges: inventory.challenges.map((challenge) => ({
-          challenger: challenge.challenger.toLowerCase(),
-          depositAmount: ethers.BigNumber.from(
-            challenge.depositAmount
-          ).toString(),
-          reportedAt: challenge.reportedAt,
-          resolved: challenge.resolved,
-        })),
-        challengeSetHash: inventory.challengeSetHash.toLowerCase(),
-        challengeCount: inventory.challengeCount,
-        totalEscrow: ethers.BigNumber.from(inventory.totalEscrow).toString(),
-        oldRouterOpenChallengeCount: ethers.BigNumber.from(
-          inventory.oldRouterOpenChallengeCount
-        ).toString(),
-        bridgeLegacyEscrowBalance: ethers.BigNumber.from(
-          inventory.bridgeLegacyEscrowBalance
-        ).toString(),
-        sourceEventCount: inventory.sourceEventCount,
-        sourceEventDigest: inventory.sourceEventDigest.toLowerCase(),
-      })
-    )
+    ethers.utils.toUtf8Bytes(JSON.stringify(inventory))
   )
+}
+
+function journalPathFor(role: "source" | "reconciler"): string {
+  const name =
+    role === "source"
+      ? "ECDSA_CUTOVER_SOURCE_JOURNAL"
+      : "ECDSA_CUTOVER_RECONCILER_JOURNAL"
+  const file = process.env[name]
+  if (!file) throw new Error(`${name} is required`)
+  return file
+}
+
+function loadHistoryJournal(
+  manifest: HandoffManifest,
+  role: "source" | "reconciler"
+): {
+  journal: CanonicalHistoryJournalFile
+  fileContentHash: string
+} {
+  const file = journalPathFor(role)
+  if (!fs.existsSync(file))
+    throw new Error(`${role} history journal is missing`)
+  const expectedId =
+    role === "source" ? manifest.sourceId : manifest.reconcilerSourceId
+  const expectedStorageIdentity = normalizeDurableStoreIdentity(
+    role === "source"
+      ? manifest.sourceContext.durableStoreIdentity
+      : manifest.reconcilerContext.durableStoreIdentity
+  )
+  const fileContentHash = readPrivateFileWithHash(file).contentHash
+  return {
+    journal: loadCanonicalHistoryJournal(
+      file,
+      expectedId,
+      expectedStorageIdentity
+    ),
+    fileContentHash,
+  }
+}
+
+async function extendJournalTo(
+  manifest: HandoffManifest,
+  role: "source" | "reconciler",
+  finalizedBlock: number
+): Promise<CanonicalHistoryScan> {
+  const loaded = loadHistoryJournal(manifest, role)
+  const { journal } = loaded
+  const firstBlock = journal.scan.evidence.finalizedBlock + 1
+  const tailLength = Math.max(0, finalizedBlock - firstBlock + 1)
+  const maximumTail = Number(
+    process.env.ECDSA_CUTOVER_MAX_JOURNAL_TAIL_BLOCKS ?? "64"
+  )
+  if (
+    !Number.isSafeInteger(maximumTail) ||
+    maximumTail < 1 ||
+    maximumTail > 64 ||
+    tailLength > maximumTail
+  ) {
+    throw new Error(
+      `${role} canonical journal is stale by ${tailLength} blocks; update it before the cutover action`
+    )
+  }
+  const scan = await extendCanonicalHistoryJournal(
+    ethers.provider,
+    manifest.historyEmitters,
+    manifest.scanStartBlock,
+    finalizedBlock,
+    journal.scan
+  )
+  saveCanonicalHistoryJournal(
+    journalPathFor(role),
+    nextCanonicalHistoryJournal(
+      journal.sourceId,
+      journal.storageIdentity,
+      scan,
+      journal
+    ),
+    { expectedCurrentContentHash: loaded.fileContentHash }
+  )
+  return scan
 }
 
 async function independentlyRebuildInventory(
@@ -563,7 +789,8 @@ async function independentlyRebuildInventory(
   const canonical = await buildCanonicalInventory(
     ethers.provider,
     manifest,
-    inventory.finalizedBlock
+    inventory.finalizedBlock,
+    await extendJournalTo(manifest, "reconciler", inventory.finalizedBlock)
   )
   if (
     !sameHash(inventoryFingerprint(inventory), inventoryFingerprint(canonical))
@@ -577,31 +804,99 @@ async function independentlyRebuildInventory(
 async function verifySignedSourcePreflight(
   manifest: HandoffManifest
 ): Promise<void> {
-  const signed = manifest.legacyInventorySourcePreflight
-  const observed = await buildLegacyInventorySourcePreflight(
-    ethers.provider,
-    manifest.bridge,
-    manifest.scanStartBlock,
-    signed.finalizedBlock
-  )
-  assertLegacyInventorySourcePreflight(manifest, observed)
+  assertLegacyInventorySourcePreflight(manifest)
+  const signed = manifest.legacyInventorySourcePreflight.history
+  const { journal } = loadHistoryJournal(manifest, "source")
+  if (
+    !canonicalHistoryJournalContains(
+      journal,
+      signed.finalizedBlock,
+      signed.finalizedBlockHash,
+      manifest.sourceCheckpointCommitment
+    )
+  ) {
+    throw new Error("source journal does not contain the signed preflight")
+  }
 }
 
 function assertStateManifest(
   state: CutoverState,
   manifest: HandoffManifest
 ): void {
-  if (state.phase === 0) return
+  const expectedOwnerAuthorizationHash = ownerAuthorizationHash(manifest)
+  if (state.phase === 0) {
+    if (
+      !sameHash(state.ownerAuthorizationHash, ZERO_HASH) &&
+      !sameHash(state.ownerAuthorizationHash, expectedOwnerAuthorizationHash)
+    ) {
+      throw new Error("on-chain owner authorization differs from the manifest")
+    }
+    return
+  }
+  const expectedCheckpointDigests = checkpointRoleDigests(manifest)
+  const expectedSourceContextCommitment = authorityContextCommitment(
+    "source",
+    manifest.sourceSigner,
+    manifest.sourceId,
+    manifest.sourceContext
+  )
+  const expectedReconcilerContextCommitment = authorityContextCommitment(
+    "reconciler",
+    manifest.reconciler,
+    manifest.reconcilerSourceId,
+    manifest.reconcilerContext
+  )
   if (
     !sameAddress(state.oldRouter, manifest.oldRouter) ||
     !sameAddress(state.newRouter, manifest.replacementRouter) ||
-    !sameHash(state.oldRouterCodeHash, manifest.oldRouterRuntimeCodeHash) ||
+    !sameAddress(state.sourceSigner, manifest.sourceSigner) ||
+    !sameHash(state.sourceId, manifest.sourceId) ||
+    !sameAuthorityContext(state.sourceContext, manifest.sourceContext) ||
+    !sameHash(state.sourceContextCommitment, expectedSourceContextCommitment) ||
     !sameHash(
-      state.newRouterCodeHash,
-      manifest.replacementRouterRuntimeCodeHash
+      state.sourceCheckpointRoleDigest,
+      expectedCheckpointDigests.source
     ) ||
-    !state.scanStartBlock.eq(manifest.scanStartBlock) ||
-    !state.governanceDelay.eq(manifest.governanceDelay)
+    !sameHash(
+      state.sourceCheckpointCommitment,
+      manifest.sourceCheckpointCommitment
+    ) ||
+    !sameHash(
+      state.sourcePreflightCommitment,
+      legacyInventorySourcePreflightHash(
+        manifest.legacyInventorySourcePreflight
+      )
+    ) ||
+    !state.sourcePreflightBlock.eq(
+      manifest.legacyInventorySourcePreflight.history.finalizedBlock
+    ) ||
+    state.drainBlock.lte(state.sourcePreflightBlock) ||
+    state.drainBlock
+      .sub(state.sourcePreflightBlock)
+      .lt(FINALITY_CONFIRMATIONS) ||
+    state.drainBlock
+      .sub(state.sourcePreflightBlock)
+      .gt(manifest.maxTailBlocks) ||
+    state.maxTailBlocks !== manifest.maxTailBlocks ||
+    !sameHash(state.ownerAuthorizationHash, expectedOwnerAuthorizationHash) ||
+    !state.stageDeadlineBlock.eq(state.drainBlock.add(MAX_BLOCKHASH_AGE)) ||
+    (state.phase < 4 &&
+      (!sameAddress(state.reconciler, manifest.reconciler) ||
+        !sameHash(state.reconcilerSourceId, manifest.reconcilerSourceId) ||
+        !sameAuthorityContext(
+          state.reconcilerContext,
+          manifest.reconcilerContext
+        ) ||
+        !sameHash(
+          state.reconcilerContextCommitment,
+          expectedReconcilerContextCommitment
+        ) ||
+        !sameHash(
+          state.reconcilerCheckpointRoleDigest,
+          expectedCheckpointDigests.reconciler
+        ))) ||
+    sameAddress(state.reconciler, state.sourceSigner) ||
+    sameHash(state.reconcilerSourceId, state.sourceId)
   ) {
     throw new Error("on-chain cutover state differs from the signed manifest")
   }
@@ -624,10 +919,7 @@ function stateMatchesInventory(
 ): boolean {
   return !(
     !state.finalizedBlock.eq(inventory.finalizedBlock) ||
-    !sameHash(state.finalizedBlockHash, inventory.finalizedBlockHash) ||
-    !sameHash(state.challengeSetHash, inventory.challengeSetHash) ||
-    state.challengeCount !== inventory.challengeCount ||
-    !state.totalEscrow.eq(inventory.totalEscrow)
+    !sameHash(state.finalizedBlockHash, inventory.finalizedBlockHash)
   )
 }
 
@@ -873,21 +1165,24 @@ async function buildInventory(
   }
   const head = await ethers.provider.getBlockNumber()
   const requested = process.env.ECDSA_CUTOVER_FINALIZED_BLOCK
-  const finalizedBlock = requested
-    ? Number(requested)
-    : head - FINALITY_CONFIRMATIONS
+  const drainBlock = state.drainBlock.toNumber()
+  const finalizedBlock = requested ? Number(requested) : drainBlock
   if (!Number.isSafeInteger(finalizedBlock) || finalizedBlock < 0) {
     throw new Error("ECDSA_CUTOVER_FINALIZED_BLOCK is invalid")
   }
-  if (finalizedBlock < state.drainBlock.toNumber()) {
+  if (finalizedBlock !== drainBlock) {
     throw new Error(
-      "wait until the drain block is at least 64 confirmations deep"
+      `inventory finalized block must be the on-chain drain block ${drainBlock}`
     )
+  }
+  if (head > state.stageDeadlineBlock.toNumber()) {
+    throw new Error("the on-chain inventory staging deadline has elapsed")
   }
   const inventory = await buildCanonicalInventory(
     ethers.provider,
     manifest,
-    finalizedBlock
+    finalizedBlock,
+    await extendJournalTo(manifest, "source", finalizedBlock)
   )
   await assertFinalizedWindow(inventory)
   const output =
@@ -896,27 +1191,116 @@ async function buildInventory(
       path.dirname(manifestPath()),
       `ecdsa-fraud-router-inventory-${finalizedBlock}.json`
     )
+  const existingInventory = fs.existsSync(output)
+    ? loadCutoverInventory(output)
+    : undefined
   if (
-    fs.existsSync(output) &&
+    existingInventory &&
     process.env.ECDSA_CUTOVER_OVERWRITE_INVENTORY !== "true"
   ) {
     throw new Error(
       `${output} exists; choose a new output or explicitly set ECDSA_CUTOVER_OVERWRITE_INVENTORY=true`
     )
   }
-  fs.writeFileSync(output, `${JSON.stringify(inventory, null, 2)}\n`)
+  writeCutoverInventory(
+    output,
+    inventory,
+    existingInventory
+      ? { expectedCurrentContentHash: existingInventory.fileContentHash }
+      : { createOnly: true }
+  )
   console.log(`wrote canonical inventory: ${output}`)
   console.log(`inventory fingerprint: ${inventoryFingerprint(inventory)}`)
+}
+
+async function refreshPreflight(
+  manifest: HandoffManifest,
+  governance: Contract
+): Promise<void> {
+  const state = await getState(governance)
+  if (state.phase !== 0) {
+    throw new Error("preflight can be refreshed only before drain begins")
+  }
+  const head = await ethers.provider.getBlockNumber()
+  const confirmations = Number(
+    process.env.ECDSA_CUTOVER_PREFLIGHT_CONFIRMATIONS ??
+      FINALITY_CONFIRMATIONS.toString()
+  )
+  const maxTailBlocks = Number(
+    process.env.ECDSA_CUTOVER_MAX_PREFLIGHT_AGE_BLOCKS ??
+      MAX_BLOCKHASH_AGE.toString()
+  )
+  const minimumBeginSlackBlocks = Number(
+    process.env.ECDSA_CUTOVER_MIN_BEGIN_SLACK_BLOCKS ?? "16"
+  )
+  const timing = cutoverPreflightTiming(
+    head,
+    confirmations,
+    maxTailBlocks,
+    minimumBeginSlackBlocks
+  )
+  const finalizedBlock = timing.preflightBlock
+  const scan = await extendJournalTo(manifest, "source", finalizedBlock)
+  const preflight = await buildLegacyInventorySourcePreflight(
+    ethers.provider,
+    manifest.bridge,
+    manifest.scanStartBlock,
+    finalizedBlock,
+    manifest.historyEmitters,
+    scan
+  )
+  const refreshed: HandoffManifest = {
+    ...manifest,
+    legacyInventorySourcePreflight: preflight,
+    sourceCheckpointCommitment: canonicalHistoryCheckpointCommitment(scan),
+    maxTailBlocks,
+    phase: "preflight-refreshed-awaiting-dual-signatures",
+  }
+  assertCutoverAuthoritySeparation(refreshed)
+  assertLegacyInventorySourcePreflight(refreshed)
+  if (!manifestFileContentHash) {
+    throw new Error("cutover manifest CAS state is unavailable")
+  }
+  manifestFileContentHash = writeCutoverManifest(manifestPath(), refreshed, {
+    expectedCurrentContentHash: manifestFileContentHash,
+  })
+  Object.assign(manifest, refreshed)
+  console.log(`refreshed signed-plan candidate: ${handoffPlanHash(refreshed)}`)
 }
 
 async function main(): Promise<void> {
   const action = parseAction(process.env.ECDSA_CUTOVER_ACTION)
   const manifest = loadManifest()
+  const sourceJournalPath = process.env.ECDSA_CUTOVER_SOURCE_JOURNAL
+  const reconcilerJournalPath = process.env.ECDSA_CUTOVER_RECONCILER_JOURNAL
+  if (sourceJournalPath && reconcilerJournalPath) {
+    assertIndependentArtifactStores(sourceJournalPath, reconcilerJournalPath)
+  } else if (action === "verify-preflight" || action === "stage-inventory") {
+    throw new Error(
+      "both canonical journal paths are required to verify independent stores"
+    )
+  }
   if (action === "print-plan-hash") {
     console.log(handoffPlanHash(manifest))
     return
   }
-  if (MUTATING_ACTIONS.has(action)) requireSignature(manifest)
+  if (action === "print-inventory-hash") {
+    const digests = inventoryAuthorityAttestationHashes(
+      manifest,
+      loadInventory(manifest)
+    )
+    console.log(`source:     ${digests.source}`)
+    console.log(`reconciler: ${digests.reconciler}`)
+    return
+  }
+  let manifestSignatures: { source: string; reconciler: string } | undefined
+  if (
+    action === "begin-governance-handoff" ||
+    action === "finalize-governance-handoff" ||
+    action === "begin-drain"
+  ) {
+    manifestSignatures = await requireManifestSignatures(manifest)
+  }
 
   const bridge = await ethers.getContractAt("Bridge", manifest.bridge)
   const governance = await ethers.getContractAt(
@@ -924,6 +1308,21 @@ async function main(): Promise<void> {
     manifest.newGovernance
   )
   await assertManifestStatic(manifest, bridge, governance)
+
+  if (action === "verify-preflight") {
+    const { finalizedBlock } = manifest.legacyInventorySourcePreflight.history
+    const observed = await buildLegacyInventorySourcePreflight(
+      ethers.provider,
+      manifest.bridge,
+      manifest.scanStartBlock,
+      finalizedBlock,
+      manifest.historyEmitters,
+      await extendJournalTo(manifest, "reconciler", finalizedBlock)
+    )
+    assertLegacyInventorySourcePreflight(manifest, observed)
+    console.log("independent preflight rebuild matches the signed manifest")
+    return
+  }
 
   if (action === "begin-governance-handoff") {
     await beginGovernanceHandoff(manifest, bridge)
@@ -953,6 +1352,11 @@ async function main(): Promise<void> {
   if (action === "inspect") return
   await requireLiveGovernance(bridge, manifest.newGovernance)
 
+  if (action === "refresh-preflight") {
+    await refreshPreflight(manifest, governance)
+    return
+  }
+
   if (action === "build-inventory") {
     await buildInventory(manifest, governance)
     return
@@ -963,14 +1367,97 @@ async function main(): Promise<void> {
     throw new Error(`new BridgeGovernance owner changed to ${owner}`)
   }
 
+  if (action === "authorize-drain") {
+    if (state.phase !== 0) {
+      throw new Error("drain authorization is available only in idle phase")
+    }
+    const expectedAuthorizationHash = ownerAuthorizationHash(manifest)
+    if (sameHash(state.ownerAuthorizationHash, ZERO_HASH)) {
+      const contextType =
+        "tuple(bytes32 durableStoreIdentity,bytes32 endpointIdentity,bytes32 trustDomain,bytes32 policyHash)"
+      const txHash = await submitOrPrint(
+        governance,
+        owner,
+        "processEcdsaFraudCutoverOwnerAction",
+        [
+          0,
+          ethers.utils.defaultAbiCoder.encode(
+            [
+              `tuple(address oldRouter,bytes32 oldRouterCodeHash,address newRouter,bytes32 newRouterCodeHash,uint64 scanStartBlock,address sourceSigner,bytes32 sourceId,${contextType} sourceContext,address reconciler,bytes32 reconcilerSourceId,${contextType} reconcilerContext,bytes32 emitterSetCommitment)`,
+            ],
+            [
+              {
+                oldRouter: manifest.oldRouter,
+                oldRouterCodeHash: manifest.oldRouterRuntimeCodeHash,
+                newRouter: manifest.replacementRouter,
+                newRouterCodeHash: manifest.replacementRouterRuntimeCodeHash,
+                scanStartBlock: manifest.scanStartBlock,
+                sourceSigner: manifest.sourceSigner,
+                sourceId: manifest.sourceId,
+                sourceContext: manifest.sourceContext,
+                reconciler: manifest.reconciler,
+                reconcilerSourceId: manifest.reconcilerSourceId,
+                reconcilerContext: manifest.reconcilerContext,
+                emitterSetCommitment: canonicalEmitterSetCommitment(
+                  manifest.historyEmitters
+                ),
+              },
+            ]
+          ),
+        ]
+      )
+      if (!txHash) return
+      const observed = await getState(governance)
+      if (
+        observed.phase !== 0 ||
+        !sameHash(observed.ownerAuthorizationHash, expectedAuthorizationHash)
+      ) {
+        throw new Error("owner drain authorization readback failed")
+      }
+      saveManifest(
+        manifest,
+        "drain-owner-authorized",
+        "authorize-drain",
+        txHash
+      )
+    } else if (
+      !sameHash(state.ownerAuthorizationHash, expectedAuthorizationHash)
+    ) {
+      throw new Error("another owner drain authorization is already bound")
+    } else {
+      console.log("matching owner drain authorization is already bound")
+    }
+    return
+  }
+
   if (action === "begin-drain") {
     if (state.phase === 0) {
+      const expectedAuthorizationHash = ownerAuthorizationHash(manifest)
+      if (!sameHash(state.ownerAuthorizationHash, expectedAuthorizationHash)) {
+        throw new Error(
+          "the owner must bind this exact authority manifest with authorize-drain before permissionless begin"
+        )
+      }
       // This is the last off-chain proof before an intentionally irreversible
       // freeze. Rebuild every signed historical source identity now; forwarded
       // submissions require an unambiguous successful Bridge call trace.
       await verifySignedSourcePreflight(manifest)
-      const preDrainFinalizedBlock =
-        (await ethers.provider.getBlockNumber()) - FINALITY_CONFIRMATIONS
+      const currentBlock = await ethers.provider.getBlockNumber()
+      const sourcePreflightFinalizedBlock =
+        manifest.legacyInventorySourcePreflight.history.finalizedBlock
+      const anticipatedBeginBlock = currentBlock + 1
+      const anticipatedPreflightAge =
+        anticipatedBeginBlock - sourcePreflightFinalizedBlock
+      if (
+        anticipatedPreflightAge < FINALITY_CONFIRMATIONS ||
+        anticipatedPreflightAge > manifest.maxTailBlocks
+      ) {
+        throw new Error(
+          `anticipated begin block ${anticipatedBeginBlock} gives preflight age ` +
+            `${anticipatedPreflightAge}; the signed 64-${manifest.maxTailBlocks} block window is closed`
+        )
+      }
+      const preDrainFinalizedBlock = currentBlock - FINALITY_CONFIRMATIONS
       if (preDrainFinalizedBlock < manifest.bridgeDeploymentBlock) {
         throw new Error(
           "Bridge must be at least 64 confirmations deep before drain"
@@ -979,19 +1466,36 @@ async function main(): Promise<void> {
       const preDrainInventory = await buildCanonicalInventory(
         ethers.provider,
         manifest,
-        preDrainFinalizedBlock
+        preDrainFinalizedBlock,
+        await extendJournalTo(manifest, "source", preDrainFinalizedBlock)
       )
       assertActivationInventoryEmpty(preDrainInventory)
-      const txHash = await submitOrPrint(
+      const signatures =
+        manifestSignatures ?? (await requireManifestSignatures(manifest))
+      const txHash = await submitPermissionlessOrPrint(
         governance,
-        owner,
-        "beginEcdsaFraudRouterDrain",
+        "processEcdsaFraudCutoverAuthorityAction",
         [
-          manifest.oldRouter,
-          manifest.oldRouterRuntimeCodeHash,
-          manifest.replacementRouter,
-          manifest.replacementRouterRuntimeCodeHash,
-          manifest.scanStartBlock,
+          3,
+          ethers.utils.defaultAbiCoder.encode(
+            [
+              "tuple(address oldRouter,bytes32 oldRouterCodeHash,address newRouter,bytes32 newRouterCodeHash,uint64 scanStartBlock,bytes authorityProof)",
+            ],
+            [
+              {
+                oldRouter: manifest.oldRouter,
+                oldRouterCodeHash: manifest.oldRouterRuntimeCodeHash,
+                newRouter: manifest.replacementRouter,
+                newRouterCodeHash: manifest.replacementRouterRuntimeCodeHash,
+                scanStartBlock: manifest.scanStartBlock,
+                authorityProof: encodeAuthorityProof(
+                  manifest,
+                  signatures.source,
+                  signatures.reconciler
+                ),
+              },
+            ]
+          ),
         ]
       )
       if (!txHash) return
@@ -1011,27 +1515,69 @@ async function main(): Promise<void> {
 
   if (action === "stage-inventory") {
     assertActivationInventoryEmpty(inventory)
+    const sourcePreflightFinalizedBlock =
+      manifest.legacyInventorySourcePreflight.history.finalizedBlock
+    if (
+      inventory.finalizedBlock !== state.drainBlock.toNumber() ||
+      inventory.finalizedBlock < sourcePreflightFinalizedBlock ||
+      inventory.finalizedBlock - sourcePreflightFinalizedBlock >
+        manifest.maxTailBlocks ||
+      (await ethers.provider.getBlockNumber()) >
+        state.stageDeadlineBlock.toNumber()
+    ) {
+      throw new Error(
+        "inventory must pin the drain block inside the signed tail and on-chain staging deadline"
+      )
+    }
     await assertFinalizedWindow(inventory)
     await independentlyRebuildInventory(manifest, inventory)
-    if (inventory.finalizedBlock < state.drainBlock.toNumber()) {
-      throw new Error("inventory finalized block predates the drain")
+    const sourceAttestation =
+      process.env.ECDSA_CUTOVER_INVENTORY_SOURCE_SIGNATURE
+    const reconcilerAttestation =
+      process.env.ECDSA_CUTOVER_INVENTORY_RECONCILER_SIGNATURE
+    if (!sourceAttestation || !reconcilerAttestation) {
+      throw new Error(
+        "both inventory source and reconciler signatures are required"
+      )
     }
+    const inventoryDigests = inventoryAuthorityAttestationHashes(
+      manifest,
+      inventory
+    )
+    await Promise.all([
+      assertAuthoritySignature(
+        ethers.provider,
+        manifest.sourceSigner,
+        inventoryDigests.source,
+        sourceAttestation,
+        "inventory source"
+      ),
+      assertAuthoritySignature(
+        ethers.provider,
+        manifest.reconciler,
+        inventoryDigests.reconciler,
+        reconcilerAttestation,
+        "inventory reconciler"
+      ),
+    ])
     if (
       state.phase === 1 ||
       state.phase === 2 ||
       (state.phase === 3 && !stateMatchesInventory(state, inventory))
     ) {
-      const txHash = await submitOrPrint(
+      const txHash = await submitPermissionlessOrPrint(
         governance,
-        owner,
-        "stageEcdsaFraudInventory",
+        "processEcdsaFraudCutoverAuthorityAction",
         [
-          inventory.finalizedBlock,
-          inventory.finalizedBlockHash,
-          inventory.challengeSetHash,
-          inventory.challengeCount,
-          inventory.totalEscrow,
-          manifest.reconciler,
+          4,
+          ethers.utils.defaultAbiCoder.encode(
+            ["bytes", "bytes", "bytes"],
+            [
+              encodeInventorySnapshot(inventory),
+              sourceAttestation,
+              reconcilerAttestation,
+            ]
+          ),
         ]
       )
       if (!txHash) return
@@ -1052,13 +1598,18 @@ async function main(): Promise<void> {
     assertActivationInventoryEmpty(inventory)
     assertStateInventory(state, inventory)
     if (state.phase === 2) {
-      await assertFinalizedWindow(inventory)
       await independentlyRebuildInventory(manifest, inventory)
       const txHash = await submitOrPrint(
         governance,
         manifest.reconciler,
-        "confirmEcdsaFraudInventory",
-        [state.inventoryCommitment]
+        "processEcdsaFraudCutoverAuthorityAction",
+        [
+          0,
+          ethers.utils.defaultAbiCoder.encode(
+            ["bytes32"],
+            [state.inventoryCommitment]
+          ),
+        ]
       )
       if (!txHash) return
       const observed = await getState(governance)
@@ -1077,12 +1628,17 @@ async function main(): Promise<void> {
     assertActivationInventoryEmpty(inventory)
     assertStateInventory(state, inventory)
     if (state.phase === 3) {
-      await assertFinalizedWindow(inventory)
       const txHash = await submitOrPrint(
         governance,
         owner,
-        "migrateEcdsaFraudRouter",
-        [inventory.challengeKeys]
+        "processEcdsaFraudCutoverOwnerAction",
+        [
+          2,
+          ethers.utils.defaultAbiCoder.encode(
+            ["uint256[]"],
+            [inventory.challengeKeys]
+          ),
+        ]
       )
       if (!txHash) return
       const observed = await getState(governance)
@@ -1105,7 +1661,11 @@ async function main(): Promise<void> {
     return
   }
 
-  if (action === "begin-reconciler-update") {
+  if (
+    action === "begin-reconciler-update" ||
+    action === "print-reconciler-enrollment-hash" ||
+    action === "print-reconciler-recovery-hash"
+  ) {
     assertActivationInventoryEmpty(inventory)
     assertStateInventory(state, inventory)
     if (state.phase !== 4) {
@@ -1127,19 +1687,148 @@ async function main(): Promise<void> {
         "recovery reconciler must be distinct from governance and the current reconciler"
       )
     }
-    requireRecoverySignature(manifest, recoveryReconciler)
+    const recoverySourceId = requiredBytes32(
+      "ECDSA_CUTOVER_RECOVERY_RECONCILER_SOURCE_ID"
+    )
+    if (
+      recoverySourceId === ZERO_HASH ||
+      sameHash(recoverySourceId, state.sourceId) ||
+      sameHash(recoverySourceId, state.reconcilerSourceId)
+    ) {
+      throw new Error("recovery reconciler source identity is not independent")
+    }
+    const recoveryContext = recoveryReconcilerContext()
+    if (
+      !independentAuthorityContexts(recoveryContext, manifest.sourceContext) ||
+      !independentAuthorityContexts(recoveryContext, state.reconcilerContext)
+    ) {
+      throw new Error(
+        "recovery reconciler context must be independent from both active authorities"
+      )
+    }
+    const recoveryJournalPath =
+      process.env.ECDSA_CUTOVER_RECOVERY_RECONCILER_JOURNAL
+    if (!recoveryJournalPath) {
+      throw new Error("ECDSA_CUTOVER_RECOVERY_RECONCILER_JOURNAL is required")
+    }
+    assertIndependentArtifactStores(
+      journalPathFor("source"),
+      recoveryJournalPath
+    )
+    assertIndependentArtifactStores(
+      journalPathFor("reconciler"),
+      recoveryJournalPath
+    )
+    const recoveryJournal = loadCanonicalHistoryJournal(
+      recoveryJournalPath,
+      recoverySourceId,
+      recoveryContext.durableStoreIdentity
+    )
+    const recoveryCheckpoints = [
+      ...recoveryJournal.lineage,
+      {
+        finalizedBlock: recoveryJournal.scan.evidence.finalizedBlock,
+        finalizedBlockHash: recoveryJournal.scan.evidence.finalizedBlockHash,
+        checkpointCommitment: recoveryJournal.scanContentHash,
+      },
+    ]
+    if (
+      !recoveryCheckpoints.some(
+        (checkpoint) =>
+          checkpoint.finalizedBlock === inventory.finalizedBlock &&
+          sameHash(checkpoint.finalizedBlockHash, inventory.finalizedBlockHash)
+      )
+    ) {
+      throw new Error(
+        "recovery reconciler journal does not contain the staged drain-block checkpoint"
+      )
+    }
+    const enrollmentDigest = reconcilerEnrollmentAttestationHash(
+      manifest,
+      state.inventoryCommitment,
+      state.reconciler,
+      state.reconcilerSourceId,
+      state.reconcilerContext,
+      recoveryReconciler,
+      recoverySourceId,
+      recoveryContext
+    )
+    if (action === "print-reconciler-enrollment-hash") {
+      console.log(enrollmentDigest)
+      return
+    }
+    const enrollmentAttestation =
+      process.env.ECDSA_CUTOVER_RECOVERY_ENROLLMENT_SIGNATURE
+    if (!enrollmentAttestation) {
+      throw new Error(
+        "ECDSA_CUTOVER_RECOVERY_ENROLLMENT_SIGNATURE is required from the proposed reconciler"
+      )
+    }
+    await assertAuthoritySignature(
+      ethers.provider,
+      recoveryReconciler,
+      enrollmentDigest,
+      enrollmentAttestation,
+      "recovery reconciler enrollment"
+    )
+    const recoveryDigest = reconcilerRecoveryAttestationHash(
+      manifest,
+      state.inventoryCommitment,
+      state.reconciler,
+      state.reconcilerSourceId,
+      state.reconcilerContext,
+      enrollmentDigest,
+      enrollmentAttestation
+    )
+    if (action === "print-reconciler-recovery-hash") {
+      console.log(recoveryDigest)
+      return
+    }
+    const sourceRecoveryAttestation =
+      process.env.ECDSA_CUTOVER_SOURCE_RECOVERY_SIGNATURE
+    if (!sourceRecoveryAttestation) {
+      throw new Error(
+        "ECDSA_CUTOVER_SOURCE_RECOVERY_SIGNATURE is required from the pinned source authority"
+      )
+    }
+    await assertAuthoritySignature(
+      ethers.provider,
+      state.sourceSigner,
+      recoveryDigest,
+      sourceRecoveryAttestation,
+      "source-authorized reconciler recovery"
+    )
     const txHash = await submitOrPrint(
       governance,
       owner,
-      "beginEcdsaFraudReconcilerUpdate",
-      [recoveryReconciler]
+      "processEcdsaFraudCutoverOwnerAction",
+      [
+        3,
+        ethers.utils.defaultAbiCoder.encode(
+          [
+            "address",
+            "bytes32",
+            "tuple(bytes32 durableStoreIdentity,bytes32 endpointIdentity,bytes32 trustDomain,bytes32 policyHash)",
+            "bytes",
+            "bytes",
+          ],
+          [
+            recoveryReconciler,
+            recoverySourceId,
+            recoveryContext,
+            enrollmentAttestation,
+            sourceRecoveryAttestation,
+          ]
+        ),
+      ]
     )
     if (!txHash) return
     const observed = await getState(governance)
     if (
       observed.phase !== 4 ||
       !sameAddress(observed.pendingReconciler, recoveryReconciler) ||
-      observed.reconcilerUpdateStartedAt.isZero()
+      !sameHash(observed.pendingReconcilerSourceId, recoverySourceId) ||
+      !sameAuthorityContext(observed.pendingReconcilerContext, recoveryContext)
     ) {
       throw new Error("reconciler recovery proposal readback failed")
     }
@@ -1157,27 +1846,24 @@ async function main(): Promise<void> {
     assertStateInventory(state, inventory)
     if (
       state.phase !== 4 ||
-      sameAddress(state.pendingReconciler, ZERO_ADDRESS) ||
-      state.reconcilerUpdateStartedAt.isZero()
+      sameAddress(state.pendingReconciler, ZERO_ADDRESS)
     ) {
       throw new Error("no phase-four reconciler recovery is pending")
     }
     await assertDrainReadback(bridge, manifest)
     await assertMigratedReadback(bridge, manifest, inventory)
-    requireRecoverySignature(manifest, state.pendingReconciler)
     const txHash = await submitOrPrint(
       governance,
       state.pendingReconciler,
-      "finalizeEcdsaFraudReconcilerUpdate",
-      []
+      "processEcdsaFraudCutoverAuthorityAction",
+      [2, "0x"]
     )
     if (!txHash) return
     const observed = await getState(governance)
     if (
       observed.phase !== 4 ||
       !sameAddress(observed.reconciler, state.pendingReconciler) ||
-      !sameAddress(observed.pendingReconciler, ZERO_ADDRESS) ||
-      !observed.reconcilerUpdateStartedAt.isZero()
+      !sameAddress(observed.pendingReconciler, ZERO_ADDRESS)
     ) {
       throw new Error("reconciler recovery final readback failed")
     }
@@ -1193,19 +1879,20 @@ async function main(): Promise<void> {
   if (action === "confirm-migration") {
     assertActivationInventoryEmpty(inventory)
     assertStateInventory(state, inventory)
-    if (sameAddress(state.reconciler, manifest.reconciler)) {
-      requireSignature(manifest)
-    } else {
-      requireRecoverySignature(manifest, state.reconciler)
-    }
     if (state.phase === 4) {
       await assertDrainReadback(bridge, manifest)
       await assertMigratedReadback(bridge, manifest, inventory)
       const txHash = await submitOrPrint(
         governance,
         state.reconciler,
-        "confirmEcdsaFraudMigration",
-        [inventory.challengeKeys]
+        "processEcdsaFraudCutoverAuthorityAction",
+        [
+          1,
+          ethers.utils.defaultAbiCoder.encode(
+            ["uint256[]"],
+            [inventory.challengeKeys]
+          ),
+        ]
       )
       if (!txHash) return
       const observed = await getState(governance)
@@ -1262,8 +1949,14 @@ async function main(): Promise<void> {
     const txHash = await submitOrPrint(
       governance,
       owner,
-      "finalizeEcdsaFraudRouterReplacement",
-      [inventory.challengeKeys]
+      "processEcdsaFraudCutoverOwnerAction",
+      [
+        4,
+        ethers.utils.defaultAbiCoder.encode(
+          ["uint256[]"],
+          [inventory.challengeKeys]
+        ),
+      ]
     )
     if (!txHash) return
     const [
