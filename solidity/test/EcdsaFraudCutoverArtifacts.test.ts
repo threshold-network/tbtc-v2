@@ -4,7 +4,10 @@ import os from "os"
 import path from "path"
 import { expect } from "chai"
 import {
+  acquireDurableArtifactSessionLock,
   assertIndependentArtifactStores,
+  durableArtifactSessionLockPath,
+  durableArtifactWriteLockPath,
   durableWriteFile,
   durableWriteHashedJson,
   readHashedJsonWithHash,
@@ -114,6 +117,41 @@ describe("ECDSA fraud cutover durable artifacts", () => {
     )
   })
 
+  it("durably resumes recursive directory creation after its fsync boundary", () => {
+    const file = path.join(directory, "nested", "private", "manifest.json")
+    expect(() =>
+      durableWriteFile(file, "payload", {
+        requirePrivateDirectory: true,
+        failpoint: (phase) => {
+          if (phase === "after-directory-fsync") {
+            throw new Error("fail after directory fsync")
+          }
+        },
+      })
+    ).to.throw("fail after directory fsync")
+    expect(fs.existsSync(file)).to.equal(false)
+
+    durableWriteFile(file, "payload", { requirePrivateDirectory: true })
+    expect(readPrivateFile(file, { requirePrivateDirectory: true })).to.equal(
+      "payload"
+    )
+    expect(fs.statSync(path.dirname(file)).mode & 0o777).to.equal(0o700)
+  })
+
+  it("rejects hard-linked artifact reads", () => {
+    const file = artifact("hard-linked.json")
+    const alias = artifact("hard-linked-alias.json")
+    durableWriteFile(file, "payload")
+    fs.linkSync(file, alias)
+
+    expect(() => readPrivateFile(file)).to.throw(
+      "must have exactly one hard link"
+    )
+    expect(() => readPrivateFile(alias)).to.throw(
+      "must have exactly one hard link"
+    )
+  })
+
   it("preserves the prior artifact until atomic publication", () => {
     const file = artifact()
     const originalHash = durableWriteFile(file, "original")
@@ -174,6 +212,70 @@ describe("ECDSA fraud cutover durable artifacts", () => {
       })
     ).to.throw()
     expect(readPrivateFile(file)).to.equal("theirs")
+  })
+
+  it("rejects a non-cooperating target replacement during staging", () => {
+    const file = artifact()
+    const originalHash = durableWriteFile(file, "original")
+
+    expect(() =>
+      durableWriteFile(file, "ours", {
+        expectedCurrentContentHash: originalHash,
+        failpoint: (phase) => {
+          if (phase === "after-temp-fsync") {
+            fs.unlinkSync(file)
+            fs.writeFileSync(file, "theirs", { mode: 0o600, flag: "wx" })
+          }
+        },
+      })
+    ).to.throw("target changed during write")
+    expect(readPrivateFile(file)).to.equal("theirs")
+  })
+
+  it("never removes a replaced lock during cleanup", () => {
+    const file = artifact()
+    const lock = durableArtifactWriteLockPath(file)
+
+    expect(() =>
+      durableWriteFile(file, "payload", {
+        failpoint: (phase) => {
+          if (phase === "after-temp-fsync") {
+            fs.unlinkSync(lock)
+            fs.writeFileSync(lock, "replacement lock", {
+              mode: 0o600,
+              flag: "wx",
+            })
+          }
+        },
+      })
+    ).to.throw("write lock identity changed")
+    expect(fs.readFileSync(lock, "utf8")).to.equal("replacement lock")
+    expect(fs.existsSync(file)).to.equal(false)
+  })
+
+  it("holds and inode-binds a durable session lock", () => {
+    const file = artifact()
+    const expectedLock = durableArtifactSessionLockPath(file)
+    const first = acquireDurableArtifactSessionLock(file, {
+      requirePrivateDirectory: true,
+    })
+
+    expect(first.path).to.equal(expectedLock)
+    expect(fs.statSync(first.path).mode & 0o777).to.equal(0o600)
+    expect(() =>
+      acquireDurableArtifactSessionLock(file, {
+        requirePrivateDirectory: true,
+      })
+    ).to.throw("session is already locked")
+
+    first.release()
+    first.release()
+    expect(fs.existsSync(expectedLock)).to.equal(false)
+
+    const resumed = acquireDurableArtifactSessionLock(file, {
+      requirePrivateDirectory: true,
+    })
+    resumed.release()
   })
 
   it("uses raw-file SHA-256 values for compare-and-swap", () => {

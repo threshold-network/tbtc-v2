@@ -12,6 +12,15 @@ import {
   verifyIndependentSignature,
 } from "../scripts/complete-p2tr-coverage"
 import {
+  DurableWriteFailpoint,
+  acquireDurableArtifactSessionLock,
+  durableArtifactSessionLockPath,
+  durableArtifactWriteLockPath,
+  durableWriteHashedJson,
+  readHashedJsonWithHash,
+  readPrivateFileWithHash,
+} from "../scripts/durable-artifact"
+import {
   ARCHIVE_MANIFEST_SCHEMA_HASH,
   ARCHIVE_RECONCILER_ATTESTATION_ROLE,
   ARCHIVE_SOURCE_ATTESTATION_ROLE,
@@ -50,10 +59,19 @@ export const EIP_1967_IMPLEMENTATION_SLOT =
 export const EIP_170_RUNTIME_LIMIT = 24_576
 export const COVERAGE_LEAF_DOMAIN = "tbtc-p2tr-output-key-coverage-leaf-v1"
 export const ACTIVATION_ARTIFACT_SCHEMA = "tbtc/complete-p2tr-activation/v4"
+export const ACTIVATION_ARTIFACT_KIND =
+  "tbtc/complete-p2tr-activation/private-artifact/v3"
+export const LEGACY_ACTIVATION_ARTIFACT_SCHEMA =
+  "tbtc/complete-p2tr-activation/v2"
+export const PREVIOUS_ACTIVATION_ARTIFACT_SCHEMA =
+  "tbtc/complete-p2tr-activation/v3"
 export const COVERAGE_MANIFEST_SCHEMA = "tbtc/taproot-output-key-coverage/v2"
 export const MAXIMUM_COVERAGE_BATCH_SIZE = 32
 export const EIP_170_REQUIRED_HEADROOM = 512
 export const DEFAULT_MAXIMUM_ACTIVATION_TAIL_BLOCKS = 8192
+export const BRIDGE_GOVERNANCE_DELAY_SLOT = 70
+export const BRIDGE_GOVERNANCE_TRANSFER_INITIATED_SLOT = 73
+export const BRIDGE_GOVERNANCE_PENDING_TARGET_SLOT = 74
 export const BRIDGE_FROST_REGISTRY_STORAGE_SLOT = 51 + 32
 export const BRIDGE_ECDSA_ROUTER_STORAGE_SLOT = 51 + 33
 export const BRIDGE_P2TR_ROUTER_STORAGE_SLOT = 51 + 34
@@ -321,6 +339,9 @@ export interface EcdsaCutoverBinding {
   governanceCodeHash: string
   governanceOwner: string
   governanceDelay: string
+  oldGovernanceTransferInitiatedAt: string
+  oldGovernancePendingTarget: string
+  oldGovernanceTransferNotBefore: string
   oldRouter: string
   oldRouterCodeHash: string
   router: string
@@ -378,6 +399,24 @@ export interface CompleteP2TRActivationArtifact {
   selectors: Record<string, string>
   phases: ActivationPhase[]
   readbacks: Record<string, unknown>
+}
+
+export interface LoadedActivationArtifact {
+  artifact: CompleteP2TRActivationArtifact
+  /** SHA-256 of the exact private envelope bytes used for the next CAS. */
+  fileContentHash: string
+}
+
+interface StoredActivationArtifact {
+  /** Makes every successful publication advance the raw-file CAS token. */
+  writeNonce: string
+  artifact: CompleteP2TRActivationArtifact
+}
+
+export type ActivationArtifactWriteOptions = {
+  createOnly?: boolean
+  expectedCurrentContentHash?: string
+  failpoint?: DurableWriteFailpoint
 }
 
 const normalizeCode = (code: string): string => code.toLowerCase()
@@ -531,6 +570,18 @@ export function reconcilePhase(
       `Activation state regression: phase ${candidate.id} was executed but its readback no longer matches`
     )
   }
+  if (previous?.status === "pending") {
+    // A pending phase's exact call/readback tuple is its durable broadcast
+    // intent. Rebuilding a dynamic candidate (notably a coverage batch) must
+    // not discard the transaction hash or reinterpret what was sent.
+    return {
+      ...candidate,
+      status: "pending",
+      calls: previous.calls,
+      transactionHashes: previous.transactionHashes,
+      readback: previous.readback,
+    }
+  }
   return {
     ...candidate,
     status: previous?.status ?? candidate.status,
@@ -664,6 +715,78 @@ const readAddressWord = (word: string, label: string): string => {
     throw new Error(`${label}: non-address bits are set`)
   }
   return utils.getAddress(`0x${word.slice(-40)}`)
+}
+
+/**
+ * BridgeGovernance intentionally has no getter for `newBridgeGovernance`.
+ * Slot 74 is pinned to the committed legacy-production storage manifest by
+ * validateStorageLayout before this reader is used.
+ */
+export const readPendingBridgeGovernanceTarget = async (
+  provider: providers.Provider,
+  governance: string
+): Promise<string> =>
+  readAddressWord(
+    await provider.getStorageAt(
+      governance,
+      BRIDGE_GOVERNANCE_PENDING_TARGET_SLOT
+    ),
+    "BridgeGovernance pending Bridge governance target"
+  )
+
+export const validatePendingBridgeGovernanceTransfer = (
+  initiatedAt: BigNumber | string | number,
+  pendingTarget: string,
+  expectedTarget: string
+): boolean => {
+  const hasInitiation = !BigNumber.from(initiatedAt).isZero()
+  const normalizedPendingTarget = utils.getAddress(pendingTarget)
+  const hasTarget = normalizedPendingTarget !== constants.AddressZero
+  if (hasInitiation !== hasTarget) {
+    throw new Error(
+      "BridgeGovernance pending transfer has inconsistent initiation and target state"
+    )
+  }
+  if (!hasInitiation) return false
+  if (normalizedPendingTarget.toLowerCase() !== expectedTarget.toLowerCase()) {
+    throw new Error(
+      `BridgeGovernance pending target ${normalizedPendingTarget} does not match COMPLETE_V2 replacement ${expectedTarget}`
+    )
+  }
+  return true
+}
+
+export const bridgeGovernanceTransferNotBefore = (
+  initiatedAt: BigNumber | string | number,
+  governanceDelay: BigNumber | string | number
+): BigNumber => {
+  const initiation = BigNumber.from(initiatedAt)
+  if (initiation.isZero()) {
+    throw new Error(
+      "Cannot compute Bridge governance transfer deadline from zero initiation"
+    )
+  }
+  return initiation.add(governanceDelay)
+}
+
+export const requirePendingBridgeGovernanceTarget = async (
+  provider: providers.Provider,
+  governance: string,
+  expectedTarget: string,
+  initiatedAt: BigNumber | string | number
+): Promise<void> => {
+  const observed = await readPendingBridgeGovernanceTarget(provider, governance)
+  if (
+    !validatePendingBridgeGovernanceTransfer(
+      initiatedAt,
+      observed,
+      expectedTarget
+    )
+  ) {
+    throw new Error(
+      "BridgeGovernance has no active transfer to the COMPLETE_V2 replacement"
+    )
+  }
 }
 
 const callResult = async (
@@ -1648,6 +1771,39 @@ export async function validateEcdsaCutoverBinding(
     throw new Error("ECDSA cutover governance identity mismatch")
   }
 
+  const [oldGovernanceTransferWord, oldGovernancePendingTarget, oldDelay] =
+    await Promise.all([
+      provider.getStorageAt(
+        manifest.oldGovernance,
+        BRIDGE_GOVERNANCE_TRANSFER_INITIATED_SLOT
+      ),
+      readPendingBridgeGovernanceTarget(provider, manifest.oldGovernance),
+      callResult(
+        provider,
+        manifest.oldGovernance,
+        bridgeGovernanceInterface,
+        "governanceDelays",
+        [0]
+      ).then((result) => BigNumber.from(result[0])),
+    ])
+  const oldGovernanceTransferInitiatedAt = BigNumber.from(
+    oldGovernanceTransferWord
+  )
+  if (!oldDelay.eq(manifest.governanceDelay)) {
+    throw new Error("ECDSA old governance delay changed during cutover")
+  }
+  const oldGovernanceTransferPending = validatePendingBridgeGovernanceTransfer(
+    oldGovernanceTransferInitiatedAt,
+    oldGovernancePendingTarget,
+    manifest.newGovernance
+  )
+  const oldGovernanceTransferNotBefore = oldGovernanceTransferPending
+    ? bridgeGovernanceTransferNotBefore(
+        oldGovernanceTransferInitiatedAt,
+        oldDelay
+      )
+    : BigNumber.from(0)
+
   let finalized = false
   if (unionImplementationInstalled) {
     const [
@@ -1763,6 +1919,10 @@ export async function validateEcdsaCutoverBinding(
     governanceCodeHash: manifest.newGovernanceRuntimeCodeHash,
     governanceOwner: utils.getAddress(manifest.governanceOwner),
     governanceDelay: manifest.governanceDelay,
+    oldGovernanceTransferInitiatedAt:
+      oldGovernanceTransferInitiatedAt.toString(),
+    oldGovernancePendingTarget,
+    oldGovernanceTransferNotBefore: oldGovernanceTransferNotBefore.toString(),
     oldRouter: utils.getAddress(manifest.oldRouter),
     oldRouterCodeHash: manifest.oldRouterRuntimeCodeHash,
     router: utils.getAddress(manifest.replacementRouter),
@@ -2188,7 +2348,7 @@ const requireZeroAccounting = async (
   }
 }
 
-const validateStorageLayout = (repositoryRoot: string): void => {
+export const validateStorageLayout = (repositoryRoot: string): void => {
   const layoutPath = path.join(
     repositoryRoot,
     "test/formal/Bridge.storage-layout.json"
@@ -2212,6 +2372,7 @@ const validateStorageLayout = (repositoryRoot: string): void => {
     ["frostWalletRegistry", "32"],
     ["ecdsaFraudRouter", "33"],
     ["p2trFraudRouter", "34"],
+    ["lifecycleRouter", "35"],
     ["taprootDepositOutputKeyCommitments", "38"],
     ["ecdsaFraudRouterCodeHash", "39"],
     ["ecdsaFraudRouterInDrain", "40"],
@@ -2247,6 +2408,32 @@ const validateStorageLayout = (repositoryRoot: string): void => {
   ) {
     throw new Error(
       "Bridge storage layout: expected 24-slot gap and 2496-byte union layout"
+    )
+  }
+
+  const governanceLayoutPath = path.join(
+    repositoryRoot,
+    "test/formal/BridgeGovernance.legacy-production.json"
+  )
+  const governanceLayout = JSON.parse(
+    fs.readFileSync(governanceLayoutPath, "utf8")
+  ) as {
+    storageSlots?: {
+      governanceDelay?: number
+      bridgeTransferChangeInitiated?: number
+      newBridgeGovernance?: number
+    }
+  }
+  if (
+    governanceLayout.storageSlots?.governanceDelay !==
+      BRIDGE_GOVERNANCE_DELAY_SLOT ||
+    governanceLayout.storageSlots?.bridgeTransferChangeInitiated !==
+      BRIDGE_GOVERNANCE_TRANSFER_INITIATED_SLOT ||
+    governanceLayout.storageSlots?.newBridgeGovernance !==
+      BRIDGE_GOVERNANCE_PENDING_TARGET_SLOT
+  ) {
+    throw new Error(
+      "BridgeGovernance legacy storage layout: expected transfer initiation at slot 73 and pending target at slot 74"
     )
   }
 }
@@ -2603,63 +2790,284 @@ export const activationArtifactContentHash = (
   return utils.keccak256(utils.toUtf8Bytes(canonicalJSON(body)))
 }
 
-const parseArtifact = (
-  artifactPath: string
-): CompleteP2TRActivationArtifact => {
-  const artifact = JSON.parse(
-    fs.readFileSync(artifactPath, "utf8")
-  ) as CompleteP2TRActivationArtifact
-  if (artifact.schemaVersion !== ACTIVATION_ARTIFACT_SCHEMA) {
-    throw new Error(
-      `Unsupported COMPLETE_V2 activation artifact schema ${String(
-        artifact.schemaVersion
-      )}; v3 artifacts predate the authenticated step-87 handoff and cannot be resumed`
-    )
+const pathEntryExists = (entry: string): boolean => {
+  try {
+    fs.lstatSync(entry)
+    return true
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false
+    throw error
   }
-  if (artifact.contentHash !== activationArtifactContentHash(artifact)) {
-    throw new Error("COMPLETE_V2 activation artifact content hash mismatch")
-  }
-  return artifact
 }
 
-const fsyncDirectory = (directory: string): void => {
-  const directoryDescriptor = fs.openSync(directory, "r")
+const activationSchemaFromDocument = (document: unknown): unknown => {
+  if (!document || typeof document !== "object") return undefined
+  const record = document as Record<string, unknown>
+  if (record.payload && typeof record.payload === "object") {
+    const payload = record.payload as Record<string, unknown>
+    if (payload.artifact && typeof payload.artifact === "object") {
+      return (payload.artifact as Record<string, unknown>).schemaVersion
+    }
+    return payload.schemaVersion
+  }
+  return record.schemaVersion
+}
+
+const rejectUnsupportedActivationSchema = (
+  artifactPath: string,
+  document: unknown
+): void => {
+  const schema = activationSchemaFromDocument(document)
+  if (schema === LEGACY_ACTIVATION_ARTIFACT_SCHEMA) {
+    throw new Error(
+      `COMPLETE_V2 activation artifact schema v2 is unsupported: ${artifactPath}`
+    )
+  }
+  if (schema === PREVIOUS_ACTIVATION_ARTIFACT_SCHEMA) {
+    throw new Error(
+      `COMPLETE_V2 activation artifact schema v3 is unsupported after the authenticated step-87 handoff: ${artifactPath}`
+    )
+  }
+  if (schema !== undefined && schema !== ACTIVATION_ARTIFACT_SCHEMA) {
+    throw new Error(
+      `Unsupported COMPLETE_V2 activation artifact schema ${String(
+        schema
+      )}: ${artifactPath}`
+    )
+  }
+}
+
+/**
+ * Old deployment 88 promoted a fixed `.tmp` file without authenticating where
+ * it came from. Durable writes use unique temporary names and never infer a
+ * committed state from them. Any leftover temporary entry is therefore an
+ * operator-reconciliation event, not a recovery candidate.
+ */
+export const assertNoActivationTemporaryArtifacts = (
+  artifactPath: string
+): void => {
+  const directory = path.dirname(path.resolve(artifactPath))
+  if (!pathEntryExists(directory)) return
+  const basename = path.basename(artifactPath)
+  const fixedTemporary = `${basename}.tmp`
+  const durableTemporaryPrefix = `.${basename}.tmp-`
+  const temporaryEntries = fs
+    .readdirSync(directory)
+    .filter(
+      (entry) =>
+        entry === fixedTemporary || entry.startsWith(durableTemporaryPrefix)
+    )
+  if (temporaryEntries.length !== 0) {
+    throw new Error(
+      `Uncommitted COMPLETE_V2 activation temporary artifact requires manual reconciliation: ${temporaryEntries
+        .sort()
+        .join(",")}`
+    )
+  }
+}
+
+/**
+ * Deployment 88 historically stored a raw artifact directly in the network
+ * deployment directory. That location is not a private durable store. Refuse
+ * to silently ignore it: v2/v3 are unsupported, while v4 requires an explicit,
+ * audited migration unless the operator deliberately configured it as the
+ * active path (where the normal strict reader still applies).
+ */
+export const assertNoHistoricalActivationArtifact = (
+  historicalArtifactPath: string,
+  activeArtifactPath: string
+): void => {
+  assertNoActivationTemporaryArtifacts(historicalArtifactPath)
+  if (!pathEntryExists(historicalArtifactPath)) return
+
+  let privateFile: ReturnType<typeof readPrivateFileWithHash>
   try {
-    fs.fsyncSync(directoryDescriptor)
-  } finally {
-    fs.closeSync(directoryDescriptor)
+    privateFile = readPrivateFileWithHash(historicalArtifactPath)
+  } catch (error) {
+    throw new Error(
+      `Historical COMPLETE_V2 activation artifact requires manual reconciliation before use: ${historicalArtifactPath} (${
+        (error as Error).message
+      })`
+    )
+  }
+  let document: unknown
+  try {
+    document = JSON.parse(privateFile.contents) as unknown
+  } catch {
+    throw new Error(
+      `Historical COMPLETE_V2 activation artifact requires manual reconciliation before use: ${historicalArtifactPath} (malformed JSON)`
+    )
+  }
+  rejectUnsupportedActivationSchema(historicalArtifactPath, document)
+  if (activationSchemaFromDocument(document) !== ACTIVATION_ARTIFACT_SCHEMA) {
+    throw new Error(
+      `Historical COMPLETE_V2 activation artifact has an unrecognized format: ${historicalArtifactPath}`
+    )
+  }
+  if (
+    path.resolve(historicalArtifactPath) !== path.resolve(activeArtifactPath)
+  ) {
+    throw new Error(
+      `Historical COMPLETE_V2 activation artifact schema v4 requires audited migration from ${historicalArtifactPath} to ${activeArtifactPath}`
+    )
   }
 }
 
 export const readActivationArtifact = (
   artifactPath: string
-): CompleteP2TRActivationArtifact | undefined => {
-  const temporaryPath = `${artifactPath}.tmp`
-  if (fs.existsSync(temporaryPath)) {
-    const recovered = parseArtifact(temporaryPath)
-    fs.renameSync(temporaryPath, artifactPath)
-    fsyncDirectory(path.dirname(artifactPath))
-    return recovered
+): LoadedActivationArtifact | undefined => {
+  assertNoActivationTemporaryArtifacts(artifactPath)
+  const lockPaths = [
+    durableArtifactWriteLockPath(artifactPath),
+    durableArtifactSessionLockPath(artifactPath),
+  ]
+  const lockPath = lockPaths.find(pathEntryExists)
+  if (lockPath !== undefined) {
+    throw new Error(
+      `COMPLETE_V2 activation artifact is locked; verify no writer is live before manual recovery: ${lockPath}`
+    )
   }
-  return fs.existsSync(artifactPath) ? parseArtifact(artifactPath) : undefined
+  if (!pathEntryExists(artifactPath)) return undefined
+
+  // Inspect only through the private O_NOFOLLOW reader so even deterministic
+  // legacy-schema diagnostics do not turn an attacker-controlled link into a
+  // trusted artifact.
+  const privateFile = readPrivateFileWithHash(artifactPath, {
+    requirePrivateDirectory: true,
+  })
+  const document = JSON.parse(privateFile.contents) as unknown
+  rejectUnsupportedActivationSchema(artifactPath, document)
+
+  const loaded = readHashedJsonWithHash<StoredActivationArtifact>(
+    artifactPath,
+    ACTIVATION_ARTIFACT_KIND,
+    { requirePrivateDirectory: true }
+  )
+  if (!utils.isHexString(loaded.payload.writeNonce, 32)) {
+    throw new Error("COMPLETE_V2 activation artifact write nonce is malformed")
+  }
+  const artifact = loaded.payload.artifact
+  if (
+    artifact.schemaVersion !== ACTIVATION_ARTIFACT_SCHEMA ||
+    artifact.contentHash !== activationArtifactContentHash(artifact)
+  ) {
+    throw new Error("COMPLETE_V2 activation artifact content hash mismatch")
+  }
+  return { artifact, fileContentHash: loaded.fileContentHash }
 }
 
 export const persistArtifact = (
   artifactPath: string,
-  artifact: CompleteP2TRActivationArtifact
-): void => {
-  fs.mkdirSync(path.dirname(artifactPath), { recursive: true })
-  artifact.contentHash = activationArtifactContentHash(artifact)
-  const temporaryPath = `${artifactPath}.tmp`
-  const descriptor = fs.openSync(temporaryPath, "w", 0o600)
-  try {
-    fs.writeFileSync(descriptor, `${JSON.stringify(artifact, null, 2)}\n`)
-    fs.fsyncSync(descriptor)
-  } finally {
-    fs.closeSync(descriptor)
+  artifact: CompleteP2TRActivationArtifact,
+  options: ActivationArtifactWriteOptions
+): string => {
+  const hasExpectedHash = options.expectedCurrentContentHash !== undefined
+  if (Number(Boolean(options.createOnly)) + Number(hasExpectedHash) !== 1) {
+    throw new Error(
+      "COMPLETE_V2 activation artifact writes require create-only or an exact expected-prior file hash"
+    )
   }
-  fs.renameSync(temporaryPath, artifactPath)
-  fsyncDirectory(path.dirname(artifactPath))
+  assertNoActivationTemporaryArtifacts(artifactPath)
+  // Retain the schema-v4 inner hash as a corruption diagnostic only. Trust and
+  // concurrency control come from the owned private envelope, its exact raw
+  // file hash, and fresh on-chain phase readbacks.
+  const persistedArtifact = {
+    ...artifact,
+    contentHash: activationArtifactContentHash(artifact),
+  }
+  return durableWriteHashedJson(
+    artifactPath,
+    ACTIVATION_ARTIFACT_KIND,
+    {
+      writeNonce: utils.hexlify(utils.randomBytes(32)),
+      artifact: persistedArtifact,
+    } as StoredActivationArtifact,
+    {
+      ...options,
+      requirePrivateDirectory: true,
+    }
+  )
+}
+
+export type RecordedTransactionDisposition = "pending" | "executed"
+
+export async function requireSuccessfulPhaseReceiptReadback(
+  phaseID: string,
+  receipt: { status?: number },
+  exactReadback: () => Promise<boolean>
+): Promise<void> {
+  if (receipt.status !== 1) {
+    throw new Error(`Activation phase ${phaseID} transaction reverted`)
+  }
+  if (!(await exactReadback())) {
+    throw new Error(
+      `Activation phase ${phaseID} receipt succeeded but exact readback did not match`
+    )
+  }
+}
+
+const assertRecordedTransactionMatches = (
+  phaseID: string,
+  transaction: providers.TransactionResponse,
+  expected: AuthorityEnvelope
+): void => {
+  const matches =
+    expected.kind === "eoa" &&
+    transaction.to !== null &&
+    transaction.to.toLowerCase() === expected.inner.target.toLowerCase() &&
+    transaction.from.toLowerCase() === expected.authority.toLowerCase() &&
+    transaction.data.toLowerCase() === expected.inner.data.toLowerCase() &&
+    BigNumber.from(transaction.value).eq(expected.inner.value)
+  if (!matches) {
+    throw new Error(
+      `Recorded transaction for activation phase ${phaseID} does not match the durable call intent`
+    )
+  }
+}
+
+/**
+ * Reconcile a durable pending EOA broadcast before any retry. A mined success
+ * is accepted only after the phase's exact state predicate holds. A still-live
+ * transaction remains pending. An unavailable hash is ambiguous on pruned or
+ * lagging RPCs and is deliberately never rebroadcast automatically.
+ */
+export async function inspectRecordedPhaseTransaction(
+  provider: providers.Provider,
+  phaseID: string,
+  transactionHash: string,
+  expected: AuthorityEnvelope,
+  exactReadback: () => Promise<boolean>
+): Promise<RecordedTransactionDisposition> {
+  const [receipt, transaction] = await Promise.all([
+    provider.getTransactionReceipt(transactionHash),
+    provider.getTransaction(transactionHash),
+  ])
+  if (!transaction) {
+    throw new Error(
+      `Recorded transaction for activation phase ${phaseID} is unavailable; manual reconciliation is required before any rebroadcast`
+    )
+  }
+  if (
+    !utils.isHexString(transaction.hash, 32) ||
+    transaction.hash.toLowerCase() !== transactionHash.toLowerCase()
+  ) {
+    throw new Error(
+      `Recorded transaction for activation phase ${phaseID} returned a different hash`
+    )
+  }
+  assertRecordedTransactionMatches(phaseID, transaction, expected)
+  if (receipt) {
+    if (
+      receipt.transactionHash.toLowerCase() !== transactionHash.toLowerCase()
+    ) {
+      throw new Error(
+        `Recorded receipt for activation phase ${phaseID} returned a different hash`
+      )
+    }
+    await requireSuccessfulPhaseReceiptReadback(phaseID, receipt, exactReadback)
+    return "executed"
+  }
+  return "pending"
 }
 
 const func: DeployFunction = async function deployCompleteP2TRActivation(
@@ -2728,14 +3136,24 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
   )
   const inventory = deriveCoverageInventory(authenticatedManifest.inventory)
 
-  const artifactPath = path.join(
-    __dirname,
-    "..",
-    "deployments",
+  const historicalArtifactPath = path.resolve(
+    hre.config.paths.deployments,
     hre.network.name,
     "complete-p2tr-activation.json"
   )
-  const previous = readActivationArtifact(artifactPath)
+  const artifactPath = path.resolve(
+    process.env.COMPLETE_P2TR_ACTIVATION_ARTIFACT ??
+      path.join(
+        hre.config.paths.deployments,
+        hre.network.name,
+        ".complete-p2tr-activation",
+        "complete-p2tr-activation.json"
+      )
+  )
+  assertNoHistoricalActivationArtifact(historicalArtifactPath, artifactPath)
+  const loadedPrevious = readActivationArtifact(artifactPath)
+  const previous = loadedPrevious?.artifact
+  let artifactFileContentHash = loadedPrevious?.fileContentHash
 
   const frostPrerequisites = await verifyFrostLifecyclePrerequisites({
     provider: ethers.provider,
@@ -3772,6 +4190,12 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
           governanceCodeHash: ecdsaCutover.governanceCodeHash,
           governanceOwner: ecdsaCutover.governanceOwner.toLowerCase(),
           governanceDelay: ecdsaCutover.governanceDelay,
+          oldGovernanceTransferInitiatedAt:
+            ecdsaCutover.oldGovernanceTransferInitiatedAt,
+          oldGovernancePendingTarget:
+            ecdsaCutover.oldGovernancePendingTarget.toLowerCase(),
+          oldGovernanceTransferNotBefore:
+            ecdsaCutover.oldGovernanceTransferNotBefore,
           oldRouter: ecdsaCutover.oldRouter.toLowerCase(),
           oldRouterCodeHash: ecdsaCutover.oldRouterCodeHash,
           router: ecdsaCutover.router.toLowerCase(),
@@ -3867,6 +4291,230 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
       inventory.entries
     )
   }
+  const sourceCheckpointReadbacks = sourceCheckpoints.map((checkpoint) =>
+    utils.keccak256(
+      utils.defaultAbiCoder.encode(
+        ["bytes32", "address", "bytes32"],
+        [checkpoint.identity, checkpoint.signer, checkpoint.digest]
+      )
+    )
+  )
+  const coverageMatchesAuthorization = (
+    observed: Awaited<ReturnType<typeof readCoverage>>
+  ): boolean =>
+    observed.initialized === true &&
+    observed.root.toLowerCase() === inventory.root.toLowerCase() &&
+    observed.count === inventory.count.toString() &&
+    observed.authorization.authority.toLowerCase() ===
+      coverageAuthority.toLowerCase() &&
+    observed.authorization.digest.toLowerCase() ===
+      coverageAuthorizationDigest.toLowerCase() &&
+    observed.authorization.router.toLowerCase() ===
+      Router.address.toLowerCase() &&
+    observed.authorization.historyStartBlock ===
+      manifest.historyStartBlockNumber.toString() &&
+    observed.authorization.snapshotBlock ===
+      manifest.snapshotBlockNumber.toString() &&
+    observed.authorization.snapshotBlockHash.toLowerCase() ===
+      manifest.snapshotBlockHash.toLowerCase() &&
+    observed.authorization.sourceCheckpointCommitment.toLowerCase() ===
+      checkpointCommitment.toLowerCase() &&
+    observed.authorization.sourceCheckpoint1.toLowerCase() ===
+      sourceCheckpointReadbacks[0].toLowerCase() &&
+    observed.authorization.sourceCheckpoint2.toLowerCase() ===
+      sourceCheckpointReadbacks[1].toLowerCase() &&
+    observed.authorization.linkedLibrariesCommitment.toLowerCase() ===
+      librariesCommitment.toLowerCase()
+
+  const entriesMatchCoverage = (
+    observed: Awaited<ReturnType<typeof readCoverage>>,
+    entries: DerivedCoverageEntry[]
+  ): boolean =>
+    entries.every(
+      ({ index, depositKey, outputKey }) =>
+        observed.leaves[index] === true &&
+        observed.outputKeys[depositKey]?.toLowerCase() ===
+          outputKey.toLowerCase()
+    )
+
+  const coverageIsComplete = (
+    observed: Awaited<ReturnType<typeof readCoverage>>
+  ): boolean =>
+    coverageMatchesAuthorization(observed) &&
+    observed.migratedCount === inventory.count.toString() &&
+    entriesMatchCoverage(observed, inventory.entries)
+
+  const coverageBatchAppliedExactly = async (
+    indices: number[]
+  ): Promise<boolean> => {
+    const batchEntries = indices.map((index) => inventory.entries[index])
+    if (
+      indices.length === 0 ||
+      batchEntries.some((entry) => entry === undefined)
+    ) {
+      return false
+    }
+    const observed = await readCoverage(
+      ethers.provider,
+      Bridge.address,
+      batchEntries
+    )
+    return (
+      coverageMatchesAuthorization(observed) &&
+      entriesMatchCoverage(observed, batchEntries)
+    )
+  }
+
+  const frostLifecycleInstalledExactly = async (): Promise<boolean> => {
+    const [registryWord, lifecycleWord, lifecycleOwner] = await Promise.all([
+      ethers.provider.getStorageAt(
+        Bridge.address,
+        BRIDGE_FROST_REGISTRY_STORAGE_SLOT
+      ),
+      ethers.provider.getStorageAt(
+        Bridge.address,
+        BRIDGE_LIFECYCLE_ROUTER_STORAGE_SLOT
+      ),
+      readAddress(
+        ethers.provider,
+        FrostWalletRegistry.address,
+        frostWalletRegistryInterface,
+        "lifecycleOwner"
+      ),
+    ])
+    return (
+      sameHex(
+        readAddressWord(registryWord, "Bridge FROST registry slot"),
+        FrostWalletRegistry.address
+      ) &&
+      sameHex(
+        readAddressWord(lifecycleWord, "Bridge lifecycle router slot"),
+        BridgeLifecycleRouter.address
+      ) &&
+      sameHex(lifecycleOwner, BridgeLifecycleRouter.address)
+    )
+  }
+
+  const observePhaseExactly = async (
+    candidate: ActivationPhase
+  ): Promise<boolean> => {
+    if (candidate.id === "upgrade-bridge") {
+      const implementation = readAddressWord(
+        await ethers.provider.getStorageAt(
+          Bridge.address,
+          EIP_1967_IMPLEMENTATION_SLOT
+        ),
+        "Bridge EIP-1967 implementation"
+      )
+      return sameHex(implementation, BridgeImplementation.address)
+    }
+    if (candidate.id === "install-frost-registry") {
+      const registry = readAddressWord(
+        await ethers.provider.getStorageAt(
+          Bridge.address,
+          BRIDGE_FROST_REGISTRY_STORAGE_SLOT
+        ),
+        "Bridge FROST registry slot"
+      )
+      return sameHex(registry, FrostWalletRegistry.address)
+    }
+    if (candidate.id === "install-frost-lifecycle") {
+      return frostLifecycleInstalledExactly()
+    }
+    if (
+      candidate.id === "initialize-coverage" ||
+      candidate.id === "migrate-coverage"
+    ) {
+      const implementation = readAddressWord(
+        await ethers.provider.getStorageAt(
+          Bridge.address,
+          EIP_1967_IMPLEMENTATION_SLOT
+        ),
+        "Bridge EIP-1967 implementation"
+      )
+      if (!sameHex(implementation, BridgeImplementation.address)) return false
+      const observed = await readCoverage(
+        ethers.provider,
+        Bridge.address,
+        candidate.id === "initialize-coverage" ? [] : inventory.entries
+      )
+      return candidate.id === "initialize-coverage"
+        ? coverageMatchesAuthorization(observed)
+        : coverageIsComplete(observed)
+    }
+    if (candidate.id === "activate-complete-p2tr") {
+      const [routerWord, ecdsaRouter, governance, lifecycleInstalled] =
+        await Promise.all([
+          ethers.provider.getStorageAt(
+            Bridge.address,
+            BRIDGE_P2TR_ROUTER_STORAGE_SLOT
+          ),
+          readAddress(
+            ethers.provider,
+            Bridge.address,
+            bridgeInterface,
+            "ecdsaFraudRouter"
+          ),
+          readAddress(
+            ethers.provider,
+            Bridge.address,
+            bridgeInterface,
+            "governance"
+          ),
+          frostLifecycleInstalledExactly(),
+        ])
+      if (
+        !sameHex(
+          readAddressWord(routerWord, "Bridge P2TR router slot"),
+          Router.address
+        ) ||
+        !sameHex(ecdsaRouter, ecdsaCutover.router) ||
+        !sameHex(governance, ecdsaCutover.governance) ||
+        !lifecycleInstalled
+      ) {
+        return false
+      }
+      const observed = await readCoverage(
+        ethers.provider,
+        Bridge.address,
+        inventory.entries
+      )
+      return coverageIsComplete(observed)
+    }
+    throw new Error(`Unknown COMPLETE_V2 activation phase ${candidate.id}`)
+  }
+
+  const observeCallExactly = async (
+    phase: ActivationPhase,
+    call: AuthorityEnvelope
+  ): Promise<boolean> => {
+    if (phase.id !== "install-frost-lifecycle") {
+      return observePhaseExactly(phase)
+    }
+    if (call.inner.id === "install-bridge-lifecycle-router") {
+      const router = readAddressWord(
+        await ethers.provider.getStorageAt(
+          Bridge.address,
+          BRIDGE_LIFECYCLE_ROUTER_STORAGE_SLOT
+        ),
+        "Bridge lifecycle router slot"
+      )
+      return sameHex(router, BridgeLifecycleRouter.address)
+    }
+    if (call.inner.id === "install-registry-lifecycle-owner") {
+      const owner = await readAddress(
+        ethers.provider,
+        FrostWalletRegistry.address,
+        frostWalletRegistryInterface,
+        "lifecycleOwner"
+      )
+      return sameHex(owner, BridgeLifecycleRouter.address)
+    }
+    throw new Error(
+      `Unknown FROST lifecycle installation call ${call.inner.id}`
+    )
+  }
+
   const phases = candidatePhases.map((candidate) => {
     let observed = false
     if (candidate.id === "upgrade-bridge") {
@@ -3893,25 +4541,16 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
           ))
     } else if (candidate.id === "initialize-coverage") {
       observed =
-        coverageReadback?.initialized === true &&
-        coverageReadback.root.toLowerCase() === inventory.root.toLowerCase() &&
-        coverageReadback.count === inventory.count.toString() &&
-        coverageReadback.authorization.authority.toLowerCase() ===
-          coverageAuthority.toLowerCase() &&
-        coverageReadback.authorization.digest.toLowerCase() ===
-          coverageAuthorizationDigest.toLowerCase() &&
-        coverageReadback.authorization.router.toLowerCase() ===
-          Router.address.toLowerCase() &&
-        coverageReadback.authorization.sourceCheckpointCommitment.toLowerCase() ===
-          checkpointCommitment.toLowerCase() &&
-        coverageReadback.authorization.linkedLibrariesCommitment.toLowerCase() ===
-          librariesCommitment.toLowerCase()
+        coverageReadback !== undefined &&
+        coverageMatchesAuthorization(coverageReadback)
     } else if (candidate.id === "migrate-coverage") {
       observed =
-        coverageReadback?.migratedCount === inventory.count.toString() &&
-        nextCoverageBatch.completed
+        coverageReadback !== undefined && coverageIsComplete(coverageReadback)
     } else if (candidate.id === "activate-complete-p2tr") {
-      observed = activeRouter.toLowerCase() === Router.address.toLowerCase()
+      observed =
+        sameHex(activeRouter, Router.address) &&
+        coverageReadback !== undefined &&
+        coverageIsComplete(coverageReadback)
     }
     const prior = previous?.phases.find(({ id }) => id === candidate.id)
     const reconciled = reconcilePhase(prior, candidate, observed)
@@ -4033,319 +4672,483 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
       coverage: coverageReadback ?? null,
     },
   }
-  persistArtifact(artifactPath, artifact)
+  const persistActivationState = (): void => {
+    artifactFileContentHash = persistArtifact(
+      artifactPath,
+      artifact,
+      artifactFileContentHash === undefined
+        ? { createOnly: true }
+        : { expectedCurrentContentHash: artifactFileContentHash }
+    )
+  }
+  const activationSession = acquireDurableArtifactSessionLock(artifactPath, {
+    requirePrivateDirectory: true,
+  })
+  try {
+    // Recheck after taking the session lock: a historical file that appeared
+    // while candidates were deployed/planned must not be ignored by the first
+    // durable write.
+    assertNoHistoricalActivationArtifact(historicalArtifactPath, artifactPath)
+    persistActivationState()
 
-  const pendingPhaseIDs = new Set(
-    (process.env.COMPLETE_P2TR_PENDING_PHASES ?? "")
-      .split(",")
-      .map((value) => value.trim())
-      .filter(Boolean)
-  )
-  for (const phase of artifact.phases) {
-    if (phase.status === "executed") continue
-    if (pendingPhaseIDs.has(phase.id)) {
-      phase.status = "pending"
-      persistArtifact(artifactPath, artifact)
-    }
-    if (phase.prerequisite) {
-      const prerequisite = artifact.phases.find(
-        ({ id }) => id === phase.prerequisite
-      )
-      if (prerequisite?.status !== "executed") continue
-    }
-    if (
-      phase.id === "initialize-coverage" &&
-      !snapshotUsesCompleteImplementation
-    ) {
-      // The authenticated archive must close only after the COMPLETE_V2
-      // implementation is live. This eliminates an unauthenticated old-code
-      // reveal tail; the operator refreshes the dual-source checkpoint and
-      // signed authorization after the upgrade receipt.
-      continue
-    }
-    const block = await ethers.provider.getBlock("latest")
-    if (
-      phase.id === "activate-complete-p2tr" &&
-      block.number - manifest.snapshotBlockNumber >
-        Number(
-          process.env.COMPLETE_P2TR_MAX_ACTIVATION_TAIL_BLOCKS ??
-            DEFAULT_MAXIMUM_ACTIVATION_TAIL_BLOCKS
+    const pendingPhaseIDs = new Set(
+      (process.env.COMPLETE_P2TR_PENDING_PHASES ?? "")
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean)
+    )
+    for (const phase of artifact.phases) {
+      if (phase.status === "executed") continue
+      if (pendingPhaseIDs.has(phase.id)) {
+        phase.status = "pending"
+        persistActivationState()
+      }
+      if (phase.prerequisite) {
+        const prerequisite = artifact.phases.find(
+          ({ id }) => id === phase.prerequisite
         )
-    ) {
-      throw new Error("Coverage checkpoint expired before activation")
-    }
-    if (
-      phase.notBefore &&
-      BigNumber.from(block.timestamp).lt(phase.notBefore)
-    ) {
-      continue
-    }
-
-    let everyTimelockCallDone =
-      phase.calls.length > 0 &&
-      phase.calls.every(({ kind }) => kind === "timelock")
-    let anyTimelockCallPending = false
-    for (const authorityCall of phase.calls) {
+        if (prerequisite?.status !== "executed") continue
+      }
       if (
-        authorityCall.kind === "timelock" &&
-        authorityCall.timelockOperationID
+        phase.id === "initialize-coverage" &&
+        !snapshotUsesCompleteImplementation
       ) {
-        // eslint-disable-next-line no-await-in-loop
-        const done = (
-          await callResult(
-            ethers.provider,
-            authorityCall.authority,
-            timelockInterface,
-            "isOperationDone",
-            [authorityCall.timelockOperationID]
+        // The authenticated archive must close only after the COMPLETE_V2
+        // implementation is live. This eliminates an unauthenticated old-code
+        // reveal tail; the operator refreshes the dual-source checkpoint and
+        // signed authorization after the upgrade receipt.
+        continue
+      }
+      const block = await ethers.provider.getBlock("latest")
+      if (
+        phase.id === "activate-complete-p2tr" &&
+        block.number - manifest.snapshotBlockNumber >
+          Number(
+            process.env.COMPLETE_P2TR_MAX_ACTIVATION_TAIL_BLOCKS ??
+              DEFAULT_MAXIMUM_ACTIVATION_TAIL_BLOCKS
           )
-        )[0] as boolean
-        if (done) {
+      ) {
+        throw new Error("Coverage checkpoint expired before activation")
+      }
+      if (
+        phase.notBefore &&
+        BigNumber.from(block.timestamp).lt(phase.notBefore)
+      ) {
+        continue
+      }
+
+      let everyTimelockCallDone =
+        phase.calls.length > 0 &&
+        phase.calls.every(({ kind }) => kind === "timelock")
+      let anyTimelockCallPending = false
+      for (const authorityCall of phase.calls) {
+        if (
+          authorityCall.kind === "timelock" &&
+          authorityCall.timelockOperationID
+        ) {
+          // eslint-disable-next-line no-await-in-loop
+          const done = (
+            await callResult(
+              ethers.provider,
+              authorityCall.authority,
+              timelockInterface,
+              "isOperationDone",
+              [authorityCall.timelockOperationID]
+            )
+          )[0] as boolean
+          if (done) continue
+          everyTimelockCallDone = false
+          // eslint-disable-next-line no-await-in-loop
+          const pending = (
+            await callResult(
+              ethers.provider,
+              authorityCall.authority,
+              timelockInterface,
+              "isOperationPending",
+              [authorityCall.timelockOperationID]
+            )
+          )[0] as boolean
+          if (pending) {
+            anyTimelockCallPending = true
+          }
+        } else {
+          everyTimelockCallDone = false
+        }
+      }
+      if (everyTimelockCallDone) {
+        // Timelock operation receipts prove only that every wrapper call ran.
+        // The phase advances only when the exact combined state effect is live.
+        // eslint-disable-next-line no-await-in-loop
+        await requireSuccessfulPhaseReceiptReadback(
+          phase.id,
+          { status: 1 },
+          () => observePhaseExactly(phase)
+        )
+        phase.status = "executed"
+        persistActivationState()
+      } else if (anyTimelockCallPending) {
+        phase.status = "pending"
+        persistActivationState()
+      }
+
+      if (phase.id === "migrate-coverage") {
+        if (mode !== "execute") continue
+        if (
+          !configuredAccounts.some(
+            (account) =>
+              account.toLowerCase() === migrationAuthority.toLowerCase()
+          )
+        ) {
           continue
         }
-        everyTimelockCallDone = false
-        // eslint-disable-next-line no-await-in-loop
-        const pending = (
-          await callResult(
-            ethers.provider,
-            authorityCall.authority,
-            timelockInterface,
-            "isOperationPending",
-            [authorityCall.timelockOperationID]
-          )
-        )[0] as boolean
-        if (pending) {
-          anyTimelockCallPending = true
-        }
-      } else {
-        everyTimelockCallDone = false
-      }
-    }
-    if (everyTimelockCallDone) {
-      phase.status = "executed"
-      persistArtifact(artifactPath, artifact)
-    } else if (anyTimelockCallPending) {
-      phase.status = "pending"
-      persistArtifact(artifactPath, artifact)
-    }
+        const signer = await ethers.getSigner(migrationAuthority)
+        while (true) {
+          if (phase.status === "pending") {
+            const recordedCall = phase.calls[0]
+            const recordedHash = phase.readback?.transactionHash
+            const recordedIndices = phase.readback?.indices
+            const recordedNextCursor = phase.readback?.nextCursor
+            if (
+              !recordedCall ||
+              typeof recordedHash !== "string" ||
+              !utils.isHexString(recordedHash, 32) ||
+              !phase.transactionHashes.some(
+                (transactionHash) =>
+                  transactionHash.toLowerCase() === recordedHash.toLowerCase()
+              ) ||
+              !Array.isArray(recordedIndices) ||
+              recordedIndices.length === 0 ||
+              !recordedIndices.every(
+                (index) => Number.isSafeInteger(index) && index >= 0
+              ) ||
+              typeof recordedNextCursor !== "number" ||
+              !Number.isSafeInteger(recordedNextCursor) ||
+              recordedNextCursor < 0 ||
+              (inventory.count !== 0 && recordedNextCursor >= inventory.count)
+            ) {
+              throw new Error(
+                "Pending coverage migration has no complete durable broadcast intent; manual reconciliation is required"
+              )
+            }
+            // eslint-disable-next-line no-await-in-loop
+            const disposition = await inspectRecordedPhaseTransaction(
+              ethers.provider,
+              phase.id,
+              recordedHash,
+              recordedCall,
+              () => coverageBatchAppliedExactly(recordedIndices as number[])
+            )
+            if (disposition === "pending") break
 
-    if (phase.id === "migrate-coverage") {
-      if (mode !== "execute") continue
+            artifact.inventory.migrationCursor = recordedNextCursor
+            phase.status = "prepared"
+            persistActivationState()
+            continue
+          }
+
+          // Rebuild from the on-chain bitmap after every receipt. This makes a
+          // crash after broadcast/receipt safe: already migrated leaves are
+          // skipped and the next <=32-leaf batch is deterministic.
+          // eslint-disable-next-line no-await-in-loop
+          const batch = await buildNextCoverageBatch(
+            ethers.provider,
+            Bridge.address,
+            inventory.entries,
+            artifact.inventory.migrationCursor
+          )
+          if (batch.completed) {
+            // eslint-disable-next-line no-await-in-loop
+            if (!(await observePhaseExactly(phase))) {
+              throw new Error(
+                "Coverage bitmap reported completion but the exact migration readback did not match"
+              )
+            }
+            phase.status = "executed"
+            phase.calls = []
+            phase.readback = {
+              cursor: inventory.count,
+              indices: [],
+              migratedCount: inventory.count,
+            }
+            artifact.inventory.migrationCursor = inventory.count
+            persistActivationState()
+            break
+          }
+          const prepared = envelope(
+            makeCall(
+              "migrate-coverage:next-batch",
+              Bridge.address,
+              bridgeInterface.encodeFunctionData(
+                "processTaprootOutputKeyCoverage",
+                [batch.payload]
+              ),
+              `Permissionlessly migrate coverage leaves ${batch.indices.join(
+                ","
+              )}`
+            ),
+            migrationAuthority,
+            "eoa",
+            "migrate-coverage",
+            "0"
+          )
+          phase.calls = [prepared]
+          phase.status = "pending"
+          phase.readback = {
+            cursor: artifact.inventory.migrationCursor,
+            nextCursor: batch.cursor,
+            indices: batch.indices,
+          }
+          persistActivationState()
+
+          // eslint-disable-next-line no-await-in-loop
+          const transaction = await signer.sendTransaction({
+            to: prepared.inner.target,
+            value: prepared.inner.value,
+            data: prepared.inner.data,
+          })
+          phase.transactionHashes.push(transaction.hash)
+          phase.readback = {
+            ...phase.readback,
+            transactionHash: transaction.hash,
+          }
+          persistActivationState()
+          // eslint-disable-next-line no-await-in-loop
+          const receipt = await transaction.wait(1)
+          // eslint-disable-next-line no-await-in-loop
+          await requireSuccessfulPhaseReceiptReadback(phase.id, receipt, () =>
+            coverageBatchAppliedExactly(batch.indices)
+          )
+          artifact.inventory.migrationCursor = batch.cursor
+          phase.status = "prepared"
+          persistActivationState()
+        }
+        continue
+      }
+
+      if (mode !== "execute" || phase.status === "executed") continue
+      if (!phase.calls.every(({ kind }) => kind === "eoa")) continue
       if (
-        !configuredAccounts.some(
-          (account) =>
-            account.toLowerCase() === migrationAuthority.toLowerCase()
+        !phase.calls.every(({ authority }) =>
+          configuredAccounts.some(
+            (account) => account.toLowerCase() === authority.toLowerCase()
+          )
         )
       ) {
         continue
       }
-      const signer = await ethers.getSigner(migrationAuthority)
-      while (true) {
-        // Rebuild from the on-chain bitmap after every receipt. This makes a
-        // crash after broadcast/receipt safe: already migrated leaves are
-        // skipped and the next <=32-leaf batch is deterministic.
-        // eslint-disable-next-line no-await-in-loop
-        const batch = await buildNextCoverageBatch(
-          ethers.provider,
-          Bridge.address,
-          inventory.entries,
-          artifact.inventory.migrationCursor
+
+      const completedCallIDsValue = phase.readback?.completedCallIDs
+      const completedCallIDs =
+        completedCallIDsValue === undefined
+          ? []
+          : Array.isArray(completedCallIDsValue) &&
+            completedCallIDsValue.every((value) => typeof value === "string")
+          ? [...completedCallIDsValue]
+          : undefined
+      if (
+        completedCallIDs === undefined ||
+        new Set(completedCallIDs).size !== completedCallIDs.length ||
+        completedCallIDs.some(
+          (id) => !phase.calls.some(({ inner }) => inner.id === id)
         )
-        if (batch.completed) {
-          phase.status = "executed"
-          phase.calls = []
-          phase.readback = {
-            cursor: inventory.count,
-            indices: [],
-            migratedCount: inventory.count,
-          }
-          artifact.inventory.migrationCursor = inventory.count
-          persistArtifact(artifactPath, artifact)
-          break
+      ) {
+        throw new Error(
+          `Activation phase ${phase.id} has malformed durable call progress`
+        )
+      }
+
+      if (phase.status === "pending") {
+        const recordedIndex = phase.readback?.pendingCallIndex
+        const recordedID = phase.readback?.pendingCallID
+        const recordedHash = phase.readback?.transactionHash
+        if (
+          typeof recordedIndex !== "number" ||
+          !Number.isSafeInteger(recordedIndex) ||
+          recordedIndex < 0 ||
+          recordedIndex >= phase.calls.length ||
+          typeof recordedID !== "string" ||
+          phase.calls[recordedIndex].inner.id !== recordedID ||
+          completedCallIDs.includes(recordedID) ||
+          typeof recordedHash !== "string" ||
+          !utils.isHexString(recordedHash, 32) ||
+          !phase.transactionHashes.some(
+            (transactionHash) =>
+              transactionHash.toLowerCase() === recordedHash.toLowerCase()
+          )
+        ) {
+          throw new Error(
+            `Pending activation phase ${phase.id} has no complete durable broadcast intent; manual reconciliation is required`
+          )
         }
-        const prepared = envelope(
-          makeCall(
-            "migrate-coverage:next-batch",
-            Bridge.address,
-            bridgeInterface.encodeFunctionData(
-              "processTaprootOutputKeyCoverage",
-              [batch.payload]
-            ),
-            `Permissionlessly migrate coverage leaves ${batch.indices.join(
-              ","
-            )}`
-          ),
-          migrationAuthority,
-          "eoa",
-          "migrate-coverage",
-          "0"
+        const recordedCall = phase.calls[recordedIndex]
+        // eslint-disable-next-line no-await-in-loop
+        const disposition = await inspectRecordedPhaseTransaction(
+          ethers.provider,
+          phase.id,
+          recordedHash,
+          recordedCall,
+          () => observeCallExactly(phase, recordedCall)
         )
-        phase.calls = [prepared]
+        if (disposition === "pending") continue
+        completedCallIDs.push(recordedID)
+        phase.status = "prepared"
+        phase.readback = {
+          ...phase.readback,
+          completedCallIDs,
+          pendingCallIndex: null,
+          pendingCallID: null,
+          transactionHash: null,
+        }
+        persistActivationState()
+      }
+
+      for (let callIndex = 0; callIndex < phase.calls.length; callIndex++) {
+        const authorityCall = phase.calls[callIndex]
+        if (completedCallIDs.includes(authorityCall.inner.id)) continue
+
+        // Persist the exact next-call intent before broadcast. A crash between
+        // send and hash persistence is deliberately ambiguous and requires
+        // operator reconciliation rather than an unsafe automatic rebroadcast.
         phase.status = "pending"
         phase.readback = {
-          cursor: artifact.inventory.migrationCursor,
-          nextCursor: batch.cursor,
-          indices: batch.indices,
+          ...phase.readback,
+          completedCallIDs,
+          pendingCallIndex: callIndex,
+          pendingCallID: authorityCall.inner.id,
+          transactionHash: null,
         }
-        persistArtifact(artifactPath, artifact)
+        persistActivationState()
 
-        const priorHash =
-          phase.transactionHashes[phase.transactionHashes.length - 1]
-        if (priorHash) {
-          // eslint-disable-next-line no-await-in-loop
-          const priorReceipt = await ethers.provider.getTransactionReceipt(
-            priorHash
-          )
-          if (!priorReceipt) {
-            // eslint-disable-next-line no-await-in-loop
-            const pendingTransaction = await ethers.provider.getTransaction(
-              priorHash
-            )
-            if (pendingTransaction) break
-          } else if (priorReceipt.status !== 1) {
-            throw new Error("Coverage migration transaction reverted")
-          }
-        }
-
+        // eslint-disable-next-line no-await-in-loop
+        const signer = await ethers.getSigner(authorityCall.authority)
         // eslint-disable-next-line no-await-in-loop
         const transaction = await signer.sendTransaction({
-          to: prepared.inner.target,
-          value: prepared.inner.value,
-          data: prepared.inner.data,
+          to: authorityCall.inner.target,
+          value: authorityCall.inner.value,
+          data: authorityCall.inner.data,
         })
         phase.transactionHashes.push(transaction.hash)
-        persistArtifact(artifactPath, artifact)
+        phase.readback = {
+          ...phase.readback,
+          transactionHash: transaction.hash,
+        }
+        persistActivationState()
+
         // eslint-disable-next-line no-await-in-loop
         const receipt = await transaction.wait(1)
-        if (receipt.status !== 1) {
-          throw new Error("Coverage migration transaction reverted")
-        }
-        artifact.inventory.migrationCursor = batch.cursor
-        phase.status = "prepared"
-        persistArtifact(artifactPath, artifact)
-      }
-      continue
-    }
-
-    if (mode !== "execute" || phase.status === "executed") continue
-    if (!phase.calls.every(({ kind }) => kind === "eoa")) continue
-    if (
-      !phase.calls.every(({ authority }) =>
-        configuredAccounts.some(
-          (account) => account.toLowerCase() === authority.toLowerCase()
+        // eslint-disable-next-line no-await-in-loop
+        await requireSuccessfulPhaseReceiptReadback(phase.id, receipt, () =>
+          observeCallExactly(phase, authorityCall)
         )
+        completedCallIDs.push(authorityCall.inner.id)
+        phase.status = "prepared"
+        phase.readback = {
+          ...phase.readback,
+          completedCallIDs,
+          pendingCallIndex: null,
+          pendingCallID: null,
+          transactionHash: null,
+        }
+        persistActivationState()
+      }
+
+      // eslint-disable-next-line no-await-in-loop
+      await requireSuccessfulPhaseReceiptReadback(phase.id, { status: 1 }, () =>
+        observePhaseExactly(phase)
       )
-    ) {
-      continue
+      phase.status = "executed"
+      persistActivationState()
     }
-    phase.status = "pending"
-    persistArtifact(artifactPath, artifact)
-    for (const { authority, inner } of phase.calls) {
-      // A lifecycle phase can contain Bridge-governance and registry-governance
-      // calls. Sign each envelope with its own recorded authority.
-      // eslint-disable-next-line no-await-in-loop
-      const signer = await ethers.getSigner(authority)
-      // eslint-disable-next-line no-await-in-loop
-      const transaction = await signer.sendTransaction({
-        to: inner.target,
-        value: inner.value,
-        data: inner.data,
-      })
-      phase.transactionHashes.push(transaction.hash)
-      persistArtifact(artifactPath, artifact)
-      // eslint-disable-next-line no-await-in-loop
-      await transaction.wait(1)
-    }
-    phase.status = "executed"
-    persistArtifact(artifactPath, artifact)
-  }
 
-  activeRouter = readAddressWord(
-    await ethers.provider.getStorageAt(
-      Bridge.address,
-      BRIDGE_P2TR_ROUTER_STORAGE_SLOT
-    ),
-    "Bridge P2TR router slot"
-  )
-  activeEcdsaRouter = readAddressWord(
-    await ethers.provider.getStorageAt(
-      Bridge.address,
-      BRIDGE_ECDSA_ROUTER_STORAGE_SLOT
-    ),
-    "Bridge ECDSA router slot"
-  )
-  const finalBridgeFrostRegistry = readAddressWord(
-    await ethers.provider.getStorageAt(
-      Bridge.address,
-      BRIDGE_FROST_REGISTRY_STORAGE_SLOT
-    ),
-    "Bridge FROST registry slot"
-  )
-  const finalBridgeLifecycleRouter = readAddressWord(
-    await ethers.provider.getStorageAt(
-      Bridge.address,
-      BRIDGE_LIFECYCLE_ROUTER_STORAGE_SLOT
-    ),
-    "Bridge lifecycle router slot"
-  )
-  const finalRegistryLifecycleOwner = await readAddress(
-    ethers.provider,
-    FrostWalletRegistry.address,
-    frostWalletRegistryInterface,
-    "lifecycleOwner"
-  )
-  if (
-    finalBridgeFrostRegistry !== constants.AddressZero &&
-    !sameHex(finalBridgeFrostRegistry, FrostWalletRegistry.address)
-  ) {
-    throw new Error("Final Bridge FROST registry readback mismatch")
-  }
-  if (
-    finalBridgeLifecycleRouter !== constants.AddressZero &&
-    !sameHex(finalBridgeLifecycleRouter, BridgeLifecycleRouter.address)
-  ) {
-    throw new Error("Final Bridge lifecycle router readback mismatch")
-  }
-  if (
-    finalRegistryLifecycleOwner !== constants.AddressZero &&
-    !sameHex(finalRegistryLifecycleOwner, BridgeLifecycleRouter.address)
-  ) {
-    throw new Error("Final FROST lifecycle owner readback mismatch")
-  }
-  artifact.readbacks.activeP2TRRouter = activeRouter
-  artifact.readbacks.activeEcdsaRouter = activeEcdsaRouter
-  artifact.readbacks.frostLifecycle = {
-    configuredBridgeFrostRegistry: finalBridgeFrostRegistry,
-    configuredBridgeLifecycleRouter: finalBridgeLifecycleRouter,
-    registryLifecycleOwner: finalRegistryLifecycleOwner,
-  }
-  const finalImplementation = readAddressWord(
-    await ethers.provider.getStorageAt(
-      Bridge.address,
-      EIP_1967_IMPLEMENTATION_SLOT
-    ),
-    "Bridge EIP-1967 implementation"
-  )
-  artifact.readbacks.installedImplementation = finalImplementation
-  if (
-    finalImplementation.toLowerCase() ===
-    BridgeImplementation.address.toLowerCase()
-  ) {
-    artifact.readbacks.coverage = await readCoverage(
-      ethers.provider,
-      Bridge.address,
-      inventory.entries
+    activeRouter = readAddressWord(
+      await ethers.provider.getStorageAt(
+        Bridge.address,
+        BRIDGE_P2TR_ROUTER_STORAGE_SLOT
+      ),
+      "Bridge P2TR router slot"
     )
-  }
-  persistArtifact(artifactPath, artifact)
+    activeEcdsaRouter = readAddressWord(
+      await ethers.provider.getStorageAt(
+        Bridge.address,
+        BRIDGE_ECDSA_ROUTER_STORAGE_SLOT
+      ),
+      "Bridge ECDSA router slot"
+    )
+    const finalBridgeFrostRegistry = readAddressWord(
+      await ethers.provider.getStorageAt(
+        Bridge.address,
+        BRIDGE_FROST_REGISTRY_STORAGE_SLOT
+      ),
+      "Bridge FROST registry slot"
+    )
+    const finalBridgeLifecycleRouter = readAddressWord(
+      await ethers.provider.getStorageAt(
+        Bridge.address,
+        BRIDGE_LIFECYCLE_ROUTER_STORAGE_SLOT
+      ),
+      "Bridge lifecycle router slot"
+    )
+    const finalRegistryLifecycleOwner = await readAddress(
+      ethers.provider,
+      FrostWalletRegistry.address,
+      frostWalletRegistryInterface,
+      "lifecycleOwner"
+    )
+    if (
+      finalBridgeFrostRegistry !== constants.AddressZero &&
+      !sameHex(finalBridgeFrostRegistry, FrostWalletRegistry.address)
+    ) {
+      throw new Error("Final Bridge FROST registry readback mismatch")
+    }
+    if (
+      finalBridgeLifecycleRouter !== constants.AddressZero &&
+      !sameHex(finalBridgeLifecycleRouter, BridgeLifecycleRouter.address)
+    ) {
+      throw new Error("Final Bridge lifecycle router readback mismatch")
+    }
+    if (
+      finalRegistryLifecycleOwner !== constants.AddressZero &&
+      !sameHex(finalRegistryLifecycleOwner, BridgeLifecycleRouter.address)
+    ) {
+      throw new Error("Final FROST lifecycle owner readback mismatch")
+    }
+    artifact.readbacks.activeP2TRRouter = activeRouter
+    artifact.readbacks.activeEcdsaRouter = activeEcdsaRouter
+    artifact.readbacks.frostLifecycle = {
+      configuredBridgeFrostRegistry: finalBridgeFrostRegistry,
+      configuredBridgeLifecycleRouter: finalBridgeLifecycleRouter,
+      registryLifecycleOwner: finalRegistryLifecycleOwner,
+    }
+    const finalImplementation = readAddressWord(
+      await ethers.provider.getStorageAt(
+        Bridge.address,
+        EIP_1967_IMPLEMENTATION_SLOT
+      ),
+      "Bridge EIP-1967 implementation"
+    )
+    artifact.readbacks.installedImplementation = finalImplementation
+    if (
+      finalImplementation.toLowerCase() ===
+      BridgeImplementation.address.toLowerCase()
+    ) {
+      artifact.readbacks.coverage = await readCoverage(
+        ethers.provider,
+        Bridge.address,
+        inventory.entries
+      )
+    }
+    persistActivationState()
 
-  console.log(
-    `COMPLETE_P2TR_ACTIVATION_ARTIFACT=${artifactPath}\n` +
-      `COMPLETE_P2TR_ACTIVATION_PLAN_ID=${planID}\n` +
-      `COMPLETE_P2TR_ACTIVATION_STATUS=${JSON.stringify(
-        artifact.phases.map(({ id, status }) => ({ id, status }))
-      )}`
-  )
+    console.log(
+      `COMPLETE_P2TR_ACTIVATION_ARTIFACT=${artifactPath}\n` +
+        `COMPLETE_P2TR_ACTIVATION_PLAN_ID=${planID}\n` +
+        `COMPLETE_P2TR_ACTIVATION_STATUS=${JSON.stringify(
+          artifact.phases.map(({ id, status }) => ({ id, status }))
+        )}`
+    )
+  } finally {
+    activationSession.release()
+  }
 }
 
 export default func
