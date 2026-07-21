@@ -37,7 +37,6 @@ library BridgeState {
         Ecdsa,
         Frost
     }
-
     struct Storage {
         // Address of the Bank the Bridge belongs to.
         Bank bank;
@@ -470,6 +469,35 @@ library BridgeState {
         // backfilled automatically; without a commitment, fraud verification
         // falls back to the registered wallet's base x-only key.
         mapping(uint256 => bytes32) taprootDepositOutputKeyCommitments;
+        // Exact output key of each revealed Taproot-native deposit. FROST
+        // custody cannot activate without COMPLETE_V2, so all FROST deposits
+        // are revealed after this field exists and require no unsafe backfill.
+        // The fraud router uses this value together with the commitment above
+        // to bind a tweaked BIP-340 signing key to its registered wallet.
+        mapping(uint256 => bytes32) taprootDepositOutputKeys;
+        // One-shot positional Merkle inventory covering every historical
+        // Taproot deposit commitment that predates exact output-key storage.
+        // The packed counters make activation observable without enumerating
+        // the deposit mapping; COMPLETE_V2 remains disabled until all leaves
+        // have been migrated.
+        bool taprootOutputKeyCoverageInitialized;
+        uint64 taprootOutputKeyCoverageInventoryCount;
+        uint64 taprootOutputKeyCoverageMigratedCount;
+        bytes32 taprootOutputKeyCoverageInventoryRoot;
+        mapping(uint64 => bool) taprootOutputKeyCoverageLeafMigrated;
+        // Independent, signed authorization for the exact coverage inventory.
+        // The authorized router is enforced again at final activation; the
+        // digest binds the chain, Bridge, implementation/router/registry
+        // codehashes, inventory, and authenticated history watermark.
+        address taprootOutputKeyCoverageAuthorizedRouter;
+        bytes32 taprootOutputKeyCoverageAuthorizationDigest;
+        uint64 taprootOutputKeyCoverageHistoryStartBlock;
+        uint64 taprootOutputKeyCoverageSnapshotBlock;
+        bytes32 taprootOutputKeyCoverageSnapshotBlockHash;
+        bytes32 taprootOutputKeyCoverageSourceCheckpointCommitment;
+        bytes32 taprootOutputKeyCoverageSourceCheckpoint1;
+        bytes32 taprootOutputKeyCoverageSourceCheckpoint2;
+        bytes32 taprootOutputKeyCoverageLinkedLibrariesCommitment;
         // Reserved storage space in case we need to add more variables.
         // The convention from OpenZeppelin suggests the storage space should
         // add up to 50 slots. Here we want to have more slots as there are
@@ -477,7 +505,7 @@ library BridgeState {
         // the struct in the upcoming versions we need to reduce the array size.
         // See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
         // slither-disable-next-line unused-state
-        uint256[39] __gap;
+        uint256[27] __gap;
     }
 
     event DepositParametersUpdated(

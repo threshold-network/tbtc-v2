@@ -32,6 +32,8 @@ import "./EcdsaLib.sol";
 import "./Wallets.sol";
 import "./Fraud.sol";
 import "./MovingFunds.sol";
+import "./P2TRPreSigning.sol";
+import "./P2TRReservation.sol";
 // P2TRSignatureFraudLifecycle removed -- the P2TR signature-fraud
 // lifecycle now lives in its own sidecar (P2TRSignatureFraudRouter),
 // peer to EcdsaFraudRouter.
@@ -66,6 +68,16 @@ contract Bridge is
     Initializable,
     IReceiveBalanceApproval
 {
+    error CallerNotSpvMaintainer();
+    error CallerNotEcdsaFraudRouter();
+    error CallerNotP2TRFraudRouter();
+    error CallerNotBank();
+    /// @dev Independent signer/contract that must authorize the historical
+    ///      Taproot coverage commitment before governance can initialize it.
+    ///      Zero permanently disables COMPLETE_V2 activation for this
+    ///      implementation.
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    address private immutable p2trCoverageAuthority;
     // Shared custom error for the five initialize() zero-address guards.
     // Converted from individual require strings to a single 4-byte
     // selector to keep the Bridge implementation under the 24 KiB
@@ -196,6 +208,56 @@ contract Bridge is
         bytes20 indexed walletPubKeyHash
     );
 
+    event WalletQuarantinedForP2TRFraud(
+        bytes20 indexed walletPubKeyHash,
+        Wallets.WalletState previousState
+    );
+
+    event WalletP2TRFraudQuarantineLifted(
+        bytes20 indexed walletPubKeyHash,
+        Wallets.WalletState restoredState
+    );
+
+    event WalletRecoveryRequired(bytes20 indexed walletPubKeyHash);
+
+    event TaprootOutputKeyCoverageInitialized(
+        bytes32 indexed inventoryRoot,
+        uint64 inventoryCount
+    );
+
+    event TaprootOutputKeyCoverageAuthorized(
+        bytes32 indexed authorizationDigest,
+        address indexed authority,
+        address indexed fraudRouter,
+        uint64 historyStartBlock,
+        uint64 snapshotBlock,
+        bytes32 snapshotBlockHash,
+        bytes32 sourceCheckpointCommitment,
+        bytes32 linkedLibrariesCommitment
+    );
+
+    event TaprootOutputKeyCoverageLeafMigrated(
+        uint64 indexed leafIndex,
+        uint256 indexed depositKey,
+        bytes32 indexed walletID,
+        bytes32 outputKey,
+        uint64 migratedCount
+    );
+
+    event TaprootOutputKeyCoverageRebuildCheckpointsAuthorized(
+        bytes32 indexed sourceCheckpointCommitment,
+        bytes32 indexed sourceCheckpoint1,
+        bytes32 indexed sourceCheckpoint2
+    );
+
+    event TaprootOutputKeyCoverageLeafTerminallyResolved(
+        uint64 indexed leafIndex,
+        uint256 indexed depositKey,
+        bytes32 indexed walletID,
+        bytes32 outputKey,
+        uint64 migratedCount
+    );
+
     event WalletTerminated(
         bytes32 indexed ecdsaWalletID,
         bytes20 indexed walletPubKeyHash
@@ -310,10 +372,7 @@ contract Bridge is
     event DepositVaultFixed(uint256 indexed depositKey, address newVault);
 
     modifier onlySpvMaintainer() {
-        require(
-            self.isSpvMaintainer[msg.sender],
-            "Caller is not SPV maintainer"
-        );
+        if (!self.isSpvMaintainer[msg.sender]) revert CallerNotSpvMaintainer();
         _;
     }
 
@@ -323,11 +382,10 @@ contract Bridge is
     ///         function performs the wallet termination + stake seizure
     ///         side-effect on the router's behalf.
     modifier onlyEcdsaFraudRouter() {
-        require(
-            self.ecdsaFraudRouter != address(0) &&
-                msg.sender == self.ecdsaFraudRouter,
-            "Caller is not ECDSA fraud router"
-        );
+        if (
+            self.ecdsaFraudRouter == address(0) ||
+            msg.sender != self.ecdsaFraudRouter
+        ) revert CallerNotEcdsaFraudRouter();
         _;
     }
 
@@ -338,16 +396,16 @@ contract Bridge is
     ///         separate modifiers so a compromise of one cannot
     ///         impersonate the other.
     modifier onlyP2TRFraudRouter() {
-        require(
-            self.p2trFraudRouter != address(0) &&
-                msg.sender == self.p2trFraudRouter,
-            "Caller is not P2TR fraud router"
-        );
+        if (
+            self.p2trFraudRouter == address(0) ||
+            msg.sender != self.p2trFraudRouter
+        ) revert CallerNotP2TRFraudRouter();
         _;
     }
 
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
+    constructor(address _p2trCoverageAuthority) {
+        p2trCoverageAuthority = _p2trCoverageAuthority;
         _disableInitializers();
     }
 
@@ -441,23 +499,7 @@ contract Bridge is
     ///      - fundingTxHash (little-endian): 0x7ee3fcd03309745af5f35f07572b68affb3f551d8de70b194773644a47c9bb9c
     ///      - fundingOutputIndex: 1
     function initializeV2_FixVaultZeroDeposit() external reinitializer(2) {
-        // Deposit key: keccak256(fundingTxHash || fundingOutputIndex)
-        uint256 depositKey = 0xf3bc9cd6f46f4c206bc8711e40bb5692e8fe5f0ac4d4da0a709dc71bb751c98a;
-
-        // Target vault: TBTCVault on mainnet
-        address tbtcVault = 0x9C070027cdC9dc8F82416B2e5314E11DFb4FE3CD;
-
-        // Safety checks
-        Deposit.DepositRequest storage deposit = self.deposits[depositKey];
-        require(deposit.revealedAt != 0, "Deposit not revealed");
-        require(deposit.vault == address(0), "Vault already set");
-        require(deposit.sweptAt == 0, "Deposit already swept");
-
-        // Fix the vault
-        deposit.vault = tbtcVault;
-
-        // Emit event for transparency
-        emit DepositVaultFixed(depositKey, tbtcVault);
+        self.initializeV2FixVaultZeroDeposit();
     }
 
     /// @notice Used by the depositor to reveal information about their P2(W)SH
@@ -739,7 +781,7 @@ contract Bridge is
         uint256 amount,
         bytes calldata redemptionData
     ) external override {
-        require(msg.sender == address(self.bank), "Caller is not the bank");
+        if (msg.sender != address(self.bank)) revert CallerNotBank();
 
         self.requestRedemption(
             balanceOwner,
@@ -2523,7 +2565,27 @@ contract Bridge is
         external
         onlyGovernance
     {
-        self.setP2TRFraudRouter(p2trFraudRouter);
+        P2TRReservation.setCompleteP2TRFraudRouter(
+            self,
+            p2trFraudRouter
+        );
+    }
+
+    /// @notice Initializes, migrates, or reads the one-shot historical
+    ///         Taproot output-key coverage inventory. See P2TRReservation for
+    ///         the versioned action payloads.
+    function processTaprootOutputKeyCoverage(bytes calldata payload)
+        external
+        returns (bytes memory)
+    {
+        return
+            P2TRReservation.processTaprootOutputKeyCoverage(
+                self,
+                payload,
+                msg.sender == governance,
+                p2trCoverageAuthority,
+                governance
+            );
     }
 
     /// @notice Returns the address of the P2TRSignatureFraudRouter
@@ -2533,22 +2595,38 @@ contract Bridge is
         return self.p2trFraudRouter;
     }
 
-    /// @notice Privileged callback the P2TRSignatureFraudRouter
-    ///         invokes from its timeout path. Functionally identical
-    ///         to `slashWalletForFraud`; declared separately so the
-    ///         two router callbacks are gated by independent
-    ///         modifiers and a compromise of one router cannot
-    ///         impersonate the other.
-    function slashWalletForP2TRFraud(
-        bytes20 walletPubKeyHash,
-        uint32[] calldata walletMembersIDs,
-        address challenger
-    ) external onlyP2TRFraudRouter {
-        self.notifyWalletFraudChallengeDefeatTimeout(
-            walletPubKeyHash,
-            walletMembersIDs,
-            challenger
-        );
+    /// @notice Builds the immutable COMPLETE_V2 reservation digest before
+    ///         wallet seats attest it. The returned Bitcoin transaction hash
+    ///         uses raw/internal Bitcoin byte order, not RPC display order.
+    /// @dev Action payloads are defined by P2TRPreSigning. This view runs the
+    ///      existing proposal validator plus exact transaction validation but
+    ///      does not reserve resources or authorize a signature.
+    function previewP2TRTransactionAuthorization(bytes calldata payload)
+        external
+        view
+        returns (bytes memory)
+    {
+        return P2TRPreSigning.preview(self, payload);
+    }
+
+    /// @notice Reserves Bridge resources and permanently authorizes one exact
+    ///         DEFAULT/no-annex P2TR transaction variant after 51 sorted wallet
+    ///         seats attest the current preview digest.
+    function authorizeP2TRTransaction(bytes calldata payload)
+        external
+        returns (bytes memory)
+    {
+        return P2TRPreSigning.authorize(self, payload);
+    }
+
+    /// @notice Compact COMPLETE_V2 callback used for quarantine, restoration,
+    ///         and recovery-required timeout transitions.
+    function processP2TRWalletLifecycle(bytes calldata payload)
+        external
+        onlyP2TRFraudRouter
+        returns (bytes memory)
+    {
+        return P2TRReservation.processWalletLifecycle(self, payload);
     }
 
     // Note: `migrateLegacyFraudChallenges(routerKind, keys)` above

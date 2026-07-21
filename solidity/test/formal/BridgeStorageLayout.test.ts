@@ -251,10 +251,14 @@ describe("Bridge storage layout invariant", () => {
     // WITHOUT taking a new slot. No `__gap` decrement; the member+gap
     // total grows by 1 (106 → 107).
     //
-    // Taproot deposit fraud verification appends the
-    // `taprootDepositOutputKeyCommitments` mapping in slot 38 and reduces
-    // `__gap` from 40 to 39. The explicit-member + gap total remains 107.
-    const EXPECTED_RESERVED_TOTAL = 107
+    // Taproot deposit fraud verification appends the commitment mapping in
+    // slot 38 and the exact output-key mapping in slot 39. COMPLETE_V2 then
+    // appends a packed coverage-inventory state in slot 40, its Merkle root in
+    // slot 41, and the migrated-leaf mapping in slot 42. Those five coverage
+    // members consume three slots, reducing `__gap` from 38 to 35. Because the
+    // invariant counts explicit members (including packed members), the stable
+    // explicit-member + gap total grows by two, from 107 to 109.
+    const EXPECTED_RESERVED_TOTAL = 109
 
     const explicitMemberCount = selfType.members!.length - 1
     const expectedGapSize = EXPECTED_RESERVED_TOTAL - explicitMemberCount

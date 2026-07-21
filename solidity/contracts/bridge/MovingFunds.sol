@@ -21,6 +21,7 @@ import {BytesLib} from "@keep-network/bitcoin-spv-sol/contracts/BytesLib.sol";
 import "./BitcoinTx.sol";
 import "./BridgeState.sol";
 import "./IBridgeLifecycleRouter.sol";
+import "./P2TRReservation.sol";
 import "./Redemption.sol";
 import "./Wallets.sol";
 
@@ -173,6 +174,8 @@ library MovingFunds {
         Wallets.Wallet storage wallet = self.registeredWallets[
             walletPubKeyHash
         ];
+
+        P2TRReservation.requireWalletUnlocked(self, walletPubKeyHash);
 
         require(
             wallet.state == Wallets.WalletState.MovingFunds,
@@ -381,6 +384,23 @@ library MovingFunds {
             movingFundsProof
         );
 
+        {
+            P2TRReservation.ProofSettlement memory settlement = P2TRReservation
+                .settleProof(
+                    self,
+                    movingFundsTxHash,
+                    3,
+                    walletPubKeyHash,
+                    P2TRReservation.proofResources(
+                        movingFundsTx.inputVector,
+                        new bytes32[](0)
+                    )
+                );
+            if (
+                settlement.disposition ==
+                P2TRReservation.ProofDisposition.Conflicted
+            ) return;
+        }
         // Assert that main UTXO for passed wallet exists in storage.
         bytes32 mainUtxoHash = self
             .registeredWallets[walletPubKeyHash]
@@ -398,6 +418,16 @@ library MovingFunds {
                 )
             ) == mainUtxoHash,
             "Invalid main UTXO data"
+        );
+
+        P2TRReservation.requireProofResourcesUnlocked(
+            self,
+            movingFundsTxHash,
+            movingFundsProofWalletSlots(
+                self,
+                movingFundsTx.outputVector,
+                walletPubKeyHash
+            )
         );
 
         // Process the moving funds transaction input. Specifically, check if
@@ -421,13 +451,53 @@ library MovingFunds {
 
         require(
             mainUtxo.txOutputValue - outputsTotalValue <=
-                self.movingFundsTxMaxTotalFee,
+                P2TRReservation.proofFeeLimit(
+                    self,
+                    movingFundsTxHash,
+                    self.movingFundsTxMaxTotalFee
+                ),
             "Transaction fee is too high"
         );
 
-        self.notifyWalletFundsMoved(walletPubKeyHash, targetWalletsHash);
+        if (
+            !P2TRReservation.reconcileAuthorizedMovingFundsProof(
+                self,
+                walletPubKeyHash,
+                movingFundsTxHash,
+                targetWalletsHash
+            )
+        ) {
+            self.notifyWalletFundsMoved(walletPubKeyHash, targetWalletsHash);
+        }
         // slither-disable-next-line reentrancy-events
         emit MovingFundsCompleted(walletPubKeyHash, movingFundsTxHash);
+    }
+
+    function movingFundsProofWalletSlots(
+        BridgeState.Storage storage self,
+        bytes memory outputVector,
+        bytes20 sourceWalletPubKeyHash
+    ) internal view returns (bytes32[] memory) {
+        (, uint256 outputsCount) = outputVector.parseVarInt();
+        bytes32[] memory walletSlots = new bytes32[](outputsCount + 1);
+        walletSlots[0] = P2TRReservation.walletMainSlotResource(
+            P2TRReservation.canonicalWalletID(
+                self,
+                sourceWalletPubKeyHash
+            )
+        );
+        for (uint256 i = 0; i < outputsCount; i++) {
+            bytes20 targetWalletPubKeyHash = self.extractWalletPubKeyHash(
+                outputVector.extractOutputAtIndex(i)
+            );
+            walletSlots[i + 1] = P2TRReservation.walletMainSlotResource(
+                P2TRReservation.canonicalWalletID(
+                    self,
+                    targetWalletPubKeyHash
+                )
+            );
+        }
+        return walletSlots;
     }
 
     /// @notice Processes the moving funds Bitcoin transaction output vector
@@ -583,6 +653,8 @@ library MovingFunds {
     ) external {
         // Wallet state is validated in `notifyWalletMovingFundsTimeout`.
 
+        P2TRReservation.requireWalletUnlocked(self, walletPubKeyHash);
+
         uint32 movingFundsRequestedAt = self
             .registeredWallets[walletPubKeyHash]
             .movingFundsRequestedAt;
@@ -618,6 +690,8 @@ library MovingFunds {
         BitcoinTx.UTXO calldata mainUtxo
     ) external {
         // Wallet state is validated in `notifyWalletMovingFundsBelowDust`.
+
+        P2TRReservation.requireWalletUnlocked(self, walletPubKeyHash);
 
         uint64 walletBtcBalance = self.getWalletBtcBalance(
             walletPubKeyHash,
@@ -694,10 +768,46 @@ library MovingFunds {
             uint64 sweepTxOutputValue
         ) = processMovedFundsSweepTxOutput(self, sweepTx.outputVector);
 
+        {
+            P2TRReservation.ProofSettlement memory settlement = P2TRReservation
+                .settleProof(
+                    self,
+                    sweepTxHash,
+                    4,
+                    walletPubKeyHash,
+                    movedFundsSweepProofResources(
+                        self,
+                        sweepTx.inputVector,
+                        walletPubKeyHash
+                    )
+                );
+            if (
+                settlement.disposition ==
+                P2TRReservation.ProofDisposition.Conflicted
+            ) return;
+        }
+
+        P2TRReservation.requireProofWalletState(
+            self,
+            sweepTxHash,
+            walletPubKeyHash,
+            4
+        );
+
+        P2TRReservation.requireProofWalletUnlocked(
+            self,
+            sweepTxHash,
+            walletPubKeyHash
+        );
+
         (
             Wallets.Wallet storage wallet,
             BitcoinTx.UTXO memory resolvedMainUtxo
-        ) = resolveMovedFundsSweepingWallet(self, walletPubKeyHash, mainUtxo);
+        ) = resolveMovedFundsSweepingWallet(
+                self,
+                walletPubKeyHash,
+                mainUtxo
+            );
 
         uint256 sweepTxInputsTotalValue = processMovedFundsSweepTxInputs(
             self,
@@ -708,7 +818,11 @@ library MovingFunds {
 
         require(
             sweepTxInputsTotalValue - sweepTxOutputValue <=
-                self.movedFundsSweepTxMaxTotalFee,
+                P2TRReservation.proofFeeLimit(
+                    self,
+                    sweepTxHash,
+                    self.movedFundsSweepTxMaxTotalFee
+                ),
             "Transaction fee is too high"
         );
 
@@ -721,6 +835,17 @@ library MovingFunds {
 
         // slither-disable-next-line reentrancy-events
         emit MovedFundsSwept(walletPubKeyHash, sweepTxHash);
+    }
+
+    function movedFundsSweepProofResources(
+        BridgeState.Storage storage self,
+        bytes memory inputVector,
+        bytes20 walletPubKeyHash
+    ) internal view returns (bytes32[] memory) {
+        self;
+        walletPubKeyHash;
+        bytes32[] memory additionalResources = new bytes32[](0);
+        return P2TRReservation.proofResources(inputVector, additionalResources);
     }
 
     /// @notice Processes the Bitcoin moved funds sweep transaction output vector
@@ -795,13 +920,6 @@ library MovingFunds {
         )
     {
         wallet = self.registeredWallets[walletPubKeyHash];
-
-        Wallets.WalletState walletState = wallet.state;
-        require(
-            walletState == Wallets.WalletState.Live ||
-                walletState == Wallets.WalletState.MovingFunds,
-            "Wallet must be in Live or MovingFunds state"
-        );
 
         // Check if the main UTXO for given wallet exists. If so, validate
         // passed main UTXO data against the stored hash and use them for
@@ -1044,17 +1162,16 @@ library MovingFunds {
     ) external {
         // Wallet state is validated in `notifyWalletMovedFundsSweepTimeout`.
 
-        MovedFundsSweepRequest storage sweepRequest = self
-            .movedFundsSweepRequests[
-                uint256(
-                    keccak256(
-                        abi.encodePacked(
-                            movingFundsTxHash,
-                            movingFundsTxOutputIndex
-                        )
-                    )
+        uint256 requestKey = uint256(
+            keccak256(
+                abi.encodePacked(
+                    movingFundsTxHash,
+                    movingFundsTxOutputIndex
                 )
-            ];
+            )
+        );
+        MovedFundsSweepRequest storage sweepRequest = self
+            .movedFundsSweepRequests[requestKey];
 
         require(
             sweepRequest.state == MovedFundsSweepRequestState.Pending,
@@ -1069,6 +1186,12 @@ library MovingFunds {
         );
 
         bytes20 walletPubKeyHash = sweepRequest.walletPubKeyHash;
+
+        P2TRReservation.requireWalletUnlocked(self, walletPubKeyHash);
+        P2TRReservation.requireResourceUnlocked(
+            self,
+            P2TRReservation.movedFundsRequestResource(requestKey)
+        );
 
         self.notifyWalletMovedFundsSweepTimeout(
             walletPubKeyHash,

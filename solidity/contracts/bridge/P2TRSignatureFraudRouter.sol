@@ -51,14 +51,9 @@ interface IBridgeForP2TRFraud {
         view
         returns (bool);
 
-    /// @notice Privileged callback the P2TR router invokes from the
-    ///         timeout path. Bridge gates this with
-    ///         `onlyP2TRFraudRouter`.
-    function slashWalletForP2TRFraud(
-        bytes20 walletPubKeyHash,
-        uint32[] calldata walletMembersIDs,
-        address challenger
-    ) external;
+    function processP2TRWalletLifecycle(bytes calldata payload)
+        external
+        returns (bytes memory);
 }
 
 /// @title P2TRSignatureFraudRouter
@@ -239,7 +234,7 @@ contract P2TRSignatureFraudRouter {
     function acceptMigration(
         uint256[] calldata challengeKeys,
         Fraud.FraudChallenge[] calldata data
-    ) external payable {
+    ) external payable virtual {
         _requireCompleteEvidenceProtocol();
         require(msg.sender == bridge, "Caller is not Bridge");
         require(challengeKeys.length == data.length, "Length mismatch");
@@ -288,7 +283,7 @@ contract P2TRSignatureFraudRouter {
         uint8 action,
         bytes calldata payload,
         uint32[] calldata walletMembersIDs
-    ) external payable {
+    ) external payable virtual {
         _requireCompleteEvidenceProtocol();
 
         require(
@@ -430,10 +425,15 @@ contract P2TRSignatureFraudRouter {
         );
         /* solhint-enable avoid-low-level-calls */
 
-        b.slashWalletForP2TRFraud(
-            context.walletPubKeyHash,
-            walletMembersIDs,
-            challenge.challenger
+        b.processP2TRWalletLifecycle(
+            abi.encode(
+                uint8(2),
+                abi.encode(
+                    context.walletPubKeyHash,
+                    walletMembersIDs,
+                    challenge.challenger
+                )
+            )
         );
 
         // Keep the per-wallet counter as the graceful-closure lock across

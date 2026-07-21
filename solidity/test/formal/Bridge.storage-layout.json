@@ -37,10 +37,10 @@
       "label": "address",
       "numberOfBytes": "20"
     },
-    "t_array(t_uint256)39_storage": {
+    "t_array(t_uint256)35_storage": {
       "encoding": "inplace",
-      "label": "uint256[39]",
-      "numberOfBytes": "1248",
+      "label": "uint256[35]",
+      "numberOfBytes": "1120",
       "base": "t_uint256"
     },
     "t_array(t_uint256)49_storage": {
@@ -168,6 +168,13 @@
       "numberOfBytes": "32",
       "key": "t_uint256",
       "value": "t_struct(RedemptionRequest)_storage"
+    },
+    "t_mapping(t_uint64,t_bool)": {
+      "encoding": "mapping",
+      "label": "mapping(uint64 => bool)",
+      "numberOfBytes": "32",
+      "key": "t_uint64",
+      "value": "t_bool"
     },
     "t_struct(DepositRequest)_storage": {
       "encoding": "inplace",
@@ -731,10 +738,46 @@
           "type": "t_mapping(t_uint256,t_bytes32)"
         },
         {
-          "label": "__gap",
+          "label": "taprootDepositOutputKeys",
           "offset": 0,
           "slot": "39",
-          "type": "t_array(t_uint256)39_storage"
+          "type": "t_mapping(t_uint256,t_bytes32)"
+        },
+        {
+          "label": "taprootOutputKeyCoverageInitialized",
+          "offset": 0,
+          "slot": "40",
+          "type": "t_bool"
+        },
+        {
+          "label": "taprootOutputKeyCoverageInventoryCount",
+          "offset": 1,
+          "slot": "40",
+          "type": "t_uint64"
+        },
+        {
+          "label": "taprootOutputKeyCoverageMigratedCount",
+          "offset": 9,
+          "slot": "40",
+          "type": "t_uint64"
+        },
+        {
+          "label": "taprootOutputKeyCoverageInventoryRoot",
+          "offset": 0,
+          "slot": "41",
+          "type": "t_bytes32"
+        },
+        {
+          "label": "taprootOutputKeyCoverageLeafMigrated",
+          "offset": 0,
+          "slot": "42",
+          "type": "t_mapping(t_uint64,t_bool)"
+        },
+        {
+          "label": "__gap",
+          "offset": 0,
+          "slot": "43",
+          "type": "t_array(t_uint256)35_storage"
         }
       ]
     },
