@@ -11,6 +11,8 @@ export {
 } from "./BitcoinCoreP2TRCanonicalBlockSource.js"
 export { CanonicalBitcoinP2TRSignatureFraudTransactionSource } from "./CanonicalBitcoinP2TRSignatureFraudTransactionSource.js"
 export {
+  isP2TRPostgresTransactionConfirmedAbortError,
+  P2TRPostgresTransactionConfirmedAbortError,
   PostgresP2TRCanonicalIndexStore,
   assertP2TRPostgresTransactionSession,
 } from "./PostgresP2TRCanonicalIndexStore.js"
@@ -102,8 +104,10 @@ export type {
   P2TRPostgresClient,
   P2TRPostgresPool,
   P2TRPostgresQueryResult,
+  P2TRPostgresTransactionConfirmedAbortReason,
   P2TRPostgresTransactionSession,
   P2TRReadinessExportAcknowledgementVerification,
+  P2TRRetryablePostgresSQLState,
   PostgresP2TRCanonicalIndexStoreOptions,
 } from "./PostgresP2TRCanonicalIndexStore.js"
 export type {

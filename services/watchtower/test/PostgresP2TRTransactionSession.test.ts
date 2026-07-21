@@ -1,4 +1,5 @@
 import assert from "node:assert/strict"
+import { createHash } from "node:crypto"
 import { describe, it } from "node:test"
 import {
   PostgresP2TRCanonicalIndexStore,
@@ -64,11 +65,33 @@ function coordinatorFor(client: P2TRPostgresClient) {
       maxJournalTransactions: 10,
       maxJournalInputs: 10,
       maxJournalOutputs: 10,
+      maxWalletBindings: 10,
       maxPendingDepositReveals: 10,
       maxUnmatchedProofs: 10,
       maxProofMutationBatchSize: 10,
       maxProofPageSize: 10,
       maxProofPayloadBytes: 1024,
+      authorizationDomain: {
+        chainID: "31337",
+        bridgeAddress: "12".repeat(20),
+      },
+      sourceIdentity: {
+        clusterID: "transaction-session-test",
+        operatorID: "transaction-session-test",
+        bitcoinIdentityDigest: "21".repeat(32),
+        ethereumIdentityDigest: "22".repeat(32),
+      },
+      readinessExportSigner: {
+        keyID: "transaction-session-test",
+        async signPayloadDigest(): Promise<string> {
+          return "ab".repeat(64)
+        },
+      },
+      readinessExportAcknowledgementVerifier: {
+        async verify(): Promise<boolean> {
+          return true
+        },
+      },
     }
   )
 }
@@ -79,7 +102,10 @@ class TransactionClient implements P2TRPostgresClient {
 
   constructor(private readonly failure?: "COMMIT" | "ROLLBACK") {}
 
-  async query<Row>(text: string): Promise<{ rows: Row[]; rowCount: number }> {
+  async query<Row>(
+    text: string,
+    values?: readonly unknown[]
+  ): Promise<{ rows: Row[]; rowCount: number }> {
     this.queries.push(text)
     if (text === this.failure) throw new Error(`${text} failed`)
     if (text.includes("server_version_num")) {
@@ -90,7 +116,33 @@ class TransactionClient implements P2TRPostgresClient {
     }
     if (text.includes("p2tr_watchtower_schema_version")) {
       return {
-        rows: [{ version: 1 }] as Row[],
+        rows: [{ version: 3 }] as Row[],
+        rowCount: 1,
+      }
+    }
+    if (text.includes("p2tr_assert_complete_authorization_domain")) {
+      const chainID = BigInt(String(values?.[1]))
+      const domainDigest = createHash("sha256")
+        .update("tbtc-p2tr-complete-domain-v1", "utf8")
+        .update(values?.[0] as Buffer)
+        .update(Buffer.from(chainID.toString(16).padStart(64, "0"), "hex"))
+        .update(values?.[2] as Buffer)
+        .digest("hex")
+      return { rows: [{ domain_digest: domainDigest }] as Row[], rowCount: 1 }
+    }
+    if (text.includes("p2tr_assert_watchtower_source_identity")) {
+      const sourceIdentityDigest = createHash("sha256")
+        .update(
+          `tbtc-p2tr-watchtower-source-identity-v1\x1f${String(
+            values?.[0]
+          )}\x1f${String(values?.[1])}\x1f${String(values?.[2])}`,
+          "utf8"
+        )
+        .update(values?.[3] as Buffer)
+        .update(values?.[4] as Buffer)
+        .digest("hex")
+      return {
+        rows: [{ source_identity_digest: sourceIdentityDigest }] as Row[],
         rowCount: 1,
       }
     }
