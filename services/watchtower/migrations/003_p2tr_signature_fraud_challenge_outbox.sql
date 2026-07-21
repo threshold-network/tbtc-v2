@@ -8,6 +8,29 @@
 INSERT INTO p2tr_watchtower_schema_version (component, version)
 VALUES ('signature-fraud-challenge-outbox', 1);
 
+-- Capacity is part of the signed activation-manifest payload. It is not an
+-- environment knob: every insert locks the singleton manifest row and counts
+-- all globally active generations before consuming another slot.
+ALTER TABLE p2tr_watchtower_activation_manifest
+ADD CONSTRAINT p2tr_watchtower_manifest_outbox_capacity_check CHECK (
+    payload #>> '{outbox,maxActiveOutboxRecords}' IS NOT NULL
+    AND (payload #>> '{outbox,maxActiveOutboxRecords}') ~ '^[1-9][0-9]{0,6}$'
+    AND (payload #>> '{outbox,maxActiveOutboxRecords}')::integer
+        BETWEEN 1 AND 1000000
+) NOT VALID;
+
+CREATE TABLE p2tr_signature_fraud_challenge_outbox_capacity (
+    singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
+    active_generation_count bigint NOT NULL CHECK (
+        active_generation_count BETWEEN 0 AND 1000000
+    )
+);
+
+INSERT INTO p2tr_signature_fraud_challenge_outbox_capacity (
+    singleton,
+    active_generation_count
+) VALUES (true, 0);
+
 CREATE TABLE p2tr_signature_fraud_challenge_outbox (
     record_id bytea PRIMARY KEY CHECK (octet_length(record_id) = 32),
     series_id bytea NOT NULL CHECK (octet_length(series_id) = 32),
@@ -59,7 +82,7 @@ CREATE TABLE p2tr_signature_fraud_challenge_outbox (
     chain_id numeric(78, 0) NOT NULL CHECK (chain_id > 0),
     bridge_address bytea NOT NULL CHECK (octet_length(bridge_address) = 20),
     router_address bytea NOT NULL CHECK (octet_length(router_address) = 20),
-    calldata bytea NOT NULL CHECK (octet_length(calldata) > 0),
+    calldata bytea NOT NULL CHECK (octet_length(calldata) = 388),
     value_wei numeric(78, 0) NOT NULL CHECK (value_wei >= 0),
     fee_policy_hash bytea NOT NULL CHECK (octet_length(fee_policy_hash) = 32),
 
@@ -107,9 +130,11 @@ CREATE TABLE p2tr_signature_fraud_challenge_outbox (
     canonical_provenance_history_root bytea NOT NULL CHECK (
         octet_length(canonical_provenance_history_root) = 32
     ),
-    canonical_provenance_event_ids jsonb NOT NULL CHECK (
-        jsonb_typeof(canonical_provenance_event_ids) = 'array'
-        AND jsonb_array_length(canonical_provenance_event_ids) BETWEEN 1 AND 1000
+    canonical_provenance_event_set_hash bytea NOT NULL CHECK (
+        octet_length(canonical_provenance_event_set_hash) = 32
+    ),
+    canonical_provenance_event_count bigint NOT NULL CHECK (
+        canonical_provenance_event_count BETWEEN 1 AND 1000
     ),
     canonical_candidate_digest bytea NOT NULL CHECK (
         octet_length(canonical_candidate_digest) = 32
@@ -468,8 +493,8 @@ CREATE TABLE p2tr_signature_fraud_challenge_outbox (
     CHECK (
         active_signer_invocation_started_at_unix_ms IS NULL
         OR (
-            status = 'preparing'
-            AND signer_invocation_started_at_unix_ms IS NOT NULL
+            signer_invocation_started_at_unix_ms IS NOT NULL
+            AND nonce_reservation_id IS NOT NULL
         )
     ),
     CHECK (
@@ -872,6 +897,9 @@ CREATE TABLE p2tr_signature_fraud_challenge_nonce_guard (
     signer_identity text NOT NULL CHECK (length(signer_identity) BETWEEN 1 AND 128),
     sender bytea NOT NULL CHECK (octet_length(sender) = 20),
     transaction_nonce numeric(78, 0) NOT NULL CHECK (transaction_nonce >= 0),
+    reservation_epoch integer CHECK (
+        reservation_epoch IS NULL OR reservation_epoch BETWEEN 1 AND 2147483647
+    ),
     reservation_binding bytea CHECK (
         reservation_binding IS NULL OR octet_length(reservation_binding) > 0
     ),
@@ -913,10 +941,12 @@ CREATE TABLE p2tr_signature_fraud_challenge_nonce_guard (
     CHECK (
         (guard_kind = 'bound-reservation'
             AND reservation_binding IS NOT NULL
+            AND reservation_epoch IS NOT NULL
             AND parent_reservation_id IS NULL)
         OR
         (guard_kind = 'escaped-envelope'
             AND reservation_binding IS NULL
+            AND reservation_epoch IS NULL
             AND parent_reservation_id IS NOT NULL
             AND voided_before_sign_at_unix_ms IS NULL)
     )
@@ -935,13 +965,288 @@ CREATE UNIQUE INDEX p2tr_signature_fraud_unresolved_nonce_guard_idx
     )
     WHERE voided_before_sign_at_unix_ms IS NULL;
 
+-- The allocator release request is committed in the same transaction as the
+-- pre-sign nonce-guard tombstone. Attempts and results are append-only, so a
+-- crash before, during, or after provider I/O is distinguishable and retryable
+-- with one stable idempotency key.
+CREATE TABLE p2tr_signature_fraud_challenge_nonce_release_request (
+    release_request_id bytea PRIMARY KEY CHECK (octet_length(release_request_id) = 32),
+    allocator_idempotency_key bytea NOT NULL UNIQUE CHECK (
+        octet_length(allocator_idempotency_key) = 32
+        AND allocator_idempotency_key = release_request_id
+    ),
+    record_id bytea NOT NULL,
+    generation integer NOT NULL CHECK (generation BETWEEN 0 AND 31),
+    nonce_guard_id bytea NOT NULL UNIQUE CHECK (octet_length(nonce_guard_id) = 32),
+    chain_id numeric(78, 0) NOT NULL CHECK (chain_id > 0),
+    signer_lane_id text NOT NULL CHECK (length(signer_lane_id) BETWEEN 1 AND 128),
+    signer_identity text NOT NULL CHECK (length(signer_identity) BETWEEN 1 AND 128),
+    sender bytea NOT NULL CHECK (octet_length(sender) = 20),
+    transaction_nonce numeric(78, 0) NOT NULL CHECK (transaction_nonce >= 0),
+    reservation_epoch integer NOT NULL CHECK (
+        reservation_epoch BETWEEN 1 AND 2147483647
+    ),
+    void_evidence_digest bytea NOT NULL CHECK (octet_length(void_evidence_digest) = 32),
+    requested_at_unix_ms bigint NOT NULL CHECK (
+        requested_at_unix_ms BETWEEN 0 AND 9007199254740991
+    ),
+    UNIQUE (record_id, release_request_id),
+    FOREIGN KEY (record_id, generation)
+        REFERENCES p2tr_signature_fraud_challenge_outbox(record_id, generation)
+        ON DELETE RESTRICT,
+    FOREIGN KEY (
+        record_id,
+        nonce_guard_id,
+        chain_id,
+        sender,
+        transaction_nonce,
+        signer_lane_id,
+        signer_identity
+    ) REFERENCES p2tr_signature_fraud_challenge_nonce_guard (
+        record_id,
+        nonce_guard_id,
+        chain_id,
+        sender,
+        transaction_nonce,
+        signer_lane_id,
+        signer_identity
+    ) ON DELETE RESTRICT
+);
+
+CREATE TABLE p2tr_signature_fraud_challenge_nonce_release_attempt (
+    release_request_id bytea NOT NULL REFERENCES p2tr_signature_fraud_challenge_nonce_release_request(release_request_id) ON DELETE RESTRICT,
+    attempt_sequence integer NOT NULL CHECK (attempt_sequence BETWEEN 1 AND 1000000),
+    owner text NOT NULL CHECK (length(owner) BETWEEN 1 AND 128),
+    started_at_unix_ms bigint NOT NULL CHECK (
+        started_at_unix_ms BETWEEN 0 AND 9007199254740991
+    ),
+    expires_at_unix_ms bigint NOT NULL CHECK (
+        expires_at_unix_ms BETWEEN started_at_unix_ms + 1 AND 9007199254740991
+    ),
+    PRIMARY KEY (release_request_id, attempt_sequence)
+);
+
+-- The attempt row is a reclaimable pre-I/O lease. This separate append-only
+-- marker is the irreversible boundary proving that its owner may have entered
+-- the allocator. A resultless invocation is never expired by wall clock: it
+-- remains activation-blocking until the exact caller journals a result or an
+-- operator supplies a future, independently fenced recovery migration.
+CREATE TABLE p2tr_signature_fraud_challenge_nonce_release_invocation (
+    release_request_id bytea NOT NULL,
+    attempt_sequence integer NOT NULL,
+    owner text NOT NULL CHECK (length(owner) BETWEEN 1 AND 128),
+    invoked_at_unix_ms bigint NOT NULL CHECK (
+        invoked_at_unix_ms BETWEEN 0 AND 9007199254740991
+    ),
+    PRIMARY KEY (release_request_id, attempt_sequence),
+    FOREIGN KEY (release_request_id, attempt_sequence)
+        REFERENCES p2tr_signature_fraud_challenge_nonce_release_attempt(
+            release_request_id,
+            attempt_sequence
+        ) ON DELETE RESTRICT
+);
+
+CREATE TABLE p2tr_signature_fraud_challenge_nonce_release_result (
+    release_request_id bytea NOT NULL,
+    attempt_sequence integer NOT NULL,
+    result_kind text NOT NULL CHECK (result_kind IN (
+        'released',
+        'already-released',
+        'ambiguous-error',
+        'ambiguous-late',
+        'contract-mismatch'
+    )),
+    returned_release_request_id bytea CHECK (
+        returned_release_request_id IS NULL
+        OR octet_length(returned_release_request_id) = 32
+    ),
+    returned_reservation_id bytea CHECK (
+        returned_reservation_id IS NULL
+        OR octet_length(returned_reservation_id) = 32
+    ),
+    response_digest bytea NOT NULL CHECK (octet_length(response_digest) = 32),
+    detail_digest bytea NOT NULL CHECK (octet_length(detail_digest) = 32),
+    recorded_at_unix_ms bigint NOT NULL CHECK (
+        recorded_at_unix_ms BETWEEN 0 AND 9007199254740991
+    ),
+    PRIMARY KEY (release_request_id, attempt_sequence),
+    FOREIGN KEY (release_request_id, attempt_sequence)
+        REFERENCES p2tr_signature_fraud_challenge_nonce_release_attempt(
+            release_request_id,
+            attempt_sequence
+        ) ON DELETE RESTRICT,
+    CHECK (
+        (result_kind IN ('released', 'already-released')
+            AND returned_release_request_id IS NOT NULL
+            AND returned_reservation_id IS NOT NULL
+            AND returned_release_request_id = release_request_id
+        )
+        OR
+        (result_kind NOT IN ('released', 'already-released')
+            AND (
+                (result_kind = 'ambiguous-late'
+                    AND returned_release_request_id IS NOT NULL
+                    AND returned_reservation_id IS NOT NULL)
+                OR
+                (result_kind = 'contract-mismatch')
+                OR
+                (result_kind = 'ambiguous-error'
+                    AND returned_release_request_id IS NULL
+                    AND returned_reservation_id IS NULL)
+            ))
+    )
+);
+
+-- Independently verified terminal evidence for an invoked release whose
+-- original RPC returned ambiguously. The two attestations must come from
+-- distinct trust and independence domains and are immutable once appended.
+CREATE TABLE p2tr_signature_fraud_challenge_nonce_release_resolution (
+    release_request_id bytea NOT NULL,
+    attempt_sequence integer NOT NULL,
+    attempt_owner text NOT NULL CHECK (length(attempt_owner) BETWEEN 1 AND 128),
+    attempt_started_at_unix_ms bigint NOT NULL CHECK (
+        attempt_started_at_unix_ms BETWEEN 0 AND 9007199254740991
+    ),
+    attempt_expires_at_unix_ms bigint NOT NULL CHECK (
+        attempt_expires_at_unix_ms BETWEEN attempt_started_at_unix_ms + 1
+            AND 9007199254740991
+    ),
+    invoked_at_unix_ms bigint NOT NULL CHECK (
+        invoked_at_unix_ms BETWEEN attempt_started_at_unix_ms
+            AND attempt_expires_at_unix_ms
+    ),
+    outcome text NOT NULL CHECK (outcome IN (
+        'released', 'already-released', 'terminal-unsafe'
+    )),
+    provider_evidence_digest bytea NOT NULL CHECK (
+        octet_length(provider_evidence_digest) = 32
+    ),
+    resolution_evidence_digest bytea NOT NULL CHECK (
+        octet_length(resolution_evidence_digest) = 32
+    ),
+    primary_trust_domain_id text NOT NULL CHECK (
+        length(primary_trust_domain_id) BETWEEN 1 AND 128
+    ),
+    primary_independence_domain_id text NOT NULL CHECK (
+        length(primary_independence_domain_id) BETWEEN 1 AND 128
+    ),
+    primary_evidence_digest bytea NOT NULL CHECK (
+        octet_length(primary_evidence_digest) = 32
+    ),
+    primary_attestation bytea NOT NULL CHECK (
+        octet_length(primary_attestation) BETWEEN 1 AND 2048
+    ),
+    primary_attested_at_unix_ms bigint NOT NULL CHECK (
+        primary_attested_at_unix_ms BETWEEN 0 AND 9007199254740991
+    ),
+    corroborating_trust_domain_id text NOT NULL CHECK (
+        length(corroborating_trust_domain_id) BETWEEN 1 AND 128
+    ),
+    corroborating_independence_domain_id text NOT NULL CHECK (
+        length(corroborating_independence_domain_id) BETWEEN 1 AND 128
+    ),
+    corroborating_evidence_digest bytea NOT NULL CHECK (
+        octet_length(corroborating_evidence_digest) = 32
+    ),
+    corroborating_attestation bytea NOT NULL CHECK (
+        octet_length(corroborating_attestation) BETWEEN 1 AND 2048
+    ),
+    corroborating_attested_at_unix_ms bigint NOT NULL CHECK (
+        corroborating_attested_at_unix_ms BETWEEN 0 AND 9007199254740991
+    ),
+    resolved_at_unix_ms bigint NOT NULL CHECK (
+        resolved_at_unix_ms BETWEEN 0 AND 9007199254740991
+    ),
+    PRIMARY KEY (release_request_id, attempt_sequence),
+    FOREIGN KEY (release_request_id, attempt_sequence)
+        REFERENCES p2tr_signature_fraud_challenge_nonce_release_invocation(
+            release_request_id,
+            attempt_sequence
+        ) ON DELETE RESTRICT,
+    CHECK (primary_trust_domain_id <> corroborating_trust_domain_id),
+    CHECK (primary_evidence_digest = resolution_evidence_digest),
+    CHECK (corroborating_evidence_digest = resolution_evidence_digest),
+    CHECK (
+        primary_independence_domain_id <>
+            corroborating_independence_domain_id
+    ),
+    CHECK (primary_attestation <> corroborating_attestation)
+);
+
+CREATE VIEW p2tr_signature_fraud_challenge_nonce_release_terminal AS
+SELECT release_request_id, attempt_sequence, result_kind AS outcome
+  FROM p2tr_signature_fraud_challenge_nonce_release_result
+ WHERE result_kind IN ('released', 'already-released')
+UNION ALL
+SELECT release_request_id, attempt_sequence, outcome
+  FROM p2tr_signature_fraud_challenge_nonce_release_resolution
+ WHERE outcome IN ('released', 'already-released');
+
+-- External nonce-release and signer calls never run inside a database
+-- transaction, so their mutually exclusive durable claims live here. A
+-- release invocation is committed before allocator I/O; a signer claim is
+-- committed before signer I/O. Contract mismatch permanently flips the same singleton
+-- to no-go, eliminating stale-snapshot races between unrelated lanes.
+CREATE TABLE p2tr_signature_fraud_nonce_allocator_safety_barrier (
+    singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
+    active_release_request_id bytea CHECK (
+        active_release_request_id IS NULL
+        OR octet_length(active_release_request_id) = 32
+    ),
+    active_release_attempt_sequence integer CHECK (
+        active_release_attempt_sequence IS NULL
+        OR active_release_attempt_sequence BETWEEN 1 AND 1000000
+    ),
+    active_release_expires_at_unix_ms bigint CHECK (
+        active_release_expires_at_unix_ms IS NULL
+        OR active_release_expires_at_unix_ms BETWEEN 1 AND 9007199254740991
+    ),
+    active_signer_invocation_count integer NOT NULL DEFAULT 0 CHECK (
+        active_signer_invocation_count BETWEEN 0 AND 1000000
+    ),
+    unresolved_release_count integer NOT NULL DEFAULT 0 CHECK (
+        unresolved_release_count BETWEEN 0 AND 1000000
+    ),
+    contract_mismatch_blocked boolean NOT NULL DEFAULT false,
+    incident_epoch bigint NOT NULL DEFAULT 0 CHECK (
+        incident_epoch BETWEEN 0 AND 9007199254740991
+    ),
+    CHECK (
+        num_nonnulls(
+            active_release_request_id,
+            active_release_attempt_sequence,
+            active_release_expires_at_unix_ms
+        ) IN (0, 3)
+    ),
+    FOREIGN KEY (
+        active_release_request_id,
+        active_release_attempt_sequence
+    ) REFERENCES p2tr_signature_fraud_challenge_nonce_release_attempt (
+        release_request_id,
+        attempt_sequence
+    ) DEFERRABLE INITIALLY DEFERRED
+);
+
+INSERT INTO p2tr_signature_fraud_nonce_allocator_safety_barrier (
+    singleton,
+    active_signer_invocation_count,
+    unresolved_release_count,
+    contract_mismatch_blocked,
+    incident_epoch
+) VALUES (true, 0, 0, false, 0);
+
+CREATE INDEX p2tr_signature_fraud_pending_nonce_release_idx
+    ON p2tr_signature_fraud_challenge_nonce_release_request (release_request_id);
+
 -- Every signed EIP-1559 envelope is an immutable, generation-scoped identity.
 -- Reconciliation scans all variants; the main row only caches the latest key.
 CREATE TABLE p2tr_signature_fraud_challenge_outbox_variant (
     record_id bytea NOT NULL,
     generation integer NOT NULL CHECK (generation BETWEEN 0 AND 31),
     variant_sequence smallint NOT NULL CHECK (variant_sequence BETWEEN 0 AND 15),
-    raw_transaction bytea NOT NULL CHECK (octet_length(raw_transaction) > 0),
+    raw_transaction bytea NOT NULL CHECK (
+        octet_length(raw_transaction) BETWEEN 1 AND 4096
+    ),
     transaction_hash bytea NOT NULL CHECK (octet_length(transaction_hash) = 32),
     sender bytea NOT NULL CHECK (octet_length(sender) = 20),
     transaction_nonce numeric(78, 0) NOT NULL CHECK (transaction_nonce >= 0),
@@ -1521,6 +1826,75 @@ CREATE TABLE p2tr_signature_fraud_challenge_signer_quarantine (
     )
 );
 
+CREATE FUNCTION p2tr_signature_fraud_validate_signer_quarantine_insert()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    record_manifest_hash bytea;
+BEGIN
+    SELECT activation_manifest_hash INTO record_manifest_hash
+      FROM p2tr_signature_fraud_challenge_outbox
+     WHERE record_id = NEW.record_id
+     FOR SHARE;
+
+    PERFORM 1
+      FROM p2tr_signature_fraud_signer_lane_configuration
+     WHERE activation_manifest_hash = record_manifest_hash
+       AND chain_id = NEW.chain_id
+       AND signer_lane_id = NEW.signer_lane_id
+       AND signer_identity = NEW.signer_identity
+       AND sender = NEW.expected_sender
+     FOR UPDATE;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'signer quarantine lacks its exact manifest-bound lane';
+    END IF;
+
+    IF NEW.quarantine_reason IN (
+        'reservation-binding-mismatch',
+        'reservation-provider-failure'
+    ) AND NEW.nonce_reservation_id IS NOT NULL THEN
+        RAISE EXCEPTION 'pre-reservation quarantine cannot claim a durable nonce';
+    END IF;
+
+    IF NEW.quarantine_reason = 'reservation-provider-failure'
+       AND NOT EXISTS (
+           SELECT 1
+             FROM p2tr_signature_fraud_challenge_nonce_release_result x
+             JOIN p2tr_signature_fraud_challenge_nonce_release_request r
+               ON r.release_request_id = x.release_request_id
+             LEFT JOIN p2tr_signature_fraud_challenge_nonce_guard returned_guard
+               ON returned_guard.nonce_guard_id = x.returned_reservation_id
+             LEFT JOIN p2tr_signature_fraud_challenge_nonce_release_request returned_request
+               ON returned_request.release_request_id = x.returned_release_request_id
+            WHERE x.result_kind = 'contract-mismatch'
+              AND (
+                  (r.chain_id = NEW.chain_id
+                   AND r.signer_lane_id = NEW.signer_lane_id
+                   AND r.signer_identity = NEW.signer_identity
+                   AND r.sender = NEW.expected_sender)
+                  OR
+                  (returned_guard.chain_id = NEW.chain_id
+                   AND returned_guard.signer_lane_id = NEW.signer_lane_id
+                   AND returned_guard.signer_identity = NEW.signer_identity
+                   AND returned_guard.sender = NEW.expected_sender)
+                  OR
+                  (returned_request.chain_id = NEW.chain_id
+                   AND returned_request.signer_lane_id = NEW.signer_lane_id
+                   AND returned_request.signer_identity = NEW.signer_identity
+                   AND returned_request.sender = NEW.expected_sender)
+              )
+       ) THEN
+        RAISE EXCEPTION 'nonce allocator quarantine lacks an immutable contract mismatch';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER p2tr_signature_fraud_validate_signer_quarantine_insert_trigger
+BEFORE INSERT ON p2tr_signature_fraud_challenge_signer_quarantine
+FOR EACH ROW EXECUTE FUNCTION p2tr_signature_fraud_validate_signer_quarantine_insert();
+
 -- If a signer returns a valid envelope for an unexpected sender or nonce, the
 -- exact bytes and the actual sender/nonce guard are retained forever.
 CREATE TABLE p2tr_signature_fraud_challenge_escaped_envelope (
@@ -1544,7 +1918,9 @@ CREATE TABLE p2tr_signature_fraud_challenge_escaped_envelope (
         length(actual_guard_signer_identity) BETWEEN 1 AND 128
     ),
     transaction_type smallint NOT NULL CHECK (transaction_type IN (0, 1, 2)),
-    raw_transaction bytea NOT NULL CHECK (octet_length(raw_transaction) > 0),
+    raw_transaction bytea NOT NULL CHECK (
+        octet_length(raw_transaction) BETWEEN 1 AND 4096
+    ),
     transaction_hash bytea NOT NULL UNIQUE CHECK (octet_length(transaction_hash) = 32),
     captured_at_unix_ms bigint NOT NULL CHECK (
         captured_at_unix_ms BETWEEN 0 AND 9007199254740991
@@ -1589,11 +1965,11 @@ CREATE TABLE p2tr_signature_fraud_challenge_escaped_envelope (
     CHECK (actual_sender <> expected_sender OR actual_nonce <> expected_nonce)
 );
 
--- A signer can return the exact expected sender/nonce envelope after a
--- concurrent canonical-provenance invalidation has already won the normal
--- state CAS. Those bytes are not a normal replacement variant, but they are
--- still capable of reaching the network and must be retained independently
--- from the mutable outbox head forever.
+-- A signer can return the exact expected sender/nonce envelope after any
+-- concurrent transition (including lease expiry or canonical invalidation)
+-- has already won the normal state CAS. Those bytes are not a normal variant,
+-- but they are still capable of reaching the network and are an immutable,
+-- activation-blocking incident independent from the mutable outbox head.
 CREATE TABLE p2tr_signature_fraud_challenge_late_signed_artifact (
     artifact_id bytea PRIMARY KEY CHECK (octet_length(artifact_id) = 32),
     record_id bytea NOT NULL,
@@ -1608,7 +1984,9 @@ CREATE TABLE p2tr_signature_fraud_challenge_late_signed_artifact (
     signer_lane_id text NOT NULL CHECK (length(signer_lane_id) BETWEEN 1 AND 128),
     signer_identity text NOT NULL CHECK (length(signer_identity) BETWEEN 1 AND 128),
     intent_id bytea NOT NULL CHECK (octet_length(intent_id) = 32),
-    raw_transaction bytea NOT NULL CHECK (octet_length(raw_transaction) > 0),
+    raw_transaction bytea NOT NULL CHECK (
+        octet_length(raw_transaction) BETWEEN 1 AND 4096
+    ),
     transaction_hash bytea NOT NULL UNIQUE CHECK (
         octet_length(transaction_hash) = 32
     ),
@@ -1676,6 +2054,12 @@ CREATE TABLE p2tr_signature_fraud_challenge_critical_alert (
         'generation-cap-exhausted',
         'signed-variant-cap-exhausted',
         'signed-state-quarantined',
+        'late-signed-artifact-captured',
+        'escaped-signed-envelope-captured',
+        'reservation-release-failed',
+        'nonce-release-terminal-unsafe',
+        'reservation-state-ambiguous',
+        'nonce-reservation-cap-exhausted',
         'provenance-reconciliation-incident'
     )),
     details_digest bytea NOT NULL CHECK (octet_length(details_digest) = 32),
@@ -1688,6 +2072,29 @@ CREATE TABLE p2tr_signature_fraud_challenge_critical_alert (
         REFERENCES p2tr_signature_fraud_challenge_outbox(record_id, generation, series_id)
         ON DELETE RESTRICT,
     CHECK (code <> 'generation-cap-exhausted' OR generation = 31)
+);
+
+-- Alerts remain immutable. A separate append-only row may resolve only a
+-- late expected-lane artifact after the exact nonce has an independently
+-- attested final disposition. Unrecoverable cap/provider-contract alerts have
+-- no admissible resolution path.
+CREATE TABLE p2tr_signature_fraud_challenge_critical_alert_resolution (
+    alert_id bytea PRIMARY KEY REFERENCES p2tr_signature_fraud_challenge_critical_alert(alert_id) ON DELETE RESTRICT,
+    record_id bytea NOT NULL,
+    generation integer NOT NULL CHECK (generation BETWEEN 0 AND 31),
+    nonce_disposition_id bytea NOT NULL CHECK (octet_length(nonce_disposition_id) = 32),
+    resolution_digest bytea NOT NULL CHECK (octet_length(resolution_digest) = 32),
+    resolved_at_unix_ms bigint NOT NULL CHECK (
+        resolved_at_unix_ms BETWEEN 0 AND 9007199254740991
+    ),
+    FOREIGN KEY (record_id, generation)
+        REFERENCES p2tr_signature_fraud_challenge_outbox(record_id, generation)
+        ON DELETE RESTRICT,
+    FOREIGN KEY (record_id, nonce_disposition_id)
+        REFERENCES p2tr_signature_fraud_challenge_nonce_disposition(
+            record_id,
+            nonce_disposition_id
+        ) ON DELETE RESTRICT
 );
 
 ALTER TABLE p2tr_signature_fraud_challenge_outbox
@@ -1802,7 +2209,11 @@ BEGIN
     END IF;
 
     IF NEW.code = 'generation-cap-exhausted'
-       AND expected_status NOT IN ('generation-required', 'cancelled-reorg') THEN
+       AND expected_status NOT IN (
+           'generation-required',
+           'cancelled-reorg',
+           'cancelled-provenance-invalidated'
+       ) THEN
         RAISE EXCEPTION 'generation cap alert requires a terminal record eligible to reappear';
     END IF;
 
@@ -1814,6 +2225,67 @@ BEGIN
        AND expected_latest_variant_sequence IS NULL
        AND expected_status <> 'quarantined' THEN
         RAISE EXCEPTION 'signed-state quarantine alert requires a signer boundary';
+    END IF;
+    IF NEW.code = 'late-signed-artifact-captured'
+       AND NOT EXISTS (
+           SELECT 1
+             FROM p2tr_signature_fraud_challenge_late_signed_artifact la
+            WHERE la.record_id = NEW.record_id
+              AND la.generation = NEW.generation
+       ) THEN
+        RAISE EXCEPTION 'late signer alert requires an immutable signed artifact';
+    END IF;
+    IF NEW.code = 'escaped-signed-envelope-captured'
+       AND NOT EXISTS (
+           SELECT 1
+             FROM p2tr_signature_fraud_challenge_escaped_envelope ee
+            WHERE ee.record_id = NEW.record_id
+       ) THEN
+        RAISE EXCEPTION 'escaped signer alert requires an immutable wrong-lane envelope';
+    END IF;
+    IF NEW.code = 'reservation-release-failed'
+       AND NOT EXISTS (
+           SELECT 1
+             FROM p2tr_signature_fraud_challenge_nonce_release_request r
+             JOIN p2tr_signature_fraud_challenge_nonce_release_result x
+               ON x.release_request_id = r.release_request_id
+            WHERE r.record_id = NEW.record_id
+              AND r.generation = NEW.generation
+              AND x.result_kind = 'contract-mismatch'
+       ) THEN
+        RAISE EXCEPTION 'reservation release alert requires an immutable allocator contract mismatch';
+    END IF;
+    IF NEW.code = 'nonce-release-terminal-unsafe'
+       AND NOT EXISTS (
+           SELECT 1
+             FROM p2tr_signature_fraud_challenge_nonce_release_request r
+             JOIN p2tr_signature_fraud_challenge_nonce_release_resolution x
+               ON x.release_request_id = r.release_request_id
+            WHERE r.record_id = NEW.record_id
+              AND r.generation = NEW.generation
+              AND x.outcome = 'terminal-unsafe'
+       ) THEN
+        RAISE EXCEPTION 'terminal unsafe release alert requires independently attested evidence';
+    END IF;
+    IF NEW.code = 'reservation-state-ambiguous'
+       AND NOT EXISTS (
+           SELECT 1
+             FROM p2tr_signature_fraud_challenge_nonce_guard ng
+            WHERE ng.record_id = NEW.record_id
+              AND ng.void_reason = 'reservation-binding-invalid'
+              AND ng.voided_before_sign_at_unix_ms IS NOT NULL
+       ) THEN
+        RAISE EXCEPTION 'ambiguous reservation alert requires its exact conflicting tombstone';
+    END IF;
+    IF NEW.code = 'nonce-reservation-cap-exhausted'
+       AND (
+           SELECT count(*)
+             FROM p2tr_signature_fraud_challenge_nonce_guard ng
+            WHERE ng.record_id = NEW.record_id
+              AND ng.guard_kind = 'bound-reservation'
+              AND ng.voided_before_sign_at_unix_ms IS NOT NULL
+       ) < 32 THEN
+        RAISE EXCEPTION 'nonce reservation cap alert requires the full bounded tombstone ledger';
     END IF;
     IF NEW.code = 'provenance-reconciliation-incident'
        AND NOT EXISTS (
@@ -1831,6 +2303,81 @@ $$;
 CREATE TRIGGER p2tr_signature_fraud_validate_critical_alert_insert_trigger
 BEFORE INSERT ON p2tr_signature_fraud_challenge_critical_alert
 FOR EACH ROW EXECUTE FUNCTION p2tr_signature_fraud_validate_critical_alert_insert();
+
+CREATE FUNCTION p2tr_signature_fraud_validate_critical_alert_resolution_insert()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    alert_code text;
+    current_disposition_id bytea;
+    current_reservation_id bytea;
+    lane_released_at bigint;
+    disposition_evidence_digest bytea;
+    attestation_count integer;
+BEGIN
+    SELECT code INTO alert_code
+    FROM p2tr_signature_fraud_challenge_critical_alert
+    WHERE alert_id = NEW.alert_id
+      AND record_id = NEW.record_id
+      AND generation = NEW.generation
+    FOR SHARE;
+
+    IF alert_code NOT IN (
+        'late-signed-artifact-captured',
+        'signed-state-quarantined'
+    ) THEN
+        RAISE EXCEPTION 'only an expected-lane signed-state alert can be resolved';
+    END IF;
+
+    SELECT nonce_disposition_id, nonce_reservation_id, lane_released_at_unix_ms
+    INTO current_disposition_id, current_reservation_id, lane_released_at
+    FROM p2tr_signature_fraud_challenge_outbox
+    WHERE record_id = NEW.record_id
+      AND generation = NEW.generation
+    FOR SHARE;
+
+    SELECT evidence_digest INTO disposition_evidence_digest
+    FROM p2tr_signature_fraud_challenge_nonce_disposition
+    WHERE record_id = NEW.record_id
+      AND nonce_disposition_id = NEW.nonce_disposition_id
+      AND nonce_reservation_id = current_reservation_id;
+
+    SELECT count(DISTINCT independence_domain_id) INTO attestation_count
+    FROM p2tr_signature_fraud_challenge_nonce_disposition_attestation
+    WHERE nonce_disposition_id = NEW.nonce_disposition_id;
+
+    IF current_disposition_id IS DISTINCT FROM NEW.nonce_disposition_id
+       OR lane_released_at IS NULL
+       OR disposition_evidence_digest IS NULL
+       OR attestation_count < 2
+       OR NOT EXISTS (
+           SELECT 1
+           FROM p2tr_signature_fraud_challenge_late_signed_artifact la
+           WHERE la.record_id = NEW.record_id
+             AND la.generation = NEW.generation
+             AND la.expected_reservation_id = current_reservation_id
+       )
+       OR EXISTS (
+           SELECT 1
+           FROM p2tr_signature_fraud_challenge_escaped_envelope ee
+           WHERE ee.record_id = NEW.record_id
+       ) THEN
+        RAISE EXCEPTION 'late artifact alert lacks an exact independently attested safe disposition';
+    END IF;
+
+    IF NEW.resolution_digest <> sha256(
+        NEW.alert_id || NEW.nonce_disposition_id || disposition_evidence_digest
+    ) THEN
+        RAISE EXCEPTION 'critical alert resolution digest is invalid';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER p2tr_signature_fraud_validate_critical_alert_resolution_insert_trigger
+BEFORE INSERT ON p2tr_signature_fraud_challenge_critical_alert_resolution
+FOR EACH ROW EXECUTE FUNCTION p2tr_signature_fraud_validate_critical_alert_resolution_insert();
 
 CREATE FUNCTION p2tr_signature_fraud_validate_escaped_envelope_insert()
 RETURNS trigger
@@ -1853,7 +2400,14 @@ BEGIN
 
     IF actual_guard.nonce_guard_id IS NULL
        OR NOT FOUND
-       OR recorded_reason NOT IN ('wrong-sender', 'wrong-nonce')
+       OR actual_guard.voided_before_sign_at_unix_ms IS NOT NULL
+       OR recorded_reason NOT IN (
+           'wrong-sender',
+           'wrong-nonce',
+           'ambiguous-signer-invocation'
+       )
+       OR (NEW.actual_sender = NEW.expected_sender
+           AND NEW.actual_nonce = NEW.expected_nonce)
        OR (recorded_reason = 'wrong-sender'
            AND NEW.actual_sender = NEW.expected_sender)
        OR (recorded_reason = 'wrong-nonce'
@@ -1862,11 +2416,10 @@ BEGIN
         RAISE EXCEPTION 'escaped signed envelope does not match its quarantine reason';
     END IF;
 
-    IF actual_guard.guard_kind = 'escaped-envelope'
-       AND (actual_guard.record_id <> NEW.record_id
-            OR actual_guard.parent_reservation_id <> NEW.expected_reservation_id) THEN
-        RAISE EXCEPTION 'escaped signed envelope uses an unrelated nonce guard';
-    END IF;
+    -- The actual guard is a global (chain, sender, nonce) exclusion. Multiple
+    -- records may independently retain signed bytes that collide with it; the
+    -- envelope's separate expected-reservation FK preserves each invocation's
+    -- provenance while this FK prevents the actual nonce from being reused.
     RETURN NEW;
 END;
 $$;
@@ -1938,21 +2491,33 @@ DECLARE
     parent_guard p2tr_signature_fraud_challenge_nonce_guard%ROWTYPE;
 BEGIN
     IF NEW.guard_kind = 'bound-reservation' THEN
-        PERFORM 1
-        FROM p2tr_signature_fraud_challenge_outbox
-        WHERE record_id = NEW.record_id
-          AND chain_id = NEW.chain_id
-          AND selected_signer_lane_id = NEW.signer_lane_id
-          AND selected_signer_identity = NEW.signer_identity
-          AND selected_sender = NEW.sender
-          AND nonce_reservation_id IS NULL
-        FOR SHARE;
+        IF NEW.voided_before_sign_at_unix_ms IS NOT NULL THEN
+            -- A valid reservation can return after its preparation lease or
+            -- canonical claim lost the state CAS. It is admitted only already
+            -- tombstoned and only while no signer/signed envelope exists.
+            PERFORM 1
+            FROM p2tr_signature_fraud_challenge_outbox
+            WHERE record_id = NEW.record_id
+              AND chain_id = NEW.chain_id
+              AND nonce_reservation_id IS DISTINCT FROM NEW.nonce_guard_id
+            FOR SHARE;
+        ELSE
+            PERFORM 1
+            FROM p2tr_signature_fraud_challenge_outbox
+            WHERE record_id = NEW.record_id
+              AND chain_id = NEW.chain_id
+              AND selected_signer_lane_id = NEW.signer_lane_id
+              AND selected_signer_identity = NEW.signer_identity
+              AND selected_sender = NEW.sender
+              AND nonce_reservation_id IS NULL
+            FOR SHARE;
+        END IF;
 
         IF NOT FOUND THEN
             RAISE EXCEPTION 'nonce reservation does not match the durable selected signer lane';
         END IF;
 
-        IF EXISTS (
+        IF NEW.voided_before_sign_at_unix_ms IS NULL AND EXISTS (
             SELECT 1
             FROM p2tr_signature_fraud_challenge_signer_quarantine
             WHERE chain_id = NEW.chain_id
@@ -1984,6 +2549,509 @@ $$;
 CREATE TRIGGER p2tr_signature_fraud_validate_nonce_guard_insert_trigger
 BEFORE INSERT ON p2tr_signature_fraud_challenge_nonce_guard
 FOR EACH ROW EXECUTE FUNCTION p2tr_signature_fraud_validate_nonce_guard_insert();
+
+CREATE FUNCTION p2tr_signature_fraud_validate_nonce_release_request_insert()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    guard p2tr_signature_fraud_challenge_nonce_guard%ROWTYPE;
+    manifest_hash bytea;
+BEGIN
+    SELECT * INTO guard
+    FROM p2tr_signature_fraud_challenge_nonce_guard
+    WHERE nonce_guard_id = NEW.nonce_guard_id
+      AND record_id = NEW.record_id
+    FOR SHARE;
+
+    IF guard.nonce_guard_id IS NULL
+       OR guard.guard_kind <> 'bound-reservation'
+       OR guard.voided_before_sign_at_unix_ms IS NULL
+       OR guard.void_evidence_digest <> NEW.void_evidence_digest
+       OR guard.voided_before_sign_at_unix_ms <> NEW.requested_at_unix_ms
+       OR guard.reservation_epoch <> NEW.reservation_epoch
+       OR guard.chain_id <> NEW.chain_id
+       OR guard.signer_lane_id <> NEW.signer_lane_id
+       OR guard.signer_identity <> NEW.signer_identity
+       OR guard.sender <> NEW.sender
+       OR guard.transaction_nonce <> NEW.transaction_nonce THEN
+        RAISE EXCEPTION 'nonce-release request does not bind the exact voided reservation';
+    END IF;
+
+    IF NEW.release_request_id <> sha256(
+        convert_to(
+            'tbtc-p2tr-signature-fraud-nonce-release-request-v1',
+            'UTF8'
+        ) || NEW.record_id || NEW.nonce_guard_id || NEW.void_evidence_digest
+    ) THEN
+        RAISE EXCEPTION 'nonce-release request identity is invalid';
+    END IF;
+
+    SELECT activation_manifest_hash INTO manifest_hash
+    FROM p2tr_signature_fraud_challenge_outbox
+    WHERE record_id = NEW.record_id
+      AND generation = NEW.generation;
+
+    PERFORM 1
+    FROM p2tr_signature_fraud_signer_lane_configuration
+    WHERE activation_manifest_hash = manifest_hash
+      AND chain_id = NEW.chain_id
+      AND signer_lane_id = NEW.signer_lane_id
+      AND signer_identity = NEW.signer_identity
+      AND sender = NEW.sender
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'nonce-release request lacks its manifest signer lane';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER p2tr_signature_fraud_validate_nonce_release_request_insert_trigger
+BEFORE INSERT ON p2tr_signature_fraud_challenge_nonce_release_request
+FOR EACH ROW EXECUTE FUNCTION p2tr_signature_fraud_validate_nonce_release_request_insert();
+
+CREATE FUNCTION p2tr_signature_fraud_register_pending_nonce_release()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    UPDATE p2tr_signature_fraud_nonce_allocator_safety_barrier
+       SET unresolved_release_count = unresolved_release_count + 1
+     WHERE singleton = true;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'nonce allocator safety barrier is missing';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER p2tr_signature_fraud_register_pending_nonce_release_trigger
+AFTER INSERT ON p2tr_signature_fraud_challenge_nonce_release_request
+FOR EACH ROW EXECUTE FUNCTION p2tr_signature_fraud_register_pending_nonce_release();
+
+CREATE FUNCTION p2tr_signature_fraud_validate_nonce_release_attempt_insert()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    prior_sequence integer;
+    prior_expires_at bigint;
+    prior_invoked boolean;
+    prior_result_kind text;
+BEGIN
+    IF COALESCE((
+        SELECT contract_mismatch_blocked
+        FROM p2tr_signature_fraud_nonce_allocator_safety_barrier
+        WHERE singleton = true
+    ), true) THEN
+        RETURN NULL;
+    END IF;
+
+    PERFORM 1
+    FROM p2tr_signature_fraud_challenge_nonce_release_request
+    WHERE release_request_id = NEW.release_request_id
+    FOR UPDATE;
+
+    IF NOT FOUND OR EXISTS (
+        SELECT 1
+        FROM p2tr_signature_fraud_challenge_nonce_release_terminal
+        WHERE release_request_id = NEW.release_request_id
+    ) THEN
+        RAISE EXCEPTION 'acknowledged or missing nonce-release request cannot be claimed';
+    END IF;
+
+    SELECT a.attempt_sequence,
+           a.expires_at_unix_ms,
+           EXISTS (
+               SELECT 1
+               FROM p2tr_signature_fraud_challenge_nonce_release_invocation i
+               WHERE i.release_request_id = a.release_request_id
+                 AND i.attempt_sequence = a.attempt_sequence
+           ),
+           (
+               SELECT x.result_kind
+               FROM p2tr_signature_fraud_challenge_nonce_release_result x
+               WHERE x.release_request_id = a.release_request_id
+                 AND x.attempt_sequence = a.attempt_sequence
+           )
+      INTO prior_sequence, prior_expires_at, prior_invoked, prior_result_kind
+      FROM p2tr_signature_fraud_challenge_nonce_release_attempt a
+     WHERE a.release_request_id = NEW.release_request_id
+     ORDER BY a.attempt_sequence DESC
+     LIMIT 1;
+
+    IF NEW.attempt_sequence <> COALESCE(prior_sequence, 0) + 1
+       OR (
+           prior_sequence IS NOT NULL
+           AND NOT (
+               prior_result_kind IS NOT NULL
+               AND NOT (
+                   COALESCE(prior_invoked, false)
+                   AND prior_result_kind = 'ambiguous-error'
+               )
+           )
+           AND (
+               COALESCE(prior_invoked, false)
+               OR NEW.started_at_unix_ms < prior_expires_at
+           )
+       ) THEN
+        RAISE EXCEPTION 'nonce-release attempts must be contiguous and cannot replace a resultless invocation';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER p2tr_signature_fraud_validate_nonce_release_attempt_insert_trigger
+BEFORE INSERT ON p2tr_signature_fraud_challenge_nonce_release_attempt
+FOR EACH ROW EXECUTE FUNCTION p2tr_signature_fraud_validate_nonce_release_attempt_insert();
+
+CREATE FUNCTION p2tr_signature_fraud_validate_nonce_release_invocation_insert()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    attempt p2tr_signature_fraud_challenge_nonce_release_attempt%ROWTYPE;
+BEGIN
+    SELECT * INTO attempt
+    FROM p2tr_signature_fraud_challenge_nonce_release_attempt
+    WHERE release_request_id = NEW.release_request_id
+      AND attempt_sequence = NEW.attempt_sequence
+    FOR UPDATE;
+
+    IF attempt.release_request_id IS NULL
+       OR attempt.owner <> NEW.owner
+       OR NEW.invoked_at_unix_ms < attempt.started_at_unix_ms
+       OR NEW.invoked_at_unix_ms > attempt.expires_at_unix_ms
+       OR NEW.attempt_sequence <> (
+           SELECT max(attempt_sequence)
+           FROM p2tr_signature_fraud_challenge_nonce_release_attempt
+           WHERE release_request_id = NEW.release_request_id
+       )
+       OR EXISTS (
+           SELECT 1
+           FROM p2tr_signature_fraud_challenge_nonce_release_result
+           WHERE release_request_id = NEW.release_request_id
+             AND attempt_sequence = NEW.attempt_sequence
+       ) THEN
+        RAISE EXCEPTION 'nonce-release invocation lacks its exact live attempt';
+    END IF;
+
+    UPDATE p2tr_signature_fraud_nonce_allocator_safety_barrier
+       SET active_release_request_id = NEW.release_request_id,
+           active_release_attempt_sequence = NEW.attempt_sequence,
+           active_release_expires_at_unix_ms = attempt.expires_at_unix_ms
+     WHERE singleton = true
+       AND active_release_request_id IS NULL
+       AND active_signer_invocation_count = 0
+       AND unresolved_release_count > 0
+       AND NOT contract_mismatch_blocked;
+    IF NOT FOUND THEN
+        IF NOT EXISTS (
+            SELECT 1
+            FROM p2tr_signature_fraud_nonce_allocator_safety_barrier
+            WHERE singleton = true
+        ) THEN
+            RAISE EXCEPTION 'nonce allocator safety barrier is missing';
+        END IF;
+        -- Contention is not malformed state. Suppress this append so the same
+        -- uninvoked attempt can retry after the current signer/release exits.
+        RETURN NULL;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER p2tr_signature_fraud_validate_nonce_release_invocation_insert_trigger
+BEFORE INSERT ON p2tr_signature_fraud_challenge_nonce_release_invocation
+FOR EACH ROW EXECUTE FUNCTION p2tr_signature_fraud_validate_nonce_release_invocation_insert();
+
+CREATE FUNCTION p2tr_signature_fraud_validate_nonce_release_result_insert()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    request p2tr_signature_fraud_challenge_nonce_release_request%ROWTYPE;
+    attempt p2tr_signature_fraud_challenge_nonce_release_attempt%ROWTYPE;
+    latest_sequence integer;
+    invoked_at bigint;
+BEGIN
+    SELECT * INTO request
+    FROM p2tr_signature_fraud_challenge_nonce_release_request
+    WHERE release_request_id = NEW.release_request_id
+    FOR UPDATE;
+
+    SELECT * INTO attempt
+    FROM p2tr_signature_fraud_challenge_nonce_release_attempt
+    WHERE release_request_id = NEW.release_request_id
+      AND attempt_sequence = NEW.attempt_sequence;
+
+    SELECT max(attempt_sequence) INTO latest_sequence
+    FROM p2tr_signature_fraud_challenge_nonce_release_attempt
+    WHERE release_request_id = NEW.release_request_id;
+
+    SELECT invoked_at_unix_ms INTO invoked_at
+    FROM p2tr_signature_fraud_challenge_nonce_release_invocation
+    WHERE release_request_id = NEW.release_request_id
+      AND attempt_sequence = NEW.attempt_sequence;
+
+    IF request.release_request_id IS NULL
+       OR attempt.release_request_id IS NULL
+       OR NEW.recorded_at_unix_ms < attempt.started_at_unix_ms
+       OR (invoked_at IS NOT NULL AND NEW.recorded_at_unix_ms < invoked_at)
+       OR (invoked_at IS NULL AND NEW.result_kind <> 'ambiguous-error')
+       OR EXISTS (
+           SELECT 1
+           FROM p2tr_signature_fraud_challenge_nonce_release_resolution rx
+           WHERE rx.release_request_id = NEW.release_request_id
+             AND rx.attempt_sequence = NEW.attempt_sequence
+       ) THEN
+        RAISE EXCEPTION 'nonce-release result lacks its exact durable attempt';
+    END IF;
+
+    IF NEW.result_kind IN ('released', 'already-released') THEN
+        IF invoked_at IS NULL
+           OR NEW.attempt_sequence <> latest_sequence
+           OR NEW.recorded_at_unix_ms > attempt.expires_at_unix_ms
+           OR NEW.returned_release_request_id IS DISTINCT FROM request.release_request_id
+           OR NEW.returned_reservation_id IS DISTINCT FROM request.nonce_guard_id
+           OR EXISTS (
+               SELECT 1
+               FROM p2tr_signature_fraud_challenge_nonce_release_result
+               WHERE release_request_id = NEW.release_request_id
+                 AND result_kind IN ('released', 'already-released')
+           ) THEN
+            RAISE EXCEPTION 'nonce-release acknowledgement is not exact, current, and on-time';
+        END IF;
+    ELSIF NEW.result_kind = 'ambiguous-late' THEN
+        IF invoked_at IS NULL
+           OR NEW.returned_release_request_id <> request.release_request_id
+           OR NEW.returned_reservation_id <> request.nonce_guard_id
+           OR (NEW.attempt_sequence = latest_sequence
+               AND NEW.recorded_at_unix_ms <= attempt.expires_at_unix_ms) THEN
+            RAISE EXCEPTION 'late nonce-release result is not demonstrably late';
+        END IF;
+    ELSIF NEW.result_kind = 'contract-mismatch' AND invoked_at IS NULL THEN
+        RAISE EXCEPTION 'nonce-release contract mismatch lacks an invoked provider call';
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER p2tr_signature_fraud_validate_nonce_release_result_insert_trigger
+BEFORE INSERT ON p2tr_signature_fraud_challenge_nonce_release_result
+FOR EACH ROW EXECUTE FUNCTION p2tr_signature_fraud_validate_nonce_release_result_insert();
+
+CREATE FUNCTION p2tr_signature_fraud_apply_nonce_release_result_barrier()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    barrier_release_request bytea;
+    barrier_release_sequence integer;
+    invocation_exists boolean;
+BEGIN
+    SELECT active_release_request_id, active_release_attempt_sequence
+      INTO barrier_release_request, barrier_release_sequence
+      FROM p2tr_signature_fraud_nonce_allocator_safety_barrier
+     WHERE singleton = true
+     FOR UPDATE;
+
+    SELECT EXISTS (
+        SELECT 1
+        FROM p2tr_signature_fraud_challenge_nonce_release_invocation
+        WHERE release_request_id = NEW.release_request_id
+          AND attempt_sequence = NEW.attempt_sequence
+    ) INTO invocation_exists;
+
+    IF invocation_exists
+       AND ROW(barrier_release_request, barrier_release_sequence)
+           IS DISTINCT FROM ROW(NEW.release_request_id, NEW.attempt_sequence) THEN
+        RAISE EXCEPTION 'nonce-release result does not own the durable I/O barrier';
+    END IF;
+
+    UPDATE p2tr_signature_fraud_nonce_allocator_safety_barrier
+       SET active_release_request_id = CASE
+               WHEN ROW(barrier_release_request, barrier_release_sequence)
+                    IS NOT DISTINCT FROM ROW(
+                        NEW.release_request_id,
+                        NEW.attempt_sequence
+                    )
+                    AND NOT (
+                        invocation_exists
+                        AND NEW.result_kind = 'ambiguous-error'
+                    ) THEN NULL
+               ELSE active_release_request_id
+           END,
+           active_release_attempt_sequence = CASE
+               WHEN ROW(barrier_release_request, barrier_release_sequence)
+                    IS NOT DISTINCT FROM ROW(
+                        NEW.release_request_id,
+                        NEW.attempt_sequence
+                    )
+                    AND NOT (
+                        invocation_exists
+                        AND NEW.result_kind = 'ambiguous-error'
+                    ) THEN NULL
+               ELSE active_release_attempt_sequence
+           END,
+           active_release_expires_at_unix_ms = CASE
+               WHEN ROW(barrier_release_request, barrier_release_sequence)
+                    IS NOT DISTINCT FROM ROW(
+                        NEW.release_request_id,
+                        NEW.attempt_sequence
+                    )
+                    AND NOT (
+                        invocation_exists
+                        AND NEW.result_kind = 'ambiguous-error'
+                    ) THEN NULL
+               ELSE active_release_expires_at_unix_ms
+           END,
+           contract_mismatch_blocked =
+               contract_mismatch_blocked
+               OR NEW.result_kind = 'contract-mismatch',
+           unresolved_release_count = unresolved_release_count - CASE
+               WHEN NEW.result_kind IN ('released', 'already-released') THEN 1
+               ELSE 0
+           END,
+           incident_epoch = incident_epoch + CASE
+               WHEN NEW.result_kind = 'contract-mismatch' THEN 1
+               ELSE 0
+           END
+     WHERE singleton = true
+       AND (
+           NEW.result_kind NOT IN ('released', 'already-released')
+           OR unresolved_release_count > 0
+       );
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'nonce-release safety barrier counter underflow';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER p2tr_signature_fraud_apply_nonce_release_result_barrier_trigger
+AFTER INSERT ON p2tr_signature_fraud_challenge_nonce_release_result
+FOR EACH ROW EXECUTE FUNCTION p2tr_signature_fraud_apply_nonce_release_result_barrier();
+
+CREATE FUNCTION p2tr_signature_fraud_validate_nonce_release_resolution_insert()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    attempt p2tr_signature_fraud_challenge_nonce_release_attempt%ROWTYPE;
+    invocation p2tr_signature_fraud_challenge_nonce_release_invocation%ROWTYPE;
+    ambiguous_result p2tr_signature_fraud_challenge_nonce_release_result%ROWTYPE;
+    barrier_request bytea;
+    barrier_sequence integer;
+BEGIN
+    SELECT * INTO attempt
+    FROM p2tr_signature_fraud_challenge_nonce_release_attempt
+    WHERE release_request_id = NEW.release_request_id
+      AND attempt_sequence = NEW.attempt_sequence
+    FOR UPDATE;
+
+    SELECT * INTO invocation
+    FROM p2tr_signature_fraud_challenge_nonce_release_invocation
+    WHERE release_request_id = NEW.release_request_id
+      AND attempt_sequence = NEW.attempt_sequence;
+
+    SELECT * INTO ambiguous_result
+    FROM p2tr_signature_fraud_challenge_nonce_release_result
+    WHERE release_request_id = NEW.release_request_id
+      AND attempt_sequence = NEW.attempt_sequence;
+
+    SELECT active_release_request_id, active_release_attempt_sequence
+      INTO barrier_request, barrier_sequence
+      FROM p2tr_signature_fraud_nonce_allocator_safety_barrier
+     WHERE singleton = true
+     FOR UPDATE;
+
+    IF attempt.release_request_id IS NULL
+       OR invocation.release_request_id IS NULL
+       OR (
+           ambiguous_result.result_kind IS NOT NULL
+           AND ambiguous_result.result_kind <> 'ambiguous-error'
+       )
+       OR ROW(barrier_request, barrier_sequence) IS DISTINCT FROM ROW(
+           NEW.release_request_id,
+           NEW.attempt_sequence
+       )
+       OR NEW.attempt_owner <> attempt.owner
+       OR NEW.attempt_started_at_unix_ms <> attempt.started_at_unix_ms
+       OR NEW.attempt_expires_at_unix_ms <> attempt.expires_at_unix_ms
+       OR NEW.invoked_at_unix_ms <> invocation.invoked_at_unix_ms
+       OR NEW.resolution_evidence_digest <> sha256(
+           convert_to(
+               'tbtc-p2tr-nonce-release-independent-resolution-v1',
+               'UTF8'
+           )
+           || NEW.release_request_id
+           || int8send(NEW.attempt_sequence::bigint)
+           || sha256(convert_to(NEW.attempt_owner, 'UTF8'))
+           || int8send(NEW.attempt_started_at_unix_ms)
+           || int8send(NEW.attempt_expires_at_unix_ms)
+           || int8send(NEW.invoked_at_unix_ms)
+           || sha256(convert_to(NEW.outcome, 'UTF8'))
+           || NEW.provider_evidence_digest
+       )
+       OR NEW.resolved_at_unix_ms < COALESCE(
+           ambiguous_result.recorded_at_unix_ms,
+           invocation.invoked_at_unix_ms
+       )
+       OR NEW.primary_attested_at_unix_ms < invocation.invoked_at_unix_ms
+       OR NEW.corroborating_attested_at_unix_ms < invocation.invoked_at_unix_ms
+       OR NEW.primary_attested_at_unix_ms > NEW.resolved_at_unix_ms
+       OR NEW.corroborating_attested_at_unix_ms > NEW.resolved_at_unix_ms THEN
+        RAISE EXCEPTION 'independent nonce-release resolution lacks its exact sticky ambiguous invocation';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER p2tr_signature_fraud_validate_nonce_release_resolution_insert_trigger
+BEFORE INSERT ON p2tr_signature_fraud_challenge_nonce_release_resolution
+FOR EACH ROW EXECUTE FUNCTION p2tr_signature_fraud_validate_nonce_release_resolution_insert();
+
+CREATE FUNCTION p2tr_signature_fraud_apply_nonce_release_resolution_barrier()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    UPDATE p2tr_signature_fraud_nonce_allocator_safety_barrier
+       SET active_release_request_id = NULL,
+           active_release_attempt_sequence = NULL,
+           active_release_expires_at_unix_ms = NULL,
+           unresolved_release_count = unresolved_release_count - CASE
+               WHEN NEW.outcome IN ('released', 'already-released') THEN 1
+               ELSE 0
+           END,
+           contract_mismatch_blocked =
+               contract_mismatch_blocked
+               OR NEW.outcome = 'terminal-unsafe',
+           incident_epoch = incident_epoch + CASE
+               WHEN NEW.outcome = 'terminal-unsafe' THEN 1
+               ELSE 0
+           END
+     WHERE singleton = true
+       AND active_release_request_id = NEW.release_request_id
+       AND active_release_attempt_sequence = NEW.attempt_sequence
+       AND (
+           NEW.outcome = 'terminal-unsafe'
+           OR unresolved_release_count > 0
+       );
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'independent nonce-release resolution lost its durable barrier';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER p2tr_signature_fraud_apply_nonce_release_resolution_barrier_trigger
+AFTER INSERT ON p2tr_signature_fraud_challenge_nonce_release_resolution
+FOR EACH ROW EXECUTE FUNCTION p2tr_signature_fraud_apply_nonce_release_resolution_barrier();
 
 CREATE FUNCTION p2tr_signature_fraud_validate_variant_append()
 RETURNS trigger
@@ -2073,6 +3141,8 @@ DECLARE
     prior_record p2tr_signature_fraud_challenge_outbox%ROWTYPE;
     prior_kind text;
     attestation_count integer;
+    current_manifest_hash bytea;
+    max_active_records integer;
 BEGIN
     IF lower(NEW.record_state ->> 'recordID') <>
             '0x' || encode(NEW.record_id, 'hex')
@@ -2094,42 +3164,23 @@ BEGIN
         RAISE EXCEPTION 'new P2TR challenge generation must begin as an unsigned queued record';
     END IF;
 
-    IF NEW.activation_manifest_hash IS DISTINCT FROM (
-        SELECT manifest_hash
-          FROM p2tr_watchtower_activation_manifest
-         WHERE singleton = true
-    ) THEN
+    SELECT manifest_hash,
+           (payload #>> '{outbox,maxActiveOutboxRecords}')::integer
+      INTO current_manifest_hash, max_active_records
+      FROM p2tr_watchtower_activation_manifest
+     WHERE singleton = true
+     FOR SHARE;
+
+    IF current_manifest_hash IS NULL
+       OR NEW.activation_manifest_hash IS DISTINCT FROM current_manifest_hash THEN
         RAISE EXCEPTION 'new P2TR challenge generation is not bound to the current activation manifest';
     END IF;
 
-    IF EXISTS (
-        SELECT 1
-          FROM jsonb_array_elements_text(
-              NEW.canonical_provenance_event_ids
-          ) AS event_id(value)
-         WHERE value !~ '^0x[0-9a-f]{64}$'
-    ) OR (
-        SELECT count(*) <> count(DISTINCT value)
-          FROM jsonb_array_elements_text(
-              NEW.canonical_provenance_event_ids
-          ) AS event_id(value)
-    ) OR (
-        SELECT array_agg(value ORDER BY ordinality) IS DISTINCT FROM
-               array_agg(value ORDER BY value)
-          FROM jsonb_array_elements_text(
-              NEW.canonical_provenance_event_ids
-          ) WITH ORDINALITY AS event_id(value, ordinality)
-    ) OR NOT EXISTS (
-        SELECT 1
-          FROM jsonb_array_elements_text(
-              NEW.canonical_provenance_event_ids
-          ) AS event_id(value)
-         WHERE value = '0x' || encode(
-             NEW.canonical_input_binding_source_event_id,
-             'hex'
-         )
-    ) THEN
-        RAISE EXCEPTION 'canonical provenance event IDs must be sorted, unique, canonical, and include the input binding source';
+    -- Capacity is consumed only by the AFTER INSERT trigger. A BEFORE trigger
+    -- runs before uniqueness arbitration, so rejecting a full counter here
+    -- would break idempotent concurrent INSERT ... ON CONFLICT DO NOTHING.
+    IF max_active_records IS NULL THEN
+        RAISE EXCEPTION 'manifest-bound global active outbox capacity is invalid';
     END IF;
 
     IF NEW.generation = 0 THEN
@@ -2292,6 +3343,30 @@ CREATE TRIGGER p2tr_signature_fraud_validate_generation_insert_trigger
 BEFORE INSERT ON p2tr_signature_fraud_challenge_outbox
 FOR EACH ROW EXECUTE FUNCTION p2tr_signature_fraud_validate_generation_insert();
 
+CREATE FUNCTION p2tr_signature_fraud_consume_generation_capacity()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    UPDATE p2tr_signature_fraud_challenge_outbox_capacity
+       SET active_generation_count = active_generation_count + 1
+     WHERE singleton = true
+       AND active_generation_count < (
+           SELECT (payload #>> '{outbox,maxActiveOutboxRecords}')::integer
+             FROM p2tr_watchtower_activation_manifest
+            WHERE singleton = true
+       );
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'manifest-bound global active outbox capacity is exhausted or missing';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER p2tr_signature_fraud_consume_generation_capacity_trigger
+AFTER INSERT ON p2tr_signature_fraud_challenge_outbox
+FOR EACH ROW EXECUTE FUNCTION p2tr_signature_fraud_consume_generation_capacity();
+
 CREATE FUNCTION p2tr_signature_fraud_protect_outbox_update()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -2397,7 +3472,8 @@ BEGIN
         NEW.canonical_provenance_through_block_number,
         NEW.canonical_provenance_through_block_hash,
         NEW.canonical_provenance_history_root,
-        NEW.canonical_provenance_event_ids,
+        NEW.canonical_provenance_event_set_hash,
+        NEW.canonical_provenance_event_count,
         NEW.canonical_candidate_digest,
         NEW.canonical_provenance_challenge_key,
         NEW.canonical_readiness_certificate_id,
@@ -2477,7 +3553,8 @@ BEGIN
         OLD.canonical_provenance_through_block_number,
         OLD.canonical_provenance_through_block_hash,
         OLD.canonical_provenance_history_root,
-        OLD.canonical_provenance_event_ids,
+        OLD.canonical_provenance_event_set_hash,
+        OLD.canonical_provenance_event_count,
         OLD.canonical_candidate_digest,
         OLD.canonical_provenance_challenge_key,
         OLD.canonical_readiness_certificate_id,
@@ -2520,6 +3597,38 @@ BEGIN
         RAISE EXCEPTION 'P2TR challenge attempt counters cannot decrease';
     END IF;
 
+    IF OLD.status NOT IN (
+           'accepted-own', 'satisfied-external', 'terminal-reverted',
+           'terminal-nonce-consumed', 'generation-required',
+           'cancelled-before-broadcast', 'cancelled-honest-spend',
+           'cancelled-reorg', 'cancelled-provenance-invalidated'
+       ) AND NEW.status IN (
+           'accepted-own', 'satisfied-external', 'terminal-reverted',
+           'terminal-nonce-consumed', 'generation-required',
+           'cancelled-before-broadcast', 'cancelled-honest-spend',
+           'cancelled-reorg', 'cancelled-provenance-invalidated'
+       ) THEN
+        UPDATE p2tr_signature_fraud_challenge_outbox_capacity
+           SET active_generation_count = active_generation_count - 1
+         WHERE singleton = true
+           AND active_generation_count > 0;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'active outbox capacity counter underflow';
+        END IF;
+    ELSIF OLD.status IN (
+           'accepted-own', 'satisfied-external', 'terminal-reverted',
+           'terminal-nonce-consumed', 'generation-required',
+           'cancelled-before-broadcast', 'cancelled-honest-spend',
+           'cancelled-reorg', 'cancelled-provenance-invalidated'
+       ) AND NEW.status NOT IN (
+           'accepted-own', 'satisfied-external', 'terminal-reverted',
+           'terminal-nonce-consumed', 'generation-required',
+           'cancelled-before-broadcast', 'cancelled-honest-spend',
+           'cancelled-reorg', 'cancelled-provenance-invalidated'
+       ) THEN
+        RAISE EXCEPTION 'terminal outbox generations cannot reactivate capacity';
+    END IF;
+
     IF OLD.nonce_reservation_id IS NOT NULL THEN
         SELECT voided_before_sign_at_unix_ms INTO reservation_voided_at
         FROM p2tr_signature_fraud_challenge_nonce_guard
@@ -2549,6 +3658,60 @@ BEGIN
 
     IF OLD.selected_signer_lane_id IS NULL
        AND NEW.selected_signer_lane_id IS NOT NULL THEN
+        PERFORM 1
+        FROM p2tr_signature_fraud_signer_lane_configuration
+        WHERE activation_manifest_hash = NEW.activation_manifest_hash
+          AND chain_id = NEW.chain_id
+          AND signer_lane_id = NEW.selected_signer_lane_id
+          AND signer_identity = NEW.selected_signer_identity
+          AND sender = NEW.selected_sender
+          AND enabled
+        FOR UPDATE;
+
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'selected signer lane is not enabled by the current manifest';
+        END IF;
+
+        IF EXISTS (
+            SELECT 1
+            FROM p2tr_signature_fraud_challenge_nonce_release_request r
+            WHERE r.chain_id = NEW.chain_id
+              AND (r.signer_lane_id = NEW.selected_signer_lane_id
+                   OR r.signer_identity = NEW.selected_signer_identity
+                   OR r.sender = NEW.selected_sender)
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM p2tr_signature_fraud_challenge_nonce_release_terminal x
+                  WHERE x.release_request_id = r.release_request_id
+              )
+        ) THEN
+            RAISE EXCEPTION 'selected signer lane has an unacknowledged nonce release';
+        END IF;
+
+        IF EXISTS (
+            SELECT 1
+            FROM p2tr_signature_fraud_challenge_signer_quarantine q
+            WHERE q.chain_id = NEW.chain_id
+              AND (q.signer_lane_id = NEW.selected_signer_lane_id
+                   OR q.signer_identity = NEW.selected_signer_identity
+                   OR q.expected_sender = NEW.selected_sender)
+        ) THEN
+            RAISE EXCEPTION 'selected P2TR challenge signer lane is quarantined';
+        END IF;
+
+        IF EXISTS (
+            SELECT 1
+            FROM p2tr_signature_fraud_challenge_critical_alert a
+            WHERE a.code = 'reservation-release-failed'
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM p2tr_signature_fraud_challenge_critical_alert_resolution ar
+                  WHERE ar.alert_id = a.alert_id
+              )
+        ) THEN
+            RAISE EXCEPTION 'nonce allocator contract mismatch globally blocks signer lanes';
+        END IF;
+
         PERFORM 1
         FROM p2tr_signature_fraud_challenge_fee_policy
         WHERE record_id = NEW.record_id
@@ -2619,6 +3782,93 @@ BEGIN
            OLD.signer_invocation_started_at_unix_ms THEN
         RAISE EXCEPTION 'P2TR challenge signer invocation boundary is immutable';
     END IF;
+    IF OLD.active_signer_invocation_started_at_unix_ms IS NOT NULL
+       AND NEW.active_signer_invocation_started_at_unix_ms IS NOT NULL
+       AND NEW.active_signer_invocation_started_at_unix_ms IS DISTINCT FROM
+           OLD.active_signer_invocation_started_at_unix_ms THEN
+        RAISE EXCEPTION 'active signer invocation boundary cannot be replaced in flight';
+    END IF;
+    IF OLD.active_signer_invocation_started_at_unix_ms IS NULL
+       AND NEW.active_signer_invocation_started_at_unix_ms IS NOT NULL THEN
+        -- Reacquire the exact manifest lane lock at the irreversible signer
+        -- boundary. A lane can be selected long before signing; release-journal
+        -- or quarantine evidence committed in between must still win this
+        -- serialization race and keep the signer closed.
+        PERFORM 1
+        FROM p2tr_signature_fraud_signer_lane_configuration
+        WHERE activation_manifest_hash = NEW.activation_manifest_hash
+          AND chain_id = NEW.chain_id
+          AND signer_lane_id = NEW.selected_signer_lane_id
+          AND signer_identity = NEW.selected_signer_identity
+          AND sender = NEW.selected_sender
+          AND enabled
+        FOR UPDATE;
+
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'signer invocation lane is not enabled by the current manifest';
+        END IF;
+
+        IF EXISTS (
+            SELECT 1
+            FROM p2tr_signature_fraud_challenge_nonce_release_request r
+            WHERE r.chain_id = NEW.chain_id
+              AND (r.signer_lane_id = NEW.selected_signer_lane_id
+                   OR r.signer_identity = NEW.selected_signer_identity
+                   OR r.sender = NEW.selected_sender)
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM p2tr_signature_fraud_challenge_nonce_release_terminal x
+                  WHERE x.release_request_id = r.release_request_id
+              )
+        ) THEN
+            RAISE EXCEPTION 'signer invocation lane has an unacknowledged nonce release';
+        END IF;
+
+        IF EXISTS (
+            SELECT 1
+            FROM p2tr_signature_fraud_challenge_signer_quarantine q
+            WHERE q.chain_id = NEW.chain_id
+              AND (q.signer_lane_id = NEW.selected_signer_lane_id
+                   OR q.signer_identity = NEW.selected_signer_identity
+                   OR q.expected_sender = NEW.selected_sender)
+        ) THEN
+            RAISE EXCEPTION 'signer invocation lane is quarantined';
+        END IF;
+
+        IF EXISTS (
+            SELECT 1
+            FROM p2tr_signature_fraud_challenge_critical_alert a
+            WHERE a.code = 'reservation-release-failed'
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM p2tr_signature_fraud_challenge_critical_alert_resolution ar
+                  WHERE ar.alert_id = a.alert_id
+              )
+        ) THEN
+            RAISE EXCEPTION 'nonce allocator contract mismatch globally blocks signer invocation';
+        END IF;
+
+        UPDATE p2tr_signature_fraud_nonce_allocator_safety_barrier
+           SET active_signer_invocation_count =
+                   active_signer_invocation_count + 1
+         WHERE singleton = true
+           AND active_release_request_id IS NULL
+           AND unresolved_release_count = 0
+           AND NOT contract_mismatch_blocked;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'signer invocation is blocked by active nonce-release I/O';
+        END IF;
+    ELSIF OLD.active_signer_invocation_started_at_unix_ms IS NOT NULL
+       AND NEW.active_signer_invocation_started_at_unix_ms IS NULL THEN
+        UPDATE p2tr_signature_fraud_nonce_allocator_safety_barrier
+           SET active_signer_invocation_count =
+                   active_signer_invocation_count - 1
+         WHERE singleton = true
+           AND active_signer_invocation_count > 0;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'active signer invocation barrier counter underflow';
+        END IF;
+    END IF;
     IF NEW.signer_invocation_started_at_unix_ms IS NOT NULL
        AND NEW.nonce_reservation_id IS NULL THEN
         RAISE EXCEPTION 'signer invocation requires a durable bound nonce reservation';
@@ -2647,11 +3897,6 @@ BEGIN
        AND NEW.nonce_disposition_id IS DISTINCT FROM OLD.nonce_disposition_id THEN
         RAISE EXCEPTION 'P2TR challenge nonce disposition link is immutable';
     END IF;
-    IF OLD.signer_quarantine_id IS NOT NULL
-       AND NEW.signer_quarantine_id IS DISTINCT FROM OLD.signer_quarantine_id THEN
-        RAISE EXCEPTION 'P2TR challenge signer quarantine link is immutable';
-    END IF;
-
     IF OLD.lane_released_at_unix_ms IS NOT NULL
        AND NEW.lane_released_at_unix_ms IS DISTINCT FROM OLD.lane_released_at_unix_ms THEN
         RAISE EXCEPTION 'P2TR challenge nonce lane release is immutable';
@@ -2863,6 +4108,7 @@ BEGIN
             NEW.sender,
             NEW.transaction_nonce,
             NEW.reservation_binding,
+            NEW.reservation_epoch,
             NEW.parent_reservation_id,
             NEW.guarded_at_unix_ms
        ) IS DISTINCT FROM ROW(
@@ -2875,10 +4121,20 @@ BEGIN
             OLD.sender,
             OLD.transaction_nonce,
             OLD.reservation_binding,
+            OLD.reservation_epoch,
             OLD.parent_reservation_id,
             OLD.guarded_at_unix_ms
        ) THEN
         RAISE EXCEPTION 'P2TR challenge nonce guard mutation is not a safe pre-sign void';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM p2tr_signature_fraud_challenge_escaped_envelope ee
+        WHERE ee.actual_guard_record_id = OLD.record_id
+          AND ee.actual_nonce_guard_id = OLD.nonce_guard_id
+    ) THEN
+        RAISE EXCEPTION 'nonce guard referenced by escaped signed bytes cannot be voided';
     END IF;
 
     PERFORM 1
@@ -2925,6 +4181,26 @@ FOR EACH ROW EXECUTE FUNCTION p2tr_signature_fraud_reject_append_only_mutation()
 CREATE TRIGGER p2tr_signature_fraud_validate_nonce_guard_void_trigger
 BEFORE UPDATE OR DELETE ON p2tr_signature_fraud_challenge_nonce_guard
 FOR EACH ROW EXECUTE FUNCTION p2tr_signature_fraud_validate_nonce_guard_void();
+
+CREATE TRIGGER p2tr_signature_fraud_reject_nonce_release_request_mutation_trigger
+BEFORE UPDATE OR DELETE ON p2tr_signature_fraud_challenge_nonce_release_request
+FOR EACH ROW EXECUTE FUNCTION p2tr_signature_fraud_reject_append_only_mutation();
+
+CREATE TRIGGER p2tr_signature_fraud_reject_nonce_release_attempt_mutation_trigger
+BEFORE UPDATE OR DELETE ON p2tr_signature_fraud_challenge_nonce_release_attempt
+FOR EACH ROW EXECUTE FUNCTION p2tr_signature_fraud_reject_append_only_mutation();
+
+CREATE TRIGGER p2tr_signature_fraud_reject_nonce_release_invocation_mutation_trigger
+BEFORE UPDATE OR DELETE ON p2tr_signature_fraud_challenge_nonce_release_invocation
+FOR EACH ROW EXECUTE FUNCTION p2tr_signature_fraud_reject_append_only_mutation();
+
+CREATE TRIGGER p2tr_signature_fraud_reject_nonce_release_result_mutation_trigger
+BEFORE UPDATE OR DELETE ON p2tr_signature_fraud_challenge_nonce_release_result
+FOR EACH ROW EXECUTE FUNCTION p2tr_signature_fraud_reject_append_only_mutation();
+
+CREATE TRIGGER p2tr_signature_fraud_reject_nonce_release_resolution_mutation_trigger
+BEFORE UPDATE OR DELETE ON p2tr_signature_fraud_challenge_nonce_release_resolution
+FOR EACH ROW EXECUTE FUNCTION p2tr_signature_fraud_reject_append_only_mutation();
 
 CREATE TRIGGER p2tr_signature_fraud_reject_variant_mutation_trigger
 BEFORE UPDATE OR DELETE ON p2tr_signature_fraud_challenge_outbox_variant
@@ -2976,6 +4252,10 @@ FOR EACH ROW EXECUTE FUNCTION p2tr_signature_fraud_reject_append_only_mutation()
 
 CREATE TRIGGER p2tr_signature_fraud_reject_critical_alert_mutation_trigger
 BEFORE UPDATE OR DELETE ON p2tr_signature_fraud_challenge_critical_alert
+FOR EACH ROW EXECUTE FUNCTION p2tr_signature_fraud_reject_append_only_mutation();
+
+CREATE TRIGGER p2tr_signature_fraud_reject_critical_alert_resolution_mutation_trigger
+BEFORE UPDATE OR DELETE ON p2tr_signature_fraud_challenge_critical_alert_resolution
 FOR EACH ROW EXECUTE FUNCTION p2tr_signature_fraud_reject_append_only_mutation();
 
 -- Extend migration 002's manifest monotonicity trigger in place. Because the
@@ -3187,6 +4467,13 @@ BEGIN
                    THEN o.preparation_lease_expires_at_unix_ms
                ELSE NULL
            END,
+           preparation_resume_status = CASE
+               WHEN o.selected_signer_lane_id IS NOT NULL
+                    AND o.nonce_reservation_id IS NULL
+                    AND o.signer_invocation_started_at_unix_ms IS NULL
+                   THEN o.preparation_resume_status
+               ELSE NULL
+           END,
            selected_signer_lane_id = CASE
                WHEN o.selected_signer_lane_id IS NOT NULL
                     AND o.nonce_reservation_id IS NULL
@@ -3228,7 +4515,13 @@ BEGIN
                jsonb_set(
                    jsonb_set(
                        jsonb_set(
-                           o.record_state,
+                           CASE
+                               WHEN o.selected_signer_lane_id IS NOT NULL
+                                    AND o.nonce_reservation_id IS NULL
+                                    AND o.signer_invocation_started_at_unix_ms IS NULL
+                                   THEN o.record_state
+                               ELSE o.record_state - 'preparationResumeStatus'
+                           END,
                            '{status}',
                            to_jsonb(CASE
                                WHEN o.status IN (

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict"
+import { AsyncLocalStorage } from "node:async_hooks"
 import { readFile } from "node:fs/promises"
 import { generateKeyPairSync, sign } from "node:crypto"
 import test from "node:test"
@@ -18,8 +19,10 @@ import {
 
 import {
   P2TRSignatureFraudCanonicalProvenanceInvalidationEvidence,
+  P2TRSignatureFraudChallengeOutboxEligibilitySnapshot,
   P2TRSignatureFraudChallengeOutboxRecord,
   computeP2TRSignatureFraudCanonicalCandidateDigest,
+  computeP2TRSignatureFraudCanonicalEventSetHash,
   computeP2TRSignatureFraudCanonicalProvenanceFingerprint,
   computeP2TRSignatureFraudCanonicalProvenanceInvalidationEvidenceHash,
   computeP2TRSignatureFraudChallengeFeePolicyHash,
@@ -32,6 +35,7 @@ import {
   PostgresP2TRSignatureFraudChallengeOutboxStore,
   computeP2TRProductionSignerLaneConfigurationHash,
 } from "../src/PostgresP2TRSignatureFraudChallengeOutboxStore.js"
+import type { P2TRSignatureFraudWatchtowerTransactionCoordinator } from "../src/types.js"
 
 const postgresURL = process.env.P2TR_WATCHTOWER_TEST_POSTGRES_URL
 const postgresTest = postgresURL === undefined ? test.skip : test
@@ -63,7 +67,9 @@ type TestDatabase = {
   store: PostgresP2TRSignatureFraudChallengeOutboxStore
 }
 
-async function createTestDatabase(): Promise<TestDatabase> {
+async function createTestDatabase(
+  maxActiveOutboxRecords = 1_024
+): Promise<TestDatabase> {
   const client = new Client({ connectionString: postgresURL })
   await client.connect()
   const schema = `p2tr_outbox_${process.pid}_${++schemaSequence}`
@@ -84,7 +90,7 @@ async function createTestDatabase(): Promise<TestDatabase> {
       )
     )
   }
-  await seedCanonicalPoint(client)
+  await seedCanonicalPoint(client, maxActiveOutboxRecords)
   await client.query("BEGIN")
   const store = createStore(client)
   await store.installSignerLaneConfiguration(signerConfiguration())
@@ -92,12 +98,31 @@ async function createTestDatabase(): Promise<TestDatabase> {
   return { client, schema, store }
 }
 
-function createStore(client: PostgreSQLClient) {
+function createStore(
+  client: PostgreSQLClient,
+  transactionCoordinator: Pick<
+    P2TRSignatureFraudWatchtowerTransactionCoordinator,
+    "runInP2TRSignatureFraudWatchtowerTransaction"
+  > & {
+    isP2TRSignatureFraudWatchtowerTransactionActive(): boolean
+  } = {
+    runInP2TRSignatureFraudWatchtowerTransaction: (operation) => operation(),
+    isP2TRSignatureFraudWatchtowerTransactionActive: () => false,
+  },
+  assertTransactionSession: () => void = () => undefined,
+  loadEligibilitySnapshot: () => Promise<P2TRSignatureFraudChallengeOutboxEligibilitySnapshot> = async () => {
+    throw new Error(
+      "Eligibility loading is outside this adapter integration test"
+    )
+  }
+) {
   return new PostgresP2TRSignatureFraudChallengeOutboxStore({
     storeID: "postgres.integration",
     session: client,
-    assertTransactionSession: () => undefined,
+    transactionCoordinator,
+    assertTransactionSession,
     broadcastProviderID: "broadcast.integration",
+    assertIndependentNonceReleaseResolution: () => true as const,
     lockAndAssertCurrentCanonicalProvenance: async (session, binding) => {
       await session.query("SELECT pg_advisory_xact_lock_shared(7142001)")
       const result = await session.query<{ current: boolean }>(
@@ -145,15 +170,63 @@ function createStore(client: PostgreSQLClient) {
     lockAndAssertCanonicalProvenanceInvalidation: async (session) => {
       await session.query("SELECT pg_advisory_xact_lock(7142001)")
     },
-    loadEligibilitySnapshot: async () => {
-      throw new Error(
-        "Eligibility loading is outside this adapter integration test"
-      )
-    },
+    loadEligibilitySnapshot,
   })
 }
 
-async function seedCanonicalPoint(client: PostgreSQLClient): Promise<void> {
+function createManagedStore(
+  client: PostgreSQLClient,
+  snapshot: P2TRSignatureFraudChallengeOutboxEligibilitySnapshot
+) {
+  const transaction = new AsyncLocalStorage<boolean>()
+  const coordinator = {
+    isP2TRSignatureFraudWatchtowerTransactionActive(): boolean {
+      return transaction.getStore() === true
+    },
+    async runInP2TRSignatureFraudWatchtowerTransaction<T>(
+      operation: () => Promise<T>
+    ): Promise<T> {
+      if (transaction.getStore() === true) return operation()
+      await client.query("BEGIN")
+      try {
+        const result = await transaction.run(true, operation)
+        await client.query("COMMIT")
+        return result
+      } catch (error) {
+        await client.query("ROLLBACK")
+        throw error
+      }
+    },
+  }
+  return createStore(
+    client,
+    coordinator,
+    () => {
+      if (transaction.getStore() !== true) {
+        throw new Error("PostgreSQL session is outside its minted transaction")
+      }
+    },
+    async () => snapshot
+  )
+}
+
+function eligibilitySnapshotFor(
+  record: P2TRSignatureFraudChallengeOutboxRecord
+): P2TRSignatureFraudChallengeOutboxEligibilitySnapshot {
+  return {
+    challengeRecord: {
+      observationID: record.intent.observationID,
+      status: "observed",
+      submissionAttempts: 0,
+      challengeBroadcastReconciliationAttempts: 0,
+    },
+  } as P2TRSignatureFraudChallengeOutboxEligibilitySnapshot
+}
+
+async function seedCanonicalPoint(
+  client: PostgreSQLClient,
+  maxActiveOutboxRecords: number
+): Promise<void> {
   const zero = Buffer.alloc(32)
   const blockHash = Buffer.from(ETHEREUM_BLOCK_HASH.slice(2), "hex")
   await client.query(
@@ -190,8 +263,12 @@ async function seedCanonicalPoint(client: PostgreSQLClient): Promise<void> {
     `INSERT INTO p2tr_watchtower_activation_manifest (
         singleton, activation_sequence, manifest_hash,
         trusted_signer_key_hash, payload, envelope
-     ) VALUES (true, 1, $1, $2, '{}'::jsonb, '{}'::jsonb)`,
-    [Buffer.from(MANIFEST_HASH.slice(2), "hex"), zero]
+     ) VALUES (true, 1, $1, $2, $3::jsonb, '{}'::jsonb)`,
+    [
+      Buffer.from(MANIFEST_HASH.slice(2), "hex"),
+      zero,
+      JSON.stringify({ outbox: { maxActiveOutboxRecords } }),
+    ]
   )
 }
 
@@ -279,9 +356,7 @@ function outboxRecord(seed: number): P2TRSignatureFraudChallengeOutboxRecord {
   ])
   const intentWithoutID = {
     protocol: P2TR_SIGNATURE_FRAUD_COMPLETE_V2_PROTOCOL,
-    evidenceProtocolID: Hex.from(
-      P2TR_SIGNATURE_FRAUD_COMPLETE_V2_PROTOCOL_ID
-    ),
+    evidenceProtocolID: Hex.from(P2TR_SIGNATURE_FRAUD_COMPLETE_V2_PROTOCOL_ID),
     observationID: Hex.from(hex(1)),
     inputIndex: 0,
     bridgeChallengeKey: bridgeChallengeIdentity,
@@ -317,7 +392,8 @@ function outboxRecord(seed: number): P2TRSignatureFraudChallengeOutboxRecord {
     throughBlockNumber: 500,
     throughBlockHash: ETHEREUM_BLOCK_HASH,
     historyRoot: hex(10),
-    eventIDs: [hex(11)],
+    eventSetHash: computeP2TRSignatureFraudCanonicalEventSetHash([hex(11)]),
+    eventCount: 1,
     challengeKey: intent.bridgeChallengeKey.toPrefixedString(),
     candidateDigest: computeP2TRSignatureFraudCanonicalCandidateDigest(
       candidate,
@@ -585,6 +661,204 @@ const activationRequest = {
   },
 }
 
+postgresTest(
+  "keeps eligibility enqueue and caller cursor effects atomic and invisible until commit",
+  async () => {
+    const database = await createTestDatabase()
+    const first = outboxRecord(2)
+    const managed = createManagedStore(
+      database.client,
+      eligibilitySnapshotFor(first)
+    )
+    const observer = await openSchemaClient(database.schema)
+    let markInserted!: () => void
+    let releaseCommit!: () => void
+    const inserted = new Promise<void>((resolve) => {
+      markInserted = resolve
+    })
+    const commitGate = new Promise<void>((resolve) => {
+      releaseCommit = resolve
+    })
+
+    const pending = managed.runInEligibilityTransaction(
+      first.intent.observationID.toPrefixedString(),
+      async () => {
+        await database.client.query(
+          "UPDATE p2tr_ethereum_cursor SET generation = generation + 1 WHERE singleton = true"
+        )
+        await managed.insertGenerationIfAbsent(first)
+        markInserted()
+        await commitGate
+        return first.recordID
+      }
+    )
+    await inserted
+    const beforeCommit = await observer.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM p2tr_signature_fraud_challenge_outbox"
+    )
+    assert.equal(beforeCommit.rows[0].count, "0")
+    releaseCommit()
+    assert.equal(await pending, first.recordID)
+    const afterCommit = await observer.query<{
+      count: string
+      generation: string
+    }>(
+      `SELECT
+         (SELECT count(*)::text FROM p2tr_signature_fraud_challenge_outbox) AS count,
+         (SELECT generation::text FROM p2tr_ethereum_cursor WHERE singleton) AS generation`
+    )
+    assert.deepEqual(afterCommit.rows[0], { count: "1", generation: "2" })
+
+    const second = outboxRecord(3)
+    const rollbackStore = createManagedStore(
+      database.client,
+      eligibilitySnapshotFor(second)
+    )
+    await assert.rejects(
+      rollbackStore.runInEligibilityTransaction(
+        second.intent.observationID.toPrefixedString(),
+        async () => {
+          await database.client.query(
+            "UPDATE p2tr_ethereum_cursor SET generation = generation + 1 WHERE singleton = true"
+          )
+          await rollbackStore.insertGenerationIfAbsent(second)
+          throw new Error("simulated caller crash")
+        }
+      ),
+      /simulated caller crash/
+    )
+    const afterRollback = await observer.query<{
+      count: string
+      generation: string
+    }>(
+      `SELECT
+         (SELECT count(*)::text FROM p2tr_signature_fraud_challenge_outbox) AS count,
+         (SELECT generation::text FROM p2tr_ethereum_cursor WHERE singleton) AS generation`
+    )
+    assert.deepEqual(afterRollback.rows[0], { count: "1", generation: "2" })
+    await observer.end()
+    await database.client.end()
+  }
+)
+
+postgresTest(
+  "serializes concurrent enqueues at the signed manifest capacity without advancing the losing cursor",
+  async () => {
+    const database = await createTestDatabase(1)
+    const secondClient = await openSchemaClient(database.schema)
+    const first = outboxRecord(4)
+    const second = outboxRecord(5)
+    const firstStore = createManagedStore(
+      database.client,
+      eligibilitySnapshotFor(first)
+    )
+    const secondStore = createManagedStore(
+      secondClient,
+      eligibilitySnapshotFor(second)
+    )
+    const enqueue = (
+      client: PostgreSQLClient,
+      store: PostgresP2TRSignatureFraudChallengeOutboxStore,
+      record: P2TRSignatureFraudChallengeOutboxRecord
+    ) =>
+      store.runInEligibilityTransaction(
+        record.intent.observationID.toPrefixedString(),
+        async () => {
+          await client.query(
+            "UPDATE p2tr_ethereum_cursor SET generation = generation + 1 WHERE singleton = true"
+          )
+          return store.insertGenerationIfAbsent(record)
+        }
+      )
+
+    const results = await Promise.allSettled([
+      enqueue(database.client, firstStore, first),
+      enqueue(secondClient, secondStore, second),
+    ])
+    assert.equal(
+      results.filter(({ status }) => status === "fulfilled").length,
+      1
+    )
+    const rejected = results.find(({ status }) => status === "rejected")
+    assert.equal(rejected?.status, "rejected")
+    assert.match(
+      String((rejected as PromiseRejectedResult).reason),
+      /manifest-bound global active outbox capacity is exhausted/i
+    )
+    const durable = await database.client.query<{
+      count: string
+      generation: string
+    }>(
+      `SELECT
+         (SELECT count(*)::text FROM p2tr_signature_fraud_challenge_outbox) AS count,
+         (SELECT generation::text FROM p2tr_ethereum_cursor WHERE singleton) AS generation`
+    )
+    assert.deepEqual(durable.rows[0], { count: "1", generation: "2" })
+    await secondClient.end()
+    await database.client.end()
+  }
+)
+
+postgresTest(
+  "keeps a concurrent identical enqueue idempotent when capacity is full",
+  async () => {
+    const database = await createTestDatabase(1)
+    const secondClient = await openSchemaClient(database.schema)
+    const record = outboxRecord(6)
+    const firstStore = createManagedStore(
+      database.client,
+      eligibilitySnapshotFor(record)
+    )
+    const secondStore = createManagedStore(
+      secondClient,
+      eligibilitySnapshotFor(record)
+    )
+
+    const [first, second] = await Promise.all([
+      firstStore.insertGenerationIfAbsent(record),
+      secondStore.insertGenerationIfAbsent(record),
+    ])
+
+    assert.equal(first.recordID, record.recordID)
+    assert.equal(second.recordID, record.recordID)
+    const durable = await database.client.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM p2tr_signature_fraud_challenge_outbox"
+    )
+    assert.equal(durable.rows[0].count, "1")
+    await secondClient.end()
+    await database.client.end()
+  }
+)
+
+postgresTest(
+  "rejects non-schema evidence fields instead of persisting raw payload aliases",
+  async () => {
+    const database = await createTestDatabase()
+    const record = outboxRecord(7)
+    const polluted = {
+      ...record,
+      evidenceCheckpoint: {
+        ...record.evidenceCheckpoint,
+        bitcoinTransaction: `0x${"01".repeat(128)}`,
+      },
+    } as P2TRSignatureFraudChallengeOutboxRecord
+    const managed = createManagedStore(
+      database.client,
+      eligibilitySnapshotFor(record)
+    )
+
+    await assert.rejects(
+      managed.insertGenerationIfAbsent(polluted),
+      /evidence checkpoint contains unsupported durable field bitcoinTransaction/
+    )
+    const durable = await database.client.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM p2tr_signature_fraud_challenge_outbox"
+    )
+    assert.equal(durable.rows[0].count, "0")
+    await database.client.end()
+  }
+)
+
 function activationRequestFor(manifestHash: string) {
   return {
     ...activationRequest,
@@ -709,6 +983,164 @@ postgresTest(
 )
 
 postgresTest(
+  "atomically inserts and tombstones a reservation returned after invalidation won",
+  async () => {
+    const database = await createTestDatabase()
+    const initial = outboxRecord(41)
+    await insertRecord(database, initial)
+    await begin(database.client)
+    const selected = selectedRecord(initial)
+    assert.equal(
+      await database.store.compareAndSwap(
+        initial.recordID,
+        initial.version,
+        selected
+      ),
+      true
+    )
+    await commit(database.client)
+
+    await begin(database.client)
+    const [invalidated] = await database.store.invalidateCanonicalProvenance(
+      invalidationEvidence(initial)
+    )
+    await commit(database.client)
+    assert.equal(invalidated.status, "preparing")
+    assert.equal(invalidated.reservedNonce, undefined)
+    const reservation = reservedRecord(selected).reservedNonce!
+    const voidedAtUnixMs = 2_100
+    const tombstoned: P2TRSignatureFraudChallengeOutboxRecord = {
+      ...invalidated,
+      status: "cancelled-provenance-invalidated",
+      version: invalidated.version + 1,
+      preparationLease: undefined,
+      preparationSender: undefined,
+      selectedLaneID: undefined,
+      selectedSignerIdentity: undefined,
+      voidedNonceReservations: [
+        {
+          reservation,
+          voidedAtUnixMs,
+          reasonCode: "reservation-abandoned",
+          reason: "canonical provenance was invalidated before signing",
+          evidenceDigest: `0x${"f1".repeat(32)}`,
+        },
+      ],
+      updatedAtUnixMs: voidedAtUnixMs,
+      lastError: "canonical provenance was invalidated before signing",
+    }
+    await begin(database.client)
+    assert.equal(
+      await database.store.compareAndSwap(
+        initial.recordID,
+        invalidated.version,
+        tombstoned
+      ),
+      true
+    )
+    await commit(database.client)
+    const guard = await database.client.query<{
+      guard: string
+      voided: string
+      reason: string
+    }>(
+      `SELECT encode(nonce_guard_id, 'hex') AS guard,
+              voided_before_sign_at_unix_ms::text AS voided,
+              void_reason AS reason
+         FROM p2tr_signature_fraud_challenge_nonce_guard`
+    )
+    assert.deepEqual(guard.rows, [
+      {
+        guard: reservation.reservationID.toPrefixedString().slice(2),
+        voided: String(voidedAtUnixMs),
+        reason: "reservation-abandoned",
+      },
+    ])
+    await database.client.end()
+  }
+)
+
+postgresTest(
+  "atomically tombstones a reservation returned after lease recovery cleared the lane",
+  async () => {
+    const database = await createTestDatabase()
+    const initial = outboxRecord(44)
+    await insertRecord(database, initial)
+    const selected = selectedRecord(initial)
+    const reservation = reservedRecord(selected).reservedNonce!
+    const recovered: P2TRSignatureFraudChallengeOutboxRecord = {
+      ...selected,
+      status: "queued",
+      version: selected.version + 1,
+      preparationLease: undefined,
+      preparationSender: undefined,
+      selectedLaneID: undefined,
+      selectedSignerIdentity: undefined,
+      updatedAtUnixMs: 40_001,
+      lastError:
+        "Challenge outbox preparation lease expired before signer invocation",
+    }
+    await begin(database.client)
+    assert.equal(
+      await database.store.compareAndSwap(
+        initial.recordID,
+        initial.version,
+        selected
+      ),
+      true
+    )
+    assert.equal(
+      await database.store.compareAndSwap(
+        selected.recordID,
+        selected.version,
+        recovered
+      ),
+      true
+    )
+    await commit(database.client)
+
+    const voidedAtUnixMs = 40_002
+    const tombstoned: P2TRSignatureFraudChallengeOutboxRecord = {
+      ...recovered,
+      version: recovered.version + 1,
+      voidedNonceReservations: [
+        {
+          reservation,
+          voidedAtUnixMs,
+          reasonCode: "reservation-expired",
+          reason:
+            "Nonce reservation returned after its durable preparation claim was lost",
+          evidenceDigest: `0x${"f2".repeat(32)}`,
+        },
+      ],
+      updatedAtUnixMs: voidedAtUnixMs,
+    }
+    await begin(database.client)
+    assert.equal(
+      await database.store.compareAndSwap(
+        recovered.recordID,
+        recovered.version,
+        tombstoned
+      ),
+      true
+    )
+    await commit(database.client)
+    const guard = await database.client.query<{
+      voided: string
+      reason: string
+    }>(
+      `SELECT voided_before_sign_at_unix_ms::text AS voided,
+              void_reason AS reason
+         FROM p2tr_signature_fraud_challenge_nonce_guard`
+    )
+    assert.deepEqual(guard.rows, [
+      { voided: String(voidedAtUnixMs), reason: "reservation-expired" },
+    ])
+    await database.client.end()
+  }
+)
+
+postgresTest(
   "persists exact late signer bytes after provenance invalidation",
   async () => {
     const database = await createTestDatabase()
@@ -797,7 +1229,122 @@ postgresTest(
     assert.deepEqual(ledger.rows[0], {
       raw_transaction: rawTransaction.slice(2),
       incidents: "2",
+      alerts: "2",
+    })
+    await database.client.end()
+  }
+)
+
+postgresTest(
+  "persists valid late signer bytes after an expired lease wins the state CAS",
+  async () => {
+    const database = await createTestDatabase()
+    const initial = outboxRecord(52)
+    await insertRecord(database, initial)
+    const reserved = await advanceToReservation(database, initial)
+    const signerBoundary: P2TRSignatureFraudChallengeOutboxRecord = {
+      ...reserved,
+      version: reserved.version + 1,
+      updatedAtUnixMs: 1_300,
+      signerInvocationStartedAtUnixMs: 1_300,
+      activeSignerInvocationStartedAtUnixMs: 1_300,
+    }
+    await begin(database.client)
+    assert.equal(
+      await database.store.compareAndSwap(
+        reserved.recordID,
+        reserved.version,
+        signerBoundary
+      ),
+      true
+    )
+    await commit(database.client)
+    const expired: P2TRSignatureFraudChallengeOutboxRecord = {
+      ...signerBoundary,
+      status: "quarantined",
+      version: signerBoundary.version + 1,
+      preparationLease: undefined,
+      activeSignerInvocationStartedAtUnixMs: undefined,
+      signerQuarantines: [
+        {
+          laneID: LANE_ID,
+          signerIdentity: SIGNER_IDENTITY,
+          expectedSender: WALLET.address,
+          expectedNonce: 7,
+          reservationID:
+            signerBoundary.reservedNonce!.reservationID.toPrefixedString(),
+          reasonCode: "ambiguous-signer-invocation",
+          quarantinedAtUnixMs: 40_001,
+          reason:
+            "Challenge outbox preparation lease expired after the signer boundary; nonce lane retained",
+          detailsDigest: `0x${"f1".repeat(32)}`,
+        },
+      ],
+      updatedAtUnixMs: 40_001,
+      lastError:
+        "Challenge outbox preparation lease expired after the signer boundary; nonce lane retained",
+    }
+    await begin(database.client)
+    assert.equal(
+      await database.store.compareAndSwap(
+        signerBoundary.recordID,
+        signerBoundary.version,
+        expired
+      ),
+      true
+    )
+    await commit(database.client)
+
+    const rawTransaction = await WALLET.signTransaction({
+      type: 2,
+      chainId: CHAIN_ID,
+      to: initial.intent.routerAddress,
+      data: initial.intent.calldata,
+      value: initial.intent.value,
+      nonce: 7,
+      gasLimit: 100_000,
+      maxFeePerGas: 100,
+      maxPriorityFeePerGas: 10,
+    })
+    const transactionHash = utils.keccak256(rawTransaction)
+    const managed = createManagedStore(
+      database.client,
+      eligibilitySnapshotFor(initial)
+    )
+    const captured = await managed.captureEscapedSignedArtifact(
+      initial.recordID,
+      initial.canonicalProvenance.provenanceFingerprint,
+      {
+        expectedReservationID:
+          signerBoundary.reservedNonce!.reservationID.toPrefixedString(),
+        capturedAtUnixMs: 40_002,
+        reason: "signer returned after its preparation lease expired",
+        preparedTransaction: {
+          intentID: initial.intent.intentID,
+          rawTransaction,
+          transactionHash: Hex.from(transactionHash),
+          sender: WALLET.address,
+          nonce: 7,
+        },
+      }
+    )
+    assert.equal(captured.status, "quarantined")
+    assert.equal(captured.unexpectedSignedArtifacts?.length, 1)
+    const durable = await database.client.query<{
+      artifacts: string
+      alerts: string
+      provenance_incidents: string
+    }>(
+      `SELECT
+         (SELECT count(*)::text FROM p2tr_signature_fraud_challenge_late_signed_artifact) AS artifacts,
+         (SELECT count(*)::text FROM p2tr_signature_fraud_challenge_critical_alert
+           WHERE code = 'late-signed-artifact-captured') AS alerts,
+         (SELECT count(*)::text FROM p2tr_signature_fraud_challenge_provenance_incident) AS provenance_incidents`
+    )
+    assert.deepEqual(durable.rows[0], {
+      artifacts: "1",
       alerts: "1",
+      provenance_incidents: "0",
     })
     await database.client.end()
   }
@@ -1134,7 +1681,7 @@ postgresTest(
       `UPDATE p2tr_watchtower_activation_manifest
         SET activation_sequence = 2,
             manifest_hash = decode($1, 'hex'),
-            payload = '{"sequence":2}'::jsonb,
+            payload = '{"sequence":2,"outbox":{"maxActiveOutboxRecords":1024}}'::jsonb,
             envelope = '{"sequence":2}'::jsonb
       WHERE singleton`,
       [nextManifest.slice(2)]
