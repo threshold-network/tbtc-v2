@@ -156,10 +156,6 @@ describe("FrostWalletRegistry DKG edge cases (B-1.5 slice 4)", () => {
       }
     )
     frostWalletRegistry = registry
-    await frostWalletRegistry.backfillArchivedWalletMembership(
-      ethers.constants.HashZero,
-      ethers.utils.id("frost-wallet-archive/edge-cases-fresh")
-    )
     await frostSortitionPool.transferOwnership(frostWalletRegistry.address)
 
     // The production deploy chain already wired Bridge.frostWalletRegistry
@@ -364,11 +360,27 @@ describe("FrostWalletRegistry DKG edge cases (B-1.5 slice 4)", () => {
     // Simulate upgrading a proxy whose result was already pending: the new
     // implementation starts with an empty migration marker and freezes every
     // DKG transition. Keep it frozen beyond the original challenge period.
-    await hre.network.provider.send("hardhat_setStorageAt", [
-      frostWalletRegistry.address,
-      ethers.utils.hexValue(204),
-      ethers.constants.HashZero,
-    ])
+    const archiveStateSlot = 205
+    const originalArchiveStateWord = ethers.BigNumber.from(
+      await ethers.provider.getStorageAt(
+        frostWalletRegistry.address,
+        archiveStateSlot
+      )
+    )
+    const archiveStateMask = ethers.BigNumber.from(0xff).shl(224)
+    const setArchiveState = async (state: number) =>
+      hre.network.provider.send("hardhat_setStorageAt", [
+        frostWalletRegistry.address,
+        ethers.utils.hexValue(archiveStateSlot),
+        ethers.utils.hexZeroPad(
+          originalArchiveStateWord
+            .and(ethers.constants.MaxUint256.xor(archiveStateMask))
+            .or(ethers.BigNumber.from(state).shl(224))
+            .toHexString(),
+          32
+        ),
+      ])
+    await setArchiveState(1)
     await hre.network.provider.send("hardhat_mine", [
       `0x${(RESULT_CHALLENGE_BLOCKS + 1).toString(16)}`,
     ])
@@ -377,12 +389,8 @@ describe("FrostWalletRegistry DKG edge cases (B-1.5 slice 4)", () => {
     // clock. Without the rebase, the malicious submitter could approve this
     // invalid result immediately because the original deadline elapsed while
     // every challenger was frozen by the migration gate.
-    await frostWalletRegistry
-      .connect(deployer)
-      .backfillArchivedWalletMembership(
-        ethers.constants.HashZero,
-        ethers.utils.id("frost-wallet-archive/edge-cases-reactivated")
-      )
+    await setArchiveState(2)
+    await frostWalletRegistry.connect(deployer).finalizeArchiveMigration()
     await expect(
       frostWalletRegistry.connect(submitter).approveDkgResult(badResult)
     ).to.be.revertedWith("Challenge period has not passed yet")

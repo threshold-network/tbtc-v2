@@ -19,6 +19,7 @@ import {
   activeDkgMembers,
   assertIndependentWalletHistory,
   assertCheckpointHeadCanonical,
+  buildTimelockActions,
   deriveArchiveEntries,
   hashActiveDkgMembers,
   hashArchiveCheckpoint,
@@ -43,6 +44,38 @@ describe("Deploy Script 54: FROST wallet archive upgrade", () => {
   const membersIdsHash = hashActiveDkgMembers(members, misbehavedMembersIndices)
   const snapshotHash = `0x${"44".repeat(32)}`
   const registry = `0x${"55".repeat(20)}`
+
+  it("rejects a delayed timelock for the atomic upgrade-and-freeze action", async () => {
+    const [proposer] = await ethers.getSigners()
+    const timelockFactory = await ethers.getContractFactory("Timelock")
+    const timelock = await timelockFactory.deploy(
+      1,
+      [proposer.address],
+      [proposer.address]
+    )
+    await timelock.deployed()
+
+    let rejection: Error | undefined
+    try {
+      await buildTimelockActions(
+        hre,
+        timelock.address,
+        {
+          target: registry,
+          value: "0",
+          data: "0x",
+          description: "atomic archive upgrade",
+        },
+        snapshotHash,
+        true
+      )
+    } catch (error) {
+      rejection = error as Error
+    }
+    expect(rejection?.message).to.equal(
+      "atomic archive upgrade requires an immediate Safe/EOA owner or a zero-delay timelock"
+    )
+  })
 
   const validHistory = (): FrostWalletHistory => ({
     coverage: {
