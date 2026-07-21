@@ -656,7 +656,34 @@ export type P2TRProductionCandidateEnqueuer = {
   enqueueReconciledCandidate(
     candidate: P2TRProductionBitcoinCandidate,
     authorization: P2TRProductionCandidateAuthorizationReceipt
-  ): Promise<string>
+  ): Promise<P2TRProductionCandidateEnqueueOutcome>
+}
+
+/**
+ * The enqueuer must not throw after durably recording a generation-cap alert.
+ * This outcome crosses the activation gate's outer transaction so the alert
+ * and the one-use authorization disposition commit together before the caller
+ * is told that no new generation could be queued.
+ */
+export type P2TRProductionCandidateEnqueueOutcome =
+  | {
+      kind: "enqueued"
+      outboxIntentID: string
+    }
+  | {
+      kind: "generation-cap-exhausted"
+      /** Existing capped outbox intent that durably explains the disposition. */
+      outboxIntentID: string
+      message: string
+    }
+
+export class P2TRProductionCandidateEnqueueRejectedError extends Error {
+  readonly code = "generation-cap-exhausted" as const
+
+  constructor(readonly outboxIntentID: string, message: string) {
+    super(message)
+    this.name = "P2TRProductionCandidateEnqueueRejectedError"
+  }
 }
 
 export type P2TRProductionTransactionCoordinator = {
@@ -910,31 +937,41 @@ export class P2TRProductionActivationGate {
     // Invalidate in memory before any await. A failed transaction requires a
     // fresh dual-provider reconciliation rather than replaying stale authority.
     record.consumed = true
-    return this.dependencies.transactionCoordinator.runInP2TRSignatureFraudWatchtowerTransaction(
-      async () => {
-        await this.dependencies.stateStore.lockCandidateAuthorization(
-          record.receipt.tokenID,
-          record.receipt.candidateDigest,
-          record.receipt.manifestHash
-        )
-        // A canonical rollback may occur after issuance but before enqueue.
-        // Revalidate the exact candidate under the enqueue transaction lock.
-        await this.dependencies.stateStore.assertCandidateIndexed(normalized)
-        const outboxIntentID = bytes32(
-          await this.dependencies.candidateEnqueuer.enqueueReconciledCandidate(
-            normalized,
-            record.receipt
-          ),
-          "outbox intent ID"
-        )
-        await this.dependencies.stateStore.consumeCandidateAuthorization(
-          record.receipt.tokenID,
-          outboxIntentID,
-          record.receipt.manifestHash
-        )
-        return outboxIntentID
-      }
-    )
+    const outcome =
+      await this.dependencies.transactionCoordinator.runInP2TRSignatureFraudWatchtowerTransaction(
+        async () => {
+          await this.dependencies.stateStore.lockCandidateAuthorization(
+            record.receipt.tokenID,
+            record.receipt.candidateDigest,
+            record.receipt.manifestHash
+          )
+          // A canonical rollback may occur after issuance but before enqueue.
+          // Revalidate the exact candidate under the enqueue transaction lock.
+          await this.dependencies.stateStore.assertCandidateIndexed(normalized)
+          const outcome = normalizeCandidateEnqueueOutcome(
+            await this.dependencies.candidateEnqueuer.enqueueReconciledCandidate(
+              normalized,
+              record.receipt
+            )
+          )
+          await this.dependencies.stateStore.consumeCandidateAuthorization(
+            record.receipt.tokenID,
+            outcome.outboxIntentID,
+            record.receipt.manifestHash
+          )
+          return outcome
+        }
+      )
+    // A generation-cap outcome may carry an alert written by a nested
+    // transaction participant. Throwing in the callback above would roll that
+    // alert and the token disposition back with the outer transaction.
+    if (outcome.kind === "generation-cap-exhausted") {
+      throw new P2TRProductionCandidateEnqueueRejectedError(
+        outcome.outboxIntentID,
+        outcome.message
+      )
+    }
+    return outcome.outboxIntentID
   }
 
   private async readVerifiedEthereum(): Promise<P2TRProductionEthereumState> {
@@ -3170,6 +3207,33 @@ function hashCandidate(candidate: P2TRProductionBitcoinCandidate): string {
   return `0x${createHash("sha256")
     .update(canonicalJSON(normalizeCandidate(candidate)))
     .digest("hex")}`
+}
+
+function normalizeCandidateEnqueueOutcome(
+  outcome: P2TRProductionCandidateEnqueueOutcome
+): P2TRProductionCandidateEnqueueOutcome {
+  if (!isPlainObject(outcome)) {
+    throw new Error("Candidate enqueue outcome is malformed")
+  }
+  const outboxIntentID = bytes32(
+    outcome.outboxIntentID,
+    "candidate enqueue outbox intent ID"
+  )
+  if (outcome.kind === "enqueued") {
+    return { kind: outcome.kind, outboxIntentID }
+  }
+  if (outcome.kind === "generation-cap-exhausted") {
+    return {
+      kind: outcome.kind,
+      outboxIntentID,
+      message: boundedString(
+        outcome.message,
+        1024,
+        "generation-cap enqueue rejection"
+      ),
+    }
+  }
+  throw new Error("Candidate enqueue outcome kind is unsupported")
 }
 
 function ethereumPoint(
