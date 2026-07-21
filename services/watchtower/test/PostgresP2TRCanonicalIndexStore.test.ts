@@ -71,19 +71,122 @@ describe("PostgresP2TRCanonicalIndexStore", () => {
     const store = new PostgresP2TRCanonicalIndexStore(pool, storeOptions())
     const adapter =
       store.createP2TRSignatureFraudWatchtowerTransactionalAdapter(
-        (session) => ({ query: () => session.query("SELECT 1") })
+        (session) => ({
+          query: () => session.query("SELECT 1"),
+          transactionActive: () =>
+            store.isP2TRSignatureFraudWatchtowerTransactionActive(),
+        })
       )
 
+    assert.equal(store.isP2TRSignatureFraudWatchtowerTransactionActive(), false)
     assert.throws(() => adapter.query(), /requires an active transaction/)
-    await store.runInP2TRSignatureFraudWatchtowerTransaction(() =>
-      adapter.query()
-    )
+    await store.runInP2TRSignatureFraudWatchtowerTransaction(async () => {
+      assert.equal(adapter.transactionActive(), true)
+      await adapter.query()
+    })
+    assert.equal(store.isP2TRSignatureFraudWatchtowerTransactionActive(), false)
     assert.doesNotThrow(() =>
       store.assertP2TRSignatureFraudWatchtowerSharedStore({
         persistence: adapter,
         transactionSource: adapter,
         bridgeLifecycleEventSource: adapter,
       })
+    )
+  })
+
+  it("brands retryable SQLSTATEs only after a confirmed transaction rollback", async () => {
+    for (const sqlState of ["40001", "40P01"] as const) {
+      const pool = new FakePool(new RetryableStatementClient(sqlState))
+      const store = new PostgresP2TRCanonicalIndexStore(pool, storeOptions())
+      const adapter =
+        store.createP2TRSignatureFraudWatchtowerTransactionalAdapter(
+          (session) => ({ query: () => session.query("SELECT retryable") })
+        )
+
+      const error = await store
+        .runInP2TRSignatureFraudWatchtowerTransaction(() => adapter.query())
+        .then(
+          () => undefined,
+          (failure: unknown) => failure
+        )
+
+      assert.equal(
+        store.readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(
+          error
+        ),
+        sqlState
+      )
+      assert.equal(
+        new PostgresP2TRCanonicalIndexStore(
+          new FakePool(),
+          storeOptions()
+        ).readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(error),
+        undefined
+      )
+      assert.equal(pool.client.statements.at(-1), "ROLLBACK")
+    }
+  })
+
+  it("does not brand forged SQLSTATEs or COMMIT outcome ambiguity", async () => {
+    const applicationStore = new PostgresP2TRCanonicalIndexStore(
+      new FakePool(),
+      storeOptions()
+    )
+    const forged = Object.assign(new Error("forged"), { code: "40001" })
+    const applicationError = await applicationStore
+      .runInP2TRSignatureFraudWatchtowerTransaction(async () => {
+        throw forged
+      })
+      .then(
+        () => undefined,
+        (failure: unknown) => failure
+      )
+    assert.equal(applicationError, forged)
+    assert.equal(
+      applicationStore.readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(
+        applicationError
+      ),
+      undefined
+    )
+
+    const commitStore = new PostgresP2TRCanonicalIndexStore(
+      new FakePool(new AmbiguousCommitClient()),
+      storeOptions()
+    )
+    const commitError = await commitStore
+      .runInP2TRSignatureFraudWatchtowerTransaction(async () => undefined)
+      .then(
+        () => undefined,
+        (failure: unknown) => failure
+      )
+    assert.equal(
+      commitStore.readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(
+        commitError
+      ),
+      undefined
+    )
+
+    const rollbackStore = new PostgresP2TRCanonicalIndexStore(
+      new FakePool(new AmbiguousRollbackClient()),
+      storeOptions()
+    )
+    const rollbackAdapter =
+      rollbackStore.createP2TRSignatureFraudWatchtowerTransactionalAdapter(
+        (session) => ({ query: () => session.query("SELECT retryable") })
+      )
+    const rollbackError = await rollbackStore
+      .runInP2TRSignatureFraudWatchtowerTransaction(() =>
+        rollbackAdapter.query()
+      )
+      .then(
+        () => undefined,
+        (failure: unknown) => failure
+      )
+    assert.equal(
+      rollbackStore.readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(
+        rollbackError
+      ),
+      undefined
     )
   })
 
@@ -201,6 +304,57 @@ class FakeClient implements P2TRPostgresClient {
 
   release(): void {
     this.released = true
+  }
+}
+
+class RetryableStatementClient extends FakeClient {
+  constructor(private readonly sqlState: "40001" | "40P01") {
+    super()
+  }
+
+  override async query<Row = Record<string, unknown>>(
+    text: string,
+    values?: readonly unknown[]
+  ): Promise<P2TRPostgresQueryResult<Row>> {
+    if (text === "SELECT retryable") {
+      this.statements.push(text)
+      throw Object.assign(new Error("retryable statement failure"), {
+        code: this.sqlState,
+      })
+    }
+    return super.query<Row>(text, values)
+  }
+}
+
+class AmbiguousCommitClient extends FakeClient {
+  override async query<Row = Record<string, unknown>>(
+    text: string,
+    values?: readonly unknown[]
+  ): Promise<P2TRPostgresQueryResult<Row>> {
+    if (text === "COMMIT") {
+      this.statements.push(text)
+      throw Object.assign(new Error("ambiguous commit failure"), {
+        code: "40001",
+      })
+    }
+    return super.query<Row>(text, values)
+  }
+}
+
+class AmbiguousRollbackClient extends RetryableStatementClient {
+  constructor() {
+    super("40001")
+  }
+
+  override async query<Row = Record<string, unknown>>(
+    text: string,
+    values?: readonly unknown[]
+  ): Promise<P2TRPostgresQueryResult<Row>> {
+    if (text === "ROLLBACK") {
+      this.statements.push(text)
+      throw new Error("ambiguous rollback failure")
+    }
+    return super.query<Row>(text, values)
   }
 }
 

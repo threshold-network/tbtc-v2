@@ -5,9 +5,13 @@ import {
   type P2TRProductionActivationEnvelope,
   type P2TRProductionBitcoinCandidate,
   type P2TRProductionCandidateAuthorizationReceipt,
+  type P2TRProductionCandidateEnqueueRetryExhaustionAlert,
+  type P2TRProductionCandidateEnqueueTransactionGuard,
+  type P2TRProductionCandidateEnqueueTransactionResolution,
   type P2TRProductionEthereumJournalHealth,
   type P2TRProductionBitcoinIndexHealth,
   type P2TRProductionMigrationReadback,
+  type P2TRProductionRuntimeAlertHealth,
   type P2TRProductionStateStore,
 } from "./P2TRProductionActivation.js"
 import {
@@ -76,7 +80,9 @@ export class PostgresP2TRProductionActivationStore
     )
   }
 
-  async listAppliedMigrations(): Promise<readonly P2TRActivationMigrationBinding[]> {
+  async listAppliedMigrations(): Promise<
+    readonly P2TRActivationMigrationBinding[]
+  > {
     const result = await this.session.query<{
       version: string | number
       name: string
@@ -232,6 +238,52 @@ export class PostgresP2TRProductionActivationStore
     }
   }
 
+  async readRuntimeAlertHealth(): Promise<P2TRProductionRuntimeAlertHealth> {
+    const result = await this.session.query<{
+      manifest_hash: string
+      unresolved_candidate_enqueue_transaction_guard_count: string | number
+      candidate_enqueue_retry_exhaustion_count: string | number
+    }>(
+      `SELECT encode(manifest.manifest_hash, 'hex') AS manifest_hash,
+              (SELECT count(*)
+                 FROM p2tr_candidate_enqueue_transaction_guard guard_row
+                WHERE guard_row.manifest_hash = manifest.manifest_hash
+                  AND NOT EXISTS (
+                    SELECT 1
+                      FROM p2tr_candidate_enqueue_transaction_resolution resolution
+                     WHERE resolution.manifest_hash = guard_row.manifest_hash
+                       AND resolution.token_id = guard_row.token_id
+                  )) AS unresolved_candidate_enqueue_transaction_guard_count,
+              (SELECT count(*)
+                 FROM p2tr_candidate_enqueue_retry_exhaustion_alert alert
+                WHERE alert.manifest_hash = manifest.manifest_hash
+                  AND alert.activation_blocking = true)
+                AS candidate_enqueue_retry_exhaustion_count
+         FROM p2tr_watchtower_activation_manifest manifest
+        WHERE manifest.singleton = true
+        FOR SHARE OF manifest`
+    )
+    if (result.rows.length !== 1) {
+      throw new Error(
+        "Production runtime alert health is absent or non-singleton"
+      )
+    }
+    return {
+      manifestHash: bytes32(
+        result.rows[0].manifest_hash,
+        "runtime alert manifest"
+      ),
+      unresolvedCandidateEnqueueTransactionGuardCount: databaseInteger(
+        result.rows[0].unresolved_candidate_enqueue_transaction_guard_count,
+        "unresolved candidate enqueue transaction guard count"
+      ),
+      candidateEnqueueRetryExhaustionCount: databaseInteger(
+        result.rows[0].candidate_enqueue_retry_exhaustion_count,
+        "candidate enqueue retry-exhaustion alert count"
+      ),
+    }
+  }
+
   async readEthereumJournalHealth(): Promise<P2TRProductionEthereumJournalHealth> {
     const cursor = await this.session.query<{
       store_id: string
@@ -307,10 +359,14 @@ export class PostgresP2TRProductionActivationStore
         "canonical Ethereum block count"
       ) !==
         currentBlock - checkpointBlock + 1 ||
-      databaseInteger(blocks.rows[0].minimum_block, "minimum Ethereum block") !==
-        checkpointBlock ||
-      databaseInteger(blocks.rows[0].maximum_block, "maximum Ethereum block") !==
-        currentBlock
+      databaseInteger(
+        blocks.rows[0].minimum_block,
+        "minimum Ethereum block"
+      ) !== checkpointBlock ||
+      databaseInteger(
+        blocks.rows[0].maximum_block,
+        "maximum Ethereum block"
+      ) !== currentBlock
     ) {
       throw new Error("Canonical Ethereum history has a gap")
     }
@@ -373,8 +429,14 @@ export class PostgresP2TRProductionActivationStore
         ),
       },
       failureGeneration:
-        databaseInteger(journal.failure_generation, "journal failure generation") +
-        databaseInteger(projector.failure_generation, "projector failure generation"),
+        databaseInteger(
+          journal.failure_generation,
+          "journal failure generation"
+        ) +
+        databaseInteger(
+          projector.failure_generation,
+          "projector failure generation"
+        ),
       clearedFailureGeneration:
         databaseInteger(
           journal.cleared_failure_generation,
@@ -454,13 +516,18 @@ export class PostgresP2TRProductionActivationStore
         normalized.verifiedBitcoin.height,
         hexBuffer(normalized.verifiedBitcoin.hash, "verified Bitcoin hash"),
         normalized.verifiedEthereum.blockNumber,
-        hexBuffer(normalized.verifiedEthereum.blockHash, "verified Ethereum hash"),
+        hexBuffer(
+          normalized.verifiedEthereum.blockHash,
+          "verified Ethereum hash"
+        ),
         normalized.expiresAt,
         this.maxCandidateAuthorizationLifetimeMs,
       ]
     )
     if (result.rowCount !== 1) {
-      throw new Error("Candidate authorization expiry is invalid or token is reused")
+      throw new Error(
+        "Candidate authorization expiry is invalid or token is reused"
+      )
     }
   }
 
@@ -509,7 +576,9 @@ export class PostgresP2TRProductionActivationStore
       result.rows[0].live !== true ||
       result.rows[0].canonical !== true
     ) {
-      throw new Error("Candidate authorization is absent, expired, used, or mismatched")
+      throw new Error(
+        "Candidate authorization is absent, expired, used, or mismatched"
+      )
     }
   }
 
@@ -543,6 +612,297 @@ export class PostgresP2TRProductionActivationStore
     }
   }
 
+  async armCandidateEnqueueTransactionGuard(
+    guard: P2TRProductionCandidateEnqueueTransactionGuard
+  ): Promise<void> {
+    const normalized = normalizeCandidateEnqueueTransactionGuard(guard)
+    await this.assertCurrentActivationManifest(normalized.manifestHash)
+    const guardDigest = candidateEnqueueTransactionGuardDigest(normalized)
+    const inserted = await this.session.query(
+      `INSERT INTO p2tr_candidate_enqueue_transaction_guard
+         (manifest_hash, token_id, candidate_digest, max_attempt_count,
+          guard_digest)
+       SELECT $1, $2, $3, $4, $5
+         FROM p2tr_candidate_enqueue_authorizations authorization
+         JOIN p2tr_watchtower_activation_manifest manifest
+           ON manifest.singleton = true
+          AND manifest.manifest_hash = authorization.manifest_hash
+        WHERE authorization.token_id = $2
+          AND authorization.manifest_hash = $1
+          AND authorization.candidate_digest = $3
+          AND authorization.consumed_at IS NULL
+          AND authorization.invalidated_at IS NULL
+          AND authorization.expires_at > clock_timestamp()
+       ON CONFLICT (manifest_hash, token_id) DO NOTHING`,
+      [
+        hexBuffer(normalized.manifestHash, "enqueue guard manifest"),
+        hexBuffer(normalized.tokenID, "enqueue guard token"),
+        hexBuffer(normalized.candidateDigest, "enqueue guard candidate"),
+        normalized.maxAttemptCount,
+        guardDigest,
+      ]
+    )
+    if (inserted.rowCount !== 0 && inserted.rowCount !== 1) {
+      throw new Error(
+        "Candidate enqueue transaction guard insert is inconsistent"
+      )
+    }
+    const stored = await this.session.query<{
+      candidate_digest: string
+      max_attempt_count: string | number
+      guard_digest: string
+    }>(
+      `SELECT encode(candidate_digest, 'hex') AS candidate_digest,
+              max_attempt_count,
+              encode(guard_digest, 'hex') AS guard_digest
+         FROM p2tr_candidate_enqueue_transaction_guard
+        WHERE manifest_hash = $1 AND token_id = $2
+        FOR SHARE`,
+      [
+        hexBuffer(normalized.manifestHash, "enqueue guard manifest"),
+        hexBuffer(normalized.tokenID, "enqueue guard token"),
+      ]
+    )
+    if (
+      stored.rows.length !== 1 ||
+      bytes32(stored.rows[0].candidate_digest, "stored guard candidate") !==
+        normalized.candidateDigest ||
+      databaseInteger(
+        stored.rows[0].max_attempt_count,
+        "stored guard attempt bound"
+      ) !== normalized.maxAttemptCount ||
+      bytes32(stored.rows[0].guard_digest, "stored guard digest") !==
+        `0x${guardDigest.toString("hex")}`
+    ) {
+      throw new Error(
+        "Candidate enqueue transaction guard conflicts with durable state"
+      )
+    }
+  }
+
+  async resolveCandidateEnqueueTransactionGuard(
+    resolution: P2TRProductionCandidateEnqueueTransactionResolution
+  ): Promise<void> {
+    const normalized =
+      normalizeCandidateEnqueueTransactionResolution(resolution)
+    await this.assertCurrentActivationManifest(normalized.manifestHash)
+    const guard = await this.session.query<{
+      candidate_digest: string
+      consumed_at: string | null
+      outbox_intent_id: string | null
+    }>(
+      `SELECT encode(guard_row.candidate_digest, 'hex') AS candidate_digest,
+              authorization.consumed_at,
+              encode(authorization.outbox_intent_id, 'hex') AS outbox_intent_id
+         FROM p2tr_candidate_enqueue_transaction_guard guard_row
+         JOIN p2tr_candidate_enqueue_authorizations authorization
+           ON authorization.manifest_hash = guard_row.manifest_hash
+          AND authorization.token_id = guard_row.token_id
+          AND authorization.candidate_digest = guard_row.candidate_digest
+        WHERE guard_row.manifest_hash = $1 AND guard_row.token_id = $2
+        FOR UPDATE OF guard_row, authorization`,
+      [
+        hexBuffer(normalized.manifestHash, "enqueue resolution manifest"),
+        hexBuffer(normalized.tokenID, "enqueue resolution token"),
+      ]
+    )
+    if (
+      guard.rows.length !== 1 ||
+      bytes32(guard.rows[0].candidate_digest, "resolution guard candidate") !==
+        normalized.candidateDigest ||
+      guard.rows[0].consumed_at === null ||
+      guard.rows[0].outbox_intent_id === null ||
+      bytes32(
+        guard.rows[0].outbox_intent_id,
+        "resolution authorization outbox intent"
+      ) !== normalized.outboxIntentID
+    ) {
+      throw new Error(
+        "Candidate enqueue resolution lacks exact consumed authorization state"
+      )
+    }
+    const resolutionDigest =
+      candidateEnqueueTransactionResolutionDigest(normalized)
+    const inserted = await this.session.query(
+      `INSERT INTO p2tr_candidate_enqueue_transaction_resolution
+         (manifest_hash, token_id, candidate_digest, outbox_intent_id,
+          outcome_kind, resolution_digest)
+       SELECT guard_row.manifest_hash, guard_row.token_id,
+              guard_row.candidate_digest, $4, $5, $6
+         FROM p2tr_candidate_enqueue_transaction_guard guard_row
+        WHERE guard_row.manifest_hash = $1
+          AND guard_row.token_id = $2
+          AND guard_row.candidate_digest = $3
+          AND (
+            $5 <> 'generation-cap-exhausted'
+            OR EXISTS (
+              SELECT 1
+                FROM p2tr_signature_fraud_challenge_critical_alert outbox_alert
+               WHERE outbox_alert.record_id = $4
+                 AND outbox_alert.code = 'generation-cap-exhausted'
+                 AND outbox_alert.activation_blocking = true
+            )
+          )
+          AND NOT EXISTS (
+            SELECT 1
+              FROM p2tr_candidate_enqueue_retry_exhaustion_alert alert
+             WHERE alert.manifest_hash = guard_row.manifest_hash
+               AND alert.token_id = guard_row.token_id
+          )
+       ON CONFLICT (manifest_hash, token_id) DO NOTHING`,
+      [
+        hexBuffer(normalized.manifestHash, "enqueue resolution manifest"),
+        hexBuffer(normalized.tokenID, "enqueue resolution token"),
+        hexBuffer(normalized.candidateDigest, "enqueue resolution candidate"),
+        hexBuffer(
+          normalized.outboxIntentID,
+          "enqueue resolution outbox intent"
+        ),
+        normalized.outcomeKind,
+        resolutionDigest,
+      ]
+    )
+    if (inserted.rowCount !== 0 && inserted.rowCount !== 1) {
+      throw new Error("Candidate enqueue resolution insert is inconsistent")
+    }
+    const stored = await this.session.query<{
+      candidate_digest: string
+      outbox_intent_id: string
+      outcome_kind: string
+      resolution_digest: string
+    }>(
+      `SELECT encode(candidate_digest, 'hex') AS candidate_digest,
+              encode(outbox_intent_id, 'hex') AS outbox_intent_id,
+              outcome_kind,
+              encode(resolution_digest, 'hex') AS resolution_digest
+         FROM p2tr_candidate_enqueue_transaction_resolution
+        WHERE manifest_hash = $1 AND token_id = $2
+        FOR SHARE`,
+      [
+        hexBuffer(normalized.manifestHash, "enqueue resolution manifest"),
+        hexBuffer(normalized.tokenID, "enqueue resolution token"),
+      ]
+    )
+    if (
+      stored.rows.length !== 1 ||
+      bytes32(
+        stored.rows[0].candidate_digest,
+        "stored enqueue resolution candidate"
+      ) !== normalized.candidateDigest ||
+      bytes32(
+        stored.rows[0].outbox_intent_id,
+        "stored enqueue resolution outbox intent"
+      ) !== normalized.outboxIntentID ||
+      stored.rows[0].outcome_kind !== normalized.outcomeKind ||
+      bytes32(
+        stored.rows[0].resolution_digest,
+        "stored enqueue resolution digest"
+      ) !== `0x${resolutionDigest.toString("hex")}`
+    ) {
+      throw new Error(
+        "Candidate enqueue resolution conflicts with durable state"
+      )
+    }
+  }
+
+  async saveCandidateEnqueueRetryExhaustionAlert(
+    alert: P2TRProductionCandidateEnqueueRetryExhaustionAlert
+  ): Promise<void> {
+    const normalized = normalizeCandidateEnqueueRetryExhaustionAlert(alert)
+    await this.assertCurrentActivationManifest(normalized.manifestHash)
+    const guard = await this.session.query<{
+      candidate_digest: string
+      max_attempt_count: string | number
+    }>(
+      `SELECT encode(candidate_digest, 'hex') AS candidate_digest,
+              max_attempt_count
+         FROM p2tr_candidate_enqueue_transaction_guard
+        WHERE manifest_hash = $1 AND token_id = $2
+        FOR UPDATE`,
+      [
+        hexBuffer(normalized.manifestHash, "retry alert manifest"),
+        hexBuffer(normalized.tokenID, "retry alert token"),
+      ]
+    )
+    if (
+      guard.rows.length !== 1 ||
+      bytes32(guard.rows[0].candidate_digest, "retry guard candidate") !==
+        normalized.candidateDigest ||
+      databaseInteger(
+        guard.rows[0].max_attempt_count,
+        "retry guard attempt bound"
+      ) !== normalized.attemptCount
+    ) {
+      throw new Error("Candidate enqueue retry alert does not match its guard")
+    }
+    const detailDigest = candidateEnqueueRetryExhaustionDigest(normalized)
+    const inserted = await this.session.query(
+      `INSERT INTO p2tr_candidate_enqueue_retry_exhaustion_alert
+         (manifest_hash, token_id, candidate_digest, attempt_count,
+          last_sqlstate, detail_digest, activation_blocking)
+       SELECT guard_row.manifest_hash, guard_row.token_id,
+              guard_row.candidate_digest, $4, $5, $6, true
+         FROM p2tr_candidate_enqueue_transaction_guard guard_row
+        WHERE guard_row.manifest_hash = $1
+          AND guard_row.token_id = $2
+          AND guard_row.candidate_digest = $3
+          AND NOT EXISTS (
+            SELECT 1
+              FROM p2tr_candidate_enqueue_transaction_resolution resolution
+             WHERE resolution.manifest_hash = guard_row.manifest_hash
+               AND resolution.token_id = guard_row.token_id
+          )
+       ON CONFLICT (manifest_hash, token_id) DO NOTHING`,
+      [
+        hexBuffer(normalized.manifestHash, "retry alert manifest"),
+        hexBuffer(normalized.tokenID, "retry alert token"),
+        hexBuffer(normalized.candidateDigest, "retry alert candidate"),
+        normalized.attemptCount,
+        normalized.lastSQLState,
+        detailDigest,
+      ]
+    )
+    if (inserted.rowCount !== 0 && inserted.rowCount !== 1) {
+      throw new Error("Candidate enqueue retry alert insert is inconsistent")
+    }
+    const stored = await this.session.query<{
+      candidate_digest: string
+      attempt_count: string | number
+      last_sqlstate: string
+      detail_digest: string
+      activation_blocking: boolean
+    }>(
+      `SELECT encode(candidate_digest, 'hex') AS candidate_digest,
+              attempt_count, last_sqlstate,
+              encode(detail_digest, 'hex') AS detail_digest,
+              activation_blocking
+         FROM p2tr_candidate_enqueue_retry_exhaustion_alert
+        WHERE manifest_hash = $1 AND token_id = $2
+        FOR SHARE`,
+      [
+        hexBuffer(normalized.manifestHash, "retry alert manifest"),
+        hexBuffer(normalized.tokenID, "retry alert token"),
+      ]
+    )
+    if (
+      stored.rows.length !== 1 ||
+      bytes32(stored.rows[0].candidate_digest, "stored retry candidate") !==
+        normalized.candidateDigest ||
+      databaseInteger(
+        stored.rows[0].attempt_count,
+        "stored retry attempt count"
+      ) !== normalized.attemptCount ||
+      stored.rows[0].last_sqlstate !== normalized.lastSQLState ||
+      bytes32(stored.rows[0].detail_digest, "stored retry alert digest") !==
+        `0x${detailDigest.toString("hex")}` ||
+      stored.rows[0].activation_blocking !== true
+    ) {
+      throw new Error(
+        "Candidate enqueue retry alert conflicts with durable state"
+      )
+    }
+  }
+
   async loadActivationEnvelope(
     trustedSignerKeyHash: string
   ): Promise<P2TRProductionActivationEnvelope> {
@@ -567,11 +927,14 @@ export class PostgresP2TRProductionActivationStore
         FOR SHARE`
     )
     if (result.rows.length !== 1) {
-      throw new Error("Production activation manifest is absent or non-singleton")
+      throw new Error(
+        "Production activation manifest is absent or non-singleton"
+      )
     }
     const row = result.rows[0]
     if (
-      bytes32(row.trusted_signer_key_hash, "stored activation signer") !== trusted ||
+      bytes32(row.trusted_signer_key_hash, "stored activation signer") !==
+        trusted ||
       databaseInteger(row.payload_bytes, "activation payload bytes") >
         this.maxManifestBytes ||
       databaseInteger(row.envelope_bytes, "activation envelope bytes") >
@@ -581,7 +944,9 @@ export class PostgresP2TRProductionActivationStore
     ) {
       throw new Error("Stored activation envelope signer/size/shape is invalid")
     }
-    const envelope = structuredClone(row.envelope) as P2TRProductionActivationEnvelope
+    const envelope = structuredClone(
+      row.envelope
+    ) as P2TRProductionActivationEnvelope
     if (
       !isPlainObject(envelope.payload) ||
       databaseInteger(row.activation_sequence, "activation sequence") !==
@@ -590,7 +955,9 @@ export class PostgresP2TRProductionActivationStore
       bytes32(row.manifest_hash, "stored activation manifest hash") !==
         bytes32(envelope.payloadSha256, "envelope manifest hash")
     ) {
-      throw new Error("Stored activation envelope does not match its durable index")
+      throw new Error(
+        "Stored activation envelope does not match its durable index"
+      )
     }
     return envelope
   }
@@ -737,7 +1104,10 @@ function normalizeReceipt(
   receipt: P2TRProductionCandidateAuthorizationReceipt
 ): P2TRProductionCandidateAuthorizationReceipt {
   const expires = new Date(receipt.expiresAt)
-  if (!Number.isFinite(expires.getTime()) || expires.toISOString() !== receipt.expiresAt) {
+  if (
+    !Number.isFinite(expires.getTime()) ||
+    expires.toISOString() !== receipt.expiresAt
+  ) {
     throw new Error("Candidate authorization expiry is not canonical")
   }
   return {
@@ -772,7 +1142,10 @@ function normalizeCandidate(
   const identity = {
     txid: bytes32(candidate.txid, "candidate txid"),
     wtxid: bytes32(candidate.wtxid, "candidate wtxid"),
-    blockHeight: nonNegativeInteger(candidate.blockHeight, "candidate block height"),
+    blockHeight: nonNegativeInteger(
+      candidate.blockHeight,
+      "candidate block height"
+    ),
     blockHash: bytes32(candidate.blockHash, "candidate block hash"),
   }
   const observationID = deriveP2TRProductionCandidateObservationID(identity)
@@ -780,12 +1153,111 @@ function normalizeCandidate(
     bytes32(candidate.observationID, "candidate observation ID") !==
     observationID
   ) {
-    throw new Error("Candidate observation ID is not derived from durable identity")
+    throw new Error(
+      "Candidate observation ID is not derived from durable identity"
+    )
   }
   return { observationID, ...identity }
 }
 
-function componentName(value: P2TRProductionComponent): P2TRProductionComponent {
+function normalizeCandidateEnqueueTransactionGuard(
+  guard: P2TRProductionCandidateEnqueueTransactionGuard
+): P2TRProductionCandidateEnqueueTransactionGuard {
+  return {
+    tokenID: bytes32(guard.tokenID, "enqueue guard token"),
+    manifestHash: bytes32(guard.manifestHash, "enqueue guard manifest"),
+    candidateDigest: bytes32(guard.candidateDigest, "enqueue guard candidate"),
+    maxAttemptCount: boundedPositiveInteger(
+      guard.maxAttemptCount,
+      8,
+      "enqueue guard attempt bound"
+    ),
+  }
+}
+
+function normalizeCandidateEnqueueTransactionResolution(
+  resolution: P2TRProductionCandidateEnqueueTransactionResolution
+): P2TRProductionCandidateEnqueueTransactionResolution {
+  if (
+    resolution.outcomeKind !== "enqueued" &&
+    resolution.outcomeKind !== "generation-cap-exhausted"
+  ) {
+    throw new Error("Candidate enqueue resolution outcome is unsupported")
+  }
+  return {
+    tokenID: bytes32(resolution.tokenID, "enqueue resolution token"),
+    manifestHash: bytes32(
+      resolution.manifestHash,
+      "enqueue resolution manifest"
+    ),
+    candidateDigest: bytes32(
+      resolution.candidateDigest,
+      "enqueue resolution candidate"
+    ),
+    outboxIntentID: bytes32(
+      resolution.outboxIntentID,
+      "enqueue resolution outbox intent"
+    ),
+    outcomeKind: resolution.outcomeKind,
+  }
+}
+
+function normalizeCandidateEnqueueRetryExhaustionAlert(
+  alert: P2TRProductionCandidateEnqueueRetryExhaustionAlert
+): P2TRProductionCandidateEnqueueRetryExhaustionAlert {
+  if (alert.lastSQLState !== "40001" && alert.lastSQLState !== "40P01") {
+    throw new Error("Candidate enqueue retry alert SQLSTATE is unsupported")
+  }
+  return {
+    tokenID: bytes32(alert.tokenID, "retry alert token"),
+    manifestHash: bytes32(alert.manifestHash, "retry alert manifest"),
+    candidateDigest: bytes32(alert.candidateDigest, "retry alert candidate"),
+    attemptCount: boundedPositiveInteger(
+      alert.attemptCount,
+      8,
+      "retry alert attempt count"
+    ),
+    lastSQLState: alert.lastSQLState,
+  }
+}
+
+function candidateEnqueueTransactionGuardDigest(
+  guard: P2TRProductionCandidateEnqueueTransactionGuard
+): Buffer {
+  return durableCandidateEnqueueDigest(
+    "tbtc-p2tr-candidate-enqueue-transaction-guard/v1",
+    guard
+  )
+}
+
+function candidateEnqueueTransactionResolutionDigest(
+  resolution: P2TRProductionCandidateEnqueueTransactionResolution
+): Buffer {
+  return durableCandidateEnqueueDigest(
+    "tbtc-p2tr-candidate-enqueue-transaction-resolution/v1",
+    resolution
+  )
+}
+
+function candidateEnqueueRetryExhaustionDigest(
+  alert: P2TRProductionCandidateEnqueueRetryExhaustionAlert
+): Buffer {
+  return durableCandidateEnqueueDigest(
+    "tbtc-p2tr-candidate-enqueue-retry-exhaustion/v1",
+    alert
+  )
+}
+
+function durableCandidateEnqueueDigest(domain: string, value: unknown): Buffer {
+  return createHash("sha256")
+    .update(`${domain}\0`, "utf8")
+    .update(canonicalJSON(value), "utf8")
+    .digest()
+}
+
+function componentName(
+  value: P2TRProductionComponent
+): P2TRProductionComponent {
   if (
     value !== "bitcoin-index" &&
     value !== "ethereum-journal" &&
@@ -801,13 +1273,17 @@ function normalizeFailure(value: unknown): string {
     value instanceof Error
       ? `${value.name}:${value.message}`
       : typeof value === "string"
-        ? value
-        : "unknown production component failure"
+      ? value
+      : "unknown production component failure"
   return text.slice(0, 4096)
 }
 
 function canonicalJSON(value: unknown): string {
-  if (value === null || typeof value === "boolean" || typeof value === "string") {
+  if (
+    value === null ||
+    typeof value === "boolean" ||
+    typeof value === "string"
+  ) {
     return JSON.stringify(value)
   }
   if (typeof value === "number") {
@@ -840,6 +1316,18 @@ function positiveInteger(value: number, label: string): number {
   return value
 }
 
+function boundedPositiveInteger(
+  value: number,
+  maximum: number,
+  label: string
+): number {
+  const normalized = positiveInteger(value, label)
+  if (normalized > maximum) {
+    throw new Error(`${label} exceeds its ${maximum}-item bound`)
+  }
+  return normalized
+}
+
 function nonNegativeInteger(value: number, label: string): number {
   if (!Number.isSafeInteger(value) || value < 0) {
     throw new Error(`${label} must be a non-negative safe integer`)
@@ -848,7 +1336,11 @@ function nonNegativeInteger(value: number, label: string): number {
 }
 
 function boundedString(value: string, maximum: number, label: string): string {
-  if (typeof value !== "string" || value.length === 0 || value.length > maximum) {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > maximum
+  ) {
     throw new Error(`${label} is malformed`)
   }
   return value

@@ -88,6 +88,19 @@ type CursorRow = {
 
 const REQUIRED_SCHEMA_VERSION = 1
 const DEFAULT_STATEMENT_TIMEOUT_MS = 30_000
+type P2TRPostgresRetryableTransactionSQLState = "40001" | "40P01"
+
+class P2TRPostgresRetryableStatementError extends Error {
+  constructor(
+    readonly sqlState: P2TRPostgresRetryableTransactionSQLState,
+    cause: unknown
+  ) {
+    super(`PostgreSQL statement aborted with retryable SQLSTATE ${sqlState}`, {
+      cause,
+    })
+    this.name = "P2TRPostgresRetryableStatementError"
+  }
+}
 
 /**
  * PostgreSQL 16 canonical evidence store. Pass a configured `pg.Pool`; the
@@ -114,6 +127,10 @@ export class PostgresP2TRCanonicalIndexStore
   private readonly statementTimeoutMs: number
   private readonly transaction = new AsyncLocalStorage<P2TRPostgresClient>()
   private readonly transactionalParticipants = new WeakSet<object>()
+  private readonly retryableTransactionErrors = new WeakMap<
+    object,
+    P2TRPostgresRetryableTransactionSQLState
+  >()
 
   constructor(
     private readonly pool: P2TRPostgresPool,
@@ -180,8 +197,19 @@ export class PostgresP2TRCanonicalIndexStore
     factory: (session: P2TRPostgresTransactionSession) => T
   ): T {
     const session: P2TRPostgresTransactionSession = {
-      query: (text, values) =>
-        this.requireTransactionClient().query(text, values),
+      query: <Row = Record<string, unknown>>(
+        text: string,
+        values?: readonly unknown[]
+      ) => {
+        const client = this.requireTransactionClient()
+        return client.query<Row>(text, values).catch((error: unknown) => {
+          const sqlState = postgresRetryableTransactionSQLState(error)
+          if (sqlState !== undefined) {
+            throw new P2TRPostgresRetryableStatementError(sqlState, error)
+          }
+          throw error
+        })
+      },
     }
     p2trPostgresTransactionSessions.add(session)
     const adapter = factory(session)
@@ -208,6 +236,17 @@ export class PostgresP2TRCanonicalIndexStore
         )
       }
     }
+  }
+
+  readP2TRSignatureFraudWatchtowerRetryableTransactionSQLState(
+    error: unknown
+  ): P2TRPostgresRetryableTransactionSQLState | undefined {
+    if (typeof error !== "object" || error === null) return undefined
+    return this.retryableTransactionErrors.get(error)
+  }
+
+  isP2TRSignatureFraudWatchtowerTransactionActive(): boolean {
+    return this.transaction.getStore() !== undefined
   }
 
   assertP2TRSignatureFraudWatchtowerSharedStore(dependencies: {
@@ -262,6 +301,12 @@ export class PostgresP2TRCanonicalIndexStore
       }
       return result
     } catch (error) {
+      let retryableSQLState:
+        | P2TRPostgresRetryableTransactionSQLState
+        | undefined
+      if (error instanceof P2TRPostgresRetryableStatementError) {
+        retryableSQLState = error.sqlState
+      }
       if (transactionStarted && !transactionResolved) {
         try {
           await client.query("ROLLBACK")
@@ -272,6 +317,14 @@ export class PostgresP2TRCanonicalIndexStore
             "PostgreSQL ROLLBACK outcome is unknown"
           )
         }
+      }
+      if (retryableSQLState !== undefined && transactionResolved) {
+        const retryable = new Error(
+          `PostgreSQL transaction safely aborted with retryable SQLSTATE ${retryableSQLState}`,
+          { cause: error }
+        )
+        this.retryableTransactionErrors.set(retryable, retryableSQLState)
+        throw retryable
       }
       throw error
     } finally {
@@ -2346,4 +2399,12 @@ const normalizeBytes20 = (value: string, field: string): string => {
 const databaseInteger = (value: string | number, field: string): number => {
   const parsed = typeof value === "number" ? value : Number(value)
   return nonNegativeInteger(parsed, field)
+}
+
+const postgresRetryableTransactionSQLState = (
+  error: unknown
+): P2TRPostgresRetryableTransactionSQLState | undefined => {
+  if (typeof error !== "object" || error === null) return undefined
+  const code = (error as { code?: unknown }).code
+  return code === "40001" || code === "40P01" ? code : undefined
 }

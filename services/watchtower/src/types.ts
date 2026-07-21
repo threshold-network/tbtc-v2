@@ -48,6 +48,7 @@ export type P2TRSignatureFraudWatchtowerTransactionCoordinator =
     runInP2TRSignatureFraudWatchtowerTransaction<T>(
       operation: () => Promise<T>
     ): Promise<T>
+    isP2TRSignatureFraudWatchtowerTransactionActive(): boolean
   }
 
 export type P2TRSignatureFraudWatchtowerIdempotentChallengeSubmitter =

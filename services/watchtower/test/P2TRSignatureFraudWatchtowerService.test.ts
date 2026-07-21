@@ -173,6 +173,7 @@ const transactionalCoordinator = (
   transactionalStoreID = "production-indexing-store"
 ) => {
   let transactionCount = 0
+  let activeTransactions = 0
 
   const coordinator: P2TRSignatureFraudWatchtowerTransactionCoordinator & {
     transactionCount(): number
@@ -186,7 +187,15 @@ const transactionalCoordinator = (
       operation: () => Promise<T>
     ): Promise<T> {
       transactionCount++
-      return operation()
+      activeTransactions++
+      try {
+        return await operation()
+      } finally {
+        activeTransactions--
+      }
+    },
+    isP2TRSignatureFraudWatchtowerTransactionActive() {
+      return activeTransactions > 0
     },
     transactionCount() {
       return transactionCount
@@ -2090,6 +2099,9 @@ test("wraps production indexing cycles and cursor commits in the transaction coo
           activeTransactions--
         }
       },
+      isP2TRSignatureFraudWatchtowerTransactionActive() {
+        return activeTransactions > 0
+      },
     }
   const transactionSource = {
     ...transactionalConfirmedTransactionSource(),
@@ -2178,6 +2190,7 @@ test("aborts a staged confirmed scan when an item fails before cursor commit", a
 
 test("does not commit the Bridge lifecycle cursor when a transaction source fails", async () => {
   let committedBridgeLifecycleScan = false
+  let activeTransactions = 0
   const transactionCoordinator: P2TRSignatureFraudWatchtowerTransactionCoordinator =
     {
       p2trSignatureFraudWatchtowerStoreProfile:
@@ -2189,7 +2202,15 @@ test("does not commit the Bridge lifecycle cursor when a transaction source fail
       async runInP2TRSignatureFraudWatchtowerTransaction<T>(
         operation: () => Promise<T>
       ): Promise<T> {
-        return await operation()
+        activeTransactions++
+        try {
+          return await operation()
+        } finally {
+          activeTransactions--
+        }
+      },
+      isP2TRSignatureFraudWatchtowerTransactionActive() {
+        return activeTransactions > 0
       },
     }
   const bridgeLifecycleEventSource = {
@@ -2232,6 +2253,7 @@ test("does not commit the Bridge lifecycle cursor when a transaction source fail
 })
 
 test("rejects transaction coordinators that suppress indexing operation failures", async () => {
+  let activeTransactions = 0
   const bridgeLifecycleEventSource = {
     ...transactionalBridgeLifecycleSource(),
     async commitBridgeLifecycleScan() {
@@ -2249,11 +2271,17 @@ test("rejects transaction coordinators that suppress indexing operation failures
       async runInP2TRSignatureFraudWatchtowerTransaction<T>(
         operation: () => Promise<T>
       ): Promise<T> {
+        activeTransactions++
         try {
           return await operation()
         } catch {
           return emptyCycleReport().result as T
+        } finally {
+          activeTransactions--
         }
+      },
+      isP2TRSignatureFraudWatchtowerTransactionActive() {
+        return activeTransactions > 0
       },
     }
   const service = new P2TRSignatureFraudWatchtowerService(
@@ -2312,6 +2340,7 @@ test("does not retain rolled-back production lifecycle records across cycles", a
     serializeP2TRWatchtowerChallengeRecord(rejectedRecord),
   ])
   let failCursorCommit = true
+  let activeTransactions = 0
   const bridgeLifecycleEventSource = {
     ...transactionalBridgeLifecycleSource(),
     async listBridgeLifecycleEvents() {
@@ -2339,6 +2368,7 @@ test("does not retain rolled-back production lifecycle records across cycles", a
       async runInP2TRSignatureFraudWatchtowerTransaction<T>(
         operation: () => Promise<T>
       ): Promise<T> {
+        activeTransactions++
         try {
           const result = await operation()
           persistence.commitTransaction()
@@ -2346,7 +2376,12 @@ test("does not retain rolled-back production lifecycle records across cycles", a
         } catch (error) {
           persistence.rollbackTransaction()
           throw error
+        } finally {
+          activeTransactions--
         }
+      },
+      isP2TRSignatureFraudWatchtowerTransactionActive() {
+        return activeTransactions > 0
       },
     }
   const service = new P2TRSignatureFraudWatchtowerService(
@@ -2638,6 +2673,9 @@ test("emits cursor commit alerts after production transactions unwind", async ()
         } finally {
           activeTransactions--
         }
+      },
+      isP2TRSignatureFraudWatchtowerTransactionActive() {
+        return activeTransactions > 0
       },
     }
   const service = new P2TRSignatureFraudWatchtowerService(

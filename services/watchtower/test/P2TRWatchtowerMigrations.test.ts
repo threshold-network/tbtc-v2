@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
+import { readFile } from "node:fs/promises"
 import { describe, it } from "node:test"
 import {
   runP2TRWatchtowerMigrations,
@@ -51,6 +52,40 @@ describe("P2TR watchtower migration bodies", () => {
       () => validateP2TRWatchtowerMigrationBody("SELECT 'unfinished"),
       /unterminated quote/
     )
+  })
+
+  it("defines an immutable pre-armed candidate enqueue retry journal", async () => {
+    const migration = await readFile(
+      new URL(
+        "../migrations/004_p2tr_candidate_enqueue_retry_alerts.sql",
+        import.meta.url
+      ),
+      "utf8"
+    )
+
+    assert.doesNotThrow(() => validateP2TRWatchtowerMigrationBody(migration))
+    assert.match(
+      migration,
+      /CREATE TABLE p2tr_candidate_enqueue_transaction_guard/
+    )
+    assert.match(
+      migration,
+      /CREATE TABLE p2tr_candidate_enqueue_transaction_resolution/
+    )
+    assert.match(
+      migration,
+      /CREATE TABLE p2tr_candidate_enqueue_retry_exhaustion_alert/
+    )
+    assert.match(
+      migration,
+      /FOREIGN KEY \(manifest_hash, token_id, candidate_digest\)/
+    )
+    assert.match(migration, /candidate enqueue retry journal is append-only/)
+    assert.match(
+      migration,
+      /candidate enqueue resolution lacks exact consumed authority/
+    )
+    assert.match(migration, /generation-cap resolution lacks its durable alert/)
   })
 })
 
@@ -123,7 +158,9 @@ function migrationFor(sql: string): P2TRWatchtowerMigration {
     version: 1,
     name: "example",
     filename: "001_example.sql",
-    checksum: createHash("sha256").update(Buffer.from(sql, "utf8")).digest("hex"),
+    checksum: createHash("sha256")
+      .update(Buffer.from(sql, "utf8"))
+      .digest("hex"),
     sql,
   }
 }
@@ -157,7 +194,10 @@ class MigrationClient implements P2TRWatchtowerMigrationClient {
 
   async query<Row>(text: string): Promise<{ rows: Row[]; rowCount: number }> {
     this.queries.push(text)
-    if (text === "BEGIN ISOLATION LEVEL SERIALIZABLE" && this.behavior.fail === "BEGIN") {
+    if (
+      text === "BEGIN ISOLATION LEVEL SERIALIZABLE" &&
+      this.behavior.fail === "BEGIN"
+    ) {
       throw new Error("BEGIN failed")
     }
     if (text === this.migration.sql && this.behavior.fail === "BODY") {
