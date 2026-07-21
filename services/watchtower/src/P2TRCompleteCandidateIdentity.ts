@@ -19,6 +19,20 @@ export type P2TRCompleteChallengeEvidence = {
   signatureScalar: string
 }
 
+/** Canonical Ethereum-to-Bitcoin binding for one COMPLETE-v2 input. */
+export type P2TRCompleteCandidateInputProvenance = {
+  inputIndex: number
+  fundingBlockHash: string
+  fundingTxid: string
+  fundingVout: number
+  bindingKind: "wallet" | "deposit"
+  walletID: string
+  outputKey: string
+  sourceEventID: string
+  ethereumBlockNumber: number
+  ethereumBlockHash: string
+}
+
 /**
  * Input-specific canonical identity. The occurrence fields intentionally remain
  * outside the Bridge challenge identity: two inputs may carry the same signed
