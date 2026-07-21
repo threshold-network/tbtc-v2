@@ -43,6 +43,8 @@ import type {
 export type P2TRPostgresQueryResult<Row> = {
   rows: Row[]
   rowCount: number | null
+  /** PostgreSQL command tag. `pg` returns `ROLLBACK` when COMMIT aborts. */
+  command?: string
 }
 
 /** Structurally compatible with a `pg` PoolClient. */
@@ -168,6 +170,50 @@ type TransactionContext = {
   client: P2TRPostgresClient
   readinessSnapshotLocked: boolean
   mutationStarted: boolean
+}
+
+export type P2TRRetryablePostgresSQLState = "40001" | "40P01"
+
+export type P2TRPostgresTransactionConfirmedAbortReason =
+  | "retryable-sqlstate"
+  | "rollback-command"
+
+/**
+ * Process-local signal that PostgreSQL definitively aborted the transaction.
+ *
+ * The generic coordinator never retries its callback. A higher-level owner
+ * may catch this error, discard attempt-local state and external evidence,
+ * and start a fresh whole transaction.
+ */
+export class P2TRPostgresTransactionConfirmedAbortError extends Error {
+  readonly transactionOutcome = "confirmed-abort" as const
+
+  constructor(
+    readonly reason: P2TRPostgresTransactionConfirmedAbortReason,
+    readonly sqlState: P2TRRetryablePostgresSQLState | undefined,
+    readonly postgresError: unknown,
+    readonly operationError: unknown
+  ) {
+    super(
+      sqlState === undefined
+        ? "PostgreSQL confirmed that the transaction was rolled back"
+        : `PostgreSQL confirmed transaction abort ${sqlState}`,
+      { cause: operationError }
+    )
+    this.name = "P2TRPostgresTransactionConfirmedAbortError"
+  }
+}
+
+export const isP2TRPostgresTransactionConfirmedAbortError = (
+  value: unknown
+): value is P2TRPostgresTransactionConfirmedAbortError =>
+  value instanceof P2TRPostgresTransactionConfirmedAbortError
+
+type P2TRPostgresTransactionAttempt = {
+  confirmedAbort?: {
+    sqlState: P2TRRetryablePostgresSQLState
+    error: unknown
+  }
 }
 
 const REQUIRED_SCHEMA_VERSION = 3
@@ -421,7 +467,9 @@ export class PostgresP2TRCanonicalIndexStore
     const active = this.transaction.getStore()
     if (active !== undefined) return operation()
 
-    const client = await this.pool.connect()
+    const rawClient = await this.pool.connect()
+    const attempt: P2TRPostgresTransactionAttempt = {}
+    const client = observeRetryablePostgresAborts(rawClient, attempt)
     let transactionPhase: "begin" | "active" | "commit" | "finished" = "begin"
     let releaseError: Error | boolean | undefined
     try {
@@ -438,14 +486,26 @@ export class PostgresP2TRCanonicalIndexStore
       }
       const result = await this.transaction.run(context, async () => {
         const operationResult = await operation()
+        // A callback may catch or wrap a database error. Do not allow an
+        // aborted PostgreSQL transaction to appear successful or hide its
+        // original retryable SQLSTATE behind a later 25P02 error.
+        throwRecordedPostgresAbort(attempt)
         if (context.mutationStarted) {
           await this.commitCanonicalGenerationIfReady(client)
         }
+        throwRecordedPostgresAbort(attempt)
         return operationResult
       })
       transactionPhase = "commit"
-      await client.query("COMMIT")
+      const commit = await client.query("COMMIT")
       transactionPhase = "finished"
+      if (normalizePostgresCommandTag(commit.command) === "ROLLBACK") {
+        throw confirmedPostgresAbortError(
+          attempt,
+          "rollback-command",
+          undefined
+        )
+      }
       return result
     } catch (error) {
       if (transactionPhase === "active") {
@@ -460,15 +520,31 @@ export class PostgresP2TRCanonicalIndexStore
             rollbackError,
             "PostgreSQL ROLLBACK failed"
           )
+          throw error
+        }
+        if (attempt.confirmedAbort !== undefined) {
+          throw confirmedPostgresAbortError(
+            attempt,
+            "retryable-sqlstate",
+            error
+          )
         }
       } else if (transactionPhase === "begin") {
         // A failed BEGIN response cannot prove whether the server entered the
         // transaction before the connection failed.
         releaseError = postgresClientError(error, "PostgreSQL BEGIN failed")
       } else if (transactionPhase === "commit") {
-        // Never claim rollback after a COMMIT error: the server may have
-        // committed before its response was lost. Destroy the session and
-        // surface the unknown outcome for reconciliation by the caller.
+        // A PostgreSQL SQLSTATE proves the server aborted. Without that
+        // response, the server may have committed before the response was
+        // lost, so destroy the session and surface the unknown outcome.
+        if (attempt.confirmedAbort !== undefined) {
+          transactionPhase = "finished"
+          throw confirmedPostgresAbortError(
+            attempt,
+            "retryable-sqlstate",
+            error
+          )
+        }
         const commitError = postgresClientError(
           error,
           "PostgreSQL COMMIT failed"
@@ -480,7 +556,7 @@ export class PostgresP2TRCanonicalIndexStore
       }
       throw error
     } finally {
-      client.release(releaseError)
+      rawClient.release(releaseError)
     }
   }
 
@@ -9148,6 +9224,60 @@ const calculateP2TRCompleteV2ChallengeIdentity = (value: {
 
 const postgresClientError = (value: unknown, context: string): Error =>
   value instanceof Error ? value : new Error(`${context}: ${String(value)}`)
+
+const retryablePostgresSQLState = (
+  value: unknown
+): P2TRRetryablePostgresSQLState | undefined => {
+  if (typeof value !== "object" || value === null || !("code" in value)) {
+    return undefined
+  }
+  const code = (value as { code?: unknown }).code
+  return code === "40001" || code === "40P01" ? code : undefined
+}
+
+const observeRetryablePostgresAborts = (
+  client: P2TRPostgresClient,
+  attempt: P2TRPostgresTransactionAttempt
+): P2TRPostgresClient => ({
+  query: async <Row = Record<string, unknown>>(
+    text: string,
+    values?: readonly unknown[]
+  ): Promise<P2TRPostgresQueryResult<Row>> => {
+    try {
+      return await client.query<Row>(text, values)
+    } catch (error) {
+      const sqlState = retryablePostgresSQLState(error)
+      if (sqlState !== undefined && attempt.confirmedAbort === undefined) {
+        attempt.confirmedAbort = { sqlState, error }
+      }
+      throw error
+    }
+  },
+  release: (error?: Error | boolean): void => client.release(error),
+})
+
+const throwRecordedPostgresAbort = (
+  attempt: P2TRPostgresTransactionAttempt
+): void => {
+  if (attempt.confirmedAbort !== undefined) {
+    throw attempt.confirmedAbort.error
+  }
+}
+
+const confirmedPostgresAbortError = (
+  attempt: P2TRPostgresTransactionAttempt,
+  reason: P2TRPostgresTransactionConfirmedAbortReason,
+  operationError: unknown
+): P2TRPostgresTransactionConfirmedAbortError =>
+  new P2TRPostgresTransactionConfirmedAbortError(
+    reason,
+    attempt.confirmedAbort?.sqlState,
+    attempt.confirmedAbort?.error,
+    operationError
+  )
+
+const normalizePostgresCommandTag = (value: unknown): string | undefined =>
+  typeof value === "string" ? value.trim().toUpperCase() : undefined
 
 const uint32 = (value: unknown, field: string): number => {
   const parsed = typeof value === "number" ? value : Number(value)
