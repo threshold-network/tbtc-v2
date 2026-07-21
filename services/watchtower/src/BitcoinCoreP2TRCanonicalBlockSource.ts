@@ -37,7 +37,6 @@ export type BitcoinCoreP2TRCanonicalBlockSourceOptions = {
   maxBlockBytes?: number
   maxBlockWeight?: number
   maxRawTransactionBytes?: number
-  prevoutFetchConcurrency?: number
 }
 
 type BitcoinCoreChainInfo = {
@@ -56,25 +55,6 @@ type BitcoinCoreIndexInfo = Record<
 
 type BitcoinCoreNetworkInfo = { version: number }
 
-type BitcoinCoreVerboseBlock = {
-  hash: string
-  height: number
-  previousblockhash?: string
-  tx: Array<{
-    txid: string
-    hash: string
-    vin: Array<{
-      coinbase?: string
-      txid?: string
-      vout?: number
-      prevout?: {
-        value?: number
-        scriptPubKey?: { hex?: string }
-      }
-    }>
-  }>
-}
-
 type BitcoinCoreRpcEnvelope<T> = {
   result?: T
   error?: { code?: number; message?: string } | null
@@ -84,12 +64,13 @@ type BitcoinCoreRpcEnvelope<T> = {
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000
 const DEFAULT_MAX_ATTEMPTS = 3
 const DEFAULT_RETRY_DELAY_MS = 250
-// Verbosity-3 JSON expands a consensus-valid block substantially. This is a
-// transport integrity bound, not an indexing-completeness cap.
-const DEFAULT_MAX_RESPONSE_BYTES = 256 * 1024 * 1024
+// Raw consensus blocks are returned as hex (at most twice the four-megabyte
+// serialized block ceiling) plus a small JSON-RPC envelope. No expanded
+// verbosity response participates in production ingestion.
+const DEFAULT_MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 const DEFAULT_MAX_BLOCK_BYTES = 4_000_000
 const DEFAULT_MAX_BLOCK_WEIGHT = 4_000_000
-const DEFAULT_PREVOUT_FETCH_CONCURRENCY = 8
+const MAX_BITCOIN_MONEY_SATS = 21_000_000 * 100_000_000
 
 /**
  * Bounded JSON-RPC transport suitable for a dedicated Bitcoin Core node.
@@ -137,7 +118,7 @@ export class HttpP2TRBitcoinCoreRpc implements P2TRBitcoinCoreRpc {
     )
     if (this.maxResponseBytes < DEFAULT_MAX_RESPONSE_BYTES) {
       throw new Error(
-        `Canonical verbosity-3 RPC responses require at least the ${DEFAULT_MAX_RESPONSE_BYTES}-byte transport bound`
+        `Canonical raw-block RPC responses require at least the ${DEFAULT_MAX_RESPONSE_BYTES}-byte transport bound`
       )
     }
   }
@@ -244,7 +225,8 @@ export class HttpP2TRBitcoinCoreRpc implements P2TRBitcoinCoreRpc {
 /**
  * Canonical, confirmed-only Bitcoin block source backed by a fully synced
  * Bitcoin Core node. `getrawtransaction` intentionally requires `txindex=1` so
- * every input prevout can be authenticated from raw transaction bytes. The
+ * each raw block can seed the sequential occurrence journal used to
+ * authenticate input prevouts. The
  * configured node's `getblockhash` result selects the chain: local header/root
  * and target checks detect corrupt responses but do not independently validate
  * difficulty transitions or compare cumulative chainwork with another node.
@@ -260,7 +242,6 @@ export class BitcoinCoreP2TRCanonicalBlockSource
   private readonly maxBlockBytes: number
   private readonly maxBlockWeight: number
   private readonly maxRawTransactionBytes: number
-  private readonly prevoutFetchConcurrency: number
 
   constructor(
     private readonly rpc: P2TRBitcoinCoreRpc,
@@ -302,10 +283,6 @@ export class BitcoinCoreP2TRCanonicalBlockSource
       options.maxRawTransactionBytes ?? this.maxBlockBytes,
       "Bitcoin raw transaction byte bound"
     )
-    this.prevoutFetchConcurrency = positiveInteger(
-      options.prevoutFetchConcurrency ?? DEFAULT_PREVOUT_FETCH_CONCURRENCY,
-      "Bitcoin prevout fetch concurrency"
-    )
     if (
       this.maxBlockBytes < DEFAULT_MAX_BLOCK_BYTES ||
       this.maxBlockWeight < DEFAULT_MAX_BLOCK_WEIGHT ||
@@ -337,7 +314,7 @@ export class BitcoinCoreP2TRCanonicalBlockSource
       networkInfo.version < 230000
     ) {
       throw new Error(
-        "Canonical Bitcoin indexing requires Bitcoin Core 23 or newer for verbosity-3 prevouts"
+        "Canonical Bitcoin indexing requires Bitcoin Core 23 or newer"
       )
     }
     if (chainInfo.pruned) {
@@ -387,10 +364,7 @@ export class BitcoinCoreP2TRCanonicalBlockSource
   async getBlock(height: number): Promise<P2TRCanonicalBitcoinBlock> {
     nonNegativeInteger(height, "Bitcoin block height")
     const hash = await this.getBlockHash(height)
-    const [rawBlockResult, verboseBlock] = await Promise.all([
-      this.rpc.call<string>("getblock", [hash, 0]),
-      this.rpc.call<BitcoinCoreVerboseBlock>("getblock", [hash, 3]),
-    ])
+    const rawBlockResult = await this.rpc.call<string>("getblock", [hash, 0])
     const rawBlockHex = normalizeHex(rawBlockResult, `Bitcoin block ${height}`)
     const rawBlockBytes = rawBlockHex.length / 2
     if (rawBlockBytes > this.maxBlockBytes) {
@@ -405,11 +379,11 @@ export class BitcoinCoreP2TRCanonicalBlockSource
     } catch {
       throw new Error(`Bitcoin block ${height} is malformed`)
     }
+    if (block.toHex() !== rawBlockHex) {
+      throw new Error(`Bitcoin block ${height} is not canonically encoded`)
+    }
     if (block.getId() !== hash) {
       throw new Error(`Bitcoin block ${height} raw bytes do not match its hash`)
-    }
-    if (!block.checkTxRoots()) {
-      throw new Error(`Bitcoin block ${height} has invalid transaction roots`)
     }
     if (!block.checkProofOfWork()) {
       throw new Error(
@@ -427,17 +401,13 @@ export class BitcoinCoreP2TRCanonicalBlockSource
     if (block.transactions === undefined || block.transactions.length === 0) {
       throw new Error(`Bitcoin block ${height} contains no transactions`)
     }
-    validateVerboseBlock(verboseBlock, height, hash, block)
-
-    const transactions = block.transactions.map(
-      (transaction, transactionIndex) =>
-        materializeTransactionWithPrevouts(
-          transaction,
-          verboseBlock.tx[transactionIndex],
-          this.maxRawTransactionBytes
-        )
+    const transactions = block.transactions.map((transaction) =>
+      materializeTransaction(transaction, this.maxRawTransactionBytes)
     )
-    await this.authenticateBlockPrevouts(transactions)
+    validateCanonicalBlockTransactions(block, transactions, height)
+    if (!block.checkTxRoots()) {
+      throw new Error(`Bitcoin block ${height} has invalid transaction roots`)
+    }
 
     return {
       height,
@@ -448,6 +418,10 @@ export class BitcoinCoreP2TRCanonicalBlockSource
           : Buffer.from(block.prevHash as Buffer)
               .reverse()
               .toString("hex"),
+      // A serialized block begins with the exact 80-byte consensus header.
+      // Persist it separately so an immutable export can authenticate the
+      // header chain without materializing the complete raw block.
+      header80Hex: rawBlockHex.slice(0, 160),
       rawBlockHex,
       transactions,
     }
@@ -457,12 +431,20 @@ export class BitcoinCoreP2TRCanonicalBlockSource
     txid: string
   ): Promise<P2TRCanonicalBitcoinTransaction> {
     const normalizedTxid = normalizeHash(txid, "Bitcoin transaction ID")
+    return this.fetchRawTransaction(normalizedTxid)
+  }
+
+  private async fetchRawTransaction(
+    normalizedTxid: string,
+    blockHash?: string
+  ): Promise<P2TRCanonicalBitcoinTransaction> {
     let rawTransactionHex: string
     try {
       rawTransactionHex = normalizeHex(
         await this.rpc.call<string>("getrawtransaction", [
           normalizedTxid,
           false,
+          ...(blockHash === undefined ? [] : [blockHash]),
         ]),
         `Bitcoin transaction ${normalizedTxid}`
       )
@@ -496,57 +478,161 @@ export class BitcoinCoreP2TRCanonicalBlockSource
     }
     return materialized
   }
+}
 
-  private async authenticateBlockPrevouts(
-    transactions: P2TRCanonicalBitcoinTransaction[]
-  ): Promise<void> {
-    const sameBlock = new Map(
-      transactions.map((transaction) => [transaction.txid, transaction])
+const validateCanonicalBlockTransactions = (
+  block: Block,
+  transactions: P2TRCanonicalBitcoinTransaction[],
+  height: number
+): void => {
+  const rawTransactions = block.transactions
+  if (
+    rawTransactions === undefined ||
+    rawTransactions.length !== transactions.length ||
+    transactions.length === 0
+  ) {
+    throw new Error(`Bitcoin block ${height} has inconsistent transactions`)
+  }
+
+  if (!transactions[0].coinbase) {
+    throw new Error(`Bitcoin block ${height} does not begin with coinbase`)
+  }
+  if (transactions.slice(1).some(({ coinbase }) => coinbase)) {
+    throw new Error(
+      `Bitcoin block ${height} contains multiple coinbase transactions`
     )
-    const externalTxids = [
-      ...new Set(
-        transactions.flatMap((transaction) =>
-          transaction.coinbase
-            ? []
-            : transaction.inputs
-                .map((input) => input.txid)
-                .filter((txid) => !sameBlock.has(txid))
+  }
+
+  const transactionMerkle = calculateBitcoinMerkleRoot(
+    transactions.map(({ txid }) => txid)
+  )
+  if (transactionMerkle.mutated) {
+    throw new Error(
+      `Bitcoin block ${height} has a mutated transaction merkle tree`
+    )
+  }
+  if (
+    block.merkleRoot === undefined ||
+    !transactionMerkle.root.equals(block.merkleRoot)
+  ) {
+    throw new Error(
+      `Bitcoin block ${height} has an invalid transaction merkle root`
+    )
+  }
+  const witnessMerkle = calculateBitcoinMerkleRoot(
+    transactions.map(({ wtxid }, index) =>
+      index === 0 ? "0".repeat(64) : wtxid
+    )
+  )
+  if (witnessMerkle.mutated) {
+    throw new Error(`Bitcoin block ${height} has a mutated witness merkle tree`)
+  }
+
+  assertUniqueTransactionHashes(
+    transactions.map(({ txid }) => txid),
+    `Bitcoin block ${height} contains duplicate transaction IDs`
+  )
+  assertUniqueTransactionHashes(
+    transactions.map(({ wtxid }) => wtxid),
+    `Bitcoin block ${height} contains duplicate witness transaction IDs`
+  )
+
+  rawTransactions.forEach((transaction, transactionIndex) => {
+    if (transaction.ins.length === 0 || transaction.outs.length === 0) {
+      throw new Error(
+        `Bitcoin block ${height} transaction ${transactionIndex} has empty inputs or outputs`
+      )
+    }
+    if (transactionIndex === 0) {
+      const scriptBytes = transaction.ins[0].script.length
+      if (
+        transaction.ins.length !== 1 ||
+        scriptBytes < 2 ||
+        scriptBytes > 100
+      ) {
+        throw new Error(
+          `Bitcoin block ${height} coinbase script length is invalid`
         )
-      ),
-    ]
-    const external = new Map<string, P2TRCanonicalBitcoinTransaction>()
-    await mapWithConcurrency(
-      externalTxids,
-      this.prevoutFetchConcurrency,
-      async (txid) => {
-        external.set(txid, await this.getRawTransaction(txid))
       }
-    )
-
-    for (const transaction of transactions) {
-      if (transaction.coinbase) continue
-      for (const input of transaction.inputs) {
-        const previousTransaction =
-          sameBlock.get(input.txid) ?? external.get(input.txid)
-        const rawPrevout = previousTransaction?.outputs[input.vout]
-        const reportedPrevout = input.authenticatedPrevout
-        if (
-          rawPrevout === undefined ||
-          reportedPrevout === undefined ||
-          rawPrevout.txid !== input.txid ||
-          rawPrevout.vout !== input.vout ||
-          rawPrevout.valueSats !== reportedPrevout.valueSats ||
-          rawPrevout.scriptPubKey !== reportedPrevout.scriptPubKey
-        ) {
+    } else {
+      const outpoints = new Set<string>()
+      for (const input of transaction.ins) {
+        if (input.index === 0xffffffff && input.hash.equals(Buffer.alloc(32))) {
           throw new Error(
-            `Bitcoin verbosity-3 prevout does not match raw transaction ${input.txid}:${input.vout}`
+            `Bitcoin block ${height} transaction ${transactionIndex} spends a null outpoint`
           )
         }
-        input.authenticatedPrevout = rawPrevout
+        const outpoint = `${input.hash.toString("hex")}:${input.index}`
+        if (outpoints.has(outpoint)) {
+          throw new Error(
+            `Bitcoin block ${height} transaction ${transactionIndex} has duplicate inputs`
+          )
+        }
+        outpoints.add(outpoint)
       }
     }
-  }
+
+    let totalOutput = 0
+    for (const output of transaction.outs) {
+      if (
+        !Number.isSafeInteger(output.value) ||
+        output.value < 0 ||
+        output.value > MAX_BITCOIN_MONEY_SATS
+      ) {
+        throw new Error(
+          `Bitcoin block ${height} transaction ${transactionIndex} has an invalid output value`
+        )
+      }
+      totalOutput += output.value
+      if (
+        !Number.isSafeInteger(totalOutput) ||
+        totalOutput > MAX_BITCOIN_MONEY_SATS
+      ) {
+        throw new Error(
+          `Bitcoin block ${height} transaction ${transactionIndex} exceeds maximum money`
+        )
+      }
+    }
+  })
 }
+
+const calculateBitcoinMerkleRoot = (
+  displayHashes: string[]
+): { root: Buffer; mutated: boolean } => {
+  if (displayHashes.length === 0) {
+    throw new Error("Bitcoin merkle tree requires at least one leaf")
+  }
+  let level: Buffer[] = displayHashes.map((hash) =>
+    Buffer.from(normalizeHash(hash, "Bitcoin merkle leaf"), "hex").reverse()
+  )
+  let mutated = false
+  while (level.length > 1) {
+    for (let index = 0; index + 1 < level.length; index += 2) {
+      if (level[index].equals(level[index + 1])) mutated = true
+    }
+    if (level.length % 2 === 1) {
+      level.push(Buffer.from(level[level.length - 1]))
+    }
+    const parent: Buffer[] = []
+    for (let index = 0; index < level.length; index += 2) {
+      parent.push(doubleSha256(Buffer.concat([level[index], level[index + 1]])))
+    }
+    level = parent
+  }
+  return { root: level[0], mutated }
+}
+
+const assertUniqueTransactionHashes = (
+  hashes: string[],
+  message: string
+): void => {
+  if (new Set(hashes).size !== hashes.length) throw new Error(message)
+}
+
+const doubleSha256 = (value: Buffer): Buffer =>
+  createHash("sha256")
+    .update(createHash("sha256").update(value).digest())
+    .digest()
 
 const materializeTransaction = (
   transaction: Transaction,
@@ -564,8 +650,7 @@ const materializeTransaction = (
     txid,
     // bitcoinjs-lib deliberately returns the all-zero witness hash for a
     // coinbase transaction because BIP141 uses that sentinel when constructing
-    // the witness merkle root. Bitcoin Core's verbosity-3 `hash`, however, is
-    // the transaction's actual serialized witness hash. Materialize that value
+    // the witness merkle root. Materialize the actual serialized witness hash
     // directly so identity validation does not reject every canonical block.
     wtxid: serializedTransactionHash(transaction.toBuffer()),
     rawTransactionHex,
@@ -583,131 +668,6 @@ const materializeTransaction = (
       scriptPubKey: output.script.toString("hex"),
     })),
   }
-}
-
-const materializeTransactionWithPrevouts = (
-  transaction: Transaction,
-  verboseTransaction: BitcoinCoreVerboseBlock["tx"][number],
-  maxRawTransactionBytes: number
-): P2TRCanonicalBitcoinTransaction => {
-  const materialized = materializeTransaction(
-    transaction,
-    maxRawTransactionBytes
-  )
-  if (
-    normalizeHash(verboseTransaction.txid, "verbose transaction ID") !==
-    materialized.txid
-  ) {
-    throw new Error(
-      `Bitcoin verbosity-3 transaction order does not match raw block at ${materialized.txid}`
-    )
-  }
-  if (
-    normalizeHash(verboseTransaction.hash, "verbose witness transaction ID") !==
-    materialized.wtxid
-  ) {
-    throw new Error(
-      `Bitcoin verbosity-3 witness transaction ID does not match raw block at ${materialized.txid}`
-    )
-  }
-  if (verboseTransaction.vin.length !== materialized.inputs.length) {
-    throw new Error(
-      `Bitcoin verbosity-3 input vector does not match raw transaction ${materialized.txid}`
-    )
-  }
-  if (materialized.coinbase) {
-    if (
-      verboseTransaction.vin.length !== 1 ||
-      verboseTransaction.vin[0].coinbase === undefined
-    ) {
-      throw new Error(
-        `Bitcoin verbosity-3 coinbase ${materialized.txid} is malformed`
-      )
-    }
-    return materialized
-  }
-
-  return {
-    ...materialized,
-    inputs: materialized.inputs.map((input, inputIndex) => {
-      const verboseInput = verboseTransaction.vin[inputIndex]
-      if (
-        normalizeHash(verboseInput.txid, "verbosity-3 prevout txid") !==
-          input.txid ||
-        verboseInput.vout !== input.vout
-      ) {
-        throw new Error(
-          `Bitcoin verbosity-3 prevout does not match raw input ${materialized.txid}:${inputIndex}`
-        )
-      }
-      const valueSats = bitcoinAmountToSatoshis(verboseInput.prevout?.value)
-      const scriptPubKey = normalizeHex(
-        verboseInput.prevout?.scriptPubKey?.hex,
-        `Bitcoin verbosity-3 prevout script ${input.txid}:${input.vout}`,
-        true
-      )
-      return {
-        ...input,
-        authenticatedPrevout: {
-          txid: input.txid,
-          vout: input.vout,
-          valueSats,
-          scriptPubKey,
-        },
-      }
-    }),
-  }
-}
-
-const validateVerboseBlock = (
-  verboseBlock: BitcoinCoreVerboseBlock,
-  height: number,
-  hash: string,
-  rawBlock: Block
-): void => {
-  if (
-    typeof verboseBlock !== "object" ||
-    verboseBlock === null ||
-    normalizeHash(verboseBlock.hash, "verbosity-3 block hash") !== hash ||
-    verboseBlock.height !== height ||
-    !Array.isArray(verboseBlock.tx) ||
-    verboseBlock.tx.length !== rawBlock.transactions?.length
-  ) {
-    throw new Error(
-      `Bitcoin verbosity-3 block ${height} does not match the raw canonical block`
-    )
-  }
-  if (height > 0) {
-    const rawParent = Buffer.from(rawBlock.prevHash as Buffer)
-      .reverse()
-      .toString("hex")
-    if (
-      normalizeHash(
-        verboseBlock.previousblockhash,
-        "verbosity-3 parent hash"
-      ) !== rawParent
-    ) {
-      throw new Error(
-        `Bitcoin verbosity-3 block ${height} parent does not match raw bytes`
-      )
-    }
-  }
-}
-
-const bitcoinAmountToSatoshis = (value: unknown): number => {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-    throw new Error("Bitcoin verbosity-3 prevout value is invalid")
-  }
-  const satoshis = Math.round(value * 100_000_000)
-  if (!Number.isSafeInteger(satoshis) || satoshis < 0) {
-    throw new Error("Bitcoin verbosity-3 prevout value exceeds the safe range")
-  }
-  if (Math.abs(value - satoshis / 100_000_000) > 1e-12) {
-    throw new Error(
-      "Bitcoin verbosity-3 prevout value has sub-satoshi precision"
-    )
-  }
-  return satoshis
 }
 
 const validateChainInfo = (value: BitcoinCoreChainInfo): void => {
@@ -769,8 +729,8 @@ const positiveInteger = (value: number, field: string): number => {
   return value
 }
 
-const nonNegativeInteger = (value: number, field: string): number => {
-  if (!Number.isSafeInteger(value) || value < 0) {
+const nonNegativeInteger = (value: unknown, field: string): number => {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
     throw new Error(`${field} must be a non-negative safe integer`)
   }
   return value
@@ -812,23 +772,6 @@ const readBoundedResponseBody = async (
     reader.releaseLock()
   }
   return Buffer.concat(chunks, bytesRead)
-}
-
-const mapWithConcurrency = async <T>(
-  items: T[],
-  concurrency: number,
-  operation: (item: T) => Promise<void>
-): Promise<void> => {
-  let nextIndex = 0
-  const worker = async (): Promise<void> => {
-    while (nextIndex < items.length) {
-      const index = nextIndex++
-      await operation(items[index])
-    }
-  }
-  await Promise.all(
-    Array.from({ length: Math.min(concurrency, items.length) }, worker)
-  )
 }
 
 class NonRetryableBitcoinCoreRpcError extends Error {}

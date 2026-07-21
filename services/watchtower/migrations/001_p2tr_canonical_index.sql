@@ -2909,13 +2909,21 @@ BEGIN
             c := round_c[quarter_round];
             d := round_d[quarter_round];
             state[a] := (state[a] + state[b]) & 4294967295;
-            state[d] := p2tr_rotl32(state[d] # state[a], 16);
+            word := state[d] # state[a];
+            state[d] := (((word << 16) & 4294967295) |
+                         (word >> 16)) & 4294967295;
             state[c] := (state[c] + state[d]) & 4294967295;
-            state[b] := p2tr_rotl32(state[b] # state[c], 12);
+            word := state[b] # state[c];
+            state[b] := (((word << 12) & 4294967295) |
+                         (word >> 20)) & 4294967295;
             state[a] := (state[a] + state[b]) & 4294967295;
-            state[d] := p2tr_rotl32(state[d] # state[a], 8);
+            word := state[d] # state[a];
+            state[d] := (((word << 8) & 4294967295) |
+                         (word >> 24)) & 4294967295;
             state[c] := (state[c] + state[d]) & 4294967295;
-            state[b] := p2tr_rotl32(state[b] # state[c], 7);
+            word := state[b] # state[c];
+            state[b] := (((word << 7) & 4294967295) |
+                         (word >> 25)) & 4294967295;
         END LOOP;
     END LOOP;
     FOR key_word IN 0..15 LOOP
@@ -3362,8 +3370,16 @@ END
 $$;
 
 CREATE TRIGGER p2tr_frost_wallet_cache_readiness_leaves
-BEFORE INSERT OR UPDATE ON p2tr_frost_wallet_bindings
+BEFORE INSERT ON p2tr_frost_wallet_bindings
 FOR EACH ROW EXECUTE FUNCTION p2tr_cache_frost_wallet_readiness_leaves();
+
+-- Wallet registrations are append-only Ethereum receipts. Reorg handling
+-- deletes orphaned rows and replays their canonical replacements; permitting
+-- an in-place identity/source-event rewrite would leave the old temporal
+-- membership and source-receipt logical keys without a matching tombstone.
+CREATE TRIGGER p2tr_frost_wallet_binding_immutable
+BEFORE UPDATE ON p2tr_frost_wallet_bindings
+FOR EACH ROW EXECUTE FUNCTION p2tr_reject_immutable_update();
 
 CREATE FUNCTION p2tr_muhash_inverse(value numeric)
 RETURNS numeric
@@ -3766,9 +3782,56 @@ BEGIN
 END
 $$;
 
-CREATE TRIGGER p2tr_frost_wallet_readiness_projection
-AFTER INSERT OR UPDATE ON p2tr_frost_wallet_bindings
-FOR EACH ROW EXECUTE FUNCTION p2tr_update_readiness_projection();
+-- A historical backfill can register the complete wallet inventory in one
+-- statement. Fold its already-cached MuHash factors and update the singleton
+-- projection once so cost stays linear without serially rewriting one row for
+-- every wallet. The transition relation contains only rows actually inserted
+-- (including under ON CONFLICT DO NOTHING).
+CREATE FUNCTION p2tr_insert_wallet_readiness_projection()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    row_record record;
+    inserted_count bigint := 0;
+    semantic_product numeric := 1;
+    projection_product numeric := 1;
+BEGIN
+    FOR row_record IN SELECT * FROM inserted_wallets LOOP
+        projection_product := p2tr_muhash_multiply(
+            projection_product,
+            row_record.readiness_operational_leaf
+        );
+        semantic_product := p2tr_muhash_multiply(
+            semantic_product,
+            row_record.readiness_semantic_leaf
+        );
+        inserted_count := inserted_count + 1;
+    END LOOP;
+    IF inserted_count = 0 THEN
+        RETURN NULL;
+    END IF;
+    UPDATE p2tr_readiness_projection_state
+       SET generation = generation + 1,
+           semantic_numerator = p2tr_muhash_multiply(
+               semantic_numerator, semantic_product
+           ),
+           semantic_row_count = semantic_row_count + inserted_count,
+           projection_numerator = p2tr_muhash_multiply(
+               projection_numerator, projection_product
+           ),
+           projection_row_count = projection_row_count + inserted_count,
+           wallet_binding_count = wallet_binding_count + inserted_count,
+           updated_at = clock_timestamp()
+     WHERE singleton = true;
+    RETURN NULL;
+END
+$$;
+
+CREATE TRIGGER p2tr_frost_wallet_insert_readiness_projection
+AFTER INSERT ON p2tr_frost_wallet_bindings
+REFERENCING NEW TABLE AS inserted_wallets
+FOR EACH STATEMENT EXECUTE FUNCTION p2tr_insert_wallet_readiness_projection();
 CREATE TRIGGER p2tr_complete_domain_readiness_projection
 AFTER INSERT ON p2tr_complete_authorization_domain
 FOR EACH ROW EXECUTE FUNCTION p2tr_update_readiness_projection();
