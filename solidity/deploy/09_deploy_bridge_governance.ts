@@ -40,10 +40,22 @@ const func: DeployFunction = async function runDeployment(
       waitConfirmations: 1,
     }
   )
+  const ecdsaFraudRouterCutoverVerifier = await deployments.deploy(
+    "EcdsaFraudRouterCutoverVerifier",
+    {
+      from: deployer,
+      log: true,
+      waitConfirmations: 1,
+    }
+  )
   const ecdsaFraudRouterCutover = await deployments.deploy(
     "EcdsaFraudRouterCutover",
     {
       from: deployer,
+      libraries: {
+        EcdsaFraudRouterCutoverVerifier:
+          ecdsaFraudRouterCutoverVerifier.address,
+      },
       log: true,
       waitConfirmations: 1,
     }
@@ -66,6 +78,7 @@ const func: DeployFunction = async function runDeployment(
 
   if (hre.network.tags.etherscan) {
     await helpers.etherscan.verify(bridgeGovernanceParameters)
+    await helpers.etherscan.verify(ecdsaFraudRouterCutoverVerifier)
     await helpers.etherscan.verify(ecdsaFraudRouterCutover)
     await helpers.etherscan.verify(bridgeGovernance)
   }
