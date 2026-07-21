@@ -162,7 +162,7 @@ describe("FrostRegistryWallets archive", () => {
     )
   })
 
-  it("consumes eighteen reserved Data slots without changing its total size", async () => {
+  it("consumes twenty-eight reserved Data slots without changing its total size", async () => {
     const buildInfo = await artifacts.getBuildInfo(
       "contracts/frost-registry/FrostWalletRegistry.sol:FrostWalletRegistry"
     )
@@ -219,6 +219,16 @@ describe("FrostRegistryWallets archive", () => {
       "archiveMigrationReconcilerAttester",
       "archiveMigrationSourceAttestationHash",
       "archiveMigrationReconcilerAttestationHash",
+      "archiveMigrationSourceIdentityHash",
+      "archiveMigrationSourceEndpointIdentityHash",
+      "archiveMigrationSourceTrustDomainHash",
+      "archiveMigrationSourceEndpointPolicyHash",
+      "archiveMigrationReconcilerIdentityHash",
+      "archiveMigrationReconcilerEndpointIdentityHash",
+      "archiveMigrationReconcilerTrustDomainHash",
+      "archiveMigrationReconcilerEndpointPolicyHash",
+      "archiveMigrationFinalSourceAttestationHash",
+      "archiveMigrationFinalReconcilerAttestationHash",
       "__gap",
     ])
     expect(
@@ -247,16 +257,27 @@ describe("FrostRegistryWallets archive", () => {
       "16",
       "17",
       "18",
+      "19",
+      "20",
+      "21",
+      "22",
+      "23",
+      "24",
+      "25",
+      "26",
+      "27",
+      "28",
     ])
 
     expect(
       dataType.members.map((member: { offset?: number }) => member.offset ?? 0)
     ).to.deep.equal([
-      0, 0, 0, 0, 20, 28, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 12, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 20, 28, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 12, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0,
     ])
 
-    const gap = dataType.members[22]
-    expect(storageLayout.types[gap.type].label).to.equal("uint256[32]")
+    const gap = dataType.members[32]
+    expect(storageLayout.types[gap.type].label).to.equal("uint256[22]")
     expect(dataType.numberOfBytes).to.equal("1600")
   })
 

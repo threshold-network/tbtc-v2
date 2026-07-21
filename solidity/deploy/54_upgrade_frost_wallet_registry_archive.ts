@@ -69,9 +69,9 @@ const EIP1967_IMPLEMENTATION_SLOT =
 // external-library link locations are zeroed. Update only alongside the source,
 // compiler/settings test, and an explicit bytecode-size review.
 export const EXPECTED_UNLINKED_REGISTRY_RUNTIME_HASH =
-  "0x72b6bd4384caaef59c3f2d7811f5b7e0a2a97153d10e6eb684ae3896785851b1"
+  "0x8b16bcc3e70643bc715f9a228acbde19c445596ba0ab2f0a9f8f194a0ef61b3d"
 export const EXPECTED_NORMALIZED_FROST_INACTIVITY_RUNTIME_HASH =
-  "0x796360afffae0d1a73f8b2ef989a6be22b87f23e6f6b32ef1ee2b57441a99d44"
+  "0x283853ac21145089ea297e06e01434432abb26a6fb36697474173406b07973b8"
 
 export interface LogPosition {
   blockNumber: number
@@ -1507,14 +1507,14 @@ const MIGRATION_STARTED_TOPIC = utils.id(
   "WalletArchiveMigrationStarted(address,uint256,bytes32,bytes32,bytes32,uint256,uint256,uint256,address,bytes32,address,bytes32)"
 )
 
-interface ArchiveAction {
+export interface ArchiveAction {
   target: string
   value: string
   data: string
   description: string
 }
 
-interface ArchiveTimelockActions {
+export interface ArchiveTimelockActions {
   timelock: string
   delay: string
   predecessor: string
@@ -2085,11 +2085,12 @@ const findMigrationStart = async (
   }
 }
 
-const buildTimelockActions = async (
+export const buildTimelockActions = async (
   hre: HardhatRuntimeEnvironment,
   owner: string,
   directAction: ArchiveAction,
-  salt: string
+  salt: string,
+  requireImmediateExecution = false
 ): Promise<ArchiveTimelockActions | undefined> => {
   if ((await hre.ethers.provider.getCode(owner)) === "0x") return undefined
   const timelock = new hre.ethers.Contract(
@@ -2106,6 +2107,11 @@ const buildTimelockActions = async (
     delay = await timelock.getMinDelay()
   } catch (_) {
     return undefined
+  }
+  if (requireImmediateExecution && !delay.isZero()) {
+    throw new Error(
+      "atomic archive upgrade requires an immediate Safe/EOA owner or a zero-delay timelock"
+    )
   }
   const predecessor = hre.ethers.constants.HashZero
   return {
@@ -2992,7 +2998,8 @@ const secureFunc: DeployFunction = async function secureFrostWalletArchive(
       hre,
       proxyAdminOwner,
       upgradeAction,
-      salt
+      salt,
+      true
     )
     currentPhase.phase = "prepared"
     writeArchivePhase(artifactPath, currentPhase)

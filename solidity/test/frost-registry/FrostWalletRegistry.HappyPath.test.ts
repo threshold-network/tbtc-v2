@@ -138,10 +138,6 @@ describe("FrostWalletRegistry full-cycle DKG happy path (B-1.5 slice 3)", () => 
       }
     )
     frostWalletRegistry = registry
-    await frostWalletRegistry.backfillArchivedWalletMembership(
-      ethers.constants.HashZero,
-      ethers.utils.id("frost-wallet-archive/happy-path-fresh")
-    )
     await frostSortitionPool.transferOwnership(frostWalletRegistry.address)
 
     // The production deploy chain already wired Bridge.frostWalletRegistry
@@ -486,7 +482,7 @@ describe("FrostWalletRegistry full-cycle DKG happy path (B-1.5 slice 3)", () => 
     ).to.be.reverted
 
     const wrongGroupMemberIds = [...groupMemberIds]
-    wrongGroupMemberIds[0] = wrongGroupMemberIds[0] + 1
+    wrongGroupMemberIds[0] += 1
     await expect(
       frostWalletRegistry
         .connect(deployer)
