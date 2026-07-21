@@ -50,6 +50,7 @@ export type P2TRProductionActivationRuntimeOptions = {
   coordinator: PostgresP2TRCanonicalIndexStoreOptions
   activationStore: Omit<PostgresP2TRProductionActivationStoreOptions, "storeID">
   candidateAuthorizationLifetimeMs?: number
+  candidateEnqueueTransactionMaxAttempts?: number
 }
 
 /** Fully composed production authority; construction includes migrations,
@@ -128,6 +129,8 @@ export async function createPostgresP2TRProductionActivationRuntime(
       expectedProtocols: options.expectedProtocols,
       candidateAuthorizationLifetimeMs:
         options.candidateAuthorizationLifetimeMs,
+      candidateEnqueueTransactionMaxAttempts:
+        options.candidateEnqueueTransactionMaxAttempts,
     }
   )
   // Startup is not considered successful until every live, signed, pinned

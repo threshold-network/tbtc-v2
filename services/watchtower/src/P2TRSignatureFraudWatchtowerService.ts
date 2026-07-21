@@ -797,7 +797,9 @@ function hasIndexingTransactionCoordinator(
     typeof value === "object" &&
     value !== null &&
     "runInP2TRSignatureFraudWatchtowerTransaction" in value &&
-    typeof value.runInP2TRSignatureFraudWatchtowerTransaction === "function"
+    typeof value.runInP2TRSignatureFraudWatchtowerTransaction === "function" &&
+    "isP2TRSignatureFraudWatchtowerTransactionActive" in value &&
+    typeof value.isP2TRSignatureFraudWatchtowerTransactionActive === "function"
   )
 }
 
