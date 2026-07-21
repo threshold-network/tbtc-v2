@@ -3,18 +3,21 @@ import {
   createPublicKey,
   verify as verifySignature,
 } from "node:crypto"
-import type { P2TRProductionCandidateInputProvenance } from "./P2TRProductionCandidateObservation.js"
 import {
   assertP2TRVerifiedCompleteCandidateIdentity,
   normalizeP2TRCompleteBridgeDomain,
   normalizeP2TRCompleteCandidateIdentity,
   verifyP2TRCompleteCandidateIdentity,
   type P2TRCompleteBridgeDomain,
+  type P2TRCompleteCandidateInputProvenance,
   type P2TRCompleteCandidateIdentity,
   type P2TRVerifiedCompleteCandidateIdentity,
 } from "./P2TRCompleteCandidateIdentity.js"
 
-export const P2TR_RECONCILER_EXPORT_CHUNK_BYTES = 1048576 as const
+type P2TRProductionCandidateInputProvenance =
+  P2TRCompleteCandidateInputProvenance
+
+export const P2TR_RECONCILER_EXPORT_CHUNK_BYTES = 65536 as const
 
 export type P2TRReconcilerRequestBinding = {
   recordID: string
@@ -105,7 +108,7 @@ export type P2TRReconcilerExportContentManifest = {
   resultDigest: string
   chunkCount: number
   totalBytes: number
-  chunkBytes: 1048576
+  chunkBytes: 65536
   orderedChunkHashes: readonly string[]
 }
 
@@ -317,7 +320,7 @@ export function computeP2TRReconcilerExportContentRoot(
 }
 
 /**
- * Authenticates a fixed-size export stream with at most one 1 MiB fragment in
+ * Authenticates a fixed-size export stream with at most one 64 KiB fragment in
  * flight. It never concatenates the export. Exact semantic decoding and raw
  * Bitcoin/BIP-341 verification are delegated to a bounded transactional
  * decoder so deployments can use the canonical index's framed wire codec.
