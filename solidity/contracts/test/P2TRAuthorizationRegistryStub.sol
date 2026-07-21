@@ -11,8 +11,7 @@ contract P2TRAuthorizationRegistryStub {
     uint256 public immutable domainChainID;
 
     mapping(bytes32 => bool) public authorizedChallengeIdentities;
-    mapping(bytes32 => uint256)
-        public authorizationSequenceByChallengeIdentity;
+    mapping(bytes32 => uint256) public authorizationSequenceByChallengeIdentity;
     uint256 public authorizedChallengeIdentityCount;
 
     struct Variant {
@@ -53,9 +52,8 @@ contract P2TRAuthorizationRegistryStub {
         bytes32 challengeIdentity,
         uint256 authorizationSequence
     ) external {
-        authorizedChallengeIdentities[
-            challengeIdentity
-        ] = authorizationSequence != 0;
+        authorizedChallengeIdentities[challengeIdentity] =
+            authorizationSequence != 0;
         authorizationSequenceByChallengeIdentity[
             challengeIdentity
         ] = authorizationSequence;
@@ -73,11 +71,7 @@ contract P2TRAuthorizationRegistryStub {
             bytes32(0),
             true
         );
-        reservations[reservationID] = Reservation(
-            walletPubKeyHash,
-            action,
-            2
-        );
+        reservations[reservationID] = Reservation(walletPubKeyHash, action, 2);
     }
 
     function getAuthorizedVariant(bytes32 transactionHash)
@@ -130,5 +124,13 @@ contract P2TRAuthorizationRegistryStub {
             reservation.action,
             reservation.status
         );
+    }
+
+    function hasActiveReservation(bytes20) external pure returns (bool) {
+        return false;
+    }
+
+    function isResourceReserved(bytes32) external pure returns (bool) {
+        return false;
     }
 }

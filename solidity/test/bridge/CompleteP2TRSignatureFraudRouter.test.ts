@@ -248,13 +248,61 @@ describe("CompleteP2TRSignatureFraudRouter", () => {
     const challenge = await router.fraudChallenges(challengeKey)
     expect(challenge.challenger).to.equal(challenger.address)
     expect(challenge.depositAmount).to.equal(challengeDeposit)
-    expect(await router.challengeAuthorizationSequenceCutoff(challengeKey)).to.equal(
-      0
-    )
+    expect(
+      await router.challengeAuthorizationSequenceCutoff(challengeKey)
+    ).to.equal(0)
     expect(await router.openFraudChallengeCount()).to.equal(1)
     expect(await router.totalChallengeEscrow()).to.equal(challengeDeposit)
     expect((await bridge.wallets(walletPubKeyHash)).state).to.equal(
       quarantinedWalletState
+    )
+  })
+
+  it("prevents an elapsed Closing wallet from escaping an open challenge", async () => {
+    const evidence = evidenceFor(defaultVector)
+    const walletPubKeyHash = await registerFrostWallet(
+      evidence.walletID,
+      walletState.Closing
+    )
+
+    await submit(evidence)
+
+    expect(
+      await router.openFraudChallengeCountByWallet(walletPubKeyHash)
+    ).to.equal(1)
+    expect((await bridge.wallets(walletPubKeyHash)).state).to.equal(
+      quarantinedWalletState
+    )
+    await expect(
+      bridge.notifyWalletClosingPeriodElapsed(walletPubKeyHash)
+    ).to.be.revertedWith("Wallet must be in Closing state")
+  })
+
+  it("does not block an unrelated Closing wallet", async () => {
+    const evidence = evidenceFor(defaultVector)
+    const challengedWalletPubKeyHash = await registerFrostWallet(
+      evidence.walletID,
+      walletState.Closing
+    )
+    const unrelatedWalletID = keccak256(
+      toUtf8Bytes("complete-v2-unrelated-closing-wallet")
+    )
+    const unrelatedWalletPubKeyHash = await registerFrostWallet(
+      unrelatedWalletID,
+      walletState.Closing
+    )
+
+    await submit(evidence)
+    await bridge.notifyWalletClosingPeriodElapsed(unrelatedWalletPubKeyHash)
+
+    expect(
+      await router.hasOpenFraudChallengeForWallet(challengedWalletPubKeyHash)
+    ).to.equal(true)
+    expect(
+      await router.hasOpenFraudChallengeForWallet(unrelatedWalletPubKeyHash)
+    ).to.equal(false)
+    expect((await bridge.wallets(unrelatedWalletPubKeyHash)).state).to.equal(
+      walletState.Closed
     )
   })
 
@@ -283,15 +331,13 @@ describe("CompleteP2TRSignatureFraudRouter", () => {
     expect(
       await registry.authorizationSequenceByChallengeIdentity(identity)
     ).to.equal(1)
-    expect(await router.challengeAuthorizationSequenceCutoff(challengeKey)).to.equal(
-      0
-    )
+    expect(
+      await router.challengeAuthorizationSequenceCutoff(challengeKey)
+    ).to.equal(0)
 
     await expect(
       router.defeatP2TRSignatureFraudChallenge(identityFor(evidence))
-    ).to.be.revertedWith(
-      "P2TR authorization was not accepted before challenge"
-    )
+    ).to.be.revertedWith("P2TR authorization was not accepted before challenge")
 
     await increaseTime(challengeTimeout)
     await router.notifyP2TRSignatureFraudChallengeDefeatTimeout(
@@ -352,9 +398,7 @@ describe("CompleteP2TRSignatureFraudRouter", () => {
     expect(await router.openFraudChallengeCount()).to.equal(1)
     await expect(
       router.defeatP2TRSignatureFraudChallenge(identityFor(evidence))
-    ).to.be.revertedWith(
-      "P2TR authorization was not accepted before challenge"
-    )
+    ).to.be.revertedWith("P2TR authorization was not accepted before challenge")
   })
 
   for (const fraudState of [
@@ -363,41 +407,41 @@ describe("CompleteP2TRSignatureFraudRouter", () => {
   ]) {
     for (const action of [1, 2, 3, 4]) {
       it(`accepts only settled action ${action} in fraud state ${fraudState}`, async () => {
-      const walletID = hex(defaultVector.walletIDHex)
-      const walletPubKeyHash = await registerFrostWallet(
-        walletID,
-        fraudState
-      )
-      const transactionHash = keccak256(
-        ethers.utils.defaultAbiCoder.encode(["string", "uint8"], ["tx", action])
-      )
-      const reservationID = keccak256(
-        ethers.utils.defaultAbiCoder.encode(
-          ["string", "uint8"],
-          ["reservation", action]
+        const walletID = hex(defaultVector.walletIDHex)
+        const walletPubKeyHash = await registerFrostWallet(walletID, fraudState)
+        const transactionHash = keccak256(
+          ethers.utils.defaultAbiCoder.encode(
+            ["string", "uint8"],
+            ["tx", action]
+          )
         )
-      )
-      await registry.setSettledVariant(
-        transactionHash,
-        reservationID,
-        walletPubKeyHash,
-        action
-      )
-
-      await expect(
-        bridge.requireP2TRProofWalletStateForTest(
+        const reservationID = keccak256(
+          ethers.utils.defaultAbiCoder.encode(
+            ["string", "uint8"],
+            ["reservation", action]
+          )
+        )
+        await registry.setSettledVariant(
           transactionHash,
+          reservationID,
           walletPubKeyHash,
           action
         )
-      ).not.to.be.reverted
-      await expect(
-        bridge.requireP2TRProofWalletStateForTest(
-          transactionHash,
-          walletPubKeyHash,
-          action === 4 ? 1 : action + 1
-        )
-      ).to.be.revertedWith("Fraud-state proof is not settled authorization")
+
+        await expect(
+          bridge.requireP2TRProofWalletStateForTest(
+            transactionHash,
+            walletPubKeyHash,
+            action
+          )
+        ).not.to.be.reverted
+        await expect(
+          bridge.requireP2TRProofWalletStateForTest(
+            transactionHash,
+            walletPubKeyHash,
+            action === 4 ? 1 : action + 1
+          )
+        ).to.be.revertedWith("Fraud-state proof is not settled authorization")
       })
     }
   }
@@ -504,14 +548,7 @@ describe("CompleteP2TRSignatureFraudRouter", () => {
         expect(
           ethers.utils.sha256(
             ethers.utils.solidityPack(
-              [
-                "string",
-                "uint256",
-                "address",
-                "bytes32",
-                "bytes32",
-                "bytes32",
-              ],
+              ["string", "uint256", "address", "bytes32", "bytes32", "bytes32"],
               [
                 completeVectors.challengeIdentity.domain,
                 completeVectors.challengeIdentity.referenceDomain.chainId,
@@ -565,14 +602,7 @@ describe("CompleteP2TRSignatureFraudRouter", () => {
       ).to.equal(
         ethers.utils.sha256(
           ethers.utils.solidityPack(
-            [
-              "string",
-              "uint256",
-              "address",
-              "bytes32",
-              "bytes32",
-              "bytes32",
-            ],
+            ["string", "uint256", "address", "bytes32", "bytes32", "bytes32"],
             [
               completeVectors.challengeIdentity.domain,
               await registry.domainChainID(),
@@ -687,10 +717,12 @@ describe("CompleteP2TRSignatureFraudRouter", () => {
     )
 
     await expect(
-      router.connect(challenger).submitP2TRSignatureFraudChallenge(
-        { ...evidence, bindingOutputIndex: prevout.vout + 1 },
-        { value: challengeDeposit }
-      )
+      router
+        .connect(challenger)
+        .submitP2TRSignatureFraudChallenge(
+          { ...evidence, bindingOutputIndex: prevout.vout + 1 },
+          { value: challengeDeposit }
+        )
     ).to.be.revertedWith("Taproot deposit wallet binding not found")
   })
 
@@ -779,26 +811,19 @@ describe("CompleteP2TRSignatureFraudRouter", () => {
     const walletMembersIDs = [31, 41, 59]
     const wrongWalletMembersIDs = [31, 41]
 
-    const Registry = await ethers.getContractFactory(
-      "FrostWalletRegistryStub"
-    )
+    const Registry = await ethers.getContractFactory("FrostWalletRegistryStub")
     const frostRegistry = await Registry.deploy()
     await frostRegistry.deployed()
     const LifecycleRouter = await ethers.getContractFactory(
       "BridgeLifecycleRouter"
     )
-    const retainedLifecycleRouter = await LifecycleRouter.deploy(
-      bridge.address
-    )
+    const retainedLifecycleRouter = await LifecycleRouter.deploy(bridge.address)
     await retainedLifecycleRouter.deployed()
     await frostRegistry.setLifecycleOwner(retainedLifecycleRouter.address)
     await frostRegistry.setRetainedWalletMembersIdsHash(
       evidence.walletID,
       keccak256(
-        ethers.utils.defaultAbiCoder.encode(
-          ["uint32[]"],
-          [walletMembersIDs]
-        )
+        ethers.utils.defaultAbiCoder.encode(["uint32[]"], [walletMembersIDs])
       )
     )
     await bridge.resetFrostWalletRegistryForTest(frostRegistry.address)
@@ -828,9 +853,7 @@ describe("CompleteP2TRSignatureFraudRouter", () => {
       walletMembersIDs
     )
     expect(await frostRegistry.seizeCalled()).to.be.true
-    expect(await frostRegistry.lastSeizeWalletID()).to.equal(
-      evidence.walletID
-    )
+    expect(await frostRegistry.lastSeizeWalletID()).to.equal(evidence.walletID)
     expect(
       (await frostRegistry.getLastSeizeWalletMembersIDs()).map(
         (memberID: BigNumber | number) => BigNumber.from(memberID).toNumber()
@@ -863,9 +886,9 @@ describe("CompleteP2TRSignatureFraudRouter", () => {
     )
 
     expect(lifecycleRouter.seize).to.have.been.calledOnce
-    expect(await router.openFraudChallengeCountByWallet(walletPubKeyHash)).to.equal(
-      0
-    )
+    expect(
+      await router.openFraudChallengeCountByWallet(walletPubKeyHash)
+    ).to.equal(0)
     expect((await bridge.wallets(walletPubKeyHash)).state).to.equal(
       walletState.Closed
     )
@@ -888,9 +911,7 @@ describe("CompleteP2TRSignatureFraudRouter", () => {
       router.address
     )
     await reentrantLifecycleRouter.deployed()
-    await bridge.resetLifecycleRouterForTest(
-      reentrantLifecycleRouter.address
-    )
+    await bridge.resetLifecycleRouterForTest(reentrantLifecycleRouter.address)
 
     const identity = identityFor(evidence)
     await submit(evidence)
@@ -925,9 +946,9 @@ describe("CompleteP2TRSignatureFraudRouter", () => {
 
     await submit(firstEvidence)
     await submit(secondEvidence)
-    expect(await router.openFraudChallengeCountByWallet(walletPubKeyHash)).to.equal(
-      2
-    )
+    expect(
+      await router.openFraudChallengeCountByWallet(walletPubKeyHash)
+    ).to.equal(2)
 
     await increaseTime(challengeTimeout)
     await router.notifyP2TRSignatureFraudChallengeDefeatTimeout(
@@ -937,9 +958,9 @@ describe("CompleteP2TRSignatureFraudRouter", () => {
     expect((await bridge.wallets(walletPubKeyHash)).state).to.equal(
       recoveryRequiredWalletState
     )
-    expect(await router.openFraudChallengeCountByWallet(walletPubKeyHash)).to.equal(
-      1
-    )
+    expect(
+      await router.openFraudChallengeCountByWallet(walletPubKeyHash)
+    ).to.equal(1)
 
     await router.notifyP2TRSignatureFraudChallengeDefeatTimeout(
       identityFor(secondEvidence),
@@ -991,9 +1012,9 @@ describe("CompleteP2TRSignatureFraudRouter", () => {
     await expect(() =>
       recipient.withdraw(router.address, receiver.address)
     ).to.changeEtherBalance(receiver, challengeDeposit)
-    expect(await router.withdrawableP2TRFraudPayouts(recipient.address)).to.equal(
-      0
-    )
+    expect(
+      await router.withdrawableP2TRFraudPayouts(recipient.address)
+    ).to.equal(0)
     expect(await router.totalWithdrawablePayouts()).to.equal(0)
     expect(await ethers.provider.getBalance(router.address)).to.equal(0)
   })
@@ -1023,9 +1044,9 @@ describe("CompleteP2TRSignatureFraudRouter", () => {
     await recipient.withdraw()
     expect(await recipient.reentryAttempted()).to.be.true
     expect(await recipient.reentrySucceeded()).to.be.false
-    expect(await router.withdrawableP2TRFraudPayouts(recipient.address)).to.equal(
-      0
-    )
+    expect(
+      await router.withdrawableP2TRFraudPayouts(recipient.address)
+    ).to.equal(0)
     expect(await router.totalWithdrawablePayouts()).to.equal(0)
     expect(await ethers.provider.getBalance(recipient.address)).to.equal(
       challengeDeposit
