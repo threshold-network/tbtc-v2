@@ -44,6 +44,8 @@ library P2TRReservation {
         0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
     uint256 internal constant MaximumCoverageBatchSize = 32;
 
+    error FrostWalletArchiveNotReady();
+
     enum ProofDisposition {
         Unreserved,
         Authorized,
@@ -140,12 +142,7 @@ library P2TRReservation {
     {
         return
             keccak256(
-                abi.encode(
-                    ResourceDomain,
-                    BitcoinOutpoint,
-                    txHash,
-                    outputIndex
-                )
+                abi.encode(ResourceDomain, BitcoinOutpoint, txHash, outputIndex)
             );
     }
 
@@ -156,11 +153,7 @@ library P2TRReservation {
     {
         return
             keccak256(
-                abi.encode(
-                    ResourceDomain,
-                    RedemptionRequest,
-                    redemptionKey
-                )
+                abi.encode(ResourceDomain, RedemptionRequest, redemptionKey)
             );
     }
 
@@ -194,9 +187,7 @@ library P2TRReservation {
     ) internal pure returns (bytes32[] memory resources) {
         (uint256 compactSizeLength, uint256 inputsCount) = inputVector
             .parseVarInt();
-        resources = new bytes32[](
-            inputsCount + additionalResources.length
-        );
+        resources = new bytes32[](inputsCount + additionalResources.length);
         uint256 offset = 1 + compactSizeLength;
         for (uint256 i = 0; i < inputsCount; i++) {
             bytes32 txHash = inputVector.extractInputTxIdLeAt(offset);
@@ -239,28 +230,23 @@ library P2TRReservation {
         ) = registry.getAuthorizedVariant(transactionHash);
 
         if (authorized) {
-            return ProofSettlement(
-                ProofDisposition.Authorized,
-                _settleAuthorized(
-                    registry,
-                    reservationID,
-                    transactionHash,
-                    applyPlanHash,
-                    expectedAction,
-                    expectedWalletPubKeyHash
-                )
-            );
+            return
+                ProofSettlement(
+                    ProofDisposition.Authorized,
+                    _settleAuthorized(
+                        registry,
+                        reservationID,
+                        transactionHash,
+                        applyPlanHash,
+                        expectedAction,
+                        expectedWalletPubKeyHash
+                    )
+                );
         }
 
         if (
-            _settleConflicts(
-                self,
-                registry,
-                transactionHash,
-                provenResourceIDs
-            )
-        )
-            return ProofSettlement(ProofDisposition.Conflicted, 0);
+            _settleConflicts(self, registry, transactionHash, provenResourceIDs)
+        ) return ProofSettlement(ProofDisposition.Conflicted, 0);
 
         return ProofSettlement(ProofDisposition.Unreserved, 0);
     }
@@ -295,13 +281,8 @@ library P2TRReservation {
             }
         }
         for (uint256 i = 0; i < count; i++) {
-            (
-                bytes32 settledReservation,
-                bytes20 walletPubKeyHash
-            ) = registry.settleConflictingProof(
-                    transactionHash,
-                    conflictResources[i]
-                );
+            (bytes32 settledReservation, bytes20 walletPubKeyHash) = registry
+                .settleConflictingProof(transactionHash, conflictResources[i]);
             require(settledReservation == reservationIDs[i]);
             _markRecoveryRequired(self, walletPubKeyHash);
         }
@@ -421,12 +402,11 @@ library P2TRReservation {
                 (!IP2TRAuthorizationRegistry(registry).hasActiveReservation(
                     walletPubKeyHash
                 ) &&
-                    !IP2TRAuthorizationRegistry(registry)
-                        .isResourceReserved(
-                            walletMainSlotResource(
-                                canonicalWalletID(self, walletPubKeyHash)
-                            )
-                        )),
+                    !IP2TRAuthorizationRegistry(registry).isResourceReserved(
+                        walletMainSlotResource(
+                            canonicalWalletID(self, walletPubKeyHash)
+                        )
+                    )),
             "Wallet has an active signing reservation"
         );
     }
@@ -446,8 +426,9 @@ library P2TRReservation {
         (bytes32 reservationID, , , bool authorized) = registry
             .getAuthorizedVariant(transactionHash);
         if (!authorized) return currentFeeLimit;
-        (, , , , , , , , uint64 reservedFeeLimit, , ) = registry
-            .getReservation(reservationID);
+        (, , , , , , , , uint64 reservedFeeLimit, , ) = registry.getReservation(
+            reservationID
+        );
         return reservedFeeLimit;
     }
 
@@ -457,7 +438,15 @@ library P2TRReservation {
         BridgeState.Storage storage self,
         bytes32 transactionHash,
         uint8 expectedAction
-    ) external view returns (bool authorized, bytes32 data1, bytes32 data2) {
+    )
+        external
+        view
+        returns (
+            bool authorized,
+            bytes32 data1,
+            bytes32 data2
+        )
+    {
         return _proofApplyPlan(self, transactionHash, expectedAction);
     }
 
@@ -508,7 +497,15 @@ library P2TRReservation {
         BridgeState.Storage storage self,
         bytes32 transactionHash,
         uint8 expectedAction
-    ) private view returns (bool authorized, bytes32 data1, bytes32 data2) {
+    )
+        private
+        view
+        returns (
+            bool authorized,
+            bytes32 data1,
+            bytes32 data2
+        )
+    {
         address registryAddress = _registry(self);
         if (registryAddress == address(0)) return (false, 0, 0);
         IP2TRReservationRegistry registry = IP2TRReservationRegistry(
@@ -524,19 +521,8 @@ library P2TRReservation {
         bytes32 snapshotHash;
         uint8 action;
         uint8 status;
-        (
-            ,
-            ,
-            ,
-            snapshotHash,
-            ,
-            ,
-            data1,
-            data2,
-            ,
-            action,
-            status
-        ) = registry.getReservation(reservationID);
+        (, , , snapshotHash, , , data1, data2, , action, status) = registry
+            .getReservation(reservationID);
         require(status != 0, "Reservation does not exist");
         require(action == expectedAction, "Reservation action mismatch");
         require(
@@ -573,8 +559,9 @@ library P2TRReservation {
     /// @notice One-selector dispatcher for the activation-only historical
     ///         output-key inventory. Action 0 installs an independently signed
     ///         inventory; actions 1/5 migrate one/batched leaves; action 6
-    ///         terminally resolves a swept/deleted leaf. Actions 2/3/4/7 are
-    ///         exact state and authorization readbacks.
+    ///         terminally resolves a swept/deleted leaf; action 8 installs the
+    ///         authorized COMPLETE_V2 router. Actions 2/3/4/7 are exact state
+    ///         and authorization readbacks.
     function processTaprootOutputKeyCoverage(
         BridgeState.Storage storage self,
         bytes calldata payload,
@@ -591,9 +578,9 @@ library P2TRReservation {
                 bytes memory sourceSignature2,
                 bytes memory signature
             ) = abi.decode(
-                payload,
-                (uint8, CoverageAuthorization, bytes, bytes, bytes)
-            );
+                    payload,
+                    (uint8, CoverageAuthorization, bytes, bytes, bytes)
+                );
             require(isGovernance, "Caller is not governance");
             require(
                 !self.taprootOutputKeyCoverageInitialized,
@@ -614,14 +601,16 @@ library P2TRReservation {
                 .inventoryCount;
             self.taprootOutputKeyCoverageAuthorizedRouter = authorization
                 .fraudRouter;
-            self.taprootOutputKeyCoverageAuthorizationDigest = authorizationDigest;
+            self
+                .taprootOutputKeyCoverageAuthorizationDigest = authorizationDigest;
             self.taprootOutputKeyCoverageHistoryStartBlock = authorization
                 .historyStartBlock;
             self.taprootOutputKeyCoverageSnapshotBlock = authorization
                 .snapshotBlock;
             self.taprootOutputKeyCoverageSnapshotBlockHash = authorization
                 .snapshotBlockHash;
-            self.taprootOutputKeyCoverageSourceCheckpointCommitment = authorization
+            self
+                .taprootOutputKeyCoverageSourceCheckpointCommitment = authorization
                 .sourceCheckpointCommitment;
             self.taprootOutputKeyCoverageSourceCheckpoint1 = keccak256(
                 abi.encode(
@@ -637,7 +626,8 @@ library P2TRReservation {
                     authorization.sourceCheckpointDigest2
                 )
             );
-            self.taprootOutputKeyCoverageLinkedLibrariesCommitment = authorization
+            self
+                .taprootOutputKeyCoverageLinkedLibrariesCommitment = authorization
                 .linkedLibrariesCommitment;
             emit TaprootOutputKeyCoverageAuthorized(
                 authorizationDigest,
@@ -675,16 +665,16 @@ library P2TRReservation {
         }
         if (action == 3) {
             (, uint64 index) = abi.decode(payload, (uint8, uint64));
-            return
-                abi.encode(
-                    self.taprootOutputKeyCoverageLeafMigrated[index]
-                );
+            return abi.encode(self.taprootOutputKeyCoverageLeafMigrated[index]);
+        }
+        if (action == 8) {
+            (, address router) = abi.decode(payload, (uint8, address));
+            require(isGovernance, "Caller is not governance");
+            _setCompleteP2TRFraudRouter(self, router);
+            return bytes("");
         }
         if (action == 4) {
-            (, uint256 depositKey) = abi.decode(
-                payload,
-                (uint8, uint256)
-            );
+            (, uint256 depositKey) = abi.decode(payload, (uint8, uint256));
             return abi.encode(self.taprootDepositOutputKeys[depositKey]);
         }
         if (action == 5) {
@@ -706,7 +696,9 @@ library P2TRReservation {
                     migrationAction == 1 || migrationAction == 6,
                     "Invalid coverage migration action"
                 );
-                if (!self.taprootOutputKeyCoverageLeafMigrated[migrationIndex]) {
+                if (
+                    !self.taprootOutputKeyCoverageLeafMigrated[migrationIndex]
+                ) {
                     _migrateOutputKeyPayload(
                         self,
                         migrations[i],
@@ -754,8 +746,7 @@ library P2TRReservation {
         bytes memory signature
     ) private view returns (bytes32 digest) {
         require(
-            coverageAuthority != address(0) &&
-                coverageAuthority != governance,
+            coverageAuthority != address(0) && coverageAuthority != governance,
             "Coverage authority is not independent"
         );
         require(
@@ -832,8 +823,7 @@ library P2TRReservation {
         require(
             implementation != address(0) &&
                 implementation == authorization.implementation &&
-                implementation.codehash ==
-                authorization.implementationCodeHash,
+                implementation.codehash == authorization.implementationCodeHash,
             "Coverage implementation codehash mismatch"
         );
         require(
@@ -886,9 +876,11 @@ library P2TRReservation {
             );
     }
 
-    function _coverageCodeCommitment(
-        CoverageAuthorization memory authorization
-    ) private pure returns (bytes32) {
+    function _coverageCodeCommitment(CoverageAuthorization memory authorization)
+        private
+        pure
+        returns (bytes32)
+    {
         return
             keccak256(
                 abi.encode(
@@ -1038,25 +1030,25 @@ library P2TRReservation {
         bytes32 node = leaf;
         uint256 position = index;
         for (uint256 i = 0; i < proof.length; i++) {
-            node =
-                (position & 1) == 0
-                    ? keccak256(abi.encodePacked(node, proof[i]))
-                    : keccak256(abi.encodePacked(proof[i], node));
+            node = (position & 1) == 0
+                ? keccak256(abi.encodePacked(node, proof[i]))
+                : keccak256(abi.encodePacked(proof[i], node));
             position >>= 1;
         }
         return node == root;
     }
 
-    function setCompleteP2TRFraudRouter(
+    function _setCompleteP2TRFraudRouter(
         BridgeState.Storage storage self,
         address router
-    ) external {
+    ) private {
         require(self.p2trFraudRouter == address(0));
         require(
             self.taprootOutputKeyCoverageInitialized &&
                 self.taprootOutputKeyCoverageMigratedCount ==
                 self.taprootOutputKeyCoverageInventoryCount
         );
+        _requireFrostWalletArchiveReady(self.frostWalletRegistry);
         require(
             router == self.taprootOutputKeyCoverageAuthorizedRouter,
             "Router not authorized by coverage manifest"
@@ -1068,6 +1060,39 @@ library P2TRReservation {
         );
         self.p2trFraudRouter = router;
         emit BridgeState.P2TRFraudRouterSet(router);
+    }
+
+    function _requireFrostWalletArchiveReady(address frostWalletRegistry)
+        private
+        view
+    {
+        (bool stateRead, bytes memory stateData) = frostWalletRegistry
+            .staticcall(abi.encodeWithSignature("getWalletArchiveMigration()"));
+        uint256 state;
+        if (stateRead && stateData.length >= 32) {
+            assembly {
+                state := mload(add(stateData, 32))
+            }
+        }
+        if (!stateRead || (state != 3 && state != 4)) {
+            revert FrostWalletArchiveNotReady();
+        }
+
+        (bool manifestRead, bytes memory manifestData) = frostWalletRegistry
+            .staticcall(
+                abi.encodeWithSignature(
+                    "getWalletArchiveMigrationManifestHash()"
+                )
+            );
+        bytes32 manifestHash;
+        if (manifestRead && manifestData.length == 32) {
+            assembly {
+                manifestHash := mload(add(manifestData, 32))
+            }
+        }
+        if (!manifestRead || manifestHash == bytes32(0)) {
+            revert FrostWalletArchiveNotReady();
+        }
     }
 
     /// @notice Applies the stateful tail of an exact authorized moving-funds
@@ -1084,12 +1109,7 @@ library P2TRReservation {
             walletPubKeyHash
         ];
         if (wallet.state == Wallets.WalletState.MovingFunds) return false;
-        _requireProofWalletState(
-            self,
-            transactionHash,
-            walletPubKeyHash,
-            3
-        );
+        _requireProofWalletState(self, transactionHash, walletPubKeyHash, 3);
         require(
             wallet.movingFundsTargetWalletsCommitmentHash != bytes32(0) &&
                 wallet.movingFundsTargetWalletsCommitmentHash ==
@@ -1281,10 +1301,7 @@ library P2TRReservation {
                 ];
             }
         }
-        emit WalletP2TRFraudQuarantineLifted(
-            walletPubKeyHash,
-            previousState
-        );
+        emit WalletP2TRFraudQuarantineLifted(walletPubKeyHash, previousState);
     }
 
     function _notifyFraudTimeout(

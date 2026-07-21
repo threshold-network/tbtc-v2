@@ -280,6 +280,12 @@ describe("Bridge storage layout invariant", () => {
       gapType.label,
       `__gap should be uint256[${expectedGapSize}] (explicit fields = ${explicitMemberCount}, reserved total = ${EXPECTED_RESERVED_TOTAL})`
     ).to.equal(`uint256[${expectedGapSize}]`)
+
+    // Member counts are packing-sensitive, so independently pin the physical
+    // end of the struct. The first reserved slot plus the exact array length
+    // must remain 78, and solc must report the corresponding 2,496 bytes.
+    expect(Number(gap!.slot) + expectedGapSize).to.equal(78)
+    expect(selfType.numberOfBytes).to.equal("2496")
   })
 
   it("pins the legacy fraud mapping slot used by the canonical reconciler", () => {

@@ -27,9 +27,8 @@ export const EIP_1967_IMPLEMENTATION_SLOT =
   "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc"
 export const EIP_170_RUNTIME_LIMIT = 24_576
 export const COVERAGE_LEAF_DOMAIN = "tbtc-p2tr-output-key-coverage-leaf-v1"
-export const ACTIVATION_ARTIFACT_SCHEMA = "tbtc/complete-p2tr-activation/v2"
-export const COVERAGE_MANIFEST_SCHEMA =
-  "tbtc/taproot-output-key-coverage/v2"
+export const ACTIVATION_ARTIFACT_SCHEMA = "tbtc/complete-p2tr-activation/v3"
+export const COVERAGE_MANIFEST_SCHEMA = "tbtc/taproot-output-key-coverage/v2"
 export const MAXIMUM_COVERAGE_BATCH_SIZE = 32
 export const EIP_170_REQUIRED_HEADROOM = 512
 export const DEFAULT_MAXIMUM_ACTIVATION_TAIL_BLOCKS = 8192
@@ -37,8 +36,7 @@ export const COVERAGE_AUTHORIZATION_DOMAIN =
   "tbtc-p2tr-output-key-coverage-authorization-v1"
 export const DUAL_SOURCE_CHECKPOINT_DOMAIN =
   "tbtc-complete-p2tr-dual-source-checkpoint-v1"
-export const LINKED_LIBRARIES_DOMAIN =
-  "tbtc-complete-p2tr-linked-libraries-v1"
+export const LINKED_LIBRARIES_DOMAIN = "tbtc-complete-p2tr-linked-libraries-v1"
 export const COVERAGE_AUTHORIZATION_TUPLE =
   "tuple(bytes32 inventoryRoot,uint64 inventoryCount,uint64 historyStartBlock,uint64 snapshotBlock,bytes32 snapshotBlockHash,bytes32 sourceIdentity1,address sourceSigner1,bytes32 sourceCheckpointDigest1,bytes32 sourceIdentity2,address sourceSigner2,bytes32 sourceCheckpointDigest2,bytes32 sourceCheckpointCommitment,bytes32 linkedLibrariesCommitment,address implementation,bytes32 implementationCodeHash,address authorizationRegistry,bytes32 authorizationRegistryCodeHash,address fraudRouter,bytes32 fraudRouterCodeHash)"
 
@@ -64,17 +62,16 @@ const bridgeInterface = new utils.Interface([
   "function processTaprootOutputKeyCoverage(bytes payload) returns (bytes)",
   "function deposits(uint256 depositKey) view returns (address depositor,uint64 amount,uint32 revealedAt,address vault,uint64 treasuryFee,uint32 sweptAt,bytes32 extraData)",
   "function setFrostWalletRegistry(address registry)",
-  "function setP2TRFraudRouter(address router)",
-  "function setEcdsaFraudRouter(address router)",
+  "function setEcdsaFraudRouter(address router,bytes32 expectedCodeHash)",
 ])
 const bridgeGovernanceInterface = new utils.Interface([
   "function owner() view returns (address)",
   "function governanceDelay() view returns (uint256)",
   "function beginBridgeGovernanceTransfer(address newGovernance)",
   "function finalizeBridgeGovernanceTransfer()",
-  "function initializeCompleteP2TRCoverage(bytes initializationPayload,address frostRegistry,address ecdsaRouter)",
-  "function activateCompleteP2TR(address router)",
-  "function setEcdsaFraudRouter(address router)",
+  "function setFrostWalletRegistry(address registry)",
+  "function processTaprootOutputKeyCoverage(bytes payload)",
+  "function setEcdsaFraudRouter(address router,bytes32 expectedCodeHash)",
 ])
 const routerInterface = new utils.Interface([
   "function bridge() view returns (address)",
@@ -159,10 +156,7 @@ export interface CoverageManifest {
   bitcoinJournalSha256: string
   bitcoinRawEvidenceCommitment: string
   semanticProjectionRoot: string
-  linkedLibraries: Record<
-    string,
-    { address: string; runtimeCodeHash: string }
-  >
+  linkedLibraries: Record<string, { address: string; runtimeCodeHash: string }>
   bitcoinWatermark: {
     blockHeight: number
     blockHash: string
@@ -253,9 +247,11 @@ export function assertRuntimeCode(
       `${label}: ${runtimeBytes}-byte runtime exceeds EIP-170 limit`
     )
   }
-  if (EIP_170_RUNTIME_LIMIT - runtimeBytes < EIP_170_REQUIRED_HEADROOM) {
+  const requiredHeadroom =
+    label === "BridgeGovernance" ? 1_024 : EIP_170_REQUIRED_HEADROOM
+  if (EIP_170_RUNTIME_LIMIT - runtimeBytes < requiredHeadroom) {
     throw new Error(
-      `${label}: ${runtimeBytes}-byte runtime leaves less than ${EIP_170_REQUIRED_HEADROOM} bytes of EIP-170 headroom`
+      `${label}: ${runtimeBytes}-byte runtime leaves less than ${requiredHeadroom} bytes of EIP-170 headroom`
     )
   }
   return {
@@ -707,14 +703,12 @@ export const buildNextCoverageBatch = async (
           bridge,
           bridgeInterface,
           "processTaprootOutputKeyCoverage",
-          [
-            utils.defaultAbiCoder.encode(
-              ["uint8", "uint64"],
-              [3, entry.index]
-            ),
-          ]
+          [utils.defaultAbiCoder.encode(["uint8", "uint64"], [3, entry.index])]
         )
-        return utils.defaultAbiCoder.decode(["bool"], leafOuter[0])[0] as boolean
+        return utils.defaultAbiCoder.decode(
+          ["bool"],
+          leafOuter[0]
+        )[0] as boolean
       })
     )
     for (let index = 0; index < candidates.length; index++) {
@@ -835,7 +829,10 @@ const validateStorageLayout = (repositoryRoot: string): void => {
     storage: Array<{ label: string; slot: string; type: string }>
     types: Record<
       string,
-      { members?: Array<{ label: string; slot: string; type: string }> }
+      {
+        members?: Array<{ label: string; slot: string; type: string }>
+        numberOfBytes?: string
+      }
     >
   }
   const self = layout.storage.find(({ label }) => label === "self")
@@ -847,19 +844,23 @@ const validateStorageLayout = (repositoryRoot: string): void => {
     ["frostWalletRegistry", "32"],
     ["ecdsaFraudRouter", "33"],
     ["p2trFraudRouter", "34"],
-    ["taprootDepositOutputKeys", "39"],
-    ["taprootOutputKeyCoverageInitialized", "40"],
-    ["taprootOutputKeyCoverageInventoryRoot", "41"],
-    ["taprootOutputKeyCoverageLeafMigrated", "42"],
-    ["taprootOutputKeyCoverageAuthorizedRouter", "43"],
-    ["taprootOutputKeyCoverageAuthorizationDigest", "44"],
-    ["taprootOutputKeyCoverageHistoryStartBlock", "45"],
-    ["taprootOutputKeyCoverageSnapshotBlockHash", "46"],
-    ["taprootOutputKeyCoverageSourceCheckpointCommitment", "47"],
-    ["taprootOutputKeyCoverageSourceCheckpoint1", "48"],
-    ["taprootOutputKeyCoverageSourceCheckpoint2", "49"],
-    ["taprootOutputKeyCoverageLinkedLibrariesCommitment", "50"],
-    ["__gap", "51"],
+    ["taprootDepositOutputKeyCommitments", "38"],
+    ["ecdsaFraudRouterCodeHash", "39"],
+    ["ecdsaFraudRouterInDrain", "40"],
+    ["retiredEcdsaFraudRouters", "41"],
+    ["taprootDepositOutputKeys", "42"],
+    ["taprootOutputKeyCoverageInitialized", "43"],
+    ["taprootOutputKeyCoverageInventoryRoot", "44"],
+    ["taprootOutputKeyCoverageLeafMigrated", "45"],
+    ["taprootOutputKeyCoverageAuthorizedRouter", "46"],
+    ["taprootOutputKeyCoverageAuthorizationDigest", "47"],
+    ["taprootOutputKeyCoverageHistoryStartBlock", "48"],
+    ["taprootOutputKeyCoverageSnapshotBlockHash", "49"],
+    ["taprootOutputKeyCoverageSourceCheckpointCommitment", "50"],
+    ["taprootOutputKeyCoverageSourceCheckpoint1", "51"],
+    ["taprootOutputKeyCoverageSourceCheckpoint2", "52"],
+    ["taprootOutputKeyCoverageLinkedLibrariesCommitment", "53"],
+    ["__gap", "54"],
   ])
   required.forEach((slot, label) => {
     const member = members.find((candidate) => candidate.label === label)
@@ -871,8 +872,14 @@ const validateStorageLayout = (repositoryRoot: string): void => {
   })
   const gap = members.find(({ label }) => label === "__gap")
   const gapType = gap ? layout.types[gap.type] : undefined
-  if (!gapType || !/27_storage$/.test(gap!.type)) {
-    throw new Error("Bridge storage layout: reserved gap is not 27 slots")
+  if (
+    !gapType ||
+    !/24_storage$/.test(gap!.type) ||
+    layout.types[self.type]?.numberOfBytes !== "2496"
+  ) {
+    throw new Error(
+      "Bridge storage layout: expected 24-slot gap and 2496-byte union layout"
+    )
   }
 }
 
@@ -908,7 +915,9 @@ export const validateManifest = async (
     throw new Error("Unsupported coverage manifest schema")
   }
   if (Object.prototype.hasOwnProperty.call(manifest, "entries")) {
-    throw new Error("Coverage entries must be derived from authenticated history")
+    throw new Error(
+      "Coverage entries must be derived from authenticated history"
+    )
   }
   if (manifest.chainId !== (await hre.getChainId())) {
     throw new Error("Coverage manifest chain mismatch")
@@ -923,7 +932,9 @@ export const validateManifest = async (
     manifest.rebuildCertificates.length !== 2 ||
     manifest.historyStartBlockNumber > manifest.snapshotBlockNumber
   ) {
-    throw new Error("Exactly two authenticated rebuild checkpoints are required")
+    throw new Error(
+      "Exactly two authenticated rebuild checkpoints are required"
+    )
   }
   const snapshot = await hre.ethers.provider.getBlock(
     manifest.snapshotBlockNumber
@@ -973,10 +984,7 @@ export const validateManifest = async (
     sourceIDs.add(certificate.sourceID)
     backendIDs.add(certificate.backendID)
     signers.add(certificate.signer.toLowerCase())
-    const archivePath = path.resolve(
-      manifestDirectory,
-      certificate.archivePath
-    )
+    const archivePath = path.resolve(manifestDirectory, certificate.archivePath)
     // eslint-disable-next-line no-await-in-loop
     const rebuilt = await verifyAndDeriveEthereumArchive(
       hre.ethers.provider,
@@ -993,7 +1001,8 @@ export const validateManifest = async (
     if (
       rebuilt.archive.sourceID !== certificate.sourceID ||
       rebuilt.archive.backendID !== certificate.backendID ||
-      rebuilt.sha256.toLowerCase() !== certificate.archiveSha256.toLowerCase() ||
+      rebuilt.sha256.toLowerCase() !==
+        certificate.archiveSha256.toLowerCase() ||
       certificate.bitcoinJournalSha256.toLowerCase() !==
         manifest.bitcoinJournalSha256.toLowerCase() ||
       certificate.bitcoinRawEvidenceCommitment.toLowerCase() !==
@@ -1011,8 +1020,7 @@ export const validateManifest = async (
         ethereumBlockHash: manifest.snapshotBlockHash,
         bitcoinBlockHeight: manifest.bitcoinWatermark.blockHeight,
         bitcoinBlockHash: manifest.bitcoinWatermark.blockHash,
-        bitcoinRawEvidenceCommitment:
-          manifest.bitcoinRawEvidenceCommitment,
+        bitcoinRawEvidenceCommitment: manifest.bitcoinRawEvidenceCommitment,
         semanticProjectionRoot: manifest.semanticProjectionRoot,
       },
       rebuilt.deposits
@@ -1085,10 +1093,7 @@ export const validateManifest = async (
 export const assertExactBridgeLinkMap = (
   deployedBytecode: string,
   references: DeployedLinkReferences,
-  linkedLibraries: Record<
-    string,
-    { address: string; runtimeCodeHash: string }
-  >
+  linkedLibraries: Record<string, { address: string; runtimeCodeHash: string }>
 ): void => {
   const flattened = Object.entries(references).flatMap(([source, libraries]) =>
     Object.entries(libraries).map(([name, locations]) => ({
@@ -1120,10 +1125,7 @@ export const assertExactBridgeLinkMap = (
 }
 
 export const linkedLibrariesCommitment = (
-  linkedLibraries: Record<
-    string,
-    { address: string; runtimeCodeHash: string }
-  >
+  linkedLibraries: Record<string, { address: string; runtimeCodeHash: string }>
 ): string => {
   const names = Object.keys(linkedLibraries).sort()
   return utils.keccak256(
@@ -1190,13 +1192,7 @@ export const dualSourceCheckpointCommitment = (
   )
   return utils.keccak256(
     utils.defaultAbiCoder.encode(
-      [
-        "string",
-        "uint256",
-        "address",
-        "bytes32",
-        "bytes32",
-      ],
+      ["string", "uint256", "address", "bytes32", "bytes32"],
       [
         DUAL_SOURCE_CHECKPOINT_DOMAIN,
         manifest.chainId,
@@ -1231,13 +1227,17 @@ const canonicalJSON = (value: unknown): string => {
 }
 
 export const activationArtifactContentHash = (
-  artifact: Omit<CompleteP2TRActivationArtifact, "contentHash"> | CompleteP2TRActivationArtifact
+  artifact:
+    | Omit<CompleteP2TRActivationArtifact, "contentHash">
+    | CompleteP2TRActivationArtifact
 ): string => {
   const { contentHash: _, ...body } = artifact as CompleteP2TRActivationArtifact
   return utils.keccak256(utils.toUtf8Bytes(canonicalJSON(body)))
 }
 
-const parseArtifact = (artifactPath: string): CompleteP2TRActivationArtifact => {
+const parseArtifact = (
+  artifactPath: string
+): CompleteP2TRActivationArtifact => {
   const artifact = JSON.parse(
     fs.readFileSync(artifactPath, "utf8")
   ) as CompleteP2TRActivationArtifact
@@ -1556,9 +1556,7 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
     bridgeArtifact.deployedLinkReferences,
     actualLinkedLibraries
   )
-  const librariesCommitment = linkedLibrariesCommitment(
-    actualLinkedLibraries
-  )
+  const librariesCommitment = linkedLibrariesCommitment(actualLinkedLibraries)
   const sourceCheckpoints = orderedSourceCheckpoints(
     manifest,
     authenticatedManifest
@@ -1672,13 +1670,7 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
     manifest.coverageAuthorizationSignature
   )
   inventory.initializationPayload = utils.defaultAbiCoder.encode(
-    [
-      "uint8",
-      COVERAGE_AUTHORIZATION_TUPLE,
-      "bytes",
-      "bytes",
-      "bytes",
-    ],
+    ["uint8", COVERAGE_AUTHORIZATION_TUPLE, "bytes", "bytes", "bytes"],
     [
       0,
       coverageAuthorization,
@@ -1850,8 +1842,7 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
     )
     if (
       ecdsaRouterToInstall !== constants.AddressZero &&
-      configuredEcdsaRouter.toLowerCase() !==
-        ecdsaRouterToInstall.toLowerCase()
+      configuredEcdsaRouter.toLowerCase() !== ecdsaRouterToInstall.toLowerCase()
     ) {
       throw new Error("Configured ECDSA router diverges from resume plan")
     }
@@ -1935,7 +1926,9 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
       originalGovernanceOwner.toLowerCase() !==
         governanceAuthority.toLowerCase()
     ) {
-      throw new Error("Original BridgeGovernance owner diverges from resume plan")
+      throw new Error(
+        "Original BridgeGovernance owner diverges from resume plan"
+      )
     }
     governanceAuthority = originalGovernanceOwner
     governanceDelay = await readUint(
@@ -2114,8 +2107,7 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
     prePhaseImplementation.toLowerCase() ===
       BridgeImplementation.address.toLowerCase()
   )
-  const migrationAuthority =
-    process.env.COMPLETE_P2TR_MIGRATOR ?? deployer
+  const migrationAuthority = process.env.COMPLETE_P2TR_MIGRATOR ?? deployer
   if (!utils.isAddress(migrationAuthority)) {
     throw new Error("COMPLETE_P2TR_MIGRATOR is not an address")
   }
@@ -2212,23 +2204,73 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
       ],
       transactionHashes: [],
     })
+    let prerequisite = "finalize-governance-transfer"
+    if (frostRegistryToInstall !== constants.AddressZero) {
+      const setFrostRegistry = makeCall(
+        "install-frost-registry",
+        activationTarget,
+        bridgeGovernanceInterface.encodeFunctionData("setFrostWalletRegistry", [
+          FrostWalletRegistry.address,
+        ]),
+        "Install the immutable FROST wallet registry binding"
+      )
+      candidatePhases.push({
+        id: "install-frost-registry",
+        status: "prepared",
+        prerequisite,
+        calls: [
+          envelope(
+            setFrostRegistry,
+            governanceAuthority,
+            governanceAuthorityKind,
+            "install-frost-registry",
+            governanceTimelockDelay
+          ),
+        ],
+        transactionHashes: [],
+      })
+      prerequisite = "install-frost-registry"
+    }
+    if (ecdsaRouterToInstall !== constants.AddressZero) {
+      const setEcdsa = makeCall(
+        "install-ecdsa-router",
+        activationTarget,
+        bridgeGovernanceInterface.encodeFunctionData("setEcdsaFraudRouter", [
+          ecdsaRouterToInstall,
+          runtimeReceipts.EcdsaRouter.runtimeCodeHash,
+        ]),
+        "Install the fresh empty ECDSA fraud router with its approved code hash"
+      )
+      candidatePhases.push({
+        id: "install-ecdsa-router",
+        status: "prepared",
+        prerequisite,
+        calls: [
+          envelope(
+            setEcdsa,
+            governanceAuthority,
+            governanceAuthorityKind,
+            "install-ecdsa-router",
+            governanceTimelockDelay
+          ),
+        ],
+        transactionHashes: [],
+      })
+      prerequisite = "install-ecdsa-router"
+    }
     const initializeCall = makeCall(
       "initialize-coverage",
       activationTarget,
       bridgeGovernanceInterface.encodeFunctionData(
-        "initializeCompleteP2TRCoverage",
-        [
-          inventory.initializationPayload,
-          frostRegistryToInstall,
-          ecdsaRouterToInstall,
-        ]
+        "processTaprootOutputKeyCoverage",
+        [inventory.initializationPayload]
       ),
       "Install the signed dual-source coverage checkpoint without activating FROST"
     )
     candidatePhases.push({
       id: "initialize-coverage",
       status: "prepared",
-      prerequisite: "finalize-governance-transfer",
+      prerequisite,
       calls: [
         envelope(
           initializeCall,
@@ -2255,9 +2297,15 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
     const activateCall = makeCall(
       "activate-complete-p2tr",
       activationTarget,
-      bridgeGovernanceInterface.encodeFunctionData("activateCompleteP2TR", [
-        Router.address,
-      ]),
+      bridgeGovernanceInterface.encodeFunctionData(
+        "processTaprootOutputKeyCoverage",
+        [
+          utils.defaultAbiCoder.encode(
+            ["uint8", "address"],
+            [8, Router.address]
+          ),
+        ]
+      ),
       "Activate COMPLETE_V2 after exact coverage completion"
     )
     candidatePhases.push({
@@ -2309,6 +2357,7 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
         Bridge.address,
         bridgeInterface.encodeFunctionData("setEcdsaFraudRouter", [
           ecdsaRouterToInstall,
+          runtimeReceipts.EcdsaRouter.runtimeCodeHash,
         ]),
         "Install the fresh empty ECDSA fraud router"
       )
@@ -2369,8 +2418,8 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
     const activate = makeCall(
       "activate-complete-p2tr",
       Bridge.address,
-      bridgeInterface.encodeFunctionData("setP2TRFraudRouter", [
-        Router.address,
+      bridgeInterface.encodeFunctionData("processTaprootOutputKeyCoverage", [
+        utils.defaultAbiCoder.encode(["uint8", "address"], [8, Router.address]),
       ]),
       "Activate COMPLETE_V2 after exact coverage completion"
     )
@@ -2434,8 +2483,7 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
         Router.address.toLowerCase()
     if (
       !sameCandidates ||
-      (previousInitialization &&
-        previousInitialization.status !== "prepared")
+      (previousInitialization && previousInitialization.status !== "prepared")
     ) {
       throw new Error(
         "Existing COMPLETE_V2 activation artifact belongs to a different plan"
@@ -2485,9 +2533,7 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
     await ethers.provider.getStorageAt(Bridge.address, 51 + 33),
     "Bridge ECDSA router slot"
   )
-  let coverageReadback:
-    | Awaited<ReturnType<typeof readCoverage>>
-    | undefined
+  let coverageReadback: Awaited<ReturnType<typeof readCoverage>> | undefined
   if (
     installedImplementation.toLowerCase() ===
       BridgeImplementation.address.toLowerCase() ||
@@ -2571,12 +2617,8 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
   const selectors = {
     proxyUpgrade: proxyAdminInterface.getSighash("upgrade"),
     coverage: bridgeInterface.getSighash("processTaprootOutputKeyCoverage"),
-    setP2TRRouter: bridgeInterface.getSighash("setP2TRFraudRouter"),
-    initializeCoverageWrapper: bridgeGovernanceInterface.getSighash(
-      "initializeCompleteP2TRCoverage"
-    ),
-    activateComplete: bridgeGovernanceInterface.getSighash(
-      "activateCompleteP2TR"
+    governanceCoverage: bridgeGovernanceInterface.getSighash(
+      "processTaprootOutputKeyCoverage"
     ),
     coverageAuthorizationTuple: COVERAGE_AUTHORIZATION_TUPLE,
     routerProtocol: routerInterface.getSighash("evidenceProtocolID"),
@@ -2595,8 +2637,7 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
       snapshotBlockNumber: manifest.snapshotBlockNumber,
       snapshotBlockHash: manifest.snapshotBlockHash,
       bitcoinJournalSha256: manifest.bitcoinJournalSha256,
-      bitcoinRawEvidenceCommitment:
-        manifest.bitcoinRawEvidenceCommitment,
+      bitcoinRawEvidenceCommitment: manifest.bitcoinRawEvidenceCommitment,
       semanticProjectionRoot: manifest.semanticProjectionRoot,
       sourceIDs: authenticatedManifest.sourceIDs,
       sourceCheckpointCommitment: checkpointCommitment,

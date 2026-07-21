@@ -61,6 +61,12 @@ contract BridgeGovernance is Ownable {
 
     error EcdsaFraudCutoverActive();
 
+    function requireNoEcdsaFraudCutover() private view {
+        if (ecdsaFraudCutoverData.phase != EcdsaFraudRouterCutover.Phase.Idle) {
+            revert EcdsaFraudCutoverActive();
+        }
+    }
+
     // We skip emitting event on *Update to go down with the contract size
     // limit. The reason why we leave *Started but not including *Updated is
     // because Bridge governance transferred event can also be read from the
@@ -350,9 +356,7 @@ contract BridgeGovernance is Ownable {
         external
         onlyOwner
     {
-        if (ecdsaFraudCutoverData.phase != EcdsaFraudRouterCutover.Phase.Idle) {
-            revert EcdsaFraudCutoverActive();
-        }
+        requireNoEcdsaFraudCutover();
         require(
             _newGovernanceDelay >= MIN_GOVERNANCE_DELAY,
             "New governance delay must be >= minimum"
@@ -390,9 +394,7 @@ contract BridgeGovernance is Ownable {
         external
         onlyOwner
     {
-        if (ecdsaFraudCutoverData.phase != EcdsaFraudRouterCutover.Phase.Idle) {
-            revert EcdsaFraudCutoverActive();
-        }
+        requireNoEcdsaFraudCutover();
         // slither-disable-next-line missing-zero-check
         newBridgeGovernance = _newBridgeGovernance;
         /* solhint-disable not-rely-on-time */
@@ -411,9 +413,7 @@ contract BridgeGovernance is Ownable {
     ///      Event that informs about the transfer in this function is skipped on
     ///      purpose to go down with the contract size.
     function finalizeBridgeGovernanceTransfer() external onlyOwner {
-        if (ecdsaFraudCutoverData.phase != EcdsaFraudRouterCutover.Phase.Idle) {
-            revert EcdsaFraudCutoverActive();
-        }
+        requireNoEcdsaFraudCutover();
         require(
             bridgeGovernanceTransferChangeInitiated > 0,
             "Change not initiated"
@@ -1923,45 +1923,21 @@ contract BridgeGovernance is Ownable {
         uint8 routerKind,
         uint256[] calldata challengeKeys
     ) external onlyOwner {
-        bridge.migrateLegacyFraudChallenges(routerKind, challengeKeys);
-    }
-
-    /// @notice Sets the P2TRSignatureFraudRouter sidecar address on
-    ///         the Bridge. Same one-off (no governance delay) pattern
-    ///         as `setEcdsaFraudRouter`.
-    function setP2TRFraudRouter(address p2trFraudRouter) external onlyOwner {
-        bridge.setP2TRFraudRouter(p2trFraudRouter);
+        BridgeGovernanceParameters.migrateLegacyFraudChallenges(
+            address(bridge),
+            routerKind,
+            challengeKeys
+        );
     }
 
     function processTaprootOutputKeyCoverage(bytes calldata payload)
         external
         onlyOwner
-        returns (bytes memory)
     {
-        return bridge.processTaprootOutputKeyCoverage(payload);
-    }
-
-    /// @notice Installs the independently authorized historical coverage
-    ///         commitment while leaving FROST custody disabled. Leaf migration
-    ///         is permissionless and resumable through the Bridge dispatcher.
-    function initializeCompleteP2TRCoverage(
-        bytes calldata initializationPayload,
-        address frostRegistry,
-        address ecdsaRouter
-    ) external onlyOwner {
-        if (frostRegistry != address(0)) {
-            bridge.setFrostWalletRegistry(frostRegistry);
-        }
-        if (ecdsaRouter != address(0)) {
-            bridge.setEcdsaFraudRouter(ecdsaRouter);
-        }
-        bridge.processTaprootOutputKeyCoverage(initializationPayload);
-    }
-
-    /// @notice Activates only after every signed-inventory leaf is migrated or
-    ///         terminally resolved and the exact router handshake succeeds.
-    function activateCompleteP2TR(address router) external onlyOwner {
-        bridge.setP2TRFraudRouter(router);
+        BridgeGovernanceParameters.processTaprootOutputKeyCoverage(
+            address(bridge),
+            payload
+        );
     }
 
     /// @notice Sets the BridgeLifecycleRouter address. This function

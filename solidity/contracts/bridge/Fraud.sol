@@ -51,6 +51,7 @@ library Fraud {
     uint8 internal constant CUTOVER_BEGIN_DRAIN = 0;
     uint8 internal constant CUTOVER_MIGRATE = 1;
     uint8 internal constant CUTOVER_FINALIZE = 2;
+    uint8 internal constant LEGACY_ROUTER_MIGRATE = 3;
 
     struct FraudChallenge {
         // The address of the party challenging the wallet.
@@ -167,6 +168,14 @@ library Fraud {
                 expectedNewCodeHash,
                 expectedOpenChallengeCount
             );
+            return;
+        }
+        if (action == LEGACY_ROUTER_MIGRATE) {
+            (uint8 routerKind, uint256[] memory challengeKeys) = abi.decode(
+                payload,
+                (uint8, uint256[])
+            );
+            _migrateLegacyFraudChallenges(self, routerKind, challengeKeys);
             return;
         }
 
@@ -414,18 +423,11 @@ library Fraud {
         );
     }
 
-    /// @notice Moves unresolved fraud challenges and their exact ETH escrow
-    ///         from legacy Bridge storage into one of the fraud routers.
-    /// @dev This function is external so the migration loop stays in linked
-    ///      library bytecode instead of the size-constrained Bridge runtime.
-    ///      Records are deleted before the router interaction. Any router
-    ///      failure reverts the entire delegatecall, restoring both storage
-    ///      and escrow atomically.
-    function migrateLegacyFraudChallenges(
+    function _migrateLegacyFraudChallenges(
         BridgeState.Storage storage self,
         uint8 routerKind,
-        uint256[] calldata challengeKeys
-    ) external {
+        uint256[] memory challengeKeys
+    ) private {
         // The legacy mapping is shared by both router kinds. Once an ECDSA
         // inventory drain starts, no generic migration may delete or reclassify
         // any key until the committed inventory has settled atomically.

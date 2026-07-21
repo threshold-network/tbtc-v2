@@ -14,9 +14,9 @@ import deployCompleteP2TRActivation, {
   classifyAuthority,
   deriveCoverageInventory,
   reconcilePhase,
-} from "../../deploy/87_deploy_complete_p2tr_activation"
+} from "../../deploy/88_deploy_complete_p2tr_activation"
 
-describe("Deploy Script 87: COMPLETE_V2 activation", () => {
+describe("Deploy Script 88: COMPLETE_V2 activation", () => {
   const bridge = "0x1000000000000000000000000000000000000001"
   const authority = "0x2000000000000000000000000000000000000002"
   const target = "0x3000000000000000000000000000000000000003"
@@ -244,7 +244,7 @@ describe("Deploy Script 87: COMPLETE_V2 activation", () => {
     ])
     expect(inventory.entries[0].migrationPayload).to.match(/^0x[0-9a-f]+$/)
     expect(ACTIVATION_ARTIFACT_SCHEMA).to.equal(
-      "tbtc/complete-p2tr-activation/v2"
+      "tbtc/complete-p2tr-activation/v3"
     )
 
     expect(() =>

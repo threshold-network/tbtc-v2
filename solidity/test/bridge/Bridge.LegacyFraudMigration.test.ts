@@ -292,19 +292,22 @@ describe("Bridge - legacy fraud challenge migration", () => {
     expect(await ecdsaFraudRouter.openFraudChallengeCount()).to.equal(0)
   })
 
-  it("routes P2TR records only to the handshake-only P2TR test stub", async () => {
+  it("rejects legacy P2TR records after COMPLETE_V2 activation", async () => {
     const key = 201
     const deposit = ethers.utils.parseEther("0.25")
     await seedChallenge(key, deposit)
 
-    await bridgeGovernance
-      .connect(governance)
-      .migrateLegacyFraudChallenges(1, [key])
+    await expect(
+      bridgeGovernance
+        .connect(governance)
+        .migrateLegacyFraudChallenges(1, [key])
+    ).to.be.revertedWith("COMPLETE_V2 migration must be empty")
 
-    expect((await p2trFraudRouter.fraudChallenges(key)).depositAmount).to.equal(
-      deposit
-    )
+    expect((await p2trFraudRouter.fraudChallenges(key)).reportedAt).to.equal(0)
     expect((await ecdsaFraudRouter.fraudChallenges(key)).reportedAt).to.equal(0)
+    expect(
+      (await bridge.legacyFraudChallengeForTest(key)).depositAmount
+    ).to.equal(deposit)
   })
 
   it("rejects calls through BridgeGovernance from a non-owner", async () => {
@@ -315,7 +318,12 @@ describe("Bridge - legacy fraud challenge migration", () => {
 
   it("rejects direct calls to Bridge from a non-governance address", async () => {
     await expect(
-      bridge.connect(thirdParty).migrateLegacyFraudChallenges(0, [])
+      bridge
+        .connect(thirdParty)
+        .processEcdsaFraudRouterCutover(
+          3,
+          ethers.utils.defaultAbiCoder.encode(["uint8", "uint256[]"], [0, []])
+        )
     ).to.be.revertedWith("Caller is not the governance")
   })
 

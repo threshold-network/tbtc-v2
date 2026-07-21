@@ -334,9 +334,10 @@ library BridgeState {
         // governance wiring; changing it afterwards requires a dedicated
         // upgrade path of the Bridge implementation.
         address rebateStaking;
-        // Upgrade note: the FROST extraction state, Taproot deposit commitment,
-        // and ECDSA fraud-router cutover state below consume twelve reserved
-        // slots, reducing `__gap` from 48 to 36 for storage compatibility.
+        // Upgrade note: the FROST extraction, Taproot commitment/coverage, and
+        // ECDSA fraud-router cutover fields below consume twenty-four slots
+        // from the original 48-slot reserve, reducing `__gap` to 24 while
+        // preserving the struct's 78-slot physical footprint.
         // Maps canonical wallet identifier to the wallet public key hash used
         // by legacy Bridge paths. For legacy ECDSA wallets, canonical wallet
         // ID is a left-padded 20-byte wallet public key hash. New wallet
