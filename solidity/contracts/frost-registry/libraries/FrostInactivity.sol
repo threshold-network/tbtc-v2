@@ -23,8 +23,10 @@ import "@keep-network/random-beacon/contracts/libraries/BytesLib.sol";
 import "@keep-network/random-beacon/contracts/ReimbursementPool.sol";
 import "@keep-network/sortition-pools/contracts/SortitionPool.sol";
 
+import "../api/IFrostAuthorizationSource.sol";
 import "../api/IFrostWalletOwner.sol";
 import {FrostDkg as DKG} from "./FrostDkg.sol";
+import {FrostAuthorization as Authorization} from "./FrostAuthorization.sol";
 import "./FrostRegistryWallets.sol";
 
 library FrostInactivity {
@@ -1047,6 +1049,47 @@ library FrostInactivity {
         }
         wallets.validateXOnlyOutputKey(dkgResult.xOnlyOutputKey);
         dkg.submitResult(dkgResult);
+    }
+
+    /// @notice Authenticates active-or-archived wallet membership and reports
+    ///         every signing group member to the authorization source.
+    /// @dev Kept in this already-linked library so retaining closed-wallet
+    ///      accountability does not exhaust the registry implementation's
+    ///      EIP-170 deployment headroom.
+    function seize(
+        FrostRegistryWallets.Data storage wallets,
+        Authorization.Data storage authorization,
+        SortitionPool sortitionPool,
+        IFrostAuthorizationSource authorizationSource,
+        uint96 amount,
+        uint256 rewardMultiplier,
+        address notifier,
+        bytes32 walletID,
+        uint32[] calldata walletMembersIDs
+    ) external {
+        require(
+            wallets.getRetainedWalletMembersIdsHash(walletID) ==
+                keccak256(abi.encode(walletMembersIDs)),
+            "Invalid wallet members identifiers"
+        );
+
+        address[] memory groupMembersAddresses = sortitionPool.getIDOperators(
+            walletMembersIDs
+        );
+        address[] memory stakingProvidersAddresses = new address[](
+            groupMembersAddresses.length
+        );
+        for (uint256 i = 0; i < groupMembersAddresses.length; i++) {
+            stakingProvidersAddresses[i] = authorization
+                .operatorToStakingProvider[groupMembersAddresses[i]];
+        }
+
+        authorizationSource.reportMaliciousBehavior(
+            amount,
+            rewardMultiplier,
+            notifier,
+            stakingProvidersAddresses
+        );
     }
 
     /// @notice Verifies and finalizes an inactivity claim. The nonce is
