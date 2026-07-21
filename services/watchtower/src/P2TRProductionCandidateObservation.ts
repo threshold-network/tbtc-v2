@@ -5,6 +5,9 @@ import {
   type P2TRWalletInputKeyBinding,
   type P2TRWalletInputObservationPrevout,
 } from "@keep-network/tbtc-v2.ts"
+import type {
+  P2TRCompleteCandidateInputProvenance,
+} from "./P2TRCompleteCandidateIdentity.js"
 
 export type P2TRProductionCandidateObservationIdentity = {
   txid: string
@@ -16,18 +19,8 @@ export type P2TRProductionCandidateObservationIdentity = {
   challengeKey: string
 }
 
-export type P2TRProductionCandidateInputProvenance = {
-  inputIndex: number
-  fundingBlockHash: string
-  fundingTxid: string
-  fundingVout: number
-  bindingKind: "wallet" | "deposit"
-  walletID: string
-  outputKey: string
-  sourceEventID: string
-  ethereumBlockNumber: number
-  ethereumBlockHash: string
-}
+export type P2TRProductionCandidateInputProvenance =
+  P2TRCompleteCandidateInputProvenance
 
 /**
  * Structural view of the canonical-index row returned while its shared
