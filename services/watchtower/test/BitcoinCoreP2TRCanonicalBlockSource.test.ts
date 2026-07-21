@@ -39,55 +39,146 @@ describe("BitcoinCoreP2TRCanonicalBlockSource", () => {
     assert.notEqual(block.transactions[0].wtxid, ZERO_HASH)
   })
 
-  it("cross-checks verbosity-3 prevouts against raw txindex bytes", async () => {
-    const fixture = bitcoinBlockFixture(124_999_999)
+  it("loads only the raw block and leaves prevout resolution to the canonical journal", async () => {
+    const fixture = bitcoinBlockFixture()
     const source = new BitcoinCoreP2TRCanonicalBlockSource(
       fixture.rpc,
       sourceOptions()
     )
 
+    const block = await source.getBlock(1)
+
+    assert.equal(
+      block.transactions[1].inputs[0].authenticatedPrevout,
+      undefined
+    )
+    assert.equal(block.rawBlockHex, fixture.rawBlockHex)
+    assert.equal(block.header80Hex, fixture.rawBlockHex.slice(0, 160))
+    assert.equal(block.header80Hex.length, 160)
+    assert.deepEqual(fixture.calls, [
+      { method: "getblockhash", parameters: [1] },
+      { method: "getblock", parameters: [fixture.blockHash, 0] },
+    ])
+  })
+
+  it("preserves an empty consensus-valid output script from raw block bytes", async () => {
+    const fixture = bitcoinBlockFixture("")
+    const source = new BitcoinCoreP2TRCanonicalBlockSource(
+      fixture.rpc,
+      sourceOptions()
+    )
+
+    const block = await source.getBlock(1)
+
+    assert.equal(block.transactions[1].outputs[0].scriptPubKey, "")
+  })
+
+  it("handles a large raw-block script without requesting an expanded block", async () => {
+    const fixture = bitcoinBlockFixture("51".repeat(10_000))
+    const source = new BitcoinCoreP2TRCanonicalBlockSource(
+      fixture.rpc,
+      sourceOptions()
+    )
+
+    const block = await source.getBlock(1)
+
+    assert.equal(block.transactions[1].outputs[0].scriptPubKey.length, 20_000)
+    assert.equal(
+      fixture.calls.some(
+        ({ method, parameters }) => method === "getblock" && parameters[1] !== 0
+      ),
+      false
+    )
+    assert.equal(
+      fixture.calls.some(({ method }) => method === "getrawtransaction"),
+      false
+    )
+  })
+
+  it("rejects duplicate-last and duplicate-pair merkle mutations", async () => {
+    const canonicalLast = [
+      coinbaseTransaction(1),
+      spendTransaction(1),
+      spendTransaction(2),
+    ]
+    const duplicateLast = mineRegtestBlock(
+      [...canonicalLast, canonicalLast[canonicalLast.length - 1]],
+      canonicalLast
+    )
     await assert.rejects(
-      source.getBlock(1),
-      /verbosity-3 prevout does not match raw transaction/
+      new BitcoinCoreP2TRCanonicalBlockSource(
+        rawBlockRpc(duplicateLast),
+        sourceOptions()
+      ).getBlock(1),
+      /mutated transaction merkle tree/
+    )
+
+    const canonicalPair = [
+      coinbaseTransaction(2),
+      spendTransaction(3),
+      spendTransaction(4),
+      spendTransaction(5),
+      spendTransaction(6),
+      spendTransaction(7),
+    ]
+    const duplicatePair = mineRegtestBlock(
+      [...canonicalPair, canonicalPair[4], canonicalPair[5]],
+      canonicalPair
+    )
+    await assert.rejects(
+      new BitcoinCoreP2TRCanonicalBlockSource(
+        rawBlockRpc(duplicatePair),
+        sourceOptions()
+      ).getBlock(1),
+      /mutated transaction merkle tree/
     )
   })
 
-  it("exposes raw-transaction-authenticated prevouts after all cross-checks", async () => {
-    const fixture = bitcoinBlockFixture(125_000_000)
-    const source = new BitcoinCoreP2TRCanonicalBlockSource(
-      fixture.rpc,
-      sourceOptions()
+  it("requires exactly one first coinbase and structurally valid transactions", async () => {
+    const missingCoinbase = mineRegtestBlock([
+      spendTransaction(8),
+      spendTransaction(9),
+    ])
+    await assert.rejects(
+      new BitcoinCoreP2TRCanonicalBlockSource(
+        rawBlockRpc(missingCoinbase),
+        sourceOptions()
+      ).getBlock(1),
+      /does not begin with coinbase/
     )
 
-    const block = await source.getBlock(1)
-
-    assert.equal(
-      block.transactions[1].inputs[0].authenticatedPrevout?.valueSats,
-      125_000_000
-    )
-    assert.equal(
-      block.transactions[1].inputs[0].authenticatedPrevout?.scriptPubKey,
-      "51"
-    )
-  })
-
-  it("accepts an empty consensus-valid prevout script authenticated by raw bytes", async () => {
-    const fixture = bitcoinBlockFixture(125_000_000, "")
-    const source = new BitcoinCoreP2TRCanonicalBlockSource(
-      fixture.rpc,
-      sourceOptions()
+    const extraCoinbase = mineRegtestBlock([
+      coinbaseTransaction(3),
+      coinbaseTransaction(4),
+    ])
+    await assert.rejects(
+      new BitcoinCoreP2TRCanonicalBlockSource(
+        rawBlockRpc(extraCoinbase),
+        sourceOptions()
+      ).getBlock(1),
+      /multiple coinbase transactions/
     )
 
-    const block = await source.getBlock(1)
-
-    assert.equal(
-      block.transactions[1].inputs[0].authenticatedPrevout?.scriptPubKey,
-      ""
+    const duplicateInput = spendTransaction(10)
+    duplicateInput.addInput(
+      Buffer.from(duplicateInput.ins[0].hash),
+      duplicateInput.ins[0].index
+    )
+    const duplicateInputs = mineRegtestBlock([
+      coinbaseTransaction(5),
+      duplicateInput,
+    ])
+    await assert.rejects(
+      new BitcoinCoreP2TRCanonicalBlockSource(
+        rawBlockRpc(duplicateInputs),
+        sourceOptions()
+      ).getBlock(1),
+      /duplicate inputs/
     )
   })
 
   it("continues to reject empty raw block and transaction hex", async () => {
-    const fixture = bitcoinBlockFixture(125_000_000)
+    const fixture = bitcoinBlockFixture()
     const emptyBlockRpc: P2TRBitcoinCoreRpc = {
       call: async <T>(method: string, parameters: readonly unknown[] = []) => {
         if (method === "getblock" && parameters[1] === 0) return "" as T
@@ -117,16 +208,16 @@ describe("BitcoinCoreP2TRCanonicalBlockSource", () => {
     )
   })
 
-  it("rejects operator transport bounds below the verbosity-3 production floor", () => {
+  it("rejects operator transport bounds below the raw-block production floor", () => {
     assert.throws(
       () =>
         new HttpP2TRBitcoinCoreRpc({
           url: "http://127.0.0.1:8332",
           username: "rpc-user",
           password: "rpc-password",
-          maxResponseBytes: 255 * 1024 * 1024,
+          maxResponseBytes: 16 * 1024 * 1024 - 1,
         }),
-      /at least the 268435456-byte transport bound/
+      /at least the 16777216-byte transport bound/
     )
   })
 })
@@ -137,63 +228,41 @@ const sourceOptions = () => ({
   expectedGenesisHash: "11".repeat(32),
 })
 
-const bitcoinBlockFixture = (
-  reportedPrevoutValueSats: number,
-  previousScriptPubKey = "51"
-) => {
+const bitcoinBlockFixture = (spendScriptPubKey = "51") => {
   const previous = new Transaction()
   previous.version = 2
   previous.addInput(Buffer.alloc(32), 0xffffffff, 0xffffffff, Buffer.from([1]))
-  previous.addOutput(Buffer.from(previousScriptPubKey, "hex"), 125_000_000)
+  previous.addOutput(Buffer.from("51", "hex"), 125_000_000)
 
   const coinbase = new Transaction()
   coinbase.version = 2
-  coinbase.addInput(Buffer.alloc(32), 0xffffffff, 0xffffffff, Buffer.from([2]))
+  coinbase.addInput(
+    Buffer.alloc(32),
+    0xffffffff,
+    0xffffffff,
+    Buffer.from([2, 0])
+  )
   coinbase.addOutput(Buffer.from("51", "hex"), 5_000_000_000)
 
   const spend = new Transaction()
   spend.version = 2
   spend.addInput(previous.getHash(), 0)
-  spend.addOutput(Buffer.from("51", "hex"), 124_999_000)
+  spend.addOutput(Buffer.from(spendScriptPubKey, "hex"), 124_999_000)
 
   const block = mineRegtestBlock([coinbase, spend])
   const blockHash = block.getId()
-  const verboseBlock = {
-    hash: blockHash,
-    height: 1,
-    previousblockhash: ZERO_HASH,
-    tx: [
-      {
-        txid: coinbase.getId(),
-        hash: witnessTransactionID(coinbase),
-        vin: [{ coinbase: "02" }],
-      },
-      {
-        txid: spend.getId(),
-        hash: witnessTransactionID(spend),
-        vin: [
-          {
-            txid: previous.getId(),
-            vout: 0,
-            prevout: {
-              value: reportedPrevoutValueSats / 100_000_000,
-              scriptPubKey: { hex: previousScriptPubKey },
-            },
-          },
-        ],
-      },
-    ],
-  }
+  const calls: Array<{ method: string; parameters: readonly unknown[] }> = []
   const rpc: P2TRBitcoinCoreRpc = {
     async call<T>(method: string, parameters: readonly unknown[] = []) {
+      calls.push({ method, parameters })
       if (method === "getblockhash" && parameters[0] === 1) {
         return blockHash as T
       }
+      if (method === "getblockhash" && parameters[0] === 0) {
+        return ZERO_HASH as T
+      }
       if (method === "getblock" && parameters[1] === 0) {
         return block.toHex() as T
-      }
-      if (method === "getblock" && parameters[1] === 3) {
-        return verboseBlock as T
       }
       if (
         method === "getrawtransaction" &&
@@ -204,7 +273,7 @@ const bitcoinBlockFixture = (
       throw new Error(`Unexpected RPC ${method} ${JSON.stringify(parameters)}`)
     },
   }
-  return { rpc }
+  return { rpc, calls, blockHash, rawBlockHex: block.toHex() }
 }
 
 /**
@@ -256,11 +325,14 @@ const realBitcoinCoreGenesisFixture = (): P2TRBitcoinCoreRpc => {
   }
 }
 
-const mineRegtestBlock = (transactions: Transaction[]): Block => {
+const mineRegtestBlock = (
+  transactions: Transaction[],
+  merkleTransactions = transactions
+): Block => {
   const block = new Block()
   block.version = 4
   block.prevHash = Buffer.alloc(32)
-  block.merkleRoot = Block.calculateMerkleRoot(transactions)
+  block.merkleRoot = Block.calculateMerkleRoot(merkleTransactions)
   block.timestamp = 1_700_000_000
   block.bits = 0x207fffff
   block.transactions = transactions
@@ -270,6 +342,39 @@ const mineRegtestBlock = (transactions: Transaction[]): Block => {
   }
   throw new Error("Could not mine deterministic regtest fixture")
 }
+
+const coinbaseTransaction = (tag: number): Transaction => {
+  const transaction = new Transaction()
+  transaction.version = 2
+  transaction.addInput(
+    Buffer.alloc(32),
+    0xffffffff,
+    0xffffffff,
+    Buffer.from([2, tag & 0xff])
+  )
+  transaction.addOutput(Buffer.from("51", "hex"), 5_000_000_000 - tag)
+  return transaction
+}
+
+const spendTransaction = (tag: number): Transaction => {
+  const transaction = new Transaction()
+  transaction.version = 2
+  transaction.addInput(Buffer.alloc(32, tag & 0xff), tag)
+  transaction.addOutput(Buffer.from("51", "hex"), 10_000 + tag)
+  return transaction
+}
+
+const rawBlockRpc = (block: Block): P2TRBitcoinCoreRpc => ({
+  async call<T>(method: string, parameters: readonly unknown[] = []) {
+    if (method === "getblockhash" && parameters[0] === 1) {
+      return block.getId() as T
+    }
+    if (method === "getblock" && parameters[1] === 0) {
+      return block.toHex() as T
+    }
+    throw new Error(`Unexpected RPC ${method} ${JSON.stringify(parameters)}`)
+  },
+})
 
 const witnessTransactionID = (transaction: Transaction): string =>
   createHash("sha256")

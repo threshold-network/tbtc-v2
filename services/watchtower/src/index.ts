@@ -70,6 +70,7 @@ export type {
   P2TRCrossSourceWatermark,
   P2TREthereumChainPoint,
   P2TRFrostWalletBinding,
+  P2TRLegacyCandidateMaterializationStore,
   P2TRTaprootDepositBinding,
   P2TRTrackedOutpoint,
   P2TRTrackedOutpointKind,
@@ -81,6 +82,7 @@ export type {
   P2TRPostgresPool,
   P2TRPostgresQueryResult,
   P2TRPostgresTransactionSession,
+  P2TRReadinessExportAcknowledgementVerification,
   PostgresP2TRCanonicalIndexStoreOptions,
 } from "./PostgresP2TRCanonicalIndexStore.js"
 export type {

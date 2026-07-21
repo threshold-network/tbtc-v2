@@ -9,6 +9,7 @@ import type {
   P2TRCanonicalBitcoinIndexStore,
   P2TRCanonicalBitcoinOrphanedCandidate,
   P2TRCanonicalBitcoinScan,
+  P2TRCompleteV2CandidateObservation,
   P2TRTrackedOutpoint,
 } from "../src/P2TRCanonicalBitcoinIndex.js"
 
@@ -45,12 +46,46 @@ describe("CanonicalBitcoinP2TRSignatureFraudTransactionSource", () => {
       fullHistory.assertP2TRSignatureFraudProductionHistoryCoverage(),
       /caught up to the live finalized Bitcoin head/
     )
-    const historicalScan = await fullHistory.listConfirmedTransactions()
-    assert.equal(historicalScan.complete, true)
+    await assert.rejects(
+      fullHistory.listConfirmedTransactions(),
+      /whole-transaction prevout delivery is unsupported/
+    )
+    const historicalScan =
+      await fullHistory.listConfirmedCandidateObservations()
+    assert.equal(historicalScan.complete, false)
+    assert.deepEqual(historicalScan.page, {
+      state: "indexing",
+      complete: false,
+    })
     await fullHistory.commitConfirmedTransactionScan()
+    const caughtUp = await fullHistory.listConfirmedCandidateObservations()
+    assert.equal(caughtUp.complete, true)
+    assert.equal(caughtUp.page.state, "ready")
+    assert.equal(
+      caughtUp.page.state === "ready"
+        ? caughtUp.page.generation.generationID
+        : undefined,
+      1
+    )
+    await fullHistory.commitConfirmedCandidateObservationScan()
     await assert.doesNotReject(() =>
       fullHistory.assertP2TRSignatureFraudProductionHistoryCoverage()
     )
+    fullHistoryStore.pendingObservations.push(candidateObservation())
+    const compact = await fullHistory.listConfirmedCandidateObservations()
+    assert.equal(compact.observations.length, 1)
+    assert.equal(compact.observations[0].inputIndex, 0)
+    await fullHistory.commitConfirmedCandidateObservationScan()
+    const acknowledged = await fullHistory.listConfirmedCandidateObservations()
+    assert.deepEqual(acknowledged.observations, [])
+    await fullHistory.commitConfirmedCandidateObservationScan()
+    await assert.rejects(
+      fullHistory.withP2TRSignatureFraudProductionHistoryCoverage(async () => {
+        blockSource.replaceHeadHash("ef".repeat(32))
+      }),
+      /changed during the readiness operation/
+    )
+    blockSource.replaceHeadHash("ee".repeat(32))
     blockSource.replaceLiveGenesis("fe".repeat(32))
     await assert.rejects(
       fullHistory.assertP2TRSignatureFraudProductionHistoryCoverage(),
@@ -74,6 +109,24 @@ describe("CanonicalBitcoinP2TRSignatureFraudTransactionSource", () => {
           }
         ),
       /exact configured genesis checkpoint at height 0/
+    )
+    assert.throws(
+      () =>
+        new CanonicalBitcoinP2TRSignatureFraudTransactionSource(
+          blockSource,
+          new MemoryIndexStore(),
+          [WALLET_ID],
+          {
+            checkpoint: { height: 0, hash: CHECKPOINT_HASH },
+            historyCoverage: "genesis-full-history",
+            expectedBitcoinCoreTrustDomainID: "core-a",
+            confirmationDepth: 1,
+            maxBlocksPerScan: 2,
+            maxRollbackBlocks: 6,
+            maxCandidateDeliveriesPerScan: 1,
+          }
+        ),
+      /derives FROST wallets only from the durable canonical Ethereum projection/
     )
     assert.throws(
       () =>
@@ -133,18 +186,29 @@ describe("CanonicalBitcoinP2TRSignatureFraudTransactionSource", () => {
     )
 
     const first = await source.listConfirmedTransactions()
-    assert.equal(first.complete, true)
-    assert.equal(first.transactions.length, 1)
-    assert.equal(first.transactions[0].inputPrevouts[0].valueSats, 10_000)
+    assert.equal(first.complete, false)
+    assert.equal(first.transactions.length, 0)
     assert.equal(first.scan.orphanedCandidates.length, 0)
+    await source.commitConfirmedTransactionScan()
+
+    const firstDelivery = await source.listConfirmedTransactions()
+    assert.equal(firstDelivery.complete, true)
+    assert.equal(firstDelivery.transactions.length, 1)
+    assert.equal(
+      firstDelivery.transactions[0].inputPrevouts[0].valueSats,
+      10_000
+    )
+    assert.equal(
+      firstDelivery.transactions[0].canonicalBitcoinProvenanceGeneration,
+      1
+    )
     await source.commitConfirmedTransactionScan()
 
     blockSource.replaceWitnessVariant()
     const replacement = await source.listConfirmedTransactions()
 
-    assert.equal(replacement.complete, true)
-    assert.equal(replacement.transactions.length, 1)
-    assert.equal(replacement.transactions[0].bitcoinTxHash, SPENDING_TXID)
+    assert.equal(replacement.complete, false)
+    assert.equal(replacement.transactions.length, 0)
     assert.deepEqual(replacement.scan.orphanedCandidates, [
       {
         txid: SPENDING_TXID,
@@ -153,6 +217,15 @@ describe("CanonicalBitcoinP2TRSignatureFraudTransactionSource", () => {
       },
     ])
     assert.equal(store.lastRegisteredParticipant, source)
+    await source.commitConfirmedTransactionScan()
+
+    const replacementDelivery = await source.listConfirmedTransactions()
+    assert.equal(replacementDelivery.complete, true)
+    assert.equal(replacementDelivery.transactions.length, 1)
+    assert.equal(
+      replacementDelivery.transactions[0].bitcoinTxHash,
+      SPENDING_TXID
+    )
     await source.commitConfirmedTransactionScan()
     assert.equal(store.cursor?.current.hash, REPLACEMENT_BLOCK_TWO_HASH)
     assert.equal(store.candidates[0].wtxid, REPLACEMENT_WTXID)
@@ -225,6 +298,39 @@ describe("CanonicalBitcoinP2TRSignatureFraudTransactionSource", () => {
     assert.deepEqual(retried.transactions, staged.transactions)
     await source.commitConfirmedTransactionScan()
   })
+
+  it("rejects restart under a different configured rehearsal wallet inventory", async () => {
+    const blockSource = new MutableBlockSource()
+    const store = new MemoryIndexStore()
+    const options = {
+      checkpoint: { height: 0, hash: CHECKPOINT_HASH },
+      historyCoverage: "test-only-custom-checkpoint" as const,
+      expectedBitcoinCoreTrustDomainID: "core-a",
+      confirmationDepth: 1,
+      maxBlocksPerScan: 2,
+      maxRollbackBlocks: 6,
+      maxCandidateDeliveriesPerScan: 1,
+    }
+    const original = new CanonicalBitcoinP2TRSignatureFraudTransactionSource(
+      blockSource,
+      store,
+      [WALLET_ID],
+      options
+    )
+    await original.listConfirmedTransactions()
+    await original.commitConfirmedTransactionScan()
+
+    const changed = new CanonicalBitcoinP2TRSignatureFraudTransactionSource(
+      blockSource,
+      store,
+      [],
+      options
+    )
+    await assert.rejects(
+      changed.listConfirmedTransactions(),
+      /configuration changed; an explicit checkpoint rebuild is required/
+    )
+  })
 })
 
 class MutableBlockSource implements P2TRCanonicalBitcoinBlockSource {
@@ -233,9 +339,10 @@ class MutableBlockSource implements P2TRCanonicalBitcoinBlockSource {
   readonly genesisHash = CHECKPOINT_HASH
   private replacement = false
   private liveGenesisHash = CHECKPOINT_HASH
+  private headHash = "ee".repeat(32)
 
   async getSyncedHead() {
-    return { height: 3, hash: "ee".repeat(32) }
+    return { height: 3, hash: this.headHash }
   }
 
   async getBlockHash(height: number) {
@@ -244,11 +351,12 @@ class MutableBlockSource implements P2TRCanonicalBitcoinBlockSource {
     if (height === 2) {
       return this.replacement ? REPLACEMENT_BLOCK_TWO_HASH : BLOCK_TWO_HASH
     }
-    if (height === 3) return "ee".repeat(32)
+    if (height === 3) return this.headHash
     throw new Error(`Unknown height ${height}`)
   }
 
   async getBlock(height: number): Promise<P2TRCanonicalBitcoinBlock> {
+    if (height === 0) return checkpointBlock()
     if (height === 1) return fundingBlock()
     if (height === 2) {
       return spendingBlock(
@@ -260,7 +368,7 @@ class MutableBlockSource implements P2TRCanonicalBitcoinBlockSource {
   }
 
   async getRawTransaction(): Promise<never> {
-    throw new Error("verbosity-3 prevouts should avoid fallback reads")
+    throw new Error("genesis journal prevouts should avoid fallback reads")
   }
 
   replaceWitnessVariant(): void {
@@ -269,6 +377,10 @@ class MutableBlockSource implements P2TRCanonicalBitcoinBlockSource {
 
   replaceLiveGenesis(hash: string): void {
     this.liveGenesisHash = hash
+  }
+
+  replaceHeadHash(hash: string): void {
+    this.headHash = hash
   }
 }
 
@@ -283,6 +395,10 @@ class MemoryIndexStore implements P2TRCanonicalBitcoinIndexStore {
   journal: P2TRCanonicalBitcoinBlock[] = []
   registeredWalletIDs = new Set<string>()
   deliveredCandidates = new Set<string>()
+  deliveredObservations = new Set<string>()
+  pendingObservations: P2TRCompleteV2CandidateObservation[] = []
+  nextGeneration = 1
+  generationReady = false
   lastRegisteredParticipant?: object
 
   registerP2TRSignatureFraudWatchtowerTransactionalParticipant(
@@ -304,6 +420,25 @@ class MemoryIndexStore implements P2TRCanonicalBitcoinIndexStore {
       const tracked = this.tracked.get(`${outpoint.txid}:${outpoint.vout}`)
       return tracked === undefined ? [] : [tracked]
     })
+  }
+
+  async loadLatestCanonicalOutputs(outpoints: P2TRBitcoinOutpoint[]) {
+    const requested = new Set(
+      outpoints.map((outpoint) => `${outpoint.txid}:${outpoint.vout}`)
+    )
+    const latest = new Map<
+      string,
+      P2TRCanonicalBitcoinBlock["transactions"][number]["outputs"][number]
+    >()
+    for (const block of this.journal) {
+      for (const transaction of block.transactions) {
+        for (const output of transaction.outputs) {
+          const key = `${output.txid}:${output.vout}`
+          if (requested.has(key)) latest.set(key, output)
+        }
+      }
+    }
+    return [...latest.values()]
   }
 
   async loadRegisteredWalletIDs() {
@@ -330,6 +465,42 @@ class MemoryIndexStore implements P2TRCanonicalBitcoinIndexStore {
     }
   }
 
+  async loadPendingCandidateObservations({
+    limit,
+    generation,
+  }: Parameters<
+    P2TRCanonicalBitcoinIndexStore["loadPendingCandidateObservations"]
+  >[0]) {
+    if (!this.generationReady) {
+      return {
+        state: "indexing" as const,
+        observations: [] as [],
+        complete: false as const,
+      }
+    }
+    const currentGeneration = {
+      generationID: 1,
+      manifestDigest: "c1".repeat(32),
+      domainDigest: "c2".repeat(32),
+    }
+    if (
+      generation !== undefined &&
+      JSON.stringify(generation) !== JSON.stringify(currentGeneration)
+    ) {
+      throw new Error("compact generation changed")
+    }
+    const pending = this.pendingObservations.filter(
+      (observation) =>
+        !this.deliveredObservations.has(observation.challengeIdentity)
+    )
+    return {
+      state: "ready" as const,
+      generation: currentGeneration,
+      observations: pending.slice(0, limit),
+      complete: pending.length <= limit,
+    }
+  }
+
   async applyBitcoinScan(scan: P2TRCanonicalBitcoinScan): Promise<void> {
     for (const height of [...this.blocks.keys()]) {
       if (height > scan.rollbackTo.height) this.blocks.delete(height)
@@ -352,18 +523,34 @@ class MemoryIndexStore implements P2TRCanonicalBitcoinIndexStore {
     scan.trackedOutpoints.forEach((tracked) =>
       this.tracked.set(`${tracked.txid}:${tracked.vout}`, tracked)
     )
-    this.candidates.push(...scan.candidates)
-    scan.acknowledgedCandidates.forEach((identity) =>
+    this.candidates.push(
+      ...scan.candidates.map((candidate) => {
+        const provenanceGeneration = this.nextGeneration++
+        return {
+          ...candidate,
+          provenanceGeneration,
+          provenanceFingerprint: provenanceGeneration
+            .toString(16)
+            .padStart(64, "0"),
+        }
+      })
+    )
+    ;(scan.testOnlyAcknowledgedCandidates ?? []).forEach((identity) =>
       this.deliveredCandidates.add(
         `${identity.blockHash}:${identity.txid}:${identity.wtxid}`
       )
     )
+    scan.candidateObservationAcknowledgement?.observations.forEach((identity) =>
+      this.deliveredObservations.add(identity.challengeIdentity)
+    )
     this.cursor = {
       configurationFingerprint: scan.configurationFingerprint,
       network: scan.network,
+      trustDomainID: scan.trustDomainID,
       checkpoint: scan.checkpoint,
       current: scan.nextCursor,
     }
+    this.generationReady = true
   }
 
   addFrostWalletBinding(walletID: string): void {
@@ -401,12 +588,15 @@ class MemoryIndexStore implements P2TRCanonicalBitcoinIndexStore {
         scriptPubKey: input.authenticatedPrevout!.scriptPubKey,
       })),
       walletInputKeyBindings: [],
+      provenanceGeneration: this.nextGeneration,
+      provenanceFingerprint: this.nextGeneration.toString(16).padStart(64, "0"),
     }
     if (
       !this.candidates.some(
         (existing) => candidateKey(existing) === candidateKey(candidate)
       )
     ) {
+      this.nextGeneration++
       this.candidates.push(candidate)
     }
   }
@@ -422,11 +612,72 @@ const candidateKey = (candidate: {
   block: { hash: string }
 }): string => `${candidate.block.hash}:${candidate.txid}:${candidate.wtxid}`
 
+const candidateObservation = (): P2TRCompleteV2CandidateObservation => ({
+  schema: "tbtc-p2tr-complete-candidate/v2",
+  protocolID: "12".repeat(32),
+  txid: SPENDING_TXID,
+  wtxid: ORIGINAL_WTXID,
+  blockHeight: 2,
+  blockHash: BLOCK_TWO_HASH,
+  inputIndex: 0,
+  evidence: {
+    walletID: WALLET_ID,
+    signingKey: WALLET_ID,
+    bindingTxHash: "00".repeat(32),
+    bindingOutputIndex: 0,
+    sighashType: 0,
+    sighash: "66".repeat(32),
+    nonceX: "77".repeat(32),
+    signatureScalar: "88".repeat(32),
+  },
+  challengeIdentity: "99".repeat(32),
+  commitments: {
+    rawTransactionDigest: "aa".repeat(32),
+    rawTransactionBytes: 100,
+    witnessDigest: "ab".repeat(32),
+    annexDigest: "ac".repeat(32),
+    prevoutVectorRoot: "ad".repeat(32),
+    prevoutCount: 1,
+    prevoutBytes: 84,
+    shaPrevouts: "ae".repeat(32),
+    shaAmounts: "af".repeat(32),
+    shaScriptPubKeys: "b0".repeat(32),
+    shaSequences: "b1".repeat(32),
+    shaOutputs: "b2".repeat(32),
+    candidateBlockHeaderHash: BLOCK_TWO_HASH,
+    fundingBlockHeaderHash: BLOCK_ONE_HASH,
+  },
+  inputProvenance: {
+    inputIndex: 0,
+    fundingBlockHash: BLOCK_ONE_HASH,
+    fundingTxid: FUNDING_TXID,
+    fundingVout: 0,
+    walletID: WALLET_ID,
+    outputKey: WALLET_ID,
+    bindingKind: "wallet",
+    sourceEventID: "wallet-event",
+    ethereumBlockNumber: 10,
+    ethereumBlockHash: "ba".repeat(32),
+  },
+  provenanceGeneration: 1,
+  provenanceFingerprint: "bb".repeat(32),
+})
+
+const checkpointBlock = (): P2TRCanonicalBitcoinBlock => ({
+  height: 0,
+  hash: CHECKPOINT_HASH,
+  parentHash: "00".repeat(32),
+  header80Hex: "00".repeat(80),
+  rawBlockHex: "00".repeat(80),
+  transactions: [],
+})
+
 const fundingBlock = (): P2TRCanonicalBitcoinBlock => ({
   height: 1,
   hash: BLOCK_ONE_HASH,
   parentHash: CHECKPOINT_HASH,
-  rawBlockHex: "00",
+  header80Hex: "00".repeat(80),
+  rawBlockHex: "00".repeat(80),
   transactions: [
     {
       txid: FUNDING_TXID,
@@ -453,7 +704,8 @@ const spendingBlock = (
   height: 2,
   hash,
   parentHash: BLOCK_ONE_HASH,
-  rawBlockHex: "00",
+  header80Hex: "00".repeat(80),
+  rawBlockHex: "00".repeat(80),
   transactions: [
     {
       txid: SPENDING_TXID,

@@ -555,7 +555,9 @@ export class PostgresP2TRCanonicalIndexStore
   ): Promise<P2TRCanonicalBitcoinOutput[]> {
     if (outpoints.length === 0) return []
     if (outpoints.length > this.maxJournalInputs) {
-      throw new Error("Canonical prevout lookup exceeds the input journal bound")
+      throw new Error(
+        "Canonical prevout lookup exceeds the input journal bound"
+      )
     }
     const requested = new Map<string, { txid: string; vout: number }>()
     for (const outpoint of outpoints) {
@@ -911,7 +913,9 @@ export class PostgresP2TRCanonicalIndexStore
       expected.state !== "ready" ||
       !sameCanonicalGeneration(expected.generation, acknowledgement.generation)
     ) {
-      throw new Error("Candidate observation acknowledgement is not generation-pinned")
+      throw new Error(
+        "Candidate observation acknowledgement is not generation-pinned"
+      )
     }
     const expectedIdentities = expected.observations
       .slice(0, requestedCount)
@@ -979,7 +983,9 @@ export class PostgresP2TRCanonicalIndexStore
 
     const updated = new Set(
       result.rows.map((row) =>
-        candidateObservationIdentityKey(candidateObservationIdentityFromRow(row))
+        candidateObservationIdentityKey(
+          candidateObservationIdentityFromRow(row)
+        )
       )
     )
     const stale = acknowledgement.observations.filter(
@@ -1024,13 +1030,11 @@ export class PostgresP2TRCanonicalIndexStore
     }
   }
 
-  async lockP2TRCandidateProvenance(
-    identity: {
-      txid: string
-      wtxid: string
-      blockHash: string
-    }
-  ): Promise<P2TRLockedCandidateProvenance | undefined> {
+  async lockP2TRCandidateProvenance(identity: {
+    txid: string
+    wtxid: string
+    blockHash: string
+  }): Promise<P2TRLockedCandidateProvenance | undefined> {
     const client = this.requireTransactionClient()
     if (this.transaction.getStore()?.readinessSnapshotLocked !== true) {
       throw new Error(
@@ -1206,7 +1210,9 @@ export class PostgresP2TRCanonicalIndexStore
     )
     if (result.rows.length === 0) return undefined
     if (result.rows.length !== 1) {
-      throw new Error("PostgreSQL readiness projection singleton is inconsistent")
+      throw new Error(
+        "PostgreSQL readiness projection singleton is inconsistent"
+      )
     }
     return readinessSnapshotFromRow(result.rows[0])
   }
@@ -1257,7 +1263,10 @@ export class PostgresP2TRCanonicalIndexStore
         throw new Error("Sealed readiness export is unavailable")
       }
       const exportFence = positiveInteger(
-        databaseInteger(exportRow.rows[0].export_fence, "readiness export fence"),
+        databaseInteger(
+          exportRow.rows[0].export_fence,
+          "readiness export fence"
+        ),
         "readiness export fence"
       )
       const exportID = readinessExportID(
@@ -1469,7 +1478,9 @@ export class PostgresP2TRCanonicalIndexStore
       [request.expiresAt, this.maxReadinessExportLifetimeMs]
     )
     if (expiry.rows.length !== 1 || expiry.rows[0].valid !== true) {
-      throw new Error("Readiness export expiry is outside the configured window")
+      throw new Error(
+        "Readiness export expiry is outside the configured window"
+      )
     }
     const active = await client.query<{ count: string | number }>(
       `SELECT count(*) AS count
@@ -1509,7 +1520,9 @@ export class PostgresP2TRCanonicalIndexStore
         FOR SHARE`
     )
     if (generationResult.rows.length !== 1) {
-      throw new Error("Readiness export requires a committed canonical generation")
+      throw new Error(
+        "Readiness export requires a committed canonical generation"
+      )
     }
     const generation = generationResult.rows[0]
     assertGenerationMatchesSnapshot(generation, snapshot)
@@ -1535,7 +1548,10 @@ export class PostgresP2TRCanonicalIndexStore
       throw new Error("Readiness export fence allocation failed")
     }
     const exportFence = positiveInteger(
-      databaseInteger(fenceResult.rows[0].export_fence, "readiness export fence"),
+      databaseInteger(
+        fenceResult.rows[0].export_fence,
+        "readiness export fence"
+      ),
       "readiness export fence"
     )
     const generationID = positiveInteger(
@@ -1770,9 +1786,11 @@ export class PostgresP2TRCanonicalIndexStore
         inventory.totalBytes,
       ]
     )
-    if (sealed.rows.length !== 1) throw new Error("Readiness export seal failed")
+    if (sealed.rows.length !== 1)
+      throw new Error("Readiness export seal failed")
     const handle = await this.loadReadinessExportHandle(client, requestNonce)
-    if (handle === undefined) throw new Error("Sealed readiness export is absent")
+    if (handle === undefined)
+      throw new Error("Sealed readiness export is absent")
     return handle
   }
 
@@ -1832,7 +1850,9 @@ export class PostgresP2TRCanonicalIndexStore
       ]
     )
     if (result.rows.length !== 1) {
-      throw new Error("Readiness export candidate is absent or provenance-stale")
+      throw new Error(
+        "Readiness export candidate is absent or provenance-stale"
+      )
     }
     const row = result.rows[0]
     const observation = candidateObservationFromDispositionEvidence(
@@ -1943,7 +1963,10 @@ export class PostgresP2TRCanonicalIndexStore
             ),
         row.ethereum_block_hash === null
           ? Buffer.alloc(32)
-          : hexBuffer(row.ethereum_block_hash, "generation Ethereum block hash"),
+          : hexBuffer(
+              row.ethereum_block_hash,
+              "generation Ethereum block hash"
+            ),
         hexBuffer(row.bitcoin_chain_root, "generation Bitcoin chain root"),
         hexBuffer(row.projection_root, "generation projection root"),
         hexBuffer(row.semantic_root, "generation semantic root"),
@@ -2146,9 +2169,7 @@ export class PostgresP2TRCanonicalIndexStore
     const shaScriptPubKeys = createHash("sha256")
     const shaSequences = createHash("sha256")
     const prevoutVector = createHash("sha256")
-    prevoutVector.update(
-      Buffer.from("tbtc-p2tr-prevout-vector/v1\0", "utf8")
-    )
+    prevoutVector.update(Buffer.from("tbtc-p2tr-prevout-vector/v1\0", "utf8"))
     prevoutVector.update(uint32BE(prevoutCount, "candidate prevout count"))
     let prevoutBytes = 0
     const updatePrevoutFrame = (bytes: Buffer): void => {
@@ -2199,9 +2220,7 @@ export class PostgresP2TRCanonicalIndexStore
         if (input === undefined) {
           throw new Error("Candidate prevout exceeds raw transaction inputs")
         }
-        const displayTxid = Buffer.from(input.hash)
-          .reverse()
-          .toString("hex")
+        const displayTxid = Buffer.from(input.hash).reverse().toString("hex")
         const storedTxid = normalizeBytes32(
           prevout.prev_txid,
           "candidate prevout transaction ID"
@@ -2225,10 +2244,7 @@ export class PostgresP2TRCanonicalIndexStore
           Buffer.from(input.hash),
           uint32LE(vout, "candidate prevout index"),
         ])
-        const serializedAmount = uint64LE(
-          valueSats,
-          "candidate prevout value"
-        )
+        const serializedAmount = uint64LE(valueSats, "candidate prevout value")
         const scriptLength = compactSize(scriptBytes)
         const serializedSequence = uint32LE(
           input.sequence,
@@ -2534,7 +2550,9 @@ export class PostgresP2TRCanonicalIndexStore
       parsed.getId() !== normalizeBytes32(point.hash, "Bitcoin block hash") ||
       !rootsAreValid
     ) {
-      throw new Error("Bitcoin raw block evidence does not match its chain point")
+      throw new Error(
+        "Bitcoin raw block evidence does not match its chain point"
+      )
     }
     return bitcoinRawBlockBytesContentCommitment(row.object_bytes)
   }
@@ -2826,7 +2844,9 @@ export class PostgresP2TRCanonicalIndexStore
           hexBuffer(bindingTxHash, "candidate binding transaction hash"),
           bindingOutputIndex,
           sighashType ?? null,
-          sighash === undefined ? null : hexBuffer(sighash, "candidate sighash"),
+          sighash === undefined
+            ? null
+            : hexBuffer(sighash, "candidate sighash"),
           nonceX ?? null,
           signatureScalar ?? null,
           hexBuffer(
@@ -2838,7 +2858,10 @@ export class PostgresP2TRCanonicalIndexStore
           annexDigest === undefined
             ? null
             : hexBuffer(annexDigest, "candidate annex digest"),
-          hexBuffer(rawTransactionObjectDigest, "raw transaction object digest"),
+          hexBuffer(
+            rawTransactionObjectDigest,
+            "raw transaction object digest"
+          ),
           null,
           disposition === "keypath_pending"
             ? hexBuffer(
@@ -2921,7 +2944,9 @@ export class PostgresP2TRCanonicalIndexStore
         FOR SHARE`
     )
     if (checkpoint.rows.length !== 1) {
-      throw new Error("Legacy candidate materialization requires an index cursor")
+      throw new Error(
+        "Legacy candidate materialization requires an index cursor"
+      )
     }
     if (
       databaseInteger(
@@ -3005,7 +3030,9 @@ export class PostgresP2TRCanonicalIndexStore
       )
       const stored = cursorResult.rows[0]
       const journalBlocks =
-        stored === undefined ? [scan.checkpointBlock, ...scan.blocks] : scan.blocks
+        stored === undefined
+          ? [scan.checkpointBlock, ...scan.blocks]
+          : scan.blocks
       if (stored !== undefined) this.assertCursorMatchesScan(stored, scan)
       if (scan.candidateObservationAcknowledgement !== undefined) {
         if (stored === undefined) {
@@ -3089,7 +3116,10 @@ export class PostgresP2TRCanonicalIndexStore
               checkpointRawBlockObjectDigest,
               "checkpoint raw block object digest"
             ),
-            hexBuffer(scan.checkpointBlock.parentHash, "checkpoint parent hash"),
+            hexBuffer(
+              scan.checkpointBlock.parentHash,
+              "checkpoint parent hash"
+            ),
             hexBuffer(checkpointCommitment, "checkpoint chain commitment"),
             hexBuffer(
               checkpointContentCommitment,
@@ -3295,7 +3325,10 @@ export class PostgresP2TRCanonicalIndexStore
       for (const block of scan.blocks) {
         const parentChainCommitment = nextChainCommitment
         const parentEvidenceCommitment = nextEvidenceCommitment
-        nextChainCommitment = bitcoinChainCommitment(parentChainCommitment, block)
+        nextChainCommitment = bitcoinChainCommitment(
+          parentChainCommitment,
+          block
+        )
         const blockContentCommitment = bitcoinRawBlockContentCommitment(block)
         nextEvidenceCommitment = bitcoinEvidenceChainCommitment(
           parentEvidenceCommitment,
@@ -3521,8 +3554,8 @@ export class PostgresP2TRCanonicalIndexStore
       }
       nextJournalCounts.unresolvedInputs += newlyUnresolved
       if (newlyUnresolved > 0) {
-          await client.query(
-            `UPDATE p2tr_bitcoin_blocks block
+        await client.query(
+          `UPDATE p2tr_bitcoin_blocks block
                 SET unresolved_input_count = unresolved.count
                FROM (
                  SELECT block_height, count(*) AS count
@@ -3532,8 +3565,8 @@ export class PostgresP2TRCanonicalIndexStore
                   GROUP BY block_height
                ) unresolved
               WHERE block.height = unresolved.block_height`,
-            [journalBlocks.map((block) => block.height)]
-          )
+          [journalBlocks.map((block) => block.height)]
+        )
       }
 
       // The source's tracked rows, spend markers, and candidates are only a
@@ -3544,10 +3577,7 @@ export class PostgresP2TRCanonicalIndexStore
       // occurrences; never reinsert stale staged evidence.
       await this.reconcileFrostWalletBindings(client)
       await this.reconcilePendingDepositReveals(client)
-      await this.reconcileTrackedSpendCandidates(
-        client,
-        scan.rollbackTo.height
-      )
+      await this.reconcileTrackedSpendCandidates(client, scan.rollbackTo.height)
       const testOnlyAcknowledged = scan.testOnlyAcknowledgedCandidates ?? []
       if (testOnlyAcknowledged.length > 0) {
         await client.query(
@@ -3760,7 +3790,8 @@ export class PostgresP2TRCanonicalIndexStore
       const expected = journalCountsFromCursor(durable)
       if (
         expected.blocks !==
-          databaseInteger(durable.current_height, "activation cursor height") + 1 ||
+          databaseInteger(durable.current_height, "activation cursor height") +
+            1 ||
         expected.unresolvedInputs !== 0
       ) {
         throw new Error(
@@ -4387,16 +4418,15 @@ export class PostgresP2TRCanonicalIndexStore
           fingerprint,
           rows
         )
-        const invalidationID = invalidationIDs.get(candidateIdentityKey(identity))
+        const invalidationID = invalidationIDs.get(
+          candidateIdentityKey(identity)
+        )
         if (invalidationID !== undefined) {
           await client.query(
             `UPDATE p2tr_invalidated_candidate_provenance
                 SET successor_fingerprint = $2
               WHERE invalidation_id = $1`,
-            [
-              invalidationID,
-              hexBuffer(fingerprint, "successor fingerprint"),
-            ]
+            [invalidationID, hexBuffer(fingerprint, "successor fingerprint")]
           )
         }
       }
@@ -4739,7 +4769,9 @@ export class PostgresP2TRCanonicalIndexStore
   private async reconcileFrostWalletBindings(
     client: P2TRPostgresClient
   ): Promise<void> {
-    const outputs = await client.query<JournalOutputRow & { wallet_id: string }>(
+    const outputs = await client.query<
+      JournalOutputRow & { wallet_id: string }
+    >(
       `SELECT ${JOURNAL_OUTPUT_COLUMNS},
               encode(wallet.wallet_id, 'hex') AS wallet_id
          FROM p2tr_frost_wallet_bindings wallet
@@ -5126,9 +5158,7 @@ export class PostgresP2TRCanonicalIndexStore
       stats.inserted_count,
       "inserted Bitcoin input count"
     )
-    if (
-      inserted !== rows.length
-    ) {
+    if (inserted !== rows.length) {
       throw new Error(
         "Canonical Bitcoin input prevouts conflict with the occurrence journal"
       )
@@ -5246,7 +5276,10 @@ export class PostgresP2TRCanonicalIndexStore
       throw new Error("Candidate provenance generation allocation failed")
     }
     return positiveInteger(
-      databaseInteger(result.rows[0].generation, "candidate provenance generation"),
+      databaseInteger(
+        result.rows[0].generation,
+        "candidate provenance generation"
+      ),
       "candidate provenance generation"
     )
   }
@@ -5579,8 +5612,12 @@ export class PostgresP2TRCanonicalIndexStore
         hexBuffer(identity.wtxid, "candidate witness transaction ID"),
       ]
     )
-    const sourceEventIDs = [...new Set(sourceEvents.rows.map((row) => row.source_event_id))]
-      .map((eventID) => boundedString(eventID, 512, "candidate source event ID"))
+    const sourceEventIDs = [
+      ...new Set(sourceEvents.rows.map((row) => row.source_event_id)),
+    ]
+      .map((eventID) =>
+        boundedString(eventID, 512, "candidate source event ID")
+      )
       .sort()
     const existing = await client.query<{ invalidation_id: string | number }>(
       `SELECT invalidation_id
@@ -5637,7 +5674,10 @@ export class PostgresP2TRCanonicalIndexStore
       throw new Error("Candidate provenance invalidation failed")
     }
     const insertedID = positiveInteger(
-      databaseInteger(result.rows[0].invalidation_id, "candidate invalidation ID"),
+      databaseInteger(
+        result.rows[0].invalidation_id,
+        "candidate invalidation ID"
+      ),
       "candidate invalidation ID"
     )
     if (insertedID !== invalidationID) {
@@ -6219,7 +6259,10 @@ const candidateFromRow = (
   inputPrevouts,
   walletInputKeyBindings,
   provenanceGeneration: positiveInteger(
-    databaseInteger(row.provenance_generation, "candidate provenance generation"),
+    databaseInteger(
+      row.provenance_generation,
+      "candidate provenance generation"
+    ),
     "candidate provenance generation"
   ),
   provenanceFingerprint: normalizeBytes32(
@@ -6370,7 +6413,10 @@ const readinessSnapshotFromRow = (
   )
   const bitcoin: P2TRReadinessSnapshot["bitcoin"] = {
     checkpoint: {
-      height: databaseInteger(row.checkpoint_height, "readiness checkpoint height"),
+      height: databaseInteger(
+        row.checkpoint_height,
+        "readiness checkpoint height"
+      ),
       hash: normalizeBytes32(row.checkpoint_hash, "readiness checkpoint hash"),
     },
     current: {
@@ -6392,7 +6438,10 @@ const readinessSnapshotFromRow = (
         "readiness transaction count"
       ),
       inputs: databaseInteger(row.journal_input_count, "readiness input count"),
-      outputs: databaseInteger(row.journal_output_count, "readiness output count"),
+      outputs: databaseInteger(
+        row.journal_output_count,
+        "readiness output count"
+      ),
       unresolvedInputs: databaseInteger(
         row.journal_unresolved_input_count,
         "readiness unresolved input count"
@@ -6565,7 +6614,10 @@ const readinessSnapshotFromRow = (
 const readinessWatermarkFromRow = (
   row: ReadinessSnapshotRow
 ): P2TRCrossSourceWatermark | undefined => {
-  const count = databaseInteger(row.watermark_count, "readiness watermark count")
+  const count = databaseInteger(
+    row.watermark_count,
+    "readiness watermark count"
+  )
   const absent =
     row.watermark_bitcoin_height === null &&
     row.watermark_bitcoin_hash === null &&
@@ -6673,7 +6725,10 @@ const validateBitcoinScan = (scan: P2TRCanonicalBitcoinScan): void => {
   >()
   for (const block of [scan.checkpointBlock, ...scan.blocks]) {
     const blockPoint = {
-      height: nonNegativeInteger(block.height, "Bitcoin transaction block height"),
+      height: nonNegativeInteger(
+        block.height,
+        "Bitcoin transaction block height"
+      ),
       hash: normalizeBytes32(block.hash, "Bitcoin transaction block hash"),
     }
     for (const transaction of block.transactions) {
@@ -6703,7 +6758,9 @@ const validateBitcoinScan = (scan: P2TRCanonicalBitcoinScan): void => {
         transaction.inputs.length !== parsed.ins.length ||
         transaction.outputs.length !== parsed.outs.length
       ) {
-        throw new Error("Bitcoin transaction projection cardinality is inconsistent")
+        throw new Error(
+          "Bitcoin transaction projection cardinality is inconsistent"
+        )
       }
       transaction.inputs.forEach((input, index) => {
         const wireInput = parsed.ins[index]
@@ -6713,9 +6770,12 @@ const validateBitcoinScan = (scan: P2TRCanonicalBitcoinScan): void => {
           "Bitcoin previous transaction ID"
         )
         if (
-          normalizeBytes32(input.spendingTxid, "Bitcoin spending transaction ID") !==
-            txid ||
-          uint32(input.inputIndex, "Bitcoin transaction input index") !== index ||
+          normalizeBytes32(
+            input.spendingTxid,
+            "Bitcoin spending transaction ID"
+          ) !== txid ||
+          uint32(input.inputIndex, "Bitcoin transaction input index") !==
+            index ||
           inputTxid !== wireTxid ||
           uint32(input.vout, "Bitcoin previous output index") !==
             wireInput.index ||
@@ -6764,7 +6824,10 @@ const validateBitcoinScan = (scan: P2TRCanonicalBitcoinScan): void => {
         candidate.block.height,
         "Bitcoin candidate block height"
       ),
-      hash: normalizeBytes32(candidate.block.hash, "Bitcoin candidate block hash"),
+      hash: normalizeBytes32(
+        candidate.block.hash,
+        "Bitcoin candidate block hash"
+      ),
     }
     const candidateTxid = normalizeBytes32(
       candidate.txid,
@@ -6798,7 +6861,9 @@ const validateBitcoinScan = (scan: P2TRCanonicalBitcoinScan): void => {
         "tbtc-p2tr-candidate-observation-page-acknowledgement/v1" ||
       typeof acknowledgement.complete !== "boolean"
     ) {
-      throw new Error("Bitcoin candidate observation acknowledgement is invalid")
+      throw new Error(
+        "Bitcoin candidate observation acknowledgement is invalid"
+      )
     }
     normalizeCanonicalGenerationIdentity(acknowledgement.generation)
     if (acknowledgement.after !== undefined) {
@@ -6817,17 +6882,15 @@ const validateBitcoinScan = (scan: P2TRCanonicalBitcoinScan): void => {
     }
     acknowledgement.observations.forEach(validateCandidateObservationIdentity)
     if (
-      new Set(
-        acknowledgement.observations.map(candidateObservationIdentityKey)
-      ).size !== acknowledgement.observations.length
+      new Set(acknowledgement.observations.map(candidateObservationIdentityKey))
+        .size !== acknowledgement.observations.length
     ) {
       throw new Error(
         "Bitcoin candidate observation acknowledgements must be unique"
       )
     }
     if (
-      (acknowledgement.complete &&
-        acknowledgement.nextAfter !== undefined) ||
+      (acknowledgement.complete && acknowledgement.nextAfter !== undefined) ||
       (!acknowledgement.complete &&
         (acknowledgement.nextAfter === undefined ||
           acknowledgement.observations.length === 0))
@@ -6951,12 +7014,16 @@ const candidateIdentityKey = (identity: {
 const candidateProvenanceIdentityKey = (
   identity: P2TRCandidateProvenanceIdentity
 ): string =>
-  `${candidateIdentityKey(identity)}:${identity.provenanceGeneration}:${identity.provenanceFingerprint}`
+  `${candidateIdentityKey(identity)}:${identity.provenanceGeneration}:${
+    identity.provenanceFingerprint
+  }`
 
 const candidateObservationIdentityKey = (
   identity: P2TRCandidateObservationIdentity
 ): string =>
-  `${candidateIdentityKey(identity)}:${identity.inputIndex}:${identity.challengeIdentity}:${identity.provenanceGeneration}:${identity.provenanceFingerprint}`
+  `${candidateIdentityKey(identity)}:${identity.inputIndex}:${
+    identity.challengeIdentity
+  }:${identity.provenanceGeneration}:${identity.provenanceFingerprint}`
 
 const candidateObservationIdentityFromObservation = (
   observation: P2TRCompleteV2CandidateObservation
@@ -7018,7 +7085,10 @@ const candidateProvenanceIdentityFromRow = (
   txid: normalizeBytes32(row.txid, "candidate transaction ID"),
   wtxid: normalizeBytes32(row.wtxid, "candidate witness transaction ID"),
   provenanceGeneration: positiveInteger(
-    databaseInteger(row.provenance_generation, "candidate provenance generation"),
+    databaseInteger(
+      row.provenance_generation,
+      "candidate provenance generation"
+    ),
     "candidate provenance generation"
   ),
   provenanceFingerprint: normalizeBytes32(
@@ -7052,7 +7122,10 @@ const candidateEthereumProvenanceFromRow = (
   ),
   fundingVout: uint32(row.funding_vout, "candidate provenance funding vout"),
   walletID: normalizeBytes32(row.wallet_id, "candidate provenance wallet ID"),
-  outputKey: normalizeBytes32(row.output_key, "candidate provenance output key"),
+  outputKey: normalizeBytes32(
+    row.output_key,
+    "candidate provenance output key"
+  ),
   bindingKind: candidateBindingKind(row.binding_kind),
   sourceEventID: boundedString(
     row.source_event_id,
@@ -7072,7 +7145,10 @@ const candidateEthereumProvenanceFromRow = (
 const candidateObservationFromRow = (
   row: CandidateObservationRow
 ): P2TRCompleteV2CandidateObservation => {
-  const inputIndex = uint32(row.input_index, "candidate observation input index")
+  const inputIndex = uint32(
+    row.input_index,
+    "candidate observation input index"
+  )
   const walletID = normalizeBytes32(
     row.wallet_id,
     "candidate observation wallet ID"
@@ -7332,8 +7408,7 @@ const candidateObservationFromDispositionEvidence = (
     normalizeBytes32(
       String(disposition.protocol_id),
       "candidate protocol ID"
-    ) !==
-      P2TR_COMPLETE_V2_PROTOCOL_ID ||
+    ) !== P2TR_COMPLETE_V2_PROTOCOL_ID ||
     normalizeBytes32(
       String(disposition.domain_digest),
       "candidate authorization domain digest"
@@ -7372,9 +7447,7 @@ const candidateObservationFromDispositionEvidence = (
     candidate_block_header_hash: String(
       disposition.candidate_block_header_hash
     ),
-    funding_block_header_hash: String(
-      disposition.funding_block_header_hash
-    ),
+    funding_block_header_hash: String(disposition.funding_block_header_hash),
     provenance_generation: disposition.provenance_generation as string | number,
     provenance_fingerprint: String(disposition.provenance_fingerprint),
     funding_block_hash: String(provenance.funding_block_hash),
@@ -7471,7 +7544,9 @@ const decodeCandidateObservationPageCursor = (
     throw new Error("Candidate observation page cursor is not JSON")
   }
   if (canonicalJSON(parsed) !== bytes.toString("utf8")) {
-    throw new Error("Candidate observation page cursor encoding is not canonical")
+    throw new Error(
+      "Candidate observation page cursor encoding is not canonical"
+    )
   }
   const value = requireRecord(parsed, "candidate observation page cursor")
   const generationValue = requireRecord(
@@ -7521,7 +7596,10 @@ const decodeCandidateObservationPageCursor = (
 const invalidatedProvenanceFromRow = (
   row: InvalidatedProvenanceRow
 ): P2TRInvalidatedCandidateProvenance => {
-  if (row.reason !== "ethereum-reorg" && row.reason !== "provenance-superseded") {
+  if (
+    row.reason !== "ethereum-reorg" &&
+    row.reason !== "provenance-superseded"
+  ) {
     throw new Error("Candidate provenance invalidation reason is invalid")
   }
   const sourceEventIDs = requireArray(
@@ -7529,7 +7607,9 @@ const invalidatedProvenanceFromRow = (
     "candidate invalidation source events"
   ).map((value) => boundedString(String(value), 512, "source event ID"))
   if (
-    sourceEventIDs.some((eventID, index) => sourceEventIDs.indexOf(eventID) !== index) ||
+    sourceEventIDs.some(
+      (eventID, index) => sourceEventIDs.indexOf(eventID) !== index
+    ) ||
     sourceEventIDs.some(
       (eventID, index) => index > 0 && sourceEventIDs[index - 1] >= eventID
     )
@@ -7784,14 +7864,23 @@ const normalizeReadinessExportAcknowledgement = (
   }
   return {
     schema: value.schema,
-    requestNonce: normalizeBytes32(value.requestNonce, "readiness export nonce"),
+    requestNonce: normalizeBytes32(
+      value.requestNonce,
+      "readiness export nonce"
+    ),
     requestDigest: normalizeBytes32(
       value.requestDigest,
       "readiness export request digest"
     ),
     exportFence: positiveInteger(value.exportFence, "readiness export fence"),
-    snapshotRoot: normalizeBytes32(value.snapshotRoot, "readiness snapshot root"),
-    resultDigest: normalizeBytes32(value.resultDigest, "readiness result digest"),
+    snapshotRoot: normalizeBytes32(
+      value.snapshotRoot,
+      "readiness snapshot root"
+    ),
+    resultDigest: normalizeBytes32(
+      value.resultDigest,
+      "readiness result digest"
+    ),
     consumerID: boundedString(value.consumerID, 255, "readiness consumer ID"),
     auditManifestRoot: normalizeBytes32(
       value.auditManifestRoot,
@@ -7840,7 +7929,10 @@ const normalizeReadinessExportRequest = (
   }
   return {
     schema: value.schema,
-    requestNonce: normalizeBytes32(value.requestNonce, "readiness export nonce"),
+    requestNonce: normalizeBytes32(
+      value.requestNonce,
+      "readiness export nonce"
+    ),
     manifestHash: normalizeBytes32(
       value.manifestHash,
       "readiness export request manifest hash"
@@ -8003,7 +8095,11 @@ const readinessExportHandleFromRow = (
     sourceIdentity: {
       storeID: boundedString(row.source_store_id, 255, "source store ID"),
       clusterID: boundedString(row.source_cluster_id, 255, "source cluster ID"),
-      operatorID: boundedString(row.source_operator_id, 255, "source operator ID"),
+      operatorID: boundedString(
+        row.source_operator_id,
+        255,
+        "source operator ID"
+      ),
       trustDomainID: boundedString(
         row.source_trust_domain_id,
         255,
@@ -8080,14 +8176,18 @@ const assertGenerationMatchesSnapshot = (
       snapshot.bitcoin.current.height ||
     normalizeBytes32(row.bitcoin_hash, "generation Bitcoin hash") !==
       snapshot.bitcoin.current.hash ||
-    normalizeBytes32(row.bitcoin_chain_root, "generation Bitcoin chain root") !==
-      snapshot.bitcoin.chainCommitment ||
+    normalizeBytes32(
+      row.bitcoin_chain_root,
+      "generation Bitcoin chain root"
+    ) !== snapshot.bitcoin.chainCommitment ||
     normalizeBytes32(row.projection_root, "generation projection root") !==
       snapshot.projection.commitment ||
     normalizeBytes32(row.semantic_root, "generation semantic root") !==
       snapshot.projection.semanticCommitment
   ) {
-    throw new Error("Latest canonical generation does not match readiness state")
+    throw new Error(
+      "Latest canonical generation does not match readiness state"
+    )
   }
 }
 
@@ -8112,9 +8212,7 @@ export const calculateP2TRReadinessExportConsumerSignaturePayloadDigest = (
     .digest("hex")
 
 /** Recomputes the content address of one bounded evidence chunk. */
-export const calculateP2TREvidenceChunkDigest = (
-  bytes: Uint8Array
-): string => {
+export const calculateP2TREvidenceChunkDigest = (bytes: Uint8Array): string => {
   const normalized = Buffer.from(bytes)
   if (normalized.length > P2TR_EVIDENCE_CHUNK_MAX_BYTES) {
     throw new Error("Evidence chunk exceeds 64 KiB")
@@ -8154,7 +8252,9 @@ export const calculateP2TREvidenceChunkManifestRoot = (
   chunkLeafDigests: readonly string[]
 ): string => {
   if (chunkLeafDigests.length < 1 || chunkLeafDigests.length > 64) {
-    throw new Error("Evidence chunk manifest must contain between 1 and 64 leaves")
+    throw new Error(
+      "Evidence chunk manifest must contain between 1 and 64 leaves"
+    )
   }
   return createHash("sha256")
     .update(
@@ -8198,9 +8298,7 @@ export const calculateP2TREvidenceObjectDigest = (value: {
       "utf8"
     )
     .update(hexBuffer(value.contentDigest, "evidence content digest"))
-    .update(
-      hexBuffer(value.chunkManifestRoot, "evidence chunk manifest root")
-    )
+    .update(hexBuffer(value.chunkManifestRoot, "evidence chunk manifest root"))
     .digest("hex")
 }
 
@@ -8223,18 +8321,13 @@ export const calculateP2TRReadinessExportStreamLeafDigest = (value: {
     throw new Error("Readiness object exceeds the four-megabyte bound")
   }
   return createHash("sha256")
-    .update(
-      `tbtc-p2tr-readiness-export-object-v1\x1f${objectKind}`,
-      "utf8"
-    )
+    .update(`tbtc-p2tr-readiness-export-object-v1\x1f${objectKind}`, "utf8")
     .update(int64BE(value.exportFence, "readiness export fence"))
     .update(int64BE(value.streamOrdinal, "readiness stream ordinal"))
     .update(hexBuffer(value.objectDigest, "readiness object digest"))
     .update(int64BE(byteLength, "readiness object byte length"))
     .update(hexBuffer(value.contentDigest, "readiness content digest"))
-    .update(
-      hexBuffer(value.chunkManifestRoot, "readiness chunk manifest root")
-    )
+    .update(hexBuffer(value.chunkManifestRoot, "readiness chunk manifest root"))
     .digest("hex")
 }
 
@@ -8334,7 +8427,10 @@ export const verifyP2TRReadinessExportObjectFrames = (
   }
   const first = frames[0]
   const exportID = normalizeBytes32(first.exportID, "readiness export ID")
-  const exportFence = positiveInteger(first.exportFence, "readiness export fence")
+  const exportFence = positiveInteger(
+    first.exportFence,
+    "readiness export fence"
+  )
   const streamOrdinal = nonNegativeInteger(
     first.streamOrdinal,
     "readiness stream ordinal"
@@ -8423,9 +8519,12 @@ export const verifyP2TRReadinessExportObjectFrames = (
       chunkDigest,
     })
     if (
-      nonNegativeInteger(frame.chunk.index, "readiness chunk index") !== index ||
-      nonNegativeInteger(frame.chunk.byteOffset, "readiness chunk byte offset") !==
-        byteOffset ||
+      nonNegativeInteger(frame.chunk.index, "readiness chunk index") !==
+        index ||
+      nonNegativeInteger(
+        frame.chunk.byteOffset,
+        "readiness chunk byte offset"
+      ) !== byteOffset ||
       bytes.length !== expectedLength ||
       normalizeBytes32(frame.chunk.digest, "readiness chunk digest") !==
         chunkDigest ||
@@ -8498,7 +8597,10 @@ const calculateReadinessExportSourceSignaturePayloadDigest = (
 ): string => {
   const generation = normalizeCanonicalGenerationIdentity(value.generation)
   const expiry = new Date(value.expiresAt)
-  if (!Number.isFinite(expiry.getTime()) || expiry.toISOString() !== value.expiresAt) {
+  if (
+    !Number.isFinite(expiry.getTime()) ||
+    expiry.toISOString() !== value.expiresAt
+  ) {
     throw new Error("Readiness export expiry must be canonical ISO-8601")
   }
   const postgresEpochMilliseconds = Date.UTC(2000, 0, 1)
@@ -8717,9 +8819,7 @@ const serializeBitcoinOutput = (value: number, script: Buffer): Buffer =>
     script,
   ])
 
-const serializeBitcoinWitness = (
-  witness: readonly Uint8Array[]
-): Buffer =>
+const serializeBitcoinWitness = (witness: readonly Uint8Array[]): Buffer =>
   Buffer.concat([
     compactSize(witness.length),
     ...witness.flatMap((item) => {
@@ -8770,7 +8870,9 @@ const candidateBlockingAlertDigest = (value: {
 }): string =>
   createHash("sha256")
     .update("tbtc-p2tr-candidate-blocking-alert-v1", "utf8")
-    .update(hexBuffer(value.identity.blockHash, "blocking candidate block hash"))
+    .update(
+      hexBuffer(value.identity.blockHash, "blocking candidate block hash")
+    )
     .update(hexBuffer(value.identity.txid, "blocking candidate transaction ID"))
     .update(
       hexBuffer(
@@ -8825,7 +8927,9 @@ const validateBitcoinBlockEvidence = (
   const parentHash = Buffer.from(header.subarray(4, 36))
     .reverse()
     .toString("hex")
-  if (parentHash !== normalizeBytes32(block.parentHash, `${field} parent hash`)) {
+  if (
+    parentHash !== normalizeBytes32(block.parentHash, `${field} parent hash`)
+  ) {
     throw new Error(`${field} header parent hash is inconsistent`)
   }
   if (parsed.getId() !== normalizeBytes32(block.hash, `${field} hash`)) {
@@ -8837,7 +8941,9 @@ const validateBitcoinBlockEvidence = (
     transactions.length === 0 ||
     transactions.length !== block.transactions.length
   ) {
-    throw new Error(`${field} transaction projection cardinality is inconsistent`)
+    throw new Error(
+      `${field} transaction projection cardinality is inconsistent`
+    )
   }
   if (
     !transactions[0].isCoinbase() ||
@@ -8852,7 +8958,9 @@ const validateBitcoinBlockEvidence = (
     rootsAreValid = false
   }
   if (!rootsAreValid) {
-    throw new Error(`${field} transaction or witness commitment is inconsistent`)
+    throw new Error(
+      `${field} transaction or witness commitment is inconsistent`
+    )
   }
   transactions.forEach((transaction, index) => {
     const projected = Buffer.from(
@@ -8863,7 +8971,9 @@ const validateBitcoinBlockEvidence = (
       "hex"
     )
     if (!transaction.toBuffer().equals(projected)) {
-      throw new Error(`${field} transaction order/raw projection is inconsistent`)
+      throw new Error(
+        `${field} transaction order/raw projection is inconsistent`
+      )
     }
   })
 }
@@ -8876,10 +8986,7 @@ const normalizeP2TRAuthorizationDomain = (value: {
     normalizeUint256Decimal(value.chainID, "P2TR authorization chain ID")
   )
   const bridgeAddress = Buffer.from(
-    normalizeBytes20(
-      value.bridgeAddress,
-      "P2TR authorization Bridge address"
-    ),
+    normalizeBytes20(value.bridgeAddress, "P2TR authorization Bridge address"),
     "hex"
   )
   return {
@@ -8955,10 +9062,7 @@ const calculateP2TRCompleteV2ChallengeIdentity = (value: {
   createHash("sha256")
     .update(
       Buffer.concat([
-        Buffer.from(
-          "tbtc-p2tr-signature-fraud-authorization-v3",
-          "utf8"
-        ),
+        Buffer.from("tbtc-p2tr-signature-fraud-authorization-v3", "utf8"),
         uint256BE(value.chainID),
         value.bridgeAddress,
         hexBuffer(value.walletID, "P2TR authorization wallet ID"),
