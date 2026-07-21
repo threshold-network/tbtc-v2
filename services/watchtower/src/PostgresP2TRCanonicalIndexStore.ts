@@ -9198,14 +9198,6 @@ const normalizeBytes32 = (value: string, field: string): string => {
   return normalized
 }
 
-const normalizeBytes20 = (value: string, field: string): string => {
-  const normalized = value.replace(/^0x/i, "").toLowerCase()
-  if (!/^[0-9a-f]{40}$/.test(normalized)) {
-    throw new Error(`${field} must be a 20-byte hex value`)
-  }
-  return normalized
-}
-
 const databaseInteger = (value: string | number, field: string): number => {
   const parsed = typeof value === "number" ? value : Number(value)
   return nonNegativeInteger(parsed, field)
