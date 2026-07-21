@@ -45,11 +45,16 @@ export type P2TRProductionOutboxActivationState = {
   schemaVersion: number
   schemaConstraintHash: string
   manifestActivationSequence: number
+  manifestOutboxCapacityConfigured: boolean
   currentReadinessCertificate: P2TROutboxCurrentReadinessCertificate
   statusCounts: Readonly<Record<string, number>>
   activeGenerationCount: number
   activeOldManifestGenerationCount: number
   expiredPreparationLeaseCount: number
+  pendingNonceReleaseCount: number
+  pendingNonceReleaseSetHash: string
+  ambiguousNonceReleaseCount: number
+  ambiguousNonceReleaseSetHash: string
   recoveryBacklogCount: number
   activationBlockingAlertCount: number
   activationBlockingAlertSetHash: string
@@ -63,6 +68,12 @@ export type P2TRProductionOutboxActivationState = {
   healthySignerLaneCount: number
   healthySignerLaneSetHash: string
   stateHistoryMismatchCount: number
+  capacityCounterMismatchCount: number
+  activeNonceReleaseAttemptCount: number
+  activeSignerInvocationCount: number
+  unresolvedReleaseBarrierCount: number
+  nonceAllocatorContractMismatchBlocked: boolean
+  nonceAllocatorBarrierMismatchCount: number
   activationBlocked: boolean
   activationBlockingReasons: readonly string[]
   sampledAtUnixMs: number
@@ -103,6 +114,7 @@ type ManifestAndCursorRow = {
   transaction_isolation: string
   activation_sequence: string | number
   manifest_hash: string
+  max_active_outbox_records: string | null
   current_block_number: string | number
   current_block_hash: string
 }
@@ -124,6 +136,13 @@ type SignerLaneStateRow = {
   signer_code_hash: string
   configuration_hash: string
   quarantined: boolean
+}
+type NonceAllocatorBarrierRow = {
+  active_release_attempt_count: string | number
+  active_signer_invocation_count: string | number
+  unresolved_release_count: string | number
+  contract_mismatch_blocked: boolean
+  mismatch_count: string | number
 }
 
 const TERMINAL_STATUSES = [
@@ -220,6 +239,8 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
       `SELECT current_setting('transaction_isolation') AS transaction_isolation,
               m.activation_sequence,
               encode(m.manifest_hash, 'hex') AS manifest_hash,
+              m.payload #>> '{outbox,maxActiveOutboxRecords}'
+                AS max_active_outbox_records,
               c.current_block_number,
               encode(c.current_block_hash, 'hex') AS current_block_hash
          FROM p2tr_watchtower_activation_manifest m
@@ -276,12 +297,16 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
       statusResult,
       oldManifestResult,
       leaseResult,
+      pendingReleaseResult,
+      ambiguousReleaseResult,
       alertResult,
       incidentResult,
       guardResult,
       laneResult,
       danglingGuardResult,
       historyResult,
+      capacityCounterResult,
+      nonceAllocatorBarrierResult,
       catalogResult,
     ] = await Promise.all([
       session.query<{ version: string | number }>(
@@ -311,10 +336,55 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
         [sampledAtUnixMs]
       ),
       session.query<DigestRow>(
+        `SELECT encode(r.release_request_id, 'hex') AS id,
+                encode(sha256(
+                  r.record_id || r.nonce_guard_id || r.void_evidence_digest
+                ), 'hex') AS details_digest
+           FROM p2tr_signature_fraud_challenge_nonce_release_request r
+          WHERE NOT EXISTS (
+                SELECT 1
+                  FROM p2tr_signature_fraud_challenge_nonce_release_terminal x
+                 WHERE x.release_request_id = r.release_request_id
+          )
+          ORDER BY r.release_request_id`
+      ),
+      session.query<DigestRow>(
+        `SELECT encode(r.release_request_id, 'hex') AS id,
+                encode(sha256(
+                  r.record_id || r.nonce_guard_id ||
+                  COALESCE(latest.response_digest, r.void_evidence_digest)
+                ), 'hex') AS details_digest
+           FROM p2tr_signature_fraud_challenge_nonce_release_request r
+           JOIN LATERAL (
+             SELECT a.attempt_sequence, x.result_kind, x.response_digest
+               FROM p2tr_signature_fraud_challenge_nonce_release_attempt a
+               LEFT JOIN p2tr_signature_fraud_challenge_nonce_release_result x
+                 ON x.release_request_id = a.release_request_id
+                AND x.attempt_sequence = a.attempt_sequence
+              WHERE a.release_request_id = r.release_request_id
+              ORDER BY a.attempt_sequence DESC
+              LIMIT 1
+           ) latest ON true
+          WHERE NOT EXISTS (
+                SELECT 1
+                  FROM p2tr_signature_fraud_challenge_nonce_release_terminal ok
+                 WHERE ok.release_request_id = r.release_request_id
+          )
+            AND (latest.result_kind IS NULL OR latest.result_kind NOT IN (
+              'released', 'already-released'
+            ))
+          ORDER BY r.release_request_id`
+      ),
+      session.query<DigestRow>(
         `SELECT encode(alert_id, 'hex') AS id,
                 encode(details_digest, 'hex') AS details_digest
            FROM p2tr_signature_fraud_challenge_critical_alert
           WHERE activation_blocking
+            AND NOT EXISTS (
+                  SELECT 1
+                    FROM p2tr_signature_fraud_challenge_critical_alert_resolution ar
+                   WHERE ar.alert_id = p2tr_signature_fraud_challenge_critical_alert.alert_id
+                )
           ORDER BY alert_id`
       ),
       session.query<DigestRow>(
@@ -385,6 +455,99 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
                 WHERE h.record_id = o.record_id
            ) history ON true
           WHERE history.version IS DISTINCT FROM o.version`
+      ),
+      session.query<CountRow>(
+        `SELECT CASE
+                  WHEN c.active_generation_count = (
+                    SELECT count(*)
+                      FROM p2tr_signature_fraud_challenge_outbox o
+                     WHERE o.status <> ALL($1::text[])
+                  ) THEN 0
+                  ELSE 1
+                END::bigint AS count
+           FROM p2tr_signature_fraud_challenge_outbox_capacity c
+          WHERE c.singleton = true`,
+        [TERMINAL_STATUSES]
+      ),
+      session.query<NonceAllocatorBarrierRow>(
+        `SELECT CASE
+                  WHEN b.active_release_request_id IS NULL THEN 0
+                  ELSE 1
+                END::bigint AS active_release_attempt_count,
+                b.active_signer_invocation_count,
+                b.unresolved_release_count,
+                b.contract_mismatch_blocked,
+                CASE
+                  WHEN b.active_signer_invocation_count = (
+                         SELECT count(*)
+                           FROM p2tr_signature_fraud_challenge_outbox o
+                          WHERE o.active_signer_invocation_started_at_unix_ms
+                                IS NOT NULL
+                       )
+                   AND b.unresolved_release_count = (
+                         SELECT count(*)
+                           FROM p2tr_signature_fraud_challenge_nonce_release_request r
+                          WHERE NOT EXISTS (
+                                SELECT 1
+                                  FROM p2tr_signature_fraud_challenge_nonce_release_terminal x
+                                 WHERE x.release_request_id = r.release_request_id
+                          )
+                       )
+                   AND (
+                         (b.active_release_request_id IS NULL
+                          AND b.active_release_attempt_sequence IS NULL
+                          AND b.active_release_expires_at_unix_ms IS NULL)
+                         OR EXISTS (
+                             SELECT 1
+                               FROM p2tr_signature_fraud_challenge_nonce_release_attempt a
+                               JOIN p2tr_signature_fraud_challenge_nonce_release_invocation i
+                                 ON i.release_request_id = a.release_request_id
+                                AND i.attempt_sequence = a.attempt_sequence
+                              WHERE a.release_request_id = b.active_release_request_id
+                                AND a.attempt_sequence = b.active_release_attempt_sequence
+                                AND a.expires_at_unix_ms = b.active_release_expires_at_unix_ms
+                                AND NOT EXISTS (
+                                    SELECT 1
+                                      FROM p2tr_signature_fraud_challenge_nonce_release_result x
+                                     WHERE x.release_request_id = a.release_request_id
+                                       AND x.attempt_sequence = a.attempt_sequence
+                                       AND x.result_kind <> 'ambiguous-error'
+                                )
+                                AND NOT EXISTS (
+                                    SELECT 1
+                                      FROM p2tr_signature_fraud_challenge_nonce_release_resolution rx
+                                     WHERE rx.release_request_id = a.release_request_id
+                                       AND rx.attempt_sequence = a.attempt_sequence
+                                )
+                         )
+                       )
+                   AND b.contract_mismatch_blocked = (EXISTS (
+                         SELECT 1
+                           FROM p2tr_signature_fraud_challenge_nonce_release_result x
+                          WHERE x.result_kind = 'contract-mismatch'
+                         UNION ALL
+                         SELECT 1
+                           FROM p2tr_signature_fraud_challenge_nonce_release_resolution rx
+                          WHERE rx.outcome = 'terminal-unsafe'
+                       ))
+                   AND b.contract_mismatch_blocked = (EXISTS (
+                         SELECT 1
+                           FROM p2tr_signature_fraud_challenge_critical_alert a
+                          WHERE a.code IN (
+                                'reservation-release-failed',
+                                'nonce-release-terminal-unsafe'
+                            )
+                            AND NOT EXISTS (
+                                SELECT 1
+                                  FROM p2tr_signature_fraud_challenge_critical_alert_resolution ar
+                                 WHERE ar.alert_id = a.alert_id
+                            )
+                       ))
+                  THEN 0
+                  ELSE 1
+                END::bigint AS mismatch_count
+           FROM p2tr_signature_fraud_nonce_allocator_safety_barrier b
+          WHERE b.singleton = true`
       ),
       session.query<CatalogDefinitionRow>(
         `SELECT 'relation'::text AS object_kind,
@@ -484,6 +647,8 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
       leaseResult,
       "expired outbox lease count"
     )
+    const pendingNonceReleaseCount = pendingReleaseResult.rows.length
+    const ambiguousNonceReleaseCount = ambiguousReleaseResult.rows.length
     const activationBlockingAlertCount = alertResult.rows.length
     const provenanceIncidentCount = incidentResult.rows.length
     const unresolvedNonceGuardCount = oneCount(
@@ -506,13 +671,49 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
       historyResult,
       "outbox state-history mismatch count"
     )
-    const recoveryBacklogCount = expiredPreparationLeaseCount
+    const capacityCounterMismatchCount = oneCount(
+      capacityCounterResult,
+      "outbox capacity-counter mismatch count"
+    )
+    if (nonceAllocatorBarrierResult.rows.length !== 1) {
+      throw new Error("PostgreSQL nonce-allocator safety barrier is invalid")
+    }
+    const nonceAllocatorBarrier = nonceAllocatorBarrierResult.rows[0]
+    const activeNonceReleaseAttemptCount = databaseSafeInteger(
+      nonceAllocatorBarrier.active_release_attempt_count,
+      "active nonce-release attempt count"
+    )
+    const activeSignerInvocationCount = databaseSafeInteger(
+      nonceAllocatorBarrier.active_signer_invocation_count,
+      "active signer invocation count"
+    )
+    const unresolvedReleaseBarrierCount = databaseSafeInteger(
+      nonceAllocatorBarrier.unresolved_release_count,
+      "unresolved release barrier count"
+    )
+    const nonceAllocatorContractMismatchBlocked =
+      nonceAllocatorBarrier.contract_mismatch_blocked
+    if (typeof nonceAllocatorContractMismatchBlocked !== "boolean") {
+      throw new Error("PostgreSQL nonce-allocator mismatch barrier is invalid")
+    }
+    const nonceAllocatorBarrierMismatchCount = databaseSafeInteger(
+      nonceAllocatorBarrier.mismatch_count,
+      "nonce-allocator barrier mismatch count"
+    )
+    const recoveryBacklogCount =
+      expiredPreparationLeaseCount + pendingNonceReleaseCount
 
     const reasons: string[] = []
     if (activeOldManifestGenerationCount > 0) {
       reasons.push("active-old-manifest-generation")
     }
     if (recoveryBacklogCount > 0) reasons.push("preparation-recovery-backlog")
+    if (pendingNonceReleaseCount > 0) {
+      reasons.push("nonce-release-recovery-backlog")
+    }
+    if (ambiguousNonceReleaseCount > 0) {
+      reasons.push("ambiguous-nonce-release-response")
+    }
     if (activationBlockingAlertCount > 0) {
       reasons.push("activation-blocking-outbox-alert")
     }
@@ -521,6 +722,31 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
     }
     if (stateHistoryMismatchCount > 0) {
       reasons.push("outbox-state-history-mismatch")
+    }
+    const manifestOutboxCapacityConfigured =
+      manifest.max_active_outbox_records !== null &&
+      /^[1-9][0-9]{0,6}$/.test(manifest.max_active_outbox_records) &&
+      Number(manifest.max_active_outbox_records) <= 1_000_000
+    if (!manifestOutboxCapacityConfigured) {
+      reasons.push("manifest-outbox-capacity-not-configured")
+    }
+    if (capacityCounterMismatchCount > 0) {
+      reasons.push("outbox-capacity-counter-mismatch")
+    }
+    if (
+      activeNonceReleaseAttemptCount > 0 ||
+      activeSignerInvocationCount > 0
+    ) {
+      reasons.push("nonce-allocator-external-io-active")
+    }
+    if (nonceAllocatorContractMismatchBlocked) {
+      reasons.push("nonce-allocator-contract-mismatch")
+    }
+    if (
+      nonceAllocatorBarrierMismatchCount > 0 ||
+      unresolvedReleaseBarrierCount !== pendingNonceReleaseCount
+    ) {
+      reasons.push("nonce-allocator-barrier-mismatch")
     }
     if (danglingNonceGuardCount > 0) {
       reasons.push("dangling-unaccounted-nonce-guard")
@@ -541,11 +767,18 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
         manifest.activation_sequence,
         "PostgreSQL manifest activation sequence"
       ),
+      manifestOutboxCapacityConfigured,
       currentReadinessCertificate,
       statusCounts,
       activeGenerationCount,
       activeOldManifestGenerationCount,
       expiredPreparationLeaseCount,
+      pendingNonceReleaseCount,
+      pendingNonceReleaseSetHash: sha256Canonical(pendingReleaseResult.rows),
+      ambiguousNonceReleaseCount,
+      ambiguousNonceReleaseSetHash: sha256Canonical(
+        ambiguousReleaseResult.rows
+      ),
       recoveryBacklogCount,
       activationBlockingAlertCount,
       activationBlockingAlertSetHash: sha256Canonical(alertResult.rows),
@@ -559,6 +792,12 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
       healthySignerLaneCount,
       healthySignerLaneSetHash: sha256Canonical(healthySignerLanes),
       stateHistoryMismatchCount,
+      capacityCounterMismatchCount,
+      activeNonceReleaseAttemptCount,
+      activeSignerInvocationCount,
+      unresolvedReleaseBarrierCount,
+      nonceAllocatorContractMismatchBlocked,
+      nonceAllocatorBarrierMismatchCount,
       activationBlocked: reasons.length > 0,
       activationBlockingReasons: reasons,
       sampledAtUnixMs,
