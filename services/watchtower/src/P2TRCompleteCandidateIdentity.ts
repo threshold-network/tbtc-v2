@@ -3,9 +3,38 @@ import { createHash } from "node:crypto"
 export const P2TR_COMPLETE_AUTHORIZATION_DOMAIN =
   "tbtc-p2tr-signature-fraud-authorization-v3" as const
 
+/** Static COMPLETE_V2 protocol identifier bound into the domain digest. */
+export const P2TR_COMPLETE_V2_PROTOCOL_ID =
+  "12c62b64ecf6d008bcff153495dcdbe7a981f3a9a1b9c0898b86b1e6d0d350ef" as const
+
+export const P2TR_COMPLETE_DOMAIN_DIGEST_TAG =
+  "tbtc-p2tr-complete-domain-v1" as const
+
 export type P2TRCompleteBridgeDomain = {
   domainChainID: string
   bridgeAddress: string
+}
+
+/**
+ * COMPLETE_V2 authorization domain digest. This is the exact value persisted as
+ * `domain_digest` and bound into every canonical occurrence identity, so it has
+ * a single definition shared by the canonical store and the activation stack.
+ */
+export function computeP2TRCompleteAuthorizationDomainDigest(
+  domainValue: P2TRCompleteBridgeDomain
+): string {
+  const domain = normalizeP2TRCompleteBridgeDomain(domainValue)
+  return createHash("sha256")
+    .update(P2TR_COMPLETE_DOMAIN_DIGEST_TAG, "utf8")
+    .update(Buffer.from(P2TR_COMPLETE_V2_PROTOCOL_ID, "hex"))
+    .update(
+      Buffer.from(
+        BigInt(domain.domainChainID).toString(16).padStart(64, "0"),
+        "hex"
+      )
+    )
+    .update(Buffer.from(domain.bridgeAddress.slice(2), "hex"))
+    .digest("hex")
 }
 
 /** The exact static ChallengeEvidence tuple accepted by COMPLETE_V2. */
