@@ -21,7 +21,7 @@ export type P2TRProductionActivationHandshakeRequest = {
   }
 }
 
-export type P2TRProductionSignedHandshake<State> = {
+export type P2TROutboxProductionSignedHandshake<State> = {
   payload: {
     kind: "outbox"
     nonce: string
@@ -179,7 +179,7 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
   async attestActivationChallenge(
     request: P2TRProductionActivationHandshakeRequest
   ): Promise<
-    P2TRProductionSignedHandshake<P2TRProductionOutboxActivationState>
+    P2TROutboxProductionSignedHandshake<P2TRProductionOutboxActivationState>
   > {
     this.assertSession()
     const challenge = validateRequest(request)
@@ -392,6 +392,12 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
                 encode(details_digest, 'hex') AS details_digest
            FROM p2tr_signature_fraud_challenge_provenance_incident
           WHERE activation_blocking
+            AND NOT EXISTS (
+                  SELECT 1
+                    FROM p2tr_signature_fraud_challenge_provenance_incident_resolution ir
+                   WHERE ir.incident_id =
+                         p2tr_signature_fraud_challenge_provenance_incident.incident_id
+                )
           ORDER BY incident_id`
       ),
       session.query<CountRow>(
@@ -561,6 +567,13 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
            FROM pg_class r
            JOIN pg_namespace n ON n.oid = r.relnamespace
           WHERE n.nspname = current_schema()
+            AND r.relname LIKE 'p2tr_signature_fraud_%'
+         UNION ALL
+         SELECT 'view-definition', r.relname, pg_get_viewdef(r.oid, true)
+           FROM pg_class r
+           JOIN pg_namespace n ON n.oid = r.relnamespace
+          WHERE n.nspname = current_schema()
+            AND r.relkind IN ('v', 'm')
             AND r.relname LIKE 'p2tr_signature_fraud_%'
          UNION ALL
          SELECT 'column',

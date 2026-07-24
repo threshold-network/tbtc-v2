@@ -750,6 +750,357 @@ export const computeP2TRSignatureFraudNonceReleaseResolutionEvidenceDigest = (
     .digest("hex")}`
 }
 
+/**
+ * Independently attested terminal evidence for one exact signer boundary whose
+ * owning process died between the durable pre-I/O marker and any observable
+ * signer result.
+ *
+ * `activeSignerInvocationStartedAtUnixMs` is made durable BEFORE boundary
+ * authorization and therefore before the signer RPC, so a lost owner leaves a
+ * marker that nothing in the process-local recovery path may clear: lease
+ * expiry is not proof that a remote call stopped. The marker keeps the
+ * singleton `active_signer_invocation_count` at one, which blocks every
+ * nonce-release invocation store-wide and freezes challenge signing on every
+ * lane. Only an out-of-band, dual-attested observation of what the signer
+ * actually did can resolve that, and this is that evidence.
+ */
+export type P2TRSignatureFraudIndependentSignerBoundaryResolution = {
+  recordID: string
+  /** The exact boundary, byte for byte. A different boundary is refused. */
+  boundaryStartedAtUnixMs: number
+  preparationAttempts: number
+  nonceReservationID: string
+  stage: "prepare" | "replacement"
+  invokedAtUnixMs: number
+  outcome: "never-invoked" | "signed" | "terminal-unsafe"
+  /** Required exactly when the signer is proven to have produced bytes. */
+  signedTransactionHash?: string
+  providerEvidenceDigest: string
+  evidenceDigest: string
+  canonicalAttestations: readonly [
+    P2TRSignatureFraudCanonicalEvidenceAttestation,
+    P2TRSignatureFraudCanonicalEvidenceAttestation
+  ]
+  resolvedAtUnixMs: number
+}
+
+export const computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest = (
+  resolution: Omit<
+    P2TRSignatureFraudIndependentSignerBoundaryResolution,
+    "evidenceDigest" | "canonicalAttestations" | "resolvedAtUnixMs"
+  >
+): string => {
+  const uint64 = (value: number, label: string): Buffer => {
+    requireNonNegativeSafeInteger(value, label)
+    const encoded = Buffer.alloc(8)
+    encoded.writeBigUInt64BE(BigInt(value))
+    return encoded
+  }
+  const textDigest = (value: string, label: string): Buffer => {
+    const normalized = requireBoundedText(value, 128, label)
+    return createHash("sha256").update(normalized, "utf8").digest()
+  }
+  if (
+    !["never-invoked", "signed", "terminal-unsafe"].includes(resolution.outcome)
+  ) {
+    throw new Error("Signer-boundary resolution outcome is invalid")
+  }
+  if (!["prepare", "replacement"].includes(resolution.stage)) {
+    throw new Error("Signer-boundary resolution stage is invalid")
+  }
+  if (
+    (resolution.outcome === "signed") !==
+    (resolution.signedTransactionHash !== undefined)
+  ) {
+    throw new Error(
+      "Signer-boundary resolution names signed bytes only for a signed outcome"
+    )
+  }
+  return `0x${createHash("sha256")
+    .update("tbtc-p2tr-signer-boundary-independent-resolution-v1", "utf8")
+    .update(
+      Buffer.from(
+        normalizeBytes32(
+          resolution.recordID,
+          "Signer-boundary resolution record ID"
+        ).slice(2),
+        "hex"
+      )
+    )
+    .update(
+      uint64(
+        resolution.boundaryStartedAtUnixMs,
+        "Signer-boundary resolution boundary start"
+      )
+    )
+    .update(
+      uint64(
+        resolution.preparationAttempts,
+        "Signer-boundary resolution preparation attempts"
+      )
+    )
+    .update(
+      Buffer.from(
+        normalizeBytes32(
+          resolution.nonceReservationID,
+          "Signer-boundary resolution reservation ID"
+        ).slice(2),
+        "hex"
+      )
+    )
+    .update(textDigest(resolution.stage, "Signer-boundary resolution stage"))
+    .update(
+      uint64(
+        resolution.invokedAtUnixMs,
+        "Signer-boundary resolution invocation time"
+      )
+    )
+    .update(
+      textDigest(resolution.outcome, "Signer-boundary resolution outcome")
+    )
+    .update(
+      resolution.signedTransactionHash === undefined
+        ? Buffer.alloc(32)
+        : Buffer.from(
+            normalizeBytes32(
+              resolution.signedTransactionHash,
+              "Signer-boundary resolution signed transaction hash"
+            ).slice(2),
+            "hex"
+          )
+    )
+    .update(
+      Buffer.from(
+        normalizeBytes32(
+          resolution.providerEvidenceDigest,
+          "Signer-boundary resolution provider evidence digest"
+        ).slice(2),
+        "hex"
+      )
+    )
+    .digest("hex")}`
+}
+
+/**
+ * The exact normalized form both the PostgreSQL adapter and the in-memory
+ * double bind. Sharing one validator is what makes their rejection messages
+ * identical rather than merely similar.
+ */
+export type P2TRSignatureFraudNormalizedSignerBoundaryResolution = {
+  recordID: string
+  boundaryStartedAtUnixMs: number
+  preparationAttempts: number
+  nonceReservationID: string
+  stage: "prepare" | "replacement"
+  invokedAtUnixMs: number
+  outcome: "never-invoked" | "signed" | "terminal-unsafe"
+  signedTransactionHash?: string
+  providerEvidenceDigest: string
+  evidenceDigest: string
+  attestations: readonly [
+    P2TRSignatureFraudCanonicalEvidenceAttestation,
+    P2TRSignatureFraudCanonicalEvidenceAttestation
+  ]
+  resolvedAtUnixMs: number
+}
+
+export const validateP2TRSignatureFraudIndependentSignerBoundaryResolution = (
+  resolution: P2TRSignatureFraudIndependentSignerBoundaryResolution
+): P2TRSignatureFraudNormalizedSignerBoundaryResolution => {
+  const recordID = normalizeBytes32(
+    resolution.recordID,
+    "Orphaned signer boundary record ID"
+  )
+  const boundaryStartedAtUnixMs = requireUnixMilliseconds(
+    resolution.boundaryStartedAtUnixMs,
+    "Orphaned signer boundary start"
+  )
+  const preparationAttempts = requireNonNegativeSafeInteger(
+    resolution.preparationAttempts,
+    "Orphaned signer boundary preparation attempts"
+  )
+  const nonceReservationID = normalizeBytes32(
+    resolution.nonceReservationID,
+    "Orphaned signer boundary reservation ID"
+  )
+  const invokedAtUnixMs = requireUnixMilliseconds(
+    resolution.invokedAtUnixMs,
+    "Orphaned signer boundary invocation time"
+  )
+  const resolvedAtUnixMs = requireUnixMilliseconds(
+    resolution.resolvedAtUnixMs,
+    "Independent signer-boundary resolution time"
+  )
+  if (
+    invokedAtUnixMs < boundaryStartedAtUnixMs ||
+    resolvedAtUnixMs < invokedAtUnixMs ||
+    !["never-invoked", "signed", "terminal-unsafe"].includes(
+      resolution.outcome
+    ) ||
+    !["prepare", "replacement"].includes(resolution.stage)
+  ) {
+    throw new Error("Independent signer-boundary resolution is malformed")
+  }
+  if (
+    (resolution.outcome === "signed") !==
+    (resolution.signedTransactionHash !== undefined)
+  ) {
+    throw new Error(
+      "Independent signer-boundary resolution names signed bytes only for a signed outcome"
+    )
+  }
+  const signedTransactionHash =
+    resolution.signedTransactionHash === undefined
+      ? undefined
+      : normalizeBytes32(
+          resolution.signedTransactionHash,
+          "Orphaned signer boundary signed transaction hash"
+        )
+  const providerEvidenceDigest = normalizeBytes32(
+    resolution.providerEvidenceDigest,
+    "Orphaned signer boundary provider evidence digest"
+  )
+  const evidenceDigest = normalizeBytes32(
+    resolution.evidenceDigest,
+    "Independent signer-boundary resolution digest"
+  )
+  if (
+    computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest({
+      recordID,
+      boundaryStartedAtUnixMs,
+      preparationAttempts,
+      nonceReservationID,
+      stage: resolution.stage,
+      invokedAtUnixMs,
+      outcome: resolution.outcome,
+      signedTransactionHash,
+      providerEvidenceDigest,
+    }) !== evidenceDigest
+  ) {
+    throw new Error("Independent signer-boundary resolution digest is invalid")
+  }
+  if (
+    !Array.isArray(resolution.canonicalAttestations) ||
+    resolution.canonicalAttestations.length !== 2
+  ) {
+    throw new Error(
+      "Independent signer-boundary resolution requires exactly two attestations"
+    )
+  }
+  const [primary, corroborating] = resolution.canonicalAttestations
+  const normalizeAttestation = (
+    attestation: P2TRSignatureFraudCanonicalEvidenceAttestation,
+    label: string
+  ): P2TRSignatureFraudCanonicalEvidenceAttestation => ({
+    trustDomainID: requireBoundedText(
+      attestation?.trustDomainID,
+      128,
+      `${label} signer-boundary trust domain`
+    ),
+    independenceDomainID: requireBoundedText(
+      attestation?.independenceDomainID,
+      128,
+      `${label} signer-boundary independence domain`
+    ),
+    evidenceDigest: normalizeBytes32(
+      attestation?.evidenceDigest,
+      `${label} signer-boundary evidence digest`
+    ),
+    attestation: normalizeHexData(
+      attestation?.attestation,
+      `${label} signer-boundary attestation`
+    ),
+    attestedAtUnixMs: requireUnixMilliseconds(
+      attestation?.attestedAtUnixMs,
+      `${label} signer-boundary attestation time`
+    ),
+  })
+  const normalizedPrimary = normalizeAttestation(primary, "Primary")
+  const normalizedCorroborating = normalizeAttestation(
+    corroborating,
+    "Corroborating"
+  )
+  if (
+    normalizedPrimary.trustDomainID ===
+      normalizedCorroborating.trustDomainID ||
+    normalizedPrimary.independenceDomainID ===
+      normalizedCorroborating.independenceDomainID ||
+    normalizedPrimary.attestation === normalizedCorroborating.attestation ||
+    normalizedPrimary.attestation === "0x" ||
+    normalizedCorroborating.attestation === "0x" ||
+    normalizedPrimary.attestation.length > 4098 ||
+    normalizedCorroborating.attestation.length > 4098 ||
+    normalizedPrimary.evidenceDigest !== evidenceDigest ||
+    normalizedCorroborating.evidenceDigest !== evidenceDigest
+  ) {
+    throw new Error(
+      "Independent signer-boundary attestations do not bind the same evidence across distinct domains"
+    )
+  }
+  if (
+    normalizedPrimary.attestedAtUnixMs < invokedAtUnixMs ||
+    normalizedCorroborating.attestedAtUnixMs < invokedAtUnixMs ||
+    normalizedPrimary.attestedAtUnixMs > resolvedAtUnixMs ||
+    normalizedCorroborating.attestedAtUnixMs > resolvedAtUnixMs
+  ) {
+    throw new Error(
+      "Independent signer-boundary attestations fall outside the invocation window"
+    )
+  }
+  return {
+    recordID,
+    boundaryStartedAtUnixMs,
+    preparationAttempts,
+    nonceReservationID,
+    stage: resolution.stage,
+    invokedAtUnixMs,
+    outcome: resolution.outcome,
+    signedTransactionHash,
+    providerEvidenceDigest,
+    evidenceDigest,
+    attestations: [normalizedPrimary, normalizedCorroborating],
+    resolvedAtUnixMs,
+  }
+}
+
+/**
+ * The durable-state half of the resolver's precondition, evaluated identically
+ * by both stores and re-evaluated independently by the PostgreSQL guard
+ * trigger. A resolution may only speak for the boundary the record currently
+ * owns, and `never-invoked` may only be claimed for a record that carries no
+ * signer escape evidence whatsoever.
+ */
+export const assertP2TRSignatureFraudOrphanedSignerBoundaryOwnership = (
+  record: P2TRSignatureFraudChallengeOutboxRecord,
+  resolution: P2TRSignatureFraudNormalizedSignerBoundaryResolution
+): void => {
+  if (
+    record.activeSignerInvocationStartedAtUnixMs !==
+      resolution.boundaryStartedAtUnixMs ||
+    record.preparationAttempts !== resolution.preparationAttempts ||
+    record.reservedNonce === undefined ||
+    normalizeBytes32(
+      record.reservedNonce.reservationID,
+      "Durable orphaned signer boundary reservation ID"
+    ) !== resolution.nonceReservationID
+  ) {
+    throw new Error(
+      "Orphaned signer boundary resolution does not name the durable boundary"
+    )
+  }
+  if (
+    resolution.outcome === "never-invoked" &&
+    (record.signerInvocationStartedAtUnixMs !== undefined ||
+      (record.preparedTransactionVariants?.length ?? 0) > 0 ||
+      (record.unexpectedSignedArtifacts?.length ?? 0) > 0 ||
+      record.broadcastAttempts > 0)
+  ) {
+    throw new Error(
+      "Orphaned signer boundary resolution requires a boundary with no signer escape evidence"
+    )
+  }
+}
+
 export type P2TRSignatureFraudNonceReleasePageRequest = {
   limit: number
   cursor?: string
@@ -875,6 +1226,7 @@ export type P2TRSignatureFraudOutboxCriticalAlert = {
     | "escaped-signed-envelope-captured"
     | "reservation-release-failed"
     | "nonce-release-terminal-unsafe"
+    | "signer-boundary-terminal-unsafe"
     | "reservation-state-ambiguous"
     | "nonce-reservation-cap-exhausted"
     | "provenance-reconciliation-incident"
@@ -1101,6 +1453,13 @@ export interface P2TRSignatureFraudChallengeOutboxStore
   listPendingNonceReleases(
     request: P2TRSignatureFraudNonceReleasePageRequest
   ): Promise<P2TRSignatureFraudNonceReleasePage>
+  /**
+   * Reconstructs the exact singleton barrier-owned invocation after restart.
+   * A still-live resultless call is not exposed for independent resolution.
+   */
+  getActiveAmbiguousNonceReleaseInvocation(
+    nowUnixMs: number
+  ): Promise<P2TRSignatureFraudAmbiguousNonceReleaseInvocation | undefined>
   claimNonceReleaseAttempt(
     releaseRequestID: string,
     owner: string,
@@ -1132,6 +1491,23 @@ export interface P2TRSignatureFraudChallengeOutboxStore
   resolveAmbiguousNonceRelease(
     resolution: P2TRSignatureFraudIndependentNonceReleaseResolution
   ): Promise<"acknowledged" | "unsafe">
+  /**
+   * Appends independently verified terminal evidence for one exact orphaned
+   * signer boundary — the durable pre-I/O marker whose owning process died
+   * before any result could be witnessed. Implementations must bind the exact
+   * boundary tuple, require two independent attestations, and perform every
+   * effect in one transaction.
+   *
+   * `never-invoked` is the only outcome permitted to clear the marker, and only
+   * against a durable row carrying no signer escape evidence; it also retires
+   * the activation-blocking incidents raised over that boundary. `signed`
+   * retains the boundary so the escaped bytes can still be captured and
+   * quarantined under it. `terminal-unsafe` retains the boundary, keeps
+   * activation blocked, and raises an activation-blocking critical alert.
+   */
+  resolveOrphanedSignerBoundary(
+    resolution: P2TRSignatureFraudIndependentSignerBoundaryResolution
+  ): Promise<"acknowledged" | "unsafe">
   compareAndSwap(
     recordID: string,
     expectedVersion: number,
@@ -1149,15 +1525,37 @@ export interface P2TRSignatureFraudChallengeOutboxStore
     next: P2TRSignatureFraudChallengeOutboxRecord
   ): Promise<boolean>
   /**
+   * Compare-and-swap that also retires the activation-blocking incidents
+   * raised over one exact signer boundary proven never to have reached the
+   * signer. Retirement MUST be atomic with the swap that clears the boundary
+   * marker: resolving first would unblock activation while the barrier is
+   * still live, and clearing first would strand a permanently blocking
+   * incident. Implementations must refuse to retire when the record carries
+   * any signer escape evidence.
+   */
+  compareAndSwapRetiringUninvokedSignerBoundary(
+    recordID: string,
+    expectedVersion: number,
+    next: P2TRSignatureFraudChallengeOutboxRecord,
+    boundary: {
+      startedAtUnixMs: number
+      preparationAttempts: number
+      nonceReservationID: string
+    },
+    resolvedAtUnixMs: number
+  ): Promise<boolean>
+  /**
    * Privileged append-only recovery boundary for bytes returned after any
    * post-signer normal version CAS is lost. It requires the retained durable
-   * reservation and signer boundary and may not change status, release a
-   * nonce, or remove any prior artifact.
+   * reservation and signer boundary, may not release a nonce or remove any
+   * prior artifact, and must atomically move an invalidated generation to
+   * provenance reconciliation while clearing its active signer/lease markers.
    */
   captureEscapedSignedArtifact(
     recordID: string,
     expectedProvenanceFingerprint: string,
-    artifact: P2TRSignatureFraudUnexpectedSignedArtifact
+    artifact: P2TRSignatureFraudUnexpectedSignedArtifact,
+    signerQuarantine?: P2TRSignatureFraudSignerQuarantine
   ): Promise<P2TRSignatureFraudChallengeOutboxRecord>
   /**
    * Atomically appends the canonical rollback tombstone linkage and transitions
@@ -1304,7 +1702,54 @@ export interface P2TRSignatureFraudCancellationEvidenceVerifier {
   ): Promise<P2TRSignatureFraudCancellationEvidenceVerification>
 }
 
+export type P2TRSignatureFraudIrreversibleBoundaryStage =
+  | "prepare"
+  | "replacement"
+  | "broadcast"
+
+/**
+ * Exact durable state that must be independently re-authorized after the
+ * outbox CAS and immediately before a signer or broadcaster is invoked.
+ */
+export type P2TRSignatureFraudIrreversibleBoundaryBinding = {
+  recordID: string
+  generation: number
+  recordVersion: number
+  reservationID: string
+  sender: string
+  transactionNonce: number
+  stage: P2TRSignatureFraudIrreversibleBoundaryStage
+  attempt: number
+  provenanceFingerprint: string
+  activationManifestHash: string
+  /** Required only for a broadcaster boundary. */
+  preparedTransactionHash?: string
+}
+
+declare const irreversibleBoundaryAuthorizationBrand: unique symbol
+
+/**
+ * Process-local, one-use authorization. Implementations must reject copied,
+ * forged, stale, replayed, or differently bound values synchronously.
+ */
+export type P2TRSignatureFraudIrreversibleBoundaryAuthorization = {
+  readonly [irreversibleBoundaryAuthorizationBrand]: true
+}
+
+export interface P2TRSignatureFraudIrreversibleBoundaryAuthorizer {
+  authorizeP2TRSignatureFraudIrreversibleBoundary(
+    binding: P2TRSignatureFraudIrreversibleBoundaryBinding
+  ): Promise<P2TRSignatureFraudIrreversibleBoundaryAuthorization>
+  /** This call must be synchronous and consume the authorization on success. */
+  assertAndConsumeP2TRSignatureFraudIrreversibleBoundaryAuthorization(
+    authorization: P2TRSignatureFraudIrreversibleBoundaryAuthorization,
+    binding: P2TRSignatureFraudIrreversibleBoundaryBinding,
+    nowUnixMs: number
+  ): void
+}
+
 export type P2TRSignatureFraudChallengeOutboxDispatcherOptions = {
+  irreversibleBoundaryAuthorizer: P2TRSignatureFraudIrreversibleBoundaryAuthorizer
   preparationLeaseMs?: number
   minimumRebroadcastIntervalMs?: number
   recoveryPageSize?: number
@@ -1368,7 +1813,8 @@ export class P2TRSignatureFraudChallengeOutboxScheduler {
             {
               chainID: this.options.submissionIntent.domainChainID,
               bridgeAddress: this.options.submissionIntent.bridgeAddress,
-            }
+            },
+            canonicalObservationConsistencyContext(snapshot, this.options)
           )
         const intent = buildP2TRSignatureFraudSubmissionIntent(
           completeEvidence,
@@ -1537,6 +1983,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
   private readonly recoveryPageSize: number
   private readonly nonceReleaseAttemptLeaseMs: number
   private readonly nonceReleaseOwner: string
+  private readonly irreversibleBoundaryAuthorizer: P2TRSignatureFraudIrreversibleBoundaryAuthorizer
   private readonly onRecoveryBacklog?: (
     report: P2TRSignatureFraudChallengeOutboxRecoveryReport
   ) => Promise<void> | void
@@ -1554,8 +2001,22 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     private readonly cancellationEvidenceVerifier: P2TRSignatureFraudCancellationEvidenceVerifier,
     private readonly reconciler: P2TRSignatureFraudChallengeOutboxReconciler,
     private readonly canonicalResolutionEvidenceVerifier: P2TRSignatureFraudCanonicalResolutionEvidenceVerifier,
-    options: P2TRSignatureFraudChallengeOutboxDispatcherOptions = {}
+    options: P2TRSignatureFraudChallengeOutboxDispatcherOptions
   ) {
+    if (
+      options?.irreversibleBoundaryAuthorizer === undefined ||
+      typeof options.irreversibleBoundaryAuthorizer
+        .authorizeP2TRSignatureFraudIrreversibleBoundary !== "function" ||
+      typeof options.irreversibleBoundaryAuthorizer
+        .assertAndConsumeP2TRSignatureFraudIrreversibleBoundaryAuthorization !==
+        "function"
+    ) {
+      throw new Error(
+        "Challenge outbox dispatcher requires an irreversible-boundary authorizer"
+      )
+    }
+    this.irreversibleBoundaryAuthorizer =
+      options.irreversibleBoundaryAuthorizer
     this.preparationLeaseMs = requirePositiveSafeInteger(
       options.preparationLeaseMs ?? 30_000,
       "Challenge outbox preparation lease"
@@ -1824,7 +2285,6 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     await this.assertRecoveryBarrier()
     const signerBoundary = nextRecord(reserved, {
       activeSignerInvocationStartedAtUnixMs: signerBoundaryTime,
-      signerInvocationStartedAtUnixMs: signerBoundaryTime,
       lastPreBroadcastRecheckAtUnixMs: signerBoundaryTime,
       lastPreBroadcastRecheckStatus: "eligible",
       updatedAtUnixMs: signerBoundaryTime,
@@ -1839,6 +2299,42 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       ))
     ) {
       return this.requireRecord(key)
+    }
+
+    const signerAuthorizationBinding =
+      this.buildIrreversibleBoundaryBinding(
+        signerBoundary,
+        "prepare",
+        signerBoundary.preparationAttempts
+      )
+    let signerAuthorization: P2TRSignatureFraudIrreversibleBoundaryAuthorization
+    try {
+      signerAuthorization =
+        await this.irreversibleBoundaryAuthorizer.authorizeP2TRSignatureFraudIrreversibleBoundary(
+          signerAuthorizationBinding
+        )
+    } catch (error) {
+      return this.completeUninvokedSignerBoundary(
+        signerBoundary,
+        `Initial signer authorization failed: ${errorMessage(error)}`
+      )
+    }
+    try {
+      // Consumption is synchronous and is followed by the signer call without
+      // another await or durable-state read.
+      this.irreversibleBoundaryAuthorizer.assertAndConsumeP2TRSignatureFraudIrreversibleBoundaryAuthorization(
+        signerAuthorization,
+        signerAuthorizationBinding,
+        requireUnixMilliseconds(
+          this.now(),
+          "Initial signer authorization consumption time"
+        )
+      )
+    } catch (error) {
+      return this.completeUninvokedSignerBoundary(
+        signerBoundary,
+        `Initial signer authorization was rejected: ${errorMessage(error)}`
+      )
     }
 
     let prepared: P2TRSignatureFraudPreparedChallengeTransaction
@@ -1862,13 +2358,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         undefined,
         "ambiguous-signer-invocation"
       )
-      if (
-        !(await this.store.compareAndSwap(
-          key,
-          signerBoundary.version,
-          failed
-        ))
-      ) {
+      if (!(await this.compareAndSwapSignerCompletion(signerBoundary, failed))) {
         return this.completeSignerFailureAfterLostCas(
           signerBoundary,
           selectedPreparer,
@@ -1892,13 +2382,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         undefined,
         "malformed-signed-envelope"
       )
-      if (
-        !(await this.store.compareAndSwap(
-          key,
-          signerBoundary.version,
-          failed
-        ))
-      ) {
+      if (!(await this.compareAndSwapSignerCompletion(signerBoundary, failed))) {
         return this.completeSignerFailureAfterLostCas(
           signerBoundary,
           selectedPreparer,
@@ -1929,15 +2413,14 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         escaped,
         classifyReservationMismatch(reservation, escaped)
       )
-      if (
-        !(await this.store.compareAndSwap(key, signerBoundary.version, failed))
-      ) {
+      if (!(await this.compareAndSwapSignerCompletion(signerBoundary, failed))) {
         return this.captureEscapedArtifactAfterLostCas(
           signerBoundary,
           escaped,
           `Invalid initial signed envelope returned after a concurrent outbox transition: ${errorMessage(
             error
-          )}`
+          )}`,
+          requireLatestSignerQuarantine(failed)
         )
       }
       return this.requireRecord(key)
@@ -1956,15 +2439,15 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       ],
       preparationLease: undefined,
       activeSignerInvocationStartedAtUnixMs: undefined,
+      signerInvocationStartedAtUnixMs:
+        signerBoundary.signerInvocationStartedAtUnixMs ?? signerBoundaryTime,
       updatedAtUnixMs: requireUnixMilliseconds(
         this.now(),
         "Challenge outbox prepared time"
       ),
       lastError: undefined,
     })
-    if (
-      !(await this.store.compareAndSwap(key, signerBoundary.version, persisted))
-    ) {
+    if (!(await this.compareAndSwapSignerCompletion(signerBoundary, persisted))) {
       // The signer boundary remains durable and retains the sender lane even
       // if the prepared bytes could not be committed.
       return this.captureEscapedArtifactAfterLostCas(
@@ -2140,6 +2623,40 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       return this.requireRecord(key)
     }
 
+    const signerAuthorizationBinding =
+      this.buildIrreversibleBoundaryBinding(
+        signerBoundary,
+        "replacement",
+        signerBoundary.preparationAttempts
+      )
+    let signerAuthorization: P2TRSignatureFraudIrreversibleBoundaryAuthorization
+    try {
+      signerAuthorization =
+        await this.irreversibleBoundaryAuthorizer.authorizeP2TRSignatureFraudIrreversibleBoundary(
+          signerAuthorizationBinding
+        )
+    } catch (error) {
+      return this.completeUninvokedSignerBoundary(
+        signerBoundary,
+        `Replacement signer authorization failed: ${errorMessage(error)}`
+      )
+    }
+    try {
+      this.irreversibleBoundaryAuthorizer.assertAndConsumeP2TRSignatureFraudIrreversibleBoundaryAuthorization(
+        signerAuthorization,
+        signerAuthorizationBinding,
+        requireUnixMilliseconds(
+          this.now(),
+          "Replacement signer authorization consumption time"
+        )
+      )
+    } catch (error) {
+      return this.completeUninvokedSignerBoundary(
+        signerBoundary,
+        `Replacement signer authorization was rejected: ${errorMessage(error)}`
+      )
+    }
+
     let replacement: P2TRSignatureFraudPreparedChallengeTransaction
     let escaped: P2TRSignatureFraudPreparedChallengeTransaction | undefined
     let candidate: P2TRSignatureFraudPreparedChallengeTransaction
@@ -2152,10 +2669,6 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
           selectedFeePolicy
         )
     } catch (error) {
-      await this.saveSignedStateQuarantineAlert(
-        signerBoundary,
-        errorMessage(error)
-      )
       const failed = this.signerFailureRecord(
         signerBoundary,
         selectedPreparer,
@@ -2164,13 +2677,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         undefined,
         "ambiguous-signer-invocation"
       )
-      if (
-        !(await this.store.compareAndSwap(
-          key,
-          signerBoundary.version,
-          failed
-        ))
-      ) {
+      if (!(await this.compareAndSwapSignerCompletion(signerBoundary, failed))) {
         return this.completeSignerFailureAfterLostCas(
           signerBoundary,
           selectedPreparer,
@@ -2186,10 +2693,6 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         candidate
       )
     } catch (error) {
-      await this.saveSignedStateQuarantineAlert(
-        signerBoundary,
-        errorMessage(error)
-      )
       const failed = this.signerFailureRecord(
         signerBoundary,
         selectedPreparer,
@@ -2198,13 +2701,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         undefined,
         "malformed-signed-envelope"
       )
-      if (
-        !(await this.store.compareAndSwap(
-          key,
-          signerBoundary.version,
-          failed
-        ))
-      ) {
+      if (!(await this.compareAndSwapSignerCompletion(signerBoundary, failed))) {
         return this.completeSignerFailureAfterLostCas(
           signerBoundary,
           selectedPreparer,
@@ -2250,10 +2747,6 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         )
       }
     } catch (error) {
-      await this.saveSignedStateQuarantineAlert(
-        signerBoundary,
-        errorMessage(error)
-      )
       const failed = this.signerFailureRecord(
         signerBoundary,
         selectedPreparer,
@@ -2266,15 +2759,14 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
           escaped
         )
       )
-      if (
-        !(await this.store.compareAndSwap(key, signerBoundary.version, failed))
-      ) {
+      if (!(await this.compareAndSwapSignerCompletion(signerBoundary, failed))) {
         return this.captureEscapedArtifactAfterLostCas(
           signerBoundary,
           escaped,
           `Invalid replacement signed envelope returned after a concurrent outbox transition: ${errorMessage(
             error
-          )}`
+          )}`,
+          requireLatestSignerQuarantine(failed)
         )
       }
       return this.requireRecord(key)
@@ -2295,15 +2787,15 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       preparationLease: undefined,
       preparationResumeStatus: undefined,
       activeSignerInvocationStartedAtUnixMs: undefined,
+      signerInvocationStartedAtUnixMs:
+        signerBoundary.signerInvocationStartedAtUnixMs ?? signerBoundaryTime,
       updatedAtUnixMs: requireUnixMilliseconds(
         this.now(),
         "Challenge outbox replacement prepared time"
       ),
       lastError: undefined,
     })
-    if (
-      !(await this.store.compareAndSwap(key, signerBoundary.version, persisted))
-    ) {
+    if (!(await this.compareAndSwapSignerCompletion(signerBoundary, persisted))) {
       return this.captureEscapedArtifactAfterLostCas(
         signerBoundary,
         replacement,
@@ -2475,6 +2967,27 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     }
 
     try {
+      const broadcastAuthorizationBinding =
+        this.buildIrreversibleBoundaryBinding(
+          attempted,
+          "broadcast",
+          attempted.broadcastAttempts,
+          preparedTransaction.transactionHash
+        )
+      const broadcastAuthorization =
+        await this.irreversibleBoundaryAuthorizer.authorizeP2TRSignatureFraudIrreversibleBoundary(
+          broadcastAuthorizationBinding
+        )
+      // This synchronous one-use check is intentionally the final operation
+      // before invoking the broadcaster with the exact persisted bytes.
+      this.irreversibleBoundaryAuthorizer.assertAndConsumeP2TRSignatureFraudIrreversibleBoundaryAuthorization(
+        broadcastAuthorization,
+        broadcastAuthorizationBinding,
+        requireUnixMilliseconds(
+          this.now(),
+          "Broadcast authorization consumption time"
+        )
+      )
       // A canonical rollback can win immediately after this durable send
       // boundary and before the provider call. No process-local check can
       // eliminate that external race. The store therefore treats an active
@@ -2732,6 +3245,14 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     const signerWasInvoked =
       current.activeSignerInvocationStartedAtUnixMs !== undefined
     const resumeStatus = current.preparationResumeStatus
+
+    // The marker is established before asynchronous boundary authorization.
+    // Lease expiry cannot prove that another replica's authorization or signer
+    // call stopped. Only an independently attested provider outcome may clear
+    // the global signer-I/O barrier, so startup stays deliberately activation-
+    // blocked on this record until the store's out-of-band orphaned-boundary
+    // resolver (`resolveOrphanedSignerBoundary`) supplies that evidence.
+    if (signerWasInvoked) return current
 
     // A crash can occur after the non-signing allocator durably reserves a
     // nonce but before this record stores the returned binding. Reservation
@@ -3709,14 +4230,23 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     ].includes(current.status)
     return nextRecord(current, {
       status:
-        durableTerminal || current.provenanceInvalidationEvidence !== undefined
+        durableTerminal
           ? current.status
+          : current.provenanceInvalidationEvidence !== undefined
+          ? signerInvoked
+            ? "provenance-invalidated-awaiting-reconciliation"
+            : current.status
           : signerInvoked && retainedStatus === undefined
           ? "quarantined"
           : retainedStatus ?? "queued",
       preparationLease: undefined,
       preparationResumeStatus: undefined,
       activeSignerInvocationStartedAtUnixMs: undefined,
+      signerInvocationStartedAtUnixMs: signerInvoked
+        ? current.signerInvocationStartedAtUnixMs ??
+          current.activeSignerInvocationStartedAtUnixMs ??
+          nowUnixMs
+        : current.signerInvocationStartedAtUnixMs,
       preparationSender:
         signerInvoked || hasPriorVariant
           ? current.preparationSender
@@ -3754,6 +4284,237 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       updatedAtUnixMs: nowUnixMs,
       lastError: normalizedReason,
     })
+  }
+
+  private buildIrreversibleBoundaryBinding(
+    record: P2TRSignatureFraudChallengeOutboxRecord,
+    stage: P2TRSignatureFraudIrreversibleBoundaryStage,
+    attempt: number,
+    preparedTransactionHash?: Hex | Buffer | string
+  ): P2TRSignatureFraudIrreversibleBoundaryBinding {
+    if (record.reservedNonce === undefined) {
+      throw new Error(
+        "Irreversible challenge boundary lacks its durable nonce reservation"
+      )
+    }
+    if (
+      (stage === "broadcast") !== (preparedTransactionHash !== undefined)
+    ) {
+      throw new Error(
+        "Only a challenge broadcast boundary may name prepared transaction bytes"
+      )
+    }
+    return {
+      recordID: normalizeBytes32(record.recordID, "Boundary record ID"),
+      generation: requireBoundedNonNegativeSafeInteger(
+        record.generation,
+        P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_GENERATIONS - 1,
+        "Boundary record generation"
+      ),
+      recordVersion: requireNonNegativeSafeInteger(
+        record.version,
+        "Boundary record version"
+      ),
+      reservationID: normalizeBytes32(
+        record.reservedNonce.reservationID,
+        "Boundary reservation ID"
+      ),
+      sender: normalizeAddress(
+        record.reservedNonce.sender,
+        "Boundary reserved sender"
+      ),
+      transactionNonce: requireNonNegativeSafeInteger(
+        record.reservedNonce.nonce,
+        "Boundary transaction nonce"
+      ),
+      stage,
+      attempt: requirePositiveSafeInteger(attempt, "Boundary attempt"),
+      provenanceFingerprint: normalizeBytes32(
+        record.canonicalProvenance.provenanceFingerprint,
+        "Boundary provenance fingerprint"
+      ),
+      activationManifestHash: normalizeBytes32(
+        record.feePolicyManifest.activationManifestHash,
+        "Boundary activation manifest hash"
+      ),
+      preparedTransactionHash:
+        preparedTransactionHash === undefined
+          ? undefined
+          : normalizeBytes32(
+              preparedTransactionHash,
+              "Boundary prepared transaction hash"
+            ),
+    }
+  }
+
+  private signerBoundaryIdentity(
+    record: P2TRSignatureFraudChallengeOutboxRecord
+  ): string {
+    if (
+      record.activeSignerInvocationStartedAtUnixMs === undefined ||
+      record.reservedNonce === undefined
+    ) {
+      throw new Error("Active signer boundary identity is incomplete")
+    }
+    return [
+      normalizeBytes32(record.recordID, "Active signer record ID"),
+      requirePositiveSafeInteger(
+        record.preparationAttempts,
+        "Active signer preparation attempt"
+      ),
+      normalizeBytes32(
+        record.reservedNonce.reservationID,
+        "Active signer reservation ID"
+      ),
+      requireUnixMilliseconds(
+        record.activeSignerInvocationStartedAtUnixMs,
+        "Active signer invocation time"
+      ),
+    ].join(":")
+  }
+
+  /**
+   * Clears the exact durable pre-I/O marker when authorization failed before
+   * the signer function was called. Concurrent canonical invalidation may
+   * change status, but it must not turn a known-uninvoked signer into an
+   * ambiguous external call.
+   */
+  private async completeUninvokedSignerBoundary(
+    signerBoundary: P2TRSignatureFraudChallengeOutboxRecord,
+    reason: string
+  ): Promise<P2TRSignatureFraudChallengeOutboxRecord> {
+    const expectedBoundary =
+      signerBoundary.activeSignerInvocationStartedAtUnixMs
+    const expectedReservation = signerBoundary.reservedNonce
+    if (expectedBoundary === undefined || expectedReservation === undefined) {
+      throw new Error(
+        "Uninvoked signer completion lacks its durable boundary binding"
+      )
+    }
+    const normalizedReason = requireReason(
+      reason,
+      "Signer authorization failure reason"
+    )
+    for (let retry = 0; retry < 8; retry++) {
+      const durable = await this.requireRecord(signerBoundary.recordID)
+      if (durable.activeSignerInvocationStartedAtUnixMs === undefined) {
+        return durable
+      }
+      if (
+        durable.activeSignerInvocationStartedAtUnixMs !== expectedBoundary ||
+        durable.preparationAttempts !== signerBoundary.preparationAttempts ||
+        durable.reservedNonce === undefined ||
+        normalizeBytes32(
+          durable.reservedNonce.reservationID,
+          "Durable uninvoked signer reservation ID"
+        ) !==
+          normalizeBytes32(
+            expectedReservation.reservationID,
+            "Expected uninvoked signer reservation ID"
+          )
+      ) {
+        throw new Error(
+          "Uninvoked signer completion no longer owns the durable boundary"
+        )
+      }
+      const resumeStatus = durable.preparationResumeStatus
+      const hasPriorSignedState =
+        durable.signerInvocationStartedAtUnixMs !== undefined ||
+        (durable.preparedTransactionVariants?.length ?? 0) > 0 ||
+        (durable.unexpectedSignedArtifacts?.length ?? 0) > 0 ||
+        durable.broadcastAttempts > 0
+      const provenanceWasInvalidated =
+        durable.provenanceInvalidationEvidence !== undefined
+      const restoreResumeStatus =
+        durable.status === "preparing" &&
+        resumeStatus !== undefined &&
+        !provenanceWasInvalidated
+      const completed = nextRecord(durable, {
+        status:
+          provenanceWasInvalidated && hasPriorSignedState
+            ? "provenance-invalidated-awaiting-reconciliation"
+            : restoreResumeStatus
+            ? resumeStatus
+            : durable.status,
+        preparationLease:
+          provenanceWasInvalidated && hasPriorSignedState
+            ? undefined
+            : restoreResumeStatus
+            ? undefined
+            : durable.preparationLease,
+        preparationResumeStatus:
+          provenanceWasInvalidated && hasPriorSignedState
+            ? undefined
+            : restoreResumeStatus
+            ? undefined
+            : durable.preparationResumeStatus,
+        activeSignerInvocationStartedAtUnixMs: undefined,
+        updatedAtUnixMs: requireUnixMilliseconds(
+          this.now(),
+          "Signer authorization failure completion time"
+        ),
+        lastError: normalizedReason,
+      })
+      // A boundary that is provably uninvoked may retire the activation-
+      // blocking incident invalidation raised over it, in the SAME transaction
+      // as the barrier-clearing swap. Invalidation had to raise that incident
+      // because the boundary marker is durable before authorization, so at
+      // that instant "stuck in authorization" and "signer call outstanding"
+      // are indistinguishable. This path is the only witness that resolves the
+      // ambiguity, and it is already trusted to clear the signer barrier.
+      const retirableBoundary =
+        provenanceWasInvalidated &&
+        !hasPriorSignedState &&
+        durable.reservedNonce !== undefined &&
+        durable.activeSignerInvocationStartedAtUnixMs !== undefined
+          ? {
+              startedAtUnixMs: durable.activeSignerInvocationStartedAtUnixMs,
+              preparationAttempts: durable.preparationAttempts,
+              nonceReservationID:
+                durable.reservedNonce.reservationID.toString(),
+            }
+          : undefined
+      let persisted = false
+      try {
+        persisted =
+          retirableBoundary === undefined
+            ? await this.store.compareAndSwap(
+                durable.recordID,
+                durable.version,
+                completed
+              )
+            : await this.store.compareAndSwapRetiringUninvokedSignerBoundary(
+                durable.recordID,
+                durable.version,
+                completed,
+                retirableBoundary,
+                requireUnixMilliseconds(
+                  this.now(),
+                  "Uninvoked signer boundary retirement time"
+                )
+              )
+      } catch {
+        // A transactional failure is indistinguishable from a lost CAS until
+        // the durable row is reloaded. Retry the exact boundary completion.
+      }
+      if (persisted) return this.requireRecord(durable.recordID)
+    }
+    throw new Error("Uninvoked signer completion did not converge")
+  }
+
+  private async compareAndSwapSignerCompletion(
+    signerBoundary: P2TRSignatureFraudChallengeOutboxRecord,
+    next: P2TRSignatureFraudChallengeOutboxRecord
+  ): Promise<boolean> {
+    try {
+      return await this.store.compareAndSwap(
+        signerBoundary.recordID,
+        signerBoundary.version,
+        next
+      )
+    } catch {
+      return false
+    }
   }
 
   /**
@@ -3805,13 +4566,18 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         undefined,
         reasonCode
       )
-      if (
-        await this.store.compareAndSwap(
+      let persisted = false
+      try {
+        persisted = await this.store.compareAndSwap(
           durable.recordID,
           durable.version,
           failed
         )
-      ) {
+      } catch {
+        // Reload and retry the exact active signer invocation. The durable
+        // marker remains fail-closed while the completion is uncertain.
+      }
+      if (persisted) {
         return this.requireRecord(durable.recordID)
       }
     }
@@ -3902,7 +4668,8 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
   private async captureEscapedArtifactAfterLostCas(
     signerBoundary: P2TRSignatureFraudChallengeOutboxRecord,
     preparedTransaction: P2TRSignatureFraudPreparedChallengeTransaction,
-    reason: string
+    reason: string,
+    signerQuarantine?: P2TRSignatureFraudSignerQuarantine
   ): Promise<P2TRSignatureFraudChallengeOutboxRecord> {
     if (signerBoundary.reservedNonce === undefined) {
       throw new Error(
@@ -3922,7 +4689,8 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
           signerBoundary.reservedNonce.reservationID.toPrefixedString(),
         capturedAtUnixMs,
         reason: requireReason(reason, "Escaped signed artifact reason"),
-      }
+      },
+      signerQuarantine
     )
   }
 
@@ -7623,6 +8391,17 @@ const classifyReplacementSignerFailure = (
     return reservationMismatch
   }
   return "invalid-replacement-envelope"
+}
+
+const requireLatestSignerQuarantine = (
+  record: P2TRSignatureFraudChallengeOutboxRecord
+): P2TRSignatureFraudSignerQuarantine => {
+  const quarantines = record.signerQuarantines ?? []
+  const quarantine = quarantines[quarantines.length - 1]
+  if (quarantine === undefined) {
+    throw new Error("Signer failure lacks its derived quarantine evidence")
+  }
+  return quarantine
 }
 
 const appendUnexpectedSignedArtifact = (

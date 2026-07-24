@@ -493,8 +493,9 @@ CREATE TABLE p2tr_signature_fraud_challenge_outbox (
     CHECK (
         active_signer_invocation_started_at_unix_ms IS NULL
         OR (
-            signer_invocation_started_at_unix_ms IS NOT NULL
-            AND nonce_reservation_id IS NOT NULL
+            nonce_reservation_id IS NOT NULL
+            AND active_signer_invocation_started_at_unix_ms >=
+                nonce_reserved_at_unix_ms
         )
     ),
     CHECK (
@@ -1016,7 +1017,10 @@ CREATE TABLE p2tr_signature_fraud_challenge_nonce_release_request (
 CREATE TABLE p2tr_signature_fraud_challenge_nonce_release_attempt (
     release_request_id bytea NOT NULL REFERENCES p2tr_signature_fraud_challenge_nonce_release_request(release_request_id) ON DELETE RESTRICT,
     attempt_sequence integer NOT NULL CHECK (attempt_sequence BETWEEN 1 AND 1000000),
-    owner text NOT NULL CHECK (length(owner) BETWEEN 1 AND 128),
+    owner text NOT NULL CHECK (
+        length(owner) BETWEEN 1 AND 128
+        AND owner ~ '^[!-~]([ -~]{0,126}[!-~])?$'
+    ),
     started_at_unix_ms bigint NOT NULL CHECK (
         started_at_unix_ms BETWEEN 0 AND 9007199254740991
     ),
@@ -1034,7 +1038,10 @@ CREATE TABLE p2tr_signature_fraud_challenge_nonce_release_attempt (
 CREATE TABLE p2tr_signature_fraud_challenge_nonce_release_invocation (
     release_request_id bytea NOT NULL,
     attempt_sequence integer NOT NULL,
-    owner text NOT NULL CHECK (length(owner) BETWEEN 1 AND 128),
+    owner text NOT NULL CHECK (
+        length(owner) BETWEEN 1 AND 128
+        AND owner ~ '^[!-~]([ -~]{0,126}[!-~])?$'
+    ),
     invoked_at_unix_ms bigint NOT NULL CHECK (
         invoked_at_unix_ms BETWEEN 0 AND 9007199254740991
     ),
@@ -1103,7 +1110,10 @@ CREATE TABLE p2tr_signature_fraud_challenge_nonce_release_result (
 CREATE TABLE p2tr_signature_fraud_challenge_nonce_release_resolution (
     release_request_id bytea NOT NULL,
     attempt_sequence integer NOT NULL,
-    attempt_owner text NOT NULL CHECK (length(attempt_owner) BETWEEN 1 AND 128),
+    attempt_owner text NOT NULL CHECK (
+        length(attempt_owner) BETWEEN 1 AND 128
+        AND attempt_owner ~ '^[!-~]([ -~]{0,126}[!-~])?$'
+    ),
     attempt_started_at_unix_ms bigint NOT NULL CHECK (
         attempt_started_at_unix_ms BETWEEN 0 AND 9007199254740991
     ),
@@ -1589,6 +1599,275 @@ CREATE TABLE p2tr_signature_fraud_challenge_provenance_incident (
         ) ON DELETE RESTRICT
 );
 
+-- Retirement evidence for an incident raised over a boundary that provably
+-- never reached the signer.
+--
+-- An incident is raised the moment invalidation observes an active boundary,
+-- because `active_signer_invocation_started_at_unix_ms` is made durable BEFORE
+-- boundary authorization and therefore before any signer call: at that instant
+-- the store genuinely cannot distinguish "stuck in authorization" from "signer
+-- call outstanding". That ambiguity is resolvable only by the boundary's own
+-- owner, which is the single witness that authorization failed before any
+-- signer I/O. The same first-person observation is already trusted to clear the
+-- singleton signer barrier, so it is equally sufficient to retire the incident.
+--
+-- A lease timeout is NOT such evidence and can never produce a row here.
+CREATE TABLE p2tr_signature_fraud_challenge_provenance_incident_resolution (
+    incident_id bytea PRIMARY KEY
+        REFERENCES p2tr_signature_fraud_challenge_provenance_incident(incident_id)
+        ON DELETE RESTRICT,
+    record_id bytea NOT NULL,
+    provenance_invalidation_id bytea NOT NULL,
+    -- The exact boundary this resolution speaks for. Retiring an incident
+    -- raised over a different boundary must be impossible.
+    boundary_started_at_unix_ms bigint NOT NULL CHECK (
+        boundary_started_at_unix_ms BETWEEN 0 AND 9007199254740991
+    ),
+    preparation_attempts integer NOT NULL CHECK (preparation_attempts >= 0),
+    nonce_reservation_id bytea NOT NULL CHECK (
+        octet_length(nonce_reservation_id) = 32
+    ),
+    resolution_digest bytea NOT NULL CHECK (
+        octet_length(resolution_digest) = 32
+    ),
+    resolved_at_unix_ms bigint NOT NULL CHECK (
+        resolved_at_unix_ms BETWEEN 0 AND 9007199254740991
+    ),
+    FOREIGN KEY (record_id, provenance_invalidation_id)
+        REFERENCES p2tr_signature_fraud_challenge_provenance_invalidation(
+            record_id,
+            provenance_invalidation_id
+        ) ON DELETE RESTRICT
+);
+
+-- Defence in depth: even a buggy or malicious caller must not be able to retire
+-- an incident for a record that carries ANY escape evidence. This mirrors the
+-- `hasPriorSignedState` predicate in the TypeScript uninvoked-completion path,
+-- and is enforced against the durable row rather than the caller's claim.
+CREATE FUNCTION p2tr_signature_fraud_guard_provenance_incident_resolution()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    escaped boolean;
+BEGIN
+    SELECT
+        outbox.signer_invocation_started_at_unix_ms IS NOT NULL
+        OR outbox.prepared_transaction_hash IS NOT NULL
+        OR outbox.broadcast_attempts > 0
+        OR coalesce(
+               jsonb_array_length(
+                   outbox.record_state -> 'unexpectedSignedArtifacts'
+               ),
+               0
+           ) > 0
+      INTO escaped
+      FROM p2tr_signature_fraud_challenge_outbox outbox
+     WHERE outbox.record_id = NEW.record_id
+     FOR SHARE;
+
+    IF escaped IS NULL THEN
+        RAISE EXCEPTION
+            'provenance incident resolution names an absent outbox record';
+    END IF;
+    IF escaped THEN
+        RAISE EXCEPTION
+            'provenance incident resolution requires a boundary with no signer escape evidence';
+    END IF;
+    RETURN NEW;
+END
+$$;
+
+CREATE TRIGGER p2tr_signature_fraud_guard_provenance_incident_resolution_trigger
+BEFORE INSERT ON p2tr_signature_fraud_challenge_provenance_incident_resolution
+FOR EACH ROW
+EXECUTE FUNCTION p2tr_signature_fraud_guard_provenance_incident_resolution();
+
+-- Independently verified terminal evidence for one exact ORPHANED signer
+-- boundary: the durable pre-I/O marker whose owning process died before any
+-- signer result could be witnessed.
+--
+-- `active_signer_invocation_started_at_unix_ms` is committed BEFORE boundary
+-- authorization and therefore before the signer RPC, so a lost owner leaves the
+-- singleton `active_signer_invocation_count` at one. That blocks every
+-- nonce-release invocation store-wide and freezes challenge signing on every
+-- lane. Lease expiry is not evidence and can never produce a row here; only an
+-- out-of-band observation of what the signer actually did, carrying two
+-- attestations from distinct trust AND independence domains, may.
+--
+-- The two attestations are immutable once appended, exactly like the ambiguous
+-- nonce-release resolution this table mirrors.
+CREATE TABLE p2tr_signature_fraud_challenge_signer_boundary_resolution (
+    record_id bytea NOT NULL
+        REFERENCES p2tr_signature_fraud_challenge_outbox(record_id)
+        ON DELETE RESTRICT,
+    -- The exact boundary this resolution speaks for. Resolving a boundary the
+    -- durable row does not currently own must be impossible.
+    boundary_started_at_unix_ms bigint NOT NULL CHECK (
+        boundary_started_at_unix_ms BETWEEN 0 AND 9007199254740991
+    ),
+    preparation_attempts integer NOT NULL CHECK (preparation_attempts >= 0),
+    nonce_reservation_id bytea NOT NULL CHECK (
+        octet_length(nonce_reservation_id) = 32
+    ),
+    stage text NOT NULL CHECK (stage IN ('prepare', 'replacement')),
+    invoked_at_unix_ms bigint NOT NULL CHECK (
+        invoked_at_unix_ms BETWEEN boundary_started_at_unix_ms
+            AND 9007199254740991
+    ),
+    outcome text NOT NULL CHECK (outcome IN (
+        'never-invoked', 'signed', 'terminal-unsafe'
+    )),
+    signed_transaction_hash bytea CHECK (
+        signed_transaction_hash IS NULL
+        OR octet_length(signed_transaction_hash) = 32
+    ),
+    provider_evidence_digest bytea NOT NULL CHECK (
+        octet_length(provider_evidence_digest) = 32
+    ),
+    resolution_evidence_digest bytea NOT NULL CHECK (
+        octet_length(resolution_evidence_digest) = 32
+    ),
+    primary_trust_domain_id text NOT NULL CHECK (
+        length(primary_trust_domain_id) BETWEEN 1 AND 128
+    ),
+    primary_independence_domain_id text NOT NULL CHECK (
+        length(primary_independence_domain_id) BETWEEN 1 AND 128
+    ),
+    primary_evidence_digest bytea NOT NULL CHECK (
+        octet_length(primary_evidence_digest) = 32
+    ),
+    primary_attestation bytea NOT NULL CHECK (
+        octet_length(primary_attestation) BETWEEN 1 AND 2048
+    ),
+    primary_attested_at_unix_ms bigint NOT NULL CHECK (
+        primary_attested_at_unix_ms BETWEEN 0 AND 9007199254740991
+    ),
+    corroborating_trust_domain_id text NOT NULL CHECK (
+        length(corroborating_trust_domain_id) BETWEEN 1 AND 128
+    ),
+    corroborating_independence_domain_id text NOT NULL CHECK (
+        length(corroborating_independence_domain_id) BETWEEN 1 AND 128
+    ),
+    corroborating_evidence_digest bytea NOT NULL CHECK (
+        octet_length(corroborating_evidence_digest) = 32
+    ),
+    corroborating_attestation bytea NOT NULL CHECK (
+        octet_length(corroborating_attestation) BETWEEN 1 AND 2048
+    ),
+    corroborating_attested_at_unix_ms bigint NOT NULL CHECK (
+        corroborating_attested_at_unix_ms BETWEEN 0 AND 9007199254740991
+    ),
+    resolved_at_unix_ms bigint NOT NULL CHECK (
+        resolved_at_unix_ms BETWEEN invoked_at_unix_ms AND 9007199254740991
+    ),
+    PRIMARY KEY (
+        record_id,
+        boundary_started_at_unix_ms,
+        preparation_attempts,
+        nonce_reservation_id
+    ),
+    -- Signed bytes are named exactly when, and only when, the signer is proven
+    -- to have produced them.
+    CHECK ((outcome = 'signed') = (signed_transaction_hash IS NOT NULL)),
+    CHECK (primary_trust_domain_id <> corroborating_trust_domain_id),
+    CHECK (primary_evidence_digest = resolution_evidence_digest),
+    CHECK (corroborating_evidence_digest = resolution_evidence_digest),
+    CHECK (
+        primary_independence_domain_id <>
+            corroborating_independence_domain_id
+    ),
+    CHECK (primary_attestation <> corroborating_attestation)
+);
+
+-- Defence in depth, mirroring
+-- `p2tr_signature_fraud_guard_provenance_incident_resolution`: even a buggy or
+-- malicious caller must not be able to retire a boundary it does not currently
+-- own, forge the evidence digest, or claim `never-invoked` for a record that
+-- carries ANY escape evidence. Every predicate is evaluated against the durable
+-- row rather than the caller's claim.
+CREATE FUNCTION p2tr_signature_fraud_guard_signer_boundary_resolution()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    outbox_record p2tr_signature_fraud_challenge_outbox%ROWTYPE;
+    escaped boolean;
+BEGIN
+    SELECT * INTO outbox_record
+      FROM p2tr_signature_fraud_challenge_outbox
+     WHERE record_id = NEW.record_id
+     FOR SHARE;
+
+    IF outbox_record.record_id IS NULL THEN
+        RAISE EXCEPTION
+            'orphaned signer boundary resolution names an absent outbox record';
+    END IF;
+
+    IF outbox_record.active_signer_invocation_started_at_unix_ms
+           IS DISTINCT FROM NEW.boundary_started_at_unix_ms
+       OR outbox_record.preparation_attempts <> NEW.preparation_attempts
+       OR outbox_record.nonce_reservation_id
+           IS DISTINCT FROM NEW.nonce_reservation_id THEN
+        RAISE EXCEPTION
+            'orphaned signer boundary resolution does not name the durable boundary';
+    END IF;
+
+    IF NEW.resolution_evidence_digest <> sha256(
+           convert_to(
+               'tbtc-p2tr-signer-boundary-independent-resolution-v1',
+               'UTF8'
+           )
+           || NEW.record_id
+           || int8send(NEW.boundary_started_at_unix_ms)
+           || int8send(NEW.preparation_attempts::bigint)
+           || NEW.nonce_reservation_id
+           || sha256(convert_to(NEW.stage, 'UTF8'))
+           || int8send(NEW.invoked_at_unix_ms)
+           || sha256(convert_to(NEW.outcome, 'UTF8'))
+           || COALESCE(
+                  NEW.signed_transaction_hash,
+                  decode(repeat('00', 32), 'hex')
+              )
+           || NEW.provider_evidence_digest
+       ) THEN
+        RAISE EXCEPTION
+            'orphaned signer boundary resolution digest is invalid';
+    END IF;
+
+    IF NEW.primary_attested_at_unix_ms < NEW.invoked_at_unix_ms
+       OR NEW.corroborating_attested_at_unix_ms < NEW.invoked_at_unix_ms
+       OR NEW.primary_attested_at_unix_ms > NEW.resolved_at_unix_ms
+       OR NEW.corroborating_attested_at_unix_ms > NEW.resolved_at_unix_ms THEN
+        RAISE EXCEPTION
+            'orphaned signer boundary attestations fall outside the invocation window';
+    END IF;
+
+    IF NEW.outcome = 'never-invoked' THEN
+        escaped :=
+            outbox_record.signer_invocation_started_at_unix_ms IS NOT NULL
+            OR outbox_record.prepared_transaction_hash IS NOT NULL
+            OR outbox_record.broadcast_attempts > 0
+            OR coalesce(
+                   jsonb_array_length(
+                       outbox_record.record_state -> 'unexpectedSignedArtifacts'
+                   ),
+                   0
+               ) > 0;
+        IF escaped THEN
+            RAISE EXCEPTION
+                'orphaned signer boundary resolution requires a boundary with no signer escape evidence';
+        END IF;
+    END IF;
+    RETURN NEW;
+END
+$$;
+
+CREATE TRIGGER p2tr_signature_fraud_guard_signer_boundary_resolution_trigger
+BEFORE INSERT ON p2tr_signature_fraud_challenge_signer_boundary_resolution
+FOR EACH ROW
+EXECUTE FUNCTION p2tr_signature_fraud_guard_signer_boundary_resolution();
+
 -- The lane can be released only after exact, finalized nonce-disposition
 -- evidence has two independent attestations. Failed dispositions are also the
 -- only nonce-related parents allowed to create a fresh generation.
@@ -2058,6 +2337,7 @@ CREATE TABLE p2tr_signature_fraud_challenge_critical_alert (
         'escaped-signed-envelope-captured',
         'reservation-release-failed',
         'nonce-release-terminal-unsafe',
+        'signer-boundary-terminal-unsafe',
         'reservation-state-ambiguous',
         'nonce-reservation-cap-exhausted',
         'provenance-reconciliation-incident'
@@ -2267,6 +2547,15 @@ BEGIN
        ) THEN
         RAISE EXCEPTION 'terminal unsafe release alert requires independently attested evidence';
     END IF;
+    IF NEW.code = 'signer-boundary-terminal-unsafe'
+       AND NOT EXISTS (
+           SELECT 1
+             FROM p2tr_signature_fraud_challenge_signer_boundary_resolution sb
+            WHERE sb.record_id = NEW.record_id
+              AND sb.outcome = 'terminal-unsafe'
+       ) THEN
+        RAISE EXCEPTION 'terminal unsafe signer-boundary alert requires independently attested evidence';
+    END IF;
     IF NEW.code = 'reservation-state-ambiguous'
        AND NOT EXISTS (
            SELECT 1
@@ -2453,9 +2742,20 @@ BEGIN
        OR outbox_record.reserved_nonce <> NEW.transaction_nonce
        OR outbox_record.signer_lane_id <> NEW.signer_lane_id
        OR outbox_record.signer_identity <> NEW.signer_identity
-       OR outbox_record.signer_invocation_started_at_unix_ms IS NULL
-       OR NEW.captured_at_unix_ms <
-            outbox_record.signer_invocation_started_at_unix_ms THEN
+       OR (
+            outbox_record.signer_invocation_started_at_unix_ms IS NULL
+            AND outbox_record.active_signer_invocation_started_at_unix_ms IS NULL
+       )
+       OR (
+            outbox_record.signer_invocation_started_at_unix_ms IS NOT NULL
+            AND NEW.captured_at_unix_ms <
+                outbox_record.signer_invocation_started_at_unix_ms
+       )
+       OR (
+            outbox_record.active_signer_invocation_started_at_unix_ms IS NOT NULL
+            AND NEW.captured_at_unix_ms <
+                outbox_record.active_signer_invocation_started_at_unix_ms
+       ) THEN
         RAISE EXCEPTION 'late signed artifact does not match its durable signer boundary';
     END IF;
 
@@ -3070,10 +3370,22 @@ BEGIN
 
     IF NOT FOUND
        OR outbox_record.nonce_reservation_id IS NULL
-       OR outbox_record.signer_invocation_started_at_unix_ms IS NULL
+       OR (
+            outbox_record.signer_invocation_started_at_unix_ms IS NULL
+            AND outbox_record.active_signer_invocation_started_at_unix_ms IS NULL
+       )
        OR NEW.sender <> outbox_record.reserved_sender
            OR NEW.transaction_nonce <> outbox_record.reserved_nonce
-           OR NEW.signed_at_unix_ms < outbox_record.signer_invocation_started_at_unix_ms
+           OR (
+               outbox_record.signer_invocation_started_at_unix_ms IS NOT NULL
+               AND NEW.signed_at_unix_ms <
+                   outbox_record.signer_invocation_started_at_unix_ms
+           )
+           OR (
+               outbox_record.active_signer_invocation_started_at_unix_ms IS NOT NULL
+               AND NEW.signed_at_unix_ms <
+                   outbox_record.active_signer_invocation_started_at_unix_ms
+           )
            OR NEW.signed_at_unix_ms < outbox_record.nonce_reserved_at_unix_ms THEN
         RAISE EXCEPTION 'signed variant does not match the durable bound nonce reservation';
     END IF;
@@ -4142,6 +4454,7 @@ BEGIN
     WHERE record_id = OLD.record_id
       AND status IN ('queued', 'preparing')
       AND signer_invocation_started_at_unix_ms IS NULL
+      AND active_signer_invocation_started_at_unix_ms IS NULL
       AND prepared_transaction_hash IS NULL
       AND broadcast_attempts = 0
       AND (
@@ -4228,6 +4541,16 @@ FOR EACH ROW EXECUTE FUNCTION p2tr_signature_fraud_reject_append_only_mutation()
 
 CREATE TRIGGER p2tr_signature_fraud_reject_provenance_incident_mutation_trigger
 BEFORE UPDATE OR DELETE ON p2tr_signature_fraud_challenge_provenance_incident
+FOR EACH ROW EXECUTE FUNCTION p2tr_signature_fraud_reject_append_only_mutation();
+
+CREATE TRIGGER p2tr_signature_fraud_reject_incident_resolution_mutation_trigger
+BEFORE UPDATE OR DELETE
+ON p2tr_signature_fraud_challenge_provenance_incident_resolution
+FOR EACH ROW EXECUTE FUNCTION p2tr_signature_fraud_reject_append_only_mutation();
+
+CREATE TRIGGER p2tr_signature_fraud_reject_signer_boundary_resolution_mutation_trigger
+BEFORE UPDATE OR DELETE
+ON p2tr_signature_fraud_challenge_signer_boundary_resolution
 FOR EACH ROW EXECUTE FUNCTION p2tr_signature_fraud_reject_append_only_mutation();
 
 CREATE TRIGGER p2tr_signature_fraud_reject_disposition_mutation_trigger
@@ -4376,6 +4699,7 @@ BEGIN
             WHEN o.prepared_transaction_hash IS NOT NULL
                 THEN 'manifest-rotation-signed-state'
             WHEN o.signer_invocation_started_at_unix_ms IS NOT NULL
+              OR o.active_signer_invocation_started_at_unix_ms IS NOT NULL
                 THEN 'signer-boundary-active'
             ELSE 'reservation-intent-in-flight'
         END,
@@ -4389,18 +4713,38 @@ BEGIN
         ON pi.record_id = o.record_id
        AND pi.invalidation_source = 'manifest-rotation'
      WHERE o.activation_manifest_hash = OLD.manifest_hash
+       -- This is the exact predicate the adapter's canonical-rollback
+       -- invalidation applies: escaped OR active preparation in flight OR
+       -- terminal preserves an activation-blocking incident, and only a
+       -- genuinely inactive unsigned preparation is excluded. An
+       -- active-initial boundary stays 'preparing' below, but the worker that
+       -- observes the signer RPC return moves it to
+       -- 'provenance-invalidated-awaiting-reconciliation', and the status
+       -- trigger rejects that transition without this incident.
        AND (
-           o.selected_signer_lane_id IS NOT NULL
-           OR o.nonce_reservation_id IS NOT NULL
-           OR o.signer_invocation_started_at_unix_ms IS NOT NULL
-           OR o.prepared_transaction_hash IS NOT NULL
-           OR o.broadcast_attempts > 0
-           OR o.status IN (
+           -- terminal
+           o.status IN (
                'accepted-own',
                'satisfied-external',
                'terminal-reverted',
                'terminal-nonce-consumed',
                'generation-required'
+           )
+           -- escaped
+           OR o.signer_invocation_started_at_unix_ms IS NOT NULL
+           OR o.prepared_transaction_hash IS NOT NULL
+           OR o.broadcast_attempts > 0
+           OR coalesce(
+                  jsonb_array_length(
+                      o.record_state -> 'unexpectedSignedArtifacts'
+                  ),
+                  0
+              ) > 0
+           -- active preparation in flight
+           OR (
+               o.status = 'preparing'
+               AND o.preparation_lease_owner IS NOT NULL
+               AND o.active_signer_invocation_started_at_unix_ms IS NOT NULL
            )
        );
 
@@ -4440,11 +4784,16 @@ BEGIN
                    'terminal-nonce-consumed',
                    'generation-required'
                ) THEN o.status
-               WHEN o.selected_signer_lane_id IS NOT NULL
-                    AND o.nonce_reservation_id IS NULL
-                    AND o.signer_invocation_started_at_unix_ms IS NULL
-                    AND o.prepared_transaction_hash IS NULL
-                    AND o.broadcast_attempts = 0
+               WHEN o.status = 'preparing'
+                    AND o.selected_signer_lane_id IS NOT NULL
+                    AND (
+                        o.active_signer_invocation_started_at_unix_ms IS NOT NULL
+                        OR (
+                            o.signer_invocation_started_at_unix_ms IS NULL
+                            AND o.prepared_transaction_hash IS NULL
+                            AND o.broadcast_attempts = 0
+                        )
+                    )
                    THEN 'preparing'
                WHEN o.nonce_reservation_id IS NOT NULL
                     OR o.signer_invocation_started_at_unix_ms IS NOT NULL
@@ -4454,30 +4803,42 @@ BEGIN
                ELSE 'cancelled-provenance-invalidated'
            END,
            preparation_lease_owner = CASE
-               WHEN o.selected_signer_lane_id IS NOT NULL
-                    AND o.nonce_reservation_id IS NULL
-                    AND o.signer_invocation_started_at_unix_ms IS NULL
+               WHEN o.status = 'preparing'
+                    AND o.selected_signer_lane_id IS NOT NULL
+                    AND (
+                        o.active_signer_invocation_started_at_unix_ms IS NOT NULL
+                        OR o.signer_invocation_started_at_unix_ms IS NULL
+                    )
                    THEN o.preparation_lease_owner
                ELSE NULL
            END,
            preparation_lease_expires_at_unix_ms = CASE
-               WHEN o.selected_signer_lane_id IS NOT NULL
-                    AND o.nonce_reservation_id IS NULL
-                    AND o.signer_invocation_started_at_unix_ms IS NULL
+               WHEN o.status = 'preparing'
+                    AND o.selected_signer_lane_id IS NOT NULL
+                    AND (
+                        o.active_signer_invocation_started_at_unix_ms IS NOT NULL
+                        OR o.signer_invocation_started_at_unix_ms IS NULL
+                    )
                    THEN o.preparation_lease_expires_at_unix_ms
                ELSE NULL
            END,
            preparation_resume_status = CASE
-               WHEN o.selected_signer_lane_id IS NOT NULL
-                    AND o.nonce_reservation_id IS NULL
-                    AND o.signer_invocation_started_at_unix_ms IS NULL
+               WHEN o.status = 'preparing'
+                    AND o.selected_signer_lane_id IS NOT NULL
+                    AND (
+                        o.active_signer_invocation_started_at_unix_ms IS NOT NULL
+                        OR o.signer_invocation_started_at_unix_ms IS NULL
+                    )
                    THEN o.preparation_resume_status
                ELSE NULL
            END,
            selected_signer_lane_id = CASE
-               WHEN o.selected_signer_lane_id IS NOT NULL
-                    AND o.nonce_reservation_id IS NULL
-                    AND o.signer_invocation_started_at_unix_ms IS NULL
+               WHEN o.status = 'preparing'
+                    AND o.selected_signer_lane_id IS NOT NULL
+                    AND (
+                        o.active_signer_invocation_started_at_unix_ms IS NOT NULL
+                        OR o.signer_invocation_started_at_unix_ms IS NULL
+                    )
                    THEN o.selected_signer_lane_id
                WHEN o.nonce_reservation_id IS NULL
                     AND o.signer_invocation_started_at_unix_ms IS NULL
@@ -4485,9 +4846,12 @@ BEGIN
                ELSE o.selected_signer_lane_id
            END,
            selected_signer_identity = CASE
-               WHEN o.selected_signer_lane_id IS NOT NULL
-                    AND o.nonce_reservation_id IS NULL
-                    AND o.signer_invocation_started_at_unix_ms IS NULL
+               WHEN o.status = 'preparing'
+                    AND o.selected_signer_lane_id IS NOT NULL
+                    AND (
+                        o.active_signer_invocation_started_at_unix_ms IS NOT NULL
+                        OR o.signer_invocation_started_at_unix_ms IS NULL
+                    )
                    THEN o.selected_signer_identity
                WHEN o.nonce_reservation_id IS NULL
                     AND o.signer_invocation_started_at_unix_ms IS NULL
@@ -4495,9 +4859,12 @@ BEGIN
                ELSE o.selected_signer_identity
            END,
            selected_sender = CASE
-               WHEN o.selected_signer_lane_id IS NOT NULL
-                    AND o.nonce_reservation_id IS NULL
-                    AND o.signer_invocation_started_at_unix_ms IS NULL
+               WHEN o.status = 'preparing'
+                    AND o.selected_signer_lane_id IS NOT NULL
+                    AND (
+                        o.active_signer_invocation_started_at_unix_ms IS NOT NULL
+                        OR o.signer_invocation_started_at_unix_ms IS NULL
+                    )
                    THEN o.selected_sender
                WHEN o.nonce_reservation_id IS NULL
                     AND o.signer_invocation_started_at_unix_ms IS NULL
@@ -4516,9 +4883,12 @@ BEGIN
                    jsonb_set(
                        jsonb_set(
                            CASE
-                               WHEN o.selected_signer_lane_id IS NOT NULL
-                                    AND o.nonce_reservation_id IS NULL
-                                    AND o.signer_invocation_started_at_unix_ms IS NULL
+                               WHEN o.status = 'preparing'
+                                    AND o.selected_signer_lane_id IS NOT NULL
+                                    AND (
+                                        o.active_signer_invocation_started_at_unix_ms IS NOT NULL
+                                        OR o.signer_invocation_started_at_unix_ms IS NULL
+                                    )
                                    THEN o.record_state
                                ELSE o.record_state - 'preparationResumeStatus'
                            END,
@@ -4531,11 +4901,16 @@ BEGIN
                                    'terminal-nonce-consumed',
                                    'generation-required'
                                ) THEN o.status
-                               WHEN o.selected_signer_lane_id IS NOT NULL
-                                    AND o.nonce_reservation_id IS NULL
-                                    AND o.signer_invocation_started_at_unix_ms IS NULL
-                                    AND o.prepared_transaction_hash IS NULL
-                                    AND o.broadcast_attempts = 0
+                               WHEN o.status = 'preparing'
+                                    AND o.selected_signer_lane_id IS NOT NULL
+                                    AND (
+                                        o.active_signer_invocation_started_at_unix_ms IS NOT NULL
+                                        OR (
+                                            o.signer_invocation_started_at_unix_ms IS NULL
+                                            AND o.prepared_transaction_hash IS NULL
+                                            AND o.broadcast_attempts = 0
+                                        )
+                                    )
                                    THEN 'preparing'
                                WHEN o.nonce_reservation_id IS NOT NULL
                                     OR o.signer_invocation_started_at_unix_ms IS NOT NULL
