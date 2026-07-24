@@ -9,6 +9,13 @@ const migrationURL = new URL(
 )
 const migrationSource = readFileSync(migrationURL, "utf8")
 const migration = migrationSource.replace(/\s+/g, " ")
+const activationHandshakeSource = readFileSync(
+  new URL(
+    "../src/PostgresP2TRSignatureFraudOutboxActivationHandshake.ts",
+    import.meta.url
+  ),
+  "utf8"
+)
 
 test("leaves transaction ownership to the ordered migration runner", () => {
   const orderedMigrations = readdirSync(migrationsURL)
@@ -267,6 +274,10 @@ test("requires a durable bound nonce guard before signer invocation", () => {
   )
   assert.match(
     migration,
+    /active_signer_invocation_started_at_unix_ms IS NULL OR \( nonce_reservation_id IS NOT NULL AND active_signer_invocation_started_at_unix_ms >= nonce_reserved_at_unix_ms \)/
+  )
+  assert.match(
+    migration,
     /P2TR challenge nonce was not durably bound before use/
   )
   assert.match(
@@ -349,6 +360,10 @@ test("stores immutable generation-scoped same-nonce EIP-1559 variants", () => {
   assert.match(
     migration,
     /NEW\.sender <> previous_variant\.sender OR NEW\.transaction_nonce <> previous_variant\.transaction_nonce/
+  )
+  assert.match(
+    migration,
+    /outbox_record\.active_signer_invocation_started_at_unix_ms IS NOT NULL AND NEW\.signed_at_unix_ms < outbox_record\.active_signer_invocation_started_at_unix_ms/
   )
   assert.match(
     migration,
@@ -593,6 +608,51 @@ test("serializes nonce-release and signer I/O through a durable barrier", () => 
   )
 })
 
+test("resolves an orphaned signer boundary only on dual-attested evidence", () => {
+  assert.match(
+    migration,
+    /CREATE TABLE p2tr_signature_fraud_challenge_signer_boundary_resolution/
+  )
+  assert.match(
+    migration,
+    /tbtc-p2tr-signer-boundary-independent-resolution-v1/
+  )
+  // The boundary tuple is the row identity, so evidence can never speak for a
+  // boundary other than the one it names.
+  assert.match(
+    migration,
+    /PRIMARY KEY \( record_id, boundary_started_at_unix_ms, preparation_attempts, nonce_reservation_id \)/
+  )
+  assert.match(
+    migration,
+    /CHECK \(\(outcome = 'signed'\) = \(signed_transaction_hash IS NOT NULL\)\)/
+  )
+  assert.match(
+    migration,
+    /CHECK \(primary_trust_domain_id <> corroborating_trust_domain_id\), CHECK \(primary_evidence_digest = resolution_evidence_digest\)/
+  )
+  assert.match(
+    migration,
+    /orphaned signer boundary resolution does not name the durable boundary/
+  )
+  assert.match(
+    migration,
+    /orphaned signer boundary resolution requires a boundary with no signer escape evidence/
+  )
+  assert.match(
+    migration,
+    /p2tr_signature_fraud_guard_signer_boundary_resolution_trigger BEFORE INSERT/
+  )
+  assert.match(
+    migration,
+    /p2tr_signature_fraud_reject_signer_boundary_resolution_mutation_trigger BEFORE UPDATE OR DELETE/
+  )
+  assert.match(
+    migration,
+    /terminal unsafe signer-boundary alert requires independently attested evidence/
+  )
+})
+
 test("rotates manifests and outbox provenance in one database trigger", () => {
   assert.match(
     migration,
@@ -615,6 +675,28 @@ test("rotates manifests and outbox provenance in one database trigger", () => {
     migration,
     /CREATE TABLE p2tr_signature_fraud_challenge_outbox_state_history/
   )
+  assert.match(
+    migration,
+    /o\.active_signer_invocation_started_at_unix_ms IS NOT NULL OR \( o\.signer_invocation_started_at_unix_ms IS NULL AND o\.prepared_transaction_hash IS NULL AND o\.broadcast_attempts = 0 \)/
+  )
+  // The rotation incident predicate must stay the adapter's exact
+  // escaped/active-preparation/terminal preserve set. A row that keeps an
+  // active signer boundary is later moved into
+  // provenance-invalidated-awaiting-reconciliation, and the status trigger
+  // rejects that transition without an activation-blocking incident.
+  assert.match(
+    migration,
+    /OR \( o\.status = 'preparing' AND o\.preparation_lease_owner IS NOT NULL AND o\.active_signer_invocation_started_at_unix_ms IS NOT NULL \) \);/
+  )
+  assert.doesNotMatch(
+    migration,
+    /AND NOT \( o\.status = 'preparing' AND o\.signer_invocation_started_at_unix_ms IS NULL AND o\.prepared_transaction_hash IS NULL AND o\.broadcast_attempts = 0 \)/
+  )
+})
+
+test("attests security-critical view definitions in the schema hash", () => {
+  assert.match(activationHandshakeSource, /pg_get_viewdef\(r\.oid, true\)/)
+  assert.match(activationHandshakeSource, /'view-definition'/)
 })
 
 test("protects serialized generation identity alongside normalized columns", () => {

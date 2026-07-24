@@ -545,12 +545,27 @@ export const P2TR_SIGNATURE_FRAUD_COMPLETE_V2_CHALLENGE_EVIDENCE_ABI_TYPE =
   "tuple(bytes32 walletID,bytes32 signingKey,bytes32 bindingTxHash,uint32 bindingOutputIndex,bytes32 sighash,bytes32 nonceX,bytes32 signatureScalar)"
 
 /**
+ * Canonical registry material required to build COMPLETE_V2 evidence.
+ *
+ * These two fields are deliberately NOT derivable from the observation: the
+ * observation is attacker-influenced witness data, while the wallet registry
+ * snapshot and the exact-outpoint deposit bindings are authoritative Bridge
+ * state. Requiring them at the call boundary is what stops the builder from
+ * validating an observation against itself.
+ */
+export type P2TRCompleteV2ChallengeEvidenceCanonicalContext = Pick<
+  P2TRSignatureFraudWitnessObservationConsistencyContext,
+  "registeredWalletIDs" | "walletInputKeyBindings"
+>
+
+/**
  * A fixed-size COMPLETE_V2 challenge derived for one exact Bitcoin input.
  *
  * The discriminants deliberately make this structurally incompatible with a
  * legacy witness observation or BOUNDED_V1 payload. Construction is exposed
  * only through `buildP2TRCompleteV2SignatureFraudChallengeEvidence`, which
- * reconstructs every field from the authenticated input occurrence.
+ * reconstructs every field from the authenticated input occurrence and checks
+ * it against the caller's canonical registry snapshot.
  */
 export type P2TRCompleteV2SignatureFraudChallengeEvidence = {
   readonly protocol: typeof P2TR_SIGNATURE_FRAUD_COMPLETE_V2_PROTOCOL
@@ -789,9 +804,12 @@ export const computeP2TRCompleteV2SignatureFraudChallengeIdentity = (
  */
 export const buildP2TRCompleteV2SignatureFraudChallengeEvidence = (
   observation: P2TRSignatureFraudWitnessObservation,
-  domain: P2TRSignatureFraudBridgeChallengeDomain
+  domain: P2TRSignatureFraudBridgeChallengeDomain,
+  canonical: P2TRCompleteV2ChallengeEvidenceCanonicalContext
 ): P2TRCompleteV2SignatureFraudChallengeEvidence => {
   validateP2TRSignatureFraudWitnessObservationConsistency(observation, {
+    registeredWalletIDs: canonical.registeredWalletIDs,
+    walletInputKeyBindings: canonical.walletInputKeyBindings,
     bridgeChallengeDomain:
       observation.bridgeChallengeKey === undefined ? undefined : domain,
   })
