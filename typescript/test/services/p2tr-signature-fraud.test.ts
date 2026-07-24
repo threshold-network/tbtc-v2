@@ -1881,7 +1881,11 @@ describe("P2TR signature-fraud witness parsing", () => {
       const walletEvidence =
         buildP2TRCompleteV2SignatureFraudChallengeEvidence(
           walletObservation,
-          completeV2ReferenceDomain
+          completeV2ReferenceDomain,
+          {
+            registeredWalletIDs: [vector.walletIDHex],
+            walletInputKeyBindings: [],
+          }
         )
       const walletPayload = expectedCompleteV2Payload({
         walletID: vector.walletIDHex,
@@ -1949,7 +1953,18 @@ describe("P2TR signature-fraud witness parsing", () => {
       const tweakedEvidence =
         buildP2TRCompleteV2SignatureFraudChallengeEvidence(
           tweakedObservation,
-          completeV2ReferenceDomain
+          completeV2ReferenceDomain,
+          {
+            registeredWalletIDs: [tweakedWalletID],
+            walletInputKeyBindings: [
+              {
+                txid: signedPrevout.txid,
+                vout: signedPrevout.vout,
+                outputKey: signingKey,
+                walletID: tweakedWalletID,
+              },
+            ],
+          }
         )
       const tweakedPayload = expectedCompleteV2Payload({
         walletID: tweakedWalletID,
@@ -1999,7 +2014,8 @@ describe("P2TR signature-fraud witness parsing", () => {
     )
     const evidence = buildP2TRCompleteV2SignatureFraudChallengeEvidence(
       observation,
-      completeV2ReferenceDomain
+      completeV2ReferenceDomain,
+      { registeredWalletIDs: [vector.walletIDHex], walletInputKeyBindings: [] }
     )
     expect(evidence.protocol).to.equal(P2TR_SIGNATURE_FRAUD_COMPLETE_V2_PROTOCOL)
     expect(evidence.evidenceProtocolID.toPrefixedString()).to.equal(
@@ -2035,7 +2051,11 @@ describe("P2TR signature-fraud witness parsing", () => {
     const completeEvidence =
       buildP2TRCompleteV2SignatureFraudChallengeEvidence(
         observation,
-        bridgeChallengeDomain
+        bridgeChallengeDomain,
+        {
+          registeredWalletIDs: [vector.walletIDHex],
+          walletInputKeyBindings: [],
+        }
       )
     const intent = buildP2TRSignatureFraudSubmissionIntent(completeEvidence, {
       domainChainID: bridgeChallengeDomain.chainID,
@@ -2131,7 +2151,11 @@ describe("P2TR signature-fraud witness parsing", () => {
     const intent = buildP2TRSignatureFraudSubmissionIntent(
       buildP2TRCompleteV2SignatureFraudChallengeEvidence(
         observation,
-        bridgeChallengeDomain
+        bridgeChallengeDomain,
+        {
+          registeredWalletIDs: [vector.walletIDHex],
+          walletInputKeyBindings: [],
+        }
       ),
       {
         domainChainID: bridgeChallengeDomain.chainID,
@@ -2221,7 +2245,11 @@ describe("P2TR signature-fraud witness parsing", () => {
     const intent = buildP2TRSignatureFraudSubmissionIntent(
       buildP2TRCompleteV2SignatureFraudChallengeEvidence(
         observation,
-        bridgeChallengeDomain
+        bridgeChallengeDomain,
+        {
+          registeredWalletIDs: [vector.walletIDHex],
+          walletInputKeyBindings: [],
+        }
       ),
       {
         domainChainID: bridgeChallengeDomain.chainID,
@@ -2381,7 +2409,11 @@ describe("P2TR signature-fraud witness parsing", () => {
     const intent = buildP2TRSignatureFraudSubmissionIntent(
       buildP2TRCompleteV2SignatureFraudChallengeEvidence(
         observation,
-        bridgeChallengeDomain
+        bridgeChallengeDomain,
+        {
+          registeredWalletIDs: [vector.walletIDHex],
+          walletInputKeyBindings: [],
+        }
       ),
       {
         domainChainID: bridgeChallengeDomain.chainID,
