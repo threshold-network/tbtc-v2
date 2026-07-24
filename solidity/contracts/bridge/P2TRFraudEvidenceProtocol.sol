@@ -86,17 +86,25 @@ library P2TRFraudEvidenceProtocol {
     error P2TRFraudEvidenceUnavailable();
 
     /// @notice Requires an exact COMPLETE_V2 handshake bound to the expected
-    ///         Bridge address.
+    ///         Bridge address, checking wiring and policy only.
     /// @dev Absent, reverting, malformed, wrong-Bridge, and bounded routers all
     ///      fail closed with the same error. Exact 32-byte ABI words are
     ///      required so fallback data cannot accidentally satisfy the check.
-    function requireCompleteRouter(
+    ///
+    ///      This deliberately excludes the router/registry accounting counters.
+    ///      Those are monotonic once custody is live, so they are a valid
+    ///      freshness gate when INSTALLING a router but are not an invariant
+    ///      any later call can satisfy. Hot paths must use this function; only
+    ///      the one-time installer may use `requireCompleteRouter`.
+    /// @return registry The authorization registry bound to `router`.
+    function requireCompleteRouterWiring(
         address router,
         address expectedBridge,
         address expectedFrostRegistry
     )
         internal
         view
+        returns (address registry)
     {
         if (router == address(0)) {
             revert P2TRFraudEvidenceUnavailable();
@@ -134,7 +142,7 @@ library P2TRFraudEvidenceProtocol {
             revert P2TRFraudEvidenceUnavailable();
         }
 
-        address registry = _readAddress(
+        registry = _readAddress(
             router,
             IP2TRFraudEvidenceProtocol.authorizationRegistry.selector
         );
@@ -177,7 +185,36 @@ library P2TRFraudEvidenceProtocol {
                 IP2TRFraudAuthorizationRegistryHandshake
                     .signingPolicyHash
                     .selector
-            ) != SIGNING_POLICY_V1 ||
+            ) != SIGNING_POLICY_V1
+        ) {
+            revert P2TRFraudEvidenceUnavailable();
+        }
+    }
+
+    /// @notice Requires an exact COMPLETE_V2 handshake AND a router whose
+    ///         accounting is still pristine.
+    /// @dev Install-time only. `activeReservationSetVersion` and
+    ///      `authorizedChallengeIdentityCount` are strictly monotonic and are
+    ///      never reset, and `activeReservationCount`,
+    ///      `openFraudChallengeCount`, `totalChallengeEscrow` and
+    ///      `totalWithdrawablePayouts` are non-zero during entirely normal
+    ///      operation. Calling this on a hot path would therefore revert
+    ///      permanently after the first pre-signing ceremony. Use
+    ///      `requireCompleteRouterWiring` there instead.
+    function requireCompleteRouter(
+        address router,
+        address expectedBridge,
+        address expectedFrostRegistry
+    )
+        internal
+        view
+    {
+        address registry = requireCompleteRouterWiring(
+            router,
+            expectedBridge,
+            expectedFrostRegistry
+        );
+        if (
             _readUint256(
                 router,
                 IP2TRFraudEvidenceProtocol.openFraudChallengeCount.selector

@@ -522,6 +522,14 @@ library Wallets {
     ///      malformed implementations to one fail-closed custom error. Exact
     ///      32-byte ABI words are required so a fallback cannot accidentally
     ///      satisfy the handshake with trailing or truncated data.
+    ///
+    ///      This checks wiring and policy only. The router/registry accounting
+    ///      counters are NOT checked here: `authorizedChallengeIdentityCount`
+    ///      and `activeReservationSetVersion` are strictly monotonic and never
+    ///      reset, so requiring them to be zero on this path would permanently
+    ///      revert every wallet creation after the first pre-signing ceremony.
+    ///      Pristine accounting stays a precondition of INSTALLING the router
+    ///      (see `P2TRReservation._setCompleteP2TRFraudRouter`).
     function requireCompleteP2TRFraudEvidence(BridgeState.Storage storage self)
         internal
         view
@@ -533,7 +541,7 @@ library Wallets {
         ) {
             revert P2TRFraudEvidenceProtocol.P2TRFraudEvidenceUnavailable();
         }
-        P2TRFraudEvidenceProtocol.requireCompleteRouter(
+        P2TRFraudEvidenceProtocol.requireCompleteRouterWiring(
             self.p2trFraudRouter,
             address(this),
             self.frostWalletRegistry
