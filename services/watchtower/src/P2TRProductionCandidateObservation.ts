@@ -5,9 +5,9 @@ import {
   type P2TRWalletInputKeyBinding,
   type P2TRWalletInputObservationPrevout,
 } from "@keep-network/tbtc-v2.ts"
-import type {
-  P2TRCompleteCandidateInputProvenance,
-} from "./P2TRCompleteCandidateIdentity.js"
+import type { P2TRCompleteCandidateInputProvenance } from "./P2TRCompleteCandidateIdentity.js"
+import { computeP2TRCompleteAuthorizationDomainDigest } from "./P2TRCompleteCandidateIdentity.js"
+import { calculateP2TRCanonicalOccurrenceID } from "./P2TRCanonicalOccurrenceIdentity.js"
 
 export type P2TRProductionCandidateObservationIdentity = {
   txid: string
@@ -173,18 +173,36 @@ export function resolveP2TRProductionCanonicalObservation(
     )
   }
   const observation = observations[0]
-  const observationID = bytes32(
-    observation.observationID.toString(),
-    "derived observation ID"
-  )
   const challengeKey = bytes32(
     observation.bridgeChallengeKey?.toString() ?? "",
     "derived Bridge challenge key"
   )
+  // The SDK's `observationID` is an alias of the Bridge challenge key, so it is
+  // a challenge-SERIES identity and is deliberately not unique: two canonical
+  // inputs can legitimately carry the same one. The occurrence identity is
+  // therefore recomputed here from the COMPLETE domain, the locked provenance
+  // generation and fingerprint, and the exact canonical coordinates, so every
+  // input/provenance occurrence stays independently addressable and a stale
+  // acknowledgement can never settle a reorg replacement.
+  const occurrenceID = calculateP2TRCanonicalOccurrenceID({
+    domainDigest: computeP2TRCompleteAuthorizationDomainDigest({
+      domainChainID: positiveInteger(
+        bridgeDomain.chainID,
+        "Bridge chain ID"
+      ).toString(10),
+      bridgeAddress: address(bridgeDomain.bridgeAddress, "Bridge address"),
+    }),
+    provenanceGeneration: candidate.provenanceGeneration,
+    blockHash: identity.blockHash,
+    txid: identity.txid,
+    wtxid: identity.wtxid,
+    inputIndex: identity.inputIndex,
+    provenanceFingerprint: candidate.provenanceFingerprint,
+    challengeIdentity: challengeKey,
+  })
   if (
-    observationID !== identity.observationID ||
+    occurrenceID !== identity.observationID ||
     challengeKey !== identity.challengeKey ||
-    observationID !== challengeKey ||
     bytes32(observation.walletID.toString(), "derived wallet ID") !==
       inputProvenance.walletID ||
     normalizeHex(
@@ -285,10 +303,7 @@ function normalizeInputProvenance(
     bindingKind: value.bindingKind,
     walletID: bytes32(value.walletID, "provenance wallet ID"),
     outputKey: bytes32(value.outputKey, "provenance output key"),
-    sourceEventID: bytes32(
-      value.sourceEventID,
-      "provenance source event ID"
-    ),
+    sourceEventID: bytes32(value.sourceEventID, "provenance source event ID"),
     ethereumBlockNumber: nonNegativeInteger(
       value.ethereumBlockNumber,
       "provenance Ethereum block"
