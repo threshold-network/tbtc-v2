@@ -14,6 +14,7 @@ import {
   P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_VOIDED_RESERVATIONS,
   P2TRSignatureFraudCanonicalProvenanceBinding,
   P2TRSignatureFraudCanonicalProvenanceInvalidationEvidence,
+  P2TRSignatureFraudIndependentSignerBoundaryResolution,
   P2TRSignatureFraudChallengeOutboxEligibilitySnapshot,
   P2TRSignatureFraudChallengeOutboxPage,
   P2TRSignatureFraudChallengeOutboxPageRequest,
@@ -37,6 +38,8 @@ import {
   computeP2TRSignatureFraudNonceReleaseRequestID,
   computeP2TRSignatureFraudNonceReleaseResolutionEvidenceDigest,
   computeP2TRSignatureFraudResolutionEvidenceDigest,
+  assertP2TRSignatureFraudOrphanedSignerBoundaryOwnership,
+  validateP2TRSignatureFraudIndependentSignerBoundaryResolution,
 } from "./P2TRSignatureFraudChallengeOutbox.js"
 import type { P2TRPostgresOutboxTransactionSession } from "./PostgresP2TRSignatureFraudOutboxActivationHandshake.js"
 import type { P2TRSignatureFraudWatchtowerTransactionCoordinator } from "./types.js"
@@ -508,6 +511,136 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
     }
   }
 
+  async getActiveAmbiguousNonceReleaseInvocation(
+    nowUnixMs: number
+  ): Promise<P2TRSignatureFraudAmbiguousNonceReleaseInvocation | undefined> {
+    if (!this.inTransaction()) {
+      return this.runInTransaction(() =>
+        this.getActiveAmbiguousNonceReleaseInvocation(nowUnixMs)
+      )
+    }
+    this.assertSession()
+    const now = unixMilliseconds(
+      nowUnixMs,
+      "Ambiguous nonce-release recovery time"
+    )
+    const result = await this.options.session.query<{
+      active_release_request_id: Buffer | null
+      active_release_attempt_sequence: string | number | null
+      active_release_expires_at_unix_ms: string | number | null
+      owner: string | null
+      started_at_unix_ms: string | number | null
+      expires_at_unix_ms: string | number | null
+      invoked_at_unix_ms: string | number | null
+      result_kind: string | null
+      response_digest: Buffer | null
+      resolution_outcome: string | null
+    }>(
+      `SELECT b.active_release_request_id,
+              b.active_release_attempt_sequence,
+              b.active_release_expires_at_unix_ms,
+              a.owner, a.started_at_unix_ms, a.expires_at_unix_ms,
+              i.invoked_at_unix_ms, x.result_kind, x.response_digest,
+              rx.outcome AS resolution_outcome
+         FROM p2tr_signature_fraud_nonce_allocator_safety_barrier b
+         LEFT JOIN p2tr_signature_fraud_challenge_nonce_release_attempt a
+           ON a.release_request_id = b.active_release_request_id
+          AND a.attempt_sequence = b.active_release_attempt_sequence
+         LEFT JOIN p2tr_signature_fraud_challenge_nonce_release_invocation i
+           ON i.release_request_id = a.release_request_id
+          AND i.attempt_sequence = a.attempt_sequence
+         LEFT JOIN p2tr_signature_fraud_challenge_nonce_release_result x
+           ON x.release_request_id = a.release_request_id
+          AND x.attempt_sequence = a.attempt_sequence
+         LEFT JOIN p2tr_signature_fraud_challenge_nonce_release_resolution rx
+           ON rx.release_request_id = a.release_request_id
+          AND rx.attempt_sequence = a.attempt_sequence
+        WHERE b.singleton = true
+        FOR UPDATE OF b`
+    )
+    if (result.rows.length !== 1) {
+      throw new Error("Nonce allocator safety barrier is absent or duplicated")
+    }
+    const row = result.rows[0]
+    if (row.active_release_request_id === null) {
+      if (
+        row.active_release_attempt_sequence !== null ||
+        row.active_release_expires_at_unix_ms !== null
+      ) {
+        throw new Error("Nonce allocator safety barrier is internally inconsistent")
+      }
+      return undefined
+    }
+    if (
+      row.active_release_attempt_sequence === null ||
+      row.active_release_expires_at_unix_ms === null ||
+      row.owner === null ||
+      row.started_at_unix_ms === null ||
+      row.expires_at_unix_ms === null ||
+      row.invoked_at_unix_ms === null ||
+      row.resolution_outcome !== null ||
+      (row.result_kind !== null && row.result_kind !== "ambiguous-error")
+    ) {
+      throw new Error(
+        "Active nonce-release barrier cannot hydrate its exact ambiguous invocation"
+      )
+    }
+    const releaseRequestID = prefixedHex(row.active_release_request_id)
+    const attemptSequence = databaseSafeInteger(
+      row.active_release_attempt_sequence,
+      "Active nonce-release attempt sequence"
+    )
+    const startedAtUnixMs = databaseSafeInteger(
+      row.started_at_unix_ms,
+      "Active nonce-release attempt start"
+    )
+    const expiresAtUnixMs = databaseSafeInteger(
+      row.expires_at_unix_ms,
+      "Active nonce-release attempt expiration"
+    )
+    const barrierExpiresAtUnixMs = databaseSafeInteger(
+      row.active_release_expires_at_unix_ms,
+      "Active nonce-release barrier expiration"
+    )
+    const invokedAtUnixMs = databaseSafeInteger(
+      row.invoked_at_unix_ms,
+      "Active nonce-release invocation time"
+    )
+    if (
+      barrierExpiresAtUnixMs !== expiresAtUnixMs ||
+      expiresAtUnixMs <= startedAtUnixMs ||
+      invokedAtUnixMs < startedAtUnixMs ||
+      invokedAtUnixMs > expiresAtUnixMs ||
+      (row.result_kind === "ambiguous-error" && row.response_digest === null)
+    ) {
+      throw new Error("Active nonce-release invocation is internally inconsistent")
+    }
+    if (row.result_kind === null && expiresAtUnixMs > now) return undefined
+    const request = await this.getNonceReleaseRequest(releaseRequestID)
+    if (request === undefined) {
+      throw new Error("Active nonce-release invocation lacks its durable request")
+    }
+    return {
+      request,
+      attempt: {
+        releaseRequestID,
+        attemptSequence,
+        owner: requireCanonicalOwner(
+          row.owner,
+          "Active nonce-release attempt owner",
+          128
+        ),
+        startedAtUnixMs,
+        expiresAtUnixMs,
+      },
+      invokedAtUnixMs,
+      ambiguousResponseDigest:
+        row.response_digest === null
+          ? undefined
+          : prefixedHex(row.response_digest),
+    }
+  }
+
   async claimNonceReleaseAttempt(
     releaseRequestID: string,
     owner: string,
@@ -525,6 +658,11 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
       )
     }
     this.assertSession()
+    const normalizedOwner = requireCanonicalOwner(
+      owner,
+      "Nonce-release attempt owner",
+      128
+    )
     const releaseID = stripHex(
       bytes32(releaseRequestID, "Claimed nonce-release request ID")
     )
@@ -604,7 +742,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
       if (
         latest.result_kind === null &&
         !latest.invoked &&
-        latest.owner === owner
+        latest.owner === normalizedOwner
       ) {
         return {
           releaseRequestID: bytes32(
@@ -615,7 +753,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
             latest.attempt_sequence,
             "Reclaimed nonce-release attempt sequence"
           ),
-          owner,
+          owner: normalizedOwner,
           startedAtUnixMs: databaseSafeInteger(
             latest.started_at_unix_ms!,
             "Reclaimed nonce-release attempt start"
@@ -644,7 +782,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
       [
         releaseID,
         attemptSequence,
-        requireText(owner, "Nonce-release attempt owner", 128),
+        normalizedOwner,
         started,
         expires,
       ]
@@ -656,7 +794,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         "Claimed nonce-release request ID"
       ),
       attemptSequence,
-      owner,
+      owner: normalizedOwner,
       startedAtUnixMs: started,
       expiresAtUnixMs: expires,
     }
@@ -672,6 +810,11 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
       )
     }
     this.assertSession()
+    const attemptOwner = requireCanonicalOwner(
+      attempt.owner,
+      "Nonce-release invocation owner",
+      128
+    )
     const releaseID = stripHex(
       bytes32(attempt.releaseRequestID, "Invoked nonce-release request ID")
     )
@@ -691,7 +834,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
           attempt.attemptSequence,
           "Invoked nonce-release attempt sequence"
         ),
-        requireText(attempt.owner, "Nonce-release invocation owner", 128),
+        attemptOwner,
         invokedAt,
       ]
     )
@@ -708,6 +851,11 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
       )
     }
     this.assertSession()
+    const attemptOwner = requireCanonicalOwner(
+      attempt.owner,
+      "Nonce-release result owner",
+      128
+    )
     const releaseID = stripHex(
       bytes32(attempt.releaseRequestID, "Completed nonce-release request ID")
     )
@@ -759,7 +907,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
     }
     const state = attemptState.rows[0]
     if (
-      state.owner !== attempt.owner ||
+      state.owner !== attemptOwner ||
       databaseSafeInteger(
         state.started_at_unix_ms,
         "Persisted nonce-release attempt start"
@@ -1022,7 +1170,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
       resolution.attemptSequence,
       "Resolved nonce-release attempt sequence"
     )
-    const attemptOwner = requireText(
+    const attemptOwner = requireCanonicalOwner(
       resolution.attemptOwner,
       "Resolved nonce-release attempt owner",
       128
@@ -1308,6 +1456,169 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
     return "acknowledged"
   }
 
+  /**
+   * Resolves one exact ORPHANED signer boundary: the durable pre-I/O marker
+   * left behind when the owning process died between the boundary CAS and any
+   * observable signer result.
+   *
+   * The marker is committed before boundary authorization and therefore before
+   * the signer RPC, so nothing inside the process-local recovery path may clear
+   * it — `recoverExpiredPreparation` deliberately refuses, because a lease
+   * timeout is not proof that a remote call stopped. Meanwhile the marker holds
+   * the singleton `active_signer_invocation_count` at one, which blocks every
+   * nonce-release invocation store-wide and freezes challenge signing on every
+   * lane. Only out-of-band, dual-attested evidence of what the signer actually
+   * did can break that, and every effect below lands in one transaction.
+   */
+  async resolveOrphanedSignerBoundary(
+    resolution: P2TRSignatureFraudIndependentSignerBoundaryResolution
+  ): Promise<"acknowledged" | "unsafe"> {
+    if (!this.inTransaction()) {
+      return this.runInTransaction(() =>
+        this.resolveOrphanedSignerBoundary(resolution)
+      )
+    }
+    this.assertSession()
+    const normalized =
+      validateP2TRSignatureFraudIndependentSignerBoundaryResolution(resolution)
+    const currentRow = await this.lockRecord(normalized.recordID)
+    if (currentRow === undefined) {
+      throw new Error(
+        "Orphaned signer boundary resolution names an absent outbox record"
+      )
+    }
+    const current = await this.hydrateRow(currentRow)
+    const existing = await this.options.session.query<{
+      outcome: "never-invoked" | "signed" | "terminal-unsafe"
+      resolution_evidence_digest: Buffer
+    }>(
+      `SELECT outcome, resolution_evidence_digest
+         FROM p2tr_signature_fraud_challenge_signer_boundary_resolution
+        WHERE record_id = decode($1, 'hex')
+          AND boundary_started_at_unix_ms = $2
+          AND preparation_attempts = $3
+          AND nonce_reservation_id = decode($4, 'hex')`,
+      [
+        stripHex(normalized.recordID),
+        normalized.boundaryStartedAtUnixMs,
+        normalized.preparationAttempts,
+        stripHex(normalized.nonceReservationID),
+      ]
+    )
+    if (existing.rows.length === 1) {
+      if (
+        existing.rows[0].outcome !== normalized.outcome ||
+        prefixedHex(existing.rows[0].resolution_evidence_digest) !==
+          normalized.evidenceDigest
+      ) {
+        throw new Error("Independent signer-boundary resolution conflicts")
+      }
+      return normalized.outcome === "terminal-unsafe"
+        ? "unsafe"
+        : "acknowledged"
+    }
+    assertP2TRSignatureFraudOrphanedSignerBoundaryOwnership(current, normalized)
+    const [primary, corroborating] = normalized.attestations
+    // Appended BEFORE the barrier-clearing swap so the guard trigger still sees
+    // the live boundary it must bind, and so a rejected swap can never leave
+    // evidence claiming a boundary was resolved.
+    await this.options.session.query(
+      `INSERT INTO p2tr_signature_fraud_challenge_signer_boundary_resolution (
+          record_id, boundary_started_at_unix_ms, preparation_attempts,
+          nonce_reservation_id, stage, invoked_at_unix_ms, outcome,
+          signed_transaction_hash, provider_evidence_digest,
+          resolution_evidence_digest, primary_trust_domain_id,
+          primary_independence_domain_id, primary_evidence_digest,
+          primary_attestation, primary_attested_at_unix_ms,
+          corroborating_trust_domain_id,
+          corroborating_independence_domain_id,
+          corroborating_evidence_digest, corroborating_attestation,
+          corroborating_attested_at_unix_ms, resolved_at_unix_ms
+       ) VALUES (
+          decode($1, 'hex'), $2, $3, decode($4, 'hex'), $5, $6, $7,
+          CASE WHEN $8::text IS NULL THEN NULL ELSE decode($8, 'hex') END,
+          decode($9, 'hex'), decode($10, 'hex'), $11, $12,
+          decode($10, 'hex'), decode($13, 'hex'), $14, $15, $16,
+          decode($10, 'hex'), decode($17, 'hex'), $18, $19
+       )`,
+      [
+        stripHex(normalized.recordID),
+        normalized.boundaryStartedAtUnixMs,
+        normalized.preparationAttempts,
+        stripHex(normalized.nonceReservationID),
+        normalized.stage,
+        normalized.invokedAtUnixMs,
+        normalized.outcome,
+        normalized.signedTransactionHash === undefined
+          ? null
+          : stripHex(normalized.signedTransactionHash),
+        stripHex(normalized.providerEvidenceDigest),
+        stripHex(normalized.evidenceDigest),
+        primary.trustDomainID,
+        primary.independenceDomainID,
+        stripHex(primary.attestation),
+        primary.attestedAtUnixMs,
+        corroborating.trustDomainID,
+        corroborating.independenceDomainID,
+        stripHex(corroborating.attestation),
+        corroborating.attestedAtUnixMs,
+        normalized.resolvedAtUnixMs,
+      ]
+    )
+    if (normalized.outcome === "never-invoked") {
+      // The same retirement path a first-person uninvoked completion uses: the
+      // swap that clears the marker and the retirement of the incidents raised
+      // over that exact boundary must land in one transaction.
+      const cleared: P2TRSignatureFraudChallengeOutboxRecord = {
+        ...current,
+        version: current.version + 1,
+        activeSignerInvocationStartedAtUnixMs: undefined,
+        updatedAtUnixMs: Math.max(
+          current.updatedAtUnixMs,
+          normalized.resolvedAtUnixMs
+        ),
+        lastError:
+          "Independent attestation proved the orphaned signer boundary never reached the signer",
+      }
+      if (
+        !(await this.compareAndSwapRetiringUninvokedSignerBoundary(
+          normalized.recordID,
+          current.version,
+          cleared,
+          {
+            startedAtUnixMs: normalized.boundaryStartedAtUnixMs,
+            preparationAttempts: normalized.preparationAttempts,
+            nonceReservationID: normalized.nonceReservationID,
+          },
+          normalized.resolvedAtUnixMs
+        ))
+      ) {
+        throw new Error(
+          "Orphaned signer boundary resolution lost its barrier-clearing swap"
+        )
+      }
+      return "acknowledged"
+    }
+    if (normalized.outcome === "terminal-unsafe") {
+      await this.saveCriticalAlert({
+        code: "signer-boundary-terminal-unsafe",
+        seriesID: current.seriesID,
+        recordID: current.recordID,
+        generation: current.generation,
+        activationBlocking: true,
+        createdAtUnixMs: normalized.resolvedAtUnixMs,
+        detail:
+          "Independent reconciliation proved a terminal unsafe orphaned signer boundary outcome",
+      })
+      return "unsafe"
+    }
+    // `signed`: the boundary is deliberately RETAINED. It is the only thing
+    // that still authorizes `captureEscapedSignedArtifact` to quarantine the
+    // escaped bytes against this exact reservation, and clearing it here would
+    // silently release a nonce whose signed envelope is loose.
+    return "acknowledged"
+  }
+
   async compareAndSwap(
     recordID: string,
     expectedVersion: number,
@@ -1320,6 +1631,134 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
     }
     this.assertSession()
     return this.compareAndSwapLocked(recordID, expectedVersion, next)
+  }
+
+  /**
+   * Compare-and-swap that additionally retires the activation-blocking
+   * incidents raised over one exact signer boundary that provably never
+   * reached the signer.
+   *
+   * The incident is raised the moment invalidation observes an active
+   * boundary, because the boundary marker is durable BEFORE authorization and
+   * therefore before any signer call — at that instant the store cannot tell
+   * "stuck in authorization" from "signer call outstanding". Only the
+   * boundary's owner witnesses authorization failing before signer I/O, and
+   * that same first-person observation is already trusted to clear the
+   * singleton signer barrier. Retirement is therefore performed in the SAME
+   * transaction as the barrier-clearing swap: never resolve-then-clear (which
+   * would unblock activation while the barrier is still live) and never
+   * clear-then-resolve (which strands a permanently blocking incident).
+   *
+   * Only boundary-shaped incident kinds are retired. Escape-shaped kinds are
+   * unreachable here and are additionally refused by the database trigger.
+   */
+  async compareAndSwapRetiringUninvokedSignerBoundary(
+    recordID: string,
+    expectedVersion: number,
+    next: P2TRSignatureFraudChallengeOutboxRecord,
+    boundary: {
+      startedAtUnixMs: number
+      preparationAttempts: number
+      nonceReservationID: string
+    },
+    resolvedAtUnixMs: number
+  ): Promise<boolean> {
+    if (!this.inTransaction()) {
+      return this.runInTransaction(() =>
+        this.compareAndSwapRetiringUninvokedSignerBoundary(
+          recordID,
+          expectedVersion,
+          next,
+          boundary,
+          resolvedAtUnixMs
+        )
+      )
+    }
+    this.assertSession()
+    const swapped = await this.compareAndSwapLocked(
+      recordID,
+      expectedVersion,
+      next
+    )
+    if (!swapped) return false
+    await this.retireUninvokedBoundaryIncidents(
+      recordID,
+      boundary,
+      resolvedAtUnixMs
+    )
+    return true
+  }
+
+  private async retireUninvokedBoundaryIncidents(
+    recordID: string,
+    boundary: {
+      startedAtUnixMs: number
+      preparationAttempts: number
+      nonceReservationID: string
+    },
+    resolvedAtUnixMs: number
+  ): Promise<void> {
+    const normalizedRecordID = bytes32(
+      recordID,
+      "Uninvoked boundary retirement record ID"
+    )
+    if (
+      !Number.isSafeInteger(boundary.preparationAttempts) ||
+      boundary.preparationAttempts < 0
+    ) {
+      throw new Error(
+        "Uninvoked boundary preparation attempts must be a non-negative integer"
+      )
+    }
+    const startedAtUnixMs = unixMilliseconds(
+      boundary.startedAtUnixMs,
+      "Uninvoked boundary start time"
+    )
+    // The reservation ID reaches this boundary either as a `Hex` rendered
+    // without its prefix or as an already-prefixed string, depending on
+    // whether the record has round-tripped through the durable JSON state.
+    const nonceReservationID = bytes32(
+      boundary.nonceReservationID.startsWith("0x")
+        ? boundary.nonceReservationID
+        : `0x${boundary.nonceReservationID}`,
+      "Uninvoked boundary nonce reservation ID"
+    )
+    const resolutionDigest = hashStructured({
+      domain: "tbtc-p2tr-signature-fraud-provenance-incident-resolution-v1",
+      recordID: normalizedRecordID,
+      boundaryStartedAtUnixMs: startedAtUnixMs,
+      preparationAttempts: boundary.preparationAttempts,
+      nonceReservationID,
+    })
+    await this.options.session.query(
+      `INSERT INTO p2tr_signature_fraud_challenge_provenance_incident_resolution (
+          incident_id, record_id, provenance_invalidation_id,
+          boundary_started_at_unix_ms, preparation_attempts,
+          nonce_reservation_id, resolution_digest, resolved_at_unix_ms
+       )
+       SELECT incident.incident_id,
+              incident.record_id,
+              incident.provenance_invalidation_id,
+              $2, $3, decode($4, 'hex'), decode($5, 'hex'), $6
+         FROM p2tr_signature_fraud_challenge_provenance_incident incident
+        WHERE incident.record_id = decode($1, 'hex')
+          AND incident.incident_kind IN (
+                'signer-boundary-active',
+                'reservation-intent-in-flight'
+              )
+       ON CONFLICT (incident_id) DO NOTHING`,
+      [
+        stripHex(normalizedRecordID),
+        startedAtUnixMs,
+        boundary.preparationAttempts,
+        stripHex(nonceReservationID),
+        stripHex(resolutionDigest),
+        unixMilliseconds(
+          resolvedAtUnixMs,
+          "Uninvoked boundary retirement time"
+        ),
+      ]
+    )
   }
 
   async compareAndSwapWithCurrentCanonicalProvenance(
@@ -1359,14 +1798,16 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
   async captureEscapedSignedArtifact(
     recordID: string,
     expectedProvenanceFingerprint: string,
-    artifact: P2TRSignatureFraudUnexpectedSignedArtifact
+    artifact: P2TRSignatureFraudUnexpectedSignedArtifact,
+    signerQuarantine?: P2TRSignatureFraudSignerQuarantine
   ): Promise<P2TRSignatureFraudChallengeOutboxRecord> {
     if (!this.inTransaction()) {
       return this.runInTransaction(() =>
         this.captureEscapedSignedArtifact(
           recordID,
           expectedProvenanceFingerprint,
-          artifact
+          artifact,
+          signerQuarantine
         )
       )
     }
@@ -1396,7 +1837,6 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
     }
     if (
       current.reservedNonce === undefined ||
-      current.signerInvocationStartedAtUnixMs === undefined ||
       current.activeSignerInvocationStartedAtUnixMs === undefined ||
       bytes32(
         current.reservedNonce.reservationID.toPrefixedString(),
@@ -1408,8 +1848,26 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         "Late signed artifact has no retained durable signer boundary"
       )
     }
+    let captureRecord = current
+    if (signerQuarantine !== undefined) {
+      const existingQuarantineIDs = new Set(
+        (current.signerQuarantines ?? []).map(signerQuarantineID)
+      )
+      if (!existingQuarantineIDs.has(signerQuarantineID(signerQuarantine))) {
+        captureRecord = {
+          ...current,
+          signerQuarantines: [
+            ...(current.signerQuarantines ?? []),
+            signerQuarantine,
+          ],
+        }
+        // The quarantine and any actual-nonce guard must exist before the
+        // escaped-envelope trigger validates the returned wrong-lane bytes.
+        await this.syncSignerQuarantines(current, captureRecord)
+      }
+    }
     if (!alreadyCaptured) {
-      await this.insertUnexpectedArtifact(current, artifact)
+      await this.insertUnexpectedArtifact(captureRecord, artifact)
     }
     if (
       !alreadyCaptured &&
@@ -1422,16 +1880,40 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         artifact.reason,
         artifact.capturedAtUnixMs
       )
+      await this.saveCriticalAlert({
+        code: "provenance-reconciliation-incident",
+        seriesID: current.seriesID,
+        recordID: current.recordID,
+        generation: current.generation,
+        activationBlocking: true,
+        createdAtUnixMs: artifact.capturedAtUnixMs,
+        detail: artifact.reason,
+      })
     }
     const artifacts = current.unexpectedSignedArtifacts ?? []
     const next: P2TRSignatureFraudChallengeOutboxRecord = {
-      ...current,
+      ...captureRecord,
       version: current.version + 1,
+      status:
+        current.provenanceInvalidationEvidence === undefined
+          ? current.status
+          : "provenance-invalidated-awaiting-reconciliation",
+      preparationLease:
+        current.provenanceInvalidationEvidence === undefined
+          ? current.preparationLease
+          : undefined,
+      preparationResumeStatus:
+        current.provenanceInvalidationEvidence === undefined
+          ? current.preparationResumeStatus
+          : undefined,
       updatedAtUnixMs: Math.max(
         current.updatedAtUnixMs,
         artifact.capturedAtUnixMs
       ),
       activeSignerInvocationStartedAtUnixMs: undefined,
+      signerInvocationStartedAtUnixMs:
+        current.signerInvocationStartedAtUnixMs ??
+        current.activeSignerInvocationStartedAtUnixMs,
       unexpectedSignedArtifacts: alreadyCaptured
         ? artifacts
         : [...artifacts, artifact],
@@ -1439,6 +1921,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
     assertCompactDurableOutboxRecord(next)
     const updated = await this.updateMutableState(current, next)
     if (!updated) throw new Error("Escaped artifact CAS unexpectedly failed")
+    await this.persistDerivedCriticalAlerts(current, next)
     const expectedLaneArtifact =
       address(
         artifact.preparedTransaction.sender,
@@ -1510,19 +1993,23 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
     for (const row of result.rows) {
       const current = await this.hydrateRow(row)
       await this.insertProvenanceInvalidation(current, evidence)
-      const reservationIntentInFlight =
+      const unsignedPreparationInFlight =
         current.status === "preparing" &&
         current.selectedLaneID !== undefined &&
         current.selectedSignerIdentity !== undefined &&
         current.preparationSender !== undefined &&
-        current.reservedNonce === undefined &&
         current.signerInvocationStartedAtUnixMs === undefined &&
-        current.activeSignerInvocationStartedAtUnixMs === undefined
+        (current.preparedTransactionVariants?.length ?? 0) === 0 &&
+        (current.unexpectedSignedArtifacts?.length ?? 0) === 0 &&
+        current.broadcastAttempts === 0
+      const activePreparationInFlight =
+        current.status === "preparing" &&
+        current.preparationLease !== undefined &&
+        current.activeSignerInvocationStartedAtUnixMs !== undefined
+      const preservePreparationClaim =
+        unsignedPreparationInFlight || activePreparationInFlight
       const escaped =
-        reservationIntentInFlight ||
-        current.reservedNonce !== undefined ||
         current.signerInvocationStartedAtUnixMs !== undefined ||
-        current.activeSignerInvocationStartedAtUnixMs !== undefined ||
         (current.preparedTransactionVariants?.length ?? 0) > 0 ||
         (current.unexpectedSignedArtifacts?.length ?? 0) > 0 ||
         current.broadcastAttempts > 0
@@ -1533,18 +2020,34 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         "terminal-nonce-consumed",
         "generation-required",
       ].includes(current.status)
-      if (escaped || terminal) {
+      // A record keeps an activation-blocking provenance incident whenever it
+      // escaped, still owns an active signer boundary, or already produced a
+      // terminal chain effect. Only a genuinely inactive unsigned preparation
+      // is excluded. An active-initial boundary is preserved as `preparing`
+      // here, but the worker that later observes the signer RPC return moves
+      // it to `provenance-invalidated-awaiting-reconciliation`, and the SQL
+      // status trigger refuses that transition without an activation-blocking
+      // incident. Omitting it would deadlock the resolver on a rejected CAS.
+      // Migration 003's manifest-rotation trigger applies the identical
+      // predicate so both invalidation paths preserve the same set.
+      const preserveProvenanceIncident =
+        escaped || activePreparationInFlight || terminal
+      if (preserveProvenanceIncident) {
         await this.insertProvenanceIncident(
           current,
           evidence.evidenceHash,
-          provenanceIncidentKind(current, reservationIntentInFlight, terminal),
+          provenanceIncidentKind(
+            current,
+            unsignedPreparationInFlight,
+            terminal
+          ),
           evidence.reason,
           evidence.invalidatedAtUnixMs
         )
       }
       const next: P2TRSignatureFraudChallengeOutboxRecord = {
         ...current,
-        status: reservationIntentInFlight
+        status: preservePreparationClaim
           ? "preparing"
           : terminal
           ? current.status
@@ -1553,8 +2056,11 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
           : "cancelled-provenance-invalidated",
         version: current.version + 1,
         provenanceInvalidationEvidence: evidence,
-        preparationLease: reservationIntentInFlight
+        preparationLease: preservePreparationClaim
           ? current.preparationLease
+          : undefined,
+        preparationResumeStatus: preservePreparationClaim
+          ? current.preparationResumeStatus
           : undefined,
         // Canonical rollback cannot cancel an already-issued signer RPC.
         // Preserve the marker until the caller observes the RPC return and
@@ -1571,7 +2077,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
       if (!(await this.updateMutableState(current, next))) {
         throw new Error("Canonical provenance invalidation CAS failed")
       }
-      if (escaped || terminal) {
+      if (preserveProvenanceIncident) {
         await this.saveCriticalAlert({
           code: "provenance-reconciliation-incident",
           seriesID: next.seriesID,
@@ -5215,6 +5721,27 @@ function requireText(value: unknown, label: string, maximum: number): string {
     throw new Error(`${label} must contain between 1 and ${maximum} characters`)
   }
   return value
+}
+
+function requireCanonicalOwner(
+  value: unknown,
+  label: string,
+  maximum: number
+): string {
+  if (typeof value !== "string") {
+    throw new Error(`${label} must contain between 1 and ${maximum} characters`)
+  }
+  const normalized = value.trim()
+  if (
+    normalized.length === 0 ||
+    normalized.length > maximum ||
+    !/^[\x21-\x7e](?:[\x20-\x7e]{0,126}[\x21-\x7e])?$/.test(
+      normalized
+    )
+  ) {
+    throw new Error(`${label} must contain between 1 and ${maximum} characters`)
+  }
+  return normalized
 }
 
 function normalizeProductionSignerLaneConfiguration(
