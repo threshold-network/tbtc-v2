@@ -630,6 +630,7 @@ const candidateObservation = (): P2TRCompleteV2CandidateObservation => ({
     nonceX: "77".repeat(32),
     signatureScalar: "88".repeat(32),
   },
+  occurrenceID: "9a".repeat(32),
   challengeIdentity: "99".repeat(32),
   commitments: {
     rawTransactionDigest: "aa".repeat(32),

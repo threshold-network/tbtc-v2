@@ -6,6 +6,7 @@ import { describe, it } from "node:test"
 import { Block, Transaction } from "bitcoinjs-lib"
 import {
   calculateP2TRReadinessSnapshotRoot,
+  isP2TRPostgresTransactionConfirmedAbortError,
   PostgresP2TRCanonicalIndexStore,
 } from "../src/PostgresP2TRCanonicalIndexStore.js"
 import type {
@@ -21,6 +22,7 @@ import type {
   P2TRCanonicalBitcoinBlock,
   P2TRCandidateObservationPage,
   P2TRCandidateProvenanceIdentity,
+  P2TRFrostWalletBinding,
   P2TRReadinessExportAcknowledgement,
   P2TRReadinessExportStreamFrame,
   P2TRReadinessSnapshot,
@@ -144,6 +146,7 @@ describe(
         await store.addFrostWalletBindings([
           {
             walletID: "91".repeat(32),
+            walletPubKeyHash: "91".repeat(20),
             sourceEventID: "wallet:fixture",
             ethereum: { blockNumber: 11, blockHash: "ab".repeat(32) },
           },
@@ -1352,10 +1355,19 @@ describe(
         if ("snapshot" in claimantResult) {
           assert.equal(claimantResult.snapshot?.root, afterWriter.root)
         } else {
-          assert.equal(
-            (claimantResult.error as { code?: string }).code,
-            "40001"
+          // A losing claimant must surface a CONFIRMED abort, not a bare
+          // driver error: the coordinator wraps 40001/40P01 so a caller can
+          // tell "definitely rolled back, safe to retry the whole cycle" from
+          // an unknown outcome that must never be retried.
+          const abort = claimantResult.error
+          assert.ok(
+            isP2TRPostgresTransactionConfirmedAbortError(abort),
+            `claimant failed for a non-serialization reason: ${
+              (abort as Error)?.stack ?? String(abort)
+            }`
           )
+          assert.equal(abort.transactionOutcome, "confirmed-abort")
+          assert.equal(abort.sqlState, "40001")
         }
 
         let releaseSnapshot!: () => void
@@ -1951,11 +1963,17 @@ const withIntegrationStore = async (
       connectionString: postgresURL,
       options: `-c search_path=${schema}`,
     })
-    const migration = await readFile(
-      new URL("../migrations/001_p2tr_canonical_index.sql", import.meta.url),
-      "utf8"
-    )
-    await database.query(`BEGIN;\n${migration}\nCOMMIT;`)
+    for (const filename of [
+      "001_p2tr_canonical_index.sql",
+      "002_p2tr_canonical_ethereum.sql",
+    ]) {
+      const migration = await readFile(
+        new URL(`../migrations/${filename}`, import.meta.url),
+        "utf8"
+      )
+      // Production migration runners own each transaction boundary.
+      await database.query(`BEGIN;\n${migration}\nCOMMIT;`)
+    }
     await operation({
       store: new PostgresP2TRCanonicalIndexStore(
         database,
@@ -2260,6 +2278,7 @@ const compactObservationAcknowledgement = (
     ...(page.nextAfter === undefined ? {} : { nextAfter: page.nextAfter }),
     complete: page.complete,
     observations: page.observations.map((observation) => ({
+      occurrenceID: observation.occurrenceID,
       blockHash: observation.blockHash,
       txid: observation.txid,
       wtxid: observation.wtxid,
@@ -2275,8 +2294,11 @@ const walletBinding = (
   walletID: string,
   sourceEventID: string,
   blockNumber: number
-) => ({
+): P2TRFrostWalletBinding => ({
   walletID,
+  // Deterministic 20-byte hash derived from the wallet ID so distinct wallets
+  // keep distinct public-key hashes.
+  walletPubKeyHash: walletID.slice(0, 40),
   sourceEventID,
   ethereum: {
     blockNumber,
