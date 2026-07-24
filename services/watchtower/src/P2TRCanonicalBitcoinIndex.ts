@@ -273,6 +273,9 @@ export type P2TRCompleteV2CandidateObservation = {
     nonceX: string
     signatureScalar: string
   }
+  /** Canonical local identity for this exact input/provenance occurrence. */
+  occurrenceID: string
+  /** On-chain challenge-series identity; it is intentionally not unique here. */
   challengeIdentity: string
   commitments: P2TRCompleteV2CandidateCommitments
   inputProvenance: P2TRCandidateInputProvenance
@@ -314,6 +317,7 @@ export type P2TRCandidateInputDisposition =
     })
 
 export type P2TRCandidateObservationIdentity = {
+  occurrenceID: string
   blockHash: string
   txid: string
   wtxid: string
@@ -445,7 +449,9 @@ export type P2TRReadinessExportCandidateRequest = {
   blockHeight: number
   blockHash: string
   inputIndex: number
+  /** Exact canonical occurrence ID, mapped to the outbox observation ID. */
   observationID: string
+  /** On-chain Bridge challenge-series key. */
   challengeKey: string
   expectedProvenanceFingerprint: string
 }

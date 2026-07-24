@@ -355,6 +355,7 @@ export class CanonicalBitcoinP2TRSignatureFraudTransactionSource
     const observations = pending.observations
     if (pending.state === "ready") {
       const acknowledgedObservations = observations.map((observation) => ({
+        occurrenceID: observation.occurrenceID,
         blockHash: observation.blockHash,
         txid: observation.txid,
         wtxid: observation.wtxid,

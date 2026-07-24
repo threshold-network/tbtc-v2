@@ -6,6 +6,11 @@ import {
   classifyP2TRWitness,
   P2TRWitnessError,
 } from "./P2TRCompleteV2BIP341.js"
+import { calculateP2TRCanonicalOccurrenceID } from "./P2TRCanonicalOccurrenceIdentity.js"
+import {
+  computeP2TRCompleteAuthorizationDomainDigest,
+  P2TR_COMPLETE_V2_PROTOCOL_ID,
+} from "./P2TRCompleteCandidateIdentity.js"
 import { P2TR_EVIDENCE_CHUNK_MAX_BYTES } from "./P2TRCanonicalBitcoinIndex.js"
 import type {
   P2TRBitcoinChainPoint,
@@ -223,8 +228,6 @@ const DEFAULT_MAX_READINESS_EXPORT_LIFETIME_MS = 24 * 60 * 60 * 1000
 const ABSOLUTE_MAX_READINESS_EXPORT_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000
 const BITCOIN_INPUT_INSERT_BATCH_SIZE = 128
 const CANDIDATE_PREVOUT_SCRIPT_CHUNK_BYTES = 65_536
-const P2TR_COMPLETE_V2_PROTOCOL_ID =
-  "12c62b64ecf6d008bcff153495dcdbe7a981f3a9a1b9c0898b86b1e6d0d350ef"
 
 /**
  * PostgreSQL 16 canonical evidence store. Pass a configured `pg.Pool`; the
@@ -884,6 +887,7 @@ export class PostgresP2TRCanonicalIndexStore
             })
       const result = await client.query<CandidateObservationRow>(
         `SELECT encode(observation.protocol_id, 'hex') AS protocol_id,
+                encode(observation.domain_digest, 'hex') AS domain_digest,
                 encode(observation.txid, 'hex') AS txid,
                 encode(observation.wtxid, 'hex') AS wtxid,
                 candidate.block_height,
@@ -898,6 +902,7 @@ export class PostgresP2TRCanonicalIndexStore
                 encode(observation.signature_scalar, 'hex') AS signature_scalar,
                 encode(observation.challenge_identity, 'hex')
                   AS challenge_identity,
+                encode(observation.occurrence_id, 'hex') AS occurrence_id,
                 encode(observation.raw_transaction_digest, 'hex')
                   AS raw_transaction_digest,
                 observation.raw_transaction_bytes,
@@ -1052,7 +1057,8 @@ export class PostgresP2TRCanonicalIndexStore
     )
     const result = await client.query<CandidateObservationIdentityRow>(
       `WITH acknowledged AS (
-         SELECT decode(item.block_hash, 'hex') AS block_hash,
+         SELECT decode(item.occurrence_id, 'hex') AS occurrence_id,
+                decode(item.block_hash, 'hex') AS block_hash,
                 decode(item.txid, 'hex') AS txid,
                 decode(item.wtxid, 'hex') AS wtxid,
                 item.input_index,
@@ -1061,7 +1067,7 @@ export class PostgresP2TRCanonicalIndexStore
                 decode(item.provenance_fingerprint, 'hex')
                   AS provenance_fingerprint
            FROM jsonb_to_recordset($1::jsonb)
-                AS item(block_hash text, txid text, wtxid text,
+                AS item(occurrence_id text, block_hash text, txid text, wtxid text,
                         input_index integer, challenge_identity text,
                         provenance_generation bigint,
                         provenance_fingerprint text)
@@ -1072,6 +1078,7 @@ export class PostgresP2TRCanonicalIndexStore
               delivered_at = clock_timestamp()
          FROM acknowledged
         WHERE observation.block_hash = acknowledged.block_hash
+          AND observation.occurrence_id = acknowledged.occurrence_id
           AND observation.txid = acknowledged.txid
           AND observation.wtxid = acknowledged.wtxid
           AND observation.input_index = acknowledged.input_index
@@ -1081,7 +1088,8 @@ export class PostgresP2TRCanonicalIndexStore
           AND observation.provenance_fingerprint =
               acknowledged.provenance_fingerprint
           AND observation.disposition = 'keypath_pending'
-      RETURNING encode(observation.block_hash, 'hex') AS block_hash,
+      RETURNING encode(observation.occurrence_id, 'hex') AS occurrence_id,
+                encode(observation.block_hash, 'hex') AS block_hash,
                 encode(observation.txid, 'hex') AS txid,
                 encode(observation.wtxid, 'hex') AS wtxid,
                 observation.input_index,
@@ -1106,7 +1114,8 @@ export class PostgresP2TRCanonicalIndexStore
     )
     const accepted = await client.query<{ accepted: boolean }>(
       `WITH stale AS (
-         SELECT decode(item.block_hash, 'hex') AS block_hash,
+         SELECT decode(item.occurrence_id, 'hex') AS occurrence_id,
+                decode(item.block_hash, 'hex') AS block_hash,
                 decode(item.txid, 'hex') AS txid,
                 decode(item.wtxid, 'hex') AS wtxid,
                 item.input_index,
@@ -1115,7 +1124,7 @@ export class PostgresP2TRCanonicalIndexStore
                 decode(item.provenance_fingerprint, 'hex')
                   AS provenance_fingerprint
            FROM jsonb_to_recordset($1::jsonb)
-                AS item(block_hash text, txid text, wtxid text,
+                AS item(occurrence_id text, block_hash text, txid text, wtxid text,
                         input_index integer, challenge_identity text,
                         provenance_generation bigint,
                         provenance_fingerprint text)
@@ -1682,11 +1691,12 @@ export class PostgresP2TRCanonicalIndexStore
           source_configuration_fingerprint,
           candidate_provenance_generation,
           candidate_provenance_fingerprint, candidate_input_index,
-          candidate_challenge_identity, canonical_request, result_payload,
+          candidate_challenge_identity, candidate_occurrence_id,
+          canonical_request, result_payload,
           result_digest, expires_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-               $13, $14, $15, $16, $17, $18, $19, $20, $21, $22,
-               $23::jsonb, $24::jsonb, $25, $26::timestamptz)`,
+               $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23,
+               $24::jsonb, $25::jsonb, $26, $27::timestamptz)`,
       [
         hexBuffer(request.requestNonce, "readiness export nonce"),
         hexBuffer(requestDigest, "readiness export request digest"),
@@ -1728,6 +1738,12 @@ export class PostgresP2TRCanonicalIndexStore
           : hexBuffer(
               candidate.observation.challengeIdentity,
               "candidate challenge identity"
+            ),
+        candidate === undefined
+          ? null
+          : hexBuffer(
+              candidate.observation.occurrenceID,
+              "candidate occurrence ID"
             ),
         JSON.stringify(request),
         JSON.stringify(resultPayload),
@@ -1948,6 +1964,7 @@ export class PostgresP2TRCanonicalIndexStore
           AND observation.input_index = $4
           AND observation.provenance_fingerprint = $5
           AND candidate.block_height = $6
+          AND observation.occurrence_id = $7
           AND observation.disposition = 'keypath_pending'
         FOR SHARE OF observation, provenance, candidate`,
       [
@@ -1960,6 +1977,7 @@ export class PostgresP2TRCanonicalIndexStore
           "readiness candidate provenance fingerprint"
         ),
         request.blockHeight,
+        hexBuffer(request.observationID, "readiness candidate occurrence ID"),
       ]
     )
     if (result.rows.length !== 1) {
@@ -1975,11 +1993,11 @@ export class PostgresP2TRCanonicalIndexStore
       this.authorizationDomain.digest
     )
     if (
-      request.observationID !== observation.challengeIdentity ||
+      request.observationID !== observation.occurrenceID ||
       request.challengeKey !== observation.challengeIdentity
     ) {
       throw new Error(
-        "Readiness export candidate challenge identity is inconsistent"
+        "Readiness export candidate occurrence/challenge identity is inconsistent"
       )
     }
     return {
@@ -2904,12 +2922,22 @@ export class PostgresP2TRCanonicalIndexStore
               witnessDigest,
               reason: blockingReason,
             })
+      const occurrenceID = calculateP2TRCanonicalOccurrenceID({
+        domainDigest: this.authorizationDomain.digest,
+        provenanceGeneration: generation,
+        blockHash: identity.blockHash,
+        txid: identity.txid,
+        wtxid: identity.wtxid,
+        inputIndex: provenance.inputIndex,
+        provenanceFingerprint: fingerprint,
+        ...(challengeIdentity === undefined ? {} : { challengeIdentity }),
+      })
       await client.query(
         `INSERT INTO p2tr_bitcoin_candidate_observations
            (block_hash, txid, wtxid, input_index,
             provenance_generation, provenance_fingerprint, disposition,
             protocol_id, domain_chain_id, bridge_address, domain_digest,
-            challenge_identity, wallet_id, signing_key, output_key,
+            challenge_identity, occurrence_id, wallet_id, signing_key, output_key,
             binding_kind, local_funding_block_hash, local_funding_txid,
             local_funding_vout, local_funding_header_object_digest,
             binding_tx_hash, binding_output_index,
@@ -2927,7 +2955,7 @@ export class PostgresP2TRCanonicalIndexStore
                  $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22,
                  $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33,
                  $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44,
-                 $45, $46, $47)`,
+                 $45, $46, $47, $48)`,
         [
           hexBuffer(identity.blockHash, "candidate block hash"),
           hexBuffer(identity.txid, "candidate transaction ID"),
@@ -2943,6 +2971,7 @@ export class PostgresP2TRCanonicalIndexStore
           challengeIdentity === undefined
             ? null
             : hexBuffer(challengeIdentity, "candidate challenge identity"),
+          hexBuffer(occurrenceID, "candidate occurrence ID"),
           hexBuffer(provenance.walletID, "candidate wallet ID"),
           hexBuffer(signingKey, "candidate signing key"),
           hexBuffer(provenance.outputKey, "candidate output key"),
@@ -6160,6 +6189,7 @@ type CandidateEthereumProvenanceRow = {
 
 type CandidateObservationRow = {
   protocol_id: string
+  domain_digest: string
   txid: string
   wtxid: string
   block_height: string | number
@@ -6174,6 +6204,7 @@ type CandidateObservationRow = {
   nonce_x: string
   signature_scalar: string
   challenge_identity: string
+  occurrence_id: string
   raw_transaction_digest: string
   raw_transaction_bytes: string | number
   witness_digest: string
@@ -6210,6 +6241,7 @@ type CandidateProvenanceIdentityRow = {
 }
 
 type CandidateObservationIdentityRow = CandidateProvenanceIdentityRow & {
+  occurrence_id: string
   input_index: string | number
   challenge_identity: string
 }
@@ -7171,13 +7203,16 @@ const candidateProvenanceIdentityKey = (
 const candidateObservationIdentityKey = (
   identity: P2TRCandidateObservationIdentity
 ): string =>
-  `${candidateIdentityKey(identity)}:${identity.inputIndex}:${
-    identity.challengeIdentity
-  }:${identity.provenanceGeneration}:${identity.provenanceFingerprint}`
+  `${identity.occurrenceID}:${candidateIdentityKey(identity)}:${
+    identity.inputIndex
+  }:${identity.challengeIdentity}:${identity.provenanceGeneration}:${
+    identity.provenanceFingerprint
+  }`
 
 const candidateObservationIdentityFromObservation = (
   observation: P2TRCompleteV2CandidateObservation
 ): P2TRCandidateObservationIdentity => ({
+  occurrenceID: observation.occurrenceID,
   blockHash: observation.blockHash,
   txid: observation.txid,
   wtxid: observation.wtxid,
@@ -7190,6 +7225,7 @@ const candidateObservationIdentityFromObservation = (
 const candidateObservationIdentityJSON = (
   identity: P2TRCandidateObservationIdentity
 ): Record<string, unknown> => ({
+  occurrence_id: identity.occurrenceID,
   block_hash: identity.blockHash,
   txid: identity.txid,
   wtxid: identity.wtxid,
@@ -7202,6 +7238,10 @@ const candidateObservationIdentityJSON = (
 const validateCandidateObservationIdentity = (
   identity: P2TRCandidateObservationIdentity
 ): void => {
+  normalizeBytes32(
+    identity.occurrenceID,
+    "acknowledged candidate occurrence ID"
+  )
   normalizeCandidateIdentity(identity)
   uint32(identity.inputIndex, "acknowledged candidate input index")
   normalizeBytes32(
@@ -7251,6 +7291,10 @@ const candidateObservationIdentityFromRow = (
   row: CandidateObservationIdentityRow
 ): P2TRCandidateObservationIdentity => ({
   ...candidateProvenanceIdentityFromRow(row),
+  occurrenceID: normalizeBytes32(
+    row.occurrence_id,
+    "candidate observation occurrence ID"
+  ),
   inputIndex: uint32(row.input_index, "candidate observation input index"),
   challengeIdentity: normalizeBytes32(
     row.challenge_identity,
@@ -7299,6 +7343,41 @@ const candidateObservationFromRow = (
     row.input_index,
     "candidate observation input index"
   )
+  const domainDigest = normalizeBytes32(
+    row.domain_digest,
+    "candidate observation domain digest"
+  )
+  const txid = normalizeBytes32(
+    row.txid,
+    "candidate observation transaction ID"
+  )
+  const wtxid = normalizeBytes32(
+    row.wtxid,
+    "candidate observation witness transaction ID"
+  )
+  const blockHash = normalizeBytes32(
+    row.block_hash,
+    "candidate observation block hash"
+  )
+  const challengeIdentity = normalizeBytes32(
+    row.challenge_identity,
+    "candidate observation challenge identity"
+  )
+  const occurrenceID = normalizeBytes32(
+    row.occurrence_id,
+    "candidate observation occurrence ID"
+  )
+  const provenanceGeneration = positiveInteger(
+    databaseInteger(
+      row.provenance_generation,
+      "candidate observation provenance generation"
+    ),
+    "candidate observation provenance generation"
+  )
+  const provenanceFingerprint = normalizeBytes32(
+    row.provenance_fingerprint,
+    "candidate observation provenance fingerprint"
+  )
   const walletID = normalizeBytes32(
     row.wallet_id,
     "candidate observation wallet ID"
@@ -7344,25 +7423,19 @@ const candidateObservationFromRow = (
       "candidate observation Ethereum block hash"
     ),
   }
-  return {
+  const observation: P2TRCompleteV2CandidateObservation = {
     schema: "tbtc-p2tr-complete-candidate/v2",
     protocolID: normalizeBytes32(
       row.protocol_id,
       "candidate observation protocol ID"
     ),
-    txid: normalizeBytes32(row.txid, "candidate observation transaction ID"),
-    wtxid: normalizeBytes32(
-      row.wtxid,
-      "candidate observation witness transaction ID"
-    ),
+    txid,
+    wtxid,
     blockHeight: databaseInteger(
       row.block_height,
       "candidate observation block height"
     ),
-    blockHash: normalizeBytes32(
-      row.block_hash,
-      "candidate observation block hash"
-    ),
+    blockHash,
     inputIndex,
     evidence: {
       walletID,
@@ -7392,10 +7465,8 @@ const candidateObservationFromRow = (
         "candidate observation signature scalar"
       ),
     },
-    challengeIdentity: normalizeBytes32(
-      row.challenge_identity,
-      "candidate observation challenge identity"
-    ),
+    occurrenceID,
+    challengeIdentity,
     commitments: {
       rawTransactionDigest: normalizeBytes32(
         row.raw_transaction_digest,
@@ -7449,18 +7520,24 @@ const candidateObservationFromRow = (
       ),
     },
     inputProvenance,
-    provenanceGeneration: positiveInteger(
-      databaseInteger(
-        row.provenance_generation,
-        "candidate observation provenance generation"
-      ),
-      "candidate observation provenance generation"
-    ),
-    provenanceFingerprint: normalizeBytes32(
-      row.provenance_fingerprint,
-      "candidate observation provenance fingerprint"
-    ),
+    provenanceGeneration,
+    provenanceFingerprint,
   }
+  if (
+    calculateP2TRCanonicalOccurrenceID({
+      domainDigest,
+      provenanceGeneration,
+      blockHash,
+      txid,
+      wtxid,
+      inputIndex,
+      provenanceFingerprint,
+      challengeIdentity,
+    }) !== occurrenceID
+  ) {
+    throw new Error("Candidate observation occurrence identity is inconsistent")
+  }
+  return observation
 }
 
 const canonicalGenerationIdentityFromRow = (
@@ -7568,6 +7645,7 @@ const candidateObservationFromDispositionEvidence = (
   }
   return candidateObservationFromRow({
     protocol_id: String(disposition.protocol_id),
+    domain_digest: String(disposition.domain_digest),
     txid: String(disposition.txid),
     wtxid: String(disposition.wtxid),
     block_height: candidate.block_height as string | number,
@@ -7582,6 +7660,7 @@ const candidateObservationFromDispositionEvidence = (
     nonce_x: String(disposition.nonce_x),
     signature_scalar: String(disposition.signature_scalar),
     challenge_identity: String(disposition.challenge_identity),
+    occurrence_id: String(disposition.occurrence_id),
     raw_transaction_digest: String(disposition.raw_transaction_digest),
     raw_transaction_bytes: disposition.raw_transaction_bytes as string | number,
     witness_digest: String(disposition.witness_digest),
@@ -9175,12 +9254,10 @@ const completeAuthorizationDomainDigest = (value: {
   chainID: bigint
   bridgeAddress: Buffer
 }): string =>
-  createHash("sha256")
-    .update("tbtc-p2tr-complete-domain-v1", "utf8")
-    .update(hexBuffer(P2TR_COMPLETE_V2_PROTOCOL_ID, "COMPLETE protocol ID"))
-    .update(uint256BE(value.chainID))
-    .update(value.bridgeAddress)
-    .digest("hex")
+  computeP2TRCompleteAuthorizationDomainDigest({
+    domainChainID: value.chainID.toString(10),
+    bridgeAddress: `0x${value.bridgeAddress.toString("hex")}`,
+  })
 
 const watchtowerSourceIdentityDigest = (value: {
   storeID: string

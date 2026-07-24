@@ -886,6 +886,35 @@ BEGIN
 END
 $$;
 
+-- Local identity for one exact canonical input/provenance occurrence. The
+-- optional challenge identity is included only for key-path dispositions; it
+-- remains a non-unique Bridge challenge-series identity.
+CREATE FUNCTION p2tr_canonical_occurrence_id(
+    candidate_domain_digest bytea,
+    candidate_provenance_generation bigint,
+    candidate_block_hash bytea,
+    candidate_txid bytea,
+    candidate_wtxid bytea,
+    candidate_input_index integer,
+    candidate_provenance_fingerprint bytea,
+    candidate_challenge_identity bytea
+)
+RETURNS bytea
+LANGUAGE sql
+IMMUTABLE
+PARALLEL SAFE
+AS $$
+    SELECT sha256(
+        convert_to('tbtc-p2tr-canonical-occurrence-v1', 'UTF8') ||
+        candidate_domain_digest || int8send(candidate_provenance_generation) ||
+        candidate_block_hash || candidate_txid || candidate_wtxid ||
+        int4send(candidate_input_index) || candidate_provenance_fingerprint ||
+        CASE WHEN candidate_challenge_identity IS NULL
+             THEN decode('00', 'hex')
+             ELSE decode('01', 'hex') || candidate_challenge_identity END
+    )
+$$;
+
 -- Compact, independently deliverable COMPLETE_V2 per-input dispositions.
 -- Raw transactions and prevout vectors are never duplicated here. Exactly one
 -- row exists for each authenticated provenance input: challengeable key-path,
@@ -919,6 +948,7 @@ CREATE TABLE p2tr_bitcoin_candidate_observations (
     challenge_identity bytea CHECK (
         challenge_identity IS NULL OR octet_length(challenge_identity) = 32
     ),
+    occurrence_id bytea NOT NULL CHECK (octet_length(occurrence_id) = 32),
     wallet_id bytea NOT NULL CHECK (octet_length(wallet_id) = 32),
     signing_key bytea NOT NULL CHECK (octet_length(signing_key) = 32),
     output_key bytea NOT NULL CHECK (octet_length(output_key) = 32),
@@ -1044,6 +1074,12 @@ CREATE TABLE p2tr_bitcoin_candidate_observations (
         )
     ),
     CHECK (
+        occurrence_id = p2tr_canonical_occurrence_id(
+            domain_digest, provenance_generation, block_hash, txid, wtxid,
+            input_index, provenance_fingerprint, challenge_identity
+        )
+    ),
+    CHECK (
         (binding_kind = 'wallet' AND signing_key = wallet_id AND
          binding_tx_hash = decode(repeat('00', 32), 'hex') AND
          binding_output_index = 0) OR
@@ -1115,6 +1151,9 @@ CREATE INDEX p2tr_bitcoin_candidate_observations_blocking_idx
 
 CREATE INDEX p2tr_bitcoin_candidate_observations_generation_idx
     ON p2tr_bitcoin_candidate_observations (provenance_generation DESC);
+
+CREATE UNIQUE INDEX p2tr_bitcoin_candidate_observations_occurrence_idx
+    ON p2tr_bitcoin_candidate_observations (occurrence_id);
 
 CREATE FUNCTION p2tr_guard_candidate_input_disposition()
 RETURNS trigger
@@ -1980,6 +2019,10 @@ CREATE TABLE p2tr_readiness_exports (
         candidate_challenge_identity IS NULL OR
         octet_length(candidate_challenge_identity) = 32
     ),
+    candidate_occurrence_id bytea CHECK (
+        candidate_occurrence_id IS NULL OR
+        octet_length(candidate_occurrence_id) = 32
+    ),
     canonical_request jsonb NOT NULL
         CHECK (
             jsonb_typeof(canonical_request) = 'object' AND
@@ -2058,11 +2101,13 @@ CREATE TABLE p2tr_readiness_exports (
         (candidate_provenance_generation IS NULL AND
          candidate_provenance_fingerprint IS NULL AND
          candidate_input_index IS NULL AND
-         candidate_challenge_identity IS NULL) OR
+         candidate_challenge_identity IS NULL AND
+         candidate_occurrence_id IS NULL) OR
         (candidate_provenance_generation IS NOT NULL AND
          candidate_provenance_fingerprint IS NOT NULL AND
          candidate_input_index IS NOT NULL AND
-         candidate_challenge_identity IS NOT NULL)
+         candidate_challenge_identity IS NOT NULL AND
+         candidate_occurrence_id IS NOT NULL)
     )
 );
 
@@ -2296,6 +2341,8 @@ BEGIN
        NEW.candidate_input_index IS DISTINCT FROM OLD.candidate_input_index OR
        NEW.candidate_challenge_identity IS DISTINCT FROM
            OLD.candidate_challenge_identity OR
+       NEW.candidate_occurrence_id IS DISTINCT FROM
+           OLD.candidate_occurrence_id OR
        NEW.canonical_request IS DISTINCT FROM OLD.canonical_request OR
        NEW.result_payload IS DISTINCT FROM OLD.result_payload OR
        NEW.result_digest IS DISTINCT FROM OLD.result_digest OR
@@ -3186,6 +3233,8 @@ BEGIN
             'domain_digest', p2tr_jsonb_bytea_hex(row_value, 'domain_digest'),
             'challenge_identity',
                 p2tr_jsonb_bytea_hex(row_value, 'challenge_identity'),
+            'occurrence_id',
+                p2tr_jsonb_bytea_hex(row_value, 'occurrence_id'),
             'wallet_id', p2tr_jsonb_bytea_hex(row_value, 'wallet_id'),
             'signing_key', p2tr_jsonb_bytea_hex(row_value, 'signing_key'),
             'output_key', p2tr_jsonb_bytea_hex(row_value, 'output_key'),
@@ -3251,7 +3300,8 @@ BEGIN
         );
         IF semantic THEN
             canonical := canonical - ARRAY[
-                'provenance_generation', 'provenance_fingerprint'
+                'provenance_generation', 'provenance_fingerprint',
+                'occurrence_id'
             ];
         END IF;
     WHEN 'p2tr_bitcoin_candidate_ethereum_provenance' THEN
