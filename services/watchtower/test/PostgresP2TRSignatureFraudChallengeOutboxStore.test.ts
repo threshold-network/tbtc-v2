@@ -1301,6 +1301,7 @@ postgresTest(
       updatedAtUnixMs: 1_300,
       signerInvocationStartedAtUnixMs: 1_300,
       activeSignerInvocationStartedAtUnixMs: 1_300,
+      activeSignerInvocationID: boundaryInvocationID(1_300),
     }
     assert.equal(
       await database.store.compareAndSwap(
@@ -1539,6 +1540,7 @@ postgresTest(
       updatedAtUnixMs: 1_300,
       signerInvocationStartedAtUnixMs: 1_300,
       activeSignerInvocationStartedAtUnixMs: 1_300,
+      activeSignerInvocationID: boundaryInvocationID(1_300),
     }
     await begin(database.client)
     assert.equal(
@@ -1560,6 +1562,7 @@ postgresTest(
       // may clear it, and the capture below is that observation.
       activeSignerInvocationStartedAtUnixMs:
         signerBoundary.activeSignerInvocationStartedAtUnixMs,
+      activeSignerInvocationID: signerBoundary.activeSignerInvocationID,
       signerQuarantines: [
         {
           laneID: LANE_ID,
@@ -1659,6 +1662,7 @@ postgresTest(
       updatedAtUnixMs: 1_300,
       signerInvocationStartedAtUnixMs: 1_300,
       activeSignerInvocationStartedAtUnixMs: 1_300,
+      activeSignerInvocationID: boundaryInvocationID(1_300),
     }
     assert.equal(
       await database.store.compareAndSwap(
@@ -1695,6 +1699,7 @@ postgresTest(
       updatedAtUnixMs: 1_400,
       preparationLease: undefined,
       activeSignerInvocationStartedAtUnixMs: undefined,
+      activeSignerInvocationID: undefined,
       preparedTransaction,
       preparedTransactionVariants: [
         {
@@ -2356,6 +2361,7 @@ function activeInitialSignerBoundary(
     version: reserved.version + 1,
     updatedAtUnixMs: now,
     activeSignerInvocationStartedAtUnixMs: now,
+    activeSignerInvocationID: boundaryInvocationID(now),
   }
 }
 
@@ -2374,6 +2380,7 @@ function reconciliationTransition(
     preparationLease: undefined,
     preparationResumeStatus: undefined,
     activeSignerInvocationStartedAtUnixMs: undefined,
+    activeSignerInvocationID: undefined,
     signerInvocationStartedAtUnixMs:
       current.signerInvocationStartedAtUnixMs ??
       current.activeSignerInvocationStartedAtUnixMs,
@@ -2416,9 +2423,14 @@ async function forceDurableReconciliation(
             preparation_lease_expires_at_unix_ms = NULL,
             preparation_resume_status = NULL,
             active_signer_invocation_started_at_unix_ms = NULL,
+            active_signer_invocation_id = NULL,
             signer_invocation_started_at_unix_ms = coalesce(
                 signer_invocation_started_at_unix_ms,
                 active_signer_invocation_started_at_unix_ms
+            ),
+            signer_invocation_id = coalesce(
+                signer_invocation_id,
+                active_signer_invocation_id
             ),
             updated_at_unix_ms = updated_at_unix_ms + 1,
             record_state = jsonb_set(
@@ -2552,6 +2564,7 @@ postgresTest(
 
     assert.ok(invalidated.reservedNonce)
     const retiredBoundary = {
+      signerInvocationID: boundaryInvocationID(1_300),
       startedAtUnixMs: 1_300,
       preparationAttempts: invalidated.preparationAttempts,
       nonceReservationID: invalidated.reservedNonce.reservationID.toString(),
@@ -2565,6 +2578,7 @@ postgresTest(
           ...invalidated,
           version: invalidated.version + 1,
           activeSignerInvocationStartedAtUnixMs: undefined,
+          activeSignerInvocationID: undefined,
           updatedAtUnixMs: 2_400,
         },
         retiredBoundary,
@@ -3003,6 +3017,7 @@ function signerBoundaryRecord(
     updatedAtUnixMs: 1_300,
     signerInvocationStartedAtUnixMs: 1_300,
     activeSignerInvocationStartedAtUnixMs: 1_300,
+    activeSignerInvocationID: boundaryInvocationID(1_300),
   }
 }
 
@@ -3047,6 +3062,7 @@ async function replacementSignerBoundary(
     updatedAtUnixMs: 1_400,
     preparationLease: undefined,
     activeSignerInvocationStartedAtUnixMs: undefined,
+    activeSignerInvocationID: undefined,
     preparedTransaction,
     preparedTransactionVariants: [
       {
@@ -3065,6 +3081,7 @@ async function replacementSignerBoundary(
       version: prepared.version + 1,
       updatedAtUnixMs: 1_500,
       activeSignerInvocationStartedAtUnixMs: 1_500,
+      activeSignerInvocationID: boundaryInvocationID(1_500),
     },
   ]
 }
@@ -3136,6 +3153,7 @@ const escapedCaptureParityScenarios: EscapedCaptureParityScenario[] = [
       {
         ...signerBoundaryRecord(reserved),
         activeSignerInvocationStartedAtUnixMs: undefined,
+        activeSignerInvocationID: undefined,
       },
     ],
     captures: [{ capturedAtUnixMs: 2_100 }],
@@ -3184,6 +3202,14 @@ for (const scenario of escapedCaptureParityScenarios) {
 // ---------------------------------------------------------------------------
 
 const BOUNDARY_PROVIDER_DIGEST = `0x${"c7".repeat(32)}`
+/**
+ * A deterministic stand-in for computeP2TRSignatureFraudSignerInvocationID.
+ * The production value is a digest over the whole boundary binding; these
+ * suites only need distinct markers to yield distinct identities.
+ */
+const boundaryInvocationID = (marker: number): string =>
+  `0x${marker.toString(16).padStart(64, "0")}`
+
 const BOUNDARY_SIGNED_HASH = `0x${"5a".repeat(32)}`
 
 type BoundaryAttestationMode =
@@ -3195,6 +3221,7 @@ type BoundaryAttestationMode =
 
 type BoundaryResolutionOverrides = {
   recordID?: string
+  signerInvocationID?: string
   boundaryStartedAtUnixMs?: number
   preparationAttempts?: number
   nonceReservationID?: string
@@ -3254,6 +3281,10 @@ function boundaryResolution(
   const outcome = overrides.outcome ?? "never-invoked"
   const binding = {
     recordID: overrides.recordID ?? record.recordID,
+    signerInvocationID:
+      overrides.signerInvocationID ??
+      record.activeSignerInvocationID ??
+      boundaryInvocationID(1_300),
     boundaryStartedAtUnixMs:
       overrides.boundaryStartedAtUnixMs ??
       record.activeSignerInvocationStartedAtUnixMs ??
@@ -3376,6 +3407,7 @@ postgresTest(
       reservedNonce: undefined,
       nonceReservedAtUnixMs: undefined,
       activeSignerInvocationStartedAtUnixMs: undefined,
+      activeSignerInvocationID: undefined,
       voidedNonceReservations: [
         {
           reservation: boundary.reservedNonce!,
@@ -3526,7 +3558,8 @@ postgresTest(
     ): Promise<void> => {
       await database.client.query(
         `INSERT INTO p2tr_signature_fraud_challenge_signer_boundary_resolution (
-            record_id, boundary_started_at_unix_ms, preparation_attempts,
+            record_id, signer_invocation_id, boundary_started_at_unix_ms,
+            preparation_attempts,
             nonce_reservation_id, stage, invoked_at_unix_ms, outcome,
             provider_evidence_digest, resolution_evidence_digest,
             primary_trust_domain_id, primary_independence_domain_id,
@@ -3536,7 +3569,8 @@ postgresTest(
             corroborating_evidence_digest, corroborating_attestation,
             corroborating_attested_at_unix_ms, resolved_at_unix_ms
          ) VALUES (
-            decode($1, 'hex'), $2, $3, decode($4, 'hex'), 'prepare', $5,
+            decode($1, 'hex'), decode($8, 'hex'), $2, $3,
+            decode($4, 'hex'), 'prepare', $5,
             'never-invoked', decode($6, 'hex'), decode($7, 'hex'),
             'signer-primary', 'signer-primary-infra', decode($7, 'hex'),
             decode('01', 'hex'), 2000, 'signer-corroborating',
@@ -3551,6 +3585,7 @@ postgresTest(
           resolution.invokedAtUnixMs,
           resolution.providerEvidenceDigest.slice(2),
           evidenceDigest.slice(2),
+          resolution.signerInvocationID.slice(2),
         ]
       )
     }
@@ -3560,8 +3595,19 @@ postgresTest(
     await assert.rejects(
       rawInsert(
         boundaryResolution(boundary, {
-          boundaryStartedAtUnixMs: 1_299,
+          signerInvocationID: `0x${"e2".repeat(32)}`,
           invokedAtUnixMs: 1_310,
+        })
+      ),
+      /does not name the durable boundary/
+    )
+    // Both halves of the guard's ownership predicate, from raw SQL: the
+    // identity, and a descriptive column that no longer matches the durable row.
+    await assert.rejects(
+      rawInsert(
+        boundaryResolution(boundary, {
+          boundaryStartedAtUnixMs: 1_290,
+          invokedAtUnixMs: 1_299,
         })
       ),
       /does not name the durable boundary/
@@ -3800,7 +3846,9 @@ function orphanedBoundaryResult(
         outcome,
         `status=${record?.status ?? "missing"}`,
         `active=${record?.activeSignerInvocationStartedAtUnixMs ?? "none"}`,
+        `activeID=${record?.activeSignerInvocationID ?? "none"}`,
         `signer=${record?.signerInvocationStartedAtUnixMs ?? "none"}`,
+        `signerID=${record?.signerInvocationID ?? "none"}`,
         `artifacts=${record?.unexpectedSignedArtifacts?.length ?? 0}`,
       ].join(" ")
 }
@@ -3910,11 +3958,14 @@ function orphanedBoundaryOnly(
 }
 
 const CLEARED_ORPHAN =
-  "acknowledged status=preparing active=none signer=none artifacts=0"
+  "acknowledged status=preparing active=none activeID=none signer=none " +
+  "signerID=none artifacts=0"
 const RETAINED_ORPHAN =
-  "acknowledged status=preparing active=1300 signer=none artifacts=0"
+  "acknowledged status=preparing active=1300 activeID=0x0000000000000000000000000000000000000000000000000000000000000514 " +
+  "signer=none signerID=none artifacts=0"
 const UNSAFE_ORPHAN =
-  "unsafe status=preparing active=1300 signer=none artifacts=0"
+  "unsafe status=preparing active=1300 activeID=0x0000000000000000000000000000000000000000000000000000000000000514 signer=none " +
+  "signerID=none artifacts=0"
 const WRONG_BOUNDARY =
   "error:Orphaned signer boundary resolution does not name the durable boundary"
 
@@ -3936,8 +3987,35 @@ const orphanedBoundaryParityScenarios: OrphanedBoundaryScenario[] = [
     expectedAlertCodes: [],
   },
   {
-    name: "rejects a different boundary start",
+    // No scenario anywhere resolved two DISTINCT boundaries on one record, so
+    // the row identity was under-tested: keying the in-memory map on the record
+    // alone would have passed everything while diverging from the PostgreSQL
+    // primary key. Two resolutions, two identities, one record.
+    name: "keeps two distinct boundaries on one record apart",
+    seed: 238,
+    boundary: orphanedBoundaryOnly,
+    resolutions: [
+      {},
+      {
+        signerInvocationID: `0x${"e3".repeat(32)}`,
+        boundaryStartedAtUnixMs: 1_301,
+        invokedAtUnixMs: 1_311,
+      },
+    ],
+    expected: [CLEARED_ORPHAN, WRONG_BOUNDARY],
+    expectedAlertCodes: [],
+  },
+  {
+    name: "rejects a different signer invocation ID",
     seed: 222,
+    boundary: orphanedBoundaryOnly,
+    resolutions: [{ signerInvocationID: `0x${"e1".repeat(32)}` }],
+    expected: [WRONG_BOUNDARY],
+    expectedAlertCodes: [],
+  },
+  {
+    name: "rejects a different boundary start",
+    seed: 239,
     boundary: orphanedBoundaryOnly,
     resolutions: [{ boundaryStartedAtUnixMs: 1_299 }],
     expected: [WRONG_BOUNDARY],
@@ -4107,7 +4185,10 @@ const orphanedBoundaryParityScenarios: OrphanedBoundaryScenario[] = [
         outcome: "terminal-unsafe",
       },
     ],
-    expected: ["unsafe status=prepared active=1500 signer=1300 artifacts=0"],
+    expected: [
+      "unsafe status=prepared active=1500 activeID=0x00000000000000000000000000000000000000000000000000000000000005dc signer=1300 " +
+        "signerID=none artifacts=0",
+    ],
     expectedAlertCodes: ["signer-boundary-terminal-unsafe"],
   },
 ]

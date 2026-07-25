@@ -147,7 +147,9 @@ type StoredOutboxRow = {
   selected_sender: Buffer | null
   nonce_reservation_id: Buffer | null
   signer_invocation_started_at_unix_ms: string | number | null
+  signer_invocation_id: Buffer | null
   active_signer_invocation_started_at_unix_ms: string | number | null
+  active_signer_invocation_id: Buffer | null
   last_broadcast_at_unix_ms: string | number | null
   last_reconciliation_at_unix_ms: string | number | null
   last_pre_broadcast_recheck_at_unix_ms: string | number | null
@@ -205,8 +207,8 @@ const STORED_ROW_COLUMNS = `
   preparation_lease_owner, preparation_lease_expires_at_unix_ms,
   preparation_resume_status, selected_signer_lane_id,
   selected_signer_identity, selected_sender, nonce_reservation_id,
-  signer_invocation_started_at_unix_ms,
-  active_signer_invocation_started_at_unix_ms,
+  signer_invocation_started_at_unix_ms, signer_invocation_id,
+  active_signer_invocation_started_at_unix_ms, active_signer_invocation_id,
   last_broadcast_at_unix_ms, last_reconciliation_at_unix_ms,
   last_pre_broadcast_recheck_at_unix_ms,
   last_pre_broadcast_recheck_status, last_resolution_status, last_error,
@@ -1498,15 +1500,8 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
       `SELECT outcome, resolution_evidence_digest
          FROM p2tr_signature_fraud_challenge_signer_boundary_resolution
         WHERE record_id = decode($1, 'hex')
-          AND boundary_started_at_unix_ms = $2
-          AND preparation_attempts = $3
-          AND nonce_reservation_id = decode($4, 'hex')`,
-      [
-        stripHex(normalized.recordID),
-        normalized.boundaryStartedAtUnixMs,
-        normalized.preparationAttempts,
-        stripHex(normalized.nonceReservationID),
-      ]
+          AND signer_invocation_id = decode($2, 'hex')`,
+      [stripHex(normalized.recordID), stripHex(normalized.signerInvocationID)]
     )
     if (existing.rows.length === 1) {
       if (
@@ -1527,7 +1522,8 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
     // evidence claiming a boundary was resolved.
     await this.options.session.query(
       `INSERT INTO p2tr_signature_fraud_challenge_signer_boundary_resolution (
-          record_id, boundary_started_at_unix_ms, preparation_attempts,
+          record_id, signer_invocation_id, boundary_started_at_unix_ms,
+          preparation_attempts,
           nonce_reservation_id, stage, invoked_at_unix_ms, outcome,
           signed_transaction_hash, provider_evidence_digest,
           resolution_evidence_digest, primary_trust_domain_id,
@@ -1538,14 +1534,16 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
           corroborating_evidence_digest, corroborating_attestation,
           corroborating_attested_at_unix_ms, resolved_at_unix_ms
        ) VALUES (
-          decode($1, 'hex'), $2, $3, decode($4, 'hex'), $5, $6, $7,
-          CASE WHEN $8::text IS NULL THEN NULL ELSE decode($8, 'hex') END,
-          decode($9, 'hex'), decode($10, 'hex'), $11, $12,
-          decode($10, 'hex'), decode($13, 'hex'), $14, $15, $16,
-          decode($10, 'hex'), decode($17, 'hex'), $18, $19
+          decode($1, 'hex'), decode($2, 'hex'), $3, $4,
+          decode($5, 'hex'), $6, $7, $8,
+          CASE WHEN $9::text IS NULL THEN NULL ELSE decode($9, 'hex') END,
+          decode($10, 'hex'), decode($11, 'hex'), $12, $13,
+          decode($11, 'hex'), decode($14, 'hex'), $15, $16, $17,
+          decode($11, 'hex'), decode($18, 'hex'), $19, $20
        )`,
       [
         stripHex(normalized.recordID),
+        stripHex(normalized.signerInvocationID),
         normalized.boundaryStartedAtUnixMs,
         normalized.preparationAttempts,
         stripHex(normalized.nonceReservationID),
@@ -1576,6 +1574,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         ...current,
         version: current.version + 1,
         activeSignerInvocationStartedAtUnixMs: undefined,
+        activeSignerInvocationID: undefined,
         updatedAtUnixMs: Math.max(
           current.updatedAtUnixMs,
           normalized.resolvedAtUnixMs
@@ -1589,6 +1588,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
           current.version,
           cleared,
           {
+            signerInvocationID: normalized.signerInvocationID,
             startedAtUnixMs: normalized.boundaryStartedAtUnixMs,
             preparationAttempts: normalized.preparationAttempts,
             nonceReservationID: normalized.nonceReservationID,
@@ -1660,6 +1660,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
     expectedVersion: number,
     next: P2TRSignatureFraudChallengeOutboxRecord,
     boundary: {
+      signerInvocationID: string
       startedAtUnixMs: number
       preparationAttempts: number
       nonceReservationID: string
@@ -1695,6 +1696,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
   private async retireUninvokedBoundaryIncidents(
     recordID: string,
     boundary: {
+      signerInvocationID: string
       startedAtUnixMs: number
       preparationAttempts: number
       nonceReservationID: string
@@ -1726,9 +1728,19 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         : `0x${boundary.nonceReservationID}`,
       "Uninvoked boundary nonce reservation ID"
     )
+    const signerInvocationID = bytes32(
+      boundary.signerInvocationID.startsWith("0x")
+        ? boundary.signerInvocationID
+        : `0x${boundary.signerInvocationID}`,
+      "Uninvoked boundary signer invocation ID"
+    )
+    // v2 binds the invocation ID, so both halves of one retirement — this
+    // incident row and the signer-boundary resolution committed in the same
+    // transaction — name the same boundary identity.
     const resolutionDigest = hashStructured({
-      domain: "tbtc-p2tr-signature-fraud-provenance-incident-resolution-v1",
+      domain: "tbtc-p2tr-signature-fraud-provenance-incident-resolution-v2",
       recordID: normalizedRecordID,
+      signerInvocationID,
       boundaryStartedAtUnixMs: startedAtUnixMs,
       preparationAttempts: boundary.preparationAttempts,
       nonceReservationID,
@@ -1736,13 +1748,15 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
     await this.options.session.query(
       `INSERT INTO p2tr_signature_fraud_challenge_provenance_incident_resolution (
           incident_id, record_id, provenance_invalidation_id,
+          signer_invocation_id,
           boundary_started_at_unix_ms, preparation_attempts,
           nonce_reservation_id, resolution_digest, resolved_at_unix_ms
        )
        SELECT incident.incident_id,
               incident.record_id,
               incident.provenance_invalidation_id,
-              $2, $3, decode($4, 'hex'), decode($5, 'hex'), $6
+              decode($7, 'hex'), $2, $3, decode($4, 'hex'),
+              decode($5, 'hex'), $6
          FROM p2tr_signature_fraud_challenge_provenance_incident incident
         WHERE incident.record_id = decode($1, 'hex')
           AND incident.incident_kind IN (
@@ -1760,6 +1774,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
           resolvedAtUnixMs,
           "Uninvoked boundary retirement time"
         ),
+        stripHex(signerInvocationID),
       ]
     )
   }
@@ -1914,9 +1929,12 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         artifact.capturedAtUnixMs
       ),
       activeSignerInvocationStartedAtUnixMs: undefined,
+      activeSignerInvocationID: undefined,
       signerInvocationStartedAtUnixMs:
         current.signerInvocationStartedAtUnixMs ??
         current.activeSignerInvocationStartedAtUnixMs,
+      signerInvocationID:
+        current.signerInvocationID ?? current.activeSignerInvocationID,
       unexpectedSignedArtifacts: alreadyCaptured
         ? artifacts
         : [...artifacts, artifact],
@@ -2070,6 +2088,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         // atomically journals its signed bytes or failure disposition.
         activeSignerInvocationStartedAtUnixMs:
           current.activeSignerInvocationStartedAtUnixMs,
+        activeSignerInvocationID: current.activeSignerInvocationID,
         updatedAtUnixMs: Math.max(
           current.updatedAtUnixMs,
           evidence.invalidatedAtUnixMs
@@ -2740,8 +2759,22 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
     )
     setOptional(
       state,
+      "signerInvocationID",
+      row.signer_invocation_id === null
+        ? undefined
+        : prefixedHex(row.signer_invocation_id)
+    )
+    setOptional(
+      state,
       "activeSignerInvocationStartedAtUnixMs",
       optionalDatabaseInteger(row.active_signer_invocation_started_at_unix_ms)
+    )
+    setOptional(
+      state,
+      "activeSignerInvocationID",
+      row.active_signer_invocation_id === null
+        ? undefined
+        : prefixedHex(row.active_signer_invocation_id)
     )
     setOptional(
       state,
@@ -4118,7 +4151,9 @@ const DURABLE_OUTBOX_RECORD_KEYS = new Set([
   "preparationLease",
   "preparationResumeStatus",
   "activeSignerInvocationStartedAtUnixMs",
+  "activeSignerInvocationID",
   "signerInvocationStartedAtUnixMs",
+  "signerInvocationID",
   "preparedTransaction",
   "preparedTransactionVariants",
   "lastBroadcastAtUnixMs",
@@ -5224,8 +5259,12 @@ function outboxMutableColumns(
     nonce_reserved_at_unix_ms: record.nonceReservedAtUnixMs ?? null,
     signer_invocation_started_at_unix_ms:
       record.signerInvocationStartedAtUnixMs ?? null,
+    signer_invocation_id: optionalDatabaseBytes(record.signerInvocationID),
     active_signer_invocation_started_at_unix_ms:
       record.activeSignerInvocationStartedAtUnixMs ?? null,
+    active_signer_invocation_id: optionalDatabaseBytes(
+      record.activeSignerInvocationID
+    ),
     latest_variant_sequence: latestVariant?.sequence ?? null,
     prepared_transaction_hash:
       latestVariant === undefined

@@ -315,9 +315,33 @@ CREATE TABLE p2tr_signature_fraud_challenge_outbox (
         signer_invocation_started_at_unix_ms IS NULL
         OR signer_invocation_started_at_unix_ms BETWEEN 0 AND 9007199254740991
     ),
+    -- Deterministic identity of the boundary the marker below names, committed
+    -- in the same swap. The activation barrier counts outstanding invocations
+    -- by the marker's NULL transitions alone, so the two must be NULL together
+    -- or the counter stops meaning "a signer call may be outstanding".
+    signer_invocation_id bytea CHECK (
+        signer_invocation_id IS NULL
+        OR octet_length(signer_invocation_id) = 32
+    ),
     active_signer_invocation_started_at_unix_ms bigint CHECK (
         active_signer_invocation_started_at_unix_ms IS NULL
         OR active_signer_invocation_started_at_unix_ms BETWEEN 0 AND 9007199254740991
+    ),
+    active_signer_invocation_id bytea CHECK (
+        active_signer_invocation_id IS NULL
+        OR octet_length(active_signer_invocation_id) = 32
+    ),
+    CHECK (
+        (active_signer_invocation_started_at_unix_ms IS NULL)
+            = (active_signer_invocation_id IS NULL)
+    ),
+    -- The historical pair is deliberately NOT required to agree. The active
+    -- pair drives the barrier counter and must be exact; the historical marker
+    -- is proof that some signer call began, and a failure record may have to
+    -- assert that from a fallback clock when no identity survived.
+    CHECK (
+        signer_invocation_id IS NULL
+        OR signer_invocation_started_at_unix_ms IS NOT NULL
     ),
     latest_variant_sequence smallint CHECK (
         latest_variant_sequence IS NULL
@@ -1619,7 +1643,12 @@ CREATE TABLE p2tr_signature_fraud_challenge_provenance_incident_resolution (
     record_id bytea NOT NULL,
     provenance_invalidation_id bytea NOT NULL,
     -- The exact boundary this resolution speaks for. Retiring an incident
-    -- raised over a different boundary must be impossible.
+    -- raised over a different boundary must be impossible. Carries the same
+    -- deterministic identity as the signer-boundary resolution committed in the
+    -- same transaction, so one retirement cannot name two boundaries.
+    signer_invocation_id bytea NOT NULL CHECK (
+        octet_length(signer_invocation_id) = 32
+    ),
     boundary_started_at_unix_ms bigint NOT NULL CHECK (
         boundary_started_at_unix_ms BETWEEN 0 AND 9007199254740991
     ),
@@ -1702,7 +1731,12 @@ CREATE TABLE p2tr_signature_fraud_challenge_signer_boundary_resolution (
         REFERENCES p2tr_signature_fraud_challenge_outbox(record_id)
         ON DELETE RESTRICT,
     -- The exact boundary this resolution speaks for. Resolving a boundary the
-    -- durable row does not currently own must be impossible.
+    -- durable row does not currently own must be impossible. The identity is
+    -- the invocation ID; the three fields after it are operator-facing detail,
+    -- bound into the evidence digest but no longer deciding ownership.
+    signer_invocation_id bytea NOT NULL CHECK (
+        octet_length(signer_invocation_id) = 32
+    ),
     boundary_started_at_unix_ms bigint NOT NULL CHECK (
         boundary_started_at_unix_ms BETWEEN 0 AND 9007199254740991
     ),
@@ -1761,12 +1795,10 @@ CREATE TABLE p2tr_signature_fraud_challenge_signer_boundary_resolution (
     resolved_at_unix_ms bigint NOT NULL CHECK (
         resolved_at_unix_ms BETWEEN invoked_at_unix_ms AND 9007199254740991
     ),
-    PRIMARY KEY (
-        record_id,
-        boundary_started_at_unix_ms,
-        preparation_attempts,
-        nonce_reservation_id
-    ),
+    -- Keyed on the deterministic invocation identity, not the wall-clock tuple
+    -- it replaces. `record_id` stays as the leading column because this is the
+    -- table's only index and two queries filter on it alone.
+    PRIMARY KEY (record_id, signer_invocation_id),
     -- Signed bytes are named exactly when, and only when, the signer is proven
     -- to have produced them.
     CHECK ((outcome = 'signed') = (signed_transaction_hash IS NOT NULL)),
@@ -1804,7 +1836,21 @@ BEGIN
             'orphaned signer boundary resolution names an absent outbox record';
     END IF;
 
-    IF outbox_record.active_signer_invocation_started_at_unix_ms
+    -- Identity is the invocation ID, compared against the durable column rather
+    -- than re-derived: PostgreSQL cannot recompute it (the binding preimage
+    -- spans three tables and a TypeScript layout), which is the same standard
+    -- nonce_reservation_id already met.
+    --
+    -- The other three remain checked. They are descriptive columns of
+    -- append-only evidence that nothing downstream reads, so leaving them
+    -- unchecked would let a resolution naming the right boundary write
+    -- permanently wrong forensics about it. None can drift while the marker is
+    -- set: the start is immutable in flight and NULL-paired with the ID, the
+    -- reservation cannot be NULLed under an active marker, and every transition
+    -- that bumps the attempt clears the marker in the same swap.
+    IF outbox_record.active_signer_invocation_id
+           IS DISTINCT FROM NEW.signer_invocation_id
+       OR outbox_record.active_signer_invocation_started_at_unix_ms
            IS DISTINCT FROM NEW.boundary_started_at_unix_ms
        OR outbox_record.preparation_attempts <> NEW.preparation_attempts
        OR outbox_record.nonce_reservation_id
@@ -1815,10 +1861,11 @@ BEGIN
 
     IF NEW.resolution_evidence_digest <> sha256(
            convert_to(
-               'tbtc-p2tr-signer-boundary-independent-resolution-v1',
+               'tbtc-p2tr-signer-boundary-independent-resolution-v2',
                'UTF8'
            )
            || NEW.record_id
+           || NEW.signer_invocation_id
            || int8send(NEW.boundary_started_at_unix_ms)
            || int8send(NEW.preparation_attempts::bigint)
            || NEW.nonce_reservation_id
@@ -4094,10 +4141,20 @@ BEGIN
            OLD.signer_invocation_started_at_unix_ms THEN
         RAISE EXCEPTION 'P2TR challenge signer invocation boundary is immutable';
     END IF;
+    IF OLD.signer_invocation_id IS NOT NULL
+       AND NEW.signer_invocation_id IS DISTINCT FROM OLD.signer_invocation_id THEN
+        RAISE EXCEPTION 'P2TR challenge signer invocation boundary is immutable';
+    END IF;
     IF OLD.active_signer_invocation_started_at_unix_ms IS NOT NULL
        AND NEW.active_signer_invocation_started_at_unix_ms IS NOT NULL
        AND NEW.active_signer_invocation_started_at_unix_ms IS DISTINCT FROM
            OLD.active_signer_invocation_started_at_unix_ms THEN
+        RAISE EXCEPTION 'active signer invocation boundary cannot be replaced in flight';
+    END IF;
+    IF OLD.active_signer_invocation_id IS NOT NULL
+       AND NEW.active_signer_invocation_id IS NOT NULL
+       AND NEW.active_signer_invocation_id IS DISTINCT FROM
+           OLD.active_signer_invocation_id THEN
         RAISE EXCEPTION 'active signer invocation boundary cannot be replaced in flight';
     END IF;
     IF OLD.active_signer_invocation_started_at_unix_ms IS NULL

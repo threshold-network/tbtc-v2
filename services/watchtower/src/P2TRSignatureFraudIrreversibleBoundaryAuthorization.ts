@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto"
+
 import {
   assertP2TRVerifiedLiveCoreCandidateEvidence,
   type P2TRVerifiedLiveCoreCandidateEvidence,
@@ -64,6 +66,46 @@ const boundaryAndRequestBindingKeysAgree: MutuallyAssignable<
   Exclude<keyof P2TRReconcilerRequestBinding, "recordGeneration">
 > = true
 void boundaryAndRequestBindingKeysAgree
+
+export const P2TR_SIGNATURE_FRAUD_SIGNER_INVOCATION_DOMAIN =
+  "tbtc-p2tr-signature-fraud-signer-invocation-v1"
+
+/**
+ * The deterministic identity of one signer invocation.
+ *
+ * It is derived from the request-binding digest rather than by walking the
+ * binding again, for two reasons. The binding is already canonicalized in
+ * exactly one place, and a second walk would need a third canonicalizer — the
+ * precise failure `boundaryAndRequestBindingKeysAgree` above exists to prevent,
+ * since a field added to the binding but missed by that walk would drop out of
+ * the identity with no compile error. And the input is normalized first, so two
+ * spellings of the same durable boundary cannot yield two identities.
+ *
+ * The domain must differ from the request-binding domain: without it this value
+ * would be byte-identical to a digest that travels to an external attester, and
+ * it is about to become a durable primary key.
+ *
+ * Deterministic means reproducible, not constant: `recordVersion` is part of the
+ * binding and increments on every successful compare-and-swap, so two distinct
+ * boundaries can never share an identity, while replaying the same durable
+ * attempt always reproduces it.
+ */
+export function computeP2TRSignatureFraudSignerInvocationID(
+  binding: P2TRSignatureFraudIrreversibleBoundaryBinding
+): string {
+  const requestBindingDigest = computeP2TRReconcilerRequestBindingDigest(
+    reconcilerRequestBinding(normalizeBoundaryBinding(binding))
+  )
+  return `0x${createHash("sha256")
+    .update(P2TR_SIGNATURE_FRAUD_SIGNER_INVOCATION_DOMAIN, "utf8")
+    .update(
+      Buffer.from(
+        bytes32(requestBindingDigest, "Request binding digest"),
+        "hex"
+      )
+    )
+    .digest("hex")}`
+}
 
 type PendingAuthorization = {
   binding: NormalizedBoundaryBinding

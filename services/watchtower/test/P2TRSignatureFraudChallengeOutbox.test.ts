@@ -74,6 +74,7 @@ import {
   invalidateP2TRSignatureFraudCanonicalProvenance,
   quarantineLegacyP2TRSignatureFraudSubmissions,
 } from "../src/P2TRSignatureFraudChallengeOutbox.js"
+import { computeP2TRSignatureFraudSignerInvocationID } from "../src/P2TRSignatureFraudIrreversibleBoundaryAuthorization.js"
 import {
   InMemoryOutboxStore,
   RollbackAwareInMemoryOutboxStore,
@@ -3334,4 +3335,114 @@ test("binds the reserved lane's envelope, not the manifest's first lane", async 
   assert.equal(binding.maxFeePerGas, "100")
   assert.equal(binding.maxPriorityFeePerGas, "10")
   assert.equal(binding.maxTotalFeeWei, "100000000")
+})
+
+test("commits a deterministic invocation identity with the signer marker", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const preparer = new FixedPreparer()
+  const authorizer = new FixedBoundaryAuthorizer()
+  // Observed at the instant the signer is called, i.e. strictly after the swap
+  // that made the boundary durable.
+  let atSignerCall: P2TRSignatureFraudChallengeOutboxRecord | undefined
+  preparer.afterInitialSign = async () => {
+    atSignerCall = await store.get(record.recordID)
+  }
+  const outbox = dispatcher(
+    store,
+    preparer,
+    new RecordingBroadcaster(),
+    new FixedRechecker(),
+    new FixedReconciler(),
+    () => 2_000,
+    100,
+    undefined,
+    authorizer
+  )
+
+  assert.equal(
+    (await outbox.prepare(record.recordID, "worker-a")).status,
+    "prepared"
+  )
+  const [binding] = authorizer.bindings
+  assert.ok(binding)
+  const expected = computeP2TRSignatureFraudSignerInvocationID(binding)
+
+  // The identity is durable before the signer runs, not written afterwards.
+  assert.equal(atSignerCall?.activeSignerInvocationStartedAtUnixMs, 2_000)
+  assert.equal(atSignerCall?.activeSignerInvocationID, expected)
+
+  // Deterministic: recomputing from the same binding reproduces it exactly,
+  // while any different boundary yields a different identity.
+  assert.equal(computeP2TRSignatureFraudSignerInvocationID(binding), expected)
+  assert.notEqual(
+    computeP2TRSignatureFraudSignerInvocationID({
+      ...binding,
+      attempt: binding.attempt + 1,
+    }),
+    expected
+  )
+
+  // Cleared with the marker once the signer returns, and promoted to the
+  // historical identity so the boundary that ran stays nameable.
+  const prepared = await store.get(record.recordID)
+  assert.equal(prepared?.activeSignerInvocationStartedAtUnixMs, undefined)
+  assert.equal(prepared?.activeSignerInvocationID, undefined)
+  assert.equal(prepared?.signerInvocationID, expected)
+})
+
+test("gives the replacement boundary its own committed identity", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const preparer = new FixedPreparer()
+  const authorizer = new FixedBoundaryAuthorizer()
+  const durableAtSign: (P2TRSignatureFraudChallengeOutboxRecord | undefined)[] =
+    []
+  preparer.afterInitialSign = async () => {
+    durableAtSign.push(await store.get(record.recordID))
+  }
+  preparer.afterReplacementSign = async () => {
+    durableAtSign.push(await store.get(record.recordID))
+  }
+  const outbox = dispatcher(
+    store,
+    preparer,
+    new RecordingBroadcaster(),
+    new FixedRechecker(),
+    new FixedReconciler(),
+    () => 2_000,
+    100,
+    undefined,
+    authorizer
+  )
+
+  assert.equal(
+    (await outbox.prepare(record.recordID, "worker-a")).status,
+    "prepared"
+  )
+  assert.equal(
+    (await outbox.prepareReplacement(record.recordID, "worker-b")).status,
+    "prepared"
+  )
+
+  const [prepareBinding, replacementBinding] = authorizer.bindings
+  assert.ok(prepareBinding)
+  assert.ok(replacementBinding)
+  const prepareID = computeP2TRSignatureFraudSignerInvocationID(prepareBinding)
+  const replacementID =
+    computeP2TRSignatureFraudSignerInvocationID(replacementBinding)
+
+  // Two boundaries on one record are two identities, each durable before its
+  // own signer call.
+  assert.notEqual(prepareID, replacementID)
+  assert.equal(durableAtSign[0]?.activeSignerInvocationID, prepareID)
+  assert.equal(durableAtSign[1]?.activeSignerInvocationID, replacementID)
+
+  // The historical identity names the FIRST boundary that reached a signer,
+  // matching the `??` semantics of signerInvocationStartedAtUnixMs beside it —
+  // it is proof that some signer call began, not a pointer to the latest.
+  const durable = await store.get(record.recordID)
+  assert.equal(durable?.activeSignerInvocationID, undefined)
+  assert.equal(durable?.signerInvocationID, prepareID)
+  assert.equal(durable?.signerInvocationStartedAtUnixMs, 2_000)
 })
