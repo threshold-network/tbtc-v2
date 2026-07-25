@@ -564,9 +564,14 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
     // once. Every claim is validated — a malformed one throws even if it is not
     // the claim this call recovers — and the first recoverable one is returned.
     // The caller drains the rest on subsequent passes.
-    let recoverable: P2TRSignatureFraudAmbiguousNonceReleaseInvocation | undefined
+    let recoverable:
+      | P2TRSignatureFraudAmbiguousNonceReleaseInvocation
+      | undefined
     for (const row of result.rows) {
-      const candidate = await this.hydrateAmbiguousNonceReleaseInvocation(row, now)
+      const candidate = await this.hydrateAmbiguousNonceReleaseInvocation(
+        row,
+        now
+      )
       if (recoverable === undefined) recoverable = candidate
     }
     return recoverable
