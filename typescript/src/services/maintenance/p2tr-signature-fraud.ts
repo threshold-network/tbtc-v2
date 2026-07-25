@@ -1623,17 +1623,17 @@ export const buildP2TRSignatureFraudSubmissionIntent = (
  *
  * @param intent Durable submission intent the signed bytes must satisfy.
  * @param prepared Prepared transaction whose raw bytes are authenticated.
+ * @param invocation Signer invocation request the transaction must echo.
+ *        Optional because the durable variant ledger re-validates historical
+ *        variants long after their request is gone. Supplied: the echo must
+ *        match exactly. Omitted: the echo is preserved untouched, never
+ *        invented.
  * @returns The prepared transaction with hash, sender and nonce rederived from
  *          the raw bytes rather than taken from the caller.
  */
 export const validateP2TRSignatureFraudPreparedChallengeTransaction = (
   intent: P2TRSignatureFraudSubmissionIntent,
   prepared: P2TRSignatureFraudPreparedChallengeTransaction,
-  /**
-   * Optional because the durable variant ledger re-validates historical
-   * variants long after their request is gone. Supplied: the echo must match
-   * exactly. Omitted: the echo is preserved untouched, never invented.
-   */
   invocation?: P2TRSignatureFraudSignerInvocationRequest
 ): P2TRSignatureFraudPreparedChallengeTransaction => {
   validateP2TRCompleteV2SignatureFraudSubmissionIntent(intent)
@@ -1771,7 +1771,13 @@ export const validateP2TRSignatureFraudPreparedChallengeTransaction = (
   }
 }
 
-/** Normalizes an echoed invocation request, or `undefined` when absent. */
+/**
+ * Normalizes an echoed invocation request, or `undefined` when absent.
+ *
+ * @param value Echoed invocation request, if the caller supplied one.
+ * @returns The request with both identifiers normalized to bytes32, or
+ *          `undefined` when there was nothing to echo.
+ */
 const normalizeP2TRSignatureFraudSignerInvocationEcho = (
   value: P2TRSignatureFraudSignerInvocationRequest | undefined
 ): P2TRSignatureFraudSignerInvocationRequest | undefined => {

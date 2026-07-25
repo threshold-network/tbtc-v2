@@ -40,7 +40,7 @@ in a follow-up SDK breaking-change release.
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:1948](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L1948)
+[src/services/maintenance/p2tr-signature-fraud.ts:2024](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2024)
 
 ___
 
@@ -64,4 +64,4 @@ ___
 
 #### Defined in
 
-[src/services/maintenance/p2tr-signature-fraud.ts:1949](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L1949)
+[src/services/maintenance/p2tr-signature-fraud.ts:2025](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/services/maintenance/p2tr-signature-fraud.ts#L2025)
