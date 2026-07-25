@@ -632,6 +632,42 @@ export type P2TRSignatureFraudSignerInvocationRequest = {
   requestDigest: Hex
 }
 
+/** Exact intrinsic gas of a value-less self-transfer; a burn is nothing else. */
+export const P2TR_SIGNATURE_FRAUD_NONCE_BURN_GAS_LIMIT = "21000" as const
+
+/**
+ * The fully determined envelope of a contested-nonce burn.
+ *
+ * A burn exists to make a nonce race terminate: it spends the reserved nonce on
+ * a transaction that does nothing, so whichever transaction confirms, any
+ * signed challenge bytes for that nonce become permanently inert. Every field
+ * is fixed by the caller — there is nothing for a signer to choose.
+ */
+export type P2TRSignatureFraudNonceBurnEnvelope = {
+  chainID: number
+  /** The burn pays itself: `to` is the reserved sender. */
+  sender: string
+  nonce: number
+  maxFeePerGas: string
+  maxPriorityFeePerGas: string
+}
+
+/**
+ * A signed burn. Deliberately NOT a prepared challenge transaction: it has no
+ * submission intent, and inventing one would corrupt the intent identity space
+ * that every challenge validator pins its calldata to.
+ */
+export type P2TRSignatureFraudPreparedNonceBurnTransaction = {
+  rawTransaction: string
+  transactionHash: Hex
+  sender: string
+  nonce: number
+  gasLimit: string
+  maxFeePerGas: string
+  maxPriorityFeePerGas: string
+  invocation?: P2TRSignatureFraudSignerInvocationRequest
+}
+
 export type P2TRSignatureFraudPreparedChallengeTransaction = {
   intentID: Hex
   rawTransaction: string
@@ -761,6 +797,23 @@ export interface P2TRSignatureFraudChallengeTransactionPreparer {
     feePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy,
     invocation: P2TRSignatureFraudSignerInvocationRequest
   ): Promise<P2TRSignatureFraudPreparedChallengeTransaction>
+
+  /**
+   * Signs a value-less self-transfer that spends the reserved nonce, so an
+   * unresolvable challenge boundary terminates on-chain instead of waiting for
+   * someone to say what the signer did.
+   *
+   * Implementations MUST sign exactly the supplied envelope and nothing else:
+   * `to` is the reserved sender, value and data are empty, the gas limit is
+   * 21000, and the nonce is the reservation's. There is no intent, no calldata
+   * and no discretion. A burn is safe to re-sign — every burn for one
+   * reservation spends the same nonce on the same nothing.
+   */
+  prepareSignatureFraudNonceBurnTransaction(
+    reservation: P2TRSignatureFraudBoundNonceReservation,
+    envelope: P2TRSignatureFraudNonceBurnEnvelope,
+    invocation: P2TRSignatureFraudSignerInvocationRequest
+  ): Promise<P2TRSignatureFraudPreparedNonceBurnTransaction>
 }
 
 const p2trSignatureFraudRouterInterface = new utils.Interface([
@@ -1782,6 +1835,129 @@ const normalizeP2TRSignatureFraudSignerInvocationEcho = (
       value.requestDigest,
       "Signer invocation request digest"
     ),
+  }
+}
+
+/**
+ * Authenticates a burn against the envelope it was asked to sign.
+ *
+ * Every field is checked against the request rather than merely being
+ * well-formed, because a burn's only job is to spend one specific nonce: a
+ * signer that returned a burn for a different nonce, a different sender, or
+ * one carrying value or calldata would be spending something else entirely.
+ */
+export const validateP2TRSignatureFraudPreparedNonceBurnTransaction = (
+  reservation: P2TRSignatureFraudBoundNonceReservation,
+  envelope: P2TRSignatureFraudNonceBurnEnvelope,
+  prepared: P2TRSignatureFraudPreparedNonceBurnTransaction,
+  invocation?: P2TRSignatureFraudSignerInvocationRequest
+): P2TRSignatureFraudPreparedNonceBurnTransaction => {
+  const echo = normalizeP2TRSignatureFraudSignerInvocationEcho(
+    prepared.invocation
+  )
+  if (invocation !== undefined) {
+    const expected = normalizeP2TRSignatureFraudSignerInvocationEcho(invocation)
+    if (
+      echo === undefined ||
+      echo.invocationID.toPrefixedString() !==
+        expected!.invocationID.toPrefixedString() ||
+      echo.requestDigest.toPrefixedString() !==
+        expected!.requestDigest.toPrefixedString()
+    ) {
+      throw new P2TRWitnessSignatureError(
+        "invalid-watchtower-state",
+        "Prepared nonce burn does not echo its signer invocation request"
+      )
+    }
+  }
+
+  const sender = normalizeP2TRSignatureFraudSubmissionAddress(
+    envelope.sender,
+    "Nonce burn sender"
+  )
+  if (
+    sender !==
+      normalizeP2TRSignatureFraudSubmissionAddress(
+        reservation.sender,
+        "Reserved nonce burn sender"
+      ) ||
+    envelope.nonce !== reservation.nonce
+  ) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Nonce burn envelope does not name its durable reservation"
+    )
+  }
+
+  let parsed
+  try {
+    parsed = utils.parseTransaction(utils.hexlify(prepared.rawTransaction))
+  } catch {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Prepared nonce burn must be a signed raw Ethereum transaction"
+    )
+  }
+  if (parsed.hash === undefined || parsed.from === undefined) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Prepared nonce burn must include a recoverable signature"
+    )
+  }
+  const parsedHash = toBytes32Hex(parsed.hash, "Prepared nonce burn hash")
+  if (
+    !parsedHash.equals(
+      toBytes32Hex(prepared.transactionHash, "Prepared nonce burn hash")
+    )
+  ) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Prepared nonce burn hash does not match its raw bytes"
+    )
+  }
+
+  // A burn spends the nonce and does nothing else: it pays its own sender, and
+  // carries neither value nor calldata. Anything else is a different
+  // transaction wearing a burn's name.
+  if (
+    parsed.to === undefined ||
+    utils.getAddress(parsed.to) !== sender ||
+    utils.getAddress(parsed.from) !== sender ||
+    parsed.nonce !== envelope.nonce ||
+    parsed.chainId !== envelope.chainID ||
+    !parsed.value.isZero() ||
+    parsed.data.toLowerCase() !== "0x"
+  ) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Prepared nonce burn does not spend exactly its reserved nonce on nothing"
+    )
+  }
+
+  if (
+    parsed.type !== 2 ||
+    parsed.maxFeePerGas === undefined ||
+    parsed.maxPriorityFeePerGas === undefined ||
+    !parsed.gasLimit.eq(P2TR_SIGNATURE_FRAUD_NONCE_BURN_GAS_LIMIT) ||
+    parsed.maxPriorityFeePerGas.gt(parsed.maxFeePerGas) ||
+    parsed.maxFeePerGas.gt(envelope.maxFeePerGas) ||
+    parsed.maxPriorityFeePerGas.gt(envelope.maxPriorityFeePerGas)
+  ) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Prepared nonce burn exceeds its authorized EIP-1559 envelope"
+    )
+  }
+
+  return {
+    rawTransaction: utils.hexlify(prepared.rawTransaction).toLowerCase(),
+    transactionHash: parsedHash,
+    sender: utils.getAddress(parsed.from),
+    nonce: parsed.nonce,
+    gasLimit: parsed.gasLimit.toString(),
+    maxFeePerGas: parsed.maxFeePerGas.toString(),
+    maxPriorityFeePerGas: parsed.maxPriorityFeePerGas.toString(),
+    ...(echo === undefined ? {} : { invocation: echo }),
   }
 }
 

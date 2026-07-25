@@ -7,6 +7,9 @@ import {
   P2TRSignatureFraudChallengeTransactionFeePolicy,
   P2TRSignatureFraudNonceReleaseAcknowledgement,
   P2TRSignatureFraudPreparedChallengeTransaction,
+  P2TRSignatureFraudPreparedNonceBurnTransaction,
+  P2TR_SIGNATURE_FRAUD_NONCE_BURN_GAS_LIMIT,
+  validateP2TRSignatureFraudPreparedNonceBurnTransaction,
   P2TRSignatureFraudSubmissionIntentOptions,
   P2TRSignatureFraudSubmissionIntent,
   P2TRSignatureFraudWitnessObservationConsistencyContext,
@@ -1569,6 +1572,18 @@ export type P2TRSignatureFraudSignerQuarantine = {
   detailsDigest: string
 }
 
+export type P2TRSignatureFraudContestedNonceBurn = {
+  transactionHash: string
+  rawTransaction: string
+  nonce: number
+  sender: string
+  maxFeePerGas: string
+  maxPriorityFeePerGas: string
+  signerInvocationID: string
+  signedAtUnixMs: number
+  broadcastAtUnixMs?: number
+}
+
 export type P2TRSignatureFraudChallengeOutboxRecord = {
   seriesID: string
   recordID: string
@@ -1616,6 +1631,13 @@ export type P2TRSignatureFraudChallengeOutboxRecord = {
   signerInvocationStartedAtUnixMs?: number
   /** Identity of the last boundary that reached a signer. */
   signerInvocationID?: string
+  /**
+   * A signed transaction that spends the reserved nonce on nothing, made
+   * durable before it is broadcast. Its presence means the lane's nonce race
+   * has been forced to terminate: whichever transaction confirms, signed
+   * challenge bytes for that nonce become inert.
+   */
+  contestedNonceBurn?: P2TRSignatureFraudContestedNonceBurn
   preparedTransaction?: P2TRSignatureFraudPreparedChallengeTransaction
   /** Append-only signed identities; the singular field aliases the last item. */
   preparedTransactionVariants?: readonly P2TRSignatureFraudPreparedTransactionVariant[]
@@ -2129,6 +2151,7 @@ export type P2TRSignatureFraudIrreversibleBoundaryStage =
   | "prepare"
   | "replacement"
   | "broadcast"
+  | "burn"
 
 /**
  * Exact durable state that must be independently re-authorized after the
@@ -4849,7 +4872,8 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       record,
       "Irreversible challenge boundary"
     )
-    if ((stage === "prepare") === (stageTransactionHash !== undefined)) {
+    const namesTransaction = stage === "replacement" || stage === "broadcast"
+    if (namesTransaction !== (stageTransactionHash !== undefined)) {
       throw new Error(
         "Only a challenge replacement or broadcast boundary may name a transaction hash"
       )
@@ -5010,6 +5034,126 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       )
     }
     return this.requireRecord(signerBoundary.recordID)
+  }
+
+  /**
+   * Forces a contested nonce race to terminate by spending the reserved nonce.
+   *
+   * For an orphaned boundary nobody can decide from outside whether the signer
+   * produced bytes; delivery delay is unbounded, so absence is never provable.
+   * This sidesteps the question rather than answering it. Ethereum already
+   * guarantees at most one transaction confirms per nonce, so spending that
+   * nonce on a self-transfer makes any signed challenge bytes for it inert —
+   * whichever transaction wins. The result is decidable from public data and
+   * resolvable through the `nonce-consumed` outcome.
+   *
+   * It deliberately does NOT open a second signer boundary. The existing
+   * marker stays exactly as it is: it is immutable in flight, and a burn adds
+   * no new ambiguity to resolve — every burn for one reservation spends the
+   * same nonce on the same nothing, so an escaped burn is indistinguishable
+   * from the one we kept.
+   */
+  async burnContestedNonce(
+    recordID: Hex | Buffer | string
+  ): Promise<P2TRSignatureFraudChallengeOutboxRecord> {
+    this.store.assertExternalIOTransactionBoundary()
+    const key = normalizeBytes32(recordID, "Challenge outbox record ID")
+    const current = await this.requireRecord(key)
+    if (current.activeSignerInvocationStartedAtUnixMs === undefined) {
+      throw new Error(
+        "Only a boundary with an unresolved signer invocation may burn its nonce"
+      )
+    }
+    const reservation = requireReservedNonce(current, "Contested nonce burn")
+    if (current.contestedNonceBurn !== undefined) {
+      // Already forced. Re-broadcasting the exact same bytes is safe and is the
+      // only retry a burn ever needs.
+      await this.broadcaster.broadcastRawTransaction(
+        current.contestedNonceBurn.rawTransaction
+      )
+      return current
+    }
+
+    const feePolicy = feePolicyForReservation(current, reservation)
+    const envelope = contestedNonceBurnEnvelope(current, feePolicy, reservation)
+    const preparer = this.preparerForReservation(reservation)
+    if (preparer === undefined) {
+      throw new Error(
+        "Contested nonce burn has no configured signer for its reserved lane"
+      )
+    }
+    const binding = this.buildIrreversibleBoundaryBinding(
+      current,
+      "burn",
+      current.preparationAttempts,
+      feePolicy
+    )
+    const invocation = computeP2TRSignatureFraudSignerInvocationRequest(binding)
+    const authorization =
+      await this.irreversibleBoundaryAuthorizer.authorizeP2TRSignatureFraudIrreversibleBoundary(
+        binding
+      )
+    this.irreversibleBoundaryAuthorizer.assertAndConsumeP2TRSignatureFraudIrreversibleBoundaryAuthorization(
+      authorization,
+      binding,
+      requireUnixMilliseconds(this.now(), "Burn authorization consumption time")
+    )
+
+    const signed = validateP2TRSignatureFraudPreparedNonceBurnTransaction(
+      reservation,
+      envelope,
+      await preparer.prepareSignatureFraudNonceBurnTransaction(
+        reservation,
+        envelope,
+        signerInvocationRequest(invocation)
+      ),
+      signerInvocationRequest(invocation)
+    )
+
+    // Durable before the broadcaster is called, exactly as the challenge send
+    // boundary is: a crash from here on can only re-send identical bytes.
+    const signedAtUnixMs = requireUnixMilliseconds(
+      this.now(),
+      "Contested nonce burn signing time"
+    )
+    const burned = nextRecord(current, {
+      contestedNonceBurn: {
+        transactionHash: normalizeBytes32(
+          signed.transactionHash,
+          "Contested nonce burn hash"
+        ),
+        rawTransaction: normalizeHexData(
+          signed.rawTransaction,
+          "Contested nonce burn bytes"
+        ),
+        nonce: signed.nonce,
+        sender: normalizeAddress(signed.sender, "Contested nonce burn sender"),
+        maxFeePerGas: signed.maxFeePerGas,
+        maxPriorityFeePerGas: signed.maxPriorityFeePerGas,
+        signerInvocationID: invocation.invocationID,
+        signedAtUnixMs,
+      },
+      updatedAtUnixMs: signedAtUnixMs,
+    })
+    if (!(await this.store.compareAndSwap(key, current.version, burned))) {
+      return this.requireRecord(key)
+    }
+    await this.broadcaster.broadcastRawTransaction(signed.rawTransaction)
+    const acknowledged = nextRecord(burned, {
+      contestedNonceBurn: {
+        ...burned.contestedNonceBurn!,
+        broadcastAtUnixMs: requireUnixMilliseconds(
+          this.now(),
+          "Contested nonce burn broadcast time"
+        ),
+      },
+      updatedAtUnixMs: requireUnixMilliseconds(
+        this.now(),
+        "Contested nonce burn acknowledgement time"
+      ),
+    })
+    await this.store.compareAndSwap(key, burned.version, acknowledged)
+    return this.requireRecord(key)
   }
 
   /**
@@ -6195,6 +6339,62 @@ const signerInvocationRequest = (invocation: {
   invocationID: Hex.from(invocation.invocationID),
   requestDigest: Hex.from(invocation.requestDigest),
 })
+
+/**
+ * The burn's fee envelope, derived from the lane caps rather than added to the
+ * activation manifest.
+ *
+ * A burn only has to outbid the authorized variants it is racing, and every
+ * one of those is capped at the lane's own `maxFeePerGas`. A fixed multiple of
+ * that cap therefore clears them all with margin — the 10% minimum bump most
+ * clients require, and then some — without introducing a number nobody signed.
+ *
+ * The result is still manifest-bound where it matters: the burn's whole spend
+ * is 21000 gas at the derived cap, and that is required to fit inside the
+ * `maxTotalFeeWei` the manifest already commits. A lane whose committed total
+ * cannot cover a burn cannot authorize one, and fails closed.
+ */
+const P2TR_SIGNATURE_FRAUD_NONCE_BURN_FEE_MULTIPLIER = 2n
+
+const contestedNonceBurnEnvelope = (
+  record: P2TRSignatureFraudChallengeOutboxRecord,
+  feePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy,
+  reservation: P2TRSignatureFraudBoundNonceReservation
+): {
+  chainID: number
+  sender: string
+  nonce: number
+  maxFeePerGas: string
+  maxPriorityFeePerGas: string
+} => {
+  const maxFeePerGas =
+    BigInt(
+      normalizePolicyUint256(feePolicy.maxFeePerGas, "Burn lane fee cap")
+    ) * P2TR_SIGNATURE_FRAUD_NONCE_BURN_FEE_MULTIPLIER
+  const maxPriorityFeePerGas =
+    BigInt(
+      normalizePolicyUint256(
+        feePolicy.maxPriorityFeePerGas,
+        "Burn lane priority cap"
+      )
+    ) * P2TR_SIGNATURE_FRAUD_NONCE_BURN_FEE_MULTIPLIER
+  const gasLimit = BigInt(P2TR_SIGNATURE_FRAUD_NONCE_BURN_GAS_LIMIT)
+  const maxTotalFeeWei = BigInt(
+    normalizePolicyUint256(feePolicy.maxTotalFeeWei, "Burn lane total cap")
+  )
+  if (gasLimit * maxFeePerGas > maxTotalFeeWei) {
+    throw new Error(
+      "Contested nonce burn does not fit inside the committed lane fee total"
+    )
+  }
+  return {
+    chainID: requirePositiveSafeInteger(record.intent.chainID, "Burn chain ID"),
+    sender: normalizeAddress(reservation.sender, "Burn sender"),
+    nonce: requireNonNegativeSafeInteger(reservation.nonce, "Burn nonce"),
+    maxFeePerGas: maxFeePerGas.toString(),
+    maxPriorityFeePerGas: maxPriorityFeePerGas.toString(),
+  }
+}
 
 const requireReservedNonce = (
   record: P2TRSignatureFraudChallengeOutboxRecord,

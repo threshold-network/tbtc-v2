@@ -32,7 +32,7 @@ export type P2TRReconcilerRequestBinding = {
   reservationID: string
   sender: string
   transactionNonce: number
-  stage: "prepare" | "replacement" | "broadcast"
+  stage: "prepare" | "replacement" | "broadcast" | "burn"
   attempt: number
   provenanceFingerprint: string
   activationManifestHash: string
@@ -1186,7 +1186,8 @@ function normalizeRequestBinding(
   if (
     value.stage !== "prepare" &&
     value.stage !== "replacement" &&
-    value.stage !== "broadcast"
+    value.stage !== "broadcast" &&
+    value.stage !== "burn"
   ) {
     throw new Error("Reconciler request stage is invalid")
   }

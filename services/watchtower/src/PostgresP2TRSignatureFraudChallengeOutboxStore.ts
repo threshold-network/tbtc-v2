@@ -4258,6 +4258,7 @@ const DURABLE_OUTBOX_RECORD_KEYS = new Set([
   "activeSignerInvocationID",
   "signerInvocationStartedAtUnixMs",
   "signerInvocationID",
+  "contestedNonceBurn",
   "preparedTransaction",
   "preparedTransactionVariants",
   "lastBroadcastAtUnixMs",
