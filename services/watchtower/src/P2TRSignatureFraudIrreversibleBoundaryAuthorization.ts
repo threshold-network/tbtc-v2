@@ -326,7 +326,8 @@ function normalizeBoundaryBinding(
   if (
     value?.stage !== "prepare" &&
     value?.stage !== "replacement" &&
-    value?.stage !== "broadcast"
+    value?.stage !== "broadcast" &&
+    value?.stage !== "burn"
   ) {
     throw new Error("Irreversible-boundary stage is invalid")
   }
