@@ -30,7 +30,7 @@ import {
 
 // A value import, unlike the authorization module's type-only import of this
 // file, so the dependency runs one way at run time and there is no cycle.
-import { computeP2TRSignatureFraudSignerInvocationID } from "./P2TRSignatureFraudIrreversibleBoundaryAuthorization.js"
+import { computeP2TRSignatureFraudSignerInvocationRequest } from "./P2TRSignatureFraudIrreversibleBoundaryAuthorization.js"
 import type { P2TRSignatureFraudWatchtowerStoreProfileProvider } from "./types.js"
 
 export const P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_PAGE_SIZE = 1_000
@@ -1193,6 +1193,7 @@ export type P2TRSignatureFraudSignerQuarantine = {
     | "wrong-sender"
     | "wrong-nonce"
     | "malformed-signed-envelope"
+    | "wrong-signer-invocation-request"
     | "invalid-replacement-envelope"
     | "reservation-binding-mismatch"
     | "reservation-provider-failure"
@@ -2390,11 +2391,12 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         `Initial signer authorization failed: ${errorMessage(error)}`
       )
     }
+    const signerInvocation = computeP2TRSignatureFraudSignerInvocationRequest(
+      signerAuthorizationBinding
+    )
     const signerBoundary: P2TRSignatureFraudChallengeOutboxRecord = {
       ...pendingBoundary,
-      activeSignerInvocationID: computeP2TRSignatureFraudSignerInvocationID(
-        signerAuthorizationBinding
-      ),
+      activeSignerInvocationID: signerInvocation.invocationID,
     }
     if (
       !(await this.store.compareAndSwapWithCurrentCanonicalProvenance(
@@ -2447,7 +2449,8 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         await selectedPreparer.prepareSignatureFraudChallengeTransaction(
           signerBoundary.intent,
           reservation,
-          selectedFeePolicy
+          selectedFeePolicy,
+          signerInvocationRequest(signerInvocation)
         )
     } catch (error) {
       const failed = this.signerFailureRecord(
@@ -2495,6 +2498,15 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         )
       }
       return this.requireRecord(key)
+    }
+    const echoMismatch = signerInvocationEchoMismatch(escaped, signerInvocation)
+    if (echoMismatch !== undefined) {
+      return this.completeWrongInvocationRequest(
+        signerBoundary,
+        selectedPreparer,
+        escaped,
+        echoMismatch
+      )
     }
     try {
       prepared =
@@ -2743,11 +2755,12 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         `Replacement signer authorization failed: ${errorMessage(error)}`
       )
     }
+    const signerInvocation = computeP2TRSignatureFraudSignerInvocationRequest(
+      signerAuthorizationBinding
+    )
     const signerBoundary: P2TRSignatureFraudChallengeOutboxRecord = {
       ...pendingBoundary,
-      activeSignerInvocationID: computeP2TRSignatureFraudSignerInvocationID(
-        signerAuthorizationBinding
-      ),
+      activeSignerInvocationID: signerInvocation.invocationID,
     }
     if (
       !(await this.store.compareAndSwapWithCurrentCanonicalProvenance(
@@ -2797,7 +2810,8 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
           signerBoundary.intent,
           current.reservedNonce,
           previous,
-          selectedFeePolicy
+          selectedFeePolicy,
+          signerInvocationRequest(signerInvocation)
         )
     } catch (error) {
       const failed = this.signerFailureRecord(
@@ -2845,6 +2859,15 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         )
       }
       return this.requireRecord(key)
+    }
+    const echoMismatch = signerInvocationEchoMismatch(escaped, signerInvocation)
+    if (echoMismatch !== undefined) {
+      return this.completeWrongInvocationRequest(
+        signerBoundary,
+        selectedPreparer,
+        escaped,
+        echoMismatch
+      )
     }
     try {
       replacement =
@@ -4590,6 +4613,39 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
   }
 
   /**
+   * Completes a boundary whose signer served a different request.
+   *
+   * The bytes are fully authenticated by this point, so they are captured as an
+   * unexpected signed artifact rather than discarded: the signer was invoked,
+   * consumed the reserved nonce, and may hold further bytes we never saw.
+   * Treating this as an uninvoked boundary would be a lie about the nonce.
+   */
+  private async completeWrongInvocationRequest(
+    signerBoundary: P2TRSignatureFraudChallengeOutboxRecord,
+    preparer: P2TRSignatureFraudChallengeTransactionPreparer,
+    escaped: P2TRSignatureFraudPreparedChallengeTransaction,
+    reason: string
+  ): Promise<P2TRSignatureFraudChallengeOutboxRecord> {
+    const failed = this.signerFailureRecord(
+      signerBoundary,
+      preparer,
+      reason,
+      true,
+      escaped,
+      "wrong-signer-invocation-request"
+    )
+    if (!(await this.compareAndSwapSignerCompletion(signerBoundary, failed))) {
+      return this.completeSignerFailureAfterLostCas(
+        signerBoundary,
+        preparer,
+        reason,
+        "wrong-signer-invocation-request"
+      )
+    }
+    return this.requireRecord(signerBoundary.recordID)
+  }
+
+  /**
    * Records why a boundary binding could not be built, for a claim that never
    * reached the durable marker. There is nothing to clear — the invocation
    * identity is derived before the swap that would set the marker, so a failure
@@ -5728,6 +5784,50 @@ const validateRecordFeePolicyManifest = (
     )
   }
 }
+
+/**
+ * Compares the echo the signer returned against the request it was handed.
+ *
+ * Returns a reason on mismatch, `undefined` when they agree. The echo is an
+ * assertion — a signer can copy it beside bytes it signed for something else —
+ * so this catches a response that does not belong to this request, not a signer
+ * that lies. Conformance of the transaction to the request is enforced
+ * separately and field by field by the SDK validators.
+ */
+const signerInvocationEchoMismatch = (
+  prepared: P2TRSignatureFraudPreparedChallengeTransaction,
+  expected: { invocationID: string; requestDigest: string }
+): string | undefined => {
+  const echo = prepared.invocation
+  if (echo === undefined) {
+    return "Signer returned no invocation request echo"
+  }
+  const echoedID = normalizeBytes32(
+    echo.invocationID,
+    "Echoed signer invocation ID"
+  )
+  const echoedDigest = normalizeBytes32(
+    echo.requestDigest,
+    "Echoed signer invocation request digest"
+  )
+  if (
+    echoedID !== normalizeBytes32(expected.invocationID, "Invocation ID") ||
+    echoedDigest !==
+      normalizeBytes32(expected.requestDigest, "Invocation request digest")
+  ) {
+    return "Signer echoed another invocation request"
+  }
+  return undefined
+}
+
+/** Bridges the record's plain-hex identities into the SDK's `Hex` shape. */
+const signerInvocationRequest = (invocation: {
+  invocationID: string
+  requestDigest: string
+}) => ({
+  invocationID: Hex.from(invocation.invocationID),
+  requestDigest: Hex.from(invocation.requestDigest),
+})
 
 const requireReservedNonce = (
   record: P2TRSignatureFraudChallengeOutboxRecord,

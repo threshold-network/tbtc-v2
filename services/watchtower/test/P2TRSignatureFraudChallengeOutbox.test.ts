@@ -8,6 +8,7 @@ import {
   P2TRSignatureFraudChallengeTransactionFeePolicy,
   P2TRSignatureFraudChallengeTransactionPreparer,
   P2TRSignatureFraudPreparedChallengeTransaction,
+  P2TRSignatureFraudSignerInvocationRequest,
   P2TRSignatureFraudSubmissionIntent,
   P2TRWatchtowerChallengeRecord,
   P2TR_SIGNATURE_FRAUD_COMPLETE_V2_CHALLENGE_EVIDENCE_ABI_TYPE,
@@ -74,7 +75,10 @@ import {
   invalidateP2TRSignatureFraudCanonicalProvenance,
   quarantineLegacyP2TRSignatureFraudSubmissions,
 } from "../src/P2TRSignatureFraudChallengeOutbox.js"
-import { computeP2TRSignatureFraudSignerInvocationID } from "../src/P2TRSignatureFraudIrreversibleBoundaryAuthorization.js"
+import {
+  computeP2TRSignatureFraudSignerInvocationID,
+  computeP2TRSignatureFraudSignerInvocationRequest,
+} from "../src/P2TRSignatureFraudIrreversibleBoundaryAuthorization.js"
 import {
   InMemoryOutboxStore,
   RollbackAwareInMemoryOutboxStore,
@@ -420,6 +424,11 @@ class FixedPreparer implements P2TRSignatureFraudChallengeTransactionPreparer {
   reservationCalls = 0
   releasedReservations: string[] = []
   readonly acknowledgedReleaseRequests = new Set<string>()
+  readonly invocations: P2TRSignatureFraudSignerInvocationRequest[] = []
+  /** Lets a test return an echo other than the one the signer was handed. */
+  echoInvocation?: (
+    invocation: P2TRSignatureFraudSignerInvocationRequest
+  ) => P2TRSignatureFraudSignerInvocationRequest | undefined
   releaseError?: Error
   rawTransaction = RAW_TRANSACTION
   transactionHash = TRANSACTION_HASH
@@ -525,9 +534,11 @@ class FixedPreparer implements P2TRSignatureFraudChallengeTransactionPreparer {
   async prepareSignatureFraudChallengeTransaction(
     intent: P2TRSignatureFraudSubmissionIntent,
     _reservation: P2TRSignatureFraudBoundNonceReservation,
-    _feePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy
+    _feePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy,
+    invocation: P2TRSignatureFraudSignerInvocationRequest
   ): Promise<P2TRSignatureFraudPreparedChallengeTransaction> {
     this.calls++
+    this.invocations.push(invocation)
     await Promise.resolve()
     const prepared = {
       intentID: intent.intentID,
@@ -535,6 +546,10 @@ class FixedPreparer implements P2TRSignatureFraudChallengeTransactionPreparer {
       transactionHash: Hex.from(this.transactionHash),
       sender: TRANSACTION_SENDER,
       nonce: 7,
+      invocation:
+        this.echoInvocation === undefined
+          ? invocation
+          : this.echoInvocation(invocation),
     }
     await this.afterInitialSign?.(prepared)
     return prepared
@@ -544,9 +559,11 @@ class FixedPreparer implements P2TRSignatureFraudChallengeTransactionPreparer {
     intent: P2TRSignatureFraudSubmissionIntent,
     _reservation: P2TRSignatureFraudBoundNonceReservation,
     _previous: P2TRSignatureFraudPreparedChallengeTransaction,
-    _feePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy
+    _feePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy,
+    invocation: P2TRSignatureFraudSignerInvocationRequest
   ): Promise<P2TRSignatureFraudPreparedChallengeTransaction> {
     this.replacementCalls++
+    this.invocations.push(invocation)
     await Promise.resolve()
     const prepared = {
       intentID: intent.intentID,
@@ -554,6 +571,10 @@ class FixedPreparer implements P2TRSignatureFraudChallengeTransactionPreparer {
       transactionHash: Hex.from(this.replacementTransactionHash),
       sender: TRANSACTION_SENDER,
       nonce: 7,
+      invocation:
+        this.echoInvocation === undefined
+          ? invocation
+          : this.echoInvocation(invocation),
     }
     await this.afterReplacementSign?.(prepared)
     return prepared
@@ -581,7 +602,8 @@ class DynamicFeePreparer extends FixedPreparer {
     gasLimit: number,
     maxFeePerGas: number,
     maxPriorityFeePerGas: number,
-    value: string
+    value: string,
+    invocation: P2TRSignatureFraudSignerInvocationRequest
   ): Promise<P2TRSignatureFraudPreparedChallengeTransaction> {
     const rawTransaction = await this.wallet.signTransaction({
       type: 2,
@@ -601,11 +623,15 @@ class DynamicFeePreparer extends FixedPreparer {
       transactionHash: Hex.from(parsed.hash!),
       sender: this.wallet.address,
       nonce: 7,
+      invocation,
     }
   }
 
   override async prepareSignatureFraudChallengeTransaction(
-    intent: P2TRSignatureFraudSubmissionIntent
+    intent: P2TRSignatureFraudSubmissionIntent,
+    _reservation: P2TRSignatureFraudBoundNonceReservation,
+    _feePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy,
+    invocation: P2TRSignatureFraudSignerInvocationRequest
   ): Promise<P2TRSignatureFraudPreparedChallengeTransaction> {
     this.calls++
     return this.sign(
@@ -613,12 +639,17 @@ class DynamicFeePreparer extends FixedPreparer {
       this.initialGasLimit,
       this.initialMaxFeePerGas,
       this.initialPriorityFeePerGas,
-      this.initialValue
+      this.initialValue,
+      invocation
     )
   }
 
   override async prepareSignatureFraudChallengeReplacementTransaction(
-    intent: P2TRSignatureFraudSubmissionIntent
+    intent: P2TRSignatureFraudSubmissionIntent,
+    _reservation: P2TRSignatureFraudBoundNonceReservation,
+    _previous: P2TRSignatureFraudPreparedChallengeTransaction,
+    _feePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy,
+    invocation: P2TRSignatureFraudSignerInvocationRequest
   ): Promise<P2TRSignatureFraudPreparedChallengeTransaction> {
     this.replacementCalls++
     return this.sign(
@@ -626,7 +657,8 @@ class DynamicFeePreparer extends FixedPreparer {
       this.replacementGasLimit,
       this.replacementMaxFeePerGas,
       this.replacementPriorityFeePerGas,
-      this.initialValue
+      this.initialValue,
+      invocation
     )
   }
 }
@@ -3445,4 +3477,111 @@ test("gives the replacement boundary its own committed identity", async () => {
   assert.equal(durable?.activeSignerInvocationID, undefined)
   assert.equal(durable?.signerInvocationID, prepareID)
   assert.equal(durable?.signerInvocationStartedAtUnixMs, 2_000)
+})
+
+test("hands the signer its invocation request and requires the echo back", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const preparer = new FixedPreparer()
+  const authorizer = new FixedBoundaryAuthorizer()
+  const outbox = dispatcher(
+    store,
+    preparer,
+    new RecordingBroadcaster(),
+    new FixedRechecker(),
+    new FixedReconciler(),
+    () => 2_000,
+    100,
+    undefined,
+    authorizer
+  )
+
+  assert.equal(
+    (await outbox.prepare(record.recordID, "worker-a")).status,
+    "prepared"
+  )
+
+  // The signer is handed exactly the identity the outbox committed durably,
+  // and the digest that identity is derived from.
+  const [binding] = authorizer.bindings
+  assert.ok(binding)
+  const expected = computeP2TRSignatureFraudSignerInvocationRequest(binding)
+  assert.equal(preparer.invocations.length, 1)
+  assert.equal(
+    preparer.invocations[0].invocationID.toPrefixedString(),
+    expected.invocationID
+  )
+  assert.equal(
+    preparer.invocations[0].requestDigest.toPrefixedString(),
+    expected.requestDigest
+  )
+
+  // The echo survives validation and the durable round trip.
+  const durable = await store.get(record.recordID)
+  assert.equal(
+    durable?.preparedTransaction?.invocation?.invocationID.toPrefixedString(),
+    expected.invocationID
+  )
+})
+
+test("captures the bytes when the signer serves another invocation request", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const preparer = new FixedPreparer()
+  // A signer that returns a well-formed, correctly signed transaction while
+  // claiming it served a different request.
+  preparer.echoInvocation = (invocation) => ({
+    invocationID: Hex.from(`0x${"e7".repeat(32)}`),
+    requestDigest: invocation.requestDigest,
+  })
+  const authorizer = new FixedBoundaryAuthorizer()
+  const outbox = dispatcher(
+    store,
+    preparer,
+    new RecordingBroadcaster(),
+    new FixedRechecker(),
+    new FixedReconciler(),
+    () => 2_000,
+    100,
+    undefined,
+    authorizer
+  )
+
+  const settled = await outbox.prepare(record.recordID, "worker-a")
+
+  // The signer WAS invoked and the nonce may be spent, so the boundary must not
+  // be recorded as uninvoked, and the authenticated bytes must be retained.
+  assert.equal(preparer.calls, 1)
+  assert.equal(settled.preparedTransaction, undefined)
+  assert.ok(settled.signerInvocationStartedAtUnixMs)
+  assert.equal(settled.unexpectedSignedArtifacts?.length, 1)
+  assert.match(String(settled.lastError), /another invocation request/)
+  assert.equal(
+    settled.signerQuarantines?.[0]?.reasonCode,
+    "wrong-signer-invocation-request"
+  )
+})
+
+test("rejects a signer that returns no invocation echo at all", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const preparer = new FixedPreparer()
+  preparer.echoInvocation = () => undefined
+  const authorizer = new FixedBoundaryAuthorizer()
+  const outbox = dispatcher(
+    store,
+    preparer,
+    new RecordingBroadcaster(),
+    new FixedRechecker(),
+    new FixedReconciler(),
+    () => 2_000,
+    100,
+    undefined,
+    authorizer
+  )
+
+  const settled = await outbox.prepare(record.recordID, "worker-a")
+  assert.equal(settled.preparedTransaction, undefined)
+  assert.match(String(settled.lastError), /no invocation request echo/)
+  assert.equal(settled.unexpectedSignedArtifacts?.length, 1)
 })

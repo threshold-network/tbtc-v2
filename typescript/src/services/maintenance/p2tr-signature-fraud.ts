@@ -618,12 +618,38 @@ export type P2TRSignatureFraudSubmissionIntentOptions = {
   challengeDepositAmount: BigNumberish
 }
 
+/**
+ * Names the exact request a signer is being asked to serve.
+ *
+ * Deliberately opaque: the caller's boundary binding is an internal record
+ * shape belonging to the watchtower, and the dependency runs watchtower -> SDK,
+ * so the SDK carries only the two identities. `invocationID` is the caller's
+ * durable identity for this invocation; `requestDigest` is the digest of the
+ * request it authorizes.
+ */
+export type P2TRSignatureFraudSignerInvocationRequest = {
+  invocationID: Hex
+  requestDigest: Hex
+}
+
 export type P2TRSignatureFraudPreparedChallengeTransaction = {
   intentID: Hex
   rawTransaction: string
   transactionHash: Hex
   sender: string
   nonce: number
+  /**
+   * The request the signer believed it was serving, echoed back.
+   *
+   * This is an assertion, not evidence: the digest is a plaintext parameter and
+   * a signer can copy it beside bytes it signed for something else. Nothing
+   * about the signature is proven by it. What it does catch is a response that
+   * does not belong to this request — a crossed transport, a cached reply from
+   * an earlier attempt, another tenant's queued job, or a signer that silently
+   * ignores parameters it does not understand. Conformance of the transaction
+   * itself to the request is enforced separately, field by field, below.
+   */
+  invocation?: P2TRSignatureFraudSignerInvocationRequest
   eip1559?: {
     transactionType: 2
     gasLimit: string
@@ -719,7 +745,8 @@ export interface P2TRSignatureFraudChallengeTransactionPreparer {
   prepareSignatureFraudChallengeTransaction(
     intent: P2TRSignatureFraudSubmissionIntent,
     reservation: P2TRSignatureFraudBoundNonceReservation,
-    feePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy
+    feePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy,
+    invocation: P2TRSignatureFraudSignerInvocationRequest
   ): Promise<P2TRSignatureFraudPreparedChallengeTransaction>
 
   /**
@@ -731,7 +758,8 @@ export interface P2TRSignatureFraudChallengeTransactionPreparer {
     intent: P2TRSignatureFraudSubmissionIntent,
     reservation: P2TRSignatureFraudBoundNonceReservation,
     previous: P2TRSignatureFraudPreparedChallengeTransaction,
-    feePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy
+    feePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy,
+    invocation: P2TRSignatureFraudSignerInvocationRequest
   ): Promise<P2TRSignatureFraudPreparedChallengeTransaction>
 }
 
@@ -1591,9 +1619,33 @@ export const buildP2TRSignatureFraudSubmissionIntent = (
  */
 export const validateP2TRSignatureFraudPreparedChallengeTransaction = (
   intent: P2TRSignatureFraudSubmissionIntent,
-  prepared: P2TRSignatureFraudPreparedChallengeTransaction
+  prepared: P2TRSignatureFraudPreparedChallengeTransaction,
+  /**
+   * Optional because the durable variant ledger re-validates historical
+   * variants long after their request is gone. Supplied: the echo must match
+   * exactly. Omitted: the echo is preserved untouched, never invented.
+   */
+  invocation?: P2TRSignatureFraudSignerInvocationRequest
 ): P2TRSignatureFraudPreparedChallengeTransaction => {
   validateP2TRCompleteV2SignatureFraudSubmissionIntent(intent)
+  const echo = normalizeP2TRSignatureFraudSignerInvocationEcho(
+    prepared.invocation
+  )
+  if (invocation !== undefined) {
+    const expected = normalizeP2TRSignatureFraudSignerInvocationEcho(invocation)
+    if (
+      echo === undefined ||
+      echo.invocationID.toPrefixedString() !==
+        expected!.invocationID.toPrefixedString() ||
+      echo.requestDigest.toPrefixedString() !==
+        expected!.requestDigest.toPrefixedString()
+    ) {
+      throw new P2TRWitnessSignatureError(
+        "invalid-watchtower-state",
+        "Prepared challenge transaction does not echo its signer invocation request"
+      )
+    }
+  }
   const expectedIntentID = computeP2TRSignatureFraudSubmissionIntentID({
     protocol: intent.protocol,
     evidenceProtocolID: intent.evidenceProtocolID,
@@ -1706,6 +1758,24 @@ export const validateP2TRSignatureFraudPreparedChallengeTransaction = (
     transactionHash: parsedHash,
     sender: utils.getAddress(parsed.from),
     nonce: parsed.nonce,
+    ...(echo === undefined ? {} : { invocation: echo }),
+  }
+}
+
+/** Normalizes an echoed invocation request, or `undefined` when absent. */
+const normalizeP2TRSignatureFraudSignerInvocationEcho = (
+  value: P2TRSignatureFraudSignerInvocationRequest | undefined
+): P2TRSignatureFraudSignerInvocationRequest | undefined => {
+  if (value === undefined) return undefined
+  return {
+    invocationID: toBytes32Hex(
+      value.invocationID,
+      "Signer invocation request ID"
+    ),
+    requestDigest: toBytes32Hex(
+      value.requestDigest,
+      "Signer invocation request digest"
+    ),
   }
 }
 

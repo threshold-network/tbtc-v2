@@ -4305,7 +4305,13 @@ const DURABLE_PREPARED_TRANSACTION_KEYS = new Set([
   "transactionHash",
   "sender",
   "nonce",
+  "invocation",
   "eip1559",
+])
+
+const DURABLE_SIGNER_INVOCATION_KEYS = new Set([
+  "invocationID",
+  "requestDigest",
 ])
 
 const DURABLE_EIP1559_KEYS = new Set([
@@ -4542,6 +4548,13 @@ function assertCompactDurableOutboxRecord(
       DURABLE_PREPARED_TRANSACTION_KEYS,
       "prepared transaction"
     )
+    if (transaction.invocation !== undefined) {
+      assertExactKeys(
+        transaction.invocation,
+        DURABLE_SIGNER_INVOCATION_KEYS,
+        "prepared signer invocation request"
+      )
+    }
     if (transaction.eip1559 !== undefined) {
       assertExactKeys(
         transaction.eip1559,
@@ -5619,6 +5632,20 @@ function hydratePreparedTransaction(
   transaction.transactionHash = Hex.from(
     hexValue(transaction.transactionHash, "Stored prepared transaction hash")
   )
+  if (transaction.invocation !== undefined) {
+    transaction.invocation.invocationID = Hex.from(
+      hexValue(
+        transaction.invocation.invocationID,
+        "Stored prepared signer invocation ID"
+      )
+    )
+    transaction.invocation.requestDigest = Hex.from(
+      hexValue(
+        transaction.invocation.requestDigest,
+        "Stored prepared signer invocation request digest"
+      )
+    )
+  }
 }
 
 function serializeJSON(value: unknown): unknown {
