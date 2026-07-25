@@ -37,19 +37,33 @@ export interface P2TRSignatureFraudVerifiedBoundaryEvidenceProvider {
   ): Promise<P2TRSignatureFraudVerifiedBoundaryEvidence>
 }
 
-type NormalizedBoundaryBinding = {
-  recordID: string
-  generation: number
-  recordVersion: number
-  reservationID: string
-  sender: string
-  transactionNonce: number
-  stage: "prepare" | "replacement" | "broadcast"
-  attempt: number
-  provenanceFingerprint: string
-  activationManifestHash: string
-  preparedTransactionHash?: string
-}
+/**
+ * Deliberately an alias rather than a hand-copied mirror. `normalizeBoundaryBinding`
+ * returns this type, so a field added to the boundary binding but forgotten here
+ * becomes a compile error instead of being silently dropped from the digest —
+ * which is what an independent mirror of the shape would have done.
+ */
+type NormalizedBoundaryBinding = P2TRSignatureFraudIrreversibleBoundaryBinding
+
+/**
+ * The boundary binding and the reconciler request binding are declared
+ * independently — the reconciler shape is a wire protocol and must not be
+ * derived from an internal record shape — but `reconcilerRequestBinding` maps
+ * one onto the other field by field. Without this, a field added to the
+ * boundary binding alone would be dropped by that mapping and would never
+ * reach the digest: unauthenticated, with no compile error and no failing
+ * test. The two differ only in the name of the generation field.
+ */
+type MutuallyAssignable<A, B> = [A] extends [B]
+  ? [B] extends [A]
+    ? true
+    : never
+  : never
+const boundaryAndRequestBindingKeysAgree: MutuallyAssignable<
+  Exclude<keyof P2TRSignatureFraudIrreversibleBoundaryBinding, "generation">,
+  Exclude<keyof P2TRReconcilerRequestBinding, "recordGeneration">
+> = true
+void boundaryAndRequestBindingKeysAgree
 
 type PendingAuthorization = {
   binding: NormalizedBoundaryBinding
@@ -209,6 +223,12 @@ export class P2TRSignatureFraudVerifiedIrreversibleBoundaryAuthorizer
   }
 }
 
+/**
+ * Key insertion order and the conditional-spread idiom must stay identical to
+ * `normalizeRequestBinding` in `P2TRReconcilerAttestation.ts`: the two results
+ * are compared with plain `JSON.stringify` below, which is order-sensitive even
+ * though the digest itself is not.
+ */
 function reconcilerRequestBinding(
   value: NormalizedBoundaryBinding
 ): P2TRReconcilerRequestBinding {
@@ -223,6 +243,19 @@ function reconcilerRequestBinding(
     attempt: value.attempt,
     provenanceFingerprint: value.provenanceFingerprint,
     activationManifestHash: value.activationManifestHash,
+    laneID: value.laneID,
+    signerIdentity: value.signerIdentity,
+    intentID: value.intentID,
+    routerAddress: value.routerAddress,
+    intentValueWei: value.intentValueWei,
+    challengeValueWei: value.challengeValueWei,
+    maxGasLimit: value.maxGasLimit,
+    maxFeePerGas: value.maxFeePerGas,
+    maxPriorityFeePerGas: value.maxPriorityFeePerGas,
+    maxTotalFeeWei: value.maxTotalFeeWei,
+    ...(value.replacedTransactionHash === undefined
+      ? {}
+      : { replacedTransactionHash: value.replacedTransactionHash }),
     ...(value.preparedTransactionHash === undefined
       ? {}
       : { preparedTransactionHash: value.preparedTransactionHash }),
@@ -239,6 +272,13 @@ function normalizeBoundaryBinding(
   ) {
     throw new Error("Irreversible-boundary stage is invalid")
   }
+  const replacedTransactionHash =
+    value.replacedTransactionHash === undefined
+      ? undefined
+      : bytes32(
+          value.replacedTransactionHash,
+          "Boundary replaced transaction hash"
+        )
   const preparedTransactionHash =
     value.preparedTransactionHash === undefined
       ? undefined
@@ -246,6 +286,14 @@ function normalizeBoundaryBinding(
           value.preparedTransactionHash,
           "Boundary prepared transaction hash"
         )
+  if (
+    (value.stage === "replacement") !==
+    (replacedTransactionHash !== undefined)
+  ) {
+    throw new Error(
+      "Only a replacement authorization may name the superseded transaction"
+    )
+  }
   if (
     (value.stage === "broadcast") !==
     (preparedTransactionHash !== undefined)
@@ -280,6 +328,38 @@ function normalizeBoundaryBinding(
       value.activationManifestHash,
       "Boundary activation manifest hash"
     ),
+    laneID: identityText(value.laneID, "Boundary signer lane ID"),
+    signerIdentity: identityText(
+      value.signerIdentity,
+      "Boundary signer identity"
+    ),
+    intentID: bytes32(value.intentID, "Boundary submission intent ID"),
+    routerAddress: address(value.routerAddress, "Boundary router address"),
+    intentValueWei: uint256Decimal(
+      value.intentValueWei,
+      "Boundary intent value"
+    ),
+    challengeValueWei: uint256Decimal(
+      value.challengeValueWei,
+      "Boundary challenge value"
+    ),
+    maxGasLimit: uint256Decimal(
+      value.maxGasLimit,
+      "Boundary maximum gas limit"
+    ),
+    maxFeePerGas: uint256Decimal(
+      value.maxFeePerGas,
+      "Boundary maximum fee per gas"
+    ),
+    maxPriorityFeePerGas: uint256Decimal(
+      value.maxPriorityFeePerGas,
+      "Boundary maximum priority fee per gas"
+    ),
+    maxTotalFeeWei: uint256Decimal(
+      value.maxTotalFeeWei,
+      "Boundary maximum total fee"
+    ),
+    replacedTransactionHash,
     preparedTransactionHash,
   }
 }
@@ -300,6 +380,33 @@ function address(value: string, label: string): string {
     throw new Error(`${label} must be 20 bytes`)
   }
   return `0x${normalized}`
+}
+
+/** Mirrors the outbox's `requireBoundedText`, trim included. */
+function identityText(value: string, label: string): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error(`${label} must be non-empty`)
+  }
+  const normalized = value.trim()
+  if (normalized.length > 128) {
+    throw new Error(`${label} exceeds 128 characters`)
+  }
+  return normalized
+}
+
+/** Mirrors the outbox's `normalizePolicyUint256`; 2^256-1 has 78 digits. */
+function uint256Decimal(value: string, label: string): string {
+  if (
+    typeof value !== "string" ||
+    value.length > 78 ||
+    !/^(?:0|[1-9][0-9]*)$/.test(value)
+  ) {
+    throw new Error(`${label} must be a canonical unsigned decimal integer`)
+  }
+  if (BigInt(value) > (1n << 256n) - 1n) {
+    throw new Error(`${label} exceeds uint256`)
+  }
+  return value
 }
 
 function nonNegativeSafeInteger(value: number, label: string): number {

@@ -1708,7 +1708,12 @@ export type P2TRSignatureFraudIrreversibleBoundaryStage =
 
 /**
  * Exact durable state that must be independently re-authorized after the
- * outbox CAS and immediately before a signer or broadcaster is invoked.
+ * outbox CAS and immediately before a signer or broadcaster is invoked,
+ * together with the exact request that boundary authorizes: the lane, the
+ * transaction intent, and the lane-specific fee envelope.
+ *
+ * Field order is mirrored by `P2TRReconcilerRequestBinding`; see the note on
+ * `reconcilerRequestBinding`.
  */
 export type P2TRSignatureFraudIrreversibleBoundaryBinding = {
   recordID: string
@@ -1721,6 +1726,28 @@ export type P2TRSignatureFraudIrreversibleBoundaryBinding = {
   attempt: number
   provenanceFingerprint: string
   activationManifestHash: string
+  /**
+   * The lane chooses which signer is invoked and which fee envelope applies,
+   * so a lane-agnostic authorization would authorize the wrong signer.
+   */
+  laneID: string
+  signerIdentity: string
+  /** Recomputed from the intent here, never copied out of durable state. */
+  intentID: string
+  /** Carried in the clear too: an authorizer cannot invert `intentID`. */
+  routerAddress: string
+  intentValueWei: string
+  /**
+   * The envelope actually handed to the signer. Only its manifest hash was
+   * bound before, which named the whole manifest but not this lane's caps.
+   */
+  challengeValueWei: string
+  maxGasLimit: string
+  maxFeePerGas: string
+  maxPriorityFeePerGas: string
+  maxTotalFeeWei: string
+  /** Required only for a replacement boundary: the variant being superseded. */
+  replacedTransactionHash?: string
   /** Required only for a broadcaster boundary. */
   preparedTransactionHash?: string
 }
@@ -2299,13 +2326,20 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       return this.requireRecord(key)
     }
 
-    const signerAuthorizationBinding = this.buildIrreversibleBoundaryBinding(
-      signerBoundary,
-      "prepare",
-      signerBoundary.preparationAttempts
-    )
+    let signerAuthorizationBinding: P2TRSignatureFraudIrreversibleBoundaryBinding
     let signerAuthorization: P2TRSignatureFraudIrreversibleBoundaryAuthorization
     try {
+      // Building the binding is part of authorizing: it recomputes the intent
+      // identity and re-checks the lane against durable state. A failure here
+      // means exactly what a rejected authorization means — no signer was
+      // invoked — so it must clear the pre-I/O marker rather than escape and
+      // strand the record with the marker set.
+      signerAuthorizationBinding = this.buildIrreversibleBoundaryBinding(
+        signerBoundary,
+        "prepare",
+        signerBoundary.preparationAttempts,
+        selectedFeePolicy
+      )
       signerAuthorization =
         await this.irreversibleBoundaryAuthorizer.authorizeP2TRSignatureFraudIrreversibleBoundary(
           signerAuthorizationBinding
@@ -2628,13 +2662,18 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       return this.requireRecord(key)
     }
 
-    const signerAuthorizationBinding = this.buildIrreversibleBoundaryBinding(
-      signerBoundary,
-      "replacement",
-      signerBoundary.preparationAttempts
-    )
+    let signerAuthorizationBinding: P2TRSignatureFraudIrreversibleBoundaryBinding
     let signerAuthorization: P2TRSignatureFraudIrreversibleBoundaryAuthorization
     try {
+      // As in the initial boundary: a binding that cannot be built names no
+      // invoked signer, so it clears the marker instead of stranding the record.
+      signerAuthorizationBinding = this.buildIrreversibleBoundaryBinding(
+        signerBoundary,
+        "replacement",
+        signerBoundary.preparationAttempts,
+        selectedFeePolicy,
+        previous.transactionHash
+      )
       signerAuthorization =
         await this.irreversibleBoundaryAuthorizer.authorizeP2TRSignatureFraudIrreversibleBoundary(
           signerAuthorizationBinding
@@ -2910,8 +2949,16 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       return current
     }
     let variants: readonly P2TRSignatureFraudPreparedTransactionVariant[]
+    let broadcastFeePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy
     try {
       variants = validatePreparedTransactionVariantLedger(current)
+      // The same envelope the ledger validator just enforced against every
+      // persisted variant, including the exact bytes about to be sent. No
+      // signer is invoked here, so there is no other envelope to name.
+      broadcastFeePolicy = feePolicyForReservation(
+        current,
+        requireReservedNonce(current, "Challenge outbox broadcast")
+      )
     } catch (error) {
       return this.quarantine(current, errorMessage(error))
     }
@@ -2983,6 +3030,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
           attempted,
           "broadcast",
           attempted.broadcastAttempts,
+          broadcastFeePolicy,
           preparedTransaction.transactionHash
         )
       const broadcastAuthorization =
@@ -4292,20 +4340,73 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     })
   }
 
+  /**
+   * @param feePolicy The exact lane envelope handed to the signer for this
+   *   boundary. It is passed in rather than re-derived so that the authorized
+   *   digest names what the signer actually receives, not a value that merely
+   *   ought to equal it.
+   * @param stageTransactionHash The transaction the stage names: the variant
+   *   being superseded for a replacement, the variant about to be sent for a
+   *   broadcast. A prepare boundary names none.
+   */
   private buildIrreversibleBoundaryBinding(
     record: P2TRSignatureFraudChallengeOutboxRecord,
     stage: P2TRSignatureFraudIrreversibleBoundaryStage,
     attempt: number,
-    preparedTransactionHash?: Hex | Buffer | string
+    feePolicy: P2TRSignatureFraudChallengeTransactionFeePolicy,
+    stageTransactionHash?: Hex | Buffer | string
   ): P2TRSignatureFraudIrreversibleBoundaryBinding {
-    if (record.reservedNonce === undefined) {
+    const reservedNonce = requireReservedNonce(
+      record,
+      "Irreversible challenge boundary"
+    )
+    if ((stage === "prepare") === (stageTransactionHash !== undefined)) {
       throw new Error(
-        "Irreversible challenge boundary lacks its durable nonce reservation"
+        "Only a challenge replacement or broadcast boundary may name a transaction hash"
       )
     }
-    if ((stage === "broadcast") !== (preparedTransactionHash !== undefined)) {
+    const laneID = requireBoundedText(
+      reservedNonce.laneID,
+      P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_TRUST_DOMAIN_ID_LENGTH,
+      "Boundary signer lane ID"
+    )
+    const signerIdentity = requireBoundedText(
+      reservedNonce.signerIdentity,
+      P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_TRUST_DOMAIN_ID_LENGTH,
+      "Boundary signer identity"
+    )
+    // The envelope must belong to the lane the durable reservation is bound to.
+    // Nothing downstream re-checks this pairing once the digest is taken.
+    if (
+      requireBoundedText(
+        feePolicy.laneID,
+        P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_TRUST_DOMAIN_ID_LENGTH,
+        "Boundary fee policy lane ID"
+      ) !== laneID ||
+      requireBoundedText(
+        feePolicy.signerIdentity,
+        P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_TRUST_DOMAIN_ID_LENGTH,
+        "Boundary fee policy signer identity"
+      ) !== signerIdentity ||
+      normalizeAddress(feePolicy.sender, "Boundary fee policy sender") !==
+        normalizeAddress(reservedNonce.sender, "Boundary reserved sender")
+    ) {
       throw new Error(
-        "Only a challenge broadcast boundary may name prepared transaction bytes"
+        "Irreversible challenge boundary fee envelope names another signer lane"
+      )
+    }
+    // Recomputed, not read back: a stored intent ID proves nothing about the
+    // router and calldata this boundary is authorizing.
+    const intentID = normalizeBytes32(
+      computeP2TRSignatureFraudSubmissionIntentID(record.intent),
+      "Boundary submission intent ID"
+    )
+    if (
+      intentID !==
+      normalizeBytes32(record.intent.intentID, "Durable submission intent ID")
+    ) {
+      throw new Error(
+        "Irreversible challenge boundary intent does not match its durable identity"
       )
     }
     return {
@@ -4320,15 +4421,15 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         "Boundary record version"
       ),
       reservationID: normalizeBytes32(
-        record.reservedNonce.reservationID,
+        reservedNonce.reservationID,
         "Boundary reservation ID"
       ),
       sender: normalizeAddress(
-        record.reservedNonce.sender,
+        reservedNonce.sender,
         "Boundary reserved sender"
       ),
       transactionNonce: requireNonNegativeSafeInteger(
-        record.reservedNonce.nonce,
+        reservedNonce.nonce,
         "Boundary transaction nonce"
       ),
       stage,
@@ -4341,40 +4442,52 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         record.feePolicyManifest.activationManifestHash,
         "Boundary activation manifest hash"
       ),
+      laneID,
+      signerIdentity,
+      intentID,
+      routerAddress: normalizeAddress(
+        record.intent.routerAddress,
+        "Boundary router address"
+      ),
+      intentValueWei: normalizePolicyUint256(
+        record.intent.value,
+        "Boundary intent value"
+      ),
+      challengeValueWei: normalizePolicyUint256(
+        feePolicy.challengeValueWei,
+        "Boundary challenge value"
+      ),
+      maxGasLimit: normalizePolicyUint256(
+        feePolicy.maxGasLimit,
+        "Boundary maximum gas limit"
+      ),
+      maxFeePerGas: normalizePolicyUint256(
+        feePolicy.maxFeePerGas,
+        "Boundary maximum fee per gas"
+      ),
+      maxPriorityFeePerGas: normalizePolicyUint256(
+        feePolicy.maxPriorityFeePerGas,
+        "Boundary maximum priority fee per gas"
+      ),
+      maxTotalFeeWei: normalizePolicyUint256(
+        feePolicy.maxTotalFeeWei,
+        "Boundary maximum total fee"
+      ),
+      replacedTransactionHash:
+        stage === "replacement" && stageTransactionHash !== undefined
+          ? normalizeBytes32(
+              stageTransactionHash,
+              "Boundary replaced transaction hash"
+            )
+          : undefined,
       preparedTransactionHash:
-        preparedTransactionHash === undefined
-          ? undefined
-          : normalizeBytes32(
-              preparedTransactionHash,
+        stage === "broadcast" && stageTransactionHash !== undefined
+          ? normalizeBytes32(
+              stageTransactionHash,
               "Boundary prepared transaction hash"
-            ),
+            )
+          : undefined,
     }
-  }
-
-  private signerBoundaryIdentity(
-    record: P2TRSignatureFraudChallengeOutboxRecord
-  ): string {
-    if (
-      record.activeSignerInvocationStartedAtUnixMs === undefined ||
-      record.reservedNonce === undefined
-    ) {
-      throw new Error("Active signer boundary identity is incomplete")
-    }
-    return [
-      normalizeBytes32(record.recordID, "Active signer record ID"),
-      requirePositiveSafeInteger(
-        record.preparationAttempts,
-        "Active signer preparation attempt"
-      ),
-      normalizeBytes32(
-        record.reservedNonce.reservationID,
-        "Active signer reservation ID"
-      ),
-      requireUnixMilliseconds(
-        record.activeSignerInvocationStartedAtUnixMs,
-        "Active signer invocation time"
-      ),
-    ].join(":")
   }
 
   /**
@@ -5489,6 +5602,16 @@ const validateRecordFeePolicyManifest = (
       "Durable challenge fee policy drifted from its generation identity"
     )
   }
+}
+
+const requireReservedNonce = (
+  record: P2TRSignatureFraudChallengeOutboxRecord,
+  label: string
+): P2TRSignatureFraudBoundNonceReservation => {
+  if (record.reservedNonce === undefined) {
+    throw new Error(`${label} lacks its durable nonce reservation`)
+  }
+  return record.reservedNonce
 }
 
 const feePolicyForPreparer = (
