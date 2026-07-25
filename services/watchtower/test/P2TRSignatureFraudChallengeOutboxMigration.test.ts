@@ -164,7 +164,7 @@ test("never expires a resultless allocator invocation by wall clock", () => {
   )
   assert.match(
     migration,
-    /active_release_request_id IS NULL AND active_signer_invocation_count = 0/
+    /WHERE chain_id = lane_chain_id AND sender = lane_sender AND active_release_request_id IS NULL AND active_signer_invocation_count = 0/
   )
   assert.match(
     migration,
@@ -621,7 +621,38 @@ test("serializes nonce-release and signer I/O through a durable barrier", () => 
   )
   assert.match(
     migration,
-    /contract_mismatch_blocked = contract_mismatch_blocked OR NEW.result_kind = 'contract-mismatch'/
+    /CREATE TABLE p2tr_signature_fraud_nonce_allocator_global_barrier/
+  )
+  // The lane barrier is keyed by the nonce lane -- the sending account -- so
+  // one account's outstanding allocator I/O cannot freeze signing on another.
+  assert.match(
+    migration,
+    /CREATE TABLE p2tr_signature_fraud_nonce_allocator_safety_barrier \( chain_id numeric\(78, 0\) NOT NULL CHECK \(chain_id > 0\), sender bytea NOT NULL CHECK \(octet_length\(sender\) = 20\),/
+  )
+  assert.match(migration, /PRIMARY KEY \(chain_id, sender\),/)
+  // Without this the attempt reference carries no lane and one lane's row
+  // could hold another lane's claim.
+  assert.match(
+    migration,
+    /FOREIGN KEY \( chain_id, sender, active_release_request_id \) REFERENCES p2tr_signature_fraud_challenge_nonce_release_request \( chain_id, sender, release_request_id \)/
+  )
+  // Rows are seeded eagerly, because every gate reads a missing row as
+  // fail-closed and the activation rollup needs the row set to be ground truth.
+  assert.match(
+    migration,
+    /p2tr_signature_fraud_seed_nonce_allocator_lane_barrier_trigger AFTER INSERT ON p2tr_signature_fraud_signer_lane_configuration/
+  )
+  // The decrement must key off OLD: the update that clears the marker can clear
+  // the lane selection at the same time.
+  assert.match(
+    migration,
+    /active_signer_invocation_count - 1 WHERE chain_id = OLD.chain_id AND sender = OLD.selected_sender/
+  )
+  // A contract mismatch condemns the allocator, not one account, so it stays
+  // global and blocks every lane.
+  assert.match(
+    migration,
+    /UPDATE p2tr_signature_fraud_nonce_allocator_global_barrier SET contract_mismatch_blocked = true, incident_epoch = incident_epoch \+ 1/
   )
 })
 

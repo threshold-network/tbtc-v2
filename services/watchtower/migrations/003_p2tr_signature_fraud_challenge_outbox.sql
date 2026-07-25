@@ -1016,6 +1016,9 @@ CREATE TABLE p2tr_signature_fraud_challenge_nonce_release_request (
         requested_at_unix_ms BETWEEN 0 AND 9007199254740991
     ),
     UNIQUE (record_id, release_request_id),
+    -- Lets the nonce-allocator safety barrier bind a claimed release request to
+    -- its own (chain_id, sender) key declaratively rather than by convention.
+    UNIQUE (chain_id, sender, release_request_id),
     FOREIGN KEY (record_id, generation)
         REFERENCES p2tr_signature_fraud_challenge_outbox(record_id, generation)
         ON DELETE RESTRICT,
@@ -1216,13 +1219,38 @@ SELECT release_request_id, attempt_sequence, outcome
   FROM p2tr_signature_fraud_challenge_nonce_release_resolution
  WHERE outcome IN ('released', 'already-released');
 
+-- A contract mismatch is a statement about the nonce allocator's API
+-- implementation, not about any one account, so it permanently flips this
+-- singleton to no-go for every lane at once and is never cleared.
+-- `incident_epoch` counts the events that set it.
+CREATE TABLE p2tr_signature_fraud_nonce_allocator_global_barrier (
+    singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
+    contract_mismatch_blocked boolean NOT NULL DEFAULT false,
+    incident_epoch bigint NOT NULL DEFAULT 0 CHECK (
+        incident_epoch BETWEEN 0 AND 9007199254740991
+    )
+);
+
+INSERT INTO p2tr_signature_fraud_nonce_allocator_global_barrier (
+    singleton,
+    contract_mismatch_blocked,
+    incident_epoch
+) VALUES (true, false, 0);
+
 -- External nonce-release and signer calls never run inside a database
 -- transaction, so their mutually exclusive durable claims live here. A
 -- release invocation is committed before allocator I/O; a signer claim is
--- committed before signer I/O. Contract mismatch permanently flips the same singleton
--- to no-go, eliminating stale-snapshot races between unrelated lanes.
+-- committed before signer I/O.
+--
+-- What those two claims mutually exclude is signing against releasing ON THE
+-- SAME ETHEREUM ACCOUNT: a release hands a reserved nonce of that account back
+-- to its allocator, so the claim is keyed by (chain_id, sender) -- the nonce
+-- lane. Keying it that way is what stops one account's outstanding allocator
+-- I/O from wedging signing for every other account; nothing here relates
+-- account A's in-flight release to account B.
 CREATE TABLE p2tr_signature_fraud_nonce_allocator_safety_barrier (
-    singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
+    chain_id numeric(78, 0) NOT NULL CHECK (chain_id > 0),
+    sender bytea NOT NULL CHECK (octet_length(sender) = 20),
     active_release_request_id bytea CHECK (
         active_release_request_id IS NULL
         OR octet_length(active_release_request_id) = 32
@@ -1241,10 +1269,7 @@ CREATE TABLE p2tr_signature_fraud_nonce_allocator_safety_barrier (
     unresolved_release_count integer NOT NULL DEFAULT 0 CHECK (
         unresolved_release_count BETWEEN 0 AND 1000000
     ),
-    contract_mismatch_blocked boolean NOT NULL DEFAULT false,
-    incident_epoch bigint NOT NULL DEFAULT 0 CHECK (
-        incident_epoch BETWEEN 0 AND 9007199254740991
-    ),
+    PRIMARY KEY (chain_id, sender),
     CHECK (
         num_nonnulls(
             active_release_request_id,
@@ -1258,16 +1283,44 @@ CREATE TABLE p2tr_signature_fraud_nonce_allocator_safety_barrier (
     ) REFERENCES p2tr_signature_fraud_challenge_nonce_release_attempt (
         release_request_id,
         attempt_sequence
+    ) DEFERRABLE INITIALLY DEFERRED,
+    -- The attempt reference above carries no lane, so on its own it would let
+    -- one lane's barrier row hold a claim belonging to a different lane. This
+    -- second reference pins the claimed request to THIS row's key.
+    FOREIGN KEY (
+        chain_id,
+        sender,
+        active_release_request_id
+    ) REFERENCES p2tr_signature_fraud_challenge_nonce_release_request (
+        chain_id,
+        sender,
+        release_request_id
     ) DEFERRABLE INITIALLY DEFERRED
 );
 
-INSERT INTO p2tr_signature_fraud_nonce_allocator_safety_barrier (
-    singleton,
-    active_signer_invocation_count,
-    unresolved_release_count,
-    contract_mismatch_blocked,
-    incident_epoch
-) VALUES (true, 0, 0, false, 0);
+-- Lane rows are seeded eagerly when a lane is configured, never lazily on first
+-- use. Every gate below reads a missing row as fail-closed, and the activation
+-- handshake needs the row set to be ground truth rather than a by-product of
+-- traffic. Rows deliberately outlive the manifest that introduced them, so a
+-- lane rotated out of the current manifest keeps its barrier state.
+CREATE FUNCTION p2tr_signature_fraud_seed_nonce_allocator_lane_barrier()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    INSERT INTO p2tr_signature_fraud_nonce_allocator_safety_barrier (
+        chain_id,
+        sender
+    ) VALUES (NEW.chain_id, NEW.sender)
+    ON CONFLICT (chain_id, sender) DO NOTHING;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER p2tr_signature_fraud_seed_nonce_allocator_lane_barrier_trigger
+AFTER INSERT ON p2tr_signature_fraud_signer_lane_configuration
+FOR EACH ROW EXECUTE FUNCTION
+    p2tr_signature_fraud_seed_nonce_allocator_lane_barrier();
 
 CREATE INDEX p2tr_signature_fraud_pending_nonce_release_idx
     ON p2tr_signature_fraud_challenge_nonce_release_request (release_request_id);
@@ -1633,7 +1686,7 @@ CREATE TABLE p2tr_signature_fraud_challenge_provenance_incident (
 -- call outstanding". That ambiguity is resolvable only by the boundary's own
 -- owner, which is the single witness that authorization failed before any
 -- signer I/O. The same first-person observation is already trusted to clear the
--- singleton signer barrier, so it is equally sufficient to retire the incident.
+-- lane's signer barrier, so it is equally sufficient to retire the incident.
 --
 -- A lease timeout is NOT such evidence and can never produce a row here.
 CREATE TABLE p2tr_signature_fraud_challenge_provenance_incident_resolution (
@@ -1718,9 +1771,9 @@ EXECUTE FUNCTION p2tr_signature_fraud_guard_provenance_incident_resolution();
 --
 -- `active_signer_invocation_started_at_unix_ms` is committed BEFORE boundary
 -- authorization and therefore before the signer RPC, so a lost owner leaves the
--- singleton `active_signer_invocation_count` at one. That blocks every
--- nonce-release invocation store-wide and freezes challenge signing on every
--- lane. Lease expiry is not evidence and can never produce a row here; only an
+-- lane's `active_signer_invocation_count` at one. That blocks every
+-- nonce-release invocation on that lane and freezes challenge signing for that
+-- account. Lease expiry is not evidence and can never produce a row here; only an
 -- out-of-band observation of what the signer actually did, carrying two
 -- attestations from distinct trust AND independence domains, may.
 --
@@ -3096,9 +3149,10 @@ AS $$
 BEGIN
     UPDATE p2tr_signature_fraud_nonce_allocator_safety_barrier
        SET unresolved_release_count = unresolved_release_count + 1
-     WHERE singleton = true;
+     WHERE chain_id = NEW.chain_id
+       AND sender = NEW.sender;
     IF NOT FOUND THEN
-        RAISE EXCEPTION 'nonce allocator safety barrier is missing';
+        RAISE EXCEPTION 'nonce allocator safety barrier is missing for the lane';
     END IF;
     RETURN NEW;
 END;
@@ -3120,7 +3174,7 @@ DECLARE
 BEGIN
     IF COALESCE((
         SELECT contract_mismatch_blocked
-        FROM p2tr_signature_fraud_nonce_allocator_safety_barrier
+        FROM p2tr_signature_fraud_nonce_allocator_global_barrier
         WHERE singleton = true
     ), true) THEN
         RETURN NULL;
@@ -3190,6 +3244,9 @@ LANGUAGE plpgsql
 AS $$
 DECLARE
     attempt p2tr_signature_fraud_challenge_nonce_release_attempt%ROWTYPE;
+    lane_chain_id numeric(78, 0);
+    lane_sender bytea;
+    globally_blocked boolean;
 BEGIN
     SELECT * INTO attempt
     FROM p2tr_signature_fraud_challenge_nonce_release_attempt
@@ -3215,22 +3272,38 @@ BEGIN
         RAISE EXCEPTION 'nonce-release invocation lacks its exact live attempt';
     END IF;
 
+    SELECT chain_id, sender INTO lane_chain_id, lane_sender
+      FROM p2tr_signature_fraud_challenge_nonce_release_request
+     WHERE release_request_id = NEW.release_request_id;
+
+    SELECT contract_mismatch_blocked INTO globally_blocked
+      FROM p2tr_signature_fraud_nonce_allocator_global_barrier
+     WHERE singleton = true;
+    IF globally_blocked IS NULL THEN
+        RAISE EXCEPTION 'nonce allocator global barrier is missing';
+    END IF;
+
+    -- The claim excludes signing on THIS account only. A different account's
+    -- signer boundary is not a reason to withhold this account's nonce from
+    -- its allocator.
     UPDATE p2tr_signature_fraud_nonce_allocator_safety_barrier
        SET active_release_request_id = NEW.release_request_id,
            active_release_attempt_sequence = NEW.attempt_sequence,
            active_release_expires_at_unix_ms = attempt.expires_at_unix_ms
-     WHERE singleton = true
+     WHERE chain_id = lane_chain_id
+       AND sender = lane_sender
        AND active_release_request_id IS NULL
        AND active_signer_invocation_count = 0
        AND unresolved_release_count > 0
-       AND NOT contract_mismatch_blocked;
+       AND NOT globally_blocked;
     IF NOT FOUND THEN
         IF NOT EXISTS (
             SELECT 1
             FROM p2tr_signature_fraud_nonce_allocator_safety_barrier
-            WHERE singleton = true
+            WHERE chain_id = lane_chain_id
+              AND sender = lane_sender
         ) THEN
-            RAISE EXCEPTION 'nonce allocator safety barrier is missing';
+            RAISE EXCEPTION 'nonce allocator safety barrier is missing for the lane';
         END IF;
         -- Contention is not malformed state. Suppress this append so the same
         -- uninvoked attempt can retry after the current signer/release exits.
@@ -3329,11 +3402,18 @@ DECLARE
     barrier_release_request bytea;
     barrier_release_sequence integer;
     invocation_exists boolean;
+    lane_chain_id numeric(78, 0);
+    lane_sender bytea;
 BEGIN
+    SELECT chain_id, sender INTO lane_chain_id, lane_sender
+      FROM p2tr_signature_fraud_challenge_nonce_release_request
+     WHERE release_request_id = NEW.release_request_id;
+
     SELECT active_release_request_id, active_release_attempt_sequence
       INTO barrier_release_request, barrier_release_sequence
       FROM p2tr_signature_fraud_nonce_allocator_safety_barrier
-     WHERE singleton = true
+     WHERE chain_id = lane_chain_id
+       AND sender = lane_sender
      FOR UPDATE;
 
     SELECT EXISTS (
@@ -3386,24 +3466,30 @@ BEGIN
                     ) THEN NULL
                ELSE active_release_expires_at_unix_ms
            END,
-           contract_mismatch_blocked =
-               contract_mismatch_blocked
-               OR NEW.result_kind = 'contract-mismatch',
            unresolved_release_count = unresolved_release_count - CASE
                WHEN NEW.result_kind IN ('released', 'already-released') THEN 1
                ELSE 0
-           END,
-           incident_epoch = incident_epoch + CASE
-               WHEN NEW.result_kind = 'contract-mismatch' THEN 1
-               ELSE 0
            END
-     WHERE singleton = true
+     WHERE chain_id = lane_chain_id
+       AND sender = lane_sender
        AND (
            NEW.result_kind NOT IN ('released', 'already-released')
            OR unresolved_release_count > 0
        );
     IF NOT FOUND THEN
         RAISE EXCEPTION 'nonce-release safety barrier counter underflow';
+    END IF;
+
+    -- A malformed allocator response condemns the allocator, not the account,
+    -- so it lands on the global barrier and blocks every lane.
+    IF NEW.result_kind = 'contract-mismatch' THEN
+        UPDATE p2tr_signature_fraud_nonce_allocator_global_barrier
+           SET contract_mismatch_blocked = true,
+               incident_epoch = incident_epoch + 1
+         WHERE singleton = true;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'nonce allocator global barrier is missing';
+        END IF;
     END IF;
     RETURN NEW;
 END;
@@ -3423,7 +3509,13 @@ DECLARE
     ambiguous_result p2tr_signature_fraud_challenge_nonce_release_result%ROWTYPE;
     barrier_request bytea;
     barrier_sequence integer;
+    lane_chain_id numeric(78, 0);
+    lane_sender bytea;
 BEGIN
+    SELECT chain_id, sender INTO lane_chain_id, lane_sender
+      FROM p2tr_signature_fraud_challenge_nonce_release_request
+     WHERE release_request_id = NEW.release_request_id;
+
     SELECT * INTO attempt
     FROM p2tr_signature_fraud_challenge_nonce_release_attempt
     WHERE release_request_id = NEW.release_request_id
@@ -3443,7 +3535,8 @@ BEGIN
     SELECT active_release_request_id, active_release_attempt_sequence
       INTO barrier_request, barrier_sequence
       FROM p2tr_signature_fraud_nonce_allocator_safety_barrier
-     WHERE singleton = true
+     WHERE chain_id = lane_chain_id
+       AND sender = lane_sender
      FOR UPDATE;
 
     IF attempt.release_request_id IS NULL
@@ -3496,7 +3589,14 @@ CREATE FUNCTION p2tr_signature_fraud_apply_nonce_release_resolution_barrier()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $$
+DECLARE
+    lane_chain_id numeric(78, 0);
+    lane_sender bytea;
 BEGIN
+    SELECT chain_id, sender INTO lane_chain_id, lane_sender
+      FROM p2tr_signature_fraud_challenge_nonce_release_request
+     WHERE release_request_id = NEW.release_request_id;
+
     UPDATE p2tr_signature_fraud_nonce_allocator_safety_barrier
        SET active_release_request_id = NULL,
            active_release_attempt_sequence = NULL,
@@ -3504,15 +3604,9 @@ BEGIN
            unresolved_release_count = unresolved_release_count - CASE
                WHEN NEW.outcome IN ('released', 'already-released') THEN 1
                ELSE 0
-           END,
-           contract_mismatch_blocked =
-               contract_mismatch_blocked
-               OR NEW.outcome = 'terminal-unsafe',
-           incident_epoch = incident_epoch + CASE
-               WHEN NEW.outcome = 'terminal-unsafe' THEN 1
-               ELSE 0
            END
-     WHERE singleton = true
+     WHERE chain_id = lane_chain_id
+       AND sender = lane_sender
        AND active_release_request_id = NEW.release_request_id
        AND active_release_attempt_sequence = NEW.attempt_sequence
        AND (
@@ -3521,6 +3615,18 @@ BEGIN
        );
     IF NOT FOUND THEN
         RAISE EXCEPTION 'independent nonce-release resolution lost its durable barrier';
+    END IF;
+
+    -- A terminally unsafe release means the allocator's state can no longer be
+    -- reasoned about at all, which is a global condemnation, not a lane one.
+    IF NEW.outcome = 'terminal-unsafe' THEN
+        UPDATE p2tr_signature_fraud_nonce_allocator_global_barrier
+           SET contract_mismatch_blocked = true,
+               incident_epoch = incident_epoch + 1
+         WHERE singleton = true;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'nonce allocator global barrier is missing';
+        END IF;
     END IF;
     RETURN NEW;
 END;
@@ -4347,22 +4453,48 @@ BEGIN
             RAISE EXCEPTION 'nonce allocator contract mismatch globally blocks signer invocation';
         END IF;
 
+        IF (
+            SELECT contract_mismatch_blocked
+            FROM p2tr_signature_fraud_nonce_allocator_global_barrier
+            WHERE singleton = true
+        ) IS DISTINCT FROM false THEN
+            RAISE EXCEPTION 'nonce allocator contract mismatch globally blocks signer invocation';
+        END IF;
+
+        -- Only this account's own allocator I/O excludes this signer boundary.
+        -- The same-lane check above (an unacknowledged release on this lane)
+        -- already covers the case that matters; what the key removes is one
+        -- account's pending release freezing every other account's signer.
         UPDATE p2tr_signature_fraud_nonce_allocator_safety_barrier
            SET active_signer_invocation_count =
                    active_signer_invocation_count + 1
-         WHERE singleton = true
+         WHERE chain_id = NEW.chain_id
+           AND sender = NEW.selected_sender
            AND active_release_request_id IS NULL
-           AND unresolved_release_count = 0
-           AND NOT contract_mismatch_blocked;
+           AND unresolved_release_count = 0;
         IF NOT FOUND THEN
+            IF NOT EXISTS (
+                SELECT 1
+                FROM p2tr_signature_fraud_nonce_allocator_safety_barrier
+                WHERE chain_id = NEW.chain_id
+                  AND sender = NEW.selected_sender
+            ) THEN
+                RAISE EXCEPTION 'nonce allocator safety barrier is missing for the lane';
+            END IF;
             RAISE EXCEPTION 'signer invocation is blocked by active nonce-release I/O';
         END IF;
     ELSIF OLD.active_signer_invocation_started_at_unix_ms IS NOT NULL
        AND NEW.active_signer_invocation_started_at_unix_ms IS NULL THEN
+        -- Key off OLD, which is by construction the lane that was incremented.
+        -- NEW is equal to it today only because the lane-change guard above
+        -- refuses to clear a selection whose reservation is neither null nor
+        -- voided, and a live marker makes that reservation unvoidable. Reading
+        -- OLD does not depend on that argument holding.
         UPDATE p2tr_signature_fraud_nonce_allocator_safety_barrier
            SET active_signer_invocation_count =
                    active_signer_invocation_count - 1
-         WHERE singleton = true
+         WHERE chain_id = OLD.chain_id
+           AND sender = OLD.selected_sender
            AND active_signer_invocation_count > 0;
         IF NOT FOUND THEN
             RAISE EXCEPTION 'active signer invocation barrier counter underflow';
