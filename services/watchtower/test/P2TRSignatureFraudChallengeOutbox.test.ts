@@ -8,6 +8,8 @@ import {
   P2TRSignatureFraudChallengeTransactionFeePolicy,
   P2TRSignatureFraudChallengeTransactionPreparer,
   P2TRSignatureFraudPreparedChallengeTransaction,
+  P2TRSignatureFraudPreparedNonceBurnTransaction,
+  P2TRSignatureFraudNonceBurnEnvelope,
   P2TRSignatureFraudSignerInvocationRequest,
   P2TRSignatureFraudSubmissionIntent,
   P2TRWatchtowerChallengeRecord,
@@ -425,6 +427,12 @@ class FixedPreparer implements P2TRSignatureFraudChallengeTransactionPreparer {
   releasedReservations: string[] = []
   readonly acknowledgedReleaseRequests = new Set<string>()
   readonly invocations: P2TRSignatureFraudSignerInvocationRequest[] = []
+  burnCalls = 0
+  /** Levers for a signer that returns something other than a burn. */
+  burnRecipient?: string
+  burnData?: string
+  burnValue?: number
+  burnNonce?: number
   /** Lets a test return an echo other than the one the signer was handed. */
   echoInvocation?: (
     invocation: P2TRSignatureFraudSignerInvocationRequest
@@ -553,6 +561,41 @@ class FixedPreparer implements P2TRSignatureFraudChallengeTransactionPreparer {
     }
     await this.afterInitialSign?.(prepared)
     return prepared
+  }
+
+  /** Signs a genuine self-transfer; the wallet IS the configured lane sender. */
+  async prepareSignatureFraudNonceBurnTransaction(
+    _reservation: P2TRSignatureFraudBoundNonceReservation,
+    envelope: P2TRSignatureFraudNonceBurnEnvelope,
+    invocation: P2TRSignatureFraudSignerInvocationRequest
+  ): Promise<P2TRSignatureFraudPreparedNonceBurnTransaction> {
+    this.burnCalls++
+    this.invocations.push(invocation)
+    const rawTransaction = await this.wallet.signTransaction({
+      type: 2,
+      to: this.burnRecipient ?? envelope.sender,
+      data: this.burnData ?? "0x",
+      value: this.burnValue ?? 0,
+      chainId: envelope.chainID,
+      nonce: this.burnNonce ?? envelope.nonce,
+      gasLimit: 21000,
+      maxFeePerGas: envelope.maxFeePerGas,
+      maxPriorityFeePerGas: envelope.maxPriorityFeePerGas,
+    })
+    const parsed = utils.parseTransaction(rawTransaction)
+    return {
+      rawTransaction,
+      transactionHash: Hex.from(parsed.hash!),
+      sender: this.wallet.address,
+      nonce: parsed.nonce,
+      gasLimit: parsed.gasLimit.toString(),
+      maxFeePerGas: parsed.maxFeePerGas!.toString(),
+      maxPriorityFeePerGas: parsed.maxPriorityFeePerGas!.toString(),
+      invocation:
+        this.echoInvocation === undefined
+          ? invocation
+          : this.echoInvocation(invocation),
+    }
   }
 
   async prepareSignatureFraudChallengeReplacementTransaction(
@@ -3584,4 +3627,153 @@ test("rejects a signer that returns no invocation echo at all", async () => {
   assert.equal(settled.preparedTransaction, undefined)
   assert.match(String(settled.lastError), /no invocation request echo/)
   assert.equal(settled.unexpectedSignedArtifacts?.length, 1)
+})
+
+/**
+ * Leaves a record exactly as a crashed worker would: the pre-I/O marker is
+ * durable and the signer call never returns. `prepare` is deliberately not
+ * awaited — the worker is gone.
+ */
+const strandSignerBoundary = async (
+  store: InMemoryOutboxStore,
+  outbox: ReturnType<typeof dispatcher>,
+  authorizer: FixedBoundaryAuthorizer,
+  recordID: string
+): Promise<P2TRSignatureFraudChallengeOutboxRecord> => {
+  let reached: () => void
+  const atBoundary = new Promise<void>((resolve) => {
+    reached = resolve
+  })
+  authorizer.beforeAuthorize = async () => {
+    reached()
+    await new Promise(() => {})
+  }
+  void outbox.prepare(recordID, "worker-a").catch(() => {})
+  await atBoundary
+  authorizer.beforeAuthorize = undefined
+  const stranded = await store.get(recordID)
+  assert.ok(stranded?.activeSignerInvocationStartedAtUnixMs)
+  return stranded!
+}
+
+test("burns the contested nonce and makes the bytes durable before broadcast", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const preparer = new FixedPreparer()
+  const authorizer = new FixedBoundaryAuthorizer()
+  const broadcaster = new RecordingBroadcaster()
+  let atBroadcast: P2TRSignatureFraudChallengeOutboxRecord | undefined
+  broadcaster.inspectDurableBoundary = async () => {
+    atBroadcast = await store.get(record.recordID)
+  }
+  const outbox = dispatcher(
+    store,
+    preparer,
+    broadcaster,
+    new FixedRechecker(),
+    new FixedReconciler(),
+    () => 2_000,
+    100,
+    undefined,
+    authorizer
+  )
+  const stranded = await strandSignerBoundary(
+    store,
+    outbox,
+    authorizer,
+    record.recordID
+  )
+
+  const burned = await outbox.burnContestedNonce(record.recordID)
+
+  // The burn spends exactly the reserved nonce, on nothing.
+  assert.equal(preparer.burnCalls, 1)
+  const burn = burned.contestedNonceBurn
+  assert.ok(burn)
+  assert.equal(burn.nonce, stranded.reservedNonce!.nonce)
+  const parsed = utils.parseTransaction(burn.rawTransaction)
+  assert.equal(utils.getAddress(parsed.to!), TRANSACTION_SENDER)
+  assert.equal(parsed.value.isZero(), true)
+  assert.equal(parsed.data, "0x")
+  assert.equal(parsed.gasLimit.toString(), "21000")
+
+  // Durable before the broadcaster ran, so a crash can only re-send it.
+  assert.equal(
+    atBroadcast?.contestedNonceBurn?.transactionHash,
+    burn.transactionHash
+  )
+  assert.equal(burn.broadcastAtUnixMs, 2_000)
+
+  // The marker is untouched: a burn resolves nothing about the signer, it only
+  // makes whatever the signer may hold unable to land.
+  assert.equal(burned.activeSignerInvocationStartedAtUnixMs, 2_000)
+})
+
+test("re-burning re-sends the identical bytes and signs nothing new", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const preparer = new FixedPreparer()
+  const authorizer = new FixedBoundaryAuthorizer()
+  const outbox = dispatcher(
+    store,
+    preparer,
+    new RecordingBroadcaster(),
+    new FixedRechecker(),
+    new FixedReconciler(),
+    () => 2_000,
+    100,
+    undefined,
+    authorizer
+  )
+  await strandSignerBoundary(store, outbox, authorizer, record.recordID)
+
+  const first = await outbox.burnContestedNonce(record.recordID)
+  const again = await outbox.burnContestedNonce(record.recordID)
+
+  // Every burn for one reservation spends the same nonce on the same nothing,
+  // so a retry never needs a second signature.
+  assert.equal(preparer.burnCalls, 1)
+  assert.equal(
+    again.contestedNonceBurn?.transactionHash,
+    first.contestedNonceBurn?.transactionHash
+  )
+})
+
+test("refuses a burn that is not a self-transfer of nothing", async () => {
+  for (const [name, lever] of [
+    ["pays elsewhere", { burnRecipient: ROUTER_ADDRESS }],
+    ["carries value", { burnValue: 1 }],
+    ["carries calldata", { burnData: "0xdeadbeef" }],
+    ["spends another nonce", { burnNonce: 9 }],
+  ] as const) {
+    const store = new InMemoryOutboxStore()
+    const record = await enqueue(store)
+    const preparer = new FixedPreparer()
+    Object.assign(preparer, lever)
+    const authorizer = new FixedBoundaryAuthorizer()
+    const outbox = dispatcher(
+      store,
+      preparer,
+      new RecordingBroadcaster(),
+      new FixedRechecker(),
+      new FixedReconciler(),
+      () => 2_000,
+      100,
+      undefined,
+      authorizer
+    )
+    await strandSignerBoundary(store, outbox, authorizer, record.recordID)
+
+    await assert.rejects(
+      outbox.burnContestedNonce(record.recordID),
+      /spend exactly its reserved nonce on nothing/,
+      name
+    )
+    // Nothing is made durable for a burn that was refused.
+    assert.equal(
+      (await store.get(record.recordID))?.contestedNonceBurn,
+      undefined,
+      name
+    )
+  }
 })
