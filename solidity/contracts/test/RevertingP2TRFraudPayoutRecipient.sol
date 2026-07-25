@@ -11,10 +11,12 @@ contract RevertingP2TRFraudPayoutRecipient {
     }
 
     function forward(address target, bytes calldata data) external payable {
+        // solhint-disable-next-line avoid-low-level-calls
         (bool success, bytes memory result) = target.call{value: msg.value}(
             data
         );
         if (!success) {
+            // solhint-disable-next-line no-inline-assembly
             assembly {
                 revert(add(result, 32), mload(result))
             }
@@ -22,6 +24,7 @@ contract RevertingP2TRFraudPayoutRecipient {
     }
 
     function withdraw(address router, address payable receiver) external {
+        // solhint-disable-next-line avoid-low-level-calls
         (bool success, bytes memory result) = router.call(
             abi.encodeWithSignature(
                 "withdrawP2TRFraudPayout(address)",
@@ -29,6 +32,7 @@ contract RevertingP2TRFraudPayoutRecipient {
             )
         );
         if (!success) {
+            // solhint-disable-next-line no-inline-assembly
             assembly {
                 revert(add(result, 32), mload(result))
             }

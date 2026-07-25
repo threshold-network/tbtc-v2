@@ -283,6 +283,7 @@ library P2TRReservation {
         for (uint256 i = 0; i < count; i++) {
             (bytes32 settledReservation, bytes20 walletPubKeyHash) = registry
                 .settleConflictingProof(transactionHash, conflictResources[i]);
+            // solhint-disable-next-line reason-string
             require(settledReservation == reservationIDs[i]);
             _markRecoveryRequired(self, walletPubKeyHash);
         }
@@ -950,6 +951,12 @@ library P2TRReservation {
         bytes32[] memory proof,
         bool terminalResolution
     ) private {
+        // Bare on purpose: this library's deployed bytecode is 23032 of the
+        // 24576 bytes EIP-170 allows, and the migration path below is the
+        // densest cluster of checks in it. Reason strings here would consume
+        // most of the remaining headroom for reverts an operator only reaches
+        // by replaying a coverage leaf.
+        /* solhint-disable reason-string */
         require(self.taprootOutputKeyCoverageInitialized);
         require(index < self.taprootOutputKeyCoverageInventoryCount);
         require(!self.taprootOutputKeyCoverageLeafMigrated[index]);
@@ -990,6 +997,7 @@ library P2TRReservation {
                 proof
             )
         );
+        /* solhint-enable reason-string */
 
         self.taprootOutputKeyCoverageLeafMigrated[index] = true;
         self.taprootOutputKeyCoverageMigratedCount++;
@@ -1042,12 +1050,14 @@ library P2TRReservation {
         BridgeState.Storage storage self,
         address router
     ) private {
+        /* solhint-disable reason-string */
         require(self.p2trFraudRouter == address(0));
         require(
             self.taprootOutputKeyCoverageInitialized &&
                 self.taprootOutputKeyCoverageMigratedCount ==
                 self.taprootOutputKeyCoverageInventoryCount
         );
+        /* solhint-enable reason-string */
         _requireFrostWalletArchiveReady(self.frostWalletRegistry);
         require(
             router == self.taprootOutputKeyCoverageAuthorizedRouter,
@@ -1070,6 +1080,7 @@ library P2TRReservation {
             .staticcall(abi.encodeWithSignature("getWalletArchiveMigration()"));
         uint256 state;
         if (stateRead && stateData.length >= 32) {
+            // solhint-disable-next-line no-inline-assembly
             assembly {
                 state := mload(add(stateData, 32))
             }
@@ -1086,6 +1097,7 @@ library P2TRReservation {
             );
         bytes32 manifestHash;
         if (manifestRead && manifestData.length == 32) {
+            // solhint-disable-next-line no-inline-assembly
             assembly {
                 manifestHash := mload(add(manifestData, 32))
             }
@@ -1210,6 +1222,7 @@ library P2TRReservation {
                 uint8 previousState,
                 bool wasActive
             ) = abi.decode(actionData, (bytes20, uint8, bool));
+            // solhint-disable-next-line reason-string
             require(previousState <= uint8(Wallets.WalletState.Closing));
             _restoreWallet(
                 self,

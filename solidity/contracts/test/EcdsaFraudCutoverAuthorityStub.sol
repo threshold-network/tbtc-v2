@@ -29,6 +29,7 @@ contract EcdsaFraudCutoverAuthorityStub is IERC1271 {
         returns (bytes memory)
     {
         require(msg.sender == owner, "Not owner");
+        // solhint-disable-next-line avoid-low-level-calls
         (bool succeeded, bytes memory result) = target.call(data);
         if (!succeeded) {
             // solhint-disable-next-line no-inline-assembly

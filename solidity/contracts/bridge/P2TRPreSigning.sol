@@ -91,6 +91,14 @@ interface IP2TRWalletProposalValidator {
 ///      validates the exact stripped transaction against live Bridge storage.
 ///      Callers cannot supply snapshots, signing keys, input values, resource
 ///      IDs, or apply plans.
+///
+///      Every `require` here is deliberately bare. This is a linked library
+///      and its deployed bytecode is 24024 of the 24576 bytes EIP-170 allows,
+///      so the ~50 reason strings the checks below would otherwise carry do
+///      not fit -- they would push the library past the limit and make it
+///      undeployable. Reverts are identified by the failing call and its
+///      trace instead.
+/* solhint-disable reason-string */
 library P2TRPreSigning {
     using BTCUtils for bytes;
     using BytesLib for bytes;
