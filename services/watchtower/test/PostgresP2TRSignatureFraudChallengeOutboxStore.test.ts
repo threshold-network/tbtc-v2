@@ -4190,48 +4190,45 @@ postgresTest(
 // other test executes. Without this, the adapter could filter on the wrong
 // column, or not filter at all, and every dispatcher-level test would still
 // pass -- they bind to the in-memory double.
-postgresTest(
-  "scopes the recovery predicates to one nonce lane",
-  async () => {
-    const database = await createTestDatabase()
-    await orphanedSignerBoundary(database, 220)
-    const afterLease = 10_000_000
-    const ownLane = { chainID: CHAIN_ID, sender: WALLET.address }
-    const otherSender = {
-      chainID: CHAIN_ID,
-      sender: `0x${"cd".repeat(20)}`,
-    }
-    const otherChain = { chainID: CHAIN_ID + 1, sender: WALLET.address }
-
-    assert.equal(
-      await database.store.hasExpiredPreparationLeases(afterLease),
-      true
-    )
-    assert.equal(
-      await database.store.hasExpiredPreparationLeases(afterLease, ownLane),
-      true
-    )
-    // A different account on the same chain, and the same account on a
-    // different chain, are both unaffected.
-    assert.equal(
-      await database.store.hasExpiredPreparationLeases(afterLease, otherSender),
-      false
-    )
-    assert.equal(
-      await database.store.hasExpiredPreparationLeases(afterLease, otherChain),
-      false
-    )
-    // The sender is a lookup key, so its spelling must not matter.
-    assert.equal(
-      await database.store.hasExpiredPreparationLeases(afterLease, {
-        chainID: CHAIN_ID,
-        sender: WALLET.address.toLowerCase(),
-      }),
-      true
-    )
-    await database.client.end()
+postgresTest("scopes the recovery predicates to one nonce lane", async () => {
+  const database = await createTestDatabase()
+  await orphanedSignerBoundary(database, 220)
+  const afterLease = 10_000_000
+  const ownLane = { chainID: CHAIN_ID, sender: WALLET.address }
+  const otherSender = {
+    chainID: CHAIN_ID,
+    sender: `0x${"cd".repeat(20)}`,
   }
-)
+  const otherChain = { chainID: CHAIN_ID + 1, sender: WALLET.address }
+
+  assert.equal(
+    await database.store.hasExpiredPreparationLeases(afterLease),
+    true
+  )
+  assert.equal(
+    await database.store.hasExpiredPreparationLeases(afterLease, ownLane),
+    true
+  )
+  // A different account on the same chain, and the same account on a
+  // different chain, are both unaffected.
+  assert.equal(
+    await database.store.hasExpiredPreparationLeases(afterLease, otherSender),
+    false
+  )
+  assert.equal(
+    await database.store.hasExpiredPreparationLeases(afterLease, otherChain),
+    false
+  )
+  // The sender is a lookup key, so its spelling must not matter.
+  assert.equal(
+    await database.store.hasExpiredPreparationLeases(afterLease, {
+      chainID: CHAIN_ID,
+      sender: WALLET.address.toLowerCase(),
+    }),
+    true
+  )
+  await database.client.end()
+})
 
 postgresTest(
   "scopes the pending nonce-release predicate to one nonce lane",

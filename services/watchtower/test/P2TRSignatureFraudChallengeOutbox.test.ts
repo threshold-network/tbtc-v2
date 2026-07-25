@@ -977,7 +977,9 @@ const SECOND_LANE_WALLET = new Wallet(SECOND_LANE_SIGNING_KEY)
 // The blob must carry the calldata of the intent it will be bound to, so lane B
 // signs the second test intent's call, not the default one.
 const SECOND_INTENT_SEED = "bb"
-const secondIntentCall = completeV2TestCall(`0x${SECOND_INTENT_SEED.repeat(32)}`)
+const secondIntentCall = completeV2TestCall(
+  `0x${SECOND_INTENT_SEED.repeat(32)}`
+)
 const secondLaneSignedTransaction = signTestChallengeTransaction(
   secondIntentCall.calldata,
   20,
@@ -3845,7 +3847,11 @@ const orphanLaneA = async (
   store: InMemoryOutboxStore,
   preparers: readonly P2TRSignatureFraudChallengeTransactionPreparer[]
 ): Promise<{ now: () => number; release: () => void }> => {
-  const record = await enqueue(store, createIntent(), twoLaneFeePolicyManifest())
+  const record = await enqueue(
+    store,
+    createIntent(),
+    twoLaneFeePolicyManifest()
+  )
   const authorizer = new FixedBoundaryAuthorizer()
   let now = 2_000
   let markStarted!: () => void
