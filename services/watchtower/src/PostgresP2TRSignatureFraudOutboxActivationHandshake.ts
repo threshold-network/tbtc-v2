@@ -573,85 +573,160 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
           WHERE c.singleton = true`,
         [TERMINAL_STATUSES]
       ),
+      // The barrier is keyed per nonce lane, so this audit is a rollup, not a
+      // row read. Activation is a whole-service event: it must refuse if ANY
+      // lane has outstanding allocator or signer I/O, including a lane whose
+      // barrier row is absent entirely. Per-lane equality alone cannot see a
+      // missing row — a lane holding a live signer invocation with no barrier
+      // row would produce zero failing groups and zero counters, and activation
+      // would pass. The whole-store SUM equalities below are what close that:
+      // together with per-lane equality they force any lane without a row to
+      // account for nothing, which is exactly the completeness the old
+      // single-row read got from the singleton.
       session.query<NonceAllocatorBarrierRow>(
-        `SELECT CASE
-                  WHEN b.active_release_request_id IS NULL THEN 0
-                  ELSE 1
-                END::bigint AS active_release_attempt_count,
-                b.active_signer_invocation_count,
-                b.unresolved_release_count,
-                b.contract_mismatch_blocked,
-                CASE
-                  WHEN b.active_signer_invocation_count = (
-                         SELECT count(*)
-                           FROM p2tr_signature_fraud_challenge_outbox o
-                          WHERE o.active_signer_invocation_started_at_unix_ms
-                                IS NOT NULL
-                       )
-                   AND b.unresolved_release_count = (
-                         SELECT count(*)
-                           FROM p2tr_signature_fraud_challenge_nonce_release_request r
-                          WHERE NOT EXISTS (
-                                SELECT 1
-                                  FROM p2tr_signature_fraud_challenge_nonce_release_terminal x
-                                 WHERE x.release_request_id = r.release_request_id
-                          )
-                       )
-                   AND (
-                         (b.active_release_request_id IS NULL
-                          AND b.active_release_attempt_sequence IS NULL
-                          AND b.active_release_expires_at_unix_ms IS NULL)
-                         OR EXISTS (
+        `WITH lane AS (
+             SELECT b.active_release_request_id,
+                    b.active_signer_invocation_count,
+                    b.unresolved_release_count,
+                    (
+                      SELECT count(*)
+                        FROM p2tr_signature_fraud_challenge_outbox o
+                       WHERE o.active_signer_invocation_started_at_unix_ms
+                             IS NOT NULL
+                         AND o.chain_id = b.chain_id
+                         AND o.selected_sender = b.sender
+                    ) AS observed_signer_count,
+                    (
+                      SELECT count(*)
+                        FROM p2tr_signature_fraud_challenge_nonce_release_request r
+                       WHERE r.chain_id = b.chain_id
+                         AND r.sender = b.sender
+                         AND NOT EXISTS (
                              SELECT 1
-                               FROM p2tr_signature_fraud_challenge_nonce_release_attempt a
-                               JOIN p2tr_signature_fraud_challenge_nonce_release_invocation i
-                                 ON i.release_request_id = a.release_request_id
-                                AND i.attempt_sequence = a.attempt_sequence
-                              WHERE a.release_request_id = b.active_release_request_id
-                                AND a.attempt_sequence = b.active_release_attempt_sequence
-                                AND a.expires_at_unix_ms = b.active_release_expires_at_unix_ms
-                                AND NOT EXISTS (
-                                    SELECT 1
-                                      FROM p2tr_signature_fraud_challenge_nonce_release_result x
-                                     WHERE x.release_request_id = a.release_request_id
-                                       AND x.attempt_sequence = a.attempt_sequence
-                                       AND x.result_kind <> 'ambiguous-error'
-                                )
-                                AND NOT EXISTS (
-                                    SELECT 1
-                                      FROM p2tr_signature_fraud_challenge_nonce_release_resolution rx
-                                     WHERE rx.release_request_id = a.release_request_id
-                                       AND rx.attempt_sequence = a.attempt_sequence
-                                )
+                               FROM p2tr_signature_fraud_challenge_nonce_release_terminal x
+                              WHERE x.release_request_id = r.release_request_id
                          )
+                    ) AS observed_unresolved_count,
+                    (
+                      (b.active_release_request_id IS NULL
+                       AND b.active_release_attempt_sequence IS NULL
+                       AND b.active_release_expires_at_unix_ms IS NULL)
+                      OR EXISTS (
+                          SELECT 1
+                            FROM p2tr_signature_fraud_challenge_nonce_release_attempt a
+                            JOIN p2tr_signature_fraud_challenge_nonce_release_invocation i
+                              ON i.release_request_id = a.release_request_id
+                             AND i.attempt_sequence = a.attempt_sequence
+                            JOIN p2tr_signature_fraud_challenge_nonce_release_request rr
+                              ON rr.release_request_id = a.release_request_id
+                           WHERE a.release_request_id = b.active_release_request_id
+                             AND a.attempt_sequence = b.active_release_attempt_sequence
+                             AND a.expires_at_unix_ms = b.active_release_expires_at_unix_ms
+                             AND rr.chain_id = b.chain_id
+                             AND rr.sender = b.sender
+                             AND NOT EXISTS (
+                                 SELECT 1
+                                   FROM p2tr_signature_fraud_challenge_nonce_release_result x
+                                  WHERE x.release_request_id = a.release_request_id
+                                    AND x.attempt_sequence = a.attempt_sequence
+                                    AND x.result_kind <> 'ambiguous-error'
+                             )
+                             AND NOT EXISTS (
+                                 SELECT 1
+                                   FROM p2tr_signature_fraud_challenge_nonce_release_resolution rx
+                                  WHERE rx.release_request_id = a.release_request_id
+                                    AND rx.attempt_sequence = a.attempt_sequence
+                             )
+                      )
+                    ) AS claim_is_live
+               FROM p2tr_signature_fraud_nonce_allocator_safety_barrier b
+         ), rollup AS (
+             SELECT count(*) FILTER (
+                        WHERE active_release_request_id IS NOT NULL
+                    ) AS active_release_attempt_count,
+                    COALESCE(sum(active_signer_invocation_count), 0)
+                        AS active_signer_invocation_count,
+                    COALESCE(sum(unresolved_release_count), 0)
+                        AS unresolved_release_count,
+                    count(*) FILTER (
+                        WHERE observed_signer_count <> active_signer_invocation_count
+                           OR observed_unresolved_count <> unresolved_release_count
+                           OR NOT claim_is_live
+                    ) AS lane_mismatch_count
+               FROM lane
+         ), truth AS (
+             SELECT (
+                      SELECT count(*)
+                        FROM p2tr_signature_fraud_challenge_outbox o
+                       WHERE o.active_signer_invocation_started_at_unix_ms
+                             IS NOT NULL
+                    ) AS total_signer_count,
+                    (
+                      SELECT count(*)
+                        FROM p2tr_signature_fraud_challenge_nonce_release_request r
+                       WHERE NOT EXISTS (
+                             SELECT 1
+                               FROM p2tr_signature_fraud_challenge_nonce_release_terminal x
+                              WHERE x.release_request_id = r.release_request_id
                        )
-                   AND b.contract_mismatch_blocked = (EXISTS (
-                         SELECT 1
-                           FROM p2tr_signature_fraud_challenge_nonce_release_result x
-                          WHERE x.result_kind = 'contract-mismatch'
-                         UNION ALL
-                         SELECT 1
-                           FROM p2tr_signature_fraud_challenge_nonce_release_resolution rx
-                          WHERE rx.outcome = 'terminal-unsafe'
-                       ))
-                   AND b.contract_mismatch_blocked = (EXISTS (
-                         SELECT 1
-                           FROM p2tr_signature_fraud_challenge_critical_alert a
-                          WHERE a.code IN (
-                                'reservation-release-failed',
-                                'nonce-release-terminal-unsafe'
-                            )
-                            AND NOT EXISTS (
-                                SELECT 1
-                                  FROM p2tr_signature_fraud_challenge_critical_alert_resolution ar
-                                 WHERE ar.alert_id = a.alert_id
-                            )
-                       ))
-                  THEN 0
-                  ELSE 1
-                END::bigint AS mismatch_count
-           FROM p2tr_signature_fraud_nonce_allocator_safety_barrier b
-          WHERE b.singleton = true`
+                    ) AS total_unresolved_count
+         ), global AS (
+             SELECT contract_mismatch_blocked
+               FROM p2tr_signature_fraud_nonce_allocator_global_barrier
+              WHERE singleton = true
+         )
+         SELECT rollup.active_release_attempt_count::bigint
+                    AS active_release_attempt_count,
+                rollup.active_signer_invocation_count::bigint
+                    AS active_signer_invocation_count,
+                rollup.unresolved_release_count::bigint
+                    AS unresolved_release_count,
+                (SELECT contract_mismatch_blocked FROM global)
+                    AS contract_mismatch_blocked,
+                (
+                  rollup.lane_mismatch_count
+                  + CASE
+                      WHEN rollup.active_signer_invocation_count
+                           = truth.total_signer_count THEN 0
+                      ELSE 1
+                    END
+                  + CASE
+                      WHEN rollup.unresolved_release_count
+                           = truth.total_unresolved_count THEN 0
+                      ELSE 1
+                    END
+                  + CASE
+                      WHEN (SELECT contract_mismatch_blocked FROM global)
+                           IS NOT DISTINCT FROM (EXISTS (
+                             SELECT 1
+                               FROM p2tr_signature_fraud_challenge_nonce_release_result x
+                              WHERE x.result_kind = 'contract-mismatch'
+                             UNION ALL
+                             SELECT 1
+                               FROM p2tr_signature_fraud_challenge_nonce_release_resolution rx
+                              WHERE rx.outcome = 'terminal-unsafe'
+                           )) THEN 0
+                      ELSE 1
+                    END
+                  + CASE
+                      WHEN (SELECT contract_mismatch_blocked FROM global)
+                           IS NOT DISTINCT FROM (EXISTS (
+                             SELECT 1
+                               FROM p2tr_signature_fraud_challenge_critical_alert a
+                              WHERE a.code IN (
+                                    'reservation-release-failed',
+                                    'nonce-release-terminal-unsafe'
+                                )
+                                AND NOT EXISTS (
+                                    SELECT 1
+                                      FROM p2tr_signature_fraud_challenge_critical_alert_resolution ar
+                                     WHERE ar.alert_id = a.alert_id
+                                )
+                           )) THEN 0
+                      ELSE 1
+                    END
+                )::bigint AS mismatch_count
+           FROM rollup, truth`
       ),
       session.query<CatalogDefinitionRow>(
         `SELECT 'relation'::text AS object_kind,
@@ -805,6 +880,10 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
       capacityCounterResult,
       "outbox capacity-counter mismatch count"
     )
+    // The rollup always yields one row, so unlike the singleton read this
+    // replaced, this guard no longer proves the barrier covers every lane —
+    // the SUM equalities inside `mismatch_count` do. It is retained only to
+    // reject a shape the query cannot legitimately produce.
     if (nonceAllocatorBarrierResult.rows.length !== 1) {
       throw new Error("PostgreSQL nonce-allocator safety barrier is invalid")
     }

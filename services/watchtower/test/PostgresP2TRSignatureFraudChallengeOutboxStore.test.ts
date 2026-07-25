@@ -1519,10 +1519,13 @@ postgresTest(
       active: Buffer | null
       unresolved: number
     }>(
-      `SELECT active_release_request_id AS active,
-              unresolved_release_count AS unresolved
-         FROM p2tr_signature_fraud_nonce_allocator_safety_barrier
-        WHERE singleton = true`
+      `SELECT (SELECT active_release_request_id
+                 FROM p2tr_signature_fraud_nonce_allocator_safety_barrier
+                WHERE active_release_request_id IS NOT NULL
+                LIMIT 1) AS active,
+              (SELECT COALESCE(sum(unresolved_release_count), 0)::integer
+                 FROM p2tr_signature_fraud_nonce_allocator_safety_barrier)
+                AS unresolved`
     )
     assert.deepEqual(barrier.rows[0], { active: null, unresolved: 0 })
 
@@ -3388,15 +3391,32 @@ function boundaryResolution(
   }
 }
 
+// The barrier is keyed per nonce lane, so the store-wide quantity these tests
+// reason about -- "is any lane holding an irreversible signer boundary" -- is
+// the sum across lanes. That is the same rollup the activation handshake reads.
 async function barrierSignerInvocationCount(
   database: TestDatabase
 ): Promise<number> {
   const result = await database.client.query<{ count: string }>(
-    `SELECT active_signer_invocation_count::text AS count
-       FROM p2tr_signature_fraud_nonce_allocator_safety_barrier
-      WHERE singleton = true`
+    `SELECT COALESCE(sum(active_signer_invocation_count), 0)::text AS count
+       FROM p2tr_signature_fraud_nonce_allocator_safety_barrier`
   )
   return Number(result.rows[0].count)
+}
+
+async function laneBarrierSignerInvocationCount(
+  database: TestDatabase,
+  chainID: number,
+  sender: string
+): Promise<number | undefined> {
+  const result = await database.client.query<{ count: string }>(
+    `SELECT active_signer_invocation_count::text AS count
+       FROM p2tr_signature_fraud_nonce_allocator_safety_barrier
+      WHERE chain_id = $1::numeric
+        AND sender = $2::bytea`,
+    [String(chainID), Buffer.from(sender.replace(/^0x/, ""), "hex")]
+  )
+  return result.rows.length === 0 ? undefined : Number(result.rows[0].count)
 }
 
 async function blockingProvenanceIncidents(
@@ -4461,3 +4481,168 @@ for (const scenario of orphanedBoundaryParityScenarios) {
     }
   )
 }
+
+// Activation is a whole-service event, so narrowing the barrier's key must not
+// narrow activation safety: the handshake must still refuse if ANY lane has
+// outstanding allocator or signer I/O. Per-lane equality alone cannot see that,
+// because a lane with no barrier row contributes no failing group and no
+// counters -- it reads exactly like a clean store. The four tests below drive
+// the barrier audit to a positive mismatch, which nothing else in the suite
+// does; without them a rollup that silently reports zero passes every test.
+postgresTest(
+  "blocks activation when a lane holding a signer boundary has no barrier row",
+  async () => {
+    const database = await createTestDatabase()
+    await orphanedSignerBoundary(database, 216)
+    assert.equal(await barrierSignerInvocationCount(database), 1)
+
+    // Ground truth (the outbox marker) survives; only the barrier row that
+    // accounts for it is gone.
+    await database.client.query(
+      `DELETE FROM p2tr_signature_fraud_nonce_allocator_safety_barrier
+        WHERE active_signer_invocation_count > 0`
+    )
+    assert.equal(await barrierSignerInvocationCount(database), 0)
+
+    await beginSerializable(database.client)
+    const response = await activationProvider(
+      database.client,
+      () => 5_000
+    ).attestActivationChallenge(activationRequest)
+    await commit(database.client)
+
+    assert.equal(response.payload.state.activeSignerInvocationCount, 0)
+    assert.equal(response.payload.state.nonceAllocatorBarrierMismatchCount, 1)
+    assert.equal(response.payload.state.activationBlocked, true)
+    assert.equal(
+      response.payload.state.activationBlockingReasons.includes(
+        "nonce-allocator-barrier-mismatch"
+      ),
+      true
+    )
+    await database.client.end()
+  }
+)
+
+postgresTest(
+  "blocks activation when the barrier table is empty and I/O is outstanding",
+  async () => {
+    const database = await createTestDatabase()
+    await orphanedSignerBoundary(database, 217)
+
+    await database.client.query(
+      `DELETE FROM p2tr_signature_fraud_nonce_allocator_safety_barrier`
+    )
+
+    await beginSerializable(database.client)
+    const response = await activationProvider(
+      database.client,
+      () => 5_000
+    ).attestActivationChallenge(activationRequest)
+    await commit(database.client)
+
+    // Every counter reads clean, which is precisely the failure mode: only the
+    // whole-store sum equality distinguishes this from an idle service.
+    assert.equal(response.payload.state.activeSignerInvocationCount, 0)
+    assert.equal(response.payload.state.activeNonceReleaseAttemptCount, 0)
+    assert.equal(response.payload.state.nonceAllocatorBarrierMismatchCount, 1)
+    assert.equal(response.payload.state.activationBlocked, true)
+    assert.equal(
+      response.payload.state.activationBlockingReasons.includes(
+        "nonce-allocator-barrier-mismatch"
+      ),
+      true
+    )
+    await database.client.end()
+  }
+)
+
+postgresTest(
+  "blocks activation when lane counters drift but their total still agrees",
+  async () => {
+    const database = await createTestDatabase()
+    await orphanedSignerBoundary(database, 218)
+    const decoySender = Buffer.alloc(20, 0xff)
+
+    // Move the boundary's count onto a second, unrelated lane. The sum is still
+    // 1 and still equals ground truth, so only the per-lane grouped equality
+    // can see that both lanes are now misattributed.
+    await database.client.query(
+      `INSERT INTO p2tr_signature_fraud_nonce_allocator_safety_barrier (
+           chain_id, sender, active_signer_invocation_count
+       ) VALUES (
+           (SELECT chain_id
+              FROM p2tr_signature_fraud_nonce_allocator_safety_barrier
+             WHERE active_signer_invocation_count > 0),
+           $1::bytea,
+           1
+       )`,
+      [decoySender]
+    )
+    await database.client.query(
+      `UPDATE p2tr_signature_fraud_nonce_allocator_safety_barrier
+          SET active_signer_invocation_count = 0
+        WHERE sender <> $1::bytea`,
+      [decoySender]
+    )
+    assert.equal(await barrierSignerInvocationCount(database), 1)
+
+    await beginSerializable(database.client)
+    const response = await activationProvider(
+      database.client,
+      () => 5_000
+    ).attestActivationChallenge(activationRequest)
+    await commit(database.client)
+
+    assert.equal(response.payload.state.activeSignerInvocationCount, 1)
+    assert.equal(response.payload.state.nonceAllocatorBarrierMismatchCount, 2)
+    assert.equal(response.payload.state.activationBlocked, true)
+    assert.equal(
+      response.payload.state.activationBlockingReasons.includes(
+        "nonce-allocator-barrier-mismatch"
+      ),
+      true
+    )
+    await database.client.end()
+  }
+)
+
+postgresTest(
+  "blocks activation when the global mismatch flag has no supporting evidence",
+  async () => {
+    const database = await createTestDatabase()
+    await insertRecord(database, outboxRecord(219))
+
+    // The flag is a statement about the allocator implementation rather than
+    // any one account, so it survives lane keying on its own singleton and both
+    // consistency invariants over it stay whole-store. Only this direction is
+    // testable: the opposite one -- an unresolved `reservation-release-failed`
+    // alert while the flag reads false -- cannot be built, because the alert
+    // trigger demands the contract-mismatch result that sets the flag.
+    await database.client.query(
+      `UPDATE p2tr_signature_fraud_nonce_allocator_global_barrier
+          SET contract_mismatch_blocked = true
+        WHERE singleton = true`
+    )
+
+    await beginSerializable(database.client)
+    const response = await activationProvider(
+      database.client,
+      () => 5_000
+    ).attestActivationChallenge(activationRequest)
+    await commit(database.client)
+
+    assert.equal(
+      response.payload.state.nonceAllocatorContractMismatchBlocked,
+      true
+    )
+    assert.equal(response.payload.state.nonceAllocatorBarrierMismatchCount, 2)
+    assert.equal(
+      response.payload.state.activationBlockingReasons.includes(
+        "nonce-allocator-barrier-mismatch"
+      ),
+      true
+    )
+    await database.client.end()
+  }
+)
