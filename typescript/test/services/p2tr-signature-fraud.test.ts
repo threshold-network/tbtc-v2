@@ -2326,15 +2326,14 @@ describe("P2TR signature-fraud witness parsing", () => {
       undefined,
       bridgeChallengeDomain
     )
-    const completeEvidence =
-      buildP2TRCompleteV2SignatureFraudChallengeEvidence(
-        observation,
-        bridgeChallengeDomain,
-        {
-          registeredWalletIDs: [vector.walletIDHex],
-          walletInputKeyBindings: [],
-        }
-      )
+    const completeEvidence = buildP2TRCompleteV2SignatureFraudChallengeEvidence(
+      observation,
+      bridgeChallengeDomain,
+      {
+        registeredWalletIDs: [vector.walletIDHex],
+        walletInputKeyBindings: [],
+      }
+    )
     const intent = buildP2TRSignatureFraudSubmissionIntent(completeEvidence, {
       domainChainID: bridgeChallengeDomain.chainID,
       chainID: bridgeChallengeDomain.chainID,
