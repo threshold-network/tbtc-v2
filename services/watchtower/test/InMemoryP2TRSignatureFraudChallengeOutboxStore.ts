@@ -82,6 +82,7 @@ export class InMemoryOutboxStore
   /** Append-only retirement evidence, mirroring the PostgreSQL table. */
   readonly retiredProvenanceIncidents: {
     recordID: string
+    signerInvocationID: string
     boundaryStartedAtUnixMs: number
     preparationAttempts: number
     nonceReservationID: string
@@ -505,11 +506,12 @@ export class InMemoryOutboxStore
         "Orphaned signer boundary resolution names an absent outbox record"
       )
     }
+    // Mirrors the PRIMARY KEY (record_id, signer_invocation_id) the adapter
+    // now probes. Keying on anything else lets the double accept a second
+    // resolution PostgreSQL would reject as a duplicate, or vice versa.
     const key = [
       normalizeKey(normalized.recordID),
-      normalized.boundaryStartedAtUnixMs,
-      normalized.preparationAttempts,
-      normalized.nonceReservationID,
+      normalizeKey(normalized.signerInvocationID),
     ].join(":")
     const existing = this.signerBoundaryResolutions.get(key)
     if (existing !== undefined) {
@@ -539,6 +541,7 @@ export class InMemoryOutboxStore
         ...current,
         version: current.version + 1,
         activeSignerInvocationStartedAtUnixMs: undefined,
+        activeSignerInvocationID: undefined,
         updatedAtUnixMs: Math.max(
           current.updatedAtUnixMs,
           normalized.resolvedAtUnixMs
@@ -552,6 +555,7 @@ export class InMemoryOutboxStore
           current.version,
           cleared,
           {
+            signerInvocationID: normalized.signerInvocationID,
             startedAtUnixMs: normalized.boundaryStartedAtUnixMs,
             preparationAttempts: normalized.preparationAttempts,
             nonceReservationID: normalized.nonceReservationID,
@@ -642,6 +646,7 @@ export class InMemoryOutboxStore
     expectedVersion: number,
     next: P2TRSignatureFraudChallengeOutboxRecord,
     boundary: {
+      signerInvocationID: string
       startedAtUnixMs: number
       preparationAttempts: number
       nonceReservationID: string
@@ -663,7 +668,13 @@ export class InMemoryOutboxStore
         "provenance incident resolution requires a boundary with no signer escape evidence"
       )
     }
+    // The same predicate the re-keyed database guard enforces: identity by
+    // invocation ID, with the descriptive columns still checked so append-only
+    // retirement evidence cannot record a boundary that never existed.
     if (
+      durable.activeSignerInvocationID === undefined ||
+      prefixedReservationID(durable.activeSignerInvocationID) !==
+        prefixedReservationID(boundary.signerInvocationID) ||
       durable.activeSignerInvocationStartedAtUnixMs !==
         boundary.startedAtUnixMs ||
       durable.preparationAttempts !== boundary.preparationAttempts ||
@@ -680,6 +691,7 @@ export class InMemoryOutboxStore
     }
     this.retiredProvenanceIncidents.push({
       recordID: next.recordID,
+      signerInvocationID: boundary.signerInvocationID,
       boundaryStartedAtUnixMs: boundary.startedAtUnixMs,
       preparationAttempts: boundary.preparationAttempts,
       nonceReservationID: boundary.nonceReservationID,
@@ -834,9 +846,12 @@ export class InMemoryOutboxStore
           ? current.preparationResumeStatus
           : undefined,
       activeSignerInvocationStartedAtUnixMs: undefined,
+      activeSignerInvocationID: undefined,
       signerInvocationStartedAtUnixMs:
         current.signerInvocationStartedAtUnixMs ??
         current.activeSignerInvocationStartedAtUnixMs,
+      signerInvocationID:
+        current.signerInvocationID ?? current.activeSignerInvocationID,
       signerQuarantines,
       unexpectedSignedArtifacts: alreadyCaptured
         ? artifacts
@@ -956,6 +971,7 @@ export class InMemoryOutboxStore
           : undefined,
         activeSignerInvocationStartedAtUnixMs:
           current.activeSignerInvocationStartedAtUnixMs,
+        activeSignerInvocationID: current.activeSignerInvocationID,
         updatedAtUnixMs: evidence.invalidatedAtUnixMs,
         lastError: evidence.reason,
       }

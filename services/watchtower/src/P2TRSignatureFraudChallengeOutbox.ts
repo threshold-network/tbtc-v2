@@ -28,6 +28,9 @@ import {
   validateP2TRSignatureFraudWitnessObservationConsistency,
 } from "@keep-network/tbtc-v2.ts"
 
+// A value import, unlike the authorization module's type-only import of this
+// file, so the dependency runs one way at run time and there is no cycle.
+import { computeP2TRSignatureFraudSignerInvocationID } from "./P2TRSignatureFraudIrreversibleBoundaryAuthorization.js"
 import type { P2TRSignatureFraudWatchtowerStoreProfileProvider } from "./types.js"
 
 export const P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_PAGE_SIZE = 1_000
@@ -761,7 +764,13 @@ export const computeP2TRSignatureFraudNonceReleaseResolutionEvidenceDigest = (
  */
 export type P2TRSignatureFraudIndependentSignerBoundaryResolution = {
   recordID: string
-  /** The exact boundary, byte for byte. A different boundary is refused. */
+  /**
+   * The exact boundary. This is the identity: a deterministic digest over the
+   * whole boundary binding, frozen by the swap that set the marker. The three
+   * fields below remain as operator-facing detail and are bound into the
+   * evidence digest, but they no longer decide which boundary is named.
+   */
+  signerInvocationID: string
   boundaryStartedAtUnixMs: number
   preparationAttempts: number
   nonceReservationID: string
@@ -811,13 +820,25 @@ export const computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest = (
       "Signer-boundary resolution names signed bytes only for a signed outcome"
     )
   }
+  // Mirrored byte for byte by the PostgreSQL guard trigger. The invocation ID
+  // replaces the boundary start as the identity term; v1 hashed a wall-clock
+  // tuple, so the domain moves with the layout.
   return `0x${createHash("sha256")
-    .update("tbtc-p2tr-signer-boundary-independent-resolution-v1", "utf8")
+    .update("tbtc-p2tr-signer-boundary-independent-resolution-v2", "utf8")
     .update(
       Buffer.from(
         normalizeBytes32(
           resolution.recordID,
           "Signer-boundary resolution record ID"
+        ).slice(2),
+        "hex"
+      )
+    )
+    .update(
+      Buffer.from(
+        normalizeBytes32(
+          resolution.signerInvocationID,
+          "Signer-boundary resolution invocation ID"
         ).slice(2),
         "hex"
       )
@@ -883,6 +904,7 @@ export const computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest = (
  */
 export type P2TRSignatureFraudNormalizedSignerBoundaryResolution = {
   recordID: string
+  signerInvocationID: string
   boundaryStartedAtUnixMs: number
   preparationAttempts: number
   nonceReservationID: string
@@ -905,6 +927,10 @@ export const validateP2TRSignatureFraudIndependentSignerBoundaryResolution = (
   const recordID = normalizeBytes32(
     resolution.recordID,
     "Orphaned signer boundary record ID"
+  )
+  const signerInvocationID = normalizeBytes32(
+    resolution.signerInvocationID,
+    "Orphaned signer boundary invocation ID"
   )
   const boundaryStartedAtUnixMs = requireUnixMilliseconds(
     resolution.boundaryStartedAtUnixMs,
@@ -962,6 +988,7 @@ export const validateP2TRSignatureFraudIndependentSignerBoundaryResolution = (
   if (
     computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest({
       recordID,
+      signerInvocationID,
       boundaryStartedAtUnixMs,
       preparationAttempts,
       nonceReservationID,
@@ -1043,6 +1070,7 @@ export const validateP2TRSignatureFraudIndependentSignerBoundaryResolution = (
   }
   return {
     recordID,
+    signerInvocationID,
     boundaryStartedAtUnixMs,
     preparationAttempts,
     nonceReservationID,
@@ -1068,7 +1096,24 @@ export const assertP2TRSignatureFraudOrphanedSignerBoundaryOwnership = (
   record: P2TRSignatureFraudChallengeOutboxRecord,
   resolution: P2TRSignatureFraudNormalizedSignerBoundaryResolution
 ): void => {
+  // The invocation ID decides identity: it is a digest over the whole boundary
+  // binding and is frozen by the swap that set the marker, so it is what a
+  // provider can journal and what the primary key indexes.
+  //
+  // The other three are still compared against the durable row. They are
+  // descriptive columns of append-only evidence, and nothing downstream reads
+  // them, so leaving them unchecked would let a resolution that names the right
+  // boundary write permanently wrong forensics about it. None of them can drift
+  // while the marker is set — the start is immutable in flight and NULL-paired
+  // with the ID, the reservation cannot be NULLed under an active marker, and
+  // every transition that bumps the attempt clears the marker in the same swap —
+  // so checking them costs nothing.
   if (
+    record.activeSignerInvocationID === undefined ||
+    normalizeBytes32(
+      record.activeSignerInvocationID,
+      "Durable active signer invocation ID"
+    ) !== resolution.signerInvocationID ||
     record.activeSignerInvocationStartedAtUnixMs !==
       resolution.boundaryStartedAtUnixMs ||
     record.preparationAttempts !== resolution.preparationAttempts ||
@@ -1192,8 +1237,17 @@ export type P2TRSignatureFraudChallengeOutboxRecord = {
   preparationResumeStatus?: "prepared" | "broadcast-pending"
   /** Durable boundary for the currently active signer call. */
   activeSignerInvocationStartedAtUnixMs?: number
+  /**
+   * Deterministic identity of that boundary, committed in the same swap that
+   * sets the marker above. Present exactly when the marker is: the activation
+   * barrier counts invocations by the marker's null transitions, so the two
+   * must never disagree about whether a signer call may be outstanding.
+   */
+  activeSignerInvocationID?: string
   /** Historical proof that at least one signer invocation began. */
   signerInvocationStartedAtUnixMs?: number
+  /** Identity of the last boundary that reached a signer. */
+  signerInvocationID?: string
   preparedTransaction?: P2TRSignatureFraudPreparedChallengeTransaction
   /** Append-only signed identities; the singular field aliases the last item. */
   preparedTransactionVariants?: readonly P2TRSignatureFraudPreparedTransactionVariant[]
@@ -1537,6 +1591,8 @@ export interface P2TRSignatureFraudChallengeOutboxStore
     expectedVersion: number,
     next: P2TRSignatureFraudChallengeOutboxRecord,
     boundary: {
+      /** The identity; the fields below are retained detail. */
+      signerInvocationID: string
       startedAtUnixMs: number
       preparationAttempts: number
       nonceReservationID: string
@@ -2308,13 +2364,38 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       "Challenge outbox signer invocation time"
     )
     await this.assertRecoveryBarrier()
-    const signerBoundary = nextRecord(reserved, {
+    // Built from the record that is about to be committed: `nextRecord` already
+    // carries the post-swap version, and the binding reads no signer marker, so
+    // the invocation identity is derivable here and lands in the same swap that
+    // sets the marker. Building before the swap also means a failure strands
+    // nothing — there is no durable marker yet to pin the activation barrier.
+    const pendingBoundary = nextRecord(reserved, {
       activeSignerInvocationStartedAtUnixMs: signerBoundaryTime,
       lastPreBroadcastRecheckAtUnixMs: signerBoundaryTime,
       lastPreBroadcastRecheckStatus: "eligible",
       updatedAtUnixMs: signerBoundaryTime,
       lastError: undefined,
     })
+    let signerAuthorizationBinding: P2TRSignatureFraudIrreversibleBoundaryBinding
+    try {
+      signerAuthorizationBinding = this.buildIrreversibleBoundaryBinding(
+        pendingBoundary,
+        "prepare",
+        pendingBoundary.preparationAttempts,
+        selectedFeePolicy
+      )
+    } catch (error) {
+      return this.abandonUnboundPreparationClaim(
+        reserved,
+        `Initial signer authorization failed: ${errorMessage(error)}`
+      )
+    }
+    const signerBoundary: P2TRSignatureFraudChallengeOutboxRecord = {
+      ...pendingBoundary,
+      activeSignerInvocationID: computeP2TRSignatureFraudSignerInvocationID(
+        signerAuthorizationBinding
+      ),
+    }
     if (
       !(await this.store.compareAndSwapWithCurrentCanonicalProvenance(
         key,
@@ -2326,20 +2407,8 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       return this.requireRecord(key)
     }
 
-    let signerAuthorizationBinding: P2TRSignatureFraudIrreversibleBoundaryBinding
     let signerAuthorization: P2TRSignatureFraudIrreversibleBoundaryAuthorization
     try {
-      // Building the binding is part of authorizing: it recomputes the intent
-      // identity and re-checks the lane against durable state. A failure here
-      // means exactly what a rejected authorization means — no signer was
-      // invoked — so it must clear the pre-I/O marker rather than escape and
-      // strand the record with the marker set.
-      signerAuthorizationBinding = this.buildIrreversibleBoundaryBinding(
-        signerBoundary,
-        "prepare",
-        signerBoundary.preparationAttempts,
-        selectedFeePolicy
-      )
       signerAuthorization =
         await this.irreversibleBoundaryAuthorizer.authorizeP2TRSignatureFraudIrreversibleBoundary(
           signerAuthorizationBinding
@@ -2476,8 +2545,12 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       ],
       preparationLease: undefined,
       activeSignerInvocationStartedAtUnixMs: undefined,
+      activeSignerInvocationID: undefined,
       signerInvocationStartedAtUnixMs:
         signerBoundary.signerInvocationStartedAtUnixMs ?? signerBoundaryTime,
+      signerInvocationID:
+        signerBoundary.signerInvocationID ??
+        signerBoundary.activeSignerInvocationID,
       updatedAtUnixMs: requireUnixMilliseconds(
         this.now(),
         "Challenge outbox prepared time"
@@ -2599,6 +2672,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         expiresAtUnixMs: leaseExpiresAtUnixMs,
       },
       activeSignerInvocationStartedAtUnixMs: undefined,
+      activeSignerInvocationID: undefined,
       updatedAtUnixMs: nowUnixMs,
       lastError: undefined,
     })
@@ -2627,6 +2701,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         preparationLease: undefined,
         preparationResumeStatus: undefined,
         activeSignerInvocationStartedAtUnixMs: undefined,
+        activeSignerInvocationID: undefined,
         lastPreBroadcastRecheckAtUnixMs: recheckTime,
         lastPreBroadcastRecheckStatus: preSignRecheck.status,
         updatedAtUnixMs: recheckTime,
@@ -2644,13 +2719,36 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       "Challenge outbox replacement signer invocation time"
     )
     await this.assertRecoveryBarrier()
-    const signerBoundary = nextRecord(claimed, {
+    // As at the initial boundary: build first, so the identity is committed in
+    // the same swap as the marker and a build failure leaves nothing durable.
+    const pendingBoundary = nextRecord(claimed, {
       activeSignerInvocationStartedAtUnixMs: signerBoundaryTime,
       lastPreBroadcastRecheckAtUnixMs: signerBoundaryTime,
       lastPreBroadcastRecheckStatus: "eligible",
       updatedAtUnixMs: signerBoundaryTime,
       lastError: undefined,
     })
+    let signerAuthorizationBinding: P2TRSignatureFraudIrreversibleBoundaryBinding
+    try {
+      signerAuthorizationBinding = this.buildIrreversibleBoundaryBinding(
+        pendingBoundary,
+        "replacement",
+        pendingBoundary.preparationAttempts,
+        selectedFeePolicy,
+        previous.transactionHash
+      )
+    } catch (error) {
+      return this.abandonUnboundPreparationClaim(
+        claimed,
+        `Replacement signer authorization failed: ${errorMessage(error)}`
+      )
+    }
+    const signerBoundary: P2TRSignatureFraudChallengeOutboxRecord = {
+      ...pendingBoundary,
+      activeSignerInvocationID: computeP2TRSignatureFraudSignerInvocationID(
+        signerAuthorizationBinding
+      ),
+    }
     if (
       !(await this.store.compareAndSwapWithCurrentCanonicalProvenance(
         key,
@@ -2662,18 +2760,8 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       return this.requireRecord(key)
     }
 
-    let signerAuthorizationBinding: P2TRSignatureFraudIrreversibleBoundaryBinding
     let signerAuthorization: P2TRSignatureFraudIrreversibleBoundaryAuthorization
     try {
-      // As in the initial boundary: a binding that cannot be built names no
-      // invoked signer, so it clears the marker instead of stranding the record.
-      signerAuthorizationBinding = this.buildIrreversibleBoundaryBinding(
-        signerBoundary,
-        "replacement",
-        signerBoundary.preparationAttempts,
-        selectedFeePolicy,
-        previous.transactionHash
-      )
       signerAuthorization =
         await this.irreversibleBoundaryAuthorizer.authorizeP2TRSignatureFraudIrreversibleBoundary(
           signerAuthorizationBinding
@@ -2836,8 +2924,12 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       preparationLease: undefined,
       preparationResumeStatus: undefined,
       activeSignerInvocationStartedAtUnixMs: undefined,
+      activeSignerInvocationID: undefined,
       signerInvocationStartedAtUnixMs:
         signerBoundary.signerInvocationStartedAtUnixMs ?? signerBoundaryTime,
+      signerInvocationID:
+        signerBoundary.signerInvocationID ??
+        signerBoundary.activeSignerInvocationID,
       updatedAtUnixMs: requireUnixMilliseconds(
         this.now(),
         "Challenge outbox replacement prepared time"
@@ -3462,6 +3554,9 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       // Only the worker observing that call return may clear this marker.
       activeSignerInvocationStartedAtUnixMs: signerWasInvoked
         ? current.activeSignerInvocationStartedAtUnixMs
+        : undefined,
+      activeSignerInvocationID: signerWasInvoked
+        ? current.activeSignerInvocationID
         : undefined,
       preparationSender: retainLane ? current.preparationSender : undefined,
       selectedLaneID: retainLane ? current.selectedLaneID : undefined,
@@ -4296,11 +4391,15 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       preparationLease: undefined,
       preparationResumeStatus: undefined,
       activeSignerInvocationStartedAtUnixMs: undefined,
+      activeSignerInvocationID: undefined,
       signerInvocationStartedAtUnixMs: signerInvoked
         ? current.signerInvocationStartedAtUnixMs ??
           current.activeSignerInvocationStartedAtUnixMs ??
           nowUnixMs
         : current.signerInvocationStartedAtUnixMs,
+      signerInvocationID: signerInvoked
+        ? current.signerInvocationID ?? current.activeSignerInvocationID
+        : current.signerInvocationID,
       preparationSender:
         signerInvoked || hasPriorVariant
           ? current.preparationSender
@@ -4491,6 +4590,28 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
   }
 
   /**
+   * Records why a boundary binding could not be built, for a claim that never
+   * reached the durable marker. There is nothing to clear — the invocation
+   * identity is derived before the swap that would set the marker, so a failure
+   * here leaves the activation barrier untouched and the reservation is
+   * released by ordinary lease recovery.
+   */
+  private async abandonUnboundPreparationClaim(
+    claimed: P2TRSignatureFraudChallengeOutboxRecord,
+    reason: string
+  ): Promise<P2TRSignatureFraudChallengeOutboxRecord> {
+    const unbound = nextRecord(claimed, {
+      updatedAtUnixMs: requireUnixMilliseconds(
+        this.now(),
+        "Challenge outbox unbound boundary time"
+      ),
+      lastError: requireReason(reason, "Boundary binding failure reason"),
+    })
+    await this.store.compareAndSwap(claimed.recordID, claimed.version, unbound)
+    return this.requireRecord(claimed.recordID)
+  }
+
+  /**
    * Clears the exact durable pre-I/O marker when authorization failed before
    * the signer function was called. Concurrent canonical invalidation may
    * change status, but it must not turn a known-uninvoked signer into an
@@ -4566,6 +4687,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
             ? undefined
             : durable.preparationResumeStatus,
         activeSignerInvocationStartedAtUnixMs: undefined,
+        activeSignerInvocationID: undefined,
         updatedAtUnixMs: requireUnixMilliseconds(
           this.now(),
           "Signer authorization failure completion time"
@@ -4583,8 +4705,10 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         provenanceWasInvalidated &&
         !hasPriorSignedState &&
         durable.reservedNonce !== undefined &&
-        durable.activeSignerInvocationStartedAtUnixMs !== undefined
+        durable.activeSignerInvocationStartedAtUnixMs !== undefined &&
+        durable.activeSignerInvocationID !== undefined
           ? {
+              signerInvocationID: durable.activeSignerInvocationID,
               startedAtUnixMs: durable.activeSignerInvocationStartedAtUnixMs,
               preparationAttempts: durable.preparationAttempts,
               nonceReservationID:
@@ -4730,6 +4854,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       preparationLease: undefined,
       preparationResumeStatus: undefined,
       activeSignerInvocationStartedAtUnixMs: undefined,
+      activeSignerInvocationID: undefined,
       preparationSender: signerBoundary ? current.preparationSender : undefined,
       selectedLaneID: signerBoundary ? current.selectedLaneID : undefined,
       selectedSignerIdentity: signerBoundary
