@@ -1,7 +1,8 @@
 import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
-import { resolve } from "node:path"
+import { dirname, join } from "node:path"
 import { describe, it } from "node:test"
+import { fileURLToPath } from "node:url"
 import { Transaction } from "bitcoinjs-lib"
 import {
   extractP2TRSignatureFraudWitnessObservations,
@@ -240,7 +241,14 @@ describe("production per-input candidate observation", () => {
 function candidateFixture() {
   const vectors = JSON.parse(
     readFileSync(
-      resolve(process.cwd(), "docs/test-vectors/p2tr-signature-fraud-v0.json"),
+      join(
+        // Resolve relative to this test file (services/watchtower/test), not
+        // process.cwd(): CI runs the suite with cwd=services/watchtower, where
+        // a cwd-relative "docs/..." does not exist. From the test directory
+        // the three "../" segments reach the repo-root docs/ directory.
+        dirname(fileURLToPath(import.meta.url)),
+        "../../../docs/test-vectors/p2tr-signature-fraud-v0.json"
+      ),
       "utf8"
     )
   ) as { cases: Vector[] }
