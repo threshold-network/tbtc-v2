@@ -6764,7 +6764,7 @@ const validateIndependentTransport = (
 }
 
 const requireFinalityConfirmationBlocks = (
-  value: unknown,
+  value: number,
   label: string
 ): number => {
   const depth = requirePositiveSafeInteger(value, label)
