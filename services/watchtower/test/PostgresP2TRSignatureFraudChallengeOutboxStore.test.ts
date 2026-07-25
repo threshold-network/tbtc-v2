@@ -4331,3 +4331,55 @@ postgresTest(
     await database.client.end()
   }
 )
+
+// The one-shot property, which is what makes a provider's answer binding.
+// `never-invoked` rests on a provider receipt the watchtower cannot verify --
+// the bytes are opaque to it -- so the guarantee it CAN offer is that an
+// invocation is answered exactly once: the resolution must name the live
+// marker, and it clears that marker in the same transaction. A provider that
+// later contradicts itself has nowhere to put the second answer.
+postgresTest(
+  "answers each signer invocation exactly once, whatever the second answer says",
+  async () => {
+    const database = await createTestDatabase()
+    const { boundary } = await orphanedSignerBoundary(database, 222)
+
+    await begin(database.client)
+    assert.equal(
+      await database.store.resolveOrphanedSignerBoundary(
+        boundaryResolution(boundary)
+      ),
+      "acknowledged"
+    )
+    await commit(database.client)
+
+    // Same invocation, opposite claim. The marker it would have to name is
+    // gone, so there is no way to record a contradiction.
+    await assert.rejects(
+      database.store.resolveOrphanedSignerBoundary(
+        boundaryResolution(boundary, {
+          outcome: "signed",
+          signedTransactionHash: `0x${"5e".repeat(32)}`,
+        })
+      ),
+      /Independent signer-boundary resolution conflicts/
+    )
+
+    // Replaying the identical answer is not a contradiction, so it stays
+    // idempotent rather than becoming a second, conflicting record.
+    await begin(database.client)
+    assert.equal(
+      await database.store.resolveOrphanedSignerBoundary(
+        boundaryResolution(boundary)
+      ),
+      "acknowledged"
+    )
+    await commit(database.client)
+    const stored = await database.client.query<{ count: string }>(
+      `SELECT count(*)::text AS count
+         FROM p2tr_signature_fraud_challenge_signer_boundary_resolution`
+    )
+    assert.equal(stored.rows[0].count, "1")
+    await database.client.end()
+  }
+)
