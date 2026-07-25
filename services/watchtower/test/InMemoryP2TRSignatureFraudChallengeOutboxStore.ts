@@ -32,6 +32,7 @@ import {
   appendSignerQuarantine,
   assertP2TRSignatureFraudOrphanedSignerBoundaryOwnership,
   validateP2TRSignatureFraudIndependentSignerBoundaryResolution,
+  normalizeP2TRSignatureFraudSigningLane,
 } from "../src/P2TRSignatureFraudChallengeOutbox.js"
 
 /** Mirrors the PostgreSQL adapter's tolerance for an unprefixed `Hex` render. */
@@ -179,19 +180,56 @@ export class InMemoryOutboxStore
     )
   }
 
-  async hasExpiredPreparationLeases(nowUnixMs: number): Promise<boolean> {
+  async hasExpiredPreparationLeases(
+    nowUnixMs: number,
+    lane?: P2TRSignatureFraudSigningLane
+  ): Promise<boolean> {
+    const normalized =
+      lane === undefined
+        ? undefined
+        : normalizeP2TRSignatureFraudSigningLane(lane)
     return [...this.records.values()].some(
       (record) =>
         record.status === "preparing" &&
         record.preparationLease !== undefined &&
-        record.preparationLease.expiresAtUnixMs <= nowUnixMs
+        record.preparationLease.expiresAtUnixMs <= nowUnixMs &&
+        (normalized === undefined ||
+          // Mirrors the adapter exactly, including the released-lane exclusion:
+          // a record that surrendered its lane is not occupying it. The
+          // adapter writes `lane_released_at_unix_ms` exactly when
+          // `finalNonceResolution` is set, so this is the same predicate.
+          (record.finalNonceResolution === undefined &&
+            record.preparationSender !== undefined &&
+            normalizeP2TRSignatureFraudSigningLane({
+              chainID: record.intent.chainID,
+              sender: record.preparationSender,
+            }).sender === normalized.sender &&
+            record.intent.chainID === normalized.chainID))
     )
   }
 
-  async hasPendingNonceReleases(): Promise<boolean> {
-    return [...this.nonceReleaseRequests.keys()].some(
-      (id) => !this.releaseAcknowledged(id)
-    )
+  async hasPendingNonceReleases(
+    lane?: P2TRSignatureFraudSigningLane
+  ): Promise<boolean> {
+    const normalized =
+      lane === undefined
+        ? undefined
+        : normalizeP2TRSignatureFraudSigningLane(lane)
+    return [...this.nonceReleaseRequests.entries()].some(([id, request]) => {
+      if (this.releaseAcknowledged(id)) return false
+      if (normalized === undefined) return true
+      // The reservation carries the sender but not the chain, so the chain
+      // comes from the record the release belongs to -- the same join the
+      // adapter gets for free from the release-request row.
+      const chainID = this.records.get(request.recordID)?.intent.chainID
+      return (
+        chainID === normalized.chainID &&
+        normalizeP2TRSignatureFraudSigningLane({
+          chainID: normalized.chainID,
+          sender: request.reservation.sender,
+        }).sender === normalized.sender
+      )
+    })
   }
 
   async getNonceReleaseRequest(
