@@ -775,6 +775,34 @@ export const computeP2TRSignatureFraudNonceReleaseResolutionEvidenceDigest = (
  * It is expressible only because the boundary now has a deterministic identity
  * the provider and the outbox can name independently.
  */
+/**
+ * Evidence that the chain, not the provider, settled this boundary.
+ *
+ * Once the reserved nonce is consumed at finality, any signed bytes for that
+ * nonce are permanently inert — they can never confirm. That makes the boundary
+ * decidable from public data, which `never-invoked` is not.
+ *
+ * It is a claim about the BYTES, not about the invocation. The signer may have
+ * signed; it may still be holding an envelope. This outcome says only that
+ * whatever it holds can no longer land, so the record must keep its reservation
+ * and stay able to capture a late artifact.
+ *
+ * `chainID` is bound because nothing else in the nonce-consumption evidence
+ * names a chain: without it, an attestation over "sender S nonce N is consumed"
+ * would replay against any record on any chain sharing that pair.
+ */
+export type P2TRSignatureFraudNonceConsumptionEvidence = {
+  chainID: number
+  sender: string
+  transactionNonce: number
+  finalizedAccountNonce: number
+  accountNonceReadAtBlock: number
+  consumingTransaction: P2TRSignatureFraudCanonicalNonceConsumingTransaction
+  /** The finality boundary every read above was taken at. */
+  finalizedThrough: P2TRSignatureFraudCanonicalBlock
+  observedHead: P2TRSignatureFraudCanonicalBlock
+}
+
 export type P2TRSignatureFraudSignerInvocationTombstone = {
   /** Must name the same invocation the resolution speaks for. */
   signerInvocationID: string
@@ -797,7 +825,7 @@ export type P2TRSignatureFraudIndependentSignerBoundaryResolution = {
   nonceReservationID: string
   stage: "prepare" | "replacement"
   invokedAtUnixMs: number
-  outcome: "never-invoked" | "signed" | "terminal-unsafe"
+  outcome: "never-invoked" | "signed" | "terminal-unsafe" | "nonce-consumed"
   /** Required exactly when the signer is proven to have produced bytes. */
   signedTransactionHash?: string
   /**
@@ -805,6 +833,8 @@ export type P2TRSignatureFraudIndependentSignerBoundaryResolution = {
    * that outcome is an assertion nobody is positioned to make.
    */
   providerTombstone?: P2TRSignatureFraudSignerInvocationTombstone
+  /** Required exactly for `nonce-consumed`, and refused otherwise. */
+  nonceConsumption?: P2TRSignatureFraudNonceConsumptionEvidence
   providerEvidenceDigest: string
   evidenceDigest: string
   canonicalAttestations: readonly [
@@ -831,7 +861,9 @@ export const computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest = (
     return createHash("sha256").update(normalized, "utf8").digest()
   }
   if (
-    !["never-invoked", "signed", "terminal-unsafe"].includes(resolution.outcome)
+    !["never-invoked", "signed", "terminal-unsafe", "nonce-consumed"].includes(
+      resolution.outcome
+    )
   ) {
     throw new Error("Signer-boundary resolution outcome is invalid")
   }
@@ -855,8 +887,17 @@ export const computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest = (
       "Signer-boundary resolution names a provider tombstone only for a never-invoked outcome"
     )
   }
+  const consumption = resolution.nonceConsumption
+  if (
+    (resolution.outcome === "nonce-consumed") !==
+    (consumption !== undefined)
+  ) {
+    throw new Error(
+      "Signer-boundary resolution names nonce consumption only for a nonce-consumed outcome"
+    )
+  }
   return `0x${createHash("sha256")
-    .update("tbtc-p2tr-signer-boundary-independent-resolution-v3", "utf8")
+    .update("tbtc-p2tr-signer-boundary-independent-resolution-v4", "utf8")
     .update(
       Buffer.from(
         normalizeBytes32(
@@ -958,6 +999,60 @@ export const computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest = (
         "Signer-boundary tombstone time"
       )
     )
+    .update(
+      uint64(
+        consumption === undefined ? 0 : consumption.chainID,
+        "Signer-boundary nonce consumption chain ID"
+      )
+    )
+    .update(
+      uint64(
+        consumption === undefined ? 0 : consumption.transactionNonce,
+        "Signer-boundary nonce consumption nonce"
+      )
+    )
+    .update(
+      uint64(
+        consumption === undefined ? 0 : consumption.finalizedAccountNonce,
+        "Signer-boundary nonce consumption account nonce"
+      )
+    )
+    .update(
+      uint64(
+        consumption === undefined ? 0 : consumption.accountNonceReadAtBlock,
+        "Signer-boundary nonce consumption read block"
+      )
+    )
+    .update(
+      consumption === undefined
+        ? Buffer.alloc(32)
+        : Buffer.from(
+            normalizeBytes32(
+              consumption.consumingTransaction.transactionHash,
+              "Signer-boundary consuming transaction hash"
+            ).slice(2),
+            "hex"
+          )
+    )
+    .update(
+      uint64(
+        consumption === undefined
+          ? 0
+          : consumption.finalizedThrough.blockNumber,
+        "Signer-boundary nonce consumption finality height"
+      )
+    )
+    .update(
+      consumption === undefined
+        ? Buffer.alloc(32)
+        : Buffer.from(
+            normalizeBytes32(
+              consumption.finalizedThrough.blockHash,
+              "Signer-boundary nonce consumption finality hash"
+            ).slice(2),
+            "hex"
+          )
+    )
     .digest("hex")}`
 }
 
@@ -970,12 +1065,13 @@ export type P2TRSignatureFraudNormalizedSignerBoundaryResolution = {
   recordID: string
   signerInvocationID: string
   providerTombstone?: P2TRSignatureFraudSignerInvocationTombstone
+  nonceConsumption?: P2TRSignatureFraudNonceConsumptionEvidence
   boundaryStartedAtUnixMs: number
   preparationAttempts: number
   nonceReservationID: string
   stage: "prepare" | "replacement"
   invokedAtUnixMs: number
-  outcome: "never-invoked" | "signed" | "terminal-unsafe"
+  outcome: "never-invoked" | "signed" | "terminal-unsafe" | "nonce-consumed"
   signedTransactionHash?: string
   providerEvidenceDigest: string
   evidenceDigest: string
@@ -1005,6 +1101,18 @@ export const validateP2TRSignatureFraudIndependentSignerBoundaryResolution = (
       "Orphaned signer boundary resolution requires a provider tombstone exactly for a never-invoked outcome"
     )
   }
+  if (
+    (resolution.outcome === "nonce-consumed") !==
+    (resolution.nonceConsumption !== undefined)
+  ) {
+    throw new Error(
+      "Orphaned signer boundary resolution requires nonce consumption evidence exactly for a nonce-consumed outcome"
+    )
+  }
+  const nonceConsumption =
+    resolution.nonceConsumption === undefined
+      ? undefined
+      : normalizeSignerBoundaryNonceConsumption(resolution.nonceConsumption)
   const providerTombstone =
     resolution.providerTombstone === undefined
       ? undefined
@@ -1053,7 +1161,7 @@ export const validateP2TRSignatureFraudIndependentSignerBoundaryResolution = (
   if (
     invokedAtUnixMs < boundaryStartedAtUnixMs ||
     resolvedAtUnixMs < invokedAtUnixMs ||
-    !["never-invoked", "signed", "terminal-unsafe"].includes(
+    !["never-invoked", "signed", "terminal-unsafe", "nonce-consumed"].includes(
       resolution.outcome
     ) ||
     !["prepare", "replacement"].includes(resolution.stage)
@@ -1095,6 +1203,7 @@ export const validateP2TRSignatureFraudIndependentSignerBoundaryResolution = (
       outcome: resolution.outcome,
       signedTransactionHash,
       providerTombstone,
+      nonceConsumption,
       providerEvidenceDigest,
     }) !== evidenceDigest
   ) {
@@ -1171,6 +1280,7 @@ export const validateP2TRSignatureFraudIndependentSignerBoundaryResolution = (
     recordID,
     signerInvocationID,
     ...(providerTombstone === undefined ? {} : { providerTombstone }),
+    ...(nonceConsumption === undefined ? {} : { nonceConsumption }),
     boundaryStartedAtUnixMs,
     preparationAttempts,
     nonceReservationID,
@@ -1192,6 +1302,117 @@ export const validateP2TRSignatureFraudIndependentSignerBoundaryResolution = (
  * owns, and `never-invoked` may only be claimed for a record that carries no
  * signer escape evidence whatsoever.
  */
+/**
+ * Reuses the canonical consuming-transaction validator rather than restating
+ * it. The one check deliberately NOT imported from the terminal-disposition
+ * path is "the consuming transaction is not one of ours": for an orphan the
+ * prepared-hash set is empty, so it would be vacuous, and the recovery is the
+ * same either way — the nonce is spent regardless of who spent it.
+ */
+const normalizeSignerBoundaryNonceConsumption = (
+  evidence: P2TRSignatureFraudNonceConsumptionEvidence
+): P2TRSignatureFraudNonceConsumptionEvidence => {
+  // The canonical validators are void-returning assertions, so the normalized
+  // shape is rebuilt here from the same helpers they use.
+  validateCanonicalBlock(
+    evidence.finalizedThrough,
+    "Signer-boundary nonce consumption finality"
+  )
+  validateCanonicalBlock(
+    evidence.observedHead,
+    "Signer-boundary nonce consumption observed head"
+  )
+  const finalizedThrough = {
+    blockNumber: evidence.finalizedThrough.blockNumber,
+    blockHash: normalizeBytes32(
+      evidence.finalizedThrough.blockHash,
+      "Signer-boundary nonce consumption finality hash"
+    ),
+  }
+  const observedHead = {
+    blockNumber: evidence.observedHead.blockNumber,
+    blockHash: normalizeBytes32(
+      evidence.observedHead.blockHash,
+      "Signer-boundary nonce consumption observed head hash"
+    ),
+  }
+  if (observedHead.blockNumber < finalizedThrough.blockNumber) {
+    throw new Error(
+      "Signer-boundary nonce consumption finality boundary is ahead of its observed head"
+    )
+  }
+  const transactionNonce = requireNonNegativeSafeInteger(
+    evidence.transactionNonce,
+    "Signer-boundary nonce consumption nonce"
+  )
+  const finalizedAccountNonce = requireNonNegativeSafeInteger(
+    evidence.finalizedAccountNonce,
+    "Signer-boundary nonce consumption account nonce"
+  )
+  // Strictly past the reserved nonce: equality would mean N is still spendable.
+  if (finalizedAccountNonce <= transactionNonce) {
+    throw new Error(
+      "Signer-boundary nonce consumption requires an account nonce past the reserved nonce"
+    )
+  }
+  const accountNonceReadAtBlock = requireNonNegativeSafeInteger(
+    evidence.accountNonceReadAtBlock,
+    "Signer-boundary nonce consumption read block"
+  )
+  // Read AT the finality boundary, not at head, or the account nonce could be
+  // reorganised away underneath the resolution.
+  if (accountNonceReadAtBlock !== finalizedThrough.blockNumber) {
+    throw new Error(
+      "Signer-boundary nonce consumption account nonce was not read at its finality boundary"
+    )
+  }
+  validateCanonicalNonceConsumingTransaction(
+    evidence.consumingTransaction,
+    finalizedThrough
+  )
+  const consumingTransaction = {
+    transactionHash: normalizeBytes32(
+      evidence.consumingTransaction.transactionHash,
+      "Signer-boundary consuming transaction hash"
+    ),
+    sender: normalizeAddress(
+      evidence.consumingTransaction.sender,
+      "Signer-boundary consuming transaction sender"
+    ),
+    nonce: evidence.consumingTransaction.nonce,
+    blockNumber: evidence.consumingTransaction.blockNumber,
+    blockHash: normalizeBytes32(
+      evidence.consumingTransaction.blockHash,
+      "Signer-boundary consuming transaction block hash"
+    ),
+  }
+  const sender = normalizeAddress(
+    evidence.sender,
+    "Signer-boundary nonce consumption sender"
+  )
+  if (
+    consumingTransaction.sender !== sender ||
+    consumingTransaction.nonce !== transactionNonce
+  ) {
+    throw new Error(
+      "Signer-boundary nonce consumption names another sender lane"
+    )
+  }
+  return {
+    chainID: requirePositiveSafeInteger(
+      evidence.chainID,
+      "Signer-boundary nonce consumption chain ID"
+    ),
+    sender,
+    transactionNonce,
+    finalizedAccountNonce,
+    accountNonceReadAtBlock,
+    consumingTransaction,
+    finalizedThrough,
+    observedHead,
+  }
+}
+
 export const assertP2TRSignatureFraudOrphanedSignerBoundaryOwnership = (
   record: P2TRSignatureFraudChallengeOutboxRecord,
   resolution: P2TRSignatureFraudNormalizedSignerBoundaryResolution
@@ -1237,6 +1458,39 @@ export const assertP2TRSignatureFraudOrphanedSignerBoundaryOwnership = (
     throw new Error(
       "Orphaned signer boundary resolution requires a boundary with no signer escape evidence"
     )
+  }
+  // The consumption evidence must name THIS record's lane and chain. Without
+  // this, two attestations over "sender S nonce N is consumed" would replay
+  // against any record on any chain sharing that pair.
+  if (resolution.nonceConsumption !== undefined) {
+    if (
+      record.reservedNonce === undefined ||
+      normalizeAddress(
+        resolution.nonceConsumption.sender,
+        "Nonce consumption sender"
+      ) !==
+        normalizeAddress(
+          record.reservedNonce.sender,
+          "Durable reserved sender"
+        ) ||
+      resolution.nonceConsumption.transactionNonce !==
+        record.reservedNonce.nonce
+    ) {
+      throw new Error(
+        "Orphaned signer boundary nonce consumption names another sender lane"
+      )
+    }
+    if (
+      resolution.nonceConsumption.chainID !==
+      requirePositiveSafeInteger(
+        record.intent.chainID,
+        "Durable challenge chain ID"
+      )
+    ) {
+      throw new Error(
+        "Orphaned signer boundary nonce consumption names another chain"
+      )
+    }
   }
   if (
     resolution.providerTombstone !== undefined &&
@@ -8767,7 +9021,7 @@ const replaceLatestPreparedVariant = (
   replacement,
 ]
 
-const appendSignerQuarantine = (
+export const appendSignerQuarantine = (
   existing: readonly P2TRSignatureFraudSignerQuarantine[] | undefined,
   identity: Pick<
     P2TRSignatureFraudBoundNonceReservation,

@@ -38,6 +38,7 @@ import {
   computeP2TRSignatureFraudNonceReleaseRequestID,
   computeP2TRSignatureFraudNonceReleaseResolutionEvidenceDigest,
   computeP2TRSignatureFraudResolutionEvidenceDigest,
+  appendSignerQuarantine,
   assertP2TRSignatureFraudOrphanedSignerBoundaryOwnership,
   validateP2TRSignatureFraudIndependentSignerBoundaryResolution,
 } from "./P2TRSignatureFraudChallengeOutbox.js"
@@ -1533,7 +1534,12 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
           corroborating_independence_domain_id,
           corroborating_evidence_digest, corroborating_attestation,
           corroborating_attested_at_unix_ms, resolved_at_unix_ms,
-          provider_tombstone_receipt, provider_tombstone_at_unix_ms
+          provider_tombstone_receipt, provider_tombstone_at_unix_ms,
+          nonce_consumption_chain_id, nonce_consumption_nonce,
+          nonce_consumption_account_nonce, nonce_consumption_read_at_block,
+          nonce_consumption_transaction_hash,
+          nonce_consumption_finalized_block_number,
+          nonce_consumption_finalized_block_hash
        ) VALUES (
           decode($1, 'hex'), decode($2, 'hex'), $3, $4,
           decode($5, 'hex'), $6, $7, $8,
@@ -1542,7 +1548,11 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
           decode($11, 'hex'), decode($14, 'hex'), $15, $16, $17,
           decode($11, 'hex'), decode($18, 'hex'), $19, $20,
           CASE WHEN $21::text IS NULL THEN NULL ELSE decode($21, 'hex') END,
-          $22
+          $22,
+          $23, $24, $25, $26,
+          CASE WHEN $27::text IS NULL THEN NULL ELSE decode($27, 'hex') END,
+          $28,
+          CASE WHEN $29::text IS NULL THEN NULL ELSE decode($29, 'hex') END
        )`,
       [
         stripHex(normalized.recordID),
@@ -1571,6 +1581,19 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
           ? null
           : stripHex(normalized.providerTombstone.receipt),
         normalized.providerTombstone?.tombstonedAtUnixMs ?? null,
+        normalized.nonceConsumption?.chainID ?? null,
+        normalized.nonceConsumption?.transactionNonce ?? null,
+        normalized.nonceConsumption?.finalizedAccountNonce ?? null,
+        normalized.nonceConsumption?.accountNonceReadAtBlock ?? null,
+        normalized.nonceConsumption === undefined
+          ? null
+          : stripHex(
+              normalized.nonceConsumption.consumingTransaction.transactionHash
+            ),
+        normalized.nonceConsumption?.finalizedThrough.blockNumber ?? null,
+        normalized.nonceConsumption === undefined
+          ? null
+          : stripHex(normalized.nonceConsumption.finalizedThrough.blockHash),
       ]
     )
     if (normalized.outcome === "never-invoked") {
@@ -1605,6 +1628,71 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
       ) {
         throw new Error(
           "Orphaned signer boundary resolution lost its barrier-clearing swap"
+        )
+      }
+      return "acknowledged"
+    }
+    if (normalized.outcome === "nonce-consumed") {
+      const consumption = normalized.nonceConsumption
+      if (consumption === undefined) {
+        throw new Error(
+          "Nonce-consumed signer boundary resolution lost its consumption evidence"
+        )
+      }
+      // NOT the never-invoked shape. Clearing the marker and stopping would
+      // leave the record in `preparing` with a live reservation, which lease
+      // recovery treats as pre-signer: it would void the nonce guard and hand
+      // the nonce back to the allocator, dropping the partial-unique index that
+      // stops a second reservation at it. The whole claim is that the nonce is
+      // SPENT, not free. So the record moves to `generation-required`, a status
+      // the guard-void trigger permanently refuses to free a nonce from, while
+      // the reservation is retained so a late signer envelope stays capturable.
+      //
+      // `quarantined`, not `generation-required`: the latter requires a linked
+      // nonce-disposition row, and producing one from here would mean
+      // reconciling a record whose signer may still be live. `quarantined` is
+      // itself reconcilable, so the ordinary reconcile loop takes it to a
+      // disposition and a successor generation through the normal path — this
+      // resolution only has to clear the barrier and keep the nonce unfreeable.
+      const settled: P2TRSignatureFraudChallengeOutboxRecord = {
+        ...current,
+        version: current.version + 1,
+        status: "quarantined",
+        // `quarantined` with a returned-signer marker requires a signer
+        // quarantine, and the honest one is ambiguity: the signer was invoked
+        // and nothing here establishes what it did. The chain settled the
+        // NONCE, not the signer's behaviour.
+        signerQuarantines:
+          current.signerInvocationStartedAtUnixMs === undefined ||
+          current.reservedNonce === undefined
+            ? current.signerQuarantines
+            : appendSignerQuarantine(
+                current.signerQuarantines,
+                current.reservedNonce,
+                normalized.resolvedAtUnixMs,
+                "The reserved nonce was consumed at finality while this signer invocation was unresolved",
+                "ambiguous-signer-invocation"
+              ),
+        preparationLease: undefined,
+        preparationResumeStatus: undefined,
+        activeSignerInvocationStartedAtUnixMs: undefined,
+        activeSignerInvocationID: undefined,
+        updatedAtUnixMs: Math.max(
+          current.updatedAtUnixMs,
+          normalized.resolvedAtUnixMs
+        ),
+        lastError:
+          "The reserved nonce was consumed at finality, so any signer bytes for it are inert",
+      }
+      if (
+        !(await this.compareAndSwapLocked(
+          normalized.recordID,
+          current.version,
+          settled
+        ))
+      ) {
+        throw new Error(
+          "Nonce-consumed signer boundary resolution lost its barrier-clearing swap"
         )
       }
       return "acknowledged"
@@ -1854,15 +1942,24 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
       current,
       artifact.preparedTransaction.transactionHash.toPrefixedString()
     )
+    // A boundary resolved as nonce-consumed has cleared its marker but still
+    // retains the reservation, precisely so a late envelope stays capturable:
+    // the bytes are inert once the nonce is spent, but losing the RECORD of a
+    // signer that leaked them is not acceptable.
+    const retainsResolvedBoundary =
+      current.status === "generation-required" &&
+      current.reservedNonce !== undefined
     if (
       alreadyCaptured &&
-      current.activeSignerInvocationStartedAtUnixMs === undefined
+      current.activeSignerInvocationStartedAtUnixMs === undefined &&
+      !retainsResolvedBoundary
     ) {
       return current
     }
     if (
       current.reservedNonce === undefined ||
-      current.activeSignerInvocationStartedAtUnixMs === undefined ||
+      (current.activeSignerInvocationStartedAtUnixMs === undefined &&
+        !retainsResolvedBoundary) ||
       bytes32(
         current.reservedNonce.reservationID.toPrefixedString(),
         "Stored signer-boundary reservation ID"
