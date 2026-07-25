@@ -29,6 +29,7 @@ import {
   P2TRSignatureFraudSignerQuarantine,
   computeP2TRSignatureFraudNonceReleaseRequestID,
   computeP2TRSignatureFraudNonceReleaseResolutionEvidenceDigest,
+  appendSignerQuarantine,
   assertP2TRSignatureFraudOrphanedSignerBoundaryOwnership,
   validateP2TRSignatureFraudIndependentSignerBoundaryResolution,
 } from "../src/P2TRSignatureFraudChallengeOutbox.js"
@@ -535,6 +536,54 @@ export class InMemoryOutboxStore
         signedTransactionHash: normalized.signedTransactionHash,
         resolvedAtUnixMs: normalized.resolvedAtUnixMs,
       })
+    }
+    if (normalized.outcome === "nonce-consumed") {
+      // Mirrors the adapter exactly: move to a status the guard-void trigger
+      // refuses to free a nonce from, retain the reservation as the capture
+      // anchor, and clear the marker.
+      const settled: P2TRSignatureFraudChallengeOutboxRecord = {
+        ...current,
+        version: current.version + 1,
+        status: "quarantined",
+        // `quarantined` with a returned-signer marker requires a signer
+        // quarantine, and the honest one is ambiguity: the signer was invoked
+        // and nothing here establishes what it did. The chain settled the
+        // NONCE, not the signer's behaviour.
+        signerQuarantines:
+          current.signerInvocationStartedAtUnixMs === undefined ||
+          current.reservedNonce === undefined
+            ? current.signerQuarantines
+            : appendSignerQuarantine(
+                current.signerQuarantines,
+                current.reservedNonce,
+                normalized.resolvedAtUnixMs,
+                "The reserved nonce was consumed at finality while this signer invocation was unresolved",
+                "ambiguous-signer-invocation"
+              ),
+        preparationLease: undefined,
+        preparationResumeStatus: undefined,
+        activeSignerInvocationStartedAtUnixMs: undefined,
+        activeSignerInvocationID: undefined,
+        updatedAtUnixMs: Math.max(
+          current.updatedAtUnixMs,
+          normalized.resolvedAtUnixMs
+        ),
+        lastError:
+          "The reserved nonce was consumed at finality, so any signer bytes for it are inert",
+      }
+      if (
+        !(await this.compareAndSwap(
+          normalized.recordID,
+          current.version,
+          settled
+        ))
+      ) {
+        throw new Error(
+          "Nonce-consumed signer boundary resolution lost its barrier-clearing swap"
+        )
+      }
+      appendEvidence()
+      return "acknowledged"
     }
     if (normalized.outcome === "never-invoked") {
       const cleared: P2TRSignatureFraudChallengeOutboxRecord = {

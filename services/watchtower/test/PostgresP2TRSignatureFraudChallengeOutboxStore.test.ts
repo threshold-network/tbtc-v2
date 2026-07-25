@@ -3222,6 +3222,22 @@ type BoundaryAttestationMode =
 type BoundaryResolutionOverrides = {
   recordID?: string
   signerInvocationID?: string
+  nonceConsumption?: {
+    chainID: number
+    sender: string
+    transactionNonce: number
+    finalizedAccountNonce: number
+    accountNonceReadAtBlock: number
+    consumingTransaction: {
+      transactionHash: string
+      sender: string
+      nonce: number
+      blockNumber: number
+      blockHash: string
+    }
+    finalizedThrough: { blockNumber: number; blockHash: string }
+    observedHead: { blockNumber: number; blockHash: string }
+  }
   providerTombstone?: {
     signerInvocationID: string
     receipt: string
@@ -3234,7 +3250,7 @@ type BoundaryResolutionOverrides = {
   nonceReservationID?: string
   stage?: "prepare" | "replacement"
   invokedAtUnixMs?: number
-  outcome?: "never-invoked" | "signed" | "terminal-unsafe"
+  outcome?: "never-invoked" | "signed" | "terminal-unsafe" | "nonce-consumed"
   signedTransactionHash?: string
   providerEvidenceDigest?: string
   resolvedAtUnixMs?: number
@@ -3293,6 +3309,34 @@ function boundaryResolution(
   const binding = {
     recordID: overrides.recordID ?? record.recordID,
     signerInvocationID: invocationID,
+    // Only a nonce-consumed outcome may carry consumption evidence, and it
+    // must carry it. Defaults name this record's own lane and chain.
+    ...(outcome === "nonce-consumed"
+      ? {
+          nonceConsumption: overrides.nonceConsumption ?? {
+            chainID: record.intent.chainID,
+            sender: record.reservedNonce!.sender,
+            transactionNonce: record.reservedNonce!.nonce,
+            finalizedAccountNonce: record.reservedNonce!.nonce + 1,
+            accountNonceReadAtBlock: 500,
+            consumingTransaction: {
+              transactionHash: `0x${"c1".repeat(32)}`,
+              sender: record.reservedNonce!.sender,
+              nonce: record.reservedNonce!.nonce,
+              blockNumber: 480,
+              blockHash: `0x${"c2".repeat(32)}`,
+            },
+            finalizedThrough: {
+              blockNumber: 500,
+              blockHash: `0x${"c3".repeat(32)}`,
+            },
+            observedHead: {
+              blockNumber: 512,
+              blockHash: `0x${"c4".repeat(32)}`,
+            },
+          },
+        }
+      : {}),
     // Only a never-invoked outcome may carry one, and it must carry one.
     ...(outcome === "never-invoked" && overrides.omitProviderTombstone !== true
       ? {
@@ -4038,6 +4082,80 @@ const orphanedBoundaryParityScenarios: OrphanedBoundaryScenario[] = [
       },
     ],
     expected: [CLEARED_ORPHAN, WRONG_BOUNDARY],
+    expectedAlertCodes: [],
+  },
+  {
+    // The chain settled it: marker cleared, but the record moves to
+    // generation-required rather than back to preparing, so lease recovery
+    // cannot void the guard and hand the spent nonce back to the allocator.
+    name: "settles a boundary whose nonce was consumed at finality",
+    seed: 242,
+    boundary: orphanedBoundaryOnly,
+    resolutions: [{ outcome: "nonce-consumed" }],
+    expected: [
+      "acknowledged status=quarantined active=none activeID=none " +
+        "signer=none signerID=none artifacts=0",
+    ],
+    expectedAlertCodes: [],
+  },
+  {
+    // Permitted precisely BECAUSE bytes may have escaped -- that is what nonce
+    // consumption makes harmless. never-invoked refuses this same record.
+    name: "settles a nonce-consumed boundary that carries escape evidence",
+    seed: 243,
+    boundary: (reserved) => [
+      {
+        ...activeInitialSignerBoundary(reserved),
+        signerInvocationStartedAtUnixMs: 1_300,
+      },
+    ],
+    resolutions: [{ outcome: "nonce-consumed" }],
+    expected: [
+      "acknowledged status=quarantined active=none activeID=none " +
+        "signer=1300 signerID=none artifacts=0",
+    ],
+    // The escape evidence is NOT laundered away by the resolution: the record
+    // still raises its activation-blocking signed-state alert. Nonce
+    // consumption makes the bytes inert, not the incident invisible.
+    expectedAlertCodes: ["signed-state-quarantined"],
+  },
+  {
+    // Nothing else in nonce-consumption evidence names a chain, so without the
+    // binding two attestations over "sender S nonce N is consumed" would replay
+    // against any record on any chain sharing that pair.
+    name: "refuses nonce consumption that names another chain",
+    seed: 244,
+    boundary: orphanedBoundaryOnly,
+    resolutions: [
+      {
+        outcome: "nonce-consumed",
+        nonceConsumption: {
+          chainID: 999,
+          sender: WALLET.address,
+          transactionNonce: 7,
+          finalizedAccountNonce: 8,
+          accountNonceReadAtBlock: 500,
+          consumingTransaction: {
+            transactionHash: `0x${"c1".repeat(32)}`,
+            sender: WALLET.address,
+            nonce: 7,
+            blockNumber: 480,
+            blockHash: `0x${"c2".repeat(32)}`,
+          },
+          finalizedThrough: {
+            blockNumber: 500,
+            blockHash: `0x${"c3".repeat(32)}`,
+          },
+          observedHead: {
+            blockNumber: 512,
+            blockHash: `0x${"c4".repeat(32)}`,
+          },
+        },
+      },
+    ],
+    expected: [
+      "error:Orphaned signer boundary nonce consumption names another chain",
+    ],
     expectedAlertCodes: [],
   },
   {
