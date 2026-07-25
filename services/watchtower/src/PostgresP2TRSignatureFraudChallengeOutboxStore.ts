@@ -40,8 +40,10 @@ import {
   computeP2TRSignatureFraudResolutionEvidenceDigest,
   appendSignerQuarantine,
   assertP2TRSignatureFraudOrphanedSignerBoundaryOwnership,
+  normalizeP2TRSignatureFraudSigningLane,
   validateP2TRSignatureFraudIndependentSignerBoundaryResolution,
 } from "./P2TRSignatureFraudChallengeOutbox.js"
+import type { P2TRSignatureFraudSigningLane } from "./P2TRSignatureFraudChallengeOutbox.js"
 import type { P2TRPostgresOutboxTransactionSession } from "./PostgresP2TRSignatureFraudOutboxActivationHandshake.js"
 import type { P2TRSignatureFraudWatchtowerTransactionCoordinator } from "./types.js"
 
@@ -414,30 +416,61 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
     return result.rows[0]?.exists === true
   }
 
-  async hasExpiredPreparationLeases(nowUnixMs: number): Promise<boolean> {
+  async hasExpiredPreparationLeases(
+    nowUnixMs: number,
+    lane?: P2TRSignatureFraudSigningLane
+  ): Promise<boolean> {
     if (!this.inTransaction()) {
       return this.runInTransaction(() =>
-        this.hasExpiredPreparationLeases(nowUnixMs)
+        this.hasExpiredPreparationLeases(nowUnixMs, lane)
       )
     }
     this.assertSession()
+    const normalized =
+      lane === undefined
+        ? undefined
+        : normalizeP2TRSignatureFraudSigningLane(lane)
+    // `lane_released_at_unix_ms IS NULL` is not a filter of convenience. A
+    // record that has released its lane is no longer occupying it, so freezing
+    // the lane on its behalf would be wrong -- and the partial unique index on
+    // (chain_id, selected_sender) carries the same predicate, so stating it
+    // keeps this an index lookup instead of a scan.
     const result = await this.options.session.query<{ exists: boolean }>(
       `SELECT EXISTS (
           SELECT 1
             FROM p2tr_signature_fraud_challenge_outbox
            WHERE status = 'preparing'
              AND preparation_lease_expires_at_unix_ms <= $1
+             ${
+               normalized === undefined
+                 ? ""
+                 : `AND chain_id = $2
+             AND selected_sender = decode($3, 'hex')
+             AND lane_released_at_unix_ms IS NULL`
+             }
        ) AS exists`,
-      [unixMilliseconds(nowUnixMs, "Preparation recovery time")]
+      normalized === undefined
+        ? [unixMilliseconds(nowUnixMs, "Preparation recovery time")]
+        : [
+            unixMilliseconds(nowUnixMs, "Preparation recovery time"),
+            normalized.chainID,
+            stripHex(normalized.sender),
+          ]
     )
     return result.rows[0]?.exists === true
   }
 
-  async hasPendingNonceReleases(): Promise<boolean> {
+  async hasPendingNonceReleases(
+    lane?: P2TRSignatureFraudSigningLane
+  ): Promise<boolean> {
     if (!this.inTransaction()) {
-      return this.runInTransaction(() => this.hasPendingNonceReleases())
+      return this.runInTransaction(() => this.hasPendingNonceReleases(lane))
     }
     this.assertSession()
+    const normalized =
+      lane === undefined
+        ? undefined
+        : normalizeP2TRSignatureFraudSigningLane(lane)
     const result = await this.options.session.query<{ exists: boolean }>(
       `SELECT EXISTS (
           SELECT 1
@@ -447,7 +480,16 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
                    FROM p2tr_signature_fraud_challenge_nonce_release_terminal x
                   WHERE x.release_request_id = r.release_request_id
                )
-       ) AS exists`
+             ${
+               normalized === undefined
+                 ? ""
+                 : `AND r.chain_id = $1
+             AND r.sender = decode($2, 'hex')`
+             }
+       ) AS exists`,
+      normalized === undefined
+        ? []
+        : [normalized.chainID, stripHex(normalized.sender)]
     )
     return result.rows[0]?.exists === true
   }

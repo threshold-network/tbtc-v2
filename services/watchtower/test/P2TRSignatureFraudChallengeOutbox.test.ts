@@ -154,9 +154,10 @@ const completeV2TestCall = (sighash: string) => {
 const signTestChallengeTransaction = (
   calldata: string,
   maxFeePerGas: number,
-  maxPriorityFeePerGas: number
+  maxPriorityFeePerGas: number,
+  signingKey = `0x${"42".repeat(32)}`
 ) => {
-  const wallet = new Wallet(`0x${"42".repeat(32)}`)
+  const wallet = new Wallet(signingKey)
   const transaction = {
     type: 2,
     chainId: 11155111,
@@ -552,7 +553,7 @@ class FixedPreparer implements P2TRSignatureFraudChallengeTransactionPreparer {
       intentID: intent.intentID,
       rawTransaction: this.rawTransaction,
       transactionHash: Hex.from(this.transactionHash),
-      sender: TRANSACTION_SENDER,
+      sender: this.transactionSender,
       nonce: 7,
       invocation:
         this.echoInvocation === undefined
@@ -964,6 +965,58 @@ const createRecord = (
     reconciliationAttempts: 0,
   }
 }
+
+/**
+ * A second nonce lane. `validateSignerLanes` requires a distinct lane ID,
+ * signer identity and sender, and the reservation is EIP-712 signed by the
+ * sender itself, so the lane needs its own wallet and must take its address as
+ * the sender.
+ */
+const SECOND_LANE_SIGNING_KEY = `0x${"43".repeat(32)}`
+const SECOND_LANE_WALLET = new Wallet(SECOND_LANE_SIGNING_KEY)
+// The blob must carry the calldata of the intent it will be bound to, so lane B
+// signs the second test intent's call, not the default one.
+const SECOND_INTENT_SEED = "bb"
+const secondIntentCall = completeV2TestCall(`0x${SECOND_INTENT_SEED.repeat(32)}`)
+const secondLaneSignedTransaction = signTestChallengeTransaction(
+  secondIntentCall.calldata,
+  20,
+  2,
+  SECOND_LANE_SIGNING_KEY
+)
+const secondLaneReplacementTransaction = signTestChallengeTransaction(
+  secondIntentCall.calldata,
+  40,
+  4,
+  SECOND_LANE_SIGNING_KEY
+)
+const SECOND_TRANSACTION_SENDER = SECOND_LANE_WALLET.address
+const SECOND_SIGNER_LANE_ID = "lane.b.test"
+const SECOND_SIGNER_IDENTITY = "signer.b.test"
+
+class SecondLanePreparer extends FixedPreparer {
+  readonly laneID = SECOND_SIGNER_LANE_ID
+  readonly signerIdentity = SECOND_SIGNER_IDENTITY
+  readonly transactionSender = SECOND_TRANSACTION_SENDER
+  readonly wallet = SECOND_LANE_WALLET
+  rawTransaction = secondLaneSignedTransaction.rawTransaction
+  transactionHash = secondLaneSignedTransaction.transactionHash
+  replacementRawTransaction = secondLaneReplacementTransaction.rawTransaction
+  replacementTransactionHash = secondLaneReplacementTransaction.transactionHash
+}
+
+const twoLaneFeePolicyManifest = () =>
+  feePolicyManifest([
+    {
+      laneID: SECOND_SIGNER_LANE_ID,
+      signerIdentity: SECOND_SIGNER_IDENTITY,
+      sender: SECOND_TRANSACTION_SENDER,
+      maxGasLimit: "1000000",
+      maxFeePerGas: "100",
+      maxPriorityFeePerGas: "10",
+      maxTotalFeeWei: "100000000",
+    },
+  ])
 
 const enqueue = async (
   store: InMemoryOutboxStore,
@@ -3835,4 +3888,173 @@ test("refuses a burn that is not a self-transfer of nothing", async () => {
       name
     )
   }
+})
+
+// The whole point of keying the barrier by nonce lane. An orphaned signer
+// boundary is unresolvable without out-of-band evidence, so before this change
+// one such record froze challenge signing on EVERY sending account: the freeze
+// was driven by store-wide `hasExpiredPreparationLeases` /
+// `hasPendingNonceReleases` reads, and the throw that a wedged store actually
+// raised came from `establishRecoveryBarrier`, before any per-record check.
+//
+// Note these tests are the only thing pinning that behaviour in either
+// direction. Nothing in the suite asserted any barrier message before, so a
+// regression here would otherwise ship silently.
+const orphanLaneA = async (
+  store: InMemoryOutboxStore,
+  preparers: readonly P2TRSignatureFraudChallengeTransactionPreparer[]
+): Promise<{ now: () => number; release: () => void }> => {
+  const record = await enqueue(store, createIntent(), twoLaneFeePolicyManifest())
+  const authorizer = new FixedBoundaryAuthorizer()
+  let now = 2_000
+  let markStarted!: () => void
+  let release!: () => void
+  const started = new Promise<void>((resolve) => {
+    markStarted = resolve
+  })
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  authorizer.beforeAuthorize = async () => {
+    markStarted()
+    await gate
+  }
+  authorizer.rejectAuthorization = new Error("worker restarted")
+  const original = dispatcher(
+    store,
+    preparers as never,
+    new RecordingBroadcaster(),
+    new FixedRechecker(),
+    new FixedReconciler(),
+    () => now,
+    100,
+    undefined,
+    authorizer
+  )
+  void original.prepare(record.recordID, "worker-a").catch(() => undefined)
+  await started
+  // Past the lease, the boundary is an orphan: the marker stands and no
+  // process-local recovery may clear it.
+  now = 40_001
+  return { now: () => now, release }
+}
+
+test("an orphaned boundary on one lane no longer freezes signing on another", async () => {
+  const store = new InMemoryOutboxStore()
+  const laneA = new FixedPreparer()
+  const laneB = new SecondLanePreparer()
+  const { now, release } = await orphanLaneA(store, [laneA, laneB])
+
+  assert.equal(
+    await store.hasExpiredPreparationLeases(now(), {
+      chainID: 11155111,
+      sender: TRANSACTION_SENDER,
+    }),
+    true
+  )
+  assert.equal(
+    await store.hasExpiredPreparationLeases(now(), {
+      chainID: 11155111,
+      sender: SECOND_TRANSACTION_SENDER,
+    }),
+    false
+  )
+
+  const second = await enqueue(
+    store,
+    createIntent(SECOND_INTENT_SEED),
+    twoLaneFeePolicyManifest()
+  )
+  const restarted = dispatcher(
+    store,
+    [laneA, laneB] as never,
+    new RecordingBroadcaster(),
+    new FixedRechecker(),
+    new FixedReconciler(),
+    now
+  )
+  const prepared = await restarted.prepare(second.recordID, "worker-b")
+
+  // Lane A is skipped as unavailable rather than fatal, and lane B signs.
+  assert.equal(prepared.status, "prepared")
+  assert.equal(
+    prepared.preparationSender?.toLowerCase(),
+    SECOND_TRANSACTION_SENDER.toLowerCase()
+  )
+  assert.equal(laneA.calls, 0)
+  assert.equal(prepared.selectedLaneID, SECOND_SIGNER_LANE_ID)
+  assert.equal(laneB.calls, 1)
+  release()
+})
+
+test("an orphaned boundary still freezes signing on its own lane", async () => {
+  const store = new InMemoryOutboxStore()
+  const laneA = new FixedPreparer()
+  const { now, release } = await orphanLaneA(store, [laneA])
+
+  const second = await enqueue(
+    store,
+    createIntent(SECOND_INTENT_SEED),
+    twoLaneFeePolicyManifest()
+  )
+  const restarted = dispatcher(
+    store,
+    [laneA] as never,
+    new RecordingBroadcaster(),
+    new FixedRechecker(),
+    new FixedReconciler(),
+    now
+  )
+  // The only configured lane is the wedged one, so no healthy lane exists. The
+  // record is re-queued rather than signed -- it is never handed to the signer.
+  const attempted = await restarted.prepare(second.recordID, "worker-b")
+  assert.equal(attempted.status, "queued")
+  assert.equal(
+    attempted.lastError,
+    "No healthy durable signer lane is currently available"
+  )
+  assert.equal(laneA.calls, 0)
+  release()
+})
+
+// The direct analogue of the activation hole fixed in #1049: a `preparing`
+// record whose lane selection is still NULL belongs to no lane, so no per-lane
+// predicate -- nor a rollup over every lane -- can see it. Only the store-wide
+// sweep reclaims it, which is why the sweep must not gain a lane filter.
+test("recovery still sweeps a preparing record that has selected no lane", async () => {
+  const store = new InMemoryOutboxStore()
+  const record = await enqueue(store)
+  const claimed = await store.compareAndSwap(record.recordID, record.version, {
+    ...record,
+    status: "preparing",
+    version: record.version + 1,
+    preparationAttempts: 1,
+    preparationLease: { owner: "worker-a", expiresAtUnixMs: 3_000 },
+    updatedAtUnixMs: 2_000,
+  })
+  assert.equal(claimed, true)
+  const stranded = await store.get(record.recordID)
+  assert.equal(stranded?.preparationSender, undefined)
+
+  // Invisible to every lane, visible store-wide.
+  assert.equal(
+    await store.hasExpiredPreparationLeases(40_001, {
+      chainID: 11155111,
+      sender: TRANSACTION_SENDER,
+    }),
+    false
+  )
+  assert.equal(await store.hasExpiredPreparationLeases(40_001), true)
+
+  const recovery = dispatcher(
+    store,
+    new FixedPreparer(),
+    new RecordingBroadcaster(),
+    new FixedRechecker(),
+    new FixedReconciler(),
+    () => 40_001
+  )
+  await recovery.recoverExpiredPreparationLeases()
+  assert.equal((await store.get(record.recordID))?.status, "queued")
+  assert.equal(await store.hasExpiredPreparationLeases(40_001), false)
 })

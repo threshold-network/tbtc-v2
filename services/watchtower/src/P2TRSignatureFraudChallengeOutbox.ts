@@ -1515,6 +1515,35 @@ export type P2TRSignatureFraudNonceReleasePageRequest = {
   cursor?: string
 }
 
+/**
+ * One nonce lane: the sending account on one chain. This is the unit the
+ * durable nonce-allocator barrier is keyed by, because a nonce reservation and
+ * its release both belong to exactly one account.
+ */
+export type P2TRSignatureFraudSigningLane = {
+  chainID: number
+  sender: string
+}
+
+/**
+ * The single normalizer both store implementations must route through. A lane
+ * is a lookup key, so a checksummed address and its lower-case spelling have to
+ * collapse to one value; if the two implementations disagreed here, the
+ * in-memory double would report a lane clear while PostgreSQL reported it
+ * blocked, and the divergence would favour signing.
+ */
+export function normalizeP2TRSignatureFraudSigningLane(
+  lane: P2TRSignatureFraudSigningLane
+): P2TRSignatureFraudSigningLane {
+  return {
+    chainID: normalizePositiveSafeIntegerLike(
+      lane.chainID,
+      "Signing lane chain ID"
+    ),
+    sender: normalizeAddress(lane.sender, "Signing lane sender"),
+  }
+}
+
 export type P2TRSignatureFraudNonceReleasePage = {
   requests: P2TRSignatureFraudNonceReleaseRequest[]
   nextCursor?: string
@@ -1888,8 +1917,20 @@ export interface P2TRSignatureFraudChallengeOutboxStore
     seriesID: string
   ): Promise<P2TRSignatureFraudChallengeOutboxRecord | undefined>
   isSignerQuarantined(chainID: number, signerIdentity: string): Promise<boolean>
-  hasExpiredPreparationLeases(nowUnixMs: number): Promise<boolean>
-  hasPendingNonceReleases(): Promise<boolean>
+  /**
+   * Omitting the lane asks the store-wide question, which is what decides
+   * whether recovery must be swept. Passing one asks only whether THAT nonce
+   * lane is still unresolved, which is what decides whether signing on it may
+   * proceed. The two are deliberately different questions: a lane is frozen by
+   * its own residue, never by another account's.
+   */
+  hasExpiredPreparationLeases(
+    nowUnixMs: number,
+    lane?: P2TRSignatureFraudSigningLane
+  ): Promise<boolean>
+  hasPendingNonceReleases(
+    lane?: P2TRSignatureFraudSigningLane
+  ): Promise<boolean>
   getNonceReleaseRequest(
     releaseRequestID: string
   ): Promise<P2TRSignatureFraudNonceReleaseRequest | undefined>
@@ -1897,8 +1938,11 @@ export interface P2TRSignatureFraudChallengeOutboxStore
     request: P2TRSignatureFraudNonceReleasePageRequest
   ): Promise<P2TRSignatureFraudNonceReleasePage>
   /**
-   * Reconstructs the exact singleton barrier-owned invocation after restart.
-   * A still-live resultless call is not exposed for independent resolution.
+   * Reconstructs a barrier-owned invocation after restart. The durable barrier
+   * is keyed per nonce lane, so several lanes can hold a claim at once; one
+   * recoverable invocation is returned per call and the caller drains the rest
+   * on subsequent passes. A still-live resultless call is not exposed for
+   * independent resolution.
    */
   getActiveAmbiguousNonceReleaseInvocation(
     nowUnixMs: number
@@ -2555,7 +2599,15 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       return current
     }
     await this.assertVoidedReservationCapacity(current)
-    await this.assertRecoveryBarrier()
+    // No lane is selected yet -- that happens in the candidate loop below -- so
+    // there is nothing to judge here, only recovery to drive. There is
+    // deliberately no per-candidate wedge check: a lane wedged by an orphan is
+    // already held by that orphan under the unique (chain, sender) lane slot,
+    // so its swap fails and the loop moves on, and a lane wedged by an
+    // unacknowledged release or a quarantine is refused by the durable lane
+    // gate in the same swap. The lane that is actually chosen is asserted at
+    // the irreversible boundary, which is the refusal that matters.
+    await this.driveRecoverySweeps()
 
     const nowUnixMs = requireUnixMilliseconds(
       this.now(),
@@ -2754,7 +2806,10 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       this.now(),
       "Challenge outbox signer invocation time"
     )
-    await this.assertRecoveryBarrier()
+    await this.assertRecoveryBarrier({
+      chainID: reserved.intent.chainID,
+      sender: reservation.sender,
+    })
     // Built from the record that is about to be committed: `nextRecord` already
     // carries the post-swap version, and the binding reads no signer marker, so
     // the invocation identity is derivable here and lands in the same swap that
@@ -3008,7 +3063,6 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     ) {
       return current
     }
-    await this.assertRecoveryBarrier()
 
     let variants: readonly P2TRSignatureFraudPreparedTransactionVariant[]
     try {
@@ -3022,12 +3076,15 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         "Challenge replacement record lacks its authenticated nonce reservation"
       )
     }
-    const selectedPreparer = this.preparerForReservation(current.reservedNonce)
+    // Captured once: the lane cannot change under a replacement, and both the
+    // entry assert and the boundary assert below must name the same one.
+    const replacementReservation = current.reservedNonce
+    const selectedPreparer = this.preparerForReservation(replacementReservation)
     if (
       selectedPreparer === undefined ||
       (await this.store.isSignerQuarantined(
         current.intent.chainID,
-        current.reservedNonce.signerIdentity
+        replacementReservation.signerIdentity
       ))
     ) {
       return this.quarantine(
@@ -3035,6 +3092,12 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         "Challenge replacement signer lane is unavailable or quarantined"
       )
     }
+    // Asserted here rather than at entry: the replacement's lane is only known
+    // once its reservation and preparer have been resolved just above.
+    await this.assertRecoveryBarrier({
+      chainID: current.intent.chainID,
+      sender: replacementReservation.sender,
+    })
     const selectedFeePolicy = feePolicyForPreparer(current, selectedPreparer)
     if (variants.length >= P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_SIGNED_VARIANTS) {
       await this.store.saveCriticalAlert({
@@ -3120,7 +3183,10 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       this.now(),
       "Challenge outbox replacement signer invocation time"
     )
-    await this.assertRecoveryBarrier()
+    await this.assertRecoveryBarrier({
+      chainID: claimed.intent.chainID,
+      sender: replacementReservation.sender,
+    })
     // As at the initial boundary: build first, so the identity is committed in
     // the same swap as the marker and a build failure leaves nothing durable.
     const pendingBoundary = nextRecord(claimed, {
@@ -4501,15 +4567,39 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     }
   }
 
-  private async assertRecoveryBarrier(): Promise<void> {
+  /**
+   * Drives recovery without judging any lane. This must stay store-wide: the
+   * sweeps below are the only thing that ever reclaims a `preparing` record
+   * whose lane selection is still NULL -- the window between the claim swap and
+   * the lane swap -- and no per-lane predicate can see such a row, because it
+   * belongs to no lane yet. Narrowing the sweep would strand those records
+   * permanently. Recovering another account's backlog is never harmful; only
+   * REFUSING TO SIGN on another account's behalf is, and that is
+   * `assertRecoveryBarrier`'s job.
+   */
+  private async driveRecoverySweeps(): Promise<void> {
     if (!this.recoveryBarrierEstablished) {
       await this.establishRecoveryBarrier()
     }
+  }
+
+  /**
+   * Refuses to sign on one nonce lane while THAT lane still has unresolved
+   * durable recovery work. The lane is required rather than optional on
+   * purpose: an absent lane would silently mean "no check", which is the same
+   * shape of hole as a barrier row that does not exist reading as a clean lane.
+   */
+  private async assertRecoveryBarrier(
+    lane: P2TRSignatureFraudSigningLane
+  ): Promise<void> {
+    await this.driveRecoverySweeps()
+    const normalized = normalizeP2TRSignatureFraudSigningLane(lane)
     const [expiredPreparationLease, pendingNonceRelease] = await Promise.all([
       this.store.hasExpiredPreparationLeases(
-        requireUnixMilliseconds(this.now(), "Challenge recovery barrier time")
+        requireUnixMilliseconds(this.now(), "Challenge recovery barrier time"),
+        normalized
       ),
-      this.store.hasPendingNonceReleases(),
+      this.store.hasPendingNonceReleases(normalized),
     ])
     if (expiredPreparationLease || pendingNonceRelease) {
       this.recoveryBarrierEstablished = false
@@ -4551,15 +4641,15 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       this.now(),
       "Challenge recovery barrier completion time"
     )
-    if (
-      (await this.store.hasPendingNonceReleases()) ||
-      (await this.store.hasExpiredPreparationLeases(nowUnixMs))
-    ) {
-      throw new Error(
-        "Challenge signing is blocked by unresolved durable recovery work"
-      )
-    }
-    this.recoveryBarrierEstablished = true
+    // Residue left here is no longer fatal. It used to throw, and that throw --
+    // not either message in `assertRecoveryBarrier` -- is what a wedged store
+    // actually raised, because this runs first whenever the flag is unset. One
+    // account's unresolvable residue therefore froze signing on every account.
+    // Whether residue blocks is now the caller's question to ask about its own
+    // lane; all this decides is whether the store-wide fast path may latch.
+    this.recoveryBarrierEstablished =
+      !(await this.store.hasPendingNonceReleases()) &&
+      !(await this.store.hasExpiredPreparationLeases(nowUnixMs))
   }
 
   private async applyPreSignRecheckFailure(
