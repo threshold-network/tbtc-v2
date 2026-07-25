@@ -1845,6 +1845,16 @@ const normalizeP2TRSignatureFraudSignerInvocationEcho = (
  * well-formed, because a burn's only job is to spend one specific nonce: a
  * signer that returned a burn for a different nonce, a different sender, or
  * one carrying value or calldata would be spending something else entirely.
+ *
+ * @param reservation Durable reservation whose nonce the burn must spend.
+ * @param envelope Burn envelope the signer was asked to sign: sender, nonce,
+ *        gas limit and the EIP-1559 fee caps.
+ * @param prepared Prepared burn whose raw bytes are authenticated.
+ * @param invocation Signer invocation request the burn must echo. Optional on
+ *        the same terms as the challenge validator: supplied, the echo must
+ *        match exactly; omitted, it is preserved untouched.
+ * @returns The burn with hash, sender, nonce and fee fields rederived from the
+ *          raw bytes rather than taken from the caller.
  */
 export const validateP2TRSignatureFraudPreparedNonceBurnTransaction = (
   reservation: P2TRSignatureFraudBoundNonceReservation,
