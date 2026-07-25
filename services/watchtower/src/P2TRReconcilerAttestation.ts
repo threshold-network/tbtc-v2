@@ -1159,11 +1159,11 @@ function normalizeRequestBinding(
   const preparedTransactionHash =
     value.preparedTransactionHash === undefined
       ? undefined
-      : bytes32(
-          value.preparedTransactionHash,
-          "prepared transaction hash"
-        )
-  if ((value.stage === "broadcast") !== (preparedTransactionHash !== undefined)) {
+      : bytes32(value.preparedTransactionHash, "prepared transaction hash")
+  if (
+    (value.stage === "broadcast") !==
+    (preparedTransactionHash !== undefined)
+  ) {
     throw new Error(
       "Only a broadcast reconciler request may name prepared transaction bytes"
     )

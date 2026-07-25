@@ -63,8 +63,7 @@ const COMPLETE_RESERVATION_MODEL = utils.id(
 )
 let schemaSequence = 0
 
-const runtimeMigrationDirectory =
-  process.env.P2TR_WATCHTOWER_RUNTIME_MIGRATIONS
+const runtimeMigrationDirectory = process.env.P2TR_WATCHTOWER_RUNTIME_MIGRATIONS
 
 type TestDatabase = {
   client: PostgreSQLClient
@@ -87,7 +86,10 @@ async function createTestDatabase(
           `file://${runtimeMigrationDirectory}/001_p2tr_canonical_index.sql`
         ),
     runtimeMigrationDirectory === undefined
-      ? new URL("../migrations/002_p2tr_canonical_ethereum.sql", import.meta.url)
+      ? new URL(
+          "../migrations/002_p2tr_canonical_ethereum.sql",
+          import.meta.url
+        )
       : new URL(
           `file://${runtimeMigrationDirectory}/002_p2tr_canonical_ethereum.sql`
         ),
@@ -96,12 +98,7 @@ async function createTestDatabase(
       import.meta.url
     ),
   ]) {
-    await client.query(
-      await readFile(
-        migration,
-        "utf8"
-      )
-    )
+    await client.query(await readFile(migration, "utf8"))
   }
   await seedCanonicalPoint(client, maxActiveOutboxRecords)
   await client.query("BEGIN")
@@ -1358,8 +1355,9 @@ postgresTest(
       await restarted.getActiveAmbiguousNonceReleaseInvocation(19_999),
       undefined
     )
-    const resultless =
-      await restarted.getActiveAmbiguousNonceReleaseInvocation(20_000)
+    const resultless = await restarted.getActiveAmbiguousNonceReleaseInvocation(
+      20_000
+    )
     assert.ok(resultless)
     assert.deepEqual(resultless.attempt, attempt)
     assert.equal(resultless.invokedAtUnixMs, 10_001)
@@ -1375,8 +1373,9 @@ postgresTest(
       }),
       "ambiguous"
     )
-    const ambiguous =
-      await restarted.getActiveAmbiguousNonceReleaseInvocation(20_001)
+    const ambiguous = await restarted.getActiveAmbiguousNonceReleaseInvocation(
+      20_001
+    )
     assert.equal(ambiguous?.ambiguousResponseDigest, responseDigest)
 
     const providerEvidenceDigest = `0x${"f7".repeat(32)}`
@@ -2842,9 +2841,12 @@ function boundaryAttestations(
     attestation: mode === "identical-attestation" ? "0x01" : "0x02",
     attestedAtUnixMs,
   }
-  return (
-    mode === "single" ? [primary] : [primary, corroborating]
-  ) as unknown as P2TRSignatureFraudIndependentSignerBoundaryResolution["canonicalAttestations"]
+  return (mode === "single"
+    ? [primary]
+    : [
+        primary,
+        corroborating,
+      ]) as unknown as P2TRSignatureFraudIndependentSignerBoundaryResolution["canonicalAttestations"]
 }
 
 /**
@@ -3311,7 +3313,8 @@ postgresTest(
         expectedReservationID:
           boundary.reservedNonce!.reservationID.toPrefixedString(),
         capturedAtUnixMs: 2_500,
-        reason: "independently attested orphaned signer boundary produced bytes",
+        reason:
+          "independently attested orphaned signer boundary produced bytes",
         preparedTransaction: {
           intentID: initial.intent.intentID,
           rawTransaction,
@@ -3518,7 +3521,8 @@ const CLEARED_ORPHAN =
   "acknowledged status=preparing active=none signer=none artifacts=0"
 const RETAINED_ORPHAN =
   "acknowledged status=preparing active=1300 signer=none artifacts=0"
-const UNSAFE_ORPHAN = "unsafe status=preparing active=1300 signer=none artifacts=0"
+const UNSAFE_ORPHAN =
+  "unsafe status=preparing active=1300 signer=none artifacts=0"
 const WRONG_BOUNDARY =
   "error:Orphaned signer boundary resolution does not name the durable boundary"
 

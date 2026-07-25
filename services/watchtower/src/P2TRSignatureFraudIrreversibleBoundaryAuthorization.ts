@@ -140,8 +140,9 @@ export class P2TRSignatureFraudVerifiedIrreversibleBoundaryAuthorizer
     })
     this.highestObservedExportFence = payload.export.exportFence
 
-    const authorization = Object.freeze({}) as
-      P2TRSignatureFraudIrreversibleBoundaryAuthorization
+    const authorization = Object.freeze(
+      {}
+    ) as P2TRSignatureFraudIrreversibleBoundaryAuthorization
     this.pending.set(authorization, {
       binding,
       reconcilerAttestation: evidence.reconcilerAttestation,
@@ -186,15 +187,13 @@ export class P2TRSignatureFraudVerifiedIrreversibleBoundaryAuthorizer
         "Irreversible-boundary authorization was superseded by a newer export fence"
       )
     }
-    const requestBindingDigest =
-      computeP2TRReconcilerRequestBindingDigest(
-        reconcilerRequestBinding(binding)
-      )
+    const requestBindingDigest = computeP2TRReconcilerRequestBindingDigest(
+      reconcilerRequestBinding(binding)
+    )
     const payload = assertP2TRVerifiedReconcilerCandidateAttestation(
       pending.reconcilerAttestation,
       {
-        requestNonce:
-          pending.reconcilerAttestation.payload.requestNonce,
+        requestNonce: pending.reconcilerAttestation.payload.requestNonce,
         requestBindingDigest,
         minimumExportFenceExclusive: pending.minimumExportFenceExclusive,
         nowUnixMs,
@@ -247,7 +246,10 @@ function normalizeBoundaryBinding(
           value.preparedTransactionHash,
           "Boundary prepared transaction hash"
         )
-  if ((value.stage === "broadcast") !== (preparedTransactionHash !== undefined)) {
+  if (
+    (value.stage === "broadcast") !==
+    (preparedTransactionHash !== undefined)
+  ) {
     throw new Error(
       "Only a broadcast authorization may name prepared transaction bytes"
     )

@@ -156,10 +156,7 @@ test("never expires a resultless allocator invocation by wall clock", () => {
     migration,
     /CREATE TABLE p2tr_signature_fraud_challenge_nonce_release_resolution/
   )
-  assert.match(
-    migration,
-    /tbtc-p2tr-nonce-release-independent-resolution-v1/
-  )
+  assert.match(migration, /tbtc-p2tr-nonce-release-independent-resolution-v1/)
   assert.match(
     migration,
     /primary_evidence_digest = resolution_evidence_digest/
@@ -582,10 +579,7 @@ test("serializes nonce-release and signer I/O through a durable barrier", () => 
     migration,
     /CREATE TABLE p2tr_signature_fraud_nonce_allocator_safety_barrier/
   )
-  assert.match(
-    migration,
-    /unresolved_release_count integer NOT NULL DEFAULT 0/
-  )
+  assert.match(migration, /unresolved_release_count integer NOT NULL DEFAULT 0/)
   assert.match(
     migration,
     /p2tr_signature_fraud_register_pending_nonce_release_trigger AFTER INSERT/
@@ -613,10 +607,7 @@ test("resolves an orphaned signer boundary only on dual-attested evidence", () =
     migration,
     /CREATE TABLE p2tr_signature_fraud_challenge_signer_boundary_resolution/
   )
-  assert.match(
-    migration,
-    /tbtc-p2tr-signer-boundary-independent-resolution-v1/
-  )
+  assert.match(migration, /tbtc-p2tr-signer-boundary-independent-resolution-v1/)
   // The boundary tuple is the row identity, so evidence can never speak for a
   // boundary other than the one it names.
   assert.match(

@@ -928,10 +928,7 @@ describe("irreversible outbox boundary authorization", () => {
     const fixture = makeProofFixture({
       requestBinding: { recordGeneration: 0 },
     })
-    assert.equal(
-      fixture.challenge.requestBinding.recordGeneration,
-      0
-    )
+    assert.equal(fixture.challenge.requestBinding.recordGeneration, 0)
     await verifyFixture(fixture)
   })
 
@@ -1066,14 +1063,15 @@ describe("irreversible outbox boundary authorization", () => {
     })
     const firstEvidence = await makeVerifiedBoundaryEvidence(firstFixture)
     const secondEvidence = await makeVerifiedBoundaryEvidence(secondFixture)
-    const authorizer = new P2TRSignatureFraudVerifiedIrreversibleBoundaryAuthorizer(
-      {
-        async acquireVerifiedP2TRSignatureFraudBoundaryEvidence(binding) {
-          return binding.recordVersion === 4 ? firstEvidence : secondEvidence
+    const authorizer =
+      new P2TRSignatureFraudVerifiedIrreversibleBoundaryAuthorizer(
+        {
+          async acquireVerifiedP2TRSignatureFraudBoundaryEvidence(binding) {
+            return binding.recordVersion === 4 ? firstEvidence : secondEvidence
+          },
         },
-      },
-      () => NOW
-    )
+        () => NOW
+      )
     const firstBinding = irreversibleBinding(firstFixture)
     const secondBinding = irreversibleBinding(secondFixture)
     const first =

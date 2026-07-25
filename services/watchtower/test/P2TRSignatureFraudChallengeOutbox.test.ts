@@ -645,9 +645,7 @@ class FixedBoundaryAuthorizer
   beforeAuthorize?: (
     binding: P2TRSignatureFraudIrreversibleBoundaryBinding
   ) => Promise<void>
-  onConsume?: (
-    binding: P2TRSignatureFraudIrreversibleBoundaryBinding
-  ) => void
+  onConsume?: (binding: P2TRSignatureFraudIrreversibleBoundaryBinding) => void
   private readonly pending = new WeakMap<object, string>()
 
   async authorizeP2TRSignatureFraudIrreversibleBoundary(
@@ -659,8 +657,9 @@ class FixedBoundaryAuthorizer
     }
     const exact = structuredClone(binding)
     this.bindings.push(exact)
-    const authorization = Object.freeze({}) as
-      P2TRSignatureFraudIrreversibleBoundaryAuthorization
+    const authorization = Object.freeze(
+      {}
+    ) as P2TRSignatureFraudIrreversibleBoundaryAuthorization
     this.pending.set(authorization, JSON.stringify(exact))
     return authorization
   }
@@ -1763,12 +1762,18 @@ test("authorizes exact post-CAS signer, replacement, and broadcast boundaries", 
     authorizer
   )
 
-  assert.equal((await outbox.prepare(record.recordID, "worker-a")).status, "prepared")
+  assert.equal(
+    (await outbox.prepare(record.recordID, "worker-a")).status,
+    "prepared"
+  )
   assert.equal(
     (await outbox.prepareReplacement(record.recordID, "worker-b")).status,
     "prepared"
   )
-  assert.equal((await outbox.broadcast(record.recordID)).status, "broadcast-pending")
+  assert.equal(
+    (await outbox.broadcast(record.recordID)).status,
+    "broadcast-pending"
+  )
 
   assert.deepEqual(
     authorizer.bindings.map(({ stage, attempt, preparedTransactionHash }) => ({
@@ -1900,12 +1905,12 @@ test("keeps prior signed state in reconciliation when replacement authorization 
   }
   authorizer.rejectAuthorization = new Error("replacement proof is stale")
 
-  const rejected = await outbox.prepareReplacement(
-    record.recordID,
-    "worker-b"
-  )
+  const rejected = await outbox.prepareReplacement(record.recordID, "worker-b")
 
-  assert.equal(rejected.status, "provenance-invalidated-awaiting-reconciliation")
+  assert.equal(
+    rejected.status,
+    "provenance-invalidated-awaiting-reconciliation"
+  )
   assert.equal(rejected.activeSignerInvocationStartedAtUnixMs, undefined)
   assert.equal(rejected.preparationLease, undefined)
   assert.equal(rejected.preparationResumeStatus, undefined)
@@ -2087,7 +2092,10 @@ test("keeps an ambiguous allocator invocation sticky until independent resolutio
   )
   assert.equal(restartInvocation.attempt.attemptSequence, 1)
   assert.equal(restartInvocation.invokedAtUnixMs, 40_002)
-  assert.match(restartInvocation.ambiguousResponseDigest ?? "", /^0x[0-9a-f]{64}$/)
+  assert.match(
+    restartInvocation.ambiguousResponseDigest ?? "",
+    /^0x[0-9a-f]{64}$/
+  )
 
   now = 80_000
   await outbox.recoverPendingNonceReleases()
@@ -2880,9 +2888,8 @@ test("recovers one bounded preparation page and reports remaining backlog", asyn
   )
   assert.equal(backlogReports, 1)
   assert.equal(
-    [...store.records.values()].filter(
-      ({ status }) => status === "queued"
-    ).length,
+    [...store.records.values()].filter(({ status }) => status === "queued")
+      .length,
     2
   )
   const second = await outbox.recoverExpiredPreparationLeases(first.nextCursor)

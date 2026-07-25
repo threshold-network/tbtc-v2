@@ -746,10 +746,7 @@ export class PostgresP2TRSignatureFraudOutboxActivationHandshakeProvider {
     if (capacityCounterMismatchCount > 0) {
       reasons.push("outbox-capacity-counter-mismatch")
     }
-    if (
-      activeNonceReleaseAttemptCount > 0 ||
-      activeSignerInvocationCount > 0
-    ) {
+    if (activeNonceReleaseAttemptCount > 0 || activeSignerInvocationCount > 0) {
       reasons.push("nonce-allocator-external-io-active")
     }
     if (nonceAllocatorContractMismatchBlocked) {
