@@ -32,10 +32,6 @@
     "./sui": {
       "types": "./dist/src/lib/sui/index.d.ts",
       "default": "./dist/src/lib/sui/index.js"
-    },
-    "./sei": {
-      "types": "./dist/src/lib/sei/index.d.ts",
-      "default": "./dist/src/lib/sei/index.js"
     }
   },
   "scripts": {

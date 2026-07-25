@@ -24,7 +24,7 @@ const { lastBlockTime } = helpers.time
 
 // Wormhole Chain IDs for testing
 const WORMHOLE_CHAIN_ETH = 2
-const WORMHOLE_CHAIN_SEI = 32
+const WORMHOLE_CHAIN_DESTINATION = 32
 const WORMHOLE_CHAIN_BASE = 30
 
 // Mock NTT Manager interface
@@ -189,7 +189,7 @@ describe("L1BTCDepositorNtt Core Functions", () => {
         await expect(
           l1BtcDepositorNtt
             .connect(relayer)
-            .setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
+            .setDefaultSupportedChain(WORMHOLE_CHAIN_DESTINATION)
         ).to.be.revertedWith("Ownable: caller is not the owner")
       })
     })
@@ -208,7 +208,7 @@ describe("L1BTCDepositorNtt Core Functions", () => {
           await expect(
             l1BtcDepositorNtt
               .connect(governance)
-              .setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
+              .setDefaultSupportedChain(WORMHOLE_CHAIN_DESTINATION)
           ).to.be.revertedWith(
             "Chain must be supported before setting as default"
           )
@@ -220,7 +220,7 @@ describe("L1BTCDepositorNtt Core Functions", () => {
           await createSnapshot()
           await l1BtcDepositorNtt
             .connect(governance)
-            .setSupportedChain(WORMHOLE_CHAIN_SEI, true)
+            .setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
         })
 
         after(async () => {
@@ -230,22 +230,22 @@ describe("L1BTCDepositorNtt Core Functions", () => {
         it("should set the default supported chain successfully", async () => {
           const tx = await l1BtcDepositorNtt
             .connect(governance)
-            .setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
+            .setDefaultSupportedChain(WORMHOLE_CHAIN_DESTINATION)
 
           expect(await l1BtcDepositorNtt.defaultSupportedChain()).to.equal(
-            WORMHOLE_CHAIN_SEI
+            WORMHOLE_CHAIN_DESTINATION
           )
 
           await expect(tx)
             .to.emit(l1BtcDepositorNtt, "DefaultSupportedChainUpdated")
-            .withArgs(WORMHOLE_CHAIN_SEI)
+            .withArgs(WORMHOLE_CHAIN_DESTINATION)
         })
 
         it("should allow changing default chain to another supported chain", async () => {
-          // First set SEI as default
+          // First set the sample destination as default
           await l1BtcDepositorNtt
             .connect(governance)
-            .setDefaultSupportedChain(WORMHOLE_CHAIN_SEI)
+            .setDefaultSupportedChain(WORMHOLE_CHAIN_DESTINATION)
 
           // Add BASE as supported
           await l1BtcDepositorNtt
@@ -428,7 +428,7 @@ describe("L1BTCDepositorNtt Core Functions", () => {
 
           await l1BtcDepositorNtt
             .connect(governance)
-            .setSupportedChain(WORMHOLE_CHAIN_SEI, true)
+            .setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
 
           await tbtcToken.mint(
             l1BtcDepositorNtt.address,

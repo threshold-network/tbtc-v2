@@ -67,7 +67,7 @@ EthersContractHandle\&lt;L1BitcoinDepositorTypechain\&gt;.constructor
 
 #### Defined in
 
-[src/lib/ethereum/l1-bitcoin-depositor.ts:92](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L92)
+[src/lib/ethereum/l1-bitcoin-depositor.ts:86](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L86)
 
 ## Properties
 
@@ -77,7 +77,7 @@ EthersContractHandle\&lt;L1BitcoinDepositorTypechain\&gt;.constructor
 
 #### Defined in
 
-[src/lib/ethereum/l1-bitcoin-depositor.ts:90](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L90)
+[src/lib/ethereum/l1-bitcoin-depositor.ts:84](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L84)
 
 ___
 
@@ -87,7 +87,7 @@ ___
 
 #### Defined in
 
-[src/lib/ethereum/l1-bitcoin-depositor.ts:89](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L89)
+[src/lib/ethereum/l1-bitcoin-depositor.ts:83](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L83)
 
 ___
 
@@ -157,7 +157,7 @@ L1BitcoinDepositor.extraDataEncoder
 
 #### Defined in
 
-[src/lib/ethereum/l1-bitcoin-depositor.ts:148](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L148)
+[src/lib/ethereum/l1-bitcoin-depositor.ts:142](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L142)
 
 ___
 
@@ -199,7 +199,7 @@ L1BitcoinDepositor.getChainIdentifier
 
 #### Defined in
 
-[src/lib/ethereum/l1-bitcoin-depositor.ts:140](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L140)
+[src/lib/ethereum/l1-bitcoin-depositor.ts:134](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L134)
 
 ___
 
@@ -219,7 +219,7 @@ L1BitcoinDepositor.getDepositOwner
 
 #### Defined in
 
-[src/lib/ethereum/l1-bitcoin-depositor.ts:117](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L117)
+[src/lib/ethereum/l1-bitcoin-depositor.ts:111](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L111)
 
 ___
 
@@ -245,7 +245,7 @@ L1BitcoinDepositor.getDepositState
 
 #### Defined in
 
-[src/lib/ethereum/l1-bitcoin-depositor.ts:133](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L133)
+[src/lib/ethereum/l1-bitcoin-depositor.ts:127](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L127)
 
 ___
 
@@ -308,7 +308,7 @@ L1BitcoinDepositor.initializeDeposit
 
 #### Defined in
 
-[src/lib/ethereum/l1-bitcoin-depositor.ts:164](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L164)
+[src/lib/ethereum/l1-bitcoin-depositor.ts:158](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L158)
 
 ___
 
@@ -334,7 +334,7 @@ L1BitcoinDepositor.setDepositOwner
 
 #### Defined in
 
-[src/lib/ethereum/l1-bitcoin-depositor.ts:125](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L125)
+[src/lib/ethereum/l1-bitcoin-depositor.ts:119](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L119)
 
 ___
 
@@ -356,4 +356,4 @@ L1BitcoinDepositor.supportsTaprootDeposits
 
 #### Defined in
 
-[src/lib/ethereum/l1-bitcoin-depositor.ts:156](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L156)
+[src/lib/ethereum/l1-bitcoin-depositor.ts:150](https://github.com/threshold-network/tbtc-v2/blob/main/typescript/src/lib/ethereum/l1-bitcoin-depositor.ts#L150)
