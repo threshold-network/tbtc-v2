@@ -58,6 +58,7 @@ import {
   P2TRSignatureFraudPreBroadcastRecheckResult,
   P2TRSignatureFraudRawTransactionBroadcaster,
   P2TRSignatureFraudSignerQuarantine,
+  P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_TRUST_DOMAIN_ID_LENGTH,
   computeP2TRSignatureFraudEthereumEligibilityReadSetHash,
   computeP2TRSignatureFraudChallengeFeePolicyHash,
   computeP2TRSignatureFraudCancellationEvidenceHash,
@@ -224,12 +225,24 @@ const activationManifest = () => ({
   completeReservationModel: COMPLETE_RESERVATION_MODEL,
 })
 
-const feePolicyManifest = () => {
+/** A lane the signer is never bound to, with deliberately different caps. */
+const DECOY_LANE = {
+  laneID: "decoy.lane.test",
+  signerIdentity: "decoy.signer.test",
+  sender: "0x9a9a9A9a9A9a9a9A9A9a9a9a9a9A9a9a9a9A9a9A",
+  maxGasLimit: "999999",
+  maxFeePerGas: "99",
+  maxPriorityFeePerGas: "9",
+  maxTotalFeeWei: "99999999",
+}
+
+const feePolicyManifest = (leadingLanes: (typeof DECOY_LANE)[] = []) => {
   const withoutHash = {
     activationManifestHash: ACTIVATION_MANIFEST_HASH,
     chainID: 11155111,
     challengeValueWei: "1234",
     lanes: [
+      ...leadingLanes,
       {
         laneID: SIGNER_LANE_ID,
         signerIdentity: SIGNER_IDENTITY,
@@ -826,9 +839,9 @@ const evidenceCheckpoint = (): P2TRSignatureFraudOutboxEvidenceCheckpoint => ({
 
 const createRecord = (
   intent = createIntent(),
-  evidence = evidenceCheckpoint()
+  evidence = evidenceCheckpoint(),
+  policy = feePolicyManifest()
 ): P2TRSignatureFraudChallengeOutboxRecord => {
-  const policy = feePolicyManifest()
   const eligibility = ethereumEligibility(
     intent,
     evidence.ethereumLifecycleBlockNumber,
@@ -878,9 +891,12 @@ const createRecord = (
 
 const enqueue = async (
   store: InMemoryOutboxStore,
-  intent = createIntent()
+  intent = createIntent(),
+  policy = feePolicyManifest()
 ): Promise<P2TRSignatureFraudChallengeOutboxRecord> =>
-  store.insertGenerationIfAbsent(createRecord(intent))
+  store.insertGenerationIfAbsent(
+    createRecord(intent, evidenceCheckpoint(), policy)
+  )
 
 const provenanceInvalidationEvidence = (
   record: P2TRSignatureFraudChallengeOutboxRecord,
@@ -1721,6 +1737,43 @@ test("authorizes exact post-CAS signer, replacement, and broadcast boundaries", 
       durable.feePolicyManifest.activationManifestHash.toLowerCase(),
       binding.activationManifestHash
     )
+    // The lane, the intent, and the lane's fee envelope are what the signer is
+    // actually handed; each must be named by the authorized boundary.
+    assert.equal(durable.reservedNonce?.laneID, binding.laneID)
+    assert.equal(durable.reservedNonce?.signerIdentity, binding.signerIdentity)
+    assert.equal(normalizeKey(durable.intent.intentID), binding.intentID)
+    assert.equal(
+      normalizeKey(durable.intent.routerAddress),
+      binding.routerAddress
+    )
+    assert.equal(durable.intent.value, binding.intentValueWei)
+    assert.equal(
+      durable.feePolicyManifest.challengeValueWei,
+      binding.challengeValueWei
+    )
+    // Looked up by identity, never by array position: the bound lane is the
+    // reserved one, which need not be the manifest's first.
+    const lane = durable.feePolicyManifest.lanes.find(
+      (candidate) =>
+        candidate.laneID === binding.laneID &&
+        candidate.signerIdentity === binding.signerIdentity
+    )
+    assert.ok(lane, "the bound lane must exist in the durable manifest")
+    assert.equal(lane.maxGasLimit, binding.maxGasLimit)
+    assert.equal(lane.maxFeePerGas, binding.maxFeePerGas)
+    assert.equal(lane.maxPriorityFeePerGas, binding.maxPriorityFeePerGas)
+    assert.equal(lane.maxTotalFeeWei, binding.maxTotalFeeWei)
+    if (binding.stage === "replacement") {
+      // The variant being superseded, not the one about to be produced.
+      assert.equal(
+        durable.preparedTransaction === undefined
+          ? undefined
+          : normalizeKey(durable.preparedTransaction.transactionHash),
+        binding.replacedTransactionHash
+      )
+    } else {
+      assert.equal(binding.replacedTransactionHash, undefined)
+    }
     if (binding.stage === "broadcast") {
       assert.equal(durable.status, "broadcast-pending")
       assert.equal(durable.broadcastAttempts, binding.attempt)
@@ -1776,25 +1829,53 @@ test("authorizes exact post-CAS signer, replacement, and broadcast boundaries", 
   )
 
   assert.deepEqual(
-    authorizer.bindings.map(({ stage, attempt, preparedTransactionHash }) => ({
-      stage,
-      attempt,
-      preparedTransactionHash,
-    })),
+    authorizer.bindings.map(
+      ({
+        stage,
+        attempt,
+        replacedTransactionHash,
+        preparedTransactionHash,
+      }) => ({
+        stage,
+        attempt,
+        replacedTransactionHash,
+        preparedTransactionHash,
+      })
+    ),
     [
-      { stage: "prepare", attempt: 1, preparedTransactionHash: undefined },
+      {
+        stage: "prepare",
+        attempt: 1,
+        replacedTransactionHash: undefined,
+        preparedTransactionHash: undefined,
+      },
       {
         stage: "replacement",
         attempt: 2,
+        replacedTransactionHash: TRANSACTION_HASH.toLowerCase(),
         preparedTransactionHash: undefined,
       },
       {
         stage: "broadcast",
         attempt: 1,
+        replacedTransactionHash: undefined,
         preparedTransactionHash: REPLACEMENT_TRANSACTION_HASH.toLowerCase(),
       },
     ]
   )
+
+  // Every lane/intent/fee field the boundary now names, at every stage.
+  for (const binding of authorizer.bindings) {
+    assert.equal(binding.laneID, SIGNER_LANE_ID)
+    assert.equal(binding.signerIdentity, SIGNER_IDENTITY)
+    assert.equal(binding.routerAddress, ROUTER_ADDRESS.toLowerCase())
+    assert.equal(binding.intentValueWei, "1234")
+    assert.equal(binding.challengeValueWei, "1234")
+    assert.equal(binding.maxGasLimit, "1000000")
+    assert.equal(binding.maxFeePerGas, "100")
+    assert.equal(binding.maxPriorityFeePerGas, "10")
+    assert.equal(binding.maxTotalFeeWei, "100000000")
+  }
 })
 
 test("recovers an initial reservation when authorization rejects before signer I/O", async () => {
@@ -3161,4 +3242,96 @@ test("quarantines legacy submission ambiguity and blocks post-send cancellation"
     outbox.cancelBeforeBroadcast(record.recordID, "operator request"),
     /only before signer invocation/
   )
+})
+
+test("pins the lane identity bound the boundary normalizers mirror", () => {
+  // identityText in P2TRReconcilerAttestation.ts and in
+  // P2TRSignatureFraudIrreversibleBoundaryAuthorization.ts hardcode this bound
+  // rather than import it, because the reconciler wire protocol must not
+  // depend on an internal outbox module. Raising it here without updating both
+  // would make the outbox accept a lane identity that the digest path rejects,
+  // which surfaces only as a boundary authorization failure at run time.
+  assert.equal(P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_TRUST_DOMAIN_ID_LENGTH, 128)
+})
+
+test("clears the signer marker when the boundary binding cannot be built", async () => {
+  const store = new InMemoryOutboxStore()
+  // A durable record whose stored intent identity no longer matches its
+  // contents: store corruption, a bad migration, or a rolling change to the
+  // intent-ID preimage. The boundary recomputes the identity, so the binding
+  // cannot be built. That means no signer was invoked, and the pre-I/O marker
+  // must be cleared rather than left pinning the record.
+  const authentic = createIntent()
+  const record = await enqueue(store, {
+    ...authentic,
+    intentID: createIntent("bb").intentID,
+  })
+  const preparer = new FixedPreparer()
+  const authorizer = new FixedBoundaryAuthorizer()
+  let now = 2_000
+  const outbox = dispatcher(
+    store,
+    preparer,
+    new RecordingBroadcaster(),
+    new FixedRechecker(),
+    new FixedReconciler(),
+    () => now,
+    100,
+    undefined,
+    authorizer
+  )
+
+  const stalled = await outbox.prepare(record.recordID, "worker-a")
+  assert.equal(stalled.status, "preparing")
+  assert.equal(stalled.activeSignerInvocationStartedAtUnixMs, undefined)
+  assert.equal(stalled.signerInvocationStartedAtUnixMs, undefined)
+  assert.match(String(stalled.lastError), /durable identity/)
+  assert.equal(preparer.calls, 0)
+  assert.equal(authorizer.bindings.length, 0)
+
+  now = 40_001
+  await outbox.recoverExpiredPreparationLeases()
+  const recovered = await store.get(record.recordID)
+  assert.equal(recovered?.status, "queued")
+  assert.equal(recovered?.reservedNonce, undefined)
+})
+
+test("binds the reserved lane's envelope, not the manifest's first lane", async () => {
+  const store = new InMemoryOutboxStore()
+  // A decoy lane listed FIRST, with different caps. The signer's lane is second.
+  // A binding built from the manifest rather than from the envelope handed to
+  // the signer would name caps no signer was ever given — which is exactly the
+  // gap this binding exists to close.
+  const record = await enqueue(
+    store,
+    createIntent(),
+    feePolicyManifest([DECOY_LANE])
+  )
+  const preparer = new FixedPreparer()
+  const authorizer = new FixedBoundaryAuthorizer()
+  const outbox = dispatcher(
+    store,
+    preparer,
+    new RecordingBroadcaster(),
+    new FixedRechecker(),
+    new FixedReconciler(),
+    () => 2_000,
+    100,
+    undefined,
+    authorizer
+  )
+
+  assert.equal(
+    (await outbox.prepare(record.recordID, "worker-a")).status,
+    "prepared"
+  )
+  assert.equal(record.feePolicyManifest.lanes[0].laneID, DECOY_LANE.laneID)
+  const [binding] = authorizer.bindings
+  assert.ok(binding)
+  assert.equal(binding.laneID, SIGNER_LANE_ID)
+  assert.equal(binding.signerIdentity, SIGNER_IDENTITY)
+  assert.equal(binding.maxGasLimit, "1000000")
+  assert.equal(binding.maxFeePerGas, "100")
+  assert.equal(binding.maxPriorityFeePerGas, "10")
+  assert.equal(binding.maxTotalFeeWei, "100000000")
 })
