@@ -471,9 +471,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
     request: P2TRSignatureFraudNonceReleasePageRequest
   ): Promise<P2TRSignatureFraudNonceReleasePage> {
     if (!this.inTransaction()) {
-      return this.runInTransaction(() =>
-        this.listPendingNonceReleases(request)
-      )
+      return this.runInTransaction(() => this.listPendingNonceReleases(request))
     }
     this.assertSession()
     if (
@@ -567,7 +565,9 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         row.active_release_attempt_sequence !== null ||
         row.active_release_expires_at_unix_ms !== null
       ) {
-        throw new Error("Nonce allocator safety barrier is internally inconsistent")
+        throw new Error(
+          "Nonce allocator safety barrier is internally inconsistent"
+        )
       }
       return undefined
     }
@@ -613,12 +613,16 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
       invokedAtUnixMs > expiresAtUnixMs ||
       (row.result_kind === "ambiguous-error" && row.response_digest === null)
     ) {
-      throw new Error("Active nonce-release invocation is internally inconsistent")
+      throw new Error(
+        "Active nonce-release invocation is internally inconsistent"
+      )
     }
     if (row.result_kind === null && expiresAtUnixMs > now) return undefined
     const request = await this.getNonceReleaseRequest(releaseRequestID)
     if (request === undefined) {
-      throw new Error("Active nonce-release invocation lacks its durable request")
+      throw new Error(
+        "Active nonce-release invocation lacks its durable request"
+      )
     }
     return {
       request,
@@ -677,7 +681,9 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
     if (expires <= started) {
       throw new Error("Nonce-release attempt expiration must follow its start")
     }
-    const locked = await this.options.session.query<{ release_request_id: Buffer }>(
+    const locked = await this.options.session.query<{
+      release_request_id: Buffer
+    }>(
       `SELECT release_request_id
          FROM p2tr_signature_fraud_challenge_nonce_release_request
         WHERE release_request_id = decode($1, 'hex')
@@ -767,7 +773,8 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
       return undefined
     }
     const attemptSequence =
-      latest?.attempt_sequence === null || latest?.attempt_sequence === undefined
+      latest?.attempt_sequence === null ||
+      latest?.attempt_sequence === undefined
         ? 1
         : databaseSafeInteger(
             latest.attempt_sequence,
@@ -779,13 +786,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
           started_at_unix_ms, expires_at_unix_ms
        ) VALUES (decode($1, 'hex'), $2, $3, $4, $5)
        RETURNING release_request_id`,
-      [
-        releaseID,
-        attemptSequence,
-        normalizedOwner,
-        started,
-        expires,
-      ]
+      [releaseID, attemptSequence, normalizedOwner, started, expires]
     )
     if (inserted.rowCount !== 1) return undefined
     return {
@@ -917,7 +918,9 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         "Persisted nonce-release attempt expiration"
       ) !== attempt.expiresAtUnixMs
     ) {
-      throw new Error("Nonce-release attempt token does not match durable state")
+      throw new Error(
+        "Nonce-release attempt token does not match durable state"
+      )
     }
     const recordedAtUnixMs = unixMilliseconds(
       result.recordedAtUnixMs,
@@ -970,12 +973,12 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
             "Returned nonce-release request ID"
           )
         : result.kind === "contract-mismatch" &&
-            result.returnedReleaseRequestID !== undefined
-          ? bytes32(
-              result.returnedReleaseRequestID,
-              "Mismatched returned nonce-release request ID"
-            )
-          : undefined
+          result.returnedReleaseRequestID !== undefined
+        ? bytes32(
+            result.returnedReleaseRequestID,
+            "Mismatched returned nonce-release request ID"
+          )
+        : undefined
     const returnedReservationID =
       acknowledgement !== undefined
         ? bytes32(
@@ -983,12 +986,12 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
             "Returned nonce-release reservation ID"
           )
         : result.kind === "contract-mismatch" &&
-            result.returnedReservationID !== undefined
-          ? bytes32(
-              result.returnedReservationID,
-              "Mismatched returned nonce-release reservation ID"
-            )
-          : undefined
+          result.returnedReservationID !== undefined
+        ? bytes32(
+            result.returnedReservationID,
+            "Mismatched returned nonce-release reservation ID"
+          )
+        : undefined
 
     let mismatchLanes: ReleaseLaneRow[] = []
     if (resultKind === "contract-mismatch") {
@@ -1014,18 +1017,18 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
       )
       const affectedLanes = new Map<string, ReleaseLaneRow>()
       for (const lane of [durableRequest, ...returnedLanes.rows]) {
-        const key = `${lane.chain_id}:${lane.signer_lane_id}:${lane.signer_identity}:${prefixedHex(
-          lane.sender
-        )}`
+        const key = `${lane.chain_id}:${lane.signer_lane_id}:${
+          lane.signer_identity
+        }:${prefixedHex(lane.sender)}`
         affectedLanes.set(key, lane)
       }
       mismatchLanes = [...affectedLanes.values()].sort((left, right) =>
-        `${left.chain_id}:${left.signer_lane_id}:${left.signer_identity}:${prefixedHex(
-          left.sender
-        )}`.localeCompare(
-          `${right.chain_id}:${right.signer_lane_id}:${right.signer_identity}:${prefixedHex(
-            right.sender
-          )}`
+        `${left.chain_id}:${left.signer_lane_id}:${
+          left.signer_identity
+        }:${prefixedHex(left.sender)}`.localeCompare(
+          `${right.chain_id}:${right.signer_lane_id}:${
+            right.signer_identity
+          }:${prefixedHex(right.sender)}`
         )
       )
       // Signer state transitions lock the outbox row, then its configured lane,
@@ -1195,11 +1198,9 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
       attemptExpiresAtUnixMs <= attemptStartedAtUnixMs ||
       invokedAtUnixMs < attemptStartedAtUnixMs ||
       invokedAtUnixMs > attemptExpiresAtUnixMs ||
-      ![
-        "released",
-        "already-released",
-        "terminal-unsafe",
-      ].includes(resolution.outcome)
+      !["released", "already-released", "terminal-unsafe"].includes(
+        resolution.outcome
+      )
     ) {
       throw new Error("Independent nonce-release resolution is malformed")
     }
@@ -1439,7 +1440,9 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
     if (resolution.outcome === "terminal-unsafe") {
       const record = await this.get(request.recordID)
       if (record === undefined) {
-        throw new Error("Unsafe nonce-release resolution lost its outbox record")
+        throw new Error(
+          "Unsafe nonce-release resolution lost its outbox record"
+        )
       }
       await this.saveCriticalAlert({
         code: "nonce-release-terminal-unsafe",
@@ -2312,7 +2315,9 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
     const recordID = prefixedHex(row.record_id)
     const record = await this.get(recordID)
     if (record === undefined) {
-      throw new Error("Nonce-release request references a missing outbox record")
+      throw new Error(
+        "Nonce-release request references a missing outbox record"
+      )
     }
     const reservationID = prefixedHex(row.nonce_guard_id)
     const tombstone = (record.voidedNonceReservations ?? []).find(
@@ -2402,7 +2407,8 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
       return false
     }
     if (
-      ((current.selectedLaneID === undefined && next.selectedLaneID !== undefined) ||
+      ((current.selectedLaneID === undefined &&
+        next.selectedLaneID !== undefined) ||
         (current.activeSignerInvocationStartedAtUnixMs === undefined &&
           next.activeSignerInvocationStartedAtUnixMs !== undefined)) &&
       !(await this.lockAndAssertSignerLaneAvailable(next))
@@ -2999,8 +3005,9 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
     for (const item of next.voidedNonceReservations ?? []) {
       const id = item.reservation.reservationID.toPrefixedString().toLowerCase()
       if (currentIDs.has(id)) continue
-      const currentReservationID =
-        current.reservedNonce?.reservationID.toPrefixedString().toLowerCase()
+      const currentReservationID = current.reservedNonce?.reservationID
+        .toPrefixedString()
+        .toLowerCase()
       if (currentReservationID !== id) {
         await this.insertReturnedReservationTombstone(current, item)
       } else {
@@ -3073,9 +3080,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         stripHex(releaseRequestID),
         stripHex(bytes32(record.recordID, "Release request record ID")),
         record.generation,
-        stripHex(
-          hexValue(reservation.reservationID, "Release reservation ID")
-        ),
+        stripHex(hexValue(reservation.reservationID, "Release reservation ID")),
         record.intent.chainID,
         reservation.laneID,
         reservation.signerIdentity,
@@ -5735,9 +5740,7 @@ function requireCanonicalOwner(
   if (
     normalized.length === 0 ||
     normalized.length > maximum ||
-    !/^[\x21-\x7e](?:[\x20-\x7e]{0,126}[\x21-\x7e])?$/.test(
-      normalized
-    )
+    !/^[\x21-\x7e](?:[\x20-\x7e]{0,126}[\x21-\x7e])?$/.test(normalized)
   ) {
     throw new Error(`${label} must contain between 1 and ${maximum} characters`)
   }

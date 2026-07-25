@@ -697,11 +697,11 @@ export const computeP2TRSignatureFraudNonceReleaseResolutionEvidenceDigest = (
     const normalized = requireBoundedText(value, 128, label)
     return createHash("sha256").update(normalized, "utf8").digest()
   }
-  if (![
-    "released",
-    "already-released",
-    "terminal-unsafe",
-  ].includes(resolution.outcome)) {
+  if (
+    !["released", "already-released", "terminal-unsafe"].includes(
+      resolution.outcome
+    )
+  ) {
     throw new Error("Nonce-release resolution outcome is invalid")
   }
   return `0x${createHash("sha256")
@@ -723,10 +723,7 @@ export const computeP2TRSignatureFraudNonceReleaseResolutionEvidenceDigest = (
     )
     .update(textDigest(resolution.attemptOwner, "Nonce-release attempt owner"))
     .update(
-      uint64(
-        resolution.attemptStartedAtUnixMs,
-        "Nonce-release attempt start"
-      )
+      uint64(resolution.attemptStartedAtUnixMs, "Nonce-release attempt start")
     )
     .update(
       uint64(
@@ -734,9 +731,7 @@ export const computeP2TRSignatureFraudNonceReleaseResolutionEvidenceDigest = (
         "Nonce-release attempt expiration"
       )
     )
-    .update(
-      uint64(resolution.invokedAtUnixMs, "Nonce-release invocation time")
-    )
+    .update(uint64(resolution.invokedAtUnixMs, "Nonce-release invocation time"))
     .update(textDigest(resolution.outcome, "Nonce-release resolution outcome"))
     .update(
       Buffer.from(
@@ -1021,8 +1016,7 @@ export const validateP2TRSignatureFraudIndependentSignerBoundaryResolution = (
     "Corroborating"
   )
   if (
-    normalizedPrimary.trustDomainID ===
-      normalizedCorroborating.trustDomainID ||
+    normalizedPrimary.trustDomainID === normalizedCorroborating.trustDomainID ||
     normalizedPrimary.independenceDomainID ===
       normalizedCorroborating.independenceDomainID ||
     normalizedPrimary.attestation === normalizedCorroborating.attestation ||
@@ -1122,7 +1116,9 @@ export const computeP2TRSignatureFraudNonceReleaseRequestID = (
 ): string => {
   const hash = createHash("sha256")
   hash.update(P2TR_SIGNATURE_FRAUD_NONCE_RELEASE_REQUEST_DOMAIN, "utf8")
-  hash.update(Buffer.from(normalizeBytes32(recordID, "Release record ID").slice(2), "hex"))
+  hash.update(
+    Buffer.from(normalizeBytes32(recordID, "Release record ID").slice(2), "hex")
+  )
   hash.update(
     Buffer.from(
       normalizeBytes32(reservationID, "Release reservation ID").slice(2),
@@ -1131,7 +1127,10 @@ export const computeP2TRSignatureFraudNonceReleaseRequestID = (
   )
   hash.update(
     Buffer.from(
-      normalizeBytes32(voidEvidenceDigest, "Release void evidence digest").slice(2),
+      normalizeBytes32(
+        voidEvidenceDigest,
+        "Release void evidence digest"
+      ).slice(2),
       "hex"
     )
   )
@@ -2015,8 +2014,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         "Challenge outbox dispatcher requires an irreversible-boundary authorizer"
       )
     }
-    this.irreversibleBoundaryAuthorizer =
-      options.irreversibleBoundaryAuthorizer
+    this.irreversibleBoundaryAuthorizer = options.irreversibleBoundaryAuthorizer
     this.preparationLeaseMs = requirePositiveSafeInteger(
       options.preparationLeaseMs ?? 30_000,
       "Challenge outbox preparation lease"
@@ -2301,12 +2299,11 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       return this.requireRecord(key)
     }
 
-    const signerAuthorizationBinding =
-      this.buildIrreversibleBoundaryBinding(
-        signerBoundary,
-        "prepare",
-        signerBoundary.preparationAttempts
-      )
+    const signerAuthorizationBinding = this.buildIrreversibleBoundaryBinding(
+      signerBoundary,
+      "prepare",
+      signerBoundary.preparationAttempts
+    )
     let signerAuthorization: P2TRSignatureFraudIrreversibleBoundaryAuthorization
     try {
       signerAuthorization =
@@ -2358,7 +2355,9 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         undefined,
         "ambiguous-signer-invocation"
       )
-      if (!(await this.compareAndSwapSignerCompletion(signerBoundary, failed))) {
+      if (
+        !(await this.compareAndSwapSignerCompletion(signerBoundary, failed))
+      ) {
         return this.completeSignerFailureAfterLostCas(
           signerBoundary,
           selectedPreparer,
@@ -2382,7 +2381,9 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         undefined,
         "malformed-signed-envelope"
       )
-      if (!(await this.compareAndSwapSignerCompletion(signerBoundary, failed))) {
+      if (
+        !(await this.compareAndSwapSignerCompletion(signerBoundary, failed))
+      ) {
         return this.completeSignerFailureAfterLostCas(
           signerBoundary,
           selectedPreparer,
@@ -2413,7 +2414,9 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         escaped,
         classifyReservationMismatch(reservation, escaped)
       )
-      if (!(await this.compareAndSwapSignerCompletion(signerBoundary, failed))) {
+      if (
+        !(await this.compareAndSwapSignerCompletion(signerBoundary, failed))
+      ) {
         return this.captureEscapedArtifactAfterLostCas(
           signerBoundary,
           escaped,
@@ -2447,7 +2450,9 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       ),
       lastError: undefined,
     })
-    if (!(await this.compareAndSwapSignerCompletion(signerBoundary, persisted))) {
+    if (
+      !(await this.compareAndSwapSignerCompletion(signerBoundary, persisted))
+    ) {
       // The signer boundary remains durable and retains the sender lane even
       // if the prepared bytes could not be committed.
       return this.captureEscapedArtifactAfterLostCas(
@@ -2623,12 +2628,11 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       return this.requireRecord(key)
     }
 
-    const signerAuthorizationBinding =
-      this.buildIrreversibleBoundaryBinding(
-        signerBoundary,
-        "replacement",
-        signerBoundary.preparationAttempts
-      )
+    const signerAuthorizationBinding = this.buildIrreversibleBoundaryBinding(
+      signerBoundary,
+      "replacement",
+      signerBoundary.preparationAttempts
+    )
     let signerAuthorization: P2TRSignatureFraudIrreversibleBoundaryAuthorization
     try {
       signerAuthorization =
@@ -2677,7 +2681,9 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         undefined,
         "ambiguous-signer-invocation"
       )
-      if (!(await this.compareAndSwapSignerCompletion(signerBoundary, failed))) {
+      if (
+        !(await this.compareAndSwapSignerCompletion(signerBoundary, failed))
+      ) {
         return this.completeSignerFailureAfterLostCas(
           signerBoundary,
           selectedPreparer,
@@ -2701,7 +2707,9 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         undefined,
         "malformed-signed-envelope"
       )
-      if (!(await this.compareAndSwapSignerCompletion(signerBoundary, failed))) {
+      if (
+        !(await this.compareAndSwapSignerCompletion(signerBoundary, failed))
+      ) {
         return this.completeSignerFailureAfterLostCas(
           signerBoundary,
           selectedPreparer,
@@ -2759,7 +2767,9 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
           escaped
         )
       )
-      if (!(await this.compareAndSwapSignerCompletion(signerBoundary, failed))) {
+      if (
+        !(await this.compareAndSwapSignerCompletion(signerBoundary, failed))
+      ) {
         return this.captureEscapedArtifactAfterLostCas(
           signerBoundary,
           escaped,
@@ -2795,7 +2805,9 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       ),
       lastError: undefined,
     })
-    if (!(await this.compareAndSwapSignerCompletion(signerBoundary, persisted))) {
+    if (
+      !(await this.compareAndSwapSignerCompletion(signerBoundary, persisted))
+    ) {
       return this.captureEscapedArtifactAfterLostCas(
         signerBoundary,
         replacement,
@@ -2837,8 +2849,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       backlogRemaining: page.nextCursor !== undefined || expiredRemain,
     }
     this.recoveryBarrierEstablished =
-      !report.backlogRemaining &&
-      !(await this.store.hasPendingNonceReleases())
+      !report.backlogRemaining && !(await this.store.hasPendingNonceReleases())
     if (report.backlogRemaining) {
       await this.onRecoveryBacklog?.(report)
     }
@@ -3496,10 +3507,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
           item.reservation.reservationID,
           "Existing voided reservation ID"
         ) ===
-        normalizeBytes32(
-          reservation.reservationID,
-          "Returned reservation ID"
-        )
+        normalizeBytes32(reservation.reservationID, "Returned reservation ID")
     )
     if (existingTombstone !== undefined) {
       return this.releaseVoidedReservation(current, reservation, preparer)
@@ -3608,10 +3616,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
           durable.preparationSender,
           "Durable selected reservation sender"
         ) ===
-          normalizeAddress(
-            reservation.sender,
-            "Returned reservation sender"
-          )
+          normalizeAddress(reservation.sender, "Returned reservation sender")
       if (sameActiveClaim) {
         const adoptedAtUnixMs = requireUnixMilliseconds(
           this.now(),
@@ -3725,7 +3730,8 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       normalizeAddress(
         current.reservedNonce.sender,
         "Active reservation sender"
-      ) === normalizeAddress(reservation.sender, "Returned reservation sender") &&
+      ) ===
+        normalizeAddress(reservation.sender, "Returned reservation sender") &&
       current.reservedNonce.nonce === reservation.nonce
     if (aliasOfActiveNonce) return next
     return this.releaseVoidedReservation(next, reservation, preparer)
@@ -3820,17 +3826,18 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       this.now(),
       "Nonce-release allocator invocation time"
     )
-    if (!(await this.store.beginNonceReleaseAttempt(attempt, invokedAtUnixMs))) {
+    if (
+      !(await this.store.beginNonceReleaseAttempt(attempt, invokedAtUnixMs))
+    ) {
       return "skipped"
     }
 
     let acknowledgement: P2TRSignatureFraudNonceReleaseAcknowledgement
     try {
-      acknowledgement =
-        await preparer.releaseSignatureFraudChallengeNonce(
-          request.reservation,
-          Hex.from(request.releaseRequestID)
-        )
+      acknowledgement = await preparer.releaseSignatureFraudChallengeNonce(
+        request.reservation,
+        Hex.from(request.releaseRequestID)
+      )
     } catch (error) {
       const detail = requireReason(
         `Nonce allocator release response is ambiguous: ${errorMessage(error)}`,
@@ -4229,16 +4236,15 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       "cancelled-provenance-invalidated",
     ].includes(current.status)
     return nextRecord(current, {
-      status:
-        durableTerminal
-          ? current.status
-          : current.provenanceInvalidationEvidence !== undefined
-          ? signerInvoked
-            ? "provenance-invalidated-awaiting-reconciliation"
-            : current.status
-          : signerInvoked && retainedStatus === undefined
-          ? "quarantined"
-          : retainedStatus ?? "queued",
+      status: durableTerminal
+        ? current.status
+        : current.provenanceInvalidationEvidence !== undefined
+        ? signerInvoked
+          ? "provenance-invalidated-awaiting-reconciliation"
+          : current.status
+        : signerInvoked && retainedStatus === undefined
+        ? "quarantined"
+        : retainedStatus ?? "queued",
       preparationLease: undefined,
       preparationResumeStatus: undefined,
       activeSignerInvocationStartedAtUnixMs: undefined,
@@ -4297,9 +4303,7 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
         "Irreversible challenge boundary lacks its durable nonce reservation"
       )
     }
-    if (
-      (stage === "broadcast") !== (preparedTransactionHash !== undefined)
-    ) {
+    if ((stage === "broadcast") !== (preparedTransactionHash !== undefined)) {
       throw new Error(
         "Only a challenge broadcast boundary may name prepared transaction bytes"
       )

@@ -63,9 +63,7 @@ export const normalizeOwner = (value: string): string => {
   if (
     normalized.length === 0 ||
     normalized.length > 128 ||
-    !/^[\x21-\x7e](?:[\x20-\x7e]{0,126}[\x21-\x7e])?$/.test(
-      normalized
-    )
+    !/^[\x21-\x7e](?:[\x20-\x7e]{0,126}[\x21-\x7e])?$/.test(normalized)
   ) {
     throw new Error("nonce-release owner is invalid")
   }
@@ -207,7 +205,8 @@ export class InMemoryOutboxStore
       .filter((id) => !this.releaseAcknowledged(id))
       .sort()
       .filter(
-        (id) => request.cursor === undefined || id > normalizeKey(request.cursor)
+        (id) =>
+          request.cursor === undefined || id > normalizeKey(request.cursor)
       )
     const ids = pending.slice(0, request.limit)
     return {
@@ -257,7 +256,9 @@ export class InMemoryOutboxStore
       })
     }
     if (candidates.length > 1) {
-      throw new Error("multiple active nonce-release invocations violate the barrier")
+      throw new Error(
+        "multiple active nonce-release invocations violate the barrier"
+      )
     }
     return candidates[0]
   }
@@ -285,9 +286,8 @@ export class InMemoryOutboxStore
         ?.has(latest.attemptSequence)
       if (
         !completed &&
-        (this.nonceReleaseInvocations.has(
-          `${id}:${latest.attemptSequence}`
-        ) || latest.expiresAtUnixMs > startedAtUnixMs)
+        (this.nonceReleaseInvocations.has(`${id}:${latest.attemptSequence}`) ||
+          latest.expiresAtUnixMs > startedAtUnixMs)
       ) {
         if (
           !this.nonceReleaseInvocations.has(
@@ -366,9 +366,7 @@ export class InMemoryOutboxStore
     const currentAndOnTime =
       attempts[attempts.length - 1].attemptSequence ===
         attempt.attemptSequence &&
-      this.nonceReleaseInvocations.has(
-        `${id}:${attempt.attemptSequence}`
-      ) &&
+      this.nonceReleaseInvocations.has(`${id}:${attempt.attemptSequence}`) &&
       result.recordedAtUnixMs >= attempt.startedAtUnixMs &&
       result.recordedAtUnixMs <= attempt.expiresAtUnixMs
     const acknowledged =
@@ -383,9 +381,7 @@ export class InMemoryOutboxStore
       this.nonceReleaseResults.set(id, results)
       if (
         result.kind === "ambiguous-error" &&
-        this.nonceReleaseInvocations.has(
-          `${id}:${attempt.attemptSequence}`
-        )
+        this.nonceReleaseInvocations.has(`${id}:${attempt.attemptSequence}`)
       ) {
         this.unsafeNonceReleaseInvocations.add(
           `${id}:${attempt.attemptSequence}`
@@ -415,10 +411,7 @@ export class InMemoryOutboxStore
         }
         this.records.set(normalizeKey(record.recordID), {
           ...record,
-          signerQuarantines: [
-            ...(record.signerQuarantines ?? []),
-            quarantine,
-          ],
+          signerQuarantines: [...(record.signerQuarantines ?? []), quarantine],
         })
         if (
           !this.criticalAlerts.some(
@@ -1091,8 +1084,9 @@ export class InMemoryOutboxStore
 
   private releaseAcknowledged(releaseRequestID: string): boolean {
     return (
-      [...(this.nonceReleaseResults.get(releaseRequestID)?.values() ?? [])]
-        .some((result) => result === "acknowledged") ||
+      [
+        ...(this.nonceReleaseResults.get(releaseRequestID)?.values() ?? []),
+      ].some((result) => result === "acknowledged") ||
       [...this.nonceReleaseResolutions.entries()].some(
         ([key, outcome]) =>
           key.startsWith(`${releaseRequestID}:`) &&
