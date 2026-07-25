@@ -214,7 +214,7 @@ class FakeSubmitter
   readonly p2trSignatureFraudWatchtowerIdempotentSubmissions = true
   readonly submissionTrustDomainID = "submitter.test"
   readonly reconciliationTrustDomainID = "reconciler.test"
-  readonly finalityConfirmationBlocks = 12
+  readonly finalityConfirmationBlocks = 64
   submissionCount = 0
   private readonly submittedChallenges = new Map<string, string>()
 
@@ -248,7 +248,7 @@ class FakeSubmitter
 const acceptedChallengeBroadcastReconciler: P2TRSignatureFraudChallengeBroadcastReconciler =
   {
     reconciliationTrustDomainID: "reconciler.test",
-    finalityConfirmationBlocks: 12,
+    finalityConfirmationBlocks: 64,
     async reconcileSignatureFraudChallengeBroadcast() {
       return { status: "accepted" }
     },

@@ -78,6 +78,7 @@ import {
   validateP2TRSignatureFraudPreparedChallengeTransactionReservation,
   validateP2TRSignatureFraudPreparedChallengeTransaction,
   validateP2TRSignatureFraudPreparedNonceBurnTransaction,
+  validateP2TRSignatureFraudPreparedEIP1559ChallengeTransaction,
   validateP2TRSignatureFraudWitnessObservationConsistency,
 } from "../../src/services/maintenance/p2tr-signature-fraud"
 import { Hex } from "../../src/lib/utils"
@@ -2303,6 +2304,87 @@ describe("P2TR signature-fraud witness parsing", () => {
       expect(exact.maxFeePerGas).to.equal(envelope.maxFeePerGas)
       expect(exact.maxPriorityFeePerGas).to.equal(envelope.maxPriorityFeePerGas)
     })
+  })
+
+  // A challenge is one fixed call to a known Router, so an access list buys it
+  // nothing while raising intrinsic gas. Under a fee-policy-capped gas limit a
+  // signer can use one to push the transaction out of gas on-chain, which still
+  // consumes the reserved nonce and submits no challenge.
+  it("refuses a prepared challenge transaction carrying an access list", async () => {
+    const vector = vectorCorpus.cases[0]
+    const rawTransaction = withInputWitness(
+      vector.unsignedTransactionHex,
+      vector.signedInputIndex,
+      vector.witnessSignatureHex
+    )
+    const [observation] = extractP2TRSignatureFraudWitnessObservations(
+      rawTransaction,
+      toObservationPrevouts(vector),
+      [vector.walletIDHex],
+      undefined,
+      undefined,
+      undefined,
+      bridgeChallengeDomain
+    )
+    const completeEvidence =
+      buildP2TRCompleteV2SignatureFraudChallengeEvidence(
+        observation,
+        bridgeChallengeDomain,
+        {
+          registeredWalletIDs: [vector.walletIDHex],
+          walletInputKeyBindings: [],
+        }
+      )
+    const intent = buildP2TRSignatureFraudSubmissionIntent(completeEvidence, {
+      domainChainID: bridgeChallengeDomain.chainID,
+      chainID: bridgeChallengeDomain.chainID,
+      bridgeAddress: bridgeChallengeDomain.bridgeAddress,
+      routerAddress: "0x2222222222222222222222222222222222222222",
+      challengeDepositAmount: 1234,
+    })
+
+    const wallet = new Wallet(`0x${"42".repeat(32)}`)
+    const build = async (accessList: unknown[]) => {
+      const raw = await wallet.signTransaction({
+        type: 2,
+        to: intent.routerAddress,
+        data: intent.calldata,
+        value: BigNumber.from(intent.value),
+        chainId: intent.chainID,
+        nonce: 7,
+        gasLimit: 1_000_000,
+        maxFeePerGas: 20,
+        maxPriorityFeePerGas: 2,
+        accessList: accessList as never,
+      })
+      return {
+        intentID: intent.intentID,
+        rawTransaction: raw,
+        transactionHash: Hex.from(utils.parseTransaction(raw).hash!),
+        sender: wallet.address,
+        nonce: 7,
+      }
+    }
+
+    const withAccessList = await build([
+      { address: intent.routerAddress, storageKeys: [`0x${"11".repeat(32)}`] },
+    ])
+    expectWitnessError(
+      () =>
+        validateP2TRSignatureFraudPreparedEIP1559ChallengeTransaction(
+          intent,
+          withAccessList
+        ),
+      "invalid-watchtower-state"
+    )
+
+    // The same envelope without the access list is accepted, so the rejection
+    // is attributable to the list and nothing else.
+    const clean = validateP2TRSignatureFraudPreparedEIP1559ChallengeTransaction(
+      intent,
+      await build([])
+    )
+    expect(clean.eip1559?.transactionType).to.equal(2)
   })
 
   it("accepts only strictly increasing same-nonce EIP-1559 replacements", async () => {

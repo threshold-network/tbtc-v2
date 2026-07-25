@@ -62,6 +62,7 @@ import {
   P2TRSignatureFraudRawTransactionBroadcaster,
   P2TRSignatureFraudSignerQuarantine,
   P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_TRUST_DOMAIN_ID_LENGTH,
+  P2TR_SIGNATURE_FRAUD_OUTBOX_MIN_FINALITY_CONFIRMATION_BLOCKS,
   computeP2TRSignatureFraudEthereumEligibilityReadSetHash,
   computeP2TRSignatureFraudChallengeFeePolicyHash,
   computeP2TRSignatureFraudCancellationEvidenceHash,
@@ -806,7 +807,7 @@ class FixedReconciler implements P2TRSignatureFraudChallengeOutboxReconciler {
   readonly reconciliationTrustDomainID = "reconciliation.test"
   readonly reconciliationIndependenceDomainID = "reconciliation-infra.test"
   readonly providerIdentity = {}
-  readonly finalityConfirmationBlocks = 12
+  readonly finalityConfirmationBlocks = 64
   readonly canonicalSubmissionSelectors = [
     { variant: "router-process" as const, selector: "0xf1f87d85" },
     { variant: "router-direct" as const, selector: "0xa1c114f9" },
@@ -1214,7 +1215,7 @@ const acceptedOwnResolution = (
   withCanonicalAttestations({
     status: "accepted-own",
     observedHead: {
-      blockNumber: 120,
+      blockNumber: 172,
       blockHash: `0x${"12".repeat(32)}`,
     },
     finalizedThrough: {
@@ -3160,7 +3161,7 @@ test("accepts only decoded, finalized canonical own evidence", async () => {
 test("keeps eligible evidence open after finalized nonce disposition", async () => {
   const finalizedEvidence = {
     observedHead: {
-      blockNumber: 120,
+      blockNumber: 172,
       blockHash: `0x${"12".repeat(32)}`,
     },
     finalizedThrough: {
@@ -4064,3 +4065,41 @@ test("recovery still sweeps a preparing record that has selected no lane", async
   assert.equal((await store.get(record.recordID))?.status, "queued")
   assert.equal(await store.hasExpiredPreparationLeases(40_001), false)
 })
+
+// The depth gates irreversible conclusions -- retiring a generation, and
+// treating a nonce as spent so an orphaned signer boundary can be resolved
+// without asking the signer what it did. A reconciler that may declare any
+// positive depth can have a one-block reorg un-consume a nonce already recorded
+// as spent, so the floor is enforced where the reconciler is validated.
+test("refuses a reconciler whose finality depth is below consensus finality", async () => {
+  const store = new InMemoryOutboxStore()
+  const shallow = new FixedReconciler()
+  ;(shallow as unknown as Record<string, unknown>).finalityConfirmationBlocks =
+    P2TR_SIGNATURE_FRAUD_OUTBOX_MIN_FINALITY_CONFIRMATION_BLOCKS - 1
+  assert.throws(
+    () =>
+      dispatcher(
+        store,
+        new FixedPreparer(),
+        new RecordingBroadcaster(),
+        new FixedRechecker(),
+        shallow
+      ),
+    /finality confirmation depth must be at least 64 blocks/
+  )
+
+  // The floor is a minimum, not an equality: more depth stays acceptable.
+  const deeper = new FixedReconciler()
+  ;(deeper as unknown as Record<string, unknown>).finalityConfirmationBlocks =
+    P2TR_SIGNATURE_FRAUD_OUTBOX_MIN_FINALITY_CONFIRMATION_BLOCKS + 1
+  assert.ok(
+    dispatcher(
+      store,
+      new FixedPreparer(),
+      new RecordingBroadcaster(),
+      new FixedRechecker(),
+      deeper
+    )
+  )
+})
+
