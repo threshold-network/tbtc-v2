@@ -2019,6 +2019,17 @@ export const validateP2TRSignatureFraudPreparedEIP1559ChallengeTransaction = (
       "Durable challenge outbox requires an EIP-1559 transaction envelope"
     )
   }
+  // A challenge is one fixed call to a known Router, so an access list buys it
+  // nothing -- but every entry raises the transaction's intrinsic gas. A signer
+  // free to add entries under a fee-policy-capped gas limit can make the
+  // transaction run out of gas on-chain, which still CONSUMES the reserved
+  // nonce while submitting no challenge. Requiring it empty removes the lever.
+  if (envelope.accessList !== undefined && envelope.accessList.length > 0) {
+    throw new P2TRWitnessSignatureError(
+      "invalid-watchtower-state",
+      "Durable challenge outbox refuses a transaction carrying an access list"
+    )
+  }
   return {
     ...validated,
     eip1559: {

@@ -44,6 +44,20 @@ export const P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_CURSOR_LENGTH = 512
 export const P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_PROTOCOL_ID_LENGTH = 128
 export const P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_SIGNED_VARIANTS = 16
 export const P2TR_SIGNATURE_FRAUD_OUTBOX_MAX_GENERATIONS = 32
+/**
+ * Floor on the reconciler's declared finality depth.
+ *
+ * The depth gates irreversible conclusions: a canonical resolution retires a
+ * generation, and a finalized nonce-consuming transaction is what lets an
+ * orphaned signer boundary be resolved without asking the signer what it did.
+ * If the reconciler may declare any positive depth, a single-block reorg can
+ * un-consume a nonce that was already recorded as spent. Two epochs is the
+ * point past which a reorg is a consensus failure rather than an ordinary
+ * event, so it is the shallowest depth under which those conclusions hold.
+ *
+ * This is a floor, not a default: an operator may declare more.
+ */
+export const P2TR_SIGNATURE_FRAUD_OUTBOX_MIN_FINALITY_CONFIRMATION_BLOCKS = 64
 export const P2TR_SIGNATURE_FRAUD_OUTBOX_SERIES_ID_DOMAIN =
   "tbtc-p2tr-signature-fraud-outbox-series-v1"
 export const P2TR_SIGNATURE_FRAUD_OUTBOX_RECORD_ID_DOMAIN =
@@ -3872,17 +3886,22 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     ) {
       return current
     }
-    const signerWasInvoked =
-      current.activeSignerInvocationStartedAtUnixMs !== undefined
     const resumeStatus = current.preparationResumeStatus
 
     // The marker is established before asynchronous boundary authorization.
     // Lease expiry cannot prove that another replica's authorization or signer
     // call stopped. Only an independently attested provider outcome may clear
-    // the global signer-I/O barrier, so startup stays deliberately activation-
+    // its lane's signer-I/O barrier, so startup stays deliberately activation-
     // blocked on this record until the store's out-of-band orphaned-boundary
     // resolver (`resolveOrphanedSignerBoundary`) supplies that evidence.
-    if (signerWasInvoked) return current
+    //
+    // Everything below therefore runs only with the marker absent. It used to
+    // branch on it repeatedly; those arms were unreachable and claimed the
+    // orphan path lands in `quarantined`, which is reconcilable -- a false
+    // lead for anyone tracing why an orphan cannot be resolved locally.
+    if (current.activeSignerInvocationStartedAtUnixMs !== undefined) {
+      return current
+    }
 
     // A crash can occur after the non-signing allocator durably reserves a
     // nonce but before this record stores the returned binding. Reservation
@@ -3890,7 +3909,6 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     // recover that exact binding and put it under the SQL nonce guard before
     // recording a pre-sign void.
     if (
-      !signerWasInvoked &&
       resumeStatus === undefined &&
       current.reservedNonce === undefined &&
       current.selectedLaneID !== undefined &&
@@ -3992,16 +4010,14 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
     }
 
     const releasableReservation =
-      !signerWasInvoked &&
-      resumeStatus === undefined &&
-      current.reservedNonce !== undefined
+      resumeStatus === undefined && current.reservedNonce !== undefined
         ? current.reservedNonce
         : undefined
     const voidedAt = requireUnixMilliseconds(
       this.now(),
       "Challenge outbox lease recovery time"
     )
-    const retainLane = signerWasInvoked || resumeStatus !== undefined
+    const retainLane = resumeStatus !== undefined
     const voidReason =
       "Preparation lease expired before transaction signer invocation"
     const voidEvidenceDigest =
@@ -4020,23 +4036,14 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
       await this.assertVoidedReservationCapacity(current)
     }
     const recovered = nextRecord(current, {
-      // Once the signer boundary is durable, never sign a replacement or
-      // release this lane on lease expiry.
-      status: signerWasInvoked
-        ? "quarantined"
-        : current.provenanceInvalidationEvidence !== undefined
-        ? "cancelled-provenance-invalidated"
-        : resumeStatus ?? "queued",
+      status:
+        current.provenanceInvalidationEvidence !== undefined
+          ? "cancelled-provenance-invalidated"
+          : resumeStatus ?? "queued",
       preparationLease: undefined,
       preparationResumeStatus: undefined,
-      // A lease timeout cannot prove that an external signer call stopped.
-      // Only the worker observing that call return may clear this marker.
-      activeSignerInvocationStartedAtUnixMs: signerWasInvoked
-        ? current.activeSignerInvocationStartedAtUnixMs
-        : undefined,
-      activeSignerInvocationID: signerWasInvoked
-        ? current.activeSignerInvocationID
-        : undefined,
+      activeSignerInvocationStartedAtUnixMs: undefined,
+      activeSignerInvocationID: undefined,
       preparationSender: retainLane ? current.preparationSender : undefined,
       selectedLaneID: retainLane ? current.selectedLaneID : undefined,
       selectedSignerIdentity: retainLane
@@ -4059,22 +4066,12 @@ export class P2TRSignatureFraudChallengeOutboxDispatcher {
               },
             ]
           : current.voidedNonceReservations,
-      signerQuarantines:
-        signerWasInvoked && current.reservedNonce !== undefined
-          ? appendSignerQuarantine(
-              current.signerQuarantines,
-              current.reservedNonce,
-              voidedAt,
-              "Preparation lease expired after the durable signer invocation boundary; the returned-byte outcome is ambiguous",
-              "ambiguous-signer-invocation"
-            )
-          : current.signerQuarantines,
+      signerQuarantines: current.signerQuarantines,
       updatedAtUnixMs: voidedAt,
-      lastError: signerWasInvoked
-        ? "Challenge outbox preparation lease expired after the signer boundary; nonce lane retained"
-        : resumeStatus === undefined
-        ? "Challenge outbox preparation lease expired before signer invocation"
-        : "Challenge outbox replacement lease expired before signer invocation; prior variant restored",
+      lastError:
+        resumeStatus === undefined
+          ? "Challenge outbox preparation lease expired before signer invocation"
+          : "Challenge outbox replacement lease expired before signer invocation; prior variant restored",
     })
     if (
       !(await this.store.compareAndSwap(
@@ -6731,11 +6728,24 @@ const validateIndependentTransport = (
       "Challenge broadcasting, recheck, cancellation, reconciliation, and canonical verification require independent provider, trust, and infrastructure domains"
     )
   }
-  requirePositiveSafeInteger(
+  requireFinalityConfirmationBlocks(
     reconciler.finalityConfirmationBlocks,
     "Challenge reconciliation finality confirmation depth"
   )
   validateCanonicalSubmissionSelectors(reconciler.canonicalSubmissionSelectors)
+}
+
+const requireFinalityConfirmationBlocks = (
+  value: unknown,
+  label: string
+): number => {
+  const depth = requirePositiveSafeInteger(value, label)
+  if (depth < P2TR_SIGNATURE_FRAUD_OUTBOX_MIN_FINALITY_CONFIRMATION_BLOCKS) {
+    throw new Error(
+      `${label} must be at least ${P2TR_SIGNATURE_FRAUD_OUTBOX_MIN_FINALITY_CONFIRMATION_BLOCKS} blocks`
+    )
+  }
+  return depth
 }
 
 const normalizeActivationManifestBinding = (
