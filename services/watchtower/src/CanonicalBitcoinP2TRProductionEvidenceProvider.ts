@@ -41,9 +41,11 @@ export class CanonicalBitcoinP2TRProductionEvidenceProvider
       "Bitcoin provider trust domain"
     )
     this.endpointFingerprint = bytes32(
-      (source as P2TRCanonicalBitcoinBlockSource & {
-        endpointFingerprint?: string
-      }).endpointFingerprint ?? "",
+      (
+        source as P2TRCanonicalBitcoinBlockSource & {
+          endpointFingerprint?: string
+        }
+      ).endpointFingerprint ?? "",
       "derived Bitcoin endpoint fingerprint"
     )
     this.operatorFingerprint = hashIdentity(
@@ -59,8 +61,13 @@ export class CanonicalBitcoinP2TRProductionEvidenceProvider
     }
   }
 
-  async readState(confirmationDepth: number): Promise<P2TRProductionBitcoinState> {
-    const depth = positiveInteger(confirmationDepth, "Bitcoin confirmation depth")
+  async readState(
+    confirmationDepth: number
+  ): Promise<P2TRProductionBitcoinState> {
+    const depth = positiveInteger(
+      confirmationDepth,
+      "Bitcoin confirmation depth"
+    )
     const [head, genesisHash] = await Promise.all([
       this.source.getSyncedHead(),
       this.source.getBlockHash(0),
@@ -101,7 +108,9 @@ export class CanonicalBitcoinP2TRProductionEvidenceProvider
       throw new Error("Bitcoin candidate block is above the synchronized head")
     }
     const block = await this.source.getBlock(normalized.blockHeight)
-    if (bitcoinHash(block.hash, "candidate block hash") !== normalized.blockHash) {
+    if (
+      bitcoinHash(block.hash, "candidate block hash") !== normalized.blockHash
+    ) {
       throw new Error("Bitcoin candidate block hash is noncanonical")
     }
     const matching = block.transactions.filter(
@@ -138,8 +147,10 @@ function assertAuthenticatedTransaction(
   for (const input of transaction.inputs) {
     if (
       input.authenticatedPrevout === undefined ||
-      bitcoinHash(input.authenticatedPrevout.txid, "authenticated prevout txid") !==
-        bitcoinHash(input.txid, "candidate input txid") ||
+      bitcoinHash(
+        input.authenticatedPrevout.txid,
+        "authenticated prevout txid"
+      ) !== bitcoinHash(input.txid, "candidate input txid") ||
       input.authenticatedPrevout.vout !== input.vout
     ) {
       throw new Error("Bitcoin candidate has an unauthenticated prevout")
@@ -153,7 +164,10 @@ function normalizeCandidate(
   const identity = {
     txid: bitcoinHash(candidate.txid, "candidate txid"),
     wtxid: bitcoinHash(candidate.wtxid, "candidate wtxid"),
-    blockHeight: nonNegativeInteger(candidate.blockHeight, "candidate block height"),
+    blockHeight: nonNegativeInteger(
+      candidate.blockHeight,
+      "candidate block height"
+    ),
     blockHash: bitcoinHash(candidate.blockHash, "candidate block hash"),
   }
   return {
@@ -176,7 +190,11 @@ function bytes32(value: string, label: string): string {
 }
 
 function boundedString(value: string, maximum: number, label: string): string {
-  if (typeof value !== "string" || value.length === 0 || value.length > maximum) {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > maximum
+  ) {
     throw new Error(`${label} is malformed`)
   }
   return value

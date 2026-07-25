@@ -83,8 +83,7 @@ export async function createPostgresP2TRProductionActivationRuntime(
       (session) =>
         new PostgresP2TRProductionActivationStore(session, {
           ...options.activationStore,
-          storeID:
-            coordinator.p2trSignatureFraudWatchtowerTransactionalStoreID,
+          storeID: coordinator.p2trSignatureFraudWatchtowerTransactionalStoreID,
           maxCandidateAuthorizationLifetimeMs:
             options.candidateAuthorizationLifetimeMs ??
             options.activationStore.maxCandidateAuthorizationLifetimeMs,

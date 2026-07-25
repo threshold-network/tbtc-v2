@@ -210,7 +210,9 @@ export type P2TRCanonicalEthereumJournalStore = {
   loadCanonicalEthereumCursor(): Promise<
     P2TRCanonicalEthereumCursor | undefined
   >
-  loadCanonicalEthereumBlockHash(blockNumber: number): Promise<string | undefined>
+  loadCanonicalEthereumBlockHash(
+    blockNumber: number
+  ): Promise<string | undefined>
   /** Writer-excluding and transaction-only; held until the coordinator commits. */
   lockCanonicalEthereumReadinessSnapshot(): Promise<
     P2TRCanonicalEthereumReadinessSnapshot | undefined
@@ -352,7 +354,10 @@ export class P2TRCanonicalEthereumJournal {
     const retainedBlock = await this.resolveRetainedBlock(expectedCursor)
     const previousHeight =
       expectedCursor?.current.blockNumber ?? this.options.checkpoint.blockNumber
-    const orphanedBlocks = Math.max(0, previousHeight - retainedBlock.blockNumber)
+    const orphanedBlocks = Math.max(
+      0,
+      previousHeight - retainedBlock.blockNumber
+    )
     const endBlock = Math.min(
       finalizedHead,
       retainedBlock.blockNumber + this.options.maxBlocksPerScan
@@ -382,7 +387,10 @@ export class P2TRCanonicalEthereumJournal {
       scanStartBlock: this.options.scanStartBlock,
       storeID: this.options.storeID,
       chainID: this.options.chainID,
-      checkpoint: normalizePoint(this.options.checkpoint, "Ethereum checkpoint"),
+      checkpoint: normalizePoint(
+        this.options.checkpoint,
+        "Ethereum checkpoint"
+      ),
       blocks,
       events: evidence.events,
       blockCoverage: evidence.blockCoverage,
@@ -647,7 +655,9 @@ export class P2TRCanonicalEthereumJournal {
           transactionIndex,
           "verifier"
         )
-        if (canonicalJSON(normalizedSource) !== canonicalJSON(normalizedVerifier)) {
+        if (
+          canonicalJSON(normalizedSource) !== canonicalJSON(normalizedVerifier)
+        ) {
           throw new Error(
             `Independent Ethereum providers disagree on receipt ${transactionHash}`
           )
@@ -828,7 +838,10 @@ export function computeP2TRCanonicalEthereumDescriptorSetHash(
   const normalized = descriptors
     .map((descriptor) => ({
       kind: descriptor.kind,
-      emitter: normalizeAddress(descriptor.emitter, `${descriptor.kind} emitter`),
+      emitter: normalizeAddress(
+        descriptor.emitter,
+        `${descriptor.kind} emitter`
+      ),
       topic0: normalizeBytes32(descriptor.topic0, `${descriptor.kind} topic0`),
       decoderSchemaID: boundedString(
         descriptor.decoderSchemaID,
@@ -855,11 +868,16 @@ function normalizeAndValidateDescriptors(
     if (
       !P2TR_CANONICAL_ETHEREUM_REQUIRED_EVENT_KINDS.includes(descriptor.kind)
     ) {
-      throw new Error(`Unsupported canonical Ethereum event kind ${descriptor.kind}`)
+      throw new Error(
+        `Unsupported canonical Ethereum event kind ${descriptor.kind}`
+      )
     }
     const normalized: NormalizedDescriptor = {
       ...descriptor,
-      emitter: normalizeAddress(descriptor.emitter, `${descriptor.kind} emitter`),
+      emitter: normalizeAddress(
+        descriptor.emitter,
+        `${descriptor.kind} emitter`
+      ),
       topic0: normalizeBytes32(descriptor.topic0, `${descriptor.kind} topic0`),
       decoderSchemaID: boundedString(
         descriptor.decoderSchemaID,
@@ -871,7 +889,10 @@ function normalizeAndValidateDescriptors(
         `${descriptor.kind} decoder code hash`
       ),
     }
-    if (typeof descriptor.decode !== "function" || byKind.has(descriptor.kind)) {
+    if (
+      typeof descriptor.decode !== "function" ||
+      byKind.has(descriptor.kind)
+    ) {
       throw new Error(
         `Canonical Ethereum event kind ${descriptor.kind} must have one decoder`
       )
@@ -972,18 +993,27 @@ function validateCursor(
     normalizeBytes32(
       cursor.configurationFingerprint,
       "stored Ethereum configuration fingerprint"
-    ) !== normalizeBytes32(options.configurationFingerprint, "configuration fingerprint") ||
+    ) !==
+      normalizeBytes32(
+        options.configurationFingerprint,
+        "configuration fingerprint"
+      ) ||
     normalizeBytes32(
       cursor.descriptorSetHash,
       "stored Ethereum descriptor set hash"
-    ) !==
-      computeP2TRCanonicalEthereumDescriptorSetHash(options.descriptors) ||
+    ) !== computeP2TRCanonicalEthereumDescriptorSetHash(options.descriptors) ||
     cursor.scanStartBlock !== options.scanStartBlock ||
-    canonicalJSON(normalizePoint(cursor.checkpoint, "stored Ethereum checkpoint")) !==
-      canonicalJSON(normalizePoint(options.checkpoint, "configured Ethereum checkpoint")) ||
+    canonicalJSON(
+      normalizePoint(cursor.checkpoint, "stored Ethereum checkpoint")
+    ) !==
+      canonicalJSON(
+        normalizePoint(options.checkpoint, "configured Ethereum checkpoint")
+      ) ||
     cursor.current.blockNumber < cursor.checkpoint.blockNumber
   ) {
-    throw new Error("Canonical Ethereum cursor is incompatible with configuration")
+    throw new Error(
+      "Canonical Ethereum cursor is incompatible with configuration"
+    )
   }
   normalizePoint(cursor.current, "stored Ethereum cursor")
 }
@@ -1011,7 +1041,10 @@ function normalizeBlock(
       block.transactionsRoot,
       `${label} transactions root`
     ),
-    receiptsRoot: normalizeBytes32(block.receiptsRoot, `${label} receipts root`),
+    receiptsRoot: normalizeBytes32(
+      block.receiptsRoot,
+      `${label} receipts root`
+    ),
     canonicalHeader,
     transactionHashes: normalizeTransactionHashes(
       block.transactionHashes,
@@ -1069,7 +1102,10 @@ function normalizeLog(
   const normalized: P2TRCanonicalEthereumRawLog & { removed: false } = {
     address: normalizeAddress(log.address, "Ethereum log emitter"),
     blockHash: normalizeBytes32(log.blockHash, "Ethereum log block hash"),
-    blockNumber: nonNegativeInteger(log.blockNumber, "Ethereum log block number"),
+    blockNumber: nonNegativeInteger(
+      log.blockNumber,
+      "Ethereum log block number"
+    ),
     transactionHash: normalizeBytes32(
       log.transactionHash,
       "Ethereum log transaction hash"
@@ -1104,12 +1140,17 @@ function normalizeReceiptLog(
   log: P2TRCanonicalEthereumRawLog
 ): P2TRCanonicalEthereumRawLog & { removed: false } {
   if (log.removed === true || !Array.isArray(log.topics)) {
-    throw new Error("Canonical Ethereum receipt contains a removed or malformed log")
+    throw new Error(
+      "Canonical Ethereum receipt contains a removed or malformed log"
+    )
   }
   const normalized: P2TRCanonicalEthereumRawLog & { removed: false } = {
     address: normalizeAddress(log.address, "receipt log emitter"),
     blockHash: normalizeBytes32(log.blockHash, "receipt log block hash"),
-    blockNumber: nonNegativeInteger(log.blockNumber, "receipt log block number"),
+    blockNumber: nonNegativeInteger(
+      log.blockNumber,
+      "receipt log block number"
+    ),
     transactionHash: normalizeBytes32(
       log.transactionHash,
       "receipt log transaction hash"
@@ -1223,7 +1264,11 @@ function canonicalQuantityNumber(value: unknown, label: string): number {
   return nonNegativeInteger(result, label)
 }
 
-function normalizeFixedHex(value: unknown, bytes: number, label: string): string {
+function normalizeFixedHex(
+  value: unknown,
+  bytes: number,
+  label: string
+): string {
   if (typeof value !== "string") throw new Error(`${label} is malformed`)
   const normalized = value.toLowerCase().replace(/^0x/, "")
   if (!new RegExp(`^[0-9a-f]{${bytes * 2}}$`).test(normalized)) {
@@ -1271,7 +1316,9 @@ function validateDecodedPayload(
   }
   const encoded = canonicalJSON(payload)
   if (Buffer.byteLength(encoded, "utf8") > maximumBytes) {
-    throw new Error(`Canonical Ethereum ${kind} decoded payload exceeds its bound`)
+    throw new Error(
+      `Canonical Ethereum ${kind} decoded payload exceeds its bound`
+    )
   }
 }
 
@@ -1312,7 +1359,9 @@ function rawLogsEqual(
   return rawLogIdentity(left) === rawLogIdentity(right)
 }
 
-function pointOf(block: P2TRCanonicalEthereumBlock): P2TRCanonicalEthereumChainPoint {
+function pointOf(
+  block: P2TRCanonicalEthereumBlock
+): P2TRCanonicalEthereumChainPoint {
   return { blockNumber: block.blockNumber, blockHash: block.blockHash }
 }
 
@@ -1348,7 +1397,11 @@ function normalizeHex(value: string, label: string): string {
 }
 
 function canonicalJSON(value: unknown): string {
-  if (value === null || typeof value === "string" || typeof value === "boolean") {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean"
+  ) {
     return JSON.stringify(value)
   }
   if (typeof value === "number") {
@@ -1382,7 +1435,11 @@ function isObjectIdentity(value: unknown): value is object {
 }
 
 function boundedString(value: string, maximum: number, label: string): string {
-  if (typeof value !== "string" || value.length === 0 || value.length > maximum) {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > maximum
+  ) {
     throw new Error(`${label} must be between 1 and ${maximum} characters`)
   }
   return value

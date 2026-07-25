@@ -269,10 +269,7 @@ export const calculateP2TRKeyPathSighash = ({
   if (!P2TR_KEY_PATH_SIGHASH_TYPE_SET.has(hashType)) {
     throw new Error("BIP-341 key-path sighash type is undefined")
   }
-  const normalizedInputIndex = uint32(
-    inputIndex,
-    "BIP-341 signed input index"
-  )
+  const normalizedInputIndex = uint32(inputIndex, "BIP-341 signed input index")
   const input = transaction.ins[normalizedInputIndex]
   if (input === undefined) {
     throw new Error("BIP-341 signed input index is outside the input vector")
@@ -321,9 +318,7 @@ export const calculateP2TRKeyPathSighash = ({
       uint32LE(input.sequence, "BIP-341 transaction input sequence")
     )
   } else {
-    sigMsg.push(
-      uint32LE(normalizedInputIndex, "BIP-341 signed input index")
-    )
+    sigMsg.push(uint32LE(normalizedInputIndex, "BIP-341 signed input index"))
   }
 
   if (normalizedAnnex !== undefined) {
@@ -417,9 +412,7 @@ const serializeBitcoinScript = (script: Uint8Array): Buffer => {
   ])
 }
 
-const serializeBitcoinOutput = (
-  output: P2TRBIP341TransactionOutput
-): Buffer =>
+const serializeBitcoinOutput = (output: P2TRBIP341TransactionOutput): Buffer =>
   Buffer.concat([
     uint64LE(output.value, "BIP-341 transaction output value"),
     serializeBitcoinScript(output.script),
@@ -484,11 +477,7 @@ const normalizeTxid = (value: string): string => {
 }
 
 const int32LE = (value: number, field: string): Buffer => {
-  if (
-    !Number.isInteger(value) ||
-    value < -0x80000000 ||
-    value > 0x7fffffff
-  ) {
+  if (!Number.isInteger(value) || value < -0x80000000 || value > 0x7fffffff) {
     throw new Error(`${field} must be an int32`)
   }
   const output = Buffer.allocUnsafe(4)

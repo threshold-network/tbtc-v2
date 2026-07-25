@@ -212,7 +212,9 @@ export class JsonRpcP2TRCanonicalEthereumProvider
     const blockHash = bytes32(raw.hash, "Ethereum block hash")
     const canonicalHeader = canonicalBlockHeader(raw)
     if (computeP2TREthereumRpcBlockHash(canonicalHeader) !== blockHash) {
-      throw new Error("Ethereum provider returned a block with an invalid header hash")
+      throw new Error(
+        "Ethereum provider returned a block with an invalid header hash"
+      )
     }
     const serializedTransactions: string[] = []
     const transactionHashes = raw.transactions.map((value, index) => {
@@ -221,18 +223,23 @@ export class JsonRpcP2TRCanonicalEthereumProvider
         `Ethereum block transaction ${index}`
       ) as RawTransaction
       if (
-        quantity(transaction.blockNumber, "Ethereum transaction block number") !==
-          actual ||
+        quantity(
+          transaction.blockNumber,
+          "Ethereum transaction block number"
+        ) !== actual ||
         bytes32(transaction.blockHash, "Ethereum transaction block hash") !==
           blockHash ||
-        quantity(
-          transaction.transactionIndex,
-          "Ethereum transaction index"
-        ) !== index
+        quantity(transaction.transactionIndex, "Ethereum transaction index") !==
+          index
       ) {
-        throw new Error(`Ethereum transaction ${index} is outside its block position`)
+        throw new Error(
+          `Ethereum transaction ${index} is outside its block position`
+        )
       }
-      const hash = bytes32(transaction.hash, `Ethereum transaction ${index} hash`)
+      const hash = bytes32(
+        transaction.hash,
+        `Ethereum transaction ${index} hash`
+      )
       const serialized = serializeP2TREthereumRpcTransaction(transaction)
       if (hashP2TREthereumSerializedEnvelope(serialized) !== hash) {
         throw new Error(`Ethereum transaction ${index} hash is inconsistent`)
@@ -301,11 +308,7 @@ export class JsonRpcP2TRCanonicalEthereumProvider
         raw.cumulativeGasUsed,
         "Ethereum receipt cumulative gas used"
       ),
-      logsBloom: fixedHex(
-        raw.logsBloom,
-        256,
-        "Ethereum receipt logs bloom"
-      ),
+      logsBloom: fixedHex(raw.logsBloom, 256, "Ethereum receipt logs bloom"),
       blockHash: bytes32(raw.blockHash, "Ethereum receipt block hash"),
       blockNumber: quantity(raw.blockNumber, "Ethereum receipt block number"),
       transactionHash: bytes32(
@@ -376,7 +379,6 @@ export class JsonRpcP2TRCanonicalEthereumProvider
       "Ethereum call result"
     )
   }
-
 }
 
 type RawBlock = {
@@ -420,7 +422,9 @@ type RawReceipt = {
   logs: RawLog[]
 }
 
-function canonicalBlockHeader(block: RawBlock): Readonly<Record<string, unknown>> {
+function canonicalBlockHeader(
+  block: RawBlock
+): Readonly<Record<string, unknown>> {
   const required = [
     "parentHash",
     "sha3Uncles",
@@ -508,7 +512,10 @@ async function readBoundedBody(
 }
 
 function quantity(value: string, label: string): number {
-  if (typeof value !== "string" || !/^0x(?:0|[1-9a-f][0-9a-f]*)$/i.test(value)) {
+  if (
+    typeof value !== "string" ||
+    !/^0x(?:0|[1-9a-f][0-9a-f]*)$/i.test(value)
+  ) {
     throw new Error(`${label} is not a canonical quantity`)
   }
   const parsed = Number(BigInt(value))
@@ -516,7 +523,10 @@ function quantity(value: string, label: string): number {
 }
 
 function quantityString(value: string, label: string): string {
-  if (typeof value !== "string" || !/^0x(?:0|[1-9a-f][0-9a-f]*)$/i.test(value)) {
+  if (
+    typeof value !== "string" ||
+    !/^0x(?:0|[1-9a-f][0-9a-f]*)$/i.test(value)
+  ) {
     throw new Error(`${label} is not a canonical quantity`)
   }
   return value.toLowerCase()
@@ -580,7 +590,11 @@ function record(value: unknown, label: string): Record<string, unknown> {
 }
 
 function boundedString(value: string, maximum: number, label: string): string {
-  if (typeof value !== "string" || value.length === 0 || value.length > maximum) {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > maximum
+  ) {
     throw new Error(`${label} is malformed`)
   }
   return value
@@ -604,10 +618,7 @@ function fail(message: string): never {
   throw new Error(message)
 }
 
-function assertSecureRpcURL(
-  url: URL,
-  label: string
-): void {
+function assertSecureRpcURL(url: URL, label: string): void {
   if (url.username !== "" || url.password !== "") {
     throw new Error(`${label} URL must not embed credentials`)
   }
@@ -615,16 +626,16 @@ function assertSecureRpcURL(
     return
   }
   if (url.protocol !== "http:" || !isLoopbackHost(url.hostname)) {
-    throw new Error(`${label} requires HTTPS or a numeric loopback HTTP endpoint`)
+    throw new Error(
+      `${label} requires HTTPS or a numeric loopback HTTP endpoint`
+    )
   }
 }
 
 function isLoopbackHost(hostname: string): boolean {
   const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "")
   if (normalized === "::1") return true
-  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(
-    normalized
-  )
+  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(normalized)
   return (
     match !== null &&
     match.slice(1).every((part) => Number(part) <= 255) &&

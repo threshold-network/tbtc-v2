@@ -92,9 +92,7 @@ export async function canonicalReceiptCoverageFixture(): Promise<{
   ]
   const [transactionsRoot, receiptsRoot] = await Promise.all([
     computeP2TREthereumTrieRoot(serializedTransactions),
-    computeP2TREthereumTrieRoot(
-      receipts.map(serializeP2TREthereumRpcReceipt)
-    ),
+    computeP2TREthereumTrieRoot(receipts.map(serializeP2TREthereumRpcReceipt)),
   ])
   const canonicalHeader = header(
     blockNumber,

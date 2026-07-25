@@ -226,7 +226,9 @@ export function serializeP2TREthereumRpcReceipt(value: unknown): string {
     receipt.status === null ||
     (receipt.root !== undefined && receipt.root !== null)
   ) {
-    throw new Error("post-Byzantium receipt must contain status and no state root")
+    throw new Error(
+      "post-Byzantium receipt must contain status and no state root"
+    )
   }
   const status = numberQuantity(receipt.status, "receipt.status")
   if (status !== 0 && status !== 1) {
@@ -301,7 +303,8 @@ function assertForkHeaderStructure(block: RpcRecord): void {
   const beaconRoot = present("parentBeaconBlockRoot")
   const requestsHash = present("requestsHash")
   const blockAccessListHash = present("blockAccessListHash")
-  const cancunFieldCount = Number(blobGasUsed) + Number(excessBlobGas) + Number(beaconRoot)
+  const cancunFieldCount =
+    Number(blobGasUsed) + Number(excessBlobGas) + Number(beaconRoot)
   if (
     (withdrawals && !baseFee) ||
     (cancunFieldCount !== 0 && cancunFieldCount !== 3) ||
@@ -309,7 +312,9 @@ function assertForkHeaderStructure(block: RpcRecord): void {
     (requestsHash && cancunFieldCount !== 3) ||
     (blockAccessListHash && !requestsHash)
   ) {
-    throw new Error("Ethereum block has an impossible fork header field combination")
+    throw new Error(
+      "Ethereum block has an impossible fork header field combination"
+    )
   }
 }
 

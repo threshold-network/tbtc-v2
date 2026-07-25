@@ -72,7 +72,10 @@ describe("Ethereum receipt-complete coverage commitment", () => {
     )
     await assert.rejects(
       computeP2TRCanonicalEthereumBlockCoverage(
-        { ...block, serializedTransactions: block.serializedTransactions.slice(1) },
+        {
+          ...block,
+          serializedTransactions: block.serializedTransactions.slice(1),
+        },
         receipts,
         []
       ),
@@ -107,7 +110,8 @@ describe("Ethereum receipt-complete coverage commitment", () => {
 
   it("fails closed on unsupported envelopes and mutated fork header fields", async () => {
     const { block, receipts } = await canonicalReceiptCoverageFixture()
-    const unsupported: P2TRCanonicalEthereumReceipt[] = structuredClone(receipts)
+    const unsupported: P2TRCanonicalEthereumReceipt[] =
+      structuredClone(receipts)
     unsupported[0].type = 5
     await assert.rejects(
       computeP2TRCanonicalEthereumBlockCoverage(block, unsupported, []),
