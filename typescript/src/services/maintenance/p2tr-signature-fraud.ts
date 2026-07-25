@@ -3174,6 +3174,14 @@ export const resolveP2TRInputPrevouts = async (
 /**
  * Authenticates a source-provided prevout vector against the raw input
  * outpoints before it can influence Taproot sighash reconstruction.
+ *
+ * @param rawTransaction Raw Bitcoin transaction whose input vector the prevout
+ *        records must describe.
+ * @param inputPrevouts Source-provided per-input prevout records (outpoint,
+ *        amount, script). Length must equal the transaction's input vector
+ *        length and each entry must name its input's outpoint exactly.
+ * @returns The prevout records in transaction input order, once every entry has
+ *          been authenticated against its raw outpoint.
  */
 export const validateP2TRInputPrevouts = (
   rawTransaction: BitcoinRawTx,
