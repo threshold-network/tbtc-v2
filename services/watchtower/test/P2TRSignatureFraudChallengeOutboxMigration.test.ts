@@ -607,7 +607,7 @@ test("resolves an orphaned signer boundary only on dual-attested evidence", () =
     migration,
     /CREATE TABLE p2tr_signature_fraud_challenge_signer_boundary_resolution/
   )
-  assert.match(migration, /tbtc-p2tr-signer-boundary-independent-resolution-v2/)
+  assert.match(migration, /tbtc-p2tr-signer-boundary-independent-resolution-v3/)
   // The deterministic invocation ID is the row identity, so evidence can never
   // speak for a boundary other than the one it names — and unlike the wall-clock
   // tuple it replaced, it cannot drift while the boundary is open.
@@ -615,6 +615,16 @@ test("resolves an orphaned signer boundary only on dual-attested evidence", () =
   assert.match(
     migration,
     /signer_invocation_id bytea NOT NULL CHECK \( octet_length\(signer_invocation_id\) = 32 \)/
+  )
+  // A never-invoked outcome is inexpressible without a provider fencing
+  // receipt, enforced by the database as well as by the resolver.
+  assert.match(
+    migration,
+    /CHECK \( \(outcome = 'never-invoked'\) = \(provider_tombstone_receipt IS NOT NULL\) \)/
+  )
+  assert.match(
+    migration,
+    /never-invoked resolution requires a provider tombstone/
   )
   assert.match(
     migration,

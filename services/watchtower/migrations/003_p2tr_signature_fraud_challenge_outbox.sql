@@ -1737,6 +1737,31 @@ CREATE TABLE p2tr_signature_fraud_challenge_signer_boundary_resolution (
     signer_invocation_id bytea NOT NULL CHECK (
         octet_length(signer_invocation_id) = 32
     ),
+    -- Proof that the provider itself closed this invocation. Required exactly
+    -- for 'never-invoked': two attesters can report what they observed, but
+    -- nobody can observe the absence of a request still buffered in transit --
+    -- only a fencing write at the provider settles that.
+    provider_tombstone_receipt bytea CHECK (
+        provider_tombstone_receipt IS NULL
+        OR octet_length(provider_tombstone_receipt) BETWEEN 1 AND 2048
+    ),
+    provider_tombstone_at_unix_ms bigint CHECK (
+        provider_tombstone_at_unix_ms IS NULL
+        OR provider_tombstone_at_unix_ms BETWEEN 0 AND 9007199254740991
+    ),
+    CHECK (
+        (outcome = 'never-invoked')
+            = (provider_tombstone_receipt IS NOT NULL)
+    ),
+    CHECK (
+        (provider_tombstone_receipt IS NULL)
+            = (provider_tombstone_at_unix_ms IS NULL)
+    ),
+    CHECK (
+        provider_tombstone_at_unix_ms IS NULL
+        OR provider_tombstone_at_unix_ms
+            BETWEEN boundary_started_at_unix_ms AND resolved_at_unix_ms
+    ),
     boundary_started_at_unix_ms bigint NOT NULL CHECK (
         boundary_started_at_unix_ms BETWEEN 0 AND 9007199254740991
     ),
@@ -1859,9 +1884,15 @@ BEGIN
             'orphaned signer boundary resolution does not name the durable boundary';
     END IF;
 
+    IF NEW.outcome = 'never-invoked'
+       AND NEW.provider_tombstone_receipt IS NULL THEN
+        RAISE EXCEPTION
+            'orphaned signer boundary never-invoked resolution requires a provider tombstone';
+    END IF;
+
     IF NEW.resolution_evidence_digest <> sha256(
            convert_to(
-               'tbtc-p2tr-signer-boundary-independent-resolution-v2',
+               'tbtc-p2tr-signer-boundary-independent-resolution-v3',
                'UTF8'
            )
            || NEW.record_id
@@ -1877,6 +1908,14 @@ BEGIN
                   decode(repeat('00', 32), 'hex')
               )
            || NEW.provider_evidence_digest
+           || CASE WHEN NEW.provider_tombstone_receipt IS NULL
+                   THEN decode(repeat('00', 32), 'hex')
+                   ELSE NEW.signer_invocation_id END
+           || COALESCE(
+                  sha256(NEW.provider_tombstone_receipt),
+                  decode(repeat('00', 32), 'hex')
+              )
+           || int8send(COALESCE(NEW.provider_tombstone_at_unix_ms, 0))
        ) THEN
         RAISE EXCEPTION
             'orphaned signer boundary resolution digest is invalid';
