@@ -1,7 +1,9 @@
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
+import { readdirSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { describe, it } from "node:test"
+import pg from "pg"
 import {
   runP2TRWatchtowerMigrations,
   validateP2TRWatchtowerMigrationBody,
@@ -240,3 +242,48 @@ class MigrationClient implements P2TRWatchtowerMigrationClient {
     this.releasedWith = error
   }
 }
+
+// Every assertion above reads the migrations as TEXT. That cannot see a
+// statement PostgreSQL refuses to parse, and one shipped undetected: migration
+// 004 aliased a table `authorization`, a reserved key word, so the whole file
+// failed at the first reference to it and the tables, foreign keys and
+// append-only triggers it declares existed in no database. Nothing else applies
+// 004 -- the adapter suites stop at 003 -- so this is the only test that would
+// have caught it. It applies every migration, in order, to a real server.
+describe("P2TR watchtower migrations apply to PostgreSQL", () => {
+  const postgresURL = process.env.P2TR_WATCHTOWER_TEST_POSTGRES_URL
+  const postgresIt = postgresURL === undefined ? it.skip : it
+
+  postgresIt("applies every migration in order to a fresh schema", async () => {
+    const migrationsURL = new URL("../migrations/", import.meta.url)
+    const ordered = readdirSync(migrationsURL)
+      .filter((name) => /^\d{3}_.+\.sql$/.test(name))
+      .sort()
+    assert.ok(ordered.length >= 4, "expected the full migration set")
+
+    const client = new pg.Client({ connectionString: postgresURL })
+    await client.connect()
+    const schema = `p2tr_migrations_${process.pid}_${Date.now()}`
+    try {
+      await client.query(`CREATE SCHEMA ${schema}`)
+      await client.query(`SET search_path TO ${schema}`)
+      for (const name of ordered) {
+        const body = await readFile(new URL(name, migrationsURL), "utf8")
+        // The runner validates each body before it reaches the server; hold
+        // this test to the same contract so the two cannot drift.
+        assert.doesNotThrow(
+          () => validateP2TRWatchtowerMigrationBody(body),
+          `${name} is not a valid migration body`
+        )
+        try {
+          await client.query(body)
+        } catch (error) {
+          assert.fail(`${name} failed to apply: ${(error as Error).message}`)
+        }
+      }
+    } finally {
+      await client.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`)
+      await client.end()
+    }
+  })
+})
