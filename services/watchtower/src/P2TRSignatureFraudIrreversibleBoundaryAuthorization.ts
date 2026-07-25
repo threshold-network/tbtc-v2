@@ -93,18 +93,34 @@ export const P2TR_SIGNATURE_FRAUD_SIGNER_INVOCATION_DOMAIN =
 export function computeP2TRSignatureFraudSignerInvocationID(
   binding: P2TRSignatureFraudIrreversibleBoundaryBinding
 ): string {
-  const requestBindingDigest = computeP2TRReconcilerRequestBindingDigest(
-    reconcilerRequestBinding(normalizeBoundaryBinding(binding))
+  return computeP2TRSignatureFraudSignerInvocationRequest(binding).invocationID
+}
+
+/**
+ * The identity AND the digest it commits to, from one canonicalization.
+ *
+ * The signer is handed both: the digest names the request, and the ID is the
+ * caller's durable handle for this invocation, so a provider can journal
+ * against the same value the outbox persisted. Computing them together is what
+ * keeps the outbox off a second canonicalization path — the digest is otherwise
+ * reachable only inside the authorizer.
+ */
+export function computeP2TRSignatureFraudSignerInvocationRequest(
+  binding: P2TRSignatureFraudIrreversibleBoundaryBinding
+): { invocationID: string; requestDigest: string } {
+  const requestDigest = bytes32(
+    computeP2TRReconcilerRequestBindingDigest(
+      reconcilerRequestBinding(normalizeBoundaryBinding(binding))
+    ),
+    "Request binding digest"
   )
-  return `0x${createHash("sha256")
-    .update(P2TR_SIGNATURE_FRAUD_SIGNER_INVOCATION_DOMAIN, "utf8")
-    .update(
-      Buffer.from(
-        bytes32(requestBindingDigest, "Request binding digest"),
-        "hex"
-      )
-    )
-    .digest("hex")}`
+  return {
+    invocationID: `0x${createHash("sha256")
+      .update(P2TR_SIGNATURE_FRAUD_SIGNER_INVOCATION_DOMAIN, "utf8")
+      .update(Buffer.from(requestDigest, "hex"))
+      .digest("hex")}`,
+    requestDigest: `0x${requestDigest}`,
+  }
 }
 
 type PendingAuthorization = {
