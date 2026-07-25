@@ -192,8 +192,7 @@ library EcdsaFraudRouterCutoverVerifier {
         bytes32 expectedBlockHash
     ) external view {
         if (block.number < uint256(finalizedBlock) + FINALITY_CONFIRMATIONS) {
-            revert EcdsaFraudRouterCutover
-                .EcdsaFraudCutoverBlockNotFinalized();
+            revert EcdsaFraudRouterCutover.EcdsaFraudCutoverBlockNotFinalized();
         }
         if (block.number > uint256(finalizedBlock) + MAX_BLOCKHASH_AGE) {
             revert EcdsaFraudRouterCutover
@@ -208,7 +207,15 @@ library EcdsaFraudRouterCutoverVerifier {
         EcdsaFraudRouterCutover.InventorySnapshot memory snapshot,
         bytes memory sourceAttestation,
         bytes memory reconcilerAttestation
-    ) external view returns (bytes32, bytes32, bytes32) {
+    )
+        external
+        view
+        returns (
+            bytes32,
+            bytes32,
+            bytes32
+        )
+    {
         _requireHistoryEvidence(
             self,
             bridgeAddress,
@@ -217,9 +224,7 @@ library EcdsaFraudRouterCutoverVerifier {
             snapshot.totalEscrow,
             snapshot.history
         );
-        bytes32 historyEvidenceHash = keccak256(
-            abi.encode(snapshot.history)
-        );
+        bytes32 historyEvidenceHash = keccak256(abi.encode(snapshot.history));
         bytes32 sourceDigest = _authorityAttestationDigest(
             self,
             bridgeAddress,
@@ -251,9 +256,7 @@ library EcdsaFraudRouterCutoverVerifier {
         }
 
         bytes32 sourceAttestationHash = keccak256(sourceAttestation);
-        bytes32 reconcilerAttestationHash = keccak256(
-            reconcilerAttestation
-        );
+        bytes32 reconcilerAttestationHash = keccak256(reconcilerAttestation);
         return (
             sourceAttestationHash,
             reconcilerAttestationHash,
@@ -285,13 +288,9 @@ library EcdsaFraudRouterCutoverVerifier {
             newReconcilerSourceId == bytes32(0) ||
             newReconcilerSourceId == self.sourceId ||
             newReconcilerSourceId == self.reconcilerSourceId ||
-            !_validDistinctContext(
-                newReconcilerContext,
-                self.sourceContext
-            )
+            !_validDistinctContext(newReconcilerContext, self.sourceContext)
         ) {
-            revert EcdsaFraudRouterCutover
-                .EcdsaFraudCutoverInvalidReconciler();
+            revert EcdsaFraudRouterCutover.EcdsaFraudCutoverInvalidReconciler();
         }
 
         bytes32 enrollmentDigest = _reconcilerEnrollmentDigest(
@@ -308,13 +307,10 @@ library EcdsaFraudRouterCutoverVerifier {
                 enrollmentAttestation
             )
         ) {
-            revert EcdsaFraudRouterCutover
-                .EcdsaFraudCutoverInvalidReconciler();
+            revert EcdsaFraudRouterCutover.EcdsaFraudCutoverInvalidReconciler();
         }
 
-        bytes32 enrollmentAttestationHash = keccak256(
-            enrollmentAttestation
-        );
+        bytes32 enrollmentAttestationHash = keccak256(enrollmentAttestation);
         if (
             !_isValidSignature(
                 self.sourceSigner,
@@ -327,8 +323,7 @@ library EcdsaFraudRouterCutoverVerifier {
                 sourceRecoveryAttestation
             )
         ) {
-            revert EcdsaFraudRouterCutover
-                .EcdsaFraudCutoverInvalidReconciler();
+            revert EcdsaFraudRouterCutover.EcdsaFraudCutoverInvalidReconciler();
         }
 
         return (
@@ -356,8 +351,7 @@ library EcdsaFraudRouterCutoverVerifier {
             self.manifestSourceAttestationHash == bytes32(0) ||
             self.manifestReconcilerAttestationHash == bytes32(0)
         ) {
-            revert EcdsaFraudRouterCutover
-                .EcdsaFraudCutoverCommitmentMismatch();
+            revert EcdsaFraudRouterCutover.EcdsaFraudCutoverCommitmentMismatch();
         }
     }
 
@@ -435,8 +429,7 @@ library EcdsaFraudRouterCutoverVerifier {
             observedEscrow != self.totalEscrow ||
             self.newRouter.balance < observedEscrow
         ) {
-            revert EcdsaFraudRouterCutover
-                .EcdsaFraudCutoverEscrowMismatch();
+            revert EcdsaFraudRouterCutover.EcdsaFraudCutoverEscrowMismatch();
         }
 
         return
@@ -687,8 +680,7 @@ library EcdsaFraudRouterCutoverVerifier {
                 .EcdsaFraudCutoverBlockHashUnavailable();
         }
         if (observedBlockHash != expectedBlockHash) {
-            revert EcdsaFraudRouterCutover
-                .EcdsaFraudCutoverBlockHashMismatch();
+            revert EcdsaFraudRouterCutover.EcdsaFraudCutoverBlockHashMismatch();
         }
     }
 
@@ -719,8 +711,7 @@ library EcdsaFraudRouterCutoverVerifier {
             totalEscrow + history.unrelatedBridgeBalance ||
             bridgeAddress.balance != history.bridgeBalance
         ) {
-            revert EcdsaFraudRouterCutover
-                .EcdsaFraudCutoverCommitmentMismatch();
+            revert EcdsaFraudRouterCutover.EcdsaFraudCutoverCommitmentMismatch();
         }
     }
 
@@ -873,8 +864,9 @@ library EcdsaFraudRouterCutoverVerifier {
             expectedCodeHash == bytes32(0) ||
             router.codehash != expectedCodeHash
         ) {
-            revert EcdsaFraudRouterCutover
-                .EcdsaFraudCutoverCodeHashMismatch(router);
+            revert EcdsaFraudRouterCutover.EcdsaFraudCutoverCodeHashMismatch(
+                router
+            );
         }
     }
 
@@ -915,8 +907,9 @@ library EcdsaFraudRouterCutoverVerifier {
                 candidate.openFraudChallengeEscrow() != 0 ||
                 candidate.migratedChallengesActivatedAt() != 0)
         ) {
-            revert EcdsaFraudRouterCutover
-                .EcdsaFraudCutoverRouterNotEmpty(router);
+            revert EcdsaFraudRouterCutover.EcdsaFraudCutoverRouterNotEmpty(
+                router
+            );
         }
     }
 }

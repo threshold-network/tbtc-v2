@@ -480,7 +480,9 @@ contract EcdsaFraudRouter {
         uint64 activeMigrationDefenseStartedAt;
         (bool routerCallSucceeded, bytes memory routerResult) = bridge
             .staticcall(
-                abi.encodeWithSelector(IBridgeForFraud.ecdsaFraudRouter.selector)
+                abi.encodeWithSelector(
+                    IBridgeForFraud.ecdsaFraudRouter.selector
+                )
             );
         if (
             routerCallSucceeded &&

@@ -589,7 +589,7 @@ describe("CompleteP2TRSignatureFraudRouter", () => {
   })
 
   it("accepts fixed wallet-key evidence for every covered BIP-341 hash mode", async () => {
-    const walletID = completeVectors.cases[0].walletKey.walletID
+    const { walletID } = completeVectors.cases[0].walletKey
     await registerFrostWallet(walletID)
     for (const { walletKey } of completeVectors.cases) {
       expect(walletKey.walletID).to.equal(walletID)
@@ -626,7 +626,7 @@ describe("CompleteP2TRSignatureFraudRouter", () => {
   })
 
   it("accepts fixed tweaked-key evidence for every covered BIP-341 hash mode", async () => {
-    const walletID = completeVectors.cases[0].tweakedDepositKey.walletID
+    const { walletID } = completeVectors.cases[0].tweakedDepositKey
     await registerFrostWallet(walletID)
     const initializedBindings = new Set<string>()
     for (const { tweakedDepositKey } of completeVectors.cases) {

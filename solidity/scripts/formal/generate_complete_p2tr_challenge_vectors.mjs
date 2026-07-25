@@ -131,12 +131,14 @@ const document = {
   evidenceAbiTypes,
   encodedEvidenceBytes: 224,
   selectors: {
-    directSubmit: utils.id(
-      "submitP2TRSignatureFraudChallenge((bytes32,bytes32,bytes32,uint32,bytes32,bytes32,bytes32))"
-    ).slice(0, 10),
-    dispatcher: utils.id(
-      "processP2TRSignatureFraudChallenge(uint8,bytes,uint32[])"
-    ).slice(0, 10),
+    directSubmit: utils
+      .id(
+        "submitP2TRSignatureFraudChallenge((bytes32,bytes32,bytes32,uint32,bytes32,bytes32,bytes32))"
+      )
+      .slice(0, 10),
+    dispatcher: utils
+      .id("processP2TRSignatureFraudChallenge(uint8,bytes,uint32[])")
+      .slice(0, 10),
   },
   challengeIdentity: {
     domain: identityDomain,
@@ -187,7 +189,11 @@ const document = {
     {
       id: "truncated-dispatch-evidence",
       expectedReason: "Invalid challenge evidence length",
-      encodedEvidence: utils.hexDataSlice(first.walletKey.encodedEvidence, 0, 223),
+      encodedEvidence: utils.hexDataSlice(
+        first.walletKey.encodedEvidence,
+        0,
+        223
+      ),
     },
     {
       id: "extended-dispatch-evidence",
@@ -199,7 +205,10 @@ const document = {
 
 const rendered = `${JSON.stringify(document, null, 2)}\n`
 if (process.argv.includes("--check")) {
-  if (!fs.existsSync(outputPath) || fs.readFileSync(outputPath, "utf8") !== rendered) {
+  if (
+    !fs.existsSync(outputPath) ||
+    fs.readFileSync(outputPath, "utf8") !== rendered
+  ) {
     throw new Error(
       "COMPLETE_V2 challenge vectors are stale; regenerate with this script"
     )

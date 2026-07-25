@@ -60,10 +60,7 @@ const func: DeployFunction = async function deployBridge(
   // implementation below EIP-170 while preserving an atomic migration of
   // pre-upgrade challenges and their escrow.
   const Fraud = await deploy("Fraud", deployOptions)
-  const MovingFunds = await deploy(
-    "MovingFunds",
-    p2trReservationLinkedOptions
-  )
+  const MovingFunds = await deploy("MovingFunds", p2trReservationLinkedOptions)
 
   const [bridge, proxyDeployment] = await helpers.upgrades.deployProxy(
     "Bridge",

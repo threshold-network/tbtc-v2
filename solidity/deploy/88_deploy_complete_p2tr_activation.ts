@@ -1,3 +1,11 @@
+/* eslint-disable no-await-in-loop */
+/* eslint-disable no-continue */
+/* eslint-disable no-restricted-syntax */
+/* eslint-disable no-nested-ternary */
+// Merkle index arithmetic and a deliberate unused-expression marker.
+/* eslint-disable no-bitwise */
+/* eslint-disable no-void */
+/* eslint-disable @typescript-eslint/naming-convention */
 import fs from "fs"
 import path from "path"
 import type { HardhatRuntimeEnvironment } from "hardhat/types"
@@ -2946,7 +2954,7 @@ export const readActivationArtifact = (
   if (!utils.isHexString(loaded.payload.writeNonce, 32)) {
     throw new Error("COMPLETE_V2 activation artifact write nonce is malformed")
   }
-  const artifact = loaded.payload.artifact
+  const { artifact } = loaded.payload
   if (
     artifact.schemaVersion !== ACTIVATION_ARTIFACT_SCHEMA ||
     artifact.contentHash !== activationArtifactContentHash(artifact)
@@ -3085,7 +3093,7 @@ const func: DeployFunction = async function deployCompleteP2TRActivation(
     throw new Error("COMPLETE_P2TR_COVERAGE_AUTHORITY is required")
   }
 
-  validateStorageLayout(__dirname + "/..")
+  validateStorageLayout(`${__dirname}/..`)
   const Bridge = await get("Bridge")
   const FrostWalletRegistry = await get("FrostWalletRegistry")
   const BridgeLifecycleRouter = await get("BridgeLifecycleRouter")

@@ -167,7 +167,8 @@ library DepositSweep {
         ) = processDepositSweepTxOutput(self, sweepTx.outputVector);
 
         {
-            P2TRReservation.ProofSettlement memory settlement = settleDepositSweepProof(
+            P2TRReservation.ProofSettlement
+                memory settlement = settleDepositSweepProof(
                     self,
                     sweepTxHash,
                     walletPubKeyHash,
@@ -189,8 +190,12 @@ library DepositSweep {
             sweepTxHash,
             walletPubKeyHash
         );
-        P2TRReservation.DepositApplicationPlan memory applicationPlan = P2TRReservation
-            .depositApplicationPlan(self, sweepTxHash, vault);
+        P2TRReservation.DepositApplicationPlan
+            memory applicationPlan = P2TRReservation.depositApplicationPlan(
+                self,
+                sweepTxHash,
+                vault
+            );
 
         (
             Wallets.Wallet storage wallet,
@@ -303,10 +308,7 @@ library DepositSweep {
                 sweepTxHash,
                 1,
                 walletPubKeyHash,
-                P2TRReservation.proofResources(
-                    inputVector,
-                    additionalResources
-                )
+                P2TRReservation.proofResources(inputVector, additionalResources)
             );
     }
 

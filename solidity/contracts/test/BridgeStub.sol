@@ -17,9 +17,7 @@ contract BridgeStub is Bridge {
     using BTCUtils for bytes;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor(address p2trCoverageAuthority)
-        Bridge(p2trCoverageAuthority)
-    {}
+    constructor(address p2trCoverageAuthority) Bridge(p2trCoverageAuthority) {}
 
     function requireP2TRProofWalletStateForTest(
         bytes32 transactionHash,
