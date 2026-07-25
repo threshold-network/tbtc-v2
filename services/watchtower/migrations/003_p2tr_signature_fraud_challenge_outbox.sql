@@ -1762,6 +1762,67 @@ CREATE TABLE p2tr_signature_fraud_challenge_signer_boundary_resolution (
         OR provider_tombstone_at_unix_ms
             BETWEEN boundary_started_at_unix_ms AND resolved_at_unix_ms
     ),
+    -- Evidence that the chain, not the provider, settled this boundary: the
+    -- reserved nonce is consumed at finality, so any bytes for it are inert.
+    -- chain_id is carried because nothing else in nonce-consumption evidence
+    -- names a chain, and without it an attestation over (sender, nonce) would
+    -- replay against any record on any chain sharing that pair.
+    nonce_consumption_chain_id numeric(78, 0) CHECK (
+        nonce_consumption_chain_id IS NULL OR nonce_consumption_chain_id > 0
+    ),
+    nonce_consumption_nonce bigint CHECK (
+        nonce_consumption_nonce IS NULL OR nonce_consumption_nonce >= 0
+    ),
+    nonce_consumption_account_nonce bigint CHECK (
+        nonce_consumption_account_nonce IS NULL
+        OR nonce_consumption_account_nonce >= 0
+    ),
+    nonce_consumption_read_at_block bigint CHECK (
+        nonce_consumption_read_at_block IS NULL
+        OR nonce_consumption_read_at_block >= 0
+    ),
+    nonce_consumption_transaction_hash bytea CHECK (
+        nonce_consumption_transaction_hash IS NULL
+        OR octet_length(nonce_consumption_transaction_hash) = 32
+    ),
+    nonce_consumption_finalized_block_number bigint CHECK (
+        nonce_consumption_finalized_block_number IS NULL
+        OR nonce_consumption_finalized_block_number >= 0
+    ),
+    nonce_consumption_finalized_block_hash bytea CHECK (
+        nonce_consumption_finalized_block_hash IS NULL
+        OR octet_length(nonce_consumption_finalized_block_hash) = 32
+    ),
+    CHECK (
+        (outcome = 'nonce-consumed')
+            = (nonce_consumption_transaction_hash IS NOT NULL)
+    ),
+    -- All seven move together or none of them do.
+    CHECK (
+        (nonce_consumption_transaction_hash IS NULL)
+            = (nonce_consumption_chain_id IS NULL)
+        AND (nonce_consumption_transaction_hash IS NULL)
+            = (nonce_consumption_nonce IS NULL)
+        AND (nonce_consumption_transaction_hash IS NULL)
+            = (nonce_consumption_account_nonce IS NULL)
+        AND (nonce_consumption_transaction_hash IS NULL)
+            = (nonce_consumption_read_at_block IS NULL)
+        AND (nonce_consumption_transaction_hash IS NULL)
+            = (nonce_consumption_finalized_block_number IS NULL)
+        AND (nonce_consumption_transaction_hash IS NULL)
+            = (nonce_consumption_finalized_block_hash IS NULL)
+    ),
+    -- Strictly past the reserved nonce: equality would mean N is still spendable.
+    CHECK (
+        nonce_consumption_account_nonce IS NULL
+        OR nonce_consumption_account_nonce > nonce_consumption_nonce
+    ),
+    -- Read AT the finality boundary, not at head.
+    CHECK (
+        nonce_consumption_read_at_block IS NULL
+        OR nonce_consumption_read_at_block
+            = nonce_consumption_finalized_block_number
+    ),
     boundary_started_at_unix_ms bigint NOT NULL CHECK (
         boundary_started_at_unix_ms BETWEEN 0 AND 9007199254740991
     ),
@@ -1775,7 +1836,7 @@ CREATE TABLE p2tr_signature_fraud_challenge_signer_boundary_resolution (
             AND 9007199254740991
     ),
     outcome text NOT NULL CHECK (outcome IN (
-        'never-invoked', 'signed', 'terminal-unsafe'
+        'never-invoked', 'signed', 'terminal-unsafe', 'nonce-consumed'
     )),
     signed_transaction_hash bytea CHECK (
         signed_transaction_hash IS NULL
@@ -1890,9 +1951,23 @@ BEGIN
             'orphaned signer boundary never-invoked resolution requires a provider tombstone';
     END IF;
 
+    -- The consumed nonce must be the one this boundary actually reserved, on
+    -- the chain the record is bound to.
+    IF NEW.outcome = 'nonce-consumed' THEN
+        IF NEW.nonce_consumption_transaction_hash IS NULL THEN
+            RAISE EXCEPTION
+                'orphaned signer boundary nonce-consumed resolution requires consumption evidence';
+        END IF;
+        IF NEW.nonce_consumption_nonce IS DISTINCT FROM outbox_record.reserved_nonce
+           OR NEW.nonce_consumption_chain_id IS DISTINCT FROM outbox_record.chain_id THEN
+            RAISE EXCEPTION
+                'orphaned signer boundary nonce consumption names another sender lane';
+        END IF;
+    END IF;
+
     IF NEW.resolution_evidence_digest <> sha256(
            convert_to(
-               'tbtc-p2tr-signer-boundary-independent-resolution-v3',
+               'tbtc-p2tr-signer-boundary-independent-resolution-v4',
                'UTF8'
            )
            || NEW.record_id
@@ -1916,6 +1991,21 @@ BEGIN
                   decode(repeat('00', 32), 'hex')
               )
            || int8send(COALESCE(NEW.provider_tombstone_at_unix_ms, 0))
+           || int8send(COALESCE(NEW.nonce_consumption_chain_id, 0)::bigint)
+           || int8send(COALESCE(NEW.nonce_consumption_nonce, 0))
+           || int8send(COALESCE(NEW.nonce_consumption_account_nonce, 0))
+           || int8send(COALESCE(NEW.nonce_consumption_read_at_block, 0))
+           || COALESCE(
+                  NEW.nonce_consumption_transaction_hash,
+                  decode(repeat('00', 32), 'hex')
+              )
+           || int8send(
+                  COALESCE(NEW.nonce_consumption_finalized_block_number, 0)
+              )
+           || COALESCE(
+                  NEW.nonce_consumption_finalized_block_hash,
+                  decode(repeat('00', 32), 'hex')
+              )
        ) THEN
         RAISE EXCEPTION
             'orphaned signer boundary resolution digest is invalid';
