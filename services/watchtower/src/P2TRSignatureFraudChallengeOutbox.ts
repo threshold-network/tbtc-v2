@@ -820,10 +820,38 @@ export type P2TRSignatureFraudNonceConsumptionEvidence = {
   observedHead: P2TRSignatureFraudCanonicalBlock
 }
 
+/**
+ * A provider's proof that one signer invocation was permanently closed without
+ * the signer ever being reached. It is the sole basis for a `never-invoked`
+ * outcome, so it is worth stating exactly how far this side can vouch for it.
+ *
+ * What is enforced here: the tombstone must name the same invocation the
+ * resolution speaks for; the receipt bytes are bound into the resolution
+ * evidence digest, so the two independent attestations are attesting to THESE
+ * bytes and not merely to the verdict; the resolution must name the boundary
+ * marker that is still live and clears it in the same transaction, so an
+ * invocation is answered exactly once and a later contradiction has nowhere to
+ * go; and `never-invoked` is refused outright if any signed artifact for the
+ * record has escaped.
+ *
+ * What cannot be enforced here: whether the receipt is TRUE. The bytes are
+ * opaque to this process, so nothing stops a provider that did reach its signer
+ * from issuing a tombstone claiming otherwise. Closing that is an obligation on
+ * the provider, not on this store: it must keep a durable write-once register
+ * keyed by invocation ID, written before the signer is reached, so that its
+ * answer for a given invocation is fixed at the moment of the attempt and it
+ * cannot later be induced to say something else. A provider that answers from
+ * memory, or recomputes an answer on request, does not satisfy this and its
+ * tombstones should not be trusted for `never-invoked`.
+ */
 export type P2TRSignatureFraudSignerInvocationTombstone = {
   /** Must name the same invocation the resolution speaks for. */
   signerInvocationID: string
-  /** Provider-authenticated bytes; opaque here, exactly like an attestation. */
+  /**
+   * Provider-authenticated bytes; opaque here, exactly like an attestation.
+   * Bound into the resolution evidence digest, so both attestors commit to the
+   * exact bytes rather than to the verdict alone.
+   */
   receipt: string
   tombstonedAtUnixMs: number
 }
