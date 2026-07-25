@@ -10,10 +10,7 @@ import type {
   P2TRCanonicalEthereumEvidenceProjector,
 } from "./P2TRCanonicalEthereumJournal.js"
 
-const PROOF_SPEND_TYPES = new Map<
-  P2TRCanonicalEthereumEvent["kind"],
-  string
->([
+const PROOF_SPEND_TYPES = new Map<P2TRCanonicalEthereumEvent["kind"], string>([
   ["deposits-swept", "deposit-sweep"],
   ["redemptions-completed", "redemption"],
   ["moving-funds-completed", "moving-funds"],
@@ -82,10 +79,9 @@ export class PostgresP2TRCanonicalEthereumEvidenceProjector
           requiredString(event.payload, "walletPubKeyHash"),
           `${event.kind} wallet public-key hash`
         )
-        const walletID =
-          await this.evidenceStore.loadFrostWalletIDByPubKeyHash(
-            walletPubKeyHash
-          )
+        const walletID = await this.evidenceStore.loadFrostWalletIDByPubKeyHash(
+          walletPubKeyHash
+        )
         // Generic Bridge proof events also cover legacy ECDSA wallets. With a
         // complete deployment-parent scan, absence from the FROST binding table
         // proves this event is outside the FROST evidence domain.
@@ -170,7 +166,9 @@ function requiredString(
 ): string {
   const value = payload[field]
   if (typeof value !== "string") {
-    throw new Error(`Canonical Ethereum payload field ${field} must be a string`)
+    throw new Error(
+      `Canonical Ethereum payload field ${field} must be a string`
+    )
   }
   return value
 }
@@ -181,7 +179,9 @@ function requiredNumber(
 ): number {
   const value = payload[field]
   if (!Number.isSafeInteger(value)) {
-    throw new Error(`Canonical Ethereum payload field ${field} must be an integer`)
+    throw new Error(
+      `Canonical Ethereum payload field ${field} must be an integer`
+    )
   }
   return value as number
 }

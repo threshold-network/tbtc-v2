@@ -37,7 +37,9 @@ describe("PostgreSQL canonical Ethereum readiness snapshot", () => {
     })
     assert.match(snapshot.root, /^0x[0-9a-f]{64}$/)
     const lockIndex = client.queries.findIndex((query) =>
-      query.includes("pg_advisory_xact_lock(hashtextextended('p2tr-readiness-snapshot'")
+      query.includes(
+        "pg_advisory_xact_lock(hashtextextended('p2tr-readiness-snapshot'"
+      )
     )
     const readIndex = client.queries.findIndex((query) =>
       query.includes("cursor.generation")

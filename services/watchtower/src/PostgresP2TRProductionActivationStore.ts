@@ -76,7 +76,9 @@ export class PostgresP2TRProductionActivationStore
     )
   }
 
-  async listAppliedMigrations(): Promise<readonly P2TRActivationMigrationBinding[]> {
+  async listAppliedMigrations(): Promise<
+    readonly P2TRActivationMigrationBinding[]
+  > {
     const result = await this.session.query<{
       version: string | number
       name: string
@@ -307,10 +309,14 @@ export class PostgresP2TRProductionActivationStore
         "canonical Ethereum block count"
       ) !==
         currentBlock - checkpointBlock + 1 ||
-      databaseInteger(blocks.rows[0].minimum_block, "minimum Ethereum block") !==
-        checkpointBlock ||
-      databaseInteger(blocks.rows[0].maximum_block, "maximum Ethereum block") !==
-        currentBlock
+      databaseInteger(
+        blocks.rows[0].minimum_block,
+        "minimum Ethereum block"
+      ) !== checkpointBlock ||
+      databaseInteger(
+        blocks.rows[0].maximum_block,
+        "maximum Ethereum block"
+      ) !== currentBlock
     ) {
       throw new Error("Canonical Ethereum history has a gap")
     }
@@ -373,8 +379,14 @@ export class PostgresP2TRProductionActivationStore
         ),
       },
       failureGeneration:
-        databaseInteger(journal.failure_generation, "journal failure generation") +
-        databaseInteger(projector.failure_generation, "projector failure generation"),
+        databaseInteger(
+          journal.failure_generation,
+          "journal failure generation"
+        ) +
+        databaseInteger(
+          projector.failure_generation,
+          "projector failure generation"
+        ),
       clearedFailureGeneration:
         databaseInteger(
           journal.cleared_failure_generation,
@@ -454,13 +466,18 @@ export class PostgresP2TRProductionActivationStore
         normalized.verifiedBitcoin.height,
         hexBuffer(normalized.verifiedBitcoin.hash, "verified Bitcoin hash"),
         normalized.verifiedEthereum.blockNumber,
-        hexBuffer(normalized.verifiedEthereum.blockHash, "verified Ethereum hash"),
+        hexBuffer(
+          normalized.verifiedEthereum.blockHash,
+          "verified Ethereum hash"
+        ),
         normalized.expiresAt,
         this.maxCandidateAuthorizationLifetimeMs,
       ]
     )
     if (result.rowCount !== 1) {
-      throw new Error("Candidate authorization expiry is invalid or token is reused")
+      throw new Error(
+        "Candidate authorization expiry is invalid or token is reused"
+      )
     }
   }
 
@@ -509,7 +526,9 @@ export class PostgresP2TRProductionActivationStore
       result.rows[0].live !== true ||
       result.rows[0].canonical !== true
     ) {
-      throw new Error("Candidate authorization is absent, expired, used, or mismatched")
+      throw new Error(
+        "Candidate authorization is absent, expired, used, or mismatched"
+      )
     }
   }
 
@@ -567,11 +586,14 @@ export class PostgresP2TRProductionActivationStore
         FOR SHARE`
     )
     if (result.rows.length !== 1) {
-      throw new Error("Production activation manifest is absent or non-singleton")
+      throw new Error(
+        "Production activation manifest is absent or non-singleton"
+      )
     }
     const row = result.rows[0]
     if (
-      bytes32(row.trusted_signer_key_hash, "stored activation signer") !== trusted ||
+      bytes32(row.trusted_signer_key_hash, "stored activation signer") !==
+        trusted ||
       databaseInteger(row.payload_bytes, "activation payload bytes") >
         this.maxManifestBytes ||
       databaseInteger(row.envelope_bytes, "activation envelope bytes") >
@@ -581,7 +603,9 @@ export class PostgresP2TRProductionActivationStore
     ) {
       throw new Error("Stored activation envelope signer/size/shape is invalid")
     }
-    const envelope = structuredClone(row.envelope) as P2TRProductionActivationEnvelope
+    const envelope = structuredClone(
+      row.envelope
+    ) as P2TRProductionActivationEnvelope
     if (
       !isPlainObject(envelope.payload) ||
       databaseInteger(row.activation_sequence, "activation sequence") !==
@@ -590,7 +614,9 @@ export class PostgresP2TRProductionActivationStore
       bytes32(row.manifest_hash, "stored activation manifest hash") !==
         bytes32(envelope.payloadSha256, "envelope manifest hash")
     ) {
-      throw new Error("Stored activation envelope does not match its durable index")
+      throw new Error(
+        "Stored activation envelope does not match its durable index"
+      )
     }
     return envelope
   }
@@ -737,7 +763,10 @@ function normalizeReceipt(
   receipt: P2TRProductionCandidateAuthorizationReceipt
 ): P2TRProductionCandidateAuthorizationReceipt {
   const expires = new Date(receipt.expiresAt)
-  if (!Number.isFinite(expires.getTime()) || expires.toISOString() !== receipt.expiresAt) {
+  if (
+    !Number.isFinite(expires.getTime()) ||
+    expires.toISOString() !== receipt.expiresAt
+  ) {
     throw new Error("Candidate authorization expiry is not canonical")
   }
   return {
@@ -772,7 +801,10 @@ function normalizeCandidate(
   const identity = {
     txid: bytes32(candidate.txid, "candidate txid"),
     wtxid: bytes32(candidate.wtxid, "candidate wtxid"),
-    blockHeight: nonNegativeInteger(candidate.blockHeight, "candidate block height"),
+    blockHeight: nonNegativeInteger(
+      candidate.blockHeight,
+      "candidate block height"
+    ),
     blockHash: bytes32(candidate.blockHash, "candidate block hash"),
   }
   const observationID = deriveP2TRProductionCandidateObservationID(identity)
@@ -780,12 +812,16 @@ function normalizeCandidate(
     bytes32(candidate.observationID, "candidate observation ID") !==
     observationID
   ) {
-    throw new Error("Candidate observation ID is not derived from durable identity")
+    throw new Error(
+      "Candidate observation ID is not derived from durable identity"
+    )
   }
   return { observationID, ...identity }
 }
 
-function componentName(value: P2TRProductionComponent): P2TRProductionComponent {
+function componentName(
+  value: P2TRProductionComponent
+): P2TRProductionComponent {
   if (
     value !== "bitcoin-index" &&
     value !== "ethereum-journal" &&
@@ -801,13 +837,17 @@ function normalizeFailure(value: unknown): string {
     value instanceof Error
       ? `${value.name}:${value.message}`
       : typeof value === "string"
-        ? value
-        : "unknown production component failure"
+      ? value
+      : "unknown production component failure"
   return text.slice(0, 4096)
 }
 
 function canonicalJSON(value: unknown): string {
-  if (value === null || typeof value === "boolean" || typeof value === "string") {
+  if (
+    value === null ||
+    typeof value === "boolean" ||
+    typeof value === "string"
+  ) {
     return JSON.stringify(value)
   }
   if (typeof value === "number") {
@@ -848,7 +888,11 @@ function nonNegativeInteger(value: number, label: string): number {
 }
 
 function boundedString(value: string, maximum: number, label: string): string {
-  if (typeof value !== "string" || value.length === 0 || value.length > maximum) {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > maximum
+  ) {
     throw new Error(`${label} is malformed`)
   }
   return value

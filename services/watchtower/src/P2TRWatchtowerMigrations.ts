@@ -35,8 +35,12 @@ export type P2TRWatchtowerMigrationRunnerOptions = {
 }
 
 export type P2TRWatchtowerMigrationReport = {
-  applied: ReadonlyArray<Pick<P2TRWatchtowerMigration, "version" | "name" | "checksum">>
-  current: ReadonlyArray<Pick<P2TRWatchtowerMigration, "version" | "name" | "checksum">>
+  applied: ReadonlyArray<
+    Pick<P2TRWatchtowerMigration, "version" | "name" | "checksum">
+  >
+  current: ReadonlyArray<
+    Pick<P2TRWatchtowerMigration, "version" | "name" | "checksum">
+  >
 }
 
 type AppliedMigrationRow = {
@@ -166,7 +170,9 @@ export async function runP2TRWatchtowerMigrations(
     )
     lockAcquisitionResolved = true
     if (lock.rows.length !== 1 || lock.rows[0].locked !== true) {
-      throw new Error("Another watchtower migration runner holds the advisory lock")
+      throw new Error(
+        "Another watchtower migration runner holds the advisory lock"
+      )
     }
     locked = true
     await client.query(
@@ -267,10 +273,7 @@ export async function runP2TRWatchtowerMigrations(
           "SELECT pg_advisory_unlock($1, $2) AS unlocked",
           advisoryLockKey
         )
-        if (
-          unlocked.rows.length !== 1 ||
-          unlocked.rows[0].unlocked !== true
-        ) {
+        if (unlocked.rows.length !== 1 || unlocked.rows[0].unlocked !== true) {
           releaseError ??= new Error(
             "Watchtower migration advisory lock release was not confirmed"
           )
@@ -283,7 +286,8 @@ export async function runP2TRWatchtowerMigrations(
       }
     }
     if (!lockAcquisitionResolved) {
-      releaseError = primaryError ?? new Error("Advisory lock outcome is unknown")
+      releaseError =
+        primaryError ?? new Error("Advisory lock outcome is unknown")
     }
     client.release(releaseError)
   }
@@ -303,7 +307,9 @@ function assertAppliedMigrationPrefix(
     const version = Number(row.version)
     const expected = migrations[index]
     if (!Number.isSafeInteger(version) || version !== index + 1) {
-      throw new Error("Database watchtower migration history is not consecutive")
+      throw new Error(
+        "Database watchtower migration history is not consecutive"
+      )
     }
     if (
       expected.version !== version ||
@@ -328,13 +334,17 @@ function validateLoadedMigrations(
   }
   migrations.forEach((migration, index) => {
     if (migration.version !== index + 1) {
-      throw new Error("Watchtower migrations must be consecutive from version 1")
+      throw new Error(
+        "Watchtower migrations must be consecutive from version 1"
+      )
     }
     if (!/^[a-z0-9][a-z0-9_]{0,127}$/.test(migration.name)) {
       throw new Error(`Invalid watchtower migration name ${migration.name}`)
     }
     if (!/^[0-9a-f]{64}$/.test(migration.checksum)) {
-      throw new Error(`Invalid checksum for watchtower migration ${migration.name}`)
+      throw new Error(
+        `Invalid checksum for watchtower migration ${migration.name}`
+      )
     }
     assertMigrationChecksum(migration)
     validateP2TRWatchtowerMigrationBody(migration.sql, migration.filename)
@@ -462,7 +472,10 @@ function topLevelSQLWords(
     }
   }
   walkTopLevelSQL(sql, filename, (index, character) => {
-    if (/[A-Za-z_]/.test(character) || (currentStart >= 0 && /[0-9$]/.test(character))) {
+    if (
+      /[A-Za-z_]/.test(character) ||
+      (currentStart >= 0 && /[0-9$]/.test(character))
+    ) {
       if (currentStart < 0) currentStart = index
       current += character
     } else {
@@ -499,7 +512,9 @@ function walkTopLevelSQL(
         }
       }
       if (depth !== 0) {
-        throw new Error(`Watchtower migration ${filename} has an unterminated comment`)
+        throw new Error(
+          `Watchtower migration ${filename} has an unterminated comment`
+        )
       }
       index--
       continue
@@ -517,12 +532,16 @@ function walkTopLevelSQL(
         }
       }
       if (index >= sql.length) {
-        throw new Error(`Watchtower migration ${filename} has an unterminated quote`)
+        throw new Error(
+          `Watchtower migration ${filename} has an unterminated quote`
+        )
       }
       continue
     }
     if (character === "$") {
-      const tag = /^\$[A-Za-z_][A-Za-z0-9_]*\$|^\$\$/.exec(sql.slice(index))?.[0]
+      const tag = /^\$[A-Za-z_][A-Za-z0-9_]*\$|^\$\$/.exec(
+        sql.slice(index)
+      )?.[0]
       if (tag !== undefined) {
         visit(index, character)
         const end = sql.indexOf(tag, index + tag.length)

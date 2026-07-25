@@ -180,7 +180,7 @@ describe("production RPC transport security", () => {
         status: 200,
         headers: new Headers(),
         body: null,
-      }) as Response
+      } as Response)
     const ethereum = new HttpP2TREthereumJsonRpc({
       url: "http://127.0.0.1:8545",
       fetchFn: redirectedFetch,
@@ -193,7 +193,10 @@ describe("production RPC transport security", () => {
       password: "secret",
       fetchFn: redirectedFetch,
     })
-    await assert.rejects(bitcoin.call("getblockchaininfo"), /response URL changed/)
+    await assert.rejects(
+      bitcoin.call("getblockchaininfo"),
+      /response URL changed/
+    )
 
     const handshake = new HttpP2TRProductionSignedHandshakeProvider({
       url: "http://127.0.0.1:9443/activation",
@@ -230,7 +233,10 @@ describe("production RPC transport security", () => {
       signerPublicKeySpki: "AA==",
       signature: "AA==",
     }
-    const fetchFn = async (_input: string | URL | Request, init?: RequestInit) => {
+    const fetchFn = async (
+      _input: string | URL | Request,
+      init?: RequestInit
+    ) => {
       request = init
       return new Response(JSON.stringify(responsePayload), {
         status: 200,

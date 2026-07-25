@@ -58,57 +58,66 @@ const FULL_SIGHASH_CASES: readonly {
     id: "default",
     inputIndex: 1,
     hashType: 0x00,
-    expected: "edc0355e9a341f61fa9312ea99edc9e91501c3aeb7f5f25adb866aecbabec315",
+    expected:
+      "edc0355e9a341f61fa9312ea99edc9e91501c3aeb7f5f25adb866aecbabec315",
   },
   {
     id: "all",
     inputIndex: 1,
     hashType: 0x01,
-    expected: "ff879fb0ed81ddc6830f4eef5a7d4d782c324a31daa814367bd66b4f0df5f23c",
+    expected:
+      "ff879fb0ed81ddc6830f4eef5a7d4d782c324a31daa814367bd66b4f0df5f23c",
   },
   {
     id: "none",
     inputIndex: 0,
     hashType: 0x02,
-    expected: "9af57a004023ccb1ec9e4a4d647b30f11b06702753fca9a602772203fb6c0051",
+    expected:
+      "9af57a004023ccb1ec9e4a4d647b30f11b06702753fca9a602772203fb6c0051",
   },
   {
     id: "single",
     inputIndex: 2,
     hashType: 0x03,
-    expected: "f6e494ec97743fe0d1d41fd61f75e0072a5f8f743d5952c5a0bdb623f0312fd0",
+    expected:
+      "f6e494ec97743fe0d1d41fd61f75e0072a5f8f743d5952c5a0bdb623f0312fd0",
   },
   {
     id: "anyonecanpay-all",
     inputIndex: 0,
     hashType: 0x81,
-    expected: "4ed2911002e1f12bb88ef1d370d2e31f83cc41858e6321efeba111ba8054f658",
+    expected:
+      "4ed2911002e1f12bb88ef1d370d2e31f83cc41858e6321efeba111ba8054f658",
   },
   {
     id: "anyonecanpay-none",
     inputIndex: 2,
     hashType: 0x82,
-    expected: "4d5a3c5d133bf4dd3b96b0cda7389551079f8be9a2e1dc44a7f51ed4967f6676",
+    expected:
+      "4d5a3c5d133bf4dd3b96b0cda7389551079f8be9a2e1dc44a7f51ed4967f6676",
   },
   {
     id: "anyonecanpay-single",
     inputIndex: 1,
     hashType: 0x83,
-    expected: "788c5203ce52a9ab009e8a1a99898b03000d24d7a15572d82786e60e043833f7",
+    expected:
+      "788c5203ce52a9ab009e8a1a99898b03000d24d7a15572d82786e60e043833f7",
   },
   {
     id: "default-with-annex",
     inputIndex: 1,
     hashType: 0x00,
     annex: "50deadbeefcafe",
-    expected: "289d37f5d429ad716070ed1ab9ddbd47e1ff3130aa89329b75f07f4e5d02f046",
+    expected:
+      "289d37f5d429ad716070ed1ab9ddbd47e1ff3130aa89329b75f07f4e5d02f046",
   },
   {
     id: "single-with-annex",
     inputIndex: 2,
     hashType: 0x03,
     annex: "50aabbccddeeff0011",
-    expected: "59ec34faf224248632fcf862ef5c164c725d7eb9331f5b3bc92b3d36267e4950",
+    expected:
+      "59ec34faf224248632fcf862ef5c164c725d7eb9331f5b3bc92b3d36267e4950",
   },
 ]
 
@@ -172,10 +181,7 @@ describe("COMPLETE-v2 BIP-341 key-path sighash", () => {
       prevout,
     ])
 
-    assert.equal(
-      displayTxidFromWireHash(transaction.ins[0].hash),
-      prevout.txid
-    )
+    assert.equal(displayTxidFromWireHash(transaction.ins[0].hash), prevout.txid)
     assert.deepEqual(
       serializeBitcoinOutpointFromDisplayTxid(prevout.txid, prevout.vout),
       Buffer.concat([
@@ -210,10 +216,7 @@ describe("COMPLETE-v2 BIP-341 key-path sighash", () => {
     assert.equal(encodeBitcoinCompactSize(252).toString("hex"), "fc")
     assert.equal(encodeBitcoinCompactSize(253).toString("hex"), "fdfd00")
     assert.equal(encodeBitcoinCompactSize(65_535).toString("hex"), "fdffff")
-    assert.equal(
-      encodeBitcoinCompactSize(65_536).toString("hex"),
-      "fe00000100"
-    )
+    assert.equal(encodeBitcoinCompactSize(65_536).toString("hex"), "fe00000100")
 
     const transaction = new Transaction()
     transaction.version = 2
@@ -396,10 +399,7 @@ describe("COMPLETE-v2 Taproot witness parsing", () => {
         error.code === "explicit-default-sighash"
     )
 
-    const bareAnyoneCanPay = Buffer.concat([
-      signature,
-      Buffer.from([0x80]),
-    ])
+    const bareAnyoneCanPay = Buffer.concat([signature, Buffer.from([0x80])])
     assert.throws(
       () => classifyP2TRWitness([bareAnyoneCanPay]),
       (error) =>

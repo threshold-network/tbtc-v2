@@ -27,7 +27,8 @@ export type P2TRCanonicalEthereumPostgresQueryResult<Row> = {
 }
 
 /** Must be the session supplied by the canonical index transaction owner. */
-export type P2TRCanonicalEthereumPostgresSession = P2TRPostgresTransactionSession
+export type P2TRCanonicalEthereumPostgresSession =
+  P2TRPostgresTransactionSession
 
 export type PostgresP2TRCanonicalEthereumJournalStoreOptions = {
   storeID: string
@@ -216,7 +217,9 @@ export class PostgresP2TRCanonicalEthereumJournalStore
     await this.session.query(
       "SELECT pg_advisory_xact_lock_shared(hashtextextended('p2tr-readiness-snapshot', 0))"
     )
-    const locked = await this.session.query<CursorRow>(`${CURSOR_SELECT} FOR UPDATE`)
+    const locked = await this.session.query<CursorRow>(
+      `${CURSOR_SELECT} FOR UPDATE`
+    )
     if (locked.rows.length > 1) {
       throw new Error("PostgreSQL Ethereum cursor singleton is inconsistent")
     }
@@ -292,7 +295,10 @@ export class PostgresP2TRCanonicalEthereumJournalStore
           WHERE singleton = true`,
         [
           scan.retainedBlock.blockNumber,
-          hexBuffer(scan.retainedBlock.blockHash, "retained Ethereum block hash"),
+          hexBuffer(
+            scan.retainedBlock.blockHash,
+            "retained Ethereum block hash"
+          ),
         ]
       )
       await this.session.query(
@@ -301,7 +307,10 @@ export class PostgresP2TRCanonicalEthereumJournalStore
              OR (block_number = $1 AND block_hash <> $2)`,
         [
           scan.retainedBlock.blockNumber,
-          hexBuffer(scan.retainedBlock.blockHash, "retained Ethereum block hash"),
+          hexBuffer(
+            scan.retainedBlock.blockHash,
+            "retained Ethereum block hash"
+          ),
         ]
       )
     }
@@ -373,7 +382,9 @@ export class PostgresP2TRCanonicalEthereumJournalStore
       ]
     )
     if (updated.rowCount !== 1) {
-      throw new Error("PostgreSQL Ethereum cursor configuration changed during scan")
+      throw new Error(
+        "PostgreSQL Ethereum cursor configuration changed during scan"
+      )
     }
   }
 
@@ -440,7 +451,10 @@ export class PostgresP2TRCanonicalEthereumJournalStore
       throw new Error("Retained Ethereum history accumulator state is absent")
     }
     return {
-      root: bytes32(result.rows[0].history_root, "retained Ethereum history root"),
+      root: bytes32(
+        result.rows[0].history_root,
+        "retained Ethereum history root"
+      ),
       counters: {
         blocks: databaseInteger(
           result.rows[0].cumulative_block_count,
@@ -605,7 +619,10 @@ export class PostgresP2TRCanonicalEthereumJournalStore
         coverage.receiptCount,
         hexBuffer(coverage.logDigest, "Ethereum log digest"),
         coverage.logCount,
-        hexBuffer(coverage.requiredEventDigest, "Ethereum required-event digest"),
+        hexBuffer(
+          coverage.requiredEventDigest,
+          "Ethereum required-event digest"
+        ),
         coverage.requiredEventCount,
         hexBuffer(history.root, "Ethereum block history root"),
         history.counters.requiredEvents,
@@ -729,10 +746,7 @@ function cursorFromRow(row: CursorRow): P2TRCanonicalEthereumCursor {
         row.current_block_number,
         "stored Ethereum cursor number"
       ),
-      blockHash: bytes32(
-        row.current_block_hash,
-        "stored Ethereum cursor hash"
-      ),
+      blockHash: bytes32(row.current_block_hash, "stored Ethereum cursor hash"),
     },
   }
 }
@@ -777,7 +791,8 @@ function readinessSnapshotFromRow(
   )
   if (
     blocks !== cursor.current.blockNumber - cursor.checkpoint.blockNumber + 1 ||
-    coverageBlocks !== cursor.current.blockNumber - cursor.checkpoint.blockNumber ||
+    coverageBlocks !==
+      cursor.current.blockNumber - cursor.checkpoint.blockNumber ||
     transactions !== receipts ||
     events !== requiredEvents
   ) {
@@ -824,7 +839,10 @@ function readinessSnapshotFromRow(
 
 function eventFromRow(row: EventRow): P2TRCanonicalEthereumEvent {
   const topics = requireStringArray(row.topics, "stored Ethereum event topics")
-  const payload = requireObject(row.decoded_payload, "stored Ethereum event payload")
+  const payload = requireObject(
+    row.decoded_payload,
+    "stored Ethereum event payload"
+  )
   return {
     eventID: bytes32(row.event_id, "stored Ethereum event ID"),
     kind: row.event_kind,
@@ -839,7 +857,10 @@ function eventFromRow(row: EventRow): P2TRCanonicalEthereumEvent {
     ),
     log: {
       address: address(row.emitter, "stored Ethereum emitter"),
-      blockNumber: databaseInteger(row.block_number, "stored Ethereum block number"),
+      blockNumber: databaseInteger(
+        row.block_number,
+        "stored Ethereum block number"
+      ),
       blockHash: bytes32(row.block_hash, "stored Ethereum block hash"),
       transactionHash: bytes32(
         row.transaction_hash,
@@ -869,7 +890,10 @@ function validateScan(
     maxDecodedPayloadBytes: number
   }
 ) {
-  bytes32(scan.configurationFingerprint, "Ethereum scan configuration fingerprint")
+  bytes32(
+    scan.configurationFingerprint,
+    "Ethereum scan configuration fingerprint"
+  )
   bytes32(scan.descriptorSetHash, "Ethereum scan descriptor set hash")
   if (scan.scanStartBlock !== scan.checkpoint.blockNumber + 1) {
     throw new Error(
@@ -894,12 +918,16 @@ function validateScan(
       (block, index) =>
         block.blockNumber !== scan.retainedBlock.blockNumber + index + 1 ||
         block.parentHash !==
-          (index === 0 ? scan.retainedBlock.blockHash : scan.blocks[index - 1].blockHash)
+          (index === 0
+            ? scan.retainedBlock.blockHash
+            : scan.blocks[index - 1].blockHash)
     )
   ) {
     throw new Error("Ethereum scan blocks are not a contiguous chain")
   }
-  const hashes = new Map(scan.blocks.map((block) => [block.blockNumber, block.blockHash]))
+  const hashes = new Map(
+    scan.blocks.map((block) => [block.blockNumber, block.blockHash])
+  )
   const coverageKeys = new Set<string>()
   for (const coverage of scan.blockCoverage) {
     const key = `${coverage.blockNumber}:${coverage.blockHash}`
@@ -937,12 +965,17 @@ function validateScan(
     }
     rawLogBytes += Buffer.byteLength(event.log.data.slice(2), "hex")
     rawLogBytes += event.log.topics.length * 32
-    decodedPayloadBytes += Buffer.byteLength(canonicalJSON(event.payload), "utf8")
+    decodedPayloadBytes += Buffer.byteLength(
+      canonicalJSON(event.payload),
+      "utf8"
+    )
     if (rawLogBytes > bounds.maxRawLogBytes) {
       throw new Error("Ethereum scan exceeds its raw-log mutation byte bound")
     }
     if (decodedPayloadBytes > bounds.maxDecodedPayloadBytes) {
-      throw new Error("Ethereum scan exceeds its decoded-payload mutation byte bound")
+      throw new Error(
+        "Ethereum scan exceeds its decoded-payload mutation byte bound"
+      )
     }
   }
 }
@@ -1003,7 +1036,11 @@ function nonNegativeInteger(value: number, label: string): number {
 }
 
 function boundedString(value: string, maximum: number, label: string): string {
-  if (typeof value !== "string" || value.length === 0 || value.length > maximum) {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > maximum
+  ) {
     throw new Error(`${label} must be between 1 and ${maximum} characters`)
   }
   return value

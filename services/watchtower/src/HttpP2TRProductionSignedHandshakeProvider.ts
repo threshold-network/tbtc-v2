@@ -163,7 +163,9 @@ export class HttpP2TRProductionSignedHandshakeProvider<State>
 function normalizeHeaders(
   headers: Readonly<Record<string, string>> | undefined
 ): Readonly<Record<string, string>> {
-  const normalized: Record<string, string> = { "content-type": "application/json" }
+  const normalized: Record<string, string> = {
+    "content-type": "application/json",
+  }
   for (const [rawName, rawValue] of Object.entries(headers ?? {})) {
     const name = rawName.toLowerCase()
     if (
@@ -229,14 +231,17 @@ function assertSecureURL(url: URL): void {
 }
 
 function isNumericLoopback(hostname: string): boolean {
-  const normalized = hostname.toLowerCase().replace(/^\[/, "").replace(/\]$/, "")
+  const normalized = hostname
+    .toLowerCase()
+    .replace(/^\[/, "")
+    .replace(/\]$/, "")
   if (normalized === "::1") return true
-  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(
-    normalized
-  )
+  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(normalized)
   if (match === null) return false
   const octets = match.slice(1).map(Number)
-  return octets.every((octet) => octet >= 0 && octet <= 255) && octets[0] === 127
+  return (
+    octets.every((octet) => octet >= 0 && octet <= 255) && octets[0] === 127
+  )
 }
 
 function hashOperatorIdentity(value: string): string {
@@ -270,7 +275,11 @@ function bytes32(value: string, label: string): string {
 }
 
 function boundedString(value: string, maximum: number, label: string): string {
-  if (typeof value !== "string" || value.length === 0 || value.length > maximum) {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > maximum
+  ) {
     throw new Error(`${label} is malformed`)
   }
   return value

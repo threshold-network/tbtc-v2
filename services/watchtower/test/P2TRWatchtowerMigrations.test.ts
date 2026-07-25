@@ -123,7 +123,9 @@ function migrationFor(sql: string): P2TRWatchtowerMigration {
     version: 1,
     name: "example",
     filename: "001_example.sql",
-    checksum: createHash("sha256").update(Buffer.from(sql, "utf8")).digest("hex"),
+    checksum: createHash("sha256")
+      .update(Buffer.from(sql, "utf8"))
+      .digest("hex"),
     sql,
   }
 }
@@ -157,7 +159,10 @@ class MigrationClient implements P2TRWatchtowerMigrationClient {
 
   async query<Row>(text: string): Promise<{ rows: Row[]; rowCount: number }> {
     this.queries.push(text)
-    if (text === "BEGIN ISOLATION LEVEL SERIALIZABLE" && this.behavior.fail === "BEGIN") {
+    if (
+      text === "BEGIN ISOLATION LEVEL SERIALIZABLE" &&
+      this.behavior.fail === "BEGIN"
+    ) {
       throw new Error("BEGIN failed")
     }
     if (text === this.migration.sql && this.behavior.fail === "BODY") {

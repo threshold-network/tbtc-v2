@@ -4,7 +4,10 @@ import {
   JsonRpcP2TRCanonicalEthereumProvider,
   type P2TREthereumJsonRpc,
 } from "../src/HttpP2TREthereumJsonRpc.js"
-import { canonicalReceiptCoverageFixture, hash } from "./P2TREthereumCanonicalFixture.js"
+import {
+  canonicalReceiptCoverageFixture,
+  hash,
+} from "./P2TREthereumCanonicalFixture.js"
 
 describe("Ethereum JSON-RPC canonical block adapter", () => {
   it("requires full transactions and preserves receipt consensus fields", async () => {
@@ -64,7 +67,10 @@ function fixtureRpc(
 ): P2TREthereumJsonRpc & { blockParameters?: readonly unknown[] } {
   const rpc: P2TREthereumJsonRpc & { blockParameters?: readonly unknown[] } = {
     endpointFingerprint: hash(800),
-    call: async <Result>(method: string, parameters: readonly unknown[] = []) => {
+    call: async <Result>(
+      method: string,
+      parameters: readonly unknown[] = []
+    ) => {
       if (method === "eth_getBlockByNumber") {
         rpc.blockParameters = parameters
         return {

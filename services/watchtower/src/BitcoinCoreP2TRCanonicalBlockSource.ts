@@ -779,10 +779,7 @@ const nonEmptyString = (value: string, field: string): string => {
   return value.trim()
 }
 
-const assertSecureRpcURL = (
-  url: URL,
-  label: string
-): void => {
+const assertSecureRpcURL = (url: URL, label: string): void => {
   if (url.username !== "" || url.password !== "") {
     throw new Error(`${label} URL must not embed credentials`)
   }
@@ -790,16 +787,16 @@ const assertSecureRpcURL = (
     return
   }
   if (url.protocol !== "http:" || !isLoopbackHost(url.hostname)) {
-    throw new Error(`${label} requires HTTPS or a numeric loopback HTTP endpoint`)
+    throw new Error(
+      `${label} requires HTTPS or a numeric loopback HTTP endpoint`
+    )
   }
 }
 
 const isLoopbackHost = (hostname: string): boolean => {
   const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "")
   if (normalized === "::1") return true
-  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(
-    normalized
-  )
+  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(normalized)
   return (
     match !== null &&
     match.slice(1).every((part) => Number(part) <= 255) &&

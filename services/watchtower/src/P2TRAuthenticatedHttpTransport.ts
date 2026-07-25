@@ -46,8 +46,7 @@ export class NodePinnedSpkiP2TRHttpsTransport
       options.expectedSpkiSha256,
       "HTTPS server SPKI pin"
     )
-    this.authenticatedPeerPolicyIdentity =
-      `spki-sha256:${this.expectedSpkiSha256}`
+    this.authenticatedPeerPolicyIdentity = `spki-sha256:${this.expectedSpkiSha256}`
     this.ca = options.ca
     this.minVersion = options.minVersion ?? "TLSv1.3"
     this.transportIdentity = Object.freeze({
@@ -111,7 +110,11 @@ export class NodePinnedSpkiP2TRHttpsTransport
         (incoming) => {
           try {
             const responseHeaders = new Headers()
-            for (let index = 0; index < incoming.rawHeaders.length; index += 2) {
+            for (
+              let index = 0;
+              index < incoming.rawHeaders.length;
+              index += 2
+            ) {
               responseHeaders.append(
                 incoming.rawHeaders[index],
                 incoming.rawHeaders[index + 1]
@@ -224,7 +227,11 @@ function normalizeJsonObject(
 }
 
 function canonicalJSON(value: unknown): string {
-  if (value === null || typeof value === "string" || typeof value === "boolean") {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean"
+  ) {
     return JSON.stringify(value)
   }
   if (typeof value === "number") {
@@ -306,7 +313,9 @@ function requestBody(value: RequestInit["body"]): Buffer | undefined {
   if (typeof value === "string") return Buffer.from(value, "utf8")
   if (value instanceof Uint8Array) return Buffer.from(value)
   if (value instanceof ArrayBuffer) return Buffer.from(value)
-  throw new Error("Pinned HTTPS transport supports only bounded byte request bodies")
+  throw new Error(
+    "Pinned HTTPS transport supports only bounded byte request bodies"
+  )
 }
 import { X509Certificate, createHash } from "node:crypto"
 import { request as httpsRequest } from "node:https"
