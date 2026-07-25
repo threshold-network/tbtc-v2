@@ -59,9 +59,7 @@ contract FrostWalletRegistryStub {
         bytes32 walletID,
         uint32[] calldata walletMembersIDs
     ) external onlyLifecycleOwner {
-        bytes32 expectedMembersIdsHash = retainedWalletMembersIdsHash[
-            walletID
-        ];
+        bytes32 expectedMembersIdsHash = retainedWalletMembersIdsHash[walletID];
         if (expectedMembersIdsHash != bytes32(0)) {
             require(
                 expectedMembersIdsHash ==

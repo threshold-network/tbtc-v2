@@ -36,10 +36,7 @@ interface IP2TRFraudAuthorizationRegistryHandshake {
 
     function activeReservationSetVersion() external view returns (uint256);
 
-    function authorizedChallengeIdentityCount()
-        external
-        view
-        returns (uint256);
+    function authorizedChallengeIdentityCount() external view returns (uint256);
 }
 
 /// @notice Version identifiers and strict handshake for P2TR signature-fraud
@@ -79,9 +76,7 @@ library P2TRFraudEvidenceProtocol {
     bytes32 internal constant THRESHOLD_RESERVATION_V1 =
         keccak256("tbtc/p2tr-pre-signing-reservation/threshold-v1");
     bytes32 internal constant SIGNING_POLICY_V1 =
-        keccak256(
-            "tbtc/p2tr-pre-signing-policy/default-no-annex-51-seats-v1"
-        );
+        keccak256("tbtc/p2tr-pre-signing-policy/default-no-annex-51-seats-v1");
 
     error P2TRFraudEvidenceUnavailable();
 
@@ -101,11 +96,7 @@ library P2TRFraudEvidenceProtocol {
         address router,
         address expectedBridge,
         address expectedFrostRegistry
-    )
-        internal
-        view
-        returns (address registry)
-    {
+    ) internal view returns (address registry) {
         if (router == address(0)) {
             revert P2TRFraudEvidenceUnavailable();
         }
@@ -152,40 +143,43 @@ library P2TRFraudEvidenceProtocol {
         if (
             _readBytes32(
                 router,
-                IP2TRFraudEvidenceProtocol
-                    .preauthorizationProtocolID
-                    .selector
-            ) != THRESHOLD_RESERVATION_V1 ||
+                IP2TRFraudEvidenceProtocol.preauthorizationProtocolID.selector
+            ) !=
+            THRESHOLD_RESERVATION_V1 ||
             _readBytes32(
                 router,
                 IP2TRFraudEvidenceProtocol.signingPolicyHash.selector
-            ) != SIGNING_POLICY_V1 ||
+            ) !=
+            SIGNING_POLICY_V1 ||
             _readAddress(
                 registry,
                 IP2TRFraudAuthorizationRegistryHandshake.bridge.selector
-            ) != expectedBridge ||
+            ) !=
+            expectedBridge ||
             _readAddress(
                 registry,
-                IP2TRFraudAuthorizationRegistryHandshake
-                    .frostRegistry
-                    .selector
-            ) != expectedFrostRegistry ||
+                IP2TRFraudAuthorizationRegistryHandshake.frostRegistry.selector
+            ) !=
+            expectedFrostRegistry ||
             _readUint256(
                 registry,
                 IP2TRFraudAuthorizationRegistryHandshake.domainChainID.selector
-            ) != block.chainid ||
+            ) !=
+            block.chainid ||
             _readBytes32(
                 registry,
                 IP2TRFraudAuthorizationRegistryHandshake
                     .reservationProtocolID
                     .selector
-            ) != THRESHOLD_RESERVATION_V1 ||
+            ) !=
+            THRESHOLD_RESERVATION_V1 ||
             _readBytes32(
                 registry,
                 IP2TRFraudAuthorizationRegistryHandshake
                     .signingPolicyHash
                     .selector
-            ) != SIGNING_POLICY_V1
+            ) !=
+            SIGNING_POLICY_V1
         ) {
             revert P2TRFraudEvidenceUnavailable();
         }
@@ -205,10 +199,7 @@ library P2TRFraudEvidenceProtocol {
         address router,
         address expectedBridge,
         address expectedFrostRegistry
-    )
-        internal
-        view
-    {
+    ) internal view {
         address registry = requireCompleteRouterWiring(
             router,
             expectedBridge,
@@ -218,35 +209,39 @@ library P2TRFraudEvidenceProtocol {
             _readUint256(
                 router,
                 IP2TRFraudEvidenceProtocol.openFraudChallengeCount.selector
-            ) != 0 ||
+            ) !=
+            0 ||
             _readUint256(
                 router,
                 IP2TRFraudEvidenceProtocol.totalChallengeEscrow.selector
-            ) != 0 ||
+            ) !=
+            0 ||
             _readUint256(
                 router,
-                IP2TRFraudEvidenceProtocol
-                    .totalWithdrawablePayouts
-                    .selector
-            ) != 0 ||
+                IP2TRFraudEvidenceProtocol.totalWithdrawablePayouts.selector
+            ) !=
+            0 ||
             _readUint256(
                 registry,
                 IP2TRFraudAuthorizationRegistryHandshake
                     .activeReservationCount
                     .selector
-            ) != 0 ||
+            ) !=
+            0 ||
             _readUint256(
                 registry,
                 IP2TRFraudAuthorizationRegistryHandshake
                     .activeReservationSetVersion
                     .selector
-            ) != 0 ||
+            ) !=
+            0 ||
             _readUint256(
                 registry,
                 IP2TRFraudAuthorizationRegistryHandshake
                     .authorizedChallengeIdentityCount
                     .selector
-            ) != 0
+            ) !=
+            0
         ) {
             revert P2TRFraudEvidenceUnavailable();
         }

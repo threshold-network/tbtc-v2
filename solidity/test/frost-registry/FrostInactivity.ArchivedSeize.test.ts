@@ -4,10 +4,7 @@ import { FakeContract, smock } from "@defi-wonderland/smock"
 import chai, { expect } from "chai"
 import { Contract } from "ethers"
 import { ethers, helpers } from "hardhat"
-import type {
-  IFrostAuthorizationSource,
-  SortitionPool,
-} from "../../typechain"
+import type { IFrostAuthorizationSource, SortitionPool } from "../../typechain"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
@@ -32,10 +29,7 @@ describe("FrostInactivity archived seize", () => {
     authorizationSource = await smock.fake<IFrostAuthorizationSource>(
       "IFrostAuthorizationSource"
     )
-    sortitionPool.getIDOperators.returns([
-      operator1.address,
-      operator2.address,
-    ])
+    sortitionPool.getIDOperators.returns([operator1.address, operator2.address])
     authorizationSource.reportMaliciousBehavior.returns()
 
     const Inactivity = await ethers.getContractFactory("FrostInactivity")
@@ -54,10 +48,7 @@ describe("FrostInactivity archived seize", () => {
     await harness.recordWallet(
       walletID,
       ethers.utils.keccak256(
-        ethers.utils.defaultAbiCoder.encode(
-          ["uint32[]"],
-          [walletMembersIDs]
-        )
+        ethers.utils.defaultAbiCoder.encode(["uint32[]"], [walletMembersIDs])
       )
     )
     await harness.setStakingProvider(operator1.address, provider1.address)
@@ -83,12 +74,10 @@ describe("FrostInactivity archived seize", () => {
 
     expect(
       authorizationSource.reportMaliciousBehavior
-    ).to.have.been.calledOnceWith(
-      amount,
-      rewardMultiplier,
-      notifier.address,
-      [provider1.address, provider2.address]
-    )
+    ).to.have.been.calledOnceWith(amount, rewardMultiplier, notifier.address, [
+      provider1.address,
+      provider2.address,
+    ])
   })
 
   it("rejects wrong members and seizes with the retained archive", async () => {
@@ -115,11 +104,9 @@ describe("FrostInactivity archived seize", () => {
     )
     expect(
       authorizationSource.reportMaliciousBehavior
-    ).to.have.been.calledOnceWith(
-      amount,
-      rewardMultiplier,
-      notifier.address,
-      [provider1.address, provider2.address]
-    )
+    ).to.have.been.calledOnceWith(amount, rewardMultiplier, notifier.address, [
+      provider1.address,
+      provider2.address,
+    ])
   })
 })

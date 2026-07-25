@@ -744,10 +744,7 @@ library Redemption {
 
         if (outputsInfo.totalTreasuryFee > 0) {
             self.bank.transferBalance(
-                P2TRReservation.redemptionTreasury(
-                    self,
-                    redemptionTxHash
-                ),
+                P2TRReservation.redemptionTreasury(self, redemptionTxHash),
                 outputsInfo.totalTreasuryFee
             );
         }
@@ -788,7 +785,6 @@ library Redemption {
             ) == mainUtxoHash,
             "Invalid main UTXO data"
         );
-
     }
 
     /// @notice Processes the Bitcoin redemption transaction output vector.

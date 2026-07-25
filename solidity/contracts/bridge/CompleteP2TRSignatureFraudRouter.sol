@@ -279,8 +279,7 @@ contract CompleteP2TRSignatureFraudRouter is P2TRSignatureFraudRouter {
         require(
             context.initialized &&
                 !context.recoveryRequired &&
-                context.previousState ==
-                uint8(Wallets.WalletState.MovingFunds),
+                context.previousState == uint8(Wallets.WalletState.MovingFunds),
             "Invalid quarantine reconciliation"
         );
         context.previousState = uint8(Wallets.WalletState.Closing);
@@ -328,9 +327,7 @@ contract CompleteP2TRSignatureFraudRouter is P2TRSignatureFraudRouter {
             authorizationRegistry
         );
         uint256 identityAuthorizationSequence = registry
-            .authorizationSequenceByChallengeIdentity(
-                bridgeChallengeIdentity
-            );
+            .authorizationSequenceByChallengeIdentity(bridgeChallengeIdentity);
         uint256 authorizationSequenceCutoff = registry
             .authorizedChallengeIdentityCount();
 
@@ -358,9 +355,7 @@ contract CompleteP2TRSignatureFraudRouter is P2TRSignatureFraudRouter {
         );
 
         if (openFraudChallengeCountByWallet[walletPubKeyHash] == 0) {
-            Wallets.WalletState walletState = b
-                .wallets(walletPubKeyHash)
-                .state;
+            Wallets.WalletState walletState = b.wallets(walletPubKeyHash).state;
             if (walletState == Wallets.WalletState.RecoveryRequired) {
                 quarantineContexts[walletPubKeyHash] = QuarantineContext(
                     uint8(walletState),
@@ -383,10 +378,7 @@ contract CompleteP2TRSignatureFraudRouter is P2TRSignatureFraudRouter {
             } else {
                 (uint8 previousState, bool wasActive) = abi.decode(
                     b.processP2TRWalletLifecycle(
-                        abi.encode(
-                            uint8(0),
-                            abi.encode(walletPubKeyHash)
-                        )
+                        abi.encode(uint8(0), abi.encode(walletPubKeyHash))
                     ),
                     (uint8, bool)
                 );
@@ -477,10 +469,7 @@ contract CompleteP2TRSignatureFraudRouter is P2TRSignatureFraudRouter {
         // may still settle its exact reserved Bitcoin proof, but cannot erase
         // evidence that the signer released a signature before authorization.
         if (
-            _wasAuthorizedBeforeChallenge(
-                bridgeChallengeIdentity,
-                challengeKey
-            )
+            _wasAuthorizedBeforeChallenge(bridgeChallengeIdentity, challengeKey)
         ) {
             _resolveCompleteChallenge(
                 identity,
@@ -535,7 +524,6 @@ contract CompleteP2TRSignatureFraudRouter is P2TRSignatureFraudRouter {
             challengeKey,
             identity.sighash
         );
-
     }
 
     function _resolveCompleteChallenge(
@@ -693,13 +681,9 @@ contract CompleteP2TRSignatureFraudRouter is P2TRSignatureFraudRouter {
             challengeAuthorizationSequenceCutoff[challengeKey];
     }
 
-    function _finalizeQuarantineIfResolved(bytes20 walletPubKeyHash)
-        internal
-    {
+    function _finalizeQuarantineIfResolved(bytes20 walletPubKeyHash) internal {
         if (openFraudChallengeCountByWallet[walletPubKeyHash] != 0) return;
-        QuarantineContext memory context = quarantineContexts[
-            walletPubKeyHash
-        ];
+        QuarantineContext memory context = quarantineContexts[walletPubKeyHash];
         require(context.initialized, "Wallet quarantine context missing");
         delete quarantineContexts[walletPubKeyHash];
         if (!context.recoveryRequired && !context.archived) {

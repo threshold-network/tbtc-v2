@@ -1,3 +1,4 @@
+/* eslint-disable no-param-reassign */
 import { BigNumberish, Contract, Signer, constants, utils } from "ethers"
 
 export const COVERAGE_AUTHORIZATION_DOMAIN =
@@ -27,7 +28,7 @@ export async function buildCoverageInitializationPayload(
   sourceSignatures: [string, string]
   authorization: Record<string, unknown>
 }> {
-  const provider = bridge.provider
+  const { provider } = bridge
   const chain = await provider.getNetwork()
   const snapshot = await provider.getBlock("latest")
   const implementationWord = await provider.getStorageAt(
@@ -53,7 +54,10 @@ export async function buildCoverageInitializationPayload(
         account.toLowerCase() !== governance.toLowerCase()
     )
     if (accounts.length < 2) throw new Error("two source signers are required")
-    sourceSigners = [provider.getSigner(accounts[0]), provider.getSigner(accounts[1])]
+    sourceSigners = [
+      provider.getSigner(accounts[0]),
+      provider.getSigner(accounts[1]),
+    ]
   }
   const sources = await Promise.all(
     sourceSigners.map(async (sourceSigner, index) => ({
@@ -197,20 +201,8 @@ export async function buildCoverageInitializationPayload(
     sourceSignatures: [sourceSignatures[0], sourceSignatures[1]],
     authorization,
     payload: utils.defaultAbiCoder.encode(
-      [
-        "uint8",
-        COVERAGE_AUTHORIZATION_TUPLE,
-        "bytes",
-        "bytes",
-        "bytes",
-      ],
-      [
-        0,
-        authorization,
-        sourceSignatures[0],
-        sourceSignatures[1],
-        signature,
-      ]
+      ["uint8", COVERAGE_AUTHORIZATION_TUPLE, "bytes", "bytes", "bytes"],
+      [0, authorization, sourceSignatures[0], sourceSignatures[1], signature]
     ),
   }
 }

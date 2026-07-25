@@ -364,12 +364,7 @@ library EcdsaFraudRouterCutover {
                 payload,
                 (OwnerAuthorizationParams)
             );
-            _authorizeDrain(
-                self,
-                bridgeAddress,
-                params,
-                governanceDelay
-            );
+            _authorizeDrain(self, bridgeAddress, params, governanceDelay);
         } else if (action == 2) {
             _migrate(self, bridgeAddress, abi.decode(payload, (uint256[])));
         } else if (action == 3) {
@@ -408,7 +403,11 @@ library EcdsaFraudRouterCutover {
         bool governanceStatePending
     ) external {
         if (action == 0) {
-            _confirmInventory(self, bridgeAddress, abi.decode(payload, (bytes32)));
+            _confirmInventory(
+                self,
+                bridgeAddress,
+                abi.decode(payload, (bytes32))
+            );
         } else if (action == 1) {
             _confirmMigration(
                 self,
@@ -484,11 +483,7 @@ library EcdsaFraudRouterCutover {
             params.oldRouter
         );
         bytes32 authorizationHash = EcdsaFraudRouterCutoverVerifier
-            .ownerAuthorizationHash(
-            bridgeAddress,
-            params,
-            governanceDelay
-        );
+            .ownerAuthorizationHash(bridgeAddress, params, governanceDelay);
         self.ownerAuthorizationHash = authorizationHash;
         emit EcdsaFraudCutoverOwnerAuthorized(authorizationHash);
     }
@@ -642,12 +637,12 @@ library EcdsaFraudRouterCutover {
             bytes32 reconcilerAttestationHash,
             bytes32 commitment
         ) = EcdsaFraudRouterCutoverVerifier.verifyInventory(
-            self,
-            bridgeAddress,
-            snapshot,
-            sourceAttestation,
-            reconcilerAttestation
-        );
+                self,
+                bridgeAddress,
+                snapshot,
+                sourceAttestation,
+                reconcilerAttestation
+            );
 
         self.phase = Phase.InventoryStaged;
         self.finalizedBlock = snapshot.finalizedBlock;
@@ -751,12 +746,7 @@ library EcdsaFraudRouterCutover {
         _requireFrozenBridgeState(self, bridge);
 
         bytes32 postMigrationCommitment = EcdsaFraudRouterCutoverVerifier
-            .verifyPostMigration(
-            self,
-            bridge,
-            bridgeAddress,
-            challengeKeys
-        );
+            .verifyPostMigration(self, bridge, bridgeAddress, challengeKeys);
         self.phase = Phase.MigrationConfirmed;
         self.postMigrationCommitment = postMigrationCommitment;
         /* solhint-disable-next-line not-rely-on-time */
@@ -806,7 +796,8 @@ library EcdsaFraudRouterCutover {
         self.pendingReconcilerSourceId = newReconcilerSourceId;
         self.pendingReconcilerContext = newReconcilerContext;
         self.pendingReconcilerAttestationHash = enrollmentAttestationHash;
-        self.pendingSourceRecoveryAttestationHash = sourceRecoveryAttestationHash;
+        self
+            .pendingSourceRecoveryAttestationHash = sourceRecoveryAttestationHash;
         /* solhint-disable-next-line not-rely-on-time */
         self.reconcilerUpdateStartedAt = uint64(block.timestamp);
         emit EcdsaFraudReconcilerUpdateStarted(
@@ -896,12 +887,12 @@ library EcdsaFraudRouterCutover {
         _requireFrozenBridgeState(self, bridge);
         EcdsaFraudRouterCutoverVerifier.requireCommittedHistoryLive(self);
         bytes32 observedPostMigrationCommitment = EcdsaFraudRouterCutoverVerifier
-            .verifyPostMigration(
-            self,
-            bridge,
-            bridgeAddress,
-            challengeKeys
-        );
+                .verifyPostMigration(
+                    self,
+                    bridge,
+                    bridgeAddress,
+                    challengeKeys
+                );
         if (observedPostMigrationCommitment != self.postMigrationCommitment) {
             revert EcdsaFraudCutoverCommitmentMismatch();
         }

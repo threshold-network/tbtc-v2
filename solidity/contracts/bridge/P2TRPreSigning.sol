@@ -234,10 +234,10 @@ library P2TRPreSigning {
 
     /// @notice Recomputes and registers a previewed authorization. This is the
     ///         only write entry point and has no cancellation counterpart.
-    function authorize(
-        BridgeState.Storage storage self,
-        bytes calldata payload
-    ) external returns (bytes memory result) {
+    function authorize(BridgeState.Storage storage self, bytes calldata payload)
+        external
+        returns (bytes memory result)
+    {
         (
             uint8 action,
             BitcoinTx.Info memory transaction,
@@ -265,8 +265,8 @@ library P2TRPreSigning {
         );
         _reuseActiveReservationPlan(self, prepared, membersIDsHash);
         _requireFrozenFee(prepared);
-        IP2TRAuthorizationRegistry.PreAuthorization memory authorization = IP2TRAuthorizationRegistry
-            .PreAuthorization(
+        IP2TRAuthorizationRegistry.PreAuthorization
+            memory authorization = IP2TRAuthorizationRegistry.PreAuthorization(
                 prepared.action,
                 prepared.walletPubKeyHash,
                 prepared.walletID,
@@ -295,10 +295,11 @@ library P2TRPreSigning {
 
     /// @notice Returns the exact digest seats must attest. The write path
     ///         recomputes every field and rejects any intervening state change.
-    function preview(
-        BridgeState.Storage storage self,
-        bytes calldata payload
-    ) external view returns (bytes memory encodedResult) {
+    function preview(BridgeState.Storage storage self, bytes calldata payload)
+        external
+        view
+        returns (bytes memory encodedResult)
+    {
         (
             uint8 action,
             BitcoinTx.Info memory transaction,
@@ -319,16 +320,15 @@ library P2TRPreSigning {
         IP2TRAuthorizationRegistry registry = IP2TRAuthorizationRegistry(
             _registry(self)
         );
-        bytes32 authorizationRoot = P2TRAuthorizationRegistry(
-            address(registry)
-        ).authorizationRoot(
+        bytes32 authorizationRoot = P2TRAuthorizationRegistry(address(registry))
+            .authorizationRoot(
                 prepared.walletID,
                 transaction,
                 prepared.inputValues,
                 prepared.signingKeys
             );
-        IP2TRAuthorizationRegistry.PreAuthorization memory authorization = IP2TRAuthorizationRegistry
-            .PreAuthorization(
+        IP2TRAuthorizationRegistry.PreAuthorization
+            memory authorization = IP2TRAuthorizationRegistry.PreAuthorization(
                 prepared.action,
                 prepared.walletPubKeyHash,
                 prepared.walletID,
@@ -389,9 +389,7 @@ library P2TRPreSigning {
         address registry = _registry(self);
         return
             registry != address(0) &&
-            IP2TRAuthorizationRegistry(registry).isResourceReserved(
-                resourceID
-            );
+            IP2TRAuthorizationRegistry(registry).isResourceReserved(resourceID);
     }
 
     function _prepare(
@@ -477,9 +475,7 @@ library P2TRPreSigning {
         prepared.signingKeys = new bytes32[](inputsCount);
         prepared.resourceIDs = new bytes32[](inputsCount + 1);
         scratch.orderedInputResources = new bytes32[](inputsCount);
-        scratch.matchedDeposits = new bool[](
-            data.proposal.depositsKeys.length
-        );
+        scratch.matchedDeposits = new bool[](data.proposal.depositsKeys.length);
 
         for (uint256 i = 0; i < inputsCount; i++) {
             _processDepositSweepInput(
@@ -501,8 +497,7 @@ library P2TRPreSigning {
             .processDepositSweepTxOutput(self, transaction.outputVector);
         require(outputWallet == prepared.walletPubKeyHash);
         require(
-            scratch.inputsTotalValue - outputValue ==
-                data.proposal.sweepTxFee
+            scratch.inputsTotalValue - outputValue == data.proposal.sweepTxFee
         );
 
         prepared.resourceIDs[inputsCount] = walletMainSlotResource(
@@ -575,10 +570,12 @@ library P2TRPreSigning {
             data.mainUtxo.txOutputIndex
         );
 
-        scratch.feeRemainder = data.proposal.redemptionTxFee %
+        scratch.feeRemainder =
+            data.proposal.redemptionTxFee %
             scratch.requestsCount;
-        scratch.feePerRequest = (data.proposal.redemptionTxFee -
-            scratch.feeRemainder) / scratch.requestsCount;
+        scratch.feePerRequest =
+            (data.proposal.redemptionTxFee - scratch.feeRemainder) /
+            scratch.requestsCount;
         for (uint256 i = 0; i < scratch.requestsCount; i++) {
             _processRedemptionRequest(
                 self,
@@ -599,9 +596,7 @@ library P2TRPreSigning {
                 .extractOutputAtIndex(scratch.requestsCount);
             require(
                 changeOutput.extractValue() == changeValue &&
-                    keccak256(
-                        changeOutput.slice(8, changeOutput.length - 8)
-                    ) ==
+                    keccak256(changeOutput.slice(8, changeOutput.length - 8)) ==
                     keccak256(BitcoinTx.makeP2TRScript(prepared.walletID))
             );
             scratch.outputsTotal += changeValue;
@@ -647,10 +642,7 @@ library P2TRPreSigning {
         if (!hasActiveReservation(self, data.proposal.walletPubKeyHash)) {
             require(
                 IP2TRWalletProposalValidator(_proposalValidator(self))
-                    .validateMovingFundsProposal(
-                        data.proposal,
-                        data.mainUtxo
-                    )
+                    .validateMovingFundsProposal(data.proposal, data.mainUtxo)
             );
         }
         prepared.action = MovingFundsAction;
@@ -689,8 +681,7 @@ library P2TRPreSigning {
             );
         }
         require(
-            uint256(data.mainUtxo.txOutputValue) -
-                scratch.outputsTotalValue ==
+            uint256(data.mainUtxo.txOutputValue) - scratch.outputsTotalValue ==
                 data.proposal.movingFundsTxFee
         );
         uint256 remainder = scratch.outputsTotalValue % scratch.outputsCount;
@@ -791,9 +782,7 @@ library P2TRPreSigning {
         );
         prepared.feeLimitSnapshot = self.movedFundsSweepTxMaxTotalFee;
         require(data.proposal.movedFundsSweepTxFee <= type(uint64).max);
-        prepared.transactionFee = uint64(
-            data.proposal.movedFundsSweepTxFee
-        );
+        prepared.transactionFee = uint64(data.proposal.movedFundsSweepTxFee);
         prepared.applyPlanHash = _applyPlanHash(prepared);
     }
 
@@ -906,10 +895,7 @@ library P2TRPreSigning {
         ];
         uint256 redemptionKey = uint256(
             keccak256(
-                abi.encodePacked(
-                    keccak256(script),
-                    prepared.walletPubKeyHash
-                )
+                abi.encodePacked(keccak256(script), prepared.walletPubKeyHash)
             )
         );
         Redemption.RedemptionRequest storage request = self.pendingRedemptions[
@@ -1016,9 +1002,7 @@ library P2TRPreSigning {
         prepared.inputValues[0] = request.value;
         prepared.signingKeys[0] = prepared.walletID;
         prepared.resourceIDs = new bytes32[](inputsCount + 2);
-        prepared.resourceIDs[0] = movedFundsRequestResource(
-            scratch.requestKey
-        );
+        prepared.resourceIDs[0] = movedFundsRequestResource(scratch.requestKey);
         prepared.resourceIDs[1] = walletMainSlotResource(prepared.walletID);
         scratch.orderedInputs = new bytes32[](inputsCount);
         prepared.resourceIDs[2] = outpointResource(firstHash, firstIndex);
@@ -1074,8 +1058,7 @@ library P2TRPreSigning {
             1 + compactSizeLength
         );
         require(
-            txHash == expected.txHash &&
-                outputIndex == expected.txOutputIndex
+            txHash == expected.txHash && outputIndex == expected.txOutputIndex
         );
     }
 
@@ -1186,9 +1169,7 @@ library P2TRPreSigning {
         returns (bytes32)
     {
         return
-            bytes32(
-                uint256(uint160(value)) | (flag ? uint256(1) << 160 : 0)
-            );
+            bytes32(uint256(uint160(value)) | (flag ? uint256(1) << 160 : 0));
     }
 
     function _applyPlanHash(PreparedTransaction memory prepared)

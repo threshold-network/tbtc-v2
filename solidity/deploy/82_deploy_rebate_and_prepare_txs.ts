@@ -129,10 +129,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // library must come from that same source tree.
   console.log("\nStep 2: Deploying current Bridge libraries...")
 
-  const P2TRReservation = await deploy(
-    "P2TRReservation",
-    libraryDeployOptions
-  )
+  const P2TRReservation = await deploy("P2TRReservation", libraryDeployOptions)
   const P2TRPreSigning = await deploy("P2TRPreSigning", libraryDeployOptions)
   const p2trReservationLinkedOptions = {
     ...libraryDeployOptions,
@@ -142,10 +139,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   }
 
   const Deposit = await deploy("Deposit", libraryDeployOptions)
-  const Redemption = await deploy(
-    "Redemption",
-    p2trReservationLinkedOptions
-  )
+  const Redemption = await deploy("Redemption", p2trReservationLinkedOptions)
 
   console.log("✓ Using current Deposit library at:", Deposit.address)
   console.log("✓ Using current Redemption library at:", Redemption.address)
@@ -172,10 +166,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     ...p2trReservationLinkedOptions,
   })
   const Fraud = await deploy("Fraud", libraryDeployOptions)
-  const MovingFunds = await deploy(
-    "MovingFunds",
-    p2trReservationLinkedOptions
-  )
+  const MovingFunds = await deploy("MovingFunds", p2trReservationLinkedOptions)
 
   console.log("✓ Using current DepositSweep at:", DepositSweep.address)
   console.log("✓ Using current Wallets at:", Wallets.address)

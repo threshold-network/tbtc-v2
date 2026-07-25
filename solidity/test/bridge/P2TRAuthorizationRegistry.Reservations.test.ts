@@ -437,10 +437,7 @@ describe("P2TRAuthorizationRegistry pre-signing reservations", () => {
     }
     const id = await registry.reservationID(authorization)
     const firstSigned = await sign(first, authorization)
-    const replacementSigned = await sign(
-      replacement,
-      replacementAuthorization
-    )
+    const replacementSigned = await sign(replacement, replacementAuthorization)
     const nonce = await bridgeSigner.getTransactionCount()
 
     await network.provider.send("evm_setAutomine", [false])
@@ -484,8 +481,9 @@ describe("P2TRAuthorizationRegistry pre-signing reservations", () => {
     expect(firstStatus.signingAllowed).to.be.false
     expect(replacementStatus.authorizationSequence).to.equal(2)
     expect(replacementStatus.signingAllowed).to.be.true
-    expect((await registry.latestAuthorizedVariant(id)).transactionHash).to
-      .equal(transactionHash(replacement))
+    expect(
+      (await registry.latestAuthorizedVariant(id)).transactionHash
+    ).to.equal(transactionHash(replacement))
   })
 
   it("settles exactly once and restores an empty enumerable set/resource locks", async () => {

@@ -481,20 +481,14 @@ library MovingFunds {
         (, uint256 outputsCount) = outputVector.parseVarInt();
         bytes32[] memory walletSlots = new bytes32[](outputsCount + 1);
         walletSlots[0] = P2TRReservation.walletMainSlotResource(
-            P2TRReservation.canonicalWalletID(
-                self,
-                sourceWalletPubKeyHash
-            )
+            P2TRReservation.canonicalWalletID(self, sourceWalletPubKeyHash)
         );
         for (uint256 i = 0; i < outputsCount; i++) {
             bytes20 targetWalletPubKeyHash = self.extractWalletPubKeyHash(
                 outputVector.extractOutputAtIndex(i)
             );
             walletSlots[i + 1] = P2TRReservation.walletMainSlotResource(
-                P2TRReservation.canonicalWalletID(
-                    self,
-                    targetWalletPubKeyHash
-                )
+                P2TRReservation.canonicalWalletID(self, targetWalletPubKeyHash)
             );
         }
         return walletSlots;
@@ -803,11 +797,7 @@ library MovingFunds {
         (
             Wallets.Wallet storage wallet,
             BitcoinTx.UTXO memory resolvedMainUtxo
-        ) = resolveMovedFundsSweepingWallet(
-                self,
-                walletPubKeyHash,
-                mainUtxo
-            );
+        ) = resolveMovedFundsSweepingWallet(self, walletPubKeyHash, mainUtxo);
 
         uint256 sweepTxInputsTotalValue = processMovedFundsSweepTxInputs(
             self,
@@ -1164,10 +1154,7 @@ library MovingFunds {
 
         uint256 requestKey = uint256(
             keccak256(
-                abi.encodePacked(
-                    movingFundsTxHash,
-                    movingFundsTxOutputIndex
-                )
+                abi.encodePacked(movingFundsTxHash, movingFundsTxOutputIndex)
             )
         );
         MovedFundsSweepRequest storage sweepRequest = self

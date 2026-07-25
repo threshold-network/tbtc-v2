@@ -1,3 +1,7 @@
+/* eslint-disable no-await-in-loop */
+/* eslint-disable no-continue */
+/* eslint-disable no-restricted-syntax */
+/* eslint-disable no-nested-ternary */
 import fs from "fs"
 import { createHash } from "crypto"
 import { BigNumber, providers, utils } from "ethers"
@@ -293,8 +297,7 @@ export async function verifyIndependentSignature(
     data: eip1271.encodeFunctionData("isValidSignature", [digest, signature]),
   })
   if (
-    eip1271.decodeFunctionResult("isValidSignature", result)[0] !==
-    "0x1626ba7e"
+    eip1271.decodeFunctionResult("isValidSignature", result)[0] !== "0x1626ba7e"
   ) {
     throw new Error("Invalid EIP-1271 rebuild certificate")
   }
@@ -359,7 +362,8 @@ export async function verifyAndDeriveEthereumArchive(
       number !== archive.historyStartBlockNumber + offset ||
       block.number !== number ||
       block.hash.toLowerCase() !== hash.toLowerCase() ||
-      (parentHash && bufferHex(fields[0]).toLowerCase() !== parentHash.toLowerCase())
+      (parentHash &&
+        bufferHex(fields[0]).toLowerCase() !== parentHash.toLowerCase())
     ) {
       throw new Error("Ethereum archive header chain mismatch")
     }
@@ -389,7 +393,9 @@ export async function verifyAndDeriveEthereumArchive(
             return false
           }
           try {
-            return bridgeInterface.parseLog(log).name === "TaprootDepositRevealed"
+            return (
+              bridgeInterface.parseLog(log).name === "TaprootDepositRevealed"
+            )
           } catch {
             return false
           }
@@ -496,7 +502,9 @@ export function verifyBitcoinJournal(
   },
   deposits: DerivedHistoricalDeposit[]
 ): CanonicalBitcoinJournal {
-  if (rawFileSha256(journalPath).toLowerCase() !== expectedSha256.toLowerCase()) {
+  if (
+    rawFileSha256(journalPath).toLowerCase() !== expectedSha256.toLowerCase()
+  ) {
     throw new Error("Canonical Bitcoin journal hash mismatch")
   }
   const journal = JSON.parse(
@@ -526,7 +534,10 @@ export function verifyBitcoinJournal(
     if (occurrences.has(key)) {
       throw new Error("Canonical Bitcoin journal has duplicate occurrence")
     }
-    if (!utils.isHexString(occurrence.rawTransaction) || occurrence.rawTransaction === "0x") {
+    if (
+      !utils.isHexString(occurrence.rawTransaction) ||
+      occurrence.rawTransaction === "0x"
+    ) {
       throw new Error("Canonical Bitcoin journal raw transaction is missing")
     }
     occurrences.set(key, occurrence)
@@ -538,7 +549,8 @@ export function verifyBitcoinJournal(
     const occurrence = occurrences.get(
       journalKey(deposit.fundingTxHash, deposit.fundingOutputIndex)
     )
-    if (!occurrence) throw new Error("Taproot reveal is absent from Bitcoin journal")
+    if (!occurrence)
+      throw new Error("Taproot reveal is absent from Bitcoin journal")
     if (
       bitcoinTransactionHash(occurrence.strippedTransaction).toLowerCase() !==
         deposit.fundingTxHash.toLowerCase() ||
@@ -605,7 +617,9 @@ export async function reconcileDerivedCoverageStorage(
       }
       if (exactOutputKey === utils.hexZeroPad("0x00", 32)) {
         missing.push(deposit)
-      } else if (exactOutputKey.toLowerCase() !== deposit.outputKey.toLowerCase()) {
+      } else if (
+        exactOutputKey.toLowerCase() !== deposit.outputKey.toLowerCase()
+      ) {
         throw new Error("Bridge exact Taproot output key mismatch")
       }
     })

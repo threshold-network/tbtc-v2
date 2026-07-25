@@ -172,9 +172,9 @@ library Deposit {
 
     /// @dev One-time v2 repair kept in the linked library to preserve Bridge's
     ///      EIP-170 deployment margin.
-    function initializeV2FixVaultZeroDeposit(
-        BridgeState.Storage storage self
-    ) external {
+    function initializeV2FixVaultZeroDeposit(BridgeState.Storage storage self)
+        external
+    {
         uint256 depositKey = 0xf3bc9cd6f46f4c206bc8711e40bb5692e8fe5f0ac4d4da0a709dc71bb751c98a;
         address tbtcVault = 0x9C070027cdC9dc8F82416B2e5314E11DFb4FE3CD;
         DepositRequest storage deposit = self.deposits[depositKey];
