@@ -762,6 +762,27 @@ export const computeP2TRSignatureFraudNonceReleaseResolutionEvidenceDigest = (
  * lane. Only an out-of-band, dual-attested observation of what the signer
  * actually did can resolve that, and this is that evidence.
  */
+/**
+ * A provider's proof that it permanently closed one invocation.
+ *
+ * Two independent attesters can observe a great deal, but not the absence of a
+ * request buffered somewhere between the outbox and the key: delivery delay is
+ * unbounded, so a request can still arrive after everyone has looked and found
+ * nothing. Only a WRITE at the provider settles that — a one-shot transition
+ * that both reports "no bytes escaped" and refuses any later arrival of this
+ * invocation. This is the receipt for that write.
+ *
+ * It is expressible only because the boundary now has a deterministic identity
+ * the provider and the outbox can name independently.
+ */
+export type P2TRSignatureFraudSignerInvocationTombstone = {
+  /** Must name the same invocation the resolution speaks for. */
+  signerInvocationID: string
+  /** Provider-authenticated bytes; opaque here, exactly like an attestation. */
+  receipt: string
+  tombstonedAtUnixMs: number
+}
+
 export type P2TRSignatureFraudIndependentSignerBoundaryResolution = {
   recordID: string
   /**
@@ -779,6 +800,11 @@ export type P2TRSignatureFraudIndependentSignerBoundaryResolution = {
   outcome: "never-invoked" | "signed" | "terminal-unsafe"
   /** Required exactly when the signer is proven to have produced bytes. */
   signedTransactionHash?: string
+  /**
+   * Required exactly for `never-invoked`, and refused otherwise. Without it
+   * that outcome is an assertion nobody is positioned to make.
+   */
+  providerTombstone?: P2TRSignatureFraudSignerInvocationTombstone
   providerEvidenceDigest: string
   evidenceDigest: string
   canonicalAttestations: readonly [
@@ -823,8 +849,14 @@ export const computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest = (
   // Mirrored byte for byte by the PostgreSQL guard trigger. The invocation ID
   // replaces the boundary start as the identity term; v1 hashed a wall-clock
   // tuple, so the domain moves with the layout.
+  const tombstone = resolution.providerTombstone
+  if ((resolution.outcome === "never-invoked") !== (tombstone !== undefined)) {
+    throw new Error(
+      "Signer-boundary resolution names a provider tombstone only for a never-invoked outcome"
+    )
+  }
   return `0x${createHash("sha256")
-    .update("tbtc-p2tr-signer-boundary-independent-resolution-v2", "utf8")
+    .update("tbtc-p2tr-signer-boundary-independent-resolution-v3", "utf8")
     .update(
       Buffer.from(
         normalizeBytes32(
@@ -894,6 +926,38 @@ export const computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest = (
         "hex"
       )
     )
+    .update(
+      tombstone === undefined
+        ? Buffer.alloc(32)
+        : Buffer.from(
+            normalizeBytes32(
+              tombstone.signerInvocationID,
+              "Signer-boundary tombstone invocation ID"
+            ).slice(2),
+            "hex"
+          )
+    )
+    .update(
+      tombstone === undefined
+        ? Buffer.alloc(32)
+        : createHash("sha256")
+            .update(
+              Buffer.from(
+                normalizeHexData(
+                  tombstone.receipt,
+                  "Signer-boundary tombstone receipt"
+                ).slice(2),
+                "hex"
+              )
+            )
+            .digest()
+    )
+    .update(
+      uint64(
+        tombstone === undefined ? 0 : tombstone.tombstonedAtUnixMs,
+        "Signer-boundary tombstone time"
+      )
+    )
     .digest("hex")}`
 }
 
@@ -905,6 +969,7 @@ export const computeP2TRSignatureFraudSignerBoundaryResolutionEvidenceDigest = (
 export type P2TRSignatureFraudNormalizedSignerBoundaryResolution = {
   recordID: string
   signerInvocationID: string
+  providerTombstone?: P2TRSignatureFraudSignerInvocationTombstone
   boundaryStartedAtUnixMs: number
   preparationAttempts: number
   nonceReservationID: string
@@ -932,6 +997,39 @@ export const validateP2TRSignatureFraudIndependentSignerBoundaryResolution = (
     resolution.signerInvocationID,
     "Orphaned signer boundary invocation ID"
   )
+  if (
+    (resolution.outcome === "never-invoked") !==
+    (resolution.providerTombstone !== undefined)
+  ) {
+    throw new Error(
+      "Orphaned signer boundary resolution requires a provider tombstone exactly for a never-invoked outcome"
+    )
+  }
+  const providerTombstone =
+    resolution.providerTombstone === undefined
+      ? undefined
+      : {
+          signerInvocationID: normalizeBytes32(
+            resolution.providerTombstone.signerInvocationID,
+            "Orphaned signer boundary tombstone invocation ID"
+          ),
+          receipt: normalizeHexData(
+            resolution.providerTombstone.receipt,
+            "Orphaned signer boundary tombstone receipt"
+          ),
+          tombstonedAtUnixMs: requireUnixMilliseconds(
+            resolution.providerTombstone.tombstonedAtUnixMs,
+            "Orphaned signer boundary tombstone time"
+          ),
+        }
+  if (
+    providerTombstone !== undefined &&
+    providerTombstone.signerInvocationID !== signerInvocationID
+  ) {
+    throw new Error(
+      "Orphaned signer boundary tombstone names another invocation"
+    )
+  }
   const boundaryStartedAtUnixMs = requireUnixMilliseconds(
     resolution.boundaryStartedAtUnixMs,
     "Orphaned signer boundary start"
@@ -996,6 +1094,7 @@ export const validateP2TRSignatureFraudIndependentSignerBoundaryResolution = (
       invokedAtUnixMs,
       outcome: resolution.outcome,
       signedTransactionHash,
+      providerTombstone,
       providerEvidenceDigest,
     }) !== evidenceDigest
   ) {
@@ -1071,6 +1170,7 @@ export const validateP2TRSignatureFraudIndependentSignerBoundaryResolution = (
   return {
     recordID,
     signerInvocationID,
+    ...(providerTombstone === undefined ? {} : { providerTombstone }),
     boundaryStartedAtUnixMs,
     preparationAttempts,
     nonceReservationID,
@@ -1136,6 +1236,19 @@ export const assertP2TRSignatureFraudOrphanedSignerBoundaryOwnership = (
   ) {
     throw new Error(
       "Orphaned signer boundary resolution requires a boundary with no signer escape evidence"
+    )
+  }
+  if (
+    resolution.providerTombstone !== undefined &&
+    // Equal to the record's marker by the ownership check above, and already
+    // validated, so no assertion is needed to reach it.
+    (resolution.providerTombstone.tombstonedAtUnixMs <
+      resolution.boundaryStartedAtUnixMs ||
+      resolution.providerTombstone.tombstonedAtUnixMs >
+        resolution.resolvedAtUnixMs)
+  ) {
+    throw new Error(
+      "Orphaned signer boundary tombstone falls outside the invocation window"
     )
   }
 }

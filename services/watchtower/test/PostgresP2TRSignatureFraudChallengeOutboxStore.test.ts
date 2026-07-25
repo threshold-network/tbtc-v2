@@ -3222,6 +3222,13 @@ type BoundaryAttestationMode =
 type BoundaryResolutionOverrides = {
   recordID?: string
   signerInvocationID?: string
+  providerTombstone?: {
+    signerInvocationID: string
+    receipt: string
+    tombstonedAtUnixMs: number
+  }
+  /** Drops the tombstone an honest never-invoked resolution must carry. */
+  omitProviderTombstone?: boolean
   boundaryStartedAtUnixMs?: number
   preparationAttempts?: number
   nonceReservationID?: string
@@ -3279,12 +3286,23 @@ function boundaryResolution(
   overrides: BoundaryResolutionOverrides = {}
 ): P2TRSignatureFraudIndependentSignerBoundaryResolution {
   const outcome = overrides.outcome ?? "never-invoked"
+  const invocationID =
+    overrides.signerInvocationID ??
+    record.activeSignerInvocationID ??
+    boundaryInvocationID(1_300)
   const binding = {
     recordID: overrides.recordID ?? record.recordID,
-    signerInvocationID:
-      overrides.signerInvocationID ??
-      record.activeSignerInvocationID ??
-      boundaryInvocationID(1_300),
+    signerInvocationID: invocationID,
+    // Only a never-invoked outcome may carry one, and it must carry one.
+    ...(outcome === "never-invoked" && overrides.omitProviderTombstone !== true
+      ? {
+          providerTombstone: overrides.providerTombstone ?? {
+            signerInvocationID: invocationID,
+            receipt: "0xfeed",
+            tombstonedAtUnixMs: 1_305,
+          },
+        }
+      : {}),
     boundaryStartedAtUnixMs:
       overrides.boundaryStartedAtUnixMs ??
       record.activeSignerInvocationStartedAtUnixMs ??
@@ -3554,7 +3572,8 @@ postgresTest(
     const { initial, boundary } = await orphanedSignerBoundary(database, 212)
     const rawInsert = async (
       resolution: P2TRSignatureFraudIndependentSignerBoundaryResolution,
-      evidenceDigest = resolution.evidenceDigest
+      evidenceDigest = resolution.evidenceDigest,
+      omitTombstoneColumns = false
     ): Promise<void> => {
       await database.client.query(
         `INSERT INTO p2tr_signature_fraud_challenge_signer_boundary_resolution (
@@ -3567,7 +3586,8 @@ postgresTest(
             primary_attested_at_unix_ms, corroborating_trust_domain_id,
             corroborating_independence_domain_id,
             corroborating_evidence_digest, corroborating_attestation,
-            corroborating_attested_at_unix_ms, resolved_at_unix_ms
+            corroborating_attested_at_unix_ms, resolved_at_unix_ms,
+            provider_tombstone_receipt, provider_tombstone_at_unix_ms
          ) VALUES (
             decode($1, 'hex'), decode($8, 'hex'), $2, $3,
             decode($4, 'hex'), 'prepare', $5,
@@ -3575,7 +3595,9 @@ postgresTest(
             'signer-primary', 'signer-primary-infra', decode($7, 'hex'),
             decode('01', 'hex'), 2000, 'signer-corroborating',
             'signer-corroborating-infra', decode($7, 'hex'),
-            decode('02', 'hex'), 2000, 2400
+            decode('02', 'hex'), 2000, 2400,
+            CASE WHEN $9::text IS NULL THEN NULL ELSE decode($9, 'hex') END,
+            $10
          )`,
         [
           initial.recordID.replace(/^0x/i, ""),
@@ -3586,6 +3608,12 @@ postgresTest(
           resolution.providerEvidenceDigest.slice(2),
           evidenceDigest.slice(2),
           resolution.signerInvocationID.slice(2),
+          omitTombstoneColumns || resolution.providerTombstone === undefined
+            ? null
+            : resolution.providerTombstone.receipt.slice(2),
+          omitTombstoneColumns
+            ? null
+            : resolution.providerTombstone?.tombstonedAtUnixMs ?? null,
         ]
       )
     }
@@ -3611,6 +3639,13 @@ postgresTest(
         })
       ),
       /does not name the durable boundary/
+    )
+    // Independently of the TypeScript assert: the trigger refuses an uninvoked
+    // outcome whose fencing receipt is absent, even though the caller computed
+    // a digest for one.
+    await assert.rejects(
+      rawInsert(boundaryResolution(boundary), undefined, true),
+      /requires a provider tombstone|violates check constraint/
     )
     await assert.rejects(
       rawInsert(boundaryResolution(boundary), `0x${"ab".repeat(32)}`),
@@ -4003,6 +4038,38 @@ const orphanedBoundaryParityScenarios: OrphanedBoundaryScenario[] = [
       },
     ],
     expected: [CLEARED_ORPHAN, WRONG_BOUNDARY],
+    expectedAlertCodes: [],
+  },
+  {
+    // The whole point of the tombstone: nobody can observe the absence of a
+    // request still in transit, so never-invoked without a provider fencing
+    // write is a claim no attester is positioned to make.
+    name: "refuses an uninvoked claim with no provider tombstone",
+    seed: 240,
+    boundary: orphanedBoundaryOnly,
+    resolutions: [{ omitProviderTombstone: true }],
+    expected: [
+      "error:Signer-boundary resolution names a provider tombstone only for a " +
+        "never-invoked outcome",
+    ],
+    expectedAlertCodes: [],
+  },
+  {
+    name: "refuses a tombstone naming another invocation",
+    seed: 241,
+    boundary: orphanedBoundaryOnly,
+    resolutions: [
+      {
+        providerTombstone: {
+          signerInvocationID: `0x${"f1".repeat(32)}`,
+          receipt: "0xfeed",
+          tombstonedAtUnixMs: 1_305,
+        },
+      },
+    ],
+    expected: [
+      "error:Orphaned signer boundary tombstone names another invocation",
+    ],
     expectedAlertCodes: [],
   },
   {

@@ -1532,14 +1532,17 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
           corroborating_trust_domain_id,
           corroborating_independence_domain_id,
           corroborating_evidence_digest, corroborating_attestation,
-          corroborating_attested_at_unix_ms, resolved_at_unix_ms
+          corroborating_attested_at_unix_ms, resolved_at_unix_ms,
+          provider_tombstone_receipt, provider_tombstone_at_unix_ms
        ) VALUES (
           decode($1, 'hex'), decode($2, 'hex'), $3, $4,
           decode($5, 'hex'), $6, $7, $8,
           CASE WHEN $9::text IS NULL THEN NULL ELSE decode($9, 'hex') END,
           decode($10, 'hex'), decode($11, 'hex'), $12, $13,
           decode($11, 'hex'), decode($14, 'hex'), $15, $16, $17,
-          decode($11, 'hex'), decode($18, 'hex'), $19, $20
+          decode($11, 'hex'), decode($18, 'hex'), $19, $20,
+          CASE WHEN $21::text IS NULL THEN NULL ELSE decode($21, 'hex') END,
+          $22
        )`,
       [
         stripHex(normalized.recordID),
@@ -1564,6 +1567,10 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
         stripHex(corroborating.attestation),
         corroborating.attestedAtUnixMs,
         normalized.resolvedAtUnixMs,
+        normalized.providerTombstone === undefined
+          ? null
+          : stripHex(normalized.providerTombstone.receipt),
+        normalized.providerTombstone?.tombstonedAtUnixMs ?? null,
       ]
     )
     if (normalized.outcome === "never-invoked") {
