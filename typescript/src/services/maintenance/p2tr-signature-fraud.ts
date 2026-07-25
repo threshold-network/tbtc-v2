@@ -768,7 +768,13 @@ export type P2TRCompleteV2SignatureFraudChallengeIdentity = {
   sighash: Hex | Buffer | string
 }
 
-/** Mirrors `P2TRAuthorization.challengeIdentity` byte-for-byte. */
+/**
+ * Mirrors `P2TRAuthorization.challengeIdentity` byte-for-byte.
+ *
+ * @param identity Chain, Bridge, wallet, signing-key and sighash fields the
+ *        on-chain identity commits to.
+ * @returns The 32-byte challenge identity the router will recompute.
+ */
 export const computeP2TRCompleteV2SignatureFraudChallengeIdentity = (
   identity: P2TRCompleteV2SignatureFraudChallengeIdentity
 ): Hex => {
@@ -810,6 +816,13 @@ export const computeP2TRCompleteV2SignatureFraudChallengeIdentity = (
  * x-only output key and the binding is the funding outpoint consumed by this
  * input. The router independently checks that outpoint's immutable reveal
  * commitment.
+ *
+ * @param observation Authenticated witness observation for the input.
+ * @param domain Bridge challenge domain the observation's challenge key, if
+ *        present, must have been derived under.
+ * @param canonical Canonical context the observation is checked against:
+ *        registered wallet IDs and per-input wallet key bindings.
+ * @returns The fixed COMPLETE_V2 evidence record for this input.
  */
 export const buildP2TRCompleteV2SignatureFraudChallengeEvidence = (
   observation: P2TRSignatureFraudWitnessObservation,
@@ -824,7 +837,11 @@ export const buildP2TRCompleteV2SignatureFraudChallengeEvidence = (
   })
 
   const inputIndex = observation.inputIndex
-  if (!Number.isInteger(inputIndex) || inputIndex < 0 || inputIndex > 0xffffffff) {
+  if (
+    !Number.isInteger(inputIndex) ||
+    inputIndex < 0 ||
+    inputIndex > 0xffffffff
+  ) {
     throw new P2TRWitnessSignatureError(
       "invalid-input-index",
       "COMPLETE_V2 input index must be a uint32"
@@ -884,9 +901,7 @@ export const buildP2TRCompleteV2SignatureFraudChallengeEvidence = (
 
   const evidence = Object.freeze({
     protocol: P2TR_SIGNATURE_FRAUD_COMPLETE_V2_PROTOCOL,
-    evidenceProtocolID: Hex.from(
-      P2TR_SIGNATURE_FRAUD_COMPLETE_V2_PROTOCOL_ID
-    ),
+    evidenceProtocolID: Hex.from(P2TR_SIGNATURE_FRAUD_COMPLETE_V2_PROTOCOL_ID),
     observationID: toBytes32Hex(
       observation.observationID,
       "COMPLETE_V2 observation ID"
@@ -932,7 +947,13 @@ const assertConstructedP2TRCompleteV2ChallengeEvidence = (
   }
 }
 
-/** Encodes exactly seven ABI words (224 bytes), as required by COMPLETE_V2. */
+/**
+ * Encodes exactly seven ABI words (224 bytes), as required by COMPLETE_V2.
+ *
+ * @param evidence Constructed COMPLETE_V2 evidence for a single input.
+ * @returns The ABI-encoded challenge payload, rejected unless it is exactly
+ *          224 bytes.
+ */
 export const encodeP2TRCompleteV2SignatureFraudChallengePayload = (
   evidence: P2TRCompleteV2SignatureFraudChallengeEvidence
 ): string => {
@@ -960,7 +981,13 @@ export const encodeP2TRCompleteV2SignatureFraudChallengePayload = (
   return payload
 }
 
-/** Builds the exact COMPLETE_V2 dispatcher calldata authorized by an intent. */
+/**
+ * Builds the exact COMPLETE_V2 dispatcher calldata authorized by an intent.
+ *
+ * @param evidence Constructed COMPLETE_V2 evidence for a single input.
+ * @returns Calldata for the router's `processP2TRSignatureFraudChallenge`
+ *          submit action.
+ */
 export const encodeP2TRCompleteV2SignatureFraudRouterSubmitCalldata = (
   evidence: P2TRCompleteV2SignatureFraudChallengeEvidence
 ): string =>
@@ -981,6 +1008,10 @@ export const encodeP2TRSignatureFraudRouterSubmitCalldata =
  * Revalidates a hydrated durable intent without trusting its serialized brand.
  * This is intentionally stricter than checking `intentID`: arbitrary calldata
  * cannot become valid merely by recomputing that hash.
+ *
+ * @param intent Durable submission intent rehydrated from the outbox.
+ * @returns An empty return value; throws if the intent is not bound to the
+ *          COMPLETE_V2 evidence protocol.
  */
 export const validateP2TRCompleteV2SignatureFraudSubmissionIntent = (
   intent: P2TRSignatureFraudSubmissionIntent
@@ -999,15 +1030,9 @@ export const validateP2TRCompleteV2SignatureFraudSubmissionIntent = (
   }
 
   requireUint32(intent.inputIndex, "COMPLETE_V2 input index")
-  requireUint32(
-    intent.bindingOutputIndex,
-    "COMPLETE_V2 binding output index"
-  )
+  requireUint32(intent.bindingOutputIndex, "COMPLETE_V2 binding output index")
   const walletID = toBytes32Hex(intent.walletID, "COMPLETE_V2 wallet ID")
-  const signingKey = toBytes32Hex(
-    intent.signingKey,
-    "COMPLETE_V2 signing key"
-  )
+  const signingKey = toBytes32Hex(intent.signingKey, "COMPLETE_V2 signing key")
   const bindingTxHash = toBytes32Hex(
     intent.bindingTxHash,
     "COMPLETE_V2 binding txid"
@@ -1024,14 +1049,15 @@ export const validateP2TRCompleteV2SignatureFraudSubmissionIntent = (
     )
   }
 
-  const expectedIdentity =
-    computeP2TRCompleteV2SignatureFraudChallengeIdentity({
+  const expectedIdentity = computeP2TRCompleteV2SignatureFraudChallengeIdentity(
+    {
       domainChainID: intent.domainChainID,
       bridgeAddress: intent.bridgeAddress,
       walletID,
       signingKey,
       sighash: intent.sighash,
-    })
+    }
+  )
   if (
     !toBytes32Hex(
       intent.bridgeChallengeIdentity,
@@ -1090,10 +1116,9 @@ export const validateP2TRCompleteV2SignatureFraudSubmissionIntent = (
     toBytes32Hex(evidence.walletID, "Encoded COMPLETE_V2 wallet ID").equals(
       walletID
     ) &&
-    toBytes32Hex(
-      evidence.signingKey,
-      "Encoded COMPLETE_V2 signing key"
-    ).equals(signingKey) &&
+    toBytes32Hex(evidence.signingKey, "Encoded COMPLETE_V2 signing key").equals(
+      signingKey
+    ) &&
     toBytes32Hex(
       evidence.bindingTxHash,
       "Encoded COMPLETE_V2 binding txid"
@@ -1105,17 +1130,12 @@ export const validateP2TRCompleteV2SignatureFraudSubmissionIntent = (
     toBytes32Hex(
       evidence.nonceX,
       "Encoded COMPLETE_V2 signature nonce X"
-    ).equals(
-      toBytes32Hex(intent.nonceX, "COMPLETE_V2 signature nonce X")
-    ) &&
+    ).equals(toBytes32Hex(intent.nonceX, "COMPLETE_V2 signature nonce X")) &&
     toBytes32Hex(
       evidence.signatureScalar,
       "Encoded COMPLETE_V2 signature scalar"
     ).equals(
-      toBytes32Hex(
-        intent.signatureScalar,
-        "COMPLETE_V2 signature scalar"
-      )
+      toBytes32Hex(intent.signatureScalar, "COMPLETE_V2 signature scalar")
     )
   if (!exact) {
     throw new P2TRWitnessSignatureError(
@@ -1222,10 +1242,7 @@ export const computeP2TRSignatureFraudSubmissionIntentID = (
           ),
           toBytes32(intent.sighash, "Sighash"),
           toBytes32(intent.nonceX, "COMPLETE_V2 signature nonce X"),
-          toBytes32(
-            intent.signatureScalar,
-            "COMPLETE_V2 signature scalar"
-          ),
+          toBytes32(intent.signatureScalar, "COMPLETE_V2 signature scalar"),
           intent.domainChainID,
           intent.chainID,
           intent.bridgeAddress,
@@ -1363,7 +1380,17 @@ const p2trSignatureFraudNonceReservationTypedData = (
   }
 }
 
-/** Returns the EIP-712 digest that is also the durable reservation identity. */
+/**
+ * Returns the EIP-712 digest that is also the durable reservation identity.
+ *
+ * @param intent Durable submission intent the reservation is bound to.
+ * @param outboxRecordID Outbox record the reservation belongs to.
+ * @param generation Outbox record generation the reservation was taken under.
+ * @param reservationEpoch Reservation epoch within that generation.
+ * @param lane Signer lane identity that owns the nonce.
+ * @param nonce Sender nonce being reserved.
+ * @returns The EIP-712 digest that doubles as the reservation identity.
+ */
 export const computeP2TRSignatureFraudBoundNonceReservationID = (
   intent: P2TRSignatureFraudSubmissionIntent,
   outboxRecordID: Hex | Buffer | string,
@@ -1393,6 +1420,15 @@ export const computeP2TRSignatureFraudBoundNonceReservationID = (
  * Authenticates a nonce reservation before it may be persisted or supplied to
  * the transaction signer. The binding signature must recover to the exact lane
  * sender, preventing a remote signer from choosing a sender after invocation.
+ *
+ * @param intent Durable submission intent the reservation is bound to.
+ * @param outboxRecordID Outbox record the reservation belongs to.
+ * @param generation Outbox record generation the reservation was taken under.
+ * @param reservationEpoch Reservation epoch within that generation.
+ * @param lane Signer lane identity that must have produced the reservation.
+ * @param reservation Reservation to authenticate, including its binding
+ *        signature over the EIP-712 reservation digest.
+ * @returns The reservation in normalized form, with its recomputed identity.
  */
 export const validateP2TRSignatureFraudBoundNonceReservation = (
   intent: P2TRSignatureFraudSubmissionIntent,
@@ -1426,8 +1462,7 @@ export const validateP2TRSignatureFraudBoundNonceReservation = (
     !actualOutboxRecordID.equals(typedData.normalized.outboxRecordID) ||
     !actualIntentID.equals(typedData.normalized.intentID) ||
     reservation.generation !== typedData.normalized.generation ||
-    reservation.reservationEpoch !==
-      typedData.normalized.reservationEpoch ||
+    reservation.reservationEpoch !== typedData.normalized.reservationEpoch ||
     reservation.laneID !== typedData.normalized.laneID ||
     reservation.signerIdentity !== typedData.normalized.signerIdentity ||
     normalizeP2TRSignatureFraudSubmissionAddress(
@@ -1489,6 +1524,11 @@ export const validateP2TRSignatureFraudBoundNonceReservation = (
 /**
  * Builds the immutable call intent that must be committed with the evidence
  * checkpoint before a transaction is signed or broadcast.
+ *
+ * @param evidence Constructed COMPLETE_V2 evidence the intent submits.
+ * @param options Chain, Bridge, router and deposit parameters that fix the
+ *        call the intent authorizes.
+ * @returns The submission intent, with its derived `intentID`.
  */
 export const buildP2TRSignatureFraudSubmissionIntent = (
   evidence: P2TRCompleteV2SignatureFraudChallengeEvidence,
@@ -1552,6 +1592,11 @@ export const buildP2TRSignatureFraudSubmissionIntent = (
  * Authenticates a signed transaction against its durable intent and derives
  * the canonical hash/sender/nonce from the raw bytes. This validation must run
  * before the outbox stores the prepared transaction.
+ *
+ * @param intent Durable submission intent the signed bytes must satisfy.
+ * @param prepared Prepared transaction whose raw bytes are authenticated.
+ * @returns The prepared transaction with hash, sender and nonce rederived from
+ *          the raw bytes rather than taken from the caller.
  */
 export const validateP2TRSignatureFraudPreparedChallengeTransaction = (
   intent: P2TRSignatureFraudSubmissionIntent,
@@ -1673,7 +1718,13 @@ export const validateP2TRSignatureFraudPreparedChallengeTransaction = (
   }
 }
 
-/** Authenticates a prepared transaction and requires an EIP-1559 envelope. */
+/**
+ * Authenticates a prepared transaction and requires an EIP-1559 envelope.
+ *
+ * @param intent Durable submission intent the signed bytes must satisfy.
+ * @param prepared Prepared transaction whose raw bytes are authenticated.
+ * @returns The validated transaction, extended with its EIP-1559 fee fields.
+ */
 export const validateP2TRSignatureFraudPreparedEIP1559ChallengeTransaction = (
   intent: P2TRSignatureFraudSubmissionIntent,
   prepared: P2TRSignatureFraudPreparedChallengeTransaction
@@ -1707,7 +1758,15 @@ export const validateP2TRSignatureFraudPreparedEIP1559ChallengeTransaction = (
   }
 }
 
-/** Requires signed bytes to consume exactly the authenticated reservation. */
+/**
+ * Requires signed bytes to consume exactly the authenticated reservation.
+ *
+ * @param intent Durable submission intent the signed bytes must satisfy.
+ * @param reservation Authenticated nonce reservation the transaction must
+ *        consume, sender and nonce exactly.
+ * @param prepared Prepared transaction whose raw bytes are authenticated.
+ * @returns The validated EIP-1559 transaction.
+ */
 export const validateP2TRSignatureFraudPreparedChallengeTransactionReservation =
   (
     intent: P2TRSignatureFraudSubmissionIntent,
@@ -1740,6 +1799,11 @@ export const validateP2TRSignatureFraudPreparedChallengeTransactionReservation =
  * Authenticates an EIP-1559 replacement against an already-persisted variant.
  * Both fee caps must strictly increase, gas limit cannot decrease, and every
  * call/identity field remains protected by the durable-intent validator.
+ *
+ * @param intent Durable submission intent both variants must satisfy.
+ * @param previous Already-persisted variant being replaced.
+ * @param replacement Candidate replacement transaction.
+ * @returns The validated replacement transaction.
  */
 export const validateP2TRSignatureFraudPreparedChallengeReplacementTransaction =
   (
@@ -2051,7 +2115,8 @@ export interface P2TRWatchtowerChallengeRecordPersistence {
 }
 
 export interface P2TRWatchtowerChallengeReplayStore
-  extends P2TRWatchtowerChallengeStore, P2TRWatchtowerChallengeRecordSource {}
+  extends P2TRWatchtowerChallengeStore,
+    P2TRWatchtowerChallengeRecordSource {}
 
 export type P2TRWatchtowerChallengeEvent =
   | {
@@ -3385,7 +3450,9 @@ const validateP2TRBridgeLifecycleEventEvidence = (
   }
 }
 
-export class P2TRWatchtowerSerializedChallengeStore implements P2TRWatchtowerChallengeReplayStore {
+export class P2TRWatchtowerSerializedChallengeStore
+  implements P2TRWatchtowerChallengeReplayStore
+{
   private records?: Map<string, P2TRWatchtowerChallengeRecord>
   private saveQueue: Promise<void> = Promise.resolve()
 
@@ -5076,7 +5143,9 @@ const validateP2TRSignatureFraudBridgeTxHash = (txHash: string): string => {
  * activate the bounded/no-go FROST fraud layer. Callers remain responsible for
  * a separately reviewed `COMPLETE_V2` protocol and operational controls.
  */
-export class P2TRSignatureFraudBridgeChallengeSubmitter implements P2TRSignatureFraudChallengeSubmitter {
+export class P2TRSignatureFraudBridgeChallengeSubmitter
+  implements P2TRSignatureFraudChallengeSubmitter
+{
   private readonly confirmations: number
 
   /**
@@ -6466,8 +6535,9 @@ export class P2TRSignatureFraudWatchtowerRunner {
       }
 
       const observation = record.observation
-      const submissionRecord =
-        await this.withSubmissionAttemptLimitAlert(record)
+      const submissionRecord = await this.withSubmissionAttemptLimitAlert(
+        record
+      )
 
       submissions.push({ observation, record, submissionRecord })
       records.set(observationID, submissionRecord)
