@@ -760,9 +760,9 @@ export const computeP2TRSignatureFraudNonceReleaseResolutionEvidenceDigest = (
  * authorization and therefore before the signer RPC, so a lost owner leaves a
  * marker that nothing in the process-local recovery path may clear: lease
  * expiry is not proof that a remote call stopped. The marker keeps the
- * singleton `active_signer_invocation_count` at one, which blocks every
- * nonce-release invocation store-wide and freezes challenge signing on every
- * lane. Only an out-of-band, dual-attested observation of what the signer
+ * lane's `active_signer_invocation_count` at one, which blocks every
+ * nonce-release invocation on that lane and freezes challenge signing for that
+ * account. Only an out-of-band, dual-attested observation of what the signer
  * actually did can resolve that, and this is that evidence.
  */
 /**

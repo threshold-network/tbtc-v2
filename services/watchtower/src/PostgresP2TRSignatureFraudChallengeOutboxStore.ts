@@ -556,13 +556,37 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
          LEFT JOIN p2tr_signature_fraud_challenge_nonce_release_resolution rx
            ON rx.release_request_id = a.release_request_id
           AND rx.attempt_sequence = a.attempt_sequence
-        WHERE b.singleton = true
+        WHERE b.active_release_request_id IS NOT NULL
+        ORDER BY b.chain_id, b.sender
         FOR UPDATE OF b`
     )
-    if (result.rows.length !== 1) {
-      throw new Error("Nonce allocator safety barrier is absent or duplicated")
+    // The barrier is keyed per nonce lane, so several lanes can hold a claim at
+    // once. Every claim is validated — a malformed one throws even if it is not
+    // the claim this call recovers — and the first recoverable one is returned.
+    // The caller drains the rest on subsequent passes.
+    let recoverable: P2TRSignatureFraudAmbiguousNonceReleaseInvocation | undefined
+    for (const row of result.rows) {
+      const candidate = await this.hydrateAmbiguousNonceReleaseInvocation(row, now)
+      if (recoverable === undefined) recoverable = candidate
     }
-    const row = result.rows[0]
+    return recoverable
+  }
+
+  private async hydrateAmbiguousNonceReleaseInvocation(
+    row: {
+      active_release_request_id: Buffer | null
+      active_release_attempt_sequence: string | number | null
+      active_release_expires_at_unix_ms: string | number | null
+      owner: string | null
+      started_at_unix_ms: string | number | null
+      expires_at_unix_ms: string | number | null
+      invoked_at_unix_ms: string | number | null
+      result_kind: string | null
+      response_digest: Buffer | null
+      resolution_outcome: string | null
+    },
+    now: number
+  ): Promise<P2TRSignatureFraudAmbiguousNonceReleaseInvocation | undefined> {
     if (row.active_release_request_id === null) {
       if (
         row.active_release_attempt_sequence !== null ||
@@ -1471,9 +1495,9 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
    * the signer RPC, so nothing inside the process-local recovery path may clear
    * it — `recoverExpiredPreparation` deliberately refuses, because a lease
    * timeout is not proof that a remote call stopped. Meanwhile the marker holds
-   * the singleton `active_signer_invocation_count` at one, which blocks every
-   * nonce-release invocation store-wide and freezes challenge signing on every
-   * lane. Only out-of-band, dual-attested evidence of what the signer actually
+   * the lane's `active_signer_invocation_count` at one, which blocks every
+   * nonce-release invocation on that lane and freezes challenge signing for
+   * that account. Only out-of-band, dual-attested evidence of what the signer actually
    * did can break that, and every effect below lands in one transaction.
    */
   async resolveOrphanedSignerBoundary(
@@ -1742,7 +1766,7 @@ export class PostgresP2TRSignatureFraudChallengeOutboxStore
    * "stuck in authorization" from "signer call outstanding". Only the
    * boundary's owner witnesses authorization failing before signer I/O, and
    * that same first-person observation is already trusted to clear the
-   * singleton signer barrier. Retirement is therefore performed in the SAME
+   * lane's signer barrier. Retirement is therefore performed in the SAME
    * transaction as the barrier-clearing swap: never resolve-then-clear (which
    * would unblock activation while the barrier is still live) and never
    * clear-then-resolve (which strands a permanently blocking incident).
