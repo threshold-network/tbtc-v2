@@ -93,6 +93,18 @@ contract MockContract {
         ///      rather than decoded so the helper can decode against whichever
         ///      ABI the test declared.
         bytes[] receivedCalls;
+        /// @dev msg.value of each recorded call, parallel to `receivedCalls`.
+        ///      smock exposed this as `getCall(n).value`, and payable mocks
+        ///      are asserted on it -- `transferTokensWithPayload` carries the
+        ///      Wormhole message fee.
+        uint256[] receivedValues;
+        /// @dev Set to disable recording entirely.
+        ///
+        ///      Recording costs real gas -- smock zeroed gas for faked calls,
+        ///      this contract SSTOREs the calldata -- so a test measuring the
+        ///      gas of the contract under test would otherwise be measuring
+        ///      the mock's bookkeeping too.
+        bool recordingDisabled;
     }
 
     /// @dev keccak256("tbtc.test.MockContract.state.v1") - 1, masked, per the
@@ -189,11 +201,13 @@ contract MockContract {
         for (uint256 i = 0; i < totalCalls; i++) {
             if (__mock__selectorOf(_state().receivedCalls[i]) != selector) {
                 _state().receivedCalls[keptCalls] = _state().receivedCalls[i];
+                _state().receivedValues[keptCalls] = _state().receivedValues[i];
                 keptCalls++;
             }
         }
         while (_state().receivedCalls.length > keptCalls) {
             _state().receivedCalls.pop();
+            _state().receivedValues.pop();
         }
     }
 
@@ -216,6 +230,7 @@ contract MockContract {
         delete _state().configuredSelectors;
 
         delete _state().receivedCalls;
+        delete _state().receivedValues;
     }
 
     /// @notice Installs the responses of last resort. Called once by the
@@ -236,6 +251,11 @@ contract MockContract {
                 returnData[i]
             );
         }
+    }
+
+    /// @notice Turns call recording on or off for this mock.
+    function __mock__setRecording(bool enabled) external {
+        _state().recordingDisabled = !enabled;
     }
 
     /// @notice Marks selectors that must never be recorded. The helper calls
@@ -278,12 +298,13 @@ contract MockContract {
     ///      assertion in it targets a state-changing function, and a `view`
     ///      that a test wanted to count could not have been reached by
     ///      STATICCALL in the first place.
-    function __mock__record(bytes calldata callData) external {
+    function __mock__record(bytes calldata callData, uint256 value) external {
         require(
             msg.sender == address(this),
             "MockContract: recording is internal"
         );
         _state().receivedCalls.push(callData);
+        _state().receivedValues.push(value);
     }
 
     /// @notice Number of calls recorded, across all selectors.
@@ -315,6 +336,27 @@ contract MockContract {
     }
 
     /// @notice Raw calldata of the i-th call recorded for one selector.
+    /// @notice msg.value of the i-th call recorded for one selector.
+    function __mock__callValueForSelectorAt(bytes4 selector, uint256 index)
+        external
+        view
+        returns (uint256)
+    {
+        uint256 seen = 0;
+        uint256 total = _state().receivedCalls.length;
+
+        for (uint256 i = 0; i < total; i++) {
+            if (__mock__selectorOf(_state().receivedCalls[i]) == selector) {
+                if (seen == index) {
+                    return _state().receivedValues[i];
+                }
+                seen++;
+            }
+        }
+
+        revert("MockContract: call index out of range");
+    }
+
     function __mock__callForSelectorAt(bytes4 selector, uint256 index)
         external
         view
@@ -366,9 +408,12 @@ contract MockContract {
         //
         // The try/catch still guards the rest: a state-changing function is
         // also reached statically under `eth_call`/`callStatic`.
-        if (!_state().nonRecording[__mock__selectorOf(msg.data)]) {
+        if (
+            !_state().recordingDisabled &&
+            !_state().nonRecording[__mock__selectorOf(msg.data)]
+        ) {
             // solhint-disable-next-line no-empty-blocks
-            try this.__mock__record(msg.data) {} catch {}
+            try this.__mock__record(msg.data, msg.value) {} catch {}
         }
 
         bytes memory result = __mock__responseFor(msg.data);
@@ -408,7 +453,17 @@ contract MockContract {
             return __mock__respond(base);
         }
 
-        return "";
+        // Last resort: a block of zeroes long enough to decode as the zero
+        // value of essentially any return shape.
+        //
+        // Empty returndata will not do. Solidity compares returndatasize
+        // against the size its ABI expects and reverts the caller on a short
+        // answer, and the helper's per-function zeroes only cover the ABI it
+        // was given. Production code reaches functions outside that ABI --
+        // `AbstractBTCDepositor` calls `bridge.depositParameters()` through its
+        // own view of the Bridge -- and smock answered those too, with exactly
+        // this: a fixed run of zero bytes.
+        return new bytes(2048);
     }
 
     function __mock__rememberSelector(bytes4 selector) private {

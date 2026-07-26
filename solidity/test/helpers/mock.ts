@@ -66,6 +66,8 @@ async function withoutAdvancingTime<T>(write: () => Promise<T>): Promise<T> {
 export interface MockCall {
   /** Decoded arguments, in declaration order. */
   args: unknown[]
+  /** `msg.value` the call carried, as smock's `getCall(n).value` did. */
+  value: BigNumber
 }
 
 /** Configuration and inspection handle for one function of a mock. */
@@ -105,6 +107,14 @@ export type Mock<T> = {
   mockContract: Contract
   /** Drops all configured responses and all recorded calls. */
   reset(): Promise<void>
+  /**
+   * Turns call recording on or off.
+   *
+   * Recording costs real gas — smock zeroed gas for faked calls, this mock
+   * SSTOREs the calldata — so a test asserting on the gas of the contract
+   * under test should switch it off first, or it measures the mock too.
+   */
+  setRecording(enabled: boolean): Promise<void>
 }
 
 /** Selectors of `MockContract`'s own administrative entry points. */
@@ -223,19 +233,42 @@ function zeroValueFor(type: ParamType): unknown {
   return 0
 }
 
+/**
+ * Shapes a configured return value the way `defaultAbiCoder` wants it.
+ *
+ * smock accepted a named object for a multi-output function — Bridge's
+ * `depositParameters` returns four values and is configured as
+ * `{ depositDustThreshold, depositTreasuryFeeDivisor, ... }`. The coder wants
+ * those positionally, so they are mapped back by output name. A single-output
+ * function is different: an object there is a struct, and the coder handles it.
+ */
+function toPositional(outputs: ParamType[], value: unknown): unknown[] {
+  if (outputs.length === 1) {
+    return [value]
+  }
+
+  if (Array.isArray(value)) {
+    return value
+  }
+
+  if (value !== null && typeof value === "object") {
+    const named = value as Record<string, unknown>
+    return outputs.map((output, index) =>
+      output.name && output.name in named ? named[output.name] : named[index]
+    )
+  }
+
+  return [value]
+}
+
 function encodeReturn(fragment: FunctionFragment, value: unknown): string {
   if (fragment.outputs === null || fragment.outputs.length === 0) {
     return "0x"
   }
 
-  // A single-output function is configured with a bare value; a multi-output
-  // one with an array, as smock did.
-  const values =
-    fragment.outputs.length === 1 && !Array.isArray(value) ? [value] : value
-
   return ethers.utils.defaultAbiCoder.encode(
     fragment.outputs,
-    values as unknown[]
+    toPositional(fragment.outputs, value)
   )
 }
 
@@ -371,10 +404,11 @@ export async function createMock<T>(
       )
     }
 
-    const decodeCall = (callData: string): MockCall => ({
+    const decodeCall = (callData: string, value: BigNumber): MockCall => ({
       args: Array.from(
         targetInterface.decodeFunctionData(fragment, callData)
       ) as unknown[],
+      value,
     })
 
     return {
@@ -420,11 +454,11 @@ export async function createMock<T>(
       async getCall(index: number): Promise<MockCall> {
         refuseIfReadOnly()
 
-        const callData: string = await mockContract.__mock__callForSelectorAt(
-          selector,
-          index
-        )
-        return decodeCall(callData)
+        const [callData, value] = await Promise.all([
+          mockContract.__mock__callForSelectorAt(selector, index),
+          mockContract.__mock__callValueForSelectorAt(selector, index),
+        ])
+        return decodeCall(callData as string, value as BigNumber)
       },
 
       async getCalls(): Promise<MockCall[]> {
@@ -437,11 +471,11 @@ export async function createMock<T>(
         for (let i = 0; i < Number(count); i++) {
           // Sequential on purpose: ordering is the point of this accessor.
           // eslint-disable-next-line no-await-in-loop
-          const callData: string = await mockContract.__mock__callForSelectorAt(
-            selector,
-            i
-          )
-          calls.push(decodeCall(callData))
+          const [callData, value] = await Promise.all([
+            mockContract.__mock__callForSelectorAt(selector, i),
+            mockContract.__mock__callValueForSelectorAt(selector, i),
+          ])
+          calls.push(decodeCall(callData as string, value as BigNumber))
         }
 
         return calls
@@ -462,6 +496,11 @@ export async function createMock<T>(
     mockContract,
     async reset(): Promise<void> {
       await withoutAdvancingTime(() => mockContract.__mock__reset())
+    },
+    async setRecording(enabled: boolean): Promise<void> {
+      await withoutAdvancingTime(() =>
+        mockContract.__mock__setRecording(enabled)
+      )
     },
   }
 
@@ -517,6 +556,16 @@ export async function expectCalled(fn: MockedFunction): Promise<void> {
 /** `expect(fake.fn).to.have.been.calledOnce` */
 export async function expectCalledOnce(fn: MockedFunction): Promise<void> {
   expect(await counted(fn), "expected exactly one call").to.equal(1)
+}
+
+/** `expect(fake.fn).to.not.have.been.called` */
+export async function expectNotCalled(fn: MockedFunction): Promise<void> {
+  expect(await counted(fn), "expected no calls").to.equal(0)
+}
+
+/** `expect(fake.fn).to.have.been.calledThrice` */
+export async function expectCalledThrice(fn: MockedFunction): Promise<void> {
+  expect(await counted(fn), "expected exactly three calls").to.equal(3)
 }
 
 /** `expect(fake.fn).to.have.been.calledTwice` */
