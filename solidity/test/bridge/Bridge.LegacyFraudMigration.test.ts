@@ -1,4 +1,4 @@
-import { ethers, helpers, waffle } from "hardhat"
+import { ethers, helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import type { BigNumberish } from "ethers"
 import { expect } from "chai"
@@ -15,6 +15,7 @@ import {
   wallet as fraudWallet,
 } from "../data/fraud"
 import { constants, walletState } from "../fixtures"
+import { loadFixture } from "../helpers/fixture"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
@@ -59,7 +60,7 @@ describe("Bridge - legacy fraud challenge migration", () => {
       bridgeGovernance,
       ecdsaFraudRouter,
       p2trFraudRouter,
-    } = await waffle.loadFixture(bridgeFixture))
+    } = await loadFixture(bridgeFixture))
   })
 
   beforeEach(async () => {

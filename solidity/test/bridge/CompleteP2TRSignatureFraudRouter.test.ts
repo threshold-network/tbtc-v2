@@ -4,7 +4,7 @@ import fs from "fs"
 import path from "path"
 
 import { BigNumber, Contract, Signer } from "ethers"
-import { ethers, helpers, waffle } from "hardhat"
+import { ethers, helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import chai, { expect } from "chai"
 import { FakeContract, smock } from "@defi-wonderland/smock"
@@ -16,6 +16,7 @@ import type {
 } from "../../typechain"
 import bridgeFixture from "../fixtures/bridge"
 import { walletState } from "../fixtures"
+import { loadFixture } from "../helpers/fixture"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { increaseTime, lastBlockTime } = helpers.time
@@ -129,7 +130,7 @@ describe("CompleteP2TRSignatureFraudRouter", () => {
   let challengeTimeout: number
 
   before(async () => {
-    const fixture = await waffle.loadFixture(bridgeFixture)
+    const fixture = await loadFixture(bridgeFixture)
     bridge = fixture.bridge
     challenger = fixture.thirdParty
     receiver = fixture.spvMaintainer

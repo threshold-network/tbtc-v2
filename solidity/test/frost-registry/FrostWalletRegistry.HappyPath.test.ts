@@ -19,6 +19,7 @@ import {
   registerOperators,
   selectFrostGroup,
 } from "../integration/utils/frost-wallet-registry"
+import { loadFixture } from "../helpers/fixture"
 
 chai.use(smock.matchers)
 
@@ -58,7 +59,7 @@ describe("FrostWalletRegistry full-cycle DKG happy path (B-1.5 slice 3)", () => 
     this.timeout(300_000)
 
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ deployer, bridge } = await waffle.loadFixture(bridgeFixture))
+    ;({ deployer, bridge } = await loadFixture(bridgeFixture))
 
     // `bridgeFixture` installs the concrete COMPLETE_V2 router and immutable
     // reservation registry required by the FROST activation handshake.

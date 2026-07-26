@@ -41,6 +41,7 @@ import {
 import { walletState, constants } from "../fixtures"
 import { SingleP2SHDeposit, NO_MAIN_UTXO } from "../data/deposit-sweep"
 import { UTXOStruct } from "../../typechain/Bridge"
+import { loadFixture } from "../helpers/fixture"
 
 const { increaseTime } = helpers.time
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
@@ -90,7 +91,7 @@ describeFn("Integration Test - Slashing", async () => {
       randomBeacon,
       bridgeGovernance,
       ecdsaFraudRouter,
-    } = await waffle.loadFixture(fixture))
+    } = await loadFixture(fixture))
     ;[thirdParty] = await helpers.signers.getUnnamedSigners()
 
     // Update only the parameters that are crucial for this test.

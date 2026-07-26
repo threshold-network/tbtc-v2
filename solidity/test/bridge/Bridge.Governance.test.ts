@@ -1,4 +1,4 @@
-import { ethers, helpers, waffle } from "hardhat"
+import { ethers, helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { expect } from "chai"
 import { ContractTransaction } from "ethers"
@@ -9,6 +9,7 @@ import type {
 } from "../../typechain"
 import { constants } from "../fixtures"
 import bridgeFixture from "../fixtures/bridge"
+import { loadFixture } from "../helpers/fixture"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
@@ -20,8 +21,9 @@ describe("Bridge - Governance", () => {
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ governance, thirdParty, bridgeGovernance, bridge } =
-      await waffle.loadFixture(bridgeFixture))
+    ;({ governance, thirdParty, bridgeGovernance, bridge } = await loadFixture(
+      bridgeFixture
+    ))
   })
 
   describe("beginGovernanceDelayUpdate", () => {

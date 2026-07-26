@@ -16,6 +16,7 @@ import {
   deriveFundedOperatorWallets,
   registerOperators,
 } from "../integration/utils/frost-wallet-registry"
+import { loadFixture } from "../helpers/fixture"
 
 // B-1.5 slice 2: 100-operator sortition pool fixture.
 //
@@ -49,8 +50,9 @@ describe("FrostWalletRegistry 100-operator fixture (B-1.5 slice 2)", () => {
     this.timeout(240_000)
 
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ deployer, governance, bridge, bridgeGovernance } =
-      await waffle.loadFixture(bridgeFixture))
+    ;({ deployer, governance, bridge, bridgeGovernance } = await loadFixture(
+      bridgeFixture
+    ))
 
     // Mirror the deploy chain from
     // FrostWalletRegistry.Permissions.test.ts: T token →

@@ -23,6 +23,7 @@ import {
   selectFrostGroup,
   signFrostDkgResult,
 } from "../integration/utils/frost-wallet-registry"
+import { loadFixture } from "../helpers/fixture"
 
 // Register smock's chai matchers (`have.been.calledOnce`,
 // `have.been.calledWith`, etc.) for use against smock fakes.
@@ -85,7 +86,7 @@ describe("FrostWalletRegistry DKG edge cases (B-1.5 slice 4)", () => {
     this.timeout(300_000)
 
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ deployer, bridge } = await waffle.loadFixture(bridgeFixture))
+    ;({ deployer, bridge } = await loadFixture(bridgeFixture))
 
     // `bridgeFixture` installs the concrete COMPLETE_V2 router and immutable
     // reservation registry required by the FROST activation handshake.

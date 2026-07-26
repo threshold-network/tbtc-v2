@@ -1,5 +1,5 @@
 import { expect } from "chai"
-import { ethers, helpers, waffle } from "hardhat"
+import { ethers, helpers } from "hardhat"
 import type { BigNumber, Contract, ContractTransaction } from "ethers"
 import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import type {
@@ -10,6 +10,7 @@ import type {
 } from "../../typechain"
 import bridgeFixture from "../fixtures/bridge"
 import { constants } from "../fixtures"
+import { loadFixture } from "../helpers/fixture"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { increaseTime } = helpers.time
@@ -134,7 +135,7 @@ describe("Bridge - ECDSA fraud router cutover", () => {
   let oldRouter: EcdsaFraudRouter
 
   before(async () => {
-    const fixture = await waffle.loadFixture(bridgeFixture)
+    const fixture = await loadFixture(bridgeFixture)
     deployer = fixture.deployer
     governance = fixture.governance
     reconciler = fixture.thirdParty

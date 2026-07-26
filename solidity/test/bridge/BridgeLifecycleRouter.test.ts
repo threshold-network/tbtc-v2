@@ -1,5 +1,5 @@
 /* eslint-disable no-underscore-dangle */
-import { ethers, waffle, helpers } from "hardhat"
+import { ethers, helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { expect } from "chai"
 import type {
@@ -12,6 +12,7 @@ import type {
 import bridgeFixture from "../fixtures/bridge"
 import { rebindCompleteP2TRFraudRouter } from "../utils/p2trCoverage"
 import { walletState } from "../fixtures"
+import { loadFixture } from "../helpers/fixture"
 
 const frostXOnlyOutputKey =
   "0xb1de1afa17e1cbb20d8a4f8e54f8a55fbf5c8d2da9e1c6c4d1f0c7b3a2e5d4c8"
@@ -65,7 +66,7 @@ describe("BridgeLifecycleRouter", () => {
   let walletPubKeyHash: string
 
   beforeEach(async () => {
-    const fixture = await waffle.loadFixture(bridgeFixture)
+    const fixture = await loadFixture(bridgeFixture)
     thirdParty = fixture.thirdParty
     governance = fixture.governance
     bridge = fixture.bridge

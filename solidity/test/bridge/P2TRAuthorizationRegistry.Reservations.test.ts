@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 
 import { BigNumber, Signer } from "ethers"
-import { ethers, helpers, network, waffle } from "hardhat"
+import { ethers, helpers, network } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { expect } from "chai"
 import { smock } from "@defi-wonderland/smock"
@@ -11,6 +11,7 @@ import type {
   P2TRAuthorizationRegistry,
 } from "../../typechain"
 import bridgeFixture from "../fixtures/bridge"
+import { loadFixture } from "../helpers/fixture"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { hexConcat, hexZeroPad, keccak256, sha256, toUtf8Bytes } = ethers.utils
@@ -52,7 +53,7 @@ describe("P2TRAuthorizationRegistry pre-signing reservations", () => {
   let resourceIDs: string[]
 
   before(async () => {
-    const fixture = await waffle.loadFixture(bridgeFixture)
+    const fixture = await loadFixture(bridgeFixture)
     bridge = fixture.bridge
     operator = fixture.deployer
     relayer = fixture.thirdParty

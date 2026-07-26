@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 
 import { BigNumber } from "ethers"
-import { ethers, helpers, waffle } from "hardhat"
+import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 import { smock } from "@defi-wonderland/smock"
 import type { Bridge, BridgeStub } from "../../typechain"
@@ -10,6 +10,7 @@ import {
   COVERAGE_AUTHORIZATION_TUPLE,
   buildCoverageInitializationPayload,
 } from "../utils/p2trCoverage"
+import { loadFixture } from "../helpers/fixture"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { defaultAbiCoder, keccak256, solidityPack, toUtf8Bytes } = ethers.utils
@@ -20,7 +21,7 @@ describe("Bridge COMPLETE_V2 Taproot output-key coverage", () => {
   let migrator: any
 
   before(async () => {
-    const fixture = await waffle.loadFixture(bridgeFixture)
+    const fixture = await loadFixture(bridgeFixture)
     deployer = fixture.deployer
     migrator = fixture.thirdParty
     ;[bridge] = (await fixture.deployBridge(1, migrator.address)) as [
@@ -394,7 +395,7 @@ describe("Bridge COMPLETE_V2 Taproot output-key coverage", () => {
   })
 
   it("accepts EIP-1271 authorization and exposes the signed watermark", async () => {
-    const fixture = await waffle.loadFixture(bridgeFixture)
+    const fixture = await loadFixture(bridgeFixture)
     const authority = await smock.fake("IERC1271")
     authority.isValidSignature.returns("0x1626ba7e")
     const [contractBridge] = (await fixture.deployBridge(

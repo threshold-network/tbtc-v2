@@ -1,5 +1,5 @@
 /* eslint-disable no-underscore-dangle */
-import { ethers, helpers, waffle } from "hardhat"
+import { ethers, helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import chai, { expect } from "chai"
 import { smock, FakeContract } from "@defi-wonderland/smock"
@@ -16,6 +16,7 @@ import bridgeFixture from "../fixtures/bridge"
 import { rebindCompleteP2TRFraudRouter } from "../utils/p2trCoverage"
 import { ecdsaWalletTestData } from "../data/ecdsa"
 import { NO_MAIN_UTXO } from "../data/deposit-sweep"
+import { loadFixture } from "../helpers/fixture"
 
 chai.use(smock.matchers)
 
@@ -167,7 +168,7 @@ describe("Bridge - FROST Wallet Registration", () => {
       bridge,
       bridgeGovernance,
       deployer,
-    } = await waffle.loadFixture(bridgeFixture))
+    } = await loadFixture(bridgeFixture))
 
     const FrostRegistryStubFactory = await ethers.getContractFactory(
       "FrostWalletRegistryStub"

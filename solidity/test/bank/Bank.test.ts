@@ -1,4 +1,4 @@
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import chai, { expect } from "chai"
 import { FakeContract, smock } from "@defi-wonderland/smock"
@@ -6,6 +6,7 @@ import { FakeContract, smock } from "@defi-wonderland/smock"
 import { ContractTransaction, Signature, Wallet } from "ethers"
 import type { Bank, IVault } from "../../typechain"
 import { to1e18, toSatoshis } from "../helpers/contract-test-helpers"
+import { loadFixture } from "../helpers/fixture"
 
 chai.use(smock.matchers)
 
@@ -47,8 +48,9 @@ describe("Bank", () => {
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ deployer, governance, bridge, thirdParty, bank } =
-      await waffle.loadFixture(fixture))
+    ;({ deployer, governance, bridge, thirdParty, bank } = await loadFixture(
+      fixture
+    ))
   })
 
   describe("PERMIT_TYPEHASH", () => {

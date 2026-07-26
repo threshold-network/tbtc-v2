@@ -1,4 +1,4 @@
-import { ethers, waffle, helpers } from "hardhat"
+import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 import type { BigNumber, Signer } from "ethers"
 import { constants } from "../fixtures"
@@ -10,6 +10,7 @@ import {
   getBlockTime,
 } from "../helpers/contract-test-helpers"
 import bridgeFixture from "../fixtures/bridge"
+import { loadFixture } from "../helpers/fixture"
 
 const ZERO_ADDRESS = ethers.constants.AddressZero
 
@@ -43,7 +44,7 @@ describe("VendingMachine", () => {
       thirdParty,
     ] = await helpers.signers.getUnnamedSigners()
 
-    await waffle.loadFixture(bridgeFixture)
+    await loadFixture(bridgeFixture)
     tbtcV1 = await helpers.contracts.getContract("TBTCToken")
     tbtcV2 = await helpers.contracts.getContract("TBTC")
     vendingMachine = await helpers.contracts.getContract("VendingMachine")

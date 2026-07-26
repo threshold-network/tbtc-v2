@@ -7,7 +7,7 @@ import path from "path"
 import { expect } from "chai"
 import type { Deployment } from "hardhat-deploy/types"
 import { BigNumber, Wallet, constants, providers, utils } from "ethers"
-import { artifacts, deployments, ethers, network, waffle } from "hardhat"
+import { artifacts, deployments, ethers, network } from "hardhat"
 import deployCompleteP2TRActivation, {
   ACTIVATION_ARTIFACT_SCHEMA,
   BRIDGE_GOVERNANCE_PENDING_TARGET_SLOT,
@@ -73,6 +73,7 @@ import {
   handoffPlanHash,
 } from "../../scripts/ecdsa-fraud-router-cutover-lib"
 import bridgeFixture from "../fixtures/bridge"
+import { loadFixture } from "../helpers/fixture"
 
 describe("Deploy Script 88: COMPLETE_V2 activation", () => {
   const bridge = "0x1000000000000000000000000000000000000001"
@@ -1815,7 +1816,7 @@ describe("Deploy Script 88: finalized step-87 ECDSA reuse", () => {
     )
 
   it("prepares the transitional union upgrade without enabling post-upgrade phases", async () => {
-    const fixture = await waffle.loadFixture(finalizedFixture)
+    const fixture = await loadFixture(finalizedFixture)
     const transitionalManifest = {
       ...fixture.manifest,
       phase: "new-governance-owned",
@@ -1837,7 +1838,7 @@ describe("Deploy Script 88: finalized step-87 ECDSA reuse", () => {
   })
 
   it("reuses the finalized migrated router with legitimate open challenge escrow", async () => {
-    const fixture = await waffle.loadFixture(finalizedFixture)
+    const fixture = await loadFixture(finalizedFixture)
     const binding = await validate(fixture)
     expect(binding.finalized).to.be.true
     expect(binding.openChallengeCount).to.equal("1")
@@ -1848,7 +1849,7 @@ describe("Deploy Script 88: finalized step-87 ECDSA reuse", () => {
   })
 
   it("resumes 87-prep through the union-only interruption, refreshed handoff, and finalized 88 binding", async () => {
-    const fixture = await waffle.loadFixture(finalizedFixture)
+    const fixture = await loadFixture(finalizedFixture)
     const finalizedBinding = await validate(fixture)
 
     expect(fixture.preparedBinding.finalized).to.be.false
@@ -1870,7 +1871,7 @@ describe("Deploy Script 88: finalized step-87 ECDSA reuse", () => {
   })
 
   it("rejects stale aliases, wrong code hashes, active drain, and unfinalized artifacts", async () => {
-    const fixture = await waffle.loadFixture(finalizedFixture)
+    const fixture = await loadFixture(finalizedFixture)
     await expectRejected(
       validate(fixture, fixture.manifest, {
         ...fixture.aliases,
@@ -1919,7 +1920,7 @@ describe("Deploy Script 88: finalized step-87 ECDSA reuse", () => {
   })
 
   it("rejects manifest identity/hash and union-predecessor resume drift", async () => {
-    const fixture = await waffle.loadFixture(finalizedFixture)
+    const fixture = await loadFixture(finalizedFixture)
     const binding = await validate(fixture)
     expect(() =>
       assertEcdsaCutoverResume(fixture.preparedBinding, {
