@@ -4,6 +4,7 @@ import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { smock } from "@defi-wonderland/smock"
 import chai, { expect } from "chai"
 import bridgeFixture from "../fixtures/bridge"
+import { rebindCompleteP2TRFraudRouter } from "../utils/p2trCoverage"
 import type {
   Bridge,
   BridgeStub,
@@ -141,6 +142,21 @@ describe("FrostWalletRegistry full-cycle DKG happy path (B-1.5 slice 3)", () => 
     // is harmless.
 
     await bridge.resetFrostWalletRegistryForTest(frostWalletRegistry.address)
+
+    // Swapping the Bridge's FROST registry orphans the authorization registry
+    // `bridgeFixture` installed -- its `frostRegistry` is immutable -- so
+    // `Wallets.requireCompleteP2TRFraudEvidence` fails closed and wallet
+    // registration reverts with P2TRFraudEvidenceUnavailable() before reaching
+    // what this suite asserts. Rebind the pair to the local registry.
+    await rebindCompleteP2TRFraudRouter(
+      bridge,
+      frostWalletRegistry.address,
+      (
+        await helpers.contracts.getContract("WalletProposalValidator")
+      ).address,
+      deployer,
+      ethers
+    )
 
     // Bridge-side callback guard requires the registry lifecycle owner
     // to match Bridge.lifecycleRouter. The deploy chain sets the

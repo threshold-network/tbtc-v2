@@ -10,6 +10,7 @@ import type {
   FrostWalletRegistryStub,
 } from "../../typechain"
 import bridgeFixture from "../fixtures/bridge"
+import { rebindCompleteP2TRFraudRouter } from "../utils/p2trCoverage"
 import { walletState } from "../fixtures"
 
 const frostXOnlyOutputKey =
@@ -86,6 +87,20 @@ describe("BridgeLifecycleRouter", () => {
     await router.deployed()
 
     await bridge.resetFrostWalletRegistryForTest(frostRegistry.address)
+    // The bridge fixture installs a COMPLETE_V2 router whose authorization
+    // registry has an immutable `frostRegistry` pointing at the canonical
+    // FrostWalletRegistry. Swapping the Bridge's registry above breaks that
+    // handshake, so FROST wallet registration would fail closed with
+    // P2TRFraudEvidenceUnavailable() before reaching what these tests assert.
+    await rebindCompleteP2TRFraudRouter(
+      bridge,
+      frostRegistry.address,
+      (
+        await helpers.contracts.getContract("WalletProposalValidator")
+      ).address,
+      fixture.deployer,
+      ethers
+    )
     await bridge.resetLifecycleRouterForTest(router.address)
     await frostRegistry.setLifecycleOwner(router.address)
     await frostRegistry.callBridgeFrostWalletCreatedCallback(

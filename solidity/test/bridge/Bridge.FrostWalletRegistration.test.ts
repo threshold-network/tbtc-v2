@@ -13,6 +13,7 @@ import type {
 } from "../../typechain"
 import { walletState } from "../fixtures"
 import bridgeFixture from "../fixtures/bridge"
+import { rebindCompleteP2TRFraudRouter } from "../utils/p2trCoverage"
 import { ecdsaWalletTestData } from "../data/ecdsa"
 import { NO_MAIN_UTXO } from "../data/deposit-sweep"
 
@@ -135,11 +136,38 @@ describe("Bridge - FROST Wallet Registration", () => {
   let walletRegistry: FakeContract<IWalletRegistry>
   let bridge: Bridge & BridgeStub
   let bridgeGovernance: BridgeGovernance
+  let deployer: SignerWithAddress
+
+  // The bridge fixture installs a COMPLETE_V2 router whose authorization
+  // registry has an immutable `frostRegistry` pointing at the canonical
+  // FrostWalletRegistry. Every `resetFrostWalletRegistryForTest(frostRegistry)`
+  // below breaks that handshake, so `registerNewFrostWallet` would fail closed
+  // with P2TRFraudEvidenceUnavailable() before reaching the LifecycleRouterNotSet
+  // / LifecycleOwnerMismatch / FrostWalletIdIsZero / FrostWalletIdNotNative
+  // condition the test is asserting. Rebind the pair to the stub instead of
+  // relaxing the guard.
+  const rebindFraudRouterToStubRegistry = async (): Promise<void> => {
+    await rebindCompleteP2TRFraudRouter(
+      bridge,
+      frostRegistry.address,
+      (
+        await helpers.contracts.getContract("WalletProposalValidator")
+      ).address,
+      deployer,
+      ethers
+    )
+  }
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ governance, thirdParty, walletRegistry, bridge, bridgeGovernance } =
-      await waffle.loadFixture(bridgeFixture))
+    ;({
+      governance,
+      thirdParty,
+      walletRegistry,
+      bridge,
+      bridgeGovernance,
+      deployer,
+    } = await waffle.loadFixture(bridgeFixture))
 
     const FrostRegistryStubFactory = await ethers.getContractFactory(
       "FrostWalletRegistryStub"
@@ -264,6 +292,7 @@ describe("Bridge - FROST Wallet Registration", () => {
     beforeEach(async () => {
       await createSnapshot()
       await bridge.resetFrostWalletRegistryForTest(frostRegistry.address)
+      await rebindFraudRouterToStubRegistry()
       await frostRegistry.resetRequestNewWalletCalled()
     })
 
@@ -381,6 +410,12 @@ describe("Bridge - FROST Wallet Registration", () => {
         await bridgeGovernance
           .connect(governance)
           .setFrostWalletRegistry(frostRegistry.address)
+        // Same handshake as the reset-based swaps above: pointing the Bridge
+        // at the stub registry orphans the fixture's authorization registry,
+        // whose `frostRegistry` is immutable. The nested "complete P2TR fraud
+        // evidence is unavailable" cases install their own deliberately bad
+        // routers on top of this, so they still exercise the guard firing.
+        await rebindFraudRouterToStubRegistry()
       })
 
       after(async () => {
@@ -634,6 +669,7 @@ describe("Bridge - FROST Wallet Registration", () => {
     beforeEach(async () => {
       await createSnapshot()
       await bridge.resetFrostWalletRegistryForTest(frostRegistry.address)
+      await rebindFraudRouterToStubRegistry()
       await bridge.resetLifecycleRouterForTest(thirdParty.address)
       await frostRegistry.setLifecycleOwner(thirdParty.address)
       await frostRegistry.callBridgeFrostWalletCreatedCallback(
@@ -756,6 +792,7 @@ describe("Bridge - FROST Wallet Registration", () => {
     before(async () => {
       await createSnapshot()
       await bridge.resetFrostWalletRegistryForTest(frostRegistry.address)
+      await rebindFraudRouterToStubRegistry()
 
       await frostRegistry.callBridgeFrostWalletCreatedCallback(
         bridge.address,

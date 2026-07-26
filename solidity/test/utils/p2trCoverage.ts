@@ -208,3 +208,55 @@ export async function buildCoverageInitializationPayload(
 }
 
 export const emptyCoverageRoot = constants.HashZero
+
+/**
+ * Rebinds the COMPLETE_V2 fraud router to a different FROST wallet registry.
+ *
+ * `Wallets.requireCompleteP2TRFraudEvidence` fails closed unless the installed
+ * router's authorization registry reports the same `frostRegistry()` the Bridge
+ * holds, and `P2TRAuthorizationRegistry.frostRegistry` is immutable. So a suite
+ * that swaps in a `FrostWalletRegistryStub` via `resetFrostWalletRegistryForTest`
+ * invalidates the pair the bridge fixture installed, and every subsequent FROST
+ * wallet registration reverts with `P2TRFraudEvidenceUnavailable()` before it
+ * can reach the condition the test is actually asserting.
+ *
+ * Deploys a matching registry/router pair for `frostRegistryAddress` and points
+ * the Bridge at it, so the handshake is satisfied for the real reason rather
+ * than by relaxing the guard.
+ */
+export async function rebindCompleteP2TRFraudRouter(
+  bridge: Contract,
+  frostRegistryAddress: string,
+  walletProposalValidatorAddress: string,
+  deployer: Signer,
+  ethersLib: {
+    getContractFactory: (
+      name: string,
+      signer?: Signer
+    ) => Promise<{ deploy: (...args: unknown[]) => Promise<Contract> }>
+  }
+): Promise<string> {
+  const AuthorizationRegistryFactory = await ethersLib.getContractFactory(
+    "P2TRAuthorizationRegistry",
+    deployer
+  )
+  const authorizationRegistry = await AuthorizationRegistryFactory.deploy(
+    bridge.address,
+    frostRegistryAddress,
+    walletProposalValidatorAddress
+  )
+  await authorizationRegistry.deployed()
+
+  const RouterFactory = await ethersLib.getContractFactory(
+    "CompleteP2TRSignatureFraudRouter",
+    deployer
+  )
+  const router = await RouterFactory.deploy(
+    bridge.address,
+    authorizationRegistry.address
+  )
+  await router.deployed()
+
+  await bridge.resetP2TRFraudRouterForTest(router.address)
+  return router.address
+}
