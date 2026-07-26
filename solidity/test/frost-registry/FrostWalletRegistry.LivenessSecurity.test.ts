@@ -144,8 +144,8 @@ describe("FrostWalletRegistry DKG liveness integration", () => {
       await ethers.provider.getStorageAt(registry.address, archiveStateSlot)
     )
     const archiveStateMask = ethers.BigNumber.from(0xff).shl(224)
-    const setArchiveState = async (state: number) =>
-      hre.network.provider.send("hardhat_setStorageAt", [
+    const setArchiveState = async (state: number) => {
+      await hre.network.provider.send("hardhat_setStorageAt", [
         registry.address,
         ethers.utils.hexValue(archiveStateSlot),
         ethers.utils.hexZeroPad(
@@ -156,6 +156,12 @@ describe("FrostWalletRegistry DKG liveness integration", () => {
           32
         ),
       ])
+      // `hardhat_setStorageAt` leaves the write pending, and smock caches
+      // the state manager it installs fake bytecode through. Until a block
+      // is mined that cache is stale and every later `smock.fake()` in the
+      // process silently installs no code.
+      await hre.network.provider.send("evm_mine")
+    }
     await setArchiveState(1)
     await expect(registry.connect(randomBeaconSigner).__beaconCallback(seed, 0))
       .to.be.reverted

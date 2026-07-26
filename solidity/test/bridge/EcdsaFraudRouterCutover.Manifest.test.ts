@@ -47,6 +47,11 @@ async function setStorage(
     ethers.utils.hexValue(slot),
     storageWord(value),
   ])
+  // `hardhat_setStorageAt` leaves the write pending, and smock caches the
+  // state manager it installs fake bytecode through. Until a block is mined
+  // that cache is stale and every later `smock.fake()` in the process
+  // silently installs no code.
+  await network.provider.send("evm_mine")
 }
 
 describe("ECDSA fraud cutover manifest guards", () => {
