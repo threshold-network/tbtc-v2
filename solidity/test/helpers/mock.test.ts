@@ -64,7 +64,10 @@ describe("MockContract", () => {
 
     it("returns the zero value when unstubbed", async () => {
       // smock answers an unconfigured function with the zero value of its
-      // return type rather than reverting; empty returndata decodes the same.
+      // return type rather than reverting. Empty returndata would not do:
+      // Solidity checks returndatasize against the size its ABI expects and
+      // reverts the caller on a short answer, so the helper installs a
+      // correctly encoded zero for every function up front.
       expect(await consumer.readValueThroughStaticCall(7)).to.equal(0)
     })
   })
@@ -219,6 +222,62 @@ describe("MockContract", () => {
       await pinnedConsumer.deployed()
 
       expect(await pinnedConsumer.readValueThroughStaticCall(1)).to.equal(7)
+    })
+  })
+
+  describe("storage left behind at a pinned address", () => {
+    it("is not read back as configuration", async () => {
+      // Mocks are routinely installed over an address that already holds a
+      // deployed contract — `test/fixtures/bridge.ts` pins them at the Bridge's
+      // real ecdsaWalletRegistry and relay. `hardhat_setCode` replaces the code
+      // and leaves the storage, so a mock keeping its state at slots 0, 1, 2...
+      // would read that leftover as its own.
+      const address = ethers.utils.getAddress(`0x${"cd".repeat(20)}`)
+      const garbage =
+        "0xdeadbeef00000000000000000000000000000000000000000000000000000001"
+
+      await Promise.all(
+        Array.from({ length: 8 }, (_, slot) =>
+          ethers.provider.send("hardhat_setStorageAt", [
+            address,
+            ethers.utils.hexValue(slot),
+            garbage,
+          ])
+        )
+      )
+
+      const pinned = await createMock<IMockTarget>("IMockTarget", { address })
+
+      expect(await pinned.doThing.callCount()).to.equal(0)
+
+      await pinned.readValue.returns(7)
+
+      const factory = await ethers.getContractFactory("MockTargetConsumer")
+      const pinnedConsumer = await factory.deploy(address)
+      await pinnedConsumer.deployed()
+
+      expect(await pinnedConsumer.readValueThroughStaticCall(1)).to.equal(7)
+    })
+  })
+
+  describe("call assertions on read-only functions", () => {
+    it("are refused rather than silently answered zero", async () => {
+      // A view function is reached by STATICCALL and cannot be recorded.
+      // Answering "0 calls" would read as a passing assertion.
+      let message = ""
+      try {
+        await target.readValue.callCount()
+      } catch (error) {
+        message = (error as Error).message
+      }
+
+      expect(message).to.contain("STATICCALL")
+    })
+
+    it("still allow the function to be stubbed", async () => {
+      await target.readValue.returns(3)
+
+      expect(await consumer.readValueThroughStaticCall(1)).to.equal(3)
     })
   })
 })

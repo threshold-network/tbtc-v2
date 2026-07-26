@@ -264,6 +264,21 @@ export async function createMock<T>(
   )
   await mockContract.__mock__setBaseReturns(baseSelectors, baseReturns)
 
+  // Flag the read-only functions. Solidity reaches them by STATICCALL, where
+  // the storage write recording needs is impossible, so the mock must not even
+  // attempt it. Doing this from the ABI rather than discovering it at runtime
+  // also lets `callCount`/`getCall` refuse loudly below.
+  const nonRecordingSelectors = baseFragments
+    .filter(
+      (fragment) =>
+        fragment.stateMutability === "view" ||
+        fragment.stateMutability === "pure"
+    )
+    .map((fragment) => targetInterface.getSighash(fragment))
+  if (nonRecordingSelectors.length > 0) {
+    await mockContract.__mock__setNonRecordingSelectors(nonRecordingSelectors)
+  }
+
   if (options.address !== undefined) {
     // Move the deployed bytecode to the requested address. The mock's storage
     // starts empty there, which is what a freshly configured mock expects.
@@ -286,6 +301,21 @@ export async function createMock<T>(
   function buildFunction(name: string): MockedFunction {
     const fragment = resolveFragment(byName.get(name) ?? [], name, target)
     const selector = targetInterface.getSighash(fragment)
+    const readOnly =
+      fragment.stateMutability === "view" || fragment.stateMutability === "pure"
+
+    // Calls to a read-only function cannot be recorded, so answering "0 calls"
+    // would be a lie that reads as a passing assertion. Refuse instead.
+    const refuseIfReadOnly = () => {
+      if (readOnly) {
+        throw new Error(
+          `${target}.${name} is ${fragment.stateMutability}, so Solidity ` +
+            "reaches it by STATICCALL and the mock cannot record the call. " +
+            "Assert on the state-changing function that consumed the value " +
+            "instead."
+        )
+      }
+    }
 
     const setForCalldata = async (
       args: unknown[],
@@ -343,12 +373,16 @@ export async function createMock<T>(
       },
 
       async callCount(): Promise<number> {
+        refuseIfReadOnly()
+
         const count: BigNumberish =
           await mockContract.__mock__callCountForSelector(selector)
         return Number(count)
       },
 
       async getCall(index: number): Promise<MockCall> {
+        refuseIfReadOnly()
+
         const callData: string = await mockContract.__mock__callForSelectorAt(
           selector,
           index
@@ -357,6 +391,8 @@ export async function createMock<T>(
       },
 
       async getCalls(): Promise<MockCall[]> {
+        refuseIfReadOnly()
+
         const count: BigNumberish =
           await mockContract.__mock__callCountForSelector(selector)
         const calls: MockCall[] = []

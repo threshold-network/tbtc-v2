@@ -49,42 +49,64 @@ contract MockContract {
         bytes data;
     }
 
-    /// @dev keccak256(full calldata) => response.
-    mapping(bytes32 => Response) private responseByCalldata;
-    /// @dev selector => response.
-    mapping(bytes4 => Response) private responseBySelector;
-
-    /// @dev selector => response of last resort, installed once when the mock
-    ///      is created and never cleared by `reset`.
+    /// @dev All mock state lives behind one hashed base slot.
     ///
-    ///      Solidity checks returndatasize against the size its ABI expects and
-    ///      reverts on a short answer, so an unconfigured function cannot
-    ///      simply return nothing: it has to return a correctly encoded zero
-    ///      value. Only the helper knows the mocked ABI, so it computes those
-    ///      encodings and installs them here. That reproduces smock, where an
-    ///      unstubbed function yields the zero value of its return type.
-    mapping(bytes4 => Response) private baseResponseBySelector;
+    ///      Mocks are routinely installed over an address that already holds a
+    ///      deployed contract — `test/fixtures/bridge.ts` pins them at the
+    ///      Bridge's real `ecdsaWalletRegistry` and `relay` addresses, and 19
+    ///      call sites pass an explicit address. `hardhat_setCode` replaces the
+    ///      code but leaves that contract's storage behind, so state at slots
+    ///      0, 1, 2... would be read back as configuration. An ERC-7201-style
+    ///      base slot puts this contract's state where nothing else has been.
+    struct State {
+        /// @dev keccak256(full calldata) => response.
+        mapping(bytes32 => Response) responseByCalldata;
+        /// @dev selector => response.
+        mapping(bytes4 => Response) responseBySelector;
+        /// @dev selector => response of last resort, installed once when the
+        ///      mock is created and never cleared by `reset`.
+        ///
+        ///      Solidity checks returndatasize against the size its ABI expects
+        ///      and reverts on a short answer, so an unconfigured function
+        ///      cannot simply return nothing: it has to return a correctly
+        ///      encoded zero. Only the helper knows the mocked ABI, so it
+        ///      computes those encodings and installs them here. That
+        ///      reproduces smock, where an unstubbed function yields the zero
+        ///      value of its return type.
+        mapping(bytes4 => Response) baseResponseBySelector;
+        /// @dev Selectors that must never be recorded, because the mocked ABI
+        ///      declares them `view` or `pure` and so they arrive by
+        ///      STATICCALL. See `__mock__record`.
+        mapping(bytes4 => bool) nonRecording;
+        /// @dev Keys of every exact-calldata entry configured so far, with the
+        ///      selector each belongs to. Exact-calldata entries are keyed by
+        ///      hash and so cannot be enumerated from the mapping; `reset`
+        ///      needs to clear them, and inferring them from recorded calls
+        ///      would be wrong because view calls are never recorded.
+        bytes32[] configuredCalldataKeys;
+        mapping(bytes32 => bytes4) selectorOfCalldataKey;
+        mapping(bytes32 => bool) calldataKeyKnown;
+        /// @dev Selectors given a default response, for the same reason.
+        bytes4[] configuredSelectors;
+        mapping(bytes4 => bool) selectorKnown;
+        /// @dev Every call recorded, in order, as raw calldata. Kept whole
+        ///      rather than decoded so the helper can decode against whichever
+        ///      ABI the test declared.
+        bytes[] receivedCalls;
+    }
 
-    /// @dev Keys of every exact-calldata entry configured so far, with the
-    ///      selector each belongs to. Exact-calldata entries are keyed by hash
-    ///      and so cannot be enumerated from the mapping; `reset` needs to
-    ///      clear them, and inferring them from recorded calls would be wrong
-    ///      because recording is best-effort (see `__mock__record`).
-    bytes32[] private configuredCalldataKeys;
-    mapping(bytes32 => bytes4) private selectorOfCalldataKey;
-    mapping(bytes32 => bool) private calldataKeyKnown;
+    /// @dev keccak256("tbtc.test.MockContract.state.v1") - 1, masked, per the
+    ///      ERC-7201 convention.
+    bytes32 private constant STATE_SLOT =
+        0xdd9627cd601a6555f69239ac336fba8db95c419564b84ebb3ee2c21fed88ae00;
 
-    /// @dev Selectors given a default response, for the same reason: a
-    ///      selector configured but never called — or only ever called by
-    ///      STATICCALL, which is not recorded — must still be cleared by
-    ///      `reset`.
-    bytes4[] private configuredSelectors;
-    mapping(bytes4 => bool) private selectorKnown;
-
-    /// @dev Every call recorded, in order, as raw calldata. Kept whole rather
-    ///      than decoded so the helper can decode against whichever ABI the
-    ///      test declared.
-    bytes[] private receivedCalls;
+    function _state() private pure returns (State storage state) {
+        bytes32 slot = STATE_SLOT;
+        // solhint-disable-next-line no-inline-assembly
+        assembly {
+            state.slot := slot
+        }
+    }
 
     /// @notice Configures the response for one exact calldata payload.
     /// @param callData Full ABI-encoded calldata, selector included.
@@ -94,7 +116,7 @@ contract MockContract {
         bytes calldata returnData
     ) external {
         __mock__rememberCalldataKey(callData);
-        responseByCalldata[keccak256(callData)] = Response(
+        _state().responseByCalldata[keccak256(callData)] = Response(
             Behaviour.Return,
             returnData
         );
@@ -107,7 +129,10 @@ contract MockContract {
         bytes calldata returnData
     ) external {
         __mock__rememberSelector(selector);
-        responseBySelector[selector] = Response(Behaviour.Return, returnData);
+        _state().responseBySelector[selector] = Response(
+            Behaviour.Return,
+            returnData
+        );
     }
 
     /// @notice Makes one exact calldata payload revert.
@@ -117,7 +142,7 @@ contract MockContract {
         bytes calldata revertData
     ) external {
         __mock__rememberCalldataKey(callData);
-        responseByCalldata[keccak256(callData)] = Response(
+        _state().responseByCalldata[keccak256(callData)] = Response(
             Behaviour.Revert,
             revertData
         );
@@ -130,64 +155,67 @@ contract MockContract {
         bytes calldata revertData
     ) external {
         __mock__rememberSelector(selector);
-        responseBySelector[selector] = Response(Behaviour.Revert, revertData);
+        _state().responseBySelector[selector] = Response(
+            Behaviour.Revert,
+            revertData
+        );
     }
 
     /// @notice Clears every response configured for one selector and forgets
     ///         the calls recorded for it. This is smock's `fn.reset()`.
     function __mock__resetSelector(bytes4 selector) external {
-        delete responseBySelector[selector];
+        delete _state().responseBySelector[selector];
 
         uint256 keptKeys = 0;
-        uint256 totalKeys = configuredCalldataKeys.length;
+        uint256 totalKeys = _state().configuredCalldataKeys.length;
         for (uint256 i = 0; i < totalKeys; i++) {
-            bytes32 key = configuredCalldataKeys[i];
+            bytes32 key = _state().configuredCalldataKeys[i];
 
-            if (selectorOfCalldataKey[key] == selector) {
-                delete responseByCalldata[key];
-                delete selectorOfCalldataKey[key];
-                delete calldataKeyKnown[key];
+            if (_state().selectorOfCalldataKey[key] == selector) {
+                delete _state().responseByCalldata[key];
+                delete _state().selectorOfCalldataKey[key];
+                delete _state().calldataKeyKnown[key];
             } else {
-                configuredCalldataKeys[keptKeys] = key;
+                _state().configuredCalldataKeys[keptKeys] = key;
                 keptKeys++;
             }
         }
-        while (configuredCalldataKeys.length > keptKeys) {
-            configuredCalldataKeys.pop();
+        while (_state().configuredCalldataKeys.length > keptKeys) {
+            _state().configuredCalldataKeys.pop();
         }
 
         uint256 keptCalls = 0;
-        uint256 totalCalls = receivedCalls.length;
+        uint256 totalCalls = _state().receivedCalls.length;
         for (uint256 i = 0; i < totalCalls; i++) {
-            if (__mock__selectorOf(receivedCalls[i]) != selector) {
-                receivedCalls[keptCalls] = receivedCalls[i];
+            if (__mock__selectorOf(_state().receivedCalls[i]) != selector) {
+                _state().receivedCalls[keptCalls] = _state().receivedCalls[i];
                 keptCalls++;
             }
         }
-        while (receivedCalls.length > keptCalls) {
-            receivedCalls.pop();
+        while (_state().receivedCalls.length > keptCalls) {
+            _state().receivedCalls.pop();
         }
     }
 
     /// @notice Clears every configured response and every recorded call.
     function __mock__reset() external {
-        uint256 totalKeys = configuredCalldataKeys.length;
+        uint256 totalKeys = _state().configuredCalldataKeys.length;
         for (uint256 i = 0; i < totalKeys; i++) {
-            bytes32 key = configuredCalldataKeys[i];
-            delete responseByCalldata[key];
-            delete selectorOfCalldataKey[key];
-            delete calldataKeyKnown[key];
+            bytes32 key = _state().configuredCalldataKeys[i];
+            delete _state().responseByCalldata[key];
+            delete _state().selectorOfCalldataKey[key];
+            delete _state().calldataKeyKnown[key];
         }
-        delete configuredCalldataKeys;
+        delete _state().configuredCalldataKeys;
 
-        uint256 totalSelectors = configuredSelectors.length;
+        uint256 totalSelectors = _state().configuredSelectors.length;
         for (uint256 i = 0; i < totalSelectors; i++) {
-            delete responseBySelector[configuredSelectors[i]];
-            delete selectorKnown[configuredSelectors[i]];
+            delete _state().responseBySelector[_state().configuredSelectors[i]];
+            delete _state().selectorKnown[_state().configuredSelectors[i]];
         }
-        delete configuredSelectors;
+        delete _state().configuredSelectors;
 
-        delete receivedCalls;
+        delete _state().receivedCalls;
     }
 
     /// @notice Installs the responses of last resort. Called once by the
@@ -203,17 +231,37 @@ contract MockContract {
         );
 
         for (uint256 i = 0; i < selectors.length; i++) {
-            baseResponseBySelector[selectors[i]] = Response(
+            _state().baseResponseBySelector[selectors[i]] = Response(
                 Behaviour.Return,
                 returnData[i]
             );
         }
     }
 
+    /// @notice Marks selectors that must never be recorded. The helper calls
+    ///         this once with every `view` and `pure` function of the mocked
+    ///         ABI.
+    function __mock__setNonRecordingSelectors(bytes4[] calldata selectors)
+        external
+    {
+        for (uint256 i = 0; i < selectors.length; i++) {
+            _state().nonRecording[selectors[i]] = true;
+        }
+    }
+
+    /// @notice Whether a selector is excluded from recording.
+    function __mock__isNonRecording(bytes4 selector)
+        external
+        view
+        returns (bool)
+    {
+        return _state().nonRecording[selector];
+    }
+
     /// @notice Clears the default response for one selector without touching
     ///         its exact-calldata entries or recorded calls.
     function __mock__clearSelector(bytes4 selector) external {
-        delete responseBySelector[selector];
+        delete _state().responseBySelector[selector];
     }
 
     /// @notice Appends a recorded call. Only ever invoked by this contract, on
@@ -235,12 +283,12 @@ contract MockContract {
             msg.sender == address(this),
             "MockContract: recording is internal"
         );
-        receivedCalls.push(callData);
+        _state().receivedCalls.push(callData);
     }
 
     /// @notice Number of calls recorded, across all selectors.
     function __mock__callCount() external view returns (uint256) {
-        return receivedCalls.length;
+        return _state().receivedCalls.length;
     }
 
     /// @notice Raw calldata of the i-th call recorded, across all selectors.
@@ -249,7 +297,7 @@ contract MockContract {
         view
         returns (bytes memory)
     {
-        return receivedCalls[index];
+        return _state().receivedCalls[index];
     }
 
     /// @notice Number of calls recorded for one selector.
@@ -258,9 +306,9 @@ contract MockContract {
         view
         returns (uint256 count)
     {
-        uint256 total = receivedCalls.length;
+        uint256 total = _state().receivedCalls.length;
         for (uint256 i = 0; i < total; i++) {
-            if (__mock__selectorOf(receivedCalls[i]) == selector) {
+            if (__mock__selectorOf(_state().receivedCalls[i]) == selector) {
                 count++;
             }
         }
@@ -273,12 +321,12 @@ contract MockContract {
         returns (bytes memory)
     {
         uint256 seen = 0;
-        uint256 total = receivedCalls.length;
+        uint256 total = _state().receivedCalls.length;
 
         for (uint256 i = 0; i < total; i++) {
-            if (__mock__selectorOf(receivedCalls[i]) == selector) {
+            if (__mock__selectorOf(_state().receivedCalls[i]) == selector) {
                 if (seen == index) {
-                    return receivedCalls[i];
+                    return _state().receivedCalls[i];
                 }
                 seen++;
             }
@@ -310,9 +358,18 @@ contract MockContract {
     // returning through assembly is immune to that.
     // solhint-disable-next-line no-complex-fallback
     fallback() external payable {
-        // Best-effort: silently skipped under STATICCALL. See `__mock__record`.
-        // solhint-disable-next-line no-empty-blocks
-        try this.__mock__record(msg.data) {} catch {}
+        // A `view` or `pure` function on the mocked ABI arrives by STATICCALL,
+        // where the storage write recording needs is impossible. Those
+        // selectors are flagged up front so the attempt is skipped outright
+        // rather than made and swallowed — which keeps them off the gas budget
+        // of the hot path, SPV proofs being the case that matters.
+        //
+        // The try/catch still guards the rest: a state-changing function is
+        // also reached statically under `eth_call`/`callStatic`.
+        if (!_state().nonRecording[__mock__selectorOf(msg.data)]) {
+            // solhint-disable-next-line no-empty-blocks
+            try this.__mock__record(msg.data) {} catch {}
+        }
 
         bytes memory result = __mock__responseFor(msg.data);
 
@@ -332,19 +389,21 @@ contract MockContract {
         view
         returns (bytes memory)
     {
-        Response storage exact = responseByCalldata[keccak256(callData)];
+        Response storage exact = _state().responseByCalldata[
+            keccak256(callData)
+        ];
         if (exact.behaviour != Behaviour.Unset) {
             return __mock__respond(exact);
         }
 
         bytes4 selector = __mock__selectorOf(callData);
 
-        Response storage bySelector = responseBySelector[selector];
+        Response storage bySelector = _state().responseBySelector[selector];
         if (bySelector.behaviour != Behaviour.Unset) {
             return __mock__respond(bySelector);
         }
 
-        Response storage base = baseResponseBySelector[selector];
+        Response storage base = _state().baseResponseBySelector[selector];
         if (base.behaviour != Behaviour.Unset) {
             return __mock__respond(base);
         }
@@ -353,19 +412,19 @@ contract MockContract {
     }
 
     function __mock__rememberSelector(bytes4 selector) private {
-        if (!selectorKnown[selector]) {
-            selectorKnown[selector] = true;
-            configuredSelectors.push(selector);
+        if (!_state().selectorKnown[selector]) {
+            _state().selectorKnown[selector] = true;
+            _state().configuredSelectors.push(selector);
         }
     }
 
     function __mock__rememberCalldataKey(bytes calldata callData) private {
         bytes32 key = keccak256(callData);
 
-        if (!calldataKeyKnown[key]) {
-            calldataKeyKnown[key] = true;
-            selectorOfCalldataKey[key] = __mock__selectorOf(callData);
-            configuredCalldataKeys.push(key);
+        if (!_state().calldataKeyKnown[key]) {
+            _state().calldataKeyKnown[key] = true;
+            _state().selectorOfCalldataKey[key] = __mock__selectorOf(callData);
+            _state().configuredCalldataKeys.push(key);
         }
     }
 
