@@ -406,7 +406,7 @@ describe("L1BTCDepositorNtt Core Functions", () => {
 
           const revealedAt = (await lastBlockTime()) - 7200
           const finalizedAt = await lastBlockTime()
-          bridge.deposits
+          await bridge.deposits
             .whenCalledWith(initializeDepositFixture.depositKey)
             .returns({
               depositor: ethers.constants.AddressZero,
@@ -418,7 +418,7 @@ describe("L1BTCDepositorNtt Core Functions", () => {
               extraData: ethers.constants.HashZero,
             })
 
-          tbtcVault.optimisticMintingRequests
+          await tbtcVault.optimisticMintingRequests
             .whenCalledWith(initializeDepositFixture.depositKey)
             .returns([revealedAt, finalizedAt])
 

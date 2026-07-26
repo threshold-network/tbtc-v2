@@ -27,6 +27,15 @@ import type { FunctionFragment, Interface, ParamType } from "ethers/lib/utils"
  * behavioural difference from smock and the reason the migration touches call
  * sites at all.
  *
+ * A transaction also mines a block, and Hardhat advances the clock a second
+ * per block, where smock advanced it not at all. Suites that assert on a
+ * boundary cannot absorb that: WalletProposalValidator stubs a 7200 second
+ * delay, advances time by exactly 7200 and requires
+ * `block.timestamp > requestedAt + minAge` to be false — any drift inverts it.
+ * So every write below pins the next block's timestamp to the current one,
+ * which needs `allowBlocksWithSameTimestamp` in hardhat.config.ts and is why
+ * this package is on hardhat >= 2.19.
+ *
  * Semantics follow Foundry's `vm.mockCall` deliberately: an exact-calldata
  * entry wins over a selector-wide default, and an unconfigured function
  * returns the zero value of its return type, matching smock.
@@ -38,6 +47,20 @@ import type { FunctionFragment, Interface, ParamType } from "ethers/lib/utils"
  * encodings up front and installs them in the mock as a base layer that
  * `reset` does not disturb.
  */
+
+/**
+ * Runs a configuration transaction without advancing the chain clock.
+ *
+ * `allowBlocksWithSameTimestamp` only *permits* a block to reuse the previous
+ * timestamp; it does not make it happen. Determinism comes from setting the
+ * next timestamp explicitly, so that is done here rather than left to how fast
+ * the machine happens to be.
+ */
+async function withoutAdvancingTime<T>(write: () => Promise<T>): Promise<T> {
+  const { timestamp } = await ethers.provider.getBlock("latest")
+  await ethers.provider.send("evm_setNextBlockTimestamp", [timestamp])
+  return write()
+}
 
 /** A recorded call, decoded against the mocked interface. */
 export interface MockCall {
@@ -245,7 +268,9 @@ export async function createMock<T>(
   const targetInterface = new ethers.utils.Interface(targetArtifact.abi)
 
   const mockFactory = await ethers.getContractFactory("MockContract")
-  let mockContract = await mockFactory.deploy()
+  // Deploying is a transaction too, and a mock is routinely created inside a
+  // `before` hook after the test has already captured a baseline timestamp.
+  let mockContract = await withoutAdvancingTime(() => mockFactory.deploy())
   await mockContract.deployed()
 
   assertNoSelectorCollision(targetInterface, mockContract.interface, target)
@@ -264,7 +289,9 @@ export async function createMock<T>(
           fragment.outputs.map((output) => zeroValueFor(output))
         )
   )
-  await mockContract.__mock__setBaseReturns(baseSelectors, baseReturns)
+  await withoutAdvancingTime(() =>
+    mockContract.__mock__setBaseReturns(baseSelectors, baseReturns)
+  )
 
   // Flag the read-only functions. Solidity reaches them by STATICCALL, where
   // the storage write recording needs is impossible, so the mock must not even
@@ -278,7 +305,9 @@ export async function createMock<T>(
     )
     .map((fragment) => targetInterface.getSighash(fragment))
   if (nonRecordingSelectors.length > 0) {
-    await mockContract.__mock__setNonRecordingSelectors(nonRecordingSelectors)
+    await withoutAdvancingTime(() =>
+      mockContract.__mock__setNonRecordingSelectors(nonRecordingSelectors)
+    )
   }
 
   if (options.address !== undefined) {
@@ -329,17 +358,17 @@ export async function createMock<T>(
         args as never[]
       )
 
-      if (behaviour === "return") {
-        await mockContract.__mock__setReturnForCalldata(
-          callData,
-          encodeReturn(fragment, payload)
-        )
-      } else {
-        await mockContract.__mock__setRevertForCalldata(
-          callData,
-          encodeRevert(payload as string | undefined)
-        )
-      }
+      await withoutAdvancingTime(() =>
+        behaviour === "return"
+          ? mockContract.__mock__setReturnForCalldata(
+              callData,
+              encodeReturn(fragment, payload)
+            )
+          : mockContract.__mock__setRevertForCalldata(
+              callData,
+              encodeRevert(payload as string | undefined)
+            )
+      )
     }
 
     const decodeCall = (callData: string): MockCall => ({
@@ -350,16 +379,20 @@ export async function createMock<T>(
 
     return {
       async returns(value?: unknown): Promise<void> {
-        await mockContract.__mock__setReturnForSelector(
-          selector,
-          encodeReturn(fragment, value)
+        await withoutAdvancingTime(() =>
+          mockContract.__mock__setReturnForSelector(
+            selector,
+            encodeReturn(fragment, value)
+          )
         )
       },
 
       async reverts(reason?: string): Promise<void> {
-        await mockContract.__mock__setRevertForSelector(
-          selector,
-          encodeRevert(reason)
+        await withoutAdvancingTime(() =>
+          mockContract.__mock__setRevertForSelector(
+            selector,
+            encodeRevert(reason)
+          )
         )
       },
 
@@ -371,7 +404,9 @@ export async function createMock<T>(
       },
 
       async reset(): Promise<void> {
-        await mockContract.__mock__resetSelector(selector)
+        await withoutAdvancingTime(() =>
+          mockContract.__mock__resetSelector(selector)
+        )
       },
 
       async callCount(): Promise<number> {
@@ -426,7 +461,7 @@ export async function createMock<T>(
     wallet,
     mockContract,
     async reset(): Promise<void> {
-      await mockContract.__mock__reset()
+      await withoutAdvancingTime(() => mockContract.__mock__reset())
     },
   }
 

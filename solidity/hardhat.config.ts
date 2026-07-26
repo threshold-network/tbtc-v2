@@ -91,6 +91,17 @@ const config: HardhatUserConfig = {
 
   networks: {
     hardhat: {
+      // Configuration of a test mock is a transaction, and Hardhat advances
+      // the clock one second per block. smock configured fakes in-process and
+      // advanced it not at all, so suites asserting on a boundary cannot
+      // absorb the difference — WalletProposalValidator stubs a 7200s delay,
+      // advances time by exactly 7200 and requires
+      // `block.timestamp > requestedAt + minAge` to be false.
+      //
+      // With this on, `test/helpers/mock.ts` pins the next block's timestamp
+      // to the current one before each configuration write, so configuring a
+      // mock does not move the clock.
+      allowBlocksWithSameTimestamp: true,
       forking: {
         // forking is enabled only if FORKING_URL env is provided
         enabled: !!process.env.FORKING_URL,
