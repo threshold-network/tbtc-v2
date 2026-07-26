@@ -1,43 +1,82 @@
 /* eslint-disable no-underscore-dangle */
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 
-import { ethers, deployments, helpers, waffle } from "hardhat"
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import {
+  deployments,
+  getNamedAccounts,
+  getUnnamedAccounts,
+  helpers,
+  viem,
+} from "hardhat"
 import { expect } from "chai"
-import { ContractTransaction, BigNumber } from "ethers"
+import { getAddress, parseEther, parseGwei, zeroAddress } from "viem"
+import type { Hash } from "viem"
+// The client types have to come from the plugin rather than from viem: viem's
+// own `WalletClient` leaves `account` optional, while every client the plugin
+// hands back has one, and `strict` mode rejects the difference at each use.
 import type {
-  LightRelay,
-  LightRelayMaintainerProxy,
-  ReimbursementPool,
-} from "../../typechain"
+  PublicClient,
+  WalletClient,
+} from "@nomicfoundation/hardhat-viem/types"
+// The stand-in for a typechain import. `ContractTypesMap` is declaration
+// merged into `hardhat/types/artifacts` by the `.d.ts` files hardhat-viem
+// emits next to the artifacts, so `paths.artifacts` has to be inside the
+// tsconfig `include` for these names to resolve.
+import type { ContractTypesMap } from "hardhat/types/artifacts"
 import { concatenateHexStrings } from "../helpers/contract-test-helpers"
+import { expectEvent, expectRevert } from "../helpers/viem"
 import longHeaders from "./longHeaders.json"
-
-const { provider } = waffle
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
-const ZERO_ADDRESS = ethers.constants.AddressZero
+/** The fixtures and `concatenateHexStrings` predate viem's `0x`-prefixed hex type. */
+const asHex = (value: string) => value as `0x${string}`
+
+type LightRelay = ContractTypesMap["LightRelay"]
+type LightRelayMaintainerProxy = ContractTypesMap["LightRelayMaintainerProxy"]
+type ReimbursementPool = ContractTypesMap["ReimbursementPool"]
 
 const fixture = async () => {
   await deployments.fixture()
 
-  const { deployer, governance } = await helpers.signers.getNamedSigners()
-  const [thirdParty, maintainer] = await helpers.signers.getUnnamedSigners()
+  const publicClient = await viem.getPublicClient()
 
-  const reimbursementPool: ReimbursementPool =
-    await helpers.contracts.getContract("ReimbursementPool")
+  const named = await getNamedAccounts()
+  const unnamed = await getUnnamedAccounts()
 
-  const lightRelayMaintainerProxy: LightRelayMaintainerProxy =
-    await helpers.contracts.getContract("LightRelayMaintainerProxy")
+  const deployer = await viem.getWalletClient(getAddress(named.deployer))
+  const governance = await viem.getWalletClient(getAddress(named.governance))
+  const thirdParty = await viem.getWalletClient(getAddress(unnamed[0]))
+  const maintainer = await viem.getWalletClient(getAddress(unnamed[1]))
 
-  const lightRelay: LightRelay = await helpers.contracts.getContract(
-    "LightRelay"
+  // `helpers.contracts.getContract` hands back an ethers contract, so a viem
+  // test has to go to the deployment itself for the address and then bind the
+  // locally compiled artifact to it. The artifact name has to be a literal at
+  // each call site — `getContractAt` derives the contract type from it, so
+  // routing these through a `(name: string) => ...` helper would erase every
+  // read and write back to an untyped index signature.
+  const addressOf = async (name: string) =>
+    getAddress((await deployments.get(name)).address)
+
+  const reimbursementPool = await viem.getContractAt(
+    "ReimbursementPool",
+    await addressOf("ReimbursementPool")
+  )
+  const lightRelayMaintainerProxy = await viem.getContractAt(
+    "LightRelayMaintainerProxy",
+    await addressOf("LightRelayMaintainerProxy")
+  )
+  const lightRelay = await viem.getContractAt(
+    "LightRelay",
+    await addressOf("LightRelay")
   )
 
-  await lightRelay.connect(deployer).setAuthorizationStatus(true)
+  await lightRelay.write.setAuthorizationStatus([true], {
+    account: deployer.account,
+  })
 
   return {
+    publicClient,
     deployer,
     governance,
     maintainer,
@@ -49,10 +88,11 @@ const fixture = async () => {
 }
 
 describe("LightRelayMaintainerProxy", () => {
-  let deployer: SignerWithAddress
-  let governance: SignerWithAddress
-  let maintainer: SignerWithAddress
-  let thirdParty: SignerWithAddress
+  let publicClient: PublicClient
+  let deployer: WalletClient
+  let governance: WalletClient
+  let maintainer: WalletClient
+  let thirdParty: WalletClient
   let reimbursementPool: ReimbursementPool
   let lightRelayMaintainerProxy: LightRelayMaintainerProxy
   let lightRelay: LightRelay
@@ -60,6 +100,7 @@ describe("LightRelayMaintainerProxy", () => {
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({
+      publicClient,
       deployer,
       governance,
       maintainer,
@@ -67,22 +108,24 @@ describe("LightRelayMaintainerProxy", () => {
       reimbursementPool,
       lightRelayMaintainerProxy,
       lightRelay,
-    } = await waffle.loadFixture(fixture))
+    } = await fixture())
 
     await deployer.sendTransaction({
       to: reimbursementPool.address,
-      value: ethers.utils.parseEther("100"),
+      value: parseEther("100"),
     })
   })
 
   describe("authorize", () => {
     context("when called by non-owner", () => {
       it("should revert", async () => {
-        await expect(
-          lightRelayMaintainerProxy
-            .connect(thirdParty)
-            .authorize(maintainer.address)
-        ).to.be.revertedWith("Ownable: caller is not the owner")
+        await expectRevert(
+          lightRelayMaintainerProxy.write.authorize(
+            [maintainer.account.address],
+            { account: thirdParty.account }
+          ),
+          "Ownable: caller is not the owner"
+        )
       })
     })
 
@@ -92,9 +135,10 @@ describe("LightRelayMaintainerProxy", () => {
           await createSnapshot()
 
           // Authorize the maintainer to see if the next attempt reverts.
-          await lightRelayMaintainerProxy
-            .connect(governance)
-            .authorize(maintainer.address)
+          await lightRelayMaintainerProxy.write.authorize(
+            [maintainer.account.address],
+            { account: governance.account }
+          )
         })
 
         after(async () => {
@@ -102,23 +146,26 @@ describe("LightRelayMaintainerProxy", () => {
         })
 
         it("should revert", async () => {
-          await expect(
-            lightRelayMaintainerProxy
-              .connect(governance)
-              .authorize(maintainer.address)
-          ).to.be.revertedWith("Maintainer is already authorized")
+          await expectRevert(
+            lightRelayMaintainerProxy.write.authorize(
+              [maintainer.account.address],
+              { account: governance.account }
+            ),
+            "Maintainer is already authorized"
+          )
         })
       })
 
       context("when the maintainer is not authorized yet", () => {
-        let tx: ContractTransaction
+        let tx: Hash
 
         before(async () => {
           await createSnapshot()
 
-          tx = await lightRelayMaintainerProxy
-            .connect(governance)
-            .authorize(maintainer.address)
+          tx = await lightRelayMaintainerProxy.write.authorize(
+            [maintainer.account.address],
+            { account: governance.account }
+          )
         })
 
         after(async () => {
@@ -127,14 +174,20 @@ describe("LightRelayMaintainerProxy", () => {
 
         it("should authorize the address", async () => {
           expect(
-            await lightRelayMaintainerProxy.isAuthorized(maintainer.address)
+            await lightRelayMaintainerProxy.read.isAuthorized([
+              maintainer.account.address,
+            ])
           ).to.be.true
         })
 
         it("should emit the MaintainerAuthorized event", async () => {
-          await expect(tx)
-            .to.emit(lightRelayMaintainerProxy, "MaintainerAuthorized")
-            .withArgs(maintainer.address)
+          await expectEvent(
+            publicClient,
+            tx,
+            lightRelayMaintainerProxy,
+            "MaintainerAuthorized",
+            [maintainer.account.address]
+          )
         })
       })
     })
@@ -143,11 +196,13 @@ describe("LightRelayMaintainerProxy", () => {
   describe("deauthorize", () => {
     context("when called by non-owner", () => {
       it("should revert", async () => {
-        await expect(
-          lightRelayMaintainerProxy
-            .connect(thirdParty)
-            .deauthorize(maintainer.address)
-        ).to.be.revertedWith("Ownable: caller is not the owner")
+        await expectRevert(
+          lightRelayMaintainerProxy.write.deauthorize(
+            [maintainer.account.address],
+            { account: thirdParty.account }
+          ),
+          "Ownable: caller is not the owner"
+        )
       })
     })
 
@@ -162,28 +217,32 @@ describe("LightRelayMaintainerProxy", () => {
         })
 
         it("should revert", async () => {
-          await expect(
-            lightRelayMaintainerProxy
-              .connect(governance)
-              .deauthorize(maintainer.address)
-          ).to.be.revertedWith("Maintainer is not authorized")
+          await expectRevert(
+            lightRelayMaintainerProxy.write.deauthorize(
+              [maintainer.account.address],
+              { account: governance.account }
+            ),
+            "Maintainer is not authorized"
+          )
         })
       })
 
       context("when the maintainer is authorized", () => {
-        let tx: ContractTransaction
+        let tx: Hash
 
         before(async () => {
           await createSnapshot()
 
           // Authorize the maintainer first
-          await lightRelayMaintainerProxy
-            .connect(governance)
-            .authorize(maintainer.address)
+          await lightRelayMaintainerProxy.write.authorize(
+            [maintainer.account.address],
+            { account: governance.account }
+          )
 
-          tx = await lightRelayMaintainerProxy
-            .connect(governance)
-            .deauthorize(maintainer.address)
+          tx = await lightRelayMaintainerProxy.write.deauthorize(
+            [maintainer.account.address],
+            { account: governance.account }
+          )
         })
 
         after(async () => {
@@ -192,14 +251,20 @@ describe("LightRelayMaintainerProxy", () => {
 
         it("should deauthorize the address", async () => {
           expect(
-            await lightRelayMaintainerProxy.isAuthorized(maintainer.address)
+            await lightRelayMaintainerProxy.read.isAuthorized([
+              maintainer.account.address,
+            ])
           ).to.be.false
         })
 
         it("should emit the MaintainerDeauthorized event", async () => {
-          await expect(tx)
-            .to.emit(lightRelayMaintainerProxy, "MaintainerDeauthorized")
-            .withArgs(maintainer.address)
+          await expectEvent(
+            publicClient,
+            tx,
+            lightRelayMaintainerProxy,
+            "MaintainerDeauthorized",
+            [maintainer.account.address]
+          )
         })
       })
     })
@@ -208,34 +273,38 @@ describe("LightRelayMaintainerProxy", () => {
   describe("updateLightRelay", () => {
     context("when called by non-owner", () => {
       it("should revert", async () => {
-        await expect(
-          lightRelayMaintainerProxy
-            .connect(thirdParty)
-            .updateLightRelay(thirdParty.address)
-        ).to.be.revertedWith("Ownable: caller is not the owner")
+        await expectRevert(
+          lightRelayMaintainerProxy.write.updateLightRelay(
+            [thirdParty.account.address],
+            { account: thirdParty.account }
+          ),
+          "Ownable: caller is not the owner"
+        )
       })
     })
 
     context("when called by the owner", () => {
       context("when called with zero address", () => {
         it("should revert", async () => {
-          await expect(
-            lightRelayMaintainerProxy
-              .connect(governance)
-              .updateLightRelay(ZERO_ADDRESS)
-          ).to.be.revertedWith("New light relay must not be zero address")
+          await expectRevert(
+            lightRelayMaintainerProxy.write.updateLightRelay([zeroAddress], {
+              account: governance.account,
+            }),
+            "New light relay must not be zero address"
+          )
         })
       })
 
       context("when called with a non-zero address", () => {
-        let tx: ContractTransaction
+        let tx: Hash
 
         before(async () => {
           await createSnapshot()
 
-          tx = await lightRelayMaintainerProxy
-            .connect(governance)
-            .updateLightRelay(thirdParty.address)
+          tx = await lightRelayMaintainerProxy.write.updateLightRelay(
+            [thirdParty.account.address],
+            { account: governance.account }
+          )
         })
 
         after(async () => {
@@ -243,15 +312,19 @@ describe("LightRelayMaintainerProxy", () => {
         })
 
         it("should update the light relay address", async () => {
-          expect(await lightRelayMaintainerProxy.lightRelay()).to.be.equal(
-            thirdParty.address
+          expect(await lightRelayMaintainerProxy.read.lightRelay()).to.be.equal(
+            getAddress(thirdParty.account.address)
           )
         })
 
         it("should emit the LightRelayUpdated event", async () => {
-          await expect(tx)
-            .to.emit(lightRelayMaintainerProxy, "LightRelayUpdated")
-            .withArgs(thirdParty.address)
+          await expectEvent(
+            publicClient,
+            tx,
+            lightRelayMaintainerProxy,
+            "LightRelayUpdated",
+            [thirdParty.account.address]
+          )
         })
       })
     })
@@ -260,22 +333,25 @@ describe("LightRelayMaintainerProxy", () => {
   describe("updateReimbursementPool", () => {
     context("when called by non-owner", () => {
       it("should revert", async () => {
-        await expect(
-          lightRelayMaintainerProxy
-            .connect(thirdParty)
-            .updateReimbursementPool(thirdParty.address)
-        ).to.be.revertedWith("Caller is not the owner")
+        await expectRevert(
+          lightRelayMaintainerProxy.write.updateReimbursementPool(
+            [thirdParty.account.address],
+            { account: thirdParty.account }
+          ),
+          "Caller is not the owner"
+        )
       })
     })
 
     context("when called by the owner", () => {
-      let tx: ContractTransaction
+      let tx: Hash
 
       before(async () => {
         await createSnapshot()
-        tx = await lightRelayMaintainerProxy
-          .connect(governance)
-          .updateReimbursementPool(thirdParty.address)
+        tx = await lightRelayMaintainerProxy.write.updateReimbursementPool(
+          [thirdParty.account.address],
+          { account: governance.account }
+        )
       })
 
       after(async () => {
@@ -283,9 +359,13 @@ describe("LightRelayMaintainerProxy", () => {
       })
 
       it("should emit the ReimbursementPoolUpdated event", async () => {
-        await expect(tx)
-          .to.emit(lightRelayMaintainerProxy, "ReimbursementPoolUpdated")
-          .withArgs(thirdParty.address)
+        await expectEvent(
+          publicClient,
+          tx,
+          lightRelayMaintainerProxy,
+          "ReimbursementPoolUpdated",
+          [thirdParty.account.address]
+        )
       })
     })
   })
@@ -301,22 +381,27 @@ describe("LightRelayMaintainerProxy", () => {
 
     context("when called by non-owner", () => {
       it("should revert", async () => {
-        await expect(
-          lightRelayMaintainerProxy
-            .connect(thirdParty)
-            .updateRetargetGasOffset(123456)
-        ).to.be.revertedWith("Ownable: caller is not the owner")
+        await expectRevert(
+          lightRelayMaintainerProxy.write.updateRetargetGasOffset(
+            [BigInt(123456)],
+            {
+              account: thirdParty.account,
+            }
+          ),
+          "Ownable: caller is not the owner"
+        )
       })
     })
 
     context("when called by the owner", () => {
-      let tx: ContractTransaction
+      let tx: Hash
 
       before(async () => {
         await createSnapshot()
-        tx = await lightRelayMaintainerProxy
-          .connect(governance)
-          .updateRetargetGasOffset(123456)
+        tx = await lightRelayMaintainerProxy.write.updateRetargetGasOffset(
+          [BigInt(123456)],
+          { account: governance.account }
+        )
       })
 
       after(async () => {
@@ -324,15 +409,19 @@ describe("LightRelayMaintainerProxy", () => {
       })
 
       it("should emit the RetargetGasOffsetUpdated event", async () => {
-        await expect(tx)
-          .to.emit(lightRelayMaintainerProxy, "RetargetGasOffsetUpdated")
-          .withArgs(123456)
+        await expectEvent(
+          publicClient,
+          tx,
+          lightRelayMaintainerProxy,
+          "RetargetGasOffsetUpdated",
+          [123456]
+        )
       })
 
       it("should update retargetGasOffset", async () => {
         const updatedOffset =
-          await lightRelayMaintainerProxy.retargetGasOffset()
-        expect(updatedOffset).to.be.equal(123456)
+          await lightRelayMaintainerProxy.read.retargetGasOffset()
+        expect(updatedOffset).to.be.equal(BigInt(123456))
       })
     })
   })
@@ -348,7 +437,9 @@ describe("LightRelayMaintainerProxy", () => {
 
     context("when called by an unauthorized address", () => {
       const headerHex = longHeaders.chain.map((h) => h.hex)
-      const retargetHeaders = concatenateHexStrings(headerHex.slice(85, 105))
+      const retargetHeaders = asHex(
+        concatenateHexStrings(headerHex.slice(85, 105))
+      )
 
       // Even though transaction reverts some funds were spent.
       // We need to restore the state to keep the balances as initially.
@@ -356,11 +447,12 @@ describe("LightRelayMaintainerProxy", () => {
       after(async () => restoreSnapshot())
 
       it("should revert", async () => {
-        const tx = lightRelayMaintainerProxy
-          .connect(thirdParty)
-          .retarget(retargetHeaders)
-
-        await expect(tx).to.be.revertedWith("Caller is not authorized")
+        await expectRevert(
+          lightRelayMaintainerProxy.write.retarget([retargetHeaders], {
+            account: thirdParty.account,
+          }),
+          "Caller is not authorized"
+        )
       })
     })
 
@@ -368,35 +460,45 @@ describe("LightRelayMaintainerProxy", () => {
       context("when the proof length is 10 headers", () => {
         const genesis = longHeaders.epochStart
         const headerHex = longHeaders.chain.map((h) => h.hex)
-        const retargetHeaders = concatenateHexStrings(headerHex.slice(85, 105))
+        const retargetHeaders = asHex(
+          concatenateHexStrings(headerHex.slice(85, 105))
+        )
         const genesisProofLength = 10
 
-        let initialMaintainerBalance: BigNumber
-        let tx: ContractTransaction
+        let initialMaintainerBalance: bigint
+        let tx: Hash
 
         before(async () => {
           await createSnapshot()
 
-          await lightRelay
-            .connect(deployer)
-            .genesis(genesis.hex, genesis.height, genesisProofLength)
+          await lightRelay.write.genesis(
+            [
+              asHex(genesis.hex),
+              BigInt(genesis.height),
+              BigInt(genesisProofLength),
+            ],
+            { account: deployer.account }
+          )
 
-          await lightRelayMaintainerProxy
-            .connect(governance)
-            .authorize(maintainer.address)
+          await lightRelayMaintainerProxy.write.authorize(
+            [maintainer.account.address],
+            { account: governance.account }
+          )
 
           // Since the default retarget gas offset parameter is set to a value
           // appropriate for the proof length of 20, set it to a lower value.
-          await lightRelayMaintainerProxy
-            .connect(governance)
-            .updateRetargetGasOffset(30000)
-
-          initialMaintainerBalance = await provider.getBalance(
-            maintainer.address
+          await lightRelayMaintainerProxy.write.updateRetargetGasOffset(
+            [BigInt(30000)],
+            { account: governance.account }
           )
-          tx = await lightRelayMaintainerProxy
-            .connect(maintainer)
-            .retarget(retargetHeaders)
+
+          initialMaintainerBalance = await publicClient.getBalance({
+            address: maintainer.account.address,
+          })
+          tx = await lightRelayMaintainerProxy.write.retarget(
+            [retargetHeaders],
+            { account: maintainer.account }
+          )
         })
 
         after(async () => {
@@ -404,51 +506,58 @@ describe("LightRelayMaintainerProxy", () => {
         })
 
         it("should emit Retarget event", async () => {
-          await expect(tx).to.emit(lightRelay, "Retarget")
+          await expectEvent(publicClient, tx, lightRelay, "Retarget")
         })
 
         it("should refund ETH", async () => {
-          const postMaintainerBalance = await provider.getBalance(
-            maintainer.address
-          )
-          const diff = postMaintainerBalance.sub(initialMaintainerBalance)
+          const postMaintainerBalance = await publicClient.getBalance({
+            address: maintainer.account.address,
+          })
+          const diff = postMaintainerBalance - initialMaintainerBalance
 
-          expect(diff).to.be.gt(0)
-          expect(diff).to.be.lt(
-            ethers.utils.parseUnits("1000000", "gwei") // 0,001 ETH
-          )
+          expect(diff > BigInt(0)).to.be.true
+          expect(diff < parseGwei("1000000")).to.be.true // 0,001 ETH
         })
       })
 
       context("when the proof length is 20 headers", () => {
         const genesis = longHeaders.epochStart
         const headerHex = longHeaders.chain.map((h) => h.hex)
-        const retargetHeaders = concatenateHexStrings(headerHex.slice(75, 115))
+        const retargetHeaders = asHex(
+          concatenateHexStrings(headerHex.slice(75, 115))
+        )
         const genesisProofLength = 20
 
-        let initialMaintainerBalance: BigNumber
-        let tx: ContractTransaction
+        let initialMaintainerBalance: bigint
+        let tx: Hash
 
         before(async () => {
           await createSnapshot()
 
-          await lightRelay
-            .connect(deployer)
-            .genesis(genesis.hex, genesis.height, genesisProofLength)
-
-          await lightRelayMaintainerProxy
-            .connect(governance)
-            .authorize(maintainer.address)
-
-          initialMaintainerBalance = await provider.getBalance(
-            maintainer.address
+          await lightRelay.write.genesis(
+            [
+              asHex(genesis.hex),
+              BigInt(genesis.height),
+              BigInt(genesisProofLength),
+            ],
+            { account: deployer.account }
           )
+
+          await lightRelayMaintainerProxy.write.authorize(
+            [maintainer.account.address],
+            { account: governance.account }
+          )
+
+          initialMaintainerBalance = await publicClient.getBalance({
+            address: maintainer.account.address,
+          })
 
           // Do not change the retarget gas offset parameter. The default value
           // should be appropriate for the proof length of 20.
-          tx = await lightRelayMaintainerProxy
-            .connect(maintainer)
-            .retarget(retargetHeaders)
+          tx = await lightRelayMaintainerProxy.write.retarget(
+            [retargetHeaders],
+            { account: maintainer.account }
+          )
         })
 
         after(async () => {
@@ -456,55 +565,63 @@ describe("LightRelayMaintainerProxy", () => {
         })
 
         it("should emit Retarget event", async () => {
-          await expect(tx).to.emit(lightRelay, "Retarget")
+          await expectEvent(publicClient, tx, lightRelay, "Retarget")
         })
 
         it("should refund ETH", async () => {
-          const postMaintainerBalance = await provider.getBalance(
-            maintainer.address
-          )
-          const diff = postMaintainerBalance.sub(initialMaintainerBalance)
+          const postMaintainerBalance = await publicClient.getBalance({
+            address: maintainer.account.address,
+          })
+          const diff = postMaintainerBalance - initialMaintainerBalance
 
-          expect(diff).to.be.gt(0)
-          expect(diff).to.be.lt(
-            ethers.utils.parseUnits("1000000", "gwei") // 0,001 ETH
-          )
+          expect(diff > BigInt(0)).to.be.true
+          expect(diff < parseGwei("1000000")).to.be.true // 0,001 ETH
         })
       })
 
       context("when the proof length is 50 headers", () => {
         const genesis = longHeaders.epochStart
         const headerHex = longHeaders.chain.map((h) => h.hex)
-        const retargetHeaders = concatenateHexStrings(headerHex.slice(45, 145))
+        const retargetHeaders = asHex(
+          concatenateHexStrings(headerHex.slice(45, 145))
+        )
         const genesisProofLength = 50
 
-        let initialMaintainerBalance: BigNumber
-        let tx: ContractTransaction
+        let initialMaintainerBalance: bigint
+        let tx: Hash
 
         before(async () => {
           await createSnapshot()
 
-          await lightRelay
-            .connect(deployer)
-            .genesis(genesis.hex, genesis.height, genesisProofLength)
+          await lightRelay.write.genesis(
+            [
+              asHex(genesis.hex),
+              BigInt(genesis.height),
+              BigInt(genesisProofLength),
+            ],
+            { account: deployer.account }
+          )
 
-          await lightRelayMaintainerProxy
-            .connect(governance)
-            .authorize(maintainer.address)
+          await lightRelayMaintainerProxy.write.authorize(
+            [maintainer.account.address],
+            { account: governance.account }
+          )
 
           // Since the default retarget gas offset parameter is set to a value
           // appropriate for the proof length of 20, set it to a higher value.
-          await lightRelayMaintainerProxy
-            .connect(governance)
-            .updateRetargetGasOffset(120000)
-
-          initialMaintainerBalance = await provider.getBalance(
-            maintainer.address
+          await lightRelayMaintainerProxy.write.updateRetargetGasOffset(
+            [BigInt(120000)],
+            { account: governance.account }
           )
 
-          tx = await lightRelayMaintainerProxy
-            .connect(maintainer)
-            .retarget(retargetHeaders)
+          initialMaintainerBalance = await publicClient.getBalance({
+            address: maintainer.account.address,
+          })
+
+          tx = await lightRelayMaintainerProxy.write.retarget(
+            [retargetHeaders],
+            { account: maintainer.account }
+          )
         })
 
         after(async () => {
@@ -512,19 +629,17 @@ describe("LightRelayMaintainerProxy", () => {
         })
 
         it("should emit Retarget event", async () => {
-          await expect(tx).to.emit(lightRelay, "Retarget")
+          await expectEvent(publicClient, tx, lightRelay, "Retarget")
         })
 
         it("should refund ETH", async () => {
-          const postMaintainerBalance = await provider.getBalance(
-            maintainer.address
-          )
-          const diff = postMaintainerBalance.sub(initialMaintainerBalance)
+          const postMaintainerBalance = await publicClient.getBalance({
+            address: maintainer.account.address,
+          })
+          const diff = postMaintainerBalance - initialMaintainerBalance
 
-          expect(diff).to.be.gt(0)
-          expect(diff).to.be.lt(
-            ethers.utils.parseUnits("1000000", "gwei") // 0,001 ETH
-          )
+          expect(diff > BigInt(0)).to.be.true
+          expect(diff < parseGwei("1000000")).to.be.true // 0,001 ETH
         })
       })
     })

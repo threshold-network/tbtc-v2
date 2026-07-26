@@ -2096,6 +2096,7 @@ __metadata:
     "@keep-network/hardhat-local-networks-config": "npm:^0.1.0-pre.4"
     "@keep-network/random-beacon": "npm:development"
     "@keep-network/tbtc": "npm:development"
+    "@nomicfoundation/hardhat-viem": "npm:^2.1.0"
     "@nomiclabs/hardhat-ethers": "npm:^2.0.6"
     "@nomiclabs/hardhat-etherscan": "npm:^3.1.0"
     "@nomiclabs/hardhat-waffle": "npm:^2.0.2"
@@ -2132,6 +2133,7 @@ __metadata:
     ts-node: "npm:^10.4.0"
     typechain: "npm:^6.1.0"
     typescript: "npm:^4.5.4"
+    viem: "npm:^2.55.8"
   languageName: unknown
   linkType: soft
 
@@ -2374,6 +2376,19 @@ __metadata:
     "@nomicfoundation/edr-linux-x64-musl": "npm:0.12.0-next.23"
     "@nomicfoundation/edr-win32-x64-msvc": "npm:0.12.0-next.23"
   checksum: 10c0/d0a573c6f938e6bbc7d66ac553866bafeba053e5aabf6547898f14097ddec7e97aa5275049ee094ef458919123b8d22a7b3c92b336f60b6feb34b8399fb9616a
+  languageName: node
+  linkType: hard
+
+"@nomicfoundation/hardhat-viem@npm:^2.1.0":
+  version: 2.1.4
+  resolution: "@nomicfoundation/hardhat-viem@npm:2.1.4"
+  dependencies:
+    abitype: "npm:^0.9.8"
+    lodash.memoize: "npm:^4.1.2"
+  peerDependencies:
+    hardhat: ^2.26.0
+    viem: ^2.7.6
+  checksum: 10c0/07a1f42c38f536247455d8777c41ecc7b2b6d2a9710c408ffa4bf28933ea13edeefe2bc029a57516fcdd8d2ce748df821eacd1cc3cc0ec3aafbc5f892ec9dc1b
   languageName: node
   linkType: hard
 
@@ -3699,6 +3714,21 @@ __metadata:
     zod:
       optional: true
   checksum: 10c0/c8740de1ae4961723a153224a52cb9a34a57903fb5c2ad61d5082b0b79b53033c9335381aa8c663c7ec213c9955a9853f694d51e95baceedef27356f7745c634
+  languageName: node
+  linkType: hard
+
+"abitype@npm:^0.9.8":
+  version: 0.9.10
+  resolution: "abitype@npm:0.9.10"
+  peerDependencies:
+    typescript: ">=5.0.4"
+    zod: ^3 >=3.22.0
+  peerDependenciesMeta:
+    typescript:
+      optional: true
+    zod:
+      optional: true
+  checksum: 10c0/084c36e70f8034e2cbf029b6f067b9425dc5b25673341ec659089deb220fd5e61f802dddf2aa875d788969c62aa6975490250e583825372483fdb3a76e222d3f
   languageName: node
   linkType: hard
 
@@ -11755,6 +11785,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"lodash.memoize@npm:^4.1.2":
+  version: 4.1.2
+  resolution: "lodash.memoize@npm:4.1.2"
+  checksum: 10c0/c8713e51eccc650422716a14cece1809cfe34bc5ab5e242b7f8b4e2241c2483697b971a604252807689b9dd69bfe3a98852e19a5b89d506b000b4187a1285df8
+  languageName: node
+  linkType: hard
+
 "lodash.merge@npm:^4.6.2":
   version: 4.6.2
   resolution: "lodash.merge@npm:4.6.2"
@@ -16856,7 +16893,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"viem@npm:^2.27.0":
+"viem@npm:^2.27.0, viem@npm:^2.55.8":
   version: 2.55.8
   resolution: "viem@npm:2.55.8"
   dependencies:
