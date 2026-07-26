@@ -1255,7 +1255,14 @@ describe("MaintainerProxy", () => {
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
-                ethers.utils.parseUnits("7000000", "gwei") // 0,007 ETH
+                // Measured 6,391,600 gwei before this branch and 7,551,000
+                // after: routing the redemption proof through
+                // P2TRReservation's settlement and wallet-state lookups costs
+                // ~18% more gas, so the maintainer refund grew past the old
+                // 7,000,000 ceiling. Re-based on the new measurement with the
+                // same ~9% headroom the bound carried before, which lands on
+                // the 8,200,000 already used by the sibling scenario above.
+                ethers.utils.parseUnits("8200000", "gwei") // 0,0082 ETH
               )
             })
           }
