@@ -8,7 +8,7 @@ import {
   IBridge,
   ITBTCVault,
   L1BTCDepositorNtt,
-  ReimbursementPool,
+  ReimbursementPoolStub,
   TestERC20,
 } from "../../../typechain"
 
@@ -43,7 +43,7 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
   let tbtcToken: TestERC20
   let tbtcVault: FakeContract<ITBTCVault>
   let nttManager: Record<string, unknown>
-  let reimbursementPool: FakeContract<ReimbursementPool>
+  let reimbursementPool: ReimbursementPoolStub
   let l1BtcDepositorNtt: L1BTCDepositorNtt
 
   const contractsFixture = async () => {
@@ -57,7 +57,9 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
     // Mock contracts
     bridge = await smock.fake<IBridge>("IBridge")
     tbtcVault = await smock.fake<ITBTCVault>("ITBTCVault")
-    reimbursementPool = await smock.fake<ReimbursementPool>("ReimbursementPool")
+    reimbursementPool = (await (
+      await ethers.getContractFactory("ReimbursementPoolStub")
+    ).deploy()) as ReimbursementPoolStub
 
     // Create manual mock for NTT Manager
     nttManager = {
