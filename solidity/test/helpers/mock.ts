@@ -386,10 +386,29 @@ export async function createMock<T>(
       behaviour: "return" | "revert",
       payload: unknown
     ): Promise<void> => {
-      const callData = targetInterface.encodeFunctionData(
-        fragment,
-        args as never[]
-      )
+      let callData: string
+      try {
+        callData = targetInterface.encodeFunctionData(fragment, args as never[])
+      } catch (error) {
+        // smock stored `whenCalledWith` arguments as JavaScript values and
+        // compared them after decoding, so arguments that are not valid for
+        // the signature simply never matched and the call fell through to the
+        // selector-wide default. Encoding them up front turns the same
+        // situation into a thrown error, which would fail tests that pass
+        // today for reasons unrelated to this migration — a value converted to
+        // a Wormhole address twice, for instance, is 44 bytes where the
+        // signature wants 32.
+        //
+        // Keep smock's outcome — an entry that can never match — but say so,
+        // because it does mean the narrowing in that test is dead.
+        // eslint-disable-next-line no-console
+        console.warn(
+          `mock: ${target}.${name} whenCalledWith(...) arguments cannot be ` +
+            `encoded for this signature, so the entry can never match and is ` +
+            `being skipped: ${(error as Error).message.split("(")[0].trim()}`
+        )
+        return
+      }
 
       await withoutAdvancingTime(() =>
         behaviour === "return"

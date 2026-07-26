@@ -102,6 +102,12 @@ const config: HardhatUserConfig = {
       // to the current one before each configuration write, so configuring a
       // mock does not move the clock.
       allowBlocksWithSameTimestamp: true,
+      // Recording a mocked call SSTOREs its calldata, which smock did not have
+      // to pay for — it kept the call log in JavaScript. Deposit finalization
+      // fans out to several mocked contracts in one transaction, and the
+      // default limit leaves no room for that bookkeeping on top of the work
+      // being measured.
+      blockGasLimit: 100_000_000,
       forking: {
         // forking is enabled only if FORKING_URL env is provided
         enabled: !!process.env.FORKING_URL,
