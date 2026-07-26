@@ -1429,6 +1429,18 @@ describe("Deploy Script 88: finalized step-87 ECDSA reuse", () => {
       typeof slot === "number" ? utils.hexValue(slot) : slot,
       storageWord(value),
     ])
+    // `hardhat_setStorageAt` leaves the write in Hardhat's pending state, and
+    // smock caches the state manager it installs fake bytecode through. Until
+    // a block is mined, that cache is stale: every `smock.fake()` in every
+    // test file that runs after this one silently installs no code, and calls
+    // into the fake revert with "function call to a non-contract account".
+    //
+    // Reproduces with nothing but a single bare `hardhat_setStorageAt` on
+    // 0x…dEaD; mining immediately after restores it. Without this line the
+    // full suite loses 40 tests it passes in isolation -- 13
+    // NativeBTCDepositor, 23 MaintainerProxy, 3 TBTCVault.OptimisticMinting
+    // and 1 FrostWalletRegistry permissions.
+    await network.provider.send("evm_mine")
   }
 
   async function finalizedFixture(): Promise<{
