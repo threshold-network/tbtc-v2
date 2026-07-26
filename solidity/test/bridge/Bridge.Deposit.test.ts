@@ -1,7 +1,7 @@
 /* eslint-disable no-underscore-dangle */
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { BigNumber, Contract, ContractTransaction } from "ethers"
 import chai, { expect } from "chai"
@@ -34,6 +34,7 @@ import {
   SingleP2WSHDeposit,
 } from "../data/deposit-sweep"
 import { to1e18 } from "../helpers/contract-test-helpers"
+import { loadFixture } from "../helpers/fixture"
 
 chai.use(smock.matchers)
 
@@ -75,7 +76,7 @@ describe("Bridge - Deposit", () => {
       t,
       rebateStaking,
       deployBridge,
-    } = await waffle.loadFixture(bridgeFixture))
+    } = await loadFixture(bridgeFixture))
 
     // Set the deposit dust threshold to 0.0001 BTC, i.e. 100x smaller than
     // the initial value in the Bridge in order to save test Bitcoins.

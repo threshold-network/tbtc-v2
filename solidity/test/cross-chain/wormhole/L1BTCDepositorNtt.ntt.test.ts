@@ -1,4 +1,4 @@
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { randomBytes } from "crypto"
 import chai, { expect } from "chai"
 import { FakeContract, smock } from "@defi-wonderland/smock"
@@ -11,6 +11,7 @@ import {
   ReimbursementPool,
   TestERC20,
 } from "../../../typechain"
+import { loadFixture } from "../../helpers/fixture"
 
 chai.use(smock.matchers)
 
@@ -123,7 +124,7 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
   }
 
   before(async () => {
-    const fixture = await waffle.loadFixture(contractsFixture)
+    const fixture = await loadFixture(contractsFixture)
     governance = fixture.governance
     relayer = fixture.relayer
     user = fixture.user

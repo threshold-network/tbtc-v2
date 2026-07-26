@@ -17,6 +17,7 @@ import { produceRelayEntry } from "./utils/fake-random-beacon"
 import { assertGasUsed } from "./utils/gas"
 import { fixture } from "./utils/fixture"
 import { walletState } from "../fixtures"
+import { loadFixture } from "../helpers/fixture"
 
 const NO_MAIN_UTXO = {
   txHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
@@ -41,8 +42,9 @@ describeFn("Integration Test - Wallet Creation", async () => {
   const walletPubKeyHash = ecdsaWalletTestData.pubKeyHash160
 
   before(async () => {
-    ;({ governance, bridge, walletRegistry, randomBeacon } =
-      await waffle.loadFixture(fixture))
+    ;({ governance, bridge, walletRegistry, randomBeacon } = await loadFixture(
+      fixture
+    ))
 
     // Update only the parameters that are crucial for this test.
     await updateWalletRegistryDkgResultChallengePeriodLength(

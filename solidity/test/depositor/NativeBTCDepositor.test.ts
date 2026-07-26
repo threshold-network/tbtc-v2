@@ -1,4 +1,4 @@
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { randomBytes } from "crypto"
 import chai, { expect } from "chai"
 import { FakeContract, smock } from "@defi-wonderland/smock"
@@ -16,6 +16,7 @@ import type {
   BitcoinTxInfoStruct,
   DepositRevealInfoStruct,
 } from "../../typechain/IBridge"
+import { loadFixture } from "../helpers/fixture"
 
 chai.use(smock.matchers)
 
@@ -96,7 +97,7 @@ describe("NativeBTCDepositor", () => {
       tbtcVault,
       reimbursementPool,
       nativeBtcDepositor,
-    } = await waffle.loadFixture(contractsFixture))
+    } = await loadFixture(contractsFixture))
   })
 
   describe("updateReimbursementPool", () => {

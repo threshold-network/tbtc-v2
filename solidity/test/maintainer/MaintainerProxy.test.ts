@@ -1,5 +1,5 @@
 /* eslint-disable no-underscore-dangle */
-import { ethers, helpers, waffle } from "hardhat"
+import { ethers, helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { SigningKey } from "ethers/lib/utils"
 import { assert, expect } from "chai"
@@ -57,6 +57,7 @@ import {
 
 import bridgeFixture from "../fixtures/bridge"
 import { constants, walletState } from "../fixtures"
+import { loadFixture } from "../helpers/fixture"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { provider } = waffle
@@ -104,7 +105,7 @@ describe("MaintainerProxy", () => {
       reimbursementPool,
       maintainerProxy,
       deployer,
-    } = await waffle.loadFixture(bridgeFixture))
+    } = await loadFixture(bridgeFixture))
     ;({ movingFundsTimeoutResetDelay } = await bridge.movingFundsParameters())
 
     walletRegistry = await smock.fake<IWalletRegistry>("IWalletRegistry", {

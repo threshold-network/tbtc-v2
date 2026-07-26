@@ -1,7 +1,7 @@
 /* eslint-disable no-underscore-dangle */
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import chai, { expect } from "chai"
 import { BigNumber, Contract, ContractTransaction } from "ethers"
@@ -19,6 +19,7 @@ import type {
 import { walletState } from "../fixtures"
 import bridgeFixture from "../fixtures/bridge"
 import { to1e18 } from "../helpers/contract-test-helpers"
+import { loadFixture } from "../helpers/fixture"
 
 chai.use(smock.matchers)
 
@@ -117,7 +118,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
       t,
       rebateStaking,
       walletRegistry,
-    } = await waffle.loadFixture(bridgeFixture))
+    } = await loadFixture(bridgeFixture))
 
     // Set the redemption dust threshold to 0.001 BTC (10x smaller than
     // the initial value) to save test Bitcoins.

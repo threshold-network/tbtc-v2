@@ -31,6 +31,7 @@ import {
 } from "./data/integration"
 import { fixture } from "./utils/fixture"
 import { constants } from "../fixtures"
+import { loadFixture } from "../helpers/fixture"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { increaseTime } = helpers.time
@@ -67,7 +68,7 @@ describeFn("Integration Test - Full flow", async () => {
       relay,
       randomBeacon,
       bridgeGovernance,
-    } = await waffle.loadFixture(fixture))
+    } = await loadFixture(fixture))
     // Update only the parameters that are crucial for this test.
     await updateWalletRegistryDkgResultChallengePeriodLength(
       hre,
