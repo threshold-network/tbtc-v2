@@ -1,4 +1,4 @@
-FROM node:18-alpine as builder
+FROM node:22-alpine as builder
 
 # Add packages necessary to perform the build process.
 RUN apk add --update --no-cache \
@@ -36,7 +36,7 @@ RUN yarn install --production --frozen-lockfile --ignore-scripts
 # Prune other unnecessary files from dependencies using node-prune.
 RUN node-prune
 
-FROM node:18-alpine as runner
+FROM node:22-alpine as runner
 
 WORKDIR /monitoring
 

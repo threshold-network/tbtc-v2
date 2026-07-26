@@ -42,7 +42,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20.19.0"
+          node-version: "22.23.1"
           cache-dependency-path: yearn/yarn.lock
 
       - name: Enable Corepack
@@ -73,7 +73,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20.19.0"
+          node-version: "22.23.1"
           cache-dependency-path: yearn/yarn.lock
 
       # Below step is a workaround. Eslint executed in `yearn` directory

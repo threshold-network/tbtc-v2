@@ -52,7 +52,7 @@ jobs:
 
       - uses: actions/setup-node@v3
         with:
-          node-version: "18.x"
+          node-version: "22.x"
           cache-dependency-path: monitoring/yarn.lock
 
       - name: Configure git to don't use unauthenticated protocol
@@ -135,7 +135,7 @@ jobs:
 
       - uses: actions/setup-node@v3
         with:
-          node-version: "18.x"
+          node-version: "22.x"
           cache-dependency-path: monitoring/yarn.lock
 
       - name: Configure git to don't use unauthenticated protocol
