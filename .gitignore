@@ -9,3 +9,8 @@ dist/
 yarn-error.log
 CLAUDE.md
 .claude/
+
+# Foundry dependencies, installed with `forge install`
+solidity/lib/
+solidity/forge-artifacts/
+cache_forge/

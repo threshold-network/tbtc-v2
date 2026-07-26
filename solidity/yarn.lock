@@ -2041,6 +2041,7 @@ __metadata:
     eslint: "npm:^7.32.0"
     ethereum-waffle: "npm:^3.4.0"
     ethers: "npm:^5.5.3"
+    forge-std: "npm:^1.1.2"
     hardhat: "npm:^2.10.0"
     hardhat-contract-sizer: "npm:^2.5.0"
     hardhat-dependency-compiler: "npm:^1.1.2"
@@ -9018,6 +9019,13 @@ __metadata:
   version: 0.6.1
   resolution: "forever-agent@npm:0.6.1"
   checksum: 10c0/364f7f5f7d93ab661455351ce116a67877b66f59aca199559a999bd39e3cfadbfbfacc10415a915255e2210b30c23febe9aec3ca16bf2d1ff11c935a1000e24c
+  languageName: node
+  linkType: hard
+
+"forge-std@npm:^1.1.2":
+  version: 1.1.2
+  resolution: "forge-std@npm:1.1.2"
+  checksum: 10c0/8e6c4de83323f92dfcd29c53b385d7253833f1028ad44780c4499d62d6778a61d6187d17065cd7d96f55c7c1227b7b32da5a45c87d450b4445da74b7d37a6ed2
   languageName: node
   linkType: hard
 

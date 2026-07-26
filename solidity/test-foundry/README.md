@@ -16,3 +16,22 @@ what example-based tests do not:
 
 See `../docs/foundry-evaluation.md` for the reasoning and for what is explicitly
 not proposed.
+
+## Running these
+
+`forge-std` is vendored rather than installed from npm: the `forge-std` package
+on npm is an unofficial mirror of a different repository and does not ship
+`src/Test.sol`. Install the real one once:
+
+```
+forge install foundry-rs/forge-std
+```
+
+then
+
+```
+forge test
+```
+
+`lib/` is gitignored, so this is a one-time local step and a CI step whenever
+these tests are wired into a workflow.
