@@ -1469,7 +1469,7 @@ describe("Bridge - Redemption", () => {
           bridge
             .connect(thirdParty)
             .receiveBalanceApproval(thirdParty.address, 1, [])
-        ).to.be.revertedWith("Caller is not the bank")
+        ).to.be.revertedWith("CallerNotBank()")
       })
     })
   })
@@ -3824,7 +3824,7 @@ describe("Bridge - Redemption", () => {
 
                         it("should revert", async () => {
                           await expect(outcome).to.be.revertedWith(
-                            "'Wallet must be in Live or MovingFunds state"
+                            "Wallet state is invalid for proof"
                           )
                         })
                       })
@@ -3907,6 +3907,18 @@ describe("Bridge - Redemption", () => {
             relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
             relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
 
+            // The wallet must be registered Live. `submitRedemptionProof`
+            // now validates the wallet state (P2TRReservation.
+            // requireProofWalletState) BEFORE comparing the supplied main
+            // UTXO against the stored hash, so an unregistered wallet would
+            // revert on the state guard and this case would never reach the
+            // "Invalid main UTXO data" check it is named for.
+            const wallet = await bridge.wallets(data.wallet.pubKeyHash)
+            await bridge.setWallet(data.wallet.pubKeyHash, {
+              ...wallet,
+              state: walletState.Live,
+            })
+
             // Wallet main UTXO must be set on the Bridge side to make
             // that scenario happen.
             await bridge.setWalletMainUtxo(
@@ -3953,6 +3965,18 @@ describe("Bridge - Redemption", () => {
           // Required for a successful SPV proof.
           relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
           relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
+
+          // The wallet must be registered Live. `submitRedemptionProof` now
+          // validates the wallet state (P2TRReservation.
+          // requireProofWalletState) BEFORE reading the stored main UTXO
+          // hash, so leaving the wallet unregistered would revert on the
+          // state guard and this case would never reach the "No main UTXO
+          // for given wallet" check it is named for.
+          const wallet = await bridge.wallets(data.wallet.pubKeyHash)
+          await bridge.setWallet(data.wallet.pubKeyHash, {
+            ...wallet,
+            state: walletState.Live,
+          })
         })
 
         after(async () => {
@@ -3960,8 +3984,7 @@ describe("Bridge - Redemption", () => {
         })
 
         it("should revert", async () => {
-          // There was no preparations before `submitRedemptionProof` call
-          // so no main UTXO is set for the given wallet.
+          // No main UTXO is set for the given wallet.
           await expect(
             bridge
               .connect(spvMaintainer)

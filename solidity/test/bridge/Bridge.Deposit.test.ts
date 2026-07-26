@@ -4680,7 +4680,7 @@ describe("Bridge - Deposit", () => {
                   data.mainUtxo,
                   ethers.constants.AddressZero
                 )
-            ).to.be.revertedWith("Wallet must be in Live or MovingFunds state")
+            ).to.be.revertedWith("Wallet state is invalid for proof")
           })
         })
       })
