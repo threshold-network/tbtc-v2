@@ -11,14 +11,27 @@ adding something rather than removing it. Read alongside
 
 Three separate investigations converged on one dependency:
 
-| finding                                       | consequence                               |
-| --------------------------------------------- | ----------------------------------------- |
-| `@defi-wonderland/smock` is archived upstream | no security patches, ever                 |
-| smock breaks on hardhat >= 2.20               | toolchain frozen at hardhat 2.19.x        |
-| hardhat < ~2.20 cannot run Node 24            | CI capped at Node 22, 9 months of support |
-| no maintained JS mocking library exists       | nothing to migrate _to_                   |
+| finding                                       | consequence                              |
+| --------------------------------------------- | ---------------------------------------- |
+| `@defi-wonderland/smock` is archived upstream | no security patches, ever                |
+| smock breaks on hardhat >= 2.20               | toolchain frozen below 2.20 (on 2.12.5)  |
+| hardhat < ~2.20 cannot run Node 24            | CI capped at Node 22 until smock is gone |
+| no maintained JS mocking library exists       | nothing to migrate _to_                  |
 
-That last row is the interesting one. `@ethereum-waffle/mock-contract` (2023),
+Rows 2 and 3 were measured rather than inferred, because the version numbers are
+easy to get wrong. `hardhat: "^2.10.0"` resolves to **2.12.5** in `yarn.lock`. A
+cold compile of this repo on Node 24 fails under 2.12.5 and 2.19.5 with `HH502`,
+and succeeds under 2.29.0. The cause is dependency skew in the solc download
+path — npm `undici@5.10.0` and Node 24's bundled undici share a global-dispatcher
+symbol, so the request reaches Node's internal dispatcher, which no longer accepts
+`maxRedirections`. Bumping only `undici` does not fix it; bumping hardhat does.
+And smock 2.3.4 against hardhat 2.29.0 throws in `Sandbox.create` (verified on
+Node 20, so Node is not a variable).
+
+So Node 24 is gated on removing smock — 29 test files, 77 `smock.fake` call
+sites, 15 distinct types.
+
+The fourth row is the interesting one. `@ethereum-waffle/mock-contract` (2023),
 `@gnosis.pm/mock-contract` (2022) and `@clrfund/waffle-mock-contract` (2024, and
 requires ethers v6) are all dead or unusable. The category has no maintained
 option because the ecosystem moved to Foundry, where mocking is native
