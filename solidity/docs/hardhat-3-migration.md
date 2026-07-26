@@ -37,16 +37,25 @@ Please make sure you have `"type": "module"` in your package.json.
 The `solidity` package is CommonJS throughout — `hardhat.config.ts`, 60 deploy
 scripts, 70 test files and `tasks/`.
 
-How much of that actually has to change is **unmeasured, and it is the largest
-number in this document**. Hardhat 3's documentation says config files must be
-ESM but that CommonJS is still supported in scripts and tests, which would make
-this a matter of renaming to `.cts` rather than rewriting every relative import.
-The spike above only established that the package needs `"type": "module"`; it
-did not establish what happens to the files underneath once it has it.
+That description was wrong, and it was the largest number in this document.
+Measured across all 151 TypeScript files in `deploy`, `test` and `tasks`, plus
+the config:
 
-Measure this before planning around it. The difference between "rename the
-files" and "rewrite `require`/`__dirname` semantics across 130 files" is the
-difference between a sprint and a quarter.
+| CommonJS construct     | files  |
+| ---------------------- | ------ |
+| `require(`             | **0**  |
+| `module.exports`       | **0**  |
+| `__filename`           | **0**  |
+| `import x = require()` | **0**  |
+| `__dirname`            | **10** |
+
+The package is CommonJS only by compilation target. Every file already uses
+`import`/`export`, because it is TypeScript. The whole ESM conversion is
+`"type": "module"`, a `tsconfig` module setting, and replacing `__dirname` in
+ten files — six of which are deploy scripts, three marked DEPRECATED — with the
+`import.meta.url` equivalent.
+
+That is an afternoon, not a quarter. ESM is not the blocker; the plugins are.
 
 **Most plugins have no Hardhat 3 line.** Measured today:
 
@@ -74,15 +83,22 @@ fixtures.
 
 ## Order of work
 
-1. ESM conversion of the `solidity` package. Nothing else can start first.
-2. Replace `@nomiclabs/hardhat-waffle` and the ethers v5 + typechain stack.
-   `hardhat-ethers@4` is ready; the waffle matchers are not, so assertions move
-   to `hardhat-chai-matchers` or the viem toolbox.
-3. Port the deploy layer to `hardhat-deploy@2` / rocketh.
-4. Release `@keep-network/hardhat-helpers` for Hardhat 3.
-5. Whatever of `hardhat-gas-reporter`, `hardhat-contract-sizer`,
+Ordered by what actually costs something, which is not the order this document
+had before:
+
+1. Replace `@nomiclabs/hardhat-waffle` and the ethers v5 + typechain stack. This
+   is the real body of work: `hardhat-ethers@4` is ready, the waffle matchers
+   are not, so every assertion moves to `hardhat-chai-matchers` or the viem
+   toolbox. 89 test files.
+2. Port the deploy layer to `hardhat-deploy@2` / rocketh. 60 scripts and the
+   tests that consume their fixtures.
+3. Release `@keep-network/hardhat-helpers` for Hardhat 3. Ours, so it gates on
+   our own cycle rather than anyone else's.
+4. Whatever of `hardhat-gas-reporter`, `hardhat-contract-sizer`,
    `hardhat-dependency-compiler` and `solidity-docgen` still has no Hardhat 3
    line by then — drop, replace, or vendor.
+5. ESM conversion. Listed last because it is the cheapest item, not the
+   gate it was previously described as.
 
 ## What Hardhat 3 is actually worth here
 
