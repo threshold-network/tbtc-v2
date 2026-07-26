@@ -1,7 +1,6 @@
 import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
 import { randomBytes } from "crypto"
-import chai, { expect } from "chai"
-import { FakeContract, smock } from "@defi-wonderland/smock"
+import { expect } from "chai"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { BigNumber, ContractTransaction } from "ethers"
 import {
@@ -11,8 +10,9 @@ import {
   ReimbursementPool,
   TestERC20,
 } from "../../../typechain"
+import { createMock } from "../../helpers/mock"
 
-chai.use(smock.matchers)
+import type { Mock } from "../../helpers/mock"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
@@ -39,11 +39,11 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
   let governance: SignerWithAddress
   let relayer: SignerWithAddress
   let user: SignerWithAddress
-  let bridge: FakeContract<IBridge>
+  let bridge: Mock<IBridge>
   let tbtcToken: TestERC20
-  let tbtcVault: FakeContract<ITBTCVault>
+  let tbtcVault: Mock<ITBTCVault>
   let nttManager: Record<string, unknown>
-  let reimbursementPool: FakeContract<ReimbursementPool>
+  let reimbursementPool: Mock<ReimbursementPool>
   let l1BtcDepositorNtt: L1BTCDepositorNtt
 
   const contractsFixture = async () => {
@@ -55,9 +55,9 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
     const user = await ethers.getSigner(accounts[2])
 
     // Mock contracts
-    bridge = await smock.fake<IBridge>("IBridge")
-    tbtcVault = await smock.fake<ITBTCVault>("ITBTCVault")
-    reimbursementPool = await smock.fake<ReimbursementPool>("ReimbursementPool")
+    bridge = await createMock<IBridge>("IBridge")
+    tbtcVault = await createMock<ITBTCVault>("ITBTCVault")
+    reimbursementPool = await createMock<ReimbursementPool>("ReimbursementPool")
 
     // Create manual mock for NTT Manager
     nttManager = {
