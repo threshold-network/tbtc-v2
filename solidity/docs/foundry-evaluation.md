@@ -67,6 +67,28 @@ The incremental version:
 This is additive: no migration, no dual maintenance of the same test, no
 dependency removed or added on the JS side.
 
+## Coexistence is not quite free
+
+Adding `foundry.toml` and changing nothing else broke the `contracts-slither`
+job on this branch's first CI run:
+
+```
+Multiple frameworks detected: Foundry, Hardhat. Using Foundry (highest priority).
+Use --compile-force-framework to override.
+```
+
+`crytic-compile` chooses a build system by looking for config files, and ranks
+Foundry above Hardhat. `forge` is not installed on that runner, so slither
+exited 255 without analysing anything — a security job turning red for a reason
+unrelated to any contract. The fix is one flag,
+`--compile-force-framework hardhat`, applied here.
+
+Worth stating plainly because the obvious check does not catch it: Hardhat
+itself compiles all 175 files with `foundry.toml` present. What breaks is
+third-party tooling that _sniffs_ for a framework rather than being told which
+one to use. Anything else in CI or in a contributor's editor that auto-detects
+is a candidate for the same surprise.
+
 ## Relationship to the smock work
 
 The smock replacement (Solidity stubs, see `ReimbursementPoolStub`) is a
