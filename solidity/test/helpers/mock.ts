@@ -6,6 +6,8 @@
  */
 /* eslint-disable no-underscore-dangle */
 import { ethers, artifacts } from "hardhat"
+import { expect } from "chai"
+import { BigNumber } from "ethers"
 
 import type { BigNumberish, Contract, Signer } from "ethers"
 import type { FunctionFragment, Interface, ParamType } from "ethers/lib/utils"
@@ -452,6 +454,63 @@ export async function createMock<T>(
       return functions.get(property)
     },
   }) as unknown as Mock<T>
+}
+
+/**
+ * Assertion helpers replacing smock's chai matchers.
+ *
+ * smock's `expect(fake.fn).to.have.been.calledOnce` worked because the call log
+ * was in-process JavaScript, so a chai *property* could read it synchronously.
+ * Here the log is on chain, so reading it is asynchronous, and a property
+ * cannot be awaited — `await expect(x).to.have.been.calledOnce` would await the
+ * assertion object, not the count, and pass unconditionally. These are
+ * functions so that the `await` is real.
+ */
+
+async function counted(fn: MockedFunction): Promise<number> {
+  return fn.callCount()
+}
+
+/** `expect(fake.fn).to.have.been.called` */
+export async function expectCalled(fn: MockedFunction): Promise<void> {
+  const count = await counted(fn)
+  expect(count, "expected the function to have been called").to.be.greaterThan(
+    0
+  )
+}
+
+/** `expect(fake.fn).to.have.been.calledOnce` */
+export async function expectCalledOnce(fn: MockedFunction): Promise<void> {
+  expect(await counted(fn), "expected exactly one call").to.equal(1)
+}
+
+/** `expect(fake.fn).to.have.been.calledTwice` */
+export async function expectCalledTwice(fn: MockedFunction): Promise<void> {
+  expect(await counted(fn), "expected exactly two calls").to.equal(2)
+}
+
+/** `expect(fake.fn).to.have.been.calledOnceWith(...args)` */
+export async function expectCalledOnceWith(
+  fn: MockedFunction,
+  args: unknown[]
+): Promise<void> {
+  expect(await counted(fn), "expected exactly one call").to.equal(1)
+
+  const call = await fn.getCall(0)
+
+  expect(call.args.length, "argument count").to.equal(args.length)
+  args.forEach((expected, index) => {
+    const actual = call.args[index]
+    // Comparing loosely on purpose: ethers hands back BigNumber for numeric
+    // arguments and checksummed strings for addresses, and the call sites
+    // being migrated pass plain numbers and lower-case addresses.
+    expect(
+      BigNumber.isBigNumber(actual) ? actual.toString() : actual,
+      `argument ${index}`
+    ).to.deep.equal(
+      BigNumber.isBigNumber(expected) ? expected.toString() : expected
+    )
+  })
 }
 
 export default createMock
