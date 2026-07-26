@@ -109,6 +109,17 @@ contract MockContract {
 
     /// @dev keccak256("tbtc.test.MockContract.state.v1") - 1, masked, per the
     ///      ERC-7201 convention.
+    /// @dev Gas handed to the recording self-call.
+    ///
+    ///      An explicit cap matters more than the value. try/catch does not
+    ///      recover from out-of-gas: an uncapped sub-call takes 63/64 of what
+    ///      is left, so if recording runs out, the caller is left with too
+    ///      little to continue and the whole transaction reverts. Capping it
+    ///      means a failed recording costs this much and nothing more, which
+    ///      keeps recording genuinely best-effort. Generous enough for any
+    ///      realistic calldata.
+    uint256 private constant RECORD_GAS_STIPEND = 1_000_000;
+
     bytes32 private constant STATE_SLOT =
         0xdd9627cd601a6555f69239ac336fba8db95c419564b84ebb3ee2c21fed88ae00;
 
@@ -413,7 +424,12 @@ contract MockContract {
             !_state().nonRecording[__mock__selectorOf(msg.data)]
         ) {
             // solhint-disable-next-line no-empty-blocks
-            try this.__mock__record(msg.data, msg.value) {} catch {}
+            try
+                this.__mock__record{gas: RECORD_GAS_STIPEND}(
+                    msg.data,
+                    msg.value
+                )
+            {} catch {}
         }
 
         bytes memory result = __mock__responseFor(msg.data);
