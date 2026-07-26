@@ -2,9 +2,9 @@
 import hre, { ethers, waffle } from "hardhat"
 import { expect } from "chai"
 
-import type { Mock } from "../helpers/mock"
 import type { ContractTransaction } from "ethers"
 import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import type { Mock } from "../helpers/mock"
 import type { Bridge, IRandomBeacon, WalletRegistry } from "../../typechain"
 
 import {

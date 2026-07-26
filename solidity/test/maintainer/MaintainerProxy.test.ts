@@ -57,7 +57,6 @@ import {
 import bridgeFixture from "../fixtures/bridge"
 import { constants, walletState } from "../fixtures"
 import { createMock } from "../helpers/mock"
-import type { Mock } from "../helpers/mock"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { provider } = waffle

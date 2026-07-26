@@ -6,8 +6,8 @@ import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { expect } from "chai"
 import { BigNumber, BigNumberish, Contract, ContractTransaction } from "ethers"
 import { BytesLike } from "@ethersproject/bytes"
-import type { Mock } from "../helpers/mock"
 import { Deployment } from "hardhat-deploy/types"
+import type { Mock } from "../helpers/mock"
 import type {
   Bank,
   BankStub,
@@ -48,7 +48,6 @@ import {
   expectCalledOnceWith,
   expectNotCalled,
 } from "../helpers/mock"
-import type { Mock } from "../helpers/mock"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime, increaseTime } = helpers.time

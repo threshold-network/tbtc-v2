@@ -3,7 +3,6 @@
 import hre, { ethers, helpers, waffle } from "hardhat"
 import { expect } from "chai"
 
-import type { Mock } from "../helpers/mock"
 import type {
   ContractTransaction,
   Contract,
@@ -11,6 +10,7 @@ import type {
   BytesLike,
 } from "ethers"
 import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
+import type { Mock } from "../helpers/mock"
 
 import type {
   TBTC,

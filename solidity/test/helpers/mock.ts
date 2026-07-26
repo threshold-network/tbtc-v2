@@ -404,8 +404,8 @@ export async function createMock<T>(
         // eslint-disable-next-line no-console
         console.warn(
           `mock: ${target}.${name} whenCalledWith(...) arguments cannot be ` +
-            `encoded for this signature, so the entry can never match and is ` +
-            `being skipped: ${(error as Error).message.split("(")[0].trim()}`
+            "encoded for this signature, so the entry can never match and " +
+            `is being skipped: ${(error as Error).message.split("(")[0].trim()}`
         )
         return
       }

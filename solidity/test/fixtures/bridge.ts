@@ -21,7 +21,6 @@ import type {
 import { createMock } from "../helpers/mock"
 
 import type { Mock } from "../helpers/mock"
-import type { Mock } from "../helpers/mock"
 
 /**
  * Common fixture for tests suites targeting the Bridge contract.

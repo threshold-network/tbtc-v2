@@ -1,10 +1,10 @@
 /* eslint-disable no-underscore-dangle */
 import { ethers, helpers, waffle } from "hardhat"
 import chai, { assert, expect } from "chai"
-import type { Mock } from "../helpers/mock"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { BigNumber, Contract, ContractTransaction } from "ethers"
 import { Deployment } from "hardhat-deploy/types"
+import type { Mock } from "../helpers/mock"
 import type {
   Bridge,
   BridgeStub,
@@ -39,7 +39,6 @@ import { ecdsaWalletTestData } from "../data/ecdsa"
 import { NO_MAIN_UTXO } from "../data/deposit-sweep"
 import { to1ePrecision } from "../helpers/contract-test-helpers"
 import { expectCalledOnceWith } from "../helpers/mock"
-import type { Mock } from "../helpers/mock"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime, increaseTime } = helpers.time

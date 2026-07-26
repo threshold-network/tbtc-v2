@@ -2,8 +2,8 @@
 import { ethers, helpers, waffle } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { expect } from "chai"
-import type { Mock } from "../helpers/mock"
 import { ContractTransaction } from "ethers"
+import type { Mock } from "../helpers/mock"
 import type {
   Bridge,
   BridgeGovernance,
@@ -15,7 +15,6 @@ import { ecdsaWalletTestData } from "../data/ecdsa"
 import { constants, ecdsaDkgState, walletState } from "../fixtures"
 import bridgeFixture from "../fixtures/bridge"
 import { expectCalledOnce, expectCalledOnceWith } from "../helpers/mock"
-import type { Mock } from "../helpers/mock"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime, increaseTime } = helpers.time

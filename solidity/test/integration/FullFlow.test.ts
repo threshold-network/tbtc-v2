@@ -1,11 +1,11 @@
 /* eslint-disable no-await-in-loop */
 /* eslint-disable @typescript-eslint/no-extra-semi */
 import hre, { ethers, helpers, waffle } from "hardhat"
-import type { Mock } from "../helpers/mock"
 import type { BigNumberish } from "ethers"
 import { utils } from "ethers"
 import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { expect } from "chai"
+import type { Mock } from "../helpers/mock"
 import type {
   TBTC,
   Bridge,
