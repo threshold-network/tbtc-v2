@@ -40,7 +40,7 @@
     "@thesis/solidity-contracts": "github:thesis/solidity-contracts#4985bcf"
   },
   "devDependencies": {
-    "@defi-wonderland/smock": "^2.3.4",
+    "@defi-wonderland/smock": "2.3.4",
     "@keep-network/hardhat-helpers": "0.6.0-pre.18",
     "@keep-network/hardhat-local-networks-config": "^0.1.0-pre.4",
     "@nomiclabs/hardhat-ethers": "^2.0.6",
@@ -62,7 +62,7 @@
     "eslint": "^7.32.0",
     "ethereum-waffle": "^3.4.0",
     "ethers": "^5.5.3",
-    "hardhat": "^2.10.0",
+    "hardhat": "~2.19.5",
     "hardhat-contract-sizer": "^2.5.0",
     "hardhat-dependency-compiler": "^1.1.2",
     "hardhat-deploy": "^0.11.11",
