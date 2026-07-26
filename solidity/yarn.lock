@@ -2341,6 +2341,7 @@ __metadata:
     eslint: "npm:^7.32.0"
     ethereum-waffle: "npm:^3.4.0"
     ethers: "npm:^5.5.3"
+    forge-std: "npm:^1.1.2"
     hardhat: "npm:^2.26.3"
     hardhat-contract-sizer: "npm:^2.5.0"
     hardhat-dependency-compiler: "npm:^1.1.2"
@@ -9435,6 +9436,23 @@ __metadata:
   languageName: node
   linkType: hard
 
+"forge-std@npm:^1.1.2":
+  version: 1.1.2
+  resolution: "forge-std@npm:1.1.2"
+  checksum: 10c0/8e6c4de83323f92dfcd29c53b385d7253833f1028ad44780c4499d62d6778a61d6187d17065cd7d96f55c7c1227b7b32da5a45c87d450b4445da74b7d37a6ed2
+  languageName: node
+  linkType: hard
+
+"form-data@npm:^2.2.0":
+  version: 2.5.1
+  resolution: "form-data@npm:2.5.1"
+  dependencies:
+    asynckit: "npm:^0.4.0"
+    combined-stream: "npm:^1.0.6"
+    mime-types: "npm:^2.1.12"
+  checksum: 10c0/7e8fb913b84a7ac04074781a18d0f94735bbe82815ff35348803331f6480956ff0035db5bcf15826edee09fe01e665cfac664678f1526646a6374ee13f960e56
+  languageName: node
+  linkType: hard
 "form-data@npm:^3.0.0":
   version: 3.0.1
   resolution: "form-data@npm:3.0.1"

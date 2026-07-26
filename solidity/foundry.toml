@@ -9,7 +9,7 @@
 src = "contracts"
 test = "test-foundry"
 out = "forge-artifacts"
-libs = ["node_modules"]
+libs = ["node_modules", "lib"]
 # Match hardhat.config.ts exactly, or the two runners compile different code.
 solc_version = "0.8.17"
 optimizer = true
@@ -20,5 +20,5 @@ remappings = [
     "@keep-network/=node_modules/@keep-network/",
     "@threshold-network/=node_modules/@threshold-network/",
     "@thesis/=node_modules/@thesis/",
-    "forge-std/=node_modules/forge-std/src/"
+    "forge-std/=lib/forge-std/src/"
 ]
