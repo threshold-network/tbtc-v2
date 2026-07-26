@@ -43,9 +43,9 @@
   },
   "dependencies": {
     "@keep-network/bitcoin-spv-sol": "3.4.0-solc-0.8",
-    "@keep-network/ecdsa": "development",
-    "@keep-network/random-beacon": "development",
-    "@keep-network/tbtc-v2": "development",
+    "@keep-network/ecdsa": "2.1.0-dev.19",
+    "@keep-network/random-beacon": "2.1.0-dev.18",
+    "@keep-network/tbtc-v2": "1.8.0-dev.1",
     "@openzeppelin/contracts": "^4.8.1",
     "@openzeppelin/contracts-upgradeable": "^4.8.1",
     "@thesis/solidity-contracts": "github:thesis/solidity-contracts#4985bcf"

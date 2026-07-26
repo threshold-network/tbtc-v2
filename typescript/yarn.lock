@@ -1517,7 +1517,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@keep-network/ecdsa@npm:2.1.0-dev.19, @keep-network/ecdsa@npm:development":
+"@keep-network/ecdsa@npm:2.1.0-dev.19":
   version: 2.1.0-dev.19
   resolution: "@keep-network/ecdsa@npm:2.1.0-dev.19"
   dependencies:
@@ -1609,9 +1609,9 @@ __metadata:
     "@bitcoinerlab/secp256k1": "npm:^1.0.5"
     "@coral-xyz/anchor": "npm:0.28.0"
     "@ethersproject/providers": "npm:^5.7.2"
-    "@keep-network/ecdsa": "npm:development"
+    "@keep-network/ecdsa": "npm:2.1.0-dev.19"
     "@keep-network/prettier-config-keep": "github:keep-network/prettier-config-keep"
-    "@keep-network/tbtc-v2": "npm:development"
+    "@keep-network/tbtc-v2": "npm:1.8.0-dev.1"
     "@mysten/sui": "npm:1.34.0"
     "@solana/spl-token": "npm:0.3.9"
     "@solana/web3.js": "npm:~1.97.0"
@@ -1653,7 +1653,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@keep-network/tbtc-v2@npm:development":
+"@keep-network/tbtc-v2@npm:1.8.0-dev.1":
   version: 1.8.0-dev.1
   resolution: "@keep-network/tbtc-v2@npm:1.8.0-dev.1"
   dependencies:
