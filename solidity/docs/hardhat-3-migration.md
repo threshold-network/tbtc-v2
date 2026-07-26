@@ -59,11 +59,34 @@ Replacements exist for some, but they are replacements, not upgrades:
 
 ## The two that have no answer at all
 
-**`@defi-wonderland/smock`** — used by 29 test files. There is no Hardhat 3
-version, and no viem equivalent. It works by reaching into Hardhat's provider
-internals, which is also why it breaks on Hardhat >= 2.20 (see
+**`@defi-wonderland/smock`** — used by 29 test files. It works by reaching into
+Hardhat's provider internals, which is why it breaks on Hardhat >= 2.20 (see
 `build(solidity): pin the toolchain to the versions smock actually works with`).
-Every fake in the suite would have to be rebuilt on something else.
+
+It is also **deprecated by its maintainers**. The last commit to the default
+branch, 2025-05-13, added this to the README:
+
+> ⚠️ **DEPRECATED – DO NOT USE**
+>
+> This repository is no longer maintained and is **deprecated**. It may contain
+> **outdated, insecure, or vulnerable code** and should **not** be used in
+> production or as a dependency in any project. The repository is retained
+> solely for historical reference. No support, updates, or security patches will
+> be provided.
+
+The npm package itself carries no `deprecated` flag, so installs are silent
+about this. There will be no Hardhat 3 version and no viem equivalent — waiting
+is not a strategy, and this is a work item whether or not Hardhat 3 ever
+happens. It is test-only, so the exposure is developer/CI supply chain rather
+than anything on-chain, but every fake in the suite has to be rebuilt on
+something else eventually.
+
+The likely replacement is already in the tree: this repo writes hand-rolled
+Solidity stubs extensively (`contracts/test/*Stub.sol` — `BridgeStub`,
+`FrostWalletRegistryStub`, `P2TRAuthorizationRegistryStub` and others). Those
+are toolchain-independent and survive any Hardhat/ethers/viem choice, so
+converting smock fakes to real stub contracts de-risks the migration *and*
+removes the deprecated dependency, in either order.
 
 **`hardhat-deploy`** — the Hardhat 3 line is `2.x`, which is a rewrite on top of
 `rocketh` with a different API. The repo has **60 deploy scripts** plus 28 test
@@ -87,8 +110,10 @@ Measured over `solidity/test` and `solidity/deploy`:
 This is a project, not a follow-up PR. The prerequisites are, in order:
 
 1. Node 22+ across local and CI.
-2. Decide the mocking story — smock has no forward path. This is the single
-   hardest item and it should be settled before anything else is touched.
+2. Replace smock. It has no forward path and is deprecated upstream, so this is
+   required regardless of Hardhat 3. Converting fakes to `contracts/test/*Stub.sol`
+   -style contracts is the lowest-risk route and can start today, independently
+   of every other item on this list.
 3. ESM conversion of the `solidity` package.
 4. Port the deploy layer to `hardhat-deploy@2` / rocketh.
 5. Replace ethers v5 + typechain + waffle matchers with the chosen stack
