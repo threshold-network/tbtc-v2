@@ -460,5 +460,11 @@ jobs:
       - name: Install dependencies
         run: yarn install
 
+      # `crytic-compile` picks a framework by sniffing for config files and
+      # ranks Foundry above Hardhat, so the presence of `foundry.toml` alone
+      # makes it try to shell out to `forge`, which is not installed here.
+      # Hardhat is the build of record for this repo; say so explicitly.
       - name: Run Slither
-        run: slither --hardhat-artifacts-directory build .
+        run: |
+          slither --compile-force-framework hardhat \
+            --hardhat-artifacts-directory build .
