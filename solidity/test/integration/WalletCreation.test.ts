@@ -2,7 +2,7 @@
 import hre, { ethers, waffle } from "hardhat"
 import { expect } from "chai"
 
-import type { FakeContract } from "@defi-wonderland/smock"
+import type { Mock } from "../helpers/mock"
 import type { ContractTransaction } from "ethers"
 import type { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import type { Bridge, IRandomBeacon, WalletRegistry } from "../../typechain"
@@ -30,7 +30,7 @@ const describeFn =
 describeFn("Integration Test - Wallet Creation", async () => {
   let bridge: Bridge
   let walletRegistry: WalletRegistry
-  let randomBeacon: FakeContract<IRandomBeacon>
+  let randomBeacon: Mock<IRandomBeacon>
   let governance: SignerWithAddress
 
   const dkgResultChallengePeriodLength = 10

@@ -1,8 +1,7 @@
 /* eslint-disable no-underscore-dangle */
 import { ethers, helpers, waffle } from "hardhat"
 import chai, { assert, expect } from "chai"
-import { smock } from "@defi-wonderland/smock"
-import type { FakeContract } from "@defi-wonderland/smock"
+import type { Mock } from "../helpers/mock"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { BigNumber, Contract, ContractTransaction } from "ethers"
 import { Deployment } from "hardhat-deploy/types"
@@ -39,8 +38,8 @@ import {
 import { ecdsaWalletTestData } from "../data/ecdsa"
 import { NO_MAIN_UTXO } from "../data/deposit-sweep"
 import { to1ePrecision } from "../helpers/contract-test-helpers"
-
-chai.use(smock.matchers)
+import { expectCalledOnceWith } from "../helpers/mock"
+import type { Mock } from "../helpers/mock"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime, increaseTime } = helpers.time
@@ -51,8 +50,8 @@ describe("Bridge - Moving funds", () => {
   let thirdParty: SignerWithAddress
   let spvMaintainer: SignerWithAddress
 
-  let relay: FakeContract<IRelay>
-  let walletRegistry: FakeContract<IWalletRegistry>
+  let relay: Mock<IRelay>
+  let walletRegistry: Mock<IWalletRegistry>
   let bridge: Bridge & BridgeStub
   let bridgeGovernance: BridgeGovernance
   let reimbursementPool: ReimbursementPool
@@ -147,7 +146,7 @@ describe("Bridge - Moving funds", () => {
 
                     caller = thirdParty
 
-                    walletRegistry.isWalletMember
+                    await walletRegistry.isWalletMember
                       .whenCalledWith(
                         ecdsaWalletTestData.walletID,
                         walletMembersIDs,
@@ -158,7 +157,7 @@ describe("Bridge - Moving funds", () => {
                   })
 
                   after(async () => {
-                    walletRegistry.isWalletMember.reset()
+                    await walletRegistry.isWalletMember.reset()
 
                     await restoreSnapshot()
                   })
@@ -534,11 +533,11 @@ describe("Bridge - Moving funds", () => {
                     await createSnapshot()
 
                     // That's the default behavior, but we just make it explicit.
-                    walletRegistry.isWalletMember.returns(false)
+                    await walletRegistry.isWalletMember.returns(false)
                   })
 
                   after(async () => {
-                    walletRegistry.isWalletMember.reset()
+                    await walletRegistry.isWalletMember.reset()
 
                     await restoreSnapshot()
                   })
@@ -1686,8 +1685,8 @@ describe("Bridge - Moving funds", () => {
             await createSnapshot()
 
             // Required for a successful SPV proof.
-            relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
-            relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
+            await relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
+            await relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
 
             // Wallet main UTXO must be set on the Bridge side to make
             // that scenario happen.
@@ -1698,8 +1697,8 @@ describe("Bridge - Moving funds", () => {
           })
 
           after(async () => {
-            relay.getPrevEpochDifficulty.reset()
-            relay.getCurrentEpochDifficulty.reset()
+            await relay.getPrevEpochDifficulty.reset()
+            await relay.getCurrentEpochDifficulty.reset()
 
             await restoreSnapshot()
           })
@@ -1735,13 +1734,13 @@ describe("Bridge - Moving funds", () => {
           await createSnapshot()
 
           // Required for a successful SPV proof.
-          relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
-          relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
+          await relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
+          await relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
         })
 
         after(async () => {
-          relay.getPrevEpochDifficulty.reset()
-          relay.getCurrentEpochDifficulty.reset()
+          await relay.getPrevEpochDifficulty.reset()
+          await relay.getCurrentEpochDifficulty.reset()
 
           await restoreSnapshot()
         })
@@ -2027,8 +2026,8 @@ describe("Bridge - Moving funds", () => {
             await createSnapshot()
 
             // Necessary to pass the first part of proof validation.
-            relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
-            relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
+            await relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
+            await relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
 
             // Deploy another bridge which has higher `txProofDifficultyFactor`
             // than the original bridge. That means it will need 12 confirmations
@@ -2043,8 +2042,8 @@ describe("Bridge - Moving funds", () => {
           })
 
           after(async () => {
-            relay.getCurrentEpochDifficulty.reset()
-            relay.getPrevEpochDifficulty.reset()
+            await relay.getCurrentEpochDifficulty.reset()
+            await relay.getPrevEpochDifficulty.reset()
 
             await restoreSnapshot()
           })
@@ -2165,8 +2164,8 @@ describe("Bridge - Moving funds", () => {
         before(async () => {
           await createSnapshot()
 
-          walletRegistry.closeWallet.reset()
-          walletRegistry.seize.reset()
+          await walletRegistry.closeWallet.reset()
+          await walletRegistry.seize.reset()
 
           await increaseTime(movingFundsTimeout)
 
@@ -2179,8 +2178,8 @@ describe("Bridge - Moving funds", () => {
         })
 
         after(async () => {
-          walletRegistry.closeWallet.reset()
-          walletRegistry.seize.reset()
+          await walletRegistry.closeWallet.reset()
+          await walletRegistry.seize.reset()
 
           await restoreSnapshot()
         })
@@ -2202,19 +2201,19 @@ describe("Bridge - Moving funds", () => {
 
         it("should call ECDSA Wallet Registry's closeWallet function", async () => {
           // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-          expect(walletRegistry.closeWallet).to.have.been.calledOnceWith(
-            ecdsaWalletTestData.walletID
-          )
+          await expectCalledOnceWith(walletRegistry.closeWallet, [
+            ecdsaWalletTestData.walletID,
+          ])
         })
 
         it("should call the ECDSA wallet registry's seize function", async () => {
-          expect(walletRegistry.seize).to.have.been.calledOnceWith(
+          await expectCalledOnceWith(walletRegistry.seize, [
             movingFundsTimeoutSlashingAmount,
             movingFundsTimeoutNotifierRewardMultiplier,
             await thirdParty.getAddress(),
             ecdsaWalletTestData.walletID,
-            walletMembersIDs
-          )
+            walletMembersIDs,
+          ])
         })
 
         it("should emit MovingFundsTimedOut event", async () => {
@@ -3626,8 +3625,8 @@ describe("Bridge - Moving funds", () => {
             await createSnapshot()
 
             // Necessary to pass the first part of proof validation.
-            relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
-            relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
+            await relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
+            await relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
 
             // Deploy another bridge which has higher `txProofDifficultyFactor`
             // than the original bridge. That means it will need 12 confirmations
@@ -3642,8 +3641,8 @@ describe("Bridge - Moving funds", () => {
           })
 
           after(async () => {
-            relay.getCurrentEpochDifficulty.reset()
-            relay.getPrevEpochDifficulty.reset()
+            await relay.getCurrentEpochDifficulty.reset()
+            await relay.getPrevEpochDifficulty.reset()
 
             await restoreSnapshot()
           })
@@ -3858,8 +3857,8 @@ describe("Bridge - Moving funds", () => {
                 })
 
                 after(async () => {
-                  walletRegistry.closeWallet.reset()
-                  walletRegistry.seize.reset()
+                  await walletRegistry.closeWallet.reset()
+                  await walletRegistry.seize.reset()
 
                   await restoreSnapshot()
                 })
@@ -3908,19 +3907,19 @@ describe("Bridge - Moving funds", () => {
 
                 it("should call ECDSA Wallet Registry's closeWallet function", async () => {
                   // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-                  expect(
-                    walletRegistry.closeWallet
-                  ).to.have.been.calledOnceWith(walletDraft.ecdsaWalletID)
+                  await expectCalledOnceWith(walletRegistry.closeWallet, [
+                    walletDraft.ecdsaWalletID,
+                  ])
                 })
 
                 it("should call the ECDSA wallet registry's seize function", async () => {
-                  expect(walletRegistry.seize).to.have.been.calledOnceWith(
+                  await expectCalledOnceWith(walletRegistry.seize, [
                     movedFundsSweepTimeoutSlashingAmount,
                     movedFundsSweepTimeoutNotifierRewardMultiplier,
                     await thirdParty.getAddress(),
                     walletDraft.ecdsaWalletID,
-                    walletMembersIDs
-                  )
+                    walletMembersIDs,
+                  ])
                 })
 
                 it("should emit MovedFundsSweepTimedOut event", async () => {
@@ -4180,8 +4179,8 @@ describe("Bridge - Moving funds", () => {
     data: MovingFundsTestData,
     beforeProofActions?: () => Promise<void>
   ): Promise<ContractTransaction> {
-    relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
-    relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
+    await relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
+    await relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
 
     // Simulate the wallet is a registered one.
     await bridge.setWallet(data.wallet.pubKeyHash, {
@@ -4217,8 +4216,8 @@ describe("Bridge - Moving funds", () => {
         data.wallet.pubKeyHash
       )
 
-    relay.getCurrentEpochDifficulty.reset()
-    relay.getPrevEpochDifficulty.reset()
+    await relay.getCurrentEpochDifficulty.reset()
+    await relay.getPrevEpochDifficulty.reset()
 
     return tx
   }
@@ -4227,8 +4226,8 @@ describe("Bridge - Moving funds", () => {
     data: MovedFundsSweepTestData,
     beforeProofActions?: () => Promise<void>
   ): Promise<ContractTransaction> {
-    relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
-    relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
+    await relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
+    await relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
 
     // Simulate the wallet is a registered one.
     await bridge.setWallet(data.wallet.pubKeyHash, {
@@ -4270,8 +4269,8 @@ describe("Bridge - Moving funds", () => {
       .connect(spvMaintainer)
       .submitMovedFundsSweepProof(data.sweepTx, data.sweepProof, data.mainUtxo)
 
-    relay.getCurrentEpochDifficulty.reset()
-    relay.getPrevEpochDifficulty.reset()
+    await relay.getCurrentEpochDifficulty.reset()
+    await relay.getPrevEpochDifficulty.reset()
 
     return tx
   }

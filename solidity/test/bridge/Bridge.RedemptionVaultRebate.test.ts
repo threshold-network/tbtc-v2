@@ -3,10 +3,9 @@
 
 import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import chai, { expect } from "chai"
+import { expect } from "chai"
 import { BigNumber, Contract, ContractTransaction } from "ethers"
-import type { FakeContract } from "@defi-wonderland/smock"
-import { smock } from "@defi-wonderland/smock"
+import type { Mock } from "../helpers/mock"
 import type {
   Bank,
   BankStub,
@@ -19,8 +18,6 @@ import type {
 import { walletState } from "../fixtures"
 import bridgeFixture from "../fixtures/bridge"
 import { to1e18 } from "../helpers/contract-test-helpers"
-
-chai.use(smock.matchers)
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime, increaseTime } = helpers.time
@@ -101,7 +98,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
   let bridgeGovernance: BridgeGovernance
   let t: Contract
   let rebateStaking: RebateStaking
-  let walletRegistry: FakeContract<IWalletRegistry>
+  let walletRegistry: Mock<IWalletRegistry>
 
   let redemptionTimeout: number
 
@@ -318,7 +315,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
       })
 
       after(async () => {
-        walletRegistry.seize.reset()
+        await walletRegistry.seize.reset()
 
         await restoreSnapshot()
       })

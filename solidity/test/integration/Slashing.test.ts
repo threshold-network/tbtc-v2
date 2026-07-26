@@ -3,7 +3,7 @@
 import hre, { ethers, helpers, waffle } from "hardhat"
 import { expect } from "chai"
 
-import type { FakeContract } from "@defi-wonderland/smock"
+import type { Mock } from "../helpers/mock"
 import type {
   ContractTransaction,
   Contract,
@@ -55,8 +55,8 @@ describeFn("Integration Test - Slashing", async () => {
   let tbtcVault: TBTCVault
   let staking: Contract
   let walletRegistry: WalletRegistry
-  let randomBeacon: FakeContract<IRandomBeacon>
-  let relay: FakeContract<IRelay>
+  let randomBeacon: Mock<IRandomBeacon>
+  let relay: Mock<IRelay>
   let deployer: SignerWithAddress
   let governance: SignerWithAddress
   let spvMaintainer: SignerWithAddress
@@ -261,10 +261,12 @@ describeFn("Integration Test - Slashing", async () => {
         // the redeemer, to be able to request a redemption.
         await bridge.connect(depositorSigner).revealDeposit(fundingTx, reveal)
 
-        relay.getCurrentEpochDifficulty.returns(
+        await relay.getCurrentEpochDifficulty.returns(
           SingleP2SHDeposit.chainDifficulty
         )
-        relay.getPrevEpochDifficulty.returns(SingleP2SHDeposit.chainDifficulty)
+        await relay.getPrevEpochDifficulty.returns(
+          SingleP2SHDeposit.chainDifficulty
+        )
 
         await bridge
           .connect(spvMaintainer)
@@ -309,9 +311,9 @@ describeFn("Integration Test - Slashing", async () => {
           )
 
         // Confirm the wallet is still in Live state.
-        expect(
-          (await await bridge.wallets(walletPubKeyHash160)).state
-        ).to.be.equal(walletState.Live)
+        expect((await bridge.wallets(walletPubKeyHash160)).state).to.be.equal(
+          walletState.Live
+        )
       })
 
       describe("when a redemption timeout is reported", async () => {
@@ -421,10 +423,12 @@ describeFn("Integration Test - Slashing", async () => {
         // the MovingFunds instead of the Closing state.
         await bridge.connect(depositorSigner).revealDeposit(fundingTx, reveal)
 
-        relay.getCurrentEpochDifficulty.returns(
+        await relay.getCurrentEpochDifficulty.returns(
           SingleP2SHDeposit.chainDifficulty
         )
-        relay.getPrevEpochDifficulty.returns(SingleP2SHDeposit.chainDifficulty)
+        await relay.getPrevEpochDifficulty.returns(
+          SingleP2SHDeposit.chainDifficulty
+        )
 
         await bridge
           .connect(spvMaintainer)

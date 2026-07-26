@@ -4,8 +4,7 @@ import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { SigningKey } from "ethers/lib/utils"
 import { assert, expect } from "chai"
 import { ContractTransaction, BigNumber, BigNumberish } from "ethers"
-import type { FakeContract } from "@defi-wonderland/smock"
-import { smock } from "@defi-wonderland/smock"
+import type { Mock } from "../helpers/mock"
 
 import { ecdsaWalletTestData } from "../data/ecdsa"
 import type {
@@ -57,6 +56,8 @@ import {
 
 import bridgeFixture from "../fixtures/bridge"
 import { constants, walletState } from "../fixtures"
+import { createMock } from "../helpers/mock"
+import type { Mock } from "../helpers/mock"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { provider } = waffle
@@ -82,8 +83,8 @@ describe("MaintainerProxy", () => {
   let bridgeGovernance: BridgeGovernance
   let maintainerProxy: MaintainerProxy
   let reimbursementPool: ReimbursementPool
-  let relay: FakeContract<IRelay>
-  let walletRegistry: FakeContract<IWalletRegistry>
+  let relay: Mock<IRelay>
+  let walletRegistry: Mock<IWalletRegistry>
   let bank: Bank & BankStub
 
   let fraudChallengeDepositAmount: BigNumber
@@ -107,7 +108,7 @@ describe("MaintainerProxy", () => {
     } = await waffle.loadFixture(bridgeFixture))
     ;({ movingFundsTimeoutResetDelay } = await bridge.movingFundsParameters())
 
-    walletRegistry = await smock.fake<IWalletRegistry>("IWalletRegistry", {
+    walletRegistry = await createMock<IWalletRegistry>("IWalletRegistry", {
       address: (await bridge.contractReferences()).ecdsaWalletRegistry,
     })
 
@@ -372,14 +373,14 @@ describe("MaintainerProxy", () => {
           "when the single input is a revealed unswept deposit with a trusted vault",
           () => {
             const data: DepositSweepTestData = SingleP2WSHDeposit
-            let vault: FakeContract<IVault>
+            let vault: Mock<IVault>
             let tx: ContractTransaction
 
             before(async () => {
               await createSnapshot()
 
               // Deploy a fake vault and mark it as trusted.
-              vault = await smock.fake<IVault>("IVault")
+              vault = await createMock<IVault>("IVault")
               await bridgeGovernance
                 .connect(governance)
                 .setVaultStatus(vault.address, true)
@@ -422,14 +423,14 @@ describe("MaintainerProxy", () => {
           "when the single input is a revealed unswept deposit with a non-trusted vault",
           () => {
             const data: DepositSweepTestData = SingleP2WSHDeposit
-            let vault: FakeContract<IVault>
+            let vault: Mock<IVault>
             let tx: ContractTransaction
 
             before(async () => {
               await createSnapshot()
 
               // Deploy a fake vault and mark it as trusted.
-              vault = await smock.fake<IVault>("IVault")
+              vault = await createMock<IVault>("IVault")
               await bridgeGovernance
                 .connect(governance)
                 .setVaultStatus(vault.address, true)
@@ -531,7 +532,7 @@ describe("MaintainerProxy", () => {
             const previousData: DepositSweepTestData =
               MultipleDepositsNoMainUtxo
             const data: DepositSweepTestData = MultipleDepositsWithMainUtxo
-            let vault: FakeContract<IVault>
+            let vault: Mock<IVault>
             let tx: ContractTransaction
 
             before(async () => {
@@ -542,7 +543,7 @@ describe("MaintainerProxy", () => {
               await runDepositSweepScenario(previousData)
 
               // Deploy a fake vault and mark it as trusted.
-              vault = await smock.fake<IVault>("IVault")
+              vault = await createMock<IVault>("IVault")
               await bridgeGovernance
                 .connect(governance)
                 .setVaultStatus(vault.address, true)
@@ -591,7 +592,7 @@ describe("MaintainerProxy", () => {
             const previousData: DepositSweepTestData =
               MultipleDepositsNoMainUtxo
             const data: DepositSweepTestData = MultipleDepositsWithMainUtxo
-            let vault: FakeContract<IVault>
+            let vault: Mock<IVault>
             let tx: ContractTransaction
 
             before(async () => {
@@ -602,7 +603,7 @@ describe("MaintainerProxy", () => {
               await runDepositSweepScenario(previousData)
 
               // Deploy a fake vault and mark it as trusted.
-              vault = await smock.fake<IVault>("IVault")
+              vault = await createMock<IVault>("IVault")
               await bridgeGovernance
                 .connect(governance)
                 .setVaultStatus(vault.address, true)
@@ -662,8 +663,8 @@ describe("MaintainerProxy", () => {
             const previousData: DepositSweepTestData =
               MultipleDepositsNoMainUtxo
             const data: DepositSweepTestData = MultipleDepositsWithMainUtxo
-            let vaultA: FakeContract<IVault>
-            let vaultB: FakeContract<IVault>
+            let vaultA: Mock<IVault>
+            let vaultB: Mock<IVault>
             let tx: ContractTransaction
 
             before(async () => {
@@ -674,8 +675,8 @@ describe("MaintainerProxy", () => {
               await runDepositSweepScenario(previousData)
 
               // Deploy two fake vaults and mark them as trusted.
-              vaultA = await smock.fake<IVault>("IVault")
-              vaultB = await smock.fake<IVault>("IVault")
+              vaultA = await createMock<IVault>("IVault")
+              vaultB = await createMock<IVault>("IVault")
               await bridgeGovernance
                 .connect(governance)
                 .setVaultStatus(vaultA.address, true)
@@ -3579,8 +3580,8 @@ describe("MaintainerProxy", () => {
     data: DepositSweepTestData,
     beforeProofActions?: () => Promise<void>
   ): Promise<ContractTransaction> {
-    relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
-    relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
+    await relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
+    await relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
 
     for (let i = 0; i < data.deposits.length; i++) {
       const { fundingTx, depositor, reveal } = data.deposits[i]
@@ -3605,9 +3606,9 @@ describe("MaintainerProxy", () => {
         data.mainUtxo,
         data.vault
       )
-      .then((tx: ContractTransaction) => {
-        relay.getCurrentEpochDifficulty.reset()
-        relay.getPrevEpochDifficulty.reset()
+      .then(async (tx: ContractTransaction) => {
+        await relay.getCurrentEpochDifficulty.reset()
+        await relay.getPrevEpochDifficulty.reset()
 
         return tx
       })
@@ -3618,8 +3619,8 @@ describe("MaintainerProxy", () => {
     beforeRequestActions?: () => Promise<void>,
     beforeProofActions?: () => Promise<void>
   ): Promise<ContractTransaction> {
-    relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
-    relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
+    await relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
+    await relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
 
     // Scaling down redemption dust threshold 100x to what is in Bridge default
     // parameters.
@@ -3698,9 +3699,9 @@ describe("MaintainerProxy", () => {
         data.mainUtxo,
         data.wallet.pubKeyHash
       )
-      .then((tx: ContractTransaction) => {
-        relay.getCurrentEpochDifficulty.reset()
-        relay.getPrevEpochDifficulty.reset()
+      .then(async (tx: ContractTransaction) => {
+        await relay.getCurrentEpochDifficulty.reset()
+        await relay.getPrevEpochDifficulty.reset()
 
         return tx
       })
@@ -3710,8 +3711,8 @@ describe("MaintainerProxy", () => {
     data: MovingFundsTestData,
     beforeProofActions?: () => Promise<void>
   ): Promise<ContractTransaction> {
-    relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
-    relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
+    await relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
+    await relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
 
     // Simulate the wallet is a registered one.
     await bridge.setWallet(data.wallet.pubKeyHash, {
@@ -3746,9 +3747,9 @@ describe("MaintainerProxy", () => {
         data.mainUtxo,
         data.wallet.pubKeyHash
       )
-      .then((tx: ContractTransaction) => {
-        relay.getCurrentEpochDifficulty.reset()
-        relay.getPrevEpochDifficulty.reset()
+      .then(async (tx: ContractTransaction) => {
+        await relay.getCurrentEpochDifficulty.reset()
+        await relay.getPrevEpochDifficulty.reset()
 
         return tx
       })
@@ -3758,8 +3759,8 @@ describe("MaintainerProxy", () => {
     data: MovedFundsSweepTestData,
     beforeProofActions?: () => Promise<void>
   ): Promise<ContractTransaction> {
-    relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
-    relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
+    await relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
+    await relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
 
     // Simulate the wallet is a registered one.
     await bridge.setWallet(data.wallet.pubKeyHash, {
@@ -3800,9 +3801,9 @@ describe("MaintainerProxy", () => {
     return maintainerProxy
       .connect(spvMaintainer)
       .submitMovedFundsSweepProof(data.sweepTx, data.sweepProof, data.mainUtxo)
-      .then((tx: ContractTransaction) => {
-        relay.getCurrentEpochDifficulty.reset()
-        relay.getPrevEpochDifficulty.reset()
+      .then(async (tx: ContractTransaction) => {
+        await relay.getCurrentEpochDifficulty.reset()
+        await relay.getPrevEpochDifficulty.reset()
 
         return tx
       })

@@ -1,7 +1,6 @@
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { ethers, helpers, waffle } from "hardhat"
 import { expect } from "chai"
-import { FakeContract } from "@defi-wonderland/smock"
 
 import { constants, walletState } from "../fixtures"
 import bridgeFixture from "../fixtures/bridge"
@@ -42,7 +41,7 @@ describe("VendingMachine - Upgrade", () => {
   let bridge: Bridge & BridgeStub
   let bank: Bank
   let vendingMachine: VendingMachine
-  let relay: FakeContract<IRelay>
+  let relay: Mock<IRelay>
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
@@ -174,8 +173,8 @@ describe("VendingMachine - Upgrade", () => {
         })
         await bridge.connect(depositorSigner).revealDeposit(fundingTx, reveal)
 
-        relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
-        relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
+        await relay.getCurrentEpochDifficulty.returns(data.chainDifficulty)
+        await relay.getPrevEpochDifficulty.returns(data.chainDifficulty)
 
         await bridge
           .connect(spvMaintainer)
@@ -370,8 +369,10 @@ describe("VendingMachine - Upgrade", () => {
 
         await bridge.connect(redeemer).revealDeposit(fundingTx, reveal)
 
-        relay.getCurrentEpochDifficulty.returns(depositData.chainDifficulty)
-        relay.getPrevEpochDifficulty.returns(depositData.chainDifficulty)
+        await relay.getCurrentEpochDifficulty.returns(
+          depositData.chainDifficulty
+        )
+        await relay.getPrevEpochDifficulty.returns(depositData.chainDifficulty)
 
         await bridge
           .connect(spvMaintainer)
