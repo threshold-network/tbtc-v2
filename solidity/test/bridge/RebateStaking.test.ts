@@ -606,7 +606,7 @@ describe("RebateStaking", () => {
 
             await bridge.applyForRebate(thirdParty.address, fee2)
 
-            await increaseTime((rollingWindow * 2) / 3)
+            await increaseTime((rollingWindow * 2) / 3 + 1)
 
             tx = await bridge.applyForRebate(thirdParty.address, treasuryFee)
           })
@@ -841,7 +841,7 @@ describe("RebateStaking", () => {
             before(async () => {
               await createSnapshot()
 
-              const timestamp = await lastBlockTime()
+              const timestamp = (await lastBlockTime()) - 1
               await bridge.applyForRebate(thirdParty.address, treasuryFee)
               await bridge.applyForRebate(thirdParty.address, treasuryFee)
               await bridge.applyForRebate(thirdParty.address, treasuryFee)
@@ -878,7 +878,7 @@ describe("RebateStaking", () => {
 
                 await bridge.applyForRebate(thirdParty.address, treasuryFee)
                 const timestamp = await lastBlockTime()
-                await increaseTime(rollingWindow)
+                await increaseTime(rollingWindow + 1)
                 await bridge.applyForRebate(thirdParty.address, treasuryFee)
                 await bridge.applyForRebate(thirdParty.address, treasuryFee)
 
@@ -910,6 +910,7 @@ describe("RebateStaking", () => {
 
               await bridge.applyForRebate(thirdParty.address, treasuryFee)
               await bridge.applyForRebate(thirdParty.address, treasuryFee)
+              await increaseTime(1)
               await bridge.applyForRebate(thirdParty.address, treasuryFee)
 
               timestamp = await lastBlockTime()
@@ -958,6 +959,7 @@ describe("RebateStaking", () => {
 
               await bridge.applyForRebate(thirdParty.address, treasuryFee)
               await bridge.applyForRebate(thirdParty.address, treasuryFee)
+              await increaseTime(1)
               await bridge.applyForRebate(thirdParty.address, treasuryFee)
 
               timestamp = await lastBlockTime()

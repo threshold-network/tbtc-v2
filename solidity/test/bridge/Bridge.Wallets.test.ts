@@ -1459,9 +1459,7 @@ describe("Bridge - Wallets", () => {
           await createSnapshot()
 
           await increaseTime(
-            (
-              await bridge.walletParameters()
-            ).walletClosingPeriod
+            (await bridge.walletParameters()).walletClosingPeriod + 1
           )
 
           tx = await bridge.notifyWalletClosingPeriodElapsed(

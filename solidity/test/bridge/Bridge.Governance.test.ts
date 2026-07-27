@@ -107,7 +107,7 @@ describe("Bridge - Governance", () => {
             .connect(governance)
             .beginGovernanceDelayUpdate(7331)
 
-          await helpers.time.increaseTime(constants.governanceDelay)
+          await helpers.time.increaseTime(constants.governanceDelay + 1)
 
           tx = await bridgeGovernance
             .connect(governance)

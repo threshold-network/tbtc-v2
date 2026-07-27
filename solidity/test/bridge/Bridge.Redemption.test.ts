@@ -1768,7 +1768,7 @@ describe("Bridge - Redemption", () => {
                               // an amount of time that will make the request
                               // timed out and then report the timeout.
                               const beforeProofActions = async () => {
-                                await increaseTime(redemptionTimeout)
+                                await increaseTime(redemptionTimeout + 1)
                                 await bridge.notifyRedemptionTimeout(
                                   data.wallet.pubKeyHash,
                                   [],
@@ -1972,7 +1972,7 @@ describe("Bridge - Redemption", () => {
                               // an amount of time that will make the request
                               // timed out and then report the timeout.
                               const beforeProofActions = async () => {
-                                await increaseTime(redemptionTimeout)
+                                await increaseTime(redemptionTimeout + 1)
                                 await bridge.notifyRedemptionTimeout(
                                   data.wallet.pubKeyHash,
                                   [],
@@ -2497,7 +2497,7 @@ describe("Bridge - Redemption", () => {
                               // an amount of time that will make the requests
                               // timed out and then report the timeouts.
                               const beforeProofActions = async () => {
-                                await increaseTime(redemptionTimeout)
+                                await increaseTime(redemptionTimeout + 1)
 
                                 for (
                                   let i = 0;
@@ -2672,7 +2672,7 @@ describe("Bridge - Redemption", () => {
                               // an amount of time that will make the requests
                               // timed out and then report the timeouts.
                               const beforeProofActions = async () => {
-                                await increaseTime(redemptionTimeout)
+                                await increaseTime(redemptionTimeout + 1)
 
                                 for (
                                   let i = 0;
@@ -2857,7 +2857,7 @@ describe("Bridge - Redemption", () => {
                               // timed out but report timeout only the two first
                               // requests.
                               const beforeProofActions = async () => {
-                                await increaseTime(redemptionTimeout)
+                                await increaseTime(redemptionTimeout + 1)
 
                                 await bridge.notifyRedemptionTimeout(
                                   data.wallet.pubKeyHash,
@@ -3067,7 +3067,7 @@ describe("Bridge - Redemption", () => {
                               // timed out but report timeout only the two first
                               // requests.
                               const beforeProofActions = async () => {
-                                await increaseTime(redemptionTimeout)
+                                await increaseTime(redemptionTimeout + 1)
 
                                 await bridge.notifyRedemptionTimeout(
                                   data.wallet.pubKeyHash,
@@ -3347,7 +3347,7 @@ describe("Bridge - Redemption", () => {
                               // an amount of time that will make the last request
                               // timed out and then report the timeout.
                               const beforeProofActions = async () => {
-                                await increaseTime(redemptionTimeout)
+                                await increaseTime(redemptionTimeout + 1)
                                 await bridge.notifyRedemptionTimeout(
                                   data.wallet.pubKeyHash,
                                   [],
@@ -4248,7 +4248,7 @@ describe("Bridge - Redemption", () => {
                     data.redemptionRequests[0].amount
                   )
 
-                await increaseTime(redemptionTimeout)
+                await increaseTime(redemptionTimeout + 1)
 
                 initialPendingRedemptionsValue = (
                   await bridge.wallets(data.wallet.pubKeyHash)
@@ -4469,7 +4469,7 @@ describe("Bridge - Redemption", () => {
                     )
                   ).toNumber()
 
-                  await increaseTime(redemptionTimeout)
+                  await increaseTime(redemptionTimeout + 1)
 
                   initialPendingRedemptionsValue = (
                     await bridge.wallets(data.wallet.pubKeyHash)
@@ -4674,7 +4674,7 @@ describe("Bridge - Redemption", () => {
                   data.redemptionRequests[0].amount
                 )
 
-              await increaseTime(redemptionTimeout)
+              await increaseTime(redemptionTimeout + 1)
 
               await bridge
                 .connect(thirdParty)
@@ -4776,7 +4776,7 @@ describe("Bridge - Redemption", () => {
               movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
             })
 
-            await increaseTime(redemptionTimeout)
+            await increaseTime(redemptionTimeout + 1)
 
             initialPendingRedemptionsValue = (
               await bridge.wallets(data.wallet.pubKeyHash)
@@ -4965,7 +4965,7 @@ describe("Bridge - Redemption", () => {
               movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
             })
 
-            await increaseTime(redemptionTimeout)
+            await increaseTime(redemptionTimeout + 1)
 
             initialPendingRedemptionsValue = (
               await bridge.wallets(data.wallet.pubKeyHash)
@@ -5157,7 +5157,7 @@ describe("Bridge - Redemption", () => {
                       ethers.constants.HashZero,
                   })
 
-                  await increaseTime(redemptionTimeout)
+                  await increaseTime(redemptionTimeout + 1)
                 })
 
                 after(async () => {

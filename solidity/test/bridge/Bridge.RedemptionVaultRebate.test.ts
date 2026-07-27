@@ -302,7 +302,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
         initialRedeemerBalance = await bank.balanceOf(redeemerAddress)
 
         // Advance time past the redemption timeout.
-        await increaseTime(redemptionTimeout)
+        await increaseTime(redemptionTimeout + 1)
 
         // Notify the timeout. Anyone can call this after the timeout period.
         tx = await bridge

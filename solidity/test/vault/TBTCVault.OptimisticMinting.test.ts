@@ -414,7 +414,7 @@ describe("TBTCVault - OptimisticMinting", () => {
           await tbtcVault
             .connect(minter)
             .requestOptimisticMint(fundingTxHash, fundingOutputIndex)
-          await increaseTime(await tbtcVault.optimisticMintingDelay())
+          await increaseTime((await tbtcVault.optimisticMintingDelay()) + 1)
           await tbtcVault
             .connect(minter)
             .finalizeOptimisticMint(fundingTxHash, fundingOutputIndex)
@@ -446,7 +446,7 @@ describe("TBTCVault - OptimisticMinting", () => {
           await tbtcVault
             .connect(minter)
             .requestOptimisticMint(fundingTxHash, fundingOutputIndex)
-          await increaseTime(await tbtcVault.optimisticMintingDelay())
+          await increaseTime((await tbtcVault.optimisticMintingDelay()) + 1)
 
           // Setting mocks to make the sweeping SPV proof validation pass.
           await relay.getPrevEpochDifficulty.returns(chainDifficulty)
@@ -488,7 +488,7 @@ describe("TBTCVault - OptimisticMinting", () => {
             await tbtcVault
               .connect(minter)
               .requestOptimisticMint(fundingTxHash, fundingOutputIndex)
-            await increaseTime(await tbtcVault.optimisticMintingDelay())
+            await increaseTime((await tbtcVault.optimisticMintingDelay()) + 1)
             tx = await tbtcVault
               .connect(minter)
               .finalizeOptimisticMint(fundingTxHash, fundingOutputIndex)
@@ -579,7 +579,7 @@ describe("TBTCVault - OptimisticMinting", () => {
             await tbtcVault
               .connect(minter)
               .requestOptimisticMint(fundingTxHash, fundingOutputIndex)
-            await increaseTime(await tbtcVault.optimisticMintingDelay())
+            await increaseTime((await tbtcVault.optimisticMintingDelay()) + 1)
             tx = await tbtcVault
               .connect(minter)
               .finalizeOptimisticMint(fundingTxHash, fundingOutputIndex)
@@ -667,7 +667,7 @@ describe("TBTCVault - OptimisticMinting", () => {
             await tbtcVault
               .connect(minter)
               .requestOptimisticMint(fundingTxHash, fundingOutputIndex)
-            await increaseTime(await tbtcVault.optimisticMintingDelay())
+            await increaseTime((await tbtcVault.optimisticMintingDelay()) + 1)
 
             tx = await tbtcVault
               .connect(minter)
@@ -762,7 +762,7 @@ describe("TBTCVault - OptimisticMinting", () => {
             await tbtcVault
               .connect(minter)
               .requestOptimisticMint(fundingTxHash, fundingOutputIndex)
-            await increaseTime(await tbtcVault.optimisticMintingDelay())
+            await increaseTime((await tbtcVault.optimisticMintingDelay()) + 1)
             tx = await tbtcVault
               .connect(minter)
               .finalizeOptimisticMint(fundingTxHash, fundingOutputIndex)
@@ -855,7 +855,7 @@ describe("TBTCVault - OptimisticMinting", () => {
           await tbtcVault
             .connect(minter)
             .requestOptimisticMint(fundingTxHash, fundingOutputIndex)
-          await increaseTime(await tbtcVault.optimisticMintingDelay())
+          await increaseTime((await tbtcVault.optimisticMintingDelay()) + 1)
           await tbtcVault
             .connect(minter)
             .finalizeOptimisticMint(fundingTxHash, fundingOutputIndex)
@@ -1649,7 +1649,7 @@ describe("TBTCVault - OptimisticMinting", () => {
             .connect(minter)
             .requestOptimisticMint(fundingTxHash, fundingOutputIndex)
 
-          await increaseTime(await tbtcVault.optimisticMintingDelay())
+          await increaseTime((await tbtcVault.optimisticMintingDelay()) + 1)
 
           await tbtcVault
             .connect(minter)
@@ -1802,7 +1802,7 @@ describe("TBTCVault - OptimisticMinting", () => {
           await f.tbtcVault
             .connect(minter)
             .requestOptimisticMint(fundingTxHash, 2)
-          await increaseTime(await tbtcVault.optimisticMintingDelay())
+          await increaseTime((await tbtcVault.optimisticMintingDelay()) + 1)
           await f.tbtcVault
             .connect(minter)
             .finalizeOptimisticMint(fundingTxHash, 1)
@@ -1898,7 +1898,7 @@ describe("TBTCVault - OptimisticMinting", () => {
           await f.tbtcVault
             .connect(minter)
             .requestOptimisticMint(fundingTxHash, 1)
-          await increaseTime(await tbtcVault.optimisticMintingDelay())
+          await increaseTime((await tbtcVault.optimisticMintingDelay()) + 1)
           await f.tbtcVault
             .connect(minter)
             .finalizeOptimisticMint(fundingTxHash, 1)

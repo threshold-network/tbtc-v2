@@ -763,13 +763,14 @@ describe("Bridge - Moving funds", () => {
             before(async () => {
               await createSnapshot()
 
-              // Set the timestamp of the block that contains the `setWallet` tx.
+              // One second ahead of the `setWallet` block, which reuses its
+              // parent's timestamp under `allowBlocksWithSameTimestamp`.
               await bridge.setWallet(ecdsaWalletTestData.pubKeyHash160, {
                 ...(await bridge.wallets(ecdsaWalletTestData.pubKeyHash160)),
                 movingFundsRequestedAt: (await lastBlockTime()) + 1,
               })
 
-              await increaseTime(movingFundsTimeoutResetDelay)
+              await increaseTime(movingFundsTimeoutResetDelay + 2)
 
               tx = await bridge.resetMovingFundsTimeout(
                 ecdsaWalletTestData.pubKeyHash160
@@ -828,13 +829,14 @@ describe("Bridge - Moving funds", () => {
               before(async () => {
                 await createSnapshot()
 
-                // Set the timestamp of the block that contains the `setWallet` tx.
+                // One second ahead of the `setWallet` block, which reuses its
+                // parent's timestamp under `allowBlocksWithSameTimestamp`.
                 await bridge.setWallet(ecdsaWalletTestData.pubKeyHash160, {
                   ...(await bridge.wallets(ecdsaWalletTestData.pubKeyHash160)),
                   movingFundsRequestedAt: (await lastBlockTime()) + 1,
                 })
 
-                await increaseTime(movingFundsTimeoutResetDelay)
+                await increaseTime(movingFundsTimeoutResetDelay + 2)
 
                 // Reset for the first time.
                 await bridge.resetMovingFundsTimeout(
@@ -842,7 +844,7 @@ describe("Bridge - Moving funds", () => {
                 )
 
                 // The reset delay elapses again.
-                await increaseTime(movingFundsTimeoutResetDelay)
+                await increaseTime(movingFundsTimeoutResetDelay + 1)
 
                 // The next reset.
                 tx = await bridge.resetMovingFundsTimeout(
@@ -875,13 +877,14 @@ describe("Bridge - Moving funds", () => {
               before(async () => {
                 await createSnapshot()
 
-                // Set the timestamp of the block that contains the `setWallet` tx.
+                // One second ahead of the `setWallet` block, which reuses its
+                // parent's timestamp under `allowBlocksWithSameTimestamp`.
                 await bridge.setWallet(ecdsaWalletTestData.pubKeyHash160, {
                   ...(await bridge.wallets(ecdsaWalletTestData.pubKeyHash160)),
                   movingFundsRequestedAt: (await lastBlockTime()) + 1,
                 })
 
-                await increaseTime(movingFundsTimeoutResetDelay)
+                await increaseTime(movingFundsTimeoutResetDelay + 2)
 
                 // Reset for the first time.
                 await bridge.resetMovingFundsTimeout(
@@ -2166,7 +2169,7 @@ describe("Bridge - Moving funds", () => {
           await walletRegistry.closeWallet.reset()
           await walletRegistry.seize.reset()
 
-          await increaseTime(movingFundsTimeout)
+          await increaseTime(movingFundsTimeout + 1)
 
           tx = await bridge
             .connect(thirdParty)
@@ -3754,7 +3757,7 @@ describe("Bridge - Moving funds", () => {
         before(async () => {
           await createSnapshot()
 
-          await increaseTime(movedFundsSweepTimeout)
+          await increaseTime(movedFundsSweepTimeout + 1)
         })
 
         after(async () => {

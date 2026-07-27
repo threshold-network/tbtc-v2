@@ -934,7 +934,7 @@ describe("MaintainerProxy", () => {
               // an amount of time that will make the request
               // timed out and then report the timeout.
               const beforeProofActions = async () => {
-                await increaseTime(redemptionTimeout)
+                await increaseTime(redemptionTimeout.add(1))
                 await bridge.notifyRedemptionTimeout(
                   data.wallet.pubKeyHash,
                   [],
@@ -1078,7 +1078,7 @@ describe("MaintainerProxy", () => {
               // an amount of time that will make the requests
               // timed out and then report the timeouts.
               const beforeProofActions = async () => {
-                await increaseTime(redemptionTimeout)
+                await increaseTime(redemptionTimeout.add(1))
 
                 for (let i = 0; i < data.redemptionRequests.length; i++) {
                   // eslint-disable-next-line no-await-in-loop
@@ -1140,7 +1140,7 @@ describe("MaintainerProxy", () => {
               // an amount of time that will make the requests
               // timed out and then report the timeouts.
               const beforeProofActions = async () => {
-                await increaseTime(redemptionTimeout)
+                await increaseTime(redemptionTimeout.add(1))
 
                 for (let i = 0; i < data.redemptionRequests.length; i++) {
                   // eslint-disable-next-line no-await-in-loop
@@ -1209,7 +1209,7 @@ describe("MaintainerProxy", () => {
               // timed out but report timeout only the two first
               // requests.
               const beforeProofActions = async () => {
-                await increaseTime(redemptionTimeout)
+                await increaseTime(redemptionTimeout.add(1))
 
                 await bridge.notifyRedemptionTimeout(
                   data.wallet.pubKeyHash,
@@ -1247,8 +1247,16 @@ describe("MaintainerProxy", () => {
               )
 
               expect(diff).to.be.gt(0)
+              // Raised from 0,007 by the smock replacement, not by a change in
+              // what is being refunded. The relay is a `MockContract` now, so
+              // the difficulty reads inside the proof cost real gas where
+              // smock's fakes cost none, and the refund tracks gas used. This
+              // is the only one of the 34 refund ceilings in this file without
+              // the headroom to absorb it; it went unnoticed because its
+              // `before` hook was failing, so the assertion never ran.
+              // Measured at 0,0073848 ETH, identical across runs.
               expect(diff).to.be.lt(
-                ethers.utils.parseUnits("7000000", "gwei") // 0,007 ETH
+                ethers.utils.parseUnits("7500000", "gwei") // 0,0075 ETH
               )
             })
           }
@@ -1269,7 +1277,7 @@ describe("MaintainerProxy", () => {
               // timed out but report timeout only the two first
               // requests.
               const beforeProofActions = async () => {
-                await increaseTime(redemptionTimeout)
+                await increaseTime(redemptionTimeout.add(1))
 
                 await bridge.notifyRedemptionTimeout(
                   data.wallet.pubKeyHash,
@@ -2084,7 +2092,7 @@ describe("MaintainerProxy", () => {
         movingFundsTargetWalletsCommitmentHash: ethers.constants.HashZero,
       })
 
-      await increaseTime(movingFundsTimeoutResetDelay)
+      await increaseTime(movingFundsTimeoutResetDelay + 2)
 
       initialThirdPartyBalance = await provider.getBalance(thirdParty.address)
       tx = await maintainerProxy
@@ -2399,9 +2407,7 @@ describe("MaintainerProxy", () => {
           )
 
         await increaseTime(
-          (
-            await bridge.walletParameters()
-          ).walletClosingPeriod
+          (await bridge.walletParameters()).walletClosingPeriod + 1
         )
 
         tx = await maintainerProxy
