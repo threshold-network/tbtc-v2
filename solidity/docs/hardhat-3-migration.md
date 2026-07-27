@@ -428,6 +428,14 @@ because it wants doing before any further migration work can be verified. With
 the suite in this state, "the failing set is unchanged" is the only claim a
 migration can make.
 
+The clock defect is not only wrong, it is racy, and CI proved it while this was
+being written. `Bridge - Redemption > notifyRedemptionTimeout > ... > when wallet state is Closed` failed on the #1065 run and passed on the #1066 run —
+same code, same commit content, different runner. Landing exactly on the
+boundary means a single wall-clock second between the two transactions decides
+the result. So the 102 is a typical count rather than a fixed one: three local
+runs and two CI runs gave 102, one CI run gave 101. Anyone re-measuring should
+expect ±1 and compare failure _sets_ rather than totals.
+
 One caveat on sequencing, for whoever takes it: fixing the fixture puts eight
 suites onto a genuinely fresh fixture for the first time in years, so the clock
 edits for `RebateStaking`, `RedemptionWatchtower`, `MaintainerProxy` and
