@@ -65,7 +65,7 @@ describe("NativeBTCDepositor", () => {
         },
       }
     )
-    const nativeBtcDepositor = deployment[0] as NativeBTCDepositor
+    const nativeBtcDepositor = deployment[0] as unknown as NativeBTCDepositor
 
     await nativeBtcDepositor
       .connect(deployer)

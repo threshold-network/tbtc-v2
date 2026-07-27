@@ -7,6 +7,8 @@ import type {
   BridgeGovernance,
   BridgeStub,
   RebateStaking,
+
+  TestERC20,
 } from "../../typechain"
 import bridgeFixture from "../fixtures/bridge"
 import { to1e18 } from "../helpers/contract-test-helpers"
@@ -25,7 +27,7 @@ describe("RebateStaking", () => {
   let governance: HardhatEthersSigner
   let bridge: Bridge & BridgeStub
   let bridgeGovernance: BridgeGovernance
-  let t: Contract
+  let t: TestERC20
   let rebateStaking: RebateStaking
   let deployer: HardhatEthersSigner
   let thirdParty: HardhatEthersSigner

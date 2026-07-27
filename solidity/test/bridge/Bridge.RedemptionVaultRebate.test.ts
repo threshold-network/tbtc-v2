@@ -14,6 +14,8 @@ import type {
   BridgeGovernance,
   IWalletRegistry,
   RebateStaking,
+
+  TestERC20,
 } from "../../typechain"
 import { walletState } from "../fixtures"
 import bridgeFixture from "../fixtures/bridge"
@@ -77,7 +79,7 @@ async function setupWallet(
  * Mints T tokens for an account, approves, and stakes them in RebateStaking.
  */
 async function stakeTokens(
-  t: Contract,
+  t: TestERC20,
   rebateStaking: RebateStaking,
   minter: HardhatEthersSigner,
   staker: HardhatEthersSigner,
@@ -96,7 +98,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
   let bank: Bank & BankStub
   let bridge: Bridge & BridgeStub
   let bridgeGovernance: BridgeGovernance
-  let t: Contract
+  let t: TestERC20
   let rebateStaking: RebateStaking
   let walletRegistry: Mock<IWalletRegistry>
 

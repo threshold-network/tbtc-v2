@@ -39,7 +39,7 @@ describe("L2WormholeGateway", () => {
         },
       }
     )
-    const canonicalTbtc = deployment[0] as L2TBTC
+    const canonicalTbtc = deployment[0] as unknown as L2TBTC
 
     //
     // Deploy test token as the Wormhole Bridge L2 tBTC representation.
@@ -82,7 +82,7 @@ describe("L2WormholeGateway", () => {
         },
       }
     )
-    const gateway = deployment[0] as L2WormholeGateway
+    const gateway = deployment[0] as unknown as L2WormholeGateway
 
     //
     // Wire up contracts and transfer ownership.

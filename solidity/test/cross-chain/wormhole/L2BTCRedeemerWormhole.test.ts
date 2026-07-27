@@ -77,7 +77,7 @@ describe("L2BTCRedeemerWormhole", () => {
         proxyOpts: { kind: "transparent" },
       }
     )
-    const _tbtc = tbtcDeployment[0] as L2TBTC
+    const _tbtc = tbtcDeployment[0] as unknown as L2TBTC
 
     // The deployer of L2TBTC is its owner. The owner needs to add itself as a minter.
     await _tbtc.connect(_deployer).addMinter(_deployer.address)
@@ -96,7 +96,7 @@ describe("L2BTCRedeemerWormhole", () => {
         proxyOpts: { kind: "transparent" },
       }
     )
-    const _l2BtcRedeemer = l2RedeemerDeployment[0] as L2BTCRedeemerWormhole
+    const _l2BtcRedeemer = l2RedeemerDeployment[0] as unknown as L2BTCRedeemerWormhole
 
     const currentOwner = await _l2BtcRedeemer.owner()
     console.log(

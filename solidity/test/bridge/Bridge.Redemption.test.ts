@@ -18,6 +18,8 @@ import type {
   IRelay,
   IWalletRegistry,
   RebateStaking,
+
+  TestERC20,
 } from "../../typechain"
 import { NO_MAIN_UTXO } from "../data/deposit-sweep"
 import {
@@ -66,7 +68,7 @@ describe("Bridge - Redemption", () => {
   let relay: Mock<IRelay>
   let bridge: Bridge & BridgeStub
   let bridgeGovernance: BridgeGovernance
-  let t: Contract
+  let t: TestERC20
   let rebateStaking: RebateStaking
   let walletRegistry: Mock<IWalletRegistry>
 
@@ -4016,7 +4018,7 @@ describe("Bridge - Redemption", () => {
             // to deem transaction proof validity. This scenario uses test
             // data which has only 6 confirmations. That should force the
             // failure we expect within this scenario.
-            otherBridge = (await deployBridge(12))[0] as BridgeStub
+            otherBridge = (await deployBridge(12))[0] as unknown as BridgeStub
             await otherBridge.setSpvMaintainerStatus(
               spvMaintainer.address,
               true

@@ -17,6 +17,8 @@ import type {
   RedemptionWatchtower,
   RebateStaking,
   IERC20,
+
+  TestERC20,
 } from "../../typechain"
 import { createMock } from "../helpers/mock"
 
@@ -71,7 +73,7 @@ async function bridgeFixture(): Promise<{
 
   const bank: Bank & BankStub = await helpers.contracts.getContract("Bank")
 
-  const t: IERC20 = await helpers.contracts.getContract("T")
+  const t: TestERC20 = await helpers.contracts.getContract("T")
 
   const rebateStaking: RebateStaking = await helpers.contracts.getContract(
     "RebateStaking"

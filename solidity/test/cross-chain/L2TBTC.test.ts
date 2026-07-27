@@ -41,7 +41,7 @@ describe("L2TBTC", () => {
         },
       }
     )
-    token = deployment[0] as L2TBTC
+    token = deployment[0] as unknown as L2TBTC
 
     await token.connect(deployer).transferOwnership(governance.address)
 

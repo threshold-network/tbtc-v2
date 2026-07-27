@@ -92,7 +92,7 @@ describe("BTCDepositorWormhole", () => {
         },
       }
     )
-    const NonEvmBtcDepositor = deployment[0] as BTCDepositorWormhole
+    const NonEvmBtcDepositor = deployment[0] as unknown as BTCDepositorWormhole
 
     await NonEvmBtcDepositor.connect(deployer).transferOwnership(
       governance.address

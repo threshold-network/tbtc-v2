@@ -34,7 +34,7 @@ describe("Timelock", () => {
       }
     )
 
-    timelock = (await helpers.contracts.getContract("Timelock")) as Timelock
+    timelock = (await helpers.contracts.getContract("Timelock")) as unknown as Timelock
     proxyAdmin = (await upgrades.admin.getInstance()) as ProxyAdmin
 
     await proxyAdmin.connect(esdm).transferOwnership(timelock.target)

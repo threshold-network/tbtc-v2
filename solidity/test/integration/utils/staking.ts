@@ -3,7 +3,7 @@ import { HardhatRuntimeEnvironment } from "hardhat/types"
 
 export async function stake(
   hre: HardhatRuntimeEnvironment,
-  t: Contract,
+  t: TestERC20,
   staking: Contract,
   stakeAmount: BigNumberish,
   owner: Signer,

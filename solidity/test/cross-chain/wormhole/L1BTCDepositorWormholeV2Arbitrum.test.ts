@@ -173,7 +173,7 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
         },
       }
     )
-    const l1BtcDepositor = deployment[0] as L1BTCDepositorWormholeV2Arbitrum
+    const l1BtcDepositor = deployment[0] as unknown as L1BTCDepositorWormholeV2Arbitrum
 
     await l1BtcDepositor.connect(deployer).transferOwnership(governance.address)
 
@@ -1226,7 +1226,7 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
           },
         })
 
-        const proxy = v2Deployment[0] as L1BTCDepositorWormholeV2Arbitrum
+        const proxy = v2Deployment[0] as unknown as L1BTCDepositorWormholeV2Arbitrum
         const v2Factory = await ethers.getContractFactory(
           "L1BTCDepositorWormholeV2Arbitrum",
           deployer
@@ -1292,7 +1292,7 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
             kind: "transparent",
           },
         })
-        const proxy = v2Deployment[0] as L1BTCDepositorWormholeV2Arbitrum
+        const proxy = v2Deployment[0] as unknown as L1BTCDepositorWormholeV2Arbitrum
 
         // Verify proxy reads all initialized state correctly.
         expect(await proxy.wormhole()).to.equal(wormhole.address)
@@ -1374,7 +1374,7 @@ describe("L1BTCDepositorWormholeV2Arbitrum", () => {
             kind: "transparent",
           },
         })
-        const proxy = v2Deployment[0] as L1BTCDepositorWormholeV2Arbitrum
+        const proxy = v2Deployment[0] as unknown as L1BTCDepositorWormholeV2Arbitrum
         await proxy.connect(deployer).transferOwnership(gov.address)
 
         // Set additional state on V2.
