@@ -282,9 +282,25 @@ stable successors on the same day, 13 August 2025, both peering
 supported line there and viem has none. That is the whole of it — but it is the
 version we have to ship on for as long as the Hardhat 3 migration takes.
 
-Beyond that, ethers v6 needs no TypeScript bump, no `strict`, and no new code
-generator, and `revertedWith`/`emit`/`withArgs` keep working, so the 931 + 571 +
-522 existing assertion sites move rather than being rewritten.
+Beyond that, ethers v6 needs no `strict` and no new code generator, and
+`revertedWith`/`emit`/`withArgs` keep working, so the 931 + 571 + 522 existing
+assertion sites move rather than being rewritten.
+
+It does need TypeScript 5, though, and an earlier revision of this document said
+it did not — listing the bump as a viem-only cost. Measured while doing the
+migration: typechain v6 types a contract method as `TypedContractMethod`, and on
+the pinned TypeScript 4.6 a conditional type cannot resolve against it, so the
+mock helper's whole configuration surface stays invisible.
+
+|                  | errors | `reset` / `returns` / `whenCalledWith` |
+| ---------------- | ------ | -------------------------------------- |
+| TypeScript 4.6.2 | 2741   | 343 / 228 / 174                        |
+| TypeScript 5.9.3 | 1910   | 0 / 0 / 0                              |
+
+So TypeScript 5 is a shared prerequisite of both paths rather than a
+differentiator. What still separates them is `strict` — viem's contract types
+collapse to `never` without it, ethers v6 does not care — and that is the
+expensive half, at 378 errors in files that predate it.
 
 ### The two paths differ in shape, not only in cost
 
