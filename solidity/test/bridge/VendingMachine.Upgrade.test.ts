@@ -17,6 +17,7 @@ import type {
   VendingMachine,
   IRelay,
 } from "../../typechain"
+import type { Mock } from "../helpers/mock"
 
 const { impersonateAccount } = helpers.account
 
