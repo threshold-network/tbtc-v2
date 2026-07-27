@@ -1,4 +1,5 @@
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
+import { loadFixture } from "@nomicfoundation/hardhat-network-helpers"
 import { randomBytes } from "crypto"
 import { expect } from "chai"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
@@ -47,7 +48,7 @@ describe("BTCDepositorWormhole", () => {
       address: tbtcVaultAddress,
     })
     // Attach the tbtcToken mock to the tbtcVault mock.
-    await tbtcVault.tbtcToken.returns(tbtcToken.address)
+    await tbtcVault.tbtcToken.returns(tbtcToken.target)
 
     const wormhole = await createMock<IWormhole>("IWormhole")
     await wormhole.chainId.returns(l1ChainId)
@@ -140,7 +141,7 @@ describe("BTCDepositorWormhole", () => {
       destinationChainWormholeGateway,
       NonEvmBtcDepositor,
       reimbursementPool,
-    } = await waffle.loadFixture(contractsFixture))
+    } = await loadFixture(contractsFixture))
   })
 
   describe("updateReimbursementPool", () => {
@@ -490,7 +491,7 @@ describe("BTCDepositorWormhole", () => {
                 initializeDepositFixture.depositKey
               )
               expect(gr.receiver).to.equal(ethers.ZeroAddress)
-              expect(BigInt(gr.gasSpent).eq(0)).to.be.true
+              expect((BigInt(gr.gasSpent) === 0n)).to.be.true
             })
           })
 
@@ -694,7 +695,7 @@ describe("BTCDepositorWormhole", () => {
                   initializeDepositFixture.depositKey
                 )
                 expect(gr.receiver).to.equal(ethers.ZeroAddress)
-                expect(BigInt(gr.gasSpent).eq(0)).to.be.true
+                expect((BigInt(gr.gasSpent) === 0n)).to.be.true
               })
             }
           )
@@ -1057,7 +1058,7 @@ describe("BTCDepositorWormhole", () => {
                     initializeDepositFixture.depositKey,
                     initializeDepositFixture.destinationChainDepositOwner.toLowerCase(),
                     relayer.address,
-                    depositAmount.mul(satoshiMultiplier),
+                    (depositAmount * satoshiMultiplier),
                     expectedTbtcAmount
                   )
               })
@@ -1084,7 +1085,7 @@ describe("BTCDepositorWormhole", () => {
                 const call =
                   await wormholeTokenBridge.transferTokensWithPayload.getCall(0)
                 expect(call.value).to.equal(messageFee)
-                expect(call.args[0]).to.equal(tbtcToken.address)
+                expect(call.args[0]).to.equal(tbtcToken.target)
                 expect(call.args[1]).to.equal(expectedTbtcAmount)
                 expect(call.args[2]).to.equal(
                   await NonEvmBtcDepositor.destinationChainId()
@@ -1226,7 +1227,7 @@ describe("BTCDepositorWormhole", () => {
                       initializeDepositFixture.depositKey,
                       initializeDepositFixture.destinationChainDepositOwner.toLowerCase(),
                       relayer.address,
-                      depositAmount.mul(satoshiMultiplier),
+                      (depositAmount * satoshiMultiplier),
                       expectedTbtcAmount
                     )
                 })
@@ -1255,7 +1256,7 @@ describe("BTCDepositorWormhole", () => {
                       0
                     )
                   expect(call.value).to.equal(messageFee)
-                  expect(call.args[0]).to.equal(tbtcToken.address)
+                  expect(call.args[0]).to.equal(tbtcToken.target)
                   expect(call.args[1]).to.equal(expectedTbtcAmount)
                   expect(call.args[2]).to.equal(
                     await NonEvmBtcDepositor.destinationChainId()
@@ -1289,11 +1290,9 @@ describe("BTCDepositorWormhole", () => {
                   // message value attached to the finalizeDeposit call which
                   // is a good indicator that the reimbursement has been
                   // calculated properly.
-                  const msgValueOffset = BigInt(messageFee)
-                    .div(reimbursementPoolMaxGasPrice)
-                    .sub(reimbursementPoolStaticGas)
+                  const msgValueOffset = ((BigInt(messageFee) / reimbursementPoolMaxGasPrice) - reimbursementPoolStaticGas)
                   expect(
-                    BigInt(call2.args[0]).toNumber()
+                    Number(BigInt(call2.args[0]))
                   ).to.be.greaterThan(msgValueOffset.toNumber())
                   expect(call2.args[1]).to.equal(relayer.address)
                 })
@@ -1426,7 +1425,7 @@ describe("BTCDepositorWormhole", () => {
                       initializeDepositFixture.depositKey,
                       initializeDepositFixture.destinationChainDepositOwner.toLowerCase(),
                       relayer.address,
-                      depositAmount.mul(satoshiMultiplier),
+                      (depositAmount * satoshiMultiplier),
                       expectedTbtcAmount
                     )
                 })
@@ -1455,7 +1454,7 @@ describe("BTCDepositorWormhole", () => {
                       0
                     )
                   expect(call.value).to.equal(messageFee)
-                  expect(call.args[0]).to.equal(tbtcToken.address)
+                  expect(call.args[0]).to.equal(tbtcToken.target)
                   expect(call.args[1]).to.equal(expectedTbtcAmount)
                   expect(call.args[2]).to.equal(
                     await NonEvmBtcDepositor.destinationChainId()
@@ -1600,7 +1599,7 @@ describe("BTCDepositorWormhole", () => {
           initializeDepositFixture.depositKey,
           initializeDepositFixture.destinationChainDepositOwner.toLowerCase(),
           relayer.address,
-          depositAmount.mul(satoshiMultiplier),
+          (depositAmount * satoshiMultiplier),
           expectedTbtcAmountReimbursed
         )
     })

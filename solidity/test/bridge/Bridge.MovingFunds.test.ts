@@ -1,5 +1,5 @@
 /* eslint-disable no-underscore-dangle */
-import { ethers, helpers, waffle } from "hardhat"
+import { ethers, helpers } from "hardhat"
 import chai, { assert, expect } from "chai"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import {Contract, ContractTransactionResponse} from "ethers"
@@ -245,7 +245,7 @@ describe("Bridge - Moving funds", () => {
                                               expectedTargetWalletsCount
                                             )
 
-                                          const { provider } = waffle
+                                          const provider = ethers.provider
 
                                           let initialCallerBalance: bigint
 
@@ -253,7 +253,7 @@ describe("Bridge - Moving funds", () => {
                                             await createSnapshot()
 
                                             await deployer.sendTransaction({
-                                              to: reimbursementPool.address,
+                                              to: reimbursementPool.target,
                                               value:
                                                 ethers.parseEther("100"),
                                             })
@@ -287,7 +287,7 @@ describe("Bridge - Moving funds", () => {
                                               )
                                                 .movingFundsTargetWalletsCommitmentHash
                                             ).to.be.equal(
-                                              ethers.solidityKeccak256(
+                                              ethers.solidityPackedKeccak256(
                                                 ["bytes20[]"],
                                                 [targetWallets]
                                               )
@@ -313,9 +313,7 @@ describe("Bridge - Moving funds", () => {
                                                 caller.address
                                               )
                                             const diff =
-                                              postCallerBalance.sub(
-                                                initialCallerBalance
-                                              )
+                                              (postCallerBalance - initialCallerBalance)
 
                                             expect(diff).to.be.gt(0)
                                             expect(diff).to.be.lt(
@@ -946,7 +944,7 @@ describe("Bridge - Moving funds", () => {
           await bridge.setWallet(ecdsaWalletTestData.pubKeyHash160, {
             ...(await bridge.wallets(ecdsaWalletTestData.pubKeyHash160)),
             movingFundsTargetWalletsCommitmentHash:
-              ethers.solidityKeccak256(
+              ethers.solidityPackedKeccak256(
                 ["bytes20"],
                 ["0xc214a5e9ec1b7792af9894e8f9ff0dd9bf427d79"]
               ),
@@ -1083,7 +1081,7 @@ describe("Bridge - Moving funds", () => {
 
                                                 it("should mark the main UTXO as correctly spent", async () => {
                                                   const key =
-                                                    ethers.solidityKeccak256(
+                                                    ethers.solidityPackedKeccak256(
                                                       ["bytes32", "uint32"],
                                                       [
                                                         test.data.mainUtxo
@@ -1184,7 +1182,7 @@ describe("Bridge - Moving funds", () => {
                                                       ]
 
                                                     const requestKey =
-                                                      ethers.solidityKeccak256(
+                                                      ethers.solidityPackedKeccak256(
                                                         ["bytes32", "uint32"],
                                                         [
                                                           expectedMovedFundsSweepRequest.txHash,
@@ -2549,7 +2547,7 @@ describe("Bridge - Moving funds", () => {
                                 })
 
                                 it("should mark the sweep request as processed", async () => {
-                                  const key = ethers.solidityKeccak256(
+                                  const key = ethers.solidityPackedKeccak256(
                                     ["bytes32", "uint32"],
                                     [
                                       data.movedFundsSweepRequest.txHash,
@@ -2585,7 +2583,7 @@ describe("Bridge - Moving funds", () => {
                                   // in a Bitcoin testnet explorer. In this case,
                                   // the output  value is 16500.
                                   const expectedMainUtxoHash =
-                                    ethers.solidityKeccak256(
+                                    ethers.solidityPackedKeccak256(
                                       ["bytes32", "uint32", "uint64"],
                                       [data.sweepTx.hash, 0, 16500]
                                     )
@@ -2809,7 +2807,7 @@ describe("Bridge - Moving funds", () => {
                                 })
 
                                 it("should mark the sweep request as processed", async () => {
-                                  const key = ethers.solidityKeccak256(
+                                  const key = ethers.solidityPackedKeccak256(
                                     ["bytes32", "uint32"],
                                     [
                                       data.movedFundsSweepRequest.txHash,
@@ -2845,7 +2843,7 @@ describe("Bridge - Moving funds", () => {
                                   // in a Bitcoin testnet explorer. In this case,
                                   // the output  value is 2612530.
                                   const expectedMainUtxoHash =
-                                    ethers.solidityKeccak256(
+                                    ethers.solidityPackedKeccak256(
                                       ["bytes32", "uint32", "uint64"],
                                       [data.sweepTx.hash, 0, 2612530]
                                     )
@@ -2869,7 +2867,7 @@ describe("Bridge - Moving funds", () => {
                                 })
 
                                 it("should mark the current sweeping wallet main UTXO as correctly spent", async () => {
-                                  const key = ethers.solidityKeccak256(
+                                  const key = ethers.solidityPackedKeccak256(
                                     ["bytes32", "uint32"],
                                     [
                                       data.mainUtxo.txHash,
@@ -3866,7 +3864,7 @@ describe("Bridge - Moving funds", () => {
                 })
 
                 it("should switch the moved funds sweep request to the TimedOut state", async () => {
-                  const requestKey = ethers.solidityKeccak256(
+                  const requestKey = ethers.solidityPackedKeccak256(
                     ["bytes32", "uint32"],
                     [
                       movedFundsSweepRequest.txHash,
@@ -3967,7 +3965,7 @@ describe("Bridge - Moving funds", () => {
           })
 
           it("should switch the moved funds sweep request to the TimedOut state", async () => {
-            const requestKey = ethers.solidityKeccak256(
+            const requestKey = ethers.solidityPackedKeccak256(
               ["bytes32", "uint32"],
               [
                 movedFundsSweepRequest.txHash,
@@ -4196,7 +4194,7 @@ describe("Bridge - Moving funds", () => {
       state: data.wallet.state,
       movingFundsTargetWalletsCommitmentHash:
         data.targetWalletsCommitment.length > 0
-          ? ethers.solidityKeccak256(
+          ? ethers.solidityPackedKeccak256(
               ["bytes20[]"],
               [data.targetWalletsCommitment]
             )

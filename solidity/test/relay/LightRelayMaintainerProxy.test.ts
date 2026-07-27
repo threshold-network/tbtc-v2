@@ -1,7 +1,8 @@
 /* eslint-disable no-underscore-dangle */
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 
-import { ethers, deployments, helpers, waffle } from "hardhat"
+import { ethers, deployments, helpers } from "hardhat"
+import { loadFixture } from "@nomicfoundation/hardhat-network-helpers"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { expect } from "chai"
 import {ContractTransactionResponse} from "ethers"
@@ -13,7 +14,7 @@ import type {
 import { concatenateHexStrings } from "../helpers/contract-test-helpers"
 import longHeaders from "./longHeaders.json"
 
-const { provider } = waffle
+const provider = ethers.provider
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
@@ -67,10 +68,10 @@ describe("LightRelayMaintainerProxy", () => {
       reimbursementPool,
       lightRelayMaintainerProxy,
       lightRelay,
-    } = await waffle.loadFixture(fixture))
+    } = await loadFixture(fixture))
 
     await deployer.sendTransaction({
-      to: reimbursementPool.address,
+      to: reimbursementPool.target,
       value: ethers.parseEther("100"),
     })
   })
@@ -411,7 +412,7 @@ describe("LightRelayMaintainerProxy", () => {
           const postMaintainerBalance = await provider.getBalance(
             maintainer.address
           )
-          const diff = postMaintainerBalance.sub(initialMaintainerBalance)
+          const diff = (postMaintainerBalance - initialMaintainerBalance)
 
           expect(diff).to.be.gt(0)
           expect(diff).to.be.lt(
@@ -463,7 +464,7 @@ describe("LightRelayMaintainerProxy", () => {
           const postMaintainerBalance = await provider.getBalance(
             maintainer.address
           )
-          const diff = postMaintainerBalance.sub(initialMaintainerBalance)
+          const diff = (postMaintainerBalance - initialMaintainerBalance)
 
           expect(diff).to.be.gt(0)
           expect(diff).to.be.lt(
@@ -519,7 +520,7 @@ describe("LightRelayMaintainerProxy", () => {
           const postMaintainerBalance = await provider.getBalance(
             maintainer.address
           )
-          const diff = postMaintainerBalance.sub(initialMaintainerBalance)
+          const diff = (postMaintainerBalance - initialMaintainerBalance)
 
           expect(diff).to.be.gt(0)
           expect(diff).to.be.lt(

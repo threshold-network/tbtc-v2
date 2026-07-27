@@ -1,5 +1,6 @@
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
+import { loadFixture } from "@nomicfoundation/hardhat-network-helpers"
 import { expect } from "chai"
 import {ContractTransactionResponse} from "ethers"
 import { constants } from "../fixtures"
@@ -45,13 +46,13 @@ const fixture = async () => {
 
   const TBTCVault = await ethers.getContractFactory("TBTCVault")
   const vault = await TBTCVault.deploy(
-    bank.address,
-    tbtc.address,
+    bank.target,
+    tbtc.target,
     bridge.address
   )
   await vault.waitForDeployment()
 
-  await tbtc.connect(deployer).transferOwnership(vault.address)
+  await tbtc.connect(deployer).transferOwnership(vault.target)
   await vault.connect(deployer).transferOwnership(governance.address)
 
   return {
@@ -79,7 +80,7 @@ describe("TBTCVault", () => {
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ bridge, governance, bank, vault, tbtc } = await waffle.loadFixture(
+    ;({ bridge, governance, bank, vault, tbtc } = await loadFixture(
       fixture
     ))
 
@@ -94,8 +95,8 @@ describe("TBTCVault", () => {
       .connect(bridge.wallet)
       .increaseBalance(account2.address, initialBalance)
 
-    await bank.connect(account1).approveBalance(vault.address, initialBalance)
-    await bank.connect(account2).approveBalance(vault.address, initialBalance)
+    await bank.connect(account1).approveBalance(vault.target, initialBalance)
+    await bank.connect(account2).approveBalance(vault.target, initialBalance)
   })
 
   describe("constructor", () => {
@@ -103,7 +104,7 @@ describe("TBTCVault", () => {
       it("should revert", async () => {
         const TBTCVault = await ethers.getContractFactory("TBTCVault")
         await expect(
-          TBTCVault.deploy(ZERO_ADDRESS, tbtc.address, bridge.address)
+          TBTCVault.deploy(ZERO_ADDRESS, tbtc.target, bridge.address)
         ).to.be.revertedWith("Bank can not be the zero address")
       })
     })
@@ -112,7 +113,7 @@ describe("TBTCVault", () => {
       it("should revert", async () => {
         const TBTCVault = await ethers.getContractFactory("TBTCVault")
         await expect(
-          TBTCVault.deploy(bank.address, ZERO_ADDRESS, bridge.address)
+          TBTCVault.deploy(bank.target, ZERO_ADDRESS, bridge.address)
         ).to.be.revertedWith("TBTC token can not be the zero address")
       })
     })
@@ -121,18 +122,18 @@ describe("TBTCVault", () => {
       it("should revert", async () => {
         const TBTCVault = await ethers.getContractFactory("TBTCVault")
         await expect(
-          TBTCVault.deploy(bank.address, tbtc.address, ZERO_ADDRESS)
+          TBTCVault.deploy(bank.target, tbtc.target, ZERO_ADDRESS)
         ).to.be.revertedWith("Bridge can not be the zero address")
       })
     })
 
     context("when called with correct parameters", () => {
       it("should set the Bank field", async () => {
-        expect(await vault.bank()).to.equal(bank.address)
+        expect(await vault.bank()).to.equal(bank.target)
       })
 
       it("should set the TBTC token field", async () => {
-        expect(await vault.tbtcToken()).to.equal(tbtc.address)
+        expect(await vault.tbtcToken()).to.equal(tbtc.target)
       })
     })
   })
@@ -156,7 +157,7 @@ describe("TBTCVault", () => {
       it("should revert", async () => {
         await expect(
           vault.recoverERC20FromToken(
-            testToken.address,
+            testToken.target,
             account1.address,
             to1e18(800)
           )
@@ -170,12 +171,12 @@ describe("TBTCVault", () => {
 
         // Do the misfund.
         await testToken.mint(account1.address, to1e18(1000))
-        await testToken.connect(account1).transfer(tbtc.address, to1e18(1000))
+        await testToken.connect(account1).transfer(tbtc.target, to1e18(1000))
 
         await vault
           .connect(governance)
           .recoverERC20FromToken(
-            testToken.address,
+            testToken.target,
             account1.address,
             to1e18(800)
           )
@@ -189,7 +190,7 @@ describe("TBTCVault", () => {
         expect(await testToken.balanceOf(account1.address)).to.be.equal(
           to1e18(800)
         )
-        expect(await testToken.balanceOf(tbtc.address)).to.be.equal(to1e18(200))
+        expect(await testToken.balanceOf(tbtc.target)).to.be.equal(to1e18(200))
       })
     })
   })
@@ -213,7 +214,7 @@ describe("TBTCVault", () => {
       it("should revert", async () => {
         await expect(
           vault.recoverERC721FromToken(
-            testToken.address,
+            testToken.target,
             account1.address,
             1,
             "0x01"
@@ -229,12 +230,12 @@ describe("TBTCVault", () => {
         await testToken.mint(account1.address, 1)
         await testToken
           .connect(account1)
-          .transferFrom(account1.address, tbtc.address, 1)
+          .transferFrom(account1.address, tbtc.target, 1)
 
         await vault
           .connect(governance)
           .recoverERC721FromToken(
-            testToken.address,
+            testToken.target,
             account1.address,
             1,
             "0x01"
@@ -269,7 +270,7 @@ describe("TBTCVault", () => {
     context("when called not by the governance", () => {
       it("should revert", async () => {
         await expect(
-          vault.recoverERC20(testToken.address, account1.address, to1e18(800))
+          vault.recoverERC20(testToken.target, account1.address, to1e18(800))
         ).to.be.revertedWith("Ownable: caller is not the owner")
       })
     })
@@ -279,11 +280,11 @@ describe("TBTCVault", () => {
         await createSnapshot()
 
         await testToken.mint(account1.address, to1e18(1000))
-        await testToken.connect(account1).transfer(vault.address, to1e18(1000))
+        await testToken.connect(account1).transfer(vault.target, to1e18(1000))
 
         await vault
           .connect(governance)
-          .recoverERC20(testToken.address, account1.address, to1e18(800))
+          .recoverERC20(testToken.target, account1.address, to1e18(800))
       })
 
       after(async () => {
@@ -294,7 +295,7 @@ describe("TBTCVault", () => {
         expect(await testToken.balanceOf(account1.address)).to.be.equal(
           to1e18(800)
         )
-        expect(await testToken.balanceOf(vault.address)).to.be.equal(
+        expect(await testToken.balanceOf(vault.target)).to.be.equal(
           to1e18(200)
         )
       })
@@ -319,7 +320,7 @@ describe("TBTCVault", () => {
     context("when called not by the governance", () => {
       it("should revert", async () => {
         await expect(
-          vault.recoverERC721(testToken.address, account1.address, 1, [])
+          vault.recoverERC721(testToken.target, account1.address, 1, [])
         ).to.be.revertedWith("Ownable: caller is not the owner")
       })
     })
@@ -331,11 +332,11 @@ describe("TBTCVault", () => {
         await testToken.mint(account1.address, 1)
         await testToken
           .connect(account1)
-          .transferFrom(account1.address, vault.address, 1)
+          .transferFrom(account1.address, vault.target, 1)
 
         await vault
           .connect(governance)
-          .recoverERC721(testToken.address, account1.address, 1, [])
+          .recoverERC721(testToken.target, account1.address, 1, [])
       })
 
       after(async () => {
@@ -356,8 +357,8 @@ describe("TBTCVault", () => {
         await createSnapshot()
         // the initial approval was done in the top-level `before` setup;
         // we need to set back to 0 before approving again
-        await bank.connect(account1).approveBalance(vault.address, 0)
-        await bank.connect(account1).approveBalance(vault.address, amount)
+        await bank.connect(account1).approveBalance(vault.target, 0)
+        await bank.connect(account1).approveBalance(vault.target, amount)
       })
 
       after(async () => {
@@ -389,7 +390,7 @@ describe("TBTCVault", () => {
       })
 
       it("should transfer balance to the vault", async () => {
-        expect(await bank.balanceOf(vault.address)).to.equal(toSatoshis(13))
+        expect(await bank.balanceOf(vault.target)).to.equal(toSatoshis(13))
         expect(await bank.balanceOf(account1.address)).to.equal(
           toSatoshis(87) // 100 - 13
         )
@@ -432,7 +433,7 @@ describe("TBTCVault", () => {
       // minting 2 BTC, the remainder is ignored
 
       it("should transfer balance to the vault", async () => {
-        expect(await bank.balanceOf(vault.address)).to.equal(toSatoshis(2))
+        expect(await bank.balanceOf(vault.target)).to.equal(toSatoshis(2))
         expect(await bank.balanceOf(account1.address)).to.equal(
           toSatoshis(98) // 100 - 2
         )
@@ -471,7 +472,7 @@ describe("TBTCVault", () => {
       })
 
       it("should transfer balances to the vault", async () => {
-        expect(await bank.balanceOf(vault.address)).to.equal(
+        expect(await bank.balanceOf(vault.target)).to.equal(
           toSatoshis(16) // 3 + 1 + 1 + 9 + 2
         )
         expect(await bank.balanceOf(account1.address)).to.equal(
@@ -485,7 +486,7 @@ describe("TBTCVault", () => {
       it("should mint TBTC", async () => {
         expect(await tbtc.balanceOf(account1.address)).to.equal(amount1)
         expect(await tbtc.balanceOf(account2.address)).to.equal(amount2)
-        expect(await tbtc.totalSupply()).to.equal(amount1.add(amount2))
+        expect(await tbtc.totalSupply()).to.equal((amount1 + amount2))
       })
 
       it("should emit Minted event", async () => {
@@ -514,7 +515,7 @@ describe("TBTCVault", () => {
       before(async () => {
         await createSnapshot()
 
-        await tbtc.connect(account1).approve(vault.address, amount)
+        await tbtc.connect(account1).approve(vault.target, amount)
       })
 
       after(async () => {
@@ -530,13 +531,13 @@ describe("TBTCVault", () => {
 
     context("when the unminter has not enough TBTC", () => {
       const mintedAmount = to1e18(1)
-      const unmintedAmount = mintedAmount.add(constants.satoshiMultiplier)
+      const unmintedAmount = (mintedAmount + constants.satoshiMultiplier)
 
       before(async () => {
         await createSnapshot()
 
         await vault.connect(account1).mint(mintedAmount)
-        await tbtc.connect(account1).approve(vault.address, unmintedAmount)
+        await tbtc.connect(account1).approve(vault.target, unmintedAmount)
       })
 
       after(async () => {
@@ -553,7 +554,7 @@ describe("TBTCVault", () => {
     context("when there is a single unminter", () => {
       const mintedAmount = to1e18(20)
       const unmintedAmount = to1e18(12) // 1 + 3 + 8
-      const notUnmintedAmount = mintedAmount.sub(unmintedAmount) // 20 - 12
+      const notUnmintedAmount = (mintedAmount - unmintedAmount) // 20 - 12
 
       const transactions: ContractTransactionResponse[] = []
 
@@ -561,7 +562,7 @@ describe("TBTCVault", () => {
         await createSnapshot()
 
         await vault.connect(account1).mint(mintedAmount)
-        await tbtc.connect(account1).approve(vault.address, unmintedAmount)
+        await tbtc.connect(account1).approve(vault.target, unmintedAmount)
         transactions.push(await vault.connect(account1).unmint(to1e18(1)))
         transactions.push(await vault.connect(account1).unmint(to1e18(3)))
         transactions.push(await vault.connect(account1).unmint(to1e18(8)))
@@ -572,7 +573,7 @@ describe("TBTCVault", () => {
       })
 
       it("should transfer balance to the unminter", async () => {
-        expect(await bank.balanceOf(vault.address)).to.equal(toSatoshis(8)) // 20 - 12
+        expect(await bank.balanceOf(vault.target)).to.equal(toSatoshis(8)) // 20 - 12
         expect(await bank.balanceOf(account1.address)).to.equal(
           toSatoshis(92) // 100 - 8
         )
@@ -610,7 +611,7 @@ describe("TBTCVault", () => {
         await createSnapshot()
 
         await vault.connect(account1).mint(mintedAmount)
-        await tbtc.connect(account1).approve(vault.address, unmintedAmount)
+        await tbtc.connect(account1).approve(vault.target, unmintedAmount)
         transaction = await vault.connect(account1).unmint(unmintedAmount)
       })
 
@@ -621,7 +622,7 @@ describe("TBTCVault", () => {
       // unminting 2 BTC, the remainder is ignored
 
       it("should transfer balance to the unminter", async () => {
-        expect(await bank.balanceOf(vault.address)).to.equal(toSatoshis(18)) // 20 - 2
+        expect(await bank.balanceOf(vault.target)).to.equal(toSatoshis(18)) // 20 - 2
         expect(await bank.balanceOf(account1.address)).to.equal(
           toSatoshis(82) // 100 - 18
         )
@@ -644,11 +645,11 @@ describe("TBTCVault", () => {
     context("when there are multiple unminters", () => {
       const mintedAmount1 = to1e18(20)
       const unmintedAmount1 = to1e18(12) // 1 + 3 + 8 = 12
-      const notUnmintedAmount1 = mintedAmount1.sub(unmintedAmount1) // 20 - 12
+      const notUnmintedAmount1 = (mintedAmount1 - unmintedAmount1) // 20 - 12
 
       const mintedAmount2 = to1e18(41)
       const unmintedAmount2 = to1e18(30) // 20 + 10 = 30
-      const notUnmintedAmount2 = mintedAmount2.sub(unmintedAmount2) // 41 - 30
+      const notUnmintedAmount2 = (mintedAmount2 - unmintedAmount2) // 41 - 30
 
       const transactions: ContractTransactionResponse[] = []
 
@@ -657,8 +658,8 @@ describe("TBTCVault", () => {
 
         await vault.connect(account1).mint(mintedAmount1)
         await vault.connect(account2).mint(mintedAmount2)
-        await tbtc.connect(account1).approve(vault.address, unmintedAmount1)
-        await tbtc.connect(account2).approve(vault.address, unmintedAmount2)
+        await tbtc.connect(account1).approve(vault.target, unmintedAmount1)
+        await tbtc.connect(account2).approve(vault.target, unmintedAmount2)
         transactions.push(await vault.connect(account1).unmint(to1e18(1)))
         transactions.push(await vault.connect(account2).unmint(to1e18(20)))
         transactions.push(await vault.connect(account1).unmint(to1e18(3)))
@@ -671,7 +672,7 @@ describe("TBTCVault", () => {
       })
 
       it("should transfer balances to unminters", async () => {
-        expect(await bank.balanceOf(vault.address)).to.equal(
+        expect(await bank.balanceOf(vault.target)).to.equal(
           toSatoshis(19) // 8 + 11
         )
         expect(await bank.balanceOf(account1.address)).to.equal(
@@ -690,7 +691,7 @@ describe("TBTCVault", () => {
           notUnmintedAmount2
         )
         expect(await tbtc.totalSupply()).to.be.equal(
-          notUnmintedAmount1.add(notUnmintedAmount2)
+          (notUnmintedAmount1 + notUnmintedAmount2)
         )
       })
 
@@ -730,7 +731,7 @@ describe("TBTCVault", () => {
         await expect(
           vault
             .connect(account1)
-            .receiveApproval(account1.address, to1e18(1), tbtc.address, [])
+            .receiveApproval(account1.address, to1e18(1), tbtc.target, [])
         ).to.be.revertedWith("Only TBTC caller allowed")
       })
     })
@@ -739,7 +740,7 @@ describe("TBTCVault", () => {
       context("when called with an empty extraData", () => {
         const mintedAmount = to1e18(10)
         const unmintedAmount = to1e18(4)
-        const notUnmintedAmount = mintedAmount.sub(unmintedAmount) // 10 - 4 = 6
+        const notUnmintedAmount = (mintedAmount - unmintedAmount) // 10 - 4 = 6
 
         let tx: ContractTransactionResponse
 
@@ -749,7 +750,7 @@ describe("TBTCVault", () => {
           await vault.connect(account1).mint(mintedAmount)
           tx = await tbtc
             .connect(account1)
-            .approveAndCall(vault.address, unmintedAmount, [])
+            .approveAndCall(vault.target, unmintedAmount, [])
         })
 
         after(async () => {
@@ -757,7 +758,7 @@ describe("TBTCVault", () => {
         })
 
         it("should transfer balance to the unminter", async () => {
-          expect(await bank.balanceOf(vault.address)).to.equal(toSatoshis(6))
+          expect(await bank.balanceOf(vault.target)).to.equal(toSatoshis(6))
           expect(await bank.balanceOf(account1.address)).to.equal(
             toSatoshis(94) // 100 - 6
           )
@@ -791,7 +792,7 @@ describe("TBTCVault", () => {
           await vault.connect(account1).mint(mintedAmount)
           transaction = await tbtc
             .connect(account1)
-            .approveAndCall(vault.address, unmintedAmount, [])
+            .approveAndCall(vault.target, unmintedAmount, [])
         })
 
         after(async () => {
@@ -801,7 +802,7 @@ describe("TBTCVault", () => {
         // unminting 3 BTC, the remainder is ignored
 
         it("should transfer balance to the unminter", async () => {
-          expect(await bank.balanceOf(vault.address)).to.equal(toSatoshis(17)) // 20 - 3
+          expect(await bank.balanceOf(vault.target)).to.equal(toSatoshis(17)) // 20 - 3
           expect(await bank.balanceOf(account1.address)).to.equal(
             toSatoshis(83) // 100 - 17
           )
@@ -842,13 +843,13 @@ describe("TBTCVault", () => {
     })
 
     context("when caller has not enough balance in the bank", () => {
-      const amount = initialBalance.add(1)
+      const amount = (initialBalance + 1n)
 
       it("should revert", async () => {
         await expect(
           bank
             .connect(account1)
-            .approveBalanceAndCall(vault.address, amount, [])
+            .approveBalanceAndCall(vault.target, amount, [])
         ).to.be.revertedWith("Amount exceeds balance in the bank")
       })
     })
@@ -864,17 +865,17 @@ describe("TBTCVault", () => {
         transactions.push(
           await bank
             .connect(account1)
-            .approveBalanceAndCall(vault.address, toSatoshis(4), [])
+            .approveBalanceAndCall(vault.target, toSatoshis(4), [])
         )
         transactions.push(
           await bank
             .connect(account1)
-            .approveBalanceAndCall(vault.address, toSatoshis(10), [])
+            .approveBalanceAndCall(vault.target, toSatoshis(10), [])
         )
         transactions.push(
           await bank
             .connect(account1)
-            .approveBalanceAndCall(vault.address, toSatoshis(5), [])
+            .approveBalanceAndCall(vault.target, toSatoshis(5), [])
         )
       })
 
@@ -883,9 +884,9 @@ describe("TBTCVault", () => {
       })
 
       it("should transfer balance to the vault", async () => {
-        expect(await bank.balanceOf(vault.address)).to.equal(amount)
+        expect(await bank.balanceOf(vault.target)).to.equal(amount)
         expect(await bank.balanceOf(account1.address)).to.equal(
-          initialBalance.sub(amount)
+          (initialBalance - amount)
         )
       })
 
@@ -919,27 +920,27 @@ describe("TBTCVault", () => {
         transactions.push(
           await bank
             .connect(account1)
-            .approveBalanceAndCall(vault.address, toSatoshis(2), [])
+            .approveBalanceAndCall(vault.target, toSatoshis(2), [])
         )
         transactions.push(
           await bank
             .connect(account2)
-            .approveBalanceAndCall(vault.address, toSatoshis(4), [])
+            .approveBalanceAndCall(vault.target, toSatoshis(4), [])
         )
         transactions.push(
           await bank
             .connect(account1)
-            .approveBalanceAndCall(vault.address, toSatoshis(1), [])
+            .approveBalanceAndCall(vault.target, toSatoshis(1), [])
         )
         transactions.push(
           await bank
             .connect(account1)
-            .approveBalanceAndCall(vault.address, toSatoshis(1), [])
+            .approveBalanceAndCall(vault.target, toSatoshis(1), [])
         )
         transactions.push(
           await bank
             .connect(account2)
-            .approveBalanceAndCall(vault.address, toSatoshis(1), [])
+            .approveBalanceAndCall(vault.target, toSatoshis(1), [])
         )
       })
 
@@ -948,14 +949,14 @@ describe("TBTCVault", () => {
       })
 
       it("should transfer balances to the vault", async () => {
-        expect(await bank.balanceOf(vault.address)).to.equal(
-          amount1.add(amount2)
+        expect(await bank.balanceOf(vault.target)).to.equal(
+          (amount1 + amount2)
         )
         expect(await bank.balanceOf(account1.address)).to.equal(
-          initialBalance.sub(amount1)
+          (initialBalance - amount1)
         )
         expect(await bank.balanceOf(account2.address)).to.equal(
-          initialBalance.sub(amount2)
+          (initialBalance - amount2)
         )
       })
 
@@ -1017,7 +1018,7 @@ describe("TBTCVault", () => {
         await expect(
           bank
             .connect(bridge.wallet)
-            .increaseBalanceAndCall(vault.address, [], [])
+            .increaseBalanceAndCall(vault.target, [], [])
         ).to.be.revertedWith("No depositors specified")
       })
     })
@@ -1031,7 +1032,7 @@ describe("TBTCVault", () => {
         tx = await bank
           .connect(bridge.wallet)
           .increaseBalanceAndCall(
-            vault.address,
+            vault.target,
             [depositor1],
             [depositedAmount1]
           )
@@ -1062,7 +1063,7 @@ describe("TBTCVault", () => {
         tx = await bank
           .connect(bridge.wallet)
           .increaseBalanceAndCall(
-            vault.address,
+            vault.target,
             [depositor1, depositor2, depositor3],
             [depositedAmount1, depositedAmount2, depositedAmount3]
           )
@@ -1126,7 +1127,7 @@ describe("TBTCVault", () => {
         })
 
         it("should not transfer TBTC token ownership", async () => {
-          expect(await tbtc.owner()).is.equal(vault.address)
+          expect(await tbtc.owner()).is.equal(vault.target)
         })
 
         it("should set the upgrade initiation time", async () => {
@@ -1176,10 +1177,10 @@ describe("TBTCVault", () => {
           // Mint some TBTC to increase the balance of TBTCVault
           await bank
             .connect(account1)
-            .approveBalanceAndCall(vault.address, initialBalance, [])
+            .approveBalanceAndCall(vault.target, initialBalance, [])
           await bank
             .connect(account2)
-            .approveBalanceAndCall(vault.address, initialBalance, [])
+            .approveBalanceAndCall(vault.target, initialBalance, [])
         })
 
         after(async () => {
@@ -1222,10 +1223,10 @@ describe("TBTCVault", () => {
           })
 
           it("should transfer the entire bank balance", async () => {
-            expect(await bank.balanceOf(vault.address)).to.equal(0)
+            expect(await bank.balanceOf(vault.target)).to.equal(0)
             // In the setup, each account minted `initialBalance` of TBTC.
             expect(await bank.balanceOf(newVault)).to.equal(
-              initialBalance.mul(2)
+              (initialBalance * 2n)
             )
           })
 

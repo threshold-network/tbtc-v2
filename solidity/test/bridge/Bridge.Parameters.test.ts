@@ -265,7 +265,7 @@ describe("Bridge - Parameters", () => {
         const newRedemptionTxMaxTotalFee = constants.redemptionTxMaxTotalFee * 3
         const newRedemptionTimeout = constants.redemptionTimeout * 4
         const newRedemptionTimeoutSlashingAmount =
-          constants.redemptionTimeoutSlashingAmount.mul(2)
+          (constants.redemptionTimeoutSlashingAmount * 2n)
         const newRedemptionTimeoutNotifierRewardMultiplier =
           constants.redemptionTimeoutNotifierRewardMultiplier / 4
 
@@ -740,7 +740,7 @@ describe("Bridge - Parameters", () => {
           constants.movingFundsTimeoutResetDelay * 2
         const newMovingFundsTimeout = constants.movingFundsTimeout * 2
         const newMovingFundsTimeoutSlashingAmount =
-          constants.movingFundsTimeoutSlashingAmount.mul(3)
+          (constants.movingFundsTimeoutSlashingAmount * 3n)
         const newMovingFundsTimeoutNotifierRewardMultiplier =
           constants.movingFundsTimeoutNotifierRewardMultiplier / 2
         const newMovingFundsCommitmentGasOffset =
@@ -749,7 +749,7 @@ describe("Bridge - Parameters", () => {
           constants.movedFundsSweepTxMaxTotalFee * 2
         const newMovedFundsSweepTimeout = constants.movedFundsSweepTimeout * 4
         const newMovedFundsSweepTimeoutSlashingAmount =
-          constants.movedFundsSweepTimeoutSlashingAmount.mul(6)
+          (constants.movedFundsSweepTimeoutSlashingAmount * 6n)
         const newMovedFundsSweepTimeoutNotifierRewardMultiplier =
           constants.movedFundsSweepTimeoutNotifierRewardMultiplier / 4
 
@@ -1285,13 +1285,13 @@ describe("Bridge - Parameters", () => {
       context("when all new parameter values are correct", () => {
         const newWalletCreationPeriod = constants.walletCreationPeriod * 2
         const newWalletCreationMinBtcBalance =
-          constants.walletCreationMinBtcBalance.add(1000)
+          (constants.walletCreationMinBtcBalance + 1000n)
         const newWalletCreationMaxBtcBalance =
-          constants.walletCreationMaxBtcBalance.add(2000)
+          (constants.walletCreationMaxBtcBalance + 2000n)
         const newWalletClosureMinBtcBalance =
-          constants.walletClosureMinBtcBalance.add(3000)
+          (constants.walletClosureMinBtcBalance + 3000n)
         const newWalletMaxAge = constants.walletMaxAge * 2
-        const newWalletMaxBtcTransfer = constants.walletMaxBtcTransfer.add(1000)
+        const newWalletMaxBtcTransfer = (constants.walletMaxBtcTransfer + 1000n)
         const newWalletClosingPeriod = constants.walletClosingPeriod * 2
 
         let tx1: ContractTransactionResponse
@@ -1578,10 +1578,10 @@ describe("Bridge - Parameters", () => {
     context("when caller is the contract guvnor", () => {
       context("when all new parameter values are correct", () => {
         const newFraudChallengeDepositAmount =
-          constants.fraudChallengeDepositAmount.mul(4)
+          (constants.fraudChallengeDepositAmount * 4n)
         const newFraudChallengeDefeatTimeout =
           constants.fraudChallengeDefeatTimeout * 3
-        const newFraudSlashingAmount = constants.fraudSlashingAmount.mul(2)
+        const newFraudSlashingAmount = (constants.fraudSlashingAmount * 2n)
         const newFraudNotifierRewardMultiplier =
           constants.fraudNotifierRewardMultiplier / 4
 

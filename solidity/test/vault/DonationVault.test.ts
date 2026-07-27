@@ -1,5 +1,6 @@
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
-import { ethers, helpers, waffle } from "hardhat"
+import { ethers, helpers } from "hardhat"
+import { loadFixture } from "@nomicfoundation/hardhat-network-helpers"
 import { expect } from "chai"
 
 import {ContractTransactionResponse} from "ethers"
@@ -17,7 +18,7 @@ const fixture = async () => {
   await bank.connect(deployer).updateBridge(bridge.address)
 
   const DonationVault = await ethers.getContractFactory("DonationVault")
-  const vault = await DonationVault.deploy(bank.address)
+  const vault = await DonationVault.deploy(bank.target)
   await vault.waitForDeployment()
 
   return {
@@ -38,7 +39,7 @@ describe("DonationVault", () => {
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ bridge, account1, account2, bank, vault } = await waffle.loadFixture(
+    ;({ bridge, account1, account2, bank, vault } = await loadFixture(
       fixture
     ))
   })
@@ -55,7 +56,7 @@ describe("DonationVault", () => {
 
     context("when called with correct parameters", () => {
       it("should set the Bank field", async () => {
-        expect(await vault.bank()).to.equal(bank.address)
+        expect(await vault.bank()).to.equal(bank.target)
       })
     })
   })
@@ -88,7 +89,7 @@ describe("DonationVault", () => {
           await bank.connect(bridge).increaseBalance(account1.address, 1000)
           await bank
             .connect(account1)
-            .increaseBalanceAllowance(vault.address, 999)
+            .increaseBalanceAllowance(vault.target, 999)
         })
 
         after(async () => {
@@ -112,7 +113,7 @@ describe("DonationVault", () => {
         await bank.connect(bridge).increaseBalance(account1.address, 1100)
         await bank
           .connect(account1)
-          .increaseBalanceAllowance(vault.address, 1100)
+          .increaseBalanceAllowance(vault.target, 1100)
 
         tx = await vault.connect(account1).donate(1000)
       })
@@ -126,13 +127,13 @@ describe("DonationVault", () => {
       })
 
       it("should not increase vault's balance", async () => {
-        expect(await bank.balanceOf(vault.address)).to.be.equal(0)
+        expect(await bank.balanceOf(vault.target)).to.be.equal(0)
       })
 
       it("should emit BalanceDecreased event", async () => {
         await expect(tx)
           .to.emit(bank, "BalanceDecreased")
-          .withArgs(vault.address, 1000)
+          .withArgs(vault.target, 1000)
       })
 
       it("should emit DonationReceived event", async () => {
@@ -167,7 +168,7 @@ describe("DonationVault", () => {
 
       it("should revert", async () => {
         await expect(
-          bank.connect(account1).approveBalanceAndCall(vault.address, 1000, [])
+          bank.connect(account1).approveBalanceAndCall(vault.target, 1000, [])
         ).to.be.revertedWith("Amount exceeds balance in the bank")
       })
     })
@@ -182,7 +183,7 @@ describe("DonationVault", () => {
 
         tx = await bank
           .connect(account1)
-          .approveBalanceAndCall(vault.address, 1000, [])
+          .approveBalanceAndCall(vault.target, 1000, [])
       })
 
       after(async () => {
@@ -194,13 +195,13 @@ describe("DonationVault", () => {
       })
 
       it("should not increase vault's balance", async () => {
-        expect(await bank.balanceOf(vault.address)).to.be.equal(0)
+        expect(await bank.balanceOf(vault.target)).to.be.equal(0)
       })
 
       it("should emit BalanceDecreased event", async () => {
         await expect(tx)
           .to.emit(bank, "BalanceDecreased")
-          .withArgs(vault.address, 1000)
+          .withArgs(vault.target, 1000)
       })
 
       it("should emit DonationReceived event", async () => {
@@ -225,7 +226,7 @@ describe("DonationVault", () => {
     context("when called with no depositors", () => {
       it("should revert", async () => {
         await expect(
-          bank.connect(bridge).increaseBalanceAndCall(vault.address, [], [])
+          bank.connect(bridge).increaseBalanceAndCall(vault.target, [], [])
         ).to.be.revertedWith("No depositors specified")
       })
     })
@@ -239,7 +240,7 @@ describe("DonationVault", () => {
         tx = await bank
           .connect(bridge)
           .increaseBalanceAndCall(
-            vault.address,
+            vault.target,
             [account1.address, account2.address],
             [1000, 2000]
           )
@@ -255,13 +256,13 @@ describe("DonationVault", () => {
       })
 
       it("should not increase vault's balance", async () => {
-        expect(await bank.balanceOf(vault.address)).to.be.equal(0)
+        expect(await bank.balanceOf(vault.target)).to.be.equal(0)
       })
 
       it("should emit BalanceDecreased event", async () => {
         await expect(tx)
           .to.emit(bank, "BalanceDecreased")
-          .withArgs(vault.address, 3000)
+          .withArgs(vault.target, 3000)
       })
 
       it("should emit DonationReceived event", async () => {

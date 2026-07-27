@@ -1,4 +1,4 @@
-import { helpers, waffle, ethers } from "hardhat"
+import { helpers, ethers } from "hardhat"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { expect } from "chai"
 import {BigNumberish, BytesLike, ContractTransactionResponse} from "ethers"
@@ -34,9 +34,9 @@ function assertVetoProposalTuple(
     ethers.getAddress(expected.redeemer)
   )
   expect(
-    BigInt(actual.withdrawableAmount).eq(expected.withdrawableAmount)
+    (BigInt(actual.withdrawableAmount) === expected.withdrawableAmount)
   ).to.be.true
-  expect(BigInt(actual.finalizedAt).eq(expected.finalizedAt)).to.be.true
+  expect((BigInt(actual.finalizedAt) === expected.finalizedAt)).to.be.true
   expect(Number(actual.objectionsCount)).to.equal(expected.objectionsCount)
 }
 
@@ -67,7 +67,7 @@ describe("RedemptionWatchtower", () => {
 
     await bridgeGovernance
       .connect(governance)
-      .setRedemptionWatchtower(redemptionWatchtower.address)
+      .setRedemptionWatchtower(redemptionWatchtower.target)
 
     // Make sure test actors are correctly set up.
     const actors = [
@@ -669,7 +669,7 @@ describe("RedemptionWatchtower", () => {
                       await redemptionWatchtower.defaultDelay(),
                       await redemptionWatchtower.levelOneDelay(),
                       await redemptionWatchtower.levelTwoDelay(),
-                      redemption.amount.add(1)
+                      (redemption.amount + 1n)
                     )
                 })
 
@@ -1039,10 +1039,10 @@ describe("RedemptionWatchtower", () => {
                       await bridge.wallets(legacyRedemption.walletPublicKeyHash)
                     ).pendingRedemptionsValue
 
-                    initialBridgeBalance = await bank.balanceOf(bridge.address)
+                    initialBridgeBalance = await bank.balanceOf(bridge.target)
 
                     initialWatchtowerBalance = await bank.balanceOf(
-                      redemptionWatchtower.address
+                      redemptionWatchtower.target
                     )
 
                     // Raise the first objection.
@@ -1093,11 +1093,11 @@ describe("RedemptionWatchtower", () => {
 
                   it("should update veto state properly", async () => {
                     // Penalty fee is 5% of the redemption amount.
-                    const penaltyFee = legacyRedemption.amount.mul(5).div(100)
+                    const penaltyFee = ((legacyRedemption.amount * 5n) / 100n)
                     // The withdrawable amount left on the watchtower should
                     // be equal to the redemption amount minus the penalty fee.
                     const withdrawableAmount =
-                      legacyRedemption.amount.sub(penaltyFee)
+                      (legacyRedemption.amount - penaltyFee)
 
                     assertVetoProposalTuple(
                       await redemptionWatchtower.vetoProposals(
@@ -1147,12 +1147,10 @@ describe("RedemptionWatchtower", () => {
                       await bridge.wallets(legacyRedemption.walletPublicKeyHash)
                     ).pendingRedemptionsValue
 
-                    const difference = initialWalletPendingRedemptionsValue.sub(
-                      currentWalletPendingRedemptionsValue
-                    )
+                    const difference = (initialWalletPendingRedemptionsValue - currentWalletPendingRedemptionsValue)
 
                     expect(difference).to.be.equal(
-                      legacyRedemption.amount.sub(legacyRedemption.treasuryFee)
+                      (legacyRedemption.amount - legacyRedemption.treasuryFee)
                     )
                   })
 
@@ -1166,11 +1164,11 @@ describe("RedemptionWatchtower", () => {
 
                   it("should transfer the redemption amount from the Bridge", async () => {
                     const currentBridgeBalance = await bank.balanceOf(
-                      bridge.address
+                      bridge.target
                     )
 
                     const difference =
-                      initialBridgeBalance.sub(currentBridgeBalance)
+                      (initialBridgeBalance - currentBridgeBalance)
 
                     // The entire amount should be transferred to the watchtower.
                     expect(difference).to.be.equal(legacyRedemption.amount)
@@ -1179,34 +1177,32 @@ describe("RedemptionWatchtower", () => {
                     await expect(tx)
                       .to.emit(bank, "BalanceTransferred")
                       .withArgs(
-                        bridge.address,
-                        redemptionWatchtower.address,
+                        bridge.target,
+                        redemptionWatchtower.target,
                         legacyRedemption.amount
                       )
                   })
 
                   it("should leave a proper withdrawable amount and burn the penalty fee", async () => {
                     const currentWatchtowerBalance = await bank.balanceOf(
-                      redemptionWatchtower.address
+                      redemptionWatchtower.target
                     )
 
-                    const difference = currentWatchtowerBalance.sub(
-                      initialWatchtowerBalance
-                    )
+                    const difference = (currentWatchtowerBalance - initialWatchtowerBalance)
 
                     // Penalty fee is 5% of the redemption amount.
-                    const penaltyFee = legacyRedemption.amount.mul(5).div(100)
+                    const penaltyFee = ((legacyRedemption.amount * 5n) / 100n)
 
                     // The withdrawable amount left on the watchtower should
                     // be equal to the redemption amount minus the penalty fee.
                     expect(difference).to.be.equal(
-                      legacyRedemption.amount.sub(penaltyFee)
+                      (legacyRedemption.amount - penaltyFee)
                     )
 
                     // Make sure the penalty fee was burned.
                     await expect(tx)
                       .to.emit(bank, "BalanceDecreased")
-                      .withArgs(redemptionWatchtower.address, penaltyFee)
+                      .withArgs(redemptionWatchtower.target, penaltyFee)
                   })
                 })
               }
@@ -1396,10 +1392,10 @@ describe("RedemptionWatchtower", () => {
                     await bridge.wallets(redemption.walletPublicKeyHash)
                   ).pendingRedemptionsValue
 
-                  initialBridgeBalance = await bank.balanceOf(bridge.address)
+                  initialBridgeBalance = await bank.balanceOf(bridge.target)
 
                   initialWatchtowerBalance = await bank.balanceOf(
-                    redemptionWatchtower.address
+                    redemptionWatchtower.target
                   )
 
                   // Raise the first objection.
@@ -1460,10 +1456,10 @@ describe("RedemptionWatchtower", () => {
 
                 it("should update veto state properly", async () => {
                   // Penalty fee is 5% of the redemption amount.
-                  const penaltyFee = redemption.amount.mul(5).div(100)
+                  const penaltyFee = ((redemption.amount * 5n) / 100n)
                   // The withdrawable amount left on the watchtower should
                   // be equal to the redemption amount minus the penalty fee.
-                  const withdrawableAmount = redemption.amount.sub(penaltyFee)
+                  const withdrawableAmount = (redemption.amount - penaltyFee)
 
                   assertVetoProposalTuple(
                     await redemptionWatchtower.vetoProposals(
@@ -1508,12 +1504,10 @@ describe("RedemptionWatchtower", () => {
                     await bridge.wallets(redemption.walletPublicKeyHash)
                   ).pendingRedemptionsValue
 
-                  const difference = initialWalletPendingRedemptionsValue.sub(
-                    currentWalletPendingRedemptionsValue
-                  )
+                  const difference = (initialWalletPendingRedemptionsValue - currentWalletPendingRedemptionsValue)
 
                   expect(difference).to.be.equal(
-                    redemption.amount.sub(redemption.treasuryFee)
+                    (redemption.amount - redemption.treasuryFee)
                   )
                 })
 
@@ -1527,11 +1521,11 @@ describe("RedemptionWatchtower", () => {
 
                 it("should transfer the redemption amount from the Bridge", async () => {
                   const currentBridgeBalance = await bank.balanceOf(
-                    bridge.address
+                    bridge.target
                   )
 
                   const difference =
-                    initialBridgeBalance.sub(currentBridgeBalance)
+                    (initialBridgeBalance - currentBridgeBalance)
 
                   // The entire amount should be transferred to the watchtower.
                   expect(difference).to.be.equal(redemption.amount)
@@ -1540,34 +1534,32 @@ describe("RedemptionWatchtower", () => {
                   await expect(tx)
                     .to.emit(bank, "BalanceTransferred")
                     .withArgs(
-                      bridge.address,
-                      redemptionWatchtower.address,
+                      bridge.target,
+                      redemptionWatchtower.target,
                       redemption.amount
                     )
                 })
 
                 it("should leave a proper withdrawable amount and burn the penalty fee", async () => {
                   const currentWatchtowerBalance = await bank.balanceOf(
-                    redemptionWatchtower.address
+                    redemptionWatchtower.target
                   )
 
-                  const difference = currentWatchtowerBalance.sub(
-                    initialWatchtowerBalance
-                  )
+                  const difference = (currentWatchtowerBalance - initialWatchtowerBalance)
 
                   // Penalty fee is 5% of the redemption amount.
-                  const penaltyFee = redemption.amount.mul(5).div(100)
+                  const penaltyFee = ((redemption.amount * 5n) / 100n)
 
                   // The withdrawable amount left on the watchtower should
                   // be equal to the redemption amount minus the penalty fee.
                   expect(difference).to.be.equal(
-                    redemption.amount.sub(penaltyFee)
+                    (redemption.amount - penaltyFee)
                   )
 
                   // Make sure the penalty fee was burned.
                   await expect(tx)
                     .to.emit(bank, "BalanceDecreased")
-                    .withArgs(redemptionWatchtower.address, penaltyFee)
+                    .withArgs(redemptionWatchtower.target, penaltyFee)
                 })
               })
             })
@@ -1664,7 +1656,7 @@ describe("RedemptionWatchtower", () => {
                 await redemptionWatchtower.defaultDelay(),
                 await redemptionWatchtower.levelOneDelay(),
                 await redemptionWatchtower.levelTwoDelay(),
-                redemption.amount.add(1)
+                (redemption.amount + 1n)
               )
           })
 
@@ -2462,7 +2454,7 @@ describe("RedemptionWatchtower", () => {
             )
 
           // Withdrawable amount is the redemption amount minus the 5% penalty fee.
-          withdrawableAmount = redemption.amount.sub(redemption.amount.div(20))
+          withdrawableAmount = (redemption.amount - (redemption.amount / 20n))
           expect(withdrawableAmount).to.be.equal(
             (await redemptionWatchtower.vetoProposals(redemption.redemptionKey))
               .withdrawableAmount
@@ -2572,7 +2564,7 @@ describe("RedemptionWatchtower", () => {
                 await createSnapshot()
 
                 initialWatchtowerBalance = await bank.balanceOf(
-                  redemptionWatchtower.address
+                  redemptionWatchtower.target
                 )
                 initialRedeemerBalance = await bank.balanceOf(
                   redemption.redeemer
@@ -2610,20 +2602,16 @@ describe("RedemptionWatchtower", () => {
 
               it("should transfer the funds to the redeemer", async () => {
                 const currentWatchtowerBalance = await bank.balanceOf(
-                  redemptionWatchtower.address
+                  redemptionWatchtower.target
                 )
                 const currentRedeemerBalance = await bank.balanceOf(
                   redemption.redeemer
                 )
 
                 // Watchtower's balance decreased.
-                const watchtowerDifference = initialWatchtowerBalance.sub(
-                  currentWatchtowerBalance
-                )
+                const watchtowerDifference = (initialWatchtowerBalance - currentWatchtowerBalance)
                 // Redeemer's balance increased.
-                const redeemerDifference = currentRedeemerBalance.sub(
-                  initialRedeemerBalance
-                )
+                const redeemerDifference = (currentRedeemerBalance - initialRedeemerBalance)
 
                 expect(watchtowerDifference).to.be.equal(withdrawableAmount)
                 expect(redeemerDifference).to.be.equal(withdrawableAmount)
@@ -2632,7 +2620,7 @@ describe("RedemptionWatchtower", () => {
                 await expect(tx)
                   .to.emit(bank, "BalanceTransferred")
                   .withArgs(
-                    redemptionWatchtower.address,
+                    redemptionWatchtower.target,
                     redemption.redeemer,
                     withdrawableAmount
                   )
@@ -2845,24 +2833,24 @@ describe("RedemptionWatchtower", () => {
     // Redeemer must allow the Bridge to spent the requested amount.
     await bank
       .connect(redeemer)
-      .increaseBalanceAllowance(bridge.address, amount)
+      .increaseBalanceAllowance(bridge.target, amount)
   }
 
   function buildRedemptionKey(
     walletPubKeyHash: BytesLike,
     redeemerOutputScript: BytesLike
   ): string {
-    return ethers.solidityKeccak256(
+    return ethers.solidityPackedKeccak256(
       ["bytes32", "bytes20"],
       [
-        ethers.solidityKeccak256(["bytes"], [redeemerOutputScript]),
+        ethers.solidityPackedKeccak256(["bytes"], [redeemerOutputScript]),
         walletPubKeyHash,
       ]
     )
   }
 
   function buildObjectionKey(redemptionKey: string, guardian: string): string {
-    return ethers.solidityKeccak256(
+    return ethers.solidityPackedKeccak256(
       ["uint256", "address"],
       [redemptionKey, guardian]
     )

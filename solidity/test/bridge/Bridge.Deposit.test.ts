@@ -87,7 +87,7 @@ describe("Bridge - Deposit", () => {
 
     await bridgeGovernance
       .connect(governance)
-      .setRebateStaking(rebateStaking.address)
+      .setRebateStaking(rebateStaking.target)
   })
 
   type RevealDepositFixture = {
@@ -252,7 +252,7 @@ describe("Bridge - Deposit", () => {
 
                       it("should store proper deposit data", async () => {
                         // Deposit key is keccak256(fundingTxHash | fundingOutputIndex).
-                        const depositKey = ethers.solidityKeccak256(
+                        const depositKey = ethers.solidityPackedKeccak256(
                           ["bytes32", "uint32"],
                           [
                             "0x17350f81cdb61cd8d7014ad1507d4af8d032b75812cf88d2c636c1c022991af2",
@@ -322,15 +322,15 @@ describe("Bridge - Deposit", () => {
                           .mint(depositor.address, stakeAmount)
                         await t
                           .connect(depositor)
-                          .approve(rebateStaking.address, stakeAmount)
+                          .approve(rebateStaking.target, stakeAmount)
                         await rebateStaking
                           .connect(depositor)
                           .stake(stakeAmount)
-                        availableRebate = (
+                        availableRebate = Number((
                           await rebateStaking.getAvailableRebate(
                             depositor.address
                           )
-                        ).toNumber()
+                        ))
 
                         tx = await bridge
                           .connect(depositor)
@@ -343,7 +343,7 @@ describe("Bridge - Deposit", () => {
 
                       it("should store proper deposit data", async () => {
                         // Deposit key is keccak256(fundingTxHash | fundingOutputIndex).
-                        const depositKey = ethers.solidityKeccak256(
+                        const depositKey = ethers.solidityPackedKeccak256(
                           ["bytes32", "uint32"],
                           [
                             "0x17350f81cdb61cd8d7014ad1507d4af8d032b75812cf88d2c636c1c022991af2",
@@ -398,11 +398,11 @@ describe("Bridge - Deposit", () => {
 
                       it("should decrease available rebate", async () => {
                         expect(
-                          (
+                          Number((
                             await rebateStaking.getAvailableRebate(
                               depositor.address
                             )
-                          ).toNumber()
+                          ))
                         ).to.be.lessThan(availableRebate)
                       })
                     }
@@ -422,15 +422,15 @@ describe("Bridge - Deposit", () => {
                           .mint(depositor.address, stakeAmount)
                         await t
                           .connect(depositor)
-                          .approve(rebateStaking.address, stakeAmount)
+                          .approve(rebateStaking.target, stakeAmount)
                         await rebateStaking
                           .connect(depositor)
                           .stake(stakeAmount)
-                        availableRebate = (
+                        availableRebate = Number((
                           await rebateStaking.getAvailableRebate(
                             depositor.address
                           )
-                        ).toNumber()
+                        ))
 
                         await rebateStaking
                           .connect(depositor)
@@ -448,7 +448,7 @@ describe("Bridge - Deposit", () => {
                       })
 
                       it("should keep deposit treasury fee unchanged", async () => {
-                        const depositKey = ethers.solidityKeccak256(
+                        const depositKey = ethers.solidityPackedKeccak256(
                           ["bytes32", "uint32"],
                           [
                             "0x17350f81cdb61cd8d7014ad1507d4af8d032b75812cf88d2c636c1c022991af2",
@@ -463,11 +463,11 @@ describe("Bridge - Deposit", () => {
 
                       it("should not decrease available rebate", async () => {
                         expect(
-                          (
+                          Number((
                             await rebateStaking.getAvailableRebate(
                               depositor.address
                             )
-                          ).toNumber()
+                          ))
                         ).to.be.equal(availableRebate)
                       })
                     }
@@ -534,7 +534,7 @@ describe("Bridge - Deposit", () => {
 
                   it("should store proper deposit data", async () => {
                     // Deposit key is keccak256(fundingTxHash | fundingOutputIndex).
-                    const depositKey = ethers.solidityKeccak256(
+                    const depositKey = ethers.solidityPackedKeccak256(
                       ["bytes32", "uint32"],
                       [
                         "0x17350f81cdb61cd8d7014ad1507d4af8d032b75812cf88d2c636c1c022991af2",
@@ -711,7 +711,7 @@ describe("Bridge - Deposit", () => {
 
                 it("should store proper deposit data", async () => {
                   // Deposit key is keccak256(fundingTxHash | fundingOutputIndex).
-                  const depositKey = ethers.solidityKeccak256(
+                  const depositKey = ethers.solidityPackedKeccak256(
                     ["bytes32", "uint32"],
                     [
                       "0x6a81de17ce3da1eadc833c5fd9d85dac307d3b78235f57afbcd9f068fc01b99e",
@@ -979,10 +979,9 @@ describe("Bridge - Deposit", () => {
 
       context("when reveal ahead period validation is enabled", () => {
         const encodeRefundLocktime = (refundLocktimeTimestamp: number) => {
-          const refundLocktimeTimestampHex = BigInt(
+          const refundLocktimeTimestampHex = ethers.toBeHex(BigInt(
             refundLocktimeTimestamp
-          )
-            .toHexString()
+          ))
             .substring(2)
           const refundLocktimeBuffer = Buffer.from(
             refundLocktimeTimestampHex,
@@ -1019,7 +1018,7 @@ describe("Bridge - Deposit", () => {
             }
 
             await ethers.provider.send("evm_setNextBlockTimestamp", [
-              BigInt(latestPossibleRevealTimestamp).toHexString(),
+              ethers.toBeHex(BigInt(latestPossibleRevealTimestamp)),
             ])
 
             // We cannot assert that the reveal transaction succeeded since
@@ -1048,7 +1047,7 @@ describe("Bridge - Deposit", () => {
             }
 
             await ethers.provider.send("evm_setNextBlockTimestamp", [
-              BigInt(latestPossibleRevealTimestamp + 1).toHexString(),
+              ethers.toBeHex(BigInt(latestPossibleRevealTimestamp + 1)),
             ])
 
             await expect(
@@ -1201,7 +1200,7 @@ describe("Bridge - Deposit", () => {
 
                     it("should store proper deposit data", async () => {
                       // Deposit key is keccak256(fundingTxHash | fundingOutputIndex).
-                      const depositKey = ethers.solidityKeccak256(
+                      const depositKey = ethers.solidityPackedKeccak256(
                         ["bytes32", "uint32"],
                         [
                           "0x6383cd1829260b6034cd12bad36171748e8c3c6a8d57fcb6463c62f96116dfbc",
@@ -1321,7 +1320,7 @@ describe("Bridge - Deposit", () => {
 
                     it("should store proper deposit data", async () => {
                       // Deposit key is keccak256(fundingTxHash | fundingOutputIndex).
-                      const depositKey = ethers.solidityKeccak256(
+                      const depositKey = ethers.solidityPackedKeccak256(
                         ["bytes32", "uint32"],
                         [
                           "0x6383cd1829260b6034cd12bad36171748e8c3c6a8d57fcb6463c62f96116dfbc",
@@ -1549,7 +1548,7 @@ describe("Bridge - Deposit", () => {
 
                   it("should store proper deposit data", async () => {
                     // Deposit key is keccak256(fundingTxHash | fundingOutputIndex).
-                    const depositKey = ethers.solidityKeccak256(
+                    const depositKey = ethers.solidityPackedKeccak256(
                       ["bytes32", "uint32"],
                       [
                         "0xc9312103d0d8d55344ef2d51acc409e004fbaaba7893b1725fa505ff73795732",
@@ -1796,10 +1795,9 @@ describe("Bridge - Deposit", () => {
 
         context("when reveal ahead period validation is enabled", () => {
           const encodeRefundLocktime = (refundLocktimeTimestamp: number) => {
-            const refundLocktimeTimestampHex = BigInt(
+            const refundLocktimeTimestampHex = ethers.toBeHex(BigInt(
               refundLocktimeTimestamp
-            )
-              .toHexString()
+            ))
               .substring(2)
             const refundLocktimeBuffer = Buffer.from(
               refundLocktimeTimestampHex,
@@ -1836,7 +1834,7 @@ describe("Bridge - Deposit", () => {
               }
 
               await ethers.provider.send("evm_setNextBlockTimestamp", [
-                BigInt(latestPossibleRevealTimestamp).toHexString(),
+                ethers.toBeHex(BigInt(latestPossibleRevealTimestamp)),
               ])
 
               // We cannot assert that the reveal transaction succeeded since
@@ -1869,7 +1867,7 @@ describe("Bridge - Deposit", () => {
               }
 
               await ethers.provider.send("evm_setNextBlockTimestamp", [
-                BigInt(latestPossibleRevealTimestamp + 1).toHexString(),
+                ethers.toBeHex(BigInt(latestPossibleRevealTimestamp + 1)),
               ])
 
               await expect(
@@ -2033,7 +2031,7 @@ describe("Bridge - Deposit", () => {
 
                           it("should mark deposit as swept", async () => {
                             // Deposit key is keccak256(fundingTxHash | fundingOutputIndex).
-                            const depositKey = ethers.solidityKeccak256(
+                            const depositKey = ethers.solidityPackedKeccak256(
                               ["bytes32", "uint32"],
                               [
                                 data.deposits[0].fundingTx.hash,
@@ -2058,7 +2056,7 @@ describe("Bridge - Deposit", () => {
                             // 20000 satoshi (from the single deposit) and there is a
                             // fee of 1500 so the output value is 18500.
                             const expectedMainUtxo =
-                              ethers.solidityKeccak256(
+                              ethers.solidityPackedKeccak256(
                                 ["bytes32", "uint32", "uint64"],
                                 [data.sweepTx.hash, 0, 18500]
                               )
@@ -2121,7 +2119,7 @@ describe("Bridge - Deposit", () => {
 
                           it("should mark deposit as swept", async () => {
                             // Deposit key is keccak256(fundingTxHash | fundingOutputIndex).
-                            const depositKey = ethers.solidityKeccak256(
+                            const depositKey = ethers.solidityPackedKeccak256(
                               ["bytes32", "uint32"],
                               [
                                 data.deposits[0].fundingTx.hash,
@@ -2146,7 +2144,7 @@ describe("Bridge - Deposit", () => {
                             // 80000 satoshi (from the single deposit) and there is a
                             // fee of 2000 so the output value is 78000.
                             const expectedMainUtxo =
-                              ethers.solidityKeccak256(
+                              ethers.solidityPackedKeccak256(
                                 ["bytes32", "uint32", "uint64"],
                                 [data.sweepTx.hash, 0, 78000]
                               )
@@ -2226,7 +2224,7 @@ describe("Bridge - Deposit", () => {
 
                           it("should mark deposit as swept", async () => {
                             // Deposit key is keccak256(fundingTxHash | fundingOutputIndex).
-                            const depositKey = ethers.solidityKeccak256(
+                            const depositKey = ethers.solidityPackedKeccak256(
                               ["bytes32", "uint32"],
                               [
                                 data.deposits[0].fundingTx.hash,
@@ -2251,7 +2249,7 @@ describe("Bridge - Deposit", () => {
                             // 80000 satoshi (from the single deposit) and there is a
                             // fee of 2000 so the output value is 78000.
                             const expectedMainUtxo =
-                              ethers.solidityKeccak256(
+                              ethers.solidityPackedKeccak256(
                                 ["bytes32", "uint32", "uint64"],
                                 [data.sweepTx.hash, 0, 78000]
                               )
@@ -2416,7 +2414,7 @@ describe("Bridge - Deposit", () => {
 
                           it("should mark deposit as swept", async () => {
                             // Deposit key is keccak256(fundingTxHash | fundingOutputIndex).
-                            const depositKey = ethers.solidityKeccak256(
+                            const depositKey = ethers.solidityPackedKeccak256(
                               ["bytes32", "uint32"],
                               [
                                 data.deposits[0].fundingTx.hash,
@@ -2441,7 +2439,7 @@ describe("Bridge - Deposit", () => {
                             // 80000 satoshi (from the single deposit) and there is a
                             // fee of 2000 so the output value is 78000.
                             const expectedMainUtxo =
-                              ethers.solidityKeccak256(
+                              ethers.solidityPackedKeccak256(
                                 ["bytes32", "uint32", "uint64"],
                                 [data.sweepTx.hash, 0, 78000]
                               )
@@ -2708,7 +2706,7 @@ describe("Bridge - Deposit", () => {
                           it("should mark deposits as swept", async () => {
                             for (let i = 0; i < data.deposits.length; i++) {
                               // Deposit key is keccak256(fundingTxHash | fundingOutputIndex).
-                              const depositKey = ethers.solidityKeccak256(
+                              const depositKey = ethers.solidityPackedKeccak256(
                                 ["bytes32", "uint32"],
                                 [
                                   data.deposits[i].fundingTx.hash,
@@ -2737,7 +2735,7 @@ describe("Bridge - Deposit", () => {
                             // 4148000 satoshi and there is a fee of 2999 so the output
                             // value is 4145001.
                             const expectedMainUtxo =
-                              ethers.solidityKeccak256(
+                              ethers.solidityPackedKeccak256(
                                 ["bytes32", "uint32", "uint64"],
                                 [data.sweepTx.hash, 0, 4145001]
                               )
@@ -2797,7 +2795,7 @@ describe("Bridge - Deposit", () => {
                           })
 
                           it("should mark the previous main UTXO as spent", async () => {
-                            const mainUtxoKey = ethers.solidityKeccak256(
+                            const mainUtxoKey = ethers.solidityPackedKeccak256(
                               ["bytes32", "uint32"],
                               [
                                 data.mainUtxo.txHash,
@@ -2879,7 +2877,7 @@ describe("Bridge - Deposit", () => {
                           it("should mark deposits as swept", async () => {
                             for (let i = 0; i < data.deposits.length; i++) {
                               // Deposit key is keccak256(fundingTxHash | fundingOutputIndex).
-                              const depositKey = ethers.solidityKeccak256(
+                              const depositKey = ethers.solidityPackedKeccak256(
                                 ["bytes32", "uint32"],
                                 [
                                   data.deposits[i].fundingTx.hash,
@@ -2908,7 +2906,7 @@ describe("Bridge - Deposit", () => {
                             // 4148000 satoshi and there is a fee of 2999 so the output
                             // value is 4145001.
                             const expectedMainUtxo =
-                              ethers.solidityKeccak256(
+                              ethers.solidityPackedKeccak256(
                                 ["bytes32", "uint32", "uint64"],
                                 [data.sweepTx.hash, 0, 4145001]
                               )
@@ -2982,7 +2980,7 @@ describe("Bridge - Deposit", () => {
                           })
 
                           it("should mark the previous main UTXO as spent", async () => {
-                            const mainUtxoKey = ethers.solidityKeccak256(
+                            const mainUtxoKey = ethers.solidityPackedKeccak256(
                               ["bytes32", "uint32"],
                               [
                                 data.mainUtxo.txHash,
@@ -3073,7 +3071,7 @@ describe("Bridge - Deposit", () => {
                           it("should mark deposits as swept", async () => {
                             for (let i = 0; i < data.deposits.length; i++) {
                               // Deposit key is keccak256(fundingTxHash | fundingOutputIndex).
-                              const depositKey = ethers.solidityKeccak256(
+                              const depositKey = ethers.solidityPackedKeccak256(
                                 ["bytes32", "uint32"],
                                 [
                                   data.deposits[i].fundingTx.hash,
@@ -3102,7 +3100,7 @@ describe("Bridge - Deposit", () => {
                             // 4148000 satoshi and there is a fee of 2999 so the output
                             // value is 4145001.
                             const expectedMainUtxo =
-                              ethers.solidityKeccak256(
+                              ethers.solidityPackedKeccak256(
                                 ["bytes32", "uint32", "uint64"],
                                 [data.sweepTx.hash, 0, 4145001]
                               )
@@ -3162,7 +3160,7 @@ describe("Bridge - Deposit", () => {
                           })
 
                           it("should mark the previous main UTXO as spent", async () => {
-                            const mainUtxoKey = ethers.solidityKeccak256(
+                            const mainUtxoKey = ethers.solidityPackedKeccak256(
                               ["bytes32", "uint32"],
                               [
                                 data.mainUtxo.txHash,
@@ -3283,7 +3281,7 @@ describe("Bridge - Deposit", () => {
                           it("should mark deposits as swept", async () => {
                             for (let i = 0; i < data.deposits.length; i++) {
                               // Deposit key is keccak256(fundingTxHash | fundingOutputIndex).
-                              const depositKey = ethers.solidityKeccak256(
+                              const depositKey = ethers.solidityPackedKeccak256(
                                 ["bytes32", "uint32"],
                                 [
                                   data.deposits[i].fundingTx.hash,
@@ -3312,7 +3310,7 @@ describe("Bridge - Deposit", () => {
                             // 1060000 satoshi and there is a fee of 2000 so the output
                             // value is 1058000.
                             const expectedMainUtxo =
-                              ethers.solidityKeccak256(
+                              ethers.solidityPackedKeccak256(
                                 ["bytes32", "uint32", "uint64"],
                                 [data.sweepTx.hash, 0, 1058000]
                               )

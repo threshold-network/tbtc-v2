@@ -32,7 +32,7 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       "contracts/test/MockTBTCVault.sol:MockTBTCVault"
     )
     tbtcVault = (await MockTBTCVaultFactory.deploy()) as MockTBTCVault
-    await tbtcVault.setTbtcToken(tbtcToken.address)
+    await tbtcVault.setTbtcToken(tbtcToken.target)
 
     // Mock NTT managers with simple objects (following working pattern)
     const nttManagerWithExecutor = {
@@ -52,15 +52,15 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
     // Deploy proxy
     const ProxyFactory = await ethers.getContractFactory("ERC1967Proxy")
     const initData = depositorImpl.interface.encodeFunctionData("initialize", [
-      bridge.address,
-      tbtcVault.address,
+      bridge.target,
+      tbtcVault.target,
       nttManagerWithExecutor.address,
       underlyingNttManager.address,
     ])
-    const proxy = await ProxyFactory.deploy(depositorImpl.address, initData)
+    const proxy = await ProxyFactory.deploy(depositorImpl.target, initData)
 
     depositor = L1BTCDepositorFactory.attach(
-      proxy.address
+      proxy.target
     ) as L1BTCDepositorNttWithExecutor
 
     // Set up supported chains
@@ -115,13 +115,13 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
 
       // Send some tokens to the contract
       const amount = ethers.parseEther("1")
-      await tbtcToken.mint(depositor.address, amount)
+      await tbtcToken.mint(depositor.target, amount)
 
       // Non-owner cannot retrieve tokens
       await expect(
         depositor
           .connect(user)
-          .retrieveTokens(tbtcToken.address, user.address, amount)
+          .retrieveTokens(tbtcToken.target, user.address, amount)
       ).to.be.revertedWith("Ownable: caller is not the owner")
     })
 
@@ -265,7 +265,7 @@ describe("L1BTCDepositorNttWithExecutor - Security Tests", () => {
       const [, , user] = await ethers.getSigners()
 
       // Test with maximum possible amount
-      const maxAmount = BigInt(2).pow(256).sub(1)
+      const maxAmount = ((BigInt(2) ** 256n) - 1n)
       const executorArgs = {
         value: maxAmount,
         refundAddress: user.address,

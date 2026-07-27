@@ -36,7 +36,7 @@ function encodeRedemptionData(
   utxo: { txHash: string; txOutputIndex: number; txOutputValue: number },
   outputScript: string
 ): string {
-  return ethers.defaultAbiCoder.encode(
+  return ethers.AbiCoder.defaultAbiCoder().encode(
     ["address", "bytes20", "bytes32", "uint32", "uint64", "bytes"],
     [
       redeemer,
@@ -84,7 +84,7 @@ async function stakeTokens(
   amount: bigint = stakeAmount
 ): Promise<void> {
   await t.connect(minter).mint(staker.address, amount)
-  await t.connect(staker).approve(rebateStaking.address, amount)
+  await t.connect(staker).approve(rebateStaking.target, amount)
   await rebateStaking.connect(staker).stake(amount)
 }
 
@@ -138,7 +138,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
 
     await bridgeGovernance
       .connect(governance)
-      .setRebateStaking(rebateStaking.address)
+      .setRebateStaking(rebateStaking.target)
 
     redemptionTimeout = (await bridge.redemptionParameters()).redemptionTimeout
   })
@@ -186,7 +186,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
 
       // Give the balance owner enough Bank balance for all vault-path
       // redemptions in this describe block.
-      await bank.setBalance(balanceOwner.address, requestedAmount.mul(4))
+      await bank.setBalance(balanceOwner.address, (requestedAmount * 4n))
 
       // Set up the wallet as Live with a main UTXO and a non-zero
       // ecdsaWalletID (required for timeout scenario slashing).
@@ -224,7 +224,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
         // Here balanceOwner != redeemer, so the bug should be visible.
         tx = await bank
           .connect(balanceOwner)
-          .approveBalanceAndCall(bridge.address, requestedAmount, data)
+          .approveBalanceAndCall(bridge.target, requestedAmount, data)
       })
 
       after(async () => {
@@ -266,7 +266,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
         // After applying rebate, available rebate should be less
         // than the full cap. With the bug, the redeemer's available
         // rebate would still equal the cap (no rebate consumed).
-        expect(availableRebate.lt(rebateCap)).to.be.true
+        expect((availableRebate < rebateCap)).to.be.true
       })
     })
 
@@ -290,7 +290,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
 
         await bank
           .connect(balanceOwner)
-          .approveBalanceAndCall(bridge.address, requestedAmount, data)
+          .approveBalanceAndCall(bridge.target, requestedAmount, data)
 
         // Capture the available rebate after redemption request but before
         // timeout. The rebate was consumed during applyForRebate.
@@ -332,7 +332,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
 
         // After cancellation, the available rebate should be greater than
         // before timeout because the consumed rebate was restored.
-        expect(availableRebateAfterTimeout.gt(availableRebateBeforeTimeout)).to
+        expect((availableRebateAfterTimeout > availableRebateBeforeTimeout)).to
           .be.true
       })
 
@@ -342,7 +342,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
         // The redeemer receives back the full requestedAmount via
         // bank.transferBalance(request.redeemer, request.requestedAmount).
         expect(currentRedeemerBalance).to.be.equal(
-          initialRedeemerBalance.add(requestedAmount)
+          (initialRedeemerBalance + requestedAmount)
         )
       })
 
@@ -383,7 +383,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
         // Execute vault-path redemption with a non-staked redeemer.
         tx = await bank
           .connect(balanceOwner)
-          .approveBalanceAndCall(bridge.address, requestedAmount, data)
+          .approveBalanceAndCall(bridge.target, requestedAmount, data)
       })
 
       after(async () => {
@@ -444,7 +444,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
         await bank.setBalance(redeemerAddress, requestedAmount)
         await bank
           .connect(redeemerSigner)
-          .approveBalance(bridge.address, requestedAmount)
+          .approveBalance(bridge.target, requestedAmount)
 
         // Perform direct redemption where the caller is both balance
         // owner and redeemer. This exercises the 6-arg overload
@@ -538,11 +538,11 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
         )
 
         // Give balanceOwner enough Bank balance for this redemption.
-        await bank.setBalance(balanceOwner.address, requestedAmount.mul(4))
+        await bank.setBalance(balanceOwner.address, (requestedAmount * 4n))
 
         tx = await bank
           .connect(balanceOwner)
-          .approveBalanceAndCall(bridge.address, requestedAmount, data)
+          .approveBalanceAndCall(bridge.target, requestedAmount, data)
       })
 
       after(async () => {
@@ -580,7 +580,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
 
         // The staker's available rebate should be less than the full cap
         // after the rebate was applied through delegation.
-        expect(availableRebate.lt(rebateCap)).to.be.true
+        expect((availableRebate < rebateCap)).to.be.true
       })
     })
   })
@@ -590,10 +590,10 @@ function buildRedemptionKey(
   walletPubKeyHash: string,
   redeemerOutputScript: string
 ): string {
-  return ethers.solidityKeccak256(
+  return ethers.solidityPackedKeccak256(
     ["bytes32", "bytes20"],
     [
-      ethers.solidityKeccak256(["bytes"], [redeemerOutputScript]),
+      ethers.solidityPackedKeccak256(["bytes"], [redeemerOutputScript]),
       walletPubKeyHash,
     ]
   )

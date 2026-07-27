@@ -37,7 +37,7 @@ export async function getGenesisSeed(
   const { ethers } = hre
   return BigInt(
     ethers.keccak256(
-      ethers.solidityPack(
+      ethers.solidityPacked(
         ["uint256", "uint256"],
         [
           "31415926535897932384626433832795028841971693993751058209749445923078164062862",
@@ -56,7 +56,7 @@ export async function selectGroup(
   const { ethers } = hre
   const identifiers = await sortitionPool.selectGroup(
     64,
-    ethers.hexZeroPad(seed.toHexString(), 32)
+    ethers.zeroPadValue(ethers.toBeHex(seed), 32)
   )
   const addresses = await sortitionPool.getIDOperators(identifiers)
 
@@ -86,7 +86,7 @@ export async function signDkgResult(
   const hardhatNetworkId = 31337
 
   const resultHash = ethers.keccak256(
-    ethers.defaultAbiCoder.encode(
+    ethers.AbiCoder.defaultAbiCoder().encode(
       ["uint256", "bytes", "uint8[]", "uint256"],
       [hardhatNetworkId, groupPublicKey, misbehavedMembersIndices, startBlock]
     )
@@ -109,13 +109,13 @@ export async function signDkgResult(
     signingMembersIndices.push(signerIndex)
 
     const signature = await ethersSigner.signMessage(
-      ethers.arrayify(resultHash)
+      ethers.getBytes(resultHash)
     )
 
     signatures.push(signature)
   }
 
-  const signaturesBytes: string = ethers.hexConcat(signatures)
+  const signaturesBytes: string = ethers.concat(signatures)
 
   return { members, signingMembersIndices, signaturesBytes }
 }
@@ -136,11 +136,11 @@ export function hashDKGMembers(
     }
 
     return ethers.keccak256(
-      ethers.defaultAbiCoder.encode(["uint32[]"], [activeDkgMembers])
+      ethers.AbiCoder.defaultAbiCoder().encode(["uint32[]"], [activeDkgMembers])
     )
   }
 
   return ethers.keccak256(
-    ethers.defaultAbiCoder.encode(["uint32[]"], [members])
+    ethers.AbiCoder.defaultAbiCoder().encode(["uint32[]"], [members])
   )
 }

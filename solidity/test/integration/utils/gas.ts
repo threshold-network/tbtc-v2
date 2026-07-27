@@ -1,11 +1,10 @@
 import chai, { expect } from "chai"
-import { waffle, ethers } from "hardhat"
+import { ethers } from "hardhat"
 
 import type { ContractTransactionResponse } from "ethers"
 
 const { BigNumber } = ethers
 
-chai.use(waffle.solidity)
 
 // TODO: Move to @keep-network/hardhat-helpers
 // eslint-disable-next-line import/prefer-default-export

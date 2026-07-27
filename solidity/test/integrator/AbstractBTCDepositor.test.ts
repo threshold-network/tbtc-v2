@@ -52,15 +52,15 @@ describe("AbstractBTCDepositor", () => {
     )
     tbtcVault = (await MockTBTCVault.deploy()) as MockTBTCVault
 
-    fixture = loadFixture(tbtcVault.address)
+    fixture = loadFixture(tbtcVault.target)
 
     const testBtcDepositor = await ethers.getContractFactory("TestBTCDepositor")
     depositor = await testBtcDepositor.deploy()
-    await depositor.initialize(bridge.address, tbtcVault.address)
+    await depositor.initialize(bridge.target, tbtcVault.target)
 
     // Assert that contract initializer works as expected.
     await expect(
-      depositor.initialize(bridge.address, tbtcVault.address)
+      depositor.initialize(bridge.target, tbtcVault.target)
     ).to.be.revertedWith("AbstractBTCDepositor already initialized")
   })
 

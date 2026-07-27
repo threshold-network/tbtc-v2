@@ -1,6 +1,6 @@
 /* eslint-disable no-await-in-loop */
 /* eslint-disable @typescript-eslint/no-extra-semi */
-import hre, { ethers, helpers, waffle } from "hardhat"
+import hre, { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 
 import type {
@@ -77,7 +77,7 @@ describeFn("Integration Test - Slashing", async () => {
       relay,
       randomBeacon,
       bridgeGovernance,
-    } = await waffle.loadFixture(fixture))
+    } = await loadFixture(fixture))
     ;[thirdParty] = await helpers.signers.getUnnamedSigners()
 
     // Update only the parameters that are crucial for this test.
@@ -239,7 +239,7 @@ describeFn("Integration Test - Slashing", async () => {
         ))
 
         const { fundingTx, depositor, reveal } = SingleP2SHDeposit.deposits[0]
-        reveal.vault = tbtcVault.address
+        reveal.vault = tbtcVault.target
 
         // We use a deposit funding bitcoin transaction with a very low amount,
         // so we need to update the dust and redemption thresholds to be below it.
@@ -274,7 +274,7 @@ describeFn("Integration Test - Slashing", async () => {
             SingleP2SHDeposit.sweepTx,
             SingleP2SHDeposit.sweepProof,
             SingleP2SHDeposit.mainUtxo,
-            tbtcVault.address
+            tbtcVault.target
           )
 
         const newMainUtxo: UTXOStruct = {
@@ -295,9 +295,9 @@ describeFn("Integration Test - Slashing", async () => {
         await tbtc
           .connect(redeemer)
           .approveAndCall(
-            tbtcVault.address,
+            tbtcVault.target,
             redemptionAmount,
-            ethers.defaultAbiCoder.encode(
+            ethers.AbiCoder.defaultAbiCoder().encode(
               ["address", "bytes20", "bytes32", "uint32", "uint64", "bytes"],
               [
                 redeemer.address,
@@ -405,7 +405,7 @@ describeFn("Integration Test - Slashing", async () => {
         ))
 
         const { fundingTx, depositor, reveal } = SingleP2SHDeposit.deposits[0]
-        reveal.vault = tbtcVault.address
+        reveal.vault = tbtcVault.target
 
         // We use a deposit funding bitcoin transaction with a very low amount,
         // so we need to update the dust threshold to be below it.
@@ -436,7 +436,7 @@ describeFn("Integration Test - Slashing", async () => {
             SingleP2SHDeposit.sweepTx,
             SingleP2SHDeposit.sweepProof,
             SingleP2SHDeposit.mainUtxo,
-            tbtcVault.address
+            tbtcVault.target
           )
 
         // Switch the wallet to moving funds state by reporting wallet members

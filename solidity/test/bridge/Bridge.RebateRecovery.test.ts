@@ -32,9 +32,9 @@ describe("Bridge - Rebate staking recovery upgrade", () => {
   it("repairs rebate staking during an upgrade", async () => {
     await bridgeGovernance
       .connect(governance)
-      .setRebateStaking(rebateStaking.address)
+      .setRebateStaking(rebateStaking.target)
 
-    expect(await bridge.getRebateStaking()).to.equal(rebateStaking.address)
+    expect(await bridge.getRebateStaking()).to.equal(rebateStaking.target)
 
     const bridgeLibraries = {
       Deposit: (await helpers.contracts.getContract("Deposit")).address,
@@ -70,13 +70,13 @@ describe("Bridge - Rebate staking recovery upgrade", () => {
 
     await expect(
       proxyAdminWithUpgrade.upgradeAndCall(
-        bridge.address,
-        newImplementation.address,
+        bridge.target,
+        newImplementation.target,
         upgradeData
       )
     )
       .to.emit(bridge, "RebateStakingRepaired")
-      .withArgs(rebateStaking.address, AddressZero)
+      .withArgs(rebateStaking.target, AddressZero)
 
     expect(await bridge.getRebateStaking()).to.equal(AddressZero)
   })

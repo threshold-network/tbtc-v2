@@ -72,7 +72,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       "contracts/test/MockTBTCVault.sol:MockTBTCVault"
     )
     tbtcVault = (await MockTBTCVaultFactory.deploy()) as MockTBTCVault
-    await tbtcVault.setTbtcToken(tbtcToken.address)
+    await tbtcVault.setTbtcToken(tbtcToken.target)
 
     // Deploy proper mock NTT managers
     const MockNttManagerWithExecutorFactory = await ethers.getContractFactory(
@@ -106,14 +106,14 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
     // Deploy proxy
     const ProxyFactory = await ethers.getContractFactory("ERC1967Proxy")
     const initData = depositorImpl.interface.encodeFunctionData("initialize", [
-      bridge.address,
-      tbtcVault.address,
-      nttManagerWithExecutor.address,
-      underlyingNttManager.address,
+      bridge.target,
+      tbtcVault.target,
+      nttManagerWithExecutor.target,
+      underlyingNttManager.target,
     ])
-    const proxy = await ProxyFactory.deploy(depositorImpl.address, initData)
+    const proxy = await ProxyFactory.deploy(depositorImpl.target, initData)
 
-    depositor = L1BTCDepositorFactory.attach(proxy.address)
+    depositor = L1BTCDepositorFactory.attach(proxy.target)
 
     // Set up basic configuration
     await depositor.setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
@@ -315,7 +315,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
     })
 
     it("should handle maximum fee values", async () => {
-      const maxGasLimit = BigInt(2).pow(32).sub(1) // Max uint32
+      const maxGasLimit = ((BigInt(2) ** 32n) - 1n) // Max uint32
       const maxFeeBps = BigInt(10000) // 100% in basis points
 
       const feeArgs = {
@@ -574,18 +574,18 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       const amount = ethers.parseEther("100")
 
       // Mint tokens to the depositor contract
-      await tbtcToken.mint(depositor.address, amount)
+      await tbtcToken.mint(depositor.target, amount)
 
       const initialBalance = await tbtcToken.balanceOf(recipient.address)
 
       await expect(
         depositor
           .connect(owner)
-          .retrieveTokens(tbtcToken.address, recipient.address, amount)
+          .retrieveTokens(tbtcToken.target, recipient.address, amount)
       ).to.not.be.reverted
 
       const finalBalance = await tbtcToken.balanceOf(recipient.address)
-      expect(finalBalance.sub(initialBalance)).to.equal(amount)
+      expect((finalBalance - initialBalance)).to.equal(amount)
     })
 
     it("should demonstrate improved error handling vs old transfer method", async () => {
@@ -691,10 +691,10 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
   describe("Contract State Queries", () => {
     it("should return correct contract addresses", async () => {
       expect(await depositor.nttManagerWithExecutor()).to.equal(
-        nttManagerWithExecutor.address
+        nttManagerWithExecutor.target
       )
       expect(await depositor.underlyingNttManager()).to.equal(
-        underlyingNttManager.address
+        underlyingNttManager.target
       )
     })
 
@@ -719,7 +719,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
   describe("Mock Integration Tests", () => {
     it("should work with mock NTT manager", async () => {
       // Test that mock has been configured properly
-      expect(nttManagerWithExecutor.address).to.not.equal(
+      expect(nttManagerWithExecutor.target).to.not.equal(
         ethers.ZeroAddress
       )
 
@@ -729,7 +729,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       // This should work without reverting (basic smoke test)
       await expect(
         nttManagerWithExecutor.quoteDeliveryPrice(
-          underlyingNttManager.address,
+          underlyingNttManager.target,
           WORMHOLE_CHAIN_DESTINATION,
           "0x",
           executorArgs,
@@ -742,7 +742,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       const executorArgs = createExecutorArgs()
 
       const destinationCost = await nttManagerWithExecutor.quoteDeliveryPrice(
-        underlyingNttManager.address,
+        underlyingNttManager.target,
         WORMHOLE_CHAIN_DESTINATION,
         "0x",
         executorArgs,
@@ -750,7 +750,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       )
 
       const baseCost = await nttManagerWithExecutor.quoteDeliveryPrice(
-        underlyingNttManager.address,
+        underlyingNttManager.target,
         WORMHOLE_CHAIN_BASE,
         "0x",
         executorArgs,
@@ -762,7 +762,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
       // Sample destination should be more expensive (mock logic)
       expect(destinationCost).to.be.gt(baseCost)
-      expect(destinationCost.sub(baseCost)).to.equal("2000000000000000") // 0.002 ETH premium
+      expect((destinationCost - baseCost)).to.equal("2000000000000000") // 0.002 ETH premium
     })
 
     it("should reject quote for unsupported chain in mock", async () => {
@@ -770,7 +770,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
       await expect(
         nttManagerWithExecutor.quoteDeliveryPrice(
-          underlyingNttManager.address,
+          underlyingNttManager.target,
           999, // unsupported chain
           "0x",
           executorArgs,
@@ -807,7 +807,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       // Verify the breakdown
       expect(nttDeliveryPrice).to.be.gt(0) // NTT delivery price should be positive
       expect(executorCost).to.equal(ethers.parseEther("0.01")) // Should match executor value
-      expect(totalCost).to.equal(nttDeliveryPrice.add(executorCost)) // Should be sum of both
+      expect(totalCost).to.equal((nttDeliveryPrice + executorCost)) // Should be sum of both
 
       console.log(
         `NTT delivery: ${ethers.formatEther(nttDeliveryPrice)} ETH`
@@ -855,9 +855,9 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
 
       // Total costs should be calculated correctly
       expect(destinationTotal).to.equal(
-        destinationNttPrice.add(destinationExecutorCost)
+        (destinationNttPrice + destinationExecutorCost)
       )
-      expect(baseTotal).to.equal(baseNttPrice.add(baseExecutorCost))
+      expect(baseTotal).to.equal((baseNttPrice + baseExecutorCost))
 
       console.log(
         `Destination chain - NTT: ${ethers.formatEther(
@@ -960,7 +960,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
         .quoteFinalizedDeposit(WORMHOLE_CHAIN_DESTINATION)
 
       expect(executorCost).to.equal(highExecutorCost)
-      expect(totalCost).to.equal(nttDeliveryPrice.add(highExecutorCost))
+      expect(totalCost).to.equal((nttDeliveryPrice + highExecutorCost))
       expect(totalCost).to.be.gt(nttDeliveryPrice) // Total should be higher than NTT price
 
       console.log(
@@ -1026,8 +1026,8 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       expect(user2Executor).to.equal(ethers.parseEther("0.03"))
 
       // Total costs should be different
-      expect(user1Total).to.equal(user1Ntt.add(user1Executor))
-      expect(user2Total).to.equal(user2Ntt.add(user2Executor))
+      expect(user1Total).to.equal((user1Ntt + user1Executor))
+      expect(user2Total).to.equal((user2Ntt + user2Executor))
       expect(user2Total).to.be.gt(user1Total) // User 2 should have higher total cost
 
       console.log(
@@ -1085,7 +1085,7 @@ describe("L1BTCDepositorNttWithExecutor - Executor Parameters", () => {
       )
 
       // Frontend validation logic
-      if (userEthBalance.lt(totalCost)) {
+      if ((userEthBalance < totalCost)) {
         throw new Error(
           `Insufficient ETH. Need ${ethers.formatEther(totalCost)} ETH`
         )

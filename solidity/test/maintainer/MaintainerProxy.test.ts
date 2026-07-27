@@ -1,5 +1,5 @@
 /* eslint-disable no-underscore-dangle */
-import { ethers, helpers, waffle } from "hardhat"
+import { ethers, helpers } from "hardhat"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { SigningKey } from "ethers/lib/utils"
 import { assert, expect } from "chai"
@@ -59,11 +59,11 @@ import { constants, walletState } from "../fixtures"
 import { createMock } from "../helpers/mock"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
-const { provider } = waffle
+const provider = ethers.provider
 const { impersonateAccount } = helpers.account
 
 const { lastBlockTime, increaseTime } = helpers.time
-const { keccak256, sha256 } = ethers.utils
+const { keccak256, sha256 } = ethers
 
 const { publicKey: walletPublicKey, pubKeyHash160: walletPublicKeyHash } =
   fraudWallet
@@ -126,7 +126,7 @@ describe("MaintainerProxy", () => {
     })
 
     await deployer.sendTransaction({
-      to: reimbursementPool.address,
+      to: reimbursementPool.target,
       value: ethers.parseEther("100"),
     })
     ;({ fraudChallengeDepositAmount } = await bridge.fraudParameters())
@@ -210,7 +210,7 @@ describe("MaintainerProxy", () => {
         const postMaintainerBalance = await provider.getBalance(
           walletMaintainer.address
         )
-        const diff = postMaintainerBalance.sub(initialWalletMaintainerBalance)
+        const diff = (postMaintainerBalance - initialWalletMaintainerBalance)
 
         expect(diff).to.be.gt(0)
         expect(diff).to.be.lt(
@@ -320,9 +320,7 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 spvMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = (postMaintainerBalance - initialSpvMaintainerBalance)
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
@@ -356,9 +354,7 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 spvMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = (postMaintainerBalance - initialSpvMaintainerBalance)
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
@@ -406,9 +402,7 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 spvMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = (postMaintainerBalance - initialSpvMaintainerBalance)
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
@@ -467,9 +461,7 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 spvMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = (postMaintainerBalance - initialSpvMaintainerBalance)
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
@@ -512,9 +504,7 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 spvMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = (postMaintainerBalance - initialSpvMaintainerBalance)
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
@@ -573,9 +563,7 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 spvMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = (postMaintainerBalance - initialSpvMaintainerBalance)
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
@@ -644,9 +632,7 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 spvMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = (postMaintainerBalance - initialSpvMaintainerBalance)
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
@@ -709,9 +695,7 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 spvMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = (postMaintainerBalance - initialSpvMaintainerBalance)
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
@@ -746,9 +730,7 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 spvMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = (postMaintainerBalance - initialSpvMaintainerBalance)
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
@@ -847,9 +829,7 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 spvMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = (postMaintainerBalance - initialSpvMaintainerBalance)
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
@@ -902,9 +882,7 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 spvMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = (postMaintainerBalance - initialSpvMaintainerBalance)
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
@@ -934,7 +912,7 @@ describe("MaintainerProxy", () => {
               // an amount of time that will make the request
               // timed out and then report the timeout.
               const beforeProofActions = async () => {
-                await increaseTime(redemptionTimeout.add(1))
+                await increaseTime((redemptionTimeout + 1n))
                 await bridge.notifyRedemptionTimeout(
                   data.wallet.pubKeyHash,
                   [],
@@ -962,9 +940,7 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 spvMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = (postMaintainerBalance - initialSpvMaintainerBalance)
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
@@ -1008,9 +984,7 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 spvMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = (postMaintainerBalance - initialSpvMaintainerBalance)
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
@@ -1047,9 +1021,7 @@ describe("MaintainerProxy", () => {
                 spvMaintainer.address
               )
 
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = (postMaintainerBalance - initialSpvMaintainerBalance)
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
                 ethers.parseUnits("9000000", "gwei") // 0,009 ETH
@@ -1078,7 +1050,7 @@ describe("MaintainerProxy", () => {
               // an amount of time that will make the requests
               // timed out and then report the timeouts.
               const beforeProofActions = async () => {
-                await increaseTime(redemptionTimeout.add(1))
+                await increaseTime((redemptionTimeout + 1n))
 
                 for (let i = 0; i < data.redemptionRequests.length; i++) {
                   // eslint-disable-next-line no-await-in-loop
@@ -1110,9 +1082,7 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 spvMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = (postMaintainerBalance - initialSpvMaintainerBalance)
 
               expect(diff).to.be.gt(0)
               // The submitter deletes from `timedOutRedemptions` mapping
@@ -1140,7 +1110,7 @@ describe("MaintainerProxy", () => {
               // an amount of time that will make the requests
               // timed out and then report the timeouts.
               const beforeProofActions = async () => {
-                await increaseTime(redemptionTimeout.add(1))
+                await increaseTime((redemptionTimeout + 1n))
 
                 for (let i = 0; i < data.redemptionRequests.length; i++) {
                   // eslint-disable-next-line no-await-in-loop
@@ -1172,9 +1142,7 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 spvMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = (postMaintainerBalance - initialSpvMaintainerBalance)
 
               expect(diff).to.be.gt(0)
               // The submitter deletes from `timedOutRedemptions` mapping
@@ -1209,7 +1177,7 @@ describe("MaintainerProxy", () => {
               // timed out but report timeout only the two first
               // requests.
               const beforeProofActions = async () => {
-                await increaseTime(redemptionTimeout.add(1))
+                await increaseTime((redemptionTimeout + 1n))
 
                 await bridge.notifyRedemptionTimeout(
                   data.wallet.pubKeyHash,
@@ -1242,9 +1210,7 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 spvMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = (postMaintainerBalance - initialSpvMaintainerBalance)
 
               expect(diff).to.be.gt(0)
               // Raised from 0,007 by the smock replacement, not by a change in
@@ -1277,7 +1243,7 @@ describe("MaintainerProxy", () => {
               // timed out but report timeout only the two first
               // requests.
               const beforeProofActions = async () => {
-                await increaseTime(redemptionTimeout.add(1))
+                await increaseTime((redemptionTimeout + 1n))
 
                 await bridge.notifyRedemptionTimeout(
                   data.wallet.pubKeyHash,
@@ -1310,9 +1276,7 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 spvMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = (postMaintainerBalance - initialSpvMaintainerBalance)
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
@@ -1424,9 +1388,7 @@ describe("MaintainerProxy", () => {
             const postMaintainerBalance = await provider.getBalance(
               walletMaintainer.address
             )
-            const diff = postMaintainerBalance.sub(
-              initialWalletMaintainerBalance
-            )
+            const diff = (postMaintainerBalance - initialWalletMaintainerBalance)
 
             expect(diff).to.be.gt(0)
             expect(diff).to.be.lt(
@@ -1473,9 +1435,7 @@ describe("MaintainerProxy", () => {
             const postMaintainerBalance = await provider.getBalance(
               walletMaintainer.address
             )
-            const diff = postMaintainerBalance.sub(
-              initialWalletMaintainerBalance
-            )
+            const diff = (postMaintainerBalance - initialWalletMaintainerBalance)
 
             expect(diff).to.be.gt(0)
             expect(diff).to.be.lt(
@@ -1514,9 +1474,7 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 walletMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialWalletMaintainerBalance
-              )
+              const diff = (postMaintainerBalance - initialWalletMaintainerBalance)
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
@@ -1530,7 +1488,7 @@ describe("MaintainerProxy", () => {
               txHash:
                 "0xc9e58780c6c289c25ae1fe293f85a4db4d0af4f305172f2a1868ddd917458bdf",
               txOutputIndex: 0,
-              txOutputValue: constants.walletClosureMinBtcBalance.sub(1),
+              txOutputValue: (constants.walletClosureMinBtcBalance - 1n),
             }
 
             let tx: ContractTransactionResponse
@@ -1563,9 +1521,7 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 walletMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialWalletMaintainerBalance
-              )
+              const diff = (postMaintainerBalance - initialWalletMaintainerBalance)
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
@@ -1644,7 +1600,7 @@ describe("MaintainerProxy", () => {
               const postThirdPartyBalance = await provider.getBalance(
                 thirdParty.address
               )
-              const diff = postThirdPartyBalance.sub(initialThirdPartyBalance)
+              const diff = (postThirdPartyBalance - initialThirdPartyBalance)
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
@@ -1719,7 +1675,7 @@ describe("MaintainerProxy", () => {
               const postThirdPartyBalance = await provider.getBalance(
                 thirdParty.address
               )
-              const diff = postThirdPartyBalance.sub(initialThirdPartyBalance)
+              const diff = (postThirdPartyBalance - initialThirdPartyBalance)
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
@@ -1796,7 +1752,7 @@ describe("MaintainerProxy", () => {
               const postThirdPartyBalance = await provider.getBalance(
                 thirdParty.address
               )
-              const diff = postThirdPartyBalance.sub(initialThirdPartyBalance)
+              const diff = (postThirdPartyBalance - initialThirdPartyBalance)
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
@@ -1871,7 +1827,7 @@ describe("MaintainerProxy", () => {
               const postThirdPartyBalance = await provider.getBalance(
                 thirdParty.address
               )
-              const diff = postThirdPartyBalance.sub(initialThirdPartyBalance)
+              const diff = (postThirdPartyBalance - initialThirdPartyBalance)
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
@@ -1927,7 +1883,7 @@ describe("MaintainerProxy", () => {
       const heartbeatMessageSha256 = sha256(heartbeatMessage)
       const sighash = sha256(sha256(heartbeatMessage))
 
-      const signature = ethers.splitSignature(
+      const signature = ethers.Signature.from(
         heartbeatWalletSigningKey.signDigest(sighash)
       )
 
@@ -1963,7 +1919,7 @@ describe("MaintainerProxy", () => {
       const postThirdPartyBalance = await provider.getBalance(
         thirdParty.address
       )
-      const diff = postThirdPartyBalance.sub(initialThirdPartyBalance)
+      const diff = (postThirdPartyBalance - initialThirdPartyBalance)
 
       expect(diff).to.be.gt(0)
       expect(diff).to.be.lt(
@@ -2061,7 +2017,7 @@ describe("MaintainerProxy", () => {
             const postMaintainerBalance = await provider.getBalance(
               spvMaintainer.address
             )
-            const diff = postMaintainerBalance.sub(initialSpvMaintainerBalance)
+            const diff = (postMaintainerBalance - initialSpvMaintainerBalance)
 
             expect(diff).to.be.gt(0)
             expect(diff).to.be.lt(
@@ -2112,7 +2068,7 @@ describe("MaintainerProxy", () => {
       const postThirdPartyBalance = await provider.getBalance(
         thirdParty.address
       )
-      const diff = postThirdPartyBalance.sub(initialThirdPartyBalance)
+      const diff = (postThirdPartyBalance - initialThirdPartyBalance)
 
       expect(diff).to.be.gt(0)
       expect(diff).to.be.lt(
@@ -2210,7 +2166,7 @@ describe("MaintainerProxy", () => {
         const postMaintainerBalance = await provider.getBalance(
           walletMaintainer.address
         )
-        const diff = postMaintainerBalance.sub(initialWalletMaintainerBalance)
+        const diff = (postMaintainerBalance - initialWalletMaintainerBalance)
 
         expect(diff).to.be.gt(0)
         expect(diff).to.be.lt(
@@ -2288,9 +2244,7 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 spvMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = (postMaintainerBalance - initialSpvMaintainerBalance)
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
@@ -2327,9 +2281,7 @@ describe("MaintainerProxy", () => {
               const postMaintainerBalance = await provider.getBalance(
                 spvMaintainer.address
               )
-              const diff = postMaintainerBalance.sub(
-                initialSpvMaintainerBalance
-              )
+              const diff = (postMaintainerBalance - initialSpvMaintainerBalance)
 
               expect(diff).to.be.gt(0)
               expect(diff).to.be.lt(
@@ -2428,7 +2380,7 @@ describe("MaintainerProxy", () => {
         const postMaintainerBalance = await provider.getBalance(
           walletMaintainer.address
         )
-        const diff = postMaintainerBalance.sub(initialWalletMaintainerBalance)
+        const diff = (postMaintainerBalance - initialWalletMaintainerBalance)
 
         expect(diff).to.be.gt(0)
         expect(diff).to.be.lt(
@@ -3578,7 +3530,7 @@ describe("MaintainerProxy", () => {
     // Redeemer must allow the Bridge to spent the requested amount.
     return bank
       .connect(redeemer)
-      .increaseBalanceAllowance(bridge.address, amount)
+      .increaseBalanceAllowance(bridge.target, amount)
   }
 
   async function runDepositSweepScenario(
@@ -3731,7 +3683,7 @@ describe("MaintainerProxy", () => {
       state: data.wallet.state,
       movingFundsTargetWalletsCommitmentHash:
         data.targetWalletsCommitment.length > 0
-          ? ethers.solidityKeccak256(
+          ? ethers.solidityPackedKeccak256(
               ["bytes20[]"],
               [data.targetWalletsCommitment]
             )

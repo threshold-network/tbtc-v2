@@ -1,6 +1,10 @@
 {
   "compilerOptions": {
-    "target": "ES2018",
+    // ethers v6 represents every integer as a native bigint, so the test
+    // suite is full of bigint literals. Those need ES2020. The published
+    // export/ bundle still builds at es5 through tsconfig.export.json, which
+    // overrides this and excludes ./test.
+    "target": "ES2020",
     "module": "commonJS",
     "downlevelIteration": true,
     "esModuleInterop": true,

@@ -39,7 +39,7 @@ describe("L1BTCDepositorNttWithExecutor - Fee Handling", () => {
       "contracts/test/MockTBTCVault.sol:MockTBTCVault"
     )
     tbtcVault = (await MockTBTCVaultFactory.deploy()) as MockTBTCVault
-    await tbtcVault.setTbtcToken(tbtcToken.address)
+    await tbtcVault.setTbtcToken(tbtcToken.target)
 
     // Mock NTT managers with simple objects
     const nttManagerWithExecutor = {
@@ -58,14 +58,14 @@ describe("L1BTCDepositorNttWithExecutor - Fee Handling", () => {
     // Deploy proxy
     const ProxyFactory = await ethers.getContractFactory("ERC1967Proxy")
     const initData = depositorImpl.interface.encodeFunctionData("initialize", [
-      bridge.address,
-      tbtcVault.address,
+      bridge.target,
+      tbtcVault.target,
       nttManagerWithExecutor.address,
       underlyingNttManager.address,
     ])
-    const proxy = await ProxyFactory.deploy(depositorImpl.address, initData)
+    const proxy = await ProxyFactory.deploy(depositorImpl.target, initData)
 
-    depositor = L1BTCDepositorFactory.attach(proxy.address)
+    depositor = L1BTCDepositorFactory.attach(proxy.target)
 
     // Set up basic configuration
     await depositor.setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)

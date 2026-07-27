@@ -15,7 +15,7 @@ describe("BitcoinTx", () => {
     relay = await SystemTestRelay.deploy()
 
     const TestBitcoinTx = await ethers.getContractFactory("TestBitcoinTx")
-    bitcoinTx = await TestBitcoinTx.deploy(relay.address)
+    bitcoinTx = await TestBitcoinTx.deploy(relay.target)
   })
 
   describe("validateProof", () => {

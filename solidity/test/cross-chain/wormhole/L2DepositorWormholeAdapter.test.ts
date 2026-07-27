@@ -1,4 +1,5 @@
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
+import { loadFixture } from "@nomicfoundation/hardhat-network-helpers"
 import { randomBytes } from "crypto"
 import { expect } from "chai"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
@@ -85,7 +86,7 @@ describe("L2BTCDepositorWormhole", () => {
       l2WormholeGateway,
       l1BtcDepositor,
       l2BtcDepositor,
-    } = await waffle.loadFixture(contractsFixture))
+    } = await loadFixture(contractsFixture))
   })
 
   describe("attachL1BtcDepositor", () => {
@@ -165,7 +166,7 @@ describe("L2BTCDepositorWormhole", () => {
         .initializeDeposit(
           initializeDepositFixture.fundingTx,
           initializeDepositFixture.reveal,
-          ethers.hexDataSlice(
+          ethers.dataSlice(
             initializeDepositFixture.destinationChainDepositOwner,
             12
           )
@@ -179,7 +180,7 @@ describe("L2BTCDepositorWormhole", () => {
     it("should emit DepositInitialized event", async () => {
       const { fundingTx, reveal, destinationChainDepositOwner } =
         initializeDepositFixture
-      const l2DepositOwnerInEthereumAddress = ethers.hexDataSlice(
+      const l2DepositOwnerInEthereumAddress = ethers.dataSlice(
         destinationChainDepositOwner,
         12
       )

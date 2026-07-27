@@ -105,7 +105,7 @@ async function bridgeFixture(): Promise<{
     address: await (await bridge.contractReferences()).relay,
   })
 
-  await bank.connect(governance).updateBridge(bridge.address)
+  await bank.connect(governance).updateBridge(bridge.target)
 
   const redemptionWatchtower: RedemptionWatchtower =
     await helpers.contracts.getContract("RedemptionWatchtower")
@@ -118,11 +118,11 @@ async function bridgeFixture(): Promise<{
     helpers.upgrades.deployProxy(`Bridge_${randomBytes(8).toString("hex")}`, {
       contractName: "BridgeStub",
       initializerArgs: [
-        bank.address,
+        bank.target,
         relay.address,
         treasury.address,
         walletRegistry.address,
-        reimbursementPool.address,
+        reimbursementPool.target,
         txProofDifficultyFactor,
       ],
       factoryOpts: {

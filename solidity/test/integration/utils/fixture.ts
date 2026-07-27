@@ -61,7 +61,7 @@ export const fixture = deployments.createFixture(
     const t = await helpers.contracts.getContract("T")
     const staking = await helpers.contracts.getContract("TokenStaking")
 
-    await tbtc.connect(deployer).transferOwnership(tbtcVault.address)
+    await tbtc.connect(deployer).transferOwnership(tbtcVault.target)
 
     // TODO: INTEGRATE WITH THE REAL BEACON
     const randomBeacon = await fakeRandomBeacon(walletRegistry)
@@ -108,7 +108,7 @@ export const fixture = deployments.createFixture(
       )
       await authorizeApplication(
         staking,
-        walletRegistry.address,
+        walletRegistry.target,
         authorizer,
         stakingProvider.address,
         stakeAmount

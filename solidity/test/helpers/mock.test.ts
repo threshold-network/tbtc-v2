@@ -240,7 +240,7 @@ describe("MockContract", () => {
         Array.from({ length: 8 }, (_, slot) =>
           ethers.provider.send("hardhat_setStorageAt", [
             address,
-            ethers.hexValue(slot),
+            ethers.toQuantity(slot),
             garbage,
           ])
         )

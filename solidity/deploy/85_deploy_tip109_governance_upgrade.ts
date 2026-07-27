@@ -389,11 +389,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   // admin storage slot. Reading it on-chain avoids hardcoding.
   console.log("\n--- Discovering ProxyAdmin ---")
   const Bridge = await get("Bridge")
-  const adminData = await ethers.provider.getStorageAt(
+  const adminData = await ethers.provider.getStorage(
     Bridge.address,
     EIP_1967_ADMIN_SLOT
   )
-  const proxyAdminAddress = ethers.utils.getAddress(`0x${adminData.slice(26)}`)
+  const proxyAdminAddress = ethers.getAddress(`0x${adminData.slice(26)}`)
   console.log(`  ProxyAdmin discovered: ${proxyAdminAddress}`)
 
   if (proxyAdminAddress.toLowerCase() !== KNOWN_PROXY_ADMIN.toLowerCase()) {

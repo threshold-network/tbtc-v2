@@ -1,6 +1,7 @@
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { randomBytes } from "crypto"
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
+import { loadFixture } from "@nomicfoundation/hardhat-network-helpers"
 import { expect } from "chai"
 import {ContractTransactionResponse, Wallet} from "ethers"
 import { to1e18 } from "../helpers/contract-test-helpers"
@@ -68,7 +69,7 @@ describe("L2TBTC", () => {
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ governance, minter, guardian, thirdParty, tokenHolder, token } =
-      await waffle.loadFixture(fixture))
+      await loadFixture(fixture))
   })
 
   describe("addMinter", () => {
@@ -495,7 +496,7 @@ describe("L2TBTC", () => {
       randomERC20 = await TestERC20.deploy()
       await randomERC20.waitForDeployment()
 
-      await randomERC20.mint(token.address, amount)
+      await randomERC20.mint(token.target, amount)
     })
 
     after(async () => {
@@ -507,7 +508,7 @@ describe("L2TBTC", () => {
         await expect(
           token
             .connect(thirdParty)
-            .recoverERC20(randomERC20.address, thirdParty.address, amount)
+            .recoverERC20(randomERC20.target, thirdParty.address, amount)
         ).to.be.revertedWith("Ownable: caller is not the owner")
       })
     })
@@ -518,7 +519,7 @@ describe("L2TBTC", () => {
 
         await token
           .connect(governance)
-          .recoverERC20(randomERC20.address, thirdParty.address, amount)
+          .recoverERC20(randomERC20.target, thirdParty.address, amount)
       })
 
       after(async () => {
@@ -543,7 +544,7 @@ describe("L2TBTC", () => {
       randomERC721 = await TestERC721.deploy()
       await randomERC721.waitForDeployment()
 
-      await randomERC721.mint(token.address, tokenId)
+      await randomERC721.mint(token.target, tokenId)
     })
 
     after(async () => {
@@ -556,7 +557,7 @@ describe("L2TBTC", () => {
           token
             .connect(thirdParty)
             .recoverERC721(
-              randomERC721.address,
+              randomERC721.target,
               thirdParty.address,
               tokenId,
               []
@@ -571,7 +572,7 @@ describe("L2TBTC", () => {
 
         await token
           .connect(governance)
-          .recoverERC721(randomERC721.address, thirdParty.address, tokenId, [])
+          .recoverERC721(randomERC721.target, thirdParty.address, tokenId, [])
       })
 
       after(async () => {
@@ -816,9 +817,9 @@ describe("L2TBTC", () => {
 
   describe("DOMAIN_SEPARATOR", () => {
     it("should be keccak256 of EIP712 domain struct", async () => {
-      const { keccak256 } = ethers.utils
-      const { defaultAbiCoder } = ethers.utils
-      const { toUtf8Bytes } = ethers.utils
+      const { keccak256 } = ethers
+      const { defaultAbiCoder } = ethers
+      const { toUtf8Bytes } = ethers
 
       const expected = keccak256(
         defaultAbiCoder.encode(
@@ -832,7 +833,7 @@ describe("L2TBTC", () => {
             keccak256(toUtf8Bytes("Arbitrum TBTC")),
             keccak256(toUtf8Bytes("1")),
             hardhatNetworkId,
-            token.address,
+            token.target,
           ]
         )
       )
@@ -881,7 +882,7 @@ describe("L2TBTC", () => {
 
     it("should transfer the requested amount", async () => {
       expect(await token.balanceOf(tokenHolder.address)).to.equal(
-        initialHolderBalance.sub(transferAmount)
+        (initialHolderBalance - transferAmount)
       )
 
       expect(await token.balanceOf(thirdParty.address)).to.equal(transferAmount)
@@ -920,7 +921,7 @@ describe("L2TBTC", () => {
 
     it("should transfer the requested amount", async () => {
       expect(await token.balanceOf(tokenHolder.address)).to.equal(
-        initialHolderBalance.sub(transferAmount)
+        (initialHolderBalance - transferAmount)
       )
 
       expect(await token.balanceOf(thirdParty.address)).to.equal(transferAmount)
@@ -988,7 +989,7 @@ describe("L2TBTC", () => {
     })
 
     it("should decrement account's balance", async () => {
-      const expectedBalance = initialBalance.sub(burnedAmount)
+      const expectedBalance = (initialBalance - burnedAmount)
       expect(await token.balanceOf(tokenHolder.address)).to.equal(
         expectedBalance
       )
@@ -1030,7 +1031,7 @@ describe("L2TBTC", () => {
     })
 
     it("should decrement account's balance", async () => {
-      const expectedBalance = initialBalance.sub(burnedAmount)
+      const expectedBalance = (initialBalance - burnedAmount)
       expect(await token.balanceOf(tokenHolder.address)).to.equal(
         expectedBalance
       )
@@ -1080,14 +1081,14 @@ describe("L2TBTC", () => {
       const nonce = await token.nonces(permittingHolder.address)
 
       const approvalDigest = ethers.keccak256(
-        ethers.solidityPack(
+        ethers.solidityPacked(
           ["bytes1", "bytes1", "bytes32", "bytes32"],
           [
             "0x19",
             "0x01",
             domainSeparator,
             ethers.keccak256(
-              ethers.defaultAbiCoder.encode(
+              ethers.AbiCoder.defaultAbiCoder().encode(
                 [
                   "bytes32",
                   "address",
@@ -1110,7 +1111,7 @@ describe("L2TBTC", () => {
         )
       )
 
-      return ethers.splitSignature(
+      return ethers.Signature.from(
         await signingKey.signDigest(approvalDigest)
       )
     }

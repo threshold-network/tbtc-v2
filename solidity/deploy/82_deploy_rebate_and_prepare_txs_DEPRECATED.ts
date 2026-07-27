@@ -175,7 +175,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   console.log(
     "✓ Bridge implementation deployed at:",
-    bridgeImplementation.address
+    bridgeImplementation.target
   )
 
   // Step 5: Find ProxyAdmin address
@@ -205,11 +205,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     // 0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103
     const adminSlot =
       "0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103"
-    const adminData = await ethers.provider.getStorageAt(
+    const adminData = await ethers.provider.getStorage(
       Bridge.address,
       adminSlot
     )
-    proxyAdminAddress = ethers.utils.getAddress(`0x${adminData.slice(26)}`)
+    proxyAdminAddress = ethers.getAddress(`0x${adminData.slice(26)}`)
   }
 
   console.log("✓ ProxyAdmin found at:", proxyAdminAddress)
@@ -222,11 +222,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     "function upgrade(address proxy, address implementation)",
     "function upgradeAndCall(address proxy, address implementation, bytes data)",
   ]
-  const proxyAdminInterface = new ethers.utils.Interface(proxyAdminABI)
+  const proxyAdminInterface = new ethers.Interface(proxyAdminABI)
 
   const upgradeCalldata = proxyAdminInterface.encodeFunctionData("upgrade", [
     Bridge.address,
-    bridgeImplementation.address,
+    bridgeImplementation.target,
   ])
 
   // 6b: Encode setRebateStaking transaction for BridgeGovernance
@@ -235,13 +235,13 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const bridgeGovernanceABI = [
     "function beginGovernanceUpdate(bytes4[] memory functionSelectors, address[] memory targets, uint256[] memory values, bytes[] memory calldatas)",
   ]
-  const bridgeGovernanceInterface = new ethers.utils.Interface(
+  const bridgeGovernanceInterface = new ethers.Interface(
     bridgeGovernanceABI
   )
 
   // Encode the Bridge.setRebateStaking call
   const bridgeABI = ["function setRebateStaking(address rebateStaking)"]
-  const bridgeInterface = new ethers.utils.Interface(bridgeABI)
+  const bridgeInterface = new ethers.Interface(bridgeABI)
   const setRebateStakingCalldata = bridgeInterface.encodeFunctionData(
     "setRebateStaking",
     [rebateStaking.address]
@@ -268,7 +268,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
       rebateStaking: rebateStaking.address,
       depositLibrary: Deposit.address,
       redemptionLibrary: Redemption.address,
-      bridgeImplementation: bridgeImplementation.address,
+      bridgeImplementation: bridgeImplementation.target,
     },
     existingContracts: {
       bridge: Bridge.address,
@@ -287,7 +287,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
         method: "upgrade(address proxy, address implementation)",
         params: {
           proxy: Bridge.address,
-          implementation: bridgeImplementation.address,
+          implementation: bridgeImplementation.target,
         },
         note: "Simple upgrade call to ProxyAdmin contract",
       },
@@ -329,7 +329,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log("  RebateStaking:         ", rebateStaking.address)
   console.log("  Deposit Library:       ", Deposit.address)
   console.log("  Redemption Library:    ", Redemption.address)
-  console.log("  Bridge Implementation: ", bridgeImplementation.address)
+  console.log("  Bridge Implementation: ", bridgeImplementation.target)
 
   console.log("\n================================================")
   console.log("ACTION REQUIRED BY PROXY ADMIN OWNER:")
@@ -340,7 +340,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   console.log("  Method: upgrade(address,address)")
   console.log("  Params:")
   console.log("    proxy:         ", Bridge.address)
-  console.log("    implementation:", bridgeImplementation.address)
+  console.log("    implementation:", bridgeImplementation.target)
 
   console.log("\n================================================")
   console.log("ACTION REQUIRED BY GOVERNANCE (after proxy upgrade):")
@@ -376,7 +376,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
     // Verify Bridge implementation with linked libraries
     try {
       await hre.run("verify:verify", {
-        address: bridgeImplementation.address,
+        address: bridgeImplementation.target,
         constructorArguments: [],
         libraries: {
           Deposit: Deposit.address,
@@ -404,7 +404,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
     await hre.tenderly.verify({
       name: "Bridge",
-      address: bridgeImplementation.address,
+      address: bridgeImplementation.target,
     })
   }
 }

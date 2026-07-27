@@ -32,7 +32,7 @@ describe("L1BTCDepositorNttWithExecutor - Core Functions", () => {
       "contracts/test/MockTBTCVault.sol:MockTBTCVault"
     )
     tbtcVault = (await MockTBTCVaultFactory.deploy()) as MockTBTCVault
-    await tbtcVault.setTbtcToken(tbtcToken.address)
+    await tbtcVault.setTbtcToken(tbtcToken.target)
 
     // Mock NTT managers with simple objects (following working pattern)
     const nttManagerWithExecutor = {
@@ -52,15 +52,15 @@ describe("L1BTCDepositorNttWithExecutor - Core Functions", () => {
     // Deploy proxy
     const ProxyFactory = await ethers.getContractFactory("ERC1967Proxy")
     const initData = depositorImpl.interface.encodeFunctionData("initialize", [
-      bridge.address,
-      tbtcVault.address,
+      bridge.target,
+      tbtcVault.target,
       nttManagerWithExecutor.address,
       underlyingNttManager.address,
     ])
-    const proxy = await ProxyFactory.deploy(depositorImpl.address, initData)
+    const proxy = await ProxyFactory.deploy(depositorImpl.target, initData)
 
     depositor = L1BTCDepositorFactory.attach(
-      proxy.address
+      proxy.target
     ) as L1BTCDepositorNttWithExecutor
 
     // Set up supported chains
@@ -79,8 +79,8 @@ describe("L1BTCDepositorNttWithExecutor - Core Functions", () => {
 
   describe("Initialization", () => {
     it("should initialize with correct parameters", async () => {
-      expect(await depositor.bridge()).to.equal(bridge.address)
-      expect(await depositor.tbtcVault()).to.equal(tbtcVault.address)
+      expect(await depositor.bridge()).to.equal(bridge.target)
+      expect(await depositor.tbtcVault()).to.equal(tbtcVault.target)
     })
 
     it("should have correct default parameters", async () => {
@@ -179,14 +179,14 @@ describe("L1BTCDepositorNttWithExecutor - Core Functions", () => {
 
       // Send some tokens to the contract
       const amount = ethers.parseEther("1")
-      await tbtcToken.mint(depositor.address, amount)
+      await tbtcToken.mint(depositor.target, amount)
 
       const initialBalance = await tbtcToken.balanceOf(user.address)
 
-      await depositor.retrieveTokens(tbtcToken.address, user.address, amount)
+      await depositor.retrieveTokens(tbtcToken.target, user.address, amount)
 
       const finalBalance = await tbtcToken.balanceOf(user.address)
-      expect(finalBalance.sub(initialBalance)).to.equal(amount)
+      expect((finalBalance - initialBalance)).to.equal(amount)
     })
 
     it("should allow owner to retrieve native tokens", async () => {
@@ -209,7 +209,7 @@ describe("L1BTCDepositorNttWithExecutor - Core Functions", () => {
       await expect(
         depositor
           .connect(user)
-          .retrieveTokens(tbtcToken.address, user.address, 100)
+          .retrieveTokens(tbtcToken.target, user.address, 100)
       ).to.be.revertedWith("Ownable: caller is not the owner")
     })
   })

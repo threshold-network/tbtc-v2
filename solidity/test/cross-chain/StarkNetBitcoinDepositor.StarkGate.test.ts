@@ -40,11 +40,11 @@ describe("StarkNet Bitcoin Depositor - StarkGate Integration Tests", () => {
       // Approve tokens first
       const [signer] = await ethers.getSigners()
       await tbtcToken.mint(signer.address, TEST_AMOUNT)
-      await tbtcToken.approve(starkGateBridge.address, TEST_AMOUNT)
+      await tbtcToken.approve(starkGateBridge.target, TEST_AMOUNT)
 
       // Measure gas for depositWithMessage
       const tx = await starkGateBridge.depositWithMessage(
-        tbtcToken.address,
+        tbtcToken.target,
         TEST_AMOUNT,
         TEST_RECIPIENT,
         emptyMessage,
@@ -97,13 +97,13 @@ describe("StarkNet Bitcoin Depositor - StarkGate Integration Tests", () => {
       // Use the minted address to approve and call
       const [signer] = await ethers.getSigners()
       await tbtcToken.mint(signer.address, TEST_AMOUNT)
-      await tbtcToken.approve(starkGateBridge.address, TEST_AMOUNT)
+      await tbtcToken.approve(starkGateBridge.target, TEST_AMOUNT)
 
       // Test with empty array
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const emptyArray: any[] = []
       await starkGateBridge.depositWithMessage(
-        tbtcToken.address,
+        tbtcToken.target,
         TEST_AMOUNT,
         TEST_RECIPIENT,
         emptyArray,

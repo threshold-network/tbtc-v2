@@ -2862,7 +2862,7 @@ const depositKey = (
   fundingTxHash: BytesLike,
   fundingOutputIndex: BigNumberish
 ) =>
-  ethers.solidityKeccak256(
+  ethers.solidityPackedKeccak256(
     ["bytes32", "uint32"],
     [fundingTxHash, fundingOutputIndex]
   )
@@ -2886,7 +2886,7 @@ const createTestDeposit = (
   const refundableAt = resolvedRevealedAt + depositLocktime
 
   const refundLocktime = `0x${Buffer.from(
-    BigInt(refundableAt).toHexString().substring(2),
+    ethers.toBeHex(BigInt(refundableAt)).substring(2),
     "hex"
   )
     .reverse()
@@ -2983,12 +2983,12 @@ const redemptionKey = (
   walletPubKeyHash: BytesLike,
   redeemerOutputScript: BytesLike
 ) => {
-  const scriptHash = ethers.solidityKeccak256(
+  const scriptHash = ethers.solidityPackedKeccak256(
     ["bytes"],
     [redeemerOutputScript]
   )
 
-  return ethers.solidityKeccak256(
+  return ethers.solidityPackedKeccak256(
     ["bytes32", "bytes20"],
     [scriptHash, walletPubKeyHash]
   )
@@ -3031,7 +3031,7 @@ const movedFundsSweepRequestKey = (
   movingFundsTxHash: BytesLike,
   movingFundsTxOutputIndex: number
 ) =>
-  ethers.solidityKeccak256(
+  ethers.solidityPackedKeccak256(
     ["bytes32", "uint32"],
     [movingFundsTxHash, movingFundsTxOutputIndex]
   )
@@ -3040,10 +3040,10 @@ const buildRedemptionKey = (
   walletPubKeyHash: BytesLike,
   redeemerOutputScript: BytesLike
 ): string =>
-  ethers.solidityKeccak256(
+  ethers.solidityPackedKeccak256(
     ["bytes32", "bytes20"],
     [
-      ethers.solidityKeccak256(["bytes"], [redeemerOutputScript]),
+      ethers.solidityPackedKeccak256(["bytes"], [redeemerOutputScript]),
       walletPubKeyHash,
     ]
   )

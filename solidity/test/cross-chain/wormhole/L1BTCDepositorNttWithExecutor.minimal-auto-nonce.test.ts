@@ -36,7 +36,7 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
       "contracts/test/MockTBTCVault.sol:MockTBTCVault"
     )
     tbtcVault = (await MockTBTCVaultFactory.deploy()) as MockTBTCVault
-    await tbtcVault.setTbtcToken(tbtcToken.address)
+    await tbtcVault.setTbtcToken(tbtcToken.target)
 
     // Mock NTT managers with simple objects (following working pattern)
     const nttManagerWithExecutor = {
@@ -56,15 +56,15 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
     // Deploy proxy
     const ProxyFactory = await ethers.getContractFactory("ERC1967Proxy")
     const initData = depositorImpl.interface.encodeFunctionData("initialize", [
-      bridge.address,
-      tbtcVault.address,
+      bridge.target,
+      tbtcVault.target,
       nttManagerWithExecutor.address,
       underlyingNttManager.address,
     ])
-    const proxy = await ProxyFactory.deploy(depositorImpl.address, initData)
+    const proxy = await ProxyFactory.deploy(depositorImpl.target, initData)
 
     depositor = L1BTCDepositorFactory.attach(
-      proxy.address
+      proxy.target
     ) as L1BTCDepositorNttWithExecutor
 
     // Set up supported chains
@@ -87,14 +87,14 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
       const executorArgs1 = {
         value: ethers.parseEther("0.01"),
         refundAddress: user1.address,
-        signedQuote: ethers.formatBytes32String("quote1"),
+        signedQuote: ethers.encodeBytes32String("quote1"),
         instructions: "0x",
       }
 
       const executorArgs2 = {
         value: ethers.parseEther("0.02"),
         refundAddress: user2.address,
-        signedQuote: ethers.formatBytes32String("quote2"),
+        signedQuote: ethers.encodeBytes32String("quote2"),
         instructions: "0x",
       }
 
@@ -144,7 +144,7 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
       const executorArgs = {
         value: ethers.parseEther("0.01"),
         refundAddress: user1.address,
-        signedQuote: ethers.formatBytes32String("quote"),
+        signedQuote: ethers.encodeBytes32String("quote"),
         instructions: "0x",
       }
 
@@ -183,7 +183,7 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
       const executorArgs = {
         value: ethers.parseEther("0.01"),
         refundAddress: user1.address,
-        signedQuote: ethers.formatBytes32String("quote"),
+        signedQuote: ethers.encodeBytes32String("quote"),
         instructions: "0x",
       }
 
@@ -213,14 +213,14 @@ describe("L1BTCDepositorNttWithExecutor - Minimal Auto-Nonce Test", () => {
         await depositor.getUserWorkflowStatus(user1.address)
       expect(hasWorkflowAfter).to.be.true
       expect(nonceAfter).to.equal(expectedNonce)
-      expect(timestampAfter.toNumber()).to.be.greaterThan(0)
+      expect(Number(timestampAfter)).to.be.greaterThan(0)
     })
 
     it("should allow users to clear their own parameters", async () => {
       const executorArgs = {
         value: ethers.parseEther("0.01"),
         refundAddress: user1.address,
-        signedQuote: ethers.formatBytes32String("quote"),
+        signedQuote: ethers.encodeBytes32String("quote"),
         instructions: "0x",
       }
 

@@ -1,4 +1,5 @@
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
+import { loadFixture } from "@nomicfoundation/hardhat-network-helpers"
 import { randomBytes } from "crypto"
 import { expect } from "chai"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
@@ -123,7 +124,7 @@ describe("L1BTCDepositorNtt NTT Integration", () => {
   }
 
   before(async () => {
-    const fixture = await waffle.loadFixture(contractsFixture)
+    const fixture = await loadFixture(contractsFixture)
     governance = fixture.governance
     relayer = fixture.relayer
     user = fixture.user

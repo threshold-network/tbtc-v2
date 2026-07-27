@@ -1,4 +1,5 @@
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
+import { loadFixture } from "@nomicfoundation/hardhat-network-helpers"
 import { randomBytes } from "crypto"
 import { expect } from "chai"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
@@ -55,7 +56,7 @@ describe("L1BTCDepositorNtt Core Functions", () => {
     const tbtcVault = await createMock<ITBTCVault>("ITBTCVault", {
       address: tbtcVaultAddress,
     })
-    await tbtcVault.tbtcToken.returns(tbtcToken.address)
+    await tbtcVault.tbtcToken.returns(tbtcToken.target)
 
     const nttManager = {
       address: ethers.Wallet.createRandom().address,
@@ -166,7 +167,7 @@ describe("L1BTCDepositorNtt Core Functions", () => {
       nttManager,
       reimbursementPool,
       l1BtcDepositorNtt,
-    } = await waffle.loadFixture(contractsFixture))
+    } = await loadFixture(contractsFixture))
   })
 
   describe("initialization", () => {
@@ -430,8 +431,8 @@ describe("L1BTCDepositorNtt Core Functions", () => {
             .setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
 
           await tbtcToken.mint(
-            l1BtcDepositorNtt.address,
-            ethers.parseEther("1").mul(10)
+            l1BtcDepositorNtt.target,
+            (ethers.parseEther("1") * 10n)
           )
         })
 

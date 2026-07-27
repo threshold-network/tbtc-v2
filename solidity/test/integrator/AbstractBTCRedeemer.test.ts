@@ -57,17 +57,17 @@ describe("AbstractBTCRedeemer", () => {
       "contracts/test/MockTBTCVault.sol:MockTBTCVault"
     )
     tbtcVault = (await MockTBTCVaultFactory.deploy()) as MockTBTCVault
-    await tbtcVault.setTbtcToken(tbtcToken.address)
+    await tbtcVault.setTbtcToken(tbtcToken.target)
 
     const TestBTCRedeemerFactory = await ethers.getContractFactory(
       "TestBTCRedeemer"
     )
     redeemer = await TestBTCRedeemerFactory.deploy()
     await redeemer.initialize(
-      bridge.address,
-      tbtcToken.address,
-      bank.address,
-      tbtcVault.address
+      bridge.target,
+      tbtcToken.target,
+      bank.target,
+      tbtcVault.target
     )
 
     // Calculate expectedRedemptionKey for the fixture
@@ -76,7 +76,7 @@ describe("AbstractBTCRedeemer", () => {
 
     const scriptHash = ethers.keccak256(fixture.redemptionOutputScript)
     fixture.expectedRedemptionKey = ethers.keccak256(
-      ethers.solidityPack(
+      ethers.solidityPacked(
         ["bytes32", "bytes20"],
         [scriptHash, fixture.walletPubKeyHash]
       )
@@ -85,10 +85,10 @@ describe("AbstractBTCRedeemer", () => {
     // Assert that contract initializer works as expected.
     await expect(
       redeemer.initialize(
-        bridge.address,
-        tbtcToken.address,
-        bank.address,
-        tbtcVault.address
+        bridge.target,
+        tbtcToken.target,
+        bank.target,
+        tbtcVault.target
       )
     ).to.be.reverted
   })
@@ -110,24 +110,24 @@ describe("AbstractBTCRedeemer", () => {
     it("should initialize with valid parameters", async () => {
       await expect(
         testRedeemer.initialize(
-          bridge.address,
-          tbtcToken.address,
-          bank.address,
-          tbtcVault.address
+          bridge.target,
+          tbtcToken.target,
+          bank.target,
+          tbtcVault.target
         )
       ).to.not.be.reverted
-      expect(await testRedeemer.thresholdBridge()).to.equal(bridge.address)
-      expect(await testRedeemer.tbtcToken()).to.equal(tbtcToken.address)
-      expect(await testRedeemer.bank()).to.equal(bank.address)
+      expect(await testRedeemer.thresholdBridge()).to.equal(bridge.target)
+      expect(await testRedeemer.tbtcToken()).to.equal(tbtcToken.target)
+      expect(await testRedeemer.bank()).to.equal(bank.target)
     })
 
     it("should revert if _thresholdBridge is zero address", async () => {
       await expect(
         testRedeemer.initialize(
           ethers.ZeroAddress,
-          tbtcToken.address,
-          bank.address,
-          tbtcVault.address
+          tbtcToken.target,
+          bank.target,
+          tbtcVault.target
         )
       ).to.be.revertedWith("ZeroAddress")
     })
@@ -135,10 +135,10 @@ describe("AbstractBTCRedeemer", () => {
     it("should revert if _tbtcToken is zero address", async () => {
       await expect(
         testRedeemer.initialize(
-          bridge.address,
+          bridge.target,
           ethers.ZeroAddress,
-          bank.address,
-          tbtcVault.address
+          bank.target,
+          tbtcVault.target
         )
       ).to.be.revertedWith("ZeroAddress")
     })
@@ -146,10 +146,10 @@ describe("AbstractBTCRedeemer", () => {
     it("should revert if _bank is zero address", async () => {
       await expect(
         testRedeemer.initialize(
-          bridge.address,
-          tbtcToken.address,
+          bridge.target,
+          tbtcToken.target,
           ethers.ZeroAddress,
-          tbtcVault.address
+          tbtcVault.target
         )
       ).to.be.revertedWith("ZeroAddress")
     })
@@ -157,9 +157,9 @@ describe("AbstractBTCRedeemer", () => {
     it("should revert if _tbtcVault is zero address", async () => {
       await expect(
         testRedeemer.initialize(
-          bridge.address,
-          tbtcToken.address,
-          bank.address,
+          bridge.target,
+          tbtcToken.target,
+          bank.target,
           ethers.ZeroAddress
         )
       ).to.be.revertedWith("ZeroAddress")
@@ -167,17 +167,17 @@ describe("AbstractBTCRedeemer", () => {
 
     it("should revert on re-initialization", async () => {
       await testRedeemer.initialize(
-        bridge.address,
-        tbtcToken.address,
-        bank.address,
-        tbtcVault.address
+        bridge.target,
+        tbtcToken.target,
+        bank.target,
+        tbtcVault.target
       )
       await expect(
         testRedeemer.initialize(
-          bridge.address,
-          tbtcToken.address,
-          bank.address,
-          tbtcVault.address
+          bridge.target,
+          tbtcToken.target,
+          bank.target,
+          tbtcVault.target
         )
       ).to.be.revertedWith("AlreadyInitialized")
     })
@@ -191,7 +191,7 @@ describe("AbstractBTCRedeemer", () => {
       // Calculate expected key using ethers.js for verification
       const scriptHash = ethers.keccak256(outputScript)
       const expectedKey = ethers.keccak256(
-        ethers.solidityPack(
+        ethers.solidityPacked(
           ["bytes32", "bytes20"],
           [scriptHash, walletPkh]
         )
@@ -210,11 +210,11 @@ describe("AbstractBTCRedeemer", () => {
       before(async () => {
         await createSnapshot()
         // Pre-request the redemption to cause a revert on the second attempt
-        await bank.setBalance(redeemer.address, fixture.amountToRedeemSat)
+        await bank.setBalance(redeemer.target, fixture.amountToRedeemSat)
         // Mint tBTC tokens to the redeemer for unminting
         await tbtcToken.mint(
-          redeemer.address,
-          fixture.amountToRedeemSat.mul(BigInt(10).pow(10))
+          redeemer.target,
+          (fixture.amountToRedeemSat * (BigInt(10) ** 10n))
         )
         await redeemer.requestRedemptionPublic(
           fixture.walletPubKeyHash,
@@ -230,11 +230,11 @@ describe("AbstractBTCRedeemer", () => {
 
       it("should revert", async () => {
         // Set balance again for the new attempt
-        await bank.setBalance(redeemer.address, fixture.amountToRedeemSat)
+        await bank.setBalance(redeemer.target, fixture.amountToRedeemSat)
         // Mint tBTC tokens to the redeemer for unminting
         await tbtcToken.mint(
-          redeemer.address,
-          fixture.amountToRedeemSat.mul(BigInt(10).pow(10))
+          redeemer.target,
+          (fixture.amountToRedeemSat * (BigInt(10) ** 10n))
         )
         await expect(
           redeemer.requestRedemptionPublic(
@@ -252,18 +252,16 @@ describe("AbstractBTCRedeemer", () => {
       // Calculation: (1 BTC in sat - 0.5% treasury fee sat) - txMaxFee sat = (100,000,000 - 500,000) - 10,000 = 99,490,000 sat
       // This amount is then multiplied by SATOSHI_MULTIPLIER (10**10) in the contract.
       const expectedSatEquivalent = BigInt(99490000)
-      const expectedTbtcAmount = expectedSatEquivalent.mul(
-        BigInt(10).pow(10)
-      )
+      const expectedTbtcAmount = (expectedSatEquivalent * (BigInt(10) ** 10n))
 
       before(async () => {
         await createSnapshot()
         // Grant allowance and set balance for the redeemer contract
-        await bank.setBalance(redeemer.address, fixture.amountToRedeemSat)
+        await bank.setBalance(redeemer.target, fixture.amountToRedeemSat)
         // Mint tBTC tokens to the redeemer for unminting
         await tbtcToken.mint(
-          redeemer.address,
-          fixture.amountToRedeemSat.mul(BigInt(10).pow(10))
+          redeemer.target,
+          (fixture.amountToRedeemSat * (BigInt(10) ** 10n))
         )
 
         tx = await redeemer.requestRedemptionPublic(
@@ -299,8 +297,8 @@ describe("AbstractBTCRedeemer", () => {
       it("should increase bank allowance for the bridge", async () => {
         // The allowance is made from redeemer to bridge by _requestRedemption
         const allowance = await bank.getAllowance(
-          redeemer.address,
-          bridge.address
+          redeemer.target,
+          bridge.target
         )
         expect(allowance).to.equal(fixture.amountToRedeemSat)
       })
@@ -309,18 +307,16 @@ describe("AbstractBTCRedeemer", () => {
 
   describe("_calculateTbtcAmount", () => {
     // Mock Bridge uses 0.5% treasury fee (divisor 200) and 10000 sat tx max fee by default.
-    const SATOSHI_MULTIPLIER_BN = BigInt(10).pow(10)
+    const SATOSHI_MULTIPLIER_BN = (BigInt(10) ** 10n)
 
     context("when all fees are non-zero", () => {
       it("should return the correct amount", async () => {
         const amountSat = BigInt(100000000) // 1 BTC
-        const treasuryFeeSat = amountSat.div(200) // 0.005 BTC (500,000 sat)
+        const treasuryFeeSat = (amountSat / 200n) // 0.005 BTC (500,000 sat)
         const txMaxFeeSat = BigInt(10000) // from MockBridge default
 
         // Expected: ((1 BTC - 0.005 BTC) - 0.0001 BTC) * 10^10 = (99,500,000 - 10,000) * 10^10 = 99,490,000 * 10^10
-        const expectedTbtcAmount = BigInt(99490000).mul(
-          SATOSHI_MULTIPLIER_BN
-        )
+        const expectedTbtcAmount = (BigInt(99490000) * SATOSHI_MULTIPLIER_BN)
 
         expect(
           await redeemer.calculateTbtcAmountPublic(amountSat, treasuryFeeSat)
@@ -335,9 +331,7 @@ describe("AbstractBTCRedeemer", () => {
         const txMaxFeeSat = BigInt(10000)
 
         // Expected: (1 BTC - 0 BTC - 0.0001 BTC) * 10^10 = (100,000,000 - 10,000) * 10^10 = 99,990,000 * 10^10
-        const expectedTbtcAmount = BigInt(99990000).mul(
-          SATOSHI_MULTIPLIER_BN
-        )
+        const expectedTbtcAmount = (BigInt(99990000) * SATOSHI_MULTIPLIER_BN)
 
         expect(
           await redeemer.calculateTbtcAmountPublic(amountSat, treasuryFeeSat)
@@ -350,7 +344,7 @@ describe("AbstractBTCRedeemer", () => {
         await createSnapshot()
         const mockBridge = (await ethers.getContractAt(
           "MockTBTCBridge",
-          bridge.address
+          bridge.target
         )) as MockTBTCBridge
         await mockBridge.setRedemptionTxMaxFeeInternal(0)
       })
@@ -361,12 +355,10 @@ describe("AbstractBTCRedeemer", () => {
 
       it("should return the correct amount", async () => {
         const amountSat = BigInt(100000000) // 1 BTC
-        const treasuryFeeSat = amountSat.div(200) // 0.005 BTC
+        const treasuryFeeSat = (amountSat / 200n) // 0.005 BTC
 
         // Expected: (1 BTC - 0.005 BTC - 0 BTC) * 10^10 = (100,000,000 - 500,000) * 10^10 = 99,500,000 * 10^10
-        const expectedTbtcAmount = BigInt(99500000).mul(
-          SATOSHI_MULTIPLIER_BN
-        )
+        const expectedTbtcAmount = (BigInt(99500000) * SATOSHI_MULTIPLIER_BN)
 
         expect(
           await redeemer.calculateTbtcAmountPublic(amountSat, treasuryFeeSat)
@@ -379,7 +371,7 @@ describe("AbstractBTCRedeemer", () => {
         await createSnapshot()
         const mockBridge = (await ethers.getContractAt(
           "MockTBTCBridge",
-          bridge.address
+          bridge.target
         )) as MockTBTCBridge
         await mockBridge.setRedemptionTxMaxFeeInternal(0)
       })
@@ -393,9 +385,7 @@ describe("AbstractBTCRedeemer", () => {
         const treasuryFeeSat = BigInt(0)
 
         // Expected: (1 BTC - 0 BTC - 0 BTC) * 10^10 = 100,000,000 * 10^10
-        const expectedTbtcAmount = BigInt(100000000).mul(
-          SATOSHI_MULTIPLIER_BN
-        )
+        const expectedTbtcAmount = (BigInt(100000000) * SATOSHI_MULTIPLIER_BN)
 
         expect(
           await redeemer.calculateTbtcAmountPublic(amountSat, treasuryFeeSat)
@@ -406,7 +396,7 @@ describe("AbstractBTCRedeemer", () => {
     context("when redemption amount is too low (leads to underflow)", () => {
       it("should revert if (amount - treasuryFee) < txMaxFee", async () => {
         const amountSat = BigInt(10000) // Less than default txMaxFee (10000) after treasury fee
-        const treasuryFeeSat = amountSat.div(200) // 50 sat
+        const treasuryFeeSat = (amountSat / 200n) // 50 sat
         // amountSat - treasuryFeeSat = 9950. Default txMaxFee is 10000.
         // (9950 * 1e10) - (10000 * 1e10) should underflow.
 
@@ -417,7 +407,7 @@ describe("AbstractBTCRedeemer", () => {
 
       it("should revert if amount barely covers treasuryFee but not txMaxFee", async () => {
         const txMaxFeeSat = BigInt(10000) // default from MockBridge
-        const amountSat = txMaxFeeSat.sub(1).add(1) // e.g. amount = txMaxFee = 10000
+        const amountSat = ((txMaxFeeSat - 1n) + 1n) // e.g. amount = txMaxFee = 10000
         const treasuryFeeSat = BigInt(1) // Make amount after treasury fee less than txMaxFee
         // Here (amountSat - treasuryFeeSat) = 10000 - 1 = 9999
         // (9999 * 1e10) - (10000 * 1e10) should underflow
@@ -428,7 +418,7 @@ describe("AbstractBTCRedeemer", () => {
       })
 
       it("should return 0 if (amount - treasuryFee) == txMaxFee", async () => {
-        const SATOSHI_MULTIPLIER_BN = BigInt(10).pow(10)
+        const SATOSHI_MULTIPLIER_BN = (BigInt(10) ** 10n)
         // We need redemptionAmountSat - redemptionTreasuryFeeSat = redemptionTxMaxFee
         // Let redemptionTxMaxFee be 10000 (default from MockBridge)
         // Let redemptionTreasuryFeeSat be 0 for simplicity in this setup.
@@ -454,7 +444,7 @@ describe("AbstractBTCRedeemer", () => {
       ;[, randomAccount] = await ethers.getSigners() // Use a different account than the deployer/owner
 
       // Mint some tBTC to the redeemer contract for rescue testing
-      await tbtcToken.mint(redeemer.address, amountToRescue.mul(2)) // Mint 2 TBTC
+      await tbtcToken.mint(redeemer.target, (amountToRescue * 2n)) // Mint 2 TBTC
     })
 
     context("when caller is not the owner", () => {
@@ -477,7 +467,7 @@ describe("AbstractBTCRedeemer", () => {
 
     context("when contract has insufficient tBTC balance", () => {
       it("should revert", async () => {
-        const excessiveAmount = amountToRescue.mul(3) // Try to rescue more than available
+        const excessiveAmount = (amountToRescue * 3n) // Try to rescue more than available
         await expect(
           redeemer.rescueTbtc(randomAccount.address, excessiveAmount)
         ).to.be.revertedWith("InsufficientBalance")
@@ -491,7 +481,7 @@ describe("AbstractBTCRedeemer", () => {
 
       before(async () => {
         await createSnapshot()
-        initialContractBalance = await tbtcToken.balanceOf(redeemer.address)
+        initialContractBalance = await tbtcToken.balanceOf(redeemer.target)
         initialRecipientBalance = await tbtcToken.balanceOf(deployer.address)
         tx = await redeemer.rescueTbtc(deployer.address, amountToRescue)
       })
@@ -501,23 +491,23 @@ describe("AbstractBTCRedeemer", () => {
       })
 
       it("should transfer tBTC from contract to recipient", async () => {
-        const finalContractBalance = await tbtcToken.balanceOf(redeemer.address)
+        const finalContractBalance = await tbtcToken.balanceOf(redeemer.target)
         const finalRecipientBalance = await tbtcToken.balanceOf(
           deployer.address
         )
 
         expect(finalContractBalance).to.equal(
-          initialContractBalance.sub(amountToRescue)
+          (initialContractBalance - amountToRescue)
         )
         expect(finalRecipientBalance).to.equal(
-          initialRecipientBalance.add(amountToRescue)
+          (initialRecipientBalance + amountToRescue)
         )
       })
 
       it("should emit Transfer event from tbtcToken", async () => {
         await expect(tx)
           .to.emit(tbtcToken, "Transfer")
-          .withArgs(redeemer.address, deployer.address, amountToRescue)
+          .withArgs(redeemer.target, deployer.address, amountToRescue)
       })
     })
 
@@ -534,19 +524,19 @@ describe("AbstractBTCRedeemer", () => {
         const zeroAmount = BigInt(0)
         const initialOwnerBalance = await tbtcToken.balanceOf(deployer.address)
         const initialContractBalance = await tbtcToken.balanceOf(
-          redeemer.address
+          redeemer.target
         )
 
         const tx = await redeemer.rescueTbtc(deployer.address, zeroAmount)
 
         await expect(tx)
           .to.emit(tbtcToken, "Transfer")
-          .withArgs(redeemer.address, deployer.address, zeroAmount)
+          .withArgs(redeemer.target, deployer.address, zeroAmount)
 
         expect(await tbtcToken.balanceOf(deployer.address)).to.equal(
           initialOwnerBalance
         )
-        expect(await tbtcToken.balanceOf(redeemer.address)).to.equal(
+        expect(await tbtcToken.balanceOf(redeemer.target)).to.equal(
           initialContractBalance
         )
       })
@@ -557,11 +547,11 @@ describe("AbstractBTCRedeemer", () => {
       beforeEach(async () => {
         // Ensure a known state for this specific context
         await createSnapshot()
-        exactAmount = await tbtcToken.balanceOf(redeemer.address)
+        exactAmount = await tbtcToken.balanceOf(redeemer.target)
         // Ensure there's some balance to rescue
         if (exactAmount.isZero()) {
-          await tbtcToken.mint(redeemer.address, to1ePrecision(1, 18))
-          exactAmount = await tbtcToken.balanceOf(redeemer.address)
+          await tbtcToken.mint(redeemer.target, to1ePrecision(1, 18))
+          exactAmount = await tbtcToken.balanceOf(redeemer.target)
         }
       })
 
@@ -576,12 +566,12 @@ describe("AbstractBTCRedeemer", () => {
 
         await expect(tx)
           .to.emit(tbtcToken, "Transfer")
-          .withArgs(redeemer.address, deployer.address, exactAmount)
+          .withArgs(redeemer.target, deployer.address, exactAmount)
 
         expect(await tbtcToken.balanceOf(deployer.address)).to.equal(
-          initialOwnerBalance.add(exactAmount)
+          (initialOwnerBalance + exactAmount)
         )
-        expect(await tbtcToken.balanceOf(redeemer.address)).to.equal(0)
+        expect(await tbtcToken.balanceOf(redeemer.target)).to.equal(0)
       })
     })
   })

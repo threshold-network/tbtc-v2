@@ -156,7 +156,7 @@ describe("Bridge - Governance", () => {
       })
 
       it("should not update the bridge governance", async () => {
-        expect(await bridge.governance()).to.be.equal(bridgeGovernance.address)
+        expect(await bridge.governance()).to.be.equal(bridgeGovernance.target)
       })
 
       it("should not update the bridge governance owner", async () => {
@@ -3238,7 +3238,7 @@ describe("Bridge - Governance", () => {
         await bridgeGovernance
           .connect(governance)
           .beginWalletCreationMaxBtcBalanceUpdate(
-            constants.walletCreationMinBtcBalance.add(1)
+            (constants.walletCreationMinBtcBalance + 1n)
           )
 
         await helpers.time.increaseTime(constants.governanceDelay - 60) // -1min
@@ -3268,7 +3268,7 @@ describe("Bridge - Governance", () => {
           await bridgeGovernance
             .connect(governance)
             .beginWalletCreationMaxBtcBalanceUpdate(
-              constants.walletCreationMinBtcBalance.add(1)
+              (constants.walletCreationMinBtcBalance + 1n)
             )
 
           await helpers.time.increaseTime(constants.governanceDelay)
@@ -3286,14 +3286,14 @@ describe("Bridge - Governance", () => {
           const { walletCreationMaxBtcBalance } =
             await bridge.walletParameters()
           expect(walletCreationMaxBtcBalance).to.be.equal(
-            constants.walletCreationMinBtcBalance.add(1)
+            (constants.walletCreationMinBtcBalance + 1n)
           )
         })
 
         it("should emit WalletCreationMaxBtcBalanceUpdated event", async () => {
           await expect(tx)
             .to.emit(bridgeGovernance, "WalletCreationMaxBtcBalanceUpdated")
-            .withArgs(constants.walletCreationMinBtcBalance.add(1))
+            .withArgs((constants.walletCreationMinBtcBalance + 1n))
         })
       }
     )
@@ -4509,7 +4509,7 @@ describe("Bridge - Governance", () => {
         localBridgeGovernance = (await govFactory
           .connect(governance)
           .deploy(
-            mockBridge.address,
+            mockBridge.target,
             constants.governanceDelay
           )) as BridgeGovernance
         await localBridgeGovernance.waitForDeployment()
@@ -4550,7 +4550,7 @@ describe("Bridge - Governance", () => {
 
       newBridgeGovernance = (await govFactory
         .connect(governance)
-        .deploy(bridge.address, constants.governanceDelay)) as BridgeGovernance
+        .deploy(bridge.target, constants.governanceDelay)) as BridgeGovernance
       await newBridgeGovernance.waitForDeployment()
     })
 
@@ -4561,7 +4561,7 @@ describe("Bridge - Governance", () => {
     it("deploys, transfers governance, and wires rebate staking", async () => {
       await bridgeGovernance
         .connect(governance)
-        .beginBridgeGovernanceTransfer(newBridgeGovernance.address)
+        .beginBridgeGovernanceTransfer(newBridgeGovernance.target)
 
       await helpers.time.increaseTime(constants.governanceDelay)
 
@@ -4569,7 +4569,7 @@ describe("Bridge - Governance", () => {
         .connect(governance)
         .finalizeBridgeGovernanceTransfer()
 
-      expect(await bridge.governance()).to.equal(newBridgeGovernance.address)
+      expect(await bridge.governance()).to.equal(newBridgeGovernance.target)
 
       await newBridgeGovernance
         .connect(governance)

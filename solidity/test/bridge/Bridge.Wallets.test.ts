@@ -220,7 +220,7 @@ describe("Bridge - Wallets", () => {
                         "0xc9e58780c6c289c25ae1fe293f85a4db4d0af4f305172f2a1868ddd917458bdf",
                       txOutputIndex: 1,
                       txOutputValue:
-                        constants.walletCreationMaxBtcBalance.sub(1),
+                        (constants.walletCreationMaxBtcBalance - 1n),
                     }
 
                     await bridge.setWalletMainUtxo(
@@ -262,7 +262,7 @@ describe("Bridge - Wallets", () => {
                         "0xc9e58780c6c289c25ae1fe293f85a4db4d0af4f305172f2a1868ddd917458bdf",
                       txOutputIndex: 1,
                       txOutputValue:
-                        constants.walletCreationMinBtcBalance.sub(1),
+                        (constants.walletCreationMinBtcBalance - 1n),
                     }
 
                     await bridge.setWalletMainUtxo(
@@ -1177,7 +1177,7 @@ describe("Bridge - Wallets", () => {
                 txHash:
                   "0xc9e58780c6c289c25ae1fe293f85a4db4d0af4f305172f2a1868ddd917458bdf",
                 txOutputIndex: 0,
-                txOutputValue: constants.walletClosureMinBtcBalance.sub(1),
+                txOutputValue: (constants.walletClosureMinBtcBalance - 1n),
               }
 
               let tx: ContractTransactionResponse

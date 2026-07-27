@@ -40,7 +40,7 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
       "contracts/test/MockTBTCVault.sol:MockTBTCVault"
     )
     tbtcVault = (await MockTBTCVaultFactory.deploy()) as MockTBTCVault
-    await tbtcVault.setTbtcToken(tbtcToken.address)
+    await tbtcVault.setTbtcToken(tbtcToken.target)
 
     // Deploy proper mock NTT managers
     const MockNttManagerWithExecutorFactory = await ethers.getContractFactory(
@@ -66,14 +66,14 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
     // Deploy proxy
     const ProxyFactory = await ethers.getContractFactory("ERC1967Proxy")
     const initData = depositorImpl.interface.encodeFunctionData("initialize", [
-      bridge.address,
-      tbtcVault.address,
-      nttManagerWithExecutor.address,
-      underlyingNttManager.address,
+      bridge.target,
+      tbtcVault.target,
+      nttManagerWithExecutor.target,
+      underlyingNttManager.target,
     ])
-    const proxy = await ProxyFactory.deploy(depositorImpl.address, initData)
+    const proxy = await ProxyFactory.deploy(depositorImpl.target, initData)
 
-    depositor = L1BTCDepositorFactory.attach(proxy.address)
+    depositor = L1BTCDepositorFactory.attach(proxy.target)
 
     // Set up basic configuration
     await depositor.setSupportedChain(WORMHOLE_CHAIN_DESTINATION, true)
@@ -96,7 +96,7 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
       const executorArgs = {
         value: ethers.parseEther("0.01"),
         refundAddress: user1.address,
-        signedQuote: ethers.formatBytes32String("quote1"),
+        signedQuote: ethers.encodeBytes32String("quote1"),
         instructions: "0x",
       }
 
@@ -122,14 +122,14 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
       const executorArgs1 = {
         value: ethers.parseEther("0.01"),
         refundAddress: user1.address,
-        signedQuote: ethers.formatBytes32String("quote1"),
+        signedQuote: ethers.encodeBytes32String("quote1"),
         instructions: "0x",
       }
 
       const executorArgs2 = {
         value: ethers.parseEther("0.02"),
         refundAddress: user1.address,
-        signedQuote: ethers.formatBytes32String("quote2"),
+        signedQuote: ethers.encodeBytes32String("quote2"),
         instructions: "0x",
       }
 
@@ -180,14 +180,14 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
       const executorArgs1 = {
         value: ethers.parseEther("0.01"),
         refundAddress: user1.address,
-        signedQuote: ethers.formatBytes32String("quote1"),
+        signedQuote: ethers.encodeBytes32String("quote1"),
         instructions: "0x",
       }
 
       const executorArgs2 = {
         value: ethers.parseEther("0.02"),
         refundAddress: user1.address,
-        signedQuote: ethers.formatBytes32String("quote2"),
+        signedQuote: ethers.encodeBytes32String("quote2"),
         instructions: "0x",
       }
 
@@ -221,14 +221,14 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
       const executorArgs1 = {
         value: ethers.parseEther("0.01"),
         refundAddress: user1.address,
-        signedQuote: ethers.formatBytes32String("quote1"),
+        signedQuote: ethers.encodeBytes32String("quote1"),
         instructions: "0x",
       }
 
       const executorArgs2 = {
         value: ethers.parseEther("0.02"),
         refundAddress: user1.address,
-        signedQuote: ethers.formatBytes32String("quote2"),
+        signedQuote: ethers.encodeBytes32String("quote2"),
         instructions: "0x",
       }
 
@@ -265,21 +265,21 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
       const executorArgs1 = {
         value: ethers.parseEther("0.01"),
         refundAddress: user1.address,
-        signedQuote: ethers.formatBytes32String("quote1"),
+        signedQuote: ethers.encodeBytes32String("quote1"),
         instructions: "0x",
       }
 
       const executorArgs2 = {
         value: ethers.parseEther("0.02"),
         refundAddress: user2.address,
-        signedQuote: ethers.formatBytes32String("quote2"),
+        signedQuote: ethers.encodeBytes32String("quote2"),
         instructions: "0x",
       }
 
       const executorArgs3 = {
         value: ethers.parseEther("0.03"),
         refundAddress: user3.address,
-        signedQuote: ethers.formatBytes32String("quote3"),
+        signedQuote: ethers.encodeBytes32String("quote3"),
         instructions: "0x",
       }
 
@@ -326,14 +326,14 @@ describe("L1BTCDepositorNttWithExecutor - Single User Blocking", () => {
       const executorArgs1 = {
         value: ethers.parseEther("0.01"),
         refundAddress: user1.address,
-        signedQuote: ethers.formatBytes32String("quote1"),
+        signedQuote: ethers.encodeBytes32String("quote1"),
         instructions: "0x",
       }
 
       const executorArgs2 = {
         value: ethers.parseEther("0.02"),
         refundAddress: user1.address,
-        signedQuote: ethers.formatBytes32String("quote2"),
+        signedQuote: ethers.encodeBytes32String("quote2"),
         instructions: "0x",
       }
 

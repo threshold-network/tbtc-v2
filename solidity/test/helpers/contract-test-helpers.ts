@@ -5,13 +5,13 @@ import { ethers } from "hardhat"
 // https://github.com/keep-network/hardhat-helpers/blob/main/src/number.ts should
 // be used instead.
 export function to1ePrecision(n: number, precision: number): bigint {
-  const decimalMultiplier = BigInt(10).pow(precision)
-  return BigInt(n).mul(decimalMultiplier)
+  const decimalMultiplier = (BigInt(10) ** precision)
+  return (BigInt(n) * decimalMultiplier)
 }
 
 export function to1e18(n: number): bigint {
-  const decimalMultiplier = BigInt(10).pow(18)
-  return BigInt(n).mul(decimalMultiplier)
+  const decimalMultiplier = (BigInt(10) ** 18n)
+  return (BigInt(n) * decimalMultiplier)
 }
 
 export function toSatoshis(amountInBtc: number): bigint {

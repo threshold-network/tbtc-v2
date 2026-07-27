@@ -8,12 +8,12 @@ const func: DeployFunction = async (hre: HardhatRuntimeEnvironment) => {
 
   deployments.log("setting initial deposit parameters")
 
-  const depositTreasuryFeeDivisor = ethers.BigNumber.from("0")
+  const depositTreasuryFeeDivisor = ethers.toBigInt("0")
 
   // We set the deposit reveal ahead period to 8 months and two weeks, assuming
   // 1 month = 30 days. That gives 254 days which translates to
   // 254 * 24 * 60 * 60 = 21945600 seconds
-  const depositRevealAheadPeriod = ethers.BigNumber.from("21945600")
+  const depositRevealAheadPeriod = ethers.toBigInt("21945600")
 
   // Fetch the current values of other deposit parameters to keep them unchanged.
   const depositParameters = await read("Bridge", "depositParameters")

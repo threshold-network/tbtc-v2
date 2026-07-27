@@ -1,4 +1,4 @@
-import { helpers, waffle, ethers } from "hardhat"
+import { helpers, ethers } from "hardhat"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { expect } from "chai"
 import {Contract, ContractTransactionResponse} from "ethers"
@@ -45,7 +45,7 @@ describe("RebateStaking", () => {
 
     await bridgeGovernance
       .connect(governance)
-      .setRebateStaking(rebateStaking.address)
+      .setRebateStaking(rebateStaking.target)
   })
 
   describe("updateParameters", () => {
@@ -56,9 +56,9 @@ describe("RebateStaking", () => {
     before(async () => {
       await createSnapshot()
 
-      rollingWindow = (await rebateStaking.rollingWindow()).toNumber() * 2
-      unstakingPeriod = (await rebateStaking.unstakingPeriod()).toNumber() * 2
-      rebatePerToken = (await rebateStaking.rebatePerToken()).toNumber() * 2
+      rollingWindow = Number((await rebateStaking.rollingWindow())) * 2
+      unstakingPeriod = Number((await rebateStaking.unstakingPeriod())) * 2
+      rebatePerToken = Number((await rebateStaking.rebatePerToken())) * 2
     })
 
     after(async () => {
@@ -202,7 +202,7 @@ describe("RebateStaking", () => {
       await createSnapshot()
 
       await t.connect(deployer).mint(thirdParty.address, stakeAmount)
-      await t.connect(thirdParty).approve(rebateStaking.address, stakeAmount)
+      await t.connect(thirdParty).approve(rebateStaking.target, stakeAmount)
       await rebateStaking.connect(thirdParty).stake(stakeAmount)
     })
 
@@ -223,7 +223,7 @@ describe("RebateStaking", () => {
         await t.connect(deployer).mint(governance.address, defaultStakeAmount)
         await t
           .connect(governance)
-          .approve(rebateStaking.address, defaultStakeAmount)
+          .approve(rebateStaking.target, defaultStakeAmount)
         await rebateStaking.connect(governance).stake(defaultStakeAmount)
       })
 
@@ -244,7 +244,7 @@ describe("RebateStaking", () => {
         await t.connect(deployer).mint(governance.address, defaultStakeAmount)
         await t
           .connect(governance)
-          .approve(rebateStaking.address, defaultStakeAmount)
+          .approve(rebateStaking.target, defaultStakeAmount)
         await rebateStaking.connect(governance).stake(defaultStakeAmount)
         await rebateStaking.connect(governance).setDelegatee(deployer.address)
       })
@@ -409,7 +409,7 @@ describe("RebateStaking", () => {
           await t.connect(deployer).mint(thirdParty.address, stakeAmount)
           await t
             .connect(thirdParty)
-            .approve(rebateStaking.address, stakeAmount)
+            .approve(rebateStaking.target, stakeAmount)
           await rebateStaking.connect(thirdParty).stake(stakeAmount)
         })
 
@@ -510,7 +510,7 @@ describe("RebateStaking", () => {
             ).to.be.equal(rebateCap)
             expect(
               await rebateStaking.getAvailableRebate(thirdParty.address)
-            ).to.be.equal(rebateCap.sub(treasuryFee))
+            ).to.be.equal((rebateCap - treasuryFee))
           })
 
           it("should add rebate to the array", async () => {
@@ -535,8 +535,8 @@ describe("RebateStaking", () => {
         context(
           "when user has sufficient stake to cover only part of fees",
           () => {
-            const fee = rebateCap.sub(treasuryFee.div(3))
-            const expectedRebate = rebateCap.sub(fee)
+            const fee = (rebateCap - (treasuryFee / 3n))
+            const expectedRebate = (rebateCap - fee)
 
             before(async () => {
               await createSnapshot()
@@ -552,7 +552,7 @@ describe("RebateStaking", () => {
 
             it("should return decreased fees", async () => {
               expect(await bridge.lastTreasuryFee()).to.be.equal(
-                treasuryFee.sub(expectedRebate)
+                (treasuryFee - expectedRebate)
               )
             })
 
@@ -591,14 +591,14 @@ describe("RebateStaking", () => {
         )
 
         context("when user waits rolling window to shift", () => {
-          const fee1 = rebateCap.div(3)
-          const fee2 = rebateCap.mul(2).div(3)
+          const fee1 = (rebateCap / 3n)
+          const fee2 = ((rebateCap * 2n) / 3n)
 
           before(async () => {
             await createSnapshot()
-            const rollingWindow = (
+            const rollingWindow = Number((
               await rebateStaking.rollingWindow()
-            ).toNumber()
+            ))
 
             await bridge.applyForRebate(thirdParty.address, fee1)
 
@@ -625,7 +625,7 @@ describe("RebateStaking", () => {
             ).to.be.equal(rebateCap)
             expect(
               await rebateStaking.getAvailableRebate(thirdParty.address)
-            ).to.be.equal(rebateCap.sub(fee2).sub(treasuryFee))
+            ).to.be.equal(((rebateCap - fee2) - treasuryFee))
           })
 
           it("should add rebate to the array", async () => {
@@ -667,7 +667,7 @@ describe("RebateStaking", () => {
           it("should update available rebate for user", async () => {
             expect(
               await rebateStaking.getAvailableRebate(thirdParty.address)
-            ).to.be.equal(rebateCap.sub(treasuryFee))
+            ).to.be.equal((rebateCap - treasuryFee))
           })
 
           it("should add rebate to the array", async () => {
@@ -702,7 +702,7 @@ describe("RebateStaking", () => {
             await t.connect(deployer).mint(deployer.address, stakeAmount)
             await t
               .connect(deployer)
-              .approve(rebateStaking.address, stakeAmount)
+              .approve(rebateStaking.target, stakeAmount)
             await rebateStaking.connect(deployer).stake(stakeAmount)
 
             tx = await bridge.applyForRebate(deployer.address, treasuryFee)
@@ -719,7 +719,7 @@ describe("RebateStaking", () => {
           it("should update available rebate for user", async () => {
             expect(
               await rebateStaking.getAvailableRebate(deployer.address)
-            ).to.be.equal(rebateCap.sub(treasuryFee))
+            ).to.be.equal((rebateCap - treasuryFee))
           })
 
           it("should add rebate to the array", async () => {
@@ -804,7 +804,7 @@ describe("RebateStaking", () => {
           await t.connect(deployer).mint(thirdParty.address, stakeAmount)
           await t
             .connect(thirdParty)
-            .approve(rebateStaking.address, stakeAmount)
+            .approve(rebateStaking.target, stakeAmount)
           await rebateStaking.connect(thirdParty).stake(stakeAmount)
         })
 
@@ -859,7 +859,7 @@ describe("RebateStaking", () => {
               ).to.be.equal(rebateCap)
               expect(
                 await rebateStaking.getAvailableRebate(thirdParty.address)
-              ).to.be.equal(rebateCap.sub(treasuryFee.mul(3)))
+              ).to.be.equal((rebateCap - (treasuryFee * 3n)))
               expect(
                 await rebateStaking.getRebateLength(thirdParty.address)
               ).to.be.equal(3)
@@ -872,9 +872,9 @@ describe("RebateStaking", () => {
               before(async () => {
                 await createSnapshot()
 
-                const rollingWindow = (
+                const rollingWindow = Number((
                   await rebateStaking.rollingWindow()
-                ).toNumber()
+                ))
 
                 await bridge.applyForRebate(thirdParty.address, treasuryFee)
                 const timestamp = await lastBlockTime()
@@ -895,7 +895,7 @@ describe("RebateStaking", () => {
                 ).to.be.equal(rebateCap)
                 expect(
                   await rebateStaking.getAvailableRebate(thirdParty.address)
-                ).to.be.equal(rebateCap.sub(treasuryFee.mul(2)))
+                ).to.be.equal((rebateCap - (treasuryFee * 2n)))
                 expect(
                   await rebateStaking.getRebateLength(thirdParty.address)
                 ).to.be.equal(3)
@@ -927,7 +927,7 @@ describe("RebateStaking", () => {
               ).to.be.equal(rebateCap)
               expect(
                 await rebateStaking.getAvailableRebate(thirdParty.address)
-              ).to.be.equal(rebateCap.sub(treasuryFee.mul(2)))
+              ).to.be.equal((rebateCap - (treasuryFee * 2n)))
             })
 
             it("should delete rebate from the array", async () => {
@@ -976,7 +976,7 @@ describe("RebateStaking", () => {
               ).to.be.equal(rebateCap)
               expect(
                 await rebateStaking.getAvailableRebate(thirdParty.address)
-              ).to.be.equal(rebateCap.sub(treasuryFee.mul(2)))
+              ).to.be.equal((rebateCap - (treasuryFee * 2n)))
             })
 
             it("should delete rebate from the array", async () => {
@@ -1028,7 +1028,7 @@ describe("RebateStaking", () => {
         await createSnapshot()
 
         await t.connect(deployer).mint(thirdParty.address, stakeAmount)
-        await t.connect(thirdParty).approve(rebateStaking.address, stakeAmount)
+        await t.connect(thirdParty).approve(rebateStaking.target, stakeAmount)
         tx = await rebateStaking.connect(thirdParty).stake(stakeAmount)
       })
 
@@ -1038,7 +1038,7 @@ describe("RebateStaking", () => {
 
       it("should transfer tokens to the staking contract", async () => {
         expect(await t.balanceOf(thirdParty.address)).to.be.equal(0)
-        expect(await t.balanceOf(rebateStaking.address)).to.be.equal(
+        expect(await t.balanceOf(rebateStaking.target)).to.be.equal(
           stakeAmount
         )
       })
@@ -1063,9 +1063,9 @@ describe("RebateStaking", () => {
     })
 
     context("when user tops-up stake", () => {
-      const stakeAmount1 = defaultStakeAmount.mul(10)
+      const stakeAmount1 = (defaultStakeAmount * 10n)
       const stakeAmount2 = to1e18(400000000)
-      const stakeAmount = stakeAmount1.add(stakeAmount2)
+      const stakeAmount = (stakeAmount1 + stakeAmount2)
       const rebateCap = to1e18(14)
       let tx: ContractTransactionResponse
 
@@ -1073,7 +1073,7 @@ describe("RebateStaking", () => {
         await createSnapshot()
 
         await t.connect(deployer).mint(thirdParty.address, stakeAmount)
-        await t.connect(thirdParty).approve(rebateStaking.address, stakeAmount)
+        await t.connect(thirdParty).approve(rebateStaking.target, stakeAmount)
         await rebateStaking.connect(thirdParty).stake(stakeAmount1)
         await rebateStaking.connect(thirdParty).setDelegatee(deployer.address)
 
@@ -1086,7 +1086,7 @@ describe("RebateStaking", () => {
 
       it("should transfer tokens to the staking contract", async () => {
         expect(await t.balanceOf(thirdParty.address)).to.be.equal(0)
-        expect(await t.balanceOf(rebateStaking.address)).to.be.equal(
+        expect(await t.balanceOf(rebateStaking.target)).to.be.equal(
           stakeAmount
         )
       })
@@ -1128,9 +1128,9 @@ describe("RebateStaking", () => {
         await createSnapshot()
 
         await t.connect(deployer).mint(deployer.address, stakeAmount)
-        await t.connect(deployer).approve(rebateStaking.address, stakeAmount)
+        await t.connect(deployer).approve(rebateStaking.target, stakeAmount)
         await t.connect(deployer).mint(thirdParty.address, stakeAmount)
-        await t.connect(thirdParty).approve(rebateStaking.address, stakeAmount)
+        await t.connect(thirdParty).approve(rebateStaking.target, stakeAmount)
         await rebateStaking.connect(deployer).stake(stakeAmount)
         await rebateStaking.connect(deployer).setDelegatee(thirdParty.address)
 
@@ -1168,7 +1168,7 @@ describe("RebateStaking", () => {
   })
 
   describe("startUnstaking", () => {
-    const stakeAmount = defaultStakeAmount.mul(10)
+    const stakeAmount = (defaultStakeAmount * 10n)
 
     before(async () => {
       await createSnapshot()
@@ -1190,7 +1190,7 @@ describe("RebateStaking", () => {
       before(async () => {
         await createSnapshot()
         await t.connect(deployer).mint(thirdParty.address, stakeAmount)
-        await t.connect(thirdParty).approve(rebateStaking.address, stakeAmount)
+        await t.connect(thirdParty).approve(rebateStaking.target, stakeAmount)
         await rebateStaking.connect(thirdParty).stake(stakeAmount)
       })
 
@@ -1200,7 +1200,7 @@ describe("RebateStaking", () => {
 
       it("should revert", async () => {
         await expect(
-          rebateStaking.connect(governance).startUnstaking(stakeAmount.add(1))
+          rebateStaking.connect(governance).startUnstaking((stakeAmount + 1n))
         ).to.be.revertedWith("AmountTooBig")
       })
     })
@@ -1217,7 +1217,7 @@ describe("RebateStaking", () => {
       before(async () => {
         await createSnapshot()
         await t.connect(deployer).mint(thirdParty.address, stakeAmount)
-        await t.connect(thirdParty).approve(rebateStaking.address, stakeAmount)
+        await t.connect(thirdParty).approve(rebateStaking.target, stakeAmount)
         await rebateStaking.connect(thirdParty).stake(stakeAmount)
         await rebateStaking.connect(thirdParty).startUnstaking(stakeAmount)
       })
@@ -1242,7 +1242,7 @@ describe("RebateStaking", () => {
         await createSnapshot()
 
         await t.connect(deployer).mint(thirdParty.address, stakeAmount)
-        await t.connect(thirdParty).approve(rebateStaking.address, stakeAmount)
+        await t.connect(thirdParty).approve(rebateStaking.target, stakeAmount)
         await rebateStaking.connect(thirdParty).stake(stakeAmount)
         tx = await rebateStaking
           .connect(thirdParty)
@@ -1255,7 +1255,7 @@ describe("RebateStaking", () => {
 
       it("should keep tokens at the staking contract before finalization", async () => {
         expect(await t.balanceOf(thirdParty.address)).to.be.equal(0)
-        expect(await t.balanceOf(rebateStaking.address)).to.be.equal(
+        expect(await t.balanceOf(rebateStaking.target)).to.be.equal(
           stakeAmount
         )
       })
@@ -1318,7 +1318,7 @@ describe("RebateStaking", () => {
       before(async () => {
         await createSnapshot()
         await t.connect(deployer).mint(thirdParty.address, stakeAmount)
-        await t.connect(thirdParty).approve(rebateStaking.address, stakeAmount)
+        await t.connect(thirdParty).approve(rebateStaking.target, stakeAmount)
         await rebateStaking.connect(thirdParty).stake(stakeAmount)
         await rebateStaking.connect(thirdParty).startUnstaking(stakeAmount)
       })
@@ -1337,9 +1337,9 @@ describe("RebateStaking", () => {
     })
 
     context("when user finishes partial unstaking process", () => {
-      const stakeAmount = defaultStakeAmount.mul(10)
+      const stakeAmount = (defaultStakeAmount * 10n)
       const unstakeAmount = to1e18(300000000)
-      const expectedStake = stakeAmount.sub(unstakeAmount)
+      const expectedStake = (stakeAmount - unstakeAmount)
       const rebateCap = to1e18(7)
       let tx: ContractTransactionResponse
 
@@ -1347,7 +1347,7 @@ describe("RebateStaking", () => {
         await createSnapshot()
 
         await t.connect(deployer).mint(thirdParty.address, stakeAmount)
-        await t.connect(thirdParty).approve(rebateStaking.address, stakeAmount)
+        await t.connect(thirdParty).approve(rebateStaking.target, stakeAmount)
         await rebateStaking.connect(thirdParty).stake(stakeAmount)
         await rebateStaking.connect(thirdParty).startUnstaking(unstakeAmount)
         await rebateStaking.connect(thirdParty).setDelegatee(deployer.address)
@@ -1366,7 +1366,7 @@ describe("RebateStaking", () => {
       it("should transfer tokens to the user", async () => {
         expect(await t.balanceOf(thirdParty.address)).to.be.equal(0)
         expect(await t.balanceOf(governance.address)).to.be.equal(unstakeAmount)
-        expect(await t.balanceOf(rebateStaking.address)).to.be.equal(
+        expect(await t.balanceOf(rebateStaking.target)).to.be.equal(
           expectedStake
         )
       })
@@ -1404,14 +1404,14 @@ describe("RebateStaking", () => {
     })
 
     context("when user finishes full unstaking process", () => {
-      const stakeAmount = defaultStakeAmount.mul(10)
+      const stakeAmount = (defaultStakeAmount * 10n)
       let tx: ContractTransactionResponse
 
       before(async () => {
         await createSnapshot()
 
         await t.connect(deployer).mint(thirdParty.address, stakeAmount)
-        await t.connect(thirdParty).approve(rebateStaking.address, stakeAmount)
+        await t.connect(thirdParty).approve(rebateStaking.target, stakeAmount)
         await rebateStaking.connect(thirdParty).stake(stakeAmount)
         await rebateStaking.connect(thirdParty).startUnstaking(stakeAmount)
         await rebateStaking.connect(thirdParty).setDelegatee(deployer.address)
@@ -1430,7 +1430,7 @@ describe("RebateStaking", () => {
       it("should transfer tokens to the user", async () => {
         expect(await t.balanceOf(thirdParty.address)).to.be.equal(0)
         expect(await t.balanceOf(governance.address)).to.be.equal(stakeAmount)
-        expect(await t.balanceOf(rebateStaking.address)).to.be.equal(0)
+        expect(await t.balanceOf(rebateStaking.target)).to.be.equal(0)
       })
 
       it("should reset unstaking amount", async () => {
@@ -1471,7 +1471,7 @@ describe("RebateStaking", () => {
     before(async () => {
       await createSnapshot()
       await t.connect(deployer).mint(thirdParty.address, stakeAmount)
-      await t.connect(thirdParty).approve(rebateStaking.address, stakeAmount)
+      await t.connect(thirdParty).approve(rebateStaking.target, stakeAmount)
       await rebateStaking.connect(thirdParty).stake(stakeAmount)
     })
 

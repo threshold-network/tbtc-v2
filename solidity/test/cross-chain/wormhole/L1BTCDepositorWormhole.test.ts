@@ -1,4 +1,5 @@
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
+import { loadFixture } from "@nomicfoundation/hardhat-network-helpers"
 import { randomBytes } from "crypto"
 import { expect } from "chai"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
@@ -47,7 +48,7 @@ function assertVaaTransferBatchArg(
   const v = batch[0] as [unknown, unknown, unknown]
   expect(Number(v[0])).to.equal(expected.emitterChainId)
   expect(v[1]).to.equal(expected.emitterAddress)
-  expect(BigInt(v[2]).eq(expected.sequence)).to.be.true
+  expect((BigInt(v[2]) === expected.sequence)).to.be.true
 }
 
 describe("L1BTCDepositorWormhole", () => {
@@ -68,7 +69,7 @@ describe("L1BTCDepositorWormhole", () => {
       address: tbtcVaultAddress,
     })
     // Attach the tbtcToken mock to the tbtcVault mock.
-    await tbtcVault.tbtcToken.returns(tbtcToken.address)
+    await tbtcVault.tbtcToken.returns(tbtcToken.target)
 
     const wormhole = await createMock<IWormhole>("IWormhole")
     await wormhole.chainId.returns(l1ChainId)
@@ -159,7 +160,7 @@ describe("L1BTCDepositorWormhole", () => {
       l1BtcDepositor,
       reimbursementPool,
       l2BtcDepositor,
-    } = await waffle.loadFixture(contractsFixture))
+    } = await loadFixture(contractsFixture))
   })
 
   describe("attachL2BtcDepositor", () => {
@@ -629,7 +630,7 @@ describe("L1BTCDepositorWormhole", () => {
                 initializeDepositFixture.depositKey
               )
               expect(gr.receiver).to.equal(ethers.ZeroAddress)
-              expect(BigInt(gr.gasSpent).eq(0)).to.be.true
+              expect((BigInt(gr.gasSpent) === 0n)).to.be.true
             })
           })
 
@@ -734,7 +735,7 @@ describe("L1BTCDepositorWormhole", () => {
                 // the resulting value won't be realistic. We only check that
                 // the gas spent is greater than zero which means the deferred
                 // reimbursement has been recorded properly.
-                expect(gasReimbursement.gasSpent.toNumber()).to.be.greaterThan(
+                expect(Number(gasReimbursement.gasSpent)).to.be.greaterThan(
                   0
                 )
               })
@@ -834,7 +835,7 @@ describe("L1BTCDepositorWormhole", () => {
                   initializeDepositFixture.depositKey
                 )
                 expect(gr.receiver).to.equal(ethers.ZeroAddress)
-                expect(BigInt(gr.gasSpent).eq(0)).to.be.true
+                expect((BigInt(gr.gasSpent) === 0n)).to.be.true
               })
             }
           )
@@ -1169,7 +1170,7 @@ describe("L1BTCDepositorWormhole", () => {
                 await bridge.deposits
                   .whenCalledWith(initializeDepositFixture.depositKey)
                   .returns({
-                    depositor: l1BtcDepositor.address,
+                    depositor: l1BtcDepositor.target,
                     amount: depositAmount,
                     revealedAt,
                     vault: initializeDepositFixture.reveal.vault,
@@ -1233,7 +1234,7 @@ describe("L1BTCDepositorWormhole", () => {
                     initializeDepositFixture.depositKey,
                     initializeDepositFixture.destinationChainDepositOwner.toLowerCase(),
                     relayer.address,
-                    depositAmount.mul(satoshiMultiplier),
+                    (depositAmount * satoshiMultiplier),
                     expectedTbtcAmount
                   )
               })
@@ -1241,7 +1242,7 @@ describe("L1BTCDepositorWormhole", () => {
               it("should increase TBTC allowance for Wormhole Token Bridge", async () => {
                 expect(
                   await tbtcToken.allowance(
-                    l1BtcDepositor.address,
+                    l1BtcDepositor.target,
                     wormholeTokenBridge.address
                   )
                 ).to.equal(expectedTbtcAmount)
@@ -1260,7 +1261,7 @@ describe("L1BTCDepositorWormhole", () => {
                 const call =
                   await wormholeTokenBridge.transferTokensWithPayload.getCall(0)
                 expect(call.value).to.equal(messageFee)
-                expect(call.args[0]).to.equal(tbtcToken.address)
+                expect(call.args[0]).to.equal(tbtcToken.target)
                 expect(call.args[1]).to.equal(expectedTbtcAmount)
                 expect(call.args[2]).to.equal(await l1BtcDepositor.l2ChainId())
                 expect(call.args[3]).to.equal(
@@ -1369,7 +1370,7 @@ describe("L1BTCDepositorWormhole", () => {
                   await bridge.deposits
                     .whenCalledWith(initializeDepositFixture.depositKey)
                     .returns({
-                      depositor: l1BtcDepositor.address,
+                      depositor: l1BtcDepositor.target,
                       amount: depositAmount,
                       revealedAt,
                       vault: initializeDepositFixture.reveal.vault,
@@ -1436,7 +1437,7 @@ describe("L1BTCDepositorWormhole", () => {
                       initializeDepositFixture.depositKey,
                       initializeDepositFixture.destinationChainDepositOwner.toLowerCase(),
                       relayer.address,
-                      depositAmount.mul(satoshiMultiplier),
+                      (depositAmount * satoshiMultiplier),
                       expectedTbtcAmount
                     )
                 })
@@ -1444,7 +1445,7 @@ describe("L1BTCDepositorWormhole", () => {
                 it("should increase TBTC allowance for Wormhole Token Bridge", async () => {
                   expect(
                     await tbtcToken.allowance(
-                      l1BtcDepositor.address,
+                      l1BtcDepositor.target,
                       wormholeTokenBridge.address
                     )
                   ).to.equal(expectedTbtcAmount)
@@ -1465,7 +1466,7 @@ describe("L1BTCDepositorWormhole", () => {
                       0
                     )
                   expect(call.value).to.equal(messageFee)
-                  expect(call.args[0]).to.equal(tbtcToken.address)
+                  expect(call.args[0]).to.equal(tbtcToken.target)
                   expect(call.args[1]).to.equal(expectedTbtcAmount)
                   expect(call.args[2]).to.equal(
                     await l1BtcDepositor.l2ChainId()
@@ -1531,13 +1532,11 @@ describe("L1BTCDepositorWormhole", () => {
                   // message value attached to the finalizeDeposit call which
                   // is a good indicator that the reimbursement has been
                   // calculated properly.
-                  const msgValueOffset = BigInt(
+                  const msgValueOffset = ((BigInt(
                     messageFee + deliveryCost
-                  )
-                    .div(reimbursementPoolMaxGasPrice)
-                    .sub(reimbursementPoolStaticGas)
+                  ) / reimbursementPoolMaxGasPrice) - reimbursementPoolStaticGas)
                   expect(
-                    BigInt(call2.args[0]).toNumber()
+                    Number(BigInt(call2.args[0]))
                   ).to.be.greaterThan(msgValueOffset.toNumber())
                   expect(call2.args[1]).to.equal(relayer.address)
                 })
@@ -1608,7 +1607,7 @@ describe("L1BTCDepositorWormhole", () => {
                   await bridge.deposits
                     .whenCalledWith(initializeDepositFixture.depositKey)
                     .returns({
-                      depositor: l1BtcDepositor.address,
+                      depositor: l1BtcDepositor.target,
                       amount: depositAmount,
                       revealedAt,
                       vault: initializeDepositFixture.reveal.vault,
@@ -1680,7 +1679,7 @@ describe("L1BTCDepositorWormhole", () => {
                       initializeDepositFixture.depositKey,
                       initializeDepositFixture.destinationChainDepositOwner.toLowerCase(),
                       relayer.address,
-                      depositAmount.mul(satoshiMultiplier),
+                      (depositAmount * satoshiMultiplier),
                       expectedTbtcAmount
                     )
                 })
@@ -1688,7 +1687,7 @@ describe("L1BTCDepositorWormhole", () => {
                 it("should increase TBTC allowance for Wormhole Token Bridge", async () => {
                   expect(
                     await tbtcToken.allowance(
-                      l1BtcDepositor.address,
+                      l1BtcDepositor.target,
                       wormholeTokenBridge.address
                     )
                   ).to.equal(expectedTbtcAmount)
@@ -1709,7 +1708,7 @@ describe("L1BTCDepositorWormhole", () => {
                       0
                     )
                   expect(call.value).to.equal(messageFee)
-                  expect(call.args[0]).to.equal(tbtcToken.address)
+                  expect(call.args[0]).to.equal(tbtcToken.target)
                   expect(call.args[1]).to.equal(expectedTbtcAmount)
                   expect(call.args[2]).to.equal(
                     await l1BtcDepositor.l2ChainId()
@@ -1884,7 +1883,7 @@ describe("L1BTCDepositorWormhole", () => {
       await bridge.deposits
         .whenCalledWith(initializeDepositFixture.depositKey)
         .returns({
-          depositor: l1BtcDepositor.address,
+          depositor: l1BtcDepositor.target,
           amount: depositAmount,
           revealedAt,
           vault: initializeDepositFixture.reveal.vault,
@@ -1908,7 +1907,7 @@ describe("L1BTCDepositorWormhole", () => {
       await wormholeRelayer.sendVaasToEvm.returns(999)
 
       // 7) Mint enough tBTC to cover the reimbursed amount.
-      await tbtcToken.mint(l1BtcDepositor.address, expectedTbtcAmountReimbursed)
+      await tbtcToken.mint(l1BtcDepositor.target, expectedTbtcAmountReimbursed)
 
       // 8) Now finalize with enough payment
       const tx = await l1BtcDepositor
@@ -1924,7 +1923,7 @@ describe("L1BTCDepositorWormhole", () => {
           initializeDepositFixture.depositKey,
           initializeDepositFixture.destinationChainDepositOwner.toLowerCase(),
           relayer.address,
-          depositAmount.mul(satoshiMultiplier),
+          (depositAmount * satoshiMultiplier),
           expectedTbtcAmountReimbursed
         )
     })
@@ -1957,7 +1956,7 @@ describe("L1BTCDepositorWormhole", () => {
       await bridge.deposits
         .whenCalledWith(initializeDepositFixture.depositKey)
         .returns({
-          depositor: l1BtcDepositor.address,
+          depositor: l1BtcDepositor.target,
           amount: depositAmount,
           revealedAt,
           vault: initializeDepositFixture.reveal.vault,
@@ -1982,7 +1981,7 @@ describe("L1BTCDepositorWormhole", () => {
 
       // 7) Mint only the base tBTC amount, simulating a contract balance that
       // cannot cover the extra depositTxMaxFee reimbursement.
-      await tbtcToken.mint(l1BtcDepositor.address, expectedTbtcAmountBase)
+      await tbtcToken.mint(l1BtcDepositor.target, expectedTbtcAmountBase)
 
       // 8) Now finalize with enough payment
       const tx = await l1BtcDepositor
@@ -1991,7 +1990,7 @@ describe("L1BTCDepositorWormhole", () => {
           value: messageFee + deliveryCost,
         })
 
-      const txMaxFee = depositTxMaxFee.mul(satoshiMultiplier)
+      const txMaxFee = (depositTxMaxFee * satoshiMultiplier)
       await expect(tx)
         .to.emit(l1BtcDepositor, "DepositTxMaxFeeReimbursementSkipped")
         .withArgs(
@@ -2006,7 +2005,7 @@ describe("L1BTCDepositorWormhole", () => {
           initializeDepositFixture.depositKey,
           initializeDepositFixture.destinationChainDepositOwner.toLowerCase(),
           relayer.address,
-          depositAmount.mul(satoshiMultiplier),
+          (depositAmount * satoshiMultiplier),
           expectedTbtcAmountBase
         )
     })

@@ -121,7 +121,7 @@ describe("SepoliaLightRelay", () => {
           expect(
             await relay.isValidPreRetargetTargetPublic(
               SOME_TARGET,
-              SOME_TARGET.add(1)
+              (SOME_TARGET + 1n)
             )
           ).to.be.false
         })
@@ -156,7 +156,7 @@ describe("SepoliaLightRelay", () => {
           expect(
             await relay.isValidPostRetargetTargetPublic(
               SOME_TARGET,
-              SOME_TARGET.add(1)
+              (SOME_TARGET + 1n)
             )
           ).to.be.false
         })

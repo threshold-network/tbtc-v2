@@ -61,9 +61,9 @@ export async function performEcdsaDkg(
 
   await helpers.time.mineBlocksTo(
     dkgResultSubmissionTx.blockNumber +
-      (
+      Number((
         await walletRegistry.dkgParameters()
-      ).resultChallengePeriodLength.toNumber()
+      ).resultChallengePeriodLength)
   )
 
   const approveDkgResultTx = await walletRegistry
@@ -143,7 +143,7 @@ export async function produceOperatorInactivityClaim(
 ): Promise<ClaimStruct> {
   const { ethers } = hre
   const messageHash = ethers.keccak256(
-    ethers.defaultAbiCoder.encode(
+    ethers.AbiCoder.defaultAbiCoder().encode(
       ["uint256", "uint256", "bytes", "uint8[]", "bool"],
       [
         hardhatNetworkId,
@@ -168,7 +168,7 @@ export async function produceOperatorInactivityClaim(
     signingMembersIndices.push(signerIndex)
 
     const signature = await signers[i].signer.signMessage(
-      ethers.arrayify(messageHash)
+      ethers.getBytes(messageHash)
     )
 
     signatures.push(signature)
@@ -178,7 +178,7 @@ export async function produceOperatorInactivityClaim(
     walletID,
     inactiveMembersIndices,
     heartbeatFailed,
-    signatures: ethers.hexConcat(signatures),
+    signatures: ethers.concat(signatures),
     signingMembersIndices,
   }
 }
@@ -267,7 +267,7 @@ async function signDkgResult(
   const numberOfSignatures: number = signers.length / 2 + 1
 
   const resultHash = ethers.keccak256(
-    ethers.defaultAbiCoder.encode(
+    ethers.AbiCoder.defaultAbiCoder().encode(
       ["uint256", "bytes", "uint8[]", "uint256"],
       [hardhatNetworkId, groupPublicKey, misbehavedMembersIndices, startBlock]
     )
@@ -290,13 +290,13 @@ async function signDkgResult(
     signingMembersIndices.push(signerIndex)
 
     const signature = await ethersSigner.signMessage(
-      ethers.arrayify(resultHash)
+      ethers.getBytes(resultHash)
     )
 
     signatures.push(signature)
   }
 
-  const signaturesBytes: string = ethers.hexConcat(signatures)
+  const signaturesBytes: string = ethers.concat(signatures)
 
   const dkgResult: DkgResult = {
     submitterMemberIndex: submitterIndex,
@@ -327,11 +327,11 @@ function hashDKGMembers(
     }
 
     return ethers.keccak256(
-      ethers.defaultAbiCoder.encode(["uint32[]"], [activeDkgMembers])
+      ethers.AbiCoder.defaultAbiCoder().encode(["uint32[]"], [activeDkgMembers])
     )
   }
 
   return ethers.keccak256(
-    ethers.defaultAbiCoder.encode(["uint32[]"], [members])
+    ethers.AbiCoder.defaultAbiCoder().encode(["uint32[]"], [members])
   )
 }

@@ -41,7 +41,7 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
       "contracts/test/MockTBTCVault.sol:MockTBTCVault"
     )
     tbtcVault = (await MockTBTCVaultFactory.deploy()) as MockTBTCVault
-    await tbtcVault.setTbtcToken(tbtcToken.address)
+    await tbtcVault.setTbtcToken(tbtcToken.target)
 
     // Deploy MockNttManagerWithExecutor
     const MockNttManagerWithExecutorFactory = await ethers.getContractFactory(
@@ -63,15 +63,15 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
     // Deploy proxy
     const ProxyFactory = await ethers.getContractFactory("ERC1967Proxy")
     const initData = depositorImpl.interface.encodeFunctionData("initialize", [
-      bridge.address,
-      tbtcVault.address,
-      nttManagerWithExecutor.address,
-      underlyingNttManager.address,
+      bridge.target,
+      tbtcVault.target,
+      nttManagerWithExecutor.target,
+      underlyingNttManager.target,
     ])
-    const proxy = await ProxyFactory.deploy(depositorImpl.address, initData)
+    const proxy = await ProxyFactory.deploy(depositorImpl.target, initData)
 
     depositor = L1BTCDepositorFactory.attach(
-      proxy.address
+      proxy.target
     ) as L1BTCDepositorNttWithExecutor
 
     // Set up basic configuration
@@ -153,8 +153,8 @@ describe("L1BTCDepositorNttWithExecutor - Advanced Functionality", () => {
 
   describe("Contract Information", () => {
     it("should return correct contract addresses", async () => {
-      expect(await depositor.tbtcVault()).to.equal(tbtcVault.address)
-      expect(await depositor.tbtcToken()).to.equal(tbtcToken.address)
+      expect(await depositor.tbtcVault()).to.equal(tbtcVault.target)
+      expect(await depositor.tbtcToken()).to.equal(tbtcToken.target)
     })
 
     it("should have proper chain support configuration", async () => {

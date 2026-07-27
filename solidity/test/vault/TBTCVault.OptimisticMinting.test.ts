@@ -75,7 +75,7 @@ describe("TBTCVault - OptimisticMinting", () => {
 
     // TBTC token ownership transfer is not performed in deployment scripts.
     // Check TransferTBTCOwnership deployment step for more information.
-    await tbtc.connect(deployer).transferOwnership(tbtcVault.address)
+    await tbtc.connect(deployer).transferOwnership(tbtcVault.target)
 
     // Set up test data needed to reveal a deposit via
     // bridge.connect(depositor).revealDeposit(fundingTx, depositRevealInfo)
@@ -91,7 +91,7 @@ describe("TBTCVault - OptimisticMinting", () => {
     )
     fundingTx = bitcoinTestData.deposits[0].fundingTx
     depositRevealInfo = bitcoinTestData.deposits[0].reveal
-    depositRevealInfo.vault = tbtcVault.address
+    depositRevealInfo.vault = tbtcVault.target
 
     // Set the deposit dust threshold to 0.0001 BTC, i.e. 100x smaller than
     // the initial value in the Bridge in order to save test Bitcoins.
@@ -116,7 +116,7 @@ describe("TBTCVault - OptimisticMinting", () => {
 
     // Calculate the key of revealed deposit. This value is used in tests so we
     // calculate it once, in the setup.
-    depositKey = ethers.solidityKeccak256(
+    depositKey = ethers.solidityPackedKeccak256(
       ["bytes32", "uint32"],
       [fundingTxHash, fundingOutputIndex]
     )
@@ -231,7 +231,7 @@ describe("TBTCVault - OptimisticMinting", () => {
                 sweepTx,
                 sweepProof,
                 mainUtxo,
-                tbtcVault.address
+                tbtcVault.target
               )
           })
 
@@ -457,7 +457,7 @@ describe("TBTCVault - OptimisticMinting", () => {
               sweepTx,
               sweepProof,
               mainUtxo,
-              tbtcVault.address
+              tbtcVault.target
             )
         })
 
@@ -1664,7 +1664,7 @@ describe("TBTCVault - OptimisticMinting", () => {
               sweepTx,
               sweepProof,
               mainUtxo,
-              tbtcVault.address
+              tbtcVault.target
             )
         })
 
@@ -1738,12 +1738,12 @@ describe("TBTCVault - OptimisticMinting", () => {
         // eslint-disable-next-line @typescript-eslint/no-shadow
         const tbtcVault = await TBTCVaultFactory.connect(deployer).deploy(
           mockBank.address,
-          tbtc.address,
+          tbtc.target,
           mockBridge.address
         )
 
         await mockBank.connect(deployer).updateBridge(mockBridge.address)
-        await tbtc.connect(deployer).transferOwnership(tbtcVault.address)
+        await tbtc.connect(deployer).transferOwnership(tbtcVault.target)
         await tbtcVault.connect(deployer).addMinter(minter.address)
 
         // Fund the `mockBank` account so it's possible to mock sending requests
@@ -1781,7 +1781,7 @@ describe("TBTCVault - OptimisticMinting", () => {
             depositor: depositorAddress,
             amount: 1000,
             revealedAt: await lastBlockTime(),
-            vault: f.tbtcVault.address,
+            vault: f.tbtcVault.target,
             treasuryFee: 10,
             sweptAt: 0,
             extraData: ethers.ZeroHash,
@@ -1790,7 +1790,7 @@ describe("TBTCVault - OptimisticMinting", () => {
             depositor: depositorAddress,
             amount: 2000,
             revealedAt: await lastBlockTime(),
-            vault: f.tbtcVault.address,
+            vault: f.tbtcVault.target,
             treasuryFee: 15,
             sweptAt: 0,
             extraData: ethers.ZeroHash,
@@ -1889,7 +1889,7 @@ describe("TBTCVault - OptimisticMinting", () => {
             depositor: depositorAddress,
             amount: 1000,
             revealedAt: await lastBlockTime(),
-            vault: f.tbtcVault.address,
+            vault: f.tbtcVault.target,
             treasuryFee: 10,
             sweptAt: 0,
             extraData: ethers.ZeroHash,

@@ -40,7 +40,7 @@ describe("L1BTCDepositorNttWithExecutor Simple Tests", () => {
       "contracts/test/MockTBTCVault.sol:MockTBTCVault"
     )
     tbtcVault = (await MockTBTCVaultFactory.deploy()) as MockTBTCVault
-    await tbtcVault.setTbtcToken(tbtcToken.address)
+    await tbtcVault.setTbtcToken(tbtcToken.target)
 
     // Mock NTT managers with simple objects (following working pattern)
     const nttManagerWithExecutor = {
@@ -60,15 +60,15 @@ describe("L1BTCDepositorNttWithExecutor Simple Tests", () => {
     // Deploy proxy
     const ProxyFactory = await ethers.getContractFactory("ERC1967Proxy")
     const initData = depositorImpl.interface.encodeFunctionData("initialize", [
-      bridge.address,
-      tbtcVault.address,
+      bridge.target,
+      tbtcVault.target,
       nttManagerWithExecutor.address,
       underlyingNttManager.address,
     ])
-    const proxy = await ProxyFactory.deploy(depositorImpl.address, initData)
+    const proxy = await ProxyFactory.deploy(depositorImpl.target, initData)
 
     l1BTCDepositor = L1BTCDepositorFactory.attach(
-      proxy.address
+      proxy.target
     ) as L1BTCDepositorNttWithExecutor
 
     // Set up supported chains
@@ -87,19 +87,19 @@ describe("L1BTCDepositorNttWithExecutor Simple Tests", () => {
 
   describe("Basic Contract Deployment", () => {
     it("should deploy successfully", async () => {
-      expect(l1BTCDepositor.address).to.not.equal(ethers.ZeroAddress)
+      expect(l1BTCDepositor.target).to.not.equal(ethers.ZeroAddress)
     })
 
     it("should have correct contract code", async () => {
-      const code = await ethers.provider.getCode(l1BTCDepositor.address)
+      const code = await ethers.provider.getCode(l1BTCDepositor.target)
       expect(code).to.not.equal("0x")
     })
   })
 
   describe("Initialization", () => {
     it("should be properly initialized", async () => {
-      expect(await l1BTCDepositor.bridge()).to.equal(bridge.address)
-      expect(await l1BTCDepositor.tbtcVault()).to.equal(tbtcVault.address)
+      expect(await l1BTCDepositor.bridge()).to.equal(bridge.target)
+      expect(await l1BTCDepositor.tbtcVault()).to.equal(tbtcVault.target)
     })
 
     it("should have correct default parameters", async () => {

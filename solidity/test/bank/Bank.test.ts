@@ -1,4 +1,5 @@
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
+import { loadFixture } from "@nomicfoundation/hardhat-network-helpers"
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers"
 import { expect } from "chai"
 
@@ -47,7 +48,7 @@ describe("Bank", () => {
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ deployer, governance, bridge, thirdParty, bank } =
-      await waffle.loadFixture(fixture))
+      await loadFixture(fixture))
   })
 
   describe("PERMIT_TYPEHASH", () => {
@@ -148,7 +149,7 @@ describe("Bank", () => {
     context("when the recipient is the bank address", () => {
       it("should revert", async () => {
         await expect(
-          bank.connect(spender).transferBalance(bank.address, initialBalance)
+          bank.connect(spender).transferBalance(bank.target, initialBalance)
         ).to.be.revertedWith("Can not transfer to the Bank address")
       })
     })
@@ -158,7 +159,7 @@ describe("Bank", () => {
         await expect(
           bank
             .connect(spender)
-            .transferBalance(recipient, initialBalance.add(1))
+            .transferBalance(recipient, (initialBalance + 1n))
         ).to.be.revertedWith("Transfer amount exceeds balance")
       })
     })
@@ -178,7 +179,7 @@ describe("Bank", () => {
 
       it("should transfer the requested amount", async () => {
         expect(await bank.balanceOf(spender.address)).to.equal(
-          initialBalance.sub(amount)
+          (initialBalance - amount)
         )
         expect(await bank.balanceOf(recipient)).to.equal(amount)
       })
@@ -208,9 +209,9 @@ describe("Bank", () => {
 
         it("should transfer the requested amount", async () => {
           expect(await bank.balanceOf(spender.address)).to.equal(
-            initialBalance.sub(amount1).sub(amount2)
+            ((initialBalance - amount1) - amount2)
           )
-          expect(await bank.balanceOf(recipient)).to.equal(amount1.add(amount2))
+          expect(await bank.balanceOf(recipient)).to.equal((amount1 + amount2))
         })
       }
     )
@@ -544,7 +545,7 @@ describe("Bank", () => {
 
       it("should increase the previous allowance", async () => {
         expect(await bank.allowance(owner.address, spender)).to.equal(
-          toSatoshis(1337).add(amount)
+          (toSatoshis(1337) + amount)
         )
       })
     })
@@ -620,7 +621,7 @@ describe("Bank", () => {
 
       it("should decrease the previous allowance", async () => {
         expect(await bank.allowance(owner.address, spender)).to.equal(
-          approvedAmount.sub(decreaseBy)
+          (approvedAmount - decreaseBy)
         )
       })
     })
@@ -666,7 +667,7 @@ describe("Bank", () => {
         await expect(
           bank
             .connect(spender)
-            .transferBalanceFrom(owner.address, bank.address, approvedBalance)
+            .transferBalanceFrom(owner.address, bank.target, approvedBalance)
         ).to.be.revertedWith("Can not transfer to the Bank address")
       })
     })
@@ -679,14 +680,14 @@ describe("Bank", () => {
             .transferBalanceFrom(
               owner.address,
               recipient,
-              approvedBalance.add(1)
+              (approvedBalance + 1n)
             )
         ).to.be.revertedWith("Transfer amount exceeds allowance")
       })
     })
 
     context("when the owner has not enough balance", () => {
-      const amount = initialBalance.add(1)
+      const amount = (initialBalance + 1n)
 
       before(async () => {
         await createSnapshot()
@@ -727,7 +728,7 @@ describe("Bank", () => {
 
       it("should transfer the requested amount", async () => {
         expect(await bank.balanceOf(owner.address)).to.equal(
-          initialBalance.sub(amount)
+          (initialBalance - amount)
         )
         expect(await bank.balanceOf(recipient)).to.equal(amount)
       })
@@ -740,7 +741,7 @@ describe("Bank", () => {
 
       it("should reduce the spender allowance", async () => {
         expect(await bank.allowance(owner.address, spender.address)).to.equal(
-          approvedBalance.sub(amount)
+          (approvedBalance - amount)
         )
       })
     })
@@ -770,9 +771,9 @@ describe("Bank", () => {
 
         it("should transfer the requested amount", async () => {
           expect(await bank.balanceOf(owner.address)).to.equal(
-            initialBalance.sub(amount1).sub(amount2)
+            ((initialBalance - amount1) - amount2)
           )
-          expect(await bank.balanceOf(recipient)).to.equal(amount1.add(amount2))
+          expect(await bank.balanceOf(recipient)).to.equal((amount1 + amount2))
         })
 
         it("should emit BalanceTransferred events", async () => {
@@ -786,7 +787,7 @@ describe("Bank", () => {
 
         it("should reduce the spender allowance", async () => {
           expect(await bank.allowance(owner.address, spender.address)).to.equal(
-            approvedBalance.sub(amount1).sub(amount2)
+            ((approvedBalance - amount1) - amount2)
           )
         })
       }
@@ -810,7 +811,7 @@ describe("Bank", () => {
 
         it("should transfer the requested amount", async () => {
           expect(await bank.balanceOf(owner.address)).to.equal(
-            initialBalance.sub(amount)
+            (initialBalance - amount)
           )
           expect(await bank.balanceOf(recipient)).to.equal(amount)
         })
@@ -923,14 +924,14 @@ describe("Bank", () => {
       const nonce = await bank.nonces(owner.address)
 
       const approvalDigest = ethers.keccak256(
-        ethers.solidityPack(
+        ethers.solidityPacked(
           ["bytes1", "bytes1", "bytes32", "bytes32"],
           [
             "0x19",
             "0x01",
             domainSeparator,
             ethers.keccak256(
-              ethers.defaultAbiCoder.encode(
+              ethers.AbiCoder.defaultAbiCoder().encode(
                 [
                   "bytes32",
                   "address",
@@ -953,7 +954,7 @@ describe("Bank", () => {
         )
       )
 
-      return ethers.splitSignature(signingKey.signDigest(approvalDigest))
+      return ethers.Signature.from(signingKey.signDigest(approvalDigest))
     }
 
     context("when permission expired", () => {
@@ -1037,7 +1038,7 @@ describe("Bank", () => {
             bank.connect(thirdParty).permit(
               owner.address,
               spender,
-              permittedBalance.add(1), // does not match the signature
+              (permittedBalance + 1n), // does not match the signature
               deadline,
               signature.v,
               signature.r,
@@ -1257,7 +1258,7 @@ describe("Bank", () => {
       context("when increasing balance for the Bank", () => {
         it("should revert", async () => {
           await expect(
-            bank.connect(bridge).increaseBalance(bank.address, amount)
+            bank.connect(bridge).increaseBalance(bank.target, amount)
           ).to.be.revertedWith("Can not increase balance for Bank")
         })
       })
@@ -1325,7 +1326,7 @@ describe("Bank", () => {
             bank
               .connect(bridge)
               .increaseBalances(
-                [recipient1, bank.address, recipient3],
+                [recipient1, bank.target, recipient3],
                 [amount1, amount2, amount3]
               )
           ).to.be.revertedWith("Can not increase balance for Bank")
@@ -1412,7 +1413,7 @@ describe("Bank", () => {
       await tbtc.waitForDeployment()
 
       const Vault = await ethers.getContractFactory("TBTCVault")
-      vault = await Vault.deploy(bank.address, tbtc.address, bridge.address)
+      vault = await Vault.deploy(bank.target, tbtc.address, bridge.address)
       await vault.waitForDeployment()
 
       await tbtc.connect(deployer).transferOwnership(vault.address)
@@ -1531,7 +1532,7 @@ describe("Bank", () => {
 
     it("should decrease caller's balance", async () => {
       expect(await bank.balanceOf(thirdParty.address)).to.equal(
-        initialBalance.sub(amount)
+        (initialBalance - amount)
       )
     })
 
@@ -1544,9 +1545,9 @@ describe("Bank", () => {
 
   describe("DOMAIN_SEPARATOR", () => {
     it("should be keccak256 of EIP712 domain struct", async () => {
-      const { keccak256 } = ethers.utils
-      const { defaultAbiCoder } = ethers.utils
-      const { toUtf8Bytes } = ethers.utils
+      const { keccak256 } = ethers
+      const { defaultAbiCoder } = ethers
+      const { toUtf8Bytes } = ethers
 
       const expected = keccak256(
         defaultAbiCoder.encode(
@@ -1560,7 +1561,7 @@ describe("Bank", () => {
             keccak256(toUtf8Bytes("TBTC Bank")),
             keccak256(toUtf8Bytes("1")),
             hardhatNetworkId,
-            bank.address,
+            bank.target,
           ]
         )
       )
