@@ -190,7 +190,7 @@ describe("WalletProposalValidator", () => {
                   await walletProposalValidator.DEPOSIT_SWEEP_MAX_SIZE()
 
                 // Pick more deposits than allowed.
-                const depositsKeys = new Array(maxSize + 1).fill(
+                const depositsKeys = new Array(maxSize + 1n).fill(
                   createTestDeposit(walletPubKeyHash, vault).key
                 )
 
@@ -1422,7 +1422,7 @@ describe("WalletProposalValidator", () => {
                   await walletProposalValidator.REDEMPTION_MAX_SIZE()
 
                 // Pick more redemption requests than allowed.
-                const redeemersOutputScripts = new Array(maxSize + 1).fill(
+                const redeemersOutputScripts = new Array(maxSize + 1n).fill(
                   createTestRedemptionRequest(walletPubKeyHash).key
                     .redeemerOutputScript
                 )

@@ -2359,7 +2359,7 @@ describe("MaintainerProxy", () => {
           )
 
         await increaseTime(
-          (await bridge.walletParameters()).walletClosingPeriod + 1
+          (await bridge.walletParameters()).walletClosingPeriod + 1n
         )
 
         tx = await maintainerProxy

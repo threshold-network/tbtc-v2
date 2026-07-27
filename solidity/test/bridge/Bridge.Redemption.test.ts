@@ -355,7 +355,7 @@ describe("Bridge - Redemption", () => {
                                           await bank.balanceOf(redeemer.address)
                                         expect(
                                           (redeemerBalance - initialRedeemerBalance)
-                                        ).to.equal((requestedAmount * -1))
+                                        ).to.equal((requestedAmount * -1n))
                                       })
                                     }
                                   )
@@ -653,7 +653,7 @@ describe("Bridge - Redemption", () => {
                                           await bank.balanceOf(redeemer.address)
                                         expect(
                                           (redeemerBalance - initialRedeemerBalance)
-                                        ).to.equal((requestedAmount * -1))
+                                        ).to.equal((requestedAmount * -1n))
                                       })
 
                                       it("should decrease available rebate", async () => {
@@ -1420,7 +1420,7 @@ describe("Bridge - Redemption", () => {
                         )
                         expect(
                           (balanceOwnerBalance - initialBalanceOwnerBalance)
-                        ).to.equal((requestedAmount * -1))
+                        ).to.equal((requestedAmount * -1n))
                       })
                     })
                   })

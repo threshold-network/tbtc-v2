@@ -111,7 +111,7 @@ describe("Bridge - Fraud", () => {
               it("should transfer ether from the caller to the bridge", async () => {
                 await expect(tx).to.changeEtherBalance(
                   thirdParty,
-                  (fraudChallengeDepositAmount * -1)
+                  (fraudChallengeDepositAmount * -1n)
                 )
                 await expect(tx).to.changeEtherBalance(
                   etherBalanceAccount(bridge.target, ethers.provider),
@@ -639,7 +639,7 @@ describe("Bridge - Fraud", () => {
           it("should send the ether deposited by the challenger to the treasury", async () => {
             await expect(tx).to.changeEtherBalance(
               etherBalanceAccount(bridge.target, ethers.provider),
-              (fraudChallengeDepositAmount * -1)
+              (fraudChallengeDepositAmount * -1n)
             )
             await expect(tx).to.changeEtherBalance(
               treasury,
@@ -905,7 +905,7 @@ describe("Bridge - Fraud", () => {
                   it("should send the ether deposited by the challenger to the treasury", async () => {
                     await expect(tx).to.changeEtherBalance(
                       etherBalanceAccount(bridge.target, ethers.provider),
-                      (fraudChallengeDepositAmount * -1)
+                      (fraudChallengeDepositAmount * -1n)
                     )
                     await expect(tx).to.changeEtherBalance(
                       treasury,
@@ -1043,7 +1043,7 @@ describe("Bridge - Fraud", () => {
                   it("should send the ether deposited by the challenger to the treasury", async () => {
                     await expect(tx).to.changeEtherBalance(
                       etherBalanceAccount(bridge.target, ethers.provider),
-                      (fraudChallengeDepositAmount * -1)
+                      (fraudChallengeDepositAmount * -1n)
                     )
                     await expect(tx).to.changeEtherBalance(
                       treasury,
@@ -1183,7 +1183,7 @@ describe("Bridge - Fraud", () => {
                   it("should send the ether deposited by the challenger to the treasury", async () => {
                     await expect(tx).to.changeEtherBalance(
                       etherBalanceAccount(bridge.target, ethers.provider),
-                      (fraudChallengeDepositAmount * -1)
+                      (fraudChallengeDepositAmount * -1n)
                     )
                     await expect(tx).to.changeEtherBalance(
                       treasury,
@@ -1321,7 +1321,7 @@ describe("Bridge - Fraud", () => {
                   it("should send the ether deposited by the challenger to the treasury", async () => {
                     await expect(tx).to.changeEtherBalance(
                       etherBalanceAccount(bridge.target, ethers.provider),
-                      (fraudChallengeDepositAmount * -1)
+                      (fraudChallengeDepositAmount * -1n)
                     )
                     await expect(tx).to.changeEtherBalance(
                       treasury,
@@ -1727,7 +1727,7 @@ describe("Bridge - Fraud", () => {
                   it("should return the deposited ether to the challenger", async () => {
                     await expect(tx).to.changeEtherBalance(
                       etherBalanceAccount(bridge.target, ethers.provider),
-                      (fraudChallengeDepositAmount * -1)
+                      (fraudChallengeDepositAmount * -1n)
                     )
                     await expect(tx).to.changeEtherBalance(
                       thirdParty,
@@ -1839,7 +1839,7 @@ describe("Bridge - Fraud", () => {
             it("should return the deposited ether to the challenger", async () => {
               await expect(tx).to.changeEtherBalance(
                 etherBalanceAccount(bridge.target, ethers.provider),
-                (fraudChallengeDepositAmount * -1)
+                (fraudChallengeDepositAmount * -1n)
               )
               await expect(tx).to.changeEtherBalance(
                 thirdParty,
