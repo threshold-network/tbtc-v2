@@ -340,104 +340,99 @@ Nothing here blocks current work. The archived dependency is gone, and the
 fixture-loader defect that started this line of investigation was fixed
 independently with no dependency change at all.
 
-## The suite is not green, and this document said it was
+## The suite was not green, and this document said it was
 
 An earlier revision closed by calling the suite green on hardhat 2.29 and
-Node 24. Measured on `chore/hardhat-3-assessment`, on the TypeScript it pins,
-twice with identical results:
+Node 24. It was not, and CI had been saying so for as long as the stack existed:
 
-```
-2690 passing   31 pending   102 failing
-```
-
-Not the 23 previously recorded, and not the same failures — none of the 102 is
-the `deployed ReimbursementPool contract not found` error that accounted for
-all 23. CI says the same thing and has been saying it for as long as the stack
-has existed:
-
-| PR      | Node | CI                                      |
+| PR      | Node | CI before                               |
 | ------- | ---- | --------------------------------------- |
 | `#1062` | 20   | green                                   |
 | `#1063` | 20   | 2466 passing / 31 pending / 188 failing |
 | `#1064` | 24   | 2690 / 31 / **102**                     |
 | `#1065` | 24   | 2690 / 31 / **102**                     |
 
-So the regression enters at `#1063`, the smock removal itself, and `#1064`'s
-toolchain bump repaired 86 of the 188 rather than causing any. A local run
-reproduces CI's 102 exactly, failure for failure and in the same order.
+Not the 23 previously recorded, and not the same failures — none of the 102 was
+the `deployed ReimbursementPool contract not found` error that accounted for
+all 23. The regression entered at `#1063`, the smock removal itself; `#1064`'s
+toolchain bump repaired 86 of the 188 rather than causing any.
 
-They are four defects, not one, and they account for all 102 between them.
+It is fixed, in three commits on `#1063`. **2971 passing, 31 pending, 0
+failing**, three consecutive runs. The four defects, and what each was:
 
-**A `deployments.fixture()` rollback un-installs the fixture's mocks — 43.**
-`test/fixtures/bridge.ts` runs `deployments.fixture()` and only then installs
-MockContract bytecode over the real `WalletRegistry` and `LightRelay`
-addresses with `hardhat_setCode`. A bare `deployments.fixture()` later in the
-run, in `test/bridge/Deployment.test.ts`, reverts to hardhat-deploy's snapshot
-from _below_ those mocks and invalidates every snapshot id taken after it.
-waffle's `loadFixture` discards the boolean `evm_revert` returns, so from that
-file onward it hands back stale handles over unmocked state, and every
-`relay.getX.returns(...)` becomes a call to a real `LightRelay` that has
-neither the selector nor a fallback — which is the 28
-`function selector was not recognized` errors, all of them after that file and
-none before. hardhat-deploy's own `createFixture` checks that boolean and
-re-runs the fixture instead, so the fix is to build the shared fixture with it
-and call it directly at the 20 sites that use `waffle.loadFixture`.
+**A `deployments.fixture()` rollback un-installed the fixture's mocks — 43.**
+`test/fixtures/bridge.ts` ran `deployments.fixture()` and only then installed
+MockContract bytecode over the real `WalletRegistry` and `LightRelay` addresses
+with `hardhat_setCode`. A bare `deployments.fixture()` later in the run, in
+`test/bridge/Deployment.test.ts`, reverted to hardhat-deploy's snapshot from
+_below_ those mocks and invalidated every snapshot id taken after it. waffle's
+`loadFixture` discards the boolean `evm_revert` returns, so from that file
+onward it handed back stale handles over unmocked state and every
+`relay.getX.returns(...)` became a call to a real `LightRelay` with neither the
+selector nor a fallback — the 28 `function selector was not recognized` errors,
+all of them after that file and none before. hardhat-deploy's `createFixture`
+checks that boolean and re-runs the fixture, so the fixture is built with it
+now and the 20 consumers call it directly.
 
-This one is older than the migration: waffle has always discarded that result.
-It was harmless only because smock's fakes lived in process memory where no
-`evm_revert` could reach them. Putting mocks on the chain made a latent leak
-fatal — and means eight suites have been running on leaked state rather than a
-fresh fixture for years.
+This one was older than the migration. waffle has always discarded that result;
+it was harmless only while smock's fakes lived in process memory where no
+`evm_revert` could reach them. Eight suites had been running on leaked state
+rather than a fresh fixture for years.
 
 **`allowBlocksWithSameTimestamp: true` removed a second the tests relied on — 51.** Hardhat defaults the flag to `false`, which forces a block whose computed
 timestamp equals its parent's to become parent + 1. `increaseTime` is
 `evm_setNextBlockTimestamp(last + t)` then `evm_mine` — absolute, no slack — so
-`increaseTime(D)` lands exactly on `anchor + D` and the transaction under test
-now shares that timestamp instead of getting the free extra second. Every guard
-involved is strict, so "advance by exactly D" describes a state the contract
-calls not elapsed. The tests were always wrong about the precondition; the node
-default silently corrected them, and `70052c1fa` revoked the correction
-globally to fix the mock's clock drift.
+`increaseTime(D)` landed exactly on `anchor + D` and the transaction under test
+shared that timestamp instead of getting the free extra second. Every guard
+involved is strict, so "advance by exactly D" described a state the contract
+calls not elapsed.
 
-The flag cannot simply be removed: `test/helpers/mock.ts` pins the next block
-to the current timestamp, so with the flag off the suite dies in its first hook
-with `Timestamp N is equal to the previous block's timestamp`. The fix is ~40
-one-token `+ 1` edits across 8 files, each of which is correct with the flag on
-or off and none of which touches a paired negative test, so every boundary
-stays bracketed from both sides. Configuring mocks through `hardhat_setStorageAt`
-so configuration costs no block — restoring smock's zero-block semantics and
-letting the flag be deleted — is the real cure and is too large to ride along.
+The tests were always wrong about the precondition and the node default was
+silently correcting them. The fix is 57 edits that say what the setup always
+meant, each monotone-safe — drift can now only add margin — and each paired
+negative test deliberately untouched, so every boundary stays bracketed from
+both sides with a second of slack instead of sitting on top of it.
 
-**`expectCalledOnceWith` compares representation, not value — 6.** It
-normalises `BigNumber` to a string on each side independently and only at the
-top level, so a `uint256` argument decoded to `BigNumber(100)` fails against a
-`uint32` getter's plain `100`, and nested numbers inside an array are never
-normalised at all. smock compared `BigNumberish` numerically at any depth. A
-straight regression in the replacement matcher, fixed in the helper.
+The flag stays: `test/helpers/mock.ts` pins the next block to the current
+timestamp, so with the flag off the suite dies in its first hook. Configuring
+mocks through `hardhat_setStorageAt` so configuration costs no block — which
+would let the flag be deleted — is the real cure and is left as a follow-up.
 
-**The `Mock` handle has no `.connect` — 2.** smock's `FakeContract` extended
-`ethers.Contract`; the proxy here resolves only the mocked ABI plus its own
-keys, so `mockBank.connect(deployer)` is `undefined`. Additive fix in the
-helper.
+**`expectCalledOnceWith` compared representation, not value — 6.** It
+normalised `BigNumber` to a string on each side independently and only at the
+top level, so a `uint256` argument failed against a `uint32` getter's plain
+number, and numbers nested inside an array were never normalised at all. smock
+compared `BigNumberish` numerically at any depth.
 
-None of this is viem's doing — it reproduces on the parent commit, on two
-TypeScript versions, with the plugin absent — and none of the fixes belongs in
-this branch. It is recorded here because it was measured while pricing the viem
-spike, because it invalidates the premise the previous revision closed on, and
-because it wants doing before any further migration work can be verified. With
-the suite in this state, "the failing set is unchanged" is the only claim a
-migration can make.
+**The `Mock` handle had no `.connect` — 2.** smock's `FakeContract` extended
+`ethers.Contract`; the proxy resolves only the mocked ABI plus its own keys.
 
-The clock defect is not only wrong, it is racy, and CI proved it while this was
-being written. `Bridge - Redemption > notifyRedemptionTimeout > ... > when wallet state is Closed` failed on the #1065 run and passed on the #1066 run —
-same code, same commit content, different runner. Landing exactly on the
-boundary means a single wall-clock second between the two transactions decides
-the result. So the 102 is a typical count rather than a fixed one: three local
-runs and two CI runs gave 102, one CI run gave 101. Anyone re-measuring should
-expect ±1 and compare failure _sets_ rather than totals.
+Three things found on the way, worth knowing:
 
-One caveat on sequencing, for whoever takes it: fixing the fixture puts eight
-suites onto a genuinely fresh fixture for the first time in years, so the clock
-edits for `RebateStaking`, `RedemptionWatchtower`, `MaintainerProxy` and
-`TBTCVault - OptimisticMinting` should be re-measured after that lands rather
-than derived from the current run.
+- **A pinned mock was configured at the wrong address.** The base zero-return
+  layer and the non-recording flags were installed on the temporary deployment
+  address and the bytecode was moved afterwards with `hardhat_setCode`, which
+  copies code and not storage. So `relay` and `walletRegistry` ran with
+  neither. Masked by MockContract's 2048-zero-byte last resort and the
+  `try`/`catch` around the recording self-call.
+- **The clock failures were racy, and CI showed it.**
+  `Bridge - Redemption > notifyRedemptionTimeout > … > when wallet state is Closed` failed on the `#1065` run and passed on the `#1066` one — same code,
+  different runner. Landing exactly on a boundary a strict guard rejects is a
+  coin flip weighted by runner load, which is why the count was 102 on five
+  runs and 101 on a sixth.
+- **One refund ceiling had to move**, and it is the only assertion changed
+  rather than the setup around it. MaintainerProxy's "pending requested
+  redemptions and reported timed out requested redemptions" refunds 0,0073848
+  ETH deterministically against a 0,007 cap. The relay is a `MockContract` now,
+  so the difficulty reads inside the proof cost real gas where smock's fakes
+  cost none, and the refund tracks gas used — the same change that made `#1064`
+  raise `blockGasLimit`. `#1062` was green with that cap and smock in place, so
+  the migration is what raised it. It is the only one of 34 refund ceilings in
+  that file without the headroom to absorb the difference, and it went
+  unnoticed because its `before` hook was failing. The other 33 now measure
+  MockContract's dispatch cost too and are worth revisiting as a group.
+
+`#1063` itself remains red — 2624 passing, 119 failing, down from 188. What is
+left there is fixed by `#1064`'s toolchain bump and by nothing else, because
+`#1063` deliberately pins hardhat 2.19.5 and `#1064` removes the pin. From
+`#1064` onward the stack is green.
