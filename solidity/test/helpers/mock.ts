@@ -105,6 +105,13 @@ export type Mock<T> = {
   wallet: Signer
   /** Underlying deployed `MockContract`, for anything this helper does not wrap. */
   mockContract: Contract
+  /**
+   * The mocked interface bound to `signer`, as smock's `FakeContract.connect`
+   * was. smock's fake extended `ethers.Contract` and inherited this; the proxy
+   * here resolves only the mocked ABI and the keys above, so without it
+   * `mock.connect(someone)` is `undefined`.
+   */
+  connect(signer: Signer): Contract
   /** Drops all configured responses and all recorded calls. */
   reset(): Promise<void>
   /**
@@ -308,6 +315,17 @@ export async function createMock<T>(
 
   assertNoSelectorCollision(targetInterface, mockContract.interface, target)
 
+  if (options.address !== undefined) {
+    // Move the deployed bytecode to the requested address, before anything is
+    // configured. `hardhat_setCode` copies code and not storage, and every
+    // configuration below — the base returns, the non-recording flags, and
+    // later every `returns`/`whenCalledWith` — is storage. Configuring first
+    // and relocating afterwards left a pinned mock with none of it.
+    const code = await ethers.provider.getCode(mockContract.address)
+    await ethers.provider.send("hardhat_setCode", [options.address, code])
+    mockContract = mockContract.attach(options.address)
+  }
+
   // Install the response of last resort for every function, so an unstubbed
   // one answers with a correctly sized zero instead of reverting the caller.
   const baseFragments = Object.values(targetInterface.functions)
@@ -341,14 +359,6 @@ export async function createMock<T>(
     await withoutAdvancingTime(() =>
       mockContract.__mock__setNonRecordingSelectors(nonRecordingSelectors)
     )
-  }
-
-  if (options.address !== undefined) {
-    // Move the deployed bytecode to the requested address. The mock's storage
-    // starts empty there, which is what a freshly configured mock expects.
-    const code = await ethers.provider.getCode(mockContract.address)
-    await ethers.provider.send("hardhat_setCode", [options.address, code])
-    mockContract = mockContract.attach(options.address)
   }
 
   await ethers.provider.send("hardhat_impersonateAccount", [
@@ -513,6 +523,13 @@ export async function createMock<T>(
     address: mockContract.address,
     wallet,
     mockContract,
+    connect(signer: Signer): Contract {
+      return new ethers.Contract(
+        mockContract.address,
+        targetArtifact.abi,
+        signer
+      )
+    },
     async reset(): Promise<void> {
       await withoutAdvancingTime(() => mockContract.__mock__reset())
     },
@@ -593,6 +610,36 @@ export async function expectCalledTwice(fn: MockedFunction): Promise<void> {
 }
 
 /** `expect(fake.fn).to.have.been.calledOnceWith(...args)` */
+/**
+ * Puts one recorded or expected argument into a comparable form.
+ *
+ * The two sides never arrive in the same representation. ethers decodes an ABI
+ * integer to a `BigNumber` above 48 bits and to a plain `number` at or below
+ * it, so a `uint256` argument reaches this as a `BigNumber` while the
+ * `uint32` getter the test compared it against yields a `number`; and a struct
+ * or dynamic array puts both one level down, where the previous top-level-only
+ * check never looked. smock compared `BigNumberish` values numerically at any
+ * depth, so both shapes used to pass.
+ *
+ * Numerics are wrapped rather than rendered bare, so that a genuine string
+ * argument of `"100"` still fails against a numeric `100`. Everything else —
+ * addresses, bytes, booleans — is left exactly as it came, because for those
+ * the two sides already agree and loosening the comparison would only hide a
+ * real mismatch.
+ */
+function normalizeForComparison(value: unknown): unknown {
+  if (BigNumber.isBigNumber(value)) {
+    return { numeric: value.toString() }
+  }
+  if (typeof value === "number" || typeof value === "bigint") {
+    return { numeric: value.toString() }
+  }
+  if (Array.isArray(value)) {
+    return value.map(normalizeForComparison)
+  }
+  return value
+}
+
 export async function expectCalledOnceWith(
   fn: MockedFunction,
   args: unknown[]
@@ -604,14 +651,8 @@ export async function expectCalledOnceWith(
   expect(call.args.length, "argument count").to.equal(args.length)
   args.forEach((expected, index) => {
     const actual = call.args[index]
-    // Comparing loosely on purpose: ethers hands back BigNumber for numeric
-    // arguments and checksummed strings for addresses, and the call sites
-    // being migrated pass plain numbers and lower-case addresses.
-    expect(
-      BigNumber.isBigNumber(actual) ? actual.toString() : actual,
-      `argument ${index}`
-    ).to.deep.equal(
-      BigNumber.isBigNumber(expected) ? expected.toString() : expected
+    expect(normalizeForComparison(actual), `argument ${index}`).to.deep.equal(
+      normalizeForComparison(expected)
     )
   })
 }
