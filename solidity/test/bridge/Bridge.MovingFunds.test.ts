@@ -79,7 +79,7 @@ describe("Bridge - Moving funds", () => {
       bridgeGovernance,
       reimbursementPool,
       deployBridge,
-    } = await waffle.loadFixture(bridgeFixture))
+    } = await bridgeFixture())
     ;({
       movingFundsTimeoutResetDelay,
       movingFundsTimeout,

@@ -63,7 +63,7 @@ describe("RedemptionWatchtower", () => {
       bridge,
       bank,
       redemptionWatchtower,
-    } = await waffle.loadFixture(bridgeFixture))
+    } = await bridgeFixture())
 
     await bridgeGovernance
       .connect(governance)

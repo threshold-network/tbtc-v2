@@ -1,7 +1,7 @@
 /* eslint-disable no-underscore-dangle */
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { expect } from "chai"
 import { BigNumber, Contract, ContractTransaction } from "ethers"
@@ -114,7 +114,7 @@ describe("Bridge - Vault-Path Redemption Rebate", () => {
       t,
       rebateStaking,
       walletRegistry,
-    } = await waffle.loadFixture(bridgeFixture))
+    } = await bridgeFixture())
 
     // Set the redemption dust threshold to 0.001 BTC (10x smaller than
     // the initial value) to save test Bitcoins.

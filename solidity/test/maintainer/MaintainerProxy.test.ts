@@ -104,7 +104,7 @@ describe("MaintainerProxy", () => {
       reimbursementPool,
       maintainerProxy,
       deployer,
-    } = await waffle.loadFixture(bridgeFixture))
+    } = await bridgeFixture())
     ;({ movingFundsTimeoutResetDelay } = await bridge.movingFundsParameters())
 
     walletRegistry = await createMock<IWalletRegistry>("IWalletRegistry", {

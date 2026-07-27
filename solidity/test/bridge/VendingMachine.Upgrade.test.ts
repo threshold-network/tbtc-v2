@@ -1,5 +1,5 @@
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { ethers, helpers, waffle } from "hardhat"
+import { ethers, helpers } from "hardhat"
 import { expect } from "chai"
 
 import { constants, walletState } from "../fixtures"
@@ -58,7 +58,7 @@ describe("VendingMachine - Upgrade", () => {
 
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ tbtcVault, tbtc, vendingMachine, bank, bridge, relay } =
-      await waffle.loadFixture(bridgeFixture))
+      await bridgeFixture())
 
     // TBTC token ownership transfer is not performed in deployment scripts.
     // Check TransferTBTCOwnership deployment step for more information.

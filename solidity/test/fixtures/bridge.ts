@@ -25,7 +25,7 @@ import type { Mock } from "../helpers/mock"
 /**
  * Common fixture for tests suites targeting the Bridge contract.
  */
-export default async function bridgeFixture(): Promise<{
+async function bridgeFixture(): Promise<{
   deployer: SignerWithAddress
   governance: SignerWithAddress
   spvMaintainer: SignerWithAddress
@@ -173,3 +173,26 @@ export default async function bridgeFixture(): Promise<{
     deployBridge,
   }
 }
+
+/**
+ * Built with `deployments.createFixture` rather than exported bare for
+ * `waffle.loadFixture`, because the two snapshot stacks collide.
+ *
+ * This fixture runs `deployments.fixture()` and only afterwards installs mock
+ * bytecode over the real `WalletRegistry` and `LightRelay` addresses with
+ * `hardhat_setCode`. A bare `deployments.fixture()` elsewhere in the run —
+ * `test/bridge/Deployment.test.ts` does exactly that — reverts to
+ * hardhat-deploy's snapshot from *below* those mocks and invalidates every
+ * snapshot taken after it.
+ *
+ * waffle's loader discards the boolean `evm_revert` returns, so from that
+ * point on it hands back cached handles over state where the mocks no longer
+ * exist, and a `relay.getX.returns(...)` becomes a call to the real
+ * `LightRelay`, which has no such selector and no fallback.
+ * `deployments.createFixture` checks that boolean and re-runs the fixture
+ * instead, which is the property this needs.
+ *
+ * This was harmless while smock's fakes lived in the JavaScript process, where
+ * no `evm_revert` could remove them. Putting mocks on the chain made it fatal.
+ */
+export default deployments.createFixture(bridgeFixture)

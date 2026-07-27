@@ -1,5 +1,5 @@
 /* eslint-disable no-underscore-dangle */
-import { ethers, helpers, waffle } from "hardhat"
+import { ethers, helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { expect } from "chai"
 import { ContractTransaction } from "ethers"
@@ -30,7 +30,7 @@ describe("Bridge - Wallets", () => {
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
     ;({ governance, thirdParty, walletRegistry, bridge, bridgeGovernance } =
-      await waffle.loadFixture(bridgeFixture))
+      await bridgeFixture())
   })
 
   describe("requestNewWallet", () => {

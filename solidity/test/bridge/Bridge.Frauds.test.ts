@@ -1,7 +1,7 @@
 /* eslint-disable no-underscore-dangle */
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 
-import { ethers, helpers, waffle } from "hardhat"
+import { ethers, helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { SigningKey } from "ethers/lib/utils"
 import { expect } from "chai"
@@ -56,8 +56,7 @@ describe("Bridge - Fraud", () => {
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ thirdParty, treasury, walletRegistry, bridge } =
-      await waffle.loadFixture(bridgeFixture))
+    ;({ thirdParty, treasury, walletRegistry, bridge } = await bridgeFixture())
     ;({
       fraudChallengeDepositAmount,
       fraudChallengeDefeatTimeout,

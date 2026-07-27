@@ -1,5 +1,5 @@
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { expect } from "chai"
 import { ContractTransaction } from "ethers"
 
@@ -71,7 +71,7 @@ describe("TBTCVault - OptimisticMinting", () => {
       bridgeGovernance,
       tbtcVault,
       tbtc,
-    } = await waffle.loadFixture(bridgeFixture))
+    } = await bridgeFixture())
 
     // TBTC token ownership transfer is not performed in deployment scripts.
     // Check TransferTBTCOwnership deployment step for more information.
@@ -236,8 +236,6 @@ describe("TBTCVault - OptimisticMinting", () => {
           })
 
           after(async () => {
-            await relay.getPrevEpochDifficulty.reset()
-            await relay.getCurrentEpochDifficulty.reset()
             await restoreSnapshot()
           })
 
@@ -464,8 +462,6 @@ describe("TBTCVault - OptimisticMinting", () => {
         })
 
         after(async () => {
-          await relay.getPrevEpochDifficulty.reset()
-          await relay.getCurrentEpochDifficulty.reset()
           await restoreSnapshot()
         })
 
@@ -1673,8 +1669,6 @@ describe("TBTCVault - OptimisticMinting", () => {
         })
 
         after(async () => {
-          await relay.getPrevEpochDifficulty.reset()
-          await relay.getCurrentEpochDifficulty.reset()
           await restoreSnapshot()
         })
 

@@ -1,7 +1,7 @@
 /* eslint-disable no-underscore-dangle */
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
 import { expect } from "chai"
 import { BigNumber, BigNumberish, Contract, ContractTransaction } from "ethers"
@@ -96,7 +96,7 @@ describe("Bridge - Redemption", () => {
       t,
       rebateStaking,
       deployBridge,
-    } = await waffle.loadFixture(bridgeFixture))
+    } = await bridgeFixture())
     ;({
       redemptionTimeout,
       redemptionTimeoutSlashingAmount,

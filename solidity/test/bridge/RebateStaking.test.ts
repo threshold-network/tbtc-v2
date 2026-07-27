@@ -41,7 +41,7 @@ describe("RebateStaking", () => {
       bridgeGovernance,
       t,
       rebateStaking,
-    } = await waffle.loadFixture(bridgeFixture))
+    } = await bridgeFixture())
 
     await bridgeGovernance
       .connect(governance)

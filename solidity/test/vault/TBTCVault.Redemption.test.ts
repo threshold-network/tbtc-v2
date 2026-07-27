@@ -1,5 +1,5 @@
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers"
-import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
+import { ethers, getUnnamedAccounts, helpers } from "hardhat"
 import { expect } from "chai"
 import { BigNumberish, ContractTransaction } from "ethers"
 import { BytesLike } from "@ethersproject/bytes"
@@ -42,9 +42,7 @@ describe("TBTCVault - Redemption", () => {
 
   before(async () => {
     // eslint-disable-next-line @typescript-eslint/no-extra-semi
-    ;({ deployer, bridge, bank, tbtcVault, tbtc } = await waffle.loadFixture(
-      bridgeFixture
-    ))
+    ;({ deployer, bridge, bank, tbtcVault, tbtc } = await bridgeFixture())
 
     // TBTC token ownership transfer is not performed in deployment scripts.
     // Check TransferTBTCOwnership deployment step for more information.
