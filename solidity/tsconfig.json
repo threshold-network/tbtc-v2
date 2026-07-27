@@ -1,8 +1,28 @@
 {
   "compilerOptions": {
+    // TypeScript 6 flips `strict` to default-true. This package has not
+    // been through that yet -- roughly 7 700 diagnostics are waiting behind
+    // it -- so it is pinned off explicitly to keep the bump behaviour-
+    // preserving. Turning it on is its own piece of work.
+    "strict": false,
+    // TypeScript 6 also stopped pulling in every package under
+    // `node_modules/@types` automatically, which silently removed the
+    // mocha and chai globals from ~7 400 sites. These are the three that
+    // actually contribute globals here; the rest of @types is transitive.
+    "types": ["mocha", "chai", "node"],
+    // TypeScript 6 wants the source root stated once the project spans several
+    // top-level directories. `--noEmit` never needed it; ts-node's emit path
+    // does, so hardhat refuses to start without it.
+    "rootDir": ".",
+    // `downlevelIteration` is deprecated in 6 and gone in 7, but `prepack`
+    // builds the published `export/` bundle through tsconfig.export.json at
+    // `target: es5`, where it still changes emit. Dropping it is a real change
+    // to a published artifact, so it stays until the TypeScript 7 work can
+    // raise that target and prove the diff.
+    "ignoreDeprecations": "6.0",
+    "downlevelIteration": true,
     "target": "ES2018",
     "module": "commonJS",
-    "downlevelIteration": true,
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "skipLibCheck": true
