@@ -1,4 +1,3 @@
-import type { FakeNttManager } from "./fake-ntt-manager"
 import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
 import { randomBytes } from "crypto"
 import { expect } from "chai"
@@ -18,6 +17,7 @@ import type {
 import { to1ePrecision } from "../../helpers/contract-test-helpers"
 import { createMock } from "../../helpers/mock"
 import type { Mock } from "../../helpers/mock"
+import type { FakeNttManager } from "./fake-ntt-manager"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const { lastBlockTime } = helpers.time
@@ -26,20 +26,6 @@ const { lastBlockTime } = helpers.time
 const WORMHOLE_CHAIN_ETH = 2
 const WORMHOLE_CHAIN_DESTINATION = 32
 const WORMHOLE_CHAIN_BASE = 30
-
-// Mock NTT Manager interface
-interface INttManager {
-  transfer(
-    amount: BigNumber,
-    recipientChain: number,
-    recipient: string
-  ): Promise<ContractTransaction>
-
-  quoteDeliveryPrice(
-    recipientChain: number,
-    transceiverInstructions: string
-  ): Promise<{ priceQuotes: BigNumber[]; totalPrice: BigNumber }>
-}
 
 describe("L1BTCDepositorNtt Core Functions", () => {
   const contractsFixture = async () => {
@@ -87,23 +73,6 @@ describe("L1BTCDepositorNtt Core Functions", () => {
     nttManager.quoteDeliveryPrice.returns = (value: unknown): void => {}
     nttManager.quoteDeliveryPrice.reset = (): void => {}
 
-    // Add call method to simulate contract calls
-    nttManager.transfer.call = async function transferCall(
-      amount: string,
-      recipientChain: number,
-      recipient: string,
-      refundAddress?: string,
-      shouldQueue?: boolean,
-      transceiverInstructions?: string
-    ): Promise<number> {
-      return 123
-    }
-    nttManager.quoteDeliveryPrice.call = async function quoteDeliveryPriceCall(
-      recipientChain: number,
-      transceiverInstructions?: string
-    ): Promise<[unknown[], BigNumber]> {
-      return [[], BigNumber.from(50000)]
-    }
     const reimbursementPool = await createMock<ReimbursementPool>(
       "ReimbursementPool"
     )

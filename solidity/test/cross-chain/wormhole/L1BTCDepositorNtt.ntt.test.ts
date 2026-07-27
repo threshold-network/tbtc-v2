@@ -1,4 +1,3 @@
-import type { FakeNttManager } from "./fake-ntt-manager"
 import { ethers, getUnnamedAccounts, helpers, waffle } from "hardhat"
 import { randomBytes } from "crypto"
 import { expect } from "chai"
@@ -14,6 +13,7 @@ import {
 import { createMock } from "../../helpers/mock"
 
 import type { Mock } from "../../helpers/mock"
+import type { FakeNttManager } from "./fake-ntt-manager"
 
 const { createSnapshot, restoreSnapshot } = helpers.snapshot
 
@@ -21,20 +21,6 @@ const { createSnapshot, restoreSnapshot } = helpers.snapshot
 const WORMHOLE_CHAIN_ETH = 2
 const WORMHOLE_CHAIN_DESTINATION = 32
 const WORMHOLE_CHAIN_BASE = 30
-
-// Mock NTT Manager interface
-interface INttManager {
-  transfer(
-    amount: BigNumber,
-    recipientChain: number,
-    recipient: string
-  ): Promise<ContractTransaction>
-
-  quoteDeliveryPrice(
-    recipientChain: number,
-    transceiverInstructions: string
-  ): Promise<{ priceQuotes: BigNumber[]; totalPrice: BigNumber }>
-}
 
 describe("L1BTCDepositorNtt NTT Integration", () => {
   let governance: SignerWithAddress
