@@ -286,6 +286,64 @@ Beyond that, ethers v6 needs no TypeScript bump, no `strict`, and no new code
 generator, and `revertedWith`/`emit`/`withArgs` keep working, so the 931 + 571 +
 522 existing assertion sites move rather than being rewritten.
 
+### The two paths differ in shape, not only in cost
+
+This was measured after the decision below was first written, and it does not
+reverse it — but it is the thing most likely to surprise whoever does the work,
+so it belongs above the decision rather than in a footnote.
+
+**viem coexists with waffle. ethers v6 does not.**
+
+`@nomicfoundation/hardhat-chai-matchers` refuses to load beside
+`@nomiclabs/hardhat-waffle`, by design, at config-load time:
+
+```
+Error: You are using both @nomicfoundation/hardhat-chai-matchers and
+@nomiclabs/hardhat-waffle. They don't work correctly together, so please
+make sure you only use one.
+  at hardhatWaffleIncompatibilityCheck (hardhat-chai-matchers/src/index.ts:8:34)
+```
+
+It is a deliberate check, not a subtle interaction. And the dependency cannot
+be halved either: `hardhat-chai-matchers@2` peer-depends on `ethers@^6.14.0`
+through `@nomicfoundation/hardhat-ethers@3`, while waffle needs v5, and a
+package alias does not satisfy a peer range. So there is no configuration in
+which some files are on ethers v6 and the rest still run.
+
+|                       | viem                                                           | ethers v6                             |
+| --------------------- | -------------------------------------------------------------- | ------------------------------------- |
+| coexists with waffle  | yes — 26 tests green beside 2971 waffle tests                  | **no**                                |
+| migration shape       | file by file, reversible at any point                          | 92 files in one commit                |
+| call sites            | one file at a time                                             | ~5000, measured below                 |
+| matchers on Hardhat 2 | none; 295 hand-written lines                                   | `hardhat-chai-matchers@2.1.2`, stable |
+| prerequisites         | TypeScript 5, `strict`, `skipLibCheck`, `./build` in `include` | none                                  |
+
+The ethers v6 surface across the 92 files in `test/`:
+
+| construct                                          | sites |
+| -------------------------------------------------- | ----- |
+| `.address`                                         | 2478  |
+| `ContractTransaction`                              | 504   |
+| `ethers.utils.*`                                   | 440   |
+| `ethers.constants.*`                               | 413   |
+| `BigNumber`                                        | 411   |
+| BigNumber arithmetic (`.add`/`.sub`/`.mul`/`.div`) | 401   |
+| `SignerWithAddress`                                | 267   |
+| `.deployed()`                                      | 51    |
+
+The destination is verified working — ethers v6.17 with
+`hardhat-chai-matchers@2.1.2` on hardhat 2.29, with `revertedWith`, `emit` and
+`withArgs` all biting on their negative controls. What is not available is a
+half-way state.
+
+**Why this does not change the decision.** Almost all of that surface is
+mechanical and, unlike the viem path, a type checker can find it: swap the
+dependency and `tsc` flags nearly every broken call site. The viem path trades a
+big mechanical change for a long series of semantic ones, plus matchers we own
+until Hardhat 3. But the plan has to say big-bang out loud, because "migrate a
+few files and evaluate" — which is what made the viem spike possible — is not
+on offer here.
+
 ### Decision
 
 **Migrate `solidity/` to ethers v6 with `@nomicfoundation/hardhat-chai-matchers`,
